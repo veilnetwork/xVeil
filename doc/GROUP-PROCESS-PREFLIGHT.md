@@ -182,12 +182,20 @@ invalid. Requested budget, actual encoded duration and sender counters are
 separate diagnostics. No fabricated BWE or relay media/priority hint is added.
 
 Production `GroupCallAudioAdapter` starts at 40 ms/32 kbit/s and uses fresh
-loss, local drop/recovery deltas, or fresh growing/full peer buffers. Its ladder
-is 20/32, 40/32, 40/24, 40/16 (milliseconds/kbit/s). Recovery needs eight fresh,
-complete room-wide healthy observations after a quiet period. Cached reports,
-muted capture, counter resets and failed retunes cannot manufacture recovery
-or repeated cuts. The controller runs it even without video. Old engines keep
-their existing codec through the optional API/ABI fallback.
+loss, local drop/recovery deltas, authenticated peer decoded-recovery events,
+or fresh growing/full peer buffers. Its first four budgets remain 20/32, 40/32,
+40/24, 40/16 (milliseconds/kbit/s). An engine explicitly advertising
+`audio_max_packet_ms:60` can use a final 60/16 budget, only after an applied
+40/16 budget has actually emitted packets and fresh pressure remains. Unknown
+or stalled native snapshots, a missing packet counter and an unapplied floor
+cannot enable that step. The original startup budget is unchanged; this is
+not the earlier fixed-60-ms experiment. An explicit legacy maximum cancels a
+pending unsupported retune. Recovery needs eight fresh, complete room-wide
+healthy observations after a quiet period, without fresh peer decoded loss.
+Cached reports, muted capture, counter resets and failed retunes cannot
+manufacture recovery or repeated cuts. The controller runs it even without
+video. Old engines keep their existing codec through the optional API/ABI
+fallback and do not enter the 60-ms policy step.
 
 `group-budget-live-60` passes the native API regression: six paths, all 330
 transitions, peak 80.227 ms. Five live changes per sender exercise 20/40-ms

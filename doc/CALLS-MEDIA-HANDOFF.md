@@ -1,5 +1,63 @@
 # Calls media handoff
 
+## 2026-10-17: adapt group Opus framing after measured floor pressure
+
+`GroupCallAudioAdapter` now consumes fresh authenticated peer decoded-recovery
+events as pressure, including consuming them while muted so unmute cannot
+replay a cut. An active peer-loss witness also prevents false healthy recovery.
+The original startup remains 40 ms/32 kbit/s, followed by the existing
+40/24 and 40/16 pressure budgets. Only a fresh valid engine advertising the
+new endpoint-local `audio_max_packet_ms:60` statistic can enter a final 60/16
+budget. It must already have applied 40/16, actually emitted more packets at
+40 ms, and observe new pressure after the existing cooldown. Local decoded
+catch-up cannot skip that measured floor. Unsupported/unknown/stalled engines
+do not enable it; an explicit legacy maximum cancels an unsupported pending
+retune. The existing native API already supports 60 ms. No initial profile,
+codec payload floor, cooldown, relay behavior, transport format or export is
+changed. A longer packet reduces framing frequency at the cost of longer
+packetization; it is an endpoint fallback, not proof of better speech quality.
+
+Focused Flutter policy tests pass **137 cases**, and the two changed Dart files
+analyze cleanly. Coverage includes actual floor duration/packet advancement,
+unknown/stale capabilities, failed retunes, legacy downgrade, fresh peer loss,
+muted consumption, cached witnesses and healthy recovery. Native and production
+builds retain exactly 131/100 exports; SHA-256 values are respectively
+`61589862fcde3757b929b76878dff10ba76b318f805ef4a2fb49210dbfba24d4` and
+`029ce416fdbde8e1a7ffab55ae3e9ba9de3b8d23654c043603b2da96c6177dc5`.
+The FFI remains the frozen direct-app artifact c2c02c23... from d7591687.
+Complete native source/patch and production-policy hashes match the capture.
+
+`group-opus60-adapt-60` is measurement-valid but not a full qualification:
+330 ordinal matches / zero missing, audio-only 170.048 ms, loaded 250.208 ms,
+moving tails 14/6/13/6/13/14, and only partial files. The earlier fixed-60-ms
+experiment with 55 missing transitions remains a negative; this adaptive run
+does not erase it or authorize changing the fixture's startup.
+
+`group-opus60-adapt-360` is measurement-valid and still **NEGATIVE**:
+2112 ordinal matches / zero missing, audio-only **120.239 ms**, loaded
+**270.048 ms** (source 1 -> receiver 2, capture 311.080 s / decoded 311.350 s).
+All three full encrypted 512-KiB files match hashes by
+305.176/326.600/326.982 s, within the original immutable 360-s deadline.
+Video tails **1/13/0/13/0/1** fail the six-moving-tail gate. Sender 0 ends
+paused; final decoded discard totals are 1750/1500/2030 ms. A single pair of
+runs does not establish a causal improvement over the earlier 480-ms peak.
+All three senders begin at 40/32; actual packets reach 60 ms at
+22.000/6.013/22.010 s, and each retains one RTP origin throughout. The earlier
+fixed-60 transition loss does not reproduce, but audio latency and sustained
+video remain unqualified. No >=25-ms slow-stage, aged-ingress or slow-dispatch
+record fires; 956 pressure/head records confirm diagnostics are active.
+
+Private `group-opus60-adapt-360-{proof,feedback-details,scheduler-details,
+duration-details}.json` retains the result. Original harness/stimulus, blind
+1024-kbit shared FIFO, topology/routes, exact clock/row counts, real QoS and
+deadlines, ordinal matching from capture start and independent cleanup gates
+all pass. All workers, policy processes, parent and scoped awake helper are
+gone; four node stops return zero, file threads exit and no sockets remain.
+No physical app, call, camera/mic/speaker, installation, relay update, push or
+release occurred. Goal ACTIVE. Remaining work includes shared-wire backlog
+and competing local production, stalled video recovery, idle mid-call media
+preparation, and current device/continuous-speech validation.
+
 ## 2026-10-17: negotiate direct App records on the reliable child
 
 SDK `d7591687` closes a gap: the reliable plane previously carried AppOpen/Data/Close/Receipt/

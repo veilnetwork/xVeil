@@ -206,6 +206,113 @@ void main() {
     }
     expect(policy.target, (packetMs: 40, payloadBps: 16000));
   });
+  test(
+    'new engines may reduce framing only after real loss at a measured 40-ms floor',
+    () {
+      final policy = start();
+      Map<String, dynamic> capable(
+        int seq, {
+        int loss = 0,
+        int? packets,
+        int duration = 40,
+      }) => {
+        ...sample(seq, loss: loss),
+        'audio_max_packet_ms': 60,
+        'audio_tx_packet_duration_ms': duration,
+        'audio_tx_payload_pkts': packets,
+      };
+      observe(policy, capable(1, packets: 10), 1);
+      observe(policy, capable(2, loss: 100, packets: 20), 2);
+      policy.applyPending((_) => true, at(2));
+      observe(policy, capable(3, loss: 200, packets: 30), 5);
+      policy.applyPending((_) => true, at(5));
+      expect(policy.target, (packetMs: 40, payloadBps: 16000));
+      observe(policy, capable(4, loss: 300, packets: 31), 8);
+      expect(policy.target, (packetMs: 60, payloadBps: 16000));
+      policy.applyPending((_) => true, at(8));
+      // Replay/expiry cannot produce a second event or immediate recovery.
+      for (var n = 9; n < 20; n++) {
+        observe(
+          policy,
+          capable(n, loss: 300, packets: 32 + n, duration: 60),
+          n,
+        );
+      }
+      expect(policy.target, (packetMs: 60, payloadBps: 16000));
+      // Fresh room-wide headroom returns toward the short-packet mode.
+      for (var n = 30; n < 38; n++) {
+        observe(policy, capable(n, packets: 32 + n, duration: 60), n);
+      }
+      expect(policy.target, (packetMs: 40, payloadBps: 16000));
+    },
+  );
+
+  test(
+    'capability, unknown feedback and an unmeasured floor cannot select 60 ms',
+    () {
+      for (final kind in ['unknown', 'stale', 'no_packets', 'wrong_duration']) {
+        final policy = start();
+        for (var n = 1; n < 12; n++) {
+          final stats = {
+            ...sample(n, loss: n * 100),
+            'audio_max_packet_ms': 60,
+            if (kind != 'no_packets') 'audio_tx_payload_pkts': n * 20,
+            'audio_tx_packet_duration_ms': kind == 'wrong_duration' ? 20 : 40,
+            if (kind == 'stale') 'worker_stalled': 1,
+          };
+          if (kind == 'unknown') stats.remove('audio_max_packet_ms');
+          observe(policy, stats, n * 4);
+          policy.applyPending((_) => true, at(n * 4));
+        }
+        expect(policy.target, (packetMs: 40, payloadBps: 16000), reason: kind);
+      }
+    },
+  );
+
+  test(
+    'fresh peer decoded loss is consumed while muted and never replayed',
+    () {
+      final policy = start();
+      observe(
+        policy,
+        {...sample(1), 'audio_peer_recovery_report_us': 100},
+        1,
+        sending: false,
+      );
+      observe(policy, {...sample(2), 'audio_peer_recovery_report_us': 100}, 2);
+      expect(policy.target, (packetMs: 40, payloadBps: 32000));
+      observe(policy, {...sample(3), 'audio_peer_recovery_report_us': 200}, 3);
+      expect(policy.target, (packetMs: 40, payloadBps: 24000));
+    },
+  );
+
+  test(
+    'a rejected 60-ms retune stays pending and an explicit legacy cap cancels it',
+    () {
+      final policy = start();
+      for (var n = 1; n <= 4; n++) {
+        observe(policy, {
+          ...sample(n, loss: n * 100),
+          'audio_max_packet_ms': 60,
+          'audio_tx_packet_duration_ms': 40,
+          'audio_tx_payload_pkts': n * 25,
+        }, n * 4);
+        if (n < 3) policy.applyPending((_) => true, at(n * 4));
+      }
+      expect(policy.target, (packetMs: 60, payloadBps: 16000));
+      expect(policy.applyPending((_) => false, at(16)), isFalse);
+      expect(policy.pending, isTrue);
+      observe(policy, {
+        ...sample(5, loss: 500),
+        'audio_max_packet_ms': 40,
+        'audio_tx_packet_duration_ms': 40,
+        'audio_tx_payload_pkts': 125,
+      }, 20);
+      expect(policy.target, (packetMs: 40, payloadBps: 16000));
+      expect(policy.pending, isFalse);
+    },
+  );
+
   test('a backward clock change cannot complete a healthy streak', () {
     final policy = start();
     for (var i = 1; i < 8; i++) {
