@@ -25,6 +25,21 @@ class GroupTimingTests(unittest.TestCase):
         result = analyze_voice_path(fixture(2.05), 30)
         self.assertTrue(all(phase['max_ms'] > 2000 for phase in result['phases']))
 
+    def test_separate_process_uses_remote_actual_captures_not_receiver_predictions(self):
+        decoded = fixture(.05)
+        captures = fixture(0)
+        for row in captures:
+            row['source_at'] += .037
+            row['t'] += .037
+        # A receiver cannot know when a different process submitted capture.
+        for row in decoded:
+            row['source_at'] = 0
+            row['source_freq'] = 0
+        result = analyze_voice_path(decoded, 30, captures)
+        for phase in result['phases']:
+            self.assertEqual(phase['missing'], 0)
+            self.assertAlmostEqual(phase['max_ms'], 13)
+
 
 if __name__ == '__main__':
     unittest.main()
