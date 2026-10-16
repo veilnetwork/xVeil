@@ -264,17 +264,18 @@ void main() {
       for (var i = 0; i < 6; i++) {
         sample(i, 60);
       }
-      sample(6, 100);
+      sample(6, 70);
       sample(7, 100);
+      sample(8, 130);
       expect(a.audioBufferPressure, isTrue);
       for (var i = 0; i < 20; i++) {
-        sample(7, 100);
+        sample(8, 130);
       }
       expect(a.audioBufferPressure, isTrue, reason: 'pressure is retained');
       expect(a.level, level, reason: 'one report is not several bad samples');
       expect(a.audioReserve, isFalse);
       expect(a.videoAdvice, CallVideoAdvice.keep);
-      sample(8, 120);
+      sample(9, 150);
       if (level == 0) {
         expect(
           a.level,
