@@ -1,5 +1,87 @@
 # Calls media handoff
 
+## 2026-10-16: local source preparation; fix capacity-driven QUIC churn
+
+SDK `9add1b65` adds production direct/ordinary-relay preparation. Media opens
+now request the existing local
+source readiness through authenticated IPC before starting capture. Capability
+8 / HELLO_OK 0x0400 gates additive local messages 95/96. Exact 66-byte requests
+validate an owned app, five allowed LOCAL selectors and flags; request ids
+correlate reordered replies. Reply 3 means the existing query bucket requests
+a retry. Old daemons receive no new RPC. The provider prepares only verified
+direct destinations or at most two existing ordinary-relay candidates, without
+discovery, mailbox, dummy RTP, remote traffic labels or relay scheduling changes.
+The shared readiness type retains its existing veil-session public path.
+
+A new preparation invalidates stale Ready once; polling does not restart it.
+Prepared-but-unused closed QUIC children are detected without requiring a failed
+send first. FFI preparation has one 3-second best-effort budget (DATA/control
+continue in the background), respects query backoff, and retains legacy opens
+when readiness is unsupported. Both existing Flutter open functions already use
+Isolate.run; this does not add a UI-thread wait. Anonymous/onion preparation and
+its encrypted circuit echo remain unchanged. Local Ready is NOT end-to-end
+readiness, and idle video/screen activation still needs lifecycle integration.
+
+The first real combined run `group-prepared-1024-60` exposes a capacity churn
+bug: 1310 child connection starts (909 repetitions of one physical slot during
+seconds 0-20), versus 31 in frozen baseline control
+`group-prepared-control-60`. First-20-second offered direction-0 traffic is
+2007 versus 739 kbit/s; 3403 versus 110 datagrams have length 1200. Physical
+indices are not media labels. The candidate has 257 matched / 73 missing strict
+PCM transitions; native receive age reaches 4697 ms. Its ordinal peaks up to
+6610 ms are NOT a measured jitter-buffer size. Control has all 330 matches,
+no misses, audio-only peak 150.143 ms and loaded peak 400.030 ms. Both are
+NEGATIVE and retained, with complete cleanup/clock/topology proofs. First
+fixture invocation rejected an overlong Unix address before starting nodes;
+the shorter owned directory fixes the path without altering any test gate.
+
+At the two-slot reserve, prepare_index previously retired optional signaling
+BEFORE checking whether the selected child was already ready or warming. Its
+pending preparation immediately reopened that child, without cancellation
+backoff. Now existing children reuse their allocation; actual new allocation
+can still reclaim signaling, and the critical one-slot reserve still reclaims
+it. Capacity cancellation observes the existing 500-ms retry delay. No generic
+connection limit, reliable reserve, replacement reserve or relay rule changes.
+A real TLS/QUIC regression consumes capacity down to two slots and repeatedly
+uses ready primary/signaling children: semantic RED at the ready-child assertion,
+then GREEN. The first regression fixture attempt timed out because raw reserved
+streams had no preface bytes; explicit incomplete prefaces let the peer accept
+them. Retain that fixture failure separately; it is not semantic RED evidence.
+The closed-unused-child and retained-parent/lifetime checks also pass.
+
+Initial focused suite passes 68 tests; the additional actual legacy-daemon test
+passes with the two actual IPC tests. Final session/QUIC suite passes 55 tests
+and one bootstrap test; eight pre-existing manual tests remain ignored. This
+includes full-duplex source/neutral capacity and real recovery under load.
+Release FFI builds; all 190 C exports remain identical. Exact artifacts/patches
+are frozen in `group-channel-preparation-sdk` (failed candidate FFI `9547e398`)
+and `group-prepared-reserve-sdk` (corrected FFI `22aa392d`); committed media
+`a9961d4a` / `group-neteq-loss-native` is unchanged.
+
+Corrected `group-prepared-reserve-60` removes the churn: 15 starts before
+capture, 12 during audio-only, six during loaded operation; offered audio-only
+traffic is 691/710 kbit/s. All 330 expected PCM transitions match with no misses;
+audio-only peak 140.146 ms, loaded peak 470.036 ms at 20.200 s. Native receive
+ages peak at 58/117/62 ms. All video tails change 14/14/13/14/13/14 times, but
+files are only 59392 bytes each at the unchanged short deadline. This is still
+NEGATIVE, NOT full file/hash or 360-second qualification. Do not infer a
+repeatable latency improvement/regression from individual captures. The six
+loaded connection starts at 20.123-20.173 s target the relay's endpoint neighbors;
+local source preparation leaves cold forwarding connections. Inspect actual
+opaque end-to-end preparation before capture / mid-call enable next. Do not
+replace this with fixture-only warmup or excluded startup samples. The earlier
+11.8-second runtime outage also remains unresolved.
+
+All three runs retain the same six PCM directions, native clocks, 1024-kbit blind
+FIFO, production adaptation, VP8 and three encrypted 512-KiB files. Each has
+18003 rows / 6001 ticks per worker, zero timer/deadline/row failures, verified
+routes and exact 3/1/1/1 topology. Workers, policies and parent exit; four node
+stops return zero, sockets are gone and independent PID checks pass. Corrected
+run max callback <0.296 ms, max interval <10.064 ms. Private
+`group-preparation-churn-comparison.json` and the per-run `*-proof.json` files
+retain negative outcomes and cleanup. No physical apps/audio or relay services
+changed. Audio goal ACTIVE; no push/release.
+
 ## 2026-10-16: fresh-path pacing experiment fails; source reverted
 
 Fresh inspection of `group-target-runtime-profile-1024-360` confirms six new
