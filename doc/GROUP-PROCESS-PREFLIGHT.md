@@ -1,5 +1,31 @@
 # Three-party group audio preflight
 
+## 2026-10-16: earlier DATA pressure and faster decoded catch-up; full test NEGATIVE
+
+The candidate now restrains own ordered DATA on sustained relative RTT growth
+from fresh authenticated primary ACK observations. Its expiring lease is
+separate from video/signaling/recovery/transit. New decoded audio catch-up takes
+two Opus-budget rungs while isolated loss takes one. Rust tests: 83 pass, one
+pre-existing ignored experiment; Dart: 17 pass; timing: 3 pass; analyzer clear.
+Details and binary provenance are in CALLS-MEDIA-HANDOFF.md.
+
+`group-files-data-delay-1024-60` remains NEGATIVE overall: all 330 transitions
+match, loaded peak 140.213 ms, but audio-only startup reaches 260.079 ms. The
+full `group-data-delay-combined-1024-360` has all 2112 transitions and three
+complete verified files at 338.016/343.339/280.075 s. It still FAILS: loaded
+peak 480.049 ms, every video tail has zero changes, and decoded catch-up remains
+frequent. Audio-only reaches 160.087 ms. Native discarded-audio counters report
+about 30 seconds across each participant's two receivers; tone matching does
+not prove continuous speech quality. Keep both negative captures.
+
+Clocks/coverage/routes/topology and independent process/socket cleanup verify.
+Next inspect initial physical/video bursts and NetEq's repeated 120-ms catch-up
+with 40-ms packets and video resume/hold. Existing resume requests a keyframe;
+do not assume it is missing. Retain six paths, every phase, immutable deadlines,
+file hashes, moving-video and speech requirements. Relays stay neutral. Audio
+goal ACTIVE; private `group-data-delay-{file,combined}-proof.json` keeps evidence.
+
+
 ## 2026-10-16: split route/key reply race fixed; file-only run still NEGATIVE
 
 SDK `c18d12d7` waits for both route and key before releasing concurrent local

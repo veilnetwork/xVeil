@@ -54,6 +54,12 @@ void main() {
       );
     },
   );
+  test('decoded catch-up cuts payload promptly before another cooldown', () {
+    final policy = start();
+    observe(policy, sample(1), 1);
+    observe(policy, sample(2, recoveries: 1), 2);
+    expect(policy.target, (packetMs: 40, payloadBps: 16000));
+  });
   test('fresh room-wide headroom restores short packets', () {
     final policy = start();
     for (var i = 1; i <= 8; i++) {
@@ -127,11 +133,19 @@ void main() {
       observe(policy, sample(2, recoveries: 10), 2);
       expect(policy.target, (packetMs: 40, payloadBps: 32000));
       observe(policy, sample(3, recoveries: 11), 3);
-      expect(policy.target, (packetMs: 40, payloadBps: 24000));
+      expect(policy.target, (packetMs: 40, payloadBps: 16000));
       policy.applyPending((_) => true, at(3));
-      observe(policy, sample(4, recoveries: 0), 8);
+      // Restore one rung with fresh complete room evidence, so a mistaken
+      // counter-reset cut would remain observable above the floor.
+      for (var i = 4; i <= 30; i++) {
+        observe(policy, sample(i, recoveries: 11), i);
+        policy.applyPending((_) => true, at(i));
+      }
       expect(policy.target, (packetMs: 40, payloadBps: 24000));
-      observe(policy, sample(5, recoveries: 1), 9);
+      observe(policy, sample(31, recoveries: 0), 31);
+      observe(policy, sample(32, recoveries: 0), 32);
+      expect(policy.target, (packetMs: 40, payloadBps: 24000));
+      observe(policy, sample(33, recoveries: 1), 33);
       expect(policy.target, (packetMs: 40, payloadBps: 16000));
     },
   );
