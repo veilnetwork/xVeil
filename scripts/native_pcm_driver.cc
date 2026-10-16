@@ -57,10 +57,26 @@ namespace {
 using Capture = int (*)(void*, int);
 using Playout = int (*)(void*, int16_t*, size_t);
 constexpr size_t kCapacity = 4096;  // 20 s of duplex observations, bounded.
+constexpr std::array<int, 3> kGroupLow{600, 1300, 2100};
+constexpr std::array<int, 3> kGroupHigh{900, 1700, 2500};
+double BandPower(const int16_t* pcm, int count, int frequency) {
+  constexpr double pi = 3.14159265358979323846;
+  const double coefficient = 2 * std::cos(2 * pi * frequency / 48000);
+  double previous = 0, older = 0;
+  for (int i = 0; i < count; ++i) {
+    const double next = pcm[i] + coefficient * previous - older;
+    older = previous;
+    previous = next;
+  }
+  return std::max(0.0, previous * previous + older * older -
+      coefficient * previous * older) / (count * count);
+}
 struct Driver {
   Capture capture;
   Playout playout;
   std::array<void*, 2> engines;
+  std::array<void*, 3> group_engines{};
+  bool group_mode = false;
   double origin;
   int period_ms;
   bool audio_priority = true;
@@ -167,6 +183,8 @@ struct Driver {
 #endif
     auto deadline = std::chrono::steady_clock::now();
     std::array<double, 2> previous{stand_pcm_now(), stand_pcm_now()};
+    std::array<double, 3> group_previous{
+        stand_pcm_now(), stand_pcm_now(), stand_pcm_now()};
     uint64_t tick = 0;
     for (;;) {
       double wake_lateness_ms = 0;
@@ -176,9 +194,50 @@ struct Driver {
             std::chrono::duration<double, std::milli>(
                 std::chrono::steady_clock::now() - deadline).count());
       }
-      std::array<PcmRow, 2> pair{};
+      std::array<PcmRow, 6> pair{};
+      size_t observed = 2;
       std::array<uint64_t, 2> failures{};
-      for (size_t side = 0; side < engines.size(); ++side) {
+      double group_work_ms = 0;
+      if (group_mode) {
+        const double began = stand_pcm_now();
+        std::array<double, 3> captured_at{};
+        std::array<int, 3> frequencies{};
+        for (size_t source = 0; source < group_engines.size(); ++source) {
+          captured_at[source] = stand_pcm_now() - origin;
+          frequencies[source] = int(captured_at[source] * 1000) / period_ms % 2
+              ? kGroupHigh[source] : kGroupLow[source];
+          if (capture(group_engines[source], frequencies[source]) != 0)
+            ++failures[0];  // Aggregate capture failures in group mode.
+        }
+        observed = 0;
+        for (size_t receiver = 0; receiver < group_engines.size(); ++receiver) {
+          const double now = stand_pcm_now();
+          const double interval = (now - group_previous[receiver]) * 1000;
+          group_previous[receiver] = now;
+          std::array<int16_t, 480> pcm{};
+          const int count = playout(group_engines[receiver], pcm.data(), pcm.size());
+          const double played_at = stand_pcm_now() - origin;
+          const bool valid = count > 0 && count <= int(pcm.size());
+          if (!valid) ++failures[1];  // Aggregate playout failures in group mode.
+          for (size_t source = 0; source < group_engines.size(); ++source) {
+            if (source == receiver) continue;
+            auto& row = pair[observed++];
+            row.t = played_at;
+            row.source_at = captured_at[source];
+            row.interval_ms = interval;
+            row.source_tick = tick;
+            row.side = receiver * 3 + source;
+            row.source_freq = frequencies[source];
+            if (!valid) continue;
+            const auto low = BandPower(pcm.data(), count, kGroupLow[source]);
+            const auto high = BandPower(pcm.data(), count, kGroupHigh[source]);
+            row.rms = std::sqrt(2 * std::max(low, high));
+            if (row.rms >= 100)
+              row.freq = high > low ? kGroupHigh[source] : kGroupLow[source];
+          }
+        }
+        group_work_ms = (stand_pcm_now() - began) * 1000;
+      } else for (size_t side = 0; side < engines.size(); ++side) {
         auto& row = pair[side];
         const double now = stand_pcm_now();
         row.source_at = now - origin;
@@ -209,12 +268,14 @@ struct Driver {
         std::lock_guard lock(mu);
         stats.max_wake_lateness_ms = std::max(stats.max_wake_lateness_ms,
                                              wake_lateness_ms);
-        for (size_t side = 0; side < pair.size(); ++side) {
+        stats.max_callback_ms = std::max(stats.max_callback_ms, group_work_ms);
+        for (size_t side = 0; side < failures.size(); ++side)
+          stats.failures[side] += failures[side];
+        for (size_t side = 0; side < observed; ++side) {
           stats.max_callback_ms = std::max(stats.max_callback_ms,
               (pair[side].t - pair[side].source_at) * 1000);
           stats.max_interval_ms = std::max(stats.max_interval_ms, pair[side].interval_ms);
           if (pair[side].interval_ms >= 20) ++stats.late_intervals;
-          stats.failures[side] += failures[side];
           if (rows.size() == kCapacity) {
             ++stats.dropped_rows;  // Never silently overwrite measurement data.
           } else {
@@ -258,6 +319,30 @@ extern "C" void* stand_pcm_start(Capture capture, Playout playout, void* a,
   driver->capture = capture;
   driver->playout = playout;
   driver->engines = {a, b};
+  driver->origin = origin;
+  driver->period_ms = period_ms;
+  driver->audio_priority = audio_priority != 0;
+  driver->deadline_priority = audio_priority == 2;
+  driver->thread = std::thread([driver] { driver->Run(); });
+  return driver;
+}
+// Same row/stats ABI and clock, with six receiver/source observations per
+// tick. side=receiver*3+source excludes 0/4/8 (no self audio). Each remote tone
+// is detected independently in actual mixed PCM using its disjoint bands.
+extern "C" void* stand_group_pcm_start(Capture capture, Playout playout,
+    void* a, void* b, void* c, double origin, int period_ms, int audio_priority) {
+  if (!capture || !playout || !a || !b || !c || a == b || a == c || b == c ||
+      !std::isfinite(origin) || origin > stand_pcm_now() ||
+      period_ms < 500 || period_ms > 5000 || audio_priority < 0 ||
+      audio_priority > 2) return nullptr;
+#ifndef __APPLE__
+  if (audio_priority == 2) return nullptr;
+#endif
+  auto* driver = new Driver;
+  driver->capture = capture;
+  driver->playout = playout;
+  driver->group_mode = true;
+  driver->group_engines = {a, b, c};
   driver->origin = origin;
   driver->period_ms = period_ms;
   driver->audio_priority = audio_priority != 0;
