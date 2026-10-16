@@ -363,7 +363,9 @@ void main() {
       hasLength(3),
       reason: 'a relay ignores a second blob stored under the same content id',
     );
-    expect(mA.mailboxTrackedFrames, 0, reason: 'retired retry ids do not pile up');
+    expect(mA.mailboxTrackedFrames, 1, reason: 'only the pending durable request remains');
+    await mA.cancelRequest(b);
+    expect(mA.mailboxTrackedFrames, 0);
   });
 
   /// CONTROL: the same call over a working relay reports the deposit.
@@ -376,6 +378,18 @@ void main() {
 
     expect(deposited, isTrue, reason: 'the recording relay stored it');
     expect(sink.stashed, isNotEmpty);
+  });
+
+  test('a successful manual request retry settles its durable deposit', () async {
+    await mA.sendRequest(b, 'hello');
+    await mA.resendRequest(b);
+    final deposits = sink.stashed.length;
+    expect(deposits, 2);
+    await mA.flushOutbox();
+    await pumpEventQueue(times: 20);
+    expect(sink.stashed, hasLength(deposits));
+    await mA.cancelRequest(b);
+    expect(await sA.pendingOutboxFrames(), isEmpty);
   });
 
   test('a retired frame leaves no bookkeeping behind', () async {
@@ -396,11 +410,10 @@ void main() {
       reason: 'the failure is remembered, which is the point of the row',
     );
 
-    // The peer comes back and ACKs it: the frame is retired. The durable id is
-    // a UUID minted inside `sendRequest`, so it is READ from the stored copy
-    // rather than guessed — the greeting is stored under the same id.
-    final greeting = (await sA.loadMessages(b.hex)).single;
-    mA.debugRetireOutboxFrame(b.hex, greeting.id);
+    // Use the durable frame id: the greeting id deduplicates visible text,
+    // while its request frame is what the peer acknowledges.
+    final frame = (await sA.pendingOutboxFrames()).single;
+    mA.debugRetireOutboxFrame(b.hex, frame.frameId);
     expect(
       mA.mailboxTrackedFrames,
       before,

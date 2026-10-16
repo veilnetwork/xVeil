@@ -41,6 +41,7 @@ class _MessagingOutbox {
   /// between, so it can lag by at most one flush interval — which is nothing
   /// next to the hundreds of frames the cap it feeds is measured in.
   final Map<String, int> _pendingByPeer = {};
+  final Set<String> _pendingKeys = {};
 
   /// Whether [_pendingByPeer] has ever been filled from the store.
   ///
@@ -58,7 +59,9 @@ class _MessagingOutbox {
     try {
       final pending = await _owner._storage.pendingOutboxFrames();
       _pendingByPeer.clear();
+      _pendingKeys.clear();
       for (final frame in pending) {
+        _pendingKeys.add(_key(frame.peerHex, frame.frameId));
         _pendingByPeer[frame.peerHex] =
             (_pendingByPeer[frame.peerHex] ?? 0) + 1;
       }
@@ -269,6 +272,35 @@ class _MessagingOutbox {
     }
   }
 
+  /// Persist before a first contact attempt; no network work starts here.
+  Future<void> enqueue(NodeId peer, String frameId, Uint8List wire) async {
+    await _owner._storage.enqueueOutboxFrame(frameId, peer.hex, wire);
+    // Manual retries replace the same durable row, rather than adding one.
+    if (_pendingKeys.add(_key(peer.hex, frameId))) {
+      _pendingByPeer[peer.hex] = (_pendingByPeer[peer.hex] ?? 0) + 1;
+    }
+    recordQueued(
+      frameId,
+      peer.hex,
+      callSignal: _MessagingMailboxDelivery.isCallSignalId(frameId),
+    );
+  }
+
+  Future<void> retireRequests(NodeId peer) async {
+    for (final frame in await _owner._storage.pendingOutboxFrames()) {
+      if (frame.peerHex != peer.hex || !frame.frameId.startsWith('request:')) {
+        continue;
+      }
+      // Prefix is an optimization, not authority over an unrelated frame.
+      try {
+        if (WireEnvelope.decode(frame.wire).kind != WireKind.request) continue;
+      } catch (_) {
+        continue;
+      }
+      await _retirePersisted(peer.hex, frame.frameId);
+    }
+  }
+
   Future<void> send(
     NodeId peer,
     String frameId,
@@ -322,13 +354,7 @@ class _MessagingOutbox {
         Future<void>.delayed(const Duration(milliseconds: 100)),
       ]);
     }
-    await _owner._storage.enqueueOutboxFrame(frameId, peer.hex, wire);
-    _pendingByPeer[peer.hex] = (_pendingByPeer[peer.hex] ?? 0) + 1;
-    recordQueued(
-      frameId,
-      peer.hex,
-      callSignal: _MessagingMailboxDelivery.isCallSignalId(frameId),
-    );
+    await enqueue(peer, frameId, wire);
     if (earlyLive != null) {
       _sendingUnpersisted.remove(unpersistedKey);
       if (_ackedWhileUnpersisted.remove(unpersistedKey)) {
@@ -340,7 +366,7 @@ class _MessagingOutbox {
         return;
       }
     }
-    // Contact acceptance is the only durable frame stored in mailbox. Start
+    // Contact requests and acceptance use mailbox. Start
     // its deposit before waiting for a live send to an unavailable requester.
     if (mailboxEligible) _owner._stashInBackground(peer, frameId, wire);
     if (skipLive) {
@@ -460,7 +486,9 @@ class _MessagingOutbox {
     // The authoritative count, once per cycle. Everything between cycles only
     // adjusts it.
     _pendingByPeer.clear();
+    _pendingKeys.clear();
     for (final frame in pending) {
+      _pendingKeys.add(_key(frame.peerHex, frame.frameId));
       _pendingByPeer[frame.peerHex] = (_pendingByPeer[frame.peerHex] ?? 0) + 1;
     }
     _pendingSeeded = true;
@@ -598,7 +626,7 @@ class _MessagingOutbox {
           )) {
         continue;
       }
-      // Re-offer a contact acceptance only if it has not reached mailbox.
+      // Re-offer a contact handshake only if it has not reached mailbox.
       if (mailboxEligible &&
           !_owner._mailboxDelivery.alreadyDeposited(frame.frameId)) {
         _owner._stashInBackground(peer, frame.frameId, frame.wire);
@@ -1085,6 +1113,10 @@ class _MessagingOutbox {
   /// guessed the frameId could ACK it and retire a frame addressed to someone
   /// else, suppressing that delivery entirely (audit XV-02).
   void retire(String peerHex, String frameId) {
+    unawaited(_retirePersisted(peerHex, frameId));
+  }
+
+  Future<void> _retirePersisted(String peerHex, String frameId) {
     final key = _key(peerHex, frameId);
     if (_sendingUnpersisted.contains(key)) {
       // The row is still being written. Remember the ACK so the sender retires
@@ -1095,13 +1127,15 @@ class _MessagingOutbox {
     _fastCallRetryTimers.remove(frameId)?.cancel();
     _owner._mailboxDelivery.removeStashed(frameId);
     _liveBackoff.remove(_key(peerHex, frameId));
-    final left = (_pendingByPeer[peerHex] ?? 0) - 1;
-    if (left > 0) {
-      _pendingByPeer[peerHex] = left;
-    } else {
-      _pendingByPeer.remove(peerHex);
+    if (_pendingKeys.remove(key)) {
+      final left = (_pendingByPeer[peerHex] ?? 0) - 1;
+      if (left > 0) {
+        _pendingByPeer[peerHex] = left;
+      } else {
+        _pendingByPeer.remove(peerHex);
+      }
     }
-    unawaited(_owner._storage.ackOutboxFrame(frameId, fromPeerHex: peerHex));
+    return _owner._storage.ackOutboxFrame(frameId, fromPeerHex: peerHex);
   }
 
   void dispose() {
