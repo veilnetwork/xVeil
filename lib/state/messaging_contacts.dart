@@ -43,6 +43,7 @@ class _MessagingContacts {
       (existing ?? Contact(nodeId: peer)).copyWith(status: status),
     );
     if (status == ContactStatus.accepted) {
+      await _owner._outbox.retireRequests(peer);
       _owner._realtimeControl.markAccepted(peer);
     } else {
       _owner._realtimeControl.revoke(peer);
@@ -81,6 +82,7 @@ class _MessagingContacts {
       (existing ?? Contact(nodeId: peer)).copyWith(status: status),
     );
     if (status == ContactStatus.accepted) {
+      await _owner._outbox.retireRequests(peer);
       _owner._realtimeControl.markAccepted(peer);
     } else {
       _owner._realtimeControl.revoke(peer);
@@ -159,9 +161,8 @@ class _MessagingContacts {
   /// left the contact marked `pendingOutgoing`, which the app showed as "sent".
   /// Measured on the production network: the seal could not be made because
   /// the recipient's instance registry did not resolve, nothing was deposited,
-  /// and nothing anywhere said so. This send is also the one with no retry
-  /// behind it — `flushOutbox` re-stashes ACCEPTED contacts only — so a
-  /// silence here is permanent until somebody asks again by hand.
+  /// and nothing anywhere said so. Persist the handshake before either leg
+  /// so an unsuccessful first attempt can retry after reconnect or restart.
   Future<bool> sendRequest(NodeId dst, String greeting) async {
     final text = greeting.trim();
     await setStatus(dst, ContactStatus.pendingOutgoing);
@@ -183,25 +184,24 @@ class _MessagingContacts {
       );
     }
     _owner._signal();
+    final frameId = 'request:$id';
     final wire = WireEnvelope.request(
       text,
       id: id,
       sentAtMs: sentAt.millisecondsSinceEpoch,
-    ).encode();
+    ).withFrameId(frameId).encode();
+    // Survive a failed deposit, a lost live leg and an application restart.
+    // The peer's acceptance or cancellation retires this handshake row.
+    await _owner._outbox.enqueue(dst, frameId, wire);
     // Expect the accept/decline back as mailbox mail.
     _owner._mailboxDelivery.noteActivity();
     // Deposit the request at the recipient's mailbox relay so a NAT'd /
-    // offline peer receives it. The live send below only lands if they're
-    // directly reachable — which for two nodes behind NAT they never are, so
-    // WITHOUT this first contact could never be established.
+    // offline peer can receive it later. The live leg uses available routes;
+    // neither its completion nor a failed deposit proves remote delivery.
     //
-    // STARTED BEFORE THE LIVE LEG, not after it, and this is the one send in
-    // the app with no second chance: `flushOutbox` re-stashes ACCEPTED
-    // contacts only, so nothing ever retries a request's deposit. Behind an
-    // unbounded live send that made a stale direct address — a peer that
-    // changed networks, whose endpoint the node will keep dialling — the one
-    // condition under which first contact silently could not be made.
-    final deposit = _owner._maybeStash(dst, id, wire);
+    // Deposit starts before the bounded live leg. If neither reaches the
+    // recipient, the persisted request is re-driven by the ordinary outbox.
+    final deposit = _owner._maybeStash(dst, frameId, wire);
     await _owner._outbox.boundedLiveLeg(_owner._send(dst, wire));
     final deposited = await deposit;
     // A failed mailbox deposit does not prove the live leg failed. On a phone
@@ -240,19 +240,40 @@ class _MessagingContacts {
     if (contact?.status != ContactStatus.pendingOutgoing) return false;
     String? body;
     String? id;
-    for (final m in await _owner._storage.loadMessages(dst.hex)) {
-      if (m.direction == MessageDirection.outgoing) {
-        body = m.body;
-        id = m.id;
+    for (final frame in await _owner._storage.pendingOutboxFrames()) {
+      if (frame.peerHex != dst.hex || !frame.frameId.startsWith('request:')) {
+        continue;
+      }
+      try {
+        final request = WireEnvelope.decode(frame.wire);
+        if (request.kind != WireKind.request) continue;
+        id = request.id;
+        body = request.body;
         break;
+      } catch (_) {
+        /* Try the legacy greeting record below. */
+      }
+    }
+    if (id == null) {
+      for (final m in await _owner._storage.loadMessages(dst.hex)) {
+        if (m.direction == MessageDirection.outgoing) {
+          body = m.body;
+          id = m.id;
+          break;
+        }
       }
     }
     id ??= _uuid.v4();
-    final wire = WireEnvelope.request(body ?? '', id: id).encode();
+    final frameId = 'request:$id';
+    final wire = WireEnvelope.request(
+      body ?? '',
+      id: id,
+    ).withFrameId(frameId).encode();
+    await _owner._outbox.enqueue(dst, frameId, wire);
     // Same order as [sendRequest], and for a sharper reason: this method is
     // what a person reaches for when the request did not get through, so the
     // peer it addresses is the one already known not to be answering.
-    _owner._mailboxDelivery.removeStashed(id);
+    _owner._mailboxDelivery.removeStashed(frameId);
     // The relay keeps the first blob stored under (recipient, contentId).
     // Reusing the original deposit id would report success while leaving a
     // ciphertext the recipient could not open in place. Keep the wire id for
@@ -261,9 +282,10 @@ class _MessagingContacts {
     final deposit = _owner._maybeStash(dst, depositId, wire);
     await _owner._outbox.boundedLiveLeg(_owner._send(dst, wire));
     final deposited = await deposit;
-    // A request has no outbox re-drive; this per-attempt key is never queried
-    // again after the verdict and must not remain in the in-memory stash set.
+    // The outbox tracks the logical frame, not this manual attempt key.
+    // Drop the attempt bookkeeping and remember its successful deposit below.
     _owner._mailboxDelivery.removeStashed(depositId);
+    if (deposited) _owner._mailboxDelivery.rememberDeposited(frameId);
     // A direct copy may still arrive after a failed deposit. Keep the greeting
     // pending unless a relay accepted it or the peer has accepted the request.
     if (body != null && body.isNotEmpty) {
@@ -289,6 +311,7 @@ class _MessagingContacts {
   /// sent later. The peer can't be un-notified (if it already arrived they may
   /// have seen it), but our side is cleaned up.
   Future<void> cancelRequest(NodeId peer) async {
+    await _owner._outbox.retireRequests(peer);
     await _owner._storage.removeConversation(peer);
     // A retracted request makes the peer unknown again, so any session the
     // request itself opened has to go too — otherwise a "fresh" relationship

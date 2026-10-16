@@ -162,6 +162,13 @@ class _MessagingMailboxDelivery {
     _lastDeferredLog.remove(id);
   }
 
+  /// A fresh manual mailbox deposit can settle the same durable wire frame.
+  void rememberDeposited(String id) {
+    _stashed.add(id);
+    _failedAt.remove(id);
+    _lastDeferredLog.remove(id);
+  }
+
   /// Frames this subsystem still holds bookkeeping for. A test seam for the
   /// bound on that bookkeeping, in the shape of the other seams beside it.
   int get trackedFrameCount => _stashed.length + _failedAt.length;

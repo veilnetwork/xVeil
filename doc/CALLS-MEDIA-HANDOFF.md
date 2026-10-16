@@ -1,5 +1,52 @@
 # Calls media handoff
 
+## 2026-10-16: nickname deferred-boot regression and durable contact requests
+
+The user cannot obtain OS/profile provenance or diagnostic reports beyond
+"last published release" (xVeil 0.13.86). Do not request those details again.
+
+A hermetic native regression reproduces the exact nickname exception with the
+previous library: marked deferred boot suppresses its placeholder sovereign
+identity, but promotion of a real legacy Ed25519 config never creates the
+standalone identity needed by nickname lookup. Certificate provisioning passes
+on that same old library. Runtime reload now applies the ordinary standalone
+bootstrap when no document/state exists and the real config is non-ephemeral.
+It uses the existing key/address; it does not mint a replacement identity or
+repair a present corrupt document. Old Falcon-only profiles remain outside this
+Ed25519 bootstrap, as on ordinary startup.
+
+`test/native/nickname_identity_boot_live_test.dart` passes all three cases with
+the rebuilt native library: legacy deferred promotion, certificate owner distinct
+from device, and corrupt document left unchanged with no new device key file.
+No seeds/meeting points/external peers; each controller stops, its IPC socket
+vanishes, and temporary directories are removed. Logs and binary hash are in
+private `nickname-identity-boot-{red,green}.log` and
+`contact-nickname-verification.json`.
+
+Contact source inspection and failing regressions independently prove that an
+outgoing request had no durable retry row, including empty greetings. Requests
+now persist with a stable `request:` frame id before live/mailbox attempts;
+ordinary outbox replay survives a messaging-service restart. Acceptance and
+cancellation retire the request. Manual resend keeps one wire id and uses fresh
+mailbox content ids, avoiding stale ciphertext reuse; a successful manual
+deposit settles the logical frame's deposit bookkeeping. Pending counts are
+idempotent for replacement rows (the new manual-retry regression caught 2
+pending entries for one row before that adjustment).
+
+Four focused Flutter suites pass 128 tests, including failed deposits, request
+restart/retry with and without a greeting, acceptance/cancellation, manual
+mailbox deduplication and consent gates. Targeted analysis has no issues. This
+proves those concrete recovery fixes, not the unobserved users' complete
+Windows/Android transport scenario. Acceptance already had durable replay;
+without their logs or a faithful network reproduction, its reported failure
+is not independently attributed. Pre-upgrade pending requests acquire a durable
+row on manual resend; no automatic migration of those rows is implemented.
+Mailbox policy stays limited to requests/acceptances.
+
+These changes are local and unpushed; no release or physical app was started.
+The separate audio contention goal remains active (330.033-ms loaded peak in
+the most recent file-only diagnostic), and these report fixes do not qualify it.
+
 ## 2026-10-16: coalesce concurrent local route discovery; audio goal remains ACTIVE
 
 Successful writer/child admission now records the local node, exact observation
@@ -35,9 +82,11 @@ sockets verify. Source/binary snapshots and proof JSONs are private:
 
 Current user reports take the next investigation step: last published xVeil
 0.13.86 on Windows/Android loses contact requests/acceptances toward Android;
-a nickname claim reports no sovereign identity. They are not reproduced or
-fixed yet. Inspect provisioning/deferred-load and contact delivery independently,
-without silently replacing identity keys or routing ordinary traffic via mailbox.
+a nickname claim reports no sovereign identity. Their follow-up findings and
+verification are recorded above; the original Windows/Android transport failure
+is not independently reproduced. Keep provisioning/deferred-load and contact
+delivery evidence separate, without silently replacing identity keys or routing
+ordinary traffic via mailbox.
 The audio goal remains active; remaining source/control and video handshake
 bursts still fail the original quality gate. No new release/push or physical
 app/microphone/speaker use in this cycle.
