@@ -1,5 +1,50 @@
 # Calls media handoff
 
+## 2026-10-16: wait for route AND key; steady file congestion remains NEGATIVE
+
+A second route-discovery race is reproduced independently: the small signed
+RecursiveResponse publishes a route before the larger piggybacked RouteResponse
+has supplied its verified ML-KEM key. The shared discovery gate used to release
+on either answer or any unrelated route notification. The next sender then
+asked for another proof while the first was still arriving.
+
+`c18d12d7` keeps the gate through both verified cache conditions or one fixed
+500-ms deadline. It re-arms notification before checking caches and consumes
+the matching oneshot only once. Cancellation, route-policy isolation, the
+no-E2E path and legacy route-only fallback at expiry remain. Three focused
+regressions cover split replies with concurrent senders (fails before the fix),
+unrelated target notifications and a non-extending deadline. All 68 send-handler
+tests pass; the release FFI build passes. No wire format, key verification or
+relay scheduling change.
+
+`group-files-split-reply-1024-60` proves 3 logical key proofs / 6 admitted hop
+copies / 8274 plaintext bytes, versus 6 / 12 / 16548 after the first coalescing
+fix. Admission is not remote delivery and excludes wire overhead. The executed
+library is SHA-256 `89d11e65846144c817bdc5620301f83a8b9ced00866b64c10806e943bfbc3d75`;
+private `group-route-split-reply-sdk` keeps its parent, patch, source and hash.
+
+The capture is still NEGATIVE: all 330 PCM transitions match, audio-only peak
+160.086 ms, loaded peak 350.047 ms. It is a 60-second FILE-ONLY isolation, not
+a video/complete-file/speech qualification. None of the three 512-KiB files
+finishes inside this short observation. All clock/route/topology checks hold;
+three workers, three policy processes and four nodes exit, with independent PID
+checks and zero sockets. Private proof: `group-split-reply-proof.json`.
+
+The peak is now localized to source 0 -> receiver 1 at the 28.28-second capture
+transition, rather than the initial key exchange around second 20. The blind
+FIFO's receive direction observes 1187.7 kbit/s in second 27 against 1024 kbit/s
+capacity, queue maxima 187.6 ms there and 196.7 ms in second 28. Six admitted
+routing announcements total only 972 plaintext bytes during seconds 26-29;
+this diagnostic observes families 2 and 8, so it does not prove absence of
+other control traffic. Source reports remain healthy until about second 28
+on participants 0/2 and second 29 on participant 1. This points the next
+investigation at steady DATA ramp, complete physical wire cost and feedback
+response, rather than claiming duplicate key proofs explain all latency.
+Do not use absolute RTT alone to cut video, lower a ceiling merely to fit this
+fixture, relax PCM gates, prewarm only the fixture or prioritize relayed media.
+Private attribution: `group-split-reply-attribution.json`. Audio goal ACTIVE.
+
+
 ## 2026-10-16: nickname deferred-boot regression and durable contact requests
 
 The user cannot obtain OS/profile provenance or diagnostic reports beyond
