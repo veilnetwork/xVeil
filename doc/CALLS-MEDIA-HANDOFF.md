@@ -1,5 +1,98 @@
 # Calls media handoff
 
+## 2026-10-16: per-receiver decoded-loss feedback; long contention still fails
+
+SDK `07a3e8d1` attributes intentional decoded-audio discards to the
+actual receive NetEq and its first successfully accepted RTP SSRC. A weak,
+bounded call registry retires counters with the decoder; a recreated stream
+gets a new monotonically allocated origin. The render callback only updates
+atomics and takes no registry lock or allocation. PLC/mute/error fallback
+without an actual skipped speech frame does not claim remote decoded loss.
+Existing target ceilings, catch-up limits and aggregate diagnostics remain.
+
+An optional 48-byte VAP2 RTCP APP block carries the target audio SSRC, report
+sequence, receiver origin, cumulative discarded milliseconds and bounded event
+age inside the existing authenticated encrypted media channel. It adds no
+relay role, preference, connection, public ABI export or remote clock. VAP1 is
+unchanged. Both unicast and group stats publish receiver-specific samples;
+stale/unknown samples do not claim fresh loss. The receiver validates the whole
+compound before publishing any feedback. SSRC binding, report sequence, origin,
+counter high water and expiry prevent replay or a repeated old event in a new
+report from renewing the loss witness. The sender uses local ingress time,
+not the later stats-query time. Group diagnostics also retain per-receiver
+known/cumulative-discard fields so attribution can be checked on the real path.
+
+Production video adaptation and local source-pressure policy consume a
+separate freshness ledger for the peer's decoded loss. One real new event
+uses the existing two-rung audio-protection cut and brief producer yield;
+cached/expired reports and events observed while sending is off cannot replay
+at resume. The group stand bridge passes the same new native field as both
+production controllers. No harness, source stimulus, base profile, FIFO,
+clock, matching rule or qualification deadline is changed. Exactly three
+captured production-policy input hashes change: call_bitrate_adapter.dart,
+call_audio_source_pressure.dart and the group_codec_policy.dart bridge.
+
+Evidence: real NetEq-wrapper source-attribution/catch-up regression, real RTCP
+codec/parser tests, real production-shim compound/legacy/replay/malformed/
+video/stopped-source tests and the existing RTCP lane-filter regression pass.
+The initial shim test failed because it queried an unstarted shim (whose
+getter intentionally returns empty); starting the test endpoint fixes that
+setup error. Dart policy tests pass **116**, and analysis of all six changed
+production/test Dart files reports no issues. Ordinary native exports remain
+exactly the prior 100; instrumented exports remain the prior 131.
+Frozen pair: `group-peer-recovery-{native,production}`; native SHA-256
+`7e63b64e85123999283b3c7c15a59a519447ffa4413fae539fb2b71487247ed2`,
+production `2d9a48f1606d43cba05b5021ec81599223bc4c7699cd80584a421c37135263d8`.
+Both freeze the full SDK patch and changed-source hashes against 19589f40.
+Network SDK is the unchanged 214c3a67 artifact (FFI SHA e2bca2f9...).
+
+`group-peer-recovery-60` is measurement-valid: 330 matched transitions, zero
+missing, audio-only peak 140.133 ms, loaded peak 190.081 ms; six video tails
+move 9/10/10/10/10/9. Its three 59392-byte prefixes do not prove complete-file
+delivery. All three workers recognize two feedback-capable peers and consume
+fresh decoded-loss witnesses (2/4/2 distinct observed witness times).
+
+`group-peer-recovery-360` is measurement-valid but **NEGATIVE**: 2112 matched,
+zero missing; audio-only peak 150.063 ms, loaded **340.076 ms**, source 1 to
+receiver 0, capture transition 116.150 s / decoded 116.490 s. All three complete
+encrypted 512-KiB files match full hashes by 351.606/351.871/351.883 s, without
+chunk/authentication/duplicate/late/write/async failures. Video tails
+**0/4/2/4/2/0** fail the six-moving-tail gate; source 1 ends paused and sources
+0/2 at 8 kbit/s / 1 fps. Decoded discards are 1690/1730/1780 ms. Each worker
+recognizes both peers, with 23/29/22 distinct fresh witness times. Native
+receive-age maxima are 60/63/68 ms. These runs prove the new signal is actually
+exercised, not that latency or video freezing is solved. The short pass and
+lower long peak than the preceding single run do not prove repeatability.
+
+At the long peak sources already protect audio: source 1 has been pressured
+at 8 kbit/s / 1 fps and pauses at 116 s; source 0 drops 15 -> 8 at 115 s;
+source 2 runs 8 after a paused-floor trial. Their receiver buffers are bounded,
+but real decoded loss still advances. The transport trace also records a new
+132.865/140.511/148.535-ms outbox-to-transport maximum at 116.486-116.534 s
+on three connections toward endpoint acbe946e (participant 1); QUIC queue,
+pacing and event/timer maxima there remain small. This is a new pre-transport
+lead, NOT proof of the worst path's cause or permission to prioritize relays.
+The bounded 100000-row wire trace retains only 197.871-360.615 s, so it cannot
+establish FIFO occupancy at the earlier 116-s peak. Private feedback/transport
+window JSON retains this distinction. Investigate the producer/dispatcher/
+canonical-runner waits and packet scheduling before changing another codec
+threshold. Direct AppSend/AppSendSealed/AppSendChunk records also remain on the
+canonical path: reliable_streams scopes AppOpen/Data/Close/Receipt/WindowUpdate
+and negotiated Delivery records only. Moving additional records needs explicit
+compatibility negotiation, not an unannounced acceptance-policy expansion.
+Mid-call idle camera/screen preparation and current physical-device validation
+remain required; no claim closes those gaps.
+
+Both captures use scoped awake helpers; strict ordinal matching, original
+routes/topology, native clocks/rows/QoS/deadline checks and independent cleanup
+pass. Long clock maximum intervals are 10.073/10.085/10.080 ms, zero late
+intervals. All workers, policy processes, parents and awake helpers are gone;
+four node stops return zero, file threads exit and no sockets remain. Proofs
+are `group-peer-recovery-{60,360}-proof.json`, with separate native/policy
+manifests and captured-source-copy verification. Blackview remains visible
+via read-only ADB; no physical app, call, camera, microphone, speaker, install
+or relay deployment was started. Goal ACTIVE; no push/release.
+
 ## 2026-10-16: honor source adaptation and enable real VP8 rate control
 
 SDK `fabf3d3d` replaces the push-only VideoBroadcaster with a source that

@@ -80,6 +80,39 @@ void main() {
   }
 
   test(
+    'fresh peer decoded loss cuts video once with a recovered peer buffer',
+    () {
+      final a = direct();
+      native(a, stats: {...healthy(), 'audio_peer_recovery_report_us': 1000});
+      expect(a.level, 2);
+      native(a, stats: {...healthy(), 'audio_peer_recovery_report_us': 1000});
+      expect(a.level, 2);
+      native(a, stats: {...healthy(), 'audio_peer_recovery_report_us': 0});
+      native(a, stats: {...healthy(), 'audio_peer_recovery_report_us': 900});
+      expect(a.level, 2);
+      native(a, stats: {...healthy(), 'audio_peer_recovery_report_us': 2000});
+      expect(a.level, CallBitrateAdapter.ladder.length - 1);
+    },
+  );
+
+  test(
+    'peer decoded loss while audio sending is off cannot replay at resume',
+    () {
+      final a = direct();
+      native(
+        a,
+        send: false,
+        stats: {...healthy(), 'audio_peer_recovery_report_us': 1000},
+      );
+      expect(a.level, 0);
+      native(a, stats: {...healthy(), 'audio_peer_recovery_report_us': 1000});
+      expect(a.level, 0);
+      native(a, stats: {...healthy(), 'audio_peer_recovery_report_us': 2000});
+      expect(a.level, 2);
+    },
+  );
+
+  test(
     'transport estimates without actual RTP loss cannot cut stable buffers',
     () {
       final a = direct();
