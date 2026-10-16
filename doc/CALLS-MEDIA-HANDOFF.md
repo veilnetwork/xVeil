@@ -1,5 +1,57 @@
 # Calls media handoff
 
+## 2026-10-16: prepare the group video budget before encoding; contention remains NEGATIVE
+
+The new optional fractional group budget API accepts preparation before video
+starts. The controller mounts paused, supplies the selected budget before start,
+and retries after start with older engines. A consumed budget is one-shot;
+restarting without another preparation keeps the legacy 30-kbit/1-fps default.
+The integer legacy setter still rejects stopped video. Its existing native
+assertion caught an accidental compatibility regression, now repaired.
+
+New local counters distinguish each fanout copy's RTP payload, padding, accepted
+queue submission and rejection. Queue acceptance is not remote delivery. Optional
+local QUIC diagnostics record peer, physical slot, handshake/binding duration,
+UDP bytes, PTO and loss, without adding wire metadata or relay priorities.
+Physical slot indices are not stable media-role labels.
+
+The 60-second video-only control `group-video-startup-trace-1024-60` is NEGATIVE:
+390.071-ms known peak plus one ordinal mismatch. New connections consume roughly
+6–8 KiB outbound before application data and more during binding, while the
+first encoded frame contributes only 1490 payload bytes and 2040 padding bytes
+per sender's fanout. Startup handshakes are therefore a material part of the
+burst; exact contributions still need attribution.
+
+A generic 2400-byte initial congestion-window treatment did not qualify:
+`group-video-small-cwnd-1024-60` peaks at 490.024 ms. That treatment and its
+specific test were reverted; its binary and patch remain private evidence.
+Do not reintroduce it or claim a statistical comparison from one capture.
+
+`group-video-cold-budget-1024-60` confirms preparation on all three engines,
+first encoder targets about 7.8 kbit/s and lower initial padding (510 bytes at
+the first sample). It is still NEGATIVE: all 330 transitions match but peak age
+is 380.069 ms. Six changing video tails, clocks, routes, worker/node cleanup and
+zero sockets verify. This does not qualify combined files/video or speech.
+
+156 focused Flutter tests, targeted analysis and the full native call-plane
+suite pass. The production library has 100 exports, no test hooks, and passes
+the Dart symbol gate; the private instrumented library has 131 exports.
+No physical applications,
+microphones or speakers were opened. Published tags and engine cache remain
+unchanged. Next isolate file startup with the peer/PTO diagnostics, and address
+source emission bursts while keeping the original full-workload gates intact.
+
+The fresh `group-files-startup-peer-1024-60` is also NEGATIVE: all 330
+transitions match, peak 300.143 ms (one audio-only sample is 200.065 ms).
+There are no new child connection starts during seconds 19–25. Traffic during
+20–20.45 seconds reaches about 1082/1042 kbit/s, queues 81/122 ms, before the
+first file data admission at 20.457 seconds. Certificate resolution completes
+at 20.456–20.495 seconds. Thus this file-start burst precedes file data and
+is independent of video's new handshakes. Exact control request/response byte
+attribution remains open. All owned worker/policy PIDs are independently gone,
+four node stops return zero and zero sockets remain. Private verification:
+`group-files-startup-peer-verification.json`.
+
 ## 2026-10-16: full group workload exposes source bursts; goal remains ACTIVE
 
 Previous turn made progress: live group Opus adaptation/API passed audio-only

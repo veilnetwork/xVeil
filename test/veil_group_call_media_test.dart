@@ -62,6 +62,33 @@ Map<String, dynamic> _sourceStats(List<NodeId> peers, {int delay = 100}) => {
 };
 
 void main() {
+  for (final cold in [true, false]) {
+    test(
+      'group video mounts paused and applies its budget (cold=$cold)',
+      () async {
+        final self = _id(1), peer = _id(2);
+        final engine = _FakeEngine()..acceptColdTarget = cold;
+        final controller = VeilGroupCallMediaController(
+          _FakeTransport(self),
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          requestMicrophone: () async => true,
+          requestCamera: () async => true,
+        );
+        expect(
+          await controller.start(_call(self, [peer], video: true)),
+          isTrue,
+        );
+        expect(engine.videoMountPauses, [true]);
+        expect(engine.videoMountTargets, [
+          cold ? (maxBitrateKbps: 8, maxFps: 1.0) : null,
+        ]);
+        expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 1.0));
+        expect(engine.pauses.last, isFalse);
+        await controller.stop();
+      },
+    );
+  }
   test(
     'audio-only group applies confirmed Opus budgets and resets per call',
     () {
@@ -645,7 +672,7 @@ void main() {
           controller.setCameraEnabled(true);
           clock.flushMicrotasks();
         }
-        expect(engine.videoMountPauses, [false]);
+        expect(engine.videoMountPauses, [true]);
         expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 1.0));
         expect(
           engine.cameraStarted,
@@ -2250,6 +2277,9 @@ class _FakeEngine implements GroupAudioEngine {
   int started = 0;
   int videoStarted = 0;
   final List<bool?> videoMountPauses = [];
+  final List<({int maxBitrateKbps, double maxFps})?> videoMountTargets = [];
+  bool videoActive = false;
+  bool acceptColdTarget = true;
   int cameraStarted = 0;
   bool muted = false;
   final List<bool> audioStartMuted = [];
@@ -2266,7 +2296,7 @@ class _FakeEngine implements GroupAudioEngine {
 
   @override
   bool setVideoBitrate({required int maxBitrateKbps, required num maxFps}) {
-    if (!acceptTarget) return false;
+    if (!acceptTarget || (!videoActive && !acceptColdTarget)) return false;
     targets.add((maxBitrateKbps: maxBitrateKbps, maxFps: maxFps.toDouble()));
     return true;
   }
@@ -2310,12 +2340,17 @@ class _FakeEngine implements GroupAudioEngine {
   @override
   bool startVideo() {
     videoMountPauses.add(pauses.isEmpty ? null : pauses.last);
+    videoMountTargets.add(targets.isEmpty ? null : targets.last);
+    videoActive = true;
     videoStarted++;
     return true;
   }
 
   @override
-  bool stopVideo() => true;
+  bool stopVideo() {
+    videoActive = false;
+    return true;
+  }
 
   @override
   bool startCamera() {
