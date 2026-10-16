@@ -5,9 +5,11 @@ selectors are local IPC metadata; the relay receives ordinary opaque frames.
 The caller must stop codec/file producers before closing this fixture.
 """
 import ctypes as C
+import errno
 import json
 import os
 from pathlib import Path
+import secrets
 import socket
 import time
 import tomllib
@@ -30,6 +32,7 @@ class GroupSdk:
             self.root.mkdir(mode=0o700, exist_ok=False)
         self.lib = C.CDLL(str(Path(sdk).resolve(strict=True)), mode=C.RTLD_GLOBAL)
         self.nodes, self.handles, self.apps, self.channels = [], [], [], []
+        self.port_reservations = []
         self.ids, self.media_apps, self.media_ids = [], [], []
         self.callbacks = []
         self.shaper = None
@@ -104,9 +107,26 @@ class GroupSdk:
                 identities.append(tomllib.loads(C.string_at(raw).decode())['Identity'])
             finally:
                 self.free(raw)
-            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as listener:
-                listener.bind(('127.0.0.1', 0))
+            # Keep later listeners reserved while the other nodes and shaper
+            # bind their sockets. An ephemeral port released during PoW setup
+            # can be taken by an outbound socket before its listener starts.
+            # Stay below the default macOS/Linux ephemeral ranges as well.
+            listener = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                for _ in range(128):
+                    try:
+                        listener.bind(('127.0.0.1', 10000 + secrets.randbelow(20000)))
+                        break
+                    except OSError as error:
+                        if error.errno != errno.EADDRINUSE:
+                            raise
+                else:
+                    raise RuntimeError('Could not reserve a local UDP listener port')
                 ports.append(listener.getsockname()[1])
+                self.port_reservations.append(listener)
+            except BaseException:
+                listener.close()
+                raise
         if self.rate_kbps:
             self.shaper = UdpShaper([('127.0.0.1', p) for p in ports], trace=self.trace)
             # The caller starts the measured rate only after bootstrap. Each
@@ -145,6 +165,7 @@ class GroupSdk:
             path = directory / 'node.toml'
             path.write_text('\n'.join(lines) + '\n')
             encoded = str(path).encode()
+            self.port_reservations[index].close()
             node = self.checked(self.node_start, encoded, len(encoded))
             if not node:
                 raise RuntimeError('Empty SDK node handle')
@@ -227,6 +248,8 @@ class GroupSdk:
         if self.closed:
             return
         self.closed = True
+        for reservation in self.port_reservations:
+            reservation.close()
         for channel in reversed(self.channels):
             self.channel_close(channel)
         for app in reversed(self.apps):
