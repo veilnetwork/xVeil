@@ -71,6 +71,53 @@ void main() {
     mA = MessagingService(tA, sA)..start();
   });
 
+  for (final greeting in ['hello', '']) {
+    test(
+      'a pending request survives restart and retries (greeting=$greeting)',
+      () async {
+        await mA.sendRequest(b, greeting);
+        final original = tA.sent.last.$2;
+        final queued = await sA.pendingOutboxFrames();
+        expect(queued, hasLength(1));
+        expect(WireEnvelope.decode(queued.single.wire).kind, WireKind.request);
+        expect(WireEnvelope.decode(queued.single.wire).id, original.id);
+        await mA.dispose();
+        mA = MessagingService(tA, sA)..start();
+        tA.sent.clear();
+        await mA.flushOutbox();
+        expect(
+          tA.sent.where((s) => s.$2.kind == WireKind.request),
+          hasLength(1),
+        );
+        expect(tA.sent.single.$2.id, original.id);
+        tA.inject(b, const WireEnvelope.accept().encode());
+        await pumpEventQueue(times: 30);
+        expect(await sA.pendingOutboxFrames(), isEmpty);
+        await mA.dispose();
+      },
+    );
+  }
+
+  test('manual retry of an empty request keeps one durable id', () async {
+    await mA.sendRequest(b, '');
+    final before = (await sA.pendingOutboxFrames()).single;
+    await mA.resendRequest(b);
+    expect(mA.pendingFramesFor(b), 1);
+    final after = (await sA.pendingOutboxFrames()).single;
+    expect(after.frameId, before.frameId);
+    expect(
+      WireEnvelope.decode(after.wire).id,
+      WireEnvelope.decode(before.wire).id,
+    );
+    await mA.cancelRequest(b);
+    expect(mA.pendingFramesFor(b), 0);
+    expect(await sA.pendingOutboxFrames(), isEmpty);
+    tA.sent.clear();
+    await mA.flushOutbox();
+    expect(tA.sent, isEmpty);
+    await mA.dispose();
+  });
+
   test(
     'resendRequest re-sends the same greeting + id while pendingOutgoing',
     () async {
