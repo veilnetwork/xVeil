@@ -1,5 +1,96 @@
 # Calls media handoff
 
+## 2026-10-16: encrypted forwarding preflight; long qualification remains negative
+
+SDK `fee1947f` prepares the real direct/ordinary-relay path during production
+media open, after local independent-source readiness and before capture.
+Three random per-plane challenges use a reserved subtype of the existing
+AEAD-sealed VMP1 control. They traverse the actual source connections and
+opaque forwarding witnesses; no fake RTP, wire role, scheduling hint or relay
+priority is added. The old VMP1 parser rejects the extension and its existing
+handler consumes it without passing it to RTP. Unsupported local independent
+preparation skips this step; an old remote peer's silence only expires a
+best-effort one-second observation. Existing SDK opens run on worker isolates;
+no new C entry point or changed C signature is introduced (190 exports match).
+
+One deadline covers all three independent challenges and their at-most-two
+250-ms retries. Each request retains the minimum of its original observation
+deadline and the existing 200-ms packet freshness budget. Echoes use only
+call-pinned destinations and the receiver's authorized outgoing posture, not
+a packet's claimed address/route. They are bounded by three permits and a
+200-ms per-plane throttle. Only exact nonce/route/plane replies qualify.
+Closing cancels attempts and prohibits later replies. The 64-context bound
+is enforced at installation. Exact-size alternate control decryption supports
+bring-up before the engine installs an RTP callback and preserves old/candidate
+challenge ownership when keys match. Decrypted controls are consumed once,
+before RTP counters/callbacks; this also preserves existing route probes.
+Anonymous circuit preparation is unchanged. Mid-call camera/screen enable
+still needs an explicit preparation lifecycle; unused children can idle out.
+
+Final tests pass 66 media-FFI and 40 seal/route-probe cases. The new real
+SDK/Unix-IPC test covers all three source lanes before any RTP callback,
+then with an old callback owner sharing keys, zero audio accounting, pinned
+echo destination despite a forged envelope source, and no echo/revival after
+close. It does not claim Internet timing. One test compile failed for moving
+a non-Copy path out of an array; array destructuring corrects that before the
+final tests. Exact release/patch manifest is `group-forward-preflight-sdk`,
+FFI SHA-256 `1d05390354bebad4cac233abe9afa2c7368329c80df28bcd2734d29b69c8153a`.
+Committed native media remains `a9961d4a` / `group-neteq-loss-native`.
+
+First `group-forward-ready-60` is INVALID for latency qualification: the host
+enters Idle Sleep at 18:44:10, then Dark Wake Thermal Emergency / Maintenance
+Sleep. All clocks report six late intervals and approximately 247330-ms wake
+lateness, only 17019/17022 rows. SystemTime advances across sleep while the
+fixture's monotonic origin differs, so wall-clock phase bins are invalid too.
+Retain its raw results, `group-forward-ready-60-invalid-proof.json` and
+`group-forward-ready-sleep-power.log`. This proves this capture's sleep;
+it does NOT establish the cause of the older 11.8-second outage.
+
+Repeat captures wrap the identical production fixture in scoped `caffeinate
+-is`, with the live helper/assertions recorded and independently verified gone
+afterwards. No persistent power setting/display change, physical app or audio
+hardware is used. `group-forward-awake-60` is valid but NEGATIVE: 330 matched,
+zero missing, audio-only peak 130.038 ms, loaded peak 230.103 ms at 27.270 s.
+All six tails move 14/13/7/13/7/14 times; short files are only 59392 bytes each.
+33 child starts precede capture, three occur during audio-only, three at
+29.333/30.858/31.005 s; none occur at load activation. At second 27, direction-0
+offered wire traffic reaches 1128 kbit/s and the blind FIFO reaches 206.9 ms,
+versus 860 kbit/s / 55.3 ms in second 26. Per-worker video increments stay near
+700-900 payload bytes / one frame / second, not a demonstrated keyframe surge.
+Do NOT assign the residual spike to video without identifying its wire source.
+
+Full `group-forward-awake-360` is also NEGATIVE, not qualification: all 2112
+expected PCM transitions match without misses, audio-only peak 120.151 ms,
+loaded peak 420.103 ms at source transition 310.070 s. All three encrypted
+512-KiB files complete by 343.991/351.727/351.919 s with matching full SHA-256,
+zero missing/authentication/duplicate/late chunks, no sender async failures
+or write errors. Video tails change 14/0/14/0/14/14 times: participant 2 remains
+paused (last budget 1 kbit/s, 0.02 fps), so both of its outgoing tails freeze.
+Other participants end at 8 kbit/s / 1 fps. Moving tails remain a required gate.
+
+Native receive-age maxima are only 81/62/78 ms: this run does not reproduce the
+old 11.8-second receive outage. Last intentional decoded discards total
+2260/2220/5200 ms per worker across two peers. Driver last event-queue delays
+max at 4.574 ms (historical max 8.564), timer lateness max 12.134 ms. Child
+starts are again 33 before capture, three audio-only and three loaded, all
+loaded starts at 28.768/30.459/30.485 s, not near the late 310-s audio peak.
+Remaining work: identify endpoint/ordinary/control bursts on already warm
+connections, bound their impact on primary delivery, examine the video-policy
+hold/recovery using actual captured inputs, then cover idle enable and phones.
+Preserve full six-path/file/hash/video/deadline gates; do not substitute a
+narrower test or exclude startup. Do not treat one shorter run as proof of a
+repeatable improvement over earlier individual captures.
+
+Both valid runs preserve the 1024-kbit blind FIFO, production adaptation,
+three processes/six PCM paths, VP8 and three encrypted 512-KiB files. Long
+clocks verify 108003 rows / 36001 ticks each, no timer/late/drop/deadline errors,
+max interval <10.133 ms, max callback <2.640 ms. Short clocks similarly verify
+18003/6001, zero errors. Both verify routes and exact 3/1/1/1 topology. Workers,
+policies, file threads, parent and awake helpers exit; all four node stops
+return zero and sockets disappear. Private per-run `*-proof.json` and
+`group-forward-awake-360-timing-details.json` retain these outcomes.
+Audio goal ACTIVE; no push/release.
+
 ## 2026-10-16: local source preparation; fix capacity-driven QUIC churn
 
 SDK `9add1b65` adds production direct/ordinary-relay preparation. Media opens
