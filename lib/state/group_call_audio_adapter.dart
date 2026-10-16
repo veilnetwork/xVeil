@@ -10,9 +10,12 @@ class GroupCallAudioAdapter {
     (packetMs: 20, payloadBps: 32000),
     (packetMs: 40, payloadBps: 32000),
     (packetMs: 40, payloadBps: 24000),
-    (packetMs: 40, payloadBps: 16000),
-    (packetMs: 60, payloadBps: 16000),
+    // Real Opus at 16 kbit/s can attenuate a sustained input for hundreds of
+    // milliseconds even without transport loss. Preserve signal quality;
+    // video and reliable local producers yield before this payload floor.
+    (packetMs: 60, payloadBps: 24000),
   ];
+  static const _shortPacketFloor = 2, _longPacketFloor = 3;
   static const pressureCooldown = Duration(seconds: 3);
   static const recoveryQuiet = Duration(seconds: 20);
   static const recoveryCooldown = Duration(seconds: 8);
@@ -72,7 +75,9 @@ class GroupCallAudioAdapter {
       if (maxPacketMs == 60) _supports60Ms = true;
       if (maxPacketMs == 20 || maxPacketMs == 40) _supports60Ms = false;
     }
-    if (!_supports60Ms && _level > 3) _level = 3;
+    if (!_supports60Ms && _level > _shortPacketFloor) {
+      _level = _shortPacketFloor;
+    }
     final loss = counter(stats['audio_loss_report_us']) ?? 0;
     final newLoss = loss > _lossUs;
     if (loss > _lossUs) _lossUs = loss;
@@ -121,17 +126,19 @@ class GroupCallAudioAdapter {
     if (pressure) {
       _pressureAt = now;
       _healthy = 0;
-      // A longer packet is a last step after the applied 40-ms/16-kbit
+      // A longer packet is a last step after the applied 40-ms/24-kbit
       // floor has actually emitted packets and fresh pressure remains. Neither
       // startup/unknown feedback nor a requested-but-unapplied floor qualifies.
       final measuredFloor =
           _supports60Ms &&
           nativeFresh &&
           stats['audio_config_valid'] == 1 &&
-          _applied == _budgets[3] &&
+          _applied == _budgets[_shortPacketFloor] &&
           packetsAdvanced &&
           stats['audio_tx_packet_duration_ms'] == 40;
-      final maxLevel = measuredFloor || _level == 4 ? 4 : 3;
+      final maxLevel = measuredFloor || _level == _longPacketFloor
+          ? _longPacketFloor
+          : _shortPacketFloor;
       if (!pending &&
           _level < maxLevel &&
           (_lastDownAt == null ||
@@ -140,7 +147,7 @@ class GroupCallAudioAdapter {
         // Decoded catch-up means audio was already queued too long. Take
         // two rungs now instead of carrying that overload through another
         // cooldown; isolated loss still takes one measured step.
-        if (recovered && _level < 3) _level++;
+        if (recovered && _level < _shortPacketFloor) _level++;
       }
       return;
     }

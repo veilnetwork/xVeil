@@ -1,5 +1,116 @@
 # Calls media handoff
 
+## 2026-10-17: separate codec attenuation from queued audio
+
+SDK `19b73191` extends opt-in receiver timing with the accepted RTP SSRC,
+sequence/timestamp and the actual rendered AudioFrame RTP position, speech
+type and mute state. Packet insertion and rendering retain separate bounded,
+preallocated metadata arrays; neither writes the other's storage. Failed
+inserts are excluded. File formatting/I/O waits for teardown, after both
+callers stop. Disabled tracing samples no clocks and reserves no arrays. No
+PCM, payload, key or remote media/priority label is added. The wrapper's
+decode, catch-up, jitter targets and network scheduling remain unchanged.
+The native smoke verifies bounded traces, accepted-only ingress, actual frame
+timestamp propagation and speech preservation on PLC/mute/error. Test/native
+and production builds retain exactly 131/100 exports, with SHA-256
+`642ee4ee4743da12b28d342537ff42611ebd8fdd53fa41a34c4f1a8426b80179` and
+`67c7c7aecd304b385f6ce2c1c2185c75b99edacdd0219599620c6062170e5870`.
+
+`group-rtp-timing-360` is measurement-valid and **NEGATIVE**: 2112 ordinal
+matches / zero missing, audio-only **110.350 ms**, loaded **560.267 ms**,
+video tails **0/0/1/0/1/0**. All three full encrypted 512-KiB hashes match by
+331.303/328.656/300.922 s, before the original immutable 360-s deadline. Exact
+clock/row, real QoS/deadline, source snapshot, topology/route and independent
+cleanup gates pass. All workers, policy processes, parent and awake helper
+are gone; four node stops return zero and no sockets remain. There are no
+>=25-ms slow-stage/aged-ingress/slow-dispatch records; 959 bounded pressure
+records confirm the probes were active.
+
+At the 560-ms tone peak, source 1's signal disappears below the fixed detector
+threshold at BOTH receivers for roughly 400 ms. Accepted packets continue;
+concealment/discard counters do not advance in the surrounding samples. The
+rendered frame's RTP capture age is about 132 ms, with roughly 92-96 ms from
+accepted NetEq insertion to render. This RTP position is not the waveform
+latency and must NOT replace or relax the original PCM gate. The source's
+older encoder trace stops at its 4096-packet limit before this late event, so
+it cannot directly prove that particular packet's encoded contents.
+
+A separate real Opus encode/decode experiment, without transport or NetEq,
+does reproduce deep attenuation of the sustained 1300/1700-Hz input: at
+16 kbit/s the longest below-threshold interval is 690 ms, with DTX either on
+or off. At a representative low point decoded total RMS is only about 40,
+not merely a frequency-detector mismatch. The initial private comparison at
+24/32 kbit/s has no below-threshold intervals after its observation window;
+the final committed regression retains the bitrate-only encoder and checks
+the ENTIRE capture from the first block, with the same 690-ms negative at
+16 kbit/s and zero quiet blocks at 24/32, DTX either on or off. Its standalone
+runner passes all six profiles using the current pinned encoder/decoder. This
+rules out disabling DTX as the repair for this component case. It does not
+prove continuous-speech quality or attribute every pause to the codec.
+
+There is separate transport evidence. At 214 s, source 0's packet takes
+50.916 ms from its first encoder input to encoding, **153.949 ms** from
+encoding to NetEq insertion and **35.121 ms** there before render. Source 2
+similarly spends 50.624/128.201/61.143 ms. The actual tone gates for these
+paths fail at 220.040/250.341 ms. Direction 0's blind FIFO reaches 98.908 ms
+in that second despite an 818-kbit/s one-second average. Sender 0 produces
+a 4814-byte fanout video increment then, while sender 1 is already paused;
+this is evidence of a coincident burst, not a causal packet-to-wire mapping.
+End-to-end quality needs both codec preservation and bounded competing bursts.
+
+The group production ladder now keeps a **24-kbit payload floor**:
+20/32, 40/32, 40/24, conditionally 60/24. Initial 40/32, capability checks,
+actual applied-floor/packet-duration evidence, cooldowns and room-wide recovery
+remain. The new floor regression is first RED at 16000, then **138 focused
+Flutter cases pass**. Native APIs retain compatibility with 16-kbit callers;
+the unicast ANA floor is not changed by this group-controller patch and still
+needs evaluation. The standalone `group_opus_signal_smoke` preserves the
+negative profile and checks the protected profiles from capture start, with
+no network/NetEq or retained audio.
+
+`group-opus24-floor-360` is measurement-valid and still **NEGATIVE**:
+2112 ordinal matches / zero missing, audio-only **110.224 ms**, loaded
+**230.038 ms** (source 1 -> receiver 2, capture 214.120 s / decoded 214.350 s).
+All three full encrypted 512-KiB hashes match by
+347.132/335.818/338.782 s within the original 360-s deadline; video tails
+**0/14/14/14/14/0** still fail because source 1 ends paused. The original
+40/32 startup is verified on all senders; every applied payload budget is at
+least 24 kbit/s. Longer actual packets begin at 28.010/5.014/21.010 s. The
+complete harness/stimulus, original clock/rows/QoS/deadlines, topology/routes,
+ordinal matching and independent cleanup checks pass, with four zero node
+stops and no remaining owned process/socket. The post-capture Dart change is
+only a comment qualifier and required braces around an existing single
+assignment; its exact bounded diff is retained separately. Analyzer is clean.
+
+The worst new tone peak has an exact encoder/accepted-packet/render join:
+**50.273 ms** from first encoder input to its packet, **163.604 ms** from
+encoding to NetEq insertion, then **16.118 ms** to render. Native callback to
+drain is 13 microseconds; drain to insertion is 12 microseconds. Thus this
+episode's over-limit delay already exists before the playout buffer; lowering
+NetEq's target cannot repair that path wait. The blind direction-0 FIFO peaks
+at 94.429 ms at second 214, with an 855.112-kbit/s one-second offered average.
+Release lateness is <=4.308 ms there. No >=25-ms slow-stage/aged-ingress/
+slow-dispatch event fires; 990 pressure records are present. The larger
+explicit 32768-row encoder/ingress diagnostic limit retains late samples too;
+no quality gate or workload is changed. Preserve the earlier 560-ms waveform
+negative and do not infer a causal network improvement from this pair of runs.
+
+Full contention qualification remains required; goal ACTIVE. Next investigate
+short competing bursts and packet formation, including endpoint-owned control
+and direct-send credits, without granting relay priority. Native unicast
+payload protection, idle mid-call camera/screen preparation and current device/
+continuous-speech checks remain outstanding.
+
+Private `group-rtp-timing-360-{proof,feedback-details,scheduler-details,
+rtp-playout-details,wire-214}.json` and `opus-tone-isolation-bitrates.log`
+retain the distinction. Corresponding `group-opus24-floor-360-{proof,
+feedback-details,scheduler-details,rtp-playout-details,wire-peak,
+post-capture-lint}.json` and `group-opus-signal-regression-final.log` retain the
+new candidate and original negative evidence. Rust FFI remains c2c02c23...
+from d7591687. No
+physical app, call, camera/mic/speaker, install, relay update, push or release
+occurred.
+
 ## 2026-10-17: adapt group Opus framing after measured floor pressure
 
 `GroupCallAudioAdapter` now consumes fresh authenticated peer decoded-recovery
