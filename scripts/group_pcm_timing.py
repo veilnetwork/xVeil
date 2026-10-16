@@ -7,8 +7,8 @@ every subsequent decoded transition must keep its original ordinal.
 from pcm_timing import input_edges
 
 
-def analyze_voice_path(rows, duration):
-    edges = input_edges(rows)
+def analyze_voice_path(rows, duration, captures=None):
+    edges = input_edges(rows if captures is None else captures)
     decoded = []
     previous = pending = None
     pending_at = None
