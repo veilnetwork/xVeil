@@ -1,5 +1,83 @@
 # Calls media handoff
 
+## 2026-10-17: reject pacing before the relay frame assembler
+
+A native-pacer experiment confirms a real component mechanism. WebRTC's
+`MaybeUpdateMediaRateDueToLongQueue` raises the pacing rate to flush a frame
+inside its queue ceiling. With the existing 4x/25-ms video profile, all
+5060 bytes of a low-rate test frame leave immediately inside the ordinary
+40-ms burst allowance. A candidate 4x/100-ms video profile reduces that burst
+to 2024 bytes, finishes at 97 ms, preserves all packet bytes/order and still
+sends small/healthy-rate frames immediately. The independent audio Call is
+unchanged. The real-pacer component check is first RED, then candidate GREEN.
+It does not prove that the complete relay path retains that pacing.
+
+`group-video-pacing-360` is measurement-valid and **NEGATIVE**: 2112 ordinal
+matches / zero missing, audio-only **140.297 ms**, loaded **210.046 ms**
+(source 2 -> receiver 0, capture 122.210 s / decoded 122.420 s). All three full
+encrypted 512-KiB hashes match by 352.182/312.512/352.364 s within the original
+immutable 360-s deadline. Video tails **14/6/13/6/13/14** all move. Exact
+clock/rows, real QoS/deadlines, original harness/stimulus/startup budgets,
+canonical production policy, route/topology and independent cleanup gates
+pass. Four node stops return zero; all owned processes and sockets are gone.
+Do NOT round 210.046 ms into a pass or infer a statistical improvement from
+one comparison. The preceding 24-kbit baseline remains negative.
+
+At the new tone peak the exact encoder/accepted-packet/render join is
+50.363/117.844/41.748 ms. Native callback-to-drain and drain-to-NetEq delays
+are 17/15 microseconds. No >=25-ms slow-stage, aged-ingress or slow-dispatch
+record fires; 991 pressure records confirm probes were active. The remaining
+path wait is real; bounded native buffer/age alone still cannot establish
+healthy end-to-end latency.
+
+Further source inspection invalidates the proposed repair location for relay
+traffic. The ORIGIN SDK's `MediaVideoIngress::RelayFrames` assembles RTP until
+the frame marker, retaining the earliest original deadline. Its
+`drain_relay_video_batches_on_plane` then publishes every fresh sealed cell
+as ONE IPC work batch. The daemon constructs `LocalLossyWork` and reserves
+its whole cost before releasing members. Consequently native RTP spacing
+before this assembler does not become spaced relay cells: it can instead
+consume freshness time and then emit the assembled frame as another burst.
+The fixture uses exactly this path (`veil_media_open_relay_channel`, compact
+batching mode 2). A codec-boundary pacer check cannot qualify that SDK path.
+
+The 100-ms native treatment, helper and treatment-only test were therefore
+**REVERTED**. Current runtime retains its original 4x/25-ms profile, codec
+budgets, transport windows, routes, relay neutrality and wire formats. The
+rejected native/production binaries (131/100 unchanged exports) and complete
+source/patch manifests remain private, SHA-256:
+`0a6d84d49010b2030319e2a6ec68ef028410b96018e393d1371a19eb66b81006` and
+`4648ea0418df31cae5696de6d9d3998f64eef94fc7110b53a4ac6bb93be25dba`.
+The matching current native artifact is again `group-rtp-timing-native`
+(642ee4ee...), with the canonical 24-kbit group policy from da90dd51. Rust
+FFI remains c2c02c23... from d7591687. Do not ship the rejected treatment or
+reintroduce the earlier rejected generic 2400-byte QUIC-window experiment.
+
+A separate retained test fix addresses an older VAP1 expected-value bug. The
+standalone call-plane test read the compound RTCP packet's final four bytes,
+which now belong to VAP2, as VAP1 delay. The identical assertion fails against
+the preceding frozen native artifact. It now captures the named VAP1 block's
+delay atomically with the WHOLE compound and still requires exact equality
+at the receiver. VAP2 is retained; no quality gate or group-process fixture
+is changed. Main and RTCP-loss modes pass against both the candidate and,
+after reverting the treatment, the matching current native artifact
+(`vap1-reader-current-call-planes.log`).
+
+Private `group-video-pacing-360-{proof,feedback-details,scheduler-details,
+rtp-playout-details}.json`, `video-pacing-{red,green}.log`, both original
+failed call-plane logs, `group-video-pacing-rejected-source` and the frozen
+build patches retain the result and the reason for rejecting it.
+
+Next put pacing AFTER complete-frame admission at the origin, while retaining
+whole-work credit/ownership, original expiry, FIFO/order and free progress
+for audio/control. Use actual local frame cadence and real cell cost; avoid
+a fixed low-bandwidth cap on healthy P2P. The relay must still receive only
+neutral opaque traffic. Audit direct/ordered fallback and competing authored
+control too. Unicast audio-floor validation, idle mid-call plane preparation
+and current physical-device/speech checks remain required. Goal ACTIVE.
+No physical app/camera/mic/speaker, installation, relay update, push or release
+occurred.
+
 ## 2026-10-17: separate codec attenuation from queued audio
 
 SDK `19b73191` extends opt-in receiver timing with the accepted RTP SSRC,
