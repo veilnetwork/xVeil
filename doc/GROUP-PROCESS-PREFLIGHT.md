@@ -1,5 +1,26 @@
 # Three-party group audio preflight
 
+## 2026-10-17: new native unicast floor; full gate is still NEGATIVE
+
+The unicast codec/ANA signal defect has a RED/GREEN component regression and
+real Call allocator/RTCP coverage; fixed group budgets and the canonical group
+policy are unchanged. The new native binary must nevertheless qualify itself.
+`group-unicast-floor-360` is measurement-valid but FULL NEGATIVE: 2112 ordinal
+matches / zero missing, audio-only 120.019 ms, loaded **220.035 ms** (must be
+<200), moving tails 14/12/9/12/9/14. All full encrypted 512-KiB hashes match by
+333.357/330.120/352.495 s before the original immutable 360-s deadline. Original
+clocks/rows/QoS/deadlines, source copies, route/topology and complete independent
+PID/socket cleanup verify. Preserve the two preceding passing captures as
+history; they do not qualify this new native candidate.
+
+At the late tone peak encoded-to-NetEq is 129.109 ms, native-to-render
+50.560 ms. The original opaque FIFO trace covers the peak and reaches 89.988-ms
+waiting, with <=1.309-ms release lateness; no >=25-ms node stage is recorded.
+Investigate actual source/DATA emission before changing policy. Source DATA
+already uses exact-byte pacing. See CALLS-MEDIA-HANDOFF.md for codec scope,
+current native hashes, complete negative evidence and the remaining goal.
+
+
 ## 2026-10-17: unchanged repeat also qualifies
 
 `group-source-work-pacing-repeat-360` again passes the ORIGINAL full gate with
