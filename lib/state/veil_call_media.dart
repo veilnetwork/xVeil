@@ -1538,6 +1538,7 @@ class VeilCallMediaController implements CallMediaController {
           recovered: audioRecovered,
           audioTxDrops: nativeDrops is int ? nativeDrops : null,
           audioLossReportUs: stats['audio_loss_report_us'],
+          peerAudioRecoveryReportUs: stats['audio_peer_recovery_report_us'],
         );
         _sourcePressured = sourcePressured;
         if (sourcePressured != null && !_sourceFeedbackPending) {

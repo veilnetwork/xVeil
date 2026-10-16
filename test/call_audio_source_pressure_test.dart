@@ -18,6 +18,7 @@ void main() {
     bool interrupted = false,
     int? drops = 0,
     Object? lossReportUs,
+    Object? peerRecoveryReportUs,
     bool recovered = false,
   }) => policy.observe(
     sendExpected: send,
@@ -32,6 +33,7 @@ void main() {
     interrupted: interrupted,
     audioTxDrops: drops,
     audioLossReportUs: lossReportUs,
+    peerAudioRecoveryReportUs: peerRecoveryReportUs,
     recovered: recovered,
   );
 
@@ -73,6 +75,26 @@ void main() {
       recover(policy);
     },
   );
+
+  test('peer catch-up yields briefly without renewing cached reports', () {
+    final policy = CallAudioSourcePressure();
+    recover(policy);
+    expect(sample(policy, peerRecoveryReportUs: 100), isTrue);
+    expect(sample(policy, peerRecoveryReportUs: 100), isTrue);
+    expect(sample(policy, peerRecoveryReportUs: 100), isTrue);
+    expect(sample(policy, peerRecoveryReportUs: 100), isFalse);
+    expect(sample(policy, peerRecoveryReportUs: 0), isFalse);
+    expect(sample(policy, peerRecoveryReportUs: 90), isFalse);
+    expect(sample(policy, peerRecoveryReportUs: 200), isTrue);
+  });
+
+  test('peer catch-up while not sending is consumed without later replay', () {
+    final policy = CallAudioSourcePressure();
+    recover(policy);
+    sample(policy, send: false, peerRecoveryReportUs: 100);
+    expect(sample(policy, peerRecoveryReportUs: 100), isFalse);
+    expect(sample(policy, peerRecoveryReportUs: 200), isTrue);
+  });
 
   test(
     'source budget consumes native trend and cannot ignore a capped current buffer',

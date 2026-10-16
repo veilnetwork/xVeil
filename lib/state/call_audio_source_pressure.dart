@@ -14,6 +14,7 @@ class CallAudioSourcePressure {
   int _recoverySamples = CallBitrateAdapter.recoverAfter;
   int? _lastAudioDrops;
   final _rtcpLoss = CallRtcpLoss();
+  final _peerRecoveryLoss = CallRtcpLoss();
   final _peerBuffer = CallAudioBufferWindow();
   final _receiveBuffer = CallAudioBufferWindow();
 
@@ -34,6 +35,7 @@ class CallAudioSourcePressure {
     required bool interrupted,
     required int? audioTxDrops,
     Object? audioLossReportUs,
+    Object? peerAudioRecoveryReportUs,
     bool recovered = false,
   }) {
     final networkLoss = _rtcpLoss
@@ -43,6 +45,14 @@ class CallAudioSourcePressure {
           videoExpected: false,
         )
         .audio;
+    final peerRecovered = _peerRecoveryLoss
+        .observe(
+          audioReportUs: peerAudioRecoveryReportUs,
+          audioExpected: sendExpected,
+          videoExpected: false,
+        )
+        .audio;
+    recovered = recovered || peerRecovered;
     final drops = audioTxDrops != null && audioTxDrops >= 0
         ? audioTxDrops
         : null;
@@ -135,6 +145,7 @@ class CallAudioSourcePressure {
     _recoverySamples = CallBitrateAdapter.recoverAfter;
     _lastAudioDrops = null;
     _rtcpLoss.reset();
+    _peerRecoveryLoss.reset();
     _peerBuffer.reset();
     _receiveBuffer.reset();
   }
