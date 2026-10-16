@@ -183,10 +183,14 @@ separate diagnostics. No fabricated BWE or relay media/priority hint is added.
 
 Production `GroupCallAudioAdapter` starts at 40 ms/32 kbit/s and uses fresh
 loss, local drop/recovery deltas, authenticated peer decoded-recovery events,
-or fresh growing/full peer buffers. Its first four budgets remain 20/32, 40/32,
-40/24, 40/16 (milliseconds/kbit/s). An engine explicitly advertising
-`audio_max_packet_ms:60` can use a final 60/16 budget, only after an applied
-40/16 budget has actually emitted packets and fresh pressure remains. Unknown
+or fresh growing/full peer buffers. Its budgets are 20/32, 40/32, 40/24
+(milliseconds/kbit/s). The payload floor is now 24 kbit/s: a real-codec
+component regression demonstrates long signal attenuation at the earlier
+16-kbit floor without routing, loss, NetEq or DTX being necessary. This is a
+signal-preservation check, not a continuous-speech quality verdict. An engine
+explicitly advertising `audio_max_packet_ms:60` can use a final 60/24 budget,
+only after an applied 40/24 budget has actually emitted packets and fresh
+pressure remains. Unknown
 or stalled native snapshots, a missing packet counter and an unapplied floor
 cannot enable that step. The original startup budget is unchanged; this is
 not the earlier fixed-60-ms experiment. An explicit legacy maximum cancels a
@@ -196,6 +200,15 @@ Cached reports, muted capture, counter resets and failed retunes cannot
 manufacture recovery or repeated cuts. The controller runs it even without
 video. Old engines keep their existing codec through the optional API/ABI
 fallback and do not enter the 60-ms policy step.
+
+`TMPDIR=/private/tmp/ python3 third_party/veil/flutter/veil_media/test/run_group_opus_signal_smoke.py`
+reproduces the codec comparison using the pinned real encoder and decoder.
+The simulated capture runs for 360 seconds, retains the initial 40-ms/32-kbit
+profile and compares 16/24/32-kbit payloads with DTX on/off. A bitrate-only
+retune retains the encoder; a later ptime change recreates it. No PCM/payload
+is retained. Lower-profile attenuation is reported as evidence; preservation
+of the protected profiles is asserted. This component check does not replace
+the original six-path contention fixture, its stimulus or any of its gates.
 
 `group-budget-live-60` passes the native API regression: six paths, all 330
 transitions, peak 80.227 ms. Five live changes per sender exercise 20/40-ms
