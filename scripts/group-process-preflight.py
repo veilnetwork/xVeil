@@ -223,6 +223,7 @@ def worker(pipe, sdk_path, media_path, root, clock, participant, full_load=False
         run = pipe.recv()
         origin, duration = run['origin'], run['duration']
         result['origin_monotonic'] = origin
+        result['origin_unix_ms'] = run['origin_unix_ms']
         if files:
             files.arm(origin, origin + duration)
         driver = NativePcmDriver(clock, capture, playout, [engine], origin, 1010,
@@ -240,6 +241,7 @@ def worker(pipe, sdk_path, media_path, root, clock, participant, full_load=False
                     raise RuntimeError('Missing group statistics')
                 try:
                     snapshot = {'t': time.monotonic() - origin,
+                                'sampled_at_unix_ms': sampled_at_unix_ms,
                                 'stats': json.loads(C.string_at(value))}
                 finally:
                     free_string(value)
@@ -266,8 +268,13 @@ def worker(pipe, sdk_path, media_path, root, clock, participant, full_load=False
                         if files and files.thread is None and snapshot['t'] >= 20:
                             files.start()
                         if preparing:
+                            cold_budget_ok = False
+                            if video_policy['budget'] is not None:
+                                target = video_policy['budget']
+                                cold_budget_ok = video_budget(engine, target['kbps'], target['fps']) == 0
+                            snapshot['video_cold_budget_ok'] = cold_budget_ok
                             # Match the controller: mount the native conservative
-                            # 30-kbit/1-fps sender while fanout remains paused.
+                            # sender while paused, using a prepared budget where supported.
                             if pause_video(engine, 1) != 0 or start_video(engine) != 0:
                                 raise RuntimeError('Conservative synthetic VP8 start refused')
                             video_started = True
@@ -488,10 +495,12 @@ def main():
             raise RuntimeError('Participant configuration failed')
         origin = time.monotonic() + 2
         result['origin_monotonic'] = origin
+        result['origin_unix_ms'] = int((time.time() + origin - time.monotonic()) * 1000)
         if fixture.shaper:
             fixture.shaper.rate_bps = args.rate_kbps * 1000
         for pipe in pipes:
-            pipe.send({'origin': origin, 'duration': args.duration})
+            pipe.send({'origin': origin, 'origin_unix_ms': result['origin_unix_ms'],
+                       'duration': args.duration})
         receive_all(args.duration + 20)
         result['voice_paths'] = []
         all_rows = [json.loads((root / f'worker-{i}/pcm-samples.json').read_text())
