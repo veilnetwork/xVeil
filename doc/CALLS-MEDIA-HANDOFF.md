@@ -1,5 +1,126 @@
 # Calls media handoff
 
+## 2026-10-16: reconcile NetEq target with catch-up; qualification remains open
+
+Optional bounded per-render traces reproduce a target/catch-up conflict. In
+`group-video-playout-trace-1024-60` (baseline media `033d0f45`), 624/692/750
+of 687/771/795 loaded catch-up ticks occur while NetEq itself requests more
+than the wrapper's 120-ms catch-up boundary. Across each worker's two peers,
+9.97/11.27/12.07 seconds of decoded audio are deliberately removed. The run is
+NEGATIVE: 275 matched/55 missing transitions, 500.172-ms peak, six frozen video
+tails. Traces retain all 36,006 render rows; clocks/routes/cleanup verify.
+
+SDK `a9961d4a` bounds the native desired target below that same 120-ms
+boundary, reserving one decoded packet's duration for normal arrivals. Actual
+normal, non-muted output supplies the packet size; PLC/CNG/unknown output
+cannot overwrite it. A 40-ms Opus packet gives an 80-ms target ceiling.
+Stricter initial factory and later caller bounds are preserved; rejected
+maximum-delay updates restore the prior request. Actual storage, FEC, forced
+catch-up limit, renderer clock and RTP are unchanged. The new regression fails
+against the old constructor; a separate failed prototype exposed PLC resetting
+the known packet size and was corrected before the final builds.
+
+`group-video-target-budget-1024-60` is an initial instrumented candidate,
+not the final binary: loaded intentional discards fall to 0.40/1.00/0.38
+seconds, all six video tails change 14 times, and target observations stay at
+or below 80 ms. This isolated run remains NEGATIVE: 275 matched/55 missing,
+320.026-ms peak, no file load. Do not present it as full qualification or as a
+statistically repeatable improvement. The extra early decoded transitions in
+some captures remain unexplained; strict ordinal matching is unchanged.
+
+The final pre-diagnostic candidate `group-target-budget-combined-1024-60`
+remains NEGATIVE with 313 matched/17 missing transitions, audio-only peak
+150.064 ms and combined peak 1490.010 ms. Native diagnostics were off; source
+Opus stayed at 40 ms/16 kbit/s. Current receive ages reach 1380 ms although
+native render callbacks stay below 0.357 ms and the blind FIFO's release
+lateness stays below 7.45 ms in the two affected intervals. New QUIC event
+queue/timer stalls occur in the same 43-48-second interval. This localizes
+an additional delivery/processing problem; cumulative maxima alone do not
+prove its cause. Preserve `group-target-budget-combined-proof.json` and
+`group-target-budget-driver-window.json` in the private artifact directory.
+
+Group stats now retain per-peer concealment, output/received sample counts,
+packet discards, interruption duration and desired jitter target, alongside
+existing deliberate catch-up counters. These are endpoint JSON diagnostics,
+not media hints on the wire. Optional renderer traces retain packet headroom
+and the applied ceiling; they still require both explicit environment
+switches, remain bounded, and write only after rendering stops. The fixture
+adds `--playout-trace` and an origin/PID metadata file for external observers;
+it does not change the PCM matcher, workload, gates or immutable deadline.
+
+A first profiling attempt fails BEFORE capture because a selected UDP listener
+port is occupied at node startup. All four nodes stop, no sockets remain.
+The fixture now retains listener reservations through setup, uses ports below
+the default macOS/Linux ephemeral ranges and releases each immediately before
+its node starts. This prevents its shaper/earlier outbound sockets from taking
+later listeners. It does not change the closed star or measured link budget.
+
+`group-target-loss-profile-retry-1024-60` uses the final target cap plus new
+group diagnostics, with two explicitly recorded 12-second/10-ms parent stack
+profiles at seconds 22 and 42. It is diagnostic, not qualification: all 330
+transitions match, peak 510.050 ms at loaded startup; all six video tails
+change (4-14), files remain incomplete at the short deadline. The earlier
+1.49-second stall does not reproduce. Profiles do not establish its cause;
+they also show synchronous durable outbox pruning in maintenance, which is
+an investigation lead, not a proven explanation. All clocks/routes/topology,
+three worker/policy exits, four node stops and independent PID/socket checks
+verify. No physical app, speaker or microphone was used.
+
+Final helper, call-plane isolation/teardown, RTCP loss and real decoded-group
+recovery regressions pass. Production media still has the identical 100
+exports, zero test hooks; the instrumented media has 131. No release/push.
+The unprofiled diagnostic control `group-baseline-loss-combined-1024-60`
+uses the old recovery header with the same new group diagnostic fields. It is
+NEGATIVE: all 330 transitions match, 740.121-ms peak, all six video tails
+frozen. End-of-minute intentional discards are 22.09/25.01/24.60 seconds per
+worker across two peers; concealed counters are 362738-374958 per peer.
+In the first minute of the final candidate below, discards are 2.85/2.96/3.51
+seconds and concealed counters 87486-119027. These separate captures support
+fixing the target conflict but do not establish overall quality or causality
+for subsequent transport outages. Both binaries/source snapshots are retained.
+
+`group-target-loss-combined-1024-360` is NEGATIVE, not qualified. It matches
+1726/2112 expected transitions, misses 386 and reports a 13950.067-ms maximum
+under unchanged strict ordinal matching. Extra/missing decoded transitions
+shift ordinals, so that figure must NOT be described as a measured 14-second
+jitter buffer. Actual sampled receive inactivity reaches 11823 ms around
+second 222; all six directions show an outage starting near second 210.
+An additional shorter interruption occurs near seconds 254-256. Native
+render clocks remain valid throughout (108003 rows/36001 ticks per worker,
+zero dropped rows/deadline misses/timer errors, max interval <10.085 ms,
+max callback <0.430 ms). Native targets stay bounded; this does not solve a
+network delivery outage.
+
+In the main outage, QUIC local event-queue maxima reach 5207055 us and timer
+lateness reaches 6928772 us. Available blind-FIFO trace rows cover seconds
+182.911-360.592; their max release lateness is <1.156 ms during seconds
+210-220. The audio/QUIC delays cannot be attributed to this FIFO alone.
+Recovery attempts start near second 216.9, parent keepalive reaps a session
+at 222.087, and authenticated reconnect recovers it at 223.396-223.517.
+This establishes a transport/runtime outage and reconnect, not its original
+cause. Do not assume route TTL, CPU, App Nap, blocking logs or durable storage
+without a stack capture during the outage. The previous short profiles ended
+long before this interval. Next diagnostics should sample the parent near
+seconds 205-225 and retain the existing PCM/file/video/deadline gates.
+
+All six final video tails change (14/4/14/4/14/14). Only sender 2 -> receiver 0
+completes its 512-KiB SHA-256 before the deadline (299.152 s). Sender 0 -> 1
+misses 6 chunks; sender 1 -> 2 misses 107 chunks and its outgoing callback
+records 107 asynchronous failures with raw code 2. The fixture's file summary
+previously copied the receiver worker's outgoing failure/write counters while
+already mapping queued bytes from the sender. Those two fields now map from
+the sender too. This corrects attribution only; per-worker gates and all raw
+captures/failures remain. Preserve the raw summary and derive corrected
+attribution explicitly, rather than silently rewriting an old capture.
+
+All six route assertions and exact final topology verify; workers/policies,
+parent and four nodes stop, independent PID/socket checks pass. Bounded wire
+metadata contains 100000/207750 observed rows, so it cannot establish startup
+packet attribution. Private proofs: `group-baseline-loss-combined-proof.json`,
+`group-target-loss-combined-proof.json`. Audio goal remains ACTIVE. Commit the
+candidate and negative evidence for review; do not claim full qualification
+or release it as a completed audio fix.
+
 ## 2026-10-16: earlier DATA-only transport guard and urgent decoded recovery
 
 The current candidate keeps source isolation and neutral relays. A sustained

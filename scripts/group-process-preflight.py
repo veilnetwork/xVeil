@@ -25,10 +25,14 @@ from native_pcm_driver import NativePcmDriver, build as build_clock
 from group_process_files import ProcessFileLoad
 
 
-def worker(pipe, sdk_path, media_path, root, clock, participant, full_load=False, load_kind='both'):
+def worker(pipe, sdk_path, media_path, root, clock, participant,
+           full_load=False, load_kind='both', playout_trace=False):
     os.umask(0o077)
     directory = Path(root) / ('worker-' + str(participant))
     directory.mkdir(mode=0o700)
+    if playout_trace:
+        os.environ['VEIL_MEDIA_PLAYOUT_TRACE'] = '1'
+        os.environ['VEIL_MEDIA_DIAG_PATH'] = str(directory / 'playout-trace.log')
     log = (directory / 'native.log').open('w')
     os.dup2(log.fileno(), 2)
     fixture = media = engine = driver = policy = files = None
@@ -399,6 +403,8 @@ def main():
     parser.add_argument('--budget-smoke', action='store_true')
     parser.add_argument('--adaptive', action='store_true')
     parser.add_argument('--full-load', action='store_true')
+    parser.add_argument('--playout-trace', action='store_true',
+                        help='bounded native timing metadata in each owned worker directory')
     parser.add_argument('--load-kind', choices=['both', 'files', 'video'], default='both',
                         help='isolate a competitor; only both can qualify full contention')
     args = parser.parse_args()
@@ -425,6 +431,7 @@ def main():
               'duration_seconds': args.duration, 'rate_kbps': args.rate_kbps,
               'budget_smoke': args.budget_smoke,
               'adaptive': args.adaptive,
+              'playout_trace': args.playout_trace,
               'test_ptime_requested': os.environ.get('VEIL_MEDIA_TEST_GROUP_PTIME'),
               'sdk_sha256': hashlib.sha256(args.sdk.read_bytes()).hexdigest(),
               'media_sha256': hashlib.sha256(args.media.read_bytes()).hexdigest()}
@@ -473,7 +480,8 @@ def main():
         for participant in range(3):
             parent, child = context.Pipe()
             process = context.Process(target=worker, args=(child, str(args.sdk),
-                str(args.media), str(root), str(clock), participant, args.full_load, args.load_kind))
+                str(args.media), str(root), str(clock), participant,
+                args.full_load, args.load_kind, args.playout_trace))
             process.start()
             child.close()
             pipes.append(parent)
@@ -496,6 +504,12 @@ def main():
         origin = time.monotonic() + 2
         result['origin_monotonic'] = origin
         result['origin_unix_ms'] = int((time.time() + origin - time.monotonic()) * 1000)
+        # Observers can align optional external diagnostics without polling
+        # codec/IPC paths or moving the capture origin/deadline.
+        (root / 'capture-origin.json').write_text(json.dumps({
+            'monotonic': origin, 'unix_ms': result['origin_unix_ms'],
+            'parent_pid': os.getpid(), 'worker_pids': [p.pid for p in children],
+        }) + '\n')
         if fixture.shaper:
             fixture.shaper.rate_bps = args.rate_kbps * 1000
         for pipe in pipes:
@@ -541,7 +555,9 @@ def main():
         if args.full_load:
             result['files'] = [{'sender': (i - 1) % 3, 'receiver': i,
                 **worker['file_snapshot'],
-                'queued': result['workers'][(i - 1) % 3]['file_snapshot']['queued']}
+                'queued': result['workers'][(i - 1) % 3]['file_snapshot']['queued'],
+                'async_failures': result['workers'][(i - 1) % 3]['file_snapshot']['async_failures'],
+                'write_error': result['workers'][(i - 1) % 3]['file_snapshot']['write_error']}
                 for i, worker in enumerate(result['workers']) if 'file_snapshot' in worker]
             result['video_paths'] = [path for worker in result['workers'] for path in worker.get('video_paths', [])]
     except Exception:
