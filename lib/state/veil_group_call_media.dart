@@ -22,6 +22,7 @@ import 'call_bitrate_adapter.dart';
 import 'call_audio_receive_activity.dart';
 import 'call_audio_source_pressure.dart';
 import 'group_call_service.dart';
+import 'group_call_audio_adapter.dart';
 import 'mac_media_permissions.dart';
 import 'media_ffi.dart';
 
@@ -162,6 +163,9 @@ abstract interface class GroupAudioEngine {
   void setMicMuted(bool muted);
   int peerRxPackets(NodeId peer);
   Map<String, dynamic> getStats() => const {};
+  bool get supportsAudioBudget => false;
+  bool setAudioBudget({required int packetMs, required int payloadBps}) =>
+      false;
   bool setVideoBitrate({required int maxBitrateKbps, required num maxFps}) =>
       false;
   bool get supportsLowRateVideo => false;
@@ -223,6 +227,13 @@ class NativeGroupAudioEngine implements GroupAudioEngine {
 
   @override
   Map<String, dynamic> getStats() => _engine.getStats();
+
+  @override
+  bool get supportsAudioBudget => _engine.supportsAudioBudget;
+
+  @override
+  bool setAudioBudget({required int packetMs, required int payloadBps}) =>
+      _engine.setAudioBudget(packetMs: packetMs, payloadBps: payloadBps);
 
   @override
   bool get supportsLowRateVideo => _engine.supportsLowRateVideo;
@@ -329,6 +340,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   final Set<String> _expectedMediaPeers = {};
   bool? _sourcePressured;
   int? _lastAudioLatencyRecoveryCount;
+  GroupCallAudioAdapter? _audioAdapter;
   bool _sourceFeedbackPending = false;
   int _sourceFeedbackQueued = 0;
   int _sourceFeedbackSkipped = 0;
@@ -347,6 +359,13 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
           'local_source_pressured': _sourcePressured,
           'local_source_feedback_queued': _sourceFeedbackQueued,
           'local_source_feedback_skipped': _sourceFeedbackSkipped,
+          if (_audioAdapter case final adapter?)
+            'local_audio_budget': {
+              'packet_ms': adapter.target.packetMs,
+              'payload_bps': adapter.target.payloadBps,
+              'pending': adapter.pending,
+              'level': adapter.level,
+            },
         };
   DateTime? get debugNativeStatsAt => _latestNativeStatsAt;
   final Set<String> _expectedAudioPeers = {};
@@ -444,6 +463,13 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       await AndroidCallForegroundService.setActive(true);
     }
     await _syncPeersLocked(call);
+    if (call.media.audio && engine.supportsAudioBudget) {
+      _audioAdapter = GroupCallAudioAdapter();
+      if (_applyAudioBudget(engine, _audioAdapter!) == false) {
+        await _stopLocked();
+        return false;
+      }
+    }
     final audioReady = !call.media.audio || engine.startAudio();
     if (audioReady && call.media.audio) {
       await callAudioRouter.useDefaultFor(call.media);
@@ -766,6 +792,17 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       }
     }
     _reportSourcePressure(expected, stats, now, recovered: audioRecovered);
+    final audioAdapter = _audioAdapter;
+    if (audioAdapter != null) {
+      audioAdapter.observe(
+        stats,
+        now,
+        expectedPeers: _expectedMediaPeers.length,
+        sending: _audioEnabled && !_microphoneState.muted,
+        receiving: _hasExpectedIncomingAudio,
+      );
+      _applyAudioBudget(expected, audioAdapter);
+    }
     if (!_videoRunning) return;
     final adapter = _bitrateAdapter;
     if (adapter == null) return;
@@ -830,6 +867,24 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
 
   bool get _hasExpectedIncomingAudio =>
       _audioEnabled && _peers.keys.any(_expectedAudioPeers.contains);
+
+  bool? _applyAudioBudget(
+    GroupAudioEngine engine,
+    GroupCallAudioAdapter adapter,
+  ) {
+    try {
+      return adapter.applyPending(
+        (target) => engine.setAudioBudget(
+          packetMs: target.packetMs,
+          payloadBps: target.payloadBps,
+        ),
+        _now(),
+      );
+    } catch (error) {
+      devLog(() => 'xVeil[group-call-media]: audio retune unavailable: $error');
+      return false;
+    }
+  }
 
   void _reportSourcePressure(
     GroupAudioEngine engine,
@@ -1304,6 +1359,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     _sourcePressured = null;
     _sourceFeedbackQueued = 0;
     _lastAudioLatencyRecoveryCount = null;
+    _audioAdapter = null;
     _sourceFeedbackSkipped = 0;
     _expectedMediaPeers.clear();
     _peerAudioPlayoutPeers = 0;

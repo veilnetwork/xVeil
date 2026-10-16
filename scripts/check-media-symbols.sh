@@ -115,11 +115,10 @@ grep -rhoE "'veil_media_[a-z0-9_]+'" \
 
 printf 'veil_media_send_datagram\nveil_media_set_recv_callback\n' > "$tmp/sibling"
 
-# The packet-overhead lookup is nullable and setAudioPacketOverhead returns
-# false when absent. Rejecting a previously supported engine here prevents
-# bundling all call media, instead of letting that explicit fallback run.
-# Keep this exception narrow: required audio/video APIs still fail the gate.
-printf 'veil_media_engine_set_audio_packet_overhead\n' > "$tmp/optional"
+# Endpoint packet-overhead and group audio-budget lookups are nullable; their
+# setters return false when absent. Previously supported engines retain their
+# existing audio codec. Required audio/video APIs still fail the gate.
+printf 'veil_media_engine_set_audio_packet_overhead\nveil_media_group_engine_set_audio_budget\n' > "$tmp/optional"
 comm -13 "$tmp/exported" "$tmp/wanted" > "$tmp/unavailable"
 comm -23 "$tmp/unavailable" "$tmp/sibling" | comm -23 - "$tmp/optional" > "$tmp/missing"
 comm -12 "$tmp/unavailable" "$tmp/optional" > "$tmp/optional_missing"
