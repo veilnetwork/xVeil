@@ -1,5 +1,56 @@
 # Calls media handoff
 
+## 2026-10-16: release 0.11.41 / 0.13.86 complete; group audio work continues
+
+The release subtask is complete. Veil v0.11.41 is published from immutable
+source 2d7d3ed6 with 43 assets. Its source CI passes all six jobs, including
+6490 default tests and the additional feature, Windows, benchmark and devnet
+gates. Mobile CI passes eleven jobs with one intentional skip. hidden-volume
+has no edits and stays at v2.6.1 (46251ddf).
+
+The original Veil publish job failed because preparation used a bracket-style
+changelog heading while its extractor expects `## vVERSION —`. Recovery on
+branch release/recover-0.11.41 (workflow source 9a9243f2) checks out the original
+product tag, verifies its seven successful builds and their checksums, then
+signs/publishes the same artifacts with a compatible notes extractor. Recovery
+and its hygiene CI are successful. The old failed run remains historical; no
+product tag was moved. That branch is recovery-only and must NOT replace the
+default build/release workflow. The canonical heading is restored in a later
+local documentation commit.
+
+xVeil v0.13.86 is published from immutable source 19640228 with 12 assets.
+Final source CI passes 4/4 jobs and release CI 9/9; no unsuccessful intermediate
+steps are hidden by those green conclusions. Both source/release Dart runs
+pass 5519 tests with 132 intentional skips. The fresh engine-2026.10.16 cache
+contains all seven target binaries from Veil source 2d7d3ed6, with verified
+SHA-256 records and exactly 99 production exports each. Veil publication at
+02:36:45 UTC precedes xVeil publication at 03:41:00 UTC. The published macOS
+Veil CLI matches its checksum and reports 0.11.41. No relay deployment is part
+of this release cycle.
+
+Later research is committed on local main, outside these release tags, and
+has not been pushed: root 47f618d5/6e9dbfff/838c50ab/998a7f7f; SDK test hook
+88ce5c34 and heading fix 60ee1831. Temporary worktrees are removed. Every owned
+stand process and socket is verified closed.
+
+The full audio-priority goal remains ACTIVE. The process-isolated three-party
+baseline now measures each sender's actual capture separately from each
+receiver's mixed decoded PCM. A closed relay star enforces exact 3/1/1/1
+sessions and all sampled media routes. At the unchanged 1024-kbit FIFO limit,
+20-ms packets are NEGATIVE (six missing transitions, 630.049-ms peak); 40-ms
+packets PASS the audio-only timing gate (all 330 transitions, 190.040-ms peak);
+60-ms packets are NEGATIVE (55 ordinal misses and a sample above 200 ms).
+These are controlled test-only switches in the SAME instrumented engine,
+not a production adaptive policy. The 40-ms run still has drops and many
+recovery events; it is not speech-quality proof or completed video/file QoS.
+
+See doc/GROUP-PROCESS-PREFLIGHT.md for the complete retained negative/positive
+evidence and fixture ownership. Next: implement measured group audio adaptation
+with correct feedback/fanout and compatibility, then qualify all six voice
+paths, video and three complete encrypted files under the same link budget.
+Keep relay traffic opaque and neutral, preserve all negative evidence and
+retain the original timing, source coverage and complete-file criteria.
+
 ## 2026-10-16: release preparation and three-party preflight remains negative
 
 The draining-window guard in 5b8d37c7 rejects the recorded falling-latest
