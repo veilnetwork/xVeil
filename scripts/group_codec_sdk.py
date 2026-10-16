@@ -112,6 +112,7 @@ class GroupSdk:
             # The caller starts the measured rate only after bootstrap. Each
             # direction has one blind FIFO shared by all target connections.
         self.relay_id = str(identities[0]['node_id']).removeprefix('0x')
+        self.node_ids = [str(identity['node_id']).removeprefix('0x') for identity in identities]
         for index, identity in enumerate(identities):
             directory = self.root / str(index)
             lines = ['persist_enabled = false', '[global]',
@@ -120,11 +121,18 @@ class GroupSdk:
                      '[Identity]']
             lines += [key + ' = ' + json.dumps(identity[key]) for key in
                       ['algo', 'public_key', 'private_key', 'nonce', 'node_id']]
-            lines += ['[metrics]', 'listen = "tcp://127.0.0.1:0"',
+            lines += ['[pex]', 'enabled = false',
+                      '[metrics]', 'listen = "tcp://127.0.0.1:0"',
                       '[anonymity]', 'relay_capable = true', '[ipc]', 'enabled = true',
                       'socket_uri = ' + json.dumps('unix://' + str(directory / 'ipc.sock')),
                       '[[listen]]', 'id = "0x00000001"',
                       'transport = ' + json.dumps('quic://127.0.0.1:' + str(ports[index]))]
+            # The star is a test network topology, not merely its initial
+            # seed list. Otherwise PEX/DHT can create participant-to-participant
+            # sessions mid-capture and silently invalidate relay comparisons.
+            allowed = [1, 2, 3] if index == 0 else [0]
+            lines += ['visibility = "hidden"',
+                      'allowlist_node_ids = ' + json.dumps([self.node_ids[p] for p in allowed])]
             if self.shaper:
                 lines += ['advertise = ' + json.dumps('quic://127.0.0.1:' +
                                                     str(self.shaper.ports[index]))]
@@ -148,7 +156,7 @@ class GroupSdk:
                 try:
                     state = self.admin(index, 'sessions')
                     sessions = state.get('result', {}).get('sessions', [])
-                    if (len(sessions) >= (3 if index == 0 else 1) and
+                    if (len(sessions) == (3 if index == 0 else 1) and
                             all(row.get('state') == 'active' for row in sessions)):
                         (self.root / f'sessions-{index}.json').write_text(json.dumps(state))
                         break
@@ -202,6 +210,18 @@ class GroupSdk:
                         batching(channel, 2) != 0):
                     raise RuntimeError('Independent source setup refused')
         return self
+
+    def verify_topology(self):
+        counts = []
+        valid = True
+        for index in range(4):
+            state = self.admin(index, 'sessions')
+            (self.root / f'sessions-end-{index}.json').write_text(json.dumps(state))
+            sessions = state.get('result', {}).get('sessions', [])
+            counts.append(len(sessions))
+            valid &= (len(sessions) == (3 if index == 0 else 1) and
+                      all(row.get('state') == 'active' for row in sessions))
+        return {'verified': valid, 'active_session_counts': counts}
 
     def close(self):
         if self.closed:
