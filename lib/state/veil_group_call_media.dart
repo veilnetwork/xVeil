@@ -328,6 +328,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   final _sourcePressure = CallAudioSourcePressure();
   final Set<String> _expectedMediaPeers = {};
   bool? _sourcePressured;
+  int? _lastAudioLatencyRecoveryCount;
   bool _sourceFeedbackPending = false;
   int _sourceFeedbackQueued = 0;
   int _sourceFeedbackSkipped = 0;
@@ -729,6 +730,16 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     }
     _latestNativeStats = Map.unmodifiable(stats);
     _latestNativeStatsAt = now;
+    var audioRecovered = false;
+    final recoveries = stats['audio_latency_recovery_count'];
+    if (stats['worker_stalled'] == 0 && recoveries is int && recoveries >= 0) {
+      final previous = _lastAudioLatencyRecoveryCount;
+      audioRecovered =
+          _hasExpectedIncomingAudio &&
+          previous != null &&
+          recoveries > previous;
+      _lastAudioLatencyRecoveryCount = recoveries;
+    }
     _observeAudioPlayoutPeers(stats);
     if (stats['audio_rx_supported'] == 1) _supportsAudioReceiveStats = true;
     if (stats['audio_rx_native_age_supported'] == 1) {
@@ -754,7 +765,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         }, now);
       }
     }
-    _reportSourcePressure(expected, stats, now);
+    _reportSourcePressure(expected, stats, now, recovered: audioRecovered);
     if (!_videoRunning) return;
     final adapter = _bitrateAdapter;
     if (adapter == null) return;
@@ -771,6 +782,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
             _hasExpectedIncomingAudio && _supportsAudioReceiveAgeStats,
         audioReceiveDelayMs: _groupAudioReceiveDelay(stats),
         audioInterrupted: _audioInterrupted,
+        audioRecoveryObserved: audioRecovered,
         requirePeerAudioPlayout: _requirePeerAudioPlayout,
         peerAudioDelayMs: _groupPeerAudioDelay(stats),
         peerCurrentAudioDelayMs: _groupPeerAudioDelay(stats),
@@ -822,8 +834,9 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   void _reportSourcePressure(
     GroupAudioEngine engine,
     Map<String, dynamic> stats,
-    DateTime now,
-  ) {
+    DateTime now, {
+    required bool recovered,
+  }) {
     final sendExpected =
         _audioEnabled &&
         !_microphoneState.muted &&
@@ -855,6 +868,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       receiveDelayMs: channelsComplete ? _groupAudioReceiveDelay(stats) : null,
       receiveAgeMs: channelsComplete ? receiveQuality.ageMs : null,
       interrupted: _audioInterrupted,
+      recovered: recovered,
       audioLossReportUs: stats['audio_loss_report_us'],
       audioTxDrops: stats['audio_tx_rtp_drops'] is int
           ? stats['audio_tx_rtp_drops'] as int
@@ -1289,6 +1303,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     _sourcePressure.reset();
     _sourcePressured = null;
     _sourceFeedbackQueued = 0;
+    _lastAudioLatencyRecoveryCount = null;
     _sourceFeedbackSkipped = 0;
     _expectedMediaPeers.clear();
     _peerAudioPlayoutPeers = 0;
