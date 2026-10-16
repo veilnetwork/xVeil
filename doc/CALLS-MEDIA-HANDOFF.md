@@ -1,5 +1,57 @@
 # Calls media handoff
 
+## 2026-10-16: fresh-path pacing experiment fails; source reverted
+
+Fresh inspection of `group-target-runtime-profile-1024-360` confirms six new
+QUIC child setups during seconds 20-22. First three bindings complete at
+20.265/20.289/20.348 s, next three at 21.128/21.163/21.217 s. Ready snapshots
+report roughly 6-10 KiB of QUIC UDP payload accounting per child before its
+application sender is published. Three ML-KEM instance-certificate walks also
+complete at 20.370/20.384/20.432 s. Physical slot indices do not establish
+media roles; these observations do not apportion every startup wire byte.
+The full capture's bounded wire tail excludes startup. Generic eager pool
+preparation was considered but NOT implemented: its idle connection/battery
+cost, replacement reserve and real call/mid-call behavior require design and
+verification rather than benchmark-only prewarming.
+
+A separate prototype limits only a new path's unearned pacing credit to two
+MTUs. The original 12000-byte congestion window, refill rate and earned
+bucket capacity remain. A configurable zero default preserves vendored Quinn;
+Veil context uses two for both controllers and every local/transit path,
+without application classification or wire fields. The setting survives path
+migration/reset. This is distinct from the earlier failed small-CWND treatment.
+The new pacing test fails before credit limiting is applied (actual semantic
+RED, retained); the first workspace-package test command failed before testing
+because the vendored crate is excluded, then its direct manifest runs correctly.
+All 313 protocol tests pass. Targeted session/transport tests pass 45/10, plus
+one bootstrap test; eight PRE-EXISTING manual characterization tests stay
+ignored. Release FFI build passes, 190 C exports remain identical.
+
+`group-startup-pacing-combined-1024-60` is NEGATIVE: all 330 transitions match,
+audio-only peak 150.170 ms, combined peak 430.049 ms at source transition
+22.220 s. Video tails change 0/14/14/14/14/0; files receive only
+67584/67584/59392 bytes by the short immutable deadline. Do not infer a
+statistical improvement or regression from different individual captures.
+The experiment does not qualify or solve the startup peak. All clocks/rows,
+route assertions, exact 3/1/1/1 topology, worker/policy/node exits and independent
+PID/socket checks verify. No physical apps/audio or external relays changed.
+
+ALL four experimental source files are restored to SDK `a9961d4a`; no unused
+pacing API or changed default remains. Preserve the exact patch/binary/source
+manifest privately in `group-startup-pacing-sdk` (FFI SHA-256
+`0ccda86b9fdca3c4384d92cd375736f7866f8dc8444178a13b4383b3845bbe1a`),
+with `group-startup-pacing-combined-proof.json`, RED/GREEN/protocol/QUIC test
+logs and build log. Do not install the experimental raw target-cache binary.
+Use the explicitly frozen baseline FFI `64615683` for further controls.
+Next inspect actual production call setup and the existing unused local
+`SessionTxRegistry::{request_local_datagram_channel,local_datagram_channel_state}`
+readiness API. Any preparation must serve real callers, include mid-call
+video/screen enable, honor routing policies and connection/recovery bounds,
+and run through the same production path in the stand. Preserve all six PCM
+paths, startup samples, full file hashes and changing-video/deadline gates.
+The intermittent 11.8-second transport outage also remains unresolved.
+Audio goal ACTIVE; no push/release.
+
 ## 2026-10-16: long runtime profile does not reproduce the transport outage
 
 Follow-up `group-target-runtime-profile-1024-360` uses the same committed
