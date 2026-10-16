@@ -31,7 +31,8 @@ def worker(pipe, sdk_path, media_path, root, clock, participant):
     fixture = media = engine = driver = None
     rows, snapshots = [], []
     result = {'ok': False, 'pid': os.getpid(), 'participant': participant,
-              'primary_receivers_in_process': 1}
+              'primary_receivers_in_process': 1,
+              'test_ptime_requested': os.environ.get('VEIL_MEDIA_TEST_GROUP_PTIME')}
     try:
         fixture = GroupSdk(sdk_path, root, attach=True)
         handle, app, app_id = fixture.bind_app(participant, 'media', 0)
@@ -73,6 +74,12 @@ def worker(pipe, sdk_path, media_path, root, clock, participant):
         playout = mf('veil_media_test_group_playout_pcm', [P, P, C.c_size_t], C.c_int)
         stats = mf('veil_media_group_engine_get_stats', [P], P)
         free_string = mf('veil_media_free_string', [P], None)
+        try:
+            send_stats = mf('veil_media_test_group_audio_send_stats', [P], P)
+        except AttributeError:
+            send_stats = None
+        if result['test_ptime_requested'] is not None and send_stats is None:
+            raise RuntimeError('Packet-duration experiment requires its instrumented test engine')
         engine = create(identity)
         if not engine:
             raise RuntimeError('Synthetic group engine creation failed')
@@ -108,10 +115,19 @@ def worker(pipe, sdk_path, media_path, root, clock, participant):
                 if not value:
                     raise RuntimeError('Missing group statistics')
                 try:
-                    snapshots.append({'t': time.monotonic() - origin,
-                                      'stats': json.loads(C.string_at(value))})
+                    snapshot = {'t': time.monotonic() - origin,
+                                'stats': json.loads(C.string_at(value))}
                 finally:
                     free_string(value)
+                if send_stats:
+                    value = send_stats(engine)
+                    if not value:
+                        raise RuntimeError('Synthetic sender statistics unavailable')
+                    try:
+                        snapshot['sender'] = json.loads(C.string_at(value))
+                    finally:
+                        free_string(value)
+                snapshots.append(snapshot)
                 next_stats += 1
             time.sleep(min(.02, max(0, origin + duration - time.monotonic())))
         rows.extend(driver.stop())
@@ -159,6 +175,7 @@ def main():
     result = {'ok': False, 'participants': 3, 'separate_sdk_processes': True,
               'video_file_load': False, 'speech_listening_proof': False,
               'duration_seconds': args.duration, 'rate_kbps': args.rate_kbps,
+              'test_ptime_requested': os.environ.get('VEIL_MEDIA_TEST_GROUP_PTIME'),
               'sdk_sha256': hashlib.sha256(args.sdk.read_bytes()).hexdigest(),
               'media_sha256': hashlib.sha256(args.media.read_bytes()).hexdigest()}
     sources = ['group-process-preflight.py', 'group_codec_sdk.py',
@@ -237,6 +254,8 @@ def main():
         result['neutral_relay_route_verified'] = bool(hops) and all(
             hop == fixture.relay_id[:8] and ready == 'true' for hop, ready in hops)
         result['ok'] &= result['neutral_relay_route_verified']
+        result['end_topology'] = fixture.verify_topology()
+        result['ok'] &= result['end_topology']['verified']
     except Exception:
         (root / 'failure.txt').write_text(traceback.format_exc())
         result['failure_saved_privately'] = True
