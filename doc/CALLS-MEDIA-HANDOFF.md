@@ -1,5 +1,77 @@
 # Calls media handoff
 
+## 2026-10-17: origin work release passes the unchanged full contention gate
+
+Move spacing AFTER the relay frame assembler, into the origin session runner.
+Authenticated, rate-accepted `AppIpcLossyBatch` requests now receive bounded
+process-local cadence metadata, keyed by source/destination app, destination,
+endpoint and local lane. Track at most 64 entries. The first observed interval
+is 33 ms; later IPC receipt intervals cap at 100 ms, sub-2-ms drain bursts keep
+the previous interval, and idle/backward observations reset. This estimates
+local receipt cadence; it is not a claim to know camera capture cadence.
+Nothing is added to IPC layout or inter-node bytes, and a remote producer
+cannot request this local scheduling policy.
+
+Reserve the complete encrypted-envelope cost ONCE before releasing a member.
+Release times use each member's cost prefix, beginning at actual reservation.
+A scheduled wait restores the FIFO envelope and wakes the existing runner
+timer; it does not reject the frame, repeat credit, sleep in IPC, or hold an
+IPC handler permit. Both DATAGRAM and ordered compatibility paths enforce the
+schedule. Other local sources and neutral transit keep their own progress.
+The original daemon receipt + 200-ms deadline survives destination/handler
+waits, frame queueing and datagram driver handoff; expired work cannot acquire
+a new lifetime. The preexisting SDK/native freshness checks remain. This new
+daemon-stage bound does not establish an absolute 200-ms native-capture to
+receiver deadline across every preceding IPC stage.
+
+Eight type tests, two cadence tests and two real encrypted scheduler regressions
+cover whole-cost reservation, release retries, immutable expiry, bounded local
+history and independent source progress. The runtime tests distinguish actual
+payloads: audio and neutral transit pass between video members, and the rest
+resume without new producer input, on both carriers. The complete release
+suite passes: **576 session + 169 IPC + 141 bootstrap + 15 types = 901**;
+14 preexisting ignored cases remain ignored. No harness/stimulus/policy,
+transport window, startup allowance or audio quality threshold was changed.
+
+`group-source-work-pacing-360` passes the ORIGINAL full qualification:
+
+- 3 real SDK processes, neutral shared FIFO **1024 kbit/s**, full **360 s**;
+- six PCM directions, **2112** strict ordinal matches from capture start,
+  **zero** missing; audio-only peak **130.163 ms**, loaded peak **180.007 ms**;
+- three complete encrypted **524288-byte** files, SHA-256 all correct, by
+  **352.199 / 352.211 / 305.458 s** within the original immutable deadline;
+- all six decoded tails move: **14 / 13 / 14 / 13 / 14 / 14**;
+- exact clocks/rows, original QoS/deadlines, source copies, routes/topology
+  and independent cleanup all pass; all four node stops return zero, all
+  owned parent/helper/worker/policy PIDs are gone, remaining sockets zero.
+
+The tone peak occurs at source 2 -> receiver 0, capture **20.200008 s** /
+decoded **20.380015 s**. Its packet formation / encoded-to-NetEq / native-to-
+render join is **50.539 / 82.023 / 67.422 ms** (the tone lies inside a 60-ms
+packet; do not sum these as if it were the packet's first captured sample).
+Callback/drain handoffs are **7 / 6 microseconds**. No >=25-ms stage, aged-
+ingress or slow-dispatch record fires; 991 pressure records are present.
+Decoded latency recovery still discards **1160 / 1120 / 1010 ms** across each
+worker's two receivers over 360 s. Tone matching is not proof of continuous
+speech quality, and one passing capture is not proof against intermittent
+failures or statistical attribution of the baseline's 230-ms peak.
+
+Frozen FFI SHA-256:
+`70d27678ea8721d4bbacc18f181b35566b9925aaaf5674198e6addacdcaf6fa8`.
+All 196 exported symbols match the preceding artifact, including all 190
+`veil_` API exports. The native library remains `group-rtp-timing-native`
+(642ee4ee...), video 4x/25-ms pacing and canonical 24-kbit group policy intact.
+Private `source-work-pacing-sdk/{sdk.patch,build.json,source,exports.txt}` and
+`group-source-work-pacing-360-{proof,feedback-details,rtp-playout-details,
+scheduler-details}.json` retain exact provenance and diagnostics.
+
+Goal ACTIVE. Still required: recurrence checks, direct/fallback and late idle
+camera/screen preparation audit, unicast low-bitrate validation and current
+Mac/Android continuous-speech/video tests. ADB sees Blackview BV6600Pro at the
+end of this cycle; no physical app/call/camera/mic/speaker was started. No
+installation, server update, push, tag or release occurred.
+
+
 ## 2026-10-17: reject pacing before the relay frame assembler
 
 A native-pacer experiment confirms a real component mechanism. WebRTC's

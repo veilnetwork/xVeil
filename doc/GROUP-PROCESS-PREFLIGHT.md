@@ -1,5 +1,27 @@
 # Three-party group audio preflight
 
+## 2026-10-17: origin work pacing passes the original full gate
+
+`group-source-work-pacing-360` is measurement-valid and full-qualification
+PASS: 3 SDK processes, six PCM directions, neutral 1024-kbit/s FIFO, original
+360-s workload/deadline, 2112 strict ordinal matches / zero misses, audio-only
+peak 130.163 ms, loaded peak **180.007 ms**, moving tails 14/13/14/13/14/14.
+All three full encrypted 512-KiB hashes match by 352.199/352.211/305.458 s.
+Exact clocks/rows/QoS/deadlines, source copies and route/topology checks pass.
+Independent PID/socket checks prove complete cleanup; four node stops zero.
+
+The origin session runner spaces members AFTER whole-frame cost admission,
+using bounded local IPC receipt cadence and encrypted-envelope cost prefixes.
+Timers resume held members without input or IPC sleeps; original daemon
+receipt expiry survives queueing and transport handoff. Wire/IPC layout,
+neutral relay scheduling, native pacing and all fixture/codec policy inputs
+are unchanged. Both actual encrypted DATAGRAM and ordered compatibility tests
+prove other source progress. Relevant release suites: 901 pass, 14 preexisting
+ignored. See CALLS-MEDIA-HANDOFF.md for exact implementation, frozen binary
+provenance, limitations and remaining work. This one passing tone capture does
+not prove continuous speech quality or complete the audio/network goal.
+
+
 ## 2026-10-17: native pacing experiment rejected
 
 A real-pacer component test reduces a 5060-byte immediate burst to 2024 bytes
