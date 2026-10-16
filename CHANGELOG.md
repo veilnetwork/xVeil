@@ -6,6 +6,31 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.86] — 2026-10-16
+
+### Fixed
+
+- Bounded audio-buffer oscillations and measurements already draining from a
+  recent peak no longer trigger video degradation as sustained growth. Genuine
+  continued growth, the buffer ceiling and fresh audio loss retain protection.
+- Group calls discard stale decoded audio after delayed rendering. Fresh
+  recovery events reduce competing video once; cached counters cannot repeat
+  the reduction, and engine restarts establish a new baseline.
+
+### Diagnostics
+
+- Add a native three-party mixed-audio timing fixture and tests that detect
+  whole-period stale audio rather than reporting a misleading short delay.
+  Three-party SDK delivery qualification remains under investigation.
+
+### Known issue
+
+- Sustained audio-buffer growth and catch-up can still pause video under load.
+  The broader call-quality investigation is continuing.
+
+Native dependencies: veil 0.11.41, hidden-volume 2.6.1, and freshly rebuilt call
+engines from the matching Veil sources in `engine-2026.10.16`.
+
 ## [0.13.85] — 2026-10-15
 
 ### Changed
