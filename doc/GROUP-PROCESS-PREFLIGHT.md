@@ -167,6 +167,78 @@ Next qualify the six paths with production video/source policy and three
 complete encrypted files, retaining the frozen completion deadline, changing
 tail video and the unchanged 200-ms PCM timing bound.
 
+## Full process-isolated load: still NEGATIVE
+
+`scripts/group-codec-control.py` now forwards to the isolated implementation
+with `--adaptive --full-load` (360 seconds/1024 kbit/s by default). The previous
+single-process implementation is retained in Git and the historical evidence;
+it must not be used to claim six working directions. The full fixture adds real
+synthetic VP8 and one authenticated AES-GCM 512-KiB file per sender in a ring.
+File receipt callbacks reject fragments after the immutable deadline. Complete
+hashes, no duplicate/authentication/async errors, changing tail video, complete
+source/native clock coverage and all six PCM directions remain required.
+`--load-kind files|video` isolates a competitor and can never qualify the full
+workload. Those modes do not relax the both-mode gate.
+
+Private `group-full-process-baseline-60` is NEGATIVE: unrestricted, all 330
+audio transitions below 130.063 ms and all six video tails changing, but only
+165888/174080/172032 bytes of the three files arrive by 60 seconds. This is not
+relabeled a pass merely because the longer deadline below permits completion.
+
+`group-full-process-1024-360` is NEGATIVE under the unchanged blind 1024-kbit
+FIFO: all 2112 transitions match, but peak mixed decoded age reaches 490.095 ms
+after video/file start (audio-only peaks at most 170.112 ms). All three files
+complete with exact hashes at 353.270/353.202/353.344 seconds from origin; zero
+authentication errors, duplicates or async failures. All six tail images change.
+Native clocks have zero lost rows, deadline misses or callback failures. All
+routes and exact 3/1/1/1 topology verify. The wire trace is bounded: this long
+capture retains the last 100000 events, not its entire startup.
+
+This exposes a policy defect: fresh decoded catch-up cut the video ladder but
+was excluded from audio failure at its actual one-fps floor and from the video
+resume guard. Post-trim buffer values could therefore look healthy during
+continued real speech discard. The adapter now treats each fresh catch-up
+event as audio loss: isolated events still cannot immediately pause the floor;
+repeated events after actual floor frames can, and continuing discards cannot
+earn resume. Existing counter freshness/real-frame trial gates remain intact.
+154 focused Flutter tests and targeted analyzer pass. The former draining-buffer
+test now supplies only buffer samples, rather than also asserting seven real
+discard events; separate tests cover isolated and repeated discards.
+
+`group-full-discard-protection-1024-60` is still NEGATIVE. All three native
+senders actually pause by the 25-second sample, and two later attempt a sparse
+probe. Initial audio delay still reaches 480.041 ms; one path also fails ordinal
+matching (61 decoded vs 60 source transitions), which is retained, not realigned.
+Its incomplete files and missing video tails are not waived.
+
+Isolation confirms another problem. `group-files-only-1024-60` has all 330
+transitions but a 340.051-ms peak; `group-video-only-1024-60` has all 330 but
+a 440.033-ms peak. In both, initial audio-only peaks stay below 200 ms.
+Full, payload-blind wire traces cover these short captures and retain the exact
+monotonic origin. Before added load, offered traffic is about 625–630 kbit/s
+per direction. File startup reaches 959.7 kbit/s with a 163.6-ms queue peak;
+video startup reaches about 1180/1174 kbit/s and fills both 200-ms FIFO queues.
+Thus average bitrate/headroom does not prevent source bursts. These observations
+locate a remaining source pacing/startup problem; they do not yet prove which
+handshake, encoded frame or reliable write produces each burst.
+
+Next inspect whole-frame admission vs actual wire emission. Relevant SDK paths:
+`veil-session/src/runner.rs` reliable admission around `reliable_source.admit`,
+`local_source_activity.rs`, `reliable_frames.rs::write_frames`, and
+`veil-transport/src/reliable_records.rs`. Admission currently charges a whole
+frame's future time, while the reliable writer submits a whole encrypted record.
+Verify a packet-level treatment without double-charging, dropping committed
+bytes, changing FIFO/nonces, starving files or adding transit priority. Also
+measure native video startup/keyframe emission; nominal one-fps/8-kbit targets
+do not prove that their first wire burst is small. Preserve all negative evidence
+and rerun the original six-minute combined gate after correcting emission.
+
+All owned workers, policy processes, file threads and four nodes exit in every
+capture, with zero remaining sockets and independent PID checks. Four fixture
+unit tests verify complete payload hashes, late-fragment rejection, duplicate
+accounting and foreign/corrupt fragment rejection. No physical app, microphone
+or speakers were opened. No new SDK engine cache/release was published.
+
 ## Release handoff
 
 The pre-existing runtime fixes have Veil v0.11.41 published and xVeil

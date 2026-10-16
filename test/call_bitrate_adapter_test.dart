@@ -187,24 +187,82 @@ void main() {
   });
 
   test(
-    'planned catch-up lowers video without declaring the sparse floor failed',
+    'isolated catch-up cuts video without immediately failing the sparse floor',
     () {
       final a = direct();
       native(a, recovered: true);
       expect(a.level, 2);
       native(a, recovered: true);
       expect(a.level, 4);
-      for (var i = 0; i < 20; i++) {
-        native(a, recovered: true);
-      }
+      native(a, recovered: true);
       expect(a.audioReserve, isFalse);
-      native(a, interrupted: true);
-      native(a, interrupted: true);
+      native(a);
+      native(a, recovered: true);
+      expect(
+        a.audioReserve,
+        isFalse,
+        reason: 'a healthy sample breaks the streak',
+      );
+      native(a, recovered: true);
       expect(
         a.audioReserve,
         isTrue,
-        reason: 'real interruptions still protect audio',
+        reason: 'repeated decoded discards show the floor still harms audio',
       );
+    },
+  );
+  test('ongoing decoded catch-up cannot resume paused video', () {
+    final a = direct(level: 4);
+    native(a, recovered: true);
+    native(a, recovered: true);
+    expect(a.audioReserve, isTrue);
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter + 2; i++) {
+      native(a, recovered: true);
+      expect(a.audioReserve, isTrue);
+    }
+    for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
+      native(a);
+    }
+    expect(a.audioReserve, isFalse);
+  });
+  test(
+    'fresh local discards need actual floor frames but not a new peer report',
+    () {
+      final a = direct(level: 4);
+      for (var i = 0; i < 5; i++) {
+        native(
+          a,
+          peerSequence: 1,
+          recovered: true,
+          stats: {...healthy(), 'video_tx_frames': 1},
+        );
+      }
+      expect(a.audioReserve, isFalse);
+      native(
+        a,
+        peerSequence: 1,
+        recovered: true,
+        stats: {...healthy(), 'video_tx_frames': 2},
+      );
+      expect(a.audioReserve, isFalse);
+      native(
+        a,
+        peerSequence: 1,
+        recovered: true,
+        stats: {...healthy(), 'video_tx_frames': 3},
+      );
+      expect(
+        a.audioReserve,
+        isFalse,
+        reason: 'first proven failed floor sample',
+      );
+      native(
+        a,
+        peerSequence: 1,
+        recovered: true,
+        stats: {...healthy(), 'video_tx_frames': 4},
+      );
+      expect(a.audioReserve, isTrue);
     },
   );
   test(
@@ -260,7 +318,6 @@ void main() {
         peerDelay: 123,
         currentPeerDelay: 123,
         peerSequence: 1,
-        recovered: true,
       );
     }
     expect(a.audioReserve, isFalse);
