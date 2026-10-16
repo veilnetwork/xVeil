@@ -1,5 +1,84 @@
 # Calls media handoff
 
+## 2026-10-16: distinguish socket-read stalls from session queue delay
+
+The preceding measurement-valid `group-peer-recovery-360` log has stronger
+local evidence than its cumulative outbox maximum alone. Joining deterministic
+1/16 encrypted-UDP fingerprints yields 443 matched samples in the 108-121-s
+window, all with kernel receive timestamps. One 912-byte packet on local
+connection 73 is handed off at 116.164 s, reaches the receiving kernel around
+116.175400 s, but is logged at socket read at 116.315 s: approximately 11.4 ms
+to the kernel plus **139.6 ms waiting for user-space read**. Millisecond-floor
+log timestamps introduce <1-ms rounding, not a 140-ms ambiguity. Other paired
+packets in that window show up to about 91 ms before kernel arrival. These
+samples distinguish two different waits; do not label every pause as carrier
+loss or infer that this one reverse-direction packet proves the worst voice
+path's cause. `group-peer-recovery-360-peak-udp-pairs.json` preserves all pairs.
+
+SDK `e7a9ef57` opt-in session diagnostics measure wall time of synchronous ingress drain,
+maintenance/rekey, datagram drain and ordered drain, logging stages >=25 ms.
+A bounded per-runner window reports aged ingress before the priority queue,
+at most once per second. Existing source-pressure records include at most
+one header-only head per local queue (family, message, byte count and opaque
+carrier presence). Reliable-child dispatch now has the same >=25-ms slow
+handler coverage as canonical dispatch. No body, key, carrier ID, remote
+media role or scheduling privilege is exposed. All scheduling, admission,
+transport selection, source budgets, deadlines and packet formats remain
+unchanged; disabled probes do not sample clocks or allocate header strings.
+These probes narrow the next investigation; they are not a latency fix.
+
+Release tests: `cargo test --release -p veil-session -p veil-bootstrap --lib
+--features veil-bootstrap/production-seeds` with
+`CARGO_PROFILE_RELEASE_PANIC=unwind` passes **569 session + 141 bootstrap**
+tests (8 + 1 existing ignored). The release seed marker is necessary even
+for these local tests; selecting veil-session alone without the network marker
+fails the bootstrap compile guard, not a regression test. SDK production
+features remain node-embedded,packet-tunnel,tls-boring,production-seeds.
+Frozen `group-scheduler-trace-sdk` has FFI SHA-256
+`06b4e1a5a44e8a94f397151d912cd875983c36099d7073df39371bf97af8cc79`,
+exactly the prior 190 exports and a full three-file source patch against
+07a3e8d1. Native media stays the exact peer-recovery artifact (7e63b64e...);
+all harness, stimulus, production-policy inputs and 360-s deadlines stay fixed.
+
+`group-sched-trace-360` is **NOT measurement-valid for full qualification**:
+participant 1 captures 36002 ticks / 108006 rows instead of the required
+36001 / 108003. Participants 0 and 2 retain the exact counts. Keep the original
+count gate; do not trim the extra end tick or relax the verifier. All three
+clocks have zero late intervals, deadline misses, dropped rows or capture/
+playout failures, with maximum intervals 10.057/10.063/10.059 ms; the failure
+is the extra final tick, not evidence of a >25-ms device-clock pause. Observed
+2112 matched transitions / zero missing, audio-only 130.204 ms, loaded
+230.131 ms (source 2 -> receiver 1, transition 30.300 s / decoded 30.530 s),
+video tails 9/11/11/11/11/9, and three full correct 512-KiB hashes by
+352.121/352.269/352.040 s do NOT turn this into a valid full pass. Files have
+no auth/duplicate/missing/late/write/async failures. Retain the valid negative
+prior capture as the qualification evidence.
+
+Diagnostics were active (1013 source-pressure/head records), but no slow-stage,
+aged-ingress or slow-dispatch record fires anywhere in the new run. Deferred
+heads are principally this endpoint's paced reliable Forward records in the
+background queue, not proof of a neutral voice cell blocked behind a file.
+At the observed 30-s peak, 431 paired sampled UDP packets show up to 96 ms
+handoff-to-read, principally before kernel arrival; there is no newly increased
+>=25-ms outbox maximum in that window. Across the full immutable capture,
+13896 sampled pairs all have kernel timestamps; maximum kernel-to-read is
+10.375 ms, none >=25 ms. Thus the old ~140-ms socket-read episode did NOT
+reproduce, while an over-limit voice observation still occurs. Do not attribute
+the different observed peaks to the passive diagnostics. More than one wait
+still needs investigation, including the UDP endpoint/driver wakeup and locks,
+shared wire bursts, and original required independent direct-record/mid-call/
+physical-device scope. Primary source allocation is one physical child per
+local selector, not one per remote recipient; the current single-primary
+relative RTT observer cannot be declared broken merely by assuming recipient
+alternation. Actual source_data_delay probes fire in this run.
+
+`group-sched-trace-360-{proof,scheduler-details,feedback-details,
+udp-read-details}.json` and the frozen SDK manifest preserve these limits.
+Independent cleanup passes: parent, workers, policies and awake helper gone,
+all four node stops zero, file threads exited and no remaining sockets.
+No physical app/call/capture/speaker, installation, relay deployment, push or
+release was started. Goal ACTIVE.
+
 ## 2026-10-16: per-receiver decoded-loss feedback; long contention still fails
 
 SDK `07a3e8d1` attributes intentional decoded-audio discards to the
