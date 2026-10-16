@@ -1,5 +1,24 @@
 # Three-party group audio preflight
 
+## 2026-10-17: unchanged repeat also qualifies
+
+`group-source-work-pacing-repeat-360` again passes the ORIGINAL full gate with
+the same frozen FFI/native hashes: six PCM directions, 2112 ordinal matches /
+zero misses, audio-only peak 130.165 ms, loaded **190.070 ms**, six moving tails
+14/14/13/14/13/14. All full encrypted 512-KiB hashes match by
+344.259/339.459/333.674 s before the immutable 360-s deadline. The same neutral
+1024-kbit/s FIFO, exact clocks/rows/QoS/deadlines, source copies, routes/topology
+and complete independent PID/socket cleanup verify. Do not generalize two
+passing tone captures into physical speech-quality proof.
+
+A separate real-QUIC regression confirms that camera/screen children can
+actually expire over 35 real seconds, reopen separately and deliver while the
+original primary connection continues. All 865 primary packets arrive without
+duplicates/reordering, send-to-receive peak 71.762 ms, and teardown closes all
+owned children. This does not measure audio coding/playout or prove the first
+cold keyframe survives; see CALLS-MEDIA-HANDOFF.md for scope and remaining work.
+
+
 ## 2026-10-17: origin work pacing passes the original full gate
 
 `group-source-work-pacing-360` is measurement-valid and full-qualification

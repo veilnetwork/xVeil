@@ -1,5 +1,60 @@
 # Calls media handoff
 
+## 2026-10-17: second full contention pass and real idle-child audit
+
+Repeat the exact frozen `source-work-pacing-sdk` binary with the same retained
+native library and canonical root policy. `group-source-work-pacing-repeat-360`
+is again measurement-valid and FULL PASS: six directions, **2112** ordinal
+matches / **zero** missing, audio-only **130.165 ms**, loaded **190.070 ms**.
+All three complete encrypted **524288-byte** files have correct hashes by
+**344.259 / 339.459 / 333.674 s** within the ORIGINAL immutable 360-s deadline.
+Six decoded tails move: **14 / 14 / 13 / 14 / 13 / 14**. The original 1024-kbit/s
+neutral FIFO, exact clocks/rows/QoS/deadlines, harness/stimulus/source copies,
+routes/topology and independent cleanup all verify. Four node stops zero;
+all owned parent/helper/worker/policy PIDs and sockets are gone. This is the
+second consecutive pass of the same treatment, not proof against every
+intermittent physical-network failure.
+
+Peak source 2 -> receiver 0: capture **124.230009 s** / decoded **124.420079 s**.
+Its exact first-encoder-input / encoded-to-NetEq / native-to-render join is
+**50.476 / 85.661 / 53.872 ms**; native callback/drain **28 / 20 microseconds**.
+Latency recovery discards **960 / 1100 / 880 ms** across each worker's two
+receivers over 360 s. Preserve these counters: passing tone positions does
+not establish uninterrupted or intelligible continuous speech. Private repeat
+`proof`, `rtp-playout-details`, `scheduler-details` and `feedback-details` JSON
+retain the full evidence; the FFI/native hashes are unchanged from above.
+
+Audit the late camera/screen lifecycle without adding keepalive traffic or
+changing the browser-like 30-s QUIC idle limit. The SDK prepares sources at
+open; later real source selection uses `ParallelSession::prepare_frame` to
+warm a closed child, and negotiated cold sources cannot enter the parent's
+congestion state. A new real-TLS/QUIC regression keeps primary packets flowing
+through **35 actual seconds**, with ordinary parent heartbeat, leaving camera
+and screen idle. It requires that BOTH unused children really close before
+reopening them, within the existing five-second preparation budget. Their new
+TLS channel bindings must differ from their old bindings and the continuously
+retained primary binding. Actual camera/screen payloads must reach the peer.
+
+The regression passes: **865 primary packets**, no loss/duplicate/reordering,
+maximum send-to-receive **71.762 ms** including the late-source interval.
+Audio's original authenticated connection remains unchanged. Both children
+reopen and deliver, and all owned child handles close at teardown. The prior
+screen-close/signaling/DATA isolation test also passes after sharing fixture
+setup. The preceding production suite remains 901 passing tests; this new
+case and the refactored existing case were explicitly run. This is transport
+coverage, not PCM/speech proof. Cold source packets are still intentionally
+withheld/dropped until an independent child is ready; the test does not claim
+the host awaits readiness before capture or that the first late keyframe is
+preserved. Current production code and frozen binaries are unchanged in this
+cycle; only the regression and documentation change.
+
+Goal ACTIVE. Next validate the unicast Opus/ANA floor and current Mac/Android
+speech/video, including late capture and route changes. Blackview remains
+attached but its installed app is **0.13.85 (4603)**, stopped; do not confuse
+that installation with the frozen SDK candidate tested here. No physical app,
+camera/mic/speaker, installation, deployment, push or release occurred.
+
+
 ## 2026-10-17: origin work release passes the unchanged full contention gate
 
 Move spacing AFTER the relay frame assembler, into the origin session runner.
