@@ -562,20 +562,23 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         peerAudioDelayMs: _groupPeerAudioDelay(stats),
         requirePeerAudioPlayout: _requirePeerAudioPlayout,
       );
-      if (adapter.applyPendingPause(engine.setVideoSendPaused) == false) {
+      // Mount while transmission is paused: an older engine may reject the
+      // cold budget and need its retry immediately after start.
+      if (!engine.setVideoSendPaused(true)) {
         return false;
       }
     }
-    final ready = engine.startVideo();
-    if (!ready) return false;
-    _videoRunning = true;
-    _cameraEnabled = startCamera;
     adapter.applyPendingTarget(
       (target) => engine.setVideoBitrate(
         maxBitrateKbps: target.maxBitrateKbps,
         maxFps: target.maxFps,
       ),
     );
+    final ready = engine.startVideo();
+    if (!ready) return false;
+    _videoRunning = true;
+    _cameraEnabled = startCamera;
+    _applyVideoPolicy(engine, adapter);
     await callAudioRouter.setRoute(CallAudioRoute.speaker);
     _frameTimer ??= Timer.periodic(
       const Duration(milliseconds: 33),
@@ -970,9 +973,9 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     if (applied == false) {
       // Keep the old encoder budget off the new fanout while the worker is
       // busy. The stats poll retries the budget before releasing this pause.
-      engine.setVideoSendPaused(true);
+      if (engine.supportsVideoSendPause) engine.setVideoSendPaused(true);
       adapter.invalidateAppliedState();
-    } else {
+    } else if (engine.supportsVideoSendPause) {
       adapter.applyPendingPause(engine.setVideoSendPaused);
     }
   }
