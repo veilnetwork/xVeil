@@ -1,5 +1,85 @@
 # Calls media handoff
 
+## 2026-10-16: earlier DATA-only transport guard and urgent decoded recovery
+
+The current candidate keeps source isolation and neutral relays. A sustained
+relative RTT increase on an authenticated local primary connection now restrains
+only this endpoint's ordered DATA, before the older absolute/loss/playout
+pressure path. The minimum observed RTT is per connection ordinal, reset after
+an idle gap or ACK counter reset. The threshold is max(20 ms, baseline/4), with
+at least three changed authenticated ACK snapshots spanning 100 ms. Cached
+snapshots cannot fill the window or renew the two-second DATA pressure lease.
+Stable 120-ms RTT is covered independently. Existing DATA byte debt and neighbor
+turns remain; video, signaling, recovery RPCs and neutral transit do not consume
+this new lease. The sparse optional diagnostic includes its own UNIX clock.
+
+Final Rust verification passes 83 focused tests, with one pre-existing ignored
+experimental matrix. Coverage includes independent physical signaling/DATA
+connections, cross-neighbor primary protection, normal transit, ten-second
+video/file delivery, tracker freshness/reset/idle, and DATA-only pressure/debt.
+The release FFI build passes. Private logs: `group-data-delay-final-tests.log`,
+`group-data-delay-final-ffi-build.log`.
+
+The first isolated prototype capture `group-files-data-delay-1024-60` remains
+NEGATIVE. Its loaded phase matches all 240 transitions below 140.213 ms, compared
+with 350.047 ms in the earlier split-reply capture; this single observation does
+not establish a statistically repeatable improvement. The audio-only phase has
+a 260.079-ms peak. All 330 transitions match overall, clocks/rows/routes/topology
+verify, workers/policies/four nodes stop, and independent PID/socket checks pass.
+No file finishes in the short 40-second loaded phase. Preserve this failure.
+Private `group-data-delay-file-proof.json` identifies the prototype binary and
+its pre-clock diagnostic limit; `group-data-delay-sdk` retains its source.
+
+Offline ordinal matching localizes every audio-only path's worst transition to
+5.05 seconds. Actual encoder snapshots show 32-kbit/s startup, a first decoded
+catch-up cut to 24 kbit/s at about 2 seconds, then another cooldown before
+16 kbit/s at about 5 seconds. New decoded catch-up now takes two budget rungs;
+isolated loss still takes one. It preserves native apply/failed-retune gating,
+cached/reset counters, recovery evidence and cooldown. The new regression fails
+on old source (24 rather than 16 kbit/s); all 17 adapter tests and targeted
+analysis pass. The reset test restores a rung before resetting counters so it
+cannot pass vacuously at the floor. Timing diagnostics now retain the exact
+source/decoded times and ordinal of each phase's maximum without changing
+matching, counts, limits or qualification; three existing timing tests pass.
+
+`group-data-delay-combined-1024-360` uses the final diagnostic and actual
+updated Dart controller, unchanged 1024-kbit blind FIFO, six PCM paths, VP8
+and three encrypted 512-KiB files. It is NEGATIVE: all 2112 transitions match,
+audio-only peak 160.087 ms, combined peak 480.049 ms at source transition
+21.210 s (source 0 -> receiver 1). Every file passes its complete SHA-256 at
+the actual receive callback before the immutable deadline: 338.016, 343.339
+and 280.075 seconds, with zero missing/corrupt/duplicate/late fragments or
+async send failures. This verifies file progress, not the full audio goal.
+
+All six video paths fail the changing-tail gate. Actual sender samples show
+243-292 of the 340 loaded samples paused, repeated resume/pause cycles, and
+48/99/51 total logical video frames; this is not established as a camera crash.
+Receiver native recovery counters reach 2289/2356/2393 and report about
+29.95/30.29/31.00 seconds of discarded decoded audio across their two peers.
+Matching all tone transitions therefore cannot establish continuous speech
+quality. Inspect why native NetEq repeatedly refills beyond the 120-ms bound
+in `flutter/veil_media/src/veil_playout_recovery.h`, alongside target delay,
+40-ms packet framing and repeated video holds. Resume already calls
+GenerateKeyFrame in `veil_media_engine.cc`; do not assume that call is missing.
+Do not remove real recovery protection just to make the video-tail gate green.
+
+Worst startup audio is at seconds 21-22 with video/channel activation. Further
+loaded peaks remain 250.046 ms (seconds 25-60), 300.114 ms (60-180) and
+240.077 ms (180-360), so do not blame only handshake or exclude startup.
+The next source work must address the initial physical/video work burst and
+the sustained decoded-recovery loop without relay priority or weaker gates.
+
+All clocks/capture rows/routes/topology verify. Three workers, three policies,
+the parent/resource tracker and four nodes are independently gone; zero sockets
+remain. Final library SHA-256 is
+`6461568339ce8362c3b5b7d1d3c172a2b63483332baacb5929aa2cf5a15483b5`.
+Private `group-data-delay-final-sdk` retains source/patch/hash; verification is
+`group-data-delay-combined-proof.json`. Wire metadata is bounded: 214068 events
+were observed but only the last 100000 rows retained; do not claim full initial
+packet attribution from that tail. All negative evidence is preserved, no
+physical app/speakers/microphone used, no push/release. Audio goal ACTIVE.
+
+
 ## 2026-10-16: wait for route AND key; steady file congestion remains NEGATIVE
 
 A second route-discovery race is reproduced independently: the small signed

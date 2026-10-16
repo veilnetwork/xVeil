@@ -110,6 +110,10 @@ class GroupCallAudioAdapter {
           (_lastDownAt == null ||
               now.difference(_lastDownAt!) >= pressureCooldown)) {
         _level++;
+        // Decoded catch-up means audio was already queued too long. Take
+        // two rungs now instead of carrying that overload through another
+        // cooldown; isolated loss still takes one measured step.
+        if (recovered && _level < _budgets.length - 1) _level++;
       }
       return;
     }

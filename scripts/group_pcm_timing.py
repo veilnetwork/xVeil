@@ -28,7 +28,7 @@ def analyze_voice_path(rows, duration, captures=None):
             pending, run = None, 0
     phases = []
     for lo, hi, name in [(5, 20, 'audio-only'), (20, duration, 'audio-video-file')]:
-        delays, missing = [], 0
+        delays, missing, peak = [], 0, None
         for ordinal, (at, frequency, _) in enumerate(edges):
             if not lo <= at < hi:
                 continue
@@ -37,7 +37,11 @@ def analyze_voice_path(rows, duration, captures=None):
                 missing += 1
             else:
                 delays.append((decoded[ordinal][0] - at) * 1000)
+                if peak is None or delays[-1] > peak['delay_ms']:
+                    peak = {'source_at_seconds': at,
+                            'decoded_at_seconds': decoded[ordinal][0],
+                            'ordinal': ordinal, 'delay_ms': delays[-1]}
         phases.append({'phase': name, 'matched': len(delays), 'missing': missing,
-                       'max_ms': max(delays, default=None)})
+                       'max_ms': max(delays, default=None), 'peak': peak})
     return {'phases': phases, 'source_edges': len(edges),
             'decoded_edges': len(decoded), 'matching': 'ordinal_from_capture_start'}
