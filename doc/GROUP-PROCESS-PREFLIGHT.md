@@ -239,6 +239,68 @@ unit tests verify complete payload hashes, late-fragment rejection, duplicate
 accounting and foreign/corrupt fragment rejection. No physical app, microphone
 or speakers were opened. No new SDK engine cache/release was published.
 
+## Cold video and local startup telemetry: still NEGATIVE
+
+Capture origins now include UNIX milliseconds as well as the monotonic clock;
+each statistics sample records its observation time before the native read.
+Local startup diagnostics include the peer and physical pool slot, handshake
+and binding elapsed time, UDP byte counts, PTO and losses. Slots may be assigned
+to source or transit resources; never infer media roles from their numbers.
+Group RTP counters count attempted peer copies, including padding and rejected
+copies. `video_tx_rtp_queued` means local queue acceptance, not delivery.
+
+`group-video-startup-trace-1024-60` is NEGATIVE: a 390.071-ms known peak and
+one ordinal mismatch remain. Initial source connects complete QUIC in 57–73 ms
+with 6126 outbound/2448 inbound bytes before application data; binding takes
+174–214 ms and reaches 7909/4235 bytes. Four further physical connections begin
+about 20.37–20.40 seconds after origin. Their binding takes 530–2464 ms. In
+contrast, the first per-sender video sample has one frame, 1490 RTP payload
+bytes and 2040 padding bytes across its copies, with zero local RTP rejections.
+This identifies significant startup overhead, not an exact packet attribution.
+
+A generic 2400-byte initial congestion-window experiment is rejected:
+`group-video-small-cwnd-1024-60` matches all 330 transitions but peaks at
+490.024 ms. The production transport parameters and treatment-only test were
+restored. Private `group-small-cwnd-rejected-sdk` retains its patch and binary;
+this failed treatment is not current source or a claimed quality fix.
+
+The fractional native video budget can now prepare the next sender before its
+first encoded frame; the controller mounts paused and retries after start if an
+older engine rejects preparation. The legacy integer setter keeps its previous
+stopped-state error and restart defaults. Native regression checks actual first
+encoder output under 8 kbit/s and consumption of the one-shot preparation.
+The fixture uses the same preparation and retains its older-library fallback.
+
+`group-video-cold-budget-1024-60` is NEGATIVE: all 330 transitions match, peak
+380.069 ms; all three engines acknowledge preparation. First sampled encoder
+targets are 7840 bps, with 510 padding bytes per sender, rather than the earlier
+2040. Reducing initial video padding does not remove the startup congestion.
+All six tails change and all worker/node exits, clocks, routes and zero remaining
+sockets verify. 156 focused Flutter tests, targeted analysis and the complete
+native call-plane suite pass, including legacy stopped-state rejection and
+cold-budget encoding/restart. Production has 100 exports, zero test hooks,
+and passes the Dart symbol gate; private instrumentation has 131 exports.
+Private verification: `group-cold-video-verification.json`.
+
+The earlier reliable-writer hypothesis is not established for the file fixture:
+its file fragments use canonical Delivery forwarding, with packet-sized local
+admission, rather than the new reliable child writer. RPC outbox requests already
+use the local network-control lane. Inspect certificate-resolution requests and
+their remote response amplification alongside physical connection startups;
+do not patch an unused writer or prewarm only the fixture to move the burst out
+of the measured interval. Gates, deadlines and relay neutrality stay unchanged.
+
+The fresh `group-files-startup-peer-1024-60` is also NEGATIVE: all 330
+transitions match, peak 300.143 ms (one audio-only sample is 200.065 ms).
+There are no new child connection starts during seconds 19–25. Traffic during
+20–20.45 seconds reaches about 1082/1042 kbit/s, queues 81/122 ms, before the
+first file data admission at 20.457 seconds. Certificate resolution completes
+at 20.456–20.495 seconds. Thus this file-start burst precedes file data and
+is independent of video's new handshakes. Exact control request/response byte
+attribution remains open. All owned worker/policy PIDs are independently gone,
+four node stops return zero and zero sockets remain. Private verification:
+`group-files-startup-peer-verification.json`.
+
 ## Release handoff
 
 The pre-existing runtime fixes have Veil v0.11.41 published and xVeil
