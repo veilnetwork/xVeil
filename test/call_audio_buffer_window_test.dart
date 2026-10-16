@@ -75,6 +75,17 @@ void main() {
     expect(window.observe(73), isFalse);
   });
 
+  test('a falling newest sample cannot confirm the older window ascent', () {
+    final window = CallAudioBufferWindow();
+    for (final value in [80, 80, 88, 101, 128]) {
+      window.observe(value);
+    }
+    expect(window.observe(110), isFalse);
+    expect(window.growing, isFalse);
+    // A subsequent fresh ascent remains evidence of real pressure.
+    expect(window.observe(130), isTrue);
+  });
+
   test(
     'cached reports retain confirmed growth until fresh stable reports clear it',
     () {

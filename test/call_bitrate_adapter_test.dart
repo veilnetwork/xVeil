@@ -251,6 +251,27 @@ void main() {
     expect(a.audioReserve, isFalse);
   });
 
+  test('a draining audio sample cannot falsely fail the one-fps trial', () {
+    final a = direct(level: 4);
+    for (final delay in [80, 80, 88, 101, 128, 110, 130]) {
+      native(
+        a,
+        stats: {...healthy(), 'audio_delay_ms': delay},
+        peerDelay: 123,
+        currentPeerDelay: 123,
+        peerSequence: 1,
+        recovered: true,
+      );
+    }
+    expect(a.audioReserve, isFalse);
+    expect(a.target.maxFps, 1.0);
+    expect(
+      a.audioBufferPressure,
+      isTrue,
+      reason: 'the subsequent fresh rise still protects audio',
+    );
+  });
+
   for (final level in [0, 4]) {
     test('cached peer growth cannot repeat a video cut at level $level', () {
       final a = direct(level: level);

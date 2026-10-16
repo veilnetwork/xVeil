@@ -46,11 +46,14 @@ class CallAudioBufferWindow {
       // Require the entire recent range above the earlier peak, rather than
       // treating an overlapping oscillation as a new backlog and shedding
       // otherwise healthy video.
+      // A newest sample already draining from the preceding peak cannot
+      // confirm that older ascent, even if it remains above the old range.
       _growing =
           after - before >= growthMs &&
           delayMs - before >= growthMs &&
           delayMs - earlier.last >= growthMs &&
           recent.first > earlier.last &&
+          delayMs >= _delays[samples - 2] &&
           delayMs > _delays[samples - 3];
     }
     return delayMs >= ceilingMs || _growing;
