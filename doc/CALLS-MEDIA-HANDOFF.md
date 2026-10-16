@@ -1,5 +1,38 @@
 # Calls media handoff
 
+## 2026-10-16: live group Opus adaptation passes the audio-only preflight
+
+Progress on the ACTIVE audio-priority goal, after the completed release below.
+Veil adds an optional live group audio-budget API; xVeil applies measured
+fresh-feedback adaptation even in audio-only groups. Defaults retain full
+32-kbit payload with 40-ms framing; congestion steps down to 24/16 kbit, and
+room-wide fresh healthy feedback permits recovery to 20-ms framing. Native
+reconfiguration preserves the sender, RTP timeline, microphone and receivers;
+held video queues do not block it. Old engines keep their codec via an explicit
+optional lookup and ABI fallback. No relay priority, media hints or fake BWE.
+
+Process-isolated `group-budget-live-60` passes all 330 transitions on six
+paths, peak 80.227 ms, with five real codec changes per sender and continuous
+RTP origin/sequence/timestamps. Held audio rejects in 20.3 ms without a later
+mutation; held video allows retunes in under 0.2 ms. The actual production Dart
+policy then passes `group-adaptive-audio-1024-60` under the unchanged 1024-kbit
+blind FIFO: all 330 transitions, peak 170.057 ms, all senders at 40-ms/16-kbit
+by about six seconds. There are still 61 FIFO drops and decoder recoveries.
+These results prove the bounded audio-only timing case, not speech quality or
+full video/three-file contention. See doc/GROUP-PROCESS-PREFLIGHT.md.
+
+Focused Flutter tests pass 63 cases; targeted analysis and the complete native
+call-plane suite pass. The decoded group backlog regression still passes
+(168.047-ms fresh marker, zero fallback). Production exports 100 functions and
+zero test hooks, private instrumentation 131. Published 99-export engine cache
+and release tags remain unchanged. All owned workers, policy processes and
+four nodes are closed, independently verified; zero sockets remain.
+
+Next: extend the isolated fixture with production video/source policy and
+three complete encrypted files; preserve the immutable completion deadline,
+six-path capture coverage, changing video tail and 200-ms PCM age bound.
+Private evidence: group-audio-control-verified.json and the two named captures.
+
 ## 2026-10-16: release 0.11.41 / 0.13.86 complete; group audio work continues
 
 The release subtask is complete. Veil v0.11.41 is published from immutable
