@@ -14,8 +14,13 @@ is progress on false pressure, not a claim that all image pauses are fixed.
 
 Private AOT build 2603 packages the current group catch-up engine on both
 Android and macOS. The two-minute physical call completed and both owned apps
-are verified stopped. Its raw traces remain pending analysis; do not infer
-continuous speech quality or a completed group qualification from that run.
+are verified stopped. Analysis now confirms zero policy cuts and zero sampled audio interruption
+counters. During video, sampled rendering medians are 29.56 fps on Mac and
+29.41 fps on Android with no zero-rate intervals. Complete render traces cover
+12,115/12,115 and 12,158/12,158 observations respectively. Steady buffer peaks
+are 68/77 ms; full-capture peaks are 93 ms on both. These are ambient-sound
+and native timing observations, not continuous-speech listening proof or a
+completed physical group qualification.
 
 The new scripts/group-codec-control.py is an experimental three-party fixture:
 four owned SDK nodes, six remote Opus paths, VP8 and three encrypted files.
@@ -25,9 +30,11 @@ stale audio. Unit tests cover the six paths and stale-audio detection.
 
 The unrestricted 40-second preflight group-preflight-40 is NEGATIVE: three of
 six audio paths receive nothing. All four nodes stop with status zero and no
-sockets remain. The process-global inbound cipher/receiver selection is under
-investigation; this is not yet established as a defect between independent
-physical devices. Preserve this failed evidence and first fix/validate basic
+sockets remain. Source inspection confirms the process-global RECV callback
+map is keyed only by remote node: multiple local SDK participants in this one
+fixture process replace each other's registrations to a shared remote node.
+This explains the observed three-of-six pattern; it does not establish failed
+delivery between independent physical app processes. Preserve this failed evidence and first fix/validate basic
 delivery before running the shaped three-party load. The fixture is not a
 release qualification gate and is not used to assert successful group QoS.
 
