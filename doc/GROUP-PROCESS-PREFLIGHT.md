@@ -125,7 +125,9 @@ the original full video/three-encrypted-file workload at the same link budget.
 
 The pre-existing runtime fixes have Veil v0.11.41 published and xVeil
 v0.13.86 tagged, with immutable product sources 2d7d3ed6 and 19640228.
-At this handoff, xVeil packages and the remaining Veil CI jobs are still pending.
+Final verification confirms Veil source CI 6/6, mobile 11 passed/1 skipped,
+recovery publication/hygiene successful, xVeil source CI 4/4 and release 9/9.
+Veil has 43 published assets and xVeil 12; their tag sources are unchanged.
 hidden-volume remains unchanged at v2.6.1. These later process-fixture and
 packet-duration experiments are local research commits, outside those tags.
 No production adaptive group-packet policy has been shipped by this experiment.
