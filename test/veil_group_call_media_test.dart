@@ -63,6 +63,77 @@ Map<String, dynamic> _sourceStats(List<NodeId> peers, {int delay = 100}) => {
 
 void main() {
   test(
+    'audio-only group applies confirmed Opus budgets and resets per call',
+    () {
+      fakeAsync((clock) {
+        final self = _id(1), peer = _id(2);
+        final engine = _FakeEngine(supportsAudioBudget: true)
+          ..stats = {
+            ..._sourceStats([peer]),
+            'audio_latency_recovery_count': 0,
+          };
+        final controller = VeilGroupCallMediaController(
+          _FakeTransport(self),
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          requestMicrophone: () async => true,
+          now: () => DateTime(2026, 10, 16).add(clock.elapsed),
+        );
+        controller.start(_call(self, [peer]));
+        clock.flushMicrotasks();
+        expect(engine.audioBudgets.single, (packetMs: 40, payloadBps: 32000));
+        clock.elapse(const Duration(seconds: 2));
+        engine.acceptAudioBudget = false;
+        engine.stats = {...engine.stats, 'audio_latency_recovery_count': 1};
+        clock.elapse(const Duration(seconds: 1));
+        expect(engine.audioBudgets, hasLength(1));
+        expect(
+          (controller.debugNativeStats['local_audio_budget'] as Map)['pending'],
+          isTrue,
+        );
+        engine.acceptAudioBudget = true;
+        clock.elapse(const Duration(seconds: 1));
+        expect(engine.audioBudgets.last, (packetMs: 40, payloadBps: 24000));
+        clock.elapse(const Duration(seconds: 5));
+        expect(engine.audioBudgets, hasLength(2));
+        engine.stats = {...engine.stats, 'audio_latency_recovery_count': 2};
+        clock.elapse(const Duration(seconds: 1));
+        expect(engine.audioBudgets.last, (packetMs: 40, payloadBps: 16000));
+        controller.stop();
+        clock.flushMicrotasks();
+        controller.start(_call(self, [peer]));
+        clock.flushMicrotasks();
+        expect(engine.audioBudgets.last, (packetMs: 40, payloadBps: 32000));
+        clock.elapse(const Duration(seconds: 2));
+        expect(engine.audioBudgets, hasLength(4));
+        controller.stop();
+        clock.flushMicrotasks();
+      });
+    },
+  );
+
+  test(
+    'failed initial audio budget closes channels before capture starts',
+    () async {
+      final self = _id(1), peer = _id(2);
+      final transport = _FakeTransport(self);
+      final engine = _FakeEngine(supportsAudioBudget: true)
+        ..acceptAudioBudget = false;
+      final controller = VeilGroupCallMediaController(
+        transport,
+        roomMediaSecret: _room(),
+        engineFactory: (_) => engine,
+        requestMicrophone: () async => true,
+      );
+      expect(await controller.start(_call(self, [peer])), isFalse);
+      expect(engine.started, 0);
+      expect(transport.closed, isNotEmpty);
+      expect(controller.debugNativeStats, isEmpty);
+      await controller.stop();
+    },
+  );
+
+  test(
     'group decoded catch-up cuts video once and briefly yields producers',
     () {
       fakeAsync((clock) {
@@ -2145,7 +2216,19 @@ class _FakeEngine implements GroupAudioEngine {
   _FakeEngine({
     this.supportsLowRateVideo = true,
     this.supportsVideoSendPause = true,
+    this.supportsAudioBudget = false,
   });
+  @override
+  final bool supportsAudioBudget;
+  final List<({int packetMs, int payloadBps})> audioBudgets = [];
+  bool acceptAudioBudget = true;
+  @override
+  bool setAudioBudget({required int packetMs, required int payloadBps}) {
+    if (!acceptAudioBudget) return false;
+    audioBudgets.add((packetMs: packetMs, payloadBps: payloadBps));
+    return true;
+  }
+
   @override
   final bool supportsLowRateVideo;
   @override

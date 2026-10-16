@@ -121,6 +121,52 @@ The 1:1 path already has bounded framing ANA; group start does not join its
 allocator and its shims do not parse transport feedback by default. Then run
 the original full video/three-encrypted-file workload at the same link budget.
 
+## Live group audio control (local, after the release)
+
+The optional SDK `veil_media_group_engine_set_audio_budget` controls 20/40/60-ms
+Opus framing and 16–32-kbit/s payload before or during audio. It reconfigures
+the existing sender on its audio worker, preserving RTP, capture and receivers.
+A busy worker rejects the bounded request without applying abandoned work
+later; held video queues do not block it. Callback errors remain sticky and
+failed reconfiguration restores the previous known configuration or marks it
+invalid. Requested budget, actual encoded duration and sender counters are
+separate diagnostics. No fabricated BWE or relay media/priority hint is added.
+
+Production `GroupCallAudioAdapter` starts at 40 ms/32 kbit/s and uses fresh
+loss, local drop/recovery deltas, or fresh growing/full peer buffers. Its ladder
+is 20/32, 40/32, 40/24, 40/16 (milliseconds/kbit/s). Recovery needs eight fresh,
+complete room-wide healthy observations after a quiet period. Cached reports,
+muted capture, counter resets and failed retunes cannot manufacture recovery
+or repeated cuts. The controller runs it even without video. Old engines keep
+their existing codec through the optional API/ABI fallback.
+
+`group-budget-live-60` passes the native API regression: six paths, all 330
+transitions, peak 80.227 ms. Five live changes per sender exercise 20/40-ms
+framing and 16/24/32-kbit payloads. RTP origin, modular sequence and timestamps
+stay continuous. Busy audio rejects in 20.3 ms; held video allows retunes in
+under 0.2 ms. Real video runs only in that queue regression, not in the timed
+audio workload.
+
+`group-adaptive-audio-1024-60` uses the actual Dart policy, privately compiled
+per participant. Native feedback drives it; decoded tones are measurement-only.
+The same 1024-kbit blind FIFO/closed relay star passes all 330 transitions at
+a 170.057-ms peak. Senders reach 40-ms/16-kbit by about six seconds. There are
+still 61 FIFO drops and decoder recoveries. This does not prove continuous
+speech quality, recovery under changing capacity or full video/file contention.
+
+All owned workers, policy processes and four nodes exit; independent PID and
+zero-socket checks pass. Focused Flutter tests pass 63 cases; targeted analyzer,
+complete native call-plane suite and group decoded-backlog regression pass
+(168.047-ms fresh marker, zero fallback). The new production build exports
+100 functions with zero test hooks; private instrumentation has 131. Both
+old/new production libraries pass the ABI gate. Published tags and the older
+99-export engine cache are unchanged. Private evidence:
+`group-audio-control-verified.json` and both source-frozen capture directories.
+
+Next qualify the six paths with production video/source policy and three
+complete encrypted files, retaining the frozen completion deadline, changing
+tail video and the unchanged 200-ms PCM timing bound.
+
 ## Release handoff
 
 The pre-existing runtime fixes have Veil v0.11.41 published and xVeil
