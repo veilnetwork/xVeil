@@ -1,5 +1,104 @@
 # Calls media handoff
 
+## 2026-10-16: negotiated reliable Delivery records; contention still unqualified
+
+SDK `214c3a67` fixes a remaining separation gap: the pre-existing reliable
+child carried whole App streams, while self-contained Delivery records still
+shared the canonical session writer. Forward, DeliveryStatus, Transit,
+RecursiveRelay and RelayPath now use that existing authenticated child when
+both peers negotiate support and the child is ready. No additional connection,
+pool quota, relay traffic role, remote priority or special admission is added.
+Session/control/discovery remain on the parent. Existing App stream pins,
+including failure/rekey ownership and no midstream fallback, are preserved.
+Delivery records retain their own content/chunk identities and dispatcher
+validation, peer budgets and authentication; this does not turn a local write
+receipt into an end-to-end acknowledgement. Oversized records retain the
+parent rather than failing a healthy child. Expiring loss-tolerant Forward
+fallbacks retain their existing lifecycle rather than entering a reliable FIFO.
+The trusted LOCAL network-control selector also retains the parent.
+
+The second marked capability extension preserves the entire original 20-byte
+prefix. Missing/truncated/random markers cannot enable it, and it requires the
+original reliable-child permission. Resume adds a separately marked proof
+bound to fresh directional keys and the original authenticated prefix. Old
+verifiers skip that extension and retain their previous permissions; forged,
+orphan and duplicate recognized metadata fails verification. Full and resumed
+handshakes assert negotiation in both directions. Old peers retain canonical
+Delivery. Direct AppSend/AppSendSealed/AppSendChunk are not moved by this
+capability; auditing those reliable semantics and the idle camera/screen-enable
+lifecycle remains necessary for the full goal.
+
+Tests: 835 proto cases, 141 bootstrap cases, final 569 session cases pass
+(8 existing session manual tests ignored). Actual ordered TCP and punched
+QUIC tests transfer complete Forward records both ways, preserve the parent,
+and cover rekey/capacity/retirement. Routing tests cover legacy peers, invalid
+families, unopened App streams, obsolete chunks, malformed lengths, record
+size boundaries, expiring fallback and stateless child replacement. The first
+new route test failed semantically before implementation. Separate earlier
+compile errors (a scripted fixture syntax edit, and one command missing the
+required production-seeds feature) were corrected before final verification.
+A broad runtime run passed 654 cases but four admin-socket startup tests timed
+out under parallel execution; all four passed sequentially in 6.63 seconds.
+Do not describe the full parallel runtime suite as green or claim its cause
+proved. Frozen final SDK/source patch is `group-delivery-child-final-sdk`,
+FFI SHA-256 `e2bca2f9b3661feccd81719deb4183bc4d83e04de394e216ebe02ba5bac52447`;
+190 C exports match the previous candidate. The earlier frozen
+`group-delivery-child-sdk` predates the final size/loss-tolerant guards and was
+not used for a contention capture. Native media remains `a9961d4a`.
+
+Unchanged `group-delivery-child-60` is measurement-valid but NEGATIVE: 330
+control transitions match without misses, audio-only peak 110.109 ms, loaded
+peak 230.221 ms at 47.470 s. Video tails change 14/14/0/14/0/14 times: participant
+0 remains paused in both outgoing directions. Three short file prefixes are
+59392 bytes, not complete-file proof. Six first-send events with 1110-byte
+records prove all participant/relay legs actually use the reliable child;
+there are no ineligible-child-frame errors. Both blind FIFO directions peak
+near 120 ms; at second 47 relay-to-endpoint offered traffic reaches 1063.7
+kbit/s and 120.3-ms queueing. Audio-only offered traffic at seconds 10-20 is
+627/629 kbit/s; loaded ten-second averages are roughly 857-912 kbit/s. This
+single comparison with the earlier 207-ms short FIFO peak does not establish
+a repeatable improvement. All clocks/rows/QoS/deadlines, neutral routes,
+3/1/1/1 topology and independent cleanup checks pass. Short intentional decoded
+catch-up remains: matched control transitions do not prove lossless speech.
+
+Unchanged `group-delivery-child-360` is also measurement-valid but NEGATIVE:
+2112 control transitions match, zero missing; audio-only peak 130.123 ms,
+loaded peak 460.062 ms at 323.200 s (receiver 0 from source 1). The same receiver
+also peaks at 460.045 ms from source 2 at 144.430 s. All three encrypted
+512-KiB files complete with matching full hashes by 351.711/351.832/351.756 s,
+zero missing/authentication/duplicate/late chunks, no async failure or write
+error. Six video tails change 14/14/6/14/6/14 times. Participant 0 nevertheless
+ends paused again; a moving last-15-second tail does not prove continuous video
+or eliminate the policy hold/recovery issue. Final decoded discards total
+7410/1280/1410 ms across each worker's two peers. Native receive-age maxima
+76/80/75 ms do not reproduce the older 11.8-second outage.
+
+A concrete next lead differs from the earlier flat-video capture. Around
+322-323 s participant 2's video budget rises 15 -> 38 kbit/s and its cumulative
+video payload counter grows 24644 bytes / four frames in about one second;
+participant 1 also rises 8 -> 15. Participant 0 stays paused throughout that
+window. Relay-to-endpoint offered traffic reaches 1180.8 kbit/s at second 322,
+FIFO peak 202.0 ms, then 206.8 ms at second 323; the endpoint-to-relay FIFO
+stays below 42.6 ms. Around the other 144-s audio peak participant 1 similarly
+rises 15 -> 38 and emits a larger payload burst. These are measured correlations,
+not yet proof of which encrypted wire bytes caused the backlog. Next trace the
+local secondary connections and bound quality-recovery/frame bursts at the
+producer, preserving audio freshness, full file deadlines and relay neutrality.
+Do not simply increase the sound-latency gate or disable buffer protection.
+
+All long clocks have 108003 rows / 36001 ticks, no late/drop/failure/timer or
+deadline errors, actual QoS 33 and verified active deadline parameters. Max
+interval <10.132 ms and callback <2.597 ms. Driver last event queue max is
+0.307 ms (historical 9.610), last timer lateness max 13.288 ms (historical
+38.313). Both runs retain the same frozen fixture/policy source hashes and
+native media, scoped awake assertion, immutable durations and 1024-kbit blind
+FIFO, neutral routes and 3/1/1/1 topology. Independently verified workers,
+policies, file threads, parents and caffeinate helpers exited; all node stops
+return zero and no sockets remain. `group-delivery-child-{60,360}-proof.json`
+records a separate strict full qualification: FALSE. The long timing-details
+artifact retains all six peaks, wire bins, native receive ages and actual video
+counter/budget observations. Audio goal ACTIVE; no push/release.
+
 ## 2026-10-16: encrypted forwarding preflight; long qualification remains negative
 
 SDK `fee1947f` prepares the real direct/ordinary-relay path during production
