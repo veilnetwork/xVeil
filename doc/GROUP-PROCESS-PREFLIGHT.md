@@ -301,6 +301,53 @@ attribution remains open. All owned worker/policy PIDs are independently gone,
 four node stops return zero and zero sockets remain. Private verification:
 `group-files-startup-peer-verification.json`.
 
+## 2026-10-16: isolate the file-start routing exchange; attribution still open
+
+Two additional diagnostic captures remain NEGATIVE. Discovery-only metadata
+`group-files-control-metadata-1024-60` has a 470.125-ms known peak and 32
+ordinal misses on one path; its audio-only phase also exceeds 200 ms. Preserve
+those failures. `group-files-routing-metadata-1024-60` matches all 330
+transitions, audio-only peaks below 200 ms, but loaded audio reaches 370.085 ms.
+Neither short file-only capture completes the three files or qualifies the full
+workload. Workers/policies are independently verified exited, all four node
+stops return zero and zero sockets remain for both.
+
+The discovery-only filter cannot explain the burst: its ordinary FindValue
+responses are only 221 bytes. With routing included, the startup log has 24
+RouteResponse observations of 1379 bytes (33,096 bytes total), plus recursive
+responses. These are ATTEMPTS: `note_outbound` runs before queue admission and
+even before checking whether a direct session exists. Failed direct sends and
+successful fallback/relay sends may record the same logical proof repeatedly.
+Do NOT call this 33 KiB of wire traffic or 24 independent delivered proofs.
+The prototype has no explicit observation clock: its approximate 20–20.5-second
+association comes from adjacent timestamped log lines, not exact byte timing.
+The final diagnostic now includes its own UNIX-microsecond observation clock.
+
+The new optional `VEIL_DIAG_FRAME_METADATA=2,8` records only destination prefix,
+frame family/type, request id and length, with a 20,000-observation process cap.
+No payload head, backtrace, media role or scheduling change. It is off by
+default. Existing backtrace diagnostics remain separately controlled. Seven
+frame diagnostic tests pass with explicit production-seeds feature selection;
+the first release test command without a network feature correctly failed the
+build guard, rather than testing anything. Current timestamp addition compiles
+and passes the seven tests; captures use its frozen pre-timestamp prototype.
+
+Source inspection identifies two relevant paths, not a finished transport fix:
+`mlkem_resolver.rs::recursive_dht_get[_candidates]` sends its authored queries
+through SessionTxRegistry INTERACTIVE, bypassing the existing local network
+control lane used by SessionOutbox. Separately, the self-addressed FIND_NODE
+handler in `veil-dispatcher/src/routing.rs` piggybacks a signed legacy key/route
+proof on each answer. Request-id/cached-route recovery and legacy E2E behavior
+must remain correct; do not remove proofs or change transit priority blindly.
+
+Next add successful-admission provenance (including local node) to distinguish
+failed direct attempts from actual fallback and forwarding, then verify whether
+repeated own discovery/proofs can be coalesced/paced safely. Retain the six PCM
+paths, immutable deadlines, all-file hashes and changing-video gates. Relays
+remain neutral. Private source/binary snapshot: `group-control-metadata-sdk-source`;
+per-capture `*-verified.json` records exit and timing evidence. No physical
+application, microphone or speakers were opened; no push or release this cycle.
+
 ## Release handoff
 
 The pre-existing runtime fixes have Veil v0.11.41 published and xVeil
