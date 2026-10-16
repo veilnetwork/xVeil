@@ -1,5 +1,93 @@
 # Calls media handoff
 
+## 2026-10-16: SDK 0.11.40 contention gates; repair group decoded catch-up
+
+Previous cycle is progress: ca3432e7 removed false buffer-growth pressure and
+the physical five-minute comparison recovered approximately 29 fps both ways.
+This cycle keeps the full audio-priority goal active and qualifies contention
+with the updated SDK runtime, then repairs a separate group receiver defect.
+
+qos40-quic-420 PASSES seven minutes with real Opus/VP8, the production Dart
+adapter, two encrypted 512-KiB files, 1010-ms tone transitions and the unchanged
+aggregate 1024-kbit/s blind UDP FIFO. All 822 tone edges match; mixed decoded
+PCM peaks are 180.005/180.048 ms, p95 150.014/150.076 ms. Both files match their
+hashes and complete 317.808/332.568 seconds after file enqueue. The immutable
+360-second checkpoint also has both complete files. This is a new positive
+checkpoint, not a rewrite of the earlier incomplete six-minute evidence.
+
+qos40-ordered-360 PASSES six minutes with the same byte/rate/tone workload over
+authenticated independent obfs4 TCP channels and a process-isolated blind FIFO.
+All 704 tone edges match; mixed PCM peaks are 180.000/170.051 ms, p95
+150.085/150.129 ms. Files complete 284.558/285.838 seconds after enqueue with
+exact hashes. Native independent ordered audio/video sends are verified.
+
+Both runs use the preserved Rust FFI at ba242a9f (SHA256 006cf831...), whose
+runtime is equivalent to release tag 487ad756; intervening changes are tests
+and CI. QUIC uses the preserved dtx-arrival-clock-test engine c5cff07c...;
+ordered uses the freshly compiled group-catchup-after engine. Source changes
+in this cycle affect group creation/stats and test hooks, not 1:1 transport.
+No packet size, byte count, PCM timing bound or relay scheduling is relaxed.
+Each fixture uses a synthetic native device clock with its explicit Mach
+deadline policy read back; this is fixture clock validation, not a network
+priority or production scheduling change. Full sample coverage, zero clock
+row loss and correct policy read-backs pass. Audio interruptions, missing tone
+edges, authentication failures and async file failures are zero.
+
+Both images change near the end of each run. Ordered maximum sampled decoded
+image gaps are about two seconds. QUIC has a 13.001-second sampled image gap
+on one receiver (three seconds on the other); its positive audio/file verdict
+does NOT establish uninterrupted video. Preserve and attribute that observation
+instead of suppressing loss feedback or raising generic relay/endpoint quotas.
+All six owned nodes stop with status zero, both fixtures leave zero sockets,
+and the ordered shaper/codec PIDs are independently absent. Private evidence:
+qos40-contention-verified.json plus each fixture's complete summary/PCM/video,
+file receipts and native logs.
+
+The group defect is real: GroupWebrtcState used the default NetEq factory,
+while 1:1 already installed RecoveringNetEqFactory. The new three-engine
+regression uses real Opus and AudioMixers with two remote sources per engine,
+synthetic ADMs and a FIFO mocked Veil boundary. During a 500-ms pause of one
+render callback, both other participants keep capturing/receiving. Their two
+tone frequencies change 150 ms before rendering resumes. The first mixed
+output containing both new bands therefore bounds actual useful audio age;
+it is not inferred from packet counts or a filtered jitter estimate.
+
+SDK f9908e4c attaches the same bounded catch-up factory to every group audio
+receiver, retaining its lifetime through Call destruction. Room-local atomic
+recovery/discard/fallback counters are exposed through additive JSON fields.
+Production retains exactly 99 exports and includes no test hooks.
+
+The regression additionally starts real VP8 in all three engines and holds
+both video Call queues of the observed participant during the entire audio
+measurement. With catch-up active, both new remote bands appear after two
+render ticks: measured marker age 171.267 ms, all 15 subsequent checked mixed
+frames fresh, 850 aggregate discarded milliseconds, eight recovery batches,
+zero fallback frames and a 14.794-ms maximum fixture clock gap. The SAME
+library with only the test catch-up disable switch set fails as expected:
+marker age 557.607 ms and no fresh frames in the recovery window. The original
+pre-fix binary also failed. Every engine/callback is torn down before exit.
+The new regression is included in the default native call-planes command.
+
+xVeil consumes only fresh room recovery-counter deltas. A real decoded catch-up
+reduces video once and briefly yields competing local producers; repeated
+counter snapshots cannot repeat the cut. Engine restart and counter reset
+establish new baselines. The new policy regression fails before this wiring,
+then all 206 focused Flutter tests and targeted analysis pass. The complete
+native call-planes/RTCP/decoder-outcome suite also passes. Private group logs
+are group-catchup-{before,after,marker-before,marker-after,held,held-disabled},
+group-catchup-complete-native.log and group-catchup-policy-{before,after}.log.
+
+These commits are LOCAL and unpushed; the published releases remain unchanged.
+The released engine cache still predates the group factory fix. Before the
+next publication, rebuild/publish native engines and update their cache pins.
+The private Android/Mac apps installed in the preceding cycle remain build
+2602: this cycle builds the new production macOS library but has NOT installed
+the group fix on the phone. Remaining required work includes a shaped
+three-party group/file SDK workload and updated Android/device qualification.
+Group transport still uses the built-in Opus factory without the 1:1 framing
+adaptation API; assess its actual bandwidth demand in that group workload
+before proposing any change. Keep all relays opaque and neutral.
+
 ## 2026-10-16: reject overlapping buffer oscillations; physical video recovers
 
 The release subtask is complete: Veil v0.11.40 and xVeil v0.13.85 are

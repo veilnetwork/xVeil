@@ -62,6 +62,66 @@ Map<String, dynamic> _sourceStats(List<NodeId> peers, {int delay = 100}) => {
 };
 
 void main() {
+  test(
+    'group decoded catch-up cuts video once and briefly yields producers',
+    () {
+      fakeAsync((clock) {
+        final self = _id(1), alice = _id(2), bob = _id(3);
+        final transport = _FakeTransport(self);
+        final engine = _FakeEngine();
+        Map<String, dynamic> sample(int count) => {
+          ..._sourceStats([alice, bob]),
+          'audio_feedback_reports': 2,
+          'rtt_ms': 80,
+          'audio_latency_recovery_count': count,
+        };
+        engine.stats = sample(0);
+        final controller = VeilGroupCallMediaController(
+          transport,
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          requestMicrophone: () async => true,
+          requestCamera: () async => true,
+          now: () => DateTime(2026, 10, 16).add(clock.elapsed),
+        );
+        controller.start(_call(self, [alice, bob], video: true));
+        clock.flushMicrotasks();
+        clock.elapse(const Duration(seconds: 48));
+        expect(engine.targets.last.maxBitrateKbps, 150);
+        expect(transport.pressureReports.last.pressured, isFalse);
+
+        // Catch-up has already restored the queue, so ordinary delay and RTP
+        // counters look healthy. Its discarded audio must still reach policy.
+        engine.stats = sample(1);
+        clock.elapse(const Duration(seconds: 1));
+        expect(engine.targets.last.maxBitrateKbps, lessThan(150));
+        expect(transport.pressureReports.last.pressured, isTrue);
+        final targetsAfterCatchup = engine.targets.length;
+        clock.elapse(const Duration(seconds: 3));
+        expect(engine.targets.length, targetsAfterCatchup);
+        expect(transport.pressureReports.last.pressured, isFalse);
+
+        controller.stop();
+        clock.flushMicrotasks();
+        // The next engine starts with a baseline, not a replayed catch-up.
+        controller.start(_call(self, [alice, bob], video: true));
+        clock.flushMicrotasks();
+        clock.elapse(const Duration(seconds: 48));
+        expect(engine.targets.last.maxBitrateKbps, 150);
+        engine.stats = sample(
+          0,
+        ); // A restarted native counter is also a baseline.
+        clock.elapse(const Duration(seconds: 1));
+        expect(engine.targets.last.maxBitrateKbps, 150);
+        engine.stats = sample(1);
+        clock.elapse(const Duration(seconds: 1));
+        expect(engine.targets.last.maxBitrateKbps, lessThan(150));
+        controller.stop();
+        clock.flushMicrotasks();
+      });
+    },
+  );
+
   test('a cached group report below the ceiling cannot cut live video', () {
     fakeAsync((clock) {
       final self = _id(1), peer = _id(2);
