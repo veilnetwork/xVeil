@@ -1,5 +1,42 @@
 # Calls media handoff
 
+## 2026-10-16: full group workload exposes source bursts; goal remains ACTIVE
+
+Previous turn made progress: live group Opus adaptation/API passed audio-only
+gates. This turn replaces the invalid one-process full fixture with a compatible
+entrypoint to three isolated workers, real VP8 and three authenticated encrypted
+512-KiB files. Deadline, complete-file hashes, six PCM paths, native clocks,
+route/topology, tail video and cleanup gates remain intact. Fixture unit tests
+also reject late completion, duplicates and corrupt/foreign fragments.
+
+`group-full-process-1024-360` is NEGATIVE: all 2112 transitions match but peak
+audio age is 490.095 ms. Three complete files match hashes by about 353.3 seconds
+from origin, all six video tails change, and clocks/routes/cleanup verify.
+Unrestricted 60-second baseline also remains negative because files are incomplete.
+Do not replace these findings with the successful narrower audio-only preflight.
+
+Fixed a real adapter defect: repeated fresh decoded discards now protect an
+actually tested one-fps floor and cannot earn video resume. Isolated catch-up,
+cached counters, actual floor-frame and healthy recovery guards remain tested.
+154 focused Flutter tests and targeted analyzer pass. Native follow-up confirms
+all three senders pause by sample 25, but is still NEGATIVE: startup audio age
+480.041 ms, one ordinal mismatch path, incomplete files and missing tail images.
+The new guard alone does not establish the full requested quality.
+
+Isolated 60-second cases also fail: audio+files peaks at 340.051 ms, audio+video
+at 440.033 ms, with all 330 transitions matching in each. Their full neutral wire
+traces show average audio traffic about 625–630 kbit/s; file startup causes up to
+163.6-ms queueing, video startup fills both 200-ms FIFOs at about 1180/1174 kbit/s.
+The remaining defect is source emission bursts despite a small average budget.
+Exact responsible records/handshakes/keyframes are not yet proven. See the new
+full-load section in doc/GROUP-PROCESS-PREFLIGHT.md for private capture names,
+unaltered gates, candidate SDK paths and next steps. No relay priority changes.
+
+All workers/policy processes/file threads/nodes are stopped, zero sockets remain;
+independent PID checks pass. No physical app/speakers were opened this cycle.
+SDK remains local e3b9c156; current shared Dart policy/fixture changes are after
+the already published Veil 0.11.41 / xVeil 0.13.86 tags. No new push/release.
+
 ## 2026-10-16: live group Opus adaptation passes the audio-only preflight
 
 Progress on the ACTIVE audio-priority goal, after the completed release below.
