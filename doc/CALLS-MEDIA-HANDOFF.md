@@ -1,5 +1,76 @@
 # Calls media handoff
 
+## 2026-10-16: reject overlapping buffer oscillations; physical video recovers
+
+The release subtask is complete: Veil v0.11.40 and xVeil v0.13.85 are
+published with successful CI; hidden-volume stays at unchanged v2.6.1.
+The following fixes are later LOCAL commits, outside those release tags.
+
+The preceding physical capture identifies a feedback loop at the endpoint.
+The six-sample buffer window [36,56,36,36,56,56] ms was classified as growth.
+This activated the shared local producer budget despite healthy audio,
+discarded video RTP, then generated genuine video-loss feedback that cut
+quality. The first correction, 69e25735, requires the newest delay to exceed
+the earlier peak. New regressions failed before that change and passed after.
+
+That correction alone is INSUFFICIENT. Private AOT build 2601 reproduces the
+same problem on overlapping ranges such as [31,1,31,31,51,51] and
+[1,19,19,19,39,39] ms. Its five-minute capture records eight Mac quality cuts,
+at least 365 local video drops and a median sampled Mac TX marker rate of
+5.39/s. Audio interruption counters remain zero. This negative run is retained
+as call-buffer-trend-2601-300, with complete native traces and decisions.
+
+Commit ca3432e7 additionally requires the ENTIRE recent half of the window
+above the earlier peak. Its medians must still differ by at least 20 ms, the
+latest value must exceed the earlier peak by at least 20 ms, and the recent
+half must still rise. Smooth and staircase growth continue to trigger below
+the 200-ms ceiling; ceiling and fresh audio-loss protection retain immediate
+reaction. Cached/replayed reports retain only the verdict of the accepted
+fresh observation. Cached-growth fixtures now use a sustained ramp rather
+than a short step followed by a plateau.
+
+The exact recorded counterexamples fail before this additional guard. The
+five focused buffer/source-pressure/receive/feedback/bitrate suites then pass
+155 tests, and group-media/teardown pass another 50. Targeted analysis reports
+no issues. Private logs are buffer-separated-regression-before.log,
+buffer-separated-regression-final.log, buffer-separated-group-regression.log
+and buffer-separated-analyze.log.
+
+call-buffer-trend-2602-300 verifies ca3432e7 on Mac and Blackview: real AOT
+Profile builds, 298.94 seconds of observations, audio first and both cameras
+at 61.93 seconds. Both stay P2P throughout. Incoming call detection takes
+0.25 seconds; this is one observed call, not a ringing-latency distribution.
+Both phone updates preserve application data and the signing certificate.
+The three packaged and actually mapped Mac native libraries are byte-identical
+to build 2600; both Android native libraries also match. Rust is ba242a9f,
+runtime-equivalent to tag 487ad756 because the intervening changes are tests
+and CI. These builds compare the Dart policy with the same native runtime.
+
+The corrected run has ZERO quality cuts on either endpoint and zero sampled
+source-pressure observations during video. Median sampled Mac TX marker rate
+is 29.90/s; the phone's actual rendered-frame counter advances at 29.41/s.
+The reverse rendered rate is 29.56/s. All 113 video sampling intervals show
+rendered progress in both directions. Both endpoints retain the 60-fps policy
+ceiling over the final minute; their camera/codec output is approximately
+30 fps. Logs contain one startup audio and one startup video drop per endpoint,
+with no subsequent logged producer-drop events. These event totals are lower
+bounds, not proof of zero unlogged transport drops.
+
+Full playout traces contain 30060/30060 and 30088/30088 rows, spanning
+300.609/300.864 seconds. Full actual buffer maxima are 105/121 ms; after the
+first second they are 105/112 ms, with target maxima 80/60 ms. Maximum render
+gaps are 21.391/48.056 ms and callback work maxima 0.583/2.715 ms. Both registered
+audio interruption counters remain zero. The different startup maxima between
+runs do not establish a startup fix. Ambient-input calls do not qualify
+continuous-speech quality, other networks, or a group/file contention workload.
+
+Both native call owners closed before termination. Independent checks confirm
+both app processes and the owned ADB forward absent; the owned logcat reader
+also exited. Private buffer-qualification-summary.json files retain all three
+comparisons. The broader goal remains active: new-SDK full-codec contention
+qualification and decoded group-audio stress remain outstanding. Keep relay
+service opaque and neutral.
+
 ## 2026-10-16: releases published; video loss localized before QUIC admission
 
 Veil v0.11.40 is published at 487ad756. Its main CI passed all six jobs,
