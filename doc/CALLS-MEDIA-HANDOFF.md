@@ -1,5 +1,117 @@
 # Calls media handoff
 
+## 2026-10-17: negotiate direct App records on the reliable child
+
+SDK `d7591687` closes a gap: the reliable plane previously carried AppOpen/Data/Close/Receipt/
+WindowUpdate streams and negotiated Delivery records, but streamless AppSend,
+AppSendSealed and AppSendChunk still selected the canonical writer. The new
+SUPPORTS_RELIABLE_DIRECT_APP bit (extra_flags2 bit 1) independently negotiates
+those records and their empty AppSendUnopenable re-key hint. It requires the
+existing authenticated reliable-parent permission. Full handshakes advertise
+it; authenticated fresh-key resume metadata carries and verifies it. The
+complete original 20-byte capabilities prefix, extension lengths, transcript
+and old-peer fallback are preserved. A Delivery-only peer does not receive
+App records on a child. No connection/pool/quota, application-role wire label,
+relay priority or codec/quality change is introduced.
+
+QUIC and ordered runtime offers carry the permission to the canonical runner.
+Eligible records are streamless, fully framed and fit the existing child
+record limit. AppSend payload lengths are checked without copying application
+bytes. AppRtData remains on its datagram path; AppData still requires its
+AppOpen ownership, and own network control keeps its original parent path.
+Malformed/nonzero-stream records cannot bypass stream ownership on the child;
+oversized compatibility records and a not-yet-ready child retain the parent.
+Direct records have no App stream pin and do not inherit another stream's
+failure state. The ordinary dispatcher still checks ratchet, sender, chunk
+reassembly and budgets using the authenticated canonical peer.
+
+A regression is first RED with Canonical where Child was required, then GREEN.
+Routing tests cover independent permissions, legacy/absent-child fallback,
+network control, malformed lengths and hints, RTP exclusion, nonzero stream
+IDs, record-limit boundaries and stream-pin separation. Real QUIC and obfs4/TCP
+children transfer all four App record types both ways. Ordered re-key tests
+retire the old handle, preserve parent viability and transfer new records on
+the new generation. Full and resumed capability tests include the new bit;
+flipping it invalidates the resumed proof. Release results: **574 session,
+836 protocol, 141 bootstrap passed**, with 8/0/1 existing ignored. FFI build
+uses node-embedded,packet-tunnel,tls-boring,production-seeds and keeps the exact
+190 exports. Frozen `direct-app-child-sdk` SHA-256:
+`c2c02c23d9d1df8bcc4b89d349eca2d9462654f1a7688b133698ca0216ebf288`;
+its complete patch/source manifest is based on e7a9ef57.
+
+New `scripts/direct-record-process-preflight.py` uses actual veil_send and
+application callbacks on the direct root/leaf link of a fresh loopback star.
+`direct-app-sdk-final` passes: two complete 512-KiB payloads and four bracketing
+messages each arrive once with matching hashes, node/application IDs and
+SessionPeer/Signed provenance. Metadata confirms four direct AppSendSealed
+child admissions and 294 existing sealed-Forward child admissions. An earlier
+probe delivered all six payloads too, but its final assertion incorrectly
+required AppSendChunk: large SEALED sends use addressed Forward chunks, while
+AppSendChunk is the distinct arbitrary-unsealed-byte format. The assertion
+was corrected to require the actual encrypted SDK path and the complete test
+was rerun; retain the earlier failed assertion as such. Types 3/9/8 are covered
+by real transport record tests, not by pretending this encrypted API case
+sends them. The first cold message takes 6.015 s, files 14.093/9.858 ms and the
+other warmed small messages 0.137-0.538 ms. The cold delay is observed, not
+explained or claimed fixed. Source snapshots and the SDK hash are frozen with
+the final probe. All four nodes stop zero, no sockets remain and the owned
+Python process is independently gone.
+
+`group-direct-app-360` preserves the original harness/stimulus/policy hashes,
+blind shared 1024-kbit FIFO, original topology/routes, native clocks/QoS/
+deadlines and immutable 360-s/file deadline. Native media is the unchanged
+7e63b64e... peer-recovery artifact. It is measurement-valid but **NEGATIVE**:
+2112 matched transitions / zero missing, audio-only peak 110.118 ms, loaded
+**480.041 ms** (source 1 -> receiver 0, transition 259.570 s / decoded
+260.050 s). All three encrypted 512-KiB hashes match by
+352.131/340.125/351.968 s, without missing/auth/duplicate/late/write/async
+failures. Video tails **0/12/14/12/14/0** fail the six-moving-tail gate, even
+though all three source policies end nominally unpaused at 8/8/15 kbit/s.
+Native pause flags end at zero. Source 1 nevertheless stays paused through
+356 s, resumes at 357 s and emits only one additional encoded frame by the
+last sample (139 -> 140); its two zero decoded tails cannot be dismissed by
+the final unpaused flag. Decoded discards total 2800/880/860 ms; peer feedback support is exercised on
+all workers, with 13/22/26 distinct observed loss witnesses. Native receive
+age maxima 66/58/57 ms do not measure encoded capture-to-playout delay and
+must not be used to call this healthy.
+
+This time the full wire ring retains the actual peak. Direction 0 offered
+1126.4/1126.2/1076.7 kbit/s at seconds 257/258/259, above 1024; FIFO maxima
+115.5/207.4/208.2 ms, still 202.7 at second 260. Release lateness there is
+only 1-2 ms. The opposite FIFO stays below 42 ms in that window. Deterministic
+UDP pairs reach 204 ms before kernel arrival with approximately immediate
+socket reads. There are no >=25-ms slow-stage, aged-ingress or slow-dispatch
+records; 1011 bounded pressure/head records confirm diagnostics were active.
+Thus this late episode has direct evidence of shared-wire queue buildup,
+not the previous rare ~140-ms socket-read episode. Do not attribute the
+single-run difference to the direct-record feature. The new feature is
+verified for its routing scope; sustained media quality remains unqualified.
+
+At the peak, source 0 is already paused and source 1/2 produce near 8 kbit/s /
+1 fps, without the previous large video growth burst. Receiver 0's reported
+playout buffer instead falls toward 35 ms while packets wait on the wire;
+its actual capture delay is growing. Source 1 still sees a small peer playout
+buffer and only later observes loss. This confirms that a bounded or shrinking
+receive buffer cannot alone prove a healthy end-to-end path. Next account for
+wire occupancy, pacing/bursts and endpoint-owned competing traffic, preserving
+relay neutrality and the 200-ms gate. Also audit ordinary small direct sends:
+reg.send_to lacks the reliable source credit used by packetized files; merely
+moving a record to the child does not prove all competing local production is
+paced. A possible endpoint-only efficiency direction is longer Opus packets
+AFTER measured congestion (keep the original startup/base profile), since the
+current 40-ms packet cap plus fixed encrypted-cell overhead leaves little
+headroom for six paths. This is a hypothesis to evaluate, not implemented or
+permission to change the fixture's initial stimulus/profile. Mid-call idle
+camera/screen preparation and current physical-device/speech validation remain
+required. Goal ACTIVE; no completion claim.
+
+Private `group-direct-app-360-{proof,feedback-details,scheduler-details,
+wire-peak}.json` preserves the gates and peak evidence. Strict clock/row,
+real QoS/deadline, topology, route and independent cleanup checks pass;
+parents, workers, policy processes and scoped awake helper are gone, all four
+node stops zero, file threads exit and no sockets remain. No physical app,
+call, camera/mic/speaker, installation, relay update, push or release occurred.
+
 ## 2026-10-16: distinguish socket-read stalls from session queue delay
 
 The preceding measurement-valid `group-peer-recovery-360` log has stronger
