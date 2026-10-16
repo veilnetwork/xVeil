@@ -78,3 +78,45 @@ group framing/adaptation next. Do not raise link capacity, relax PCM timing
 bounds, remove losses from evidence or add relay media priority to obtain a
 pass. First repair the audio-only case, then run the full six-path workload
 with video and three complete encrypted files under the same link limit.
+
+## Controlled packet-duration experiment (still test-only)
+
+A follow-up 40-ms experiment originally allowed PEX/DHT to add direct
+participant sessions. Its route verification FAILS and the capture is retained
+as `group-ptime40-1024`; it is not accepted as a treatment comparison.
+
+The fixture now disables PEX, uses hidden listeners with cryptographic node
+allowlists for only the three relay links, and requires exact initial/final
+session counts 3/1/1/1. Every sampled admission must still go through the owned
+relay. This establishes the intended test topology; the FIFO's bandwidth,
+queue bound, opacity and lack of media priority remain unchanged.
+
+A single instrumented test library then compares 20/40/60-ms Opus packets.
+Its duration switch and sender-counter hook are compiled only with
+`VEIL_MEDIA_TEST_HOOKS=1`. An ordinary build retains 99 exports and has no test
+exports; the private test build has 129. The experiment retains actual sender
+packet/payload counters and source snapshots, not merely its requested setting.
+Rust FFI remains the preserved 006cf831... runtime (equivalent to release 2d7d
+apart from version metadata), so this is not qualification of a fresh public
+APK or a new production adaptation policy.
+
+- `group-closed20-1024`: NEGATIVE. All routes/topology and clocks verify;
+  native sender rates are about 50 packets/s at 29–32 kbit/s payload. Six
+  measured tone transitions are missing; decoded age peaks at 630.049 ms.
+- `group-closed40-1024`: PASSES the audio-only timing gate. All 330 transitions
+  match below the unchanged 200-ms bound (peak 190.040 ms). Sender rates are
+  about 25 packets/s with approximately 32-kbit payload preserved. Route,
+  topology, full capture/row coverage and native deadline policy verify.
+  There are still FIFO drops and many decoder recovery events. This does not
+  establish perceptual speech quality or headroom for video and complete files.
+- `group-closed60-1024`: NEGATIVE. Topology and clocks verify, but 55 transitions
+  fail ordinal matching and a matched observation exceeds 200 ms. Keep this
+  result; longer packets are not assumed to improve every condition.
+
+All three workers and four nodes exit in every capture, with zero remaining
+sockets and independent PID checks. The next implementation must use measured
+feedback to adapt group audio, including mixed-version behavior and correct
+fanout accounting; a fixed global 40-ms switch is not the completed solution.
+The 1:1 path already has bounded framing ANA; group start does not join its
+allocator and its shims do not parse transport feedback by default. Then run
+the original full video/three-encrypted-file workload at the same link budget.
