@@ -140,6 +140,7 @@ class CallBitrateAdapter {
   int? _lastAudioTxDrops;
   int? _lastVideoTxDrops;
   final _rtcpLoss = CallRtcpLoss();
+  final _peerRecoveryLoss = CallRtcpLoss();
   int? _lastVideoTxFrames;
   int _videoIdleSamples = 0;
   int? _floorTrialLastFrames;
@@ -238,6 +239,7 @@ class CallBitrateAdapter {
     _lastAudioTxDrops = null;
     _lastVideoTxDrops = null;
     _rtcpLoss.reset();
+    _peerRecoveryLoss.reset();
     _floorTrialLastFrames = null;
     _floorTrialFrames = 0;
     _floorPeerSampleSequence = null;
@@ -410,6 +412,13 @@ class CallBitrateAdapter {
       audioExpected: sendAudioExpected,
       videoExpected: videoSendExpected,
     );
+    final peerRecovered = _peerRecoveryLoss
+        .observe(
+          audioReportUs: stats['audio_peer_recovery_report_us'],
+          audioExpected: sendAudioExpected,
+          videoExpected: false,
+        )
+        .audio;
     final videoDrops = stats['video_tx_rtp_drops'];
     final validVideoDrops = videoDrops is int && videoDrops >= 0;
     final videoLoss =
@@ -533,7 +542,7 @@ class CallBitrateAdapter {
       videoLossObserved: videoLoss,
       audioNetworkLossObserved: networkLoss.audio,
       videoNetworkLossObserved: networkLoss.video,
-      audioRecoveryObserved: audioRecoveryObserved,
+      audioRecoveryObserved: audioRecoveryObserved || peerRecovered,
       videoFloorApplied:
           _appliedTarget == target &&
           _appliedPause != true &&

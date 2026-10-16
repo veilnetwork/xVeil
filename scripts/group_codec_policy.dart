@@ -99,6 +99,7 @@ class RoomPolicy {
           ? stats['audio_tx_rtp_drops'] as int
           : null,
       audioLossReportUs: stats['audio_loss_report_us'],
+      peerAudioRecoveryReportUs: stats['audio_peer_recovery_report_us'],
     );
     if (request['prepare'] == true) {
       adapter.prepareVideoSend(
