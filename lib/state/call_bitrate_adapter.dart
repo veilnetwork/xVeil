@@ -745,13 +745,16 @@ class CallBitrateAdapter {
         _lastAudioTxDrops != null &&
         audioTxDrops > _lastAudioTxDrops!;
     _lastAudioTxDrops = audioTxDrops;
+    // Catch-up has already reduced the measured buffer, but discarded real
+    // decoded speech. Repeated fresh discards at a proven sparse floor must
+    // protect audio, and cannot count as healthy evidence for video resume.
     final freshAudioLoss =
-        newAudioDrops || audioInterrupted || audioNetworkLossObserved;
-    final freshMediaLoss =
-        freshAudioLoss ||
-        videoLossObserved ||
-        videoNetworkLossObserved ||
+        newAudioDrops ||
+        audioInterrupted ||
+        audioNetworkLossObserved ||
         audioRecoveryObserved;
+    final freshMediaLoss =
+        freshAudioLoss || videoLossObserved || videoNetworkLossObserved;
     _bufferInputs?.addAll({
       'audio_rtp_drop': newAudioDrops,
       'video_rtp_drop': videoLossObserved,
