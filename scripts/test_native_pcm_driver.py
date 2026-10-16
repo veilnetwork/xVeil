@@ -114,6 +114,62 @@ extern "C" int fake_playout(void* device, int16_t* pcm, size_t capacity) {
             finally:
                 driver.stop()
 
+    def test_one_participant_clock_keeps_local_capture_separate_from_remote_playout(self):
+        source = Path(__file__).with_name('native_pcm_driver.cc')
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            fixture = directory / 'local.cc'
+            fixture.write_text('''
+#include "''' + str(source) + '''"
+struct Fake { std::atomic<int> calls{0}; } device;
+extern "C" void* fake_device() { return &device; }
+extern "C" int fake_capture(void* d, int) {
+  if (d != &device) return -1;
+  ++device.calls;
+  return 0;
+}
+extern "C" int fake_playout(void* d, int16_t* pcm, size_t capacity) {
+  if (d != &device || capacity != 480) return -1;
+  for (size_t i = 0; i < capacity; ++i)
+    pcm[i] = int16_t(6000 * (std::sin(2 * 3.141592653589793 * 1300 * i / 48000) +
+                            std::sin(2 * 3.141592653589793 * 2100 * i / 48000)));
+  return 480;
+}
+extern "C" int fake_calls() { return device.calls.load(); }
+''')
+            library = directory / ('local.dylib' if sys.platform == 'darwin' else 'local.so')
+            subprocess.run(['clang++', '-std=c++20', '-O2', '-pthread', '-fPIC',
+                            '-dynamiclib' if sys.platform == 'darwin' else '-shared',
+                            str(fixture), '-o', str(library)], check=True)
+            native = C.CDLL(str(library))
+            native.fake_device.restype = C.c_void_p
+            native.fake_calls.restype = C.c_int
+            origin = time.monotonic() + .08
+            driver = NativePcmDriver(library, native.fake_capture, native.fake_playout,
+                [native.fake_device()], origin, 1010, local_group=0,
+                priority='deadline' if sys.platform == 'darwin' else 'audio')
+            try:
+                self.assertEqual(native.fake_calls(), 0)
+                time.sleep(.15)
+                rows = driver.stop()
+                self.assertGreater(driver.stats.ticks, 1)
+                self.assertEqual(len(rows), driver.stats.ticks * 3)
+                self.assertEqual(native.fake_calls(), driver.stats.ticks)
+                self.assertEqual(list(driver.stats.failures), [0, 0])
+                self.assertEqual(driver.stats.dropped_rows, 0)
+                for row in rows:
+                    if row['side'] == 0:
+                        self.assertEqual(row['source_freq'], 600)
+                        self.assertGreaterEqual(row['source_at'], 0)
+                        self.assertLessEqual(row['source_at'], row['t'])
+                    else:
+                        self.assertEqual(row['source_freq'], 0)
+                        self.assertEqual(row['source_at'], 0)
+                        self.assertEqual(row['freq'], 1300 if row['side'] == 1 else 2100)
+                        self.assertTrue(4200 < row['rms'] < 4300)
+            finally:
+                driver.stop()
+
     def _exercise_clock(self, priority):
         source = Path(__file__).with_name('native_pcm_driver.cc')
         with tempfile.TemporaryDirectory() as directory:

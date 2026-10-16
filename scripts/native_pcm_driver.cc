@@ -77,6 +77,7 @@ struct Driver {
   std::array<void*, 2> engines;
   std::array<void*, 3> group_engines{};
   bool group_mode = false;
+  int local_group = -1;
   double origin;
   int period_ms;
   bool audio_priority = true;
@@ -131,7 +132,9 @@ struct Driver {
       const auto remaining = std::chrono::duration_cast<std::chrono::nanoseconds>(
           deadline - std::chrono::steady_clock::now()).count();
       if (remaining <= 0) return false;
-      const uint64_t ticks = (uint64_t(remaining) * timebase.denom + timebase.numer - 1)
+      // A future coordinated fixture start must remain stoppable too.
+      const auto slice = std::min<int64_t>(remaining, 10'000'000);
+      const uint64_t ticks = (uint64_t(slice) * timebase.denom + timebase.numer - 1)
                              / timebase.numer;
       const auto result = mach_wait_until(mach_absolute_time() + ticks);
       if (result != KERN_SUCCESS && result != KERN_ABORTED) {
@@ -182,9 +185,16 @@ struct Driver {
     }
 #endif
     auto deadline = std::chrono::steady_clock::now();
+    if (local_group >= 0) {
+      const auto until_start = std::chrono::duration<double>(
+          std::max(0.0, origin - stand_pcm_now()));
+      deadline += std::chrono::duration_cast<std::chrono::steady_clock::duration>(until_start);
+    }
     std::array<double, 2> previous{stand_pcm_now(), stand_pcm_now()};
+    const double first_group_tick = local_group >= 0
+        ? std::max(origin, stand_pcm_now()) : stand_pcm_now();
     std::array<double, 3> group_previous{
-        stand_pcm_now(), stand_pcm_now(), stand_pcm_now()};
+        first_group_tick, first_group_tick, first_group_tick};
     uint64_t tick = 0;
     for (;;) {
       double wake_lateness_ms = 0;
@@ -203,6 +213,7 @@ struct Driver {
         std::array<double, 3> captured_at{};
         std::array<int, 3> frequencies{};
         for (size_t source = 0; source < group_engines.size(); ++source) {
+          if (!group_engines[source]) continue;
           captured_at[source] = stand_pcm_now() - origin;
           frequencies[source] = int(captured_at[source] * 1000) / period_ms % 2
               ? kGroupHigh[source] : kGroupLow[source];
@@ -211,6 +222,7 @@ struct Driver {
         }
         observed = 0;
         for (size_t receiver = 0; receiver < group_engines.size(); ++receiver) {
+          if (!group_engines[receiver]) continue;
           const double now = stand_pcm_now();
           const double interval = (now - group_previous[receiver]) * 1000;
           group_previous[receiver] = now;
@@ -219,6 +231,18 @@ struct Driver {
           const double played_at = stand_pcm_now() - origin;
           const bool valid = count > 0 && count <= int(pcm.size());
           if (!valid) ++failures[1];  // Aggregate playout failures in group mode.
+          if (local_group >= 0) {
+            // Capture metadata from this actual sender, not a reconstruction
+            // from a remote receiver's clock. The parent joins these rows to
+            // the other processes' decoded observations after capture ends.
+            auto& sent = pair[observed++];
+            sent.t = played_at;
+            sent.source_at = captured_at[receiver];
+            sent.interval_ms = interval;
+            sent.source_tick = tick;
+            sent.side = receiver * 3 + receiver;
+            sent.source_freq = frequencies[receiver];
+          }
           for (size_t source = 0; source < group_engines.size(); ++source) {
             if (source == receiver) continue;
             auto& row = pair[observed++];
@@ -272,8 +296,9 @@ struct Driver {
         for (size_t side = 0; side < failures.size(); ++side)
           stats.failures[side] += failures[side];
         for (size_t side = 0; side < observed; ++side) {
-          stats.max_callback_ms = std::max(stats.max_callback_ms,
-              (pair[side].t - pair[side].source_at) * 1000);
+          if (local_group < 0 || pair[side].source_freq != 0)
+            stats.max_callback_ms = std::max(stats.max_callback_ms,
+                (pair[side].t - pair[side].source_at) * 1000);
           stats.max_interval_ms = std::max(stats.max_interval_ms, pair[side].interval_ms);
           if (pair[side].interval_ms >= 20) ++stats.late_intervals;
           if (rows.size() == kCapacity) {
@@ -347,6 +372,30 @@ extern "C" void* stand_group_pcm_start(Capture capture, Playout playout,
   driver->period_ms = period_ms;
   driver->audio_priority = audio_priority != 0;
   driver->deadline_priority = audio_priority == 2;
+  driver->thread = std::thread([driver] { driver->Run(); });
+  return driver;
+}
+// One actual participant per process. Two mixed remote observations and one
+// actual local capture row per tick, using the same PCM and scheduling ABI.
+extern "C" void* stand_group_local_pcm_start(Capture capture, Playout playout,
+    void* engine, int participant, double origin, int period_ms, int priority) {
+  if (!capture || !playout || !engine || participant < 0 || participant > 2 ||
+      !std::isfinite(origin) || origin > stand_pcm_now() + 3 ||
+      period_ms < 500 || period_ms > 5000 || priority < 0 || priority > 2)
+    return nullptr;
+#ifndef __APPLE__
+  if (priority == 2) return nullptr;
+#endif
+  auto* driver = new Driver;
+  driver->capture = capture;
+  driver->playout = playout;
+  driver->group_mode = true;
+  driver->local_group = participant;
+  driver->group_engines[participant] = engine;
+  driver->origin = origin;
+  driver->period_ms = period_ms;
+  driver->audio_priority = priority != 0;
+  driver->deadline_priority = priority == 2;
   driver->thread = std::thread([driver] { driver->Run(); });
   return driver;
 }
