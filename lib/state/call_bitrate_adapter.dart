@@ -82,6 +82,11 @@ class CallBitrateAdapter {
   /// instead of oscillating.
   static const int recoverAfter = 12;
 
+  /// Healthy measured audio can retry the one-fps floor after three samples.
+  /// A larger video budget still needs [recoverAfter] healthy samples. Small
+  /// intermittent decoded trims must not restart a twelve-second camera hold.
+  static const int probeResumeAfter = 3;
+
   /// A new low-latency call can probe one rung after three measured healthy
   /// video samples. Waiting twelve samples per rung kept healthy P2P video
   /// sparse for nearly a minute. Any measured failure retires this shortcut.
@@ -172,6 +177,7 @@ class CallBitrateAdapter {
       'level_after': _level,
       'bad_streak_after': _badStreak,
       'good_streak_after': _goodStreak,
+      'audio_recovery_streak_after': _audioRecoveryStreak,
       'severe_streak_after': _severeStreak,
       'paused_after': _audioReserve,
     });
@@ -932,7 +938,10 @@ class CallBitrateAdapter {
         (measuredPlayoutHealthy || audioGood) &&
         (audioTxDrops != null || !newDrops)) {
       _audioRecoveryStreak++;
-      if (_audioRecoveryStreak >= recoverAfter) {
+      final resumeAfter = measuredPlayoutHealthy
+          ? probeResumeAfter
+          : recoverAfter;
+      if (_audioRecoveryStreak >= resumeAfter) {
         _releaseAudioHold();
         return target;
       }
