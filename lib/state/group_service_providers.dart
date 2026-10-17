@@ -330,20 +330,22 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   // field added to one copy of this payload and not the others is how a mirror
   // comes to carry less than the message it mirrors (the archive's copy was
   // already dropping inline custom emoji that way).
-  messaging.onMessageStored = (peer, message) {
-    if (peer == service.selfId) return;
-    unawaited(() async {
-      if (await service.isMyDevice(peer)) return;
-      final hasFile = (message.fileContentId ?? message.fileId) != null;
-      if (!hasFile && message.body.isEmpty) return;
-      final mirror = await prepareDeviceMirror(peer.hex, message,
-          storage: service.storage,
-          registerContent: messaging.registerGroupContent);
-      await service.postDeviceEvent(
-        mirror.event,
-        attachment: mirror.attachment,
-      );
-    }());
+  messaging.onMessageStored = (peer, message) async {
+    if (peer == service.selfId || await service.isMyDevice(peer)) return;
+    if (await service.deviceGroupIdHex() == null) return;
+    final hasFile = (message.fileContentId ?? message.fileId) != null;
+    if (!hasFile && message.body.isEmpty) return;
+    final mirror = await prepareDeviceMirror(peer.hex, message,
+        storage: service.storage,
+        registerContent: messaging.registerGroupContent);
+    // postDeviceEvent completes after its local durable batch save; network
+    // broadcast is independent. Sending must not outrun this recovery record.
+    if (!await service.postDeviceEvent(
+      mirror.event,
+      attachment: mirror.attachment,
+    )) {
+      throw StateError('Could not persist the own-device message mirror');
+    }
   };
 
   // The same message, one tick later. Tiny by design: the mirror already
