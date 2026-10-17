@@ -63,6 +63,20 @@ class GroupSdk:
         value.argtypes, value.restype = args, result
         return value
 
+    def console_log_status(self):
+        """Post-capture barrier; never polls or delays the measured workload."""
+        names = ('veil_debug_flush_console_logs',
+                 'veil_debug_console_log_dropped',
+                 'veil_debug_console_log_write_errors')
+        if not all(hasattr(self.lib, name) for name in names):
+            return {'supported': False}
+        flushed = self.fn(names[0], [C.c_uint64], C.c_int)(2000)
+        dropped = self.fn(names[1], [], C.c_uint64)()
+        errors = self.fn(names[2], [], C.c_uint64)()
+        return {'supported': True, 'flush_rc': flushed,
+                'dropped_records': dropped, 'write_errors': errors,
+                'ok': flushed == 0 and dropped == 0 and errors == 0}
+
     def checked(self, function, *args):
         error = P()
         result = function(*args, C.byref(error))

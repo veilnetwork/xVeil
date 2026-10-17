@@ -202,7 +202,7 @@ void main() {
       native(a, stats: {...healthy(), 'audio_loss_report_us': i});
       expect(a.audioReserve, isTrue);
     }
-    for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
+    for (var i = 0; i < CallBitrateAdapter.probeResumeAfter; i++) {
       native(a, stats: {...healthy(), 'audio_loss_report_us': 100});
     }
     expect(a.audioReserve, isTrue, reason: 'first new report resets recovery');
@@ -257,6 +257,35 @@ void main() {
       native(a);
     }
     expect(a.audioReserve, isFalse);
+  });
+  test('healthy decoded audio retries one fps before another small trim', () {
+    final a = direct(level: 4);
+    var frames = 1;
+    while (!a.audioReserve && frames <= 8) {
+      native(
+        a,
+        recovered: true,
+        stats: {...healthy(), 'video_tx_frames': frames++},
+      );
+    }
+    expect(a.audioReserve, isTrue);
+    // The stand showed another small trim after six healthy seconds. A
+    // twelve-second hold never let this sender try its floor in that gap.
+    for (var i = 0; i < 2; i++) {
+      native(a, stats: {...healthy(), 'video_tx_frames': frames});
+      expect(a.audioReserve, isTrue);
+    }
+    native(a, stats: {...healthy(), 'video_tx_frames': frames});
+    expect(a.audioReserve, isFalse);
+    expect(a.target.maxFps, 1.0);
+    expect(a.atFloor, isTrue);
+    // Resuming the floor is separate from earning a larger video budget.
+    for (var i = 0; i < 11; i++) {
+      native(a, stats: {...healthy(), 'video_tx_frames': ++frames});
+      expect(a.atFloor, isTrue);
+    }
+    native(a, stats: {...healthy(), 'video_tx_frames': ++frames});
+    expect(a.level, 3);
   });
   test(
     'fresh local discards need actual floor frames but not a new peer report',
@@ -489,7 +518,7 @@ void main() {
         apply(a);
       }
 
-      for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
+      for (var i = 0; i < CallBitrateAdapter.probeResumeAfter - 1; i++) {
         tick(paused: true);
         expect(a.audioReserve, isTrue);
       }
@@ -1249,7 +1278,7 @@ void main() {
     native(a, peerDelay: 300);
     native(a, peerDelay: 300);
     expect(a.audioReserve, isTrue);
-    for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
+    for (var i = 0; i < CallBitrateAdapter.probeResumeAfter; i++) {
       native(
         a,
         stats: {
@@ -1259,7 +1288,7 @@ void main() {
           'tx_loss_pct': 7,
         },
       );
-      expect(a.audioReserve, i < CallBitrateAdapter.recoverAfter - 1);
+      expect(a.audioReserve, i < CallBitrateAdapter.probeResumeAfter - 1);
     }
     expect(a.target.maxFps, 1.0);
     for (var i = 0; i < 30; i++) {
@@ -1307,7 +1336,7 @@ void main() {
     native(a, peerDelay: 300);
     native(a, peerDelay: 300);
     expect(a.audioReserve, isTrue);
-    for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
+    for (var i = 0; i < CallBitrateAdapter.probeResumeAfter - 1; i++) {
       native(a, stats: healthy(drops: i * 20));
     }
     expect(a.audioReserve, isTrue);
@@ -1320,11 +1349,11 @@ void main() {
     final a = direct(level: 4);
     native(a, peerDelay: 300);
     native(a, peerDelay: 300);
-    for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
+    for (var i = 0; i < CallBitrateAdapter.probeResumeAfter - 1; i++) {
       native(a);
     }
     native(a, stats: {'audio_feedback_reports': 0}, peerDelay: null);
-    for (var i = 0; i < CallBitrateAdapter.recoverAfter - 1; i++) {
+    for (var i = 0; i < CallBitrateAdapter.probeResumeAfter - 1; i++) {
       native(a);
     }
     expect(a.audioReserve, isTrue);

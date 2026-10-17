@@ -373,6 +373,9 @@ def worker(pipe, sdk_path, media_path, root, clock, participant,
             destroy(engine)
         if fixture:
             fixture.close()
+            result['console_log_after_stop'] = fixture.console_log_status()
+            if result['console_log_after_stop']['supported']:
+                result['ok'] &= result['console_log_after_stop']['ok']
         if policy:
             policy.stdin.close()
             try:
@@ -549,6 +552,9 @@ def main():
                          all(v['first_capture'] < .1 and v['last_capture'] >= args.duration - .1
                              and all(p['matched'] > 0 and p['missing'] == 0 and p['max_ms'] < 200
                                      for p in v['phases']) for v in result['voice_paths']))
+        result['console_log_before_read'] = fixture.console_log_status()
+        if result['console_log_before_read']['supported']:
+            result['ok'] &= result['console_log_before_read']['ok']
         hops = re.findall(r'ipc.rt_trace.relay_admission[^\n]*hop=([a-f0-9]+)'
                           r'[^\n]*datagram_transport=(true|false)',
                           (root / 'native.log').read_text(errors='replace'))
@@ -580,6 +586,9 @@ def main():
         for pipe in pipes:
             pipe.close()
         fixture.close()
+        result['console_log_after_stop'] = fixture.console_log_status()
+        if result['console_log_after_stop']['supported']:
+            result['ok'] &= result['console_log_after_stop']['ok']
         if fixture.shaper:
             result['shaper'] = {'stats': fixture.shaper.stats,
                                'failure': fixture.shaper.failure,
