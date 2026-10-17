@@ -22,7 +22,8 @@ E = C.POINTER(P)
 
 
 class GroupSdk:
-    def __init__(self, sdk, directory, rate_kbps=0, *, attach=False, trace=False):
+    def __init__(self, sdk, directory, rate_kbps=0, *, attach=False, trace=False,
+                 trace_capacity=100000):
         self.root = Path(directory).absolute()
         validate_unix_fixture_paths(self.root)
         if attach:
@@ -38,6 +39,7 @@ class GroupSdk:
         self.shaper = None
         self.rate_kbps = rate_kbps
         self.trace = trace
+        self.trace_capacity = trace_capacity
         self.closed = False
         self.stop_results = []
         self.channel_pairs = {}
@@ -128,7 +130,8 @@ class GroupSdk:
                 listener.close()
                 raise
         if self.rate_kbps:
-            self.shaper = UdpShaper([('127.0.0.1', p) for p in ports], trace=self.trace)
+            self.shaper = UdpShaper([('127.0.0.1', p) for p in ports],
+                                    trace=self.trace, trace_capacity=self.trace_capacity)
             # The caller starts the measured rate only after bootstrap. Each
             # direction has one blind FIFO shared by all target connections.
         self.relay_id = str(identities[0]['node_id']).removeprefix('0x')

@@ -6,12 +6,15 @@ import threading
 import time
 
 class UdpShaper:
-    def __init__(self, target, max_queue_ms=200, trace=False):
+    def __init__(self, target, max_queue_ms=200, trace=False, trace_capacity=100000):
+        if (type(trace_capacity) is not int or
+                not 1 <= trace_capacity <= 1000000):
+            raise ValueError('Trace capacity must be an integer in 1..1000000')
         self.targets = target if isinstance(target, list) else [target]
         self.max_queue_ms = max_queue_ms
         # Optional bounded metadata trace. Never retain payloads, addresses or
         # application classes; link indices name only fixture UDP fronts.
-        self.trace_rows = collections.deque(maxlen=100000) if trace else None
+        self.trace_rows = collections.deque(maxlen=trace_capacity) if trace else None
         self.trace_events = 0
         self.selector = selectors.DefaultSelector()
         self.fronts = []
