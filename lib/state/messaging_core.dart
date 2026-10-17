@@ -3976,7 +3976,13 @@ class MessagingService {
     }
   }
 
-  Future<void> dispose() async {
+  Future<void>? _disposal;
+
+  /// Riverpod cannot await onDispose. A session owner can join that same
+  /// shutdown before closing the native node and encrypted container.
+  Future<void> dispose() => _disposal ??= _dispose();
+
+  Future<void> _dispose() async {
     _disposed = true; // stops transfer retry/serve work
     _outbox.dispose();
     // Starts synchronously: the transport-scoped broker lease is detached
