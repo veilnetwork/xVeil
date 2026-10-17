@@ -55,6 +55,7 @@ class MainActivity : FlutterActivity() {
     private var pendingCallAction: String? = null
     private var pipAutoWanted = false
     private var pipAspect = Rational(16, 9)
+    private var previousCallVolumeStream: Int? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -152,7 +153,8 @@ class MainActivity : FlutterActivity() {
             when (call.method) {
                 "setRoute" -> {
                     val speaker = call.argument<Boolean>("speaker") ?: false
-                    result.success(setCallAudioRoute(speaker))
+                    val preferExternal = call.argument<Boolean>("preferExternal") ?: false
+                    result.success(setCallAudioRoute(speaker, preferExternal))
                 }
                 "release" -> {
                     releaseCallAudioRoute()
@@ -419,43 +421,77 @@ class MainActivity : FlutterActivity() {
 
     /**
      * Route call playout explicitly instead of accepting the device-dependent
-     * AudioTrack default. Video calls use the built-in loudspeaker; audio-only
-     * calls behave like a handset call and use the receiver.
+     * AudioTrack default. Headsets take precedence for automatic selection;
+     * without one, video uses the loudspeaker and audio uses the receiver.
      */
-    private fun setCallAudioRoute(speaker: Boolean): Boolean {
+    private fun setCallAudioRoute(speaker: Boolean, preferExternal: Boolean): String? {
         val manager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        manager.mode = AudioManager.MODE_IN_COMMUNICATION
         return try {
+            if (previousCallVolumeStream == null) {
+                previousCallVolumeStream = volumeControlStream
+            }
+            manager.mode = AudioManager.MODE_IN_COMMUNICATION
+            // Match the AAudio VOICE_COMMUNICATION stream. Never change the
+            // user's volume itself; hardware keys should control this call.
+            volumeControlStream = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                AudioManager.STREAM_VOICE_CALL
+            } else {
+                AudioManager.STREAM_MUSIC // API 26/27 AAudio has no usage setter.
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val available = manager.availableCommunicationDevices
+                val external = if (preferExternal) {
+                    available.firstOrNull {
+                        it.id == manager.communicationDevice?.id &&
+                            isExternalCallAudioDevice(it.type)
+                    } ?: available.firstOrNull { isExternalCallAudioDevice(it.type) }
+                } else null
                 val wantedType = if (speaker) {
                     AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
                 } else {
                     AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
                 }
-                val device = manager.availableCommunicationDevices.firstOrNull {
+                val device = external ?: available.firstOrNull {
                     it.type == wantedType
                 }
                 if (device != null) {
-                    manager.setCommunicationDevice(device)
+                    if (!manager.setCommunicationDevice(device)) null
+                    else if (external != null) "external"
+                    else if (speaker) "speaker" else "earpiece"
                 } else if (!speaker) {
                     // Tablets may expose no receiver. Clearing the explicit
                     // route lets Android choose its normal communication path.
                     manager.clearCommunicationDevice()
-                    true
+                    "earpiece"
                 } else {
-                    false
+                    null
                 }
             } else {
+                val external = preferExternal &&
+                    manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any {
+                        isExternalCallAudioDevice(it.type)
+                    }
                 @Suppress("DEPRECATION")
-                manager.isSpeakerphoneOn = speaker
-                true
+                manager.isSpeakerphoneOn = speaker && !external
+                if (external) "external" else if (speaker) "speaker" else "earpiece"
             }
         } catch (error: RuntimeException) {
             XVeilLog.w(applicationContext, "xveil-call-audio") {
                 "Audio route failed: $error"
             }
-            false
+            null
         }
+    }
+
+    private fun isExternalCallAudioDevice(type: Int): Boolean = when (type) {
+        AudioDeviceInfo.TYPE_WIRED_HEADSET,
+        AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+        AudioDeviceInfo.TYPE_USB_HEADSET,
+        AudioDeviceInfo.TYPE_USB_DEVICE,
+        AudioDeviceInfo.TYPE_USB_ACCESSORY,
+        AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+        AudioDeviceInfo.TYPE_BLE_HEADSET -> true
+        else -> false
     }
 
     private fun releaseCallAudioRoute() {
@@ -473,6 +509,8 @@ class MainActivity : FlutterActivity() {
                 "Audio route cleanup failed: $error"
             }
         }
+        previousCallVolumeStream?.let { volumeControlStream = it }
+        previousCallVolumeStream = null
     }
 
     /**

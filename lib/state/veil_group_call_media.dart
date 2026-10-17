@@ -11,6 +11,7 @@ import '../core/ids.dart';
 import '../core/log.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import '../domain/group_call.dart';
+import '../domain/call_signal.dart';
 import 'android_call_foreground.dart';
 import 'android_camera_capture.dart';
 import 'android_screen_capture.dart';
@@ -470,10 +471,10 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         return false;
       }
     }
-    final audioReady = !call.media.audio || engine.startAudio();
-    if (audioReady && call.media.audio) {
+    if (call.media.audio) {
       await callAudioRouter.useDefaultFor(call.media);
     }
+    final audioReady = !call.media.audio || engine.startAudio();
     var videoReady = !(call.media.video || call.media.screen);
     if (!videoReady) {
       videoReady = await _startVideoLocked(
@@ -579,7 +580,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     _videoRunning = true;
     _cameraEnabled = startCamera;
     _applyVideoPolicy(engine, adapter);
-    await callAudioRouter.setRoute(CallAudioRoute.speaker);
+    await callAudioRouter.useDefaultFor(const CallMedia(audio: true, video: true));
     _frameTimer ??= Timer.periodic(
       const Duration(milliseconds: 33),
       (_) => _pollFrames(engine),
