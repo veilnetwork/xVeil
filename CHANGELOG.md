@@ -40,6 +40,9 @@ bumps may change behaviour a user notices.
   remains under investigation. Retained full tests include both a 180-ms pass
   and a 220-ms failure against the unchanged strict 200-ms audio gate.
 - Group video repairs still reach participants that did not request them.
+- The pre-existing native public Space discovery test can return an older
+  authority generation or fail to reach a new holder quorum after ownership
+  transfer. The call/contact changes do not establish a fix for this issue.
 - Full reproduction of the reported Windows/Android contact-acceptance
   failure and live speech intelligibility checks remain outstanding.
 - Contact requests left pending before this update need one manual resend to

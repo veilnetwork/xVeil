@@ -76,7 +76,14 @@ for sonames. Also export the plugin override from `test-native.sh` for its
 fresh workers. This changes CI environment only, never production fallbacks,
 assertions, deadlines or skip lists. The separate previous native quorum
 failure still requires a current-source result; do not call it fixed from the
-loader diagnosis alone. Current Nightly verification follows.
+loader diagnosis alone. Current-source local native controls confirm this
+pre-existing discovery issue: the unchanged test returns generation 0 when 1
+is expected (16 s); a diagnostic wait requiring transferred authority keeps
+the original 90-s deadline and times out (106 s including setup/cleanup).
+The diagnostic wait is retained privately, not committed as a supposed fix.
+All three SDK nodes stop, and both test processes exit. Public Space discovery
+is an explicit release limitation, separate from the call/contact fixes and
+from the Linux loader repair. Current Nightly verification follows.
 
 ## 2026-10-17: measured-repair full gate PASS; intermittent failure remains open
 
