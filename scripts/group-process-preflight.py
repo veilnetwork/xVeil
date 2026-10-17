@@ -400,6 +400,8 @@ def main():
     parser.add_argument('--directory', type=Path, required=True)
     parser.add_argument('--duration', type=int, default=40)
     parser.add_argument('--rate-kbps', type=int, default=0)
+    parser.add_argument('--wire-trace-capacity', type=int, default=100000,
+                        help='bounded FIFO timing metadata rows; never changes pacing or limits')
     parser.add_argument('--budget-smoke', action='store_true')
     parser.add_argument('--adaptive', action='store_true')
     parser.add_argument('--full-load', action='store_true')
@@ -410,6 +412,8 @@ def main():
     args = parser.parse_args()
     if args.duration < 30 or args.rate_kbps < 0:
         parser.error('Duration must be at least 30 seconds and rate nonnegative')
+    if not 1 <= args.wire_trace_capacity <= 1000000:
+        parser.error('Wire trace capacity must be in 1..1000000')
     if args.budget_smoke and args.duration < 60:
         parser.error('The live audio-budget regression requires at least 60 seconds')
     if args.adaptive and (args.budget_smoke or os.environ.get('VEIL_MEDIA_TEST_GROUP_PTIME')):
@@ -419,7 +423,8 @@ def main():
     if not args.full_load and args.load_kind != 'both':
         parser.error('Load isolation requires --full-load')
     os.umask(0o077)
-    fixture = GroupSdk(args.sdk, args.directory, args.rate_kbps, trace=True)
+    fixture = GroupSdk(args.sdk, args.directory, args.rate_kbps, trace=True,
+                       trace_capacity=args.wire_trace_capacity)
     root = fixture.root
     log = (root / 'native.log').open('w')
     os.dup2(log.fileno(), 2)
@@ -579,7 +584,9 @@ def main():
             result['shaper'] = {'stats': fixture.shaper.stats,
                                'failure': fixture.shaper.failure,
                                'trace_events': fixture.shaper.trace_events,
-                               'trace_rows': len(fixture.shaper.trace_rows)}
+                               'trace_rows': len(fixture.shaper.trace_rows),
+                               'trace_capacity': fixture.shaper.trace_rows.maxlen,
+                               'trace_truncated': fixture.shaper.trace_events > len(fixture.shaper.trace_rows)}
             (root / 'wire-samples.json').write_text(json.dumps(list(fixture.shaper.trace_rows)))
         result['node_stop_results'] = fixture.stop_results
         result['remaining_sockets'] = len(list(root.glob('*/*.sock')))
