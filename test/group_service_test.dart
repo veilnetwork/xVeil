@@ -5977,6 +5977,68 @@ void main() {
     );
   });
 
+  test('prepared device link defers replay until the ready snapshot, including '
+      'after the source restarts', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final sent = <String>[];
+    var service = GroupService(
+      storage,
+      _FakeSigner(owner),
+      send: (peer, gid, json) async => sent.add(json),
+    );
+    final replayed = <NodeId>[];
+    service.onMemberLinked = (device) async {
+      replayed.add(device);
+      await service.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.settingSet,
+          key: 'ready-only',
+          tsMs: 123,
+          payload: const {'v': '1'},
+        ),
+      );
+    };
+    expect(
+      await service.linkDevice(
+        bob,
+        sovereign: sovereign,
+        broadcastSnapshot: false,
+      ),
+      isTrue,
+    );
+    await Future<void>.delayed(Duration.zero);
+    expect(
+      replayed,
+      isEmpty,
+      reason: 'the target still uses its temporary identity during prepare',
+    );
+    expect(sent, isEmpty);
+
+    // Reconstruct from storage: readiness must not depend on an in-RAM flag
+    // retained by the first half of the pairing ceremony.
+    final replay = service.onMemberLinked;
+    service.dispose();
+    service = GroupService(
+      storage,
+      _FakeSigner(owner),
+      send: (peer, gid, json) async => sent.add(json),
+    );
+    service.onMemberLinked = replay;
+    addTearDown(service.dispose);
+    expect(await service.broadcastDeviceGroup(), greaterThan(0));
+    expect(replayed, [bob]);
+    expect(
+      (await service.deviceSyncState())[(
+            DeviceSyncKind.settingSet,
+            'ready-only',
+          )]
+          ?.payload['v'],
+      '1',
+    );
+    expect(sent, isNotEmpty);
+  });
+
   // MY OWN IDENTITY IS ALWAYS ME, whatever the device group looks like.
   //
   // Nobody else can authenticate as it, so a frame whose verified source is my
