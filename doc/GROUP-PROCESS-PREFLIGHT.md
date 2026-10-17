@@ -1,5 +1,24 @@
 # Three-party group audio preflight
 
+## 2026-10-17: boundary capture remains NEGATIVE; RTCP perturbs frame cadence
+
+`group-work-boundary-360`: measurement-valid, FULL NEGATIVE, 2112 matches / zero
+missing, audio-only 130.149 ms, loaded **210.138 ms**, six moving tails 14 each,
+all full encrypted 512-KiB hashes correct by 352.387/351.548/352.239 s. Original
+360-s deadline, neutral 1024-kbit/s FIFO, clocks/rows/QoS/deadlines, immutable
+workload/startup/source copies, routes/topology and independent cleanup verify.
+
+Bounded read-only first/last owned-work records do not change scheduling.
+10518 rows cover 10376 works with no missing boundaries/cap exhaustion. One
+two-cell work completes in 4.222 ms under a 4501-us schedule; the SDK currently
+submits RTCP as typed frame work too, perturbing daemon cadence estimation.
+Fix this SDK-origin classification while preserving lane, expiry and RTCP.
+At the ACTUAL 210-ms peak, nearby work is single-cell/single-DATAGRAM <=797 B,
+so do not blame it on a large fragmented-frame burst without further evidence.
+See CALLS-MEDIA-HANDOFF.md for source path, exact scope/provenance and remaining
+work. 903 relevant Rust release tests pass; current goal remains ACTIVE.
+
+
 ## 2026-10-17: new native unicast floor; full gate is still NEGATIVE
 
 The unicast codec/ANA signal defect has a RED/GREEN component regression and
