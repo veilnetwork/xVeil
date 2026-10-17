@@ -509,6 +509,8 @@ class MessagingService {
   Future<bool> applyMirroredMessage({
     String? author,
     int? seq,
+    String? replyToId,
+    String? forwardedFrom,
     required NodeId peer,
     required String msgId,
     required MessageDirection direction,
@@ -522,6 +524,8 @@ class MessagingService {
   }) => _deviceMirror.applyMessage(
     author: author,
     seq: seq,
+    replyToId: replyToId,
+    forwardedFrom: forwardedFrom,
     peer: peer,
     msgId: msgId,
     direction: direction,

@@ -363,6 +363,20 @@ void main() {
     });
   });
 
+  test('text and file mirrors carry reply target and forwarding attribution', () {
+    for (final cid in [null, 'content-ref']) {
+      final mirror = deviceMirrorOf(alice.hex, Message(
+        id: 'annotated', conversationId: alice.hex,
+        direction: MessageDirection.outgoing, body: 'reply',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(1000),
+        replyToId: 'original-message', forwardedFrom: 'Original author',
+        fileContentId: cid,
+      ));
+      expect(mirror.event.payload['r'], 'original-message');
+      expect(mirror.event.payload['fw'], 'Original author');
+    }
+  });
+
   /// The drift this builder was introduced to remove: the archive kept its own
   /// copy of this field list and had already lost the inline custom emoji the
   /// live emit carries.
