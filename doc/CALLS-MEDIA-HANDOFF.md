@@ -1,5 +1,102 @@
 # Calls media handoff
 
+## 2026-10-17: cold delegated rendezvous resolution repaired; WAN app check
+
+The first real mixed-posture application call, `call-mixed-relay-1bd`, did
+NOT reach Blackview within 45 seconds. Mac's "live leg ok" was only local
+IPC admission, not delivery. No incoming offer or decrypt error appeared in
+the phone log. Both endpoints used their canonical identity RECEIVE addresses,
+which differ from their device transport addresses. This was a signaling
+failure before media, not evidence about audio/video scheduling. Both apps
+stopped and the temporary anonymous setting on the QA Mac profile was restored.
+
+Found a concrete cold-resolution defect: `resolve_fresh_rendezvous_ads` filtered
+each remote ad with `ad_binding_ok`, whose delegated check can read ONLY the
+local identity-document shard. A sender without that document discarded every
+device-signed identity-addressed ad, without asking the network for the
+document that would authorize it. The previous loopback codec fixtures use
+self-bound node addresses and did not cover this arrangement.
+
+New regression uses actual identity creation/signatures, an empty local DHT,
+serialized recursive FIND_VALUE requests through SessionTxRegistry, and a
+controlled holder answering with the signed ad AND document. It is a resolver
+unit fixture, not a physical relay substitute. On SDK `1bd719bb` plus the
+test-only change it FAILS in 0.03 s: zero routes instead of one. Private red
+source/hash/log evidence is retained; the original red executable is NOT
+retained (Cargo subsequently rebuilt that path for the green test).
+
+SDK `ea1f2552` collects bounded decodable/fresh ad candidates, resolves a
+fully time/signature-verified document for the requested identity when binding
+is missing, compares normal replica holders by document issue time, then
+applies the ORIGINAL ad signature and current-device-authorization checks.
+Only verified ads enter the mirror or route cache. All ad slots share ONE
+additional bounded document walk per receiver refresh; strictly self-bound
+ads need no document lookup. No clear direct fallback, mailbox call delivery,
+relay service preference, wire label or media/channel/deadline policy change.
+Focused `rendezvous` suite: **30 passed**, zero failed, including cold success,
+missing/broken/foreign documents, unauthorized signer, broken ad signature,
+and the strict-address no-document-walk control.
+
+Production-feature Mac FFI builds successfully with the same **196 exports**
+(190 Veil API). Frozen `cold-rendezvous-sdk` records exact source hashes and
+SDK commit; pre-signing dylib SHA-256 is
+`da1bb8e43fa663b430cc4d1640e8466975fab83975d002f5377becae2d87b9c9`.
+The QA app reuses the preceding Dart/native production-media build, changing
+only this SDK library; lsof confirms its actual loaded SDK/media paths.
+Blackview retains the preceding SDK `1bd719bb`, same identity and application
+data. This is not a fresh qualification of every earlier gate on `ea1f2552`.
+
+First repaired physical capture `call-cold-rendezvous`: the runtime explicitly
+loads the phone's delegation and resolves identity-addressed ads; incoming
+offer and answer succeed with **1.39-s** ring time after registration warmup.
+The driver then STOPS at t=0 because its expected route was wrong: it asserted
+`relay`, while both endpoints correctly report `onion`. Current production
+`negotiateCallTransport` and its existing anonymity-matrix tests require onion
+when EITHER participant is anonymous, including mixed anonymous/direct calls.
+The application policy is not changed to satisfy the driver. That capture
+proves repaired signaling, not sustained media; the subsequent capture uses
+the correct onion expectation and independently requires anonymous Mac/direct
+phone postures. Both apps from the first capture exit, phone forwarding and
+logcat stop, and Mac's original non-anonymous setting is verified restored.
+
+Corrected `call-cold-rendezvous-onion` rings in **1.16 s** after the unchanged
+registration warmup. **59 samples / 119.67 s**, both endpoints remain active
+on onion, cameras enabled at **31.90 s**. Media epoch remains ONE; zero route
+handovers, audio RTP transmit drops, sampled tx/rx drops, or decoded catch-up
+discards. Remote decoded-frame totals **55 / 38**, with **9 / 8** advances in
+the final approximately 15 s: video does continue, but this is NOT acceptable
+quality qualification. Video-protection pause is true in **23 / 17** samples;
+final remote FPS is **0.7 / 0.4**. At the end both are paused for protection
+despite current buffer/source-pressure booleans being false (hysteresis still
+has to be distinguished from an incorrect trigger).
+
+Mac records zero native audio interruptions. Phone records TWO, cumulative
+**2035 ms**: first **156 ms** during audio-only, then **1879 ms** around camera
+enable. At t=31.90 s its native audio ingress age reaches **1667 ms**, although
+Mac's audio RTP emission maximum gap remains only **40 ms** and both media
+epochs stay at one. Phone's own RTP emission maximum gap **405 ms** already
+exists before video and does not grow at this later interruption. This narrows
+the later gap to delivery/ingress rather than a stopped Mac audio encoder;
+it does NOT identify the exact network/IPC/native stage. In particular, do not
+claim camera capture or battery saving caused it: phone is charging at 100%,
+Android low_power=0, and causality is not yet isolated. Sampled PEER playout
+ranges **81..117 / 67..120 ms** are buffer observations, not acoustic latency.
+Human continuous-speech listening remains unverified.
+
+Both final apps stop, Mac's original setting is restored through the UI, and
+independent inspection verifies the owned Mac PID, ALL Android package
+processes, debug API listeners, logcat and test ADB forward are gone. Private
+raw samples/logs, analysis.json and independent-cleanup.json retain the result.
+The actual current WAN call thus proves working signaling/ongoing media and
+uncovers the remaining audio gap/video-protection problem; it is NOT a pass
+of the full goal. Next: isolate the 1879-ms ingress gap and protection inputs
+on this route before another broad qualification run. No physical application
+is left running. No push, release, Android update or relay deployment this cycle.
+
+Goal remains ACTIVE. Current WAN media quality and continuous human speech
+listening remain distinct from the earlier strict 360-second six-direction
+gate on SDK `1bd719bb`; that result is not relabeled for this later binary.
+
 ## 2026-10-17: current anonymous/ordered real-codec coexistence PASS
 
 `anonymous-codecs-1bd719bb` runs the existing ignored real-codec test against
