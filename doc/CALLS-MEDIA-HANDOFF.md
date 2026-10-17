@@ -62,6 +62,22 @@ unchanged at **v2.6.1 / 46251ddf**. xVeil **0.13.87+106** now pins this publishe
 SDK and immutable **engine-2026.10.17**; all seven call engines must be built
 from this exact SDK pointer, verified and published before tagging xVeil.
 
+## 2026-10-17: do not hide the previous release's nightly loader failures
+
+While publishing, the scheduled Nightly **39015101698** on old xVeil
+**19640228 / v0.13.86** finishes red. Its E2E job supplies explicit test handles
+but no `LD_LIBRARY_PATH`; fresh storage workers cannot open hidden-volume by
+soname and app-side `verifiedVeilLibrary` cannot open Veil's handle on glibc.
+The direct FFI path tests succeed while the two actual sender wiring checks
+fall back to the name-based path and fail their unchanged symlink-swap attacks.
+Set the worker plugin's actual `XVEIL_HV_DYLIB` override and both native library
+directories on the E2E loader path, as the existing native runner already does
+for sonames. Also export the plugin override from `test-native.sh` for its
+fresh workers. This changes CI environment only, never production fallbacks,
+assertions, deadlines or skip lists. The separate previous native quorum
+failure still requires a current-source result; do not call it fixed from the
+loader diagnosis alone. Current Nightly verification follows.
+
 ## 2026-10-17: measured-repair full gate PASS; intermittent failure remains open
 
 `group-video-repair-full-360` is a **valid full original qualification PASS**
