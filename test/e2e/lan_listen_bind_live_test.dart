@@ -54,15 +54,15 @@ Future<List<String>> boundAddresses(int port) async {
     '$pid',
     '-i',
     ':$port',
+    // Field output avoids platform-specific padding in the human table.
+    // Linux can leave trailing whitespace after NAME, so splitting the table
+    // made a real wildcard listener look like an empty address.
+    '-Fn',
   ]);
-  final out = <String>[];
-  for (final line in (r.stdout as String).split('\n').skip(1)) {
-    if (line.trim().isEmpty) continue;
-    final parts = line.split(RegExp(r'\s+'));
-    // NAME is the last column: `*:9101` or `127.0.0.1:9101`.
-    out.add(parts.last);
-  }
-  return out;
+  return [
+    for (final line in (r.stdout as String).split('\n'))
+      if (line.startsWith('n')) line.substring(1),
+  ];
 }
 
 void main() {
@@ -70,7 +70,9 @@ void main() {
 
   Future<RealVeilStack> boot(String dir, int port, {required bool lan}) async {
     await Directory('$dir/runtime').create(recursive: true);
-    final storage = HiddenVolumeStorage.async(workerSpaceOpener('$dir/store.hv'));
+    final storage = HiddenVolumeStorage.async(
+      workerSpaceOpener('$dir/store.hv'),
+    );
     expect(
       await storage.open(password: 'live-bind-probe', createIfMissing: true),
       isTrue,
