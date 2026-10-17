@@ -1,5 +1,60 @@
 # Calls media handoff
 
+## 2026-10-17: measured group control traffic; original full gate remains RED
+
+`group-rtcp-accounting-360` uses current Dart (4df12b12), Rust FFI f2e15842
+and native diagnostic build **a6dc1a99 / e1e3b64e...**. Original full 360-s
+workload, all source/clock/QoS/topology/deadline/ordinal predicates preserved.
+Verifier confirms **measurement valid**, **full qualification FAILS**:
+**2112 matches / 0 missing**, audio-only peak **150.062417 ms**, loaded
+**220.185750 ms**. Video tails **2/0/0/0/0/2**, so four also fail continuity.
+Three full encrypted 524288-byte hashes verify before the original deadline:
+**340.963111 / 352.403650 / 339.163660 s**. All worker exits/node stops 0,
+sockets 0; verifier AND subsequent independent owned-PID check find every
+wrapper/helper/worker/policy/resource-tracker absent. No GUI/phone apps started.
+The single run does not establish that diagnostic atomics caused regression.
+
+Native video at source 0 is paused by the audio-protection policy at the end;
+source 2 is also paused through 358 s and successfully resumes at 359 s.
+Its last stats snapshot is BEFORE that action: `native_pause=1` plus policy
+`audioReserve=false` is not proof of a failed resume or stuck video worker.
+Budget/pause acknowledgments succeed and video workers report not stalled.
+The unchanged video-tail failure still stands; do not relabel it a pass.
+
+All four RTCP counters are present and monotonic in every saved stats sample.
+`analyze-group-rtcp-volume.py` / capture `rtcp-volume-analysis.json` report
+the loaded phase's **accepted per-peer copies BEFORE encryption/padding**:
+
+| Worker | Audio RTCP packets/s | Audio raw kbit/s | Video RTCP packets/s | Video raw kbit/s |
+| --- | --- | --- | --- | --- |
+| 0 | 0.820 | 0.487 | 7.985 | 3.561 |
+| 1 | 0.817 | 0.481 | 7.708 | 3.413 |
+| 2 | 0.805 | 0.478 | 8.092 | 3.599 |
+
+These are not encrypted relay bandwidth percentages or proof that RTCP alone
+caused queueing. Group receive shims already leave independent TWCC disabled;
+do not propose removing supposedly frequent audio TWCC. Video control types
+and the effect of the video load still need attribution.
+
+Adjacent packets around the prior 200.043-ms marker are retained privately in
+`confirmed-growth-peak-packet-window.json`. Five neighboring packets show
+encode-to-ingress **99.416 / 124.900 / 133.393 / 94.477 / 72.698 ms**, native
+ingress queue **0.006–0.028 ms**. Input marker 230.280003 s, decoded
+230.480046 s. No exact sample-to-packet identity is asserted across Opus
+lookahead/time stretching. Blind FIFO peaks nearby are **78.463 / 51.853 ms**
+by direction. Reliable admission trace costs are **1042 / 1108 bytes**, not
+evidence of one giant unfragmented file burst. Stop guessing from payload
+size, pacer constants or rounded latency.
+
+Next safe attribution: original **360-s files-only** control using the SAME
+three SDK processes, 1024-kbit/s shaper, policy, binaries, three 512-KiB files,
+clocks and deadline, with only video load removed. Wrapper is PREPARED, NOT
+STARTED: private `launch-group-rtcp-files-control.py`. Treat as diagnostic,
+never full qualification (full verifier's video predicates stay unchanged).
+Then inspect video RTCP types if file-only separates the fault. Blackview was
+visible by ADB in a read-only check this turn; no physical call was launched.
+Goal ACTIVE; no genuine blocker, no push/release/deployment.
+
 ## 2026-10-17: confirmed-growth gate still FAILS; group RTCP accounting added
 
 `group-confirmed-growth-360` verifies root **bed1a30b** / production policy
