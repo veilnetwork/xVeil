@@ -1,5 +1,76 @@
 # Calls media handoff
 
+## 2026-10-17: private carrier health and bounded primary capacity retry (SDK qualification)
+
+The completed negative physical capture below led to a controlled RED:
+`private_route_liveness_follows_its_datagram_carrier_not_reliable_maintenance`.
+Delay only endpoint reliable recovery checks while authenticated datagrams
+continue, then actually blackhole the primary datagram carrier. Original SDK:
+working primary identities changed, **179 / 179 fallback attempts**, **715 /
+715** admitted packets. All four nodes stopped before the assertion failed.
+Sending each periodic check through its EXISTING local datagram child fixes
+that divergence; the same 16 + 16-s test yields **715 / 715**, zero primary
+fallbacks and still expires genuinely failed carriers. Wire headers remain
+INTERACTIVE and all relay forwarding remains neutral.
+
+The first fix alone is insufficient. Real obfs4 72-s sustained-pressure fixture
+still changed receive addresses although **3600 / 3600** actual encrypted
+primary packets delivered. Trace identifies primary destination-cookie changes;
+other initial circuit identities stayed fixed in that capture. A private
+receive circuit now records receipt ONLY after that call's AEAD/replay admission.
+Files, forged clear sender, corrupt seals and replay cannot renew it. This
+corrects the receive-path health judgment without trusting a remote QoS flag,
+local send success or another route's traffic. Initial checks, 12-s stale gate,
+240-s refresh, byte allowances and media deadlines remain unchanged.
+
+Second intermediate capture (`private-receive-liveness-qualified`) passes
+**2 private-feed**, **27 media crypto** and **7 network** tests (9 existing
+ignored diagnostics). Under forced pressure its primary and control identities
+now stay fixed, but idle secondary receive circuits rotate. Their simultaneous
+padded datagram checks can exceed the shared **8192-byte** secondary window;
+source traces explicitly record local-slot 2/3 budget drops. Raising that
+allowance is NOT the fix. Current candidate retains the six-second initial
+check interval, with at most two asynchronous one-second retries within the
+existing three-second confirmation window. A per-route owned task is aborted
+on route drop; it never waits while holding the media send lock. A monotonic
+receipt generation prevents normal liveness reads from consuming its witness.
+
+Both first retry-prototype pressure attempts stop early on a missing primary
+packet; one capture explicitly shows primary buffer drops. These failures are
+retained (`private-probe-retry-qualified`, `private-probe-retry-pressure-repeat`)
+and are NOT green qualification. New endpoint candidate permits a primary
+that entered less than one existing 2-ms scheduler retry turn ago to wait
+until that ORIGINAL ingress + 2 ms. It retains the original timestamp, expiry,
+4-KiB committed-backlog bound, and drops on persistent congestion. Secondary
+behavior and neutral transit stay unchanged. A new queue/expiry regression
+checks capacity release, other-source progress, no repeated wait allowance and
+no resurrection of stale work. Four selected session queue/expiry controls pass.
+
+SDK **`f2e15842`** (`private-probe-capacity-qualified`) passes **2 private-feed,
+27 crypto, 7 network and 1 explicitly selected real-obfs4 pressure** tests. The
+72-s pressure workload delivers **3600 packets in EACH direction**, zero primary
+fallbacks, all eight original private origins AND destination cookies unchanged.
+Four nodes explicitly stop; test processes are independently absent. Admission
+logs contain **18 logged primary capacity deferrals**, maximum 2 per report,
+zero logged primary buffer drops. These counters RESET at each trace report;
+maximum 2 must NOT be called the total. No final-unflushed count is invented.
+Same module still expires an actually blackholed carrier; byte budgets, backlog
+bound, media lifetime, relay headers and the original test loads stay unchanged.
+Source/test-executable hashes and all intermediate RED captures are retained.
+
+This is encrypted loopback RTP/feedback, NOT native PCM/acoustic quality, a WAN
+phone call, decoded video or the original six-direction 360-s loaded gate.
+Those fresh qualifications still remain. Existing trace field `echo_age_ms`
+now denotes the latest accepted receipt/probe activity for compatibility.
+
+The first isolated session-unit build omitted the required release seed feature
+and correctly failed the existing bootstrap compile guard. No guard was
+changed; the repeat explicitly selects production-seeds. This is a build
+configuration failure, distinct from the retained behavioral failures above.
+No phone or Mac app was started during these SDK-only experiments. Last
+physical-app cleanup is independently verified in the capture below. No push,
+release, server deployment or public protocol change. Goal stays ACTIVE.
+
 ## 2026-10-17: canonical recovery identity implementation and independent health
 
 Implemented the duplicate-recovery fix. SDK `6ec527c3` exposes one coherent
