@@ -1,5 +1,129 @@
 # Calls media handoff
 
+## 2026-10-17: measured-repair full gate PASS; intermittent failure remains open
+
+`group-video-repair-full-360` is a **valid full original qualification PASS**
+for this capture: unchanged three SDK processes, six PCM directions, neutral
+shared FIFO 1024 kbit/s per direction, 360-s workload/deadline, exact original
+source clocks/QoS/startup budgets/topology, ordinal matching from input start,
+strict <200-ms audio and original decoded-recovery limits. All **2112**
+markers match, **0** missing. Audio-only peak **130.226875 ms**, loaded
+**180.221208 ms**. All six decoded tails move **14 / 12 / 8 / 12 / 8 / 14**.
+All three complete encrypted 524288-byte file hashes verify by
+**352.123151 / 352.114648 / 317.804594 s**. Shaper drops zero, maximum queues
+**166.621 / 107.486 ms**. Fixture/workers/node stops all zero, sockets zero.
+Verifier AND subsequent independent ownership audit find all ten owned
+wrapper/helper/worker/policy/resource-tracker PIDs absent.
+
+The production algorithm is the SAME as the preceding 220.026-ms full
+failure; only local measurement counters and opt-in trace capacity changed.
+This PASS does **not** establish that the intermittent defect is fixed, or
+that measurement counters improved latency. Retain both original verdicts.
+No live speech listening, phone/GUI app launch, installation, push/release or
+server deployment. User explicitly deferred human listening; do not re-ask.
+
+New video repair counters are zero on ALL THREE senders for the ENTIRE full
+capture: **0 retransmitted packets / 0 NACK requests**. Final PLI counters
+**16 / 12 / 10**, keyframes **8 / 9 / 6**; no stalled video-worker samples.
+Around this capture's peak (source 0 -> receiver 1, **215.130007 -> 215.310228
+s**), no NACK, repair, PLI or keyframe counter advances. Nearby direction-0
+FIFO reaches **96.391 ms**. Exact sender RTP offset joins 12 adjacent encoded
+packets to native insertion; neighboring encode-to-callback delays include
+**107.237 / 111.477 ms**, callback/drain/insertion only **19–37 us** each.
+This is evidence of transport-side waiting, not a renderer/codec-thread
+stall. Adjacent packet joins do not assert the tone's exact codec sample
+identity across lookahead/time stretching. Expanded encode trace reaches
+**359.970388 s**. Private `analyze-group-video-repair-peak.py` and capture
+`video-repair-peak-analysis.json` preserve details; they never modify gates.
+Both full peaks have **zero video RTP padding bytes** in their adjacent
+three-second interval, so that interval is not a padding-probe diagnosis.
+The prior capture lacks repair counters; do not retrospectively infer zero.
+
+Separate private `group-repair-fanout-control.cc/log` runs THREE native VP8
+groups across a mocked plaintext Veil boundary, loses selected originals
+only on A -> B, with A -> C lossless. **5** actual native repairs produce
+**5 duplicate RTP packets at C**, while C sends **0 NACK packets**. The
+existing fanout sends every repair to every current peer. This establishes
+avoidable repair amplification, **not** the cause of either full peak.
+Control exits zero, destroys all native engines, callback map empty and
+owned PID **24801** independently absent. No SDK network or acoustic claim.
+Do not implement repair/timer/rate changes on the assumption that these
+retransmissions caused the full-gate queue peak. Next investigate aggregate
+origin scheduling of authored video, fanout copies and reliable DATA under
+real queue growth; neutral relay behavior must remain opaque/unchanged.
+
+## 2026-10-17: measure actual group video repair amplification
+
+Native SDK **be357083** adds eight endpoint-local sender snapshot fields:
+`video_tx_retransmitted_pkts/bytes`, `video_rx_nack_packets/requests`,
+`video_rx_unique_nack_requests`, `video_rx_pli_packets`,
+`video_rx_fir_packets`, `video_tx_key_frames`. Read existing VideoSendStream
+statistics on the existing video-worker sample; no new task, RTCP pacing,
+wire layout, relay classification, scheduling or codec changes. Values are
+logical sender-stream work BEFORE fanout/encryption, distinct from existing
+accepted per-peer RTCP and attempted RTP copy counters. Unavailable sender
+or stalled video sampling reports **-1**, never a manufactured healthy zero.
+
+New `group_video_repair_stats_smoke.cc`, included in the default native smoke
+driver, runs two real VP8 encode/receive engines across a mocked lossless
+plaintext boundary, drops selected originals once in one direction, then
+restores lossless delivery. Actual results: decoded changes **19/19**, **39/39**,
+**20/20**; repair counter **0 -> 5 -> 5**, NACK counters and bytes advance,
+reverse-direction repairs/NACK remain zero. Engines destroyed and callback
+map empty. It fails against the prior library on missing fields and passes
+against the new one. Complete existing direct/group native isolation,
+RTCP loss/binding/cache/expiry, Opus/ANA, pause/restart, playout and recovery
+smokes pass. Owned smoke processes independently absent. No hardware/GUI,
+SDK network, phone installation or acoustic-listening claim in this control.
+
+Frozen `group-video-repair-native`: SHA **2e7fbb6d5822fbe4...**, original
+**131** exported test symbols unchanged, 49 frozen source inputs. Rust FFI
+still f2e15842 / 1c4fb887..., Dart policy still f05a5c2f. Full original capture
+`group-video-repair-full-360` completed; see the newer verdict above. The existing opt-in
+native metadata trace capacity is **16384** instead of 4096 so late encoder/
+ingress timestamps survive; no timing, harness, stimulus or gate changes.
+Qualification was assessed only after terminal verifier and independent cleanup.
+
+## 2026-10-17: RTT recovery fixes files control; full gate still has a shared queue peak
+
+Production **f05a5c2f** (only GroupCallAudioAdapter recovery guard) passes
+`group-rtt-recovery-files-360`: **2112 / 0** ordinal matches/missing,
+audio-only **130.138958 ms**, loaded **150.188542 ms**, all three full
+encrypted 524288-byte hashes by **277.055442 / 275.891377 / 311.932142 s**.
+This explicitly remains a files-only DIAGNOSTIC, never full qualification.
+Actual sources continue adapting between 40/60-ms packets; source 1 restores
+40 ms / 32 kbit at 336 s. It is not a forced worst-quality configuration or
+a randomized causal comparison with the earlier 370-ms failure.
+
+The original complete **360-s / 1024-kbit/s / three SDK process** workload
+`group-rtt-recovery-full-360` is measurement-valid but **FAILS** the unchanged
+strict <200-ms audio gate: **2112 matches / 0 missing**, audio-only
+**130.177000 ms**, loaded **220.026375 ms**. All six decoded video tails move
+**13 / 2 / 13 / 2 / 13 / 13**. All three full encrypted file hashes verify by
+**332.406187 / 300.663226 / 342.839476 s**, before the original deadline.
+Original harness, input origin, ordinal matching, clocks/QoS/startup budgets,
+route/topology and recovery limits remain unchanged. No shaper drops;
+maximum shared FIFO queues **159.582 / 124.521 ms**. Fixture exits 1 for
+quality; workers/node stops all zero, remaining sockets zero. Exact verifier
+and a subsequent independent owned-PID audit find every wrapper/helper/
+worker/policy/resource-tracker absent. No GUI/phone apps were launched.
+
+All six path maxima correspond to the same **323.200008-s** capture marker,
+with rendered delays **190.045–220.026 ms**. All three sources use **60-ms**
+packets then. Nearby direction-0 FIFO queue reaches **149.506 ms**, while
+source 0 recovered video 8 kbit/1 fps -> 15 kbit/1.5 fps at 321 s; sources
+1/2 resumed at 318/321 s. These are correlations, not proof that recovery or
+NACK caused the peak. Endpoint work-release tracing shows several unpaced
+single-cell video items alongside paced complete multi-cell work. Add actual
+sender retransmission/NACK/keyframe counters before choosing another rate or
+pacer change. Existing audio encode trace fills at 251–267 s, so it cannot
+join the late peak; the existing opt-in trace capacity can be increased for
+observation without changing the harness or moving capture origin.
+
+User deferred live speech listening: continue independent automatic work;
+intelligibility in both acoustic directions remains unverified. No repeat
+request for listening, push, release or server deployment in this cycle.
+
 ## 2026-10-17: files-only control localizes unsafe audio packet-rate recovery
 
 `group-rtcp-files-control-360` is **diagnostic only**, not full qualification.
@@ -34,8 +158,8 @@ Legacy snapshots without RTT retain their receiver-based policy; once RTT
 has been observed, a missing field cannot erase the known queue. Two RED
 regressions reproduce unsafe recovery and the missing-field bypass before
 their fixes. **210** related tests pass, including stable 120-ms RTT, recovered
-transport, no RTT-only degradation and aged-route recovery. Full workload and
-files-only control with this new policy remain to be run.
+transport, no RTT-only degradation and aged-route recovery. Subsequent full
+and files-only results are recorded in the newer section above.
 
 Private `group-sparse-video-probe.cc/log` gives a positive native control:
 two real VP8 groups, mocked lossless plaintext boundary, **8 kbit/s / 1 fps**,
