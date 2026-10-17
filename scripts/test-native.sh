@@ -58,6 +58,8 @@ echo "hiddenvolume: $HV_LIB"
 
 export VEIL_FFI_DYLIB="$VEIL_LIB"
 export HIDDEN_VOLUME_FFI_DYLIB="$HV_LIB"
+# Worker isolates load the plugin directly, using its own explicit override.
+export XVEIL_HV_DYLIB="$HV_LIB"
 # The env vars above are honoured by the Dart bindings, but a test that spawns
 # a headless runtime dlopens by soname instead — on Linux that needs the loader
 # path. Without this the three-node case dies with "cannot open shared object
