@@ -370,7 +370,9 @@
     "next_investigation": "Join locally admitted reliable DATA, remaining transport writes and primary RTT growth around the early peak. Pressure-only video smoothing cannot establish protection before pressure is observed.",
     "candidate_unit_tests_passed": 30,
     "candidate_full_session_tests_passed": 581,
-    "candidate_full_session_tests_ignored": 8
+    "candidate_full_session_tests_ignored": 8,
+    "build_feature_caveat": "Baseline selected both veilclient-ffi and veil-cli (default rocksdb-cold); candidate selected only veilclient-ffi. Explicit FFI flags, development profile, native media and fixture/policy hashes match, but Cargo-resolved dependency features are not proven identical. Rebuild using identical package selections before causal attribution.",
+    "single_variable_performance_comparison_verified": false
   },
   "goal_status": "active"
 }
