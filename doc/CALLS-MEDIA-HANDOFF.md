@@ -1,5 +1,37 @@
 # Calls media handoff
 
+## 2026-10-17: release request and explicit bug-verification scope
+
+User now explicitly authorizes publishing the current work and checking their
+reported defects. This supersedes the older no-push/no-release notes below.
+Release order: publish Veil first; hidden-volume has no changes and remains
+v2.6.1; then pin the published Veil release in xVeil, rebuild all seven native
+engines, update durable engine pins, and release xVeil after successful CI.
+Do not deploy relay servers or install over user applications under this task.
+
+Verification status before publication:
+
+| Report | Evidence | Remaining limit |
+| --- | --- | --- |
+| Nickname fails with no sovereign identity | Real FFI deferred-start regression passes legacy/certificate/corrupt cases; existing key/address retained, corrupt document unchanged | Unknown original user profile/OS cannot be reconstructed |
+| Android/Windows contact invitation/acceptance stalls | Durable outgoing requests, empty greeting, restart retry, idempotent manual resend and accept/cancel cleanup covered by regressions | The complete reported cross-platform network failure is not independently reproduced; old pending requests acquire retry state on manual resend |
+| Frozen video after quality reduction | Fresh receiver samples, stale-report rejection, replacement-engine reset and actual sparse native encode/pause/resume controls pass | Intermittent combined-load audio delay can still reduce video |
+| P2P/private route stops or falls back | Real private-carrier pressure/control tests and physical onion call retain stable channels; closed prepared children and cold delegated discovery fixed | Does not prove every observed P2P-to-relay switch had the same cause |
+| Mirrored camera thumbnail labels | Existing regression keeps mirroring on camera pixels and never on remote tiles/screen text | Full suite supplies regression coverage; no new visual hardware check this cycle |
+| Audio latency under video/files | Full six-path/three-file gate has a 180.221-ms PASS, all file hashes and tails verify | Retained 220.026-ms FAIL remains open; live speech listening deferred by user |
+| Group repair fanout | Three-native-peer control reproduces 5 unnecessary copies to a receiver with 0 NACK requests | Measured, not fixed; not established as the latency peak's cause |
+
+The complete local Flutter suite initially finds two stale group controller
+fixtures. The repaired integration test reports actual emission at the applied
+40-ms/24-kbit floor before permitting 60-ms/24-kbit packets; it no longer asks
+for the rejected 16-kbit payload. The video test first proves cached feedback
+cannot grow its startup budget, earns the 150-kbit target with distinct fresh
+samples, then freezes one below-ceiling report and still requires no reduction.
+All **49** group controller cases pass. Production timing/quality gates are
+unchanged. Rust format checks also found unformatted diagnostic blocks in two
+source files; formatting changes no runtime behavior. Local analyzer and build
+support/doc/workflow checks pass; final full-suite/remote CI results follow.
+
 ## 2026-10-17: measured-repair full gate PASS; intermittent failure remains open
 
 `group-video-repair-full-360` is a **valid full original qualification PASS**

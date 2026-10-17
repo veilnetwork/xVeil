@@ -97,6 +97,10 @@ void main() {
         final engine = _FakeEngine(supportsAudioBudget: true)
           ..stats = {
             ..._sourceStats([peer]),
+            'audio_max_packet_ms': 60,
+            'audio_config_valid': 1,
+            'audio_tx_payload_pkts': 0,
+            'audio_tx_packet_duration_ms': 40,
             'audio_latency_recovery_count': 0,
           };
         final controller = VeilGroupCallMediaController(
@@ -123,9 +127,15 @@ void main() {
         expect(engine.audioBudgets.last, (packetMs: 40, payloadBps: 24000));
         clock.elapse(const Duration(seconds: 5));
         expect(engine.audioBudgets, hasLength(2));
-        engine.stats = {...engine.stats, 'audio_latency_recovery_count': 2};
+        engine.stats = {
+          ...engine.stats,
+          // The 60-ms fallback requires the applied 40-ms floor to have
+          // actually emitted packets before another fresh recovery event.
+          'audio_tx_payload_pkts': 20,
+          'audio_latency_recovery_count': 2,
+        };
         clock.elapse(const Duration(seconds: 1));
-        expect(engine.audioBudgets.last, (packetMs: 40, payloadBps: 16000));
+        expect(engine.audioBudgets.last, (packetMs: 60, payloadBps: 24000));
         controller.stop();
         clock.flushMicrotasks();
         controller.start(_call(self, [peer]));
@@ -241,9 +251,17 @@ void main() {
       );
       controller.start(_call(self, [peer], video: true));
       clock.flushMicrotasks();
-      clock.elapse(const Duration(seconds: 48));
+      // Cached healthy feedback cannot earn a higher startup budget. First
+      // recover with distinct peer observations, then freeze the next report.
+      clock.elapse(const Duration(seconds: 12));
+      expect(engine.targets.last.maxBitrateKbps, 8);
+      var sequence = 1;
+      for (var i = 0; i < 48; i++) {
+        engine.stats = report(++sequence, 100);
+        clock.elapse(const Duration(seconds: 1));
+      }
       expect(engine.targets.last.maxBitrateKbps, 150);
-      engine.stats = report(2, 140);
+      engine.stats = report(++sequence, 140);
       clock.elapse(const Duration(seconds: 20));
       expect(engine.targets.last.maxBitrateKbps, 150);
       expect(engine.pauses.last, isFalse);
