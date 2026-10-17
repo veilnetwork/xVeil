@@ -385,7 +385,7 @@ class MessagingService {
 
   /// Receives ordinary local 1:1 writes for projection to this identity's
   /// other devices. Mirrored writes never re-fire it.
-  void Function(NodeId peer, Message stored)? get onMessageStored =>
+  FutureOr<void> Function(NodeId peer, Message stored)? get onMessageStored =>
       _deviceMirror.onMessageStored;
 
   void Function(NodeId peer, String msgId, MessageStatus status)?
@@ -397,7 +397,7 @@ class MessagingService {
     _deviceMirror.onMessageStatusChanged = callback;
   }
 
-  set onMessageStored(void Function(NodeId peer, Message stored)? callback) {
+  set onMessageStored(FutureOr<void> Function(NodeId peer, Message stored)? callback) {
     _deviceMirror.onMessageStored = callback;
   }
 
@@ -1830,7 +1830,10 @@ class MessagingService {
     // let the device-sync bridge mirror it to my other devices. [_store] is the
     // one messaging write path; applyMirroredMessage bypasses it, so a mirrored
     // row never re-mirrors.
-    onMessageStored?.call(peer, stored);
+    // Join the local device-journal commit before reporting the send complete
+    // or acknowledging receipt. A process crash after return must not strand
+    // a persisted conversation row outside its own-device recovery log.
+    await onMessageStored?.call(peer, stored);
     return stored;
   }
 

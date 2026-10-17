@@ -67,6 +67,33 @@ Future<HiddenVolumeStorage> _openStorage() async {
 }
 
 void main() {
+  test('a completed send joins its local device-journal projection', () async {
+    final me = _id(1), peer = _id(2);
+    final storage = await _openStorage();
+    await storage.upsertContact(Contact(nodeId: peer, status: ContactStatus.accepted));
+    final svc = MessagingService(_Noop(me), storage)..start();
+    addTearDown(svc.dispose);
+    final projectionStarted = Completer<void>();
+    final durable = Completer<void>();
+    svc.onMessageStored = (p, message) async {
+      expect(p, peer);
+      expect(message.body, 'crash boundary');
+      projectionStarted.complete();
+      await durable.future;
+    };
+    var completed = false;
+    final send = svc.sendText(peer, 'crash boundary').then((sent) {
+      completed = true;
+      return sent;
+    });
+    await projectionStarted.future;
+    expect((await storage.loadMessages(peer.hex)).single.body, 'crash boundary');
+    expect(completed, isFalse,
+        reason: 'persisting the conversation alone cannot report a crash-safe send');
+    durable.complete();
+    expect(await send, isTrue);
+  });
+
   test(
     'contact pref setters fire onContactPrefsChanged with the fresh record; '
     'applyMirroredContact writes silently and keeps local-only fields',
