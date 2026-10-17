@@ -1,5 +1,73 @@
 # Calls media handoff
 
+## 2026-10-18: quiet call audio and headphone routing
+
+The user heard abnormally quiet audio on the phone **with headphones** and on
+their computer; another person could not hear them on a computer. They cannot
+listen/test now. Do not ask again for live speech. ADB lists no devices this
+cycle. No app is installed or started, and no release/push is performed.
+
+Confirmed source defect: both direct and group engines construct a bare
+`BuiltinAudioProcessingBuilder`. WebRTC's default disables both AGCs, and the
+direct Call API never runs the VoiceEngine options that normally enable them.
+The custom ADMs also have no analog microphone-volume controller. Weak capture
+therefore stays weak. This is a reproducible signal-level defect, not proof
+that it explains every reported inaudible call.
+
+Changes:
+
+- Shared capture configuration enables AGC2 adaptive digital gain, capped at
+  30 dB, starting at 6 dB, using the native noise bound and limiter. No analog
+  control or unconditional speaker amplification is requested.
+- Android AAudio resolves API-28 input preset/usage/content setters at runtime:
+  VOICE_COMMUNICATION capture/playback and SPEECH content. The API-26/27 ELF
+  remains free of required API-28 setter symbols; those systems keep the old
+  AAudio defaults. Link libdl explicitly.
+- The app selects communication/headset routing before opening audio streams.
+  Automatic audio/video/screen routes prefer connected communication headsets,
+  including the current external route; explicit speaker selection still wins.
+  The route channel reports the external route rather than showing the phone
+  speaker selected. Turning video on also preserves headphones.
+- Declare MODIFY_AUDIO_SETTINGS, put the mode change inside the guarded path,
+  associate volume keys with VOICE_CALL (MUSIC on API 26/27), and restore the
+  Activity's previous key-volume stream on cleanup. Never set system volume.
+
+Evidence (private logs in `/private/tmp/`):
+
+- `xveil-call-level-20261018.log`: real WebRTC APM, the existing little-endian
+  16-kHz `resources/voice_engine/audio_long16.pcm`, same in-place capture API as
+  AudioTransportImpl. Prior-config negative control fails the quiet-speech gate:
+  input/output -58.18/-58.18 dBFS, 0 dB gain. Candidate -58.18/-28.18 dBFS,
+  30 dB gain. Loud speech peak 30337, zero full-scale samples; silence remains
+  exactly zero; noise output -63.72 dBFS. An abrupt quiet-to-loud transition
+  does reach the native limiter: 133 isolated full-scale samples across its
+  240000-sample loud half (0.0554%), longest run one sample. This passes the
+  explicit <0.1% / <1-ms sustained-saturation guard; do not call it clip-free.
+- `xveil-call-level-flutter-20261018.log`: 52 route/group-controller tests pass.
+  `xveil-call-route-operations-20261018.log`: four route lifecycle tests pass.
+  Focused Dart analyzer clean in `xveil-call-level-analyze-20261018.log`.
+- `xveil-call-android-compile-final-20261018.log`: Android Kotlin compile passes
+  with pre-staged native SDK (`VEIL_SKIP_CARGO=true`, separate local cache).
+  An earlier invocation accidentally rebuilt Rust in the full external target
+  and failed for disk space; it is not a successful build result.
+- `xveil-call-level-android-native-20261018.log`: production arm64 native engine
+  compiled/linked in the existing Linux builder; SHA256
+  `86c6967a3f44e8c4801d36b4e8d3f344e5160608c08607c88b9c4eaad7d59aaa`.
+  ELF symbol inspection confirms runtime-only API-28 setters.
+- `xveil-call-level-planes-full-20261018.log`: complete native call-plane suite
+  passes: muted capture lifecycle, real direct/group Opus with stalled video
+  queues, RTCP, sparse-video recovery, fanout, repair counters, and decoded
+  group catch-up. Native stand group 24887 is empty after exit; the owned
+  Android build container has exited. No physical microphone/speaker opened.
+
+Limits: real headset selection, Bluetooth profiles, perceived loudness and the
+reported remote silent endpoint still need a device check. This cycle does not
+rerun the original 360-second six-path/full-file gate and does not supersede
+its retained 220.026-ms failure. Audio isolation/aggregate origin scheduling
+remains the active goal. Relays remain opaque and neutral. The unfinished
+multi-device security/backlog campaign remains checkpointed separately; its
+existing uncommitted changes were not mixed into this audio fix.
+
 ## 2026-10-17: release request and explicit bug-verification scope
 
 User now explicitly authorizes publishing the current work and checking their

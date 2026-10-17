@@ -1754,9 +1754,10 @@ class VeilCallMediaController implements CallMediaController {
     // Android endpoint configured mic-off neither opens AudioRecord briefly
     // nor burns capture/Opus CPU just to encode silence.
     engine.setMicMuted(_microphoneState.mutedForCall(call.callId));
+    // Select communication/headset routing before opening the physical streams.
+    await callAudioRouter.useDefaultFor(call.media);
     final audioOk = engine.startAudio(send: true, recv: true);
     devLog(() => 'xVeil[call-media]: startAudio=$audioOk');
-    if (audioOk) await callAudioRouter.useDefaultFor(call.media);
     var videoOk = false;
     // VP8 video over the same veil channel when the call requests video/screen.
     // Capture/render wiring lands with the platform capturer; the pipeline is
@@ -2010,7 +2011,7 @@ class VeilCallMediaController implements CallMediaController {
     }
     devLog(() => 'xVeil[call-media]: mid-call video mount=$ok');
     if (!ok) return false;
-    await callAudioRouter.setRoute(CallAudioRoute.speaker);
+    await callAudioRouter.useDefaultFor(call.media.copyWith(video: true));
     if (Platform.isAndroid) await _startAndroidVideoRenderer(engine);
     // Keep the session's own call view carrying video, so a route repair or
     // switch rebuilds the upgraded media set rather than the audio-only offer.

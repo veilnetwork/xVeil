@@ -9,6 +9,7 @@
     <!-- Microphone for calls (veil audio engine, AAudio capture). Runtime grant;
          requested when a call goes active, not at startup. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- Keep Wi-Fi out of DTIM/power-save batching only while a live call is
          active. The lock is acquired by MainActivity through a private
          MethodChannel and released with the call/Activity lifecycle. -->
