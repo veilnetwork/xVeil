@@ -596,9 +596,30 @@ void main() {
           reason: 'polling a cached or older report is not new audio evidence',
         );
 
-        final reports = startup
-            ? CallBitrateAdapter.startupRecoverAfter
-            : CallBitrateAdapter.recoverAfter;
+        if (!startup) {
+          tick(11);
+          expect(
+            a.level,
+            initialLevel - 1,
+            reason: 'a new report confirms the existing healthy period',
+          );
+          for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
+            tick(11);
+          }
+          expect(
+            a.level,
+            initialLevel - 1,
+            reason: 'one report cannot confirm two budget increases',
+          );
+          tick(12);
+          expect(
+            a.level,
+            initialLevel - 2,
+            reason: 'slow reports do not multiply the recovery period',
+          );
+          return;
+        }
+        final reports = CallBitrateAdapter.startupRecoverAfter;
         for (var i = 1; i < reports; i++) {
           tick(10 + i);
           // Real peer reports arrive less frequently than local stats polls.
@@ -612,6 +633,52 @@ void main() {
         );
       },
     );
+  }
+
+  for (final startup in [false, true]) {
+    for (final restartedSequence in [false, true]) {
+      test(
+        '${startup ? 'startup' : 'normal'} growth remeasures a replacement engine with ${restartedSequence ? 'restarted' : 'continuing'} peer sequence',
+        () {
+          final a = CallBitrateAdapter(
+            baseBitrateKbps: 900,
+            baseFps: 30,
+            initialLevel: startup ? null : 3,
+          );
+          final initialLevel = a.level;
+          final reports = startup
+              ? CallBitrateAdapter.startupRecoverAfter
+              : CallBitrateAdapter.recoverAfter;
+          var frames = 0;
+          void tick(int sequence) => native(
+            a,
+            peerSequence: sequence,
+            stats: {...healthy(), 'rtt_ms': 40, 'video_tx_frames': ++frames},
+          );
+
+          for (var i = 0; i < reports - 1; i++) {
+            tick(100 + i);
+          }
+          expect(a.level, initialLevel);
+          a.invalidateAppliedState();
+          final first = restartedSequence ? 1 : 300;
+          tick(first);
+          expect(
+            a.level,
+            initialLevel,
+            reason: 'old engine health cannot earn the new engine an upshift',
+          );
+          for (var i = 1; i < reports; i++) {
+            tick(first + i);
+          }
+          expect(
+            a.level,
+            initialLevel - 1,
+            reason: 'new engine reports establish their own healthy streak',
+          );
+        },
+      );
+    }
   }
 
   test('startup needs consecutive fresh low delay measurements', () {

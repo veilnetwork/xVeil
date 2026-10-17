@@ -1,5 +1,60 @@
 # Calls media handoff
 
+## 2026-10-17: confirmed growth and replacement-engine recovery; gate still RED
+
+Review of `group-probe-carrier-360` production diagnostics confirms **14 of 23**
+video upshifts occurred with `peer_fresh=false` (workers 5/4/5). One occurred
+at **132.025495 s**, about 285 ms before the failing marker's capture. This is
+correlation, not proof of causality. Private `probe-carrier-cached-upshifts.json`
+retains all events. Sampled opaque UDP digest pairs also show 71–95-ms wire
+delays around that marker; they cannot uniquely identify its RTP packet.
+
+The initial fix at root **2470997d** was tested with the ORIGINAL complete
+360-s workload in `group-fresh-growth-360`. Measurement is **valid**, full
+qualification **FAILS**: **1968 ordinal matches / 144 mismatches**, audio-only
+peak **140.116750 ms**, loaded **200.202167 ms**; another path **200.068833 ms**
+also fails without rounding. All six video tails move **14/13/13/13/13/14** and
+three encrypted 524288-byte files verify, finish **322.702962 / 351.265943 /
+351.323901 s**. All workers/node stops exit 0, sockets 0; independent checks
+find all owned wrapper/helper/workers/policies/resource-tracker PIDs absent.
+No GUI or phone apps were started. No workload or verifier predicates changed.
+
+The 144 mismatches are NOT evidence of 144 lost packets. Source 0 -> receiver 2
+has 357 input transitions but 359 decoded transitions. Two extra transitions
+at **214.290062 / 214.310135 s** shift subsequent ordinal matching starting
+at ordinal 213; retain the original failure, do not realign it. Native trace
+shows the decoder buffer draining 15 -> 5 -> 4 ms, generated-speech frames
+(`speech_type=1`) **214.260–214.300 s**, then normal speech resumes. There is
+**no wrapper catch-up or fallback** in that interval. Consecutive RTP arrivals
+are **214.191079 -> 214.281633 s**, a 90.554-ms gap. The blind FIFO in the
+214.05–214.35-s window peaks **20.490 / 93.378 ms** by direction. Thus this
+event is a decoder starvation/concealment artifact under delayed delivery,
+not a reason to weaken ordinal matching or enlarge the recovery budget.
+
+That candidate has ZERO video upshifts: counting twelve distinct reports
+stretches the original healthy observation period too far. Current policy
+retains the normal **12 good polls**, requires a **new peer report to confirm
+each actual upshift**, and still requires three distinct healthy measurements
+for fast startup. The test verifies that one report cannot authorize two
+increases, and a slower report cadence does not multiply the recovery period.
+Sparse pause release and pressure thresholds remain unchanged.
+
+Four additional RED regressions cover engine invalidation with either a
+restarted native sequence or a continuing call-wide sequence, for normal and
+startup recovery. Invalidation now clears the peer sequence baseline and
+unfinished growth streaks, while retaining the reduced rung and requested
+pause. Previously it either reused old-engine health immediately or could
+block new-engine growth until its sequence caught up. All **205** tests in
+eight policy/feedback files pass; focused analyzer clean. This latest policy
+has NOT yet run the full qualification; goal remains ACTIVE.
+
+Next attribution: inspect generic QUIC burst pacing without media-class
+priority or relay role knowledge. Local Quinn source
+`third_party/quinn-proto/src/connection/pacing.rs` has a minimum ten-MTU burst.
+That is a candidate to reproduce, not yet a proven cause or authorized reason
+to change production pacing. Original workload/deadlines and 200-ms/120-ms
+budgets remain authoritative. No further random rerun to obtain a green result.
+
 ## 2026-10-17: distinct peer reports required for video growth
 
 Two new regressions reproduce an independent production policy defect: with
