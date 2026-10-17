@@ -1,4 +1,5 @@
 import '../domain/call_signal.dart';
+import 'call_peer_audio_recovery.dart';
 
 /// Receiver feedback for OUR outgoing audio. Freshness uses local receipt time,
 /// not the other device's wall clock; replay cannot extend a sample's lifetime.
@@ -15,6 +16,8 @@ class CallPeerAudioPlayout {
   bool _interrupted = false;
   int? _recoveryCount;
   bool _recovered = false;
+  CallAudioRecoveryIdentity? _recoveryIdentity;
+  CallAudioRecoveryIdentity? _lastCanonicalRecovery;
 
   void observe(CallAudioPlayoutFeedback feedback, DateTime now) {
     if (feedback.sequence <= _sequence) return;
@@ -40,6 +43,29 @@ class CallPeerAudioPlayout {
         ? feedback.bufferGrowing
         : null;
     _receivedAt = now;
+    final identity = callAudioRecoveryIdentity(
+      feedback.recoveryOrigin,
+      feedback.recoveryDiscardedMs,
+    );
+    // Preserve the identity of an unconsumed event if a later unknown sample
+    // arrives before the next stats tick. A real legacy event below explicitly
+    // replaces it with null, retaining the older peer's conservative behavior.
+    if (!_recovered || identity != null) _recoveryIdentity = identity;
+    if (identity != null) {
+      final previous = _lastCanonicalRecovery;
+      if (previous != null &&
+          (identity.origin > previous.origin ||
+              (identity.origin == previous.origin &&
+                  identity.discardedMs > previous.discardedMs))) {
+        _recovered = identity.discardedMs > 0 || _recovered;
+      }
+      if (previous == null ||
+          identity.origin > previous.origin ||
+          (identity.origin == previous.origin &&
+              identity.discardedMs >= previous.discardedMs)) {
+        _lastCanonicalRecovery = identity;
+      }
+    }
     final count = feedback.interruptionCount;
     final rawRecoveries = feedback.recoveryCount;
     final recoveries =
@@ -65,7 +91,10 @@ class CallPeerAudioPlayout {
         count != null &&
         recoveries >= 0 &&
         recoveries <= count) {
-      if (recoveryDelta > 0) _recovered = true;
+      if (identity == null && recoveryDelta > 0) {
+        _recovered = true;
+        _recoveryIdentity = null;
+      }
       _recoveryCount = recoveries;
     }
   }
@@ -82,6 +111,11 @@ class CallPeerAudioPlayout {
     _recovered = false;
     return recovered;
   }
+
+  // This identifies the pending event; it is not a fresh buffer measurement.
+  // Expiring it would turn a delayed duplicate into an unidentified legacy loss.
+  CallAudioRecoveryIdentity? recoveryIdentity(DateTime now) =>
+      _recoveryIdentity;
 
   int? delayMs(DateTime now) {
     final received = _receivedAt;
@@ -110,6 +144,7 @@ class CallPeerAudioPlayout {
     _interrupted = false;
     _recovered = false;
     _delayMs = null;
+    _recoveryIdentity = null;
     _currentDelayMs = null;
     _targetDelayMs = null;
     _bufferGrowing = null;

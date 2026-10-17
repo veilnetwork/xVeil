@@ -401,6 +401,7 @@ class CallBitrateAdapter {
     int? expectedAudioFeedbackReports,
     int? expectedVideoFeedbackReports,
     bool audioRecoveryObserved = false,
+    bool? peerRecoveryObserved,
     bool receiveAudioExpected = false,
     // A room supplies the worst expected receiver, retaining unknown when
     // another receiver is missing. A healthy peer cannot mask a silent one.
@@ -542,7 +543,8 @@ class CallBitrateAdapter {
       videoLossObserved: videoLoss,
       audioNetworkLossObserved: networkLoss.audio,
       videoNetworkLossObserved: networkLoss.video,
-      audioRecoveryObserved: audioRecoveryObserved || peerRecovered,
+      audioRecoveryObserved:
+          audioRecoveryObserved || (peerRecoveryObserved ?? peerRecovered),
       videoFloorApplied:
           _appliedTarget == target &&
           _appliedPause != true &&
