@@ -19389,6 +19389,18 @@ class GroupService implements ArchiveGroups {
   Future<int> broadcastDeviceGroup() async {
     final gidHex = await deviceGroupIdHex();
     if (gidHex == null) return 0;
+    // A prepared link (broadcastSnapshot: false) must not send encrypted
+    // traffic while the target still runs its temporary identity. The ready
+    // leg calls this only after the target has adopted the family document
+    // and restarted. Backfill here, before taking the full snapshot, including
+    // after a source restart; the bridge's history watermarks deduplicate it.
+    for (final device in await otherDeviceIds()) {
+      try {
+        await onMemberLinked?.call(device);
+      } catch (_) {
+        // The snapshot still carries membership if a backfill needs a retry.
+      }
+    }
     return broadcast(NodeId.fromHex(gidHex), reseed: true);
   }
 
@@ -20230,7 +20242,7 @@ class GroupService implements ArchiveGroups {
       sovereign: sovereign,
       broadcastSnapshot: broadcastSnapshot,
     );
-    if (ok) {
+    if (ok && broadcastSnapshot) {
       try {
         await onMemberLinked?.call(device);
       } catch (_) {
