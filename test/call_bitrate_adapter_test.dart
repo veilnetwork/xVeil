@@ -568,6 +568,52 @@ void main() {
     },
   );
 
+  for (final startup in [false, true]) {
+    test(
+      'cached peer audio cannot earn ${startup ? 'startup' : 'normal'} video growth',
+      () {
+        final a = CallBitrateAdapter(
+          baseBitrateKbps: 900,
+          baseFps: 30,
+          initialLevel: startup ? null : 3,
+        );
+        final initialLevel = a.level;
+        var frames = 0;
+        void tick(int sequence) => native(
+          a,
+          peerSequence: sequence,
+          stats: {...healthy(), 'rtt_ms': 40, 'video_tx_frames': ++frames},
+        );
+
+        tick(10);
+        for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
+          tick(10);
+        }
+        tick(9);
+        expect(
+          a.level,
+          initialLevel,
+          reason: 'polling a cached or older report is not new audio evidence',
+        );
+
+        final reports = startup
+            ? CallBitrateAdapter.startupRecoverAfter
+            : CallBitrateAdapter.recoverAfter;
+        for (var i = 1; i < reports; i++) {
+          tick(10 + i);
+          // Real peer reports arrive less frequently than local stats polls.
+          // Healthy cached polls must not erase the fresh-report streak either.
+          if (i < reports - 1) tick(10 + i);
+        }
+        expect(
+          a.level,
+          initialLevel - 1,
+          reason: 'distinct healthy reports still permit video growth',
+        );
+      },
+    );
+  }
+
   test('startup needs consecutive fresh low delay measurements', () {
     final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 30);
     var frames = 0;
