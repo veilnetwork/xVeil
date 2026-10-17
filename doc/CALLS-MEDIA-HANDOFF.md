@@ -54,6 +54,14 @@ priority or relay role knowledge. Local Quinn source
 That is a candidate to reproduce, not yet a proven cause or authorized reason
 to change production pacing. Original workload/deadlines and 200-ms/120-ms
 budgets remain authoritative. No further random rerun to obtain a green result.
+Further bounded trace inspection finds the largest one-ms arrival bins near
+this event are only **3235 / 3133 / 2921 bytes**, not a demonstrated ten-MTU
+burst. At 214.120 s the 3235 bytes span links 1/2 and the queue rises from
+51.86 to 67.68 ms; later packets raise it to 93.38 ms. Therefore do not change
+the ten-MTU constant solely from its name or size: aggregate rate/overlapping
+flows and already standing queue must be attributed. The pacer already has a
+previous fix that wakes for one packet/two-ms credit instead of waiting for
+the entire bucket; reintroducing that fix is not new work.
 
 ## 2026-10-17: distinct peer reports required for video growth
 
