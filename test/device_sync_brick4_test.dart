@@ -7,7 +7,8 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:xveil/state/device_history_backfill.dart' show deviceMirrorOf;
+import 'package:xveil/state/device_history_backfill.dart'
+    show deviceMirrorOf, prepareDeviceMirror;
 import 'package:xveil/domain/device_history_ask.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
@@ -535,6 +536,42 @@ void main() {
       expect(await storage.readMarker(peer.hex), localMark + 5000);
     },
   );
+
+  test('an inline file mirror uses a content address rather than its local UUID',
+      () async {
+    final storage = await _openStorage();
+    final bytes = Uint8List.fromList([1, 2, 3, 4]);
+    const localId = '276f01bf-abf5-local-only';
+    await storage.storeFile(localId, bytes, name: 'small.png');
+    final svc = MessagingService(_Noop(_id(1)), storage)..start();
+    addTearDown(svc.dispose);
+    final row = Message(id: 'inline', conversationId: _id(2).hex,
+        direction: MessageDirection.outgoing, body: 'small image',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(7000),
+        fileId: localId, fileName: 'small.png', fileSize: bytes.length);
+    final mirror = await prepareDeviceMirror(_id(2).hex, row,
+        storage: storage, registerContent: svc.registerGroupContent);
+    final cid = mirror.event.payload['cid'] as String;
+    expect(cid, matches(RegExp(r'^[0-9a-f]{64}$')));
+    expect(cid, isNot(localId));
+    expect(mirror.attachment!.cid, cid);
+    expect(await storage.loadFile(cid), bytes);
+    expect(await storage.loadFile(localId), bytes,
+        reason: 'publishing the reference must preserve the local message blob');
+  });
+
+  test('mirrored replies and forwarded messages preserve their annotations', () async {
+    final me = _id(1), peer = _id(2);
+    final storage = await _openStorage();
+    final svc = MessagingService(_Noop(me), storage)..start();
+    addTearDown(svc.dispose);
+    await svc.applyMirroredMessage(peer: peer, msgId: 'reply',
+        direction: MessageDirection.outgoing, body: 'reply text', tsMs: 7000,
+        replyToId: 'original', forwardedFrom: 'Original author');
+    final row = (await storage.loadMessages(peer.hex)).single;
+    expect(row.replyToId, 'original');
+    expect(row.forwardedFrom, 'Original author');
+  });
 
   test('file mirror applies OFFER-shaped (brick 4b): fileContentId + meta, '
       'no bytes, idempotent, and deniability still holds', () async {
