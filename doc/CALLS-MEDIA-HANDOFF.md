@@ -18,6 +18,7 @@ Verification status before publication:
 | Frozen video after quality reduction | Fresh receiver samples, stale-report rejection, replacement-engine reset and actual sparse native encode/pause/resume controls pass | Intermittent combined-load audio delay can still reduce video |
 | P2P/private route stops or falls back | Real private-carrier pressure/control tests and physical onion call retain stable channels; closed prepared children and cold delegated discovery fixed | Does not prove every observed P2P-to-relay switch had the same cause |
 | Mirrored camera thumbnail labels | Existing regression keeps mirroring on camera pixels and never on remote tiles/screen text | Full suite supplies regression coverage; no new visual hardware check this cycle |
+| Earlier delta rollout, folder placement and wording | `kDeltaOmitsManifest` is true and tested; top folder placement has its own rendering branch; the reported old recovery/onion sentences are absent | Source and existing regression checks, not a fresh manual walk through every settings screen |
 | Audio latency under video/files | Full six-path/three-file gate has a 180.221-ms PASS, all file hashes and tails verify | Retained 220.026-ms FAIL remains open; live speech listening deferred by user |
 | Group repair fanout | Three-native-peer control reproduces 5 unnecessary copies to a receiver with 0 NACK requests | Measured, not fixed; not established as the latency peak's cause |
 
@@ -29,8 +30,37 @@ cannot grow its startup budget, earns the 150-kbit target with distinct fresh
 samples, then freezes one below-ceiling report and still requires no reduction.
 All **49** group controller cases pass. Production timing/quality gates are
 unchanged. Rust format checks also found unformatted diagnostic blocks in two
-source files; formatting changes no runtime behavior. Local analyzer and build
-support/doc/workflow checks pass; final full-suite/remote CI results follow.
+source files; formatting changes no runtime behavior. Final complete local
+Flutter suite passes **5585 tests / 128 intentional skips**; the real FFI
+nickname suite separately passes all **3** cases. Local analyzer, build-support
+and doc/workflow checks pass. Initial source CI **39010568270** fails
+Clippy's await-holding-lock check in an added transport regression: an explicit
+`drop(sender)` is not accepted as a lexical lifetime boundary. SDK **23b0281d**
+scopes that test guard before awaiting actual delivery, without changing the
+runtime, quality limits or assertions. Replacement source/mobile CI runs are
+**39011296767 / 39011296751**; the original mobile guard passed. Extra local
+Rust linting first hit the full external build-cache volume (not a green check);
+only 36 newly created cache directories were removed after independently
+verifying all five owned compiler processes exited. No project/user data was
+removed. The no-incremental retry passes full workspace/all-target Clippy
+with warnings denied (6m11s). Replacement source CI
+[39011296767](https://github.com/veilnetwork/veil/actions/runs/39011296767)
+passes all six jobs: hygiene, tests, Windows cross-check, native Windows TCP
+admin tests, benchmark guard and three-node devnet. Main nextest reports
+6537 passed / 48 skipped; feature runs report 295, 7 and 172 passed, with
+all doctests successful. Source mobile guard **39011296751** passes.
+Only after that complete CI result, SDK tag **v0.11.42** was pushed at
+**23b0281daa2f198fdf40f53140f4f5f57742f127**. Tag release/mobile runs are
+**39018161231 / 39018161233**; both finish successfully. Published
+[Veil v0.11.42](https://github.com/veilnetwork/veil/releases/tag/v0.11.42)
+has all **43 nonempty assets**. Independently downloaded all seven installer
+SHA-256 manifests and their Ed25519 signatures, verified each under the public
+key pinned in `scripts/install.sh`, then verified the downloaded macOS ARM64
+CLI hash and ran `--version`: **veil-cli 0.11.42**. This command exits normally;
+no GUI/phone application is launched or installed. hidden-volume remains
+unchanged at **v2.6.1 / 46251ddf**. xVeil **0.13.87+106** now pins this published
+SDK and immutable **engine-2026.10.17**; all seven call engines must be built
+from this exact SDK pointer, verified and published before tagging xVeil.
 
 ## 2026-10-17: measured-repair full gate PASS; intermittent failure remains open
 
