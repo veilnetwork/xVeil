@@ -6,6 +6,48 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.87] — 2026-10-17
+
+### Fixed
+
+- Persist outgoing contact requests before delivery and retry them after an
+  application restart, including requests without a greeting. Acceptance and
+  cancellation retire the pending request; manual resend preserves its wire ID
+  and refreshes mailbox deposit IDs.
+- Restore nickname ownership for existing standalone Ed25519 profiles after
+  deferred native startup, retaining the original key and address.
+- Resolve cold identity delegation before admitting live call routes. Keep
+  private media paths alive on their datagram carrier and avoid replacing a
+  healthy channel with an already closed prepared channel.
+- Keep decoded-audio loss identities stable across engine recreation and
+  avoid counting the same recovery event through RTCP and health feedback.
+- Require distinct fresh receiver reports before increasing video quality.
+  Rebuilt engines begin with fresh feedback state. Group audio retains a
+  24-kbit payload floor and recovers its packet rate only with measured
+  transport headroom.
+- Pace complete authored video work after SDK frame assembly. Idle camera and
+  screen channels can be prepared again without replacing active audio.
+
+### Diagnostics
+
+- Add bounded local group RTCP, video repair, keyframe and source-scheduling
+  measurements. Relays continue forwarding opaque traffic without media
+  classification or media priority.
+
+### Known limitations
+
+- Intermittent audio delay under simultaneous group video and file transfer
+  remains under investigation. Retained full tests include both a 180-ms pass
+  and a 220-ms failure against the unchanged strict 200-ms audio gate.
+- Group video repairs still reach participants that did not request them.
+- Full reproduction of the reported Windows/Android contact-acceptance
+  failure and live speech intelligibility checks remain outstanding.
+- Contact requests left pending before this update need one manual resend to
+  acquire durable retry state.
+
+Native dependencies: Veil 0.11.42, hidden-volume 2.6.1, with call engines
+rebuilt from matching Veil sources for this release.
+
 ## [0.13.86] — 2026-10-16
 
 ### Fixed
