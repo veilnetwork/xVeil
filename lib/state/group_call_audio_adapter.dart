@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import 'call_audio_buffer_window.dart';
 import 'call_bitrate_adapter.dart';
 
@@ -20,6 +22,7 @@ class GroupCallAudioAdapter {
   static const recoveryQuiet = Duration(seconds: 20);
   static const recoveryCooldown = Duration(seconds: 8);
   static const healthySamples = 8;
+  static const _rttWindowSpan = Duration(minutes: 2);
 
   // Avoid filling a shared uplink before the first listener reports. Shorter
   // packets are recovered only after fresh evidence establishes headroom.
@@ -30,6 +33,7 @@ class GroupCallAudioAdapter {
   int _lossUs = 0, _peerRecoveryUs = 0, _healthy = 0, _expectedPeers = 0;
   bool _supports60Ms = false;
   final _buffer = CallAudioBufferWindow();
+  final _rttWindow = Queue<({DateTime at, int ms})>();
 
   GroupAudioBudget get target => _budgets[_level];
   int get level => _level;
@@ -62,10 +66,12 @@ class GroupCallAudioAdapter {
       _lastDownAt = now;
       _healthy = 0;
       _buffer.reset();
+      _rttWindow.clear();
     }
     if (expectedPeers != _expectedPeers) {
       _expectedPeers = expectedPeers;
       _buffer.reset();
+      _rttWindow.clear();
       _healthy = 0;
     }
     int? counter(Object? value) => value is int && value >= 0 ? value : null;
@@ -113,6 +119,15 @@ class GroupCallAudioAdapter {
         delay <= 60000;
     final freshPeer = peerValid && (_sequence == null || sequence > _sequence!);
     if (freshPeer) _sequence = sequence;
+    final transportAllowsRecovery = _transportAllowsRecovery(
+      stats['rtt_ms'],
+      now,
+      fresh:
+          nativeFresh &&
+          freshPeer &&
+          reports == expectedPeers &&
+          counter(stats['audio_feedback_reports']) == expectedPeers,
+    );
     if (!sending || expectedPeers <= 0) {
       // Consume counters while muted, so unmute cannot replay old pressure.
       _healthy = 0;
@@ -162,6 +177,7 @@ class GroupCallAudioAdapter {
         counter(stats['audio_feedback_reports']) == expectedPeers &&
         loss == 0 &&
         peerRecovery == 0 &&
+        transportAllowsRecovery &&
         delay < CallBitrateAdapter.playoutRecoverMs;
     if (!complete) {
       _healthy = 0;
@@ -180,5 +196,37 @@ class GroupCallAudioAdapter {
       _level--;
       _healthy = 0;
     }
+  }
+
+  bool _transportAllowsRecovery(
+    Object? value,
+    DateTime now, {
+    required bool fresh,
+  }) {
+    // Older snapshots lack RTT; a sub-ms local route can round to zero.
+    // Preserve their existing receiver-based policy without inventing an
+    // estimate. Invalid advertised values cannot authorize producer growth.
+    if (value == null) return _rttWindow.isEmpty;
+    if (value is! int || value < 0 || value > 60000) return false;
+    if (value == 0) return true;
+    if (fresh) {
+      while (_rttWindow.isNotEmpty &&
+          now.difference(_rttWindow.first.at) >= _rttWindowSpan) {
+        _rttWindow.removeFirst();
+      }
+      _rttWindow.addLast((at: now, ms: value));
+      while (_rttWindow.length > 120) {
+        _rttWindow.removeFirst();
+      }
+    }
+    var baseline = value;
+    for (final sample in _rttWindow) {
+      if (sample.ms < baseline) baseline = sample.ms;
+    }
+    final margin = baseline ~/ 4 > 20 ? baseline ~/ 4 : 20;
+    // Shorter packets multiply padded fanout traffic. A queue on the
+    // measured path must clear before healthy playout can earn that growth.
+    // RTT alone never reduces the current audio budget or video quality.
+    return value <= baseline + margin;
   }
 }
