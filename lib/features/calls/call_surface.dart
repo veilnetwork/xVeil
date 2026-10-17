@@ -200,8 +200,16 @@ class CallAudioRouteAction extends StatelessWidget {
         final speaker = route == CallAudioRoute.speaker;
         return CallControlAction(
           key: const ValueKey('call-audio-route'),
-          icon: speaker ? Icons.volume_up_rounded : Icons.phone_in_talk_rounded,
-          label: speaker ? l.callSpeaker : l.callEarpiece,
+          icon: switch (route) {
+            CallAudioRoute.external => Icons.headphones_rounded,
+            CallAudioRoute.speaker => Icons.volume_up_rounded,
+            CallAudioRoute.earpiece => Icons.phone_in_talk_rounded,
+          },
+          label: switch (route) {
+            CallAudioRoute.external => l.callAudioOutput,
+            CallAudioRoute.speaker => l.callSpeaker,
+            CallAudioRoute.earpiece => l.callEarpiece,
+          },
           selected: speaker,
           onPressed: () => unawaited(callAudioRouter.toggle()),
         );

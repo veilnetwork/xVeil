@@ -5,13 +5,13 @@ import 'package:flutter/services.dart';
 
 import '../domain/call_signal.dart';
 
-enum CallAudioRoute { earpiece, speaker }
+enum CallAudioRoute { earpiece, speaker, external }
 
 /// Owns the phone's communication-audio route for both direct and group calls.
 ///
-/// A call that starts with video uses the loudspeaker; an audio-only call uses
-/// the receiver as a conventional handset call. The route remains user
-/// switchable from the shared in-call controls.
+/// Connected headphones take precedence on Android. Without them, video uses
+/// the loudspeaker and audio uses the receiver. Explicit user selection still
+/// overrides the default.
 class CallAudioRouter {
   CallAudioRouter({MethodChannel? channel, bool? hasNativePhoneRoute})
     : _channel = channel ?? const MethodChannel('xveil/call_audio_route'),
@@ -26,25 +26,41 @@ class CallAudioRouter {
 
   bool get supportsPhoneRouting => _hasNativePhoneRoute;
 
-  Future<bool> useDefaultFor(CallMedia media) => setRoute(
+  Future<bool> useDefaultFor(CallMedia media) => _applyRoute(
     media.video || media.screen
         ? CallAudioRoute.speaker
         : CallAudioRoute.earpiece,
+    preferExternal: true,
   );
 
-  Future<bool> setRoute(CallAudioRoute next) async {
+  Future<bool> setRoute(CallAudioRoute next) =>
+      _applyRoute(next, preferExternal: next == CallAudioRoute.external);
+
+  Future<bool> _applyRoute(
+    CallAudioRoute next, {
+    bool preferExternal = false,
+  }) async {
     if (!_hasNativePhoneRoute) {
       route.value = next;
       return true;
     }
     try {
-      final applied =
-          await _channel.invokeMethod<bool>('setRoute', {
-            'speaker': next == CallAudioRoute.speaker,
-          }) ??
-          false;
-      if (applied) route.value = next;
-      return applied;
+      final result = await _channel.invokeMethod<Object?>('setRoute', {
+        'speaker': next == CallAudioRoute.speaker,
+        if (preferExternal) 'preferExternal': true,
+      });
+      // Android reports the effective route; iOS and older hosts return bool.
+      if (result is String) {
+        for (final candidate in CallAudioRoute.values) {
+          if (candidate.name == result) {
+            route.value = candidate;
+            return true;
+          }
+        }
+        return false;
+      }
+      if (result == true) route.value = next;
+      return result == true;
     } on PlatformException {
       return false;
     } on MissingPluginException {
@@ -52,10 +68,11 @@ class CallAudioRouter {
     }
   }
 
-  Future<bool> toggle() => setRoute(
+  Future<bool> toggle() => _applyRoute(
     route.value == CallAudioRoute.speaker
         ? CallAudioRoute.earpiece
         : CallAudioRoute.speaker,
+    preferExternal: route.value == CallAudioRoute.speaker,
   );
 
   Future<void> release() async {
