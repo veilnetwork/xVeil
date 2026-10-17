@@ -20,6 +20,7 @@
 // where the receiving device has nothing at all. Fill a gap, never overwrite.
 
 import 'dart:async';
+import 'dart:typed_data';
 
 import '../core/ids.dart';
 import '../data/storage/storage.dart';
@@ -40,12 +41,37 @@ import 'device_sync_bridge.dart' show contactPrefsPayload;
 /// cannot tell them apart and must not have to: a field added here reaches both
 /// paths, and a field added to only one of two copies is how a mirror comes to
 /// carry less than the message it mirrors.
-({DeviceSyncEvent event, MediaObject? attachment}) deviceMirrorOf(
+typedef DeviceMessageMirror = ({DeviceSyncEvent event, MediaObject? attachment});
+
+/// Inline files have a local opaque blob id (often a UUID), not a network
+/// content address. Publish a manifest for their actual bytes before handing
+/// another device a reference. Used by both live emit and history replay.
+Future<DeviceMessageMirror> prepareDeviceMirror(
+  String peerHex,
+  Message message, {
+  required Storage storage,
+  required Future<String> Function(Uint8List bytes, {required String name})
+      registerContent,
+  bool withFileBytes = true,
+}) async {
+  String? contentId;
+  if (message.fileContentId == null && message.fileId != null) {
+    final bytes = await storage.loadFile(message.fileId!);
+    if (bytes != null) {
+      contentId = await registerContent(bytes, name: message.fileName ?? 'file');
+    }
+  }
+  return deviceMirrorOf(peerHex, message,
+      withFileBytes: withFileBytes, fileContentId: contentId);
+}
+
+DeviceMessageMirror deviceMirrorOf(
   String peerHex,
   Message message, {
   bool withFileBytes = true,
+  String? fileContentId,
 }) {
-  final contentId = message.fileContentId ?? message.fileId;
+  final contentId = fileContentId ?? message.fileContentId ?? message.fileId;
   if (contentId == null) {
     return (
       event: DeviceSyncEvent(
@@ -56,6 +82,8 @@ import 'device_sync_bridge.dart' show contactPrefsPayload;
           'peer': peerHex,
           'dir': message.direction.name,
           'body': message.body,
+          if (message.replyToId != null) 'r': message.replyToId,
+          if (message.forwardedFrom != null) 'fw': message.forwardedFrom,
           // The row's place in its author's stream, so every device of mine
           // holds the message under the SAME (author, seq) — the key gap-fill
           // reconciles on. Allocated locally instead, a sibling's high-water for
@@ -80,6 +108,8 @@ import 'device_sync_bridge.dart' show contactPrefsPayload;
         'peer': peerHex,
         'dir': message.direction.name,
         'body': message.body,
+        if (message.replyToId != null) 'r': message.replyToId,
+        if (message.forwardedFrom != null) 'fw': message.forwardedFrom,
         if (message.author != null) 'au': message.author,
         if (message.seq != null) 'sq': message.seq,
         // The bytes stay where they are: the mirror carries the CONTENT ID and
@@ -188,6 +218,8 @@ Future<DeviceHistoryReplay> replayHistoryForAsk({
   // A conversation with one of my own devices is not history to hand over:
   // on the receiver it would describe a chat with a sibling (or with itself).
   Future<bool> Function(NodeId peer)? isOwnDevice,
+  Future<DeviceMessageMirror> Function(String peerHex, Message message,
+      bool withFileBytes)? mirrorMessage,
 }) async {
   var conversations = 0, messages = 0, contacts = 0, calls = 0, readMarks = 0;
   var sent = 0;
@@ -286,7 +318,9 @@ Future<DeviceHistoryReplay> replayHistoryForAsk({
     }
     var broke = false;
     for (final message in window) {
-      final mirror = deviceMirrorOf(peerHex, message, withFileBytes: ask.files);
+      final mirror = mirrorMessage == null
+          ? deviceMirrorOf(peerHex, message, withFileBytes: ask.files)
+          : await mirrorMessage(peerHex, message, ask.files);
       if (!await emit(mirror.event, attachment: mirror.attachment)) {
         broke = true;
         break;

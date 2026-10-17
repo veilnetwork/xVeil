@@ -394,6 +394,8 @@ class _MessagingDeviceMirror {
   Future<bool> applyMessage({
     String? author,
     int? seq,
+    String? replyToId,
+    String? forwardedFrom,
     required NodeId peer,
     required String msgId,
     required MessageDirection direction,
@@ -465,6 +467,8 @@ class _MessagingDeviceMirror {
         fileSize: fileSize,
         thumb: thumb,
         customEmoji: customEmoji,
+        replyToId: replyToId,
+        forwardedFrom: forwardedFrom,
         author: author,
         seq: seq,
       ),

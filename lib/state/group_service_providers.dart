@@ -20,7 +20,7 @@ import '../domain/space_public_feed_transport.dart';
 import 'app_controller.dart';
 import 'cloud_capability_service.dart' show cloudProviderSlotFor;
 import 'cloud_document_providers.dart';
-import 'device_history_backfill.dart' show deviceMirrorOf;
+import 'device_history_backfill.dart' show prepareDeviceMirror;
 import 'device_sync_appliers.dart';
 import 'group_epoch_service.dart';
 import 'group_crypto.dart';
@@ -336,7 +336,9 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
       if (await service.isMyDevice(peer)) return;
       final hasFile = (message.fileContentId ?? message.fileId) != null;
       if (!hasFile && message.body.isEmpty) return;
-      final mirror = deviceMirrorOf(peer.hex, message);
+      final mirror = await prepareDeviceMirror(peer.hex, message,
+          storage: service.storage,
+          registerContent: messaging.registerGroupContent);
       await service.postDeviceEvent(
         mirror.event,
         attachment: mirror.attachment,
@@ -484,9 +486,13 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     final customEmoji = parseInlineCustomEmoji(body, event.payload['ce']);
     final author = event.payload['au'];
     final seq = event.payload['sq'];
+    final replyTo = event.payload['r'];
+    final forwardedFrom = event.payload['fw'];
     await messaging.applyMirroredMessage(
       author: author is String && author.isNotEmpty ? author : null,
       seq: seq is int && isAcceptableWireSeq(seq) ? seq : null,
+      replyToId: replyTo is String ? replyTo : null,
+      forwardedFrom: forwardedFrom is String ? forwardedFrom : null,
       peer: NodeId.fromHex(peerHex),
       msgId: event.key,
       direction: direction,
