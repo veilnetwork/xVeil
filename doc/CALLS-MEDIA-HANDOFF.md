@@ -1,5 +1,62 @@
 # Calls media handoff
 
+## 2026-10-18: console I/O moved off network tasks; sparse video retry
+
+SDK `be7a8235` replaces the default console sink with a process-wide FIFO and
+dedicated writer. NodeLogger, the non-Android embedded `log` bridge and FFI
+diagnostics share it. The queue bounds 512 records and 1 MiB including the
+record currently blocked in output; a record is at most 64 KiB and retains no
+spare String allocation. Full/oversized records are rejected whole and counted;
+output errors are counted. Overload emits a complete JSON notice. No traffic
+role or severity receives preference; no network scheduler or wire change is
+made. Explicit configured file logs retain synchronous write/flush semantics.
+Graceful node shutdown drains console output on a blocking worker with a
+bounded wait. FFI also exposes an explicit flush barrier and rejection/error
+counters. Preflight checks these after capture and after stop; the later runs
+also qualify participant-process console output.
+
+The video adapter now retries only its one-fps floor after three healthy
+measured audio observations. Higher quality still needs twelve, and ongoing
+loss, unknown measurements and receive outages still block retry. Legacy
+unmeasured recovery keeps twelve. Added local recovery-streak diagnostics.
+The recorded intermittent decoded-trim regression fails with the old hold;
+all **150** focused adaptation tests pass with the change. Console library:
+**16 pass**, including blocked sink, byte accounting, multi-producer record
+integrity and output failure. FFI stop budget/lifetime: **2 pass**; Clippy with
+warnings denied clean. No live speech/headset qualification occurs this cycle.
+
+Evidence: `doc/validation/call-console-2026-10-18.json`; immutable binaries,
+source patches, manifests and raw captures in `xveil-console-20261018`.
+The full original 360-s/1024-kbit shared-neutral-FIFO workload and <200-ms gate
+remain intact. All three captures have **2112 matched / 0 missing** markers,
+hash-matching complete files, verified star topology, zero >=25-ms runner
+stage observations and no rejected/error parent-console records. Participant
+console counters also pass in the latter two captures. All owned process
+PIDs independently verify absent after each capture. Overall verdicts:
+
+- `group-queued-full-360`: **FAIL**, **190.094 ms**, old twelve-sample video
+  hold, two final video tails frozen. Its Rust snapshot includes the four
+  pre-existing multi-device security patches.
+- `group-probe-full-360`: **FAIL**, **200.050 ms**, all six video tails move
+  **7/3/6/3/6/7**. Same mixed SDK snapshot, faster sparse-video retry. Do not
+  round the peak down or waive the strict gate.
+- `group-clean-probe-full-360`: **FAIL**, **260.230 ms**, all six video tails
+  move **13/13/7/13/7/13**. Built a separate clean SDK worktree at be7a8235;
+  the original four dirty files remain untouched. This tests the committed SDK
+  plus the current Dart candidate independently of the mixed worktree.
+
+The clean peak is source 0 -> receiver 1, **30.300 -> 30.560 s**. Every sender
+still reports one fps; no preceding policy sample is paused, so this is not
+evidence of an aggressive rung upshift. Nearby neutral-FIFO maxima are
+**103.483 / 90.183 ms** by direction. They may belong to different packets:
+do not sum them or assert an exact audio-packet join. The remaining issue is
+queue-burst investigation, not another demonstrated synchronous console stall.
+Next correlate actual RTP/transport/UDP timing and identify the contributing
+local producers before changing admission. Keep all failed verdicts. The
+clean Rust binary is frozen under `sdk-clean`; the shared Cargo target now
+contains that last build and is not a provenance label for the dirty checkout.
+New backend/device listening remains unqualified. Audio isolation is ACTIVE.
+
 ## 2026-10-18: reliable queue snapshots and logging contention
 
 SDK `4dcf778e` adds read-only local counters for the actual owned reliable
