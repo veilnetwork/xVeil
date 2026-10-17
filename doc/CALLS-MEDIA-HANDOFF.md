@@ -1,5 +1,50 @@
 # Calls media handoff
 
+## 2026-10-17: files-only control localizes unsafe audio packet-rate recovery
+
+`group-rtcp-files-control-360` is **diagnostic only**, not full qualification.
+Original harness, three SDK processes, six PCM paths, 1024-kbit/s shaper,
+three encrypted 512-KiB files, source clocks/QoS/topology/startup budgets and
+360-s deadline preserved; ONLY video load removed. Separate verifier confirms
+measurement valid, full qualification explicitly false. **2112 matches / 0
+missing**, audio-only peak **120.221625 ms**, loaded **370.177750 ms**. Two
+files remain incomplete at **499712 / 505856 bytes**; the third full hash
+verifies at **277.863721 s**. Shaper direction 1 reaches **208.158 ms / 33
+drops**; direction 0 peaks 123.162 ms / zero drops. Original full verifier
+unchanged. All owned processes independently absent; node stops/workers 0,
+sockets 0. This contradicts attributing the problem solely to video/RTCP.
+
+Unlike the full workload, this control repeatedly recovers from 60/40-ms
+packets to **20-ms** packets. At the 370-ms marker (**71.710008 -> 72.080185 s**,
+source 1 -> receiver 0), sources **0 and 1** both emit 20-ms/32-kbit packets,
+source 2 emits 60-ms/24-kbit. Their nearby reported RTTs are **258 / 65 / 425
+ms** (reports are cached between arrivals). Existing policy treated stable
+playout at the current rate as proof of room for an increased packet rate;
+it ignored an already growing transport queue. Multiple padded fanout copies
+make that recovery materially more expensive, even without any video.
+
+Current `GroupCallAudioAdapter` holds only RECOVERY while RTT exceeds its
+recent floor by **max(20 ms, floor/4)**, using measured native room RTT, not
+synthetic bandwidth or the fixture's known link rate. Floor keeps up to 120
+fresh complete-room samples within two minutes, resets on membership/clock
+change. A stable 120-ms route can still recover; an aged route floor can
+be replaced. RTT alone never degrades audio/video. Existing pressure rules,
+Opus budgets, full verification bounds and relay neutrality unchanged.
+Legacy snapshots without RTT retain their receiver-based policy; once RTT
+has been observed, a missing field cannot erase the known queue. Two RED
+regressions reproduce unsafe recovery and the missing-field bypass before
+their fixes. **210** related tests pass, including stable 120-ms RTT, recovered
+transport, no RTT-only degradation and aged-route recovery. Full workload and
+files-only control with this new policy remain to be run.
+
+Private `group-sparse-video-probe.cc/log` gives a positive native control:
+two real VP8 groups, mocked lossless plaintext boundary, **8 kbit/s / 1 fps**,
+three eight-second phases. Decoded changes **8/8**, one sender paused **8/1**,
+resumed **9/8**. Only one PLI during the pause; no sustained 200-ms PLI loop.
+Other control is SR/RR/SDES/REMB. Both engines destroyed, callbacks empty and
+owned process absent; no SDK network sockets, profiles or hardware capture.
+Do not modify keyframe timers based only on the upstream 200-ms default.
+
 ## 2026-10-17: measured group control traffic; original full gate remains RED
 
 `group-rtcp-accounting-360` uses current Dart (4df12b12), Rust FFI f2e15842
