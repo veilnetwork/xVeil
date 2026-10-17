@@ -243,6 +243,12 @@ class CallBitrateAdapter {
     _floorTrialLastFrames = null;
     _floorTrialFrames = 0;
     _floorPeerSampleSequence = null;
+    // A rebuilt engine may restart native report numbering; encrypted peer
+    // health may instead continue its call-wide sequence. Neither can inherit
+    // the old engine's partially earned producer growth.
+    _lastPeerSampleSequence = null;
+    _goodStreak = 0;
+    _startupGoodStreak = 0;
     _receiveBuffer.reset();
     _peerBuffer.reset();
     _floorReceiveBuffer.reset();
@@ -887,8 +893,9 @@ class CallBitrateAdapter {
         currentPeerDelay < 100;
     // Local polling is faster than peer playout reports. A cached healthy
     // report can keep a measured rung, but cannot establish more headroom.
-    // Keep the streak between distinct reports so slower reporting does not
-    // prevent recovery; bad/unknown observations still reset it below.
+    // Fast startup requires distinct samples. Ordinary recovery retains its
+    // healthy observation period below and needs a new report to confirm the
+    // upshift, rather than stretching twelve polls into twelve report periods.
     final freshGrowthEvidence = !requirePeerAudioPlayout || freshPeerSample;
     if (!startupGood) {
       _startupGoodStreak = 0;
@@ -1007,14 +1014,15 @@ class CallBitrateAdapter {
       _goodStreak = 0;
       return null;
     }
-    if (freshGrowthEvidence) _goodStreak++;
+    _goodStreak++;
     if (_audioReserve && _goodStreak >= recoverAfter) {
       _audioReserve = false;
       _severeStreak = 0;
       _goodStreak = 0;
       return target;
     }
-    if ((_goodStreak >= recoverAfter ||
+    if (freshGrowthEvidence &&
+        (_goodStreak >= recoverAfter ||
             _startupGoodStreak >= startupRecoverAfter) &&
         _level > 0) {
       _goodStreak = 0;
