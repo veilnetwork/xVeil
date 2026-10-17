@@ -1,5 +1,111 @@
 # Calls media handoff
 
+## 2026-10-17: canonical recovery identity implementation and independent health
+
+Implemented the duplicate-recovery fix. SDK `6ec527c3` exposes one coherent
+native RTCP recovery snapshot (decoder origin, cumulative discarded-ms and
+local fresh-witness time) in unicast JSON stats, plus the local receiver's
+origin/total. Decoder origins now survive engine/registry recreation within
+the process. A new decoder's report sequence can restart. SDK `5139daec`
+also prevents delayed UNKNOWN old-engine reports (which have no origin) from
+poisoning the new decoder's sequence. Native real-RTCP framing/parser and shim
+smokes verify SSRC binding, replay, atomic snapshot consistency, registry
+recreation, reset sequences, retired/unknown reports and expiry. RTCP format
+and its 48-byte recovery block stay unchanged; production media ABI retains
+the original **100 veil_media API exports** on both platforms. Android also
+retains its four existing JNI exports; its complete 104-symbol set was
+independently compared with the previous production ELF and matches exactly.
+
+Root `aee337c6` adds optional encrypted health fields `ro`/`rd` for the same
+native origin/total. Existing call-relative recoveryCount stays distinct.
+CallPeerAudioRecovery combines native RTCP and health once per real counter
+advance. Its instance survives local session repairs and muted periods;
+local decoded loss remains a separate input. Both video adaptation AND the
+node's source-pressure reporter receive that unified verdict. Native-only
+group/legacy callers retain the optional parameter's existing behavior; old
+feedback with no canonical identity remains conservative rather than being
+silently ignored. Upgrading both endpoint media/Dart builds is required for
+exact cross-path correlation; no identity can be invented for a legacy report.
+
+Health tracks canonical advances independently of its aggregate counter:
+those two readings can straddle a real recovery. Pending event identity also
+survives a later unknown sample and buffer-measurement expiry; it does NOT
+make an expired buffer measurement fresh. Parsing rejects malformed/partial
+identity pairs. Mute consumes reports without replaying them after unmute.
+Production-pipeline tests use receive activity -> serialized/decoded health ->
+peer tracker -> shared evidence -> applied one-FPS adapter floor. Same event
+through either ordering does NOT pause, while repeated distinct losses still
+do. The original private legacy-API RED script is kept unchanged; the new
+fixed reproducer enters this actual shared-evidence path and passes all three
+controls. Do not mislabel the old script, which has no identity inputs, green.
+
+Found and corrected an error in the initial helper before final qualification:
+`aee337c6` consumed even a stale native counter that had never produced a
+policy loss witness. That could swallow the FIRST independent genuine health
+report, contrary to the requirement to preserve both paths. A retained private
+RED copy of that helper returns false for this case. Root **`89039061`** now
+consumes a counter only on an actual witness; stale native origin can still
+retire an older decoder without consuming that new decoder's total. The
+independent health report is counted once, and subsequent RTCP/health copies
+are deduplicated. Added both this positive-loss regression and the stale
+new-decoder baseline control. Latest tests: **354 passed**, analyzer clean.
+No arbitrary time-based suppression, raised buffer/latency gate, weakened loss
+input, route-policy downgrade, relay priority or codec-budget change.
+
+Both native production builds succeed. Mac transport remains frozen Rust
+`6b3ff449` / c6b79ea4...; Android transport remains `1bd719bb`, with the NEW
+media library on both. SDK commits since `6b3ff449` change only native media,
+not those Rust transport sources. Native source and Dart source hashes,
+package identities and all allocated ELF / file-backed Mach-O section checks
+are retained privately. Profile QA hooks require BOTH explicit opt-ins:
+the first phone APK accidentally omitted XVEIL_DEBUG_HOOK_PROFILE, started
+without an API, and the stand stopped before a call or Mac routing change.
+The next run's saved original-settings tree verifies the unchanged preference;
+the failed APK/log are retained. No identity/data were deleted.
+
+Intermediate physical `call-recovery-identity-hook` (root `aee337c6`, BEFORE
+the independent-health correction) verifies both native identity fields at
+both endpoints: **1.13-s** ring, **59 / 119.57-s** samples, camera at **31.72 s**,
+both continuously on onion. Zero native interruptions, RTP transmit drops,
+sampled tx/rx drops or handovers. Actual decoded catch-up **9 / 120 ms** on Mac
+and **6 / 180 ms** on phone. Remote frames **77 / 54**, final ~15-s advances
+**15 / 10**; protection true in **11 / 5** samples and false on both at end.
+Do NOT treat this intermediate run as final qualification of `89039061` or
+as zero decoded loss. Both apps/all package processes/APIs/logcat/forward
+independently exit; original Mac preference restored.
+
+Final physical `call-recovery-health` on **`89039061`** completed, but FAILS
+quality qualification. Same-signer phone code **6608**, separately owned Mac
+app, original 90-s registration warmup and 120-s call; anonymous Mac/direct
+phone remained on onion. Ring **1.33 s**, camera **32.05 s**, **59 samples /
+119.91 s**. Canonical local/peer identities present at both endpoints.
+Mac **17 interruptions / 43370 ms cumulative**, phone **3 / 6184 ms**; these
+are totals, NOT the largest individual pause. Actual decoded catch-up Mac
+**34 / 610 ms**, phone **44 / 620 ms**. Frames **18 / 12**; protection true
+**37 / 35** samples, final false / true. Mac RTP payload-emission max gap
+**30 ms**; phone **408 ms** includes DTX and does not by itself prove capture
+failure. No app-level media epoch change or route handover was observed.
+
+Three outgoing PRIMARY private circuits nevertheless retire at the original
+12-s echo timeout. Immediately preceding sparse private-route admissions
+(epoch `8628b0c8016b8b74`, seq **850**, **4000**, **5550**) all match actual
+authenticated phone receipt. Thus a carrier can deliver media while its
+separate reliable probe expires. Clock offset was not measured: matching
+sequence proves delivery, NOT precise one-way latency or exact cause of every
+reverse-direction pause. A fourth retirement concerns a secondary circuit;
+primary matches must not be used to prove that circuit healthy.
+
+Periodic PinnedRoute::probe currently uses LOCAL_NETWORK_CONTROL_LANE,
+whereas actual cells use their own datagram child. Native bootstrap already
+has a datagram probe. Retained log also shows endpoint recovery-queue pressure.
+Next: reproduce independent carrier progress, preserve the real failure gate,
+and fix carrier health without granting relay priority or raising byte budgets.
+Private analysis and independently checked cleanup are retained: owned Mac PID
+3053 and bundle processes absent, ALL network.veil.xveil package processes
+absent, logcat exited, ADB forward removed, original Mac anonymity OFF restored.
+Package/source hashes in recovery-health-build. Latest full six-direction
+360-s qualification remains pending; goal stays ACTIVE.
+
 ## 2026-10-17: decoded-loss counter correction and duplicate recovery witness RED
 
 Re-read the full raw `call-cold-rendezvous-onion` samples rather than only the
