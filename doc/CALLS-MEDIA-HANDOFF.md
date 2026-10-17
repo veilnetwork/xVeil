@@ -43,9 +43,14 @@ Origin-pacing experiment (REJECTED, source fully restored):
 - Candidate tests: 30 focused cases, full session suite **581 pass / 8 existing
   ignores**, Clippy with warnings denied. These results describe the rejected
   source, not extra tests retained in the current worktree.
-- Frozen baseline and candidate SDKs use the SAME development profile and
-  node-embedded/packet-tunnel/allow-empty-seeds features. Native media and all
-  stimulus/policy hashes match. Each full original workload is 360 s, six PCM
+- Frozen SDKs use the same development profile and explicit FFI flags
+  node-embedded/packet-tunnel/allow-empty-seeds (plus default TLS-boring).
+  However, the baseline build also selected veil-cli, whose defaults enable
+  rocksdb-cold through Cargo feature unification; the candidate build selected
+  only the FFI. Resolved dependency features are therefore not proven identical.
+  Do not treat this as a fully controlled single-variable performance comparison;
+  rebuild with identical selected packages/flags before causal attribution.
+  Native media and all stimulus/policy hashes match. Each workload is 360 s, six PCM
   directions, neutral shared FIFO 1024 kbit/s per direction, three encrypted
   512-KiB files. No clock/startup/QoS/deadline/latency/recovery gate changed.
   These development builds are not a qualification of shipping release bytes.
