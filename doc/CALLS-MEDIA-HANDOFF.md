@@ -1,5 +1,91 @@
 # Calls media handoff
 
+## 2026-10-17: decoded-loss counter correction and duplicate recovery witness RED
+
+Re-read the full raw `call-cold-rendezvous-onion` samples rather than only the
+packet-discard counter. **Correction:** decoded catch-up DID occur: Mac
+`audio_latency_recovery_count=14`, `audio_latency_discarded_ms=250`; phone
+**24 / 620 ms**. `audio_discarded_packets=0` describes a different counter and
+does not establish zero decoded loss. Private analysis.json now includes both
+counter families. Re-audited the earlier P2P captures: both 4605 and 4606 have
+zero actual latency-recovery count/ms on both endpoints; 4606 Mac DOES have
+30 packet discards, which must not be confused with decoded catch-up either.
+No raw captures were changed.
+
+Existing `audio_adaptation.recent` contains exact policy inputs. In the first
+WAN call all **3 Mac / 2 phone** transitions into a protection pause carry
+`audio_latency_recovery=true`. Current low buffers alone therefore do not
+explain, or disprove, those pauses. Authentic decoded loss must still reduce
+competing production; do not remove this signal or raise its admission gate.
+
+The earlier 1879-ms gap is visible BEFORE native playback: phone authenticated
+SDK `media.cell.sample` primary epoch skips sampled sequences 1550 and 1600
+between 1500 and 1650, while its secondary epoch's seq=1 arrives during that
+interval. Mac's native RTP emission still has only a 40-ms maximum gap. This
+rules out merely frozen video rendering, but does NOT locate the exact source
+queue/first-hop/relay/receiver-admission stage or prove camera startup caused it.
+
+Added endpoint-only sparse sender/route diagnostics in SDK media_ffi and
+anon_stream/media_routes. Samples correlate the existing sealed epoch/sequence
+with send begin, local first-hop admission result, expiration/failure and the
+existing authenticated receiver sample. Route ready/retired events include
+local plane, relay, age/echo age and repair generation. Everything is gated by
+the existing rt_trace switch/sparse sampling. No media plaintext, key, new wire
+field, relay priority, channel allocation, repair timeout or policy change.
+In particular, no extra call to the stateful PinnedRoute::is_live is made.
+Production-feature SDK builds and preserves all **196 exports**. Frozen
+`onion-trace-sdk` records exact sources and dylib SHA
+`c6b79ea4d47b6e8259ec4b8040843d7b4dd2d1caa1d291bb6ccb188d4afacaee`.
+
+Real repeat `call-onion-trace`: **1.13-s** ring after registration warmup,
+**59 samples / 119.26 s**, camera enable **31.56 s**, same mixed anonymous
+Mac/direct Blackview and required onion route. No native interruptions on
+either endpoint this time: the 1879-ms gap does NOT reproduce. All **114**
+sampled primary cells admitted on the private source route match authenticated
+phone receipt; no sampled source failure/expiry or private route retirement;
+sampled source send-return time <=1 ms. Device clock offset was not measured,
+so this is NOT an end-to-end latency measurement. Decoded catch-up remains:
+Mac **5 / 150 ms**, phone **8 / 300 ms**. Remote frames reach **55 / 42**.
+Neither a fixed gap nor sustained high-quality video is claimed from this run.
+
+Found a distinct real protection defect while examining these decisions:
+at policy observations **40 and 41**, Mac sees `audio_latency_recovery=true`
+twice for the phone's ONE new catch-up (counter 2 -> 3), with the SAME native
+`audio_peer_recovery_report_us`, and zero Mac-local catch-up. The first witness
+comes from native RTCP; the later encrypted health message independently sets
+CallPeerAudioPlayout.takeRecovery. VeilCallMediaController ORs that health flag
+with local recovery, while CallBitrateAdapter separately consumes native RTCP
+timestamps. Each path deduplicates itself, but they do not share event identity.
+The two adjacent observations falsely meet the two-failure sparse-floor gate.
+
+Private pure-Dart `reproduce-duplicate-recovery.dart` exercises the production
+adapter with healthy measured buffers, applied one-FPS floor and advancing
+video frames. Controls: one RTCP witness + repeat => NO pause; two distinct
+RTCP witnesses => pause. The SAME recovery reported first by RTCP, then by
+health => pause, violating the single-event assertion. This is a retained RED
+reproducer (exit 255), not a green regression test committed to CI. The root
+cause is now concrete; the duplicate-event FIX is still outstanding.
+
+Next implementation must correlate the same remote decoded-loss event across
+both feedback paths, preserving genuinely separate local/remote and repeated
+losses. Do NOT just ignore one path, add a time-based suppression window, or
+assume health's call-relative recovery count equals the native RTCP stream's
+counter. Native AudioRecoveryReport already carries origin + discarded_ms;
+AudioRecoveryCursor retains them but GetStats currently exposes only its
+local report timestamp. Health currently carries aggregate call-relative
+interruptionCount/recoveryCount, not that native identity. Receiver recreation
+also matters: AudioRecoveryRegistry allocates origins per registry, resetting
+when an engine is recreated, so simply comparing two new exposed integers
+without an epoch/recreation rule is not sufficient. No native wire change or
+loss relaxation has been made this cycle.
+
+Both owned apps, all Android package processes, logcat, test API listeners and
+ADB forwarding are independently confirmed absent. Mac's original routing
+preference is restored. New raw logs/correlation-proof/cleanup and the RED
+script/output remain private; no push, release, Android install or deployment.
+Goal stays ACTIVE; duplicate recovery handling, original intermittent ingress
+gap, current final full qualification and human speech listening remain open.
+
 ## 2026-10-17: cold delegated rendezvous resolution repaired; WAN app check
 
 The first real mixed-posture application call, `call-mixed-relay-1bd`, did
@@ -62,8 +148,12 @@ logcat stop, and Mac's original non-anonymous setting is verified restored.
 Corrected `call-cold-rendezvous-onion` rings in **1.16 s** after the unchanged
 registration warmup. **59 samples / 119.67 s**, both endpoints remain active
 on onion, cameras enabled at **31.90 s**. Media epoch remains ONE; zero route
-handovers, audio RTP transmit drops, sampled tx/rx drops, or decoded catch-up
-discards. Remote decoded-frame totals **55 / 38**, with **9 / 8** advances in
+handovers, audio RTP transmit drops, or sampled tx/rx drops. CORRECTION to the
+initial report: `audio_discarded_packets=0` is NOT the decoded catch-up counter.
+Actual `audio_latency_recovery_count` is **14 / 24** and
+`audio_latency_discarded_ms` is **250 / 620**. Those are real decoded losses,
+and must remain quality evidence. Remote decoded-frame totals **55 / 38**,
+with **9 / 8** advances in
 the final approximately 15 s: video does continue, but this is NOT acceptable
 quality qualification. Video-protection pause is true in **23 / 17** samples;
 final remote FPS is **0.7 / 0.4**. At the end both are paused for protection
