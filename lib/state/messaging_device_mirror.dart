@@ -177,7 +177,7 @@ class _MessagingDeviceMirror {
   }
 
   /// Fires after an ordinary 1:1 messaging write, never after [applyMessage].
-  void Function(NodeId peer, Message stored)? onMessageStored;
+  FutureOr<void> Function(NodeId peer, Message stored)? onMessageStored;
 
   /// Fires when one of OUR OWN outgoing messages moves on — the peer's
   /// acknowledgement landed, or the send failed. Only this device hears that,
