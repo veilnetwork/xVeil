@@ -1,5 +1,6 @@
 import '../domain/call_signal.dart';
 import 'call_audio_buffer_window.dart';
+import 'call_peer_audio_recovery.dart';
 
 /// Audio activity measured at the receive stream, separately from video and
 /// RTCP ingress. Default counters from a timed-out native worker are not data.
@@ -71,6 +72,7 @@ class CallAudioReceiveActivity {
   DateTime? _sampledAt;
   int? _lastInterruptionCount;
   int? _lastRecoveryCount;
+  CallAudioRecoveryIdentity? _nativeRecoveryIdentity;
   int _interruptionCount = 0;
   int _recoveryCount = 0;
   bool interrupted = false;
@@ -110,6 +112,8 @@ class CallAudioReceiveActivity {
       bufferGrowing: _playoutWindow.growing,
       interruptionCount: current.interruptionCount,
       recoveryCount: current.recoveryCount,
+      recoveryOrigin: current.recoveryOrigin,
+      recoveryDiscardedMs: current.recoveryDiscardedMs,
     );
   }
 
@@ -135,6 +139,8 @@ class CallAudioReceiveActivity {
       recoveryCount: fresh && _lastRecoveryCount != null
           ? _recoveryCount
           : null,
+      recoveryOrigin: fresh ? _nativeRecoveryIdentity?.origin : null,
+      recoveryDiscardedMs: fresh ? _nativeRecoveryIdentity?.discardedMs : null,
     );
   }
 
@@ -155,6 +161,7 @@ class CallAudioReceiveActivity {
     _playoutDelayMs = null;
     _targetDelayMs = null;
     _sampledAt = null;
+    _nativeRecoveryIdentity = null;
     final packets = stats['audio_rx_pkts'];
     if (packets is! num || packets < 0) {
       workerStalledSince = null;
@@ -168,6 +175,10 @@ class CallAudioReceiveActivity {
       return;
     }
     workerStalledSince = null;
+    _nativeRecoveryIdentity = callAudioRecoveryIdentity(
+      stats['audio_receiver_recovery_origin'],
+      stats['audio_receiver_recovery_discarded_ms'],
+    );
     final interruptions = stats['audio_interruption_count'];
     if (stats['worker_stalled'] == 0 &&
         interruptions is int &&
@@ -230,6 +241,7 @@ class CallAudioReceiveActivity {
     _lastPackets = 0;
     _lastInterruptionCount = null;
     _lastRecoveryCount = null;
+    _nativeRecoveryIdentity = null;
     interrupted = false;
     recovered = false;
     supported = false;
