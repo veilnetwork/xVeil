@@ -1,0 +1,376 @@
+{
+  "date": "2026-10-18",
+  "complete": false,
+  "scope": "Audio gain/Android voice posture and audio isolation; no live speech listening",
+  "physical": {
+    "devices": [
+      "Mac QA profile",
+      "Blackview BV6600Pro Android 11"
+    ],
+    "network": "Wi-Fi; P2P throughout observed call",
+    "build": {
+      "mac_dart_baseline": "probe-carrier QA AOT; unchanged",
+      "media_sdk": "c0c30821",
+      "root_android": "cca6ac85 plus existing multi-device worktree changes",
+      "mac_media_sha256": "e10dfc47f08ea91747b83cff05f673a68a5012ebc3a83d2c8e82946669d1358c",
+      "rust_sdk_mac_sha256": "760dff49981beff127a7a46ca6e5730899297706549627c567cedab2a971e672",
+      "apk_signer_matches_installed": true,
+      "android_media_sha256": "71f3dc9c1abfd382d4a1b698c0c7d5f33670649b07eb940dabcbe9323448b552",
+      "android_rust_sha256": "d78cc23dc87eb1cf4bae0cbc3bbe8a36c023cbc3c3a13acc79002d548b76a855"
+    },
+    "android_qa_version": "0.13.87+6610",
+    "install": "Same signer, in-place replacement; previous APK retained privately",
+    "duration_seconds": 94.70125875000667,
+    "ring_seconds": 0.17373320800834335,
+    "microphone_permissions": {
+      "mac": {
+        "ok": true,
+        "granted": true,
+        "before": "authorized",
+        "after": "authorized"
+      },
+      "phone": {
+        "ok": true,
+        "granted": true,
+        "before": "authorized",
+        "after": "authorized"
+      }
+    },
+    "observed": {
+      "mac": {
+        "remote_frames_last_15s": 425,
+        "final_fps": 14.2,
+        "audio_rx_packets": 955,
+        "interruptions": 0,
+        "decoded_discard_ms": 0
+      },
+      "phone": {
+        "remote_frames_last_15s": 432,
+        "final_fps": 21.6,
+        "audio_rx_packets": 4426,
+        "interruptions": 0,
+        "decoded_discard_ms": 0
+      }
+    },
+    "android_attributes": {
+      "usage": 2,
+      "content_type": 1,
+      "input_preset": 7,
+      "mode": "MODE_IN_COMMUNICATION",
+      "headset_present": false,
+      "speaker_route_after_video": true,
+      "low_latency_granted": false,
+      "reported_output_latency_ms": 84
+    },
+    "cleanup": {
+      "mac_group_empty": true,
+      "phone_package_absent": true,
+      "adb_forward_removed": true
+    },
+    "mac_stop": "SIGTERM then SIGKILL after eight-second grace",
+    "limits": [
+      "Mostly ambient sound; no intelligibility or subjective-loudness verdict",
+      "No headset connected: actual headset routing remains unverified",
+      "Mac uses existing QA Dart AOT with current native media; Android uses rebuilt Dart and native media",
+      "No end-to-end clock-offset latency measurement",
+      "Full video/file congestion gate is separate and remains required"
+    ]
+  },
+  "origin_pacing": {
+    "status": "REJECTED: candidate still exceeds the strict 200-ms gate; production and test source restored",
+    "relay_priority_added": false,
+    "baseline": {
+      "gate_pass": false,
+      "contention_qualification": false,
+      "profile": "Development Rust; node-embedded,packet-tunnel,allow-empty-seeds; instrumented production media algorithms",
+      "production_release_qualified": false,
+      "peaks_ms": {
+        "audio-only": 120.06525001197588,
+        "audio-video-file": 220.11237499827985
+      },
+      "matched": 2112,
+      "missing": 0,
+      "files": [
+        {
+          "sender": 2,
+          "receiver": 0,
+          "queued": 524288,
+          "received": 524288,
+          "missing_chunks": 0,
+          "hash_matches": true,
+          "completion_seconds": 352.6730659580062,
+          "authentication_errors": 0,
+          "duplicates": 0,
+          "async_failures": {},
+          "write_error": false,
+          "late_fragments": 0
+        },
+        {
+          "sender": 0,
+          "receiver": 1,
+          "queued": 524288,
+          "received": 524288,
+          "missing_chunks": 0,
+          "hash_matches": true,
+          "completion_seconds": 352.48722804100544,
+          "authentication_errors": 0,
+          "duplicates": 0,
+          "async_failures": {},
+          "write_error": false,
+          "late_fragments": 0
+        },
+        {
+          "sender": 1,
+          "receiver": 2,
+          "queued": 524288,
+          "received": 524288,
+          "missing_chunks": 0,
+          "hash_matches": true,
+          "completion_seconds": 352.44573345800745,
+          "authentication_errors": 0,
+          "duplicates": 0,
+          "async_failures": {},
+          "write_error": false,
+          "late_fragments": 0
+        }
+      ],
+      "video_paths": [
+        {
+          "receiver": 0,
+          "source": 1,
+          "decoded_pulls": 208,
+          "tail_changes": 13
+        },
+        {
+          "receiver": 0,
+          "source": 2,
+          "decoded_pulls": 113,
+          "tail_changes": 13
+        },
+        {
+          "receiver": 1,
+          "source": 0,
+          "decoded_pulls": 258,
+          "tail_changes": 10
+        },
+        {
+          "receiver": 1,
+          "source": 2,
+          "decoded_pulls": 113,
+          "tail_changes": 13
+        },
+        {
+          "receiver": 2,
+          "source": 0,
+          "decoded_pulls": 258,
+          "tail_changes": 10
+        },
+        {
+          "receiver": 2,
+          "source": 1,
+          "decoded_pulls": 208,
+          "tail_changes": 13
+        }
+      ],
+      "shaper": {
+        "stats": [
+          {
+            "received": 97977,
+            "sent": 97977,
+            "drops": 0,
+            "max_queue_ms": 110.67452059069183
+          },
+          {
+            "received": 91720,
+            "sent": 91720,
+            "drops": 0,
+            "max_queue_ms": 99.70581217203289
+          }
+        ],
+        "failure": null,
+        "trace_events": 188366,
+        "trace_rows": 100000
+      },
+      "worker_exit_codes": [
+        0,
+        0,
+        0
+      ],
+      "node_stop_results": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "remaining_sockets": 0,
+      "independent_cleanup": {
+        "owned_pids": [
+          51335,
+          51337,
+          51338,
+          51704,
+          51705,
+          51707,
+          51708,
+          51716,
+          51717,
+          51718
+        ],
+        "remaining": []
+      },
+      "sdk_sha256": "e88b2b5f0133d3f4f972312511e39011b184f0cfc55f0bf9d982e798a0c0c0c8",
+      "media_sha256": "3c2c476d4b7678d930afd099d1c207d5f7da21c78a3278097b09dceafac23c4c"
+    },
+    "candidate": {
+      "gate_pass": false,
+      "contention_qualification": false,
+      "profile": "Development Rust; node-embedded,packet-tunnel,allow-empty-seeds; instrumented production media algorithms",
+      "production_release_qualified": false,
+      "peaks_ms": {
+        "audio-only": 130.3067083354108,
+        "audio-video-file": 250.13624998973683
+      },
+      "matched": 2112,
+      "missing": 0,
+      "files": [
+        {
+          "sender": 2,
+          "receiver": 0,
+          "queued": 524288,
+          "received": 524288,
+          "missing_chunks": 0,
+          "hash_matches": true,
+          "completion_seconds": 351.8194986659946,
+          "authentication_errors": 0,
+          "duplicates": 0,
+          "async_failures": {},
+          "write_error": false,
+          "late_fragments": 0
+        },
+        {
+          "sender": 0,
+          "receiver": 1,
+          "queued": 524288,
+          "received": 524288,
+          "missing_chunks": 0,
+          "hash_matches": true,
+          "completion_seconds": 351.773122041006,
+          "authentication_errors": 0,
+          "duplicates": 0,
+          "async_failures": {},
+          "write_error": false,
+          "late_fragments": 0
+        },
+        {
+          "sender": 1,
+          "receiver": 2,
+          "queued": 524288,
+          "received": 524288,
+          "missing_chunks": 0,
+          "hash_matches": true,
+          "completion_seconds": 351.7640725829988,
+          "authentication_errors": 0,
+          "duplicates": 0,
+          "async_failures": {},
+          "write_error": false,
+          "late_fragments": 0
+        }
+      ],
+      "video_paths": [
+        {
+          "receiver": 0,
+          "source": 1,
+          "decoded_pulls": 166,
+          "tail_changes": 6
+        },
+        {
+          "receiver": 0,
+          "source": 2,
+          "decoded_pulls": 176,
+          "tail_changes": 13
+        },
+        {
+          "receiver": 1,
+          "source": 0,
+          "decoded_pulls": 186,
+          "tail_changes": 6
+        },
+        {
+          "receiver": 1,
+          "source": 2,
+          "decoded_pulls": 95,
+          "tail_changes": 11
+        },
+        {
+          "receiver": 2,
+          "source": 0,
+          "decoded_pulls": 130,
+          "tail_changes": 6
+        },
+        {
+          "receiver": 2,
+          "source": 1,
+          "decoded_pulls": 127,
+          "tail_changes": 6
+        }
+      ],
+      "shaper": {
+        "stats": [
+          {
+            "received": 85285,
+            "sent": 85284,
+            "drops": 0,
+            "max_queue_ms": 100.14370769204106
+          },
+          {
+            "received": 101748,
+            "sent": 101744,
+            "drops": 4,
+            "max_queue_ms": 207.54266715084668
+          }
+        ],
+        "failure": null,
+        "trace_events": 185664,
+        "trace_rows": 100000
+      },
+      "worker_exit_codes": [
+        0,
+        0,
+        0
+      ],
+      "node_stop_results": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "remaining_sockets": 0,
+      "independent_cleanup": {
+        "owned_pids": [
+          59205,
+          59206,
+          59207,
+          60494,
+          60495,
+          60497,
+          60498,
+          60500,
+          60501,
+          60502
+        ],
+        "remaining": []
+      },
+      "sdk_sha256": "14aa3780648535c5adfefdb79874cead1602176a08bdd8b4baf3d1ed8a68b74f",
+      "media_sha256": "3c2c476d4b7678d930afd099d1c207d5f7da21c78a3278097b09dceafac23c4c"
+    },
+    "fixture_and_media_identical": true,
+    "source_changes_reverted": true,
+    "candidate_patch_retained_privately": true,
+    "interpretation": "One paired development-build experiment does not establish a causal regression, and does not establish an improvement. Neither variant qualifies. No public release or relay change.",
+    "next_investigation": "Join locally admitted reliable DATA, remaining transport writes and primary RTT growth around the early peak. Pressure-only video smoothing cannot establish protection before pressure is observed.",
+    "candidate_unit_tests_passed": 30,
+    "candidate_full_session_tests_passed": 581,
+    "candidate_full_session_tests_ignored": 8
+  },
+  "goal_status": "active"
+}
