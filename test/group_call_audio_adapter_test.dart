@@ -89,6 +89,66 @@ void main() {
     }
     expect(policy.target, (packetMs: 40, payloadBps: 32000));
   });
+  test('queued transport cannot earn a more expensive packet cadence', () {
+    final policy = start();
+    observe(policy, {...sample(1), 'rtt_ms': 20}, 1);
+    for (var i = 2; i <= 30; i++) {
+      observe(policy, {...sample(i), 'rtt_ms': 80}, i);
+    }
+    expect(
+      policy.target,
+      (packetMs: 40, payloadBps: 32000),
+      reason:
+          'healthy playout at the current rate does not prove wire headroom',
+    );
+    for (var i = 31; i <= 38; i++) {
+      observe(policy, {...sample(i), 'rtt_ms': 20}, i);
+    }
+    expect(
+      policy.target,
+      (packetMs: 20, payloadBps: 32000),
+      reason: 'fresh recovered transport still permits shorter audio packets',
+    );
+  });
+  test('a stable 120-ms RTT is not accumulating transport delay', () {
+    final policy = start();
+    for (var i = 1; i <= 8; i++) {
+      observe(policy, {...sample(i), 'rtt_ms': 120}, i * 2);
+    }
+    expect(policy.target, (packetMs: 20, payloadBps: 32000));
+  });
+  test('missing RTT cannot erase already observed transport queueing', () {
+    final policy = start();
+    observe(policy, {...sample(1), 'rtt_ms': 20}, 1);
+    observe(policy, {...sample(2), 'rtt_ms': 80}, 2);
+    for (var i = 3; i <= 20; i++) {
+      observe(policy, sample(i), i);
+    }
+    expect(policy.target, (packetMs: 40, payloadBps: 32000));
+  });
+  test('transport growth alone cannot degrade an established audio budget', () {
+    final policy = start();
+    for (var i = 1; i <= 8; i++) {
+      observe(policy, {...sample(i), 'rtt_ms': 20}, i * 2);
+    }
+    policy.applyPending((_) => true, at(16));
+    for (var i = 9; i <= 20; i++) {
+      observe(policy, {...sample(i), 'rtt_ms': 120}, i * 2);
+    }
+    expect(policy.target, (packetMs: 20, payloadBps: 32000));
+  });
+  test('a changed stable route can age out the old RTT floor', () {
+    final policy = start();
+    observe(policy, {...sample(1), 'rtt_ms': 20}, 1);
+    for (var i = 2; i <= 30; i++) {
+      observe(policy, {...sample(i), 'rtt_ms': 120}, i);
+    }
+    expect(policy.target, (packetMs: 40, payloadBps: 32000));
+    for (var i = 31; i <= 38; i++) {
+      observe(policy, {...sample(i), 'rtt_ms': 120}, 200 + i);
+    }
+    expect(policy.target, (packetMs: 20, payloadBps: 32000));
+  });
   test('one healthy listener cannot speak for a room', () {
     final policy = start();
     for (var i = 1; i <= 30; i++) {
