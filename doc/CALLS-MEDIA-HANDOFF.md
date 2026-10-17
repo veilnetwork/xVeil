@@ -1,5 +1,80 @@
 # Calls media handoff
 
+## 2026-10-17: RTCP cadence repair; distinguish recovery from a stuck guard
+
+SDK `5c6fad2c` repairs the trusted-origin defect identified below. Before
+sealing a video/screen work item, distinguish structurally valid RTCP from
+RTP. Complete RTP frames, INCLUDING single-cell frames, retain typed whole-work
+IPC and source cadence. Independently complete RTCP uses existing individual
+sealed-cell IPC on the SAME secondary source with the ORIGINAL expiry. The
+daemon cannot mistake those controls for a producer frame. No media inspection
+at relays, new wire/IPC schema, changed relay service, RTCP suppression or audio
+lane reassignment. Both upgraded and legacy daemon paths are tested, including
+unchanged content/address/lane/no-ACK semantics and expiry on full admission.
+**46 media-priority + 5 writer-freshness release tests pass.** Production FFI
+build passes; frozen `rtcp-cadence-sdk` has SHA-256
+`a5a044e149770115f87467d38a04dc06780486b43b7a1c0790f8c20e9c7a842f`, unchanged
+190 API / 196 total exports, and verified source hashes at `5c6fad2c`.
+
+`group-rtcp-cadence-360` is VALID but FULL NEGATIVE. The original three SDK
+processes, six PCM paths, blind shared 1024-kbit/s FIFO and 360-s workload run
+with the same unicast-floor native 8fb01875... binary and unchanged production
+policy/startup budgets. **2112 ordinal matches / zero missing**; audio-only
+maximum **120.155292 ms**, loaded maximum **200.021625 ms**: the strict <200-ms
+gate FAILS, even though rounding to one decimal would hide the excess. All
+three full 512-KiB encrypted files match by **352.288055 / 352.347627 /
+352.236085 s**, before the original deadline. Moving video tails are
+**14 / 14 / 0 / 14 / 0 / 14**: two directions FAIL. Source copies, clock/rows,
+QoS/deadlines, topology and neutral routes verify; four node stops return zero,
+owned PIDs have exited and no sockets remain.
+
+Owned-work observations have **1242 rows**, no trace cap, **1182 completed
+works**, no unmatched boundaries. All **60 multi-cell works** have a 100000-us
+scheduled span; none reproduces the earlier few-millisecond cadence. This
+confirms the observed short-span symptom is absent in this run, NOT full
+audio/video qualification. The loaded peak is source 1 -> receiver 0 at capture
+118.170007 s / decode 118.370029 s. Its encoder formation / encoded-to-NetEq /
+NetEq-to-render join is **50.289 / 115.214 / 54.484 ms**. Packet/frame positions
+differ, so these are not summands of the tone's end-to-end latency.
+
+Do NOT assume the zero video tails establish a latched recovery-state bug.
+Participant 0 repeatedly resumes and pauses. Its final pause starts at
+325.020 s; encoded video frames remain at 213 through the end. Fresh local
+decoded catch-up is still present at approximately 325, 332, 335, 339, 341,
+343, 346 and 349 s (30/10/80/60/10/120/40/80 ms over both receivers). The
+326-s decision also observes loss without a same-poll local-discard delta;
+peer feedback can be a separate loss witness. Thus the consecutive healthy
+recovery window has not elapsed by 359 s. This is evidence of recurring audio
+loss while this sender's video is paused, not permission to ignore the loss,
+shorten recovery, raise the 120-ms catch-up budget or weaken the 200-ms gate.
+Private `*-reserve-episodes.json` retains exact decision inputs/counters.
+
+The retained opaque wire trace covers the final interval. In five-second
+windows 325..350 s, direction-0 offered traffic is **783.8..795.6 kbit/s**,
+below the FIFO's 1024-kbit/s service, yet the 340..345-s queue reaches
+**87.111 ms** (p95 **52.262 ms**). Direction 1 peaks at **41.375 ms** over those
+windows. Release lateness is <=4.982 ms. Average throughput does not rule out
+short bursts. These measurements do not identify the packet classes or prove
+which burst caused each decoded discard. `*-tail-wire-windows.json` retains
+the bounded aggregation; correlate existing origin ownership/transport
+timestamps next, without assigning relay priority or reducing the stimulus.
+
+SDK `fcd5a687` extends the existing real Opus component regression with
+transition timing, matching from the FIRST input ordinal (including encoder
+replacement), no startup trimming, PCM retention or new production settings.
+All six 360-s simulated profiles run with DTX both on and off. At protected
+24 and 32 kbit/s, **357/357 transitions** survive, zero quiet blocks, maximum
+decoded sample-position lag **10 ms**, synchronous codec emission lag **60 ms**
+at both rates. The existing diagnostic 16-kbit profile still has 69 consecutive
+quiet blocks and up to 430-ms sample / 480-ms emission lag. These findings do
+not explain every NetEq/tone position discrepancy, but provide no evidence that
+raising this workload from 24 to 32 kbit/s would remove its observed peak.
+The final component runner passes; no timing threshold in the full gate was
+changed. Private `group-opus-transition-timing-final.log` and source manifest
+retain the result. Goal ACTIVE: current full qualification and final physical
+speech/video checks remain open. No physical app, installation, deployment,
+push or release this cycle; owned component processes have exited.
+
 ## 2026-10-17: owned-work boundary observations and a cadence defect
 
 Add bounded read-only observations AFTER successful local DATAGRAM admission
