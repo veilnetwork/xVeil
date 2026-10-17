@@ -1,5 +1,53 @@
 # Calls media handoff
 
+## 2026-10-17: f2e15842 production builds and physical mixed-posture repeat
+
+Built both committed production SDK variants: Mac TLS-boring/node-embedded/
+packet-tunnel/production-seeds, Android no-default-features with production
+seeds/node-embedded/packet-tunnel, NDK 26.3 / API21. Exact old exported-symbol
+sets match: **196 Mac / 198 Android**. Fresh current native test-hooks library
+preserves all **131** original exports. Private `probe-carrier-sdk/build.json`
+records sources, hashes and features. Mac SDK SHA **1c4fb8871cd67800...**;
+Android **98e06aeb6df328b0...**; test native **cb863785c99f6d32...**.
+
+Repackaged the SAME root `89039061` Dart app and SAME production native media
+libraries, changing only the SDK, to isolate these routing changes. All other
+APK payload entries compare byte-for-byte; signer matches, install uses `-r`
+and preserves identity/data. Mac bundle's file-backed library sections match
+built artifacts and strict codesign verifies. Live Mac `lsof` maps the new
+owned bundle libraries. Phone APK SHA **5b856aff18421360...**, still QA code
+6608. No public release or installation over the user's Mac Applications app.
+
+Physical `call-probe-carrier`: original **90-s** registration warmup, ring
+**1.14 s**, **59 samples / 119.78 s**, video enabled **31.97 s**. Same anonymous
+Mac + direct Blackview, required onion throughout, canonical native identities
+observed at both endpoints. Mac **0 interruptions**; phone **2 / 359 ms total**.
+Earlier failed capture had Mac 17 / 43370 ms, phone 3 / 6184 ms; these are
+observed separate runs, not a controlled randomized network comparison.
+No outgoing private retirement events on either endpoint. Importantly, also
+checked READY events: exactly ONE per active plane (0/1/3) on EACH endpoint,
+all revision 4 / repair generation 0; no hidden destination-address rebuilds.
+No app media-epoch changes or handovers. Native RTP-drop counters zero.
+
+Actual decoded catch-up is NOT zero: Mac **24 / 460 ms**, phone **76 / 1600 ms**.
+Do not confuse zero packet-discard or interruption counters with decoded loss.
+Sampled NetEq buffers peak **121 / 127 ms**; native decoded recovery remains
+active. Remote frame counters **63 / 60**, advances in the last ~15 s **13 / 14**.
+Video protection true **12 / 13** sampled observations, final false / true.
+Frame-counter progress alone is not a human visual-quality judgment. Audio is
+mostly ambient; no listening/intelligibility or cross-device clock-offset proof.
+
+Both owned apps and all package processes independently absent; owned logcat
+exited, ADB forward removed, original Mac anonymity OFF restored. Full logs,
+raw samples, analysis and independent-cleanup proof retained in the capture.
+Fresh original full six-direction **360-s / 1024-kbit/s** gate is now running
+with this SDK and native library. Original harness/stimulus hashes, clocks,
+workload, startup budgets, routes and deadlines preserved. Provenance-only
+verifier update recognizes the fifth already-reviewed Dart source difference
+(receive activity), captures supplementary dependencies, and additionally
+checks owned wrapper/helper/resource-tracker PIDs. Full result pending;
+goal remains ACTIVE.
+
 ## 2026-10-17: private carrier health and bounded primary capacity retry (SDK qualification)
 
 The completed negative physical capture below led to a controlled RED:
