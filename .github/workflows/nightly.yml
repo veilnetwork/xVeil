@@ -125,6 +125,12 @@ jobs:
           set -euo pipefail
           {
             echo "HIDDEN_VOLUME_FFI_DYLIB=$PWD/third_party/hidden-volume/target/debug/libhidden_volume_ffi.so"
+            # The storage worker plugin uses this override; HIDDEN_VOLUME_FFI_DYLIB
+            # above only gates tests that open the handle themselves.
+            echo "XVEIL_HV_DYLIB=$PWD/third_party/hidden-volume/target/debug/libhidden_volume_ffi.so"
+            # App-side FFI resolves sonames in fresh isolates too. Explicit
+            # test handles alone do not make glibc RTLD_LOCAL symbols global.
+            echo "LD_LIBRARY_PATH=$PWD/third_party/veil/target/debug:$PWD/third_party/hidden-volume/target/debug${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
             echo "VEIL_FFI_DYLIB=$PWD/third_party/veil/target/debug/libveilclient_ffi.so"
             echo "XVEIL_E2E_VEIL_CLI=$PWD/third_party/veil/target/debug/veil-cli"
           } >> "$GITHUB_ENV"
