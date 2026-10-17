@@ -1,5 +1,54 @@
 # Calls media handoff
 
+## 2026-10-17: distinct peer reports required for video growth
+
+Two new regressions reproduce an independent production policy defect: with
+advancing local video frames but the SAME healthy peer playout sequence,
+normal recovery climbs from level 3 to 2 and startup climbs from 4 to 0.
+Neither poll is new receiver evidence. Both tests fail before the fix.
+`CallBitrateAdapter` now increments normal/startup growth streaks only on a
+distinct peer sample when peer playout is required. Cached healthy polls keep
+the streak between slower reports; bad/unknown measurements still reset it.
+The one-fps pause-release policy, reduction thresholds, receiver recovery
+budget, legacy reporting and relay neutrality are unchanged. Both regressions
+include older sequence rejection and healthy distinct-report recovery with
+interleaved cached polls. All **201** tests in eight relevant policy/feedback
+files pass; focused analyzer reports no issues. Original full-load qualification
+with this production policy remains pending; this fix is NOT yet attributed
+as the cause of the 210-ms observation.
+
+## 2026-10-17: both single-library rollback controls FAIL
+
+The two diagnostic controls preserve the entire original 360-s qualification
+workload, clocks, row counts, QoS, routes, startup budgets and deadlines.
+Each is measurement-valid but NOT fully qualified; all 2112 audio markers
+match, none missing, three complete encrypted 512-KiB file hashes verify.
+
+- `group-probe-carrier-old-native-360`: current SDK f2e15842/current Dart,
+  substituting ONLY native 8fb01875. Audio-only peak **120.253167 ms**, loaded
+  **210.131750 ms**; video tail changes **1/1/14/1/14/1**. Files finish at
+  **351.567387 / 348.692316 / 350.767074 s**. Native rollback alone does not fix it.
+- `group-old-sdk-current-native-360`: current native/current Dart, substituting
+  ONLY SDK 1bd719bb. Audio-only peak **120.235750 ms**, loaded **240.044125 ms**;
+  video tails **0/13/1/13/1/0**, so two streams also fail continuity. Files finish
+  **344.888666 / 334.342518 / 344.023319 s**. SDK rollback alone does not fix it.
+
+All workers exit 0, node stops 0, sockets 0; independent owned-PID checks are
+empty in both retained proof files. These single runs do not establish a
+randomized performance comparison or isolate one library as the sole cause.
+
+Current-stack 210.141583-ms marker at 132.310012 s is localized with the shared
+same-Mac monotonic clock: participant 2 RTP sequence 33301, SSRC 3199649791,
+timestamp 587573030, 179-byte payload. About **10.294 ms** from marker capture
+to encode, **98.636 ms** from encode to native ingress, **0.019 ms** callback
+queue, **0.016 ms** to NetEq insert, then about **101.176 ms** to matched PCM.
+The latter includes decoder/jitter-buffer/block position; the encode-to-ingress
+interval includes native RTP pacing and SDK/network, not proven wire-only time.
+The 100000-row bounded shaper trace starts at 159.510 s, so it cannot attribute
+the earlier marker's delay to FIFO. The original blind shaper has one FIFO per
+direction, shared across all fixture links, each at the stated 1024 kbit/s.
+No shaper, stimulus or qualification predicates have been changed.
+
 ## 2026-10-17: full current-stack gate is VALID but FAILS latency
 
 `group-probe-carrier-360` completes the ORIGINAL full load and is NOT a pass.

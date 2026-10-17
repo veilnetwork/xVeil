@@ -885,7 +885,16 @@ class CallBitrateAdapter {
         requirePeerAudioPlayout &&
         currentPeerDelay != null &&
         currentPeerDelay < 100;
-    _startupGoodStreak = startupGood ? _startupGoodStreak + 1 : 0;
+    // Local polling is faster than peer playout reports. A cached healthy
+    // report can keep a measured rung, but cannot establish more headroom.
+    // Keep the streak between distinct reports so slower reporting does not
+    // prevent recovery; bad/unknown observations still reset it below.
+    final freshGrowthEvidence = !requirePeerAudioPlayout || freshPeerSample;
+    if (!startupGood) {
+      _startupGoodStreak = 0;
+    } else if (freshGrowthEvidence) {
+      _startupGoodStreak++;
+    }
     // A healthy measured playout can earn the one-fps probe even on a route
     // whose RTT/jitter does not permit a larger video budget. Those network
     // estimates still govern growth; they must not latch a video pause after
@@ -998,7 +1007,7 @@ class CallBitrateAdapter {
       _goodStreak = 0;
       return null;
     }
-    _goodStreak++;
+    if (freshGrowthEvidence) _goodStreak++;
     if (_audioReserve && _goodStreak >= recoverAfter) {
       _audioReserve = false;
       _severeStreak = 0;
