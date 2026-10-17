@@ -1,5 +1,49 @@
 # Calls media handoff
 
+## 2026-10-17: confirmed-growth gate still FAILS; group RTCP accounting added
+
+`group-confirmed-growth-360` verifies root **bed1a30b** / production policy
+**4df12b12**, original SDK f2e15842 and native cb863785. The complete original
+360-s test is measurement-valid but **NOT fully qualified**: all **2112**
+ordinal markers match, **0** missing, audio-only peak **120.096250 ms**, loaded
+**200.043083 ms** (strict <200 still FAILS, no rounding). All video tails move
+**1/6/13/6/13/1**. Three full encrypted 524288-byte files verify and finish
+**352.401091 / 349.955112 / 352.320163 s**. All workers and node stops return
+0, sockets 0; verifier and a second independent cleanup check find every
+owned wrapper/helper/worker/policy/resource-tracker PID absent. No GUI/phone
+apps started. This is not an acoustic speech-quality proof or a randomized
+comparison with the previous capture.
+
+Saved failing-capture inspection finds 711 endpoint DATA-delay observations:
+the existing source restraint is already active on authenticated primary
+paths. Do not assume an unrestricted file rate or blindly reduce Quinn's
+minimum burst. Group stats lacked RTCP volume entirely; encoder RTP counts
+also omit fanout, so estimates from those counters cannot attribute the
+whole wire load. This measurement gap is addressed in native **a6dc1a99**.
+
+Four additive endpoint-local group JSON fields report accepted **per-peer
+copies before encryption/padding**: `audio_rtcp_tx_pkts/bytes` and
+`video_rtcp_tx_pkts/bytes`. Shared call-wide counters include BOTH sender
+fanout and receiver shims, exclude rejected sends/RTP, and survive peer
+removal/re-addition. They do not alter timing, adaptation, RTCP framing,
+network priorities or wire fields. Production C ABI is untouched; new test
+library retains EXACT same **131** exports. Rust SDK sources are unchanged,
+so the retained f2e15842 FFI binary remains the controlled network artifact.
+
+`--group-rtcp-accounting` first fails against the old library on the absent
+field, then passes against the new one. Real mocked Veil-boundary admission
+checks cover receiver feedback, two-peer sender fanout, both planes, rejected
+copies, RTP exclusion and peer removal/re-addition. This mode is now included
+in the default native smoke driver. Full direct/group queue-isolation native
+smoke and RTCP loss/binding/cache/expiry control also pass. Native SHA
+**e1e3b64ecdc9bfc9...**; private `group-rtcp-accounting-native` freezes 48 inputs,
+RED/GREEN logs, build log, source commit and unchanged exported-symbol set.
+
+Next full original workload changes ONLY this native diagnostics build to
+measure actual control traffic; unchanged production Dart, Rust FFI, source
+clocks, QoS, startup budgets, routes, 360-s file deadline, ordinal matching
+and 200-ms/120-ms budgets. Goal remains ACTIVE; no release/push/deployment.
+
 ## 2026-10-17: confirmed growth and replacement-engine recovery; gate still RED
 
 Review of `group-probe-carrier-360` production diagnostics confirms **14 of 23**
