@@ -1,5 +1,38 @@
 # Calls media handoff
 
+## 2026-10-17: full current-stack gate is VALID but FAILS latency
+
+`group-probe-carrier-360` completes the ORIGINAL full load and is NOT a pass.
+Provenance-only verifier confirms measurement valid: original source clocks,
+36001 ticks / 108003 rows per worker, no late/dropped rows/timer/deadline errors,
+actual QoS 33 and original kernel deadline parameters. Exact original harness,
+stimulus, blind shared FIFO **1024 kbit/s**, three separate SDK processes and
+360-s deadline preserved. SDK f2e15842 + fresh test-native cb863785... + current
+reviewed Dart policy. All 2112 ordinal-from-input-start matches, zero missing.
+Audio-only max **140.238083 ms**; loaded max **210.141583 ms**, violating strict
+**<200 ms**. Another path reaches **200.054125 ms** and also FAILS; no rounding.
+Both failing paths originate at participant 2, marker ordinal 131 captured
+at **132.310012 s**, decoded on participant 0 at **132.520154 s** and participant
+1 at **132.510066 s**. Other loaded maxima 180.119 / 180.125 / 190.051 / 190.110 ms.
+All sources currently use production **60-ms / 24-kbit/s** packetization in
+that interval; no experimental packet-duration override was requested.
+
+All SIX changing decoded-video tails survive: **13 / 13 / 9 / 13 / 9 / 13**.
+All THREE encrypted **524288-byte** files have correct complete hashes, zero
+missing/duplicate/late/authentication failures and finish before the ORIGINAL
+deadline: **352.193618 / 352.282819 / 352.515189 s**. All three workers exit 0,
+all four node stops return 0, remaining sockets 0. Parent exits 1 for the real
+qualification failure. Owned wrapper, parent, workers, policies, resource
+tracker and caffeinate are independently absent. The verifier still returns
+its report normally: its process exit 0 must NOT be mistaken for a green gate.
+
+Next controlled attribution keeps this same SDK, Dart policy and entire
+original 360-s workload, substituting ONLY the retained previously qualified
+native **8fb01875...**. This is a diagnostic control, not a release rollback
+or a qualification of the current native library. No latency gate, startup
+budget, rows, clocks, QoS, topology, workload or deadline will be weakened.
+Goal remains ACTIVE; no public release/push/deployment.
+
 ## 2026-10-17: f2e15842 production builds and physical mixed-posture repeat
 
 Built both committed production SDK variants: Mac TLS-boring/node-embedded/
