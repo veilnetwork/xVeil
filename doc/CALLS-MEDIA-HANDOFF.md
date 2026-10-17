@@ -1,5 +1,172 @@
 # Calls media handoff
 
+## 2026-10-17: a closed verified candidate must not evict healthy audio
+
+The complete original `group-selection-retirement-360` capture on SDK
+`830a210d` / frozen FFI 3d3c28a6... PASSES strict qualification. All **2112
+ordinal matches**, zero missing; maxima **130.166917 ms** audio-only and
+**180.048667 ms** loaded. All six end-of-run video tails change **13** times.
+Full authenticated 512-KiB file hashes match by **306.663587 / 352.220048 /
+352.174165 s**, before the ORIGINAL 360-s deadline. Canonical fixture/policy
+source copies, all clocks/rows/QoS/deadlines/startup budgets, topology and blind
+shared 1024-kbit/s FIFO verify; four node stops zero, no owned PIDs or sockets
+remain. `verify-selection-retirement-capture.py` differs from its predecessor
+ONLY in the frozen SDK-manifest path. This is one positive capture on that
+exact binary, not evidence that readiness ordering alone caused the numerical
+improvement over the preceding negative run. No latency/video/file acceptance
+gate was relaxed, and no source workload was reduced.
+
+Then found a second readiness defect: connect_sender can successfully finish
+authentication, but its child can CLOSE while the ReadySender waits in the
+oneshot. poll_index validated the old sender before consuming that result,
+then unconditionally adopted the result and closed the healthy old channel.
+The subsequent readiness poll might reap it. The ordering fix prevents a
+stale selection, but cannot itself preserve the working old channel.
+
+Added a deterministic regression to the existing real TLS/QUIC replacement
+fixture: complete an actual authenticated candidate, close it BEFORE polling
+the completed result, require the original TLS binding and zero successful
+switches, and deliver a primary probe through the original channel. The
+original valid-replacement-versus-old-ACK scenario still follows it, including
+retired ingress witnesses and actual delivery. No reduced idle timer, fake
+transport, disabled authentication or enlarged original timeout is used.
+On `830a210d` with this test-only patch, the fixture FAILS in **0.48 s** with
+"a closed prepared candidate must not displace the live primary". Private
+closed-candidate-red.patch and -red.log retain this reproducer.
+
+SDK `1bd719bb` shares the old ready-sender availability predicate with candidate
+adoption. Only a currently non-broken/open verified candidate may replace the
+current sender. A stale result takes the existing failed-warm path: drop that
+candidate, keep any healthy old sender, preserve the 500-ms backoff, and do
+not increment recovery_switches. No channel count/assignment, parent fallback,
+wire metadata, relay policy, rate allowance, codec or video adaptation changes.
+The final exact-source suites PASS again: **578 session + 169 IPC + 141
+bootstrap + 15 types = 903**, 14 preexisting ignored. This includes the new
+formerly failing probe and original valid-replacement/ACK assertions.
+
+Both platform FFI builds pass. Frozen `closed-candidate-sdk` records source
+commit `1bd719bb`, complete patch/source hashes and Android artifact. Its Mac
+FFI SHA-256 is `005465bbe9c65f5c76f55b9a21a4f5bfa6364e58332c1bd7b2a58ec05e0f7307`,
+with the SAME 190 API / 196 total exports. The preceding positive physical
+and 360-s results belong to `830a210d`; do not relabel them as qualification
+of this later binary.
+
+Final-device `call-closed-candidate-4606` also succeeds on SDK `1bd719bb`:
+profile phone code **6606**, same-signature data-preserving update, every native
+allocated/code section checked. Mac explicitly loads the corrected bundle's
+FFI/media paths; lsof independently confirms both mappings. About a 60-second
+same-LAN P2P smoke: **0.25-s** ring after the existing 90-s registration warmup,
+**29 samples** through **58.19 s**, cameras enabled at **21.51 s**. Final remote
+frame counts **885 / 859**, FPS **24.4 / 24.8**; final 12.25-s frame advances
+**362 / 371**. Both endpoints have zero observed audio interruptions, decoded
+catch-up discards, video-protection pauses and route handovers. Native sampled
+buffers are **8..90 / 24..82 ms**, not acoustic delay. This shorter follow-up
+does not replace the preceding late-camera test, full contention fixture,
+forced-relay or continuous-speech proof. Both apps/logcat/ADB forward stop;
+independent ps verifies the owned Mac PID and every Android package process
+are absent. Private result/samples/loaded-library/package manifests retain it.
+Final `group-closed-candidate-360` on THIS SDK `1bd719bb` / FFI 005465bb...
+also PASSES strict full qualification: **2112 ordinal matches**, zero missing;
+audio-only maximum **130.218667 ms**, loaded maximum **190.226792 ms** (<200).
+All six end tails change **10 / 5 / 12 / 5 / 12 / 10** times: continuity, not
+a claim of high FPS under this bottleneck. All three complete encrypted
+512-KiB hashes match by **344.069374 / 337.835588 / 328.549329 s**, within the
+ORIGINAL 360-s deadline. All clocks/rows/QoS/deadlines, fixture/source copies,
+startup budgets, neutral routes/topology and shared 1024-kbit/s FIFO verify.
+Four node stops zero; owned parent/workers/policy/awake helpers gone and zero
+sockets remain. The verifier changes only its frozen SDK-manifest path.
+Private group-closed-candidate-360-proof.json retains the complete audit.
+No extra physical app or speaker was opened for this headless qualification.
+
+Goal remains ACTIVE: current real anonymous/ordered codec traffic with
+camera/screen/files and the final real Mac/Android continuous-speech check
+remain to be verified. The current same-LAN phone results are not a new
+cross-network/mobile-radio qualification. Keep these limits distinct from
+the now-positive original full gate and the fixed, reproduced channel bugs.
+
+## 2026-10-17: repair a physical call-start abort and verify late P2P video
+
+First put current native code onto actual Mac/Android endpoints. Android
+media is built from the cached Linux WebRTC SDK in the existing multiarch
+container, and the production Android FFI is rebuilt without default TLS
+features, with production-seeds/node-embedded/packet-tunnel. APK symbol
+stripping changes file hashes: compare ALL allocated ELF sections with the
+fresh libraries. macOS ad-hoc signing likewise changes hashes: compare ALL
+file-backed Mach-O sections with the frozen tested FFI and production media.
+These checks pass; exports alone are not the integrity proof. The Android
+signing certificate matches the previous installation, which is backed up;
+both updates use install -r, preserving the existing QA identity and data.
+Final phone build is profile, explicit debug-hook opt-in, 0.13.86 code 6605
+(requested build number 4605 plus the existing arm64 ABI offset 2000). This is
+a local QA build, not a release. Mac uses the isolated QA profile and private
+bundle, never the installed user application.
+
+The first real call attempt, `call-current-rtcp-4604`, ABORTS ON MAC before
+ringing. The hook's RemoteDisconnected is explained by the native panic at
+parallel_lanes.rs:1055, sender_arc's expect("prepared sender"). Do not call this
+an Android crash or mailbox timeout. prepare_frame_with_carrier cached a true
+prepare_index result, THEN recover_channels could poll closed children or
+retire signaling for capacity. The returned selection could therefore name an
+empty slot. SDK `830a210d` moves recovery/capacity maintenance BEFORE the final
+selected-channel readiness check. No wire format, lane assignments, relay
+scheduling, byte allowance, media policy, startup budget or expiry changes.
+
+The existing real QUIC source-separation regression now also closes/reopens
+signaling three times with distinct TLS bindings, delivering a primary packet
+while signaling is unavailable and a signaling packet after every reopen.
+This covers closure/reopen/isolation; it is not claimed to deterministically
+recreate the narrower asynchronous gap of the physical abort. The observed
+physical abort and subsequent successful call supply the before/after evidence.
+Final release suites on the exact committed sources: **578 session + 169 IPC +
+141 bootstrap + 15 types = 903 pass**, 14 preexisting ignored. A preceding
+focused nine-test channel suite also passes. Its actual 35-second idle test
+reopens camera/screen without retiring audio. An initial standalone session
+test command failed the existing release network-choice compile gate; final
+commands explicitly enable veil-bootstrap/production-seeds. No gate weakened.
+
+Frozen `selection-retirement-sdk` FFI SHA-256 is
+`3d3c28a6cd5357f26add9f8a58937fc7852b2c85dafea394ba56cffac2683068`, with
+the same 190 API / 196 total exports and verified source commit `830a210d`.
+Android is rebuilt from those sources too. `physical-packages.json` retains
+both package code-section comparisons; Mac Dart/media remain unchanged for
+the repeat. Native media is the protected-unicast-floor production candidate.
+
+`call-selection-retirement-4605` succeeds: real Mac -> Blackview on the SAME
+Wi-Fi LAN, real production stack, **0.28-s** ring, **88 samples** through
+**178.74 s** of the approximately 180-second call. The first minute is audio
+only; both cameras are enabled at **62.40 s**, after the child idle timeout.
+Both endpoints have the fixture's existing 90-second registration warmup
+before placing the call; the ring number does not measure cold app startup.
+The Mac trace records the late video's new connect/binding in **10/20 ms**.
+Both endpoints stay P2P, no route handover, no audio interruption, decoded
+catch-up discard, audio-worker stall or video-protection pause is observed.
+Final decoded remote frame counts are **3123 / 3243**, final FPS **26.9 / 28.3**
+at Mac/phone; the final 12.26-second window advances **363 / 366** frames.
+Native sampled audio-buffer ranges are **8..90 / 27..58 ms**: BUFFER gauges,
+not acoustic delay. First observations include connecting, followed by active.
+No human continuous-speech listening proof, competing file/screen workload,
+forced relay or cross-network phone route is claimed. Thus this does not
+replace the unchanged six-direction 360-s contention qualification.
+
+Both physical apps are stopped after each attempt. Independent ps confirms
+the owned Mac PID is gone and Android has no main/colon subprocess; hook port
+38765 has no listener, the owned ADB forward is removed, and logcat exits.
+Private call directories retain samples, native/runtime traces and cleanup.
+The Mac debug host writes a log inside its private bundle; preserve/remove
+that generated log from a copied bundle before re-signing for another run.
+No installed Mac app, relay service, push, tag or release changes this cycle.
+
+An additional read-only join narrows the previous group's recurring catch-up:
+at 342.33 s, source 1's two encoder outputs are **60.017 ms** apart, but their
+native receive times are **174.512 ms** apart. Encoded-to-NetEq transit rises
+from **35.240** to **149.735 ms**, then subsequent 60-ms media packets arrive
+only **6.377 ms** apart. This is actual post-encoder jitter, not a codec
+formation gap or merely a stale pressure bit. It still does not attribute
+the delay to a particular secondary producer. The original gate's opaque
+wire queue and source work observations are the next causal join; never
+silence real decoded-loss reports to force video resume. Private
+group-rtcp-cadence-360-tail-catchup-packets.json retains exact joins.
+
 ## 2026-10-17: RTCP cadence repair; distinguish recovery from a stuck guard
 
 SDK `5c6fad2c` repairs the trusted-origin defect identified below. Before
