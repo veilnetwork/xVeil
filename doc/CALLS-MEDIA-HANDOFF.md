@@ -1,5 +1,72 @@
 # Calls media handoff
 
+## 2026-10-18: reliable queue snapshots and logging contention
+
+SDK `4dcf778e` adds read-only local counters for the actual owned reliable
+QUIC child: actor/record credits, retained stream storage, admission window,
+in-flight bytes and RTT. Parent retirement makes the snapshot unavailable;
+no raw transport clone prolongs its lifetime. Opt-in tracing samples at most
+once per 100 ms per runner, including transit. No scheduling/window/rate/wire
+policy changes and no relay payload classification or preference are added.
+Retained storage includes selectively ACKed allocations; it is not the unsent
+byte count. Actor and record credits overlap and must not be summed.
+
+Validation: session **579 pass / 8 existing ignores**, vendor selective-ACK
+retention test **1 pass**, final session Clippy with warnings denied clean.
+Two FIFO fixture tests verify that trace capacity changes only retained
+metadata, with identical payload/order/admission times, and reject invalid
+capacities before socket creation. New 250,000-row diagnostic captures retain
+their complete wire timing history; the original default remains 100,000.
+
+Evidence: `doc/validation/call-reliable-queues-2026-10-18.json`; private artifacts
+under `xveil-origin-data-20261018`. These optimized SDK builds select only
+veilclient-ffi with identical explicit features (default TLS-boring,
+node-embedded/packet-tunnel/production-seeds). Fixture config disables built-in
+seeds, PEX and meeting points; topology remains the isolated neutral star.
+All contain the same four pre-existing, uncommitted multi-device security
+patches. No claim is made about shipping release bytes or human intelligibility.
+
+- Optimized baseline without new snapshots: all **2112 markers**, zero missing,
+  but **1550.062 ms** peak. All files hash-match; all six video tails move.
+  The peak overlaps large local runner wall-time/QUIC scheduling delays.
+- Endpoint snapshots: **66 missing** transitions, incomplete files, video
+  freezes. The ordinal analyzer's ~17-s maximum is **not** a measured 17-s
+  acoustic buffer: lost transitions shift subsequent ordinal matches.
+- All-child snapshots with OS profiles: **96 missing**, incomplete files.
+  Profiles are explicit diagnostic observers, not a controlled performance
+  comparison. Source retained storage peaks at only a few kilobytes; sampled
+  transit storage also stays small. This does not establish megabyte DATA
+  queues as the cause or exclude shorter unsampled bursts.
+- A 60-s profile catches network receivers waiting in NodeLogger's mutex and
+  synchronous stderr writes. This names a local diagnostic bottleneck, not a
+  carrier diagnosis. A separate bounded pipe/file-drainer experiment retains
+  all log bytes and keeps the exact fixture, SDK, media, traffic and gates.
+  It matches **2112/2112** transitions with **180.052 ms** peak and completes
+  all files. It still **FAILS**: two video tails freeze, and a wrapper bug
+  intercepts the final log read, preventing route/topology qualification.
+  The failed summary is preserved; the corrected private wrapper intercepts
+  only the initial write open. Do not retroactively turn that verdict green.
+- Same-SDK synchronous control without OS profiles also **FAILS**: **2111
+  matched / 1 missing**, all files hash-match, four frozen video tails. Route
+  and end topology verify. SDK, media and every fixture/policy source hash
+  match the pipe capture exactly; identities and random file bytes are fresh.
+  This supports the logging-contention finding, but is only one sequential
+  pair and does not quantify the effect on real device calls. All five
+  captures independently verify every recorded owned process has exited.
+
+The pause in that pipe capture is not proven to be a permanent latch: source
+0 sees fresh local/peer recovery events at the one-fps floor, pauses around
+345 s, and has fewer than twelve consecutive healthy measurements left after
+the event around 353 s. The 12-s recovery hold explains the final frozen tail.
+Whether small trims should cause that long a pause remains to be qualified.
+
+Use the same-SDK synchronous capture and a corrected pipe run to separate
+logging observer effects from transport congestion. Keep the original
+<200-ms gate, full workload, failed verdicts and independent process cleanup.
+No phone app was launched in this diagnostic cycle; the preceding physical
+Blackview check and its headset/listening limitations remain unchanged.
+Audio isolation remains ACTIVE.
+
 ## 2026-10-18: Blackview check and rejected origin-pacing candidate
 
 The user returned Blackview BV6600Pro (Android 11/API 30) on Wi-Fi. Rebuilt
