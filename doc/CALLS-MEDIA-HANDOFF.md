@@ -1,5 +1,70 @@
 # Calls media handoff
 
+## 2026-10-17: current anonymous/ordered real-codec coexistence PASS
+
+`anonymous-codecs-1bd719bb` runs the existing ignored real-codec test against
+SDK `1bd719bb` with explicit node-embedded/packet-tunnel/tls-boring/
+production-seeds/test-low-difficulty features and `--ignored --nocapture`.
+One actual test runs and PASSES (306 filtered), not a zero-test result.
+The native test-hooks media is the retained unicast-floor 8fb01875... build;
+the owned anonymous PCM driver passes both row/stats ABI checks. Its hash,
+the complete retained test executable, exact SDK/test source hashes and raw
+capture hashes are recorded privately. The test executable provides its own
+SDK symbols; no second SDK shared library/channel table is loaded.
+
+Two endpoints communicate through TWO real loopback obfs4/TCP relays; no
+in-memory link substitutes. The fixture checks the actual circuit-table
+forward chain and terminal entries for all four receive planes. This is
+unshaped, with equal relay service allowances above the offered workload,
+fixed synthetic 320x240 VP8 video at 150 kbit/s / 15 FPS, real Opus, and NO
+application bitrate adapter. It is not another 1024-kbit/s contention result,
+physical WAN measurement or screen-capture-device check. Phases are audio
+0..20 s, camera plus bidirectional files 20..40 s, then the same encoded video
+source routed through the screen plane 40..60 s. Camera and screen are NOT
+concurrent encoders in this fixture.
+
+Both full 512-KiB files complete DURING media and compare byte-for-byte with
+their distinct original patterns. The existing 90-second per-file timeout is
+unchanged. All four private planes make progress; there are NO new fallback
+attempts during capture. Existing pre-capture control bootstrap counts are
+5 per side and remain 5; other planes remain zero. Camera and screen phases
+each have **17 changing decoded-frame samples per direction** at the existing
+one-second observation cadence. Native audio feedback is present, with zero
+sampled audio interruptions, decoded catch-up discards, audio RTP drops or
+worker stalls. These are counters, not a human listening report.
+
+**12010** PCM observations (6005 per endpoint) retain contiguous source ticks,
+start-of-input coverage and end coverage through 60.043 s. Maximum driver
+interval **15.027125 ms**, no dropped rows/native failures/timer errors;
+existing clock/QoS checks pass. Offline analysis uses the opposite endpoint's
+source_at and the unchanged group ordinal matcher starting from the first
+input epoch. Decode classification uses the existing relay check's +/-150-Hz
+tolerance around 500/1000 Hz, RMS >=500 and two stable rows; raw rows are NOT
+rewritten. Both directions have 60 source/decoded edges. Across the existing
+5..20-s audio and 20..60-s loaded measurement windows: **110 ordinal matches,
+zero missing**. Audio-only peaks **53.695375 / 53.781542 ms**; loaded peaks
+**53.914625 / 53.983792 ms**. The mixed window includes BOTH camera and screen
+phases. This independent diagnostic does not change the original six-path
+360-s acceptance gate or infer acoustic mouth-to-ear latency.
+
+Also audited the stream-only sibling of the two repaired QUIC races:
+OrderedSession selects/clones a Ready::alive sender under the pool mutex.
+Outgoing warming starts only for an empty slot, with one attempt per index;
+on a dial-capable parent, incoming children cannot overwrite outgoing slots.
+Thus the specific cached-readiness/closed-candidate displacement mechanism
+does not apply to that path. This is source evidence plus the successful
+codec run, not a claim that every possible ordered-transport race is tested.
+
+Native engines are destroyed, all four node.stop calls unwrap successfully,
+and the owned test executable exits zero. Independent process inspection
+finds no matching fixture. No physical app, microphone, camera, speaker,
+installation, relay deployment, push or release this cycle. Retained private
+artifacts/summary/timing-proof/codecs/PCM and analyzer provide the audit trail.
+Goal remains ACTIVE: final real continuous-speech listening is unverified;
+the participation question is pending, with no new call started for it. A
+current physical mixed/anonymous WAN application check is still distinct
+from this loopback SDK/codec proof and the previous same-LAN P2P phone checks.
+
 ## 2026-10-17: a closed verified candidate must not evict healthy audio
 
 The complete original `group-selection-retirement-360` capture on SDK
