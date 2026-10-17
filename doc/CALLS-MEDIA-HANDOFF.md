@@ -1,5 +1,82 @@
 # Calls media handoff
 
+## 2026-10-18: Blackview check and rejected origin-pacing candidate
+
+The user returned Blackview BV6600Pro (Android 11/API 30) on Wi-Fi. Rebuilt
+Android QA 0.13.87+6610 with root `cca6ac85` plus the existing multi-device
+worktree, and production native media `c0c30821`. Installed with `adb install -r`
+only after verifying the signer matches; saved the previous APK privately.
+The unchanged staged Rust SDK is identified by SHA-256 in
+`doc/validation/call-audio-2026-10-18.json`. The private Mac bundle retains the
+existing probe-carrier QA Dart AOT and Rust SDK; only its native media changes
+to c0c30821. This isolates gain on Mac, not the newest whole desktop app.
+
+Physical capture `xveil-call-level-20261018/physical-call`: ring **0.174 s**,
+**94.70 s / 47 samples**, video enabled after 30 s, P2P throughout. Received
+audio packets end at **955 / 4426** (Mac/phone); native interruptions and
+decoded-discard milliseconds remain zero. NetEq/ADM estimates peak **57 / 95
+ms**, not measured end-to-end latency. Decoded remote counters advance
+**425 / 432** in the last ~15 seconds; final reported FPS **14.2 / 21.6**.
+Both microphone permissions are authorized. Android logs the actual stream
+attributes usage=2/content=1/inputPreset=7 and MODE_IN_COMMUNICATION. No headset
+is present, so external-headset routing and human loudness/intelligibility are
+still unqualified. Do not ask the user again for live speech now.
+
+Android denies FAST/LOW_LATENCY output and reports AudioTrack latency **84 ms**
+(2052 frames at 48 kHz plus the hardware path). Do not call the NetEq estimate
+the complete acoustic latency or attribute that platform delay to network RTT.
+Mac initially failed to expose its hook because the copied QA bundle was
+mistakenly signed with sandboxed Release entitlements. Retained that failed
+start separately, restored its original DebugNoVpn QA signing posture, then
+ran the successful test. Mac needed SIGKILL after an eight-second SIGTERM grace.
+Independent audits verify the owned Mac group empty, all Android package
+processes absent, logcat stopped, and ADB forward removed. No user's installed
+Mac app is replaced; no public release, push or relay change occurs.
+
+Origin-pacing experiment (REJECTED, source fully restored):
+
+- The old full capture shows separate video-fanout epochs leaving a shared
+  first-hop connection within 0.1–0.4 ms. A candidate extends the existing
+  pressure-only whole-frame byte allowance with an endpoint-wide proportional
+  deadline between complete frames/copies. Paid tails and compatibility packets
+  keep their existing allowance. No role or priority reaches a relay.
+- Candidate tests: 30 focused cases, full session suite **581 pass / 8 existing
+  ignores**, Clippy with warnings denied. These results describe the rejected
+  source, not extra tests retained in the current worktree.
+- Frozen baseline and candidate SDKs use the SAME development profile and
+  node-embedded/packet-tunnel/allow-empty-seeds features. Native media and all
+  stimulus/policy hashes match. Each full original workload is 360 s, six PCM
+  directions, neutral shared FIFO 1024 kbit/s per direction, three encrypted
+  512-KiB files. No clock/startup/QoS/deadline/latency/recovery gate changed.
+  These development builds are not a qualification of shipping release bytes.
+- `group-current-full-360`: **FAIL**, audio-only **120.065 ms**, loaded
+  **220.112 ms**; 2112 markers, zero missing; all files hash-match by
+  **352.673 / 352.487 / 352.446 s**; all six video tails move.
+- `group-paced-full-360`: **FAIL**, audio-only **130.307 ms**, loaded
+  **250.136 ms**; 2112 markers, zero missing; files hash-match by
+  **351.819 / 351.773 / 351.764 s**; tails **6/13/6/11/6/6**. Its peak is early,
+  source 2 -> receiver 1 at **29.290 -> 29.540 s**; nearby application pressure
+  is false and sender framing is 60 ms. Maximum downstream FIFO **207.543 ms**.
+  One paired observation neither proves a causal regression nor an improvement.
+- Both captures stop all workers/nodes with exit 0, sockets 0. Independent
+  ownership audits find all recorded processes absent. Full evidence and the
+  candidate patch remain under the private cache, with a portable report in
+  the repository JSON above. The candidate is **not** retained as a fix.
+
+Current `local_source_activity.rs` is restored exactly to HEAD c0c30821. Four
+pre-existing multi-device security files remain dirty and untouched by this
+rejection. The `native-revoke-fresh/debug` build cache still contains the
+rejected compiled candidate: rebuild before using it as current. The immutable
+`xveil-call-level-20261018/sdk-baseline` snapshot matches the restored runtime.
+
+Next investigate aggregate own DATA already admitted to transport versus
+subsequent primary RTT/buffer growth. The present relative-RTT observation
+restrains new DATA admissions; it does not prove pre-admitted writes have
+drained. This is a hypothesis, not an established cause. Pressure-only video
+smoothing did not satisfy the full goal and cannot establish protection before
+pressure is observed. Keep the original <200-ms gate and complete workload;
+retain all failed verdicts. Audio isolation remains ACTIVE.
+
 ## 2026-10-18: quiet call audio and headphone routing
 
 The user heard abnormally quiet audio on the phone **with headphones** and on
