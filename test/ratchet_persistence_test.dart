@@ -461,6 +461,23 @@ class _MarkerWriteFailsOnce extends HiddenVolumeStorage {
   return (store: store, storage: storage);
 }
 
+class _HeldShutdownRatchet extends RatchetPersistence {
+  _HeldShutdownRatchet(Storage storage)
+      : super(native: _FakeRatchetNode(), storage: storage);
+
+  final entered = Completer<void>();
+  final release = Completer<void>();
+  int saves = 0;
+
+  @override
+  Future<int> saveAll() async {
+    saves++;
+    if (!entered.isCompleted) entered.complete();
+    await release.future;
+    return 0;
+  }
+}
+
 void main() {
   late FakeKvLogStore store;
   late HiddenVolumeStorage storage;
@@ -470,6 +487,30 @@ void main() {
     store = space.store;
     storage = space.storage;
     await storage.open(password: 'pw', createIfMissing: true);
+  });
+
+  test('a session owner joins provider shutdown before closing ratchet storage',
+      () async {
+    final transport = _FakeTransport(_node(1));
+    final ratchet = _HeldShutdownRatchet(storage);
+    final messaging = MessagingService(transport, storage)..ratchet = ratchet;
+    messaging.start();
+    // First call models Riverpod's synchronous onDispose; its returned future
+    // is ignored there. The session owner must still be able to join it.
+    unawaited(messaging.dispose());
+    await ratchet.entered.future;
+    var joined = false;
+    final shutdown = messaging.dispose().then((_) => joined = true);
+    await Future<void>.delayed(Duration.zero);
+    expect(joined, isFalse, reason: 'the final encrypted-state write is pending');
+    expect(ratchet.saves, 1, reason: 'shutdown must not write twice concurrently');
+    expect(storage.isOpen, isTrue);
+    ratchet.release.complete();
+    await shutdown;
+    await messaging.dispose();
+    expect(ratchet.saves, 1);
+    await transport.dispose();
+    await storage.close();
   });
 
   group('a conversation survives a restart', () {
