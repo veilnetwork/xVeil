@@ -1,5 +1,74 @@
 # Calls media handoff
 
+## 2026-10-17: owned-work boundary observations and a cadence defect
+
+Add bounded read-only observations AFTER successful local DATAGRAM admission
+of the FIRST/LAST owned members. Snapshotting cannot reserve/refund credit,
+release a member or alter expiry/decision. RT tracing gates it; a separate
+16384-row budget preserves late coverage without changing the existing cell
+trace budget. Only process-local LocalLossyCell ownership can select it.
+Records contain connection trace id, existing encrypted epoch/sequence, cell
+index/count, sealed and encrypted-envelope sizes, actual DATAGRAM payload size,
+scheduled span, admission age and remaining ORIGINAL lifetime. This is NOT a
+NIC-send timestamp; use the existing opaque UDP trace for later service.
+Nothing is added to IPC or peer bytes. Scheduling/admission policy is unchanged.
+Release suites: **578 session + 169 IPC + 141 bootstrap + 15 types = 903 pass**,
+14 preexisting ignored; final source compiled and tested. New regressions cover
+read-only snapshots, unchanged credit/deadline, late boundary visibility and
+exclusion of neutral transit. FFI has the same 190 API / 196 total exports,
+SHA-256 `4e42580d3cdaa3f53df66d78a15ef1de438b6db085d46827291867078d3e62d9`;
+frozen `source-work-boundary-sdk` retains full source patch and manifest.
+
+`group-work-boundary-360` is valid but FULL NEGATIVE: **2112 matches / zero
+missing**, audio-only **130.149 ms**, loaded **210.138 ms** (<200 required).
+All full encrypted 512-KiB hashes match by **352.387/351.548/352.239 s** before
+the ORIGINAL 360-s deadline; all six tails change **14** times. Original
+clocks/rows/QoS/deadlines, source copies, workload/startup budgets, routes and
+neutral 1024-kbit/s FIFO verify. Four node stops zero; independent PID/socket
+cleanup complete. Native remains the unicast-floor 8fb01875... candidate.
+
+Boundary coverage is complete: **10518 rows**, no cap marker, **10376 completed
+works**, no unmatched starts/ends. **10234** single-cell works and **142**
+multi-cell works (140 with two cells, two with three) are observed. Seventeen
+multi-cell schedules are shorter than 20 ms; one two-cell work at 66.087889 s
+has a **4501-us** span and releases its second cell **4.222 ms** after its first.
+This is evidence of an unexpectedly short schedule, not proof of the cause of
+the global audio peak. 420 single-cell works have total encoded DATAGRAM bytes
+>1200. Do not equate one sealed cell with one transport packet: observed
+1555-byte encrypted-envelope members require 1659 DATAGRAM payload bytes.
+
+The global tone peak is source 0 -> receiver 2, capture **28.280007 s** /
+decoded **28.490145 s**. Its packet formation / encoded-to-NetEq /
+native-to-render join is **50.504/113.065/36.524 ms**; callback/drain **26/19 us**.
+Frame RTP position is 49 ms after the tone's source change, so do not simply
+sum packet-position metrics into waveform latency. No >=25-ms stage fires;
+1011 reliable-pressure rows are present. Near this peak, observed work releases
+are single-cell, single-DATAGRAM members <=797 bytes. There is NO nearby large
+multi-cell release in the retained +/-0.5-s source boundary window. Do not
+claim that reducing RTP MTU or extending multi-cell spacing already explains
+or fixes this particular peak.
+
+Source inspection establishes a separate real defect. enqueue_video_control
+puts independently complete RTCP into RelayVideoFrame; the common drain seals
+it and calls send_relay_media_batch_before_owned, exactly like RTP frames.
+The daemon's per-source SourceCadence observes EVERY typed batch, so video RTCP
+can shorten the cadence later used for complete RTP frames. Work shape alone
+cannot distinguish them after encryption. Fix at the trusted SDK origin:
+retain video/screen lane and original expiry, but send controls as individual
+sealed AppIpcSend cells so they cannot publish a frame boundary. Do not disable
+RTCP, move video feedback into audio, add relay roles/priorities, or alter the
+original workload/startup budgets. Also investigate whether the codec's
+waveform transition lag contributes beyond its raw RTP position; this is not
+yet attributed.
+
+Private `group-work-boundary-360-{proof,feedback-details,rtp-playout-details,
+scheduler-details,work-details}.json` and the immutable capture retain the
+negative result. The boundary analyzer requires identical work shape and
+admission time within 1 ms to pair records; it reports unmatched records and
+never assumes encrypted nonces are contiguous. Goal ACTIVE; no physical apps,
+installations, deployments, push or release occurred.
+
+
 ## 2026-10-17: protect unicast signal; current full capture still NEGATIVE
 
 A new real Opus/ANA regression isolates the ordinary framing adaptor from the
