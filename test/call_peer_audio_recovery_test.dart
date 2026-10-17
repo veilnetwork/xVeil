@@ -96,7 +96,7 @@ void main() {
     expect(observe(r, report(200, 7, 40)), isTrue);
   });
 
-  test('stale native counter cannot become a new health loss later', () {
+  test('stale RTCP must not consume an independent genuine health witness', () {
     final r = CallPeerAudioRecovery();
     expect(observe(r, report(0, 7, 20)), isFalse);
     expect(
@@ -106,9 +106,10 @@ void main() {
         health: (origin: 7, discardedMs: 20),
         recovered: true,
       ),
-      isFalse,
+      isTrue,
     );
-    expect(observe(r, report(100, 7, 40)), isTrue);
+    expect(observe(r, report(100, 7, 20)), isFalse);
+    expect(observe(r, report(200, 7, 40)), isTrue);
   });
 
   test('health baseline does not consume a future fresh native witness', () {
@@ -116,6 +117,34 @@ void main() {
     expect(observe(r, {}, health: (origin: 7, discardedMs: 20)), isFalse);
     expect(observe(r, report(100, 7, 20)), isTrue);
   });
+
+  test(
+    'stale new-decoder baseline retires old identity without consuming loss',
+    () {
+      final r = CallPeerAudioRecovery();
+      expect(observe(r, report(100, 7, 20)), isTrue);
+      expect(observe(r, report(0, 8, 30)), isFalse);
+      expect(
+        observe(
+          r,
+          report(0, 8, 30),
+          health: (origin: 7, discardedMs: 40),
+          recovered: true,
+        ),
+        isFalse,
+      );
+      expect(
+        observe(
+          r,
+          report(0, 8, 30),
+          health: (origin: 8, discardedMs: 30),
+          recovered: true,
+        ),
+        isTrue,
+      );
+      expect(observe(r, report(200, 8, 30)), isFalse);
+    },
+  );
 
   test(
     'delayed pending health event keeps its identity across unknown samples',

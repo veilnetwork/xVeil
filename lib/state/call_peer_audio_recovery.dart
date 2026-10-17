@@ -22,7 +22,7 @@ class CallPeerAudioRecovery {
   int _origin = 0;
   int _discardedMs = 0;
 
-  bool _consume(CallAudioRecoveryIdentity identity, {required bool fresh}) {
+  bool _consume(CallAudioRecoveryIdentity identity) {
     if (identity.origin < _origin) return false;
     if (identity.origin > _origin) {
       _origin = identity.origin;
@@ -30,7 +30,7 @@ class CallPeerAudioRecovery {
     }
     if (identity.discardedMs <= _discardedMs) return false;
     _discardedMs = identity.discardedMs;
-    return fresh;
+    return true;
   }
 
   bool observe({
@@ -50,16 +50,19 @@ class CallPeerAudioRecovery {
       stats['audio_peer_recovery_origin'],
       stats['audio_peer_recovery_discarded_ms'],
     );
-    // Native stale counters are still consumed, just like AudioRecoveryCursor:
-    // a later health message must not resurrect an already stale witness.
-    final fromNative = nativeIdentity == null
-        ? nativeFresh
-        : _consume(nativeIdentity, fresh: nativeFresh);
+    // A stale native snapshot may retire an older decoder, but it has NOT
+    // reported a loss to this policy. Do not consume its total: an independent
+    // health witness may still deliver the first genuine report of that loss.
+    if (nativeIdentity != null && nativeIdentity.origin > _origin) {
+      _origin = nativeIdentity.origin;
+      _discardedMs = 0;
+    }
+    final fromNative =
+        nativeFresh && (nativeIdentity == null || _consume(nativeIdentity));
     // A health baseline is not evidence that an unseen event was stale. Only
-    // consume its identity when its call-relative counter actually advanced.
+    // consume its identity when health actually reports a loss advance.
     final fromHealth =
-        healthRecovered &&
-        (healthIdentity == null || _consume(healthIdentity, fresh: true));
+        healthRecovered && (healthIdentity == null || _consume(healthIdentity));
     return expected && (fromNative || fromHealth);
   }
 }
