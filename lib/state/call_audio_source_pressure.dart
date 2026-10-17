@@ -37,6 +37,7 @@ class CallAudioSourcePressure {
     Object? audioLossReportUs,
     Object? peerAudioRecoveryReportUs,
     bool recovered = false,
+    bool? peerRecoveryObserved,
   }) {
     final networkLoss = _rtcpLoss
         .observe(
@@ -52,7 +53,7 @@ class CallAudioSourcePressure {
           videoExpected: false,
         )
         .audio;
-    recovered = recovered || peerRecovered;
+    recovered = recovered || (peerRecoveryObserved ?? peerRecovered);
     final drops = audioTxDrops != null && audioTxDrops >= 0
         ? audioTxDrops
         : null;

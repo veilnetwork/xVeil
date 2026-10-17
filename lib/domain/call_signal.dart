@@ -243,6 +243,8 @@ class CallAudioPlayoutFeedback {
     this.bufferGrowing,
     this.interruptionCount,
     this.recoveryCount,
+    this.recoveryOrigin,
+    this.recoveryDiscardedMs,
   });
 
   final int sequence;
@@ -267,6 +269,11 @@ class CallAudioPlayoutFeedback {
   /// Older peers conservatively treat these losses as interruptions.
   final int? recoveryCount;
 
+  /// Native decoder identity/cumulative decoded loss, shared with RTCP.
+  /// Optional for older peers; unrelated to the call-relative recoveryCount.
+  final int? recoveryOrigin;
+  final int? recoveryDiscardedMs;
+
   Map<String, dynamic> toJson() => {
     'n': sequence,
     if (delayMs != null) 'd': delayMs,
@@ -275,6 +282,8 @@ class CallAudioPlayoutFeedback {
     if (bufferGrowing != null) 'g': bufferGrowing,
     if (interruptionCount != null) 'i': interruptionCount,
     if (recoveryCount != null) 'lr': recoveryCount,
+    if (recoveryOrigin != null) 'ro': recoveryOrigin,
+    if (recoveryDiscardedMs != null) 'rd': recoveryDiscardedMs,
   };
 
   static CallAudioPlayoutFeedback? fromJson(Object? raw) {
@@ -286,6 +295,8 @@ class CallAudioPlayoutFeedback {
     final growing = raw['g'];
     final interruptions = raw['i'];
     final recoveries = raw['lr'];
+    final recoveryOrigin = raw['ro'];
+    final recoveryDiscardedMs = raw['rd'];
     if (sequence is! int || sequence < 0 || sequence > 9007199254740991) {
       return null;
     }
@@ -320,6 +331,16 @@ class CallAudioPlayoutFeedback {
             recoveries > interruptions)) {
       return null;
     }
+    if ((recoveryOrigin == null) != (recoveryDiscardedMs == null) ||
+        (recoveryOrigin != null &&
+            (recoveryOrigin is! int ||
+                recoveryOrigin <= 0 ||
+                recoveryOrigin > 9007199254740991 ||
+                recoveryDiscardedMs is! int ||
+                recoveryDiscardedMs < 0 ||
+                recoveryDiscardedMs > 9007199254740991))) {
+      return null;
+    }
     return CallAudioPlayoutFeedback(
       sequence: sequence,
       delayMs: delay as int?,
@@ -328,6 +349,8 @@ class CallAudioPlayoutFeedback {
       bufferGrowing: growing as bool?,
       interruptionCount: interruptions as int?,
       recoveryCount: recoveries as int?,
+      recoveryOrigin: recoveryOrigin as int?,
+      recoveryDiscardedMs: recoveryDiscardedMs as int?,
     );
   }
 }

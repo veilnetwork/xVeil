@@ -27,6 +27,7 @@ import 'call_microphone_state.dart';
 import 'call_camera_state.dart';
 import 'desktop_screen_capture_start.dart';
 import 'call_peer_audio_playout.dart';
+import 'call_peer_audio_recovery.dart';
 import 'call_video_prompt.dart';
 import 'call_audio_route.dart';
 import 'call_media_route_operations.dart';
@@ -527,6 +528,7 @@ class VeilCallMediaController implements CallMediaController {
   int _lastRxPkts = 0;
   final _audioReceiveActivity = CallAudioReceiveActivity();
   CallPeerAudioPlayout _peerAudioPlayout = CallPeerAudioPlayout();
+  CallPeerAudioRecovery _peerAudioRecovery = CallPeerAudioRecovery();
   final _sourcePressure = CallAudioSourcePressure();
   bool _sourceFeedbackPending = false;
   int _sourceFeedbackQueued = 0;
@@ -1255,6 +1257,7 @@ class VeilCallMediaController implements CallMediaController {
     if (!_microphoneState.belongsToCall(call.callId)) {
       _bitrateAdapter = null;
       _peerAudioPlayout = CallPeerAudioPlayout();
+      _peerAudioRecovery = CallPeerAudioRecovery();
       _sourceFeedbackQueued = 0;
       _sourceFeedbackSkipped = 0;
       _sourcePressured = null;
@@ -1505,10 +1508,16 @@ class VeilCallMediaController implements CallMediaController {
         _audioReceiveActivity.observe(stats, now);
         final peerInterrupted = _peerAudioPlayout.takeInterruption();
         final peerRecovered = _peerAudioPlayout.takeRecovery();
-        final audioRecovered =
+        final localAudioRecovered =
             call.media.audio &&
-            ((_peerAudioCaptureEnabled && _audioReceiveActivity.recovered) ||
-                (!_microphoneState.muted && peerRecovered));
+            _peerAudioCaptureEnabled &&
+            _audioReceiveActivity.recovered;
+        final peerAudioRecovered = _peerAudioRecovery.observe(
+          stats: stats,
+          healthIdentity: _peerAudioPlayout.recoveryIdentity(now),
+          healthRecovered: peerRecovered,
+          expected: call.media.audio && !_microphoneState.muted,
+        );
         final audioInterrupted =
             call.media.audio &&
             ((_peerAudioCaptureEnabled && _audioReceiveActivity.interrupted) ||
@@ -1535,7 +1544,8 @@ class VeilCallMediaController implements CallMediaController {
               ? null
               : now.difference(receiveAt).inMilliseconds,
           interrupted: audioInterrupted,
-          recovered: audioRecovered,
+          recovered: localAudioRecovered,
+          peerRecoveryObserved: peerAudioRecovered,
           audioTxDrops: nativeDrops is int ? nativeDrops : null,
           audioLossReportUs: stats['audio_loss_report_us'],
           peerAudioRecoveryReportUs: stats['audio_peer_recovery_report_us'],
@@ -1666,7 +1676,8 @@ class VeilCallMediaController implements CallMediaController {
             requireAudioReceivePlayout:
                 call.media.audio && _peerAudioCaptureEnabled,
             audioInterrupted: audioInterrupted,
-            audioRecoveryObserved: audioRecovered,
+            audioRecoveryObserved: localAudioRecovered,
+            peerRecoveryObserved: peerAudioRecovered,
             receiveAudioExpected: call.media.audio && _peerAudioCaptureEnabled,
             peerAudioDelayMs: _peerAudioPlayout.delayMs(now),
             peerCurrentAudioDelayMs: _peerAudioPlayout.currentDelayMs(now),
