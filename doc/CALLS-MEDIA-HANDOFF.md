@@ -83,7 +83,17 @@ the original 90-s deadline and times out (106 s including setup/cleanup).
 The diagnostic wait is retained privately, not committed as a supposed fix.
 All three SDK nodes stop, and both test processes exit. Public Space discovery
 is an explicit release limitation, separate from the call/contact fixes and
-from the Linux loader repair. Current Nightly verification follows.
+from the Linux loader repair. Nightly **39020553149** then passes all **311**
+initial native tests and fails only the separate public discovery quorum test.
+The repaired E2E loader passes **33** checks, including real device boots,
+linking and both sender symlink-swap attacks. Its remaining LAN bind check
+sees the real `listen.start local_addr=0.0.0.0:46015` but parses the padded
+human `lsof` table into empty address strings. Use `lsof -Fn` NAME fields;
+retain PID/port scoping and the wildcard-versus-loopback controls. This is a
+post-tag CI-only follow-up; app/native sources and the already verified
+v0.13.87 engine provenance remain unchanged. The final Nightly result is
+retained in the private release proof, without claiming the discovery defect
+was fixed.
 
 ## 2026-10-17: measured-repair full gate PASS; intermittent failure remains open
 
