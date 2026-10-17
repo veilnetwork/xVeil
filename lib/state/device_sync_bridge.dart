@@ -31,7 +31,8 @@ import '../domain/clear_policy.dart';
 import '../domain/disappearing_messages.dart' show DisappearingSetting;
 import 'call_log.dart';
 import 'device_history_backfill.dart'
-    show historyAskToServe, kHistoryReplayBacklogRoom, replayHistoryForAsk;
+    show historyAskToServe, kHistoryReplayBacklogRoom, prepareDeviceMirror,
+        replayHistoryForAsk;
 import 'device_settings_sync.dart';
 import 'device_sync_appliers.dart';
 import 'providers.dart' show prefsProvider, realStackProvider, storageProvider;
@@ -682,6 +683,11 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
     final report = await replayHistoryForAsk(
       ask: ask,
       storage: svc.storage,
+      mirrorMessage: (peer, message, withFileBytes) => prepareDeviceMirror(
+        peer, message, storage: svc.storage,
+        registerContent: messaging.registerGroupContent,
+        withFileBytes: withFileBytes,
+      ),
       post: (event, {attachment}) =>
           svc.postDeviceEvent(event, attachment: attachment),
       isOwnDevice: svc.isMyDeviceOrMaster,
