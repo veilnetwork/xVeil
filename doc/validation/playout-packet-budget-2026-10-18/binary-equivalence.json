@@ -1,0 +1,11 @@
+{
+  "mac": {
+    "identical": true,
+    "sha256": "48e28068fbb1b275cf98b1bff8fd222449bbd2d34114c0004eefa6720f7b45b3"
+  },
+  "android": {
+    "identical": true,
+    "sha256": "2b5d7e82be65e5761c42f622c409dafc00731dda945be22e5404f4db5a5f9a5e"
+  },
+  "final_header_sha256": "47c7ce7e74014701bd1af118723a35abf03bb30da4e29c7bb6fd375c6ebae61b"
+}

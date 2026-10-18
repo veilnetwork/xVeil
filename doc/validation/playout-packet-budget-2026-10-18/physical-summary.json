@@ -1,0 +1,528 @@
+{
+  "qualified": false,
+  "ring_seconds": 0.11909179200301878,
+  "duration_seconds": 238.3612865000032,
+  "samples": 116,
+  "result_error": null,
+  "endpoints": {
+    "mac": {
+      "last": {
+        "audio_interruption_count": 2,
+        "audio_interruption_duration_ms": 441,
+        "audio_latency_discarded_ms": 440,
+        "audio_jb_ms": 35,
+        "remote_frames": 344,
+        "local_source_pressured": true,
+        "video_send_paused": 1,
+        "max_fps": 0.02
+      },
+      "max": {
+        "audio_jb_ms": 230,
+        "pacer_delay_ms": 999,
+        "audio_rx_age_ms": 373,
+        "audio_tx_rtp_max_gap_ms": 400
+      },
+      "phases": {
+        "audio_only": {
+          "span_seconds": 20.366414415999316,
+          "transports": {
+            "p2p": 11
+          },
+          "received_frames_delta": 0,
+          "receive_fps": 0.0,
+          "new_interruptions": 0,
+          "trimmed_ms_delta": 0,
+          "source_held_samples": 6,
+          "samples": 11
+        },
+        "p2p_video": {
+          "span_seconds": 38.83724154200172,
+          "transports": {
+            "p2p": 20
+          },
+          "received_frames_delta": 109,
+          "receive_fps": 2.8065844965358475,
+          "new_interruptions": 0,
+          "trimmed_ms_delta": 0,
+          "source_held_samples": 5,
+          "samples": 20
+        },
+        "final_minute": {
+          "span_seconds": 59.7780238330015,
+          "transports": {
+            "relay": 30
+          },
+          "received_frames_delta": 55,
+          "receive_fps": 0.9200705622797168,
+          "new_interruptions": 0,
+          "trimmed_ms_delta": 80,
+          "source_held_samples": 30,
+          "samples": 30
+        }
+      },
+      "admission_observations": [
+        {
+          "peer_prefix": "1c3ec09b",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 3
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 3
+        },
+        {
+          "peer_prefix": "c92b85df",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 4
+        },
+        {
+          "peer_prefix": "caafde32",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 3
+        },
+        {
+          "peer_prefix": "3d3575c9",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 4
+        },
+        {
+          "peer_prefix": "c6ace22e",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 3
+        },
+        {
+          "peer_prefix": "1ac128cd",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 5
+        },
+        {
+          "peer_prefix": "1ac128cd",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 91
+        },
+        {
+          "peer_prefix": "c6ace22e",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 15
+        },
+        {
+          "peer_prefix": "1ac128cd",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 92
+        },
+        {
+          "peer_prefix": "1ac128cd",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 60
+        },
+        {
+          "peer_prefix": "1ac128cd",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "3",
+          "observations": 1
+        },
+        {
+          "peer_prefix": "3d3575c9",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 19
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 62
+        },
+        {
+          "peer_prefix": "c92b85df",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 21
+        },
+        {
+          "peer_prefix": "1c3ec09b",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 118
+        },
+        {
+          "peer_prefix": "1c3ec09b",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 106
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 42
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "3",
+          "observations": 2
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 29
+        },
+        {
+          "peer_prefix": "c6ace22e",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 39
+        },
+        {
+          "peer_prefix": "1c3ec09b",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 93
+        },
+        {
+          "peer_prefix": "caafde32",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 26
+        },
+        {
+          "peer_prefix": "caafde32",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 18
+        },
+        {
+          "peer_prefix": "caafde32",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 8
+        },
+        {
+          "peer_prefix": "3d3575c9",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 20
+        },
+        {
+          "peer_prefix": "c92b85df",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 54
+        }
+      ],
+      "canary_independent_connection_trace_ids": [
+        "145",
+        "152",
+        "54",
+        "91"
+      ]
+    },
+    "phone": {
+      "last": {
+        "audio_interruption_count": 2,
+        "audio_interruption_duration_ms": 445,
+        "audio_latency_discarded_ms": 470,
+        "audio_jb_ms": 120,
+        "remote_frames": 324,
+        "local_source_pressured": true,
+        "video_send_paused": 1,
+        "max_fps": 0.02
+      },
+      "max": {
+        "audio_jb_ms": 194,
+        "pacer_delay_ms": 2775,
+        "audio_rx_age_ms": 386,
+        "audio_tx_rtp_max_gap_ms": 404
+      },
+      "phases": {
+        "audio_only": {
+          "span_seconds": 20.366414415999316,
+          "transports": {
+            "p2p": 11
+          },
+          "received_frames_delta": 0,
+          "receive_fps": 0.0,
+          "new_interruptions": 0,
+          "trimmed_ms_delta": 0,
+          "source_held_samples": 6,
+          "samples": 11
+        },
+        "p2p_video": {
+          "span_seconds": 38.83724154200172,
+          "transports": {
+            "p2p": 20
+          },
+          "received_frames_delta": 107,
+          "receive_fps": 2.7550875332966576,
+          "new_interruptions": 0,
+          "trimmed_ms_delta": 0,
+          "source_held_samples": 6,
+          "samples": 20
+        },
+        "final_minute": {
+          "span_seconds": 59.7780238330015,
+          "transports": {
+            "relay": 30
+          },
+          "received_frames_delta": 47,
+          "receive_fps": 0.7862421168572126,
+          "new_interruptions": 1,
+          "trimmed_ms_delta": 70,
+          "source_held_samples": 28,
+          "samples": 30
+        }
+      },
+      "admission_observations": [
+        {
+          "peer_prefix": "0b29ccb3",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 4
+        },
+        {
+          "peer_prefix": "3d3575c9",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 3
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 2
+        },
+        {
+          "peer_prefix": "caafde32",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 3
+        },
+        {
+          "peer_prefix": "c6ace22e",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 3
+        },
+        {
+          "peer_prefix": "1c3ec09b",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 2
+        },
+        {
+          "peer_prefix": "c92b85df",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 3
+        },
+        {
+          "peer_prefix": "1c3ec09b",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 25
+        },
+        {
+          "peer_prefix": "c92b85df",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 66
+        },
+        {
+          "peer_prefix": "0b29ccb3",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 90
+        },
+        {
+          "peer_prefix": "0b29ccb3",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 57
+        },
+        {
+          "peer_prefix": "0b29ccb3",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "3",
+          "observations": 1
+        },
+        {
+          "peer_prefix": "0b29ccb3",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 101
+        },
+        {
+          "peer_prefix": "3d3575c9",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 30
+        },
+        {
+          "peer_prefix": "1c3ec09b",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 12
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 33
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "3",
+          "observations": 2
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 125
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 61
+        },
+        {
+          "peer_prefix": "c6ace22e",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 39
+        },
+        {
+          "peer_prefix": "c6ace22e",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 22
+        },
+        {
+          "peer_prefix": "c6ace22e",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 30
+        },
+        {
+          "peer_prefix": "caafde32",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 33
+        },
+        {
+          "peer_prefix": "caafde32",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 28
+        },
+        {
+          "peer_prefix": "caafde32",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 19
+        },
+        {
+          "peer_prefix": "3d3575c9",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 20
+        },
+        {
+          "peer_prefix": "c92b85df",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 66
+        },
+        {
+          "peer_prefix": "c92b85df",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 47
+        }
+      ],
+      "canary_independent_connection_trace_ids": [
+        "141",
+        "144",
+        "145",
+        "43",
+        "68"
+      ]
+    }
+  },
+  "limits": [
+    "Active QUIC fleet sessions are prerequisites, not proof of a delivering relay media candidate or all relay-to-relay hops.",
+    "Admissions are sender observations, not peer ACKs; unique connection ids only within one process.",
+    "No live speech or headset loudness qualification; uncontrolled WAN conditions."
+  ]
+}

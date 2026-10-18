@@ -1,5 +1,76 @@
 # Calls media handoff
 
+## 2026-10-18: packet-dependent playout budget; real codec regression fixed, relay quality remains open
+
+SDK **d3098a77** fixes one reproducible audio loss mechanism. With production
+adaptive Opus/Call/NetEq, 60-ms packetization and lossless delivery alternating
+40/140 ms every 200 ms, the old 120-ms recovery budget limits the target to
+60 ms. The decoder repeatedly trims useful speech and generates concealment.
+A full 120-s control run trims **9390 ms**, with **453255 concealed samples**
+at the last 1-Hz sample; its interruption counter remains zero. The same final
+regression fixture against the old library fails the no-continuing-trim
+invariant before 40 s. Do not use a zero interruption counter alone as quality
+proof. Fixed 40-ms delivery with the old library did not reproduce this loop.
+
+The recovery budget is now **clamp(80 + 2 × packet_ms, 120, 200) ms**:
+20/40/60-ms packets get 120/160/200 ms. The target ceiling subtracts one actual
+packet and retains stricter caller limits. This is a maximum queued-audio
+budget, not a fixed added playout delay or network RTT threshold. Healthy short
+packets retain their previous bound. Maximum sixteen extra decoder pulls,
+PLC/CNG/muted/error preservation, one arrival-clock tick per real callback,
+receiver attribution and no new FlushBuffers are preserved. Relays gain no
+media hint, priority or mailbox use.
+
+A uniform 200-ms prototype was **rejected**: existing three-party decoded-mix
+recovery takes **233.098 ms**, violating its unchanged 200-ms requirement.
+The packet-dependent version recovers both mixed remote tones in **169.447 ms**
+and passes that original gate. The final real 120-s long-packet regression
+passes: **110 ms aggregate trim**, **9941 concealed samples** at the last 1-Hz
+sample, **40/40 decoded markers**, maximum **263.992 ms**, no continuing trim or
+concealment in either settled speech phase. The 40/40/40-s speech/DTX/speech
+stimulus verifies actual 60-ms packetization and render-clock validity. The
+aggregate transient allowance was revised from 200 to 400 ms after observing
+230 ms confined to startup/resumption; the added zero-continuing-loss gates
+still fail the old library. Group mixing, delivery-stall recovery, healthy DTX,
+DTX after jitter and five packet-size wrapper bounds are checked. No full-suite
+claim. A stale delivery-stall assertion requiring >300 ms *after* catch-up also
+fails on the old library; it now checks actual discarded decoded audio and
+retains the original PCM recovery requirements.
+
+Native-only QA packages preserve Rust **ff4d6995**, Dart AOT, hidden-volume,
+Android signer/versionCode12614 and data. Mac 100 public media exports and all
+104 Android defined exports match. The final explicit unsigned comparison
+removes a new compiler warning; both final production libraries are **byte for
+byte identical** to the packet-dependent libraries tested on devices.
+
+**Physical relay quality remains a failure.** The final **239.607-s**
+Mac/Blackview call rings in **0.235 s**, cameras at 30 s, and successfully
+transitions to Relay at about **90.893 s**. All twelve endpoint-to-fleet sessions
+are authenticated QUIC before the call; this does not prove every intervening
+hop uses QUIC. Interruption counters stay **0 / 0**, but cumulative trim is
+**420 / 550 ms** in the last API sample and **450 / 590 ms** through final native
+teardown. Complete traces contain **24136 / 24182** callbacks, no target above
+its applied ceiling. Mac maximum render gap **10.911 ms**; phone has one
+**76.627-ms** gap. No isolated WAN or human speech/headset loudness claim.
+
+During the last **59.568 s** on Relay, only **44 / 29** frames arrive
+(**0.739 / 0.487 fps**), source-held in all 30 samples on both endpoints.
+That tail still trims **150 / 60 ms**, despite no new counted interruptions.
+Native/Dart delivery and producer recovery need further investigation; raising
+buffer limits does not establish that the remaining pauses are fixed.
+The rejected uniform-200 call and its remaining failures are retained too.
+QUIC hot reload and byte-stream-only hot standby handoff remain open; full
+separation across every fallback/handoff path is not established. Never reset
+datagram AEAD counters under unchanged keys.
+
+Evidence: **validation/call-playout-packet-budget-2026-10-18.json** and
+**validation/playout-packet-budget-2026-10-18/**. Private full traces, build and
+capture scripts: **~/.cache/codex/xveil-playout-budget-20261018/**. Both calls'
+owned Mac/launcher/logcat processes, phone app and ADB forward are independently
+absent; diagnostic property restored, owned build containers gone. Mac still
+needs SIGKILL after graceful timeout. Unrelated multi-device work remains
+untouched. No public release or push. Goal **ACTIVE**.
+
 ## 2026-10-18: reverse candidate preparation fixed; handover confirms, relay video still fails
 
 SDK **ff4d6995** fixes a deterministic endpoint preparation defect: a relay

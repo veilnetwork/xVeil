@@ -1,0 +1,25 @@
+{
+  "qa": {
+    "owned_processes_absent": {
+      "78392": true,
+      "78168": true,
+      "85250": true
+    },
+    "mac_pid_absent": true,
+    "launcher_pid_absent": true,
+    "logcat_pid_absent": true
+  },
+  "qa-v2": {
+    "owned_processes_absent": {
+      "81008": true,
+      "80858": true,
+      "89214": true
+    },
+    "mac_pid_absent": true,
+    "launcher_pid_absent": true,
+    "logcat_pid_absent": true
+  },
+  "phone_absent": true,
+  "test_forward_absent": true,
+  "owned_build_containers_absent": true
+}
