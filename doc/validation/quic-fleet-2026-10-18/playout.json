@@ -1,0 +1,26 @@
+{
+  "physical-all-quic-video/mac": {
+    "rows": 24035,
+    "discarded_ms": 0,
+    "skip_callbacks": 0,
+    "fallback_callbacks": 0,
+    "target_above_applied_ceiling_callbacks": 0,
+    "conflicting_target_during_skip": 0,
+    "max_native_callback_us": 375,
+    "render_gaps_over_30ms": 0,
+    "max_render_gap_ms": 10.931,
+    "skips_by_headroom_target_ceiling": []
+  },
+  "physical-all-quic-video/phone": {
+    "rows": 24109,
+    "discarded_ms": 0,
+    "skip_callbacks": 0,
+    "fallback_callbacks": 0,
+    "target_above_applied_ceiling_callbacks": 0,
+    "conflicting_target_during_skip": 0,
+    "max_native_callback_us": 13060,
+    "render_gaps_over_30ms": 0,
+    "max_render_gap_ms": 25.296,
+    "skips_by_headroom_target_ceiling": []
+  }
+}
