@@ -123,7 +123,9 @@ class GroupSdk:
             client.connect(str(self.root / str(index) / 'admin.sock'))
             client.sendall((json.dumps({'version': 1, 'command':
                                         {'command': command}}) + '\n').encode())
-            client.shutdown(socket.SHUT_WR)
+            # Admin requests are newline-framed. A fast server can close after
+            # replying before SHUT_WR, which raises ENOTCONN on macOS even
+            # though a complete response is waiting to be read.
             with client.makefile('rb') as stream:
                 return json.loads(stream.readline())
 

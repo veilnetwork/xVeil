@@ -1,5 +1,68 @@
 # Calls media handoff
 
+## 2026-10-18: endpoint REMB cadence reduces video control; strict full repeat passes
+
+SDK `1406b4c8` records accepted compound RTCP block types; `e2f55519`
+coalesces redundant video bandwidth-growth reports at endpoints. The
+90-second type diagnostic finds roughly 70–75% of video control packets
+contain SR/SDES/REMB, with essentially no NACK/TWCC. Audio RTCP remains
+about 0.8 copies/s and video RR about 2 copies/s. This short diagnostic is
+**not** a full qualification.
+
+Within one second of an accepted report, nondecreasing REMB estimates with
+unchanged sender/targets/CNAME/channel membership may be coalesced. Lower or
+zero estimates, receiver report blocks, NACK/PLI/FIR/APP/XR/BYE, malformed or
+unknown compounds and changed contexts pass immediately. Audio bypasses this
+policy entirely. Only accepted local sends commit cadence; partial group
+fanout leaves the next opportunity available. Video resume/channel rebind
+reset state. No lock is held across SDK sends. Existing WebRTC retains latest
+REMB as a nonvolatile periodic-report flag (`rtcp_sender.cc`, `SetRemb`), so
+there is no new queue/timer; growth waits for a later ordinary report callback,
+not a promised one-second delivery deadline. Relays remain opaque and neutral.
+No codec, original workload, measured-clock or quality-gate relaxation.
+
+Evidence: `validation/call-remb-cadence-2026-10-18.json`.
+Private immutable builds/captures: `~/.cache/codex/xveil-rtcp-kind-20261018`.
+Native pure parser/cadence tests and real direct/group call-plane, RTCP-loss,
+accepted-accounting and partial-fanout integration modes pass. macOS production
+and instrumented media and Android arm64 production media build successfully;
+production artifacts retain 100 exports. **47 Python tests** pass.
+
+### Capture verification repaired before claiming success
+
+First 360-second capture measured 190.134833 ms, but post-measurement topology
+verification raised macOS ENOTCONN at unnecessary admin `SHUT_WR`. The original
+runner incorrectly retained green `ok`/qualification flags. Its summary is
+preserved unchanged, with a separate correction explicitly declaring it
+**unqualified**. Admin requests are newline-framed and now read the reply
+without a racy half-close. Exceptions fail `ok`; full qualification additionally
+requires completed topology, three files and six video proofs. Three regression
+tests reject the observed false-green shape/missing proofs and reproduce the
+fast admin reply. Original measurement deadlines and <200-ms gate stay intact.
+
+The corrected **360-second full repeat PASS** measures **180.113250 ms**,
+**2112 matched / 0 missing** ordinal markers, all three authenticated 512-KiB
+files complete by **352.229 s**, all six video tails advancing **14** times,
+and verified canonical topology **[3,1,1,1]**. Same three real SDK/native
+participants, six PCM directions, changing VP8 and 1024-kbit/s blind FIFO per
+direction. Loaded 30–340-s video-control rates are **3.903 / 3.942 / 3.938
+copies/s**, compared with roughly 7–8 in the type diagnostic; **4822** redundant
+copies are omitted in that window. The windows are different runs, not a
+randomized performance bound. All node/worker stops succeed, socket files 0;
+independent OS audits find every owned PID absent in all three captures.
+
+### Remaining qualification
+
+The repeat still has **11** encoder-input-to-native-ingress packet bounds
+>=200 ms, maximum **217.689 ms before decoding/playout**, out of **36802**
+matched receipts / 0 missing. The peak marker uses 60-ms Opus; all loaded
+codec snapshots remain 60 ms. Do not claim 40-ms codec recovery. Earlier
+230-ms PCM and 305-ms startup counterexamples remain valid. One passing
+full run establishes this measured improvement, not universal latency or
+speech/headset quality. Goal remains ACTIVE. Physical follow-up is recorded
+separately when available; this artifact covers native synthetic captures.
+No release or push.
+
 ## 2026-10-18: exact neutral relay hop split; original 210-ms failure retained
 
 SDK `f19d827e` adds explicit `VEIL_DIAG_OPAQUE_FORWARD=1` observations to
