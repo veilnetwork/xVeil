@@ -1,0 +1,15 @@
+{
+  "private_only": true,
+  "profile_aot_both_endpoints": true,
+  "hook_double_opt_in": true,
+  "android_version_code": 12615,
+  "native_sdk_source_cost": true,
+  "native_media_live_update": true,
+  "same_android_signer": true,
+  "android_storage_library_bytes_preserved": true,
+  "apk_sha256": "2eded682511e813b9cb6bda6e4cf8396d613a06688d2e6877de1d2f8bf5c342e",
+  "mac_sdk_signed_sha256": "24b50d8f1896a4f8bbdbfa2300a7c1571b4d95bf9588f0f88e9227ddd8189f07",
+  "mac_media_signed_sha256": "90416e03c8e054e4215d9742a0aa5a2785260c757e0a26e25dda16c9e08aeeaa",
+  "foreign_wip_excluded": true,
+  "mac_no_vpn_qa": true
+}
