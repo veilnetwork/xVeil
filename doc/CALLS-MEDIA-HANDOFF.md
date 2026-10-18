@@ -1,5 +1,56 @@
 # Calls media handoff
 
+## 2026-10-18: exact whole-frame charge and returned-phone repeat
+
+Evidence: `validation/call-frame-source-cost-2026-10-18.json`. New
+`scripts/analyze_source_frame.py <capture>` joins complete source work boundaries
+to every original RTP attempt and its exact sealed-cell source decision. It
+requires contiguous one-RTP-per-cell work, no expired/missing cells, matching
+byte totals, a final marker and uniform envelope costs. Ambiguous boundaries,
+foreign ownership, changed envelopes or later retransmission seals are refused.
+Thirteen Python attribution/range regressions pass, including sequence wrap.
+
+The preceding physical capture's seven-cell work costs exactly **8726 bytes**:
+**6514 raw RTP + 252 media seal + 1960 Forward/session envelope**. The diagnostic
+wire size already includes the session AEAD tag; do not add another one. Another
+eight-cell work costs **10503 bytes**. All original cells of both have exact
+`budget_drop` witnesses. Three other rejected works cost **1805 / 3296 / 3334**;
+these fit 8192, so oversized work cannot explain all rejections. SDK `b6b57599`
+pins the captured seven-cell rejection, whole-work rejection across windows,
+unspent credit and a precise admissible boundary. **30 source-activity / 8 source-
+trace Rust tests pass** in the isolated SDK worktree, excluding the four existing
+security edits (their scoped diff hash remains unchanged). Explicit source frame
+diagnostics also drop their silent nonce-4096 cutoff, retaining the finite shared
+row bound. No scheduling, producer budgets, codecs, wire or relay treatment change.
+
+Blackview returns over ADB. Repeat the existing b262 Profile AOT/c89 Mac SDK/87b
+native QA apps, without installing the new diagnostic-only SDK commit. Phone
+Rust remains its preceding clean binary; versionCode 12614, data unchanged.
+Ring **0.187 s**, **102 samples through 208.295 s**. Audio first, cameras after
+30 s, explicitly requested relay recovery at **121.990 s**. Both endpoints are
+active at every poll after three seconds; interruption counters stay zero.
+Decoded audio catch-up nevertheless totals **140 ms Mac / 60 ms phone**.
+Reported jitter-buffer peaks **122 / 111 ms**, targets peak 100 ms. These are
+buffer statistics, not perceived speech quality or acoustic pause duration.
+Final video budgets are again one fps; last reported remote-frame rates are
+10.8 / 5.5 fps and must not be mistaken for a stable floor qualification.
+
+Mac has four nonzero video RR ranges; all 1991 distinct accepted keys eventually
+arrive. Reverse has 1960 accepted / 1958 received, no lossy RR ranges; teardown
+tail omission is not established in-call loss. The first Mac RR gap has three
+native attempts but **no seal witness in the first attempt window**; only later
+retransmission seals exist. The new analyzer correctly refuses attribution.
+Do not assign this new gap to the known oversized-work cause. Its missing
+pre-seal witness is the next attribution question alongside encoder/frame-size
+coupling to the existing source cap. Do not add another frame batcher or raise
+the audio protection cap. Original PCM/startup/full-contention counterexamples
+and missing human headset/loudness qualification remain retained; goal ACTIVE.
+
+Private repeat: `~/.cache/codex/xveil-direct-source-20261018/source-budget-apps/physical-frame-cost-repeat`.
+Independent cleanup confirms Mac, launcher, logcat, phone app and owned ADB
+forward absent. Mac required SIGKILL after the eight-second termination budget.
+No release, push, relay deployment or hidden-volume changes.
+
 ## 2026-10-18: direct source drop proven; video recovery now honors the source hold
 
 SDK `c89c7731` extends explicit source-cell witnesses to owned direct AppRtData
