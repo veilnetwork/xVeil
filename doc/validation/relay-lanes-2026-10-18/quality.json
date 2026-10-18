@@ -1,0 +1,293 @@
+{
+  "before": {
+    "ring_seconds": 0.11133104201871902,
+    "duration_seconds": 179.84648562499206,
+    "explicit_relay_requested_seconds": 30.650422124977922,
+    "endpoints": {
+      "mac": {
+        "active_after_3s": true,
+        "native_interruptions_max": 15,
+        "cumulative_trimmed_audio_ms": 11390,
+        "max_sampled_jitter_buffer_ms": 154,
+        "final_selected_fps": 0.0,
+        "final_source_held": true,
+        "adaptation_observations": 0,
+        "phases": {
+          "direct_audio_baseline": {
+            "from_seconds": 4.1662553749920335,
+            "through_seconds": 24.538275500002783,
+            "actual_receive_fps": 0.0,
+            "selected_fps_min": 0.0,
+            "selected_fps_max": 0.0,
+            "source_hold_samples": 7,
+            "samples": 11,
+            "transports": [
+              "p2p"
+            ]
+          },
+          "relay_tail": {
+            "from_seconds": 120.73181995897903,
+            "through_seconds": 179.84648562499206,
+            "actual_receive_fps": 0.0,
+            "selected_fps_min": 0.0,
+            "selected_fps_max": 0.0,
+            "source_hold_samples": 30,
+            "samples": 30,
+            "transports": [
+              "relay"
+            ]
+          }
+        },
+        "max_sampled_pacer_ms": 0,
+        "sample_collection_max_ms": 49.01662500924431
+      },
+      "phone": {
+        "active_after_3s": true,
+        "native_interruptions_max": 7,
+        "cumulative_trimmed_audio_ms": 10990,
+        "max_sampled_jitter_buffer_ms": 127,
+        "final_selected_fps": 0.0,
+        "final_source_held": true,
+        "adaptation_observations": 0,
+        "phases": {
+          "direct_audio_baseline": {
+            "from_seconds": 4.1662553749920335,
+            "through_seconds": 24.538275500002783,
+            "actual_receive_fps": 0.0,
+            "selected_fps_min": 0.0,
+            "selected_fps_max": 0.0,
+            "source_hold_samples": 7,
+            "samples": 11,
+            "transports": [
+              "p2p"
+            ]
+          },
+          "relay_tail": {
+            "from_seconds": 120.73181995897903,
+            "through_seconds": 179.84648562499206,
+            "actual_receive_fps": 0.0,
+            "selected_fps_min": 0.0,
+            "selected_fps_max": 0.0,
+            "source_hold_samples": 30,
+            "samples": 30,
+            "transports": [
+              "relay"
+            ]
+          }
+        },
+        "max_sampled_pacer_ms": 0,
+        "sample_collection_max_ms": 133.09858299908228
+      }
+    },
+    "cleanup": {
+      "mac_pid_absent": true,
+      "launcher_pid_absent": true,
+      "logcat_pid_absent": true,
+      "phone_process_absent": true,
+      "owned_forward_absent": true
+    },
+    "error": null
+  },
+  "audio": {
+    "ring_seconds": 0.0990571670117788,
+    "duration_seconds": 178.45145291701192,
+    "explicit_relay_requested_seconds": 30.624460624996573,
+    "endpoints": {
+      "mac": {
+        "active_after_3s": true,
+        "native_interruptions_max": 0,
+        "cumulative_trimmed_audio_ms": 500,
+        "max_sampled_jitter_buffer_ms": 119,
+        "final_selected_fps": 0.0,
+        "final_source_held": false,
+        "adaptation_observations": 0,
+        "phases": {
+          "direct_audio_baseline": {
+            "from_seconds": 4.1618762080033775,
+            "through_seconds": 24.509701375005534,
+            "actual_receive_fps": 0.0,
+            "selected_fps_min": 0.0,
+            "selected_fps_max": 0.0,
+            "source_hold_samples": 7,
+            "samples": 11,
+            "transports": [
+              "p2p"
+            ]
+          },
+          "relay_tail": {
+            "from_seconds": 119.26606629200978,
+            "through_seconds": 178.45145291701192,
+            "actual_receive_fps": 0.0,
+            "selected_fps_min": 0.0,
+            "selected_fps_max": 0.0,
+            "source_hold_samples": 14,
+            "samples": 30,
+            "transports": [
+              "relay"
+            ]
+          }
+        },
+        "max_sampled_pacer_ms": 0,
+        "sample_collection_max_ms": 4.907916998490691
+      },
+      "phone": {
+        "active_after_3s": true,
+        "native_interruptions_max": 0,
+        "cumulative_trimmed_audio_ms": 90,
+        "max_sampled_jitter_buffer_ms": 111,
+        "final_selected_fps": 0.0,
+        "final_source_held": false,
+        "adaptation_observations": 0,
+        "phases": {
+          "direct_audio_baseline": {
+            "from_seconds": 4.1618762080033775,
+            "through_seconds": 24.509701375005534,
+            "actual_receive_fps": 0.0,
+            "selected_fps_min": 0.0,
+            "selected_fps_max": 0.0,
+            "source_hold_samples": 7,
+            "samples": 11,
+            "transports": [
+              "p2p"
+            ]
+          },
+          "relay_tail": {
+            "from_seconds": 119.26606629200978,
+            "through_seconds": 178.45145291701192,
+            "actual_receive_fps": 0.0,
+            "selected_fps_min": 0.0,
+            "selected_fps_max": 0.0,
+            "source_hold_samples": 12,
+            "samples": 30,
+            "transports": [
+              "relay"
+            ]
+          }
+        },
+        "max_sampled_pacer_ms": 0,
+        "sample_collection_max_ms": 124.42362500587478
+      }
+    },
+    "cleanup": {
+      "mac_pid_absent": true,
+      "launcher_pid_absent": true,
+      "logcat_pid_absent": true,
+      "phone_process_absent": true,
+      "owned_forward_absent": true
+    },
+    "error": null
+  },
+  "video": {
+    "ring_seconds": 0.13634758300031535,
+    "duration_seconds": 239.50776737500564,
+    "explicit_relay_requested_seconds": 90.74255537500721,
+    "endpoints": {
+      "mac": {
+        "active_after_3s": true,
+        "native_interruptions_max": 8,
+        "cumulative_trimmed_audio_ms": 2260,
+        "max_sampled_jitter_buffer_ms": 121,
+        "final_selected_fps": 0.02,
+        "final_source_held": true,
+        "adaptation_observations": 209,
+        "phases": {
+          "direct_audio_baseline": {
+            "from_seconds": 4.219946875004098,
+            "through_seconds": 24.527493458997924,
+            "actual_receive_fps": 0.0,
+            "selected_fps_min": 0.0,
+            "selected_fps_max": 0.0,
+            "source_hold_samples": 6,
+            "samples": 11,
+            "transports": [
+              "p2p"
+            ]
+          },
+          "direct_video": {
+            "from_seconds": 45.83148233400425,
+            "through_seconds": 84.61990787499235,
+            "actual_receive_fps": 4.331188947653284,
+            "selected_fps_min": 1.0,
+            "selected_fps_max": 15.0,
+            "source_hold_samples": 3,
+            "samples": 20,
+            "transports": [
+              "p2p"
+            ]
+          },
+          "relay_tail": {
+            "from_seconds": 179.9253892500128,
+            "through_seconds": 239.50776737500564,
+            "actual_receive_fps": 0.6042054904971844,
+            "selected_fps_min": 0.02,
+            "selected_fps_max": 1.0,
+            "source_hold_samples": 30,
+            "samples": 30,
+            "transports": [
+              "relay"
+            ]
+          }
+        },
+        "max_sampled_pacer_ms": 891,
+        "sample_collection_max_ms": 3.9236670127138495
+      },
+      "phone": {
+        "active_after_3s": true,
+        "native_interruptions_max": 0,
+        "cumulative_trimmed_audio_ms": 3050,
+        "max_sampled_jitter_buffer_ms": 144,
+        "final_selected_fps": 0.02,
+        "final_source_held": true,
+        "adaptation_observations": 208,
+        "phases": {
+          "direct_audio_baseline": {
+            "from_seconds": 4.219946875004098,
+            "through_seconds": 24.527493458997924,
+            "actual_receive_fps": 0.0,
+            "selected_fps_min": 0.0,
+            "selected_fps_max": 0.0,
+            "source_hold_samples": 7,
+            "samples": 11,
+            "transports": [
+              "p2p"
+            ]
+          },
+          "direct_video": {
+            "from_seconds": 45.83148233400425,
+            "through_seconds": 84.61990787499235,
+            "actual_receive_fps": 6.110070122582311,
+            "selected_fps_min": 1.0,
+            "selected_fps_max": 15.0,
+            "source_hold_samples": 3,
+            "samples": 20,
+            "transports": [
+              "p2p"
+            ]
+          },
+          "relay_tail": {
+            "from_seconds": 179.9253892500128,
+            "through_seconds": 239.50776737500564,
+            "actual_receive_fps": 0.5035045754143203,
+            "selected_fps_min": 0.02,
+            "selected_fps_max": 1.0,
+            "source_hold_samples": 30,
+            "samples": 30,
+            "transports": [
+              "relay"
+            ]
+          }
+        },
+        "max_sampled_pacer_ms": 60,
+        "sample_collection_max_ms": 176.9016660109628
+      }
+    },
+    "cleanup": {
+      "mac_pid_absent": true,
+      "launcher_pid_absent": true,
+      "logcat_pid_absent": true,
+      "phone_process_absent": true,
+      "owned_forward_absent": true
+    },
+    "error": null
+  }
+}
