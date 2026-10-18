@@ -1,0 +1,345 @@
+{
+  "date": "2026-10-18",
+  "previous_goal_turn": "progress: pacing fix committed, original load passed, physical failures retained",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "sdk_native_commit": "3f1b69ba09e12dfb0d7e949e5633bca6f32375b1",
+  "policy_change": false,
+  "scope": "Stand-only Android real-controller observation with local clock/constraints. No scheduling, codec, relay role/priority, source budget or expiry policy change.",
+  "build": {
+    "scope": "Only Android native CC observation added to preceding combined-Mac-SDK trial. Mac bundle unchanged; Android Rust SDK, Dart AOT, hidden-volume, data, versionCode 12614 and signer preserved. Explicit property and diagnostic-path opt-in. Private QA, not release.",
+    "source": {
+      "base_sdk_commit": "280b6517c769214581984a654ca06b244f1f4946",
+      "files": {
+        "flutter/veil_media/android/build_veil_media_so.sh": "97654f8e0053fcd3812c1ccd8561a37a411a9b0fdb9df65bf3753f7b4008bbd4",
+        "flutter/veil_media/src/veil_media_engine.cc": "d5cef3fc0d36cf0889492024a06549306936f0cdb7fcfa0f3cf1d0dc7c018901",
+        "flutter/veil_media/src/veil_video_cc_trace.h": "867d412993561151a649ee5dbd9f5a77bd9cf66a3744ee5ce5379fe2b89b91a4",
+        "flutter/veil_media/test/video_cc_trace_smoke.cc": "5b9b1c489d3bbe3cdb5bef89fbc5fa0631ca6372b352a0dba6e975e6a8a3eb7b"
+      },
+      "scope": "Android stand-only controller observer: separate build flag and diag path plus exact environment=1 or Android debug property=1; environment overrides property. No normal build exports or policy change. Capture constraint callbacks without changing updates; 1:1 CC-build stats include local native snapshot clock for an exact controller/API join."
+    },
+    "before_apk_sha256": "3e9d732dac56cfbcc13acc2ee690f2d8e55f653d4027442e420a09e3b9b1a742",
+    "apk_sha256": "8ab189a0ee1656a4f0ab843e198e6aa80be6397ebdc22d25c2fce44ccef61140",
+    "media_sha256": "1bb5cb78273aeb6ebd08f4ee8d245876f26c63d829f50a5ee4b3b46319e7682a",
+    "same_signer": true,
+    "all_defined_elf_exports_unchanged": 104,
+    "media_api_exports": 100,
+    "changed_apk_entries": [
+      "lib/arm64-v8a/libveil_media.so"
+    ]
+  },
+  "tests": {
+    "real_webrtc_transparent_observer": "PASS, 14 calls including exact constraint inputs and unchanged returned target/pacing/window/probe updates; bounded visible truncation and no callback file I/O",
+    "runtime_opt_in": "Separate CC build + diag path + exact environment=1 or debug.veil_media.video_cc=1 on Android; environment takes precedence. Host negative values verified. Actual property=1 exposes timestamp; actual property=0 suppresses it while RTP diagnostics remain active.",
+    "android_arm64_build": "PASS, 100 media API exports / 104 defined ELF exports unchanged",
+    "normal_build": "CC code remains behind its existing compile option. Ordinary native builds not rerun this cycle.",
+    "checks": {
+      "zero_video_rtp_attempts_both_endpoints": true,
+      "zero_local_and_remote_video_frames": true,
+      "android_cc_clock_field_absent_when_property_zero": true,
+      "android_cc_records_absent_when_property_zero": true,
+      "android_debug_property_restored_after_both_calls": true
+    }
+  },
+  "controller": {
+    "summary": "android-cc-2026-10-18/controller-summary.json",
+    "complete_sessions": 1,
+    "periodic_samples": 2902,
+    "joined_api_samples": 160,
+    "sampled_finite_windows": 0,
+    "native_clock_source": "RealTimeClock::CurrentTime uses webrtc::TimeMicros, same clock as the added worker snapshot timestamp. No host/device clock offset is guessed.",
+    "finding": "No Android pacer-age spike in this capture, so earlier 3959-ms case remains unresolved. Stable hold snapshots request min/max 1000 but show actual GCC target 5000 and pacing 20000; released 15000 snapshots show target 15000 / pacing 60000. These are controller observations, not proof of wire send rates."
+  },
+  "video_call": {
+    "ring_seconds": 0.09107874997425824,
+    "duration_seconds": 358.89704191699275,
+    "explicit_relay_requested_seconds": 121.65337483299663,
+    "endpoints": {
+      "mac": {
+        "active_after_3s": true,
+        "native_interruptions_max": 20,
+        "cumulative_trimmed_audio_ms": 17430,
+        "max_sampled_jitter_buffer_ms": 132,
+        "final_selected_fps": 0.02,
+        "final_source_held": true,
+        "adaptation_observations": 329,
+        "phases": {
+          "direct": {
+            "from_seconds": 90.79357233300107,
+            "through_seconds": 109.36884333300986,
+            "actual_receive_fps": 29.501588429032367,
+            "selected_fps_min": 15.0,
+            "selected_fps_max": 30.0,
+            "source_hold_samples": 0,
+            "samples": 10,
+            "transports": [
+              "p2p"
+            ]
+          },
+          "relay_tail": {
+            "from_seconds": 300.9491357920051,
+            "through_seconds": 358.89704191699275,
+            "actual_receive_fps": 0.0,
+            "selected_fps_min": 0.02,
+            "selected_fps_max": 1.0,
+            "source_hold_samples": 29,
+            "samples": 29,
+            "transports": [
+              "relay"
+            ]
+          }
+        },
+        "max_sampled_pacer_ms": 382,
+        "sample_collection_max_ms": 59.81187499128282
+      },
+      "phone": {
+        "active_after_3s": true,
+        "native_interruptions_max": 1,
+        "cumulative_trimmed_audio_ms": 8550,
+        "max_sampled_jitter_buffer_ms": 129,
+        "final_selected_fps": 0.02,
+        "final_source_held": true,
+        "adaptation_observations": 328,
+        "phases": {
+          "direct": {
+            "from_seconds": 90.79357233300107,
+            "through_seconds": 109.36884333300986,
+            "actual_receive_fps": 25.89464239847549,
+            "selected_fps_min": 30.0,
+            "selected_fps_max": 60.0,
+            "source_hold_samples": 0,
+            "samples": 10,
+            "transports": [
+              "p2p"
+            ]
+          },
+          "relay_tail": {
+            "from_seconds": 300.9491357920051,
+            "through_seconds": 358.89704191699275,
+            "actual_receive_fps": 0.0862843946287812,
+            "selected_fps_min": 0.02,
+            "selected_fps_max": 0.02,
+            "source_hold_samples": 29,
+            "samples": 29,
+            "transports": [
+              "relay"
+            ]
+          }
+        },
+        "max_sampled_pacer_ms": 0,
+        "sample_collection_max_ms": 143.32662502420135
+      }
+    },
+    "cleanup": {
+      "mac_pid_absent": true,
+      "launcher_pid_absent": true,
+      "logcat_pid_absent": true,
+      "phone_process_absent": true,
+      "owned_forward_absent": true
+    },
+    "error": null,
+    "private_directory": "/Users/vart/.cache/codex/xveil-android-cc-20261018/qa/physical-android-cc"
+  },
+  "video_call_tail_producer_pause_evidence": [
+    {
+      "endpoint": "mac",
+      "samples": 29,
+      "paused_samples": 27,
+      "video_rtp_attempts_first_last": [
+        3141,
+        3151
+      ],
+      "audio_interruptions_first_last": [
+        17,
+        20
+      ]
+    },
+    {
+      "endpoint": "phone",
+      "samples": 29,
+      "paused_samples": 29,
+      "video_rtp_attempts_first_last": [
+        1456,
+        1456
+      ],
+      "audio_interruptions_first_last": [
+        0,
+        1
+      ]
+    }
+  ],
+  "audio_only_call": {
+    "ring_seconds": 0.180205249984283,
+    "duration_seconds": 178.02167550000013,
+    "explicit_relay_requested_seconds": 30.58745266700862,
+    "endpoints": {
+      "mac": {
+        "active_after_3s": true,
+        "native_interruptions_max": 3,
+        "cumulative_trimmed_audio_ms": 6210,
+        "max_sampled_jitter_buffer_ms": 119,
+        "final_selected_fps": 0.0,
+        "final_source_held": true,
+        "adaptation_observations": 0,
+        "phases": {
+          "direct_audio_baseline": {
+            "from_seconds": 4.09861191699747,
+            "through_seconds": 24.45138520898763,
+            "actual_receive_fps": 0.0,
+            "selected_fps_min": 0.0,
+            "selected_fps_max": 0.0,
+            "source_hold_samples": 7,
+            "samples": 11,
+            "transports": [
+              "p2p"
+            ]
+          },
+          "relay_tail": {
+            "from_seconds": 118.66673116700258,
+            "through_seconds": 178.02167550000013,
+            "actual_receive_fps": 0.0,
+            "selected_fps_min": 0.0,
+            "selected_fps_max": 0.0,
+            "source_hold_samples": 30,
+            "samples": 30,
+            "transports": [
+              "relay"
+            ]
+          }
+        },
+        "max_sampled_pacer_ms": 0,
+        "sample_collection_max_ms": 31.408124981680885
+      },
+      "phone": {
+        "active_after_3s": true,
+        "native_interruptions_max": 3,
+        "cumulative_trimmed_audio_ms": 6860,
+        "max_sampled_jitter_buffer_ms": 130,
+        "final_selected_fps": 0.0,
+        "final_source_held": true,
+        "adaptation_observations": 0,
+        "phases": {
+          "direct_audio_baseline": {
+            "from_seconds": 4.09861191699747,
+            "through_seconds": 24.45138520898763,
+            "actual_receive_fps": 0.0,
+            "selected_fps_min": 0.0,
+            "selected_fps_max": 0.0,
+            "source_hold_samples": 7,
+            "samples": 11,
+            "transports": [
+              "p2p"
+            ]
+          },
+          "relay_tail": {
+            "from_seconds": 118.66673116700258,
+            "through_seconds": 178.02167550000013,
+            "actual_receive_fps": 0.0,
+            "selected_fps_min": 0.0,
+            "selected_fps_max": 0.0,
+            "source_hold_samples": 30,
+            "samples": 30,
+            "transports": [
+              "relay"
+            ]
+          }
+        },
+        "max_sampled_pacer_ms": 0,
+        "sample_collection_max_ms": 86.69383300002664
+      }
+    },
+    "cleanup": {
+      "mac_pid_absent": true,
+      "launcher_pid_absent": true,
+      "logcat_pid_absent": true,
+      "phone_process_absent": true,
+      "owned_forward_absent": true
+    },
+    "error": null,
+    "private_directory": "/Users/vart/.cache/codex/xveil-android-cc-20261018/qa/physical-relay-audio-only"
+  },
+  "packet_interval_evidence": {
+    "video_call": "android-cc-2026-10-18/video-call-audio-intervals.json",
+    "audio_only_call": "android-cc-2026-10-18/audio-only-intervals.json"
+  },
+  "conclusion": "Relay audio defects reproduce with no camera and zero video packets. P2P audio-only baseline has zero counted interruptions; after explicit relay recovery, both endpoints reach 3. Video competition is not necessary for this failure. Counterexample remains after earlier component and controlled-load passes. No acoustic speech/headset claim.",
+  "measurement_limits": [
+    "CPU/thermal/top snapshots were completed about 374 s after call placement, after call teardown. The top snapshot has zero threads; these snapshots cannot exclude in-call CPU/thermal effects.",
+    "No phone TCP kernel trace records are present despite session RT tracing; this is missing transport evidence, not a zero kernel backlog.",
+    "Complete matched RTP packet intervals use only within-endpoint clocks. No absolute one-way latency or exact relay attribution is claimed.",
+    "Actual root/AOT b262 and phone Rust 986 are retained; Mac Rust db197. Complete current-SDK phone qualification is outstanding.",
+    "Graphify slice is truncated and lacks the native spans; bounded CodeGraph times out. Conclusions are confirmed against source, not inferred graph edges."
+  ],
+  "relay_inventory_read_only": {
+    "probes": [
+      {
+        "host": "87.237.54.48",
+        "read_only_probe_exit": 0,
+        "active": true,
+        "reported_version": "0.11.37",
+        "running_executable_sha256": "b642435a1087ba01378daa636200bc63bc62720df77007e3dced4f573a2fd8cb",
+        "udp39999_bound": true
+      },
+      {
+        "host": "94.249.185.219",
+        "read_only_probe_exit": 0,
+        "active": true,
+        "reported_version": "0.11.37",
+        "running_executable_sha256": "b642435a1087ba01378daa636200bc63bc62720df77007e3dced4f573a2fd8cb",
+        "udp39999_bound": true
+      },
+      {
+        "host": "134.255.227.83",
+        "read_only_probe_exit": 0,
+        "active": true,
+        "reported_version": "0.11.37",
+        "running_executable_sha256": "b642435a1087ba01378daa636200bc63bc62720df77007e3dced4f573a2fd8cb",
+        "udp39999_bound": true
+      },
+      {
+        "host": "203.12.31.134",
+        "read_only_probe_exit": 142,
+        "active": null,
+        "reported_version": null,
+        "running_executable_sha256": null,
+        "udp39999_bound": null
+      },
+      {
+        "host": "203.12.31.145",
+        "read_only_probe_exit": 142,
+        "active": null,
+        "reported_version": null,
+        "running_executable_sha256": null,
+        "udp39999_bound": null
+      },
+      {
+        "host": "203.12.31.146",
+        "read_only_probe_exit": 142,
+        "active": null,
+        "reported_version": null,
+        "running_executable_sha256": null,
+        "udp39999_bound": null
+      }
+    ],
+    "limits": "Three remote probes are incomplete (exit 142); do not infer service outage. Bound UDP sockets do not establish external reachability or negotiated capabilities. Running version and hash do not by themselves identify every compiled source change. No server changes made."
+  },
+  "cleanup": {
+    "all_recorded_owned_process_and_forward_checks_pass": true,
+    "debug_property_restored": true,
+    "mac_graceful_timeout_requires_sigkill": true
+  },
+  "unrelated_rust_diff_sha256": "1ceeb05d540078262f1480ba7210dfaa0f5895be9f0099f64bc18a56a4f6a363",
+  "next": [
+    "Attribute audio-only relay spacing growth across SDK admission, ordered transport and relay forwarding; inspect actual negotiated independent channels and server capability/source compatibility.",
+    "Bring the phone Rust SDK to the current clean production build before broad final qualification.",
+    "Capture the earlier Android 3959-ms video queue with the new native clock/controller evidence; no quality policy change justified by this negative repro.",
+    "Live speech/headset/loudness quality remains unqualified."
+  ],
+  "private_artifact_directory": "/Users/vart/.cache/codex/xveil-android-cc-20261018",
+  "release_push_or_relay_deployment": false,
+  "retained_artifact_sha256": {
+    "android-cc-2026-10-18/audio-only-intervals.json": "85db989efbd6a8c2bb650872d58b6cc9fc15b5f7d220cd077f34997d5e9cfe09",
+    "android-cc-2026-10-18/video-call-audio-intervals.json": "a6b27702ba059f5eb9660ff95813d682d322b8594d7c823e5fd7a5cd3bd082b2",
+    "android-cc-2026-10-18/controller-summary.json": "97f780147e684090bb4de033a7556a7bce5d3ff0f1acf4309066ec003443037a"
+  }
+}
