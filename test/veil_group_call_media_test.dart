@@ -62,6 +62,54 @@ Map<String, dynamic> _sourceStats(List<NodeId> peers, {int delay = 100}) => {
 };
 
 void main() {
+  for (final accepted in [true, false]) {
+    test('group growth honors source budget only after SDK ACK=$accepted', () {
+      fakeAsync((clock) {
+        final self = _id(1), peer = _id(2);
+        final transport = _FakeTransport(self)..rejectPressure = !accepted;
+        final engine = _FakeEngine()
+          ..stats = {
+            'worker_stalled': 0,
+            'audio_feedback_reports': 1,
+            'rtt_ms': 80,
+            'audio_receivers': {
+              peer.hex: {
+                'audio_rx_pkts': 100,
+                'audio_delay_ms': 100,
+                'audio_rx_native_age_ms': 100,
+              },
+            },
+          };
+        final controller = VeilGroupCallMediaController(
+          transport,
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          requestMicrophone: () async => true,
+          requestCamera: () async => true,
+          now: () => DateTime(2026, 10, 18).add(clock.elapsed),
+        );
+        controller.start(_call(self, [peer], video: true));
+        clock.flushMicrotasks();
+        clock.elapse(const Duration(seconds: 48));
+        expect(transport.pressureReports.last.pressured, isTrue);
+        expect(engine.targets.last.maxFps, accepted ? 1 : 15);
+        if (accepted) {
+          engine.stats = {
+            ..._sourceStats([peer]),
+            'audio_feedback_reports': 1,
+            'rtt_ms': 80,
+          };
+          clock.elapse(const Duration(seconds: 12));
+          expect(transport.pressureReports.last.pressured, isFalse);
+          expect(engine.targets.last.maxFps, 1);
+          clock.elapse(const Duration(seconds: 48));
+          expect(engine.targets.last.maxFps, 15);
+        }
+        controller.stop();
+        clock.flushMicrotasks();
+      });
+    });
+  }
   for (final cold in [true, false]) {
     test(
       'group video mounts paused and applies its budget (cold=$cold)',
@@ -440,7 +488,9 @@ void main() {
       fakeAsync((clock) {
         final self = _id(1), peer = _id(2);
         final pending = Completer<bool>();
-        final transport = _FakeTransport(self)..pendingPressure = pending;
+        final transport = _FakeTransport(self)
+          ..rejectPressure = false
+          ..pendingPressure = pending;
         final engine = _FakeEngine()..stats = _sourceStats([peer]);
         final origin = DateTime(2026, 10, 15);
         final controller = VeilGroupCallMediaController(
@@ -648,10 +698,15 @@ void main() {
         expect(engine.targets.last.maxBitrateKbps, lessThan(150));
         expect(engine.cameraStarted, 1);
         engine.stats = sample(6);
-        clock.elapse(const Duration(seconds: 11));
+        clock.elapse(const Duration(seconds: 2));
         expect(engine.pauses.last, isTrue);
         clock.elapse(const Duration(seconds: 1));
         expect(engine.pauses.last, isFalse);
+        expect(
+          engine.targets.last.maxFps,
+          1,
+          reason: 'measured recovery earns only the sparse probe',
+        );
         controller.stop();
         clock.flushMicrotasks();
       });
@@ -925,14 +980,15 @@ void main() {
           reason: 'a stalled audio worker is unknown',
         );
         engine.stats = sample(100, 100);
-        clock.elapse(const Duration(seconds: 11));
+        clock.elapse(const Duration(seconds: 2));
         expect(engine.pauses.last, isTrue);
         clock.elapse(const Duration(seconds: 1));
         expect(
           engine.pauses.last,
           isFalse,
-          reason: 'all expected audio must be fresh for twelve samples',
+          reason: 'all expected audio must be fresh for the three-sample probe',
         );
+        expect(engine.targets.last.maxFps, 1);
         controller.stop();
         clock.flushMicrotasks();
       });
@@ -2217,7 +2273,9 @@ class _FakeTransport implements GroupMediaChannelTransport {
   Completer<bool>? pendingPressure;
   bool failPressure = false;
   bool throwPressure = false;
-  bool rejectPressure = false;
+  // Ordinary video-policy tests use a transport without the optional endpoint
+  // admission lease. Tests of that lease explicitly enable successful ACKs.
+  bool rejectPressure = true;
 
   @override
   Future<bool> reportLocalSourcePressure({
