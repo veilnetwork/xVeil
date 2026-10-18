@@ -1667,6 +1667,8 @@ class VeilCallMediaController implements CallMediaController {
           // route profile stays the ceiling; adaptation only spends less.
           adapter.onNativeStats(
             stats,
+            sourceBudgetPressured:
+                _sourceFeedbackQueued > 0 && _sourcePressured == true,
             videoSendExpected:
                 _screenSharing ||
                 ((_activeCall?.media.video == true ||
