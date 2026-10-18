@@ -1,0 +1,13 @@
+{
+  "all_final_source_hashes_match_verified_snapshot": true,
+  "abi_export_counts_unchanged": {
+    "libveilclient_ffi.dylib": 193,
+    "libveilclient_ffi.so": 201
+  },
+  "all_recorded_build_and_test_children_exited": true,
+  "apps_started": false,
+  "installed_on_stand": false,
+  "servers_changed": false,
+  "public_release": false,
+  "push": false
+}

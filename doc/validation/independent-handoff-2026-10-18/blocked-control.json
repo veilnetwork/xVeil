@@ -1,0 +1,5 @@
+{
+  "mutation": "Restore only five-second graceful drain in private snapshot; worktree never mutated",
+  "exit_code": 101,
+  "expected_failure": true
+}
