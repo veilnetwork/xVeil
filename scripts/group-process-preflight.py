@@ -45,6 +45,8 @@ def worker(pipe, sdk_path, media_path, root, clock, participant,
               'test_ptime_requested': os.environ.get('VEIL_MEDIA_TEST_GROUP_PTIME')}
     try:
         fixture = GroupSdk(sdk_path, root, attach=True)
+        if playout_trace:
+            fixture.enable_client_trace()
         handle, app, app_id = fixture.bind_app(participant, 'media', 0)
         identity = C.create_string_buffer(32)
         if fixture.checked(fixture.node_id, handle, identity) != 0:
@@ -372,10 +374,27 @@ def worker(pipe, sdk_path, media_path, root, clock, participant,
         if engine:
             destroy(engine)
         if fixture:
+            try:
+                result['channel_stats_after_capture'] = fixture.channel_snapshots_after_capture()
+            except Exception:
+                result['channel_stats_unavailable'] = True
+                result['ok'] = False
             fixture.close()
             result['console_log_after_stop'] = fixture.console_log_status()
             if result['console_log_after_stop']['supported']:
                 result['ok'] &= result['console_log_after_stop']['ok']
+            if playout_trace:
+                # Read only after the console barrier. Never feed diagnostic
+                # timing, PCM edges or missing logs into the production policy.
+                lines = (directory / 'native.log').read_text().splitlines()
+                sends = sum('media.cell.sample ' in line and 'stage=relay_send ' in line
+                            for line in lines)
+                receives = sum('media.cell.sample ' in line and 'stage=received ' in line
+                               for line in lines)
+                result['source_trace_logging'] = {
+                    'relay_send_samples': sends, 'receive_samples': receives,
+                    'ok': sends > 0 and receives > 0}
+                result['ok'] &= result['source_trace_logging']['ok']
         if policy:
             policy.stdin.close()
             try:
