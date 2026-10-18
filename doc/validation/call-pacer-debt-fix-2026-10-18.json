@@ -1,0 +1,480 @@
+{
+  "date": "2026-10-18",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "scope": "Corrected adjusted-rate pacing debt override in normal native builders. No relay role/priority, source budget, capacity, expiry, audio feedback or payload/FIFO change.",
+  "sdk_base_commit": "2f81d676f3193ae30d7cb0bb2f75abc5007453ce",
+  "component": {
+    "results": "video-pacer-debt-2026-10-18/matrix-results.json",
+    "rejected_first_patch": "video-pacer-debt-2026-10-18/candidate.patch",
+    "corrected_patch": "video-pacer-debt-2026-10-18/candidate-v2.patch",
+    "original_fresh_delay_ms": 836,
+    "rejected_queued_delay_ms": 574,
+    "original_queued_delay_ms": 24,
+    "corrected_fresh_delay_ms": 0,
+    "corrected_queued_delay_ms": 1,
+    "packet_counts_payload_bytes_and_fifo_asserted": true,
+    "runtime_assertions_enabled": true,
+    "production_pacing_metadata_runner": "PASS",
+    "common_call_metadata_fallback_runner": "PASS"
+  },
+  "build_integration": {
+    "source_manifest": {
+      "base_sdk_commit": "2f81d676f3193ae30d7cb0bb2f75abc5007453ce",
+      "modified_files": {
+        "flutter/veil_media/android/build_veil_media_so.sh": "7f1979fe8b50b06052adf631a273b7fead2759e8da92f4bf621d55d69b978338",
+        "flutter/veil_media/ios/build_veil_media_ios.sh": "dca53374a2fe06b02e036861c9ac0cff8d3dfe06c0aa33e3be8545a86c869dfa",
+        "flutter/veil_media/linux/build_veil_media_so_linux.sh": "16b5f378e239747f6445ce1370d1f87c1887e55b1f7f69131bcb7253b96e1c9d",
+        "flutter/veil_media/macos/build_veil_media_dylib.sh": "48a6b5fe6336b07adf67a7c51f931cb12a19210efacc63efd409cbc7ab4346ff",
+        "flutter/veil_media/test/run_call_planes_smoke.sh": "faee1d013ebf33aba0743f66c80744768bf41992bf883ceaad8d0ab66bf0c488",
+        "flutter/veil_media/windows/build_veil_media_dll_windows.ps1": "eb842c158967a4499073738f36c8bea334aefef332957871c53b4ca0915f40bd",
+        "flutter/veil_media/src/webrtc_pacing/LICENSE": "ab00a482b6a3902e40211b43c5d0441962ea99b6cc7c25c0f243fa270b78d482",
+        "flutter/veil_media/src/webrtc_pacing/PATENTS": "01462e2068d1a04c2274f3389773014c14ed9bc3446b28303543bd3e3c064145",
+        "flutter/veil_media/src/webrtc_pacing/README.md": "a1959486cf677dc5151a39e6fa3d97cf2d0c95a7a505035be4883b0292e1e05f",
+        "flutter/veil_media/src/webrtc_pacing/abi.json": "c94734cf9f22b8f35679eb0ee61b1686f2f17d2707db49fd598d8f9177220515",
+        "flutter/veil_media/src/webrtc_pacing/pacing_controller.cc": "bf14f32b8f4ff5c7a9eaaa3ea3cd2e7580579017991e58c7318c3bf17865fe69",
+        "flutter/veil_media/src/webrtc_pacing/verify_headers.py": "6ac9d75591b2101b7a5800669823afe215ff182f8f706e6f395602dbbb354874",
+        "flutter/veil_media/test/run_video_pacing_debt_smoke.py": "17ad32c5b086ac42242ec07b4573af8ea4f5a5905692c4130c746286efd4faed",
+        "flutter/veil_media/test/video_pacing_debt_smoke.cc": "626be09dad546478aba4ddda9f6a0e8119e7afc509a2b498c61375aaa99adc7c"
+      },
+      "private_prototype_same_pacing_source": true
+    },
+    "macos": "PASS, normal default build",
+    "android_arm64": "PASS, normal default build with reduced SDK metadata",
+    "linux_windows_ios": "Builder changes reviewed; native builds not run. PowerShell runtime unavailable.",
+    "header_guard": "Pinned private pacing, prioritized queue and prober headers verified on Mac and Android; deliberately changed fixture header correctly refused.",
+    "link": "Replacement object precedes the unchanged WebRTC archive; original archive/checkout not modified. iOS replacement is in already force-loaded native archive.",
+    "prototype_link_map": "SetPacerConfig and MaybeUpdateMediaRateDueToLongQueue resolve to the replacement pacing.o.",
+    "initial_build_failures_retained": [
+      "Wrong Docker image platform override",
+      "Wrong Android SDK path/environment variables",
+      "Android/Linux link-target metadata selector inadvertently referenced undefined src; fixed before successful build."
+    ]
+  },
+  "full_original_qualification": {
+    "private_directory": "/Users/vart/.cache/codex/xveil-pacer-debt-qualification-20261018/group-full-360",
+    "summary": {
+      "ok": true,
+      "qualified": true,
+      "matched": 2112,
+      "missing": 0,
+      "max_pcm_ms": 190.09662501048297,
+      "last_file_s": 348.61428912499105,
+      "video_tails": [
+        14,
+        14,
+        13,
+        14,
+        13,
+        14
+      ],
+      "console": {
+        "supported": true,
+        "flush_rc": 0,
+        "dropped_records": 0,
+        "write_errors": 0,
+        "ok": true
+      },
+      "wire_truncated": false,
+      "node_stops": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "worker_exits": [
+        0,
+        0,
+        0
+      ],
+      "fixture_exit": 0,
+      "cleanup": {
+        "owned_pids_absent": {
+          "4955": true,
+          "4957": true,
+          "4958": true,
+          "4959": true,
+          "5063": true,
+          "5064": true,
+          "5065": true,
+          "86884": true,
+          "86890": true,
+          "86891": true
+        },
+        "all_absent": true,
+        "remaining_sockets": []
+      }
+    },
+    "duration_seconds": 360,
+    "shared_neutral_fifo_kbit_per_second": 1024,
+    "pcm_paths": 6,
+    "authenticated_files": 3,
+    "file_size_each_bytes": 524288,
+    "same_workload_clocks_deadlines_and_strict_gates": true,
+    "source_pacing_sha256": "bf14f32b8f4ff5c7a9eaaa3ea3cd2e7580579017991e58c7318c3bf17865fe69",
+    "media_library_sha256": "7fe98a2b2c465d170935c49d94eb5cd1f5411e20168274aba9b0151f8dafbb95",
+    "rust_sdk_commit": "db19722ceb6cf7afc0f18424f3241c74e11e217c",
+    "limits": [
+      "Synthetic PCM marker delay, not acoustic speech/headset quality.",
+      "Optional Flutter sourceBudgetHold defaults false in this native harness; not qualification of complete Flutter hold wiring.",
+      "Earlier 230-ms PCM and 305-ms startup counterexamples remain; startup exclusions unchanged."
+    ],
+    "metadata_note": "The inherited source-hash map was corrected in full-build.json after capture; the original captured native-build.json is retained unchanged. Loaded library and explicit pacing source/object/link-map evidence establish the actual v2 candidate."
+  },
+  "prototype_physical": {
+    "ring_seconds": 0.1813730419962667,
+    "duration_seconds": 239.2281425409892,
+    "explicit_relay_requested_seconds": 121.91288508300204,
+    "endpoints": {
+      "mac": {
+        "active_after_3s": true,
+        "native_interruptions_max": 0,
+        "cumulative_trimmed_audio_ms": 150,
+        "max_sampled_jitter_buffer_ms": 129,
+        "final_selected_fps": 1.0,
+        "final_source_held": false,
+        "adaptation_observations": 209,
+        "phases": {
+          "direct": {
+            "from_seconds": 91.15470066599664,
+            "through_seconds": 109.62715991600999,
+            "actual_receive_fps": 29.449246179801804,
+            "selected_fps_min": 60.0,
+            "selected_fps_max": 60.0,
+            "source_hold_samples": 0,
+            "samples": 10
+          },
+          "relay_tail": {
+            "from_seconds": 179.5944610000006,
+            "through_seconds": 239.2281425409892,
+            "actual_receive_fps": 1.7104427793861983,
+            "selected_fps_min": 1.0,
+            "selected_fps_max": 6.0,
+            "source_hold_samples": 11,
+            "samples": 30
+          }
+        }
+      },
+      "phone": {
+        "active_after_3s": true,
+        "native_interruptions_max": 0,
+        "cumulative_trimmed_audio_ms": 150,
+        "max_sampled_jitter_buffer_ms": 113,
+        "final_selected_fps": 6.0,
+        "final_source_held": false,
+        "adaptation_observations": 208,
+        "phases": {
+          "direct": {
+            "from_seconds": 91.15470066599664,
+            "through_seconds": 109.62715991600999,
+            "actual_receive_fps": 29.882323329504775,
+            "selected_fps_min": 30.0,
+            "selected_fps_max": 60.0,
+            "source_hold_samples": 0,
+            "samples": 10
+          },
+          "relay_tail": {
+            "from_seconds": 179.5944610000006,
+            "through_seconds": 239.2281425409892,
+            "actual_receive_fps": 1.1402951862574655,
+            "selected_fps_min": 1.0,
+            "selected_fps_max": 6.0,
+            "source_hold_samples": 12,
+            "samples": 30
+          }
+        }
+      }
+    },
+    "cleanup": {
+      "mac_pid_absent": true,
+      "launcher_pid_absent": true,
+      "logcat_pid_absent": true,
+      "phone_process_absent": true,
+      "owned_forward_absent": true
+    },
+    "error": null,
+    "native_sampled_pacer_peak_ms": {
+      "mac": 841,
+      "phone": 23
+    },
+    "limits": [
+      "Exploratory prototype capture: Mac v2, phone previous native library; not controlled performance A/B.",
+      "A bounded CodeGraph/clangd query ran briefly during this exploratory capture; it was stopped before full qualification.",
+      "Explicit relay recovery was requested; no automatic P2P failure is inferred.",
+      "No human speech, acoustic or headset quality qualification."
+    ]
+  },
+  "production_pair_build": {
+    "scope": "Production-default v2 pacing override on Mac and Android; unchanged public ABI. Only media library changes, b262 AOT and Rust SDKs preserved, same QA signer and versionCode12614; data retained. Private QA, not a release.",
+    "mac_exports": 100,
+    "android_exports": 104,
+    "android_media_api_exports": 100,
+    "apk_changed_entries": [
+      "lib/arm64-v8a/libveil_media.so"
+    ],
+    "same_signer": true,
+    "apk_sha256": "3e9d732dac56cfbcc13acc2ee690f2d8e55f653d4027442e420a09e3b9b1a742",
+    "before_apk_sha256": "bff6bb474ecfcb2932c615fab0ff55612307dc1a0835f90835baf6d3b5fa16e8",
+    "native_apk_sha256": {
+      "lib/arm64-v8a/libveil_media.so": "cfd09e14c899f5495eff70e62c061b09be2ae29db53c865867de6c3795adff64",
+      "lib/arm64-v8a/libveilclient_ffi.so": "79afa7a40a5b6d4cfecb49b6b791e7aba1d56fa60347775979b7c1d48bca1e27",
+      "lib/arm64-v8a/libapp.so": "84aa9255b33466afe9623feb2451de527cd8501b8d73fbe0b54e03486d133b42"
+    },
+    "mac_media_sha256": "f149bb0c8c3f1778cc3182cc1a82964a82a312e5fa8a1d690ba3f7326738a21a",
+    "source": {
+      "base_sdk_commit": "2f81d676f3193ae30d7cb0bb2f75abc5007453ce",
+      "modified_files": {
+        "flutter/veil_media/android/build_veil_media_so.sh": "7f1979fe8b50b06052adf631a273b7fead2759e8da92f4bf621d55d69b978338",
+        "flutter/veil_media/ios/build_veil_media_ios.sh": "dca53374a2fe06b02e036861c9ac0cff8d3dfe06c0aa33e3be8545a86c869dfa",
+        "flutter/veil_media/linux/build_veil_media_so_linux.sh": "16b5f378e239747f6445ce1370d1f87c1887e55b1f7f69131bcb7253b96e1c9d",
+        "flutter/veil_media/macos/build_veil_media_dylib.sh": "48a6b5fe6336b07adf67a7c51f931cb12a19210efacc63efd409cbc7ab4346ff",
+        "flutter/veil_media/test/run_call_planes_smoke.sh": "faee1d013ebf33aba0743f66c80744768bf41992bf883ceaad8d0ab66bf0c488",
+        "flutter/veil_media/windows/build_veil_media_dll_windows.ps1": "eb842c158967a4499073738f36c8bea334aefef332957871c53b4ca0915f40bd",
+        "flutter/veil_media/src/webrtc_pacing/LICENSE": "ab00a482b6a3902e40211b43c5d0441962ea99b6cc7c25c0f243fa270b78d482",
+        "flutter/veil_media/src/webrtc_pacing/PATENTS": "01462e2068d1a04c2274f3389773014c14ed9bc3446b28303543bd3e3c064145",
+        "flutter/veil_media/src/webrtc_pacing/README.md": "a1959486cf677dc5151a39e6fa3d97cf2d0c95a7a505035be4883b0292e1e05f",
+        "flutter/veil_media/src/webrtc_pacing/abi.json": "c94734cf9f22b8f35679eb0ee61b1686f2f17d2707db49fd598d8f9177220515",
+        "flutter/veil_media/src/webrtc_pacing/pacing_controller.cc": "bf14f32b8f4ff5c7a9eaaa3ea3cd2e7580579017991e58c7318c3bf17865fe69",
+        "flutter/veil_media/src/webrtc_pacing/verify_headers.py": "6ac9d75591b2101b7a5800669823afe215ff182f8f706e6f395602dbbb354874",
+        "flutter/veil_media/test/run_video_pacing_debt_smoke.py": "17ad32c5b086ac42242ec07b4573af8ea4f5a5905692c4130c746286efd4faed",
+        "flutter/veil_media/test/video_pacing_debt_smoke.cc": "626be09dad546478aba4ddda9f6a0e8119e7afc509a2b498c61375aaa99adc7c"
+      },
+      "private_prototype_same_pacing_source": true
+    }
+  },
+  "production_pair_physical": {
+    "ring_seconds": 0.2355076249805279,
+    "duration_seconds": 239.3692090830009,
+    "explicit_relay_requested_seconds": 120.03267866600072,
+    "endpoints": {
+      "mac": {
+        "active_after_3s": true,
+        "native_interruptions_max": 0,
+        "cumulative_trimmed_audio_ms": 580,
+        "max_sampled_jitter_buffer_ms": 119,
+        "final_selected_fps": 1.0,
+        "final_source_held": false,
+        "adaptation_observations": 209,
+        "phases": {
+          "direct": {
+            "from_seconds": 91.34137954097241,
+            "through_seconds": 109.80576370799099,
+            "actual_receive_fps": 29.5162836231218,
+            "selected_fps_min": 30.0,
+            "selected_fps_max": 60.0,
+            "source_hold_samples": 0,
+            "samples": 10,
+            "transports": [
+              "p2p"
+            ]
+          },
+          "relay_tail": {
+            "from_seconds": 179.74249845798477,
+            "through_seconds": 239.3692090830009,
+            "actual_receive_fps": 0.8050083510704649,
+            "selected_fps_min": 0.02,
+            "selected_fps_max": 1.0,
+            "source_hold_samples": 17,
+            "samples": 30,
+            "transports": [
+              "relay"
+            ]
+          }
+        },
+        "max_sampled_pacer_ms": 929,
+        "sample_collection_max_ms": 15.856666985200718
+      },
+      "phone": {
+        "active_after_3s": true,
+        "native_interruptions_max": 8,
+        "cumulative_trimmed_audio_ms": 4190,
+        "max_sampled_jitter_buffer_ms": 124,
+        "final_selected_fps": 1.0,
+        "final_source_held": false,
+        "adaptation_observations": 208,
+        "phases": {
+          "direct": {
+            "from_seconds": 91.34137954097241,
+            "through_seconds": 109.80576370799099,
+            "actual_receive_fps": 29.89539185314355,
+            "selected_fps_min": 60.0,
+            "selected_fps_max": 60.0,
+            "source_hold_samples": 0,
+            "samples": 10,
+            "transports": [
+              "p2p"
+            ]
+          },
+          "relay_tail": {
+            "from_seconds": 179.74249845798477,
+            "through_seconds": 239.3692090830009,
+            "actual_receive_fps": 0.8720923803263368,
+            "selected_fps_min": 0.02,
+            "selected_fps_max": 1.0,
+            "source_hold_samples": 18,
+            "samples": 30,
+            "transports": [
+              "relay"
+            ]
+          }
+        },
+        "max_sampled_pacer_ms": 130,
+        "sample_collection_max_ms": 218.8535830064211
+      }
+    },
+    "cleanup": {
+      "mac_pid_absent": true,
+      "launcher_pid_absent": true,
+      "logcat_pid_absent": true,
+      "phone_process_absent": true,
+      "owned_forward_absent": true
+    },
+    "error": null,
+    "private_directory": "/Users/vart/.cache/codex/xveil-pacer-debt-qualification-20261018/production-apps/physical-production-debt-v2",
+    "rust_sdk_kept_at": "9860a5ea (both endpoints); this trial changes only the native media library, not the later db197 capacity fix",
+    "interpretation": "Component rate-cut correction passes, but this physical relay trial FAILS full audio/video quality: 8 phone interruptions, low video tail rates, sampled Mac pacer peak 929 ms. No controlled network A/B or proof that v2 caused or solved these remaining problems.",
+    "phone_cumulative_interruption_duration_ms": 2286,
+    "packet_interval_evidence": "video-pacer-debt-2026-10-18/audio-intervals.json",
+    "slow_primary_write_evidence": "video-pacer-debt-2026-10-18/primary-slow-writes.json"
+  },
+  "unrelated_rust_diff_sha256": "1ceeb05d540078262f1480ba7210dfaa0f5895be9f0099f64bc18a56a4f6a363",
+  "remaining": [
+    "Relay video remains roughly 1\u20132 received FPS in both physical tails; frequent acknowledged source holds and long native pacer oldest-packet age remain.",
+    "First relay trial has 8 phone audio interruptions, cumulative 2286 ms. Consecutive packet spacing expands from about 64 to 413 ms between sender and receiver; local owned-primary wire writes reach 664 ms. No exact identity join from that stalled write to that RTP pair has been established.",
+    "The combined Mac db197 repeat has zero counted audio interruptions but phone pacer peak 3959 ms, with video worker-stall counters zero. Exact Android controller/packet/queue-state evidence around hold/resume is needed; coarse target/encoder snapshots do not establish a unique cause.",
+    "Phone still uses 986 Rust SDK in both physical trials; only Mac is moved to db197 in the second. Complete latest-SDK phone qualification remains.",
+    "Linux/Windows/iOS native qualification.",
+    "Human speech/headset/acoustic quality, including the quiet-call report, remains unqualified."
+  ],
+  "release_push_or_relay_deployment": false,
+  "private_artifact_directory": "/Users/vart/.cache/codex/xveil-pacer-debt-qualification-20261018",
+  "sdk_native_commit": "280b6517c769214581984a654ca06b244f1f4946",
+  "combined_mac_sdk_physical": {
+    "ring_seconds": 0.18060758299543522,
+    "duration_seconds": 238.9157544169866,
+    "explicit_relay_requested_seconds": 121.41806941700634,
+    "endpoints": {
+      "mac": {
+        "active_after_3s": true,
+        "native_interruptions_max": 0,
+        "cumulative_trimmed_audio_ms": 10,
+        "max_sampled_jitter_buffer_ms": 106,
+        "final_selected_fps": 1.0,
+        "final_source_held": false,
+        "adaptation_observations": 209,
+        "phases": {
+          "direct": {
+            "from_seconds": 90.67686049998156,
+            "through_seconds": 109.12225083299563,
+            "actual_receive_fps": 10.192248394088596,
+            "selected_fps_min": 6.0,
+            "selected_fps_max": 15.0,
+            "source_hold_samples": 0,
+            "samples": 10,
+            "transports": [
+              "p2p"
+            ]
+          },
+          "relay_tail": {
+            "from_seconds": 179.20446470798925,
+            "through_seconds": 238.9157544169866,
+            "actual_receive_fps": 1.6077361662736724,
+            "selected_fps_min": 0.02,
+            "selected_fps_max": 6.0,
+            "source_hold_samples": 18,
+            "samples": 30,
+            "transports": [
+              "relay"
+            ]
+          }
+        },
+        "max_sampled_pacer_ms": 209,
+        "sample_collection_max_ms": 3.983333008363843
+      },
+      "phone": {
+        "active_after_3s": true,
+        "native_interruptions_max": 0,
+        "cumulative_trimmed_audio_ms": 160,
+        "max_sampled_jitter_buffer_ms": 117,
+        "final_selected_fps": 6.0,
+        "final_source_held": false,
+        "adaptation_observations": 208,
+        "phases": {
+          "direct": {
+            "from_seconds": 90.67686049998156,
+            "through_seconds": 109.12225083299563,
+            "actual_receive_fps": 12.523454143800349,
+            "selected_fps_min": 6.0,
+            "selected_fps_max": 15.0,
+            "source_hold_samples": 0,
+            "samples": 10,
+            "transports": [
+              "p2p"
+            ]
+          },
+          "relay_tail": {
+            "from_seconds": 179.20446470798925,
+            "through_seconds": 238.9157544169866,
+            "actual_receive_fps": 1.1388131177771847,
+            "selected_fps_min": 0.02,
+            "selected_fps_max": 6.0,
+            "source_hold_samples": 18,
+            "samples": 30,
+            "transports": [
+              "relay"
+            ]
+          }
+        },
+        "max_sampled_pacer_ms": 3959,
+        "sample_collection_max_ms": 82.88691600318998
+      }
+    },
+    "cleanup": {
+      "mac_pid_absent": true,
+      "launcher_pid_absent": true,
+      "logcat_pid_absent": true,
+      "phone_process_absent": true,
+      "owned_forward_absent": true
+    },
+    "error": null,
+    "private_directory": "/Users/vart/.cache/codex/xveil-pacer-debt-qualification-20261018/combined-mac-apps/physical-pacing-capacity",
+    "build": {
+      "mac_sdk": {
+        "sdk_commit": "db19722ceb6cf7afc0f18424f3241c74e11e217c",
+        "clean_sdk_worktree": true,
+        "source_worktree": "/Users/vart/.cache/codex/xveil-cancel-capacity-20261018/sdk-src",
+        "sdk_path": "/Users/vart/.cache/codex/xveil-cancel-capacity-20261018/sdk/libveilclient_ffi.dylib",
+        "sdk_sha256": "4fefafb0fec67dee8a851f32b067dea0fec0206d75ab71a6924e42869bbb2bdc",
+        "features": [
+          "default tls-boring",
+          "node-embedded",
+          "packet-tunnel",
+          "production-seeds"
+        ],
+        "cargo_incremental": false,
+        "macos_deployment_target": "12.0",
+        "tests": 44,
+        "clippy_warnings_denied": true,
+        "scope": "Reject cancelled ingress/restore and reclaim cancelled capacity before shedding useful work. Source byte budgets, deadlines, active FIFO and neutral relay treatment remain unchanged."
+      },
+      "mac_old_sdk_sha256": "2fc09cfd72190451506b0ef754d1c2e0e9a8f034f3c1a1391b5d273febbc25f1",
+      "mac_new_sdk_signed_sha256": "d344de1c686cea2cd1615c4cd87491fc8ac1d9d4ec318f2931a30f7d504b8e58",
+      "media_dart_hidden_volume_unchanged": true,
+      "phone_unchanged_from_production_v2_apk": true,
+      "scope": "Same physical stimulus with only Mac SDK moved from 986 to db197. Not a controlled network performance A/B.",
+      "packaging_note": "Removed copied runtime xveil-debug.log from private app MacOS directory before signing; first signing attempt refused that log as an unsigned code object. No test app was launched by failed preparation."
+    },
+    "interpretation": "No counted audio interruptions in this repeat, but low relay video FPS and a 3959-ms phone pacer oldest-packet age remain. One uncontrolled-network repeat does not prove that the Mac SDK update caused the audio improvement or qualifies headset/speech quality.",
+    "peak_window": "video-pacer-debt-2026-10-18/phone-pacer-peak-window.json"
+  },
+  "all_owned_stand_processes_and_forwards_absent": true,
+  "retained_artifact_sha256": {
+    "video-pacer-debt-2026-10-18/phone-pacer-peak-window.json": "b7449333e82b748e3b363355eb638ccb380f2f4f95e51ab416263d9cfbba0f34",
+    "video-pacer-debt-2026-10-18/candidate.patch": "fee3d1bec093bf0df77c9a590cbe52a692023e740f5cb1005f6f762f6bc36da1",
+    "video-pacer-debt-2026-10-18/audio-intervals.json": "93f85ae9b8332d3e10b77f39b974611b5426a51b4d3f1186696a458f3554020b",
+    "video-pacer-debt-2026-10-18/candidate-v2.patch": "44d0d554355609ae4379f164e93f4ef8c13c98920e5b026f70c5e51efd00395d",
+    "video-pacer-debt-2026-10-18/primary-slow-writes.json": "2862c0c7cde9997f24c7f32dbed47b5a681de19634fafd8871544d39dc1b1f69",
+    "video-pacer-debt-2026-10-18/matrix-results.json": "ce487591b0d9566d4b07bcc1da70780133c5a35cfdacad89378009c099b86357"
+  },
+  "qualification_status": "PASS component matrix, normal Mac/Android builds and original shared-FIFO workload; physical end-to-end audio/video quality remains UNQUALIFIED with retained counterexamples."
+}

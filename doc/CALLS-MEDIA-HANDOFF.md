@@ -1,5 +1,71 @@
 # Calls media handoff
 
+## 2026-10-18: corrected pacing debt integrated; physical relay defects retained
+
+SDK **`280b6517`** integrates the corrected WebRTC pacing override in all five
+native builders. It bounds pre-existing debt when the **adjusted** media rate
+falls, including the end of a temporary queue-rate boost. The original SDK
+archive is unchanged; a replacement object is linked first, with pinned private
+header checks and the upstream license/patent grant. Normal Mac and Android
+builds pass with the same **100 media C exports**; the Android reduced-metadata
+fallback is exercised. Linux, Windows and iOS builds remain unverified.
+
+The original **836-ms** component pause becomes **0 ms**. The first candidate
+is explicitly **rejected**: with queued packets it regresses **24 to 574 ms**.
+The corrected version gives **1 ms** there and passes steady/increasing rates,
+moderate cuts, unpaced/accounted audio, payload/count/FIFO assertions and both
+compile-metadata runners. Retained patches and matrix:
+`validation/video-pacer-debt-2026-10-18/README.md`.
+
+The **original 360-s / 1024-kbit/s shared neutral FIFO** qualification passes
+with this exact pacing source and clean Rust SDK `db19722c`: **2112 matched,
+0 missing** PCM markers, maximum **190.097 ms**, three authenticated 512-KiB
+files complete by **348.614 s**, and all six moving-video tails advance.
+Original clocks, stimulus and strict gates are unchanged. The inherited source
+hash map was corrected after capture in the parent manifest; the captured
+metadata remains intact and the library/source/object/link-map evidence is
+retained. This native fixture does not exercise Flutter's acknowledged source
+hold wiring or prove acoustic speech/headset quality. Earlier counterexamples
+and startup exclusions remain.
+
+**Physical relay quality is still not qualified.** Both ordinary native
+libraries are installed in the private Mac/Blackview pair, keeping AOT `b262`
+and the previous Rust SDK `986` to isolate the native change. A 239.37-s call
+rings in **0.236 s**, P2P receives **29.52 / 29.90 fps**, but the final relay
+minute gives only **0.81 / 0.87 fps**. Explicit relay recovery is requested at
+120.03 s; this is not evidence of automatic P2P failure. Native audio
+interruptions are **0 / 8**, the phone's cumulative interruption duration
+**2286 ms**, and sampled pacer oldest-packet ages peak at **929 / 130 ms**.
+Consecutive Mac packets attempted 64.131 ms apart arrive on the phone
+413.473 ms apart. Native sender admission peaks at 0.146 ms, receiver drain at
+6.675 ms. Separate local owned-primary wire writes reach **664 ms** with no
+queued blob behind them. These are bounded local observations; no exact RTP
+identity join to that particular stalled write or absolute device-to-device
+one-way delay is claimed. Retained packet counts include padding; one internal
+accepted Mac send is not observed in the phone's complete ingress trace, while
+the two unmatched phone sends are at its capture tail.
+
+A second 238.92-s call changes **only Mac Rust SDK to `db19722c`**, retaining
+native media, Dart AOT, hidden-volume and phone APK. Ring **0.181 s**. Audio
+interruption counters remain **0 / 0**, cumulative trimmed audio **10 / 160 ms**
+(not single pause lengths), jitter-buffer peaks **106 / 117 ms**. P2P interval
+receives **10.19 / 12.52 fps** and relay tail **1.61 / 1.14 fps**; acknowledged
+source holds occur in 18/30 tail samples on each endpoint. Native pacer peaks
+**209 / 3959 ms**. On the phone, oldest-packet age grows after a source hold
+clears, while worker-stall counters remain zero. The metric is confirmed in
+upstream source as clock minus cached oldest enqueue time, not an expected
+byte/rate delay. Exact Android controller/packet state around hold/resume is
+the next investigation; snapshot target/encoder rates alone are insufficient.
+This uncontrolled-network repeat does not prove the SDK update caused the
+audio improvement. Complete latest-SDK phone qualification also remains.
+
+Evidence: `validation/call-pacer-debt-fix-2026-10-18.json`; private artifacts
+`~/.cache/codex/xveil-pacer-debt-qualification-20261018`. The earlier prototype
+also has a retained 841-ms Mac pacer peak. All owned Mac/launcher/logcat PIDs,
+phone process and ADB forwarding are independently verified absent after each
+test. Mac still requires SIGKILL after the existing graceful timeout. No
+listening/headset claim, release, push or relay deployment. Goal ACTIVE.
+
 ## 2026-10-18: real-pacer rate-cut debt reproduces a fresh-video pause
 
 SDK native `2f81d676` adds a transparent **stand-only** video controller observer.
