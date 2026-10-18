@@ -124,8 +124,9 @@
       "mac_group_empty": true,
       "logcat_processes_matching_capture": [],
       "adb_forward_absent": true,
-      "phone_process_absent": null,
-      "phone_limit": "USB device absent; cannot inspect or force-stop phone package. Hangup requested on Mac before its shutdown."
+      "phone_process_absent": true,
+      "phone_limit": "Phone returned; package force-stopped and independent adb pidof returned exit 1 with no PID. This verifies later cleanup, not the process state while USB was absent.",
+      "phone_cleanup_verified_later_at_utc": "2026-10-18T07:43:24.379294+00:00"
     }
   },
   "limits": [
@@ -133,7 +134,6 @@
     "Native audio delay estimates are not full end-to-end/acoustic latency",
     "Video observed only for startup at one-fps floor; no sustained-video verdict",
     "Planned relay phase not reached",
-    "Phone package closure remains unverified until USB returns; Mac and logcat exited, forwarding removed",
     "Original full 360-second congestion gate remains FAIL; no gates waived"
   ]
 }

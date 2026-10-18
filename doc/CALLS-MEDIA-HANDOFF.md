@@ -1,5 +1,51 @@
 # Calls media handoff
 
+## 2026-10-18: returned Blackview, complete P2P/video/relay observation
+
+The user returned Blackview BV6600Pro over USB. First force-stopped the old
+owned phone package and independently verified no PID; the prior interrupted
+capture now records this **later** cleanup, without inventing its state while
+USB was absent. Fresh retry uses the same private Profile QA binaries recorded
+in `call-phone-return-2026-10-18.json`; no rebuild or policy change this cycle.
+
+Evidence: `doc/validation/call-phone-relay-retry-2026-10-18.json` and private
+`xveil-phone-return-20261018/physical-call-profile-retry`. After a 90-second
+route warmup, phone rings in **0.247 s**. Both endpoints are active at the
+first **2.171-s** poll and remain active through **209.093 s**. Audio alone
+first 30 s, both cameras enabled at 30 s. A diagnostic relay-recovery request
+at **120.744 s** succeeds through the existing qualified make-before-break
+handover. Mac first reports relay at 120.744 s, phone at **122.955 s**. No
+spontaneous P2P fallback preceded the request.
+
+Before handover, final 30-s video windows advance **851/864** remote frames
+(roughly 29 fps each direction). After handover video remains moving but
+sparse: final windows advance **31/20** frames and both sender budgets end at
+**1 fps**. Never interpret cumulative `remote_frame_fps` as current cadence.
+Native interruption count/duration remain zero. Mac startup buffer reaches
+**440 ms** and catch-up discards **420 ms** by 4.199 s; subsequent relay
+catch-up adds **10 ms** on Mac and **50 ms** on phone. Video-phase buffer
+maxima are **113/108 ms** before handover and **106/124 ms** afterward.
+These are native buffer observations, not complete acoustic latency.
+
+Fresh decoded recovery/buffer observations drive the initial relay video
+reduction. Recovery is subsequently withheld even in stable measured-buffer
+windows. Audio feedback RTT peaks at **1762/1909 ms**; video feedback RTT at
+**7483/7537 ms**. The P2P windowed-min floor also persists across the retained
+engine's route handover: the adapter deliberately forgets it only over its
+normal two-bucket window. Attribute actual RTCP send/receive delay and stale
+route baseline separately before changing guards; stable receive queues alone
+do not establish small end-to-end delay. This capture does **not** justify
+removing RTT protection or claiming the remaining sparse-video issue fixed.
+
+No live speech/headset loudness qualification. Phone uses voice-communication
+playout/capture; logcat records unity AudioTrack gain, a server-denied FAST
+output request and an 84-ms AudioTrack latency estimate. Those observations
+do not prove speech level at a headset. Mac terminated only after the existing
+8-second budget escalated to SIGKILL; do not call that graceful shutdown.
+Independent audit verifies Mac PID/group, launcher, logcat and phone package
+absent, and owned ADB forwarding removed. No push, release or server changes.
+Original full-contention repeat still **FAIL 210.209458 ms**; goal ACTIVE.
+
 ## 2026-10-18: source SDK diagnostics restored; full repeat still fails
 
 SDK `d10970d3` lets explicit `veil_debug_set_rt_trace(1)` initialize the
