@@ -1,0 +1,7 @@
+{
+  "no_gui_apps_started": true,
+  "owned_native_test_pids_absent": true,
+  "owned_android_build_container_absent": true,
+  "sdk_foreign_wip_sha256_unchanged": "1ceeb05d540078262f1480ba7210dfaa0f5895be9f0099f64bc18a56a4f6a363",
+  "native_libraries_prepared_not_installed": true
+}
