@@ -1,0 +1,11 @@
+{
+  "mac_pid_absent": true,
+  "launcher_pid_absent": true,
+  "logcat_pid_absent": true,
+  "phone_app_absent": true,
+  "owned_forward_absent": true,
+  "phone_property_restored": true,
+  "mac_exit_code": -9,
+  "call_planes_fixture_absent": true,
+  "call_planes_log_last_write_before_call_seconds": 20.268635272979736
+}

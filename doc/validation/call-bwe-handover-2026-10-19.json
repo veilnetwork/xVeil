@@ -1,0 +1,90 @@
+{
+  "date": "2026-10-19",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "sdk_commit": "2565d113",
+  "scope": "Preserve media streams and independent audio/video workers while updating their BWE path identity after committed channel handover.",
+  "cause": "Only RTCP route clocks changed on rebind. Default zero NetworkRoute identities prevented either congestion controller from learning the new path.",
+  "implementation": {
+    "initial_route_registered": true,
+    "generation": "Local opaque endpoint ids, never transmitted; audio/video consume on separate workers",
+    "scheduling_wait_ms": {
+      "audio": 50,
+      "video": 20
+    },
+    "retry": "Cancelled work retries on its own next stats observation; unobserved intermediate generations may coalesce",
+    "no_reset": [
+      "Failed candidate",
+      "Idempotent channel selection",
+      "Framing-only correction after a committed handover"
+    ],
+    "streams": "Encoder, SSRC, RTP sequence space, ADM and receive jitter buffers retained",
+    "probe_policy": "Initial p1:1,p2:0 for audio as already for video; ordinary feedback/later probes retained",
+    "relays": "No role hint or service priority; no server update"
+  },
+  "verification": {
+    "old_controller_test": "Fails with actual GoogCC callbacks0/0 versus expected1/1",
+    "paired_pcm": {
+      "old_engine_peak_marker_ms": 191.291,
+      "reset_only_peak_marker_ms": 212.4,
+      "reset_only_qualified": false,
+      "combined_fix_peak_marker_ms": 192.772,
+      "unchanged_upper_bound_ms": 200,
+      "settled_voiced_blocks": [
+        600,
+        600,
+        600
+      ],
+      "settled_duration_matches": [
+        6,
+        6,
+        6
+      ],
+      "source_drops": 0
+    },
+    "ordinary_live_framing_peak_marker_ms": 194.075,
+    "asymmetric_handover_voiced_ticks": 993,
+    "asymmetric_handover_total_ticks": 1000,
+    "call_planes": "Complete existing direct/group smoke passes, including Opus while both video queues are held, bounded stats, TWCC isolation, actual source rates, capture lifecycle, restart/teardown",
+    "production_arm64": "Mac and Android builds passed; unchanged100/104 public/defined exports",
+    "clean_sources": "Eight owned files match native build snapshot; foreign WIP excluded"
+  },
+  "physical": {
+    "duration_seconds": 238.05789900000673,
+    "ring_seconds": 0.2420054170070216,
+    "handover_qualified": true,
+    "full_quality_qualified": false,
+    "video_real_controller_trace": "Complete1840/1850 samples; route callback count0->1, single controller per endpoint, no trace truncation",
+    "native_audio": "One shim start and encoder SSRC per endpoint; strictly advancing RTP timestamps",
+    "source_cost": "209->360 applied on both; one phone model snapshot temporarily unknown",
+    "peak_observed_buffer_ms": {
+      "mac": 183,
+      "phone": 175
+    },
+    "cumulative_discarded_audio_ms": {
+      "mac": 550,
+      "phone": 660
+    },
+    "final_minute_received_fps": {
+      "mac": 0.6702731860493183,
+      "phone": 1.3070327127961707
+    },
+    "native_interruption_counts": {
+      "mac": 0,
+      "phone": 0
+    },
+    "comparison_limit": "This physical run is worse than the preceding run. P2P playout targets are already60-100ms vs40ms before handover; payload20ms and gross BWE~160kbit/s are similar. Uncontrolled WAN/receiver conditions; cannot attribute the quality difference to route notifications or declare improvement.",
+    "cleanup": "Both apps, launcher, logcat and native fixture exited; port forwarding removed and phone property restored. Native fixture ended20.27s before call; no overlap. Mac needed SIGKILL after bounded graceful stop."
+  },
+  "remaining": [
+    "Physical audio catch-up and low video FPS",
+    "Full group/file/screen interference gate",
+    "Live speech/headset loudness",
+    "Seamless fresh typed-factory migration",
+    "QUIC hot reload"
+  ],
+  "public_release": false,
+  "foreign_wip_preserved": true,
+  "evidence": "bwe-handover-2026-10-19/",
+  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-bwe-handover-20261019"
+}

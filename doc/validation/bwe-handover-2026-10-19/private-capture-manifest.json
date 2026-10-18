@@ -1,0 +1,29 @@
+{
+  "directory": "/Users/vart/.cache/codex/xveil-bwe-handover-20261019/qa/physical-bwe-handover",
+  "files": {
+    "result.json": {
+      "bytes": 13043,
+      "sha256": "43ceb399eddcb928623b42eeeb050c5b2e2ccdd1c0227bfa6d1574533f54bd02"
+    },
+    "phone-logcat.log": {
+      "bytes": 13916318,
+      "sha256": "43879240c21e1079e47f99d23dc1f8a62351d94ebec2aab57d3a27ca796646d8"
+    },
+    "samples.json": {
+      "bytes": 4565989,
+      "sha256": "bbcbe28fd27484f585576e8f6db0022732cc3350b8f8e431ef15e818f0ae581e"
+    },
+    "mac-native.log": {
+      "bytes": 10033052,
+      "sha256": "fd1838363c52848637aa7d94825105462ea564749b78e5eb3bfa9491c3343255"
+    },
+    "mac-runtime.log": {
+      "bytes": 43116304,
+      "sha256": "346b57b2105d5f3fc8f7386e023cc0e01a038078ff7bb7509422d2ce44eff9cd"
+    },
+    "phone-native.log": {
+      "bytes": 9834326,
+      "sha256": "d7d669c35c1fa97e63608577c8d3a36466f074568d0620109feeedbf53b743e8"
+    }
+  }
+}

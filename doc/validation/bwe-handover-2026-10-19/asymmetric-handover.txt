@@ -1,0 +1,2 @@
+handover asynchronous rendered 993/1000 nonsilent PCM ticks; max timer lateness 4.97 ms
+handover asynchronous: channel switches, failed candidate preserved, continuous RTP/PCM, no added concealment or interruptions; lateness 4.97 ms
