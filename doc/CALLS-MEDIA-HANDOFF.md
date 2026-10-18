@@ -1,5 +1,53 @@
 # Calls media handoff
 
+## 2026-10-18: exact peak attribution and interrupted fresh device check
+
+Added `scripts/analyze_group_audio_peak.py`. It recomputes the original ordinal
+PCM peak, matches the encoder's absolute input clock across encoder recreation,
+then joins the actual sender RTP offset to the receiver SSRC/timestamp/payload
+size. It rejects incomplete/capacity-limited traces, missing/duplicate witnesses,
+inconsistent diagnostic load labels and reversed clocks. **11** focused analysis
+tests pass. It changes no stimulus, clocks, admission or quality gate.
+
+`doc/validation/call-group-peak-2026-10-18.json` attributes the three existing
+failed captures. Encoded-to-ingress spans are **113.685 / 101.497 / 146.261 ms**;
+ingress-to-WebRTC is only **0.030 / 0.024 / 0.019 ms**. In the clean 260.230-ms
+peak, capture-to-encoded is **20.378 ms** and WebRTC-to-detected PCM edge is
+**93.572 ms**. The latter can include codec lookahead/FEC and following packets;
+it is not NetEq alone. Encoded-to-ingress still includes source admission and
+all transport/forwarding stages, so it is not an exact wire-only attribution.
+Actual xVeil uses separate VeilClient connections for audio, secondary video,
+screen and files; a hypothetical shared IPC destination gate does not explain
+these paths. No dispatch policy was changed on that hypothesis.
+
+Fresh private Profile QA apps carry root `85468ab6` plus the preserved existing
+multi-device worktree, clean SDK `be7a8235`, and production native media
+`c0c30821`. Phone requested build 8612 has actual Android version code **10612**
+(Profile offset); signer matches, in-place update preserves data, old APK is
+retained privately. Both Profile hook opt-ins are required. The first Release
+Mac/single-opt-in Android preparation had no hook and placed no call; this
+failed preflight is retained separately, not counted as a call failure.
+
+`doc/validation/call-phone-return-2026-10-18.json`: Mac <-> Blackview on Wi-Fi,
+ring **0.106 s**, last sample **37.584 s**, P2P throughout observed samples.
+Video enabled at 30 s, only **6 / 4** remote startup frames observed at one fps.
+Native interruption counters stay zero; delay-estimate peaks **82 / 92 ms**.
+Mac discarded **120 ms** during initial catch-up by 2.14 s, unchanged thereafter;
+phone discarded zero. These are not end-to-end/acoustic delay measurements.
+USB disappeared before the planned relay phase; the user confirmed deliberate
+disconnection and requested work without the phone. No sustained video,
+relay, headset/loudness or human speech qualification is claimed. Independent
+audit confirms both owned Mac instances, logcat and forwarding exited/removed.
+Phone package closure remains unverified until it reconnects; hangup was sent
+from Mac before shutdown. Do not restart phone work until it is returned.
+
+Clean-SDK 360-s files-only comparator completed: **2112 matched / 0 missing**,
+**170.277 ms** peak; all three 512-KiB files hash-match, complete by **226.479 s**.
+All ten owned processes independently verify absent. This diagnostic omits video
+and explicitly cannot qualify full contention. A same-SDK video-only comparator
+is being captured separately. Preserve the original full-load FAIL verdicts and
+strict <200-ms gate. Audio isolation remains ACTIVE.
+
 ## 2026-10-18: console I/O moved off network tasks; sparse video retry
 
 SDK `be7a8235` replaces the default console sink with a process-wide FIFO and

@@ -1,0 +1,167 @@
+{
+  "date": "2026-10-18",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "scope": "Reproducible exact-packet attribution of existing failed 360-second captures, not new performance runs",
+  "method": "Recompute original ordinal PCM peak; align encoder absolute first-input clock to actual capture clock across encoder recreation; use actual sender RTP offset, exact receiver SSRC/timestamp/payload size; require complete unsaturated logs and ordered clocks",
+  "verdicts": "All three original FAIL verdicts remain unchanged; original strict <200-ms gate and video/file gates preserved",
+  "tests": {
+    "passed": 11,
+    "failed": 0,
+    "coverage": [
+      "Encoder recreation resets input indices",
+      "Actual RTP origin and 32-bit timestamp wrap",
+      "Missing/duplicate receiver witnesses",
+      "Wrong/changing RTP origins",
+      "Truncated native traces",
+      "Reversed pipeline clocks and duplicate source clocks",
+      "Existing relay PCM attribution regressions",
+      "Diagnostic load labels remain distinct from full contention"
+    ]
+  },
+  "captures": {
+    "group-queued-full-360": {
+      "source": 0,
+      "receiver": 1,
+      "phase": "audio-video-file",
+      "packet": {
+        "ssrc": 3108922836,
+        "rtp_origin": 1372667488,
+        "rtp_timestamp": 1374120928,
+        "rtp_sequence": 1772,
+        "source_at_seconds": 30.300004333650577,
+        "decoded_at_seconds": 30.490098541980842,
+        "packet_ms": 40,
+        "encoder_input_index": 3028,
+        "encoder_first_input_monotonic_us": 112165692729,
+        "encoded_monotonic_us": 112165722819,
+        "ingress": {
+          "seq": 1772,
+          "timestamp": 1374120928,
+          "arrived_us": 112165836504,
+          "drained_us": 112165836534,
+          "payload_bytes": 119
+        },
+        "total_ms": 190.09420833026525,
+        "spans_ms": {
+          "capture_to_encoded": 10.12995834753383,
+          "encoded_to_ingress": 113.68500000389758,
+          "ingress_to_webrtc": 0.029999995604157448,
+          "webrtc_to_pcm_edge": 66.24924998322967
+        }
+      },
+      "input_sha256": {
+        "summary.json": "6f1ef961a8c26eccc08373e07059ffafad802e762568ed81b1962aaaf9e688b6",
+        "worker-0/summary.json": "71e51a428108262ed597af302c498c61b2cb1da3b5cc9ce2da7868d598866785",
+        "worker-1/summary.json": "31df2217dd2f37bef537f1cc67ad43e160dabe2332e1b8ba196191aa7806573b",
+        "worker-0/pcm-samples.json": "e094007633098b30738622694d3f1ce4ab8bf8d09a4fc7e11db68e2856f2094e",
+        "worker-1/pcm-samples.json": "4b8c4a20c8c6ab13b421d2b44c282132abd4262d3623b7026c9eb09da4eb98da",
+        "worker-0/codec-samples.json": "39ae84abd3ead600e5a512c360fff4a49a7f0f0ef6f16f7537c30ccbd5c4345f",
+        "worker-0/playout-trace.log": "d03b49e81e974bc424dd45fdc22429331e712e9b3d54e31de9fc3e02e899f783",
+        "worker-1/playout-trace.log": "104200169757ba00b15cd9c56d5029bf23a50b646e65b0332c365a8ed51d67c1"
+      },
+      "limits": [
+        "Owned same-host clocks only; no physical acoustic latency claim",
+        "Encoded-to-ingress includes all local and transport stages; no per-hop attribution",
+        "Ingress-to-PCM can include codec lookahead/FEC and following packets; not NetEq alone",
+        "This analysis does not change the capture verdict or its quality gates"
+      ]
+    },
+    "group-probe-full-360": {
+      "source": 1,
+      "receiver": 2,
+      "phase": "audio-video-file",
+      "packet": {
+        "ssrc": 3240237588,
+        "rtp_origin": 3187725258,
+        "rtp_timestamp": 3203334378,
+        "rtp_sequence": 21521,
+        "source_at_seconds": 325.22001800031285,
+        "decoded_at_seconds": 325.4200677503104,
+        "packet_ms": 60,
+        "encoder_input_index": 32016,
+        "encoder_first_input_monotonic_us": 113080257742,
+        "encoded_monotonic_us": 113080308065,
+        "ingress": {
+          "seq": 21521,
+          "timestamp": 3203334378,
+          "arrived_us": 113080409562,
+          "drained_us": 113080409586,
+          "payload_bytes": 179
+        },
+        "total_ms": 200.04974999756087,
+        "spans_ms": {
+          "capture_to_encoded": 20.35991668526549,
+          "encoded_to_ingress": 101.4969999960158,
+          "ingress_to_webrtc": 0.023999993572942913,
+          "webrtc_to_pcm_edge": 78.16883332270663
+        }
+      },
+      "input_sha256": {
+        "summary.json": "e9fb734ce5543d077661804f3d021b45ec46d1af4ec6134a9713e82a22110712",
+        "worker-1/summary.json": "d27fce05b04f598f93872ccaf43ef9440db2c8e51a3254b7c5d4d26a2e065361",
+        "worker-2/summary.json": "1912fb1ce869e04724de6d02e5696720345c16e90daef702a0ea9344feaad35a",
+        "worker-1/pcm-samples.json": "5833af418beaf947da9ce6948abc342f8198a436c0703200664aff05787543f4",
+        "worker-2/pcm-samples.json": "91412ae2a8bbe412c053331b597867297be34a10f7e212a5664399a25d3563a5",
+        "worker-1/codec-samples.json": "077436bbf1838e8fb5e54e5db5932d979df0cb329e66d62852ca666d5bdd0b02",
+        "worker-1/playout-trace.log": "86536e82b0a398d98ec7a506419b3e31da6f7ac70e734b3e611a022ea1a7352a",
+        "worker-2/playout-trace.log": "b19e5754934a7a58b723b8fc8f2172b0633e3e704daee180713fc4411c706e99"
+      },
+      "limits": [
+        "Owned same-host clocks only; no physical acoustic latency claim",
+        "Encoded-to-ingress includes all local and transport stages; no per-hop attribution",
+        "Ingress-to-PCM can include codec lookahead/FEC and following packets; not NetEq alone",
+        "This analysis does not change the capture verdict or its quality gates"
+      ]
+    },
+    "group-clean-probe-full-360": {
+      "source": 0,
+      "receiver": 1,
+      "phase": "audio-video-file",
+      "packet": {
+        "ssrc": 1133077878,
+        "rtp_origin": 2089399966,
+        "rtp_timestamp": 2090852926,
+        "rtp_sequence": 3454,
+        "source_at_seconds": 30.30000945831125,
+        "decoded_at_seconds": 30.56023970831302,
+        "packet_ms": 60,
+        "encoder_input_index": 924,
+        "encoder_first_input_monotonic_us": 113390324191,
+        "encoded_monotonic_us": 113390374546,
+        "ingress": {
+          "seq": 3454,
+          "timestamp": 2090852926,
+          "arrived_us": 113390520807,
+          "drained_us": 113390520826,
+          "payload_bytes": 179
+        },
+        "total_ms": 260.2302500017686,
+        "spans_ms": {
+          "capture_to_encoded": 20.377916691359133,
+          "encoded_to_ingress": 146.2609999871347,
+          "ingress_to_webrtc": 0.019000013708136976,
+          "webrtc_to_pcm_edge": 93.5723333095666
+        }
+      },
+      "input_sha256": {
+        "summary.json": "d33d943de987fb2deef5595cef2fd937c0b512efae2a6c7298f77a02b2e80797",
+        "worker-0/summary.json": "e26b247dd49fab7283f6bf930bd412ffbf04e4b492b2952942c2c4f3cf95dbb2",
+        "worker-1/summary.json": "1df62450f69602f4bf8b4cdfe9b2e50a103e15485426d07efa246b4cb1e77639",
+        "worker-0/pcm-samples.json": "12e446a1aa521696177196285c9caad65ad197dce9621e10aa0255c3dbf66574",
+        "worker-1/pcm-samples.json": "b53c1e0c25c9a3ae1fb8dda5c4804de7a61a02964866257ef732450df975328a",
+        "worker-0/codec-samples.json": "bbb32b4e19cbf2e1e70b91e837db02dca53bdf20aa93677d45fe49d3d572b1b6",
+        "worker-0/playout-trace.log": "d26737870a7be48b41f3d9fa353d6152ae90bd96145e830b068b05a3bd392431",
+        "worker-1/playout-trace.log": "256a05e04a91fce4b15914601930ac8cd232feef829edbaae2133eef82e997d6"
+      },
+      "limits": [
+        "Owned same-host clocks only; no physical acoustic latency claim",
+        "Encoded-to-ingress includes all local and transport stages; no per-hop attribution",
+        "Ingress-to-PCM can include codec lookahead/FEC and following packets; not NetEq alone",
+        "This analysis does not change the capture verdict or its quality gates"
+      ]
+    }
+  },
+  "ipc_follow_up": "Actual xVeil audio, secondary video, screen and file paths use separate VeilClient connections. A single-connection destination-gate hypothesis does not establish a defect on these paths; no dispatch policy change made.",
+  "next": "Distinguish source transport admission, wire delivery, and neutral forwarding within encoded-to-ingress without assigning media classes or priority at relays."
+}
