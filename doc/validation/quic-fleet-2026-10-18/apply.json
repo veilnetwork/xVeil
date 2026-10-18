@@ -1,0 +1,122 @@
+[
+  {
+    "host": "134.255.227.83",
+    "success": true,
+    "rollback": false,
+    "previous_pid": 46219,
+    "backup": "/var/backups/veil/20261018-quic-fleet",
+    "pid": 48814,
+    "health_first": {
+      "tick": 2,
+      "sessions": 5
+    },
+    "health_second": {
+      "tick": 6,
+      "sessions": 6
+    },
+    "config_sha256": "5bc1dccf7437a47fe28d4b080f120221875ec83594dfdf289f20a55c478fa573",
+    "binary_unchanged": true,
+    "unit_unchanged": true,
+    "udp_8443_owned_by_service": true,
+    "listener_uris": [
+      "quic://0.0.0.0:8443",
+      "obfs4-tcp://0.0.0.0:5556"
+    ]
+  },
+  {
+    "host": "203.12.31.145",
+    "success": true,
+    "rollback": false,
+    "previous_pid": 1221965,
+    "backup": "/var/backups/veil/20261018-quic-fleet",
+    "pid": 1223069,
+    "health_first": {
+      "tick": 2,
+      "sessions": 5
+    },
+    "health_second": {
+      "tick": 6,
+      "sessions": 6
+    },
+    "config_sha256": "774b469128885bfc37e2734b01efb0efcb689584a89c28189e01924beab7cbf0",
+    "binary_unchanged": true,
+    "unit_unchanged": true,
+    "udp_8443_owned_by_service": true,
+    "listener_uris": [
+      "quic://0.0.0.0:8443",
+      "obfs4-tcp://0.0.0.0:5556"
+    ]
+  },
+  {
+    "host": "203.12.31.146",
+    "success": true,
+    "rollback": false,
+    "previous_pid": 1204498,
+    "backup": "/var/backups/veil/20261018-quic-fleet",
+    "pid": 1205487,
+    "health_first": {
+      "tick": 2,
+      "sessions": 6
+    },
+    "health_second": {
+      "tick": 6,
+      "sessions": 6
+    },
+    "config_sha256": "5a65e397b604a355c9898aa874bd0c78f7a7162c4344a02092f843526fc6aeb5",
+    "binary_unchanged": true,
+    "unit_unchanged": true,
+    "udp_8443_owned_by_service": true,
+    "listener_uris": [
+      "quic://0.0.0.0:8443",
+      "obfs4-tcp://0.0.0.0:5556"
+    ]
+  },
+  {
+    "host": "87.237.54.48",
+    "success": true,
+    "rollback": false,
+    "previous_pid": 55434,
+    "backup": "/var/backups/veil/20261018-quic-fleet",
+    "pid": 57032,
+    "health_first": {
+      "tick": 2,
+      "sessions": 4
+    },
+    "health_second": {
+      "tick": 6,
+      "sessions": 6
+    },
+    "config_sha256": "b2b20e1bad627e526a0973a3be3f5d2a56b444a718c09137fc37c2f8f0924e5c",
+    "binary_unchanged": true,
+    "unit_unchanged": true,
+    "udp_8443_owned_by_service": true,
+    "listener_uris": [
+      "quic://0.0.0.0:8443",
+      "obfs4-tcp://0.0.0.0:5556"
+    ]
+  },
+  {
+    "host": "94.249.185.219",
+    "success": true,
+    "rollback": false,
+    "previous_pid": 51111,
+    "backup": "/var/backups/veil/20261018-quic-fleet",
+    "pid": 51841,
+    "health_first": {
+      "tick": 2,
+      "sessions": 4
+    },
+    "health_second": {
+      "tick": 6,
+      "sessions": 5
+    },
+    "config_sha256": "f9519c0ce6ab61954c6493dc279b7e9de9dedbf8cf434db8a9c535a70236b61d",
+    "binary_unchanged": true,
+    "unit_unchanged": true,
+    "udp_8443_owned_by_service": true,
+    "listener_uris": [
+      "quic://0.0.0.0:8443",
+      "obfs4-tcp://0.0.0.0:5556"
+    ]
+  }
+]

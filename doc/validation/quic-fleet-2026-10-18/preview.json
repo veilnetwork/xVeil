@@ -1,0 +1,117 @@
+[
+  {
+    "host": "134.255.227.83",
+    "success": true,
+    "already_enabled": false,
+    "backup": "/var/backups/veil/20261018-quic-fleet",
+    "previous_sha256": "45176ebe07e233ce047768201d690d6e926ed4043160478ac613a7713f6c1a63",
+    "candidate_sha256": "5bc1dccf7437a47fe28d4b080f120221875ec83594dfdf289f20a55c478fa573",
+    "unit_sha256": "dd775c6ba23f138f4842a206aa3c84f5ff5df3f7c50ede4b1b59a64182ea3d65",
+    "binary_sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+    "only_semantic_change": "Add one generic QUIC/UDP 8443 listener and its public advertise URI.",
+    "health_first": {
+      "tick": 3633,
+      "sessions": 6
+    },
+    "health_second": {
+      "tick": 3636,
+      "sessions": 6
+    },
+    "pid": 46219
+  },
+  {
+    "host": "203.12.31.134",
+    "success": true,
+    "already_enabled": true,
+    "config_sha256": "4a5231688220f73d25306aa613ef16ea9a9d77721d217692cfbdcbbf2f533ec6",
+    "health_first": {
+      "tick": 1014,
+      "sessions": 6
+    },
+    "health_second": {
+      "tick": 1017,
+      "sessions": 6
+    },
+    "pid": 977328
+  },
+  {
+    "host": "203.12.31.145",
+    "success": true,
+    "already_enabled": false,
+    "backup": "/var/backups/veil/20261018-quic-fleet",
+    "previous_sha256": "bc22e69b9c4bf5439a5b468de54e1ef211bb2324503bc24f652284b708b99f53",
+    "candidate_sha256": "774b469128885bfc37e2734b01efb0efcb689584a89c28189e01924beab7cbf0",
+    "unit_sha256": "dd775c6ba23f138f4842a206aa3c84f5ff5df3f7c50ede4b1b59a64182ea3d65",
+    "binary_sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+    "only_semantic_change": "Add one generic QUIC/UDP 8443 listener and its public advertise URI.",
+    "health_first": {
+      "tick": 3766,
+      "sessions": 6
+    },
+    "health_second": {
+      "tick": 3769,
+      "sessions": 6
+    },
+    "pid": 1221965
+  },
+  {
+    "host": "203.12.31.146",
+    "success": true,
+    "already_enabled": false,
+    "backup": "/var/backups/veil/20261018-quic-fleet",
+    "previous_sha256": "c72ae9e1fd98f895b81a001e7d78bc148883a49d535b6caf7d878f7a38263dfe",
+    "candidate_sha256": "5a65e397b604a355c9898aa874bd0c78f7a7162c4344a02092f843526fc6aeb5",
+    "unit_sha256": "dd775c6ba23f138f4842a206aa3c84f5ff5df3f7c50ede4b1b59a64182ea3d65",
+    "binary_sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+    "only_semantic_change": "Add one generic QUIC/UDP 8443 listener and its public advertise URI.",
+    "health_first": {
+      "tick": 3755,
+      "sessions": 6
+    },
+    "health_second": {
+      "tick": 3758,
+      "sessions": 6
+    },
+    "pid": 1204498
+  },
+  {
+    "host": "87.237.54.48",
+    "success": true,
+    "already_enabled": false,
+    "backup": "/var/backups/veil/20261018-quic-fleet",
+    "previous_sha256": "063363a9d26ba4bc768445b26142b185fdda5dc781864dcacf1f9ac2aa361b52",
+    "candidate_sha256": "b2b20e1bad627e526a0973a3be3f5d2a56b444a718c09137fc37c2f8f0924e5c",
+    "unit_sha256": "dd775c6ba23f138f4842a206aa3c84f5ff5df3f7c50ede4b1b59a64182ea3d65",
+    "binary_sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+    "only_semantic_change": "Add one generic QUIC/UDP 8443 listener and its public advertise URI.",
+    "health_first": {
+      "tick": 3739,
+      "sessions": 6
+    },
+    "health_second": {
+      "tick": 3742,
+      "sessions": 6
+    },
+    "pid": 55434
+  },
+  {
+    "host": "94.249.185.219",
+    "success": true,
+    "already_enabled": false,
+    "backup": "/var/backups/veil/20261018-quic-fleet",
+    "previous_sha256": "06ed715ba6339323f4475dff76150c1406b9c47f9c92dbd9860fdc57030276df",
+    "candidate_sha256": "f9519c0ce6ab61954c6493dc279b7e9de9dedbf8cf434db8a9c535a70236b61d",
+    "unit_sha256": "dd775c6ba23f138f4842a206aa3c84f5ff5df3f7c50ede4b1b59a64182ea3d65",
+    "binary_sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+    "only_semantic_change": "Add one generic QUIC/UDP 8443 listener and its public advertise URI.",
+    "health_first": {
+      "tick": 3578,
+      "sessions": 6
+    },
+    "health_second": {
+      "tick": 3581,
+      "sessions": 6
+    },
+    "pid": 51111
+  }
+]

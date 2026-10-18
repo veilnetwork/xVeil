@@ -1,0 +1,616 @@
+{
+  "qualified": false,
+  "ring_seconds": 0.6184365000226535,
+  "duration_seconds": 238.5184944580251,
+  "samples": 116,
+  "result_error": null,
+  "endpoints": {
+    "mac": {
+      "last": {
+        "audio_interruption_count": 0,
+        "audio_interruption_duration_ms": 0,
+        "audio_latency_discarded_ms": 0,
+        "audio_jb_ms": 75,
+        "remote_frames": 4935,
+        "local_source_pressured": false,
+        "video_send_paused": 0,
+        "max_fps": 60.0
+      },
+      "max": {
+        "audio_jb_ms": 102,
+        "pacer_delay_ms": 1277,
+        "audio_rx_age_ms": 298,
+        "audio_tx_rtp_max_gap_ms": 399
+      },
+      "phases": {
+        "audio_only": {
+          "span_seconds": 20.32543962498312,
+          "transports": {
+            "p2p": 11
+          },
+          "received_frames_delta": 0,
+          "receive_fps": 0.0,
+          "new_interruptions": 0,
+          "trimmed_ms_delta": 0,
+          "source_held_samples": 6,
+          "samples": 11
+        },
+        "p2p_video": {
+          "span_seconds": 38.7928870000178,
+          "transports": {
+            "p2p": 20
+          },
+          "received_frames_delta": 380,
+          "receive_fps": 9.795610210702431,
+          "new_interruptions": 0,
+          "trimmed_ms_delta": 0,
+          "source_held_samples": 0,
+          "samples": 20
+        },
+        "final_minute": {
+          "span_seconds": 59.59814895800082,
+          "transports": {
+            "p2p": 30
+          },
+          "received_frames_delta": 1762,
+          "receive_fps": 29.56467660164567,
+          "new_interruptions": 0,
+          "trimmed_ms_delta": 0,
+          "source_held_samples": 0,
+          "samples": 30
+        }
+      },
+      "admission_observations": [
+        {
+          "peer_prefix": "c92b85df",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 2
+        },
+        {
+          "peer_prefix": "1c3ec09b",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 3
+        },
+        {
+          "peer_prefix": "c6ace22e",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 2
+        },
+        {
+          "peer_prefix": "3d3575c9",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 4
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 4
+        },
+        {
+          "peer_prefix": "1ac128cd",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 1
+        },
+        {
+          "peer_prefix": "caafde32",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 4
+        },
+        {
+          "peer_prefix": "1ac128cd",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 233
+        },
+        {
+          "peer_prefix": "caafde32",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 9
+        },
+        {
+          "peer_prefix": "1ac128cd",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 239
+        },
+        {
+          "peer_prefix": "1ac128cd",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 206
+        },
+        {
+          "peer_prefix": "1ac128cd",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "3",
+          "observations": 1
+        },
+        {
+          "peer_prefix": "c6ace22e",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 6
+        },
+        {
+          "peer_prefix": "1c3ec09b",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 14
+        },
+        {
+          "peer_prefix": "3d3575c9",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 15
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 15
+        },
+        {
+          "peer_prefix": "c92b85df",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 5
+        },
+        {
+          "peer_prefix": "1c3ec09b",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 1
+        },
+        {
+          "peer_prefix": "c6ace22e",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 1
+        },
+        {
+          "peer_prefix": "1c3ec09b",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 1
+        },
+        {
+          "peer_prefix": "1c3ec09b",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "3",
+          "observations": 1
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 2
+        },
+        {
+          "peer_prefix": "3d3575c9",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 2
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 1
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "3",
+          "observations": 1
+        }
+      ],
+      "fleet_admission_transport_observations": {
+        "quic": 93
+      }
+    },
+    "phone": {
+      "last": {
+        "audio_interruption_count": 0,
+        "audio_interruption_duration_ms": 0,
+        "audio_latency_discarded_ms": 0,
+        "audio_jb_ms": 40,
+        "remote_frames": 3187,
+        "local_source_pressured": false,
+        "video_send_paused": 0,
+        "max_fps": 60.0
+      },
+      "max": {
+        "audio_jb_ms": 70,
+        "pacer_delay_ms": 0,
+        "audio_rx_age_ms": 121,
+        "audio_tx_rtp_max_gap_ms": 403
+      },
+      "phases": {
+        "audio_only": {
+          "span_seconds": 20.32543962498312,
+          "transports": {
+            "p2p": 11
+          },
+          "received_frames_delta": 0,
+          "receive_fps": 0.0,
+          "new_interruptions": 0,
+          "trimmed_ms_delta": 0,
+          "source_held_samples": 6,
+          "samples": 11
+        },
+        "p2p_video": {
+          "span_seconds": 38.7928870000178,
+          "transports": {
+            "p2p": 20
+          },
+          "received_frames_delta": 576,
+          "receive_fps": 14.848082845696318,
+          "new_interruptions": 0,
+          "trimmed_ms_delta": 0,
+          "source_held_samples": 0,
+          "samples": 20
+        },
+        "final_minute": {
+          "span_seconds": 59.59814895800082,
+          "transports": {
+            "p2p": 30
+          },
+          "received_frames_delta": 1278,
+          "receive_fps": 21.44361901072824,
+          "new_interruptions": 0,
+          "trimmed_ms_delta": 0,
+          "source_held_samples": 0,
+          "samples": 30
+        }
+      },
+      "admission_observations": [
+        {
+          "peer_prefix": "0b29ccb3",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 1
+        },
+        {
+          "peer_prefix": "c92b85df",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 3
+        },
+        {
+          "peer_prefix": "caafde32",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 5
+        },
+        {
+          "peer_prefix": "1c3ec09b",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 10
+        },
+        {
+          "peer_prefix": "3d3575c9",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 5
+        },
+        {
+          "peer_prefix": "0b29ccb3",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 237
+        },
+        {
+          "peer_prefix": "3d3575c9",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 12
+        },
+        {
+          "peer_prefix": "0b29ccb3",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 238
+        },
+        {
+          "peer_prefix": "0b29ccb3",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 207
+        },
+        {
+          "peer_prefix": "0b29ccb3",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "3",
+          "observations": 2
+        },
+        {
+          "peer_prefix": "caafde32",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 7
+        },
+        {
+          "peer_prefix": "c92b85df",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 3
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 5
+        },
+        {
+          "peer_prefix": "caafde32",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 2
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 1
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 4
+        },
+        {
+          "peer_prefix": "1c3ec09b",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 4
+        },
+        {
+          "peer_prefix": "c6ace22e",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 1
+        }
+      ],
+      "fleet_admission_transport_observations": {
+        "quic": 62
+      }
+    }
+  },
+  "limits": [
+    "All observed endpoint admissions to the six fleet peers use QUIC; this does not prove every relay-to-relay hop uses QUIC or that a relay media candidate delivered.",
+    "Admissions are sender observations, not peer ACKs; unique connection ids only within one process.",
+    "No live speech or headset loudness qualification; uncontrolled WAN conditions."
+  ],
+  "cleanup": {
+    "mac_pid_absent": true,
+    "launcher_pid_absent": true,
+    "logcat_pid_absent": true,
+    "phone_absent": true,
+    "test_forward_absent": true
+  },
+  "phone_cc_property_restored": true,
+  "mac_exit_code": -9,
+  "relay_requested_at_seconds": 90.60208750001038,
+  "fleet_session_checks": {
+    "session_snapshots_before_call": {
+      "mac": {
+        "87.237.54.48": [
+          {
+            "transport": "quic://87.237.54.48:8443",
+            "state": "active"
+          }
+        ],
+        "94.249.185.219": [
+          {
+            "transport": "quic://94.249.185.219:8443",
+            "state": "active"
+          }
+        ],
+        "134.255.227.83": [
+          {
+            "transport": "quic://134.255.227.83:8443",
+            "state": "active"
+          }
+        ],
+        "203.12.31.134": [
+          {
+            "transport": "quic://203.12.31.134:8443",
+            "state": "active"
+          }
+        ],
+        "203.12.31.145": [
+          {
+            "transport": "quic://203.12.31.145:8443",
+            "state": "active"
+          }
+        ],
+        "203.12.31.146": [
+          {
+            "transport": "quic://203.12.31.146:8443",
+            "state": "active"
+          }
+        ]
+      },
+      "phone": {
+        "87.237.54.48": [
+          {
+            "transport": "quic://87.237.54.48:8443",
+            "state": "active"
+          }
+        ],
+        "94.249.185.219": [
+          {
+            "transport": "quic://94.249.185.219:8443",
+            "state": "active"
+          }
+        ],
+        "134.255.227.83": [
+          {
+            "transport": "quic://134.255.227.83:8443",
+            "state": "active"
+          }
+        ],
+        "203.12.31.134": [
+          {
+            "transport": "quic://203.12.31.134:8443",
+            "state": "active"
+          }
+        ],
+        "203.12.31.145": [
+          {
+            "transport": "quic://203.12.31.145:8443",
+            "state": "active"
+          }
+        ],
+        "203.12.31.146": [
+          {
+            "transport": "quic://203.12.31.146:8443",
+            "state": "active"
+          }
+        ]
+      }
+    },
+    "session_snapshots_after_call": {
+      "mac": {
+        "87.237.54.48": [
+          {
+            "transport": "quic://87.237.54.48:57562",
+            "state": "active"
+          }
+        ],
+        "94.249.185.219": [
+          {
+            "transport": "quic://94.249.185.219:8443",
+            "state": "active"
+          }
+        ],
+        "134.255.227.83": [
+          {
+            "transport": "quic://134.255.227.83:53857",
+            "state": "active"
+          }
+        ],
+        "203.12.31.134": [
+          {
+            "transport": "quic://203.12.31.134:8443",
+            "state": "active"
+          }
+        ],
+        "203.12.31.145": [
+          {
+            "transport": "quic://203.12.31.145:8443",
+            "state": "active"
+          }
+        ],
+        "203.12.31.146": [
+          {
+            "transport": "quic://203.12.31.146:8443",
+            "state": "active"
+          }
+        ]
+      },
+      "phone": {
+        "87.237.54.48": [
+          {
+            "transport": "quic://87.237.54.48:38879",
+            "state": "active"
+          }
+        ],
+        "94.249.185.219": [
+          {
+            "transport": "quic://94.249.185.219:8443",
+            "state": "active"
+          }
+        ],
+        "134.255.227.83": [
+          {
+            "transport": "quic://134.255.227.83:52346",
+            "state": "active"
+          }
+        ],
+        "203.12.31.134": [
+          {
+            "transport": "quic://203.12.31.134:8443",
+            "state": "active"
+          }
+        ],
+        "203.12.31.145": [
+          {
+            "transport": "quic://203.12.31.145:8443",
+            "state": "active"
+          }
+        ],
+        "203.12.31.146": [
+          {
+            "transport": "quic://203.12.31.146:8443",
+            "state": "active"
+          }
+        ]
+      }
+    }
+  },
+  "primary_relay_response": {
+    "ok": false
+  },
+  "repeat_relay_request": {
+    "at_sample_relative_seconds": 156.8166297499847,
+    "response": {
+      "ok": false
+    },
+    "duration_seconds": 3.3003021249896847
+  },
+  "qualification_reason": "Both attempted relay transitions were deferred; observed call must not be used as relay quality qualification."
+}

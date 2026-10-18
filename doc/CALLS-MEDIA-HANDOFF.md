@@ -1,5 +1,70 @@
 # Calls media handoff
 
+## 2026-10-18: user authorizes QUIC on all six relays; all listeners enabled
+
+After the one-node mixed-route trial, the user explicitly said **enable on all**.
+All six now bind public generic **QUIC/UDP 8443** and retain **obfs4/TCP 5556**:
+87.237.54.48, 94.249.185.219, 134.255.227.83, 203.12.31.134,
+203.12.31.145, 203.12.31.146. Each advertises its own public QUIC URI.
+Five new configs are validated and compared as parsed TOML: the only semantic
+addition is one listener plus its advertise URI. Existing listeners, all other
+config fields, binaries and service units are preserved. The five services are
+cold-restarted **sequentially**, avoiding the known QUIC hot-reload defect.
+The already healthy canary is not restarted again. No rollback used.
+Backups are root-only **/var/backups/veil/20261018-quic-fleet** on the five new
+nodes; the canary keeps its original **20261018-quic-preview** backup.
+
+Each new socket is owned by the expected service PID, health ticks advance,
+network sessions return. Before/after-call verification additionally checks
+actual **/proc/PID/exe** digest against the deployed 3f1b69ba/0.11.42 production
+binary, exact candidate config hashes, unchanged PIDs and zero automatic
+restarts. One direct SSH read-only verification to 87.237.54.48 times out;
+retrying through the canary succeeds, with no server mutation/restart caused
+by that timeout. No relay media hint or preferential service was introduced.
+
+The stand temporarily supplies all six public QUIC bootstrap descriptors:
+Mac through its operator seed file, phone through runtime JoinBootstrap and
+reconnection of old fleet sessions as needed. **All 12 authenticated endpoint
+to relay sessions** are confirmed QUIC/8443 before the call. This proves public
+UDP reachability and canonical transport establishment, not the entire media
+route or every relay-to-relay hop. Bundled/released client seed descriptors are
+unchanged; do not claim all users have switched from obfs4/TCP.
+
+**The all-QUIC relay quality trial is unqualified.** Both diagnostics requests
+for P2P-to-relay transition (about 90.6 s and 156.8 s) return false. Endpoint
+logs say **candidate delivery unconfirmed**, then **relay candidate deferred;
+kept direct**. The app preserves the working P2P call. Treat this as an open
+candidate-delivery/confirmation problem; do not label the P2P result a relay
+quality pass. Existing relay-video failures, hot reload failure, byte-stream-only
+handoff and human speech/headset loudness qualification remain open.
+
+The **238.518-s** captured call rings in **0.618 s** and stays **P2P**.
+The two relay probes are unconfirmed (about 2.11 s and 3.30 s), so no relay
+performance claim is possible. Native interruptions **0 / 0**, cumulative trim
+**0 / 0 ms**, both in sampled stats and complete final playout traces (24035 /
+24109 rows, below limit with counts matching observed). No target/cap conflicts
+or render gaps >30 ms. Sampled jitter-buffer maxima **102 / 70 ms**, Mac pacer
+peak **1277 ms**, phone zero; keep that Mac peak as an open diagnostic risk.
+Final **59.598 s** receives **1762 / 1278** new frames (**29.565 / 21.444 fps**),
+no source-held samples in either endpoint, selected max_fps 60. These are actual
+received-frame deltas, not the selected frame-rate ceiling or live speech scores.
+All observed endpoint admissions to fleet peers use QUIC; this still does not
+prove relay candidate delivery or every relay-to-relay transport.
+End snapshots still show **all six fleet identities active over QUIC** on each
+endpoint. For 87.237.54.48 and 134.255.227.83 the URI port is now ephemeral,
+rather than original 8443. That is an address change, not a proved session loss;
+inspect reconnect/rotation separately before attributing candidate failure.
+All stand/launcher/logcat/phone processes and ADB forward are independently
+absent; Android diagnostic property restored. Mac needs SIGKILL after timeout.
+
+Final measurements and cleanup are in
+**validation/call-quic-fleet-2026-10-18.json** and
+**validation/quic-fleet-2026-10-18/**. Private rollout/rollback/verification
+scripts, six public descriptors and exact proofs are under
+**~/.cache/codex/xveil-playout-followup-20261018/quic-fleet/**.
+Physical capture: **~/.cache/codex/xveil-current-android-sdk-20261018/qa/physical-all-quic-video/**.
+Goal **ACTIVE**. Listener rollout is complete; media quality is not declared fixed.
+
 ## 2026-10-18: one authorized QUIC canary; reload failure recovered, diagnostics extended
 
 The user explicitly authorized **one** generic QUIC listener for a call trial.

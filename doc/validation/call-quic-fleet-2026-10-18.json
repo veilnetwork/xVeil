@@ -1,0 +1,179 @@
+{
+  "date": "2026-10-18",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "authorization": "User explicitly authorized generic QUIC listener on all relays after one-node canary trial.",
+  "rollout": {
+    "hosts": [
+      "87.237.54.48",
+      "94.249.185.219",
+      "134.255.227.83",
+      "203.12.31.134",
+      "203.12.31.145",
+      "203.12.31.146"
+    ],
+    "quic": "UDP 8443, public host advertise URI per relay",
+    "existing": "obfs4/TCP 5556 retained",
+    "changed_this_cycle": 5,
+    "already_enabled": 1,
+    "only_semantic_change": "One generic listener plus its advertise URI per new relay.",
+    "binary_and_unit": "Unchanged; actual running process exe SHA checked on all six. Clean SDK 3f1b69ba / CLI 0.11.42.",
+    "application": "Sequential cold systemctl restarts on the five new nodes; no hot reload because canary exposed EADDRINUSE/stalled reload defect. The already healthy canary was not restarted again.",
+    "backups": "Root-only /var/backups/veil/20261018-quic-fleet on each new node; original canary /var/backups/veil/20261018-quic-preview.",
+    "rollback_used": false,
+    "verification": "All six health ok, advancing ticks, active sessions, exact candidate configs and unchanged deployment PIDs, expected process executable digest, both listeners active, UDP 8443 belongs to service, zero automatic restarts; before and after call.",
+    "probe_note": "One direct SSH verification to 87.237.54.48 timed out; repeated read-only through the canary succeeded. No server mutation/restart was triggered by the probe timeout."
+  },
+  "policy": "Relays remain generic/opaque with no media-role hint or preferential service; existing obfuscation listener retained.",
+  "stand": "Mac uses temporary operator bootstrap file; phone refreshes six runtime descriptors and reconnects only old sessions to those nodes as needed. Published/bundled client seeds are not changed. All 12 authenticated endpoint-to-fleet sessions use expected QUIC/8443 before placing call.",
+  "physical_test": {
+    "duration_seconds": 238.5184944580251,
+    "ring_seconds": 0.6184365000226535,
+    "relay_requested_at_seconds": 90.60208750001038,
+    "qualified": false,
+    "primary_relay_response": {
+      "ok": false
+    },
+    "repeat_relay_request": {
+      "at_sample_relative_seconds": 156.8166297499847,
+      "response": {
+        "ok": false
+      },
+      "duration_seconds": 3.3003021249896847
+    },
+    "qualification_reason": "Both attempted relay transitions were deferred; observed call must not be used as relay quality qualification.",
+    "endpoints": {
+      "mac": {
+        "last": {
+          "audio_interruption_count": 0,
+          "audio_interruption_duration_ms": 0,
+          "audio_latency_discarded_ms": 0,
+          "audio_jb_ms": 75,
+          "remote_frames": 4935,
+          "local_source_pressured": false,
+          "video_send_paused": 0,
+          "max_fps": 60.0
+        },
+        "max": {
+          "audio_jb_ms": 102,
+          "pacer_delay_ms": 1277,
+          "audio_rx_age_ms": 298,
+          "audio_tx_rtp_max_gap_ms": 399
+        },
+        "phases": {
+          "audio_only": {
+            "span_seconds": 20.32543962498312,
+            "transports": {
+              "p2p": 11
+            },
+            "received_frames_delta": 0,
+            "receive_fps": 0.0,
+            "new_interruptions": 0,
+            "trimmed_ms_delta": 0,
+            "source_held_samples": 6,
+            "samples": 11
+          },
+          "p2p_video": {
+            "span_seconds": 38.7928870000178,
+            "transports": {
+              "p2p": 20
+            },
+            "received_frames_delta": 380,
+            "receive_fps": 9.795610210702431,
+            "new_interruptions": 0,
+            "trimmed_ms_delta": 0,
+            "source_held_samples": 0,
+            "samples": 20
+          },
+          "final_minute": {
+            "span_seconds": 59.59814895800082,
+            "transports": {
+              "p2p": 30
+            },
+            "received_frames_delta": 1762,
+            "receive_fps": 29.56467660164567,
+            "new_interruptions": 0,
+            "trimmed_ms_delta": 0,
+            "source_held_samples": 0,
+            "samples": 30
+          }
+        }
+      },
+      "phone": {
+        "last": {
+          "audio_interruption_count": 0,
+          "audio_interruption_duration_ms": 0,
+          "audio_latency_discarded_ms": 0,
+          "audio_jb_ms": 40,
+          "remote_frames": 3187,
+          "local_source_pressured": false,
+          "video_send_paused": 0,
+          "max_fps": 60.0
+        },
+        "max": {
+          "audio_jb_ms": 70,
+          "pacer_delay_ms": 0,
+          "audio_rx_age_ms": 121,
+          "audio_tx_rtp_max_gap_ms": 403
+        },
+        "phases": {
+          "audio_only": {
+            "span_seconds": 20.32543962498312,
+            "transports": {
+              "p2p": 11
+            },
+            "received_frames_delta": 0,
+            "receive_fps": 0.0,
+            "new_interruptions": 0,
+            "trimmed_ms_delta": 0,
+            "source_held_samples": 6,
+            "samples": 11
+          },
+          "p2p_video": {
+            "span_seconds": 38.7928870000178,
+            "transports": {
+              "p2p": 20
+            },
+            "received_frames_delta": 576,
+            "receive_fps": 14.848082845696318,
+            "new_interruptions": 0,
+            "trimmed_ms_delta": 0,
+            "source_held_samples": 0,
+            "samples": 20
+          },
+          "final_minute": {
+            "span_seconds": 59.59814895800082,
+            "transports": {
+              "p2p": 30
+            },
+            "received_frames_delta": 1278,
+            "receive_fps": 21.44361901072824,
+            "new_interruptions": 0,
+            "trimmed_ms_delta": 0,
+            "source_held_samples": 0,
+            "samples": 30
+          }
+        }
+      }
+    },
+    "cleanup": {
+      "mac_pid_absent": true,
+      "launcher_pid_absent": true,
+      "logcat_pid_absent": true,
+      "phone_absent": true,
+      "test_forward_absent": true
+    },
+    "post_call_fleet_sessions": "All six fleet node identities still have active QUIC sessions on each endpoint. For 87.237.54.48 and 134.255.227.83, the end snapshot shows different ephemeral QUIC port URIs, rather than original 8443. Do not equate URI change to missing node session; inspect reconnect/rotation separately."
+  },
+  "limitations": [
+    "Listener rollout and authenticated QUIC attachments do not by themselves prove all relay-to-relay hops use QUIC; configured peer links can remain obfs4/TCP. Check actual endpoint admission observations separately.",
+    "QUIC hot reload failure and byte-stream-only hot-standby independent-media handoff remain unfixed.",
+    "Live speech and headset loudness remain unqualified.",
+    "Cumulative discarded audio and interruption duration are sums, not an individual peak pause.",
+    "Two fleet identities per endpoint use different ephemeral QUIC port URIs in the end snapshot. This is an observed address change, not a proved session outage."
+  ],
+  "evidence": "quic-fleet-2026-10-18/",
+  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-playout-followup-20261018",
+  "public_release": false,
+  "foreign_wip_preserved": true
+}
