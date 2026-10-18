@@ -183,6 +183,7 @@ def worker(pipe, sdk_path, media_path, root, clock, participant,
             if not channel:
                 raise RuntimeError('Empty group media channel')
             fixture.channels.append(channel)
+            fixture.channel_pairs[participant, peer] = channel
             if (fixture.checked(set_secondary, channel, secondary) or
                     fixture.checked(set_feedback, channel, feedback) or
                     batching(channel, 2) or add(engine, channel, peers[peer])):

@@ -1,5 +1,84 @@
 # Calls media handoff
 
+## 2026-10-18: route RTT floor fix verified on Mac / Blackview
+
+SDK `7f664470` adds a local RTCP route epoch after successful native rebind.
+The shim clears cached RTT while retaining loss/playout evidence. An RR/SR
+must echo a local sender report generated strictly after the handover before
+it can establish RTT for that route. Compact-NTP wrap is handled; absent,
+equal-quantized and older LSR values stay unknown. No wire field, relay
+classification, scheduler priority or quality threshold changes.
+
+The Dart adapter clears only the RTT-floor window and earned growth streaks
+on a new native epoch. It rejects older epoch snapshots, accepts restarted
+numbering after engine replacement, and retains the first call's cautious
+startup, loss events, audio buffer guards and absolute RTT limits. Libraries
+without epoch fields retain their legacy behavior. Muted senders use the video
+feedback epoch. Local diagnostics expose the epoch and resulting floor.
+
+Regression: old policy fails **3 / 6** initial new tests. Final coverage:
+**107** focused Flutter tests, including the seventh muted-sender case, pass;
+Dart analysis clean. Native clock wrap/stale-SR and bounded fanout-recorder
+smokes pass. macOS production + instrumented media and Android arm64 production
+build successfully from the current native source. Physical QA keeps the
+previous clean be7a8235 Rust SDK binaries for comparison; native media and
+Dart policy change. Exact component hashes are retained in the evidence.
+
+`doc/validation/call-route-rtt-2026-10-18.json`: same 210-second phone/Mac
+stimulus, audio first 30 seconds, then video, diagnostic relay handover at
+**120.190 s**. Both endpoints become epoch **1**, report unknown RTT before a
+post-switch SR echo, then learn relay floors rather than the P2P **7/6-ms**
+floors. Final floors are **99/105 ms**. Both video budgets recover to 60 fps;
+last 30-second receive windows advance **850/862** frames (roughly 29 fps).
+Native interruption counters and decoded catch-up discards remain **zero**
+throughout. This is one physical follow-up, not a randomized claim about all
+network changes or a speech/headset/acoustic qualification. Mac still needs
+SIGKILL after its existing termination budget. Independent audit verifies Mac,
+launcher, logcat, phone package and owned forwarding absent.
+
+Android explicitly installs build number / versionCode **10613**, same
+signer, in-place, data preserved. Earlier APK code 8613 was rejected against
+installed code 10612; stopped that preparation before any call and audited
+cleanup. No downgrade was forced. QA probe labels (8612/8613) are distinct
+from Android build numbers; corrected the earlier offset wording.
+
+Additional old-policy baseline is retained in
+`doc/validation/call-peer-traces-2026-10-18.json`: source trace enabled on both
+endpoints, all sampled local stages below 13 ms, no >=25-ms slow dispatch.
+Video already reduces before the requested relay handover, so its initial
+reduction cannot be assigned solely to that switch. Phone ends protection-
+paused with two earned recovery samples. Cross-device wall clock offsets
+prevent treating raw cell timestamp differences as one-way latency.
+
+SDK `8032bc6c` initially added group fanout send timing but used the one-to-one
+SSRC; `7f664470` corrects it to `group_audio_ssrc_of`. The first full capture is
+preserved as **FAIL 280.0995 ms** with **2112 matched / 0 missing**, complete
+hash-matching files and moving tails **14/11/13/11/13/14**. Its group-send trace
+has zero records, and exact native-send attribution is correctly rejected.
+Evidence: `doc/validation/call-group-send-initial-2026-10-18.json`. The fixture
+now retains opaque participant-to-channel witnesses; the analyzer requires a
+unique channel/SSRC/sequence/timestamp join, successful admission and complete
+unsaturated logs. **23** Python tests pass. Diagnostics retain metadata only,
+preallocate a bounded buffer, and flush after streams stop. Disabled recording
+adds no clock read, allocation, file I/O or diagnostic mutex on the send path.
+Corrected full-workload capture also **FAILS 220.246125 ms**, with **2112
+matched / 0 missing**, all files authenticated and complete by **351.869 s**,
+all final video tails moving **13/8/4/8/4/13**. Evidence:
+`doc/validation/call-group-send-fixed-2026-10-18.json`. All three native-send
+recorders are populated, complete and below capacity; all ten owned processes
+independently verify absent. Exact worst packet (source 0 -> receiver 1,
+116.150 -> 116.370 s, 60-ms Opus) takes **10.444 ms** capture-to-encoded,
+**0.042 ms** encoded-to-native-send, **0.011 ms** native enqueue admission,
+**156.907 ms** native-admission-to-receiver-ingress, **0.034 ms** ingress-to-
+WebRTC, then **52.808 ms** to detected PCM. Source admission is not the
+first-hop wire-send boundary. The missing time is beyond the native enqueue;
+next trace the exact sealed cell through SDK/node/transport. In that time
+window, distinct shaper packets have queue maxima **34.445/85.668 ms** by
+direction; do not add these or assign them to the exact RTP packet without a
+join. No sender-pacer or arbitrary packet-duration fix is justified by this
+peak alone.
+No push, release, relay deployment or multi-device worktree changes. Goal ACTIVE.
+
 ## 2026-10-18: returned Blackview, complete P2P/video/relay observation
 
 The user returned Blackview BV6600Pro over USB. First force-stopped the old
@@ -119,8 +198,8 @@ these paths. No dispatch policy was changed on that hypothesis.
 
 Fresh private Profile QA apps carry root `85468ab6` plus the preserved existing
 multi-device worktree, clean SDK `be7a8235`, and production native media
-`c0c30821`. Phone requested build 8612 has actual Android version code **10612**
-(Profile offset); signer matches, in-place update preserves data, old APK is
+`c0c30821`. Phone QA probe 8612 has actual Android version code **10612**;
+its probe label is distinct from the Android build number. signer matches, in-place update preserves data, old APK is
 retained privately. Both Profile hook opt-ins are required. The first Release
 Mac/single-opt-in Android preparation had no hook and placed no call; this
 failed preflight is retained separately, not counted as a call failure.
