@@ -1,0 +1,490 @@
+{
+  "date": "2026-10-18",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "sdk_commit": "4d13a6a3887b65899fa55c5281425c250880a373",
+  "scope": "Bounded batching of already-ready console records on the existing separate writer thread. No network producer waits, log priority, relay classification, network budget, codec or quality-gate change.",
+  "queue_bounds": {
+    "channel_records": 512,
+    "accepted_record_bytes_including_inflight": 1048576,
+    "max_record_bytes": 65536,
+    "max_batch_records": 64,
+    "max_batch_bytes": 65536,
+    "fixed_writer_scratch_bytes": 65536,
+    "one_pending_command": true,
+    "byte_leases_retained_until_batch_io_finishes": true,
+    "artificial_collection_delay": false,
+    "fifo_flush_fence": true
+  },
+  "tests": {
+    "rust_console_tests": 6,
+    "ready_burst": "100 queued records require 2 bounded writes rather than 100, after the first immediately written record. Assertion verified.",
+    "blocked_output": "Producer completion, rejection/byte counters and bounded flush verified.",
+    "ordering": "Concurrent producer order, partial writes and flush fence verified.",
+    "sink_errors": "Visible error counters and credit release verified.",
+    "clippy_warnings_denied": true,
+    "clean_test_and_build_worktree": true
+  },
+  "build": {
+    "sdk_commit": "4d13a6a3887b65899fa55c5281425c250880a373",
+    "clean_sdk_worktree": true,
+    "source_worktree": "/Users/vart/.cache/codex/xveil-console-batch-20261018/sdk-src",
+    "sdk_path": "/Users/vart/.cache/codex/xveil-console-batch-20261018/sdk/libveilclient_ffi.dylib",
+    "sdk_sha256": "0e5e76edf12a0d1fcccfc91ecf6fd16e85812fca30ce881e008da7bfd7f469a9",
+    "features": [
+      "default tls-boring",
+      "node-embedded",
+      "packet-tunnel",
+      "production-seeds"
+    ],
+    "cargo_incremental": false,
+    "macos_deployment_target": "12.0",
+    "tests": 6,
+    "clippy_warnings_denied": true,
+    "scope": "Bounded ready-record console output batching; all FIFO, producer nonblocking, byte leases and flush semantics preserved. Clean source excludes unrelated security edits; transport budgets and wire roles unchanged."
+  },
+  "sdk_c_abi": {
+    "previous": 193,
+    "current": 193,
+    "removed": [],
+    "added": []
+  },
+  "full_repeat": {
+    "private_directory": "/Users/vart/.cache/codex/xveil-console-batch-20261018/group-full-360",
+    "ok": true,
+    "contention_qualification": true,
+    "duration_seconds": 360,
+    "rate_kbps": 1024,
+    "load_kind": "both",
+    "native_commit": "1956cfa4c7efee029310daa6460020662a1fba71",
+    "native_media_sha256": "da67284afa5c2ced2938fd196c245bb933720af6bf510351eea034635d396a24",
+    "max_pcm_marker_latency_ms": 170.28529167873785,
+    "matched_markers": 2112,
+    "missing_markers": 0,
+    "voice_paths": [
+      {
+        "receiver": 0,
+        "source": 1,
+        "phases": [
+          {
+            "phase": "audio-only",
+            "matched": 15,
+            "missing": 0,
+            "max_ms": 120.19854167010635,
+            "peak": {
+              "source_at_seconds": 8.080006624979433,
+              "decoded_at_seconds": 8.200205166649539,
+              "ordinal": 8,
+              "delay_ms": 120.19854167010635
+            }
+          },
+          {
+            "phase": "audio-video-file",
+            "matched": 337,
+            "missing": 0,
+            "max_ms": 170.28529167873785,
+            "peak": {
+              "source_at_seconds": 311.0800170416478,
+              "decoded_at_seconds": 311.25030233332654,
+              "ordinal": 308,
+              "delay_ms": 170.28529167873785
+            }
+          }
+        ],
+        "source_edges": 357,
+        "decoded_edges": 357,
+        "matching": "ordinal_from_capture_start",
+        "first_capture": 6.624992238357663e-06,
+        "last_capture": 360.0000064999913
+      },
+      {
+        "receiver": 0,
+        "source": 2,
+        "phases": [
+          {
+            "phase": "audio-only",
+            "matched": 15,
+            "missing": 0,
+            "max_ms": 120.19849999342114,
+            "peak": {
+              "source_at_seconds": 8.080006666656118,
+              "decoded_at_seconds": 8.200205166649539,
+              "ordinal": 8,
+              "delay_ms": 120.19849999342114
+            }
+          },
+          {
+            "phase": "audio-video-file",
+            "matched": 337,
+            "missing": 0,
+            "max_ms": 160.32883332809433,
+            "peak": {
+              "source_at_seconds": 176.75001108332071,
+              "decoded_at_seconds": 176.9103399166488,
+              "ordinal": 175,
+              "delay_ms": 160.32883332809433
+            }
+          }
+        ],
+        "source_edges": 357,
+        "decoded_edges": 357,
+        "matching": "ordinal_from_capture_start",
+        "first_capture": 8.79165600053966e-06,
+        "last_capture": 360.0000069583184
+      },
+      {
+        "receiver": 1,
+        "source": 0,
+        "phases": [
+          {
+            "phase": "audio-only",
+            "matched": 15,
+            "missing": 0,
+            "max_ms": 110.08279165253043,
+            "peak": {
+              "source_at_seconds": 6.060008541651769,
+              "decoded_at_seconds": 6.170091333304299,
+              "ordinal": 6,
+              "delay_ms": 110.08279165253043
+            }
+          },
+          {
+            "phase": "audio-video-file",
+            "matched": 337,
+            "missing": 0,
+            "max_ms": 170.0790416507516,
+            "peak": {
+              "source_at_seconds": 318.1500079999969,
+              "decoded_at_seconds": 318.32008704164764,
+              "ordinal": 315,
+              "delay_ms": 170.0790416507516
+            }
+          }
+        ],
+        "source_edges": 357,
+        "decoded_edges": 357,
+        "matching": "ordinal_from_capture_start",
+        "first_capture": 8.124974556267262e-06,
+        "last_capture": 360.00000916665886
+      },
+      {
+        "receiver": 1,
+        "source": 2,
+        "phases": [
+          {
+            "phase": "audio-only",
+            "matched": 15,
+            "missing": 0,
+            "max_ms": 120.19037501886487,
+            "peak": {
+              "source_at_seconds": 19.190017333312426,
+              "decoded_at_seconds": 19.31020770833129,
+              "ordinal": 19,
+              "delay_ms": 120.19037501886487
+            }
+          },
+          {
+            "phase": "audio-video-file",
+            "matched": 337,
+            "missing": 0,
+            "max_ms": 160.09358334122226,
+            "peak": {
+              "source_at_seconds": 20.200006749975728,
+              "decoded_at_seconds": 20.36010033331695,
+              "ordinal": 20,
+              "delay_ms": 160.09358334122226
+            }
+          }
+        ],
+        "source_edges": 357,
+        "decoded_edges": 357,
+        "matching": "ordinal_from_capture_start",
+        "first_capture": 8.79165600053966e-06,
+        "last_capture": 360.0000069583184
+      },
+      {
+        "receiver": 2,
+        "source": 0,
+        "phases": [
+          {
+            "phase": "audio-only",
+            "matched": 15,
+            "missing": 0,
+            "max_ms": 90.23274999344721,
+            "peak": {
+              "source_at_seconds": 9.09001670833095,
+              "decoded_at_seconds": 9.180249458324397,
+              "ordinal": 9,
+              "delay_ms": 90.23274999344721
+            }
+          },
+          {
+            "phase": "audio-video-file",
+            "matched": 337,
+            "missing": 0,
+            "max_ms": 160.0941666692961,
+            "peak": {
+              "source_at_seconds": 20.20000666665146,
+              "decoded_at_seconds": 20.360100833320757,
+              "ordinal": 20,
+              "delay_ms": 160.0941666692961
+            }
+          }
+        ],
+        "source_edges": 357,
+        "decoded_edges": 357,
+        "matching": "ordinal_from_capture_start",
+        "first_capture": 8.124974556267262e-06,
+        "last_capture": 360.00000916665886
+      },
+      {
+        "receiver": 2,
+        "source": 1,
+        "phases": [
+          {
+            "phase": "audio-only",
+            "matched": 15,
+            "missing": 0,
+            "max_ms": 130.22275001276284,
+            "peak": {
+              "source_at_seconds": 19.190017208311474,
+              "decoded_at_seconds": 19.320239958324237,
+              "ordinal": 19,
+              "delay_ms": 130.22275001276284
+            }
+          },
+          {
+            "phase": "audio-video-file",
+            "matched": 337,
+            "missing": 0,
+            "max_ms": 170.0809166941326,
+            "peak": {
+              "source_at_seconds": 29.290016666636802,
+              "decoded_at_seconds": 29.460097583330935,
+              "ordinal": 29,
+              "delay_ms": 170.0809166941326
+            }
+          }
+        ],
+        "source_edges": 357,
+        "decoded_edges": 357,
+        "matching": "ordinal_from_capture_start",
+        "first_capture": 6.624992238357663e-06,
+        "last_capture": 360.0000064999913
+      }
+    ],
+    "files": [
+      {
+        "sender": 2,
+        "receiver": 0,
+        "queued": 524288,
+        "received": 524288,
+        "missing_chunks": 0,
+        "hash_matches": true,
+        "completion_seconds": 351.89459133299533,
+        "authentication_errors": 0,
+        "duplicates": 0,
+        "async_failures": {},
+        "write_error": false,
+        "late_fragments": 0
+      },
+      {
+        "sender": 0,
+        "receiver": 1,
+        "queued": 524288,
+        "received": 524288,
+        "missing_chunks": 0,
+        "hash_matches": true,
+        "completion_seconds": 351.88188445800915,
+        "authentication_errors": 0,
+        "duplicates": 0,
+        "async_failures": {},
+        "write_error": false,
+        "late_fragments": 0
+      },
+      {
+        "sender": 1,
+        "receiver": 2,
+        "queued": 524288,
+        "received": 524288,
+        "missing_chunks": 0,
+        "hash_matches": true,
+        "completion_seconds": 351.8901347499923,
+        "authentication_errors": 0,
+        "duplicates": 0,
+        "async_failures": {},
+        "write_error": false,
+        "late_fragments": 0
+      }
+    ],
+    "video_paths": [
+      {
+        "receiver": 0,
+        "source": 1,
+        "decoded_pulls": 288,
+        "tail_changes": 7
+      },
+      {
+        "receiver": 0,
+        "source": 2,
+        "decoded_pulls": 298,
+        "tail_changes": 13
+      },
+      {
+        "receiver": 1,
+        "source": 0,
+        "decoded_pulls": 335,
+        "tail_changes": 14
+      },
+      {
+        "receiver": 1,
+        "source": 2,
+        "decoded_pulls": 298,
+        "tail_changes": 13
+      },
+      {
+        "receiver": 2,
+        "source": 0,
+        "decoded_pulls": 335,
+        "tail_changes": 14
+      },
+      {
+        "receiver": 2,
+        "source": 1,
+        "decoded_pulls": 288,
+        "tail_changes": 7
+      }
+    ],
+    "console_after_stop": {
+      "supported": true,
+      "flush_rc": 0,
+      "dropped_records": 0,
+      "write_errors": 0,
+      "ok": true
+    },
+    "worker_console_after_stop": [
+      {
+        "supported": true,
+        "flush_rc": 0,
+        "dropped_records": 0,
+        "write_errors": 0,
+        "ok": true
+      },
+      {
+        "supported": true,
+        "flush_rc": 0,
+        "dropped_records": 0,
+        "write_errors": 0,
+        "ok": true
+      },
+      {
+        "supported": true,
+        "flush_rc": 0,
+        "dropped_records": 0,
+        "write_errors": 0,
+        "ok": true
+      }
+    ],
+    "end_topology": {
+      "verified": true,
+      "active_session_counts": [
+        3,
+        1,
+        1,
+        1
+      ]
+    },
+    "neutral_relay_route_verified": true,
+    "wire": {
+      "trace_events": 173097,
+      "trace_rows": 173097,
+      "trace_capacity": 250000,
+      "trace_truncated": false,
+      "failure": null
+    },
+    "speech_listening_proof": false,
+    "cleanup": {
+      "owned_pids_absent": {
+        "80517": true,
+        "80531": true,
+        "80532": true,
+        "88156": true,
+        "88158": true,
+        "88159": true,
+        "88179": true,
+        "88180": true,
+        "88181": true
+      },
+      "remaining_socket_files": [],
+      "fixture_exit_code": 0,
+      "helper_exit_code": 0,
+      "node_stop_results": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "worker_exit_codes": [
+        0,
+        0,
+        0
+      ],
+      "scope": "Final independent retry after an initially observable policy PID; first audit retained separately. No process was killed."
+    }
+  },
+  "preceding_capture": {
+    "status": "UNQUALIFIED",
+    "private_directory": "/Users/vart/.cache/codex/xveil-frame-pacing-20261018/group-frame-sizing-360",
+    "parent_console_dropped_records": 21007,
+    "max_pcm_marker_latency_ms": 190.05454165744595,
+    "interpretation": "Keep the preceding failure. The new run uses the original unchanged workload and gates; timings are sequential measurements, not a randomized universal latency bound."
+  },
+  "previous_physical_source_witness": {
+    "original_frame_wire_bytes": 5724,
+    "cell": 13,
+    "records": [
+      {
+        "stage": "sealed",
+        "monotonic_us": "162325297331",
+        "epoch": "59ff7572cae8e1c6",
+        "seq": "13"
+      },
+      {
+        "stage": "daemon_read",
+        "monotonic_us": "162325297401",
+        "epoch": "59ff7572cae8e1c6",
+        "seq": "13"
+      },
+      {
+        "stage": "handler_enter",
+        "monotonic_us": "162325297414",
+        "epoch": "59ff7572cae8e1c6",
+        "seq": "13"
+      },
+      {
+        "stage": "relay_queued",
+        "monotonic_us": "162325297435",
+        "epoch": "59ff7572cae8e1c6",
+        "seq": "13"
+      },
+      {
+        "stage": "budget_drop",
+        "monotonic_us": "162325463426",
+        "epoch": "59ff7572cae8e1c6",
+        "seq": "13"
+      }
+    ],
+    "native_to_relay_queue_us": 139,
+    "relay_queue_to_budget_drop_us": 165991,
+    "interpretation": "A fitting frame is delayed after node outbox admission. Its exact remaining pacing span / shared-credit decision is not yet witnessed; do not assign the drop to the 8192-byte cap or relax expiry on this evidence alone."
+  },
+  "remaining": [
+    "Determine why complete video work waits after node outbox admission and record its actual pacing span/credit decision before changing scheduling or deadlines.",
+    "Restore sustained useful video after the low-rate fallback while retaining audio-first admission.",
+    "No fresh physical speech/headset/acoustic qualification; prior 230-ms PCM / 305-ms startup counterexamples retained.",
+    "The native full-load harness defaults optional Flutter source-budget hold false; this run does not establish end-to-end Flutter source-hold wiring."
+  ],
+  "unrelated_sdk_security_diff_sha256": "1ceeb05d540078262f1480ba7210dfaa0f5895be9f0099f64bc18a56a4f6a363",
+  "physical_apps_or_phone_updated_this_cycle": false,
+  "release_push_or_relay_deployment": false
+}
