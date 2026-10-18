@@ -1,5 +1,100 @@
 # Calls media handoff
 
+## 2026-10-18: exact neutral relay hop split; original 210-ms failure retained
+
+SDK `f19d827e` adds explicit `VEIL_DIAG_OPAQUE_FORWARD=1` observations to
+ordinary dispatcher entry/return and existing transport capture sites. The
+shared helper bounds Forward bodies to 8192 bytes and output to 524288 rows.
+It hashes the opaque payload regardless of format, source hint, application
+or media class. It preserves the normal decoder's extension policy. Endpoint
+RTP witnesses add the same sealed-byte digest only in this explicit mode,
+after receive authentication. Relays get no RTP parsing, role or priority.
+Disabled hooks do not inspect/hash payloads. No scheduling/wire/codec changes.
+
+Public evidence: `validation/call-opaque-forward-2026-10-18.json`.
+Private immutable SDK, launcher and complete capture:
+`~/.cache/codex/xveil-opaque-hop-20261018/group-full-360`.
+
+### Original full workload
+
+Same three real SDK/native processes, six PCM paths, 360 seconds,
+1024-kbit/s blind FIFO per direction, actual changing VP8 and three encrypted
+512-KiB files. Original full qualification **FAILS 210.103167 ms**.
+All **2112 ordinal markers match / 0 missing**. All three
+file hashes/authentication match by 352.317892 s.
+Video tails: **14 / 14 / 14 / 14 / 14 / 14**.
+Source, opaque-forward and UDP metadata traces do not truncate; all console
+flushes succeed with no dropped records/write errors. All four node stops
+and three worker exits are 0, socket files 0. Subsequent independent OS
+checks find all ten owned PIDs absent. No GUI or phone app started this cycle.
+
+### Exact failing PCM packet
+
+At 121.200010 s, 60-ms Opus, RTP SSRC 3876421872, sequence
+19937, timestamp 2513570191. The source and authenticated
+receiver SDK agree on opaque SHA-256 `bc05a2cca0a2c3d5439cafcd3a7fb818765e481557f355e7a1112b4a3ff937a1` (235 bytes).
+Six unique role-blind observations identify source `5186f467`, relay
+`10187dbe`, destination `f244a2ad`:
+
+| Measured span | ms |
+| --- | ---: |
+| Source transport selection -> relay dispatch entry | 68.422 |
+| Relay dispatch entry -> relay transport selection | 0.082 |
+| Relay transport selection -> destination dispatch entry | 22.067 |
+| Destination dispatch entry -> authenticated SDK | 0.071 |
+
+Synchronous dispatch itself takes 0.026 ms at
+the relay and 0.017 ms at the destination.
+Return observations can follow queued work already handled by another task;
+new analyzer/tests keep those off the causal handoff sum.
+
+Native spans for this marker are 40.687 ms
+capture-to-encoded, 90.870 ms encoded-to-ingress,
+0.025 ms ingress-to-WebRTC and
+78.521 ms WebRTC-to-PCM edge. The last span
+includes codec/FEC/following packets and rendering, not NetEq alone. The two
+hop spans include QUIC/socket/shaper/receive work; do not label them exact
+NIC-to-NIC times.
+
+### Broader packet evidence
+
+Supplemental source-selection-time window (1 <= seconds < 359) finds
+**36846** complete one-relay primary RTP paths. Largest relay
+entry-to-transport-selection wait is **1.129 ms**.
+This window differs from encoder first-input eligibility: the latter matches
+all **36852**
+receipts, zero missing, zero >=200-ms input-to-ingress lower bounds, maximum
+**197.443 ms before decoding/playout**.
+Its exact startup path at 1.000096 s splits into
+**68.539 / 0.039 / 98.254 / 0.073 ms**
+(first hop / relay / second hop / destination-to-SDK). Prior 305-ms startup
+and 230-ms PCM failures still stand; this run does not retire them.
+
+Generic encrypted UDP samples toward the three recipients independently
+match **1635 / 1623 / 1652** send/read pairs with
+zero missing/ambiguous samples; their maxima are
+**94 / 98 / 109 ms**. Those generic
+samples are not joined to the particular audio packet. Loaded 20–340 s UDP
+traffic averages **786.688 / 797.385 kbit/s** against 1024 per direction;
+loaded FIFO queue maxima are **61.791 / 114.035 ms**, release lateness maxima
+**7.408 / 10.019 ms**. Actual receive/send counts and the full wire metadata
+are retained. This supports shared-link queueing as a major contributor on
+this controlled stand, without assigning unrelated maxima to a packet.
+
+Three opaque parser tests, four endpoint RTP parser tests, **44 Python
+pipeline tests**, clean Clippy for session/dispatcher/FFI lib/tests with
+warnings denied, and an isolated release SDK build pass. Only this committed
+SDK tree was built; four unrelated security edits remain byte-for-byte intact.
+
+**Next:** work on own-source aggregate burst/overhead under primary activity,
+including control traffic, without changing relay neutrality. Keep the
+existing group RTCP volume evidence (audio ~0.8 packet/s, video ~8 packet/s)
+from the earlier 2026-10-17 entry; audio TWCC is already disabled. Attribute
+control types/actual wire cost before suppressing necessary RTCP. The exact
+peak also spends ~119 ms in packetization plus downstream decode/playout;
+the previously failed 40-ms-only candidate is not a verified solution.
+Goal remains ACTIVE; no release/push or new acoustic/headset qualification.
+
 ## 2026-10-18: source-session admission isolated; downstream delay remains
 
 SDK `eb16851e` adds opt-in monotonic observations at source budget selection
