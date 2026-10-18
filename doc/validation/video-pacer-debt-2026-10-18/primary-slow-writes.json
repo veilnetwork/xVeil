@@ -1,0 +1,77 @@
+{
+  "slow_owned_primary_writes": [
+    {
+      "host_seconds_since_call_place": 129.586,
+      "owned_endpoint_connection_alias": 0,
+      "wire_frame_bytes": 515,
+      "wire_write_elapsed_ms": 39,
+      "queued_behind": 0,
+      "source_pressure_ticks": 0
+    },
+    {
+      "host_seconds_since_call_place": 133.241,
+      "owned_endpoint_connection_alias": 0,
+      "wire_frame_bytes": 515,
+      "wire_write_elapsed_ms": 94,
+      "queued_behind": 0,
+      "source_pressure_ticks": 0
+    },
+    {
+      "host_seconds_since_call_place": 136.75,
+      "owned_endpoint_connection_alias": 0,
+      "wire_frame_bytes": 515,
+      "wire_write_elapsed_ms": 664,
+      "queued_behind": 0,
+      "source_pressure_ticks": 4
+    },
+    {
+      "host_seconds_since_call_place": 141.933,
+      "owned_endpoint_connection_alias": 0,
+      "wire_frame_bytes": 515,
+      "wire_write_elapsed_ms": 328,
+      "queued_behind": 0,
+      "source_pressure_ticks": 2
+    },
+    {
+      "host_seconds_since_call_place": 142.071,
+      "owned_endpoint_connection_alias": 0,
+      "wire_frame_bytes": 515,
+      "wire_write_elapsed_ms": 138,
+      "queued_behind": 0,
+      "source_pressure_ticks": 0
+    },
+    {
+      "host_seconds_since_call_place": 142.161,
+      "owned_endpoint_connection_alias": 0,
+      "wire_frame_bytes": 515,
+      "wire_write_elapsed_ms": 89,
+      "queued_behind": 0,
+      "source_pressure_ticks": 0
+    },
+    {
+      "host_seconds_since_call_place": 142.287,
+      "owned_endpoint_connection_alias": 0,
+      "wire_frame_bytes": 515,
+      "wire_write_elapsed_ms": 125,
+      "queued_behind": 0,
+      "source_pressure_ticks": 0
+    },
+    {
+      "host_seconds_since_call_place": 142.417,
+      "owned_endpoint_connection_alias": 0,
+      "wire_frame_bytes": 515,
+      "wire_write_elapsed_ms": 130,
+      "queued_behind": 0,
+      "source_pressure_ticks": 0
+    },
+    {
+      "host_seconds_since_call_place": 142.625,
+      "owned_endpoint_connection_alias": 0,
+      "wire_frame_bytes": 515,
+      "wire_write_elapsed_ms": 118,
+      "queued_behind": 0,
+      "source_pressure_ticks": 0
+    }
+  ],
+  "limits": "Only endpoint-local owned-primary writes. Peer ids replaced with per-capture ordinal aliases. elapsed_ms is local wire-write duration, not peer playout or one-way network delay. No payload/route priority exposed to relays."
+}

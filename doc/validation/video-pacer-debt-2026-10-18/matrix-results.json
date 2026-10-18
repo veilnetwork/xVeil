@@ -1,0 +1,143 @@
+{
+  "baseline": {
+    "passes_original_delay_assertion": false,
+    "cases": [
+      {
+        "case": "steady",
+        "fresh_delay_ms": 0,
+        "packets": 15,
+        "wire_bytes": 14580
+      },
+      {
+        "case": "increase",
+        "fresh_delay_ms": 0,
+        "packets": 2,
+        "wire_bytes": 1424
+      },
+      {
+        "case": "decrease",
+        "fresh_delay_ms": 836,
+        "packets": 15,
+        "wire_bytes": 14580
+      },
+      {
+        "case": "moderate_decrease",
+        "fresh_delay_ms": 24,
+        "packets": 2,
+        "wire_bytes": 1424
+      },
+      {
+        "case": "queued_decrease",
+        "fresh_delay_ms": 24,
+        "packets": 20,
+        "wire_bytes": 19640
+      },
+      {
+        "case": "audio",
+        "fresh_delay_ms": 0,
+        "packets": 15,
+        "wire_bytes": 14580
+      },
+      {
+        "case": "accounted_audio",
+        "fresh_delay_ms": 0,
+        "packets": 15,
+        "wire_bytes": 14580
+      }
+    ]
+  },
+  "rejected_first_candidate": {
+    "passes_original_delay_assertion": false,
+    "cases": [
+      {
+        "case": "steady",
+        "fresh_delay_ms": 0,
+        "packets": 15,
+        "wire_bytes": 14580
+      },
+      {
+        "case": "increase",
+        "fresh_delay_ms": 0,
+        "packets": 2,
+        "wire_bytes": 1424
+      },
+      {
+        "case": "decrease",
+        "fresh_delay_ms": 0,
+        "packets": 15,
+        "wire_bytes": 14580
+      },
+      {
+        "case": "moderate_decrease",
+        "fresh_delay_ms": 0,
+        "packets": 2,
+        "wire_bytes": 1424
+      },
+      {
+        "case": "queued_decrease",
+        "fresh_delay_ms": 574,
+        "packets": 20,
+        "wire_bytes": 19640
+      },
+      {
+        "case": "audio",
+        "fresh_delay_ms": 0,
+        "packets": 15,
+        "wire_bytes": 14580
+      },
+      {
+        "case": "accounted_audio",
+        "fresh_delay_ms": 0,
+        "packets": 15,
+        "wire_bytes": 14580
+      }
+    ]
+  },
+  "corrected_v2": {
+    "passes_original_delay_assertion": true,
+    "cases": [
+      {
+        "case": "steady",
+        "fresh_delay_ms": 0,
+        "packets": 15,
+        "wire_bytes": 14580
+      },
+      {
+        "case": "increase",
+        "fresh_delay_ms": 0,
+        "packets": 2,
+        "wire_bytes": 1424
+      },
+      {
+        "case": "decrease",
+        "fresh_delay_ms": 0,
+        "packets": 15,
+        "wire_bytes": 14580
+      },
+      {
+        "case": "moderate_decrease",
+        "fresh_delay_ms": 0,
+        "packets": 2,
+        "wire_bytes": 1424
+      },
+      {
+        "case": "queued_decrease",
+        "fresh_delay_ms": 1,
+        "packets": 20,
+        "wire_bytes": 19640
+      },
+      {
+        "case": "audio",
+        "fresh_delay_ms": 0,
+        "packets": 15,
+        "wire_bytes": 14580
+      },
+      {
+        "case": "accounted_audio",
+        "fresh_delay_ms": 0,
+        "packets": 15,
+        "wire_bytes": 14580
+      }
+    ]
+  }
+}
