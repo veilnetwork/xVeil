@@ -1,5 +1,56 @@
 # Calls media handoff
 
+## 2026-10-18: console output batching restores complete full-load qualification
+
+SDK `4d13a6a3` batches already-ready console records on the existing separate
+writer thread: at most 64 records / 64 KiB per write, no collection timer.
+The 512-command channel, 1-MiB accepted-record byte cap and 64-KiB record cap
+remain. A fixed 64-KiB worker scratch buffer and bounded record vector keep
+each record's byte lease until the whole write finishes; one pending command
+preserves FIFO and the explicit Flush fence. Custom oversized records bypass
+scratch growth. Producers still only try nonblocking admission; neither
+severity nor traffic receives preference. No network/relay/codec budget change.
+This addresses the preceding 21007-record capture loss without increasing its
+queue limits or weakening the completeness gate.
+
+Six focused Rust tests pass: 100 ready records use two bounded writes after an
+initial immediate record; blocked sinks cannot stall producers; byte credit,
+partial writes, concurrent producer order, flush fences and sink errors remain
+verified. Observability lib/tests Clippy with warnings denied and isolated clean
+production-feature FFI release build pass. All 193 prior C exports remain.
+The four unrelated security edits are excluded and retain their scoped diff hash.
+
+Evidence: `validation/call-console-batch-2026-10-18.json`; private build/capture
+`~/.cache/codex/xveil-console-batch-20261018`. Same current 1956 native media,
+original 360-s / 1024-kbit/s neutral shared FIFO, six PCM paths, video and three
+authenticated 512-KiB files. **Full repeat PASS:** ok/qualification true, exit 0,
+**2112 matched / 0 missing**, PCM marker maximum **170.285292 ms**. Parent and
+all three worker consoles report **0 dropped records / 0 write errors**; 173097
+wire events fit the unchanged 250000-row bound. Files complete by **351.895 s**,
+video tails advance **7 / 13 / 14 / 13 / 14 / 7** times, topology **[3,1,1,1]**
+verifies. The original failed capture remains unqualified. Sequential timing
+differences do not establish a universal or acoustic latency bound; this native
+harness still defaults the optional Flutter source hold false. Earlier PCM/
+startup counterexamples and absent speech/headset qualification remain retained.
+
+All node stops/worker exits are 0 and socket files 0. First independent OS audit
+briefly still finds one recorded policy PID addressable; retain that audit. A following ps
+and full PID audit verify every owned fixture/launcher/caffeinate/worker/policy
+PID absent, without killing anything. No physical apps/phone packages are
+updated in this cycle; no release, push or relay changes.
+
+The preceding physical 5724-byte work is now timed precisely: native attempt
+162325297296 us, seal +35 us, daemon read +105 us, handler entry +118 us, node
+relay outbox enqueue +139 us; budget_drop occurs at 162325463426 us. **165.991 ms
+elapse after node outbox enqueue**. IPC is not the long stage. The actual planned
+span/remaining-credit rejection is not yet witnessed; SourceCadence starts at
+33 ms, then measures cadence up to 100 ms. Admission requires its entire span
+to fit the original lifetime.
+Do not assume either oversize or byte-window exhaustion from this fitting frame.
+**Next:** establish the outbox/session wait and exact pending-work admission
+decision, then improve sustained video recovery while retaining primary isolation,
+original expiry and neutral relays. Goal ACTIVE.
+
 ## 2026-10-18: low-rate encoder frame sizing reaches the physical source
 
 SDK native commit `1956cfa4` adds encoded-image size feedback to the existing
