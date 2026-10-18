@@ -61,6 +61,7 @@ parser.add_argument('--adaptive-audio', action='store_true', help='Enable the pr
 parser.add_argument('--audio-overhead-bytes', type=int, default=209,
                     help='Diagnostic framing estimate for adaptive Opus; default 209 retains production behavior')
 parser.add_argument('--video-overhead-bytes', type=int, default=0, help='Configure video feedback/pacing framing separately from Opus; 0 retains the legacy video model')
+parser.add_argument('--live-video-framing', action='store_true', help='Use the production per-source SDK framing snapshot and live native video setter, including screen selection; no fixed video override')
 parser.add_argument('--max-rtp-packet-size', type=int,
                     help='Diagnostic video packet ceiling, 576–1460 bytes; omitted retains the constructor default. Does not change the blind limiter or codec bitrate')
 parser.add_argument('--compact-media', action='store_true', help='Use compact relay audio batching, as the current application does, instead of the legacy audio/video batch format')
@@ -108,6 +109,8 @@ if not 500 <= args.tone_period_ms <= 5000:
     parser.error('Tone period must be 500–5000 milliseconds')
 if not 0 <= args.video_overhead_bytes <= 4096 or (args.video_overhead_bytes and not args.adaptive_audio):
     parser.error('Video overhead must be 0–4096 bytes; a positive hint requires --adaptive-audio')
+if args.live_video_framing and (not args.adaptive_audio or args.video_overhead_bytes):
+    parser.error('Live video framing requires adaptive audio and excludes a fixed video override')
 if not 1 <= args.audio_overhead_bytes <= 4096 or (not args.adaptive_audio and args.audio_overhead_bytes != 209):
     parser.error('Audio overhead must be 1–4096 bytes and an override requires --adaptive-audio')
 if args.max_rtp_packet_size is not None and not 576 <= args.max_rtp_packet_size <= 1460:
@@ -430,6 +433,11 @@ try:
         f=getattr(media,name);f.argtypes=types;f.restype=ret;return f
     create=mf('veil_media_test_dual_overhead_codec_create',[C.c_uint64,P,P,C.c_int,C.c_int],P) if args.video_overhead_bytes else mf('veil_media_test_adaptive_codec_create',[C.c_uint64,P,P,C.c_int],P) if args.adaptive_audio else mf('veil_media_test_duplex_codec_create',[C.c_uint64,P,P],P)
     video_overhead=mf('veil_media_test_video_transport_overhead',[P],C.c_int) if args.video_overhead_bytes and hasattr(media,'veil_media_test_video_transport_overhead') else None
+    query_framing=fn('veil_media_channel_source_packet_cost',[C.c_uint64,C.c_uint8,C.c_size_t],P) if args.live_video_framing else None
+    set_video_framing=mf('veil_media_engine_set_video_packet_overhead',[P,C.c_int],C.c_int) if args.live_video_framing else None
+    framing_counters=[(0,0),(0,0)]
+    framing_packet_sizes=[200,200]
+    framing_applied=[0,0]
     timing_anchor=mf('veil_media_test_audio_timing_anchor',[P,C.c_int],C.c_int) if args.native_timing_trace else None
     destroy=mf('veil_media_engine_destroy',[P],None)
     set_packet_size=mf('veil_media_engine_set_max_rtp_packet_size',[P,C.c_int],C.c_int) if args.max_rtp_packet_size is not None else None
@@ -708,6 +716,24 @@ try:
                 if not ptr:pollfail[i]+=1;continue
                 try:stats=json.loads(C.string_at(ptr))
                 finally:mfree(ptr)
+                if query_framing is not None:
+                    packets=stats.get('video_tx_payload_pkts',0)
+                    payload=stats.get('video_tx_payload_bytes',0)
+                    last_packets,last_payload=framing_counters[i]
+                    if packets>last_packets and payload>last_payload:
+                        framing_packet_sizes[i]=max(12,min(1000,math.ceil((payload-last_payload)/(packets-last_packets))+20))
+                    framing_counters[i]=(packets,payload)
+                    ptr=query_framing(channels[i],3 if args.screen_video else 2,framing_packet_sizes[i])
+                    cost=None
+                    if ptr:
+                        try:cost=json.loads(C.string_at(ptr))
+                        finally:free(ptr)
+                    stats['video_source_cost']=cost
+                    if cost is not None:
+                        overhead=cost['per_path_overhead_bytes']
+                        if 0<overhead<=1024 and overhead!=framing_applied[i]:
+                            if set_video_framing(e,overhead)==0:framing_applied[i]=overhead
+                    stats['video_framing_applied_bytes']=framing_applied[i]
                 if video_overhead is not None:
                     # Read the controller's applied value, never echo the CLI
                     # argument as if it were native measurement. -1 is unknown.
@@ -729,7 +755,7 @@ try:
                 feedback=[]
                 while inbox[i]:feedback.append(inbox[i].popleft())
                 sampled_at=int(time.time()*1000)
-                r=command({'index':i,'op':'stats','now':sampled_at,'stats':stats,'feedback':feedback,'prepare':prepare,'videoSendExpected':videostarted and not args.no_video})
+                r=command({'index':i,'op':'stats','now':sampled_at,'stats':stats,'feedback':feedback,'prepare':prepare,'videoSendExpected':videostarted and not args.no_video,'sourceFeedbackQueued':source_feedback_queued[i]>0})
                 if source_report is not None and r['sourcePressured'] is not None:
                     rc=checked(source_report,apps[i],int(r['sourcePressured']),sampled_at)
                     if rc==0:source_feedback_queued[i]+=1
@@ -848,6 +874,12 @@ try:
     result['stand_clock_observations']=clock_observations
     result.update(driver_late_intervals=driver_late_intervals,driver_late_interval_count=driver_late_count)
     result['video_overhead_bytes_override'] = args.video_overhead_bytes
+    result['live_video_framing'] = args.live_video_framing
+    result['live_video_framing_verified'] = all(
+        any(x['side']==side and x['t']>=args.duration-15 and
+            x['stats'].get('video_source_cost') is not None and
+            x['stats'].get('video_framing_applied_bytes')==x['stats']['video_source_cost']['per_path_overhead_bytes']
+            for x in samples) for side in range(2)) if args.live_video_framing else None
     result['max_rtp_packet_size_override'] = args.max_rtp_packet_size
     result['video_overhead_verified'] = all(x['stats'].get('video_packet_overhead_bytes') == args.video_overhead_bytes for x in samples) if args.video_overhead_bytes else None
     result['adaptive_audio'] = args.adaptive_audio
@@ -985,6 +1017,8 @@ try:
         result['ok']=result['ok'] and result['independent_ordered_channels_offered_verified'] and result['independent_ordered_media_send_verified']
     if args.video_overhead_bytes:
         result['ok'] = result['ok'] and result['video_overhead_verified']
+    if args.live_video_framing:
+        result['ok'] = result['ok'] and result['live_video_framing_verified']
     if args.adaptive_audio:
         result['ok'] = result['ok'] and result['adaptive_audio_verified'] and result['codec_target_bounds_verified']
     result.update(local_source_feedback=args.local_source_feedback,source_feedback_queued=source_feedback_queued,source_feedback_skipped=source_feedback_skipped,reliable_file_contention=args.compete_file,file_results=[])

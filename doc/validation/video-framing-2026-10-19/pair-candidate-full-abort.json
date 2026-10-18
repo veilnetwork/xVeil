@@ -1,0 +1,5 @@
+{
+  "reason": "Verified fixture fidelity gap: adapter lacks production sourceBudgetPressured input. Stop before treating this as application qualification.",
+  "signal": "SIGINT",
+  "pid": 80277
+}

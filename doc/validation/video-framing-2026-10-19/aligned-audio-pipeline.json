@@ -1,0 +1,312 @@
+{
+  "same_process_fixture_only": true,
+  "exact_sender_offsets_required": true,
+  "edge_attribution_basis": "packet_containing_source_input",
+  "residual_can_include_following_packet_and_playout": true,
+  "capture_index_verified": {
+    "1": true,
+    "0": true
+  },
+  "native_trace_limit_may_have_been_reached": false,
+  "unmatched_payload_rows": 0,
+  "unattributed_edges": {},
+  "packets": [
+    {
+      "source": 0,
+      "phase": "audio-only",
+      "spans_ms": {
+        "encoded_to_send": {
+          "count": 317,
+          "max_ms": 27.866,
+          "p95_ms": 0.037
+        },
+        "send_to_sdk": {
+          "count": 317,
+          "max_ms": 0.028,
+          "p95_ms": 0.016
+        },
+        "sdk_to_ingress": {
+          "count": 317,
+          "max_ms": 22.586,
+          "p95_ms": 18.309
+        },
+        "ingress_to_webrtc": {
+          "count": 317,
+          "max_ms": 0.165,
+          "p95_ms": 0.029
+        },
+        "first_encode_input_to_encoded": {
+          "count": 317,
+          "max_ms": 50.857,
+          "p95_ms": 50.473
+        }
+      }
+    },
+    {
+      "source": 0,
+      "phase": "competing",
+      "spans_ms": {
+        "encoded_to_send": {
+          "count": 8328,
+          "max_ms": 27.182,
+          "p95_ms": 0.036
+        },
+        "send_to_sdk": {
+          "count": 8328,
+          "max_ms": 0.162,
+          "p95_ms": 0.013
+        },
+        "sdk_to_ingress": {
+          "count": 8328,
+          "max_ms": 194.177,
+          "p95_ms": 30.388
+        },
+        "ingress_to_webrtc": {
+          "count": 8328,
+          "max_ms": 0.448,
+          "p95_ms": 0.029
+        },
+        "first_encode_input_to_encoded": {
+          "count": 8328,
+          "max_ms": 51.079,
+          "p95_ms": 30.461
+        }
+      }
+    },
+    {
+      "source": 1,
+      "phase": "audio-only",
+      "spans_ms": {
+        "encoded_to_send": {
+          "count": 317,
+          "max_ms": 21.628,
+          "p95_ms": 0.03
+        },
+        "send_to_sdk": {
+          "count": 317,
+          "max_ms": 0.022,
+          "p95_ms": 0.012
+        },
+        "sdk_to_ingress": {
+          "count": 317,
+          "max_ms": 23.009,
+          "p95_ms": 18.789
+        },
+        "ingress_to_webrtc": {
+          "count": 317,
+          "max_ms": 0.077,
+          "p95_ms": 0.027
+        },
+        "first_encode_input_to_encoded": {
+          "count": 317,
+          "max_ms": 50.785,
+          "p95_ms": 50.483
+        }
+      }
+    },
+    {
+      "source": 1,
+      "phase": "competing",
+      "spans_ms": {
+        "encoded_to_send": {
+          "count": 8336,
+          "max_ms": 27.447,
+          "p95_ms": 0.033
+        },
+        "send_to_sdk": {
+          "count": 8336,
+          "max_ms": 1.026,
+          "p95_ms": 0.012
+        },
+        "sdk_to_ingress": {
+          "count": 8336,
+          "max_ms": 199.482,
+          "p95_ms": 31.473
+        },
+        "ingress_to_webrtc": {
+          "count": 8336,
+          "max_ms": 0.563,
+          "p95_ms": 0.03
+        },
+        "first_encode_input_to_encoded": {
+          "count": 8336,
+          "max_ms": 50.964,
+          "p95_ms": 30.489
+        }
+      }
+    }
+  ],
+  "attributed_edges": 704,
+  "largest_pcm_edges": [
+    {
+      "source": 1,
+      "input_seconds": 207.050537,
+      "output_seconds": 207.300495,
+      "total_ms": 249.958,
+      "packet_ms": 60,
+      "input_position_ms": 10,
+      "following_packet_ingress_seconds": 207.323127,
+      "spans_ms": {
+        "capture_to_encoded": 40.135,
+        "encoded_to_send": 0.008,
+        "send_to_sdk": 0.003,
+        "sdk_to_ingress": 167.7,
+        "ingress_to_webrtc": 0.02,
+        "webrtc_to_pcm_edge": 42.092
+      }
+    },
+    {
+      "source": 0,
+      "input_seconds": 207.050462,
+      "output_seconds": 207.290606,
+      "total_ms": 240.144,
+      "packet_ms": 60,
+      "input_position_ms": 10,
+      "following_packet_ingress_seconds": 207.318149,
+      "spans_ms": {
+        "capture_to_encoded": 40.16,
+        "encoded_to_send": 0.013,
+        "send_to_sdk": 0.004,
+        "sdk_to_ingress": 163.167,
+        "ingress_to_webrtc": 0.022,
+        "webrtc_to_pcm_edge": 36.778
+      }
+    },
+    {
+      "source": 1,
+      "input_seconds": 208.06055,
+      "output_seconds": 208.290493,
+      "total_ms": 229.943,
+      "packet_ms": 60,
+      "input_position_ms": 0,
+      "following_packet_ingress_seconds": 208.188975,
+      "spans_ms": {
+        "capture_to_encoded": 50.296,
+        "encoded_to_send": 0.017,
+        "send_to_sdk": 0.005,
+        "sdk_to_ingress": 9.933,
+        "ingress_to_webrtc": 0.017,
+        "webrtc_to_pcm_edge": 169.675
+      }
+    },
+    {
+      "source": 0,
+      "input_seconds": 136.350457,
+      "output_seconds": 136.570652,
+      "total_ms": 220.195,
+      "packet_ms": 40,
+      "input_position_ms": 10,
+      "following_packet_ingress_seconds": 136.553399,
+      "spans_ms": {
+        "capture_to_encoded": 20.454,
+        "encoded_to_send": 0.027,
+        "send_to_sdk": 0.009,
+        "sdk_to_ingress": 140.066,
+        "ingress_to_webrtc": 0.019,
+        "webrtc_to_pcm_edge": 59.62
+      }
+    },
+    {
+      "source": 0,
+      "input_seconds": 208.060465,
+      "output_seconds": 208.280618,
+      "total_ms": 220.153,
+      "packet_ms": 60,
+      "input_position_ms": 0,
+      "following_packet_ingress_seconds": 208.211966,
+      "spans_ms": {
+        "capture_to_encoded": 50.36,
+        "encoded_to_send": 23.489,
+        "send_to_sdk": 0.009,
+        "sdk_to_ingress": 42.999,
+        "ingress_to_webrtc": 0.015,
+        "webrtc_to_pcm_edge": 103.281
+      }
+    },
+    {
+      "source": 0,
+      "input_seconds": 137.360464,
+      "output_seconds": 137.580601,
+      "total_ms": 220.138,
+      "packet_ms": 60,
+      "input_position_ms": 40,
+      "following_packet_ingress_seconds": 137.522296,
+      "spans_ms": {
+        "capture_to_encoded": 10.377,
+        "encoded_to_send": 0.024,
+        "send_to_sdk": 0.007,
+        "sdk_to_ingress": 86.068,
+        "ingress_to_webrtc": 0.02,
+        "webrtc_to_pcm_edge": 123.641
+      }
+    },
+    {
+      "source": 0,
+      "input_seconds": 213.110464,
+      "output_seconds": 213.320763,
+      "total_ms": 210.299,
+      "packet_ms": 60,
+      "input_position_ms": 10,
+      "following_packet_ingress_seconds": 213.223024,
+      "spans_ms": {
+        "capture_to_encoded": 40.649,
+        "encoded_to_send": 0.02,
+        "send_to_sdk": 0.008,
+        "sdk_to_ingress": 15.988,
+        "ingress_to_webrtc": 0.01,
+        "webrtc_to_pcm_edge": 153.624
+      }
+    },
+    {
+      "source": 0,
+      "input_seconds": 211.090464,
+      "output_seconds": 211.300742,
+      "total_ms": 210.278,
+      "packet_ms": 60,
+      "input_position_ms": 30,
+      "following_packet_ingress_seconds": 211.181,
+      "spans_ms": {
+        "capture_to_encoded": 20.176,
+        "encoded_to_send": 0.015,
+        "send_to_sdk": 0.007,
+        "sdk_to_ingress": 10.595,
+        "ingress_to_webrtc": 0.013,
+        "webrtc_to_pcm_edge": 179.472
+      }
+    },
+    {
+      "source": 0,
+      "input_seconds": 214.120465,
+      "output_seconds": 214.330636,
+      "total_ms": 210.171,
+      "packet_ms": 60,
+      "input_position_ms": 0,
+      "following_packet_ingress_seconds": 214.247931,
+      "spans_ms": {
+        "capture_to_encoded": 50.379,
+        "encoded_to_send": 0.03,
+        "send_to_sdk": 0.009,
+        "sdk_to_ingress": 12.468,
+        "ingress_to_webrtc": 0.024,
+        "webrtc_to_pcm_edge": 147.261
+      }
+    },
+    {
+      "source": 0,
+      "input_seconds": 212.100468,
+      "output_seconds": 212.31058,
+      "total_ms": 210.112,
+      "packet_ms": 60,
+      "input_position_ms": 20,
+      "following_packet_ingress_seconds": 212.205869,
+      "spans_ms": {
+        "capture_to_encoded": 30.373,
+        "encoded_to_send": 0.025,
+        "send_to_sdk": 0.007,
+        "sdk_to_ingress": 11.085,
+        "ingress_to_webrtc": 0.017,
+        "webrtc_to_pcm_edge": 168.605
+      }
+    }
+  ]
+}

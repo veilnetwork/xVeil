@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:veil_media/veil_media.dart';
+import 'package:veil_flutter/veil_ffi.dart' show MediaPacketSource;
 
 import '../core/log.dart';
 import '../core/ids.dart';
@@ -597,6 +598,8 @@ class VeilCallMediaController implements CallMediaController {
   int _audioCostLastPackets = 0, _audioCostLastBytes = 0;
   int _audioCostPacketBytes = 200;
   Map<String, Object?>? _audioSourceCost;
+  bool _videoFramingEligible = false;
+  CallVideoFraming _videoFraming = CallVideoFraming();
   ({int bitrateKbps, double fps})? _diagnosticVideoTarget;
 
   void _refreshAudioFraming(
@@ -624,7 +627,7 @@ class VeilCallMediaController implements CallMediaController {
       channel,
       packetBytes: _audioCostPacketBytes,
     );
-    final overhead = callAudioFramingOverhead(_audioSourceCost);
+    final overhead = callMediaFramingOverhead(_audioSourceCost);
     if (overhead == null || overhead == _audioPacketOverhead) return;
     // Failure leaves the existing encoder and hint intact. Retry on the next
     // observation after a worker stall or unprepared replacement child.
@@ -632,6 +635,27 @@ class VeilCallMediaController implements CallMediaController {
       _audioPacketOverhead = overhead;
       devLog(() => 'xVeil[call-media]: audio framing updated bytes=$overhead');
     }
+  }
+
+  void _refreshVideoFraming(
+    VeilMediaEngine engine,
+    int channel, {
+    Map<String, dynamic>? stats,
+  }) {
+    if (!_videoFramingEligible || _chanTransport == CallTransportKind.onion) {
+      return;
+    }
+    _videoFraming.refresh(
+      stats: stats,
+      query: (packetBytes) => _transport.mediaPacketCost(
+        channel,
+        packetBytes: packetBytes,
+        source: _activeCall?.screenOn == true
+            ? MediaPacketSource.screen
+            : MediaPacketSource.video,
+      ),
+      apply: engine.setVideoPacketOverhead,
+    );
   }
 
   int _setMediaBatchingForDiagnostics(bool enabled) {
@@ -794,6 +818,8 @@ class VeilCallMediaController implements CallMediaController {
         'compact_relay_media': _compactRelayMedia,
         'audio_source_cost': _audioSourceCost,
         'audio_framing_applied_bytes': _audioPacketOverhead,
+        'video_source_cost': _videoFraming.sourceCost,
+        'video_framing_applied_bytes': _videoFraming.appliedOverheadBytes,
         'capture_camera_id': _selectedCameraId,
         'capture_microphone_id': _selectedMicrophoneId,
         'capture_microphone_label': _preferredMicrophoneLabel,
@@ -1043,6 +1069,7 @@ class VeilCallMediaController implements CallMediaController {
       _mediaBatching = relay;
       _compactRelayMedia = relay;
       _refreshAudioFraming(engine, candidate);
+      _refreshVideoFraming(engine, candidate);
       _routeHandovers++;
       _lastNativeRxCount = 0;
       _engineRxStalledSince = null;
@@ -1479,15 +1506,17 @@ class VeilCallMediaController implements CallMediaController {
       _chanPeer = null;
       return false;
     }
+    _videoFramingEligible = feedback && highQuality;
     if (feedback && highQuality) {
       _audioSourceCost = _transport.mediaPacketCost(
         chan,
         packetBytes: _audioCostPacketBytes,
       );
+      _refreshVideoFraming(engine, chan);
       // A prepared child supplies its actual carrier/fragmentation model.
       // Legacy/unknown nodes retain the old direct hint, explicitly marked
       // unknown in diagnostics until a truthful source snapshot is available.
-      final overhead = callAudioFramingOverhead(_audioSourceCost) ?? 209;
+      final overhead = callMediaFramingOverhead(_audioSourceCost) ?? 209;
       _audioFramingEnabled = engine.setAudioPacketOverhead(overhead);
       _audioPacketOverhead = _audioFramingEnabled ? overhead : 0;
       devLog(
@@ -1557,6 +1586,7 @@ class VeilCallMediaController implements CallMediaController {
         final channel = _chan;
         if (channel != null) {
           _refreshAudioFraming(engine, channel, stats: stats);
+          _refreshVideoFraming(engine, channel, stats: stats);
         }
         final now = DateTime.now();
         _audioReceiveActivity.observe(stats, now);
@@ -2215,6 +2245,8 @@ class VeilCallMediaController implements CallMediaController {
     _audioCostLastPackets = _audioCostLastBytes = 0;
     _audioCostPacketBytes = 200;
     _audioSourceCost = null;
+    _videoFramingEligible = false;
+    _videoFraming = CallVideoFraming();
     if (ch != null) {
       try {
         _transport.closeMediaChannel(ch);

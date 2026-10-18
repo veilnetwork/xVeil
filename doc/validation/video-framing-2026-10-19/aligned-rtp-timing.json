@@ -1,0 +1,90 @@
+{
+  "same_process_fixture_only": true,
+  "trace_blocks_are_not_device_labels": true,
+  "first_five_seconds_excluded": true,
+  "window_seconds": [
+    5,
+    360
+  ],
+  "window_selected_by": "attempted_us",
+  "unmatched_payload_rows": 0,
+  "trace_limit_may_have_been_reached": false,
+  "send_trace_limits": [
+    32768,
+    32768
+  ],
+  "receive_trace_limits": [
+    32768,
+    32768
+  ],
+  "send_trace_rows": [
+    8884,
+    8881
+  ],
+  "receive_trace_rows": [
+    8881,
+    8884
+  ],
+  "phases": [
+    {
+      "source_trace_block": 0,
+      "phase": "audio-only",
+      "admitted_to_ingress": {
+        "count": 317,
+        "max_ms": 23.009,
+        "p95_ms": 18.789
+      },
+      "ingress_to_webrtc": {
+        "count": 317,
+        "max_ms": 0.077,
+        "p95_ms": 0.027
+      },
+      "peak_flight_at_seconds": 9.691
+    },
+    {
+      "source_trace_block": 0,
+      "phase": "competing",
+      "admitted_to_ingress": {
+        "count": 8336,
+        "max_ms": 199.482,
+        "p95_ms": 31.473
+      },
+      "ingress_to_webrtc": {
+        "count": 8336,
+        "max_ms": 0.563,
+        "p95_ms": 0.03
+      },
+      "peak_flight_at_seconds": 207.451
+    },
+    {
+      "source_trace_block": 1,
+      "phase": "audio-only",
+      "admitted_to_ingress": {
+        "count": 317,
+        "max_ms": 22.586,
+        "p95_ms": 18.309
+      },
+      "ingress_to_webrtc": {
+        "count": 317,
+        "max_ms": 0.165,
+        "p95_ms": 0.029
+      },
+      "peak_flight_at_seconds": 12.711
+    },
+    {
+      "source_trace_block": 1,
+      "phase": "competing",
+      "admitted_to_ingress": {
+        "count": 8328,
+        "max_ms": 194.177,
+        "p95_ms": 30.388
+      },
+      "ingress_to_webrtc": {
+        "count": 8328,
+        "max_ms": 0.448,
+        "p95_ms": 0.029
+      },
+      "peak_flight_at_seconds": 207.451
+    }
+  ]
+}

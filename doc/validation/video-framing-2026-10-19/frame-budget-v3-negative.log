@@ -1,0 +1,1 @@
+Assertion failed: (allocated.snapshot().bytes == 1200), function main, file video_frame_budget_smoke.cc, line 51.

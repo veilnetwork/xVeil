@@ -116,6 +116,8 @@ class RoomPolicy {
     } else if (request['video'] == true) {
       adapter.onNativeStats(
         stats,
+        sourceBudgetPressured:
+            request['sourceFeedbackQueued'] == true && pressured == true,
         videoSendExpected: true,
         sendAudioExpected: true,
         receiveAudioExpected: true,
@@ -145,6 +147,8 @@ class RoomPolicy {
     });
     return {
       'sourcePressured': pressured,
+      'sourceBudgetPressured':
+          request['sourceFeedbackQueued'] == true && pressured == true,
       'pause': pause,
       'budget': budget,
       'target': {

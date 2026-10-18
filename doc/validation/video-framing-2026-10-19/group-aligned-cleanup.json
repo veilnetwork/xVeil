@@ -1,0 +1,17 @@
+{
+  "owned_pids": [
+    78041,
+    78052,
+    78055,
+    85959,
+    85961,
+    85962,
+    85963,
+    85988,
+    85989,
+    85990
+  ],
+  "remaining": [],
+  "remaining_sockets": 0,
+  "all_workers_exited": true
+}
