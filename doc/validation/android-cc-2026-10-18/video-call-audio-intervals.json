@@ -1,0 +1,187 @@
+{
+  "mac_phone": {
+    "accepted_sends": 12935,
+    "all_received_including_padding": 12935,
+    "received_payloads": 12768,
+    "matched_payloads": 12768,
+    "unreceived_accepted_sends": 0,
+    "unreceived_sends_trailing_only": true,
+    "max_native_sender_admission_ms": 0.789,
+    "max_native_receiver_drain_ms": 2.882,
+    "largest_extra_spacing_consecutive_rtp": [
+      {
+        "sender_seconds_since_first_attempt": 354.446,
+        "receive_gap_ms": 262.994,
+        "sender_attempt_gap_ms": 21.455,
+        "sender_sdk_gap_ms": 21.458,
+        "extra_arrival_spacing_ms": 241.536,
+        "sequence_delta": 1
+      },
+      {
+        "sender_seconds_since_first_attempt": 346.025,
+        "receive_gap_ms": 248.662,
+        "sender_attempt_gap_ms": 37.587,
+        "sender_sdk_gap_ms": 37.588,
+        "extra_arrival_spacing_ms": 211.074,
+        "sequence_delta": 1
+      },
+      {
+        "sender_seconds_since_first_attempt": 270.383,
+        "receive_gap_ms": 233.18,
+        "sender_attempt_gap_ms": 42.984,
+        "sender_sdk_gap_ms": 42.984,
+        "extra_arrival_spacing_ms": 190.196,
+        "sequence_delta": 1
+      },
+      {
+        "sender_seconds_since_first_attempt": 322.419,
+        "receive_gap_ms": 226.723,
+        "sender_attempt_gap_ms": 36.922,
+        "sender_sdk_gap_ms": 36.915,
+        "extra_arrival_spacing_ms": 189.808,
+        "sequence_delta": 1
+      },
+      {
+        "sender_seconds_since_first_attempt": 242.361,
+        "receive_gap_ms": 206.767,
+        "sender_attempt_gap_ms": 21.296,
+        "sender_sdk_gap_ms": 21.3,
+        "extra_arrival_spacing_ms": 185.467,
+        "sequence_delta": 1
+      },
+      {
+        "sender_seconds_since_first_attempt": 340.767,
+        "receive_gap_ms": 240.953,
+        "sender_attempt_gap_ms": 58.638,
+        "sender_sdk_gap_ms": 58.642,
+        "extra_arrival_spacing_ms": 182.311,
+        "sequence_delta": 1
+      },
+      {
+        "sender_seconds_since_first_attempt": 246.5,
+        "receive_gap_ms": 213.733,
+        "sender_attempt_gap_ms": 37.519,
+        "sender_sdk_gap_ms": 37.519,
+        "extra_arrival_spacing_ms": 176.214,
+        "sequence_delta": 1
+      },
+      {
+        "sender_seconds_since_first_attempt": 240.623,
+        "receive_gap_ms": 185.268,
+        "sender_attempt_gap_ms": 21.308,
+        "sender_sdk_gap_ms": 21.307,
+        "extra_arrival_spacing_ms": 163.961,
+        "sequence_delta": 1
+      },
+      {
+        "sender_seconds_since_first_attempt": 338.708,
+        "receive_gap_ms": 180.135,
+        "sender_attempt_gap_ms": 21.342,
+        "sender_sdk_gap_ms": 21.338,
+        "extra_arrival_spacing_ms": 158.797,
+        "sequence_delta": 1
+      },
+      {
+        "sender_seconds_since_first_attempt": 288.543,
+        "receive_gap_ms": 221.391,
+        "sender_attempt_gap_ms": 64.145,
+        "sender_sdk_gap_ms": 64.146,
+        "extra_arrival_spacing_ms": 157.245,
+        "sequence_delta": 1
+      }
+    ]
+  },
+  "phone_mac": {
+    "accepted_sends": 11686,
+    "all_received_including_padding": 11658,
+    "received_payloads": 11461,
+    "matched_payloads": 11461,
+    "unreceived_accepted_sends": 28,
+    "unreceived_sends_trailing_only": true,
+    "max_native_sender_admission_ms": 3.308,
+    "max_native_receiver_drain_ms": 12.042,
+    "largest_extra_spacing_consecutive_rtp": [
+      {
+        "sender_seconds_since_first_attempt": 261.96,
+        "receive_gap_ms": 1051.648,
+        "sender_attempt_gap_ms": 58.586,
+        "sender_sdk_gap_ms": 58.586,
+        "extra_arrival_spacing_ms": 993.062,
+        "sequence_delta": 1
+      },
+      {
+        "sender_seconds_since_first_attempt": 192.698,
+        "receive_gap_ms": 664.294,
+        "sender_attempt_gap_ms": 57.197,
+        "sender_sdk_gap_ms": 57.237,
+        "extra_arrival_spacing_ms": 607.057,
+        "sequence_delta": 1
+      },
+      {
+        "sender_seconds_since_first_attempt": 220.535,
+        "receive_gap_ms": 418.025,
+        "sender_attempt_gap_ms": 38.14,
+        "sender_sdk_gap_ms": 38.16,
+        "extra_arrival_spacing_ms": 379.865,
+        "sequence_delta": 1
+      },
+      {
+        "sender_seconds_since_first_attempt": 258.722,
+        "receive_gap_ms": 403.472,
+        "sender_attempt_gap_ms": 59.851,
+        "sender_sdk_gap_ms": 59.839,
+        "extra_arrival_spacing_ms": 343.633,
+        "sequence_delta": 1
+      },
+      {
+        "sender_seconds_since_first_attempt": 217.219,
+        "receive_gap_ms": 371.32,
+        "sender_attempt_gap_ms": 40.416,
+        "sender_sdk_gap_ms": 40.406,
+        "extra_arrival_spacing_ms": 330.914,
+        "sequence_delta": 1
+      },
+      {
+        "sender_seconds_since_first_attempt": 252.002,
+        "receive_gap_ms": 387.878,
+        "sender_attempt_gap_ms": 59.059,
+        "sender_sdk_gap_ms": 59.056,
+        "extra_arrival_spacing_ms": 328.822,
+        "sequence_delta": 1
+      },
+      {
+        "sender_seconds_since_first_attempt": 244.201,
+        "receive_gap_ms": 390.797,
+        "sender_attempt_gap_ms": 63.992,
+        "sender_sdk_gap_ms": 63.982,
+        "extra_arrival_spacing_ms": 326.815,
+        "sequence_delta": 1
+      },
+      {
+        "sender_seconds_since_first_attempt": 267.12,
+        "receive_gap_ms": 360.12,
+        "sender_attempt_gap_ms": 59.527,
+        "sender_sdk_gap_ms": 59.539,
+        "extra_arrival_spacing_ms": 300.581,
+        "sequence_delta": 1
+      },
+      {
+        "sender_seconds_since_first_attempt": 184.723,
+        "receive_gap_ms": 338.984,
+        "sender_attempt_gap_ms": 59.301,
+        "sender_sdk_gap_ms": 59.288,
+        "extra_arrival_spacing_ms": 279.696,
+        "sequence_delta": 1
+      },
+      {
+        "sender_seconds_since_first_attempt": 219.601,
+        "receive_gap_ms": 317.498,
+        "sender_attempt_gap_ms": 57.963,
+        "sender_sdk_gap_ms": 57.936,
+        "extra_arrival_spacing_ms": 259.562,
+        "sequence_delta": 1
+      }
+    ]
+  },
+  "limits": "Only local clock intervals for exactly matched accepted RTP pairs; no absolute cross-device delay. Extra arrival spacing includes every stage after the sender callback admission and before receiver ingress, not just the wire. Payload-only gap pairs can span silence/DTX, but actual sender spacing is retained. Complete uncapped logs and unique keys required. Unobserved accepted sends need not be network loss."
+}
