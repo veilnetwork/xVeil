@@ -1,0 +1,106 @@
+{
+  "policy": "clamp(80 + 2 * packet_ms, 120, 200) ms queue budget; target ceiling subtracts one packet; stricter caller cap retained",
+  "formal_regression": [
+    {
+      "test": "smoke-final",
+      "exit_code": 0,
+      "process_absent": true
+    },
+    {
+      "test": "smoke-baseline-final",
+      "exit_code": -6,
+      "process_absent": true
+    }
+  ],
+  "duration_seconds": 120,
+  "modeled_delay_ms": [
+    40,
+    140
+  ],
+  "modeled_delay_switch_interval_ms": 200,
+  "packet_loss_injected": false,
+  "bandwidth_queue_injected": false,
+  "voice_dtx_voice_seconds": [
+    40,
+    40,
+    40
+  ],
+  "summary_line": "long-packets result: voiced=3993/24/3975 duration60=37/40/40 observations=40/40/40 lateness=12.621 trim_ms=110 interruptions=0",
+  "sampled_final_cumulative_discarded_ms": 110,
+  "sampled_final_concealed_samples": 9941,
+  "decoded_marker_count": 40,
+  "median_decoded_marker_latency_ms": 250.6085,
+  "max_decoded_marker_latency_ms": 263.992,
+  "decoded_marker_latencies_ms": [
+    166.859,
+    222.526,
+    241.873,
+    238.011,
+    242.55,
+    241.204,
+    242.352,
+    241.588,
+    242.616,
+    240.733,
+    238.726,
+    237.766,
+    238.592,
+    240.536,
+    243.939,
+    240.097,
+    241.856,
+    238.928,
+    238.808,
+    240.606,
+    260.355,
+    258.43,
+    263.992,
+    257.43,
+    262.611,
+    260.912,
+    257.278,
+    258.16,
+    260.289,
+    260.08,
+    259.07,
+    260.87,
+    257.287,
+    261.946,
+    259.642,
+    260.059,
+    258.783,
+    262.177,
+    259.952,
+    260.978
+  ],
+  "settled_speech_phases": [
+    {
+      "sampled_interval_ms": [
+        5000,
+        39000
+      ],
+      "discarded_delta_ms": 0,
+      "concealed_delta_samples": 0
+    },
+    {
+      "sampled_interval_ms": [
+        85000,
+        119000
+      ],
+      "discarded_delta_ms": 0,
+      "concealed_delta_samples": 0
+    }
+  ],
+  "stronger_gate": "No trim or concealment advances after five seconds of settling in each speech phase; <=400 ms aggregate startup/resume trim, <24000 concealed samples, all 40 PCM markers <300 ms, >3900 voiced ticks per speech phase; timer lateness <30 ms; actual 60-ms packetization observed >=35/40 samples per phase.",
+  "baseline_failure": "Same final fixture with old 120-ms wrapper aborts at first settled-speech cumulative trim invariant, before 40 seconds.",
+  "wrapper_test": "run_playout_recovery_smoke.py: pass, five packet sizes and exact budget boundaries, stricter caller limits and PLC/mute/error/forced-operation preservation",
+  "group_regression": "group decoded mix: warm=50 recovered=15 first_tick=252 resume_tick=250 packets=1171 max_clock_gap_ms=14.742 fresh_marker_age_ms=169.447 recoveries=10 discarded_ms=860 fallback=0",
+  "delivery_stall": "{\"delivery_stall_drop\":false,\"sent_packets\":1006,\"dropped_packets\":0,\"max_delivery_batch\":135,\"max_tick_lateness_ms\":4.98,\"final_nonsilent_ticks\":300,\"max_buffer_ms\":140,\"max_playout_delay_ms\":140,\"post_stall_marker_latency_ms\":[157.66,98.68,99.92,101.15,102.97,100.22],\"concealed_samples\":175920,\"interruption_count\":2,\"buffer_flushes\":3}",
+  "silence_after_jitter": "{\"silence_rtp_packets\":57,\"max_silence_rx_age_ms\":381,\"interruption_delta\":0,\"concealed_delta\":0,\"max_tick_lateness_ms\":4.98}\n{\"after_jitter\":true,\"max_silence_delay_ms\":46,\"max_recovered_delay_ms\":46,\"max_silence_buffer_ms\":46,\"resumed_tone_delay_ms\":140}",
+  "rejected_candidate": "Uniform 200-ms budget fails existing group PCM recovery gate: first marker age233.098ms, first render tick258 vs required <=255. Final policy preserves120ms for short packets.",
+  "transient_gate_revision": "First scaled-candidate run trimmed230ms only during startup and DTX resume and then remained flat. Replaced arbitrary200ms aggregate limit with400ms plus strict zero continuing trim/PLC in settled phases; old baseline still fails.",
+  "source_sha256": {
+    "third_party/veil/flutter/veil_media/src/veil_playout_recovery.h": "60e11c17c3a2399b321f0e8b9c3b734ded989afd085452248d05a794d84a483c",
+    "third_party/veil/flutter/veil_media/test/audio_playout_smoke.cc": "d95b738c1b3a193b33eadae37db80268ad0682952901469a48518bf1b795f15f"
+  }
+}
