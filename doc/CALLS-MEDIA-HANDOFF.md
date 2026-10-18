@@ -1,5 +1,87 @@
 # Calls media handoff
 
+## 2026-10-18: source-session admission isolated; downstream delay remains
+
+SDK `eb16851e` adds opt-in monotonic observations at source budget selection
+and complete DATAGRAM acceptance, including a process-local QUIC ordinal.
+`8e9cf099` gives the new acceptance records their own bounded 65536-row
+budget. `c219fa7b` reads that ordinal lazily: disabled diagnostics, transit,
+secondary sources and invalid frames do not acquire the QUIC mutex. These
+records stay at the endpoint and introduce no relay role or wire field.
+
+Public evidence: `validation/call-source-session-2026-10-18.json`. Private
+builds, launchers and captures: `~/.cache/codex/xveil-source-admission-20261018`.
+Both measured runs retain the original 360-second, 1024-kbit/s blind FIFO
+per direction, three actual SDK/native processes, six PCM paths, real VP8,
+three encrypted 512-KiB files, adaptive production codecs and strict <200-ms
+PCM gate. Prior failures remain unresolved.
+
+| Capture | Original verdict | PCM peak | Markers | Video tail changes |
+| --- | --- | --- | --- | --- |
+| `group-source-admission-360` | PASS | 190.110625 ms | 2112 / 0 missing | 6 / 14 / 14 / 14 / 14 / 6 |
+| `source-repeat-360` | FAIL | 210.115917 ms | 2112 / 0 missing | 14 / 14 / 10 / 14 / 10 / 14 |
+
+All file hashes/authentication match; all finish by 352.306 seconds. Consoles
+have no dropped records/write errors. The first run exhausts the original
+shared source-observation budget: its full source-session analyzer correctly
+rejects the truncated diagnostic stream, while retained peak witnesses and
+the unchanged original PCM verdict are preserved separately. The repeat has
+complete source-session observations with the independent budget.
+
+### Exact failing PCM peak
+
+The repeat's packet (60-ms Opus, SSRC 4042311161, RTP sequence 9315,
+timestamp 85380597) covers the marker at 121.200018 seconds. Its authenticated
+seal is epoch `fcce2b19ee47be56`, sequence 2252; source QUIC ordinal 14:
+
+- Native enqueue attempt -> complete source DATAGRAM acceptance: **0.272 ms**.
+- IPC handler enter -> source budget selection: **0.135 ms**.
+- Budget selection -> DATAGRAM acceptance: **0.011 ms**.
+- DATAGRAM acceptance -> authenticated receiver SDK: **133.376 ms**.
+- Receiver native ingress -> WebRTC delivery: **0.022 ms**.
+- WebRTC delivery -> detected PCM edge: **75.806 ms**; includes codec/FEC and
+  following packets, not just NetEq.
+
+Same-connection lifetime observations *after* this receipt bound timed QUIC
+queue age at **1.689 ms** and prepared UDP socket wait at **0.244 ms**. No
+CWND/pacing-blocked datagrams, outgoing expiry or lost packets are recorded
+on that source connection. These are lifetime maxima, not the particular
+packet's measured queue spans. Event/timer maxima overlap and must not be
+added. The 133-ms residual is still not attributed to a wire hop or relay.
+
+### Startup tail and cleanup
+
+All-packet input-to-ingress lower bounds match every encoded packet in the
+original diagnostic window (1 <= first input seconds < duration - 1): first
+run 36832 receipts, zero >=200 ms, max **194.840 ms**; repeat 36552 receipts,
+**47 >=200 ms**, max **304.784 ms before decoding/playout**. The latter worst
+packet starts at 1.000121 seconds. Its exact cell is the same epoch, sequence
+38, same source connection 14: handler -> budget **0.120 ms**, budget ->
+acceptance **0.011 ms**, acceptance -> authenticated SDK **274.142 ms**.
+This identifies a startup downstream burst that ordinal PCM peaks alone do
+not characterize. These local synthetic bounds are not acoustic measurements.
+
+Both runs' ten owned PIDs independently verify absent. The repeat's original
+stop snapshot reports `remaining_sockets=1`: all node stops/workers succeed,
+but `3/ipc.sock` remains. A later OS audit confirms no owner (`lsof` exit 1)
+and ECONNREFUSED; the owned stale file was manually removed. The original
+FAIL and stop snapshot remain unchanged. This socket-file cleanup defect is
+separate from the measured latency and remains recorded for follow-up.
+
+Eight source-trace Rust tests and 37 Python pipeline tests pass. Clippy for
+`veil-session` lib/tests with warnings denied and clean release SDK builds
+pass. The final lazy-ordinal guard is verified by callback-not-invoked
+assertions for disabled/non-primary/invalid cases and a clean release build;
+full captures use the preceding enabled-trace revisions, as their manifests
+state. No phone/app install or new physical/acoustic qualification this cycle.
+
+**Next:** retain the 210-/230-ms failures and the 305-ms startup bound. Follow
+the exact encrypted payload through generic neutral relay dispatch/transport
+and receiver delivery, without RTP parsing, relay priority or media labels.
+Source SDK/IPC/session admission and the measured source QUIC queue are too
+small to account for these two large residuals. Do not change pacing or codec
+framing on that unproven attribution. Goal remains ACTIVE.
+
 ## 2026-10-18: exact SDK cell join; framing-only candidate rejected
 
 SDK `d6735fbe` adds opt-in RTP-header witnesses at seal time and only after
