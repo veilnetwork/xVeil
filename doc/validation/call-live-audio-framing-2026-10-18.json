@@ -1,0 +1,80 @@
+{
+  "date": "2026-10-18",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "previous_goal_turn": "No progress on media quality: read-only verification confirmed the six QUIC listeners remain healthy. This cycle resumes source framing/loss investigation and implements a native prerequisite.",
+  "scope": "Permit live positive framing updates on an already adapted audio engine; preserve independent controllers and RTP/codec/playout state.",
+  "physical_evidence": {
+    "capture": "Existing private qa-v2/physical-playout-budget-video; no new call placed.",
+    "interior_payload_loss_mac_to_phone": 34,
+    "interior_payload_loss_phone_to_mac": 23,
+    "all_missing_payloads_after_relay_transition": true,
+    "max_consecutive_missing_encoded_ms": [
+      60,
+      40
+    ],
+    "encoded_missing_is_not_playout_pause": true,
+    "all_34_mac_missing_payloads_have_source_datagram_admission": true,
+    "mac_admission_copy_histogram": {
+      "1": 4,
+      "2": 30
+    },
+    "observed_unbatched_relay_overhead_below_rtp_bytes": 360,
+    "current_native_hint_bytes": 209,
+    "missing_overhead_bytes": 151,
+    "does_not_identify_dropping_hop_or_prove_causality": true
+  },
+  "verification": {
+    "real_opus_ana": "One unchanged encoder; actual encoded durations 20/40/20ms at hints209/360/209; speech payload floor24..32kbit/s.",
+    "real_call_pcm": {
+      "duration_seconds": 36,
+      "fixed_test_allocation_bps": 160000,
+      "charged_overhead_per_phase_bytes": [
+        209,
+        360,
+        209
+      ],
+      "settled_voiced_blocks_per_phase": [
+        600,
+        600,
+        600
+      ],
+      "duration_matches_per_phase": [
+        6,
+        6,
+        6
+      ],
+      "source_queue_drops_per_phase": [
+        0,
+        0,
+        0
+      ],
+      "max_pcm_marker_delay_ms": 193.244,
+      "required_max_pcm_marker_delay_ms": 200,
+      "rtp_sequence_continuous": true,
+      "video_controller_overhead_unchanged": true,
+      "max_fixture_tick_lateness_ms": 4.952
+    },
+    "negative_control": "Same fixture/helpers with clean before-fix engine aborts at first live setter update, exit-6.",
+    "blocked_worker": "Update returns ERR_STATE within200ms; after worker release both native hint and controller remain209. Production scheduling wait50ms; started tasks are fenced to completion.",
+    "earlier_fixture_failures": "Two variable-GCC runs retain40ms after recovery as estimates fall106..128kbit/s. Recorded as failed exact-duration expectations; final test explicitly fixes allocation. Production estimation/recovery thresholds unchanged.",
+    "independent_controllers": "Existing audio509/video536 regression passes.",
+    "mac_public_exports_unchanged": 100,
+    "android_all_defined_exports_unchanged": 104,
+    "clean_snapshot_excludes_foreign_wip": true,
+    "installed": false,
+    "public_release": false
+  },
+  "security_and_policy": "Endpoint-only audio allocation change. No relay media hint, priority, wire format, mailbox, encryption, privacy-padding or codec speech-floor reduction.",
+  "remaining": [
+    "Dart still sets the fixed209 hint; implement a truthful source cost model for carrier, route, batching and replication before using live updates.",
+    "Identify downstream relay losses and qualify bidirectional moving video/audio under actual relay load.",
+    "Full group, file and screen-sharing workload quality gates remain required.",
+    "Live speech/headset quality is not yet qualified.",
+    "Typed-factory seamless transport migration and QUIC hot reload remain open."
+  ],
+  "evidence": "live-audio-framing-2026-10-18/",
+  "private_artifacts": "/Users/vart/.cache/codex/xveil-live-framing-20261018",
+  "cleanup": "No GUI apps started. Owned native test/build processes exited; --rm Android build container removed.",
+  "sdk_commit": "b1d83bcccf5b3072312179510a612ee91899ffc0"
+}

@@ -1,0 +1,16 @@
+{
+  "mac_public_exports_unchanged": 100,
+  "android_all_defined_exports_unchanged": 104,
+  "libraries": {
+    "media-production/libveil_media.dylib": {
+      "bytes": 5616960,
+      "sha256": "9642602c81332e1a023ece1d18eb0e09b96e20af2435fe9f6a9d34507802190a"
+    },
+    "android-production/libveil_media.so": {
+      "bytes": 4594424,
+      "sha256": "9f5c216d7386c812c29e1e92c0839ca5106f81784f75b8859115b8c3e6c94d3b"
+    }
+  },
+  "snapshot": "SDK HEAD039dd32b plus only seven flutter/veil_media paths; foreign WIP excluded",
+  "installed": false
+}

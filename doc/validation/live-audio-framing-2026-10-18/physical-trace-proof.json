@@ -1,0 +1,13 @@
+{
+  "private_capture": "/Users/vart/.cache/codex/xveil-playout-budget-20261018/qa-v2/physical-playout-budget-video",
+  "files_sha256": {
+    "mac-native.log": "7d385255f936d55edc91ec7b2c044bd7ceca514a8d14095e4842f4ec41706d37",
+    "phone-native.log": "b79a3ba70c10ea7ce491e811bbb90e9ba4d1a5dbcd94682291e8dd1fa5b0f70d",
+    "mac-runtime.log": "0c1b4dd51060cafd5d5fdafe56c419e9dc768b60b2d61aa52dc0acdb3067d9c5",
+    "phone-logcat.log": "a1fefaa0d3e0bd17ece43f37d5205d0ddecba4b0cbd7164f4d24bc66d5665dba"
+  },
+  "joins": "Unique encoder timestamps and RTP(seq,timestamp); exact constant RTP offset per sender; RTP header20; every encoded record matches exactly one transmission. Every received payload length agrees. TX/encode/ingress row counts equal begin counts and stay below trace capacity. Native accepted is not remote delivery.",
+  "excluded_edges": "Interior excludes first/last second. Phone whole capture has six additional missing tail payloads excluded by that boundary window; these are not attributed to network loss.",
+  "time_basis": "Relative to sender first native audio transmission, not inter-device clock subtraction.",
+  "mac_source_admission_join": "All34 missing payloads independently rejoined from original mac-runtime.log to sealed(epoch,seq), then local_slot0 datagram_accepted. Thirty have two source admissions; four have one. Connection IDs102/103/128 appear as sessions change."
+}
