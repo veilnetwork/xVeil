@@ -1,5 +1,97 @@
 # Calls media handoff
 
+## 2026-10-18: direct source drop proven; video recovery now honors the source hold
+
+SDK `c89c7731` extends explicit source-cell witnesses to owned direct AppRtData
+as well as Forward envelopes; exact header/body bounds remain required. Detailed
+secondary sampling uses the existing finite row cap rather than silently
+stopping at nonce 4096. Transport-admission ordinals now cover owned secondary
+cells too, still lazily fetched only after opt-in/ownership validation. A new
+`child_unavailable` stage distinguishes that branch from `budget_drop`. No
+scheduler, budget, codec, wire or neutral relay-role changes. Eight focused Rust
+tests, session lib/tests Clippy with warnings denied and a clean isolated
+production-feature FFI release build pass. Four unrelated SDK security edits
+remain byte-for-byte unchanged and are excluded from that clean build.
+
+Evidence: `validation/call-source-budget-recovery-2026-10-18.json`. Private SDK,
+source, launchers and captures: `~/.cache/codex/xveil-direct-source-20261018`.
+`scripts/analyze_direct_source.py` requires a unique first-attempt RTP-to-seal
+join and an exact epoch/nonce source decision. Later retransmissions, foreign
+source classes, truncated streams and ambiguous/mixed decisions cannot explain
+an original attempt. Eight Python attribution/video-range tests pass.
+
+### Negative physical capture establishes the fix
+
+Reused preceding Profile Dart AOT/native media; changed only Mac Rust SDK to
+the clean c89 build. Ring 0.314 s, same 210-second audio/video/controlled-relay
+stimulus. Missing Mac RTP sequence **24708**, SSRC **1951021253**, timestamp
+**2811815298**, payload **542 bytes**, joins SDK epoch `708bd1fcd21cd5aa`,
+nonce **94**. Native attempt **157060279585 us**, seal **157060279618 us**
+(**0.033 ms**), exact local **budget_drop at 157060283572 us**. It never enters
+QUIC on that original attempt. The unavailable-child event is a non-RTP probe,
+not the video packet. At **45.597 s**, Mac raises video **1 -> 6 fps while
+local_source_pressured=true and 45 source reports were acknowledged**. Two
+independent controllers were spending contradictory recovery credit.
+
+### Production correction b262249d
+
+The shared video adapter now receives the acknowledged source hold from both
+unicast and group controllers. While held, it cannot grow video or bank normal/
+startup recovery streaks. Fresh audio loss still cuts promptly; measured audio
+recovery still permits the one-fps floor probe. Acknowledgement is required, so
+unsupported/rejected optional IPC retains prior behavior. Audio rails, sparse
+probe thresholds, native byte budgets and relay neutrality remain unchanged.
+Two new growth regressions fail with the parameter wired but the gate disabled;
+final **205 focused Flutter tests** and Dart analysis pass. Controller coverage
+includes accepted/rejected source IPC. Ordinary ladder fixtures explicitly
+model unavailable optional IPC rather than silently imposing a second policy.
+Two pre-existing group pause assertions also fail in a baseline run with the new
+gate disabled: they expected twelve seconds although existing documented
+`probeResumeAfter` is three. Assertions now require the three-sample one-fps
+probe; unknown-peer and genuine-loss protections remain tested.
+
+### Fresh AOT physical follow-up; overall video still unresolved
+
+Mac Profile AOT is freshly assembled for arm64 and bundled into the preceding
+private NoVPN runner/native-plugin carrier with the exact three known dylibs.
+Full Runner attempts first fail on universal ARCHS verification, then missing
+PacketTunnel development-team signing; both logs are retained. Selecting the
+Flutter Assemble target avoids changing project/signing/tunnel configuration.
+Android Profile AOT is fresh; all three native libraries remain byte-identical
+to the preceding capture. Flutter build number **10614** becomes actual arm64
+split **versionCode 12614** (+2000). Same signer, install -r, data preserved.
+Both profile hooks explicitly opted in. Native media stays 87b539e3, Mac Rust
+is c89, phone Rust stays its prior clean be7-era binary. Root's existing unrelated
+group-provider WIP is preserved and hashed in the private build manifest.
+
+Physical follow-up ring **0.683 s**, 102 samples through **208.6 s**, same
+camera/relay stimulus. **23 Mac / 21 phone held observations**, **zero upshifts
+above one fps while held**. Mac's one pause-to-floor probe at **150.973 s** is
+allowed by design and regression-tested. Both interruption counters stay 0,
+but phone decoded catch-up reaches **120 ms**; Mac catch-up 0. Last receive
+windows are only **0.832 / 0.694 fps**, both sender budgets end 1 fps. Do not
+claim all video/audio quality problems fixed or a perceived-speech pass.
+
+The first remaining Mac loss is sequence **8460**, timestamp **3342125823**,
+SDK epoch `50f846cca65c763e`, nonce **1137**, again exact `budget_drop`.
+At that point the caller is already reducing video under the source hold;
+this is not another forbidden growth. Its whole frame has **7 RTP packets /
+6514 raw bytes**, cells **1137..1143**, **zero expired cells**, and all seven
+first attempts denied. SDK source_frame_trace already groups all seven as one
+contiguous work: **do not add another batching layer**. Summed traced cell wire
+sizes are **8726 bytes**, exceeding the existing **8192-byte pressure work cap**
+in `LocalSourceActivity::admit_lossy_work`. Actual work charge/oversized branch
+should be pinned before a sizing change. **Next:** coordinate encoded frame
+size/resolution with the available source work budget rather than increasing
+that cap or disabling audio protection. Preserve known 230-ms PCM/305-ms startup
+counterexamples and the original full-contention gate; it was not rerun for
+these controller-only changes. Source/header-clock diagnostics are not acoustic
+latency. No new live speech/headset verification; do not ask again now.
+
+Both captures' apps, launchers and logcat independently verify absent; owned
+ADB forwards removed. Mac again needs SIGKILL after its termination budget.
+No release, push, relay deployment or hidden-volume edits. Goal ACTIVE.
+
 ## 2026-10-18: exact video RR ranges establish late packets and repeated repair
 
 SDK `87b539e3` adds a bounded opt-in endpoint recorder for video RTP send,
