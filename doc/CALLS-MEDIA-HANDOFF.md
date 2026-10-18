@@ -1,5 +1,78 @@
 # Calls media handoff
 
+## 2026-10-18: exact video RR ranges establish late packets and repeated repair
+
+SDK `87b539e3` adds a bounded opt-in endpoint recorder for video RTP send,
+authenticated receive and native delivery, plus outgoing/incoming SR/RR block
+metadata (fraction/cumulative loss, highest extended sequence, jitter/LSR/DLSR).
+It retains no media, keys or wire role. Audio RTP bypasses recording. With
+diagnostics disabled there is no recording allocation/lock/file I/O. Enabled
+buffers are reserved before streams start, bounded at 131072 RTP / 8192 report
+rows per shim, then flushed after teardown with seen/count/error footers.
+No codec, media scheduler, relay priority or adaptation threshold changed.
+
+Pure native tests cover extended/padded RTP, negative 24-bit loss, whole-compound
+validation, bounds and concurrent writers. Real native RTCP-loss integration
+passes. macOS and Android arm64 production builds pass with 100 exports each.
+Four Python regressions cover late recovery versus local rejection, repeated
+report ranges, independent receive sequence-wrap origin and incomplete capture
+rejection. `scripts/analyze_video_loss.py` joins sequence ranges without
+subtracting clocks on different devices. It requires complete untruncated logs
+and actual delivered-RTP anchors for report sequence spaces.
+
+Updated the existing phone QA in place, versionCode 10613/signer/data unchanged;
+only native media changes from the previous package. Private Mac QA uses the
+same production source with `/private/tmp/` TMPDIR. Both retain the preceding
+Dart AOT/clean Rust SDK; this does not deploy a new whole SDK or release.
+Evidence: `validation/call-video-loss-ranges-2026-10-18.json`, private capture
+`~/.cache/codex/xveil-video-loss-20261018/physical-build/physical-video-loss`.
+
+Same 210-second audio/video stimulus and requested relay handover at **120.104 s**:
+ring **0.314 s**, 102 samples through **208.310 s**, both active at every poll
+after 3 s. Native interruption counters remain 0. Both endpoints nevertheless
+discard **10 ms** of decoded audio near the end (Mac 204.190 s, phone 206.255 s);
+this is not a perfect audio/speech/acoustic qualification. Last receive windows
+are **27.407 fps on Mac / 0.975 fps on phone**. Both sender budgets end at 1 fps;
+Mac's loss-driven reductions begin while still on P2P.
+
+### Packet evidence changes the next action
+
+Mac sends 2388 native attempts, 3 locally rejected; 2091 distinct accepted RTP
+keys versus 2088 distinct received keys. Phone has **241** receiver reports
+about that video, **10** with nonzero fractional loss. All ten advance their
+sequence/loss intervals and match exactly one incoming source report; none is
+an unchanged range with a replayed nonzero fraction. **95** new-range gap
+occurrences exist at report times: **92** subsequently deliver, as late as
+**507.287 ms after the report**, and three never deliver within capture. Some
+packets have **10** source attempts. These are genuine new receiver gap
+observations, not repeated consumption of one Dart witness. Later delivery is
+not a one-way network-delay measurement and does not mean the original copy
+arrived; RTP retransmissions reuse its key.
+
+Reverse direction: 4256 sends/4256 receipts, 4254 distinct keys on both sides,
+174 receiver reports, zero nonzero fractional-loss reports. Neither direction
+has a received key absent from native delivery. Phone video ingress-to-native-
+delivery maximum is **2.831 ms**, so those 150–500-ms missing-packet spans do
+not sit in its shim's video queue. Source-to-receiver transport/SDK still needs
+attribution; RTCP protection must not simply be loosened.
+
+The first missing sequence **17202** has its first Mac native send at
+**84.145905 s** after saved host call origin, adjacent to a slot-2
+`local_source_pressure` event. A later emitted event counts 147 rejected source
+items; this counter resets when logged, not a cumulative total. The trace name
+covers TWO runner branches: independent child unavailable, or endpoint source
+byte/work admission denied. Existing sealed-cell diagnostics select Forward
+envelopes and do not establish an exact direct AppRealtime RTP-to-cell join.
+**Next:** join this first direct packet to that branch and its source transport,
+using endpoint-only metadata. Do not call the source-pressure correlation proof
+of a physical-link loss or change global budgets/NACK history on that basis.
+
+Apps are closed; independent audit finds Mac/launcher/logcat and phone package
+absent and owned ADB forwarding removed. Mac again requires SIGKILL after its
+termination budget. Build container exited/removed. No live speech/headset test,
+release, push or server changes. Original full PCM/startup failures stay retained;
+goal ACTIVE.
+
 ## 2026-10-18: returned phone verifies current native media; sparse outbound video remains
 
 User returned Blackview BV6600Pro over ADB. Updated the existing QA package

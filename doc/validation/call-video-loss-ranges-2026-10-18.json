@@ -1,0 +1,387 @@
+{
+  "date": "2026-10-18",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "native_commit": "87b539e3dde31b84e0fa726fc752a29d244f7497",
+  "scope": "Bounded opt-in endpoint video RTP and RR/SR metadata; no media contents, wire changes, relay roles, priority changes or codec/adaptation threshold changes.",
+  "private_directory": "/Users/vart/.cache/codex/xveil-video-loss-20261018/physical-build/physical-video-loss",
+  "build": {
+    "native_commit": "87b539e3dde31b84e0fa726fc752a29d244f7497",
+    "base": "/Users/vart/.cache/codex/xveil-rtcp-kind-20261018/physical-build/build.json",
+    "scope": "Only production native media diagnostic recorder changes. Existing QA Dart AOT and Rust SDK unchanged. VersionCode 10613 retained; same QA signer; not a release.",
+    "mac_app": "/Users/vart/.cache/codex/xveil-video-loss-20261018/physical-build/mac-stand/xveil.app",
+    "mac_signed_media_sha256": "8f794c464ec20e59cf317e091b4b011dee384352466a448703ca63af6db37765",
+    "apk": "/Users/vart/.cache/codex/xveil-video-loss-20261018/physical-build/phone-video-loss.apk",
+    "apk_sha256": "1552135d3bfd2771ceac4abb4b82a8f8a07205c0c894be56e9a7e30ddebdb2dc",
+    "before_apk_sha256": "54b284a93aa862c2e4fffdf7e836315046660ba4ad71bb794b1338f3856674fa",
+    "apk_changed_entries": [
+      "lib/arm64-v8a/libveil_media.so"
+    ],
+    "packaged_sha256": {
+      "lib/arm64-v8a/libapp.so": "1930ae2451cd87892548a175dcce6a8fb2f76e3e20a96774c4db685bd2d6614e",
+      "lib/arm64-v8a/libveil_media.so": "cd6f94a6587525cd3b9a03a7c843b7f6bd9a9ef1c3f59bc1f8c86525da37fc8a",
+      "lib/arm64-v8a/libveilclient_ffi.so": "79afa7a40a5b6d4cfecb49b6b791e7aba1d56fa60347775979b7c1d48bca1e27"
+    },
+    "same_signer": true
+  },
+  "validation": {
+    "native_parser_and_bounded_concurrent_recorder": "PASS",
+    "native_real_call_rtcp_loss_smoke": "PASS",
+    "python_regressions": 4,
+    "macos_production_exports": 100,
+    "android_arm64_production_exports": 100,
+    "duration_seconds": 208.31018850000692,
+    "sample_count": 102,
+    "ring_seconds": 0.3139030830061529,
+    "controlled_relay_handover_seconds": 120.10406354098814
+  },
+  "endpoints": {
+    "mac": {
+      "active_at_every_poll_after_3_seconds": true,
+      "interruptions_max": 0,
+      "final_sender_fps_budget": 1.0,
+      "last_30_seconds_receive_frame_rate": 27.406773923658875,
+      "audio_latency_discarded_ms_max": 10,
+      "native_video_ingress_to_delivery_max_ms": 0.997,
+      "decoded_audio_catchup_changes": [
+        {
+          "seconds": 2.8329959604889154e-06,
+          "discarded_ms": 0
+        },
+        {
+          "seconds": 204.19002954100142,
+          "discarded_ms": 10
+        }
+      ]
+    },
+    "phone": {
+      "active_at_every_poll_after_3_seconds": true,
+      "interruptions_max": 0,
+      "final_sender_fps_budget": 1.0,
+      "last_30_seconds_receive_frame_rate": 0.9750821726333526,
+      "audio_latency_discarded_ms_max": 10,
+      "native_video_ingress_to_delivery_max_ms": 2.831,
+      "decoded_audio_catchup_changes": [
+        {
+          "seconds": 2.8329959604889154e-06,
+          "discarded_ms": 0
+        },
+        {
+          "seconds": 206.25476779098972,
+          "discarded_ms": 10
+        }
+      ]
+    }
+  },
+  "directions": {
+    "mac_to_phone": {
+      "ssrc": 1951021253,
+      "sends": 2388,
+      "locally_rejected": 3,
+      "received_copies": 2138,
+      "delivered_copies": 2138,
+      "unique_accepted": 2091,
+      "unique_received": 2088,
+      "report_count": 241,
+      "loss_report_count": 10,
+      "clock_scope": "Only receiver-local delivery/report time differences; no cross-device one-way latency.",
+      "accepted_not_received": [
+        [
+          17981,
+          1127066617
+        ],
+        [
+          17982,
+          1127066617
+        ],
+        [
+          17984,
+          1127078677
+        ]
+      ],
+      "received_not_delivered": [],
+      "loss_reports": [
+        {
+          "report_at_us": 3760505663481,
+          "highest": 17203,
+          "previous_highest": 17201,
+          "expected": 2,
+          "cumulative_lost": 1,
+          "lost_delta": 1,
+          "fraction": 127,
+          "fraction_from_report_deltas": 127,
+          "unchanged_range_and_loss": false,
+          "matching_source_report_copies": 1,
+          "new_range_gaps_at_report": 1,
+          "later_delivered": 1,
+          "not_delivered_by_capture_end": 0,
+          "later_delivery_delay_ms_min": 149.003,
+          "later_delivery_delay_ms_max": 149.003,
+          "max_source_attempts_per_gap": 9,
+          "source_attempts_for_gaps": 9,
+          "source_rejections_for_gaps": 0
+        },
+        {
+          "report_at_us": 3760505823398,
+          "highest": 17216,
+          "previous_highest": 17203,
+          "expected": 13,
+          "cumulative_lost": 10,
+          "lost_delta": 10,
+          "fraction": 196,
+          "fraction_from_report_deltas": 196,
+          "unchanged_range_and_loss": false,
+          "matching_source_report_copies": 1,
+          "new_range_gaps_at_report": 10,
+          "later_delivered": 10,
+          "not_delivered_by_capture_end": 0,
+          "later_delivery_delay_ms_min": 0.568,
+          "later_delivery_delay_ms_max": 213.893,
+          "max_source_attempts_per_gap": 10,
+          "source_attempts_for_gaps": 65,
+          "source_rejections_for_gaps": 0
+        },
+        {
+          "report_at_us": 3760506063374,
+          "highest": 17227,
+          "previous_highest": 17216,
+          "expected": 11,
+          "cumulative_lost": 10,
+          "lost_delta": 10,
+          "fraction": 231,
+          "fraction_from_report_deltas": 231,
+          "unchanged_range_and_loss": false,
+          "matching_source_report_copies": 1,
+          "new_range_gaps_at_report": 10,
+          "later_delivered": 10,
+          "not_delivered_by_capture_end": 0,
+          "later_delivery_delay_ms_min": 166.854,
+          "later_delivery_delay_ms_max": 384.256,
+          "max_source_attempts_per_gap": 10,
+          "source_attempts_for_gaps": 79,
+          "source_rejections_for_gaps": 0
+        },
+        {
+          "report_at_us": 3760506883392,
+          "highest": 17238,
+          "previous_highest": 17227,
+          "expected": 11,
+          "cumulative_lost": 4,
+          "lost_delta": 4,
+          "fraction": 92,
+          "fraction_from_report_deltas": 92,
+          "unchanged_range_and_loss": false,
+          "matching_source_report_copies": 1,
+          "new_range_gaps_at_report": 4,
+          "later_delivered": 4,
+          "not_delivered_by_capture_end": 0,
+          "later_delivery_delay_ms_min": 75.55,
+          "later_delivery_delay_ms_max": 89.234,
+          "max_source_attempts_per_gap": 4,
+          "source_attempts_for_gaps": 15,
+          "source_rejections_for_gaps": 0
+        },
+        {
+          "report_at_us": 3760564403386,
+          "highest": 17796,
+          "previous_highest": 17791,
+          "expected": 5,
+          "cumulative_lost": 4,
+          "lost_delta": 4,
+          "fraction": 204,
+          "fraction_from_report_deltas": 204,
+          "unchanged_range_and_loss": false,
+          "matching_source_report_copies": 1,
+          "new_range_gaps_at_report": 4,
+          "later_delivered": 4,
+          "not_delivered_by_capture_end": 0,
+          "later_delivery_delay_ms_min": 182.391,
+          "later_delivery_delay_ms_max": 507.287,
+          "max_source_attempts_per_gap": 2,
+          "source_attempts_for_gaps": 8,
+          "source_rejections_for_gaps": 0
+        },
+        {
+          "report_at_us": 3760565263473,
+          "highest": 17831,
+          "previous_highest": 17796,
+          "expected": 35,
+          "cumulative_lost": 27,
+          "lost_delta": 27,
+          "fraction": 196,
+          "fraction_from_report_deltas": 196,
+          "unchanged_range_and_loss": false,
+          "matching_source_report_copies": 1,
+          "new_range_gaps_at_report": 27,
+          "later_delivered": 27,
+          "not_delivered_by_capture_end": 0,
+          "later_delivery_delay_ms_min": 7.773,
+          "later_delivery_delay_ms_max": 102.328,
+          "max_source_attempts_per_gap": 3,
+          "source_attempts_for_gaps": 81,
+          "source_rejections_for_gaps": 0
+        },
+        {
+          "report_at_us": 3760584243455,
+          "highest": 17895,
+          "previous_highest": 17868,
+          "expected": 27,
+          "cumulative_lost": 12,
+          "lost_delta": 12,
+          "fraction": 113,
+          "fraction_from_report_deltas": 113,
+          "unchanged_range_and_loss": false,
+          "matching_source_report_copies": 1,
+          "new_range_gaps_at_report": 12,
+          "later_delivered": 12,
+          "not_delivered_by_capture_end": 0,
+          "later_delivery_delay_ms_min": 66.964,
+          "later_delivery_delay_ms_max": 92.513,
+          "max_source_attempts_per_gap": 2,
+          "source_attempts_for_gaps": 24,
+          "source_rejections_for_gaps": 0
+        },
+        {
+          "report_at_us": 3760600306598,
+          "highest": 17946,
+          "previous_highest": 17932,
+          "expected": 14,
+          "cumulative_lost": 13,
+          "lost_delta": 13,
+          "fraction": 236,
+          "fraction_from_report_deltas": 236,
+          "unchanged_range_and_loss": false,
+          "matching_source_report_copies": 1,
+          "new_range_gaps_at_report": 13,
+          "later_delivered": 13,
+          "not_delivered_by_capture_end": 0,
+          "later_delivery_delay_ms_min": 159.572,
+          "later_delivery_delay_ms_max": 184.967,
+          "max_source_attempts_per_gap": 2,
+          "source_attempts_for_gaps": 26,
+          "source_rejections_for_gaps": 0
+        },
+        {
+          "report_at_us": 3760601527978,
+          "highest": 17988,
+          "previous_highest": 17959,
+          "expected": 29,
+          "cumulative_lost": 3,
+          "lost_delta": 3,
+          "fraction": 26,
+          "fraction_from_report_deltas": 26,
+          "unchanged_range_and_loss": false,
+          "matching_source_report_copies": 1,
+          "new_range_gaps_at_report": 3,
+          "later_delivered": 0,
+          "not_delivered_by_capture_end": 3,
+          "later_delivery_delay_ms_min": null,
+          "later_delivery_delay_ms_max": null,
+          "max_source_attempts_per_gap": 2,
+          "source_attempts_for_gaps": 6,
+          "source_rejections_for_gaps": 3
+        },
+        {
+          "report_at_us": 3760618903429,
+          "highest": 18035,
+          "previous_highest": 18013,
+          "expected": 22,
+          "cumulative_lost": 14,
+          "lost_delta": 11,
+          "fraction": 127,
+          "fraction_from_report_deltas": 127,
+          "unchanged_range_and_loss": false,
+          "matching_source_report_copies": 1,
+          "new_range_gaps_at_report": 11,
+          "later_delivered": 11,
+          "not_delivered_by_capture_end": 0,
+          "later_delivery_delay_ms_min": 8.569,
+          "later_delivery_delay_ms_max": 27.551,
+          "max_source_attempts_per_gap": 2,
+          "source_attempts_for_gaps": 22,
+          "source_rejections_for_gaps": 0
+        }
+      ],
+      "unchanged_loss_range_reports": 0,
+      "rr_interval_gap_occurrences": 95,
+      "gap_occurrences_later_delivered": 92,
+      "report_to_later_delivery_max_ms": 507.287
+    },
+    "phone_to_mac": {
+      "ssrc": 979416555,
+      "sends": 4256,
+      "locally_rejected": 0,
+      "received_copies": 4256,
+      "delivered_copies": 4256,
+      "unique_accepted": 4254,
+      "unique_received": 4254,
+      "report_count": 174,
+      "loss_report_count": 0,
+      "clock_scope": "Only receiver-local delivery/report time differences; no cross-device one-way latency.",
+      "accepted_not_received": [],
+      "received_not_delivered": [],
+      "loss_reports": [],
+      "unchanged_loss_range_reports": 0,
+      "rr_interval_gap_occurrences": 0,
+      "gap_occurrences_later_delivered": 0,
+      "report_to_later_delivery_max_ms": null
+    }
+  },
+  "source_pressure_observations": [
+    {
+      "seconds_since_host_call_origin": 32.252216815948486,
+      "local_slot": 2,
+      "emitted_drop_count": 1
+    },
+    {
+      "seconds_since_host_call_origin": 84.1452169418335,
+      "local_slot": 2,
+      "emitted_drop_count": 1
+    },
+    {
+      "seconds_since_host_call_origin": 85.41221690177917,
+      "local_slot": 2,
+      "emitted_drop_count": 147
+    }
+  ],
+  "cleanup": {
+    "owned_pids": {
+      "mac_pid": 81839,
+      "launcher_pid": 81765,
+      "logcat_pid": 86178
+    },
+    "remaining": [],
+    "phone_process_absent": true,
+    "owned_forward_absent": true
+  },
+  "mac_exit_code": -9,
+  "limits": [
+    "This is a mostly quiet physical test, not continuous speech/headset/acoustic qualification.",
+    "Report-to-later-delivery times use only the receiver local clock and are not one-way network latency.",
+    "All-path accepted-not-received counts can include teardown edges; causal gap interpretation is restricted to established receiver RR intervals.",
+    "Source pressure logs reset counters when emitted and do not yet identify the first missing RTP cell. They are not an exact packet-to-queue attribution.",
+    "Earlier strict PCM/startup failures remain. No full 360-second contention gate was rerun for these opt-in diagnostics.",
+    "The name local_source_pressure covers both an unavailable independent child and denied endpoint byte admission. Existing generic event counts alone cannot identify which branch rejected the missing packet."
+  ],
+  "next": "Trace the first missing direct Mac RTP sequence 17202 through the local slot-2 source decision. Its first native send attempt is 84.145905 s after host call origin, adjacent to a local_source_pressure event. That event conflates child-unavailable and budget-drop branches; current sealed-cell diagnostics select Forward envelopes and do not establish an exact direct AppRealtime packet join. Do not blame the link, weaken audio guards, or change neutral relays without that join.",
+  "evidence_sha256": {
+    "mac-native.log": "bad0499c714c23df5de43d23f2af3dbeb76ed5c814a1b42467c319590acd012b",
+    "phone-native.log": "b91964b8fa96d18c7ffb94b99baaa15fe8a70cc87edb7746a4dc16e6793d7272",
+    "phone-logcat.log": "14439ffb2d176d2737023017bffde15e4846d74b27c466e90ea7ccae2df7b513",
+    "mac-runtime.log": "a9c6d76a7f4a90f5c46bbd59fae689674b7ae875d04312eceb99b5dff7de083a",
+    "loss-analysis.json": "8f0d70b1caffeb3d30129003f8d6d54fa8421b6a3dc382e1e321d40c66e27b6e",
+    "samples.json": "862aad5dd142a17242e858e23b349ea8c1058e6fa8a399582d2aa68d2a561216",
+    "result.json": "b2d0fa28d26b8f728f2cf3f0b13e867fef1a1a63e4319868f450e1d44931eaf9",
+    "independent-cleanup.json": "711d4a011310967573738e77b7ff6c3c442812e211e91c4f67e3ab1bb1aa7272"
+  },
+  "helper_sha256": {
+    "/Users/vart/.cache/codex/xveil-video-loss-20261018/package.py": "2396a224f6691bb6cd79488db8a6f8f58d1d90f59c03b5a5db514f76e226adf7",
+    "/Users/vart/.cache/codex/xveil-video-loss-20261018/physical-build/physical-video-loss.py": "a5019ffb2316c6364c5303c88f36513040961ac3bc61775c5f1c3bebcb907e36"
+  },
+  "first_gap_source_timing": {
+    "rtp_sequence": 17202,
+    "first_native_attempt_seconds_since_host_call_origin": 84.14590533397859,
+    "correlation_only": true,
+    "note": "Source native monotonic time aligned by saved host call origin. Adjacent local_source_pressure logs are not an exact sealed-cell identity join."
+  }
+}
