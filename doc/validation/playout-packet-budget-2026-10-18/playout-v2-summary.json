@@ -1,0 +1,208 @@
+{
+  "physical-playout-budget-video/mac": {
+    "rows": 24136,
+    "discarded_ms": 450,
+    "skip_callbacks": 33,
+    "fallback_callbacks": 0,
+    "target_above_applied_ceiling_callbacks": 0,
+    "conflicting_target_during_skip": 0,
+    "max_native_callback_us": 301,
+    "render_gaps_over_30ms": 0,
+    "max_render_gap_ms": 10.911,
+    "skips_by_headroom_target_ceiling": [
+      {
+        "headroom_ms": 20,
+        "target_ms": 100,
+        "ceiling_ms": 100,
+        "callbacks": 27
+      },
+      {
+        "headroom_ms": 40,
+        "target_ms": 120,
+        "ceiling_ms": 120,
+        "callbacks": 3
+      },
+      {
+        "headroom_ms": 20,
+        "target_ms": 80,
+        "ceiling_ms": 100,
+        "callbacks": 2
+      },
+      {
+        "headroom_ms": 40,
+        "target_ms": 100,
+        "ceiling_ms": 120,
+        "callbacks": 1
+      }
+    ],
+    "largest_render_gaps": [],
+    "skip_examples": [
+      {
+        "entered_us": 184708251547,
+        "exited_us": 184708251585,
+        "before_ms": 131,
+        "after_ms": 111,
+        "target_ms": 100,
+        "skipped": 1,
+        "fallback": 0,
+        "frame_headroom_ms": 20,
+        "target_ceiling_ms": 100,
+        "rtp_timestamp": 3889287161,
+        "speech_type": 0,
+        "muted": 0
+      },
+      {
+        "entered_us": 184714363531,
+        "exited_us": 184714363568,
+        "before_ms": 137,
+        "after_ms": 117,
+        "target_ms": 100,
+        "skipped": 1,
+        "fallback": 0,
+        "frame_headroom_ms": 20,
+        "target_ceiling_ms": 100,
+        "rtp_timestamp": 3889579708,
+        "speech_type": 0,
+        "muted": 0
+      },
+      {
+        "entered_us": 184714374191,
+        "exited_us": 184714374226,
+        "before_ms": 137,
+        "after_ms": 117,
+        "target_ms": 100,
+        "skipped": 1,
+        "fallback": 0,
+        "frame_headroom_ms": 20,
+        "target_ceiling_ms": 100,
+        "rtp_timestamp": 3889580668,
+        "speech_type": 0,
+        "muted": 0
+      },
+      {
+        "entered_us": 184715664831,
+        "exited_us": 184715664865,
+        "before_ms": 132,
+        "after_ms": 112,
+        "target_ms": 80,
+        "skipped": 1,
+        "fallback": 0,
+        "frame_headroom_ms": 20,
+        "target_ceiling_ms": 100,
+        "rtp_timestamp": 3889643309,
+        "speech_type": 0,
+        "muted": 0
+      }
+    ]
+  },
+  "physical-playout-budget-video/phone": {
+    "rows": 24182,
+    "discarded_ms": 590,
+    "skip_callbacks": 33,
+    "fallback_callbacks": 0,
+    "target_above_applied_ceiling_callbacks": 0,
+    "conflicting_target_during_skip": 0,
+    "max_native_callback_us": 8997,
+    "render_gaps_over_30ms": 1,
+    "max_render_gap_ms": 76.627,
+    "skips_by_headroom_target_ceiling": [
+      {
+        "headroom_ms": 20,
+        "target_ms": 100,
+        "ceiling_ms": 100,
+        "callbacks": 13
+      },
+      {
+        "headroom_ms": 60,
+        "target_ms": 140,
+        "ceiling_ms": 140,
+        "callbacks": 9
+      },
+      {
+        "headroom_ms": 20,
+        "target_ms": 80,
+        "ceiling_ms": 100,
+        "callbacks": 7
+      },
+      {
+        "headroom_ms": 40,
+        "target_ms": 120,
+        "ceiling_ms": 120,
+        "callbacks": 2
+      },
+      {
+        "headroom_ms": 40,
+        "target_ms": 100,
+        "ceiling_ms": 120,
+        "callbacks": 2
+      }
+    ],
+    "largest_render_gaps": [
+      {
+        "at_us": 3789176105198,
+        "gap_us": 76627,
+        "before_ms": 110,
+        "after_ms": 100,
+        "skipped": 0
+      }
+    ],
+    "skip_examples": [
+      {
+        "entered_us": 3789392502597,
+        "exited_us": 3789392503309,
+        "before_ms": 135,
+        "after_ms": 115,
+        "target_ms": 80,
+        "skipped": 1,
+        "fallback": 0,
+        "frame_headroom_ms": 20,
+        "target_ceiling_ms": 100,
+        "rtp_timestamp": 3503799259,
+        "speech_type": 0,
+        "muted": 0
+      },
+      {
+        "entered_us": 3789396269577,
+        "exited_us": 3789396269971,
+        "before_ms": 135,
+        "after_ms": 115,
+        "target_ms": 80,
+        "skipped": 1,
+        "fallback": 0,
+        "frame_headroom_ms": 20,
+        "target_ceiling_ms": 100,
+        "rtp_timestamp": 3503979727,
+        "speech_type": 0,
+        "muted": 0
+      },
+      {
+        "entered_us": 3789400803162,
+        "exited_us": 3789400803810,
+        "before_ms": 135,
+        "after_ms": 115,
+        "target_ms": 80,
+        "skipped": 1,
+        "fallback": 0,
+        "frame_headroom_ms": 20,
+        "target_ceiling_ms": 100,
+        "rtp_timestamp": 3504197647,
+        "speech_type": 0,
+        "muted": 0
+      },
+      {
+        "entered_us": 3789416781609,
+        "exited_us": 3789416782955,
+        "before_ms": 207,
+        "after_ms": 157,
+        "target_ms": 120,
+        "skipped": 4,
+        "fallback": 0,
+        "frame_headroom_ms": 40,
+        "target_ceiling_ms": 120,
+        "rtp_timestamp": 3504961690,
+        "speech_type": 0,
+        "muted": 0
+      }
+    ]
+  }
+}
