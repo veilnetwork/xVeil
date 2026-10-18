@@ -1,5 +1,75 @@
 # Calls media handoff
 
+## 2026-10-18: audio-only relay counterexample; Android controller clock joined
+
+SDK **`3f1b69ba`** extends the independent **stand-only** CC observer to Android.
+It still needs `VEIL_MEDIA_CC_TRACE_BUILD=1` and a diagnostic path; exact
+`VEIL_MEDIA_TRACE_VIDEO_CC=1` takes precedence over Android's explicit
+`debug.veil_media.video_cc=1` opt-in. Ordinary builds exclude this code.
+Constraint callbacks are forwarded unchanged and record their native clock
+and requested min/max. The 1:1 diagnostic JSON supplies the video worker's
+native snapshot time. The 14-call real-type fixture passes, checking exact
+constraint inputs, unchanged returned target/pacing/window/probe commands,
+negative runtime opt-ins, bounded truncation and no callback file I/O.
+Both Android observer builds pass with the same **100 media exports / 104 ELF
+exports**. The installed APK changes only `libveil_media.so`, preserving signer,
+version 12614, Rust SDK, Dart AOT, data and hidden-volume. Mac is unchanged from
+the preceding combined trial. No scheduling, source budget or wire-role change.
+
+A **358.90-s** Mac/Blackview call rings in **0.091 s**, explicitly selects relay
+at **121.65 s**, then again fails physical quality: native interruptions
+**20 / 1**, cumulative trimmed audio **17430 / 8550 ms** (not individual pause
+lengths). Relay tail receives **0 / 0.086 fps**. Phone video is source-paused in
+all 29 final-minute samples and its video RTP attempt counter is unchanged;
+Mac's audio interruption count still grows **17 to 20**. Cameras continue
+capturing, so this observation alone cannot exclude capture/CPU competition.
+
+The Android controller capture is complete: **2902 samples**, **160 fresh
+native-clock API joins**, **zero sampled finite windows**. This does not prove
+there was no transient finite update between samples. The earlier **3959-ms**
+phone pacer age does **not** reproduce here (phone peak zero, Mac 382 ms), so
+that earlier defect remains open. Stable bracket snapshots during source hold
+request min/max 1 kbit/s but show GCC target **5 kbit/s**, pacing **20 kbit/s**;
+released 15-kbit snapshots show target **15**, pacing **60 kbit/s**. These are
+controller observations, not actual wire rates. No low-pacing-after-release
+case is observed. No controller policy change is justified by this negative
+queue reproduction. CPU/thermal/top snapshots finish after call teardown and
+cannot exclude in-call effects; Android TCP-kernel trace records are missing.
+
+**A true audio-only relay check fails too.** Cameras are never started and
+both video RTP attempt counters and frame counters stay **zero** throughout
+the **178.02-s** call. P2P audio baseline has zero counted interruptions on
+both devices; explicit relay recovery at **30.59 s** is followed by **3 / 3**
+interruptions. Jitter-buffer peaks are **119 / 130 ms** and cumulative trimmed
+audio **6210 / 6860 ms**. Thus video competition is not necessary for this
+audio failure. Investigate the relay audio transport baseline before further
+video-quality tuning.
+
+Complete unique RTP matches narrow the delay boundary. In the six-minute
+call, consecutive phone packets attempted **58.586 ms** apart arrive on Mac
+**1051.648 ms** apart; native sender admission peaks at **3.308 ms**, receiver
+drain at **12.042 ms**. In the no-camera call, Mac packets **16.235 ms** apart
+arrive on phone **339.100 ms** apart; the reverse pair expands **37.183 to
+294.194 ms**. All 5950 Mac sends are observed on phone; only the two trailing
+phone sends are unobserved at Mac's capture boundary. These local clock
+intervals do not give absolute one-way latency or identify a particular relay.
+
+Read-only SSH inventory confirms three relays active with CLI **0.11.37**,
+identical executable SHA `b642435a...`, and UDP 39999 bound. The three
+203.12.31.x probes end incomplete (exit 142); no outage inference. Bindings do
+not establish external reachability, negotiated capabilities or exact source
+compatibility. No server changes. Next: attribute the no-camera audio gap
+across SDK admission/ordered transport/relay forwarding, inspect negotiated
+independent channels and server compatibility, and qualify current SDK on
+the phone (still 986; Mac db197).
+
+Evidence: `validation/call-android-cc-audio-baseline-2026-10-18.json` and
+`validation/android-cc-2026-10-18/`; full private artifacts
+`~/.cache/codex/xveil-android-cc-20261018`. Both stand runs close all owned
+apps/processes and forwarding; independent checks pass, debug property is
+restored. Mac still needs SIGKILL after its graceful timeout. No human
+speech/headset/loudness claim, release, push or deployment. Goal ACTIVE.
+
 ## 2026-10-18: corrected pacing debt integrated; physical relay defects retained
 
 SDK **`280b6517`** integrates the corrected WebRTC pacing override in all five

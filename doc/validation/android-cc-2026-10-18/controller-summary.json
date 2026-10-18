@@ -1,0 +1,165 @@
+{
+  "controllers": 1,
+  "controller_samples": 2902,
+  "finite_window_samples": 0,
+  "joined_api_samples": 160,
+  "unjoined_api_samples": [
+    {
+      "host_seconds": 3.416993422433734e-06,
+      "pacer_ms": null,
+      "reason": "Missing native timestamp or stalled worker"
+    },
+    {
+      "host_seconds": 2.155610332993092,
+      "pacer_ms": 0,
+      "reason": "Missing or ambiguous fresh bracketing controller samples"
+    },
+    {
+      "host_seconds": 4.174407125014113,
+      "pacer_ms": 0,
+      "reason": "Missing or ambiguous fresh bracketing controller samples"
+    },
+    {
+      "host_seconds": 6.197348582994891,
+      "pacer_ms": 0,
+      "reason": "Missing or ambiguous fresh bracketing controller samples"
+    },
+    {
+      "host_seconds": 8.23699720800505,
+      "pacer_ms": 0,
+      "reason": "Missing or ambiguous fresh bracketing controller samples"
+    },
+    {
+      "host_seconds": 10.2709116670012,
+      "pacer_ms": 0,
+      "reason": "Missing or ambiguous fresh bracketing controller samples"
+    },
+    {
+      "host_seconds": 12.30578120800783,
+      "pacer_ms": 0,
+      "reason": "Missing or ambiguous fresh bracketing controller samples"
+    },
+    {
+      "host_seconds": 14.340217541990569,
+      "pacer_ms": 0,
+      "reason": "Missing or ambiguous fresh bracketing controller samples"
+    },
+    {
+      "host_seconds": 16.380330457992386,
+      "pacer_ms": 0,
+      "reason": "Missing or ambiguous fresh bracketing controller samples"
+    },
+    {
+      "host_seconds": 18.415061875013635,
+      "pacer_ms": 0,
+      "reason": "Missing or ambiguous fresh bracketing controller samples"
+    },
+    {
+      "host_seconds": 20.446180917002494,
+      "pacer_ms": 0,
+      "reason": "Missing or ambiguous fresh bracketing controller samples"
+    },
+    {
+      "host_seconds": 22.48493904201314,
+      "pacer_ms": 0,
+      "reason": "Missing or ambiguous fresh bracketing controller samples"
+    },
+    {
+      "host_seconds": 24.518831082998076,
+      "pacer_ms": 0,
+      "reason": "Missing or ambiguous fresh bracketing controller samples"
+    },
+    {
+      "host_seconds": 26.55499137501465,
+      "pacer_ms": 0,
+      "reason": "Missing or ambiguous fresh bracketing controller samples"
+    },
+    {
+      "host_seconds": 28.598177792009665,
+      "pacer_ms": 0,
+      "reason": "Missing or ambiguous fresh bracketing controller samples"
+    }
+  ],
+  "peak_join": {
+    "host_seconds": 30.633522,
+    "native_stats_at_us": 3778036590810,
+    "controller": 1,
+    "before_us": 3778036540964,
+    "after_us": 3778036665941,
+    "same_state_at_bracket_ends": true,
+    "api": {
+      "pacer_delay_ms": 0,
+      "max_fps": 1.0,
+      "target_bitrate_bps": 15000,
+      "video_encoder_target_bps": 14680,
+      "local_source_pressured": true,
+      "video_send_paused": 0,
+      "video_tx_rtp_attempts": 0,
+      "video_tx_rtp_queued": 0
+    },
+    "before": {
+      "target_bps": 15000,
+      "pacing_bps": 60000,
+      "constraints_at_us": 3778035841025,
+      "constraints_min_bps": 15000,
+      "constraints_max_bps": 15000,
+      "available": 1,
+      "cwnd_bytes": -1
+    },
+    "after": {
+      "target_bps": 15000,
+      "pacing_bps": 60000,
+      "constraints_at_us": 3778035841025,
+      "constraints_min_bps": 15000,
+      "constraints_max_bps": 15000,
+      "available": 1,
+      "cwnd_bytes": -1
+    }
+  },
+  "limits": "Within-Android native clock only; explicit native worker sample timestamp bracketed by complete real-controller observations, each within 250 ms. Equal bracket-end values do not prove no intermediate callback transition. API source-pressure flags and profile fields are coarser state and are not themselves controller commands. No acoustic or absolute cross-device one-way delay claim. No Android queue-age spike occurred in this capture; this does not explain or close the earlier 3959-ms counterexample. Zero finite-window samples does not prove no transient finite update between samples.",
+  "stable_bracket_state_counts": [
+    {
+      "constraints_min_bps": 15000,
+      "constraints_max_bps": 15000,
+      "target_bps": 15000,
+      "pacing_bps": 60000,
+      "api_samples": 18
+    },
+    {
+      "constraints_min_bps": 30000,
+      "constraints_max_bps": 90000,
+      "target_bps": 89795,
+      "pacing_bps": 359200,
+      "api_samples": 7
+    },
+    {
+      "constraints_min_bps": 30000,
+      "constraints_max_bps": 225000,
+      "target_bps": 223868,
+      "pacing_bps": 895400,
+      "api_samples": 7
+    },
+    {
+      "constraints_min_bps": 30000,
+      "constraints_max_bps": 450000,
+      "target_bps": 450000,
+      "pacing_bps": 1800000,
+      "api_samples": 7
+    },
+    {
+      "constraints_min_bps": 30000,
+      "constraints_max_bps": 900000,
+      "target_bps": 696666,
+      "pacing_bps": 2786600,
+      "api_samples": 8
+    },
+    {
+      "constraints_min_bps": 1000,
+      "constraints_max_bps": 1000,
+      "target_bps": 5000,
+      "pacing_bps": 20000,
+      "api_samples": 111
+    }
+  ],
+  "large_queue_samples": 0
+}
