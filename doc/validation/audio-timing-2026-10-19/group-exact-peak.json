@@ -1,0 +1,104 @@
+{
+  "native": {
+    "source": 2,
+    "receiver": 0,
+    "phase": "audio-video-file",
+    "packet": {
+      "ssrc": 3266888531,
+      "rtp_origin": 3311569278,
+      "rtp_timestamp": 3327518718,
+      "rtp_sequence": 33386,
+      "source_at_seconds": 332.29000441663084,
+      "decoded_at_seconds": 332.68007341664634,
+      "packet_ms": 60,
+      "encoder_input_index": 30726,
+      "encoder_first_input_monotonic_us": 194953297986,
+      "encoded_monotonic_us": 194953348108,
+      "ingress": {
+        "seq": 33386,
+        "timestamp": 3327518718,
+        "arrived_us": 194953569227,
+        "drained_us": 194953569242,
+        "payload_bytes": 179
+      },
+      "total_ms": 390.06900001550093,
+      "spans_ms": {
+        "capture_to_encoded": 40.157458366593346,
+        "encoded_to_ingress": 221.1189999943599,
+        "ingress_to_webrtc": 0.014999997802078724,
+        "webrtc_to_pcm_edge": 128.7775416567456
+      },
+      "native_send": {
+        "channel": 1,
+        "seq": 33386,
+        "timestamp": 3327518718,
+        "attempted_us": 194953348122,
+        "admitted_us": 194953348127,
+        "packet_bytes": 199,
+        "accepted": 1
+      },
+      "native_send_spans_ms": {
+        "encoded_to_native_send": 0.014,
+        "native_send_admission": 0.005,
+        "native_admission_to_ingress": 221.1
+      }
+    },
+    "input_sha256": {
+      "summary.json": "8934a9c8d94e5df7a4aa40baaffe159efbe4852c7ce4f545a20b95675db40b0f",
+      "worker-2/summary.json": "20b0cd982a1428c554bccb0939c8143be2b7fa94624e593fdce7c006e1bf381a",
+      "worker-0/summary.json": "258050032e402ca818c1594cde55cb834668e6fcd4db7b8fb65ad14a4adc425e",
+      "worker-2/pcm-samples.json": "0bbd34462d80b9f63bb446d03fd5fd8dcf196cbee8a88ab9c8fc1e726cbf4e0d",
+      "worker-0/pcm-samples.json": "b077239f642e45151c12194509ad14a8f23480b4a87e0ffe2beff6fce52fba0f",
+      "worker-2/codec-samples.json": "9f1f9c9832b1cad3232e154b0568e8eeecd89e03cf4bf36ff20f88e87a8ff439",
+      "worker-2/playout-trace.log": "06876b41736f63828744de09f3adb13355f26c856865f178e2596dc3ec44beb9",
+      "worker-0/playout-trace.log": "cf5400a77d27cf7be94d6064b742e2b935dddcefcf6ffbc88a3aa5be17d56337"
+    },
+    "limits": [
+      "Owned same-host clocks only; no physical acoustic latency claim",
+      "Encoded-to-ingress includes all local and transport stages; no per-hop attribution",
+      "Ingress-to-PCM can include codec lookahead/FEC and following packets; not NetEq alone",
+      "This analysis does not change the capture verdict or its quality gates"
+    ]
+  },
+  "sdk": {
+    "epoch": "6c479c23e2304007",
+    "cell_sequence": 5886,
+    "rtp_index_in_cell": 0,
+    "source_sdk_peer": "68e03e75",
+    "receiver_sdk_peer": "715b57a3",
+    "sealed_bytes": 235,
+    "observations_us": {
+      "native_attempt": 194953348122,
+      "sdk_seal": 194953348133,
+      "sdk_send_pump": 194953348137,
+      "daemon_read": 194953348151,
+      "handler_enter": 194953348161,
+      "relay_queued": 194953348170,
+      "sdk_authenticated": 194953569216,
+      "native_ingress": 194953569227
+    },
+    "socket_written_us": 194953348143,
+    "rtp_authenticated_metadata_us": 194953569223,
+    "native_enqueue_return_us": 194953348127,
+    "spans_ms": {
+      "native_attempt_to_sdk_seal": 0.011,
+      "sdk_seal_to_sdk_send_pump": 0.004,
+      "sdk_send_pump_to_daemon_read": 0.014,
+      "daemon_read_to_handler_enter": 0.01,
+      "handler_enter_to_relay_queued": 0.009,
+      "relay_queued_to_sdk_authenticated": 221.046,
+      "sdk_authenticated_to_native_ingress": 0.011
+    }
+  },
+  "sdk_log_sha256": {
+    "worker-2/native.log": "9ae9fb91217731d25456428369f5844b990eecaeac76069d85996ee7361e143b",
+    "worker-0/native.log": "d9e75a49bc1ec77649a7efd108de467b70a8e06947e61a11bfdabfcc6da98e72",
+    "native.log": "38b560a935965e0a68dfb80dfba6b486bc620a854957bff61d700842309c9980"
+  },
+  "limits": [
+    "Owned same-host clocks; no remote/acoustic latency inference",
+    "Relay-queued is source-node admission, not proof of wire send",
+    "Socket-written and native-enqueue-return are post-completion observations; concurrency can place them after downstream work",
+    "This join changes no original quality gate or capture verdict"
+  ]
+}

@@ -1,0 +1,96 @@
+{
+  "before": {
+    "power": "Awake",
+    "own_locks": [],
+    "high_perf_active_time_ms": 7083,
+    "low_latency_active_time_ms": 34634681,
+    "acquired": [
+      2,
+      288
+    ],
+    "released": [
+      2,
+      288
+    ]
+  },
+  "foreground": {
+    "power": "Awake",
+    "own_locks": [
+      "WifiLock{network.veil.xveil:call-low-latency type=4 uid=1000 workSource=WorkSource{10384}}"
+    ],
+    "high_perf_active_time_ms": 7083,
+    "low_latency_active_time_ms": 34634681,
+    "acquired": [
+      2,
+      289
+    ],
+    "released": [
+      2,
+      288
+    ]
+  },
+  "screen_off": {
+    "power": "Asleep",
+    "own_locks": [
+      "WifiLock{network.veil.xveil:call-low-latency type=4 uid=1000 workSource=WorkSource{10384}}"
+    ],
+    "high_perf_active_time_ms": 7083,
+    "low_latency_active_time_ms": 34642092,
+    "acquired": [
+      2,
+      289
+    ],
+    "released": [
+      2,
+      288
+    ]
+  },
+  "released": {
+    "power": "Asleep",
+    "own_locks": [],
+    "high_perf_active_time_ms": 7083,
+    "low_latency_active_time_ms": 34642092,
+    "acquired": [
+      2,
+      289
+    ],
+    "released": [
+      2,
+      289
+    ]
+  },
+  "phases": [
+    "foreground",
+    "released",
+    "screen_off"
+  ],
+  "after": {
+    "power": "Asleep",
+    "own_locks": [],
+    "high_perf_active_time_ms": 7083,
+    "low_latency_active_time_ms": 34642092,
+    "acquired": [
+      2,
+      289
+    ],
+    "released": [
+      2,
+      289
+    ]
+  },
+  "acquired_delta": [
+    0,
+    1
+  ],
+  "released_delta": [
+    0,
+    1
+  ],
+  "active_ms_delta": {
+    "high_perf_active_time_ms": 0,
+    "low_latency_active_time_ms": 7411
+  },
+  "ok": true,
+  "target_process_absent": true,
+  "probe_removed": true
+}

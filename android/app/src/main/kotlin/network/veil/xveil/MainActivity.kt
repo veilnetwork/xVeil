@@ -52,6 +52,7 @@ class MainActivity : FlutterActivity() {
     private var nativeCallCamera: NativeCallCamera? = null
     private var nativeCallVideoRenderer: NativeCallVideoRenderer? = null
     private var callWifiLock: WifiManager.WifiLock? = null
+    private var callWifiBackgroundLock: WifiManager.WifiLock? = null
     private var pendingCallAction: String? = null
     private var pipAutoWanted = false
     private var pipAspect = Rational(16, 9)
@@ -116,7 +117,7 @@ class MainActivity : FlutterActivity() {
                     val active = call.argument<Boolean>("active") ?: false
                     result.success(setCallNetworkActive(active))
                 }
-                "isActive" -> result.success(callWifiLock?.isHeld == true)
+                "isActive" -> result.success(callNetworkLocksHeld())
                 else -> result.notImplemented()
             }
         }
@@ -515,38 +516,63 @@ class MainActivity : FlutterActivity() {
 
     /**
      * Prevent Android Wi-Fi power saving from batching call datagrams behind
-     * DTIM wakeups. LOW_LATENCY is the modern mode and keeps packet cadence
-     * smooth; pre-Q devices fall back to the older high-performance mode.
+     * DTIM wakeups. On Q..T LOW_LATENCY only acts with the screen on and the
+     * app foregrounded. A concurrent HIGH_PERF lock takes over otherwise.
+     * Starting in U HIGH_PERF is itself mapped to LOW_LATENCY by Android, so
+     * acquiring a second lock cannot bypass those platform restrictions.
+     * Pre-Q devices use HIGH_PERF alone.
      * This lock never survives the active call/Activity lifecycle.
      */
+    private fun needsBackgroundWifiLock(): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+
+    private fun callNetworkLocksHeld(): Boolean =
+        callWifiLock?.isHeld == true &&
+            (!needsBackgroundWifiLock() || callWifiBackgroundLock?.isHeld == true)
+
+    @Suppress("DEPRECATION")
     private fun setCallNetworkActive(active: Boolean): Boolean {
         if (!active) {
-            try {
-                callWifiLock?.takeIf { it.isHeld }?.release()
-            } catch (_: RuntimeException) {
+            for (lock in listOfNotNull(callWifiLock, callWifiBackgroundLock)) {
+                try {
+                    lock.takeIf { it.isHeld }?.release()
+                } catch (_: RuntimeException) {
+                }
             }
             callWifiLock = null
+            callWifiBackgroundLock = null
             return false
         }
-        if (callWifiLock?.isHeld == true) return true
+        if (callNetworkLocksHeld()) return true
+        // Reacquisition and a partial acquire failure release the entire set.
+        setCallNetworkActive(false)
         return try {
             val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
             val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 WifiManager.WIFI_MODE_FULL_LOW_LATENCY
             } else {
-                @Suppress("DEPRECATION")
                 WifiManager.WIFI_MODE_FULL_HIGH_PERF
             }
-            callWifiLock = wifi.createWifiLock(mode, "$packageName:call-low-latency").apply {
-                setReferenceCounted(false)
-                acquire()
+            val primary = wifi.createWifiLock(mode, "$packageName:call-low-latency")
+            callWifiLock = primary
+            primary.setReferenceCounted(false)
+            primary.acquire()
+            if (needsBackgroundWifiLock()) {
+                val background = wifi.createWifiLock(
+                    WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+                    "$packageName:call-screen-off",
+                )
+                callWifiBackgroundLock = background
+                background.setReferenceCounted(false)
+                background.acquire()
             }
-            callWifiLock?.isHeld == true
+            callNetworkLocksHeld()
         } catch (error: RuntimeException) {
             XVeilLog.w(applicationContext, "xveil-call-network") {
                 "Wi-Fi lock failed: $error"
             }
-            callWifiLock = null
+            setCallNetworkActive(false)
             false
         }
     }
