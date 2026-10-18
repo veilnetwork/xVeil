@@ -1,0 +1,12 @@
+--- a/modules/pacing/pacing_controller.cc
++++ b/modules/pacing/pacing_controller.cc
+@@ -692,0 +693 @@
++  const DataRate previous_rate = adjusted_media_rate_;
+@@ -713,0 +715,7 @@
++  // A temporary queue-rate boost or a profile cut must not turn debt earned
++  // at the old faster rate into a new long pause. Retain the existing queue
++  // and maximum-debt time bounds, without discarding queued packet bytes.
++  if (adjusted_media_rate_ < previous_rate) {
++    media_debt_ = std::min(media_debt_, adjusted_media_rate_ *
++        std::min(queue_time_limit_, kMaxDebtInTime));
++  }
