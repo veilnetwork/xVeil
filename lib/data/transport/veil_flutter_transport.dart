@@ -853,8 +853,12 @@ class VeilFlutterTransport
   Map<String, int>? mediaChannelStats(int chan) =>
       _mediaApp.mediaChannelStats(chan);
 
-  Map<String, Object?>? mediaPacketCost(int chan, {required int packetBytes}) =>
-      _mediaApp.mediaPacketCost(chan, packetBytes: packetBytes);
+  Map<String, Object?>? mediaPacketCost(
+    int chan, {
+    required int packetBytes,
+    MediaPacketSource source = MediaPacketSource.audio,
+  }) =>
+      _mediaApp.mediaPacketCost(chan, packetBytes: packetBytes, source: source);
 
   /// Trusted end-to-end observation for this node's own outgoing budgets.
   /// The generic IPC lease exposes no traffic role to relays or peers.

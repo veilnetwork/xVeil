@@ -1,0 +1,15 @@
+{
+  "fixture_absent": true,
+  "helper_absent": true,
+  "exit_code": 1,
+  "owned_pids": [
+    1256,
+    1257,
+    1236
+  ],
+  "remaining_owned_pids": [],
+  "policy_exited": true,
+  "audio_thread_exited": true,
+  "file_threads_exited": true,
+  "remaining_sockets": 0
+}

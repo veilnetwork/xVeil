@@ -1,0 +1,10 @@
+BWE route callbacks audio=0 video=0 expected=0/0
+BWE route callbacks audio=0 video=0 expected=0/0
+BWE route callbacks audio=0 video=0 expected=0/0
+BWE route callbacks audio=1 video=1 expected=1/1
+BWE route callbacks audio=1 video=1 expected=1/1
+BWE route callbacks audio=2 video=2 expected=2/2
+BWE route callbacks audio=3 video=3 expected=3/3
+BWE route callbacks audio=3 video=3 expected=3/3
+BWE route callbacks audio=3 video=3 expected=3/3
+BWE handover: independent real controllers reset once per committed path; framing and failed/idempotent candidates do not reset; blocked video cannot stall audio

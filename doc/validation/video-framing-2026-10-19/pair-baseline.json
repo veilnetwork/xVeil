@@ -1,0 +1,377 @@
+{
+  "loopback_only": true,
+  "cellular_call_proof": false,
+  "ok": false,
+  "duration_seconds": 180,
+  "rate_kbps": 1024,
+  "competing_file_bytes": 524288,
+  "media_sha256": "51054a648b48b8ef9e8952fc00e3fe28ee07feb4f7a42846fcd14007e3400b3b",
+  "decoded_video_progress": {
+    "synthetic_fixture_only": true,
+    "screen_presentation_proof": false,
+    "sampled_retrieval_not_native_decode_timing": true,
+    "tail_seconds": 15,
+    "directions": [
+      {
+        "side": 0,
+        "decoded_frame_pulls": 155,
+        "content_changes": 154,
+        "last_decoded_pull_seconds": 179.00087045901455,
+        "max_sampled_pull_gap_seconds": 4.998389249987667,
+        "tail_decoded_pulls": 15,
+        "tail_content_changes": 14,
+        "moving_at_end": true
+      },
+      {
+        "side": 1,
+        "decoded_frame_pulls": 154,
+        "content_changes": 153,
+        "last_decoded_pull_seconds": 179.00210516699008,
+        "max_sampled_pull_gap_seconds": 5.997992040996905,
+        "tail_decoded_pulls": 15,
+        "tail_content_changes": 14,
+        "moving_at_end": true
+      }
+    ],
+    "moving_at_end": true
+  },
+  "decoded_video_failures": [
+    0,
+    0
+  ],
+  "native_pcm_driver": {
+    "clock_check_span_us": 8.416012860834599,
+    "scheduling_mode": "deadline",
+    "dropped_rows": 0,
+    "ticks": 18000,
+    "observation_count_verified": true,
+    "stage_maxima_ms": {
+      "max_wake_lateness_ms": 0.06625,
+      "max_callback_ms": 0.5613333196379244,
+      "max_publication_ms": 0.016666657757014036
+    },
+    "scheduling": {
+      "qos_supported": 1,
+      "qos_result": 0,
+      "qos_requested": 33,
+      "qos_actual": 33
+    },
+    "deadline_scheduling": {
+      "deadline_requested": 1,
+      "deadline_result": 0,
+      "deadline_active": 1,
+      "deadline_period_ticks": 240000,
+      "deadline_computation_ticks": 72000,
+      "deadline_constraint_ticks": 120000,
+      "deadline_actual_period_ticks": 240000,
+      "deadline_actual_computation_ticks": 72000,
+      "deadline_actual_constraint_ticks": 120000,
+      "deadline_checks": 182,
+      "deadline_misses": 0
+    },
+    "timer_error": 0
+  },
+  "native_failures": [
+    0,
+    0
+  ],
+  "poll_failures": [
+    0,
+    0
+  ],
+  "audio_thread_failures": 0,
+  "live_video_framing": false,
+  "live_video_framing_verified": null,
+  "adaptive_audio_verified": true,
+  "codec_target_bounds_verified": true,
+  "decoded_pcm_edges": [
+    {
+      "side": 0,
+      "phases": [
+        {
+          "name": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "p95_ms": 100.05450001335703,
+          "max_ms": 100.09699998772703
+        },
+        {
+          "name": "audio-video",
+          "matched": 159,
+          "missing": 0,
+          "p95_ms": 179.9847500224132,
+          "max_ms": 220.05141669069417
+        }
+      ],
+      "source_edge_capture_positions": {
+        "40": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "60": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      }
+    },
+    {
+      "side": 1,
+      "phases": [
+        {
+          "name": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "p95_ms": 100.21612499258481,
+          "max_ms": 100.25616665370762
+        },
+        {
+          "name": "audio-video",
+          "matched": 159,
+          "missing": 0,
+          "p95_ms": 170.23783331387676,
+          "max_ms": 210.35391668556258
+        }
+      ],
+      "source_edge_capture_positions": {
+        "40": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "60": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      }
+    }
+  ],
+  "tone_period_ms": 1010,
+  "phases": [
+    {
+      "name": "audio-only",
+      "directions": [
+        {
+          "maxima": {
+            "audio_delay_ms": 64,
+            "audio_jb_ms": 64,
+            "audio_interruption_count": 0,
+            "audio_interruption_duration_ms": 0,
+            "audio_rx_native_age_ms": 61,
+            "video_tx_frames": 0,
+            "video_rx_deliver_frames": 0
+          },
+          "pcm_frames": 1500,
+          "quiet_pcm_frames": 0,
+          "video_pause_samples": 0
+        },
+        {
+          "maxima": {
+            "audio_delay_ms": 82,
+            "audio_jb_ms": 82,
+            "audio_interruption_count": 0,
+            "audio_interruption_duration_ms": 0,
+            "audio_rx_native_age_ms": 59,
+            "video_tx_frames": 0,
+            "video_rx_deliver_frames": 0
+          },
+          "pcm_frames": 1500,
+          "quiet_pcm_frames": 0,
+          "video_pause_samples": 0
+        }
+      ]
+    },
+    {
+      "name": "audio-video",
+      "directions": [
+        {
+          "maxima": {
+            "audio_delay_ms": 162,
+            "audio_jb_ms": 162,
+            "audio_interruption_count": 0,
+            "audio_interruption_duration_ms": 0,
+            "audio_rx_native_age_ms": 80,
+            "video_tx_frames": 268,
+            "video_rx_deliver_frames": 313
+          },
+          "pcm_frames": 16000,
+          "quiet_pcm_frames": 0,
+          "video_pause_samples": 5
+        },
+        {
+          "maxima": {
+            "audio_delay_ms": 171,
+            "audio_jb_ms": 171,
+            "audio_interruption_count": 0,
+            "audio_interruption_duration_ms": 0,
+            "audio_rx_native_age_ms": 81,
+            "video_tx_frames": 313,
+            "video_rx_deliver_frames": 267
+          },
+          "pcm_frames": 16000,
+          "quiet_pcm_frames": 0,
+          "video_pause_samples": 4
+        }
+      ]
+    }
+  ],
+  "neutral_datagram_route_verified": true,
+  "local_source_feedback": true,
+  "source_feedback_queued": [
+    179,
+    179
+  ],
+  "source_feedback_skipped": [
+    0,
+    0
+  ],
+  "file_results": [
+    {
+      "queued": 524288,
+      "queue_duration_ms": 4.2,
+      "received": 397312,
+      "missing_chunks": 62,
+      "missing_indices": [
+        194,
+        195,
+        196,
+        197,
+        198,
+        199,
+        200,
+        201,
+        202,
+        203,
+        204,
+        205,
+        206,
+        207,
+        208,
+        209,
+        210,
+        211,
+        212,
+        213,
+        214,
+        215,
+        216,
+        217,
+        218,
+        219,
+        220,
+        221,
+        222,
+        223,
+        224,
+        225,
+        226,
+        227,
+        228,
+        229,
+        230,
+        231,
+        232,
+        233,
+        234,
+        235,
+        236,
+        237,
+        238,
+        239,
+        240,
+        241,
+        242,
+        243,
+        244,
+        245,
+        246,
+        247,
+        248,
+        249,
+        250,
+        251,
+        252,
+        253,
+        254,
+        255
+      ],
+      "hash_matches": false
+    },
+    {
+      "queued": 524288,
+      "queue_duration_ms": 3.8,
+      "received": 481280,
+      "missing_chunks": 21,
+      "missing_indices": [
+        234,
+        235,
+        236,
+        238,
+        239,
+        240,
+        241,
+        242,
+        243,
+        244,
+        245,
+        246,
+        247,
+        248,
+        249,
+        250,
+        251,
+        252,
+        253,
+        254,
+        255
+      ],
+      "hash_matches": false
+    }
+  ],
+  "file_auth_errors": [
+    0,
+    0
+  ],
+  "file_duplicates": [
+    0,
+    0
+  ],
+  "file_async_send_failures": [
+    {},
+    {}
+  ],
+  "audio_thread_exited": true,
+  "file_threads_exited": true,
+  "policy_exited": true,
+  "neutral_shaper_final": [
+    {
+      "received": 38132,
+      "sent": 38132,
+      "drops": 0,
+      "max_queue_ms": 81.2467286887113
+    },
+    {
+      "received": 38169,
+      "sent": 38169,
+      "drops": 0,
+      "max_queue_ms": 95.98237520549446
+    }
+  ],
+  "shaper_failed": null,
+  "node_stop_results": [
+    0,
+    0,
+    0
+  ],
+  "remaining_fixture_sockets": 0
+}

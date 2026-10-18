@@ -1,5 +1,60 @@
 # Calls media handoff
 
+## 2026-10-19: live video framing, actual image budget, corrected fixture inputs
+
+SDK **80c4205e** adds an optional source-cost query that selects the actual local audio, video
+or screen child. Video/screen do not inherit audio replication. The original
+audio-only ABI remains. The native video setter applies framing to its own
+allocator/pacer before or during video; blocked-worker cancellation, unchanged
+audio, retained streams and exactly-once real route notifications are covered.
+The 1:1 host refreshes the selected video/screen model at startup, route commit
+and stats ticks, retaining only acknowledged hints. Unknown metadata stays
+unknown. The model still excludes QUIC/TCP/IP and ACK overhead; it is not a
+measurement of total wire use. Relays receive no media role or priority.
+
+The VP8 sizer now observes actual positive allocations below 30 kbit/s even if
+the requested profile is higher. Pausing preserves its last sizing budget;
+actual recovery to 60 kbit/s releases the resolution cap without requiring a
+larger host profile. The regression fails against the original header and
+passes with the fix. **20 Dart tests**, **2 Rust cost tests**, native live
+framing/handover checks and macOS/Android production builds pass.
+
+**Fixture fidelity correction:** the standalone 1:1 and room bridges omitted
+the application's acknowledged `sourceBudgetPressured` growth hold. The 1:1
+bridge also lacked current local/peer recovery de-duplication. Both mappings
+are corrected; signal, files, clocks, FIFO and strict gates are unchanged.
+Earlier captures, including the prior 390-ms room result, retain their measured
+verdict but do not qualify current application policy. A full run was explicitly
+interrupted when this defect was confirmed; all owned processes were cleaned up.
+
+The aligned **360-second 1:1 workload FAILS** the unchanged latency gate:
+**249.958 / 240.144 ms**, with **704 matched / 0 missing** markers. Both 512-KiB
+files match and both videos move at the end (14 content changes each). There
+are intermediate sampled video gaps up to 12 / 21 seconds; this is not a
+smooth-video or speech qualification. The peak follows a 450-to-900-kbit/s,
+7.5-to-15-fps request: about **40 ms encoding + 168 ms SDK-to-ingress + 42 ms
+remaining playout**. Correlation alone does not prove its entire cause.
+
+The aligned original **360-second three-party workload also FAILS**:
+**380.171 ms**, **2112 matched / 0 missing** markers. All three 512-KiB files
+match; all six video paths have 14 final content changes. Exact source tracing
+now joins the peak: **0.151 ms handler-to-budget + 0.014 ms to QUIC admission**,
+then **210.139 ms to authenticated receipt**. Admission is not NIC transmission;
+the shared blind queue reaches **201.119 ms**. Clocks have zero late intervals
+and missed deadlines. All ten owned fixture/worker/policy/helper PIDs are absent.
+
+**Goal ACTIVE.** Next work is limiting competing traffic before the common
+bottleneck queues: investigate gentler growth and full carrier/headroom
+accounting, then re-run the same gates. Room video still needs live per-source
+framing integration. Check sparse fractional-rate video with large headers:
+pinned WebRTC rounds overhead packet rate to at least 1 Hz, potentially leaving
+zero payload at a 1-kbit/s gross floor. The earlier physical handover's 219-ms
+audio pacer transient remains unexplained. No phone/app installation, server
+change, push or release was made this cycle. Evidence:
+**validation/call-video-framing-2026-10-19.json** and
+**validation/video-framing-2026-10-19/**; private raw capture/builds:
+**~/.cache/codex/xveil-video-framing-20261019/**.
+
 ## 2026-10-19: congestion controllers follow committed channel handovers
 
 SDK **2565d113** fixes a separate stale-state defect. Native channel rebinds
