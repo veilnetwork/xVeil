@@ -425,6 +425,7 @@ class CallBitrateAdapter {
   /// substantiate congestion even when other receivers have not reported.
   ({int maxBitrateKbps, double maxFps})? onNativeStats(
     Map<String, dynamic> stats, {
+    bool sourceBudgetPressured = false,
     bool videoSendExpected = true,
     bool sendAudioExpected = true,
     bool requireAudioReceivePlayout = false,
@@ -531,6 +532,7 @@ class CallBitrateAdapter {
     final floorTrialMeasured = _observeFloorTrial(stats, videoSendExpected);
     final videoFrames = stats['video_tx_frames'];
     final outcome = onSample(
+      sourceBudgetPressured: sourceBudgetPressured,
       videoSendExpected: videoProgress,
       measuredVideoProgress:
           videoProgress && videoFrames is num && videoFrames > 0,
@@ -645,6 +647,7 @@ class CallBitrateAdapter {
   /// Feed one stats sample; returns the new target when the rung changed and
   /// null otherwise. `rttMs` of 0 means "unknown yet" and is not judged.
   ({int maxBitrateKbps, double maxFps})? onSample({
+    bool sourceBudgetPressured = false,
     bool measuredVideoProgress = false,
     bool videoSendExpected = true,
     bool sendAudioExpected = true,
@@ -737,6 +740,7 @@ class CallBitrateAdapter {
         freshPeerSample;
     _bufferPressure = bufferPressure;
     _bufferInputs = {
+      'source_budget_pressured': sourceBudgetPressured,
       'observation': ++_bufferObservationSequence,
       'level_before': _level,
       'receive_required': requireAudioReceivePlayout,
@@ -1046,6 +1050,15 @@ class CallBitrateAdapter {
     }
     _badStreak = 0;
     _floorBadStreak = 0;
+    if (sourceBudgetPressured) {
+      // The shared endpoint budget still yields bandwidth to audio. Raising
+      // video here only creates local drops, NACKs and another quality cut.
+      // Earn new growth evidence after that hold clears; the sparse floor
+      // and prompt audio protection above retain their existing behavior.
+      _goodStreak = 0;
+      _startupGoodStreak = 0;
+      return null;
+    }
     if (!good) {
       // Marginal sample: hold the rung, restart the recovery clock.
       _goodStreak = 0;

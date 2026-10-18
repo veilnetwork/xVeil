@@ -816,6 +816,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       // Native aggregates count only fresh AUDIO reports, not video reports.
       adapter.onNativeStats(
         stats,
+        sourceBudgetPressured:
+            _sourceFeedbackQueued > 0 && _sourcePressured == true,
         videoSendExpected: _cameraEnabled || _screenSharing,
         sendAudioExpected: _audioEnabled && !_microphoneState.muted,
         receiveAudioExpected: _hasExpectedIncomingAudio,
