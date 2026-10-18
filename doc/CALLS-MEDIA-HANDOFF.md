@@ -1,5 +1,68 @@
 # Calls media handoff
 
+## 2026-10-18: real-pacer rate-cut debt reproduces a fresh-video pause
+
+SDK native `2f81d676` adds a transparent **stand-only** video controller observer.
+It requires the independent `VEIL_MEDIA_CC_TRACE_BUILD=1` build option, explicit
+`VEIL_MEDIA_TRACE_VIDEO_CC=1`, and the existing diagnostic path. Ordinary builds
+exclude the factory; other test hooks are not enabled. The real GoogCC controller
+and its process interval remain; all 12 callback families and every returned
+rate/window/probe command are forwarded. The fixture checks 14 calls, feedback
+vectors, ECN, 64-bit clock values, bounded visible truncation and no callback
+file I/O. A private counterfactual which deletes probe commands aborts. Records
+are bounded at 8192 and written only on teardown. The parser refuses incomplete,
+truncated, repeated and clock-regressing captures; two Python tests pass.
+Mac observer build retains the same **100 C exports** as the preceding physical
+native library. The initially built 131-export general-test-hook library was
+not used; the independent observer option avoids those unrelated hooks.
+
+Evidence: `validation/call-video-pacing-debt-2026-10-18.json`; private artifacts
+`~/.cache/codex/xveil-video-cc-20261018`. A 239.53-s physical Mac/Blackview call
+with the observer keeps the previous b262 AOT, 986 Rust SDK, hidden-volume and
+phone version 12614 unchanged. Ring **0.222 s**; explicitly selected relay at
+**120.21 s**, not automatic fallback. Direct interval receives **29.59 / 30.13
+fps** (Mac/phone), relay tail **11.53 / 1.46 fps**. Native interruption counts
+stay **0 / 0**, jitter-buffer peaks **104 / 107 ms**, cumulative trimmed audio
+**310 / 100 ms** (not single pause lengths). Both source holds clear; video still
+falls to 1 fps. Native pacer queue-age peaks **631 / 168 ms**. A preceding capture
+already showed **1380 ms** on Mac. No listening/acoustic/headset proof.
+
+The complete controller trace has **1852** samples, **no finite congestion
+window emitted**, maximum observed tracked in-flight **44922 bytes**, and an
+available network during the queue peaks. Native transport starts with an
+infinite window, so finite-window blocking is not this capture's mechanism.
+GoogCC target/pacing rates do move after profile changes. The coarse API timeline
+omits acceptance/collection time, so naive nearest-sample matching can compare
+an old 15-kbit target with a newly raised 90-kbit encoder. Do not claim a sustained
+87-vs-15-kbit mismatch solely from that rough join. RTP timestamps also include
+retransmissions and do not by themselves prove absolute encode/pacer age.
+
+**Deterministic real-WebRTC component counterexample:** the normal 4x/25-ms
+video profile sends fourteen 1012-byte packets in its legal high-rate burst.
+Cut the profile from **900 to 15 kbit/s**; a fresh 412-byte video packet arrives
+one millisecond later. It waits **836 ms**, despite the 25-ms queue target; all
+15 packets remain in order. This exact assertion FAIL is retained. Source shows
+`SetPacerConfig` changes the rate while retaining old media-byte debt. The
+queue-target boost accounts for queued bytes, not that prior debt. Thus a legal
+old-rate burst can become a long wait at the new low rate. This is a measured
+component mechanism, not proof of the cause of every physical freeze.
+
+A **private, unqualified** dependency candidate bounds pre-existing media debt
+on a rate decrease by the existing queue-time/debt limits. Compiling just that
+upstream translation unit before the identical unchanged archive makes the
+same repro pass at **0 ms**, preserving all 15 packets/order. The external WebRTC
+checkout/archive is NOT edited, and the candidate is NOT linked into the app or
+normal Veil build. Retained source/runner/patch and commands:
+`validation/video-pacer-debt-2026-10-18/README.md`. Next: test steady/up/down rates,
+queued frames and primary audio, integrate reproducibly for supported native
+bundles, then qualify real calls and the original full shared-FIFO workload.
+Do not replace these gates with the passing component result or disable audio
+protection/GCC based on the current evidence. Earlier counterexamples remain.
+
+Mac/launcher/logcat exited, phone force-stopped and owned ADB forwarding removed;
+independent PID/process/forward checks all pass. Mac again needs SIGKILL after
+its existing graceful timeout. No release/push/relay deployment. Goal ACTIVE.
+
 ## 2026-10-18: terminal work cannot evict useful queue entries
 
 SDK `db19722c` completes the preceding queue cancellation fix at ingress,
