@@ -10,7 +10,7 @@
     "sdk_worktree_clean": true,
     "native_media_source": "c0c30821; unchanged production media algorithms",
     "mac_qa": "Profile AOT, both hook opt-ins, DebugNoVpn signing, private bundle; 0.13.87-call-probe-8612",
-    "android_qa": "Profile AOT, debug hook, 0.13.87+8612, staged clean SDK --no-default-features and production-seeds,node-embedded,packet-tunnel",
+    "android_qa": "Profile AOT, debug hook, 0.13.87 (QA probe 8612, Android versionCode 10612), staged clean SDK --no-default-features and production-seeds,node-embedded,packet-tunnel",
     "artifacts": {
       "mac_sdk": "3cb420adbb5bdde4239dc08f16e4aa46e71a937620f0f053e0d84eb518d239c2",
       "mac_media": "e10dfc47f08ea91747b83cff05f673a68a5012ebc3a83d2c8e82946669d1358c",
@@ -34,7 +34,8 @@
     "data_preserved": true,
     "previous_apk_retained_privately": true,
     "android_version_code_actual": 10612,
-    "android_requested_build_number": 8612
+    "qa_probe_identifier": 8612,
+    "version_code_note": "Android versionCode is the Flutter build number; probe label 8612 is not evidence of an automatic version-code offset."
   },
   "preflight_failure": {
     "reason": "Release deliberately has no diagnostic hook; Profile also requires both explicit hook opt-ins. First attempt placed no call. Retained separately; both builds corrected without changing hook policy.",

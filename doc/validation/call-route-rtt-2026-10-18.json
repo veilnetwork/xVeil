@@ -1,0 +1,555 @@
+{
+  "date": "2026-10-18",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "scope": "Explicit local route epochs reset the RTT floor after a qualified retained-engine handover. Old SR echoes cannot seed the new route. No relay, wire-role, QoS threshold or priority change.",
+  "sdk_source_commit": "7f664470",
+  "physical_build": {
+    "sdk_source_head": "7f664470e564a643826d5bc121e528f5e23ed50a",
+    "root_head_before_commit": "6405689558f6cc9377239907d03b50c627021fc4",
+    "mac_private_qa": "/Users/vart/.cache/codex/xveil-route-epoch-20261018/mac-stand/xveil.app",
+    "mac_media_test_hooks": false,
+    "same_android_signer": true,
+    "mac_signed_native_sha256": {
+      "libhidden_volume_ffi.dylib": "a923c8ec596f3cd95a0c2967a1c713797fb60dd626dd53b08f689c7251dc1e4f",
+      "libveilclient_ffi.dylib": "3cb420adbb5bdde4239dc08f16e4aa46e71a937620f0f053e0d84eb518d239c2",
+      "libveil_media.dylib": "a5ad85216546d93aa5a424f2015e5879d58ba07f0252957fe4dbe62631a91050"
+    },
+    "mac_aot_sha256": "7922c34d1eeacf8b79b84451b3b166311d3c5113d37d69d692f85475077fe32c",
+    "apk_sha256": "e8bbb466fd61d2169b1fe7b778c28a7d7619c4a601cfcb324f8ce1f2171577df",
+    "android_packaged_sha256": {
+      "lib/arm64-v8a/libhidden_volume_ffi.so": "ab4a0cf8b75f2be9e6d525c40f48c613aa13d881307e13464ef0e1a3af840156",
+      "lib/arm64-v8a/libveilclient_ffi.so": "79afa7a40a5b6d4cfecb49b6b791e7aba1d56fa60347775979b7c1d48bca1e27",
+      "lib/arm64-v8a/libveil_media.so": "3546a0141ba9ad7533a081287c3af36916f5b4a457c42d212930e0e10ec049cb",
+      "lib/arm64-v8a/libapp.so": "1930ae2451cd87892548a175dcce6a8fb2f76e3e20a96774c4db685bd2d6614e"
+    },
+    "native_source_sha256": {
+      "third_party/veil/flutter/veil_media/src/veil_mf_camera.cc": "ab3e7bfd3ee9cefe1d95dc16507d422a1e070c68f6ffd7ee4f70a258c6587bd7",
+      "third_party/veil/flutter/veil_media/src/veil_diag_log.h": "d94b7a1f5a5bc6f697517693b84b2baff47fd83a096c74798bc4e1813760aec2",
+      "third_party/veil/flutter/veil_media/src/veil_run_on.h": "987f06b700427e696b4e8400c3522fcd8e50dd2a7b1cbb653f85396a1dcbb238",
+      "third_party/veil/flutter/veil_media/src/veil_media_engine.cc": "5dba03c2a5fe420cfb0937329b409c52e6dbb07aaca2edf4db23ab1f0a3e9a6e",
+      "third_party/veil/flutter/veil_media/src/veil_media_guard.h": "88f08c423322af88740b1f3b5f0dc4387ae7dcb216c8a5926bdc7f68d2a30620",
+      "third_party/veil/flutter/veil_media/src/veil_avf_camera.mm": "8e3beeb247aa2e8eda58d6f2b5d35b5e162613090428d84963f1e0f23605bf9c",
+      "third_party/veil/flutter/veil_media/src/veil_ios_screen_stub.cc": "803196cdba76dcbe85b5b4057a2622106d6d5651fb492c3fe6d5bf9d20806193",
+      "third_party/veil/flutter/veil_media/src/veil_inbound_packet_queue.h": "076fd69bfe102fccbed1562b44b44708af819553bbe9c7310d0f59b3db1de031",
+      "third_party/veil/flutter/veil_media/src/veil_screen.h": "8b5da8392db79e1d176564320a94d676ffc444c22e9978b5c95fffb416bb8025",
+      "third_party/veil/flutter/veil_media/src/veil_aaudio_adm.h": "1ed0d7c5e6d2c6a64c39da62248416502ddbd38ff745a7a42c6ec5488c882e76",
+      "third_party/veil/flutter/veil_media/src/video_bitrate_settings.h": "6e1711f2478bda80f816b0e8d6cbf4941fc8a38f0392a80ddbb14b42f8fcdbd0",
+      "third_party/veil/flutter/veil_media/src/veil_video_control_transport.h": "6d03205549aa8e443471941ab149e8382b7465fdc801c631361576a21624d5b5",
+      "third_party/veil/flutter/veil_media/src/veil_audio_redundancy.h": "22a3c1dccc8be17188f1b0cf6b6c9e50f06e4f89f8b100064afde98084461d13",
+      "third_party/veil/flutter/veil_media/src/veil_rtcp_lane_filter.h": "df0d5c98f8a5ff36f6b1c718ced0a452736f93f28e70571883f1f10084f192c2",
+      "third_party/veil/flutter/veil_media/src/veil_adaptive_video_source.h": "c14d34f65c315d00b90b51465c94a1e32218088dc661d50b466bf3cbeb60aae8",
+      "third_party/veil/flutter/veil_media/src/veil_vp8_settings.h": "aa20c27bd22206089787adae4f272ede37ce9c0a4aebef6d2cc5f269dec4666a",
+      "third_party/veil/flutter/veil_media/src/veil_media_engine.h": "9502220005c2e493940fba915f7be9cae3bb72953f48d70e4f68494083953a33",
+      "third_party/veil/flutter/veil_media/src/veil_audio_recovery_feedback.h": "586e82a7e35c2b913f6eefd3e16401c4e78fb1c75483f31c5491758a3e587293",
+      "third_party/veil/flutter/veil_media/src/veil_audio_play.h": "175ef7518cc2d414439c3601e8dbe839927a3aef52d6ba0f624e03d2dc89408c",
+      "third_party/veil/flutter/veil_media/src/veil_audio_encode_timing.h": "a259d81515efabc1b83dd87ae54ecdfe4ac847b38e3b17d0681a125fd8dff63b",
+      "third_party/veil/flutter/veil_media/src/veil_audio_play.cc": "ef9fc62e08c08f8adba56004a310ae9ca46bb7fc43aeedfbcddf603398c89b5e",
+      "third_party/veil/flutter/veil_media/src/veil_rtcp_route_clock.h": "157a6bdd5c96c69862021869e58ab0efe897eaa83b1dcd8dc033dd0c444809f0",
+      "third_party/veil/flutter/veil_media/src/veil_video_note.cc": "5f6875ea1b23d7660876fa60ac8cd3c4615dd81acaf147b781392bd0e10b317d",
+      "third_party/veil/flutter/veil_media/src/veil_rtcp_send_stats.h": "17ccfa16879394872d8612e82154a9565aee168172280c3d97f57068ef37a264",
+      "third_party/veil/flutter/veil_media/src/veil_playout_recovery.h": "36cc15ca56035e090b912a1da4c038c31cca119cd51cc88d0030910845ad385d",
+      "third_party/veil/flutter/veil_media/src/veil_aaudio_adm.cc": "e68496b5dcdb97b1adc7f227cd074975968e3a076fc446bd642557470d10f5b9",
+      "third_party/veil/flutter/veil_media/src/veil_win_datagram_thunk.cc": "e3f5798ca63e6285c059ed0593b0fa22ef977de66a6bf64bbb94ad1444040306",
+      "third_party/veil/flutter/veil_media/src/veil_avf_screen.mm": "81310cd3c55992ba69c311aa0934e5cb3f224615db7c60c446814404cd9b4925",
+      "third_party/veil/flutter/veil_media/src/veil_audio_adaptor_config.h": "4eb10cd03cb174be1ef8b1c665431adf0ef72cae78b2c82cd990fc10ab8d4fda",
+      "third_party/veil/flutter/veil_media/src/veil_playout_trace.h": "c68c8c3144167731e3509841cb2258f5734cc99b7852343ecccf28111abb52e3",
+      "third_party/veil/flutter/veil_media/src/veil_video_note.h": "bfc273d5b9f029d808b4882bdec229e6db31910b041a5f6e6aae2cda22305bdc",
+      "third_party/veil/flutter/veil_media/src/veil_v4l2_camera.cc": "c7ca14c0302b6749a15208ef66c714aab75d69ba567fc68bcc4f8e4d779e47ff",
+      "third_party/veil/flutter/veil_media/src/veil_transport_shim.cc": "9dfbf1d8865135a9fe87369c50842dc91aaffb7f512a5991780546966a168919",
+      "third_party/veil/flutter/veil_media/src/veil_gdi_screen.cc": "2a3772f4c99159023fe6e540537356efb8a498e49f79c1d5744be1dfde7020a6",
+      "third_party/veil/flutter/veil_media/src/veil_group_audio_send_trace.h": "25d8a328a15a476d5ac836ceaa01b296dd10b78227b611c03e982f4392d59161",
+      "third_party/veil/flutter/veil_media/src/veil_camera.h": "c3fea01b4046fb0586c2ff8d686f018e182fe6a8dfa6d634df87a437ce82581e",
+      "third_party/veil/flutter/veil_media/src/veil_avf_adm.h": "973a7e87a6ce1234940d11e2055790f264ddf1633937197b316d9e9b82568e54",
+      "third_party/veil/flutter/veil_media/src/bounded_audio_encoder.h": "75ef033e07187d13d9b7ca6da8df01d30bea540a89a1003e17259f319010be8c",
+      "third_party/veil/flutter/veil_media/src/veil_audio_send_stats.h": "bed6ec12ed8e4bec42388adc53bcca7f01d9bc705c2905756a00c76b62f28a52",
+      "third_party/veil/flutter/veil_media/src/veil_audio_recovery.h": "ec53b22f15c8af4e482819922c29fc674681378be5d2ef42ffd6a944cacbbfd2",
+      "third_party/veil/flutter/veil_media/src/veil_vp8_header.h": "9b884f0ffc3e5b5a2757d559f6d7b9e500df6546e189f3d4e2ecd23fe2ff51c2",
+      "third_party/veil/flutter/veil_media/src/veil_audio_record.cc": "cd3c1a5240eeb01bc47e03936f673ed11a35cc4815925cbada8d4eb4003893a9",
+      "third_party/veil/flutter/veil_media/src/veil_bounded_vp8.h": "26dcb352669b367609de0d5639e43a35a90baa3202f8d9c0ae3ee9c5588130fa",
+      "third_party/veil/flutter/veil_media/src/veil_transport_shim.h": "53f4efcd8231b3d9dda43a88fc7afdca23000100a0f7686946b31945cfa4b446",
+      "third_party/veil/flutter/veil_media/src/veil_audio_record.h": "f37e17d545ba2afae1b48cc85527210a0d92c683e5ac31efeea2ad921fdc3139",
+      "third_party/veil/flutter/veil_media/src/veil_call_audio_processing.h": "149d608f4eaab531f9fc65434b8dd25eb96cfb66bf5291f8349432e6f0d63756",
+      "third_party/veil/flutter/veil_media/src/veil_avf_adm.mm": "71a05d6ba37e769d37069b3d647c1f5bb02c0e6033c48c3866060224c731e2f6",
+      "third_party/veil/flutter/veil_media/src/webrtc_ana/controller_manager.cc": "e7f0f72435dcf7cb2f6fa598c5edb25d0133ef4a1e2b021c1e7d1676becb87c5",
+      "third_party/veil/flutter/veil_media/src/webrtc_ana/LICENSE": "ab00a482b6a3902e40211b43c5d0441962ea99b6cc7c25c0f243fa270b78d482",
+      "third_party/veil/flutter/veil_media/src/webrtc_ana/PATENTS": "01462e2068d1a04c2274f3389773014c14ed9bc3446b28303543bd3e3c064145",
+      "third_party/veil/flutter/veil_media/src/webrtc_ana/README.md": "401e85ed2b3ff9581c44a8fae49dfc26ac3602d630d3cce8e1d58948f3aa623a"
+    },
+    "dart_source_sha256": {
+      "lib/state/call_bitrate_adapter.dart": "ed7f9a1a248bc5fe7b0cfecc90e51f25bd7096ee7769850d51b0f81392d23589"
+    },
+    "android_version_code": 10613,
+    "android_build_number_passed_to_flutter": 10613,
+    "qa_probe_identifier": 8613,
+    "rejected_prior_apk_code": 8613
+  },
+  "validation": {
+    "old_policy_regression": "3 of 6 new tests fail before the policy fix; raw red log retained",
+    "flutter_focused_tests": 107,
+    "python_analysis_tests": 23,
+    "native_clock_wrap_and_stale_sr_smoke": "pass",
+    "native_group_trace_bounds_filter_and_fanout_smoke": "pass",
+    "dart_analyze": "No issues found",
+    "native_builds": [
+      "macOS production",
+      "macOS test hooks for owned group fixture",
+      "Android arm64 production in local cached builder"
+    ]
+  },
+  "physical": {
+    "ring_seconds": 0.628348250000272,
+    "duration_seconds": 208.70158241700847,
+    "sample_count": 102,
+    "network": "Blackview Wi-Fi / Mac",
+    "stimulus": "Same 90-second warmup, audio first 30 seconds, then video; intentional relay recovery at 120 seconds; total requested call duration 210 seconds.",
+    "relay_request_seconds": 120.19000012500328,
+    "relay_request_ok": true,
+    "endpoints": {
+      "mac": {
+        "state_transitions": [
+          {
+            "t": 0.0,
+            "state": [
+              "connecting",
+              "p2p",
+              null
+            ]
+          },
+          {
+            "t": 2.148,
+            "state": [
+              "active",
+              "p2p",
+              null
+            ]
+          },
+          {
+            "t": 120.19,
+            "state": [
+              "active",
+              "relay",
+              null
+            ]
+          }
+        ],
+        "phases": {
+          "audio": {
+            "sample_span_seconds": [
+              0.0,
+              28.585
+            ],
+            "remote_frames_delta": 0,
+            "audio_rx_packets_delta": 1188,
+            "final_remote_fps": 0.0,
+            "final_video_budget_fps": 0.0,
+            "maxima": {
+              "audio_interruption_count": 0,
+              "audio_interruption_duration_ms": 0,
+              "audio_delay_ms": 41,
+              "audio_filtered_delay_ms": 54,
+              "audio_latency_discarded_ms": 0,
+              "audio_tx_rtp_admission_max_ms": 0,
+              "remote_frame_max_gap_ms": 0,
+              "audio_tx_payload_max_gap_ms": 43,
+              "audio_rx_age_ms": 383,
+              "tx_drops": 0,
+              "rx_drops": 0
+            },
+            "video_paused_samples": 0,
+            "last_30_seconds_frames_delta": 0
+          },
+          "video_before_recovery": {
+            "sample_span_seconds": [
+              30.613,
+              118.149
+            ],
+            "remote_frames_delta": 923,
+            "audio_rx_packets_delta": 4219,
+            "final_remote_fps": 10.8,
+            "final_video_budget_fps": 30.0,
+            "maxima": {
+              "audio_interruption_count": 0,
+              "audio_interruption_duration_ms": 0,
+              "audio_delay_ms": 93,
+              "audio_filtered_delay_ms": 106,
+              "audio_latency_discarded_ms": 0,
+              "audio_tx_rtp_admission_max_ms": 0,
+              "remote_frame_max_gap_ms": 1021,
+              "audio_tx_payload_max_gap_ms": 56,
+              "audio_rx_age_ms": 260,
+              "tx_drops": 0,
+              "rx_drops": 0
+            },
+            "video_paused_samples": 0,
+            "last_30_seconds_frames_delta": 685
+          },
+          "after_recovery": {
+            "sample_span_seconds": [
+              120.19,
+              208.702
+            ],
+            "remote_frames_delta": 2613,
+            "audio_rx_packets_delta": 2992,
+            "final_remote_fps": 20.4,
+            "final_video_budget_fps": 60.0,
+            "maxima": {
+              "audio_interruption_count": 0,
+              "audio_interruption_duration_ms": 0,
+              "audio_delay_ms": 113,
+              "audio_filtered_delay_ms": 112,
+              "audio_latency_discarded_ms": 0,
+              "audio_tx_rtp_admission_max_ms": 0,
+              "remote_frame_max_gap_ms": 1021,
+              "audio_tx_payload_max_gap_ms": 57,
+              "audio_rx_age_ms": 148,
+              "tx_drops": 0,
+              "rx_drops": 0
+            },
+            "video_paused_samples": 0,
+            "last_30_seconds_frames_delta": 850
+          }
+        },
+        "route_floor_changes": [
+          {
+            "t": 0.0,
+            "native_route_epoch": null,
+            "policy_route_epoch": null,
+            "baseline_ms": null,
+            "reported_rtt_ms": null
+          },
+          {
+            "t": 2.148,
+            "native_route_epoch": 0,
+            "policy_route_epoch": null,
+            "baseline_ms": null,
+            "reported_rtt_ms": 0
+          },
+          {
+            "t": 30.613,
+            "native_route_epoch": 0,
+            "policy_route_epoch": 0,
+            "baseline_ms": 11,
+            "reported_rtt_ms": 11
+          },
+          {
+            "t": 42.428,
+            "native_route_epoch": 0,
+            "policy_route_epoch": 0,
+            "baseline_ms": 9,
+            "reported_rtt_ms": 9
+          },
+          {
+            "t": 99.673,
+            "native_route_epoch": 0,
+            "policy_route_epoch": 0,
+            "baseline_ms": 7,
+            "reported_rtt_ms": 7
+          },
+          {
+            "t": 120.19,
+            "native_route_epoch": 1,
+            "policy_route_epoch": 0,
+            "baseline_ms": 7,
+            "reported_rtt_ms": 0
+          },
+          {
+            "t": 122.393,
+            "native_route_epoch": 1,
+            "policy_route_epoch": 1,
+            "baseline_ms": null,
+            "reported_rtt_ms": 0
+          },
+          {
+            "t": 128.527,
+            "native_route_epoch": 1,
+            "policy_route_epoch": 1,
+            "baseline_ms": 217,
+            "reported_rtt_ms": 217
+          },
+          {
+            "t": 138.784,
+            "native_route_epoch": 1,
+            "policy_route_epoch": 1,
+            "baseline_ms": 118,
+            "reported_rtt_ms": 118
+          },
+          {
+            "t": 155.28,
+            "native_route_epoch": 1,
+            "policy_route_epoch": 1,
+            "baseline_ms": 114,
+            "reported_rtt_ms": 114
+          },
+          {
+            "t": 161.471,
+            "native_route_epoch": 1,
+            "policy_route_epoch": 1,
+            "baseline_ms": 113,
+            "reported_rtt_ms": 113
+          },
+          {
+            "t": 167.664,
+            "native_route_epoch": 1,
+            "policy_route_epoch": 1,
+            "baseline_ms": 110,
+            "reported_rtt_ms": 110
+          },
+          {
+            "t": 204.587,
+            "native_route_epoch": 1,
+            "policy_route_epoch": 1,
+            "baseline_ms": 99,
+            "reported_rtt_ms": 99
+          }
+        ],
+        "final_state": {
+          "audio_rtt_route_epoch": 1,
+          "video_rtt_route_epoch": 1,
+          "rtt_ms": 116,
+          "max_fps": 60.0,
+          "remote_frames": 3602,
+          "audio_latency_discarded_ms": 0,
+          "audio_interruption_count": 0,
+          "video_paused_for_audio": false
+        }
+      },
+      "phone": {
+        "state_transitions": [
+          {
+            "t": 0.0,
+            "state": [
+              "connecting",
+              "p2p",
+              null
+            ]
+          },
+          {
+            "t": 2.148,
+            "state": [
+              "active",
+              "p2p",
+              null
+            ]
+          },
+          {
+            "t": 122.393,
+            "state": [
+              "active",
+              "relay",
+              null
+            ]
+          }
+        ],
+        "phases": {
+          "audio": {
+            "sample_span_seconds": [
+              0.0,
+              28.585
+            ],
+            "remote_frames_delta": 0,
+            "audio_rx_packets_delta": 1387,
+            "final_remote_fps": 0.0,
+            "final_video_budget_fps": 0.0,
+            "maxima": {
+              "audio_interruption_count": 0,
+              "audio_interruption_duration_ms": 0,
+              "audio_delay_ms": 78,
+              "audio_filtered_delay_ms": 72,
+              "audio_latency_discarded_ms": 0,
+              "audio_tx_rtp_admission_max_ms": 2,
+              "remote_frame_max_gap_ms": 0,
+              "audio_tx_payload_max_gap_ms": 415,
+              "audio_rx_age_ms": 21,
+              "tx_drops": 0,
+              "rx_drops": 0
+            },
+            "video_paused_samples": 0,
+            "last_30_seconds_frames_delta": 0
+          },
+          "video_before_recovery": {
+            "sample_span_seconds": [
+              30.613,
+              118.149
+            ],
+            "remote_frames_delta": 912,
+            "audio_rx_packets_delta": 4167,
+            "final_remote_fps": 10.8,
+            "final_video_budget_fps": 60.0,
+            "maxima": {
+              "audio_interruption_count": 0,
+              "audio_interruption_duration_ms": 0,
+              "audio_delay_ms": 86,
+              "audio_filtered_delay_ms": 89,
+              "audio_latency_discarded_ms": 0,
+              "audio_tx_rtp_admission_max_ms": 2,
+              "remote_frame_max_gap_ms": 1032,
+              "audio_tx_payload_max_gap_ms": 415,
+              "audio_rx_age_ms": 28,
+              "tx_drops": 0,
+              "rx_drops": 0
+            },
+            "video_paused_samples": 0,
+            "last_30_seconds_frames_delta": 481
+          },
+          "after_recovery": {
+            "sample_span_seconds": [
+              120.19,
+              208.702
+            ],
+            "remote_frames_delta": 1579,
+            "audio_rx_packets_delta": 3669,
+            "final_remote_fps": 14.6,
+            "final_video_budget_fps": 60.0,
+            "maxima": {
+              "audio_interruption_count": 0,
+              "audio_interruption_duration_ms": 0,
+              "audio_delay_ms": 110,
+              "audio_filtered_delay_ms": 106,
+              "audio_latency_discarded_ms": 0,
+              "audio_tx_rtp_admission_max_ms": 2,
+              "remote_frame_max_gap_ms": 3664,
+              "audio_tx_payload_max_gap_ms": 418,
+              "audio_rx_age_ms": 37,
+              "tx_drops": 0,
+              "rx_drops": 0
+            },
+            "video_paused_samples": 0,
+            "last_30_seconds_frames_delta": 862
+          }
+        },
+        "route_floor_changes": [
+          {
+            "t": 0.0,
+            "native_route_epoch": null,
+            "policy_route_epoch": null,
+            "baseline_ms": null,
+            "reported_rtt_ms": null
+          },
+          {
+            "t": 2.148,
+            "native_route_epoch": 0,
+            "policy_route_epoch": null,
+            "baseline_ms": null,
+            "reported_rtt_ms": 0
+          },
+          {
+            "t": 30.613,
+            "native_route_epoch": 0,
+            "policy_route_epoch": 0,
+            "baseline_ms": 8,
+            "reported_rtt_ms": 8
+          },
+          {
+            "t": 75.118,
+            "native_route_epoch": 0,
+            "policy_route_epoch": 0,
+            "baseline_ms": 6,
+            "reported_rtt_ms": 6
+          },
+          {
+            "t": 122.393,
+            "native_route_epoch": 1,
+            "policy_route_epoch": 1,
+            "baseline_ms": null,
+            "reported_rtt_ms": 0
+          },
+          {
+            "t": 132.628,
+            "native_route_epoch": 1,
+            "policy_route_epoch": 1,
+            "baseline_ms": 285,
+            "reported_rtt_ms": 285
+          },
+          {
+            "t": 138.784,
+            "native_route_epoch": 1,
+            "policy_route_epoch": 1,
+            "baseline_ms": 255,
+            "reported_rtt_ms": 255
+          },
+          {
+            "t": 144.983,
+            "native_route_epoch": 1,
+            "policy_route_epoch": 1,
+            "baseline_ms": 128,
+            "reported_rtt_ms": 128
+          },
+          {
+            "t": 151.134,
+            "native_route_epoch": 1,
+            "policy_route_epoch": 1,
+            "baseline_ms": 122,
+            "reported_rtt_ms": 122
+          },
+          {
+            "t": 155.28,
+            "native_route_epoch": 1,
+            "policy_route_epoch": 1,
+            "baseline_ms": 111,
+            "reported_rtt_ms": 111
+          },
+          {
+            "t": 177.94,
+            "native_route_epoch": 1,
+            "policy_route_epoch": 1,
+            "baseline_ms": 110,
+            "reported_rtt_ms": 110
+          },
+          {
+            "t": 200.478,
+            "native_route_epoch": 1,
+            "policy_route_epoch": 1,
+            "baseline_ms": 105,
+            "reported_rtt_ms": 105
+          }
+        ],
+        "final_state": {
+          "audio_rtt_route_epoch": 1,
+          "video_rtt_route_epoch": 1,
+          "rtt_ms": 119,
+          "max_fps": 60.0,
+          "remote_frames": 2557,
+          "audio_latency_discarded_ms": 0,
+          "audio_interruption_count": 0,
+          "video_paused_for_audio": false
+        }
+      }
+    },
+    "cleanup": {
+      "mac_pid_absent": true,
+      "logcat_pid_absent": true,
+      "launcher_pid_absent": true,
+      "mac_process_group_absent": true,
+      "phone_package_process_absent": true,
+      "owned_adb_forward_absent": true,
+      "checked_at_utc": "2026-10-18T08:22:11.213729+00:00"
+    },
+    "mac_exit_code": -9
+  },
+  "preflight": {
+    "apk_with_version_code_8613_rejected": "Installed code was 10612. No downgrade was forced. Rebuilt explicitly with Flutter build number 10613, matching signer; adb install -r succeeded; installed package version verified before starting the real capture.",
+    "first_preparation": "Interrupted before warmup/call after detecting failed update; both apps independently verified absent. Retained under physical-route-epoch.",
+    "android_final_version_code": 10613,
+    "qa_probe_label": 8613
+  },
+  "capture_sha256": {
+    "samples.json": "895740e97796309f8955be88d510943e60f6687447ea7a28b505d8bd6e7df6eb",
+    "result.json": "077cb9836c4306e7ec7fb844c3f2f6bb7486ae84318fea461ae135885ce290be",
+    "analysis.json": "475b24ead427b87d39222eb348c957fb41c829a7d3ccfda30ecb75a213bb897d",
+    "mac-native.log": "12f5349653c627a5141e946cb2fb91a0fcd995e707c53f78c81c1e2c8fa220a0",
+    "phone-native.log": "bada46f07e0c26d9ce1abcfe52dc8c8af2b4deee437d4b083b82a1db84a2acca",
+    "mac-runtime.log": "eee1ac94f6366c7a05558a06e1cac242b154a004bf186a4f6e849bc17a51f68d",
+    "phone-logcat.log": "a58fcc3a1ea1596bd7696749de0586fb243ac7c1bd57f9fbee87e5fae4072b99",
+    "independent-cleanup.json": "cc67645a73c2536c10ca55d0536214bfdc589167312dc664e79348d58b51b35a"
+  },
+  "limits": [
+    "Single physical follow-up, not a randomized performance comparison. Baseline reset and renewed growth are directly observed; general network improvement is not solely attributed to this change.",
+    "No live speech, headset loudness or acoustic latency qualification.",
+    "Native buffer and interruption counters do not establish complete end-to-end delay.",
+    "Initial P2P-to-relay route switch is intentionally requested for diagnostics; no spontaneous switch is claimed.",
+    "Previous multi-second RTCP RTT spikes have not been attributed to an exact packet/stage.",
+    "Latest full original group contention capture still FAIL 220.246125 ms. See call-group-send-fixed-2026-10-18.json for exact native-send attribution; no gate relaxed."
+  ],
+  "private_capture_directory": "/Users/vart/.cache/codex/xveil-route-epoch-20261018/physical-route-epoch-installed"
+}

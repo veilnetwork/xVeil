@@ -1,0 +1,115 @@
+{
+  "date": "2026-10-18",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "scope": "Original full 360-second workload; first group native-send diagnostic has a wrong SSRC and is explicitly rejected for packet-stage attribution. PCM/workload result is still preserved.",
+  "ok": false,
+  "contention_qualification": false,
+  "duration_seconds": 360,
+  "rate_kbps": 1024,
+  "sdk_sha256": "a6572b7a9de346d2a792f90c23c1c5ed3a77ae873d36df600169fd6af744f1b4",
+  "media_sha256": "b474ea3cb0325ba0d9722124fededbb9627fc9519d3e82c212bca44895f851fb",
+  "peak_ms": 280.09949999977835,
+  "matched": 2112,
+  "missing": 0,
+  "files": [
+    {
+      "sender": 2,
+      "receiver": 0,
+      "queued": 524288,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "completion_seconds": 351.99326479100273,
+      "authentication_errors": 0,
+      "duplicates": 0,
+      "async_failures": {},
+      "write_error": false,
+      "late_fragments": 0
+    },
+    {
+      "sender": 0,
+      "receiver": 1,
+      "queued": 524288,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "completion_seconds": 352.0552486660017,
+      "authentication_errors": 0,
+      "duplicates": 0,
+      "async_failures": {},
+      "write_error": false,
+      "late_fragments": 0
+    },
+    {
+      "sender": 1,
+      "receiver": 2,
+      "queued": 524288,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "completion_seconds": 352.07347766601015,
+      "authentication_errors": 0,
+      "duplicates": 0,
+      "async_failures": {},
+      "write_error": false,
+      "late_fragments": 0
+    }
+  ],
+  "video_paths": [
+    {
+      "receiver": 0,
+      "source": 1,
+      "decoded_pulls": 307,
+      "tail_changes": 14
+    },
+    {
+      "receiver": 0,
+      "source": 2,
+      "decoded_pulls": 295,
+      "tail_changes": 11
+    },
+    {
+      "receiver": 1,
+      "source": 0,
+      "decoded_pulls": 275,
+      "tail_changes": 13
+    },
+    {
+      "receiver": 1,
+      "source": 2,
+      "decoded_pulls": 295,
+      "tail_changes": 11
+    },
+    {
+      "receiver": 2,
+      "source": 0,
+      "decoded_pulls": 275,
+      "tail_changes": 13
+    },
+    {
+      "receiver": 2,
+      "source": 1,
+      "decoded_pulls": 307,
+      "tail_changes": 14
+    }
+  ],
+  "cleanup": {
+    "owned_pids": [
+      3142,
+      3146,
+      3147,
+      9046,
+      9050,
+      9051,
+      9052,
+      9146,
+      9147,
+      9148
+    ],
+    "remaining": []
+  },
+  "diagnostic_failure": "Group recorder mistakenly used the one-to-one audio SSRC: all three group-send headers have zero records and do not match the encoded stream. Analyzer rejects Missing native trace. Corrected to group_audio_ssrc_of in 7f664470; no old capture records were rewritten.",
+  "private_capture_directory": "/Users/vart/.cache/codex/xveil-group-native-send-20261018/group-native-send-full-360",
+  "summary_sha256": "1db1b0ef5844323fcb03f477f22c16da40a249b06d0aedcac52fd6d8e405ee5e"
+}

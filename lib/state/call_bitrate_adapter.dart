@@ -155,6 +155,7 @@ class CallBitrateAdapter {
   int? _curWindowMin;
   int? _prevWindowMin;
   int _windowFill = 0;
+  int? _lastRttRouteEpoch;
   final _receiveBuffer = CallAudioBufferWindow();
   final _peerBuffer = CallAudioBufferWindow();
   // The global trend can still describe a higher rung after its budget was
@@ -174,6 +175,8 @@ class CallBitrateAdapter {
     if (inputs == null) return null;
     return Map<String, Object?>.unmodifiable({
       ...inputs,
+      'rtt_route_epoch': _lastRttRouteEpoch,
+      'rtt_baseline_ms_after': rttBaselineMs,
       'level_after': _level,
       'bad_streak_after': _badStreak,
       'good_streak_after': _goodStreak,
@@ -240,6 +243,7 @@ class CallBitrateAdapter {
   void invalidateAppliedState() {
     _appliedTarget = null;
     _appliedPause = null;
+    _lastRttRouteEpoch = null;
     // Native counters belong to the replaced engine. Its first snapshot is
     // a new baseline, even if it already exceeds the predecessor's count.
     _lastAudioTxDrops = null;
@@ -281,6 +285,29 @@ class CallBitrateAdapter {
       _curWindowMin = null;
       _windowFill = 0;
     }
+  }
+
+  // The native shim advances this local epoch only after rebinding to a
+  // confirmed route. It reports unknown RTT until RR/SR echoes refer to a
+  // sender report generated after that handover. Old libraries omit epochs.
+  bool _observeRttRoute(Map<String, dynamic> stats, bool audio) {
+    final key = audio ? 'audio_rtt_route_epoch' : 'video_rtt_route_epoch';
+    if (!stats.containsKey(key)) return true;
+    final epoch = stats[key];
+    if (epoch is! int || epoch < 0) return false;
+    final previous = _lastRttRouteEpoch;
+    if (previous != null && epoch < previous) return false;
+    if (epoch != previous) {
+      _lastRttRouteEpoch = epoch;
+      _curWindowMin = null;
+      _prevWindowMin = null;
+      _windowFill = 0;
+      _goodStreak = 0;
+      _startupGoodStreak = 0;
+      _audioRecoveryStreak = 0;
+      if (previous != null || epoch > 0) _startupRecovery = false;
+    }
+    return true;
   }
 
   /// Current rung (0 = full route budget).
@@ -419,6 +446,7 @@ class CallBitrateAdapter {
     // another receiver is missing. A healthy peer cannot mask a silent one.
     ({bool expected, int? ageMs})? audioReceiveQuality,
   }) {
+    final routeRttUsable = _observeRttRoute(stats, sendAudioExpected);
     final networkLoss = _rtcpLoss.observe(
       audioReportUs: stats['audio_loss_report_us'],
       videoReportUs: stats['video_loss_report_us'],
@@ -507,7 +535,7 @@ class CallBitrateAdapter {
       measuredVideoProgress:
           videoProgress && videoFrames is num && videoFrames > 0,
       sendAudioExpected: sendAudioExpected,
-      rttMs: anyFeedbackAvailable
+      rttMs: anyFeedbackAvailable && routeRttUsable
           ? (stats[sendAudioExpected ? 'rtt_ms' : 'video_feedback_rtt_ms']
                         as num?)
                     ?.toInt() ??

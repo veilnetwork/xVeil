@@ -1,0 +1,436 @@
+{
+  "date": "2026-10-18",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "scope": "Original full 360-second group workload, corrected per-copy native audio send trace; no QoS, frame duration, traffic-role, duration, clocks or gate relaxation.",
+  "ok": false,
+  "contention_qualification": false,
+  "duration_seconds": 360,
+  "rate_kbps": 1024,
+  "sdk_sha256": "a6572b7a9de346d2a792f90c23c1c5ed3a77ae873d36df600169fd6af744f1b4",
+  "media_sha256": "f4f5f7a3ca029f10fd2943ca308ece3f23b78359e52197f76a9b0df089d9e90f",
+  "peak_ms": 220.24612501263618,
+  "matched": 2112,
+  "missing": 0,
+  "native_peak": {
+    "source": 0,
+    "receiver": 1,
+    "phase": "audio-video-file",
+    "packet": {
+      "ssrc": 499780923,
+      "rtp_origin": 4136835386,
+      "rtp_timestamp": 4142408666,
+      "rtp_sequence": 17866,
+      "source_at_seconds": 116.15001825065701,
+      "decoded_at_seconds": 116.37026437566965,
+      "packet_ms": 60,
+      "encoder_input_index": 9510,
+      "encoder_first_input_monotonic_us": 144656929609,
+      "encoded_monotonic_us": 144656979982,
+      "ingress": {
+        "seq": 17866,
+        "timestamp": 4142408666,
+        "arrived_us": 144657136942,
+        "drained_us": 144657136976,
+        "payload_bytes": 179
+      },
+      "total_ms": 220.24612501263618,
+      "spans_ms": {
+        "capture_to_encoded": 10.444208339322358,
+        "encoded_to_ingress": 156.96000002208166,
+        "ingress_to_webrtc": 0.03399999695830047,
+        "webrtc_to_pcm_edge": 52.80791665427387
+      },
+      "native_send": {
+        "channel": 1,
+        "seq": 17866,
+        "timestamp": 4142408666,
+        "attempted_us": 144656980024,
+        "admitted_us": 144656980035,
+        "packet_bytes": 199,
+        "accepted": 1
+      },
+      "native_send_spans_ms": {
+        "encoded_to_native_send": 0.042,
+        "native_send_admission": 0.011,
+        "native_admission_to_ingress": 156.907
+      }
+    },
+    "input_sha256": {
+      "summary.json": "087f24ab31c37ef6b9f8958c39f3c949e3fc3461cabb8de46c72f7e5aa164ee6",
+      "worker-0/summary.json": "cee3bccb418e850d4d3f30fb1326cfbfb71cf8ad4546ad980309c2ac2cac6d4d",
+      "worker-1/summary.json": "20208dd9a871435c1529d58bb5959b7d7edd73b1950d91fccff2e316a23ebb1d",
+      "worker-0/pcm-samples.json": "d4cbf70292e0daa2699cda77341d67afa115107873b58250f915e930038be780",
+      "worker-1/pcm-samples.json": "143abb347cca460446969a0ba16977954e44364864f0e5cdb9eb60670475ce8c",
+      "worker-0/codec-samples.json": "e56fdd899a8af6d056f3138bb4d389787c3ca1ad65f40a5239449e8aa6ae4d6b",
+      "worker-0/playout-trace.log": "1aec08e6247c8f7f88428500bdcd696d04b584d7959a672559bb1c4f1c386cce",
+      "worker-1/playout-trace.log": "c22955ec63ad9f17e328f6b397a065cbbe7bda80ccd257b1b53f110e9aa9afbc"
+    },
+    "limits": [
+      "Owned same-host clocks only; no physical acoustic latency claim",
+      "Encoded-to-ingress includes all local and transport stages; no per-hop attribution",
+      "Ingress-to-PCM can include codec lookahead/FEC and following packets; not NetEq alone",
+      "This analysis does not change the capture verdict or its quality gates"
+    ]
+  },
+  "files": [
+    {
+      "sender": 2,
+      "receiver": 0,
+      "queued": 524288,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "completion_seconds": 351.8690646670002,
+      "authentication_errors": 0,
+      "duplicates": 0,
+      "async_failures": {},
+      "write_error": false,
+      "late_fragments": 0
+    },
+    {
+      "sender": 0,
+      "receiver": 1,
+      "queued": 524288,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "completion_seconds": 351.8235475840047,
+      "authentication_errors": 0,
+      "duplicates": 0,
+      "async_failures": {},
+      "write_error": false,
+      "late_fragments": 0
+    },
+    {
+      "sender": 1,
+      "receiver": 2,
+      "queued": 524288,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "completion_seconds": 351.8319061670045,
+      "authentication_errors": 0,
+      "duplicates": 0,
+      "async_failures": {},
+      "write_error": false,
+      "late_fragments": 0
+    }
+  ],
+  "video_paths": [
+    {
+      "receiver": 0,
+      "source": 1,
+      "decoded_pulls": 255,
+      "tail_changes": 13
+    },
+    {
+      "receiver": 0,
+      "source": 2,
+      "decoded_pulls": 248,
+      "tail_changes": 8
+    },
+    {
+      "receiver": 1,
+      "source": 0,
+      "decoded_pulls": 239,
+      "tail_changes": 4
+    },
+    {
+      "receiver": 1,
+      "source": 2,
+      "decoded_pulls": 248,
+      "tail_changes": 8
+    },
+    {
+      "receiver": 2,
+      "source": 0,
+      "decoded_pulls": 239,
+      "tail_changes": 4
+    },
+    {
+      "receiver": 2,
+      "source": 1,
+      "decoded_pulls": 255,
+      "tail_changes": 13
+    }
+  ],
+  "neutral_relay_route_verified": true,
+  "source_diagnostics": {
+    "0": {
+      "native_send_headers": [
+        {
+          "ssrc": 499780923,
+          "count": 12350,
+          "limit": 32768,
+          "seen": 12350
+        }
+      ],
+      "logged_source_queue_max_us": 1746,
+      "channels": [
+        {
+          "channel_index": 0,
+          "channel_handle": 1,
+          "participant_pair": [
+            0,
+            1
+          ],
+          "video_frames_enqueued": 1665,
+          "video_frames_started": 1665,
+          "video_queue_depth": 0,
+          "video_queue_max_depth": 2,
+          "video_queue_age_max_ms": 0,
+          "video_queue_holds_75ms": 0,
+          "sender_lock_max_ms": 0,
+          "sender_lock_holds_16ms": 0,
+          "video_frame_ipc_max_ms": 1,
+          "video_frame_ipc_holds_33ms": 0,
+          "ipc_cell_max_ms": 0,
+          "ipc_cell_holds_16ms": 0,
+          "ipc_send_failures": 0
+        },
+        {
+          "channel_index": 1,
+          "channel_handle": 2,
+          "participant_pair": [
+            0,
+            2
+          ],
+          "video_frames_enqueued": 1675,
+          "video_frames_started": 1675,
+          "video_queue_depth": 0,
+          "video_queue_max_depth": 2,
+          "video_queue_age_max_ms": 1,
+          "video_queue_holds_75ms": 0,
+          "sender_lock_max_ms": 0,
+          "sender_lock_holds_16ms": 0,
+          "video_frame_ipc_max_ms": 0,
+          "video_frame_ipc_holds_33ms": 0,
+          "ipc_cell_max_ms": 0,
+          "ipc_cell_holds_16ms": 0,
+          "ipc_send_failures": 0
+        }
+      ]
+    },
+    "1": {
+      "native_send_headers": [
+        {
+          "ssrc": 3615375290,
+          "count": 12066,
+          "limit": 32768,
+          "seen": 12066
+        }
+      ],
+      "logged_source_queue_max_us": 599,
+      "channels": [
+        {
+          "channel_index": 0,
+          "channel_handle": 1,
+          "participant_pair": [
+            1,
+            0
+          ],
+          "video_frames_enqueued": 1648,
+          "video_frames_started": 1648,
+          "video_queue_depth": 0,
+          "video_queue_max_depth": 1,
+          "video_queue_age_max_ms": 1,
+          "video_queue_holds_75ms": 0,
+          "sender_lock_max_ms": 0,
+          "sender_lock_holds_16ms": 0,
+          "video_frame_ipc_max_ms": 0,
+          "video_frame_ipc_holds_33ms": 0,
+          "ipc_cell_max_ms": 0,
+          "ipc_cell_holds_16ms": 0,
+          "ipc_send_failures": 0
+        },
+        {
+          "channel_index": 1,
+          "channel_handle": 2,
+          "participant_pair": [
+            1,
+            2
+          ],
+          "video_frames_enqueued": 1641,
+          "video_frames_started": 1641,
+          "video_queue_depth": 0,
+          "video_queue_max_depth": 2,
+          "video_queue_age_max_ms": 1,
+          "video_queue_holds_75ms": 0,
+          "sender_lock_max_ms": 0,
+          "sender_lock_holds_16ms": 0,
+          "video_frame_ipc_max_ms": 0,
+          "video_frame_ipc_holds_33ms": 0,
+          "ipc_cell_max_ms": 0,
+          "ipc_cell_holds_16ms": 0,
+          "ipc_send_failures": 0
+        }
+      ]
+    },
+    "2": {
+      "native_send_headers": [
+        {
+          "ssrc": 3593938309,
+          "count": 12082,
+          "limit": 32768,
+          "seen": 12082
+        }
+      ],
+      "logged_source_queue_max_us": 774,
+      "channels": [
+        {
+          "channel_index": 0,
+          "channel_handle": 1,
+          "participant_pair": [
+            2,
+            0
+          ],
+          "video_frames_enqueued": 1691,
+          "video_frames_started": 1691,
+          "video_queue_depth": 0,
+          "video_queue_max_depth": 2,
+          "video_queue_age_max_ms": 0,
+          "video_queue_holds_75ms": 0,
+          "sender_lock_max_ms": 0,
+          "sender_lock_holds_16ms": 0,
+          "video_frame_ipc_max_ms": 1,
+          "video_frame_ipc_holds_33ms": 0,
+          "ipc_cell_max_ms": 0,
+          "ipc_cell_holds_16ms": 0,
+          "ipc_send_failures": 0
+        },
+        {
+          "channel_index": 1,
+          "channel_handle": 2,
+          "participant_pair": [
+            2,
+            1
+          ],
+          "video_frames_enqueued": 1718,
+          "video_frames_started": 1718,
+          "video_queue_depth": 0,
+          "video_queue_max_depth": 2,
+          "video_queue_age_max_ms": 1,
+          "video_queue_holds_75ms": 0,
+          "sender_lock_max_ms": 0,
+          "sender_lock_holds_16ms": 0,
+          "video_frame_ipc_max_ms": 0,
+          "video_frame_ipc_holds_33ms": 0,
+          "ipc_cell_max_ms": 0,
+          "ipc_cell_holds_16ms": 0,
+          "ipc_send_failures": 0
+        }
+      ]
+    }
+  },
+  "near_peak_wire_window": {
+    "0": {
+      "window_rows": 96,
+      "inside_rows": 45,
+      "inside_bytes": 12612,
+      "window_max_queue_ms": 34.4454376026988,
+      "window_max_release_lateness_ms": 3.2055625051725656,
+      "worst": [
+        {
+          "at": 144657.020462833,
+          "direction": 0,
+          "link": 0,
+          "bytes": 1157,
+          "pending": 7,
+          "ready": 144657.0549082706,
+          "queue_ms": 34.4454376026988,
+          "sent_at": 144657.055460041,
+          "release_lateness_ms": 0.5518544057849795
+        },
+        {
+          "at": 144656.900143833,
+          "direction": 0,
+          "link": 0,
+          "bytes": 1157,
+          "pending": 5,
+          "ready": 144656.93235358302,
+          "queue_ms": 32.2097500320524,
+          "sent_at": 144656.932522791,
+          "release_lateness_ms": 0.1692919759079814
+        },
+        {
+          "at": 144657.010485833,
+          "direction": 0,
+          "link": 0,
+          "bytes": 1157,
+          "pending": 5,
+          "ready": 144657.04225983308,
+          "queue_ms": 31.774000090081245,
+          "sent_at": 144657.042417291,
+          "release_lateness_ms": 0.1574999187141657
+        }
+      ]
+    },
+    "1": {
+      "window_rows": 116,
+      "inside_rows": 54,
+      "inside_bytes": 16800,
+      "window_max_queue_ms": 85.66789660835639,
+      "window_max_release_lateness_ms": 0.8689999231137335,
+      "worst": [
+        {
+          "at": 144657.055675916,
+          "direction": 1,
+          "link": 0,
+          "bytes": 595,
+          "pending": 25,
+          "ready": 144657.1413438126,
+          "queue_ms": 85.66789660835639,
+          "sent_at": 144657.1414985,
+          "release_lateness_ms": 0.15477038687095046
+        },
+        {
+          "at": 144657.052568541,
+          "direction": 1,
+          "link": 0,
+          "bytes": 588,
+          "pending": 24,
+          "ready": 144657.1366953751,
+          "queue_ms": 84.12683411734179,
+          "sent_at": 144657.13680275,
+          "release_lateness_ms": 0.10749988723546267
+        },
+        {
+          "at": 144657.060351125,
+          "direction": 1,
+          "link": 1,
+          "bytes": 33,
+          "pending": 25,
+          "ready": 144657.1416016251,
+          "queue_ms": 81.25050010858104,
+          "sent_at": 144657.141652416,
+          "release_lateness_ms": 0.05087489262223244
+        }
+      ]
+    }
+  },
+  "cleanup": {
+    "owned_pids": [
+      25492,
+      25493,
+      25494,
+      30115,
+      30116,
+      30117,
+      30119,
+      30210,
+      30211,
+      30212
+    ],
+    "remaining": []
+  },
+  "limits": [
+    "Native admission is a successful nonblocking SDK enqueue, not a claim of first-hop or end-to-end wire transmission.",
+    "Near-peak shaper queue maxima describe different packets; they cannot be added or assigned directly to the exact RTP peak.",
+    "Group policy gets no route epoch fields; the one-to-one RTT floor change is inactive on this fixture.",
+    "All previous failed captures remain failed. Full contention still exceeds the strict original 200-ms PCM gate.",
+    "Owned same-host PCM timing; no live speech/headset or physical acoustic claim."
+  ],
+  "private_capture_directory": "/Users/vart/.cache/codex/xveil-route-epoch-20261018/group-native-send-fixed-full-360",
+  "summary_sha256": "087f24ab31c37ef6b9f8958c39f3c949e3fc3461cabb8de46c72f7e5aa164ee6"
+}

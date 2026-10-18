@@ -38,7 +38,8 @@ def trace_sections(lines, begin, record, selected_ssrc=None):
     return rows
 
 
-def attribute(peak, origin, captures, codec_rows, source_lines, receiver_lines):
+def attribute(peak, origin, captures, codec_rows, source_lines, receiver_lines,
+              source_channel=None):
     """All clocks must be from this fixture's shared host monotonic clock."""
     offsets = {row['sender']['rtp_origin'] for row in codec_rows}
     if len(offsets) != 1:
@@ -87,7 +88,7 @@ def attribute(peak, origin, captures, codec_rows, source_lines, receiver_lines):
         raise ValueError('Invalid pipeline clock order')
     names = ['capture_to_encoded', 'encoded_to_ingress',
              'ingress_to_webrtc', 'webrtc_to_pcm_edge']
-    return dict(ssrc=meta['ssrc'], rtp_origin=offset, rtp_timestamp=stamp,
+    result = dict(ssrc=meta['ssrc'], rtp_origin=offset, rtp_timestamp=stamp,
                 rtp_sequence=ingress['seq'], source_at_seconds=at,
                 decoded_at_seconds=out, packet_ms=enc['blocks']*10,
                 encoder_input_index=enc['first_index'],
@@ -96,6 +97,28 @@ def attribute(peak, origin, captures, codec_rows, source_lines, receiver_lines):
                 total_ms=(out-at)*1000,
                 spans_ms={name: (b-a)*1000 for name, a, b in
                           zip(names, times, times[1:])})
+    if any(line.startswith('audio.group.send.begin ') for line in source_lines):
+        if not isinstance(source_channel, int) or not 0 < source_channel < 2**64:
+            raise ValueError('Missing source-to-receiver channel witness')
+        sends = [row for _, row in trace_sections(source_lines,
+                 'audio.group.send.begin', 'audio.group.send', meta['ssrc'])
+                 if row['channel'] == source_channel and
+                 row['seq'] == ingress['seq'] and row['timestamp'] == stamp]
+        if len(sends) != 1:
+            raise ValueError('Missing or ambiguous native fanout send')
+        send = sends[0]
+        if send['accepted'] != 1 or send['packet_bytes'] < enc['bytes'] + 12:
+            raise ValueError('Invalid native send admission')
+        stages = [enc['encoded_us'], send['attempted_us'],
+                  send['admitted_us'], ingress['arrived_us']]
+        if stages != sorted(stages):
+            raise ValueError('Invalid native send clock order')
+        result['native_send'] = send
+        result['native_send_spans_ms'] = dict(zip(
+            ('encoded_to_native_send', 'native_send_admission',
+             'native_admission_to_ingress'),
+            ((b-a)/1000 for a, b in zip(stages, stages[1:]))))
+    return result
 
 
 def capture_phase_name(summary, name):
@@ -131,8 +154,10 @@ def analyze(directory):
     path, phase = max(((p, ph) for p in paths for ph in p['phases']),
                       key=lambda pair: pair[1]['max_ms'])
     source, receiver = path['source'], path['receiver']
+    workers = {}
     for owner in (source, receiver):
         worker = json.loads(read(f'worker-{owner}/summary.json'))
+        workers[owner] = worker
         if worker['origin_monotonic'] != summary['origin_monotonic']:
             raise ValueError('Different fixture origins')
     captures = [r for r in json.loads(read(f'worker-{source}/pcm-samples.json'))
@@ -145,10 +170,16 @@ def analyze(directory):
     check = next(p for p in repeated['phases'] if p['phase'] == phase['phase'])
     if check != phase:
         raise ValueError('Recorded PCM peak does not reproduce')
+    mappings = [row['channel_handle'] for row in
+                workers[source].get('channel_stats_after_capture', [])
+                if row.get('participant_pair') == [source, receiver]]
+    if len(mappings) > 1:
+        raise ValueError('Ambiguous participant channel mapping')
     result = attribute(phase['peak'], summary['origin_monotonic'], captures,
                        json.loads(read(f'worker-{source}/codec-samples.json')),
                        read(f'worker-{source}/playout-trace.log').splitlines(),
-                       read(f'worker-{receiver}/playout-trace.log').splitlines())
+                       read(f'worker-{receiver}/playout-trace.log').splitlines(),
+                       mappings[0] if mappings else None)
     return dict(source=source, receiver=receiver, phase=phase['phase'],
                 packet=result, input_sha256=inputs,
                 limits=['Owned same-host clocks only; no physical acoustic latency claim',

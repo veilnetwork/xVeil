@@ -73,6 +73,52 @@ audio.rtp.ingress seq=9 timestamp=1904 arrived_us=1100000 drained_us=1100020 pay
             capture_phase_name(dict(video_file_load=True, load_kind='files'),
                                'audio-video-file')
 
+    def fanout_fixture(self):
+        args = list(self.fixture())
+        args[4] += '''audio.group.send.begin ssrc=7 count=2 limit=8 seen=2
+audio.group.send channel=100 seq=9 timestamp=1904 attempted_us=1079000 admitted_us=1080000 packet_bytes=52 accepted=1
+audio.group.send channel=200 seq=9 timestamp=1904 attempted_us=1081000 admitted_us=1082000 packet_bytes=52 accepted=1'''.splitlines()
+        return args
+
+    def test_fanout_copy_is_joined_by_receiver_channel(self):
+        result = attribute(*self.fanout_fixture(), source_channel=200)
+        self.assertEqual(result['native_send']['channel'], 200)
+        self.assertEqual(result['native_send_spans_ms'], dict(
+            encoded_to_native_send=3, native_send_admission=1,
+            native_admission_to_ingress=18))
+        self.assertAlmostEqual(sum(result['native_send_spans_ms'].values()),
+                               result['spans_ms']['encoded_to_ingress'])
+
+    def test_missing_channel_mapping_never_guesses_a_fanout_copy(self):
+        for channel in (None, 0, -1, 300):
+            with self.assertRaises(ValueError):
+                attribute(*self.fanout_fixture(), source_channel=channel)
+
+    def test_wrong_sequence_rejected_even_when_timestamp_matches(self):
+        args = self.fanout_fixture()
+        args[4] = [line.replace('channel=200 seq=9', 'channel=200 seq=10')
+                   for line in args[4]]
+        with self.assertRaisesRegex(ValueError, 'native fanout send'):
+            attribute(*args, source_channel=200)
+
+    def test_wrong_native_group_ssrc_does_not_silently_skip_attribution(self):
+        args = self.fanout_fixture()
+        args[4] = [line.replace('audio.group.send.begin ssrc=7',
+                               'audio.group.send.begin ssrc=8')
+                   for line in args[4]]
+        with self.assertRaisesRegex(ValueError, 'Missing native trace'):
+            attribute(*args, source_channel=200)
+
+    def test_rejected_or_reversed_or_truncated_native_send_is_not_attributed(self):
+        for before, after in [('accepted=1', 'accepted=0'),
+                              ('admitted_us=1082000', 'admitted_us=1080000'),
+                              ('admitted_us=1082000', 'admitted_us=1101000'),
+                              ('seen=2', 'seen=3')]:
+            args = self.fanout_fixture()
+            args[4] = [line.replace(before, after) for line in args[4]]
+            with self.assertRaises(ValueError):
+                attribute(*args, source_channel=200)
+
 
 if __name__ == '__main__':
     unittest.main()
