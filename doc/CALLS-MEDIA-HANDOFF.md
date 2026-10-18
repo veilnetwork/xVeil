@@ -1,5 +1,79 @@
 # Calls media handoff
 
+## 2026-10-18: cancelled source work no longer blocks fresh queue work
+
+SDK `9860a5ea` treats attached rejected whole-work state as queue expiry,
+BEFORE source readiness is consulted. Live work retains FIFO. Previously a
+cancelled sibling could sit ahead of a fresh frame until its ordinary deadline,
+waiting for readiness even though it could never send. A distinct
+`queue_work_rejected` diagnostic separates shared cancellation from age expiry;
+the offline attribution tool accepts it without merging it with budget rejection.
+The two new datagram/ordered-source regressions both fail without the fix.
+40 queue, 2 real loopback pacing, 8 work-state and 8 source-trace Rust tests pass;
+15 Python attribution/range tests and session/types Clippy with warnings denied
+pass. The isolated production-feature FFI build retains all 193 C exports.
+Unrelated security edits are excluded from that clean worktree and unchanged.
+
+Failed whole-work admissions now record their actual Wait/Rejected result,
+planned pacing span, remaining original lifetime and retry interval. Explicit
+opt-in only, own secondary source only, 65536-record bound, no payloads or wire
+role hints. No source byte cap, expiry, active FIFO or relay treatment changes.
+
+Evidence: `validation/call-queue-cancellation-2026-10-18.json`, private build and
+captures `~/.cache/codex/xveil-queue-cancel-20261018`. Physical Mac SDK update with
+unchanged b262 Profile AOT/native 1956 and unchanged Blackview version 12614:
+208.3-s call, ring 0.150 s, intentional relay recovery at 121.9 s. Native sampled
+interruptions stay 0, jitter-buffer peaks 111/109 ms. Cumulative decoded catch-up
+is 430/40 ms, NOT a single pause of that length. Final video is asymmetric:
+29.61 fps received on Mac, 0.98 on phone; Mac's selected send profile is 1 fps.
+Source hold is still true at the end. App/launcher/logcat/forward cleanup is
+independently verified. Mac requires SIGKILL after its graceful exit timeout.
+
+Mac diagnostics contain 727 failed admission ATTEMPTS: 715 Wait, 12 Rejected.
+All 12 rejections have remaining lifetime <= complete planned pacing span;
+examples are 32.759/34.441 ms and 30.814/32.810 ms. The fixed cancellation path
+removes 89 cells. Repeated attempts are not duplicate sends or 727 lost frames.
+These new records establish this class of rejection, not retrospectively the
+exact reason for the older uninstrumented 5724-byte-frame rejection.
+
+**Original full-load qualification PASS:** unchanged 360 s / 1024 kbit/s neutral
+shared FIFO, three separate SDK/native processes, six PCM paths, moving VP8 and
+three authenticated 512-KiB files. **2112 matched / 0 missing**, maximum marker
+latency **170.172417 ms**; all files complete by **352.375 s**, all six video tails
+advance 14 times. Parent/worker console losses/errors 0; 179660 wire events fit
+the original 250000-row bound. Topology [3,1,1,1] verifies, node/worker exits 0,
+socket files 0; all recorded owned PIDs independently absent. This native harness
+still defaults the optional Flutter source-budget hold false. Startup exclusions,
+earlier 230-ms PCM/305-ms startup failures and absent speech/headset/acoustic
+proof remain retained. No release/push/relay deployment.
+
+Recovery investigation must use EVERY `audio_adaptation.recent` observation,
+not just the latest value from two-second polling. In this physical capture,
+source pressure clears and the Mac banks ten healthy ticks, then a fresh peer
+buffer-growth report at observation 169 (current 93 ms) restarts recovery.
+The phone has a local growth report at observation 167. Thus the last snapshot
+alone does not prove a permanently stuck flag.
+
+**Longer physical repeat completed:** 359.75 s, ring 0.749 s, active after the
+first three seconds throughout. Direct interval 91.29–169.11 s delivers
+**29.57 / 29.98 actual received fps** (Mac / phone); both source holds clear,
+selected send profiles reach 60 fps. Explicit relay recovery at **181.44 s**,
+not an automatic P2P fallback. On relay, recovery does occur but keeps being
+cut: final 58 s deliver **12.98 / 1.57 fps** (Mac / phone). Final selected send
+profiles are 1 / 15 fps and both source holds are FALSE. Mac's fresh video-loss
+reports at observations **283 / 298 / 328** cut the 6-fps recovery back to 1;
+298 also has a local video RTP drop. This differs from a permanently stuck
+source hold. The exact producer/route cause of those losses remains unresolved;
+do not change the audio rails based on that last snapshot.
+
+Native sampled interruption counters remain **0 / 0**, sampled jitter-buffer
+peaks **122 / 115 ms**, cumulative catch-up **190 / 60 ms** (not single pause
+lengths). No live speech/headset/acoustic listening. Mac/launcher/logcat exited,
+phone force-stopped, owned ADB forward removed; independent OS checks all pass.
+Mac again needs SIGKILL after the graceful timeout. Phone package unchanged.
+Next: attribute the physical relay-path video losses and audit cancelled
+incoming/capacity eviction cases. Goal ACTIVE.
+
 ## 2026-10-18: console output batching restores complete full-load qualification
 
 SDK `4d13a6a3` batches already-ready console records on the existing separate

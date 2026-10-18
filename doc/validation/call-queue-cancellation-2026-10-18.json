@@ -1,0 +1,508 @@
+{
+  "date": "2026-10-18",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "sdk_commit": "9860a5ea610206eb91b911c6568a34604ca94add",
+  "scope": "Skip already-rejected whole source work before queue readiness, retaining FIFO for live work. Add bounded opt-in failed-admission diagnostics without changing transport budgets, lifetimes, relay behavior or wire format.",
+  "tests": {
+    "two_new_counterfactual_tests_fail_without_fix": true,
+    "priority_queue_tests_passed": 40,
+    "loopback_paced_work_tests_passed": 2,
+    "local_lossy_work_tests_passed": 8,
+    "source_trace_tests_passed": 8,
+    "python_attribution_tests_passed": 15,
+    "session_types_clippy_warnings_denied": true,
+    "isolated_clean_production_feature_ffi_build": true
+  },
+  "build": {
+    "sdk_commit": "9860a5ea610206eb91b911c6568a34604ca94add",
+    "clean_sdk_worktree": true,
+    "source_worktree": "/Users/vart/.cache/codex/xveil-queue-cancel-20261018/sdk-src",
+    "sdk_path": "/Users/vart/.cache/codex/xveil-queue-cancel-20261018/sdk/libveilclient_ffi.dylib",
+    "sdk_sha256": "4236b51bcd3416d64d027fc6ce85629a252335a82f2a5e8713462d38087b62b6",
+    "features": [
+      "default tls-boring",
+      "node-embedded",
+      "packet-tunnel",
+      "production-seeds"
+    ],
+    "cargo_incremental": false,
+    "macos_deployment_target": "12.0",
+    "tests": 58,
+    "clippy_warnings_denied": true,
+    "scope": "Cancelled owned work is discarded before readiness checks. Actual failed admission status/span/expiry are traced only on explicit opt-in. Source byte budgets, deadlines, active FIFO and neutral relay treatment remain unchanged."
+  },
+  "abi": {
+    "previous": 193,
+    "current": 193,
+    "added": [],
+    "removed": [],
+    "other_dylibs_unchanged": {
+      "libveil_media.dylib": "9b035e856f8528f050bf0664e5d4db052f13d0d63000169c376ec16f0239ad90",
+      "libhidden_volume_ffi.dylib": "a923c8ec596f3cd95a0c2967a1c713797fb60dd626dd53b08f689c7251dc1e4f"
+    }
+  },
+  "physical": {
+    "private_directory": "/Users/vart/.cache/codex/xveil-queue-cancel-20261018/physical-build/physical-queue-cancel",
+    "mac_sdk_updated": true,
+    "phone_package_updated": false,
+    "phone_version_code": 12614,
+    "dart_source": "b262249d",
+    "native_source": "1956cfa4",
+    "ring_seconds": 0.15012033298262395,
+    "duration_seconds": 208.3130341670185,
+    "explicit_relay_switch": true,
+    "quality": {
+      "mac": {
+        "interruptions": 0,
+        "cumulative_catch_up_ms": 430,
+        "max_jb_ms": 111,
+        "last_receive_fps_20s": 29.611224953724022,
+        "final_fps_budget": 1.0,
+        "final_source_held": true,
+        "active_after_3s": true
+      },
+      "phone": {
+        "interruptions": 0,
+        "cumulative_catch_up_ms": 40,
+        "max_jb_ms": 109,
+        "last_receive_fps_20s": 0.9761942292436491,
+        "final_fps_budget": 30.0,
+        "final_source_held": true,
+        "active_after_3s": true
+      }
+    },
+    "cleanup": {
+      "mac_pid_absent": true,
+      "launcher_pid_absent": true,
+      "logcat_pid_absent": true,
+      "phone_process_absent": true,
+      "owned_forward_absent": true
+    },
+    "interpretation": "No sampled native interruption; catch-up totals are cumulative trimmed audio, not a single pause. Final video remains asymmetric; source hold prevents growth until sustained healthy audio. No new speech or acoustic/headset proof."
+  },
+  "admission_evidence": {
+    "records_are_attempts_not_lost_frames": true,
+    "failed_attempt_records": 727,
+    "wait_records": 715,
+    "rejected_records": 12,
+    "all_rejections_have_insufficient_remaining_pacing_span": true,
+    "source_cell_counts": {
+      "budget_admit": 11573,
+      "datagram_accepted": 10311,
+      "child_unavailable": 1,
+      "budget_drop": 12,
+      "queue_work_rejected": 89
+    },
+    "rejected_examples": [
+      {
+        "at_unix_us": "1792332206319871",
+        "monotonic_us": "164984132572",
+        "local_slot": "2",
+        "epoch": "812091a473598305",
+        "seq": "521",
+        "result": "rejected",
+        "retry_us": "-1",
+        "span_us": "34441",
+        "remaining_us": "32759",
+        "attempt_elapsed_us": "2"
+      },
+      {
+        "at_unix_us": "1792332206354626",
+        "monotonic_us": "164984167327",
+        "local_slot": "2",
+        "epoch": "812091a473598305",
+        "seq": "525",
+        "result": "rejected",
+        "retry_us": "-1",
+        "span_us": "32810",
+        "remaining_us": "30814",
+        "attempt_elapsed_us": "1"
+      },
+      {
+        "at_unix_us": "1792332206386132",
+        "monotonic_us": "164984198834",
+        "local_slot": "2",
+        "epoch": "812091a473598305",
+        "seq": "531",
+        "result": "rejected",
+        "retry_us": "-1",
+        "span_us": "33532",
+        "remaining_us": "32839",
+        "attempt_elapsed_us": "1"
+      },
+      {
+        "at_unix_us": "1792332206554603",
+        "monotonic_us": "164984367305",
+        "local_slot": "2",
+        "epoch": "812091a473598305",
+        "seq": "545",
+        "result": "rejected",
+        "retry_us": "-1",
+        "span_us": "31505",
+        "remaining_us": "31491",
+        "attempt_elapsed_us": "0"
+      }
+    ],
+    "interpretation": "These new observations distinguish retry waits from rejection when the complete pacing span no longer fits the original lifetime. They do not retrospectively prove the exact cause of the older 5724-byte frame rejection."
+  },
+  "full_load": {
+    "private_directory": "/Users/vart/.cache/codex/xveil-queue-cancel-20261018/group-full-360",
+    "ok": true,
+    "contention_qualification": true,
+    "duration_seconds": 360,
+    "rate_kbps": 1024,
+    "matched": 2112,
+    "missing": 0,
+    "max_pcm_marker_latency_ms": 170.172416663263,
+    "files": [
+      {
+        "sender": 2,
+        "receiver": 0,
+        "queued": 524288,
+        "received": 524288,
+        "missing_chunks": 0,
+        "hash_matches": true,
+        "completion_seconds": 352.15235287498217,
+        "authentication_errors": 0,
+        "duplicates": 0,
+        "async_failures": {},
+        "write_error": false,
+        "late_fragments": 0
+      },
+      {
+        "sender": 0,
+        "receiver": 1,
+        "queued": 524288,
+        "received": 524288,
+        "missing_chunks": 0,
+        "hash_matches": true,
+        "completion_seconds": 350.8673918329878,
+        "authentication_errors": 0,
+        "duplicates": 0,
+        "async_failures": {},
+        "write_error": false,
+        "late_fragments": 0
+      },
+      {
+        "sender": 1,
+        "receiver": 2,
+        "queued": 524288,
+        "received": 524288,
+        "missing_chunks": 0,
+        "hash_matches": true,
+        "completion_seconds": 352.3748670829809,
+        "authentication_errors": 0,
+        "duplicates": 0,
+        "async_failures": {},
+        "write_error": false,
+        "late_fragments": 0
+      }
+    ],
+    "video_paths": [
+      {
+        "receiver": 0,
+        "source": 1,
+        "decoded_pulls": 326,
+        "tail_changes": 14
+      },
+      {
+        "receiver": 0,
+        "source": 2,
+        "decoded_pulls": 325,
+        "tail_changes": 14
+      },
+      {
+        "receiver": 1,
+        "source": 0,
+        "decoded_pulls": 326,
+        "tail_changes": 14
+      },
+      {
+        "receiver": 1,
+        "source": 2,
+        "decoded_pulls": 325,
+        "tail_changes": 14
+      },
+      {
+        "receiver": 2,
+        "source": 0,
+        "decoded_pulls": 326,
+        "tail_changes": 14
+      },
+      {
+        "receiver": 2,
+        "source": 1,
+        "decoded_pulls": 326,
+        "tail_changes": 14
+      }
+    ],
+    "console": {
+      "supported": true,
+      "flush_rc": 0,
+      "dropped_records": 0,
+      "write_errors": 0,
+      "ok": true
+    },
+    "worker_consoles": [
+      {
+        "supported": true,
+        "flush_rc": 0,
+        "dropped_records": 0,
+        "write_errors": 0,
+        "ok": true
+      },
+      {
+        "supported": true,
+        "flush_rc": 0,
+        "dropped_records": 0,
+        "write_errors": 0,
+        "ok": true
+      },
+      {
+        "supported": true,
+        "flush_rc": 0,
+        "dropped_records": 0,
+        "write_errors": 0,
+        "ok": true
+      }
+    ],
+    "wire": {
+      "trace_events": 179660,
+      "trace_rows": 179660,
+      "trace_capacity": 250000,
+      "trace_truncated": false,
+      "failure": null
+    },
+    "topology": {
+      "verified": true,
+      "active_session_counts": [
+        3,
+        1,
+        1,
+        1
+      ]
+    },
+    "node_stop_results": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "worker_exit_codes": [
+      0,
+      0,
+      0
+    ],
+    "independent_cleanup": {
+      "all_recorded_processes_absent": true,
+      "processes_absent": {
+        "92225": true,
+        "92243": true,
+        "92244": true,
+        "95373": true,
+        "95374": true,
+        "95375": true,
+        "95397": true,
+        "95395": true,
+        "95396": true
+      },
+      "remaining_sockets": 0
+    },
+    "limitations": "Original native workload/gates unchanged. Optional Flutter source-budget hold defaults false in this native harness. Startup exclusions and earlier 230-ms PCM/305-ms startup counterexamples retained. No live speech/headset proof."
+  },
+  "unrelated_sdk_diff_sha256": "1ceeb05d540078262f1480ba7210dfaa0f5895be9f0099f64bc18a56a4f6a363",
+  "remaining": [
+    "Investigate physical Mac outbound video losses on the explicitly selected relay route. Source holds clear, but fresh video loss at observations 283/298/328 cuts 6-fps recovery back to 1 fps. Direct phase delivers about 30 fps both ways.",
+    "Audit cancellation at ingress/capacity before claiming every cancelled-work queue case is covered.",
+    "No new live speech/headset or acoustic loudness qualification."
+  ],
+  "release_push_or_relay_deployment": false,
+  "physical_recovery_repeat": {
+    "ring_seconds": 0.7493436250078958,
+    "duration_seconds": 359.7488305839943,
+    "explicit_relay_requested_seconds": 181.44264520899742,
+    "endpoints": {
+      "mac": {
+        "active_after_3s": true,
+        "native_interruptions_max": 0,
+        "cumulative_trimmed_audio_ms": 190,
+        "max_sampled_jitter_buffer_ms": 122,
+        "final_selected_fps": 1.0,
+        "final_source_held": false,
+        "adaptation_observations": 329,
+        "phases": {
+          "direct": {
+            "from_seconds": 91.29411899999832,
+            "through_seconds": 169.10551654198207,
+            "actual_receive_fps": 29.571503310404847,
+            "selected_fps_min": 30.0,
+            "selected_fps_max": 60.0,
+            "source_hold_samples": 0,
+            "samples": 39
+          },
+          "relay_tail": {
+            "from_seconds": 301.7403390840045,
+            "through_seconds": 359.7488305839943,
+            "actual_receive_fps": 12.980858155915552,
+            "selected_fps_min": 1.0,
+            "selected_fps_max": 6.0,
+            "source_hold_samples": 1,
+            "samples": 29
+          }
+        },
+        "tail_pressure_observations": [
+          {
+            "source_budget_pressured": true,
+            "observation": 311,
+            "level_before": 4,
+            "receive_required": true,
+            "receive_ms": 79,
+            "receive_target_ms": 60,
+            "receive_window_ms": [
+              92,
+              2,
+              2,
+              9,
+              79,
+              79
+            ],
+            "receive_pressure": false,
+            "peer_required": true,
+            "peer_peak_ms": 87,
+            "peer_current_ms": 67,
+            "peer_target_ms": 60,
+            "peer_sequence": 338,
+            "peer_fresh": false,
+            "peer_growing": false,
+            "peer_window_ms": [
+              87,
+              67,
+              67,
+              91,
+              77,
+              67
+            ],
+            "peer_pressure": false,
+            "pressure_can_advance": false,
+            "targets_recovered": true,
+            "feedback_available": true,
+            "rtt_ms": 115,
+            "tx_jitter_ms": 5,
+            "tx_loss_pct": 0,
+            "audio_rtp_drop": false,
+            "video_rtp_drop": false,
+            "audio_interruption": false,
+            "audio_network_loss": false,
+            "video_network_loss": false,
+            "audio_latency_recovery": true,
+            "rtt_route_epoch": 1,
+            "rtt_baseline_ms_after": 98,
+            "level_after": 4,
+            "bad_streak_after": 1,
+            "good_streak_after": 0,
+            "audio_recovery_streak_after": 0,
+            "severe_streak_after": 1,
+            "paused_after": false
+          }
+        ]
+      },
+      "phone": {
+        "active_after_3s": true,
+        "native_interruptions_max": 0,
+        "cumulative_trimmed_audio_ms": 60,
+        "max_sampled_jitter_buffer_ms": 115,
+        "final_selected_fps": 15.0,
+        "final_source_held": false,
+        "adaptation_observations": 328,
+        "phases": {
+          "direct": {
+            "from_seconds": 91.29411899999832,
+            "through_seconds": 169.10551654198207,
+            "actual_receive_fps": 29.982754116981532,
+            "selected_fps_min": 30.0,
+            "selected_fps_max": 60.0,
+            "source_hold_samples": 0,
+            "samples": 39
+          },
+          "relay_tail": {
+            "from_seconds": 301.7403390840045,
+            "through_seconds": 359.7488305839943,
+            "actual_receive_fps": 1.5687358461996217,
+            "selected_fps_min": 6.0,
+            "selected_fps_max": 30.0,
+            "source_hold_samples": 2,
+            "samples": 29
+          }
+        },
+        "tail_pressure_observations": [
+          {
+            "source_budget_pressured": true,
+            "observation": 309,
+            "level_before": 1,
+            "receive_required": true,
+            "receive_ms": 95,
+            "receive_target_ms": 100,
+            "receive_window_ms": [
+              77,
+              87,
+              87,
+              67,
+              6,
+              95
+            ],
+            "receive_pressure": false,
+            "peer_required": true,
+            "peer_peak_ms": 92,
+            "peer_current_ms": 9,
+            "peer_target_ms": 60,
+            "peer_sequence": 340,
+            "peer_fresh": true,
+            "peer_growing": false,
+            "peer_window_ms": [
+              65,
+              65,
+              80,
+              80,
+              92,
+              9
+            ],
+            "peer_pressure": false,
+            "pressure_can_advance": true,
+            "targets_recovered": true,
+            "feedback_available": true,
+            "rtt_ms": 119,
+            "tx_jitter_ms": 4,
+            "tx_loss_pct": 0,
+            "audio_rtp_drop": false,
+            "video_rtp_drop": false,
+            "audio_interruption": false,
+            "audio_network_loss": false,
+            "video_network_loss": false,
+            "audio_latency_recovery": true,
+            "rtt_route_epoch": 1,
+            "rtt_baseline_ms_after": 104,
+            "level_after": 3,
+            "bad_streak_after": 0,
+            "good_streak_after": 0,
+            "audio_recovery_streak_after": 0,
+            "severe_streak_after": 0,
+            "paused_after": false
+          }
+        ]
+      }
+    },
+    "cleanup": {
+      "mac_pid_absent": true,
+      "launcher_pid_absent": true,
+      "logcat_pid_absent": true,
+      "phone_process_absent": true,
+      "owned_forward_absent": true
+    },
+    "error": null,
+    "private_directory": "/Users/vart/.cache/codex/xveil-queue-cancel-20261018/physical-build/physical-recovery-360",
+    "phone_package_updated": false,
+    "speech_or_headset_listening": false,
+    "interpretation": "Both source holds clear. Mac outbound repeatedly falls from 6 to 1 fps after fresh video-loss reports (observations 283, 298, 328); at 298 a local video RTP drop is also observed. This is not proof of a permanently held source flag. The exact producer/route reason for these video losses remains unresolved. No subjective speech or acoustic proof."
+  }
+}
