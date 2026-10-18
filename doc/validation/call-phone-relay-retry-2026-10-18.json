@@ -1,0 +1,371 @@
+{
+  "date": "2026-10-18",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "scope": "Physical Profile QA Mac / Blackview Wi-Fi call: audio, video, intentional qualified P2P-to-relay handover. Observational capture, not acoustic qualification.",
+  "build": {
+    "root_head": "85468ab6df750626731414ea098b10bd0c2b06cd",
+    "root_preexisting_changes": "See private root-worktree.patch; multi-device edits preserved",
+    "sdk_head": "be7a8235d7855a42560e69a03aeb3f2b31b0521c",
+    "sdk_worktree_clean": true,
+    "native_media_source": "c0c30821; unchanged production media algorithms",
+    "mac_qa": "Profile AOT, both hook opt-ins, DebugNoVpn signing, private bundle; 0.13.87-call-probe-8612",
+    "android_qa": "Profile AOT, debug hook, 0.13.87+8612, staged clean SDK --no-default-features and production-seeds,node-embedded,packet-tunnel",
+    "artifacts": {
+      "mac_sdk": "3cb420adbb5bdde4239dc08f16e4aa46e71a937620f0f053e0d84eb518d239c2",
+      "mac_media": "e10dfc47f08ea91747b83cff05f673a68a5012ebc3a83d2c8e82946669d1358c",
+      "android_sdk": "835aa4db71a72f821a687cefca4c82c2b99b8392accaa95a8f671b0a78393e7c",
+      "android_media": "86c6967a3f44e8c4801d36b4e8d3f344e5160608c08607c88b9c4eaad7d59aaa",
+      "previous_phone_apk": "f9f8a84b310d402fbe3f4c224eee1514b8ee8efe10586cbef6ddb97ef12c31c0",
+      "phone_apk": "f7a4a9ce8347f2e8622fe451f037b6a4210916e71fa9b13edf652ee7683dd7c6",
+      "mac_dart_aot": "36d2e0ea40bf7eeeb89bb69623f4df4433900f80fc80154586dc529e4b098027",
+      "android_dart_aot": "3e5678edaf382bb4158591a43d7a543a463a5b8da018462c50a04c2ac9889ac5"
+    },
+    "same_apk_signer": true,
+    "packaged_android_libraries": {
+      "lib/arm64-v8a/libhidden_volume_ffi.so": "ab4a0cf8b75f2be9e6d525c40f48c613aa13d881307e13464ef0e1a3af840156",
+      "lib/arm64-v8a/libveil_media.so": "71f3dc9c1abfd382d4a1b698c0c7d5f33670649b07eb940dabcbe9323448b552",
+      "lib/arm64-v8a/libveilclient_ffi.so": "79afa7a40a5b6d4cfecb49b6b791e7aba1d56fa60347775979b7c1d48bca1e27"
+    },
+    "discarded_8611": "Release Mac and single-opt-in Android have no hook; captured Mac failure without a call; replaced with double-opt-in Profile builds"
+  },
+  "install": {
+    "same_signer": true,
+    "data_preserved": true,
+    "previous_apk_retained_privately": true,
+    "android_version_code_actual": 10612,
+    "android_requested_build_number": 8612
+  },
+  "devices": [
+    "Mac Profile QA",
+    "Blackview BV6600Pro Android 11, Wi-Fi"
+  ],
+  "stimulus": {
+    "warmup_seconds": 90,
+    "audio_only_seconds": 30,
+    "video_enabled_after_seconds": 30,
+    "relay_handover_intentionally_requested_at_seconds": 120.74391562500386,
+    "relay_request_result": {
+      "ok": true
+    },
+    "requested_total_call_seconds": 210
+  },
+  "ring_seconds": 0.2472138330049347,
+  "sample_count": 102,
+  "last_sample_seconds": 209.09255137501168,
+  "endpoints": {
+    "mac": {
+      "state_transitions": [
+        {
+          "t": 0.0,
+          "state": [
+            "connecting",
+            "p2p",
+            null
+          ]
+        },
+        {
+          "t": 2.171,
+          "state": [
+            "active",
+            "p2p",
+            null
+          ]
+        },
+        {
+          "t": 120.744,
+          "state": [
+            "active",
+            "relay",
+            null
+          ]
+        }
+      ],
+      "phases": {
+        "audio": {
+          "sample_span_seconds": [
+            0.0,
+            28.937
+          ],
+          "remote_frames_delta": 0,
+          "audio_rx_packets_delta": 1389,
+          "final_remote_fps": 0.0,
+          "final_video_budget_fps": 0.0,
+          "maxima": {
+            "audio_interruption_count": 0,
+            "audio_interruption_duration_ms": 0,
+            "audio_delay_ms": 440,
+            "audio_filtered_delay_ms": 57,
+            "audio_latency_discarded_ms": 420,
+            "audio_tx_rtp_admission_max_ms": 0,
+            "remote_frame_max_gap_ms": 0,
+            "audio_tx_payload_max_gap_ms": 43,
+            "audio_rx_age_ms": 17,
+            "tx_drops": 0,
+            "rx_drops": 0
+          },
+          "video_paused_samples": 0,
+          "last_30_seconds_frames_delta": 0
+        },
+        "video_before_recovery": {
+          "sample_span_seconds": [
+            30.974,
+            118.704
+          ],
+          "remote_frames_delta": 1382,
+          "audio_rx_packets_delta": 4001,
+          "final_remote_fps": 16.1,
+          "final_video_budget_fps": 60.0,
+          "maxima": {
+            "audio_interruption_count": 0,
+            "audio_interruption_duration_ms": 0,
+            "audio_delay_ms": 113,
+            "audio_filtered_delay_ms": 132,
+            "audio_latency_discarded_ms": 420,
+            "audio_tx_rtp_admission_max_ms": 0,
+            "remote_frame_max_gap_ms": 1669,
+            "audio_tx_payload_max_gap_ms": 414,
+            "audio_rx_age_ms": 342,
+            "tx_drops": 0,
+            "rx_drops": 0
+          },
+          "video_paused_samples": 0,
+          "last_30_seconds_frames_delta": 851
+        },
+        "after_recovery": {
+          "sample_span_seconds": [
+            120.744,
+            209.093
+          ],
+          "remote_frames_delta": 181,
+          "audio_rx_packets_delta": 3743,
+          "final_remote_fps": 9.2,
+          "final_video_budget_fps": 1.0,
+          "maxima": {
+            "audio_interruption_count": 0,
+            "audio_interruption_duration_ms": 0,
+            "audio_delay_ms": 106,
+            "audio_filtered_delay_ms": 118,
+            "audio_latency_discarded_ms": 430,
+            "audio_tx_rtp_admission_max_ms": 0,
+            "remote_frame_max_gap_ms": 2999,
+            "audio_tx_payload_max_gap_ms": 414,
+            "audio_rx_age_ms": 326,
+            "tx_drops": 0,
+            "rx_drops": 0
+          },
+          "video_paused_samples": 0,
+          "last_30_seconds_frames_delta": 31
+        }
+      },
+      "decoded_catch_up_changes": [
+        {
+          "t": 2.171,
+          "discarded_ms": 0,
+          "buffer_ms": 440
+        },
+        {
+          "t": 4.199,
+          "discarded_ms": 420,
+          "buffer_ms": 44
+        },
+        {
+          "t": 196.74,
+          "discarded_ms": 430,
+          "buffer_ms": 93
+        }
+      ],
+      "audio_rtt_ms_max": 1762,
+      "video_rtt_ms_max": 7483,
+      "last_audio_rtt_ms": 106
+    },
+    "phone": {
+      "state_transitions": [
+        {
+          "t": 0.0,
+          "state": [
+            "connecting",
+            "p2p",
+            null
+          ]
+        },
+        {
+          "t": 2.171,
+          "state": [
+            "active",
+            "p2p",
+            null
+          ]
+        },
+        {
+          "t": 122.955,
+          "state": [
+            "active",
+            "relay",
+            null
+          ]
+        }
+      ],
+      "phases": {
+        "audio": {
+          "sample_span_seconds": [
+            0.0,
+            28.937
+          ],
+          "remote_frames_delta": 0,
+          "audio_rx_packets_delta": 1340,
+          "final_remote_fps": 0.0,
+          "final_video_budget_fps": 0.0,
+          "maxima": {
+            "audio_interruption_count": 0,
+            "audio_interruption_duration_ms": 0,
+            "audio_delay_ms": 77,
+            "audio_filtered_delay_ms": 83,
+            "audio_latency_discarded_ms": 0,
+            "audio_tx_rtp_admission_max_ms": 1,
+            "remote_frame_max_gap_ms": 0,
+            "audio_tx_payload_max_gap_ms": 139,
+            "audio_rx_age_ms": 20,
+            "tx_drops": 0,
+            "rx_drops": 0
+          },
+          "video_paused_samples": 0,
+          "last_30_seconds_frames_delta": 0
+        },
+        "video_before_recovery": {
+          "sample_span_seconds": [
+            30.974,
+            118.704
+          ],
+          "remote_frames_delta": 1608,
+          "audio_rx_packets_delta": 3780,
+          "final_remote_fps": 19.0,
+          "final_video_budget_fps": 60.0,
+          "maxima": {
+            "audio_interruption_count": 0,
+            "audio_interruption_duration_ms": 0,
+            "audio_delay_ms": 108,
+            "audio_filtered_delay_ms": 121,
+            "audio_latency_discarded_ms": 0,
+            "audio_tx_rtp_admission_max_ms": 1,
+            "remote_frame_max_gap_ms": 1644,
+            "audio_tx_payload_max_gap_ms": 411,
+            "audio_rx_age_ms": 256,
+            "tx_drops": 0,
+            "rx_drops": 0
+          },
+          "video_paused_samples": 0,
+          "last_30_seconds_frames_delta": 864
+        },
+        "after_recovery": {
+          "sample_span_seconds": [
+            120.744,
+            209.093
+          ],
+          "remote_frames_delta": 305,
+          "audio_rx_packets_delta": 3809,
+          "final_remote_fps": 11.3,
+          "final_video_budget_fps": 1.0,
+          "maxima": {
+            "audio_interruption_count": 0,
+            "audio_interruption_duration_ms": 0,
+            "audio_delay_ms": 124,
+            "audio_filtered_delay_ms": 109,
+            "audio_latency_discarded_ms": 50,
+            "audio_tx_rtp_admission_max_ms": 2,
+            "remote_frame_max_gap_ms": 6217,
+            "audio_tx_payload_max_gap_ms": 411,
+            "audio_rx_age_ms": 70,
+            "tx_drops": 0,
+            "rx_drops": 0
+          },
+          "video_paused_samples": 0,
+          "last_30_seconds_frames_delta": 20
+        }
+      },
+      "decoded_catch_up_changes": [
+        {
+          "t": 2.171,
+          "discarded_ms": 0,
+          "buffer_ms": 0
+        },
+        {
+          "t": 129.133,
+          "discarded_ms": 10,
+          "buffer_ms": 81
+        },
+        {
+          "t": 188.532,
+          "discarded_ms": 50,
+          "buffer_ms": 74
+        }
+      ],
+      "audio_rtt_ms_max": 1909,
+      "video_rtt_ms_max": 7537,
+      "last_audio_rtt_ms": 99
+    }
+  },
+  "cleanup": {
+    "mac_pid_absent": true,
+    "logcat_pid_absent": true,
+    "launcher_pid_absent": true,
+    "mac_process_group_absent": true,
+    "phone_package_process_absent": true,
+    "owned_adb_forward_absent": true,
+    "checked_at_utc": "2026-10-18T07:49:19.902109+00:00"
+  },
+  "source_evidence": {
+    "samples.json": {
+      "sha256": "e4c081f19379b663177721a9f04038853cbab7c815ad1e3df0af8e8070b0d43d",
+      "bytes": 3524584
+    },
+    "result.json": {
+      "sha256": "35ce13507d3ef4d0d77fcf3697823957302ef34ed1065b360219b740659421eb",
+      "bytes": 931
+    },
+    "analysis.json": {
+      "sha256": "59383479c9a7e426c289ea4912a851a3774c2095acac58025d0875b91bbaf230",
+      "bytes": 7179
+    },
+    "mac-native.log": {
+      "sha256": "e82a8f0ee09cf2bc6ba3a4e527158fae66b7f10a9aea0eac44678bac6751bcbc",
+      "bytes": 9658047
+    },
+    "mac-runtime.log": {
+      "sha256": "81f0a89d1868b1a478d265d3fb217380bace710ba94661c8dd329bb017cbf294",
+      "bytes": 4838369
+    },
+    "phone-logcat.log": {
+      "sha256": "cb0bf2b29a8d3073eae3a473ad14f69e4cb3df533cfe291e65c25125718b576f",
+      "bytes": 286399
+    },
+    "before-audio.txt": {
+      "sha256": "666549f58a71c1a101c7deb5027286acd4e6358d44d6a85b46476e498ce6adfc",
+      "bytes": 38027
+    },
+    "during-audio.txt": {
+      "sha256": "07afd40da218975070cdc3b70024f3b52187879cd05543a1305cf8b63eca6450",
+      "bytes": 39464
+    },
+    "independent-cleanup.json": {
+      "sha256": "0d09fc159bac555735142d9ede8c041f0bedce188f7cccf743f07b476d5b627e",
+      "bytes": 257
+    }
+  },
+  "interpretation": {
+    "p2p": "Both endpoints active by first 2.171-second poll; no spontaneous relay switch before diagnostic request. Before handover, last 30 seconds contain 851/864 received frames (about 29 fps).",
+    "relay": "Both remain active after requested handover; final 30-second windows contain 31/20 received frames. Video is sparse, not completely frozen, and budget remains one fps at end.",
+    "audio": "No native interruption count or duration increment. Mac startup sample reaches 440 ms and discards 420 ms by 4.199 seconds. Later relay catch-up adds 10 ms on Mac and 50 ms on phone. This does not prove intelligible or quiet-headset speech.",
+    "adaptation": "After relay handover, fresh decoded-recovery/buffer observations reduce video to floor. Later measured buffers are stable but RTT/recovery gates withhold growth. RTT peaks and the earlier P2P baseline both need separate attribution; no guard was removed or relaxed."
+  },
+  "limits": [
+    "No live speech, headset route or human loudness verdict.",
+    "Native buffer estimates exclude complete end-to-end/acoustic latency.",
+    "Cumulative remote_frame_fps and max-gap counters must not be read as instantaneous frame rate. Phase frame deltas and final windows are provided separately.",
+    "Phase boundaries follow the requested relay action; phone confirms relay at 122.955 seconds, later than Mac.",
+    "No crash observed during the connected capture; Mac finally required SIGKILL after the existing eight-second termination budget.",
+    "Original full 360-second congestion workload remains FAIL on its identical-binary repeat at 210.209458 ms; this physical call does not replace that gate.",
+    "No new policy, relay priority, release, push or server deployment in this work cycle."
+  ],
+  "private_capture_directory": "/Users/vart/.cache/codex/xveil-phone-return-20261018/physical-call-profile-retry"
+}
