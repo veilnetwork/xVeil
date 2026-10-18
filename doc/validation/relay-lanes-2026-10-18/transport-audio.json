@@ -1,0 +1,42 @@
+{
+  "sum_of_logged_admission_deltas": [
+    {
+      "endpoint_local_slot": 6,
+      "independent": false,
+      "accepted": 6
+    },
+    {
+      "endpoint_local_slot": 6,
+      "independent": true,
+      "accepted": 2131
+    },
+    {
+      "endpoint_local_slot": 0,
+      "independent": true,
+      "accepted": 13928
+    },
+    {
+      "endpoint_local_slot": 2,
+      "independent": true,
+      "accepted": 4
+    },
+    {
+      "endpoint_local_slot": 3,
+      "independent": true,
+      "accepted": 4
+    }
+  ],
+  "maxima_across_logged_ordered_slot_zero_samples": {
+    "outbox_to_transport_max_us": 10110,
+    "record_queue_max_us": 8022,
+    "record_write_max_us": 10120,
+    "records_expired_outgoing": 0
+  },
+  "tcp_kernel_progress": {
+    "records": 1435,
+    "connections": 49,
+    "largest_logged_rtt_max_us": 477000,
+    "connections_with_recorded_retransmitted_bytes": 9
+  },
+  "limits": "Endpoint-only diagnostic counters. Admission sums include only emitted log windows, not a complete total. Local slot labels never leave this endpoint. Kernel connection ids are not joined to a particular peer, RTP packet or lane; retransmissions do not identify the defective hop. Expiry values are per-channel cumulative high-watermarks, not their sum."
+}
