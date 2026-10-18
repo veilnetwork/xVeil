@@ -1,0 +1,38 @@
+{
+  "scope": "Private QA: clean SDK 323e8c39 plus reverse preparation fix and endpoint probe timing diagnostics. Only Rust libraries change. Native media, Dart AOT, hidden-volume, phone signer/versionCode12614/data preserved.",
+  "source": {
+    "sdk_commit": "ff4d6995",
+    "base_sdk": "323e8c39",
+    "patch_sha256": "155ea76b60a18ece73b3379a0f5303ad686de64a9b01ae6e16ea96cd7c34ca90",
+    "clean_snapshot": "/Users/vart/.cache/codex/xveil-quic-route-confirmation-20261018/sdk-src",
+    "excluded_foreign_wip": true,
+    "test_low_difficulty_used_only_for_tests": true,
+    "mac_default_features": true,
+    "android_default_features": false,
+    "features": [
+      "production-seeds",
+      "node-embedded",
+      "packet-tunnel"
+    ],
+    "build_result": "PASS",
+    "android_build_command_note": "cargo-ndk 4.1.2 uses --platform 21 and runs from the SDK root; initial argument/CWD failures occurred before compilation and are retained privately.",
+    "libraries": {
+      "libveilclient_ffi.dylib": {
+        "bytes": 25821536,
+        "sha256": "033f556a3bcb5ebf25072e57632bf71a3309f44569ef6bcc4cbd104d2b4b50a3"
+      },
+      "libveilclient_ffi.so": {
+        "bytes": 29268608,
+        "sha256": "143b7fab4ad104f92217f2577a097a67a812cf7542667b6551d148a4ef029363"
+      }
+    }
+  },
+  "before_apk_sha256": "6d8ddb3b7efb582f109047d602cd7ebae09b2cced591bad186f4745d10795463",
+  "apk_sha256": "83b1a302f05b511ca1b51818a4b70624eb1faa9a41baa6ad3f8532238820a1ab",
+  "same_signer": true,
+  "all_defined_elf_exports_unchanged": 201,
+  "mac_ffi_exports_unchanged": 193,
+  "changed_apk_entries": [
+    "lib/arm64-v8a/libveilclient_ffi.so"
+  ]
+}

@@ -1,0 +1,61 @@
+{
+  "date": "2026-10-18",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "sdk_commit": "ff4d6995",
+  "scope": "Prepare both directions of the authorized candidate before a live direct/relay media handover, retaining independent local producer lanes and the existing bounded delivery qualification.",
+  "defect": "Source-preparation requests name the intended route inside the media AEAD. Receiver preparation previously replied on its existing outgoing channel. During P2P-to-relay handover this warmed only the forward relay; reverse setup was left to the later 600-ms qualification window.",
+  "proof": "New real SDK/Unix-IPC regression fails before fix: actual App family (4), expected neutral relayed Delivery family (3). After fix, all three preparation planes echo through the host-pinned reverse relay, with physical-device app binding and neutral wire priority.",
+  "fix": "Use the requested reverse route only when its path is already pinned by the host on the same live ingress/call channel and matches the receive key. Otherwise preserve existing outgoing posture. Preserve deadlines, retry counts, replay gates, the 600-ms observation, codecs and media budgets.",
+  "authorization_gate": "Negative fixture keeps another channel with identical test keys and valid pinned paths alive; an unconfigured owner cannot borrow that authorization. Claimed envelope source cannot choose a destination.",
+  "diagnostics": "Opt-in endpoint-only process-local probe id, route, budget, reply match and elapsed age/status; no token, key, media plaintext, wire role or relay priority. Late replies still do not qualify. Observation age includes queue/setup/scheduling; it is not pure network RTT.",
+  "unit_gate": "16 focused FFI/protocol tests pass: alias handling, replay/authentication, expiry/cancellation, retry bounds, neutral relay echo, all three reverse preparation planes, owner-scoped authorization. Existing direct-only preparation assertion now requests Direct; the new regression covers explicitly authorized Relay.",
+  "build_gate": "Both production-feature libraries pass; low difficulty only in unit tests. Clean 323e8c39 snapshot plus committed patch, excluding four unrelated SDK edits. Mac defaults include tls-boring; Android retains previous no-default-features mobile build.",
+  "installed": "Private QA only. Mac/Android FFI API exports unchanged; only Rust libraries replaced. Android signer, versionCode12614, Dart AOT, native media, hidden-volume and data preserved.",
+  "physical": {
+    "duration_seconds": 239.3125503330084,
+    "ring_seconds": 0.15722279201145284,
+    "transition_requested_at_seconds": 90.84136729201418,
+    "transition_confirmed": true,
+    "matched_replies_within_unchanged_600ms_budget": {
+      "mac_us": 224356,
+      "phone_us": 134758
+    },
+    "quality_qualified": false,
+    "interruptions_last": {
+      "mac": 3,
+      "phone": 2
+    },
+    "cumulative_discarded_audio_last_sample_ms": {
+      "mac": 1360,
+      "phone": 2290
+    },
+    "complete_playout_discarded_ms": {
+      "mac": 1360,
+      "phone": 2300
+    },
+    "final_minute": "59.620 s all Relay. Only 2/0 new frames (0.034/0.000 fps). Both source-held in all 30 samples. New interruption counts 1/0; trimmed audio increments 30/1030 ms.",
+    "native_playout": "Complete bounded traces 24066/24166 rows; no target above applied ceiling. Mac max render gap 10.947 ms, zero >30 ms; phone one 30.801-ms gap. Repeated catch-ups at packet headroom/target/ceiling 60 ms remain.",
+    "cleanup": {
+      "mac_pid_absent": true,
+      "launcher_pid_absent": true,
+      "logcat_pid_absent": true,
+      "phone_absent": true,
+      "test_forward_absent": true
+    },
+    "phone_property_restored": true,
+    "mac_exit_code": -9,
+    "interpretation": "Deterministic wrong reverse preparation is fixed and this actual handover now succeeds on both endpoints. One uncontrolled WAN call does not isolate every prior timeout cause or prove audio/video quality solved.",
+    "retained_engine": "Both endpoints keep media_epoch 1 with route_handovers 1 and continuous audio output durations 238089/238279 ms; interruption counts remain zero before the requested transition."
+  },
+  "remaining": [
+    "Recurring audio catch-up/source pressure still holds relay video almost entirely paused. Investigate actual packet arrival/NetEq behavior, including 60-ms packetization, with a real codec fixture before weakening protection.",
+    "Prior relay video/source-held failures, generic QUIC reload failure and byte-stream-only network handoff remain open.",
+    "Human speech/headset loudness remains unqualified."
+  ],
+  "evidence": "reverse-preparation-2026-10-18/",
+  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-quic-route-confirmation-20261018",
+  "public_release": false,
+  "foreign_wip_preserved": true,
+  "post_call_relays": "All six retain the expected production process executable digest, deployment PIDs, candidate configs, active QUIC/TCP listeners, advancing health ticks and network sessions; zero automatic restarts."
+}

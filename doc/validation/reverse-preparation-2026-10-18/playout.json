@@ -1,0 +1,70 @@
+{
+  "physical-route-preparation-video/mac": {
+    "rows": 24066,
+    "discarded_ms": 1360,
+    "skip_callbacks": 85,
+    "fallback_callbacks": 2,
+    "target_above_applied_ceiling_callbacks": 0,
+    "conflicting_target_during_skip": 0,
+    "max_native_callback_us": 238,
+    "render_gaps_over_30ms": 0,
+    "max_render_gap_ms": 10.947,
+    "skips_by_headroom_target_ceiling": [
+      {
+        "headroom_ms": 60,
+        "target_ms": 60,
+        "ceiling_ms": 60,
+        "callbacks": 73
+      },
+      {
+        "headroom_ms": 40,
+        "target_ms": 80,
+        "ceiling_ms": 80,
+        "callbacks": 8
+      },
+      {
+        "headroom_ms": 20,
+        "target_ms": 100,
+        "ceiling_ms": 100,
+        "callbacks": 3
+      },
+      {
+        "headroom_ms": 40,
+        "target_ms": 60,
+        "ceiling_ms": 80,
+        "callbacks": 1
+      }
+    ]
+  },
+  "physical-route-preparation-video/phone": {
+    "rows": 24166,
+    "discarded_ms": 2300,
+    "skip_callbacks": 159,
+    "fallback_callbacks": 0,
+    "target_above_applied_ceiling_callbacks": 0,
+    "conflicting_target_during_skip": 0,
+    "max_native_callback_us": 5824,
+    "render_gaps_over_30ms": 1,
+    "max_render_gap_ms": 30.801,
+    "skips_by_headroom_target_ceiling": [
+      {
+        "headroom_ms": 60,
+        "target_ms": 60,
+        "ceiling_ms": 60,
+        "callbacks": 78
+      },
+      {
+        "headroom_ms": 40,
+        "target_ms": 80,
+        "ceiling_ms": 80,
+        "callbacks": 65
+      },
+      {
+        "headroom_ms": 20,
+        "target_ms": 100,
+        "ceiling_ms": 100,
+        "callbacks": 16
+      }
+    ]
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "scope": "Deterministic SDK/Unix IPC routing regression and focused sealed-control/ownership gates",
+  "sdk_commit": "ff4d6995",
+  "environment": {
+    "TMPDIR": "/private/tmp/",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_TARGET_DIR": "/Users/vart/.cache/codex/veil-qos-target-20261016"
+  },
+  "manifest": "clean snapshot sdk-src/Cargo.toml",
+  "common_command": [
+    "cargo",
+    "test",
+    "-p",
+    "veilclient-ffi",
+    "--no-default-features",
+    "--features",
+    "node-embedded,test-low-difficulty",
+    "--lib"
+  ],
+  "red": {
+    "filter": "relay_preparation_warms_the_host_pinned_reverse_route",
+    "result": "0 passed; 1 failed",
+    "failure": "relay preparation must warm the reverse relay, not the current direct sender",
+    "observed_frame_family": 4,
+    "expected_frame_family": 3,
+    "private_log": "/Users/vart/.cache/codex/xveil-quic-route-confirmation-20261018/reverse-preparation-red.log"
+  },
+  "green": {
+    "filter": "path_probe",
+    "arguments": [
+      "--",
+      "--test-threads=1"
+    ],
+    "test_results": [
+      "test media_ffi::path_probe_ffi::tests::a_lost_first_challenge_retries_without_stealing_the_live_audio_receiver ... ok",
+      "test media_ffi::path_probe_ffi::tests::a_relay_receiver_accepts_authenticated_media_from_both_pinned_paths ... ok",
+      "test media_ffi::path_probe_ffi::tests::a_relay_request_uses_a_neutral_relay_echo_even_while_direct_is_active ... ok",
+      "test media_ffi::path_probe_ffi::tests::a_short_observation_also_bounds_the_queued_challenge ... ok",
+      "test media_ffi::path_probe_ffi::tests::candidate_alias_requires_its_sealed_reply_and_never_counts_as_audio ... ok",
+      "test media_ffi::path_probe_ffi::tests::closing_replaced_alias_owner_cannot_clear_the_new_receiver ... ok",
+      "test media_ffi::path_probe_ffi::tests::preparation_cannot_borrow_another_channels_pinned_paths ... ok",
+      "test media_ffi::path_probe_ffi::tests::relay_preparation_warms_the_host_pinned_reverse_route_while_direct_is_active ... ok",
+      "test media_ffi::path_probe_ffi::tests::source_preflight_qualifies_before_rtp_callback_and_preserves_old_key_owner ... ok",
+      "test media_path_probe::tests::an_old_attempt_cannot_qualify_its_replacement ... ok",
+      "test media_path_probe::tests::late_replayed_and_cancelled_replies_do_not_revive_a_candidate ... ok",
+      "test media_path_probe::tests::malformed_control_and_ordinary_rtp_are_not_probe_evidence ... ok",
+      "test media_path_probe::tests::only_a_matching_timely_reply_qualifies ... ok",
+      "test media_path_probe::tests::request_and_reply_use_the_existing_seal_and_replay_gate ... ok",
+      "test media_path_probe::tests::retries_are_spaced_bounded_and_keep_the_original_deadline ... ok",
+      "test media_path_probe::tests::short_qualified_and_cancelled_attempts_never_retry ... ok"
+    ],
+    "summary": "test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 279 filtered out; finished in 0.77s",
+    "private_log": "/Users/vart/.cache/codex/xveil-quic-route-confirmation-20261018/preparation-tests-final.log"
+  },
+  "limits": "Low PoW difficulty is a unit-fixture option only, not present in either installed production-feature library."
+}
