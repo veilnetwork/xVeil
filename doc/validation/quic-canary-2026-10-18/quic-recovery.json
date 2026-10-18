@@ -1,0 +1,5 @@
+{
+  "exit_code": 0,
+  "stdout": "{\"action\": \"cold restart canary after failed same-config QUIC reload\", \"config_retained\": true, \"success\": true, \"health_first\": \"status: ok\\ntick: 5\\nsessions: 6\", \"health_second\": \"status: ok\\ntick: 9\\nsessions: 6\", \"listens\": [\"quic://0.0.0.0:8443\", \"obfs4-tcp://0.0.0.0:5556\"], \"rollback\": false}\n",
+  "stderr": ""
+}

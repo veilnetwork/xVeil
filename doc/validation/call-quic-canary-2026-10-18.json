@@ -1,0 +1,68 @@
+{
+  "date": "2026-10-18",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "scope": "Explicitly authorized one-relay generic QUIC listener trial; prior complete playout capture analysis and opt-in TCP diagnostics.",
+  "canary": {
+    "host": "203.12.31.134",
+    "listener": "quic://0.0.0.0:8443",
+    "advertise": "quic://203.12.31.134:8443",
+    "existing_listener": "obfs4-tcp://0.0.0.0:5556",
+    "other_five_configs_changed": false,
+    "binary": "clean SDK 3f1b69ba / CLI 0.11.42, unchanged in this cycle",
+    "backup": "/var/backups/veil/20261018-quic-preview",
+    "config_sha256": "4a5231688220f73d25306aa613ef16ea9a9d77721d217692cfbdcbbf2f533ec6"
+  },
+  "policy": "Generic UDP listener only; no media classification, preferential service or role hint added. Client bootstrap override is stand-local and temporary. Calls do not use mailbox.",
+  "failure_and_recovery": {
+    "first_add": "Validated extra listener and hot reload initially succeeded.",
+    "second_same_config_reload": "Failed with EADDRINUSE. Health stalled with tick 2610 and zero sessions despite listeners appearing in admin output.",
+    "recovery": "Cold restart of only the authorized canary retained the candidate; health ok with advancing ticks and active sessions. No rollback needed.",
+    "open_defect": "QUIC reload teardown/rebind failure is not fixed. Do not retry hot reload as a recovery procedure. Investigate endpoint lifetime; exact retaining owner not proved."
+  },
+  "prior_playout_analysis": {
+    "inputs": "Complete bounded audio.playout traces from prior audio-only and video runs. Observed count equals parsed rows and remains below capture limit on all four endpoints.",
+    "result": "No callback requests a target above its applied target ceiling. Prior target-cap conflict hypothesis does not reproduce. Mac video render loop max gap 11.043 ms, no gaps above 30 ms, despite eight audio interruptions; simple late render callbacks do not explain those interruptions.",
+    "limits": "Cumulative trimming is discarded audio duration, not a maximum pause. Does not attribute loss or delay to a network hop."
+  },
+  "diagnostics": {
+    "sdk_commit": "323e8c39",
+    "change": "Opt-in TCP trace records stable local connection id, local/remote port pair and TCP_NODELAY for correlation with a separate socket inventory; no IP/payload/role/wire or socket option changes.",
+    "gate": "4 focused real-socket/kernel trace tests pass.",
+    "deployed": false,
+    "limits": "Join only unambiguous port-pair/generation matches; exact RTP/lane-to-hop attribution remains open."
+  },
+  "physical_retry": {
+    "duration_seconds": 239.28317375000915,
+    "ring_seconds": 0.152125332999276,
+    "qualified": false,
+    "endpoints": "Same private 3f1b/db197 stand clients; TCP metadata SDK 323e8c39 is not installed.",
+    "pre_and_post_call": "Both endpoints retain an active QUIC canonical session to the canary. Independent local-slot admissions via that peer observed, alongside other TCP/ordered relay admissions. This is a mixed route, not an isolated all-QUIC media path.",
+    "p2p_video": "45-85 s: actual received 6.294 / 4.110 fps, zero new audio interruptions.",
+    "relay": "Requested at 91.060 s; total native interruption counters finish at 24 / 11. Final 59.464 s receives 2 / 6 new frames (0.034 / 0.101 fps), both source-held throughout.",
+    "buffer_and_pacer": "Sampled audio jitter-buffer maxima 351 / 186 ms; pacer maxima 1217 / 0 ms. These are maxima of sampled state, not peak end-to-end speech delay.",
+    "trimmed_audio": "Last sampled cumulative discarded audio 15770 / 9790 ms; complete final playout trace 15850 / 9840 ms (includes teardown after last sample). Sums are not individual pauses.",
+    "render": "Complete bounded playout traces: no target above applied ceiling; Mac max render gap 11.750 ms with zero gaps over 30 ms, phone max gap 32.506 ms (one).",
+    "cleanup": {
+      "mac_pid_absent": true,
+      "launcher_pid_absent": true,
+      "logcat_pid_absent": true,
+      "phone_absent": true,
+      "test_forward_absent": true
+    },
+    "android_diagnostic_property_restored": true,
+    "mac_exit_code": -9
+  },
+  "remaining": [
+    "Prove useful video and audio quality on actual QUIC relay paths.",
+    "Fix same-config QUIC reload leaving node stalled.",
+    "Hot-standby replacement currently carries only a byte stream and clears independent media handles; typed transport handoff needs a safe fix that cannot reuse AEAD nonces.",
+    "Human speech/headset loudness remains unqualified.",
+    "Repeated trimming at 60-ms packet headroom and target/ceiling 60 ms merits a real-NetEq timing regression before changing playout protection. This does not by itself prove an algorithmic cause."
+  ],
+  "evidence": "quic-canary-2026-10-18/",
+  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-playout-followup-20261018",
+  "public_release": false,
+  "foreign_wip_preserved": true,
+  "post_call_canary_health": "Health ok, ticks 809 -> 812, six sessions; UDP 8443 bound, candidate config SHA unchanged."
+}

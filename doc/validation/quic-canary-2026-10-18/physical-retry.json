@@ -1,0 +1,431 @@
+{
+  "qualified": false,
+  "ring_seconds": 0.152125332999276,
+  "duration_seconds": 239.28317375000915,
+  "samples": 117,
+  "result_error": null,
+  "endpoints": {
+    "mac": {
+      "last": {
+        "audio_interruption_count": 24,
+        "audio_interruption_duration_ms": 7040,
+        "audio_latency_discarded_ms": 15770,
+        "audio_jb_ms": 116,
+        "remote_frames": 488,
+        "local_source_pressured": true,
+        "video_send_paused": 1,
+        "max_fps": 0.02
+      },
+      "max": {
+        "audio_jb_ms": 351,
+        "pacer_delay_ms": 1217,
+        "audio_rx_age_ms": 483,
+        "audio_tx_rtp_max_gap_ms": 399
+      },
+      "phases": {
+        "audio_only": {
+          "span_seconds": 20.43448754097335,
+          "transports": {
+            "p2p": 11
+          },
+          "received_frames_delta": 0,
+          "receive_fps": 0.0,
+          "new_interruptions": 0,
+          "trimmed_ms_delta": 0,
+          "source_held_samples": 6,
+          "samples": 11
+        },
+        "p2p_video": {
+          "span_seconds": 38.92852954097907,
+          "transports": {
+            "p2p": 20
+          },
+          "received_frames_delta": 245,
+          "receive_fps": 6.293584753621242,
+          "new_interruptions": 0,
+          "trimmed_ms_delta": 0,
+          "source_held_samples": 1,
+          "samples": 20
+        },
+        "relay_tail": {
+          "span_seconds": 59.46435104100965,
+          "transports": {
+            "relay": 30
+          },
+          "received_frames_delta": 2,
+          "receive_fps": 0.033633596684183066,
+          "new_interruptions": 0,
+          "trimmed_ms_delta": 750,
+          "source_held_samples": 30,
+          "samples": 30
+        }
+      },
+      "admission_observations": [
+        {
+          "peer_prefix": "c92b85df",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 5
+        },
+        {
+          "peer_prefix": "1ac128cd",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 2
+        },
+        {
+          "peer_prefix": "1ac128cd",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 91
+        },
+        {
+          "peer_prefix": "1ac128cd",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 58
+        },
+        {
+          "peer_prefix": "1ac128cd",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "3",
+          "observations": 1
+        },
+        {
+          "peer_prefix": "c92b85df",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 41
+        },
+        {
+          "peer_prefix": "1ac128cd",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 95
+        },
+        {
+          "peer_prefix": "caafde32",
+          "transport": "ordered",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 46
+        },
+        {
+          "peer_prefix": "c92b85df",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 88
+        },
+        {
+          "peer_prefix": "c92b85df",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "3",
+          "observations": 2
+        },
+        {
+          "peer_prefix": "c92b85df",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 19
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "ordered",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 62
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "ordered",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 44
+        },
+        {
+          "peer_prefix": "1c3ec09b",
+          "transport": "ordered",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 32
+        },
+        {
+          "peer_prefix": "c6ace22e",
+          "transport": "ordered",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 67
+        },
+        {
+          "peer_prefix": "c6ace22e",
+          "transport": "ordered",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 53
+        }
+      ],
+      "canary_independent_connection_trace_ids": [
+        "29",
+        "39",
+        "40",
+        "41",
+        "52",
+        "54"
+      ]
+    },
+    "phone": {
+      "last": {
+        "audio_interruption_count": 11,
+        "audio_interruption_duration_ms": 2159,
+        "audio_latency_discarded_ms": 9790,
+        "audio_jb_ms": 141,
+        "remote_frames": 287,
+        "local_source_pressured": true,
+        "video_send_paused": 1,
+        "max_fps": 0.02
+      },
+      "max": {
+        "audio_jb_ms": 186,
+        "pacer_delay_ms": 0,
+        "audio_rx_age_ms": 293,
+        "audio_tx_rtp_max_gap_ms": 401
+      },
+      "phases": {
+        "audio_only": {
+          "span_seconds": 20.43448754097335,
+          "transports": {
+            "p2p": 11
+          },
+          "received_frames_delta": 0,
+          "receive_fps": 0.0,
+          "new_interruptions": 0,
+          "trimmed_ms_delta": 0,
+          "source_held_samples": 6,
+          "samples": 11
+        },
+        "p2p_video": {
+          "span_seconds": 38.92852954097907,
+          "transports": {
+            "p2p": 20
+          },
+          "received_frames_delta": 160,
+          "receive_fps": 4.110096165630199,
+          "new_interruptions": 0,
+          "trimmed_ms_delta": 0,
+          "source_held_samples": 2,
+          "samples": 20
+        },
+        "relay_tail": {
+          "span_seconds": 59.46435104100965,
+          "transports": {
+            "relay": 30
+          },
+          "received_frames_delta": 6,
+          "receive_fps": 0.10090079005254919,
+          "new_interruptions": 0,
+          "trimmed_ms_delta": 880,
+          "source_held_samples": 30,
+          "samples": 30
+        }
+      },
+      "admission_observations": [
+        {
+          "peer_prefix": "c92b85df",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 5
+        },
+        {
+          "peer_prefix": "0b29ccb3",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 4
+        },
+        {
+          "peer_prefix": "0b29ccb3",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 100
+        },
+        {
+          "peer_prefix": "0b29ccb3",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 91
+        },
+        {
+          "peer_prefix": "0b29ccb3",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 57
+        },
+        {
+          "peer_prefix": "0b29ccb3",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "3",
+          "observations": 2
+        },
+        {
+          "peer_prefix": "c92b85df",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 47
+        },
+        {
+          "peer_prefix": "1c3ec09b",
+          "transport": "ordered",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 51
+        },
+        {
+          "peer_prefix": "3d3575c9",
+          "transport": "ordered",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 18
+        },
+        {
+          "peer_prefix": "3d3575c9",
+          "transport": "ordered",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 14
+        },
+        {
+          "peer_prefix": "3d3575c9",
+          "transport": "ordered",
+          "independent": "true",
+          "local_slot": "3",
+          "observations": 1
+        },
+        {
+          "peer_prefix": "caafde32",
+          "transport": "ordered",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 75
+        },
+        {
+          "peer_prefix": "caafde32",
+          "transport": "ordered",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 2
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "ordered",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 58
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "ordered",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 44
+        },
+        {
+          "peer_prefix": "c6ace22e",
+          "transport": "ordered",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 26
+        },
+        {
+          "peer_prefix": "c6ace22e",
+          "transport": "ordered",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 20
+        },
+        {
+          "peer_prefix": "c92b85df",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 67
+        },
+        {
+          "peer_prefix": "c92b85df",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 33
+        }
+      ],
+      "canary_independent_connection_trace_ids": [
+        "30",
+        "34",
+        "48",
+        "50",
+        "54"
+      ]
+    }
+  },
+  "limits": [
+    "Active QUIC canonical sessions on both endpoints are prerequisites, not proof that all call media traverses the canary. Other TCP relay admissions are present.",
+    "Admissions are sender observations, not peer ACKs; unique connection ids only within one process.",
+    "No live speech or headset loudness qualification; uncontrolled WAN conditions."
+  ],
+  "cleanup": {
+    "mac_pid_absent": true,
+    "launcher_pid_absent": true,
+    "logcat_pid_absent": true,
+    "phone_absent": true,
+    "test_forward_absent": true
+  },
+  "phone_cc_property_restored": true,
+  "mac_exit_code": -9,
+  "camera_enabled_at_seconds": 30,
+  "relay_requested_at_seconds": 91.05983466698672,
+  "canary_session_checks": {
+    "session_snapshots_before_call": {
+      "mac": [
+        {
+          "transport": "quic://203.12.31.134:8443",
+          "state": "active"
+        }
+      ],
+      "phone": [
+        {
+          "transport": "quic://203.12.31.134:8443",
+          "state": "active"
+        }
+      ]
+    },
+    "session_snapshots_after_call": {
+      "mac": [
+        {
+          "transport": "quic://203.12.31.134:8443",
+          "state": "active"
+        }
+      ],
+      "phone": [
+        {
+          "transport": "quic://203.12.31.134:8443",
+          "state": "active"
+        }
+      ]
+    }
+  }
+}

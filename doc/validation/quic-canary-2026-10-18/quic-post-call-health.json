@@ -1,0 +1,5 @@
+{
+  "exit": 0,
+  "stdout": "{\"health_first\": \"status: ok\\ntick: 809\\nsessions: 6\", \"health_second\": \"status: ok\\ntick: 812\\nsessions: 6\", \"listeners\": \"listen_id   listener_handle     active  local_addr             transport\\n0x00000001  0x0000000000000001  true    0.0.0.0:8443           quic://0.0.0.0:8443\\n0x00000002  0x0000000000000002  true    0.0.0.0:5556           obfs4-tcp://0.0.0.0:5556\", \"udp_8443_bound\": true, \"config_sha256\": \"4a5231688220f73d25306aa613ef16ea9a9d77721d217692cfbdcbbf2f533ec6\"}\n",
+  "stderr": ""
+}

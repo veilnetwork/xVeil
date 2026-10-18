@@ -1,0 +1,5 @@
+{
+  "exit_code": 0,
+  "stdout": "{\"preview_validated\": true, \"active_config_unchanged\": true, \"only_semantic_change\": \"Add a generic quic://0.0.0.0:8443 listener advertised as quic://203.12.31.134:8443; existing obfs4 listener remains.\", \"udp_8443_currently_free\": true, \"active_sha256\": \"e4eca819dafe6393af3ae670457e7ec28fc57126efe6a872fc72501e872f6672\", \"candidate_sha256\": \"4a5231688220f73d25306aa613ef16ea9a9d77721d217692cfbdcbbf2f533ec6\", \"preview_dir\": \"/var/backups/veil/20261018-quic-preview\", \"applied\": false}\n",
+  "stderr": ""
+}

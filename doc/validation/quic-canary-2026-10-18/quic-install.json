@@ -1,0 +1,5 @@
+{
+  "exit_code": 0,
+  "stdout": "{\"host\": \"203.12.31.134\", \"applied\": true, \"rollback\": false, \"previous_pid\": 975195, \"success\": true, \"listener_uris_without_queries\": [\"quic://0.0.0.0:8443\", \"obfs4-tcp://0.0.0.0:5556\"], \"health\": \"status: ok\\ntick: 1946\\nsessions: 0\", \"pid\": 975195, \"runtime_config_matches_candidate\": true}\n",
+  "stderr": ""
+}

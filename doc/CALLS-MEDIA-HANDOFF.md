@@ -1,5 +1,88 @@
 # Calls media handoff
 
+## 2026-10-18: one authorized QUIC canary; reload failure recovered, diagnostics extended
+
+The user explicitly authorized **one** generic QUIC listener for a call trial.
+Only **203.12.31.134** now additionally binds **UDP 8443**, advertised as
+`quic://203.12.31.134:8443`; its obfs4/TCP 5556 remains. Other five configs and
+all deployed binaries are unchanged from the preceding six-relay rollout.
+Remote root-only original/candidate configs and rollback material are at
+**/var/backups/veil/20261018-quic-preview**. Semantic TOML comparison proves
+one added listener, validated before install. Candidate config SHA-256:
+**4a5231688220f73d25306aa613ef16ea9a9d77721d217692cfbdcbbf2f533ec6**.
+No relay role hint, media classification or preferential service was added.
+
+**New observed production failure, NOT FIXED:** the initial addition/reload
+succeeds, but a second same-config reload returns **EADDRINUSE** and leaves
+health **stalled**, tick 2610, sessions zero, even though `node listens` lists
+both addresses. The owned test call was deliberately stopped, so that first
+capture is **not** a quality qualification. A cold systemd restart of only the
+canary restores both listeners, active sessions and advancing health ticks;
+no rollback needed. A later independent probe sees ticks **451 -> 454**, eight
+sessions, UDP 8443 bound, and the exact candidate config. Do not repeat hot
+reload to recover this node. Listener/accepted-connection QUIC endpoint lifetime
+is a hypothesis, not a proved retaining owner. Trace lifecycle teardown/rebind
+with a local real-connection regression before attempting a fix.
+
+SDK **323e8c39** adds read-only socket port-pair and TCP_NODELAY metadata to
+existing opt-in TCP kernel traces. This enables correlation with a separately
+captured socket inventory, only when the match is unambiguous. No IP addresses,
+payloads, producer roles, wire flags, priority hints or socket option changes;
+disabled tracing performs no extra socket query. **Four** focused TCP tests pass,
+including two concurrent real sockets, unchanged bytes/options and stable trace
+id across simulated re-enable. This diagnostic change is committed but is
+**not installed** on the physical clients or relays in this cycle.
+
+Complete bounded playout traces from the preceding audio-only/video calls show
+**zero** requested targets above the applied target ceiling in all four
+captures. The proposed target/cap conflict does not reproduce. Mac video render
+callbacks have maximum spacing **11.043 ms** with zero gaps above 30 ms, despite
+eight native audio interruptions, so long render-callback gaps do not explain
+that run. Native callback times max 273 us on Mac, 4360 us on phone. Cumulative
+trimmed audio remains 2260/3050 ms, not a peak pause or an attributed network loss.
+
+**Another open structural issue:** warm probe/handoff carries only
+`BoxIoStream`; `runner.rs` SwapStream explicitly clears realtime/datagram and
+ordered-feedback handles. It cannot preserve independent media transport across
+handoff. A typed authenticated replacement must carry/rebind those resources.
+Never recreate datagram cipher state with unchanged keys and reset counters:
+that would reuse AEAD nonces. No handoff code is changed in this cycle.
+
+**Retry quality FAILS.** Both endpoints have active canonical canary QUIC
+sessions before and after the **239.283-s** call, ring **0.152 s**. The runtime
+JoinBootstrap refresh is sufficient; the kill-only-canary branch is not needed
+in this run (canary had no active phone session initially). Independent
+local-slot admissions through the canary are observed, as are ordered/TCP
+admissions to other relays, so this is **not** an isolated all-QUIC route.
+Video enabled at 30 s; explicit relay requested **91.060 s**. P2P video over
+45–85 s receives **6.294 / 4.110 fps** with zero new audio interruptions.
+All **24 / 11** final native interruptions appear after the relay transition.
+Final **59.464 s** has no new interruption-count increments but only **2 / 6**
+new received frames (**0.034 / 0.101 fps**), source-held in all 30 samples per
+endpoint, selected max_fps 0.02. Trim continues by **750 / 880 ms** in that tail.
+Sampled jitter-buffer maxima **351 / 186 ms**, pacer maxima **1217 / 0 ms**.
+Final sampled cumulative trim **15770 / 9790 ms**; complete playout trace
+**15850 / 9840 ms** includes post-sample teardown. Neither sum is a peak pause.
+Mac render loop again has no >30-ms gaps (max **11.750 ms**), no target/cap
+conflict; phone one gap **32.506 ms**, max callback 32292 us. Many catch-ups
+occur with 60-ms frame headroom and target/ceiling 60 ms. Test actual NetEq
+arrival/decode timing at that packet duration before weakening protections;
+these observations alone do not prove an algorithmic cause.
+All owned apps/helpers/ADB forward independently absent, phone property
+restored. Mac needs SIGKILL after graceful timeout. No human speech qualification.
+After the call canary health is ok, ticks **809 -> 812**, six sessions, both
+listeners bound, same candidate config SHA; no further reload/restart.
+
+The retry physical capture and final cleanup are recorded in
+**validation/call-quic-canary-2026-10-18.json** and
+**validation/quic-canary-2026-10-18/**. Private scripts/captures are under
+**~/.cache/codex/xveil-playout-followup-20261018**, with physical captures under
+**~/.cache/codex/xveil-current-android-sdk-20261018/qa/**. Mac runtime bootstrap
+file and phone JoinBootstrap override are stand-local, temporary, and add the
+operator-provided QUIC descriptor without replacing the production seed set.
+The retry may kill only an existing non-QUIC phone session to this canary before
+warmup; it performs no server reload or restart. Goal remains **ACTIVE**.
+
 ## 2026-10-18: all six relays updated; independent channels live, video failure retained
 
 User explicitly authorized updating relays. All six known nodes now run the
