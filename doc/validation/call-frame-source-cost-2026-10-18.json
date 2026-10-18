@@ -1,0 +1,161 @@
+{
+  "date": "2026-10-18",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "sdk_commit": "b6b57599",
+  "scope": "Whole-work cost attribution, captured-cost boundary tests, and explicit late frame diagnostics. Codec/source budgets and relay behavior are unchanged.",
+  "work_cost_capture": "/Users/vart/.cache/codex/xveil-direct-source-20261018/source-budget-apps/physical-source-budget",
+  "work_costs": [
+    {
+      "epoch": "50f846cca65c763e",
+      "first_seq": 1137,
+      "last_seq": 1143,
+      "cells": 7,
+      "raw_rtp_bytes": 6514,
+      "sealed_bytes": 6766,
+      "seal_bytes_per_cell": 36,
+      "envelope_bytes_per_cell": 280,
+      "whole_work_charge_bytes": 8726,
+      "all_first_attempt_verdicts": [
+        "budget_drop"
+      ]
+    },
+    {
+      "epoch": "50f846cca65c763e",
+      "first_seq": 1174,
+      "last_seq": 1175,
+      "cells": 2,
+      "raw_rtp_bytes": 1173,
+      "sealed_bytes": 1245,
+      "seal_bytes_per_cell": 36,
+      "envelope_bytes_per_cell": 280,
+      "whole_work_charge_bytes": 1805,
+      "all_first_attempt_verdicts": [
+        "budget_drop"
+      ]
+    },
+    {
+      "epoch": "50f846cca65c763e",
+      "first_seq": 1182,
+      "last_seq": 1184,
+      "cells": 3,
+      "raw_rtp_bytes": 2348,
+      "sealed_bytes": 2456,
+      "seal_bytes_per_cell": 36,
+      "envelope_bytes_per_cell": 280,
+      "whole_work_charge_bytes": 3296,
+      "all_first_attempt_verdicts": [
+        "budget_drop"
+      ]
+    },
+    {
+      "epoch": "50f846cca65c763e",
+      "first_seq": 1190,
+      "last_seq": 1192,
+      "cells": 3,
+      "raw_rtp_bytes": 2386,
+      "sealed_bytes": 2494,
+      "seal_bytes_per_cell": 36,
+      "envelope_bytes_per_cell": 280,
+      "whole_work_charge_bytes": 3334,
+      "all_first_attempt_verdicts": [
+        "budget_drop"
+      ]
+    },
+    {
+      "epoch": "50f846cca65c763e",
+      "first_seq": 1389,
+      "last_seq": 1396,
+      "cells": 8,
+      "raw_rtp_bytes": 7975,
+      "sealed_bytes": 8263,
+      "seal_bytes_per_cell": 36,
+      "envelope_bytes_per_cell": 280,
+      "whole_work_charge_bytes": 10503,
+      "all_first_attempt_verdicts": [
+        "budget_drop"
+      ]
+    }
+  ],
+  "pressure_work_cap_bytes": 8192,
+  "interpretation": "Two complete works exceed the pressure cap. Three other budget_drop works fit that cap; their drops cannot be explained by oversized work alone. Do not classify every budget_drop as oversize.",
+  "tests": {
+    "rust_source_activity": 30,
+    "rust_source_trace": 8,
+    "python_attribution_and_video_range": 13,
+    "clean_sdk_test_worktree": true
+  },
+  "repeat": {
+    "private_directory": "/Users/vart/.cache/codex/xveil-direct-source-20261018/source-budget-apps/physical-frame-cost-repeat",
+    "root_dart_commit": "b262249d",
+    "mac_rust_commit": "c89c77316f7b5fb21ba75a40a4bc0247e16a7274",
+    "native_media_commit": "87b539e3",
+    "phone_rust": "Previous clean be7-era binary, unchanged",
+    "new_diagnostics_not_installed": true,
+    "phone_app_version_code": 12614,
+    "ring_seconds": 0.18745320802554488,
+    "last_sample_seconds": 208.29510487499647,
+    "samples": 102,
+    "stimulus": "Audio first; cameras at 30 s; explicitly requested relay recovery at 121.99 s.",
+    "quality": {
+      "mac": {
+        "statuses_after_three_seconds": [
+          "active"
+        ],
+        "max_audio_interruption_count": 0,
+        "max_cumulative_decoded_catch_up_ms": 140,
+        "max_reported_audio_jitter_buffer_ms": 122,
+        "max_audio_jitter_buffer_target_ms": 100,
+        "last_reported_remote_frame_fps": 10.8,
+        "final_video_max_fps": 1.0
+      },
+      "phone": {
+        "statuses_after_three_seconds": [
+          "active"
+        ],
+        "max_audio_interruption_count": 0,
+        "max_cumulative_decoded_catch_up_ms": 60,
+        "max_reported_audio_jitter_buffer_ms": 111,
+        "max_audio_jitter_buffer_target_ms": 100,
+        "last_reported_remote_frame_fps": 5.5,
+        "final_video_max_fps": 1.0
+      }
+    },
+    "rtp": {
+      "mac_to_phone": {
+        "sends": 2059,
+        "unique_accepted": 1991,
+        "unique_received": 1991,
+        "loss_report_count": 4,
+        "locally_rejected": 0
+      },
+      "phone_to_mac": {
+        "sends": 1961,
+        "unique_accepted": 1960,
+        "unique_received": 1958,
+        "loss_report_count": 0,
+        "locally_rejected": 0
+      }
+    },
+    "first_mac_gap_frame_charge": {
+      "status": "refused",
+      "reason": "Missing/ambiguous seal in the first attempt window",
+      "scope": "The first new Mac receiver gap has no original seal witness. Later retransmissions must not substitute for it. No cause assigned."
+    },
+    "cleanup": {
+      "mac_pid_absent": true,
+      "launcher_pid_absent": true,
+      "logcat_pid_absent": true,
+      "phone_process_absent": true,
+      "owned_forward_absent": true
+    },
+    "mac_exit_code": -9
+  },
+  "remaining": [
+    "Coordinate encoded frame size/resolution with the effective source work limit and route overhead; keep the audio protection cap.",
+    "Attribute the new first-attempt pre-seal gap before claiming its cause.",
+    "Retain earlier 230 ms PCM / 305 ms startup counterexamples and the full contention gate.",
+    "No new live speech, headset, Bluetooth, or acoustic latency/loudness qualification."
+  ],
+  "unrelated_sdk_security_diff_sha256": "1ceeb05d540078262f1480ba7210dfaa0f5895be9f0099f64bc18a56a4f6a363"
+}
