@@ -1880,5 +1880,5 @@
     "/Users/vart/.cache/codex/xveil-rtcp-kind-20261018/launch-repeat.py": "77a5c2dc285d8823f14e0add01f9701e0aa28ab74d9baf1c8029a0e5e7456e84",
     "/Users/vart/.cache/codex/xveil-rtcp-kind-20261018/analyze-types.py": "2d1d68815e5746ef47b003e6ce81b999fc040405dd07c8ebb90bce4c653ffa73"
   },
-  "remaining": "One strict passing full capture proves this measured improvement, not a universal latency bound. Earlier 230-ms PCM/305-ms startup counterexamples and current >=200-ms startup pre-playout bounds remain. Human speech/headset and new physical phone-call qualification are deferred. These captures are headless. Physical follow-up is recorded separately; no release or push."
+  "remaining": "One strict passing full capture proves this measured improvement, not a universal latency bound. Earlier 230-ms PCM/305-ms startup counterexamples and current >=200-ms startup pre-playout bounds remain. Human speech/headset qualification remains deferred. Physical follow-up is recorded in call-remb-phone-2026-10-18.json. These captures are headless. Physical follow-up is recorded separately; no release or push."
 }
