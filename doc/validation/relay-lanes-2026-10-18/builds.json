@@ -1,0 +1,85 @@
+{
+  "server": {
+    "source_commit": "3f1b69ba",
+    "features": [
+      "rocksdb-cold",
+      "tls-boring",
+      "production-seeds"
+    ],
+    "target": "x86_64-unknown-linux-musl",
+    "path": "/Users/vart/.cache/codex/xveil-current-android-sdk-20261018/server/veil-cli-v0.11.42-3f1b69ba-linux-x86_64-musl",
+    "sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+    "bytes": 38150280,
+    "file": "/Users/vart/.cache/codex/xveil-current-android-sdk-20261018/server/veil-cli-v0.11.42-3f1b69ba-linux-x86_64-musl: ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), static-pie linked, BuildID[sha1]=bcf64ac13573ec59a28e8b0860bcb17dc0eeec1b, not stripped",
+    "scope": "Current clean production CLI, built with existing cross-build-linux-musl.sh defaults. CARGO_TARGET_DIR overrides the wrapper printed path; actual output is verified/copied from that cache."
+  },
+  "android": {
+    "sdk_commit": "3f1b69ba09e12dfb0d7e949e5633bca6f32375b1",
+    "clean_worktree": "/Users/vart/.cache/codex/xveil-current-android-sdk-20261018/sdk-src",
+    "rust_sources_identical_to_tested_db197": true,
+    "features": [
+      "production-seeds",
+      "node-embedded",
+      "packet-tunnel"
+    ],
+    "default_features": false,
+    "android_platform": 21,
+    "ndk": "28.2.13676358",
+    "scope": "Current clean Android FFI; excludes all four unrelated uncommitted security edits. Production mobile feature set, matching Gradle.",
+    "library_sha256": "1d14ad9283d7503b3b5d48b473b233ea48cc101442ddf5adf40560d9daabf547",
+    "library_bytes": 29262176,
+    "build_result": "PASS"
+  },
+  "qa": {
+    "scope": "Only phone Rust SDK moves from 986 to current clean 3f1b, with Rust sources identical to tested db197. Mac, media, Dart AOT, hidden-volume, data, versionCode12614 and signer unchanged. Private QA, not release.",
+    "source": {
+      "sdk_commit": "3f1b69ba09e12dfb0d7e949e5633bca6f32375b1",
+      "clean_worktree": "/Users/vart/.cache/codex/xveil-current-android-sdk-20261018/sdk-src",
+      "rust_sources_identical_to_tested_db197": true,
+      "features": [
+        "production-seeds",
+        "node-embedded",
+        "packet-tunnel"
+      ],
+      "default_features": false,
+      "android_platform": 21,
+      "ndk": "28.2.13676358",
+      "scope": "Current clean Android FFI; excludes all four unrelated uncommitted security edits. Production mobile feature set, matching Gradle.",
+      "library_sha256": "1d14ad9283d7503b3b5d48b473b233ea48cc101442ddf5adf40560d9daabf547",
+      "library_bytes": 29262176,
+      "build_result": "PASS"
+    },
+    "before_apk_sha256": "8ab189a0ee1656a4f0ab843e198e6aa80be6397ebdc22d25c2fce44ccef61140",
+    "apk_sha256": "6d8ddb3b7efb582f109047d602cd7ebae09b2cced591bad186f4745d10795463",
+    "same_signer": true,
+    "all_defined_elf_exports_unchanged": 201,
+    "ffi_api_exports": 193,
+    "changed_apk_entries": [
+      "lib/arm64-v8a/libveilclient_ffi.so"
+    ]
+  },
+  "core_tests": {
+    "veil_proto": {
+      "passed": 836,
+      "failed": 0,
+      "ignored": 0
+    },
+    "veil_session": {
+      "passed": 591,
+      "failed": 0,
+      "ignored": 8
+    },
+    "veil_transport": {
+      "passed": 152,
+      "failed": 0,
+      "ignored": 0
+    }
+  },
+  "linux_smoke": {
+    "version": "veil-cli 0.11.42",
+    "isolated_deferred_startup": "PASS: node health status ok, tick 5, zero sessions; graceful stop and process wait return 0, network disabled. A throwaway difficulty-zero file is used only to locate admin; deferred node does not load it as identity.",
+    "full_configured_smoke": "Not completed in container: explicit validation rejects difficulty zero, difficulty-24 QEMU mining stopped; independent native fixture mining hit 80-s limit. All six actual production configs pass candidate config validate before their service is stopped; actual configured starts/health pass on all six.",
+    "owned_smoke_cleanup": "Docker containers removed; independently checked remote throwaway miner absent."
+  },
+  "clean_source": "Detached SDK worktree 3f1b69ba. Rust sources identical to tested db197; four unrelated SDK edits excluded. Mac executable unchanged from combined db197 trial. APK replaces only libveilclient_ffi.so, preserving media/AOT/data/signer/hidden-volume."
+}

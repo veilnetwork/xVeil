@@ -1,0 +1,28 @@
+{
+  "date": "2026-10-18",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "scope": "Current clean Android Rust SDK qualification; explicitly authorized production relay rollout to matching current clean CLI; physical P2P-to-relay audio/video verification.",
+  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-current-android-sdk-20261018",
+  "relay_update": "All six 0.11.37 -> 0.11.42; same verified static production binary SHA 079e1536...; configs/unit preserved, stopped-state snapshots, no rollback needed; health/ports/process digest/ticks/sessions verified before and after calls.",
+  "policy": "No relay media-role or priority configuration. Generic authenticated children and negotiated compatibility; endpoint local-slot diagnostics stay local. Mailbox policy unchanged.",
+  "qualification": {
+    "audio_only": "178.451 s, ring 0.099 s, explicit relay at 30.624 s; native interruptions 0/0, jitter-buffer maxima 119/111 ms, cumulative trimmed 500/90 ms. All video frames and RTP attempts stay zero.",
+    "audio_packets": "Mac -> phone 7805/7805 accepted sends observed; phone -> Mac 6161/6168 (7 non-trailing unobserved accepted sends). Accepted is sender FFI/native admission, not peer ACK or guaranteed wire delivery. No claim of complete delivery both ways.",
+    "video": "239.508 s, ring 0.136 s, camera at 30 s, explicit relay at 90.743 s. Interruptions 8/0, cumulative trimmed 2260/3050 ms; final source-held true and selected fps 0.02 both. Actual final-minute receive rates 0.604/0.504 fps; this is a failure, not a successful quality qualification.",
+    "comparison_limit": "Before/after audio-only builds and stimulus match, but WAN conditions are uncontrolled. New authenticated capabilities/independent admissions are directly observed; improved audio-only counters do not prove all defects fixed or isolate sole delay cause."
+  },
+  "observed_protocol_fix": "Before: every matched old peer lacks flow and ordered-child capabilities; canonical source writes observed. After: all matched fleet peers offer independent flow/ordered children; endpoint independent admission observed and no canonical owned-primary writes in these captures. Endpoint attribution uses discovery peer-prefix joins, not packet capture or a specific RTP-to-hop mapping.",
+  "remaining": [
+    "Video relay freeze/very sparse tail and eight Mac audio interruptions reproduce on current endpoints and modern relays.",
+    "Repeated audio catch-up reports coexist with sustained source pressure; diagnose actual guard inputs and catch-up cause before weakening protection.",
+    "Opt-in Mac TCP traces show retransmitted bytes and high RTT on some connections; connection ids are not joined to a particular audio lane, peer or offending hop.",
+    "Human live speech, headset loudness, cellular WAN and entire Flutter source-hold wiring not qualified by these runs. Earlier 3959-ms phone pacer case remains open.",
+    "Mac stand requires SIGKILL after graceful timeout, then absence is verified."
+  ],
+  "cleanup": "All owned stand/launcher/logcat/phone processes and ADB forwarding independently absent; Android diagnostic property restored after every run.",
+  "evidence": "relay-lanes-2026-10-18/",
+  "build_gate": "1579 unit tests pass, 8 ignored; production Linux build includes rocksdb-cold,tls-boring,production-seeds; actual six production starts pass.",
+  "public_release": false,
+  "foreign_wip_preserved": true
+}

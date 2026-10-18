@@ -1,0 +1,119 @@
+{
+  "source_log": "/Users/vart/.cache/codex/xveil-current-android-sdk-20261018/qa/physical-current-sdk-audio-only/mac-runtime.log",
+  "matching_sessions": [
+    {
+      "link_id": "0x0000000000000002",
+      "endpoint_recorded_by_peer_discovery": "obfs4-tcp://134.255.227.83:5556",
+      "negotiated": {
+        "caps_stated": true,
+        "quic_available": false,
+        "ordered_available": true,
+        "peer_datagrams": true,
+        "peer_flows": false,
+        "peer_rotates": true,
+        "peer_parallel_quic": false,
+        "peer_shared_quic": false,
+        "peer_duplex_quic": false,
+        "peer_parallel_ordered": false,
+        "peer_reliable_parallel": false
+      },
+      "peer_has_canonical_primary_write_witness_in_capture": true
+    },
+    {
+      "link_id": "0x0000000000000001",
+      "endpoint_recorded_by_peer_discovery": "obfs4-tcp://87.237.54.48:5556",
+      "negotiated": {
+        "caps_stated": true,
+        "quic_available": false,
+        "ordered_available": true,
+        "peer_datagrams": true,
+        "peer_flows": false,
+        "peer_rotates": true,
+        "peer_parallel_quic": false,
+        "peer_shared_quic": false,
+        "peer_duplex_quic": false,
+        "peer_parallel_ordered": false,
+        "peer_reliable_parallel": false
+      },
+      "peer_has_canonical_primary_write_witness_in_capture": true
+    },
+    {
+      "link_id": "0x0000000000000003",
+      "endpoint_recorded_by_peer_discovery": "obfs4-tcp://134.255.227.83:5556",
+      "negotiated": {
+        "caps_stated": true,
+        "quic_available": false,
+        "ordered_available": true,
+        "peer_datagrams": true,
+        "peer_flows": false,
+        "peer_rotates": true,
+        "peer_parallel_quic": false,
+        "peer_shared_quic": false,
+        "peer_duplex_quic": false,
+        "peer_parallel_ordered": false,
+        "peer_reliable_parallel": false
+      },
+      "peer_has_canonical_primary_write_witness_in_capture": true
+    },
+    {
+      "link_id": "0x0000000000000004",
+      "endpoint_recorded_by_peer_discovery": "obfs4-tcp://87.237.54.48:5556",
+      "negotiated": {
+        "caps_stated": true,
+        "quic_available": false,
+        "ordered_available": true,
+        "peer_datagrams": true,
+        "peer_flows": false,
+        "peer_rotates": true,
+        "peer_parallel_quic": false,
+        "peer_shared_quic": false,
+        "peer_duplex_quic": false,
+        "peer_parallel_ordered": false,
+        "peer_reliable_parallel": false
+      },
+      "peer_has_canonical_primary_write_witness_in_capture": true
+    },
+    {
+      "link_id": "0x0000000000000007",
+      "endpoint_recorded_by_peer_discovery": "obfs4-tcp://94.249.185.219:5556",
+      "negotiated": {
+        "caps_stated": true,
+        "quic_available": false,
+        "ordered_available": true,
+        "peer_datagrams": true,
+        "peer_flows": false,
+        "peer_rotates": true,
+        "peer_parallel_quic": false,
+        "peer_shared_quic": false,
+        "peer_duplex_quic": false,
+        "peer_parallel_ordered": false,
+        "peer_reliable_parallel": false
+      },
+      "peer_has_canonical_primary_write_witness_in_capture": true
+    },
+    {
+      "link_id": "0x0000000000000009",
+      "endpoint_recorded_by_peer_discovery": "obfs4-tcp://94.249.185.219:5556",
+      "negotiated": {
+        "caps_stated": true,
+        "quic_available": false,
+        "ordered_available": true,
+        "peer_datagrams": true,
+        "peer_flows": false,
+        "peer_rotates": true,
+        "peer_parallel_quic": false,
+        "peer_shared_quic": false,
+        "peer_duplex_quic": false,
+        "peer_parallel_ordered": false,
+        "peer_reliable_parallel": false
+      },
+      "peer_has_canonical_primary_write_witness_in_capture": true
+    }
+  ],
+  "confirmed": {
+    "every_matched_peer_lacks_flows_and_ordered_children": true,
+    "source_ordered_canonical_writes_observed": true
+  },
+  "source_selection_guard": "runner.rs only creates an ordered datagram/child lane when authenticated peer_datagrams, peer_flows and peer_rotates are true; peer_handshake.rs filters the ordered child offer by peer_parallel_ordered. A physical handle alone is insufficient.",
+  "limits": "Session capability booleans are actual authenticated peer observations, not inferred from version strings. Endpoint attribution joins unique peer-id prefixes with discovery endpoint records; it is not packet capture. Canonical owned-primary write witnesses do not identify one exact RTP packet or prove which hop caused its latency. Canonical primary-write witnesses are matched at peer-prefix level, not to a particular LinkId or cipher generation. No role is sent to relays."
+}

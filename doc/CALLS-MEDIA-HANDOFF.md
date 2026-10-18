@@ -1,5 +1,76 @@
 # Calls media handoff
 
+## 2026-10-18: all six relays updated; independent channels live, video failure retained
+
+User explicitly authorized updating relays. All six known nodes now run the
+same clean SDK **3f1b69ba / CLI 0.11.42** production Linux binary, SHA-256
+**079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f**.
+Build includes rocksdb-cold, tls-boring and production-seeds. Core tests pass:
+**836 proto + 591 session + 152 transport**, eight session tests ignored.
+Isolated deferred startup/health/graceful stop passes in Linux/QEMU; a full
+configured container startup is not claimed (difficulty-24 fixture mining
+was stopped/timed out). The candidate validates all six real configs before
+stopping their services, and their actual configured starts/health pass.
+
+Deployment is sequential, with root-only previous binaries, units, configs
+and stopped-state snapshots in **/var/backups/veil/20261018-3f1b69ba** on each
+server. No rollback used; no state restored. Configs and units are unchanged.
+The three 203.12.31.x servers require **ubuntu + sudo**, explaining the earlier
+incomplete root probes. Direct SSH banner exchange to 134.255.227.83 later
+stalls; end-to-end SSH through 203.12.31.134 works using the local key, without
+copying that key. After both calls all six retain their installed PIDs,
+advancing health ticks, active sessions, TCP 5556 / UDP 39999 and zero automatic
+restarts. No production config/private-key content is downloaded.
+
+The phone first receives current clean Rust SDK **3f1b69ba** (Rust sources
+identical to tested db197), excluding four unrelated SDK edits. Only its
+libveilclient_ffi.so changes; 193 FFI / 201 defined ELF exports match, signer,
+media, AOT b262, data, hidden-volume and versionCode12614 are preserved. Mac
+remains the combined db197 stand. These are private QA builds.
+
+**A deployed prerequisite was missing.** Before the server update, actual
+authenticated sessions have peer_flows=false, peer_parallel_ordered=false and
+peer_reliable_parallel=false, despite available ordered handles. Current
+endpoints still reproduce audio-only interruptions **15 / 7** on these old
+peers; canonical owned-primary writes are observed. After update all matched
+fleet sessions offer independent flow/ordered children. Endpoint diagnostics
+show independent local-slot admissions, with no owned-primary canonical writes
+in these captures. This confirms activation, not exact RTP-to-hop attribution;
+peer discovery prefix joins do not substitute for packet capture. No media role
+or priority is added to relays.
+
+The matching **178.451-s audio-only** rerun rings in **0.099 s**, explicitly
+selects relay at **30.624 s**, and counts **0 / 0** native interruptions.
+All video counters remain zero. Jitter-buffer maxima **119 / 111 ms**;
+cumulative trimmed audio **500 / 90 ms**, not individual pause lengths.
+Mac-to-phone observes **7805 / 7805** accepted sends; reverse **6161 / 6168**,
+with seven non-trailing unobserved sends. Do not claim complete delivery in
+both directions. Native/FFI admission is not wire delivery or peer ACK.
+Uncontrolled WAN conditions prevent a causal performance claim from one pair.
+
+**Video qualification still FAILS.** The **239.508-s** call rings in **0.136 s**,
+enables cameras at 30 s and explicitly moves to relay at **90.743 s**.
+P2P video receives **4.33 / 6.11 fps** over 45–85 s. Full-call interruptions
+are **8 / 0**, trimmed audio **2260 / 3050 ms**. Final-minute video receives
+only **0.604 / 0.504 fps**; both finish source-held with selected fps 0.02.
+Mac pacer peaks **891 ms**, phone **60 ms**. All final 59 / 58 retained
+adaptation observations after ordinal 150 report source pressure, while only
+1 / 2 report local/peer buffer pressure respectively. Repeated catch-up events
+remain (**22 / 24**); stable current buffers do not prove no speech was
+discarded. Diagnose guard inputs and recurring catch-up before relaxing policy.
+Mac kernel traces also record retransmitted bytes/high RTT on some TCP
+connections; ids are not attributed to an audio lane or defective hop.
+
+Evidence: **validation/call-relay-rollout-2026-10-18.json** and
+**validation/relay-lanes-2026-10-18/**; complete private builds, commands,
+deployment/rollback scripts and captures under
+**~/.cache/codex/xveil-current-android-sdk-20261018**. Every owned app, launcher,
+logcat process and ADB forward is independently absent after each test, and
+Android debug property is restored. Mac still needs SIGKILL after its timeout.
+Human speech/headset loudness, cellular WAN and complete Flutter source-hold
+wiring remain unqualified. Earlier 3959-ms phone pacer case stays open.
+Goal ACTIVE; relay rollout is complete, overall quality is not.
+
 ## 2026-10-18: audio-only relay counterexample; Android controller clock joined
 
 SDK **`3f1b69ba`** extends the independent **stand-only** CC observer to Android.

@@ -1,0 +1,481 @@
+{
+  "installation_order": [
+    "203.12.31.134",
+    "203.12.31.145",
+    "203.12.31.146",
+    "87.237.54.48",
+    "134.255.227.83",
+    "94.249.185.219"
+  ],
+  "installed": [
+    {
+      "host": "87.237.54.48",
+      "source": "3f1b69ba",
+      "candidate_sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+      "previous_sha256": "b642435a1087ba01378daa636200bc63bc62720df77007e3dced4f573a2fd8cb",
+      "backup": "/var/backups/veil/20261018-3f1b69ba",
+      "config_unchanged": true,
+      "success": true,
+      "stopped": true,
+      "installed": true,
+      "health_first": {
+        "pid": 55434,
+        "tick": 2,
+        "sessions": 4
+      },
+      "health_second": {
+        "pid": 55434,
+        "tick": 9,
+        "sessions": 6
+      },
+      "version": "veil-cli 0.11.42",
+      "unit_unchanged": true,
+      "tcp_5556": true,
+      "udp_39999": true
+    },
+    {
+      "host": "94.249.185.219",
+      "source": "3f1b69ba",
+      "candidate_sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+      "previous_sha256": "b642435a1087ba01378daa636200bc63bc62720df77007e3dced4f573a2fd8cb",
+      "backup": "/var/backups/veil/20261018-3f1b69ba",
+      "config_unchanged": true,
+      "success": true,
+      "stopped": true,
+      "installed": true,
+      "health_first": {
+        "pid": 51111,
+        "tick": 3,
+        "sessions": 6
+      },
+      "health_second": {
+        "pid": 51111,
+        "tick": 10,
+        "sessions": 5
+      },
+      "version": "veil-cli 0.11.42",
+      "unit_unchanged": true,
+      "tcp_5556": true,
+      "udp_39999": true
+    },
+    {
+      "host": "134.255.227.83",
+      "source": "3f1b69ba",
+      "candidate_sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+      "previous_sha256": "b642435a1087ba01378daa636200bc63bc62720df77007e3dced4f573a2fd8cb",
+      "backup": "/var/backups/veil/20261018-3f1b69ba",
+      "config_unchanged": true,
+      "success": true,
+      "stopped": true,
+      "installed": true,
+      "health_first": {
+        "pid": 46219,
+        "tick": 3,
+        "sessions": 5
+      },
+      "health_second": {
+        "pid": 46219,
+        "tick": 10,
+        "sessions": 7
+      },
+      "version": "veil-cli 0.11.42",
+      "unit_unchanged": true,
+      "tcp_5556": true,
+      "udp_39999": true
+    },
+    {
+      "host": "203.12.31.134",
+      "source": "3f1b69ba",
+      "candidate_sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+      "previous_sha256": "b642435a1087ba01378daa636200bc63bc62720df77007e3dced4f573a2fd8cb",
+      "backup": "/var/backups/veil/20261018-3f1b69ba",
+      "config_unchanged": true,
+      "success": true,
+      "stopped": true,
+      "installed": true,
+      "health_first": {
+        "pid": 975195,
+        "tick": 3,
+        "sessions": 5
+      },
+      "health_second": {
+        "pid": 975195,
+        "tick": 10,
+        "sessions": 6
+      },
+      "version": "veil-cli 0.11.42",
+      "unit_unchanged": true,
+      "tcp_5556": true,
+      "udp_39999": true
+    },
+    {
+      "host": "203.12.31.145",
+      "source": "3f1b69ba",
+      "candidate_sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+      "previous_sha256": "b642435a1087ba01378daa636200bc63bc62720df77007e3dced4f573a2fd8cb",
+      "backup": "/var/backups/veil/20261018-3f1b69ba",
+      "config_unchanged": true,
+      "success": true,
+      "stopped": true,
+      "installed": true,
+      "health_first": {
+        "pid": 1221965,
+        "tick": 3,
+        "sessions": 5
+      },
+      "health_second": {
+        "pid": 1221965,
+        "tick": 10,
+        "sessions": 6
+      },
+      "version": "veil-cli 0.11.42",
+      "unit_unchanged": true,
+      "tcp_5556": true,
+      "udp_39999": true
+    },
+    {
+      "host": "203.12.31.146",
+      "source": "3f1b69ba",
+      "candidate_sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+      "previous_sha256": "b642435a1087ba01378daa636200bc63bc62720df77007e3dced4f573a2fd8cb",
+      "backup": "/var/backups/veil/20261018-3f1b69ba",
+      "config_unchanged": true,
+      "success": true,
+      "stopped": true,
+      "installed": true,
+      "health_first": {
+        "pid": 1204498,
+        "tick": 3,
+        "sessions": 5
+      },
+      "health_second": {
+        "pid": 1204498,
+        "tick": 10,
+        "sessions": 6
+      },
+      "version": "veil-cli 0.11.42",
+      "unit_unchanged": true,
+      "tcp_5556": true,
+      "udp_39999": true
+    }
+  ],
+  "before_calls": [
+    {
+      "host": "87.237.54.48",
+      "success": true,
+      "version": "veil-cli 0.11.42",
+      "sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+      "first": {
+        "pid": 55434,
+        "tick": 187,
+        "sessions": 6
+      },
+      "second": {
+        "pid": 55434,
+        "tick": 191,
+        "sessions": 6
+      },
+      "same_pid_as_installation": true,
+      "config_and_unit_unchanged": true,
+      "ports_present": true,
+      "service_properties": {
+        "NRestarts": "0",
+        "MemoryCurrent": "85798912",
+        "ActiveEnterTimestamp": "Sun 2026-10-18 17:14:39 UTC"
+      },
+      "state_snapshot_bytes": 41472000,
+      "backup_binary_sha256": "b642435a1087ba01378daa636200bc63bc62720df77007e3dced4f573a2fd8cb"
+    },
+    {
+      "host": "94.249.185.219",
+      "success": true,
+      "version": "veil-cli 0.11.42",
+      "sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+      "first": {
+        "pid": 51111,
+        "tick": 26,
+        "sessions": 6
+      },
+      "second": {
+        "pid": 51111,
+        "tick": 29,
+        "sessions": 6
+      },
+      "same_pid_as_installation": true,
+      "config_and_unit_unchanged": true,
+      "ports_present": true,
+      "service_properties": {
+        "NRestarts": "0",
+        "MemoryCurrent": "69242880",
+        "ActiveEnterTimestamp": "Sun 2026-10-18 17:17:22 UTC"
+      },
+      "state_snapshot_bytes": 39690240,
+      "backup_binary_sha256": "b642435a1087ba01378daa636200bc63bc62720df77007e3dced4f573a2fd8cb"
+    },
+    {
+      "host": "134.255.227.83",
+      "success": true,
+      "version": "veil-cli 0.11.42",
+      "sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+      "first": {
+        "pid": 46219,
+        "tick": 81,
+        "sessions": 6
+      },
+      "second": {
+        "pid": 46219,
+        "tick": 84,
+        "sessions": 6
+      },
+      "same_pid_as_installation": true,
+      "config_and_unit_unchanged": true,
+      "ports_present": true,
+      "service_properties": {
+        "NRestarts": "0",
+        "MemoryCurrent": "84037632",
+        "ActiveEnterTimestamp": "Sun 2026-10-18 17:16:27 UTC"
+      },
+      "state_snapshot_bytes": 39936000,
+      "backup_binary_sha256": "b642435a1087ba01378daa636200bc63bc62720df77007e3dced4f573a2fd8cb"
+    },
+    {
+      "host": "203.12.31.134",
+      "success": true,
+      "version": "veil-cli 0.11.42",
+      "sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+      "first": {
+        "pid": 975195,
+        "tick": 247,
+        "sessions": 6
+      },
+      "second": {
+        "pid": 975195,
+        "tick": 251,
+        "sessions": 6
+      },
+      "same_pid_as_installation": true,
+      "config_and_unit_unchanged": true,
+      "ports_present": true,
+      "service_properties": {
+        "NRestarts": "0",
+        "MemoryCurrent": "40660992",
+        "ActiveEnterTimestamp": "Sun 2026-10-18 17:13:38 UTC"
+      },
+      "state_snapshot_bytes": 39772160,
+      "backup_binary_sha256": "b642435a1087ba01378daa636200bc63bc62720df77007e3dced4f573a2fd8cb"
+    },
+    {
+      "host": "203.12.31.145",
+      "success": true,
+      "version": "veil-cli 0.11.42",
+      "sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+      "first": {
+        "pid": 1221965,
+        "tick": 213,
+        "sessions": 6
+      },
+      "second": {
+        "pid": 1221965,
+        "tick": 216,
+        "sessions": 6
+      },
+      "same_pid_as_installation": true,
+      "config_and_unit_unchanged": true,
+      "ports_present": true,
+      "service_properties": {
+        "NRestarts": "0",
+        "MemoryCurrent": "38141952",
+        "ActiveEnterTimestamp": "Sun 2026-10-18 17:14:12 UTC"
+      },
+      "state_snapshot_bytes": 39792640,
+      "backup_binary_sha256": "b642435a1087ba01378daa636200bc63bc62720df77007e3dced4f573a2fd8cb"
+    },
+    {
+      "host": "203.12.31.146",
+      "success": true,
+      "version": "veil-cli 0.11.42",
+      "sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+      "first": {
+        "pid": 1204498,
+        "tick": 201,
+        "sessions": 6
+      },
+      "second": {
+        "pid": 1204498,
+        "tick": 204,
+        "sessions": 6
+      },
+      "same_pid_as_installation": true,
+      "config_and_unit_unchanged": true,
+      "ports_present": true,
+      "service_properties": {
+        "NRestarts": "0",
+        "MemoryCurrent": "41676800",
+        "ActiveEnterTimestamp": "Sun 2026-10-18 17:14:24 UTC"
+      },
+      "state_snapshot_bytes": 39946240,
+      "backup_binary_sha256": "b642435a1087ba01378daa636200bc63bc62720df77007e3dced4f573a2fd8cb"
+    }
+  ],
+  "after_calls": [
+    {
+      "host": "87.237.54.48",
+      "success": true,
+      "version": "veil-cli 0.11.42",
+      "sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+      "first": {
+        "pid": 55434,
+        "tick": 1143,
+        "sessions": 6
+      },
+      "second": {
+        "pid": 55434,
+        "tick": 1146,
+        "sessions": 6
+      },
+      "same_pid_as_installation": true,
+      "config_and_unit_unchanged": true,
+      "ports_present": true,
+      "service_properties": {
+        "NRestarts": "0",
+        "MemoryCurrent": "94322688",
+        "ActiveEnterTimestamp": "Sun 2026-10-18 17:14:39 UTC"
+      },
+      "state_snapshot_bytes": 41472000,
+      "backup_binary_sha256": "b642435a1087ba01378daa636200bc63bc62720df77007e3dced4f573a2fd8cb"
+    },
+    {
+      "host": "94.249.185.219",
+      "success": true,
+      "version": "veil-cli 0.11.42",
+      "sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+      "first": {
+        "pid": 51111,
+        "tick": 983,
+        "sessions": 6
+      },
+      "second": {
+        "pid": 51111,
+        "tick": 986,
+        "sessions": 6
+      },
+      "same_pid_as_installation": true,
+      "config_and_unit_unchanged": true,
+      "ports_present": true,
+      "service_properties": {
+        "NRestarts": "0",
+        "MemoryCurrent": "83488768",
+        "ActiveEnterTimestamp": "Sun 2026-10-18 17:17:22 UTC"
+      },
+      "state_snapshot_bytes": 39690240,
+      "backup_binary_sha256": "b642435a1087ba01378daa636200bc63bc62720df77007e3dced4f573a2fd8cb"
+    },
+    {
+      "host": "134.255.227.83",
+      "success": true,
+      "version": "veil-cli 0.11.42",
+      "sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+      "first": {
+        "pid": 46219,
+        "tick": 1039,
+        "sessions": 6
+      },
+      "second": {
+        "pid": 46219,
+        "tick": 1042,
+        "sessions": 6
+      },
+      "same_pid_as_installation": true,
+      "config_and_unit_unchanged": true,
+      "ports_present": true,
+      "service_properties": {
+        "NRestarts": "0",
+        "MemoryCurrent": "103587840",
+        "ActiveEnterTimestamp": "Sun 2026-10-18 17:16:27 UTC"
+      },
+      "state_snapshot_bytes": 39936000,
+      "backup_binary_sha256": "b642435a1087ba01378daa636200bc63bc62720df77007e3dced4f573a2fd8cb"
+    },
+    {
+      "host": "203.12.31.134",
+      "success": true,
+      "version": "veil-cli 0.11.42",
+      "sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+      "first": {
+        "pid": 975195,
+        "tick": 1203,
+        "sessions": 6
+      },
+      "second": {
+        "pid": 975195,
+        "tick": 1206,
+        "sessions": 6
+      },
+      "same_pid_as_installation": true,
+      "config_and_unit_unchanged": true,
+      "ports_present": true,
+      "service_properties": {
+        "NRestarts": "0",
+        "MemoryCurrent": "49606656",
+        "ActiveEnterTimestamp": "Sun 2026-10-18 17:13:38 UTC"
+      },
+      "state_snapshot_bytes": 39772160,
+      "backup_binary_sha256": "b642435a1087ba01378daa636200bc63bc62720df77007e3dced4f573a2fd8cb"
+    },
+    {
+      "host": "203.12.31.145",
+      "success": true,
+      "version": "veil-cli 0.11.42",
+      "sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+      "first": {
+        "pid": 1221965,
+        "tick": 1168,
+        "sessions": 6
+      },
+      "second": {
+        "pid": 1221965,
+        "tick": 1171,
+        "sessions": 6
+      },
+      "same_pid_as_installation": true,
+      "config_and_unit_unchanged": true,
+      "ports_present": true,
+      "service_properties": {
+        "NRestarts": "0",
+        "MemoryCurrent": "44580864",
+        "ActiveEnterTimestamp": "Sun 2026-10-18 17:14:12 UTC"
+      },
+      "state_snapshot_bytes": 39792640,
+      "backup_binary_sha256": "b642435a1087ba01378daa636200bc63bc62720df77007e3dced4f573a2fd8cb"
+    },
+    {
+      "host": "203.12.31.146",
+      "success": true,
+      "version": "veil-cli 0.11.42",
+      "sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+      "first": {
+        "pid": 1204498,
+        "tick": 1157,
+        "sessions": 6
+      },
+      "second": {
+        "pid": 1204498,
+        "tick": 1160,
+        "sessions": 6
+      },
+      "same_pid_as_installation": true,
+      "config_and_unit_unchanged": true,
+      "ports_present": true,
+      "service_properties": {
+        "NRestarts": "0",
+        "MemoryCurrent": "44367872",
+        "ActiveEnterTimestamp": "Sun 2026-10-18 17:14:24 UTC"
+      },
+      "state_snapshot_bytes": 39946240,
+      "backup_binary_sha256": "b642435a1087ba01378daa636200bc63bc62720df77007e3dced4f573a2fd8cb"
+    }
+  ],
+  "authorization": "User explicitly authorized relay updates in the active session. Installation and restart strictly sequential; staging parallel.",
+  "backups": "Root-only /var/backups/veil/20261018-3f1b69ba on each host: previous/candidate executable, service unit, config and stopped-state tar. No production key/config content downloaded. No rollback used.",
+  "access": "root on first three IPs, ubuntu + sudo on 203.12.31.x. Direct SSH banner for 134.255.227.83 stalls; authorized end-to-end SSH via 203.12.31.134 works, using the local key, not copying it."
+}
