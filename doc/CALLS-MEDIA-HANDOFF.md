@@ -1,5 +1,72 @@
 # Calls media handoff
 
+## 2026-10-18: exact SDK cell join; framing-only candidate rejected
+
+SDK `d6735fbe` adds opt-in RTP-header witnesses at seal time and only after
+receive authentication, without retaining plaintext or key identity. The
+sampler is shared by endpoint/opaque IPC traces: default every 50th cell plus
+the first, explicit `VEIL_RT_TRACE_SEALED_EVERY=1` for complete owned captures.
+New local monotonic timestamps use the existing diagnostic clock. Non-Unix
+clocks remain explicitly unknown. No wire, role, priority or scheduling change.
+The cipher lock is released before diagnostic formatting. Batch metadata
+validation is atomic and bounded to 64 packet slices on the stack.
+
+**38 Rust tests** pass (sampling 2, RTP parser 4, media crypto/replay/source
+isolation 27, IPC trace 5). Clippy lib/tests for util/IPC/FFI is clean with
+warnings denied. **31 Python tests** cover complete packet-cell joins,
+ambiguity, clocks, byte lengths, destination/source mismatches and separate
+SDK-writer/node-reader process logs. `scripts/analyze_group_sdk_packet.py`
+requires complete console output, authentic receiver witnesses and a unique
+SSRC/sequence/timestamp/payload/cell/batch-index join. Native enqueue return
+and socket-write completion can occur after downstream work; they are retained
+as observations, not forced into a fictitious linear causal order.
+
+Evidence: `doc/validation/call-sdk-cell-2026-10-18.json`, immutable clean SDK
+and raw captures in `xveil-rtp-cell-20261018`. Same original 360-s workload,
+1024-kbit neutral shared FIFO, all files, video and strict <200-ms PCM gate:
+
+- First complete trace: **PASS 190.301667 ms**, 2112 matched / 0 missing,
+  files complete by **352.429 s**, video tails **10/9/8/9/8/10**.
+- Identical-binary repeat: **FAIL 230.302083 ms**, 2112 matched / 0 missing,
+  files complete by **352.369 s**, video tails **7/10/12/10/12/7**.
+- All ten owned processes independently absent after each capture, consoles
+  flush without rejected records or output errors.
+
+The failed repeat's exact source 2 -> receiver 0 packet (323.200 -> 323.430 s,
+60-ms Opus, RTP sequence 32398) maps to sealed epoch `69b747d83bcd134a`,
+sequence **5709**. Native attempt -> SDK seal **0.033 ms**, seal -> send pump
+**0.013 ms**, pump -> daemon read **0.060 ms**, daemon -> handler **0.032 ms**,
+handler -> first-node queue **0.017 ms**. From that queue admission to the
+receiver SDK authentication: **121.934 ms**, then **0.018 ms** to native
+ingress. Encoding wait from the actual PCM marker is **10.431 ms**, native
+network handoff **0.019 ms**, post-ingress to detected PCM **97.711 ms**.
+First-node admission is not wire transmission; next inspect source-session
+release, QUIC/forwarding and receiver delivery for that exact opaque cell.
+
+Supplemental all-packet analysis exposes a blind spot in the green PCM-marker
+capture: all **36834** audio RTP receipts in the measurement window match
+encoded input witnesses, but **56** packets take >=200 ms from first encoder
+input to native ingress, maximum **283.878 ms**, before playout. Per-path
+p99 is about 126-131 ms. This lower bound is not hardware/acoustic latency.
+Window is first-input seconds 1 <= t < 359; source timestamp origins and
+payload sizes are checked, duplicate/negative-clock witnesses refused. The
+archived private helper and digest are in the report. Original PCM verdicts
+are preserved; a green marker result cannot prove all speech was prompt.
+
+A framing-only candidate kept 40 ms / >=24 kbit when decoded catch-up or
+buffer growth remained at the payload floor, retaining 60 ms for real loss /
+admission failures. Three proposed regressions fail on the original policy;
+all **137** focused candidate tests and Dart analysis pass. Full capture
+nevertheless **FAILS 270.189333 ms**: 40-ms packets applied throughout, all
+files complete, moving video tails. Its worst packet takes **198.197 ms**
+after source-node queue admission. All-packet maximum lower bound improves
+to **248.234 ms**, but more arrivals cross 200 ms; single sequential samples
+do not establish every cause of the difference. The original required gate
+still fails, so **candidate production/test edits were restored**. Private
+patch, logs and failed capture remain under `xveil-group-framing-20261018`.
+No lower speech bitrate, threshold relaxation, release, push, relay update,
+phone test or unrelated multi-device edit. Goal remains ACTIVE.
+
 ## 2026-10-18: route RTT floor fix verified on Mac / Blackview
 
 SDK `7f664470` adds a local RTCP route epoch after successful native rebind.
