@@ -1,0 +1,5 @@
+{
+  "exit": 1,
+  "stdout": "{\"exit\": 1, \"stdout\": \"\", \"stderr\": \"[2026-10-18T17:57:07Z WARN  veil_cfg::store] veil_cfg.unsigned_config config file '/var/lib/veil/node.toml' has no signature header; tamper protection is OFF.  Sign the config to enable byte-level integrity verification on load (see docs/en/OPERATIONS.md \\u2192 Memory locking section for the parallel ops-side hardening story).\\nio error: Address in use (os error 98)\\n\"}\n",
+  "stderr": ""
+}
