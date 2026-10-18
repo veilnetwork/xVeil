@@ -1,0 +1,190 @@
+{
+  "physical-playout-budget-video/mac": {
+    "rows": 24013,
+    "discarded_ms": 550,
+    "skip_callbacks": 35,
+    "fallback_callbacks": 0,
+    "target_above_applied_ceiling_callbacks": 0,
+    "conflicting_target_during_skip": 0,
+    "max_native_callback_us": 151,
+    "render_gaps_over_30ms": 0,
+    "max_render_gap_ms": 10.94,
+    "skips_by_headroom_target_ceiling": [
+      {
+        "headroom_ms": 40,
+        "target_ms": 160,
+        "ceiling_ms": 160,
+        "callbacks": 26
+      },
+      {
+        "headroom_ms": 20,
+        "target_ms": 180,
+        "ceiling_ms": 180,
+        "callbacks": 8
+      },
+      {
+        "headroom_ms": 40,
+        "target_ms": 60,
+        "ceiling_ms": 160,
+        "callbacks": 1
+      }
+    ],
+    "largest_render_gaps": [],
+    "skip_examples": [
+      {
+        "entered_us": 184297996078,
+        "exited_us": 184297996149,
+        "before_ms": 213,
+        "after_ms": 193,
+        "target_ms": 160,
+        "skipped": 1,
+        "fallback": 0,
+        "frame_headroom_ms": 40,
+        "target_ceiling_ms": 160,
+        "rtp_timestamp": 2613758960,
+        "speech_type": 0,
+        "muted": 0
+      },
+      {
+        "entered_us": 184298268083,
+        "exited_us": 184298268158,
+        "before_ms": 213,
+        "after_ms": 193,
+        "target_ms": 160,
+        "skipped": 1,
+        "fallback": 0,
+        "frame_headroom_ms": 40,
+        "target_ceiling_ms": 160,
+        "rtp_timestamp": 2613772400,
+        "speech_type": 0,
+        "muted": 0
+      },
+      {
+        "entered_us": 184298337410,
+        "exited_us": 184298337475,
+        "before_ms": 213,
+        "after_ms": 193,
+        "target_ms": 160,
+        "skipped": 1,
+        "fallback": 0,
+        "frame_headroom_ms": 40,
+        "target_ceiling_ms": 160,
+        "rtp_timestamp": 2613776240,
+        "speech_type": 0,
+        "muted": 0
+      },
+      {
+        "entered_us": 184298348035,
+        "exited_us": 184298348105,
+        "before_ms": 233,
+        "after_ms": 193,
+        "target_ms": 160,
+        "skipped": 3,
+        "fallback": 0,
+        "frame_headroom_ms": 40,
+        "target_ceiling_ms": 160,
+        "rtp_timestamp": 2613778160,
+        "speech_type": 0,
+        "muted": 0
+      }
+    ]
+  },
+  "physical-playout-budget-video/phone": {
+    "rows": 24060,
+    "discarded_ms": 650,
+    "skip_callbacks": 32,
+    "fallback_callbacks": 0,
+    "target_above_applied_ceiling_callbacks": 0,
+    "conflicting_target_during_skip": 0,
+    "max_native_callback_us": 10840,
+    "render_gaps_over_30ms": 1,
+    "max_render_gap_ms": 49.31,
+    "skips_by_headroom_target_ceiling": [
+      {
+        "headroom_ms": 60,
+        "target_ms": 140,
+        "ceiling_ms": 140,
+        "callbacks": 27
+      },
+      {
+        "headroom_ms": 20,
+        "target_ms": 180,
+        "ceiling_ms": 180,
+        "callbacks": 3
+      },
+      {
+        "headroom_ms": 40,
+        "target_ms": 160,
+        "ceiling_ms": 160,
+        "callbacks": 2
+      }
+    ],
+    "largest_render_gaps": [
+      {
+        "at_us": 3788759432484,
+        "gap_us": 49310,
+        "before_ms": 50,
+        "after_ms": 40,
+        "skipped": 0
+      }
+    ],
+    "skip_examples": [
+      {
+        "entered_us": 3788998520727,
+        "exited_us": 3788998520866,
+        "before_ms": 232,
+        "after_ms": 192,
+        "target_ms": 140,
+        "skipped": 3,
+        "fallback": 0,
+        "frame_headroom_ms": 60,
+        "target_ceiling_ms": 140,
+        "rtp_timestamp": 1377574344,
+        "speech_type": 0,
+        "muted": 0
+      },
+      {
+        "entered_us": 3788998930748,
+        "exited_us": 3788998930898,
+        "before_ms": 213,
+        "after_ms": 193,
+        "target_ms": 140,
+        "skipped": 1,
+        "fallback": 0,
+        "frame_headroom_ms": 60,
+        "target_ceiling_ms": 140,
+        "rtp_timestamp": 1377594433,
+        "speech_type": 0,
+        "muted": 0
+      },
+      {
+        "entered_us": 3788999170711,
+        "exited_us": 3788999172401,
+        "before_ms": 241,
+        "after_ms": 191,
+        "target_ms": 140,
+        "skipped": 4,
+        "fallback": 0,
+        "frame_headroom_ms": 60,
+        "target_ceiling_ms": 140,
+        "rtp_timestamp": 1377606092,
+        "speech_type": 0,
+        "muted": 0
+      },
+      {
+        "entered_us": 3788999230081,
+        "exited_us": 3788999230203,
+        "before_ms": 211,
+        "after_ms": 191,
+        "target_ms": 140,
+        "skipped": 1,
+        "fallback": 0,
+        "frame_headroom_ms": 60,
+        "target_ceiling_ms": 140,
+        "rtp_timestamp": 1377608972,
+        "speech_type": 0,
+        "muted": 0
+      }
+    ]
+  }
+}
