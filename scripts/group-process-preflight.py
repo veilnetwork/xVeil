@@ -25,6 +25,18 @@ from native_pcm_driver import NativePcmDriver, build as build_clock
 from group_process_files import ProcessFileLoad
 
 
+def qualifies_full_contention(result):
+    """Require a completed capture, including post-measurement proofs."""
+    return bool(result.get('ok') is True and
+                not result.get('failure_saved_privately') and
+                result.get('duration_seconds', 0) >= 360 and
+                result.get('load_kind') == 'both' and
+                result.get('video_file_load') is True and
+                result.get('end_topology', {}).get('verified') is True and
+                len(result.get('files', [])) == 3 and
+                len(result.get('video_paths', [])) == 6)
+
+
 def worker(pipe, sdk_path, media_path, root, clock, participant,
            full_load=False, load_kind='both', playout_trace=False):
     os.umask(0o077)
@@ -592,6 +604,7 @@ def main():
                 for i, worker in enumerate(result['workers']) if 'file_snapshot' in worker]
             result['video_paths'] = [path for worker in result['workers'] for path in worker.get('video_paths', [])]
     except Exception:
+        result['ok'] = False
         (root / 'failure.txt').write_text(traceback.format_exc())
         result['failure_saved_privately'] = True
     finally:
@@ -625,7 +638,7 @@ def main():
         if fixture.shaper:
             result['ok'] &= fixture.shaper.failure is None
         if args.full_load:
-            result['contention_qualification'] = bool(result['ok'] and args.duration >= 360 and args.load_kind == 'both')
+            result['contention_qualification'] = qualifies_full_contention(result)
         (root / 'summary.json').write_text(json.dumps(result, indent=2) + '\n')
         print(json.dumps({'ok': result['ok'], 'directory': str(root)}))
     return 0 if result['ok'] else 1
