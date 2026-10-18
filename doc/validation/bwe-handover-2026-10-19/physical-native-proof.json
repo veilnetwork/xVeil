@@ -1,0 +1,54 @@
+{
+  "mac": {
+    "shim_starts": 1,
+    "encoder_ssrcs": [
+      "571357242"
+    ],
+    "encoder_packets": 8032,
+    "rtp_timestamps_strictly_advance": true,
+    "video_cc_samples": 1840,
+    "video_cc_route_counts": [
+      0,
+      1
+    ],
+    "video_cc_begins": [
+      {
+        "id": "1",
+        "rows": "1840",
+        "seen": "1840"
+      }
+    ],
+    "video_cc_ends": [
+      {
+        "id": "1",
+        "write_ok": "1"
+      }
+    ]
+  },
+  "phone": {
+    "shim_starts": 1,
+    "encoder_ssrcs": [
+      "1814344980"
+    ],
+    "encoder_packets": 5928,
+    "rtp_timestamps_strictly_advance": true,
+    "video_cc_samples": 1850,
+    "video_cc_route_counts": [
+      0,
+      1
+    ],
+    "video_cc_begins": [
+      {
+        "id": "1",
+        "rows": "1850",
+        "seen": "1850"
+      }
+    ],
+    "video_cc_ends": [
+      {
+        "id": "1",
+        "write_ok": "1"
+      }
+    ]
+  }
+}
