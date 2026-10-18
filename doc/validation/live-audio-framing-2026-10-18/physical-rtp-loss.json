@@ -1,0 +1,1137 @@
+{
+  "mac->phone": {
+    "rtp_clock_offset": 3493411346,
+    "encoded_packets": 9718,
+    "all_encoder_records_match_exactly_one_transmission": true,
+    "classification_validated_against_every_received_payload_length": true,
+    "whole": {
+      "counts": {
+        "payload/received": 9684,
+        "padding/received": 511,
+        "payload/missing": 34,
+        "padding/missing": 5
+      },
+      "missing_payloads": [
+        {
+          "seq": 5092,
+          "timestamp": 3497949266,
+          "relative_send_seconds": 94.5805,
+          "packet_bytes": 236,
+          "encoded_blocks": 6
+        },
+        {
+          "seq": 5516,
+          "timestamp": 3498806546,
+          "relative_send_seconds": 112.4202,
+          "packet_bytes": 163,
+          "encoded_blocks": 4
+        },
+        {
+          "seq": 5525,
+          "timestamp": 3498823826,
+          "relative_send_seconds": 112.783,
+          "packet_bytes": 165,
+          "encoded_blocks": 4
+        },
+        {
+          "seq": 6178,
+          "timestamp": 3499560146,
+          "relative_send_seconds": 128.1,
+          "packet_bytes": 81,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 6542,
+          "timestamp": 3500236946,
+          "relative_send_seconds": 142.2387,
+          "packet_bytes": 199,
+          "encoded_blocks": 6
+        },
+        {
+          "seq": 6805,
+          "timestamp": 3500600786,
+          "relative_send_seconds": 149.78,
+          "packet_bytes": 81,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 6988,
+          "timestamp": 3500774546,
+          "relative_send_seconds": 153.4012,
+          "packet_bytes": 87,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 7210,
+          "timestamp": 3500985746,
+          "relative_send_seconds": 157.8012,
+          "packet_bytes": 85,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 7214,
+          "timestamp": 3500989586,
+          "relative_send_seconds": 157.8812,
+          "packet_bytes": 92,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 7215,
+          "timestamp": 3500990546,
+          "relative_send_seconds": 157.9025,
+          "packet_bytes": 89,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 7469,
+          "timestamp": 3501228626,
+          "relative_send_seconds": 162.8625,
+          "packet_bytes": 78,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 7831,
+          "timestamp": 3501645266,
+          "relative_send_seconds": 171.5398,
+          "packet_bytes": 73,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 8162,
+          "timestamp": 3501959186,
+          "relative_send_seconds": 178.0785,
+          "packet_bytes": 89,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 8404,
+          "timestamp": 3502189586,
+          "relative_send_seconds": 182.8785,
+          "packet_bytes": 92,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 8465,
+          "timestamp": 3502248146,
+          "relative_send_seconds": 184.0997,
+          "packet_bytes": 91,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 8520,
+          "timestamp": 3502300946,
+          "relative_send_seconds": 185.1983,
+          "packet_bytes": 89,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 8857,
+          "timestamp": 3502621586,
+          "relative_send_seconds": 191.8811,
+          "packet_bytes": 81,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 8863,
+          "timestamp": 3502627346,
+          "relative_send_seconds": 191.9984,
+          "packet_bytes": 92,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9014,
+          "timestamp": 3502772306,
+          "relative_send_seconds": 195.0224,
+          "packet_bytes": 80,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9363,
+          "timestamp": 3503125586,
+          "relative_send_seconds": 202.3822,
+          "packet_bytes": 95,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9401,
+          "timestamp": 3503162066,
+          "relative_send_seconds": 203.1396,
+          "packet_bytes": 95,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9428,
+          "timestamp": 3503187986,
+          "relative_send_seconds": 203.6782,
+          "packet_bytes": 92,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9432,
+          "timestamp": 3503191826,
+          "relative_send_seconds": 203.7583,
+          "packet_bytes": 84,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9610,
+          "timestamp": 3503361746,
+          "relative_send_seconds": 207.2997,
+          "packet_bytes": 88,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9673,
+          "timestamp": 3503416466,
+          "relative_send_seconds": 208.4409,
+          "packet_bytes": 86,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9680,
+          "timestamp": 3503421266,
+          "relative_send_seconds": 208.5422,
+          "packet_bytes": 89,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9700,
+          "timestamp": 3503436626,
+          "relative_send_seconds": 208.8624,
+          "packet_bytes": 89,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9905,
+          "timestamp": 3503734226,
+          "relative_send_seconds": 215.0596,
+          "packet_bytes": 89,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9932,
+          "timestamp": 3503754386,
+          "relative_send_seconds": 215.481,
+          "packet_bytes": 91,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 10058,
+          "timestamp": 3503878226,
+          "relative_send_seconds": 218.0783,
+          "packet_bytes": 146,
+          "encoded_blocks": 4
+        },
+        {
+          "seq": 10643,
+          "timestamp": 3504469586,
+          "relative_send_seconds": 230.3823,
+          "packet_bytes": 77,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 10644,
+          "timestamp": 3504470546,
+          "relative_send_seconds": 230.3982,
+          "packet_bytes": 88,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 10685,
+          "timestamp": 3504509906,
+          "relative_send_seconds": 231.2194,
+          "packet_bytes": 92,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 10831,
+          "timestamp": 3504666386,
+          "relative_send_seconds": 234.4995,
+          "packet_bytes": 179,
+          "encoded_blocks": 4
+        }
+      ],
+      "all_locally_accepted": true
+    },
+    "interior_1s_to_last_minus_1s": {
+      "counts": {
+        "payload/received": 9614,
+        "padding/received": 508,
+        "payload/missing": 34,
+        "padding/missing": 5
+      },
+      "missing_payloads": [
+        {
+          "seq": 5092,
+          "timestamp": 3497949266,
+          "relative_send_seconds": 94.5805,
+          "packet_bytes": 236,
+          "encoded_blocks": 6
+        },
+        {
+          "seq": 5516,
+          "timestamp": 3498806546,
+          "relative_send_seconds": 112.4202,
+          "packet_bytes": 163,
+          "encoded_blocks": 4
+        },
+        {
+          "seq": 5525,
+          "timestamp": 3498823826,
+          "relative_send_seconds": 112.783,
+          "packet_bytes": 165,
+          "encoded_blocks": 4
+        },
+        {
+          "seq": 6178,
+          "timestamp": 3499560146,
+          "relative_send_seconds": 128.1,
+          "packet_bytes": 81,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 6542,
+          "timestamp": 3500236946,
+          "relative_send_seconds": 142.2387,
+          "packet_bytes": 199,
+          "encoded_blocks": 6
+        },
+        {
+          "seq": 6805,
+          "timestamp": 3500600786,
+          "relative_send_seconds": 149.78,
+          "packet_bytes": 81,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 6988,
+          "timestamp": 3500774546,
+          "relative_send_seconds": 153.4012,
+          "packet_bytes": 87,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 7210,
+          "timestamp": 3500985746,
+          "relative_send_seconds": 157.8012,
+          "packet_bytes": 85,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 7214,
+          "timestamp": 3500989586,
+          "relative_send_seconds": 157.8812,
+          "packet_bytes": 92,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 7215,
+          "timestamp": 3500990546,
+          "relative_send_seconds": 157.9025,
+          "packet_bytes": 89,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 7469,
+          "timestamp": 3501228626,
+          "relative_send_seconds": 162.8625,
+          "packet_bytes": 78,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 7831,
+          "timestamp": 3501645266,
+          "relative_send_seconds": 171.5398,
+          "packet_bytes": 73,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 8162,
+          "timestamp": 3501959186,
+          "relative_send_seconds": 178.0785,
+          "packet_bytes": 89,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 8404,
+          "timestamp": 3502189586,
+          "relative_send_seconds": 182.8785,
+          "packet_bytes": 92,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 8465,
+          "timestamp": 3502248146,
+          "relative_send_seconds": 184.0997,
+          "packet_bytes": 91,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 8520,
+          "timestamp": 3502300946,
+          "relative_send_seconds": 185.1983,
+          "packet_bytes": 89,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 8857,
+          "timestamp": 3502621586,
+          "relative_send_seconds": 191.8811,
+          "packet_bytes": 81,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 8863,
+          "timestamp": 3502627346,
+          "relative_send_seconds": 191.9984,
+          "packet_bytes": 92,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9014,
+          "timestamp": 3502772306,
+          "relative_send_seconds": 195.0224,
+          "packet_bytes": 80,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9363,
+          "timestamp": 3503125586,
+          "relative_send_seconds": 202.3822,
+          "packet_bytes": 95,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9401,
+          "timestamp": 3503162066,
+          "relative_send_seconds": 203.1396,
+          "packet_bytes": 95,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9428,
+          "timestamp": 3503187986,
+          "relative_send_seconds": 203.6782,
+          "packet_bytes": 92,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9432,
+          "timestamp": 3503191826,
+          "relative_send_seconds": 203.7583,
+          "packet_bytes": 84,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9610,
+          "timestamp": 3503361746,
+          "relative_send_seconds": 207.2997,
+          "packet_bytes": 88,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9673,
+          "timestamp": 3503416466,
+          "relative_send_seconds": 208.4409,
+          "packet_bytes": 86,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9680,
+          "timestamp": 3503421266,
+          "relative_send_seconds": 208.5422,
+          "packet_bytes": 89,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9700,
+          "timestamp": 3503436626,
+          "relative_send_seconds": 208.8624,
+          "packet_bytes": 89,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9905,
+          "timestamp": 3503734226,
+          "relative_send_seconds": 215.0596,
+          "packet_bytes": 89,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9932,
+          "timestamp": 3503754386,
+          "relative_send_seconds": 215.481,
+          "packet_bytes": 91,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 10058,
+          "timestamp": 3503878226,
+          "relative_send_seconds": 218.0783,
+          "packet_bytes": 146,
+          "encoded_blocks": 4
+        },
+        {
+          "seq": 10643,
+          "timestamp": 3504469586,
+          "relative_send_seconds": 230.3823,
+          "packet_bytes": 77,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 10644,
+          "timestamp": 3504470546,
+          "relative_send_seconds": 230.3982,
+          "packet_bytes": 88,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 10685,
+          "timestamp": 3504509906,
+          "relative_send_seconds": 231.2194,
+          "packet_bytes": 92,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 10831,
+          "timestamp": 3504666386,
+          "relative_send_seconds": 234.4995,
+          "packet_bytes": 179,
+          "encoded_blocks": 4
+        }
+      ],
+      "all_locally_accepted": true
+    },
+    "tail_180_to_237s": {
+      "counts": {
+        "payload/received": 2411,
+        "padding/received": 205,
+        "payload/missing": 21,
+        "padding/missing": 2
+      },
+      "missing_payloads": [
+        {
+          "seq": 8404,
+          "timestamp": 3502189586,
+          "relative_send_seconds": 182.8785,
+          "packet_bytes": 92,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 8465,
+          "timestamp": 3502248146,
+          "relative_send_seconds": 184.0997,
+          "packet_bytes": 91,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 8520,
+          "timestamp": 3502300946,
+          "relative_send_seconds": 185.1983,
+          "packet_bytes": 89,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 8857,
+          "timestamp": 3502621586,
+          "relative_send_seconds": 191.8811,
+          "packet_bytes": 81,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 8863,
+          "timestamp": 3502627346,
+          "relative_send_seconds": 191.9984,
+          "packet_bytes": 92,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9014,
+          "timestamp": 3502772306,
+          "relative_send_seconds": 195.0224,
+          "packet_bytes": 80,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9363,
+          "timestamp": 3503125586,
+          "relative_send_seconds": 202.3822,
+          "packet_bytes": 95,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9401,
+          "timestamp": 3503162066,
+          "relative_send_seconds": 203.1396,
+          "packet_bytes": 95,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9428,
+          "timestamp": 3503187986,
+          "relative_send_seconds": 203.6782,
+          "packet_bytes": 92,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9432,
+          "timestamp": 3503191826,
+          "relative_send_seconds": 203.7583,
+          "packet_bytes": 84,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9610,
+          "timestamp": 3503361746,
+          "relative_send_seconds": 207.2997,
+          "packet_bytes": 88,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9673,
+          "timestamp": 3503416466,
+          "relative_send_seconds": 208.4409,
+          "packet_bytes": 86,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9680,
+          "timestamp": 3503421266,
+          "relative_send_seconds": 208.5422,
+          "packet_bytes": 89,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9700,
+          "timestamp": 3503436626,
+          "relative_send_seconds": 208.8624,
+          "packet_bytes": 89,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9905,
+          "timestamp": 3503734226,
+          "relative_send_seconds": 215.0596,
+          "packet_bytes": 89,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 9932,
+          "timestamp": 3503754386,
+          "relative_send_seconds": 215.481,
+          "packet_bytes": 91,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 10058,
+          "timestamp": 3503878226,
+          "relative_send_seconds": 218.0783,
+          "packet_bytes": 146,
+          "encoded_blocks": 4
+        },
+        {
+          "seq": 10643,
+          "timestamp": 3504469586,
+          "relative_send_seconds": 230.3823,
+          "packet_bytes": 77,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 10644,
+          "timestamp": 3504470546,
+          "relative_send_seconds": 230.3982,
+          "packet_bytes": 88,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 10685,
+          "timestamp": 3504509906,
+          "relative_send_seconds": 231.2194,
+          "packet_bytes": 92,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 10831,
+          "timestamp": 3504666386,
+          "relative_send_seconds": 234.4995,
+          "packet_bytes": 179,
+          "encoded_blocks": 4
+        }
+      ],
+      "all_locally_accepted": true
+    }
+  },
+  "phone->mac": {
+    "rtp_clock_offset": 3878144525,
+    "encoded_packets": 7630,
+    "all_encoder_records_match_exactly_one_transmission": true,
+    "classification_validated_against_every_received_payload_length": true,
+    "whole": {
+      "counts": {
+        "payload/received": 7601,
+        "padding/received": 537,
+        "payload/missing": 29,
+        "padding/missing": 4
+      },
+      "missing_payloads": [
+        {
+          "seq": 23596,
+          "timestamp": 3882837005,
+          "relative_send_seconds": 97.9107,
+          "packet_bytes": 146,
+          "encoded_blocks": 4
+        },
+        {
+          "seq": 23610,
+          "timestamp": 3882879245,
+          "relative_send_seconds": 98.7912,
+          "packet_bytes": 141,
+          "encoded_blocks": 4
+        },
+        {
+          "seq": 24025,
+          "timestamp": 3883439885,
+          "relative_send_seconds": 110.4482,
+          "packet_bytes": 67,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 24066,
+          "timestamp": 3883485005,
+          "relative_send_seconds": 111.3886,
+          "packet_bytes": 70,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 24297,
+          "timestamp": 3883857485,
+          "relative_send_seconds": 119.1703,
+          "packet_bytes": 139,
+          "encoded_blocks": 4
+        },
+        {
+          "seq": 24609,
+          "timestamp": 3884273165,
+          "relative_send_seconds": 127.8088,
+          "packet_bytes": 79,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 24759,
+          "timestamp": 3884438285,
+          "relative_send_seconds": 131.2487,
+          "packet_bytes": 77,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 24837,
+          "timestamp": 3884518925,
+          "relative_send_seconds": 132.9295,
+          "packet_bytes": 82,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 25021,
+          "timestamp": 3884720525,
+          "relative_send_seconds": 137.1296,
+          "packet_bytes": 70,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 25086,
+          "timestamp": 3884782925,
+          "relative_send_seconds": 138.4272,
+          "packet_bytes": 76,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 25247,
+          "timestamp": 3885060365,
+          "relative_send_seconds": 144.2099,
+          "packet_bytes": 84,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 25316,
+          "timestamp": 3885135245,
+          "relative_send_seconds": 145.7688,
+          "packet_bytes": 67,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 25734,
+          "timestamp": 3885708365,
+          "relative_send_seconds": 157.7254,
+          "packet_bytes": 135,
+          "encoded_blocks": 4
+        },
+        {
+          "seq": 26762,
+          "timestamp": 3887614925,
+          "relative_send_seconds": 197.4287,
+          "packet_bytes": 93,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 26850,
+          "timestamp": 3887730125,
+          "relative_send_seconds": 199.8284,
+          "packet_bytes": 75,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 26936,
+          "timestamp": 3887815565,
+          "relative_send_seconds": 201.6086,
+          "packet_bytes": 69,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 27018,
+          "timestamp": 3887883725,
+          "relative_send_seconds": 203.0292,
+          "packet_bytes": 81,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 27043,
+          "timestamp": 3887901965,
+          "relative_send_seconds": 203.4099,
+          "packet_bytes": 69,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 27125,
+          "timestamp": 3887973005,
+          "relative_send_seconds": 204.8897,
+          "packet_bytes": 76,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 27239,
+          "timestamp": 3888093005,
+          "relative_send_seconds": 207.4127,
+          "packet_bytes": 135,
+          "encoded_blocks": 4
+        },
+        {
+          "seq": 27511,
+          "timestamp": 3888616205,
+          "relative_send_seconds": 218.3117,
+          "packet_bytes": 140,
+          "encoded_blocks": 4
+        },
+        {
+          "seq": 27757,
+          "timestamp": 3889109645,
+          "relative_send_seconds": 228.591,
+          "packet_bytes": 158,
+          "encoded_blocks": 4
+        },
+        {
+          "seq": 28056,
+          "timestamp": 3889442765,
+          "relative_send_seconds": 235.5099,
+          "packet_bytes": 77,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 28297,
+          "timestamp": 3889711565,
+          "relative_send_seconds": 241.112,
+          "packet_bytes": 77,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 28298,
+          "timestamp": 3889712525,
+          "relative_send_seconds": 241.1283,
+          "packet_bytes": 78,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 28299,
+          "timestamp": 3889713485,
+          "relative_send_seconds": 241.1484,
+          "packet_bytes": 78,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 28300,
+          "timestamp": 3889714445,
+          "relative_send_seconds": 241.169,
+          "packet_bytes": 83,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 28301,
+          "timestamp": 3889715405,
+          "relative_send_seconds": 241.1892,
+          "packet_bytes": 78,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 28302,
+          "timestamp": 3889716365,
+          "relative_send_seconds": 241.2083,
+          "packet_bytes": 21,
+          "encoded_blocks": 2
+        }
+      ],
+      "all_locally_accepted": true
+    },
+    "interior_1s_to_last_minus_1s": {
+      "counts": {
+        "payload/received": 7507,
+        "padding/received": 534,
+        "payload/missing": 23,
+        "padding/missing": 4
+      },
+      "missing_payloads": [
+        {
+          "seq": 23596,
+          "timestamp": 3882837005,
+          "relative_send_seconds": 97.9107,
+          "packet_bytes": 146,
+          "encoded_blocks": 4
+        },
+        {
+          "seq": 23610,
+          "timestamp": 3882879245,
+          "relative_send_seconds": 98.7912,
+          "packet_bytes": 141,
+          "encoded_blocks": 4
+        },
+        {
+          "seq": 24025,
+          "timestamp": 3883439885,
+          "relative_send_seconds": 110.4482,
+          "packet_bytes": 67,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 24066,
+          "timestamp": 3883485005,
+          "relative_send_seconds": 111.3886,
+          "packet_bytes": 70,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 24297,
+          "timestamp": 3883857485,
+          "relative_send_seconds": 119.1703,
+          "packet_bytes": 139,
+          "encoded_blocks": 4
+        },
+        {
+          "seq": 24609,
+          "timestamp": 3884273165,
+          "relative_send_seconds": 127.8088,
+          "packet_bytes": 79,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 24759,
+          "timestamp": 3884438285,
+          "relative_send_seconds": 131.2487,
+          "packet_bytes": 77,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 24837,
+          "timestamp": 3884518925,
+          "relative_send_seconds": 132.9295,
+          "packet_bytes": 82,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 25021,
+          "timestamp": 3884720525,
+          "relative_send_seconds": 137.1296,
+          "packet_bytes": 70,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 25086,
+          "timestamp": 3884782925,
+          "relative_send_seconds": 138.4272,
+          "packet_bytes": 76,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 25247,
+          "timestamp": 3885060365,
+          "relative_send_seconds": 144.2099,
+          "packet_bytes": 84,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 25316,
+          "timestamp": 3885135245,
+          "relative_send_seconds": 145.7688,
+          "packet_bytes": 67,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 25734,
+          "timestamp": 3885708365,
+          "relative_send_seconds": 157.7254,
+          "packet_bytes": 135,
+          "encoded_blocks": 4
+        },
+        {
+          "seq": 26762,
+          "timestamp": 3887614925,
+          "relative_send_seconds": 197.4287,
+          "packet_bytes": 93,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 26850,
+          "timestamp": 3887730125,
+          "relative_send_seconds": 199.8284,
+          "packet_bytes": 75,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 26936,
+          "timestamp": 3887815565,
+          "relative_send_seconds": 201.6086,
+          "packet_bytes": 69,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 27018,
+          "timestamp": 3887883725,
+          "relative_send_seconds": 203.0292,
+          "packet_bytes": 81,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 27043,
+          "timestamp": 3887901965,
+          "relative_send_seconds": 203.4099,
+          "packet_bytes": 69,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 27125,
+          "timestamp": 3887973005,
+          "relative_send_seconds": 204.8897,
+          "packet_bytes": 76,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 27239,
+          "timestamp": 3888093005,
+          "relative_send_seconds": 207.4127,
+          "packet_bytes": 135,
+          "encoded_blocks": 4
+        },
+        {
+          "seq": 27511,
+          "timestamp": 3888616205,
+          "relative_send_seconds": 218.3117,
+          "packet_bytes": 140,
+          "encoded_blocks": 4
+        },
+        {
+          "seq": 27757,
+          "timestamp": 3889109645,
+          "relative_send_seconds": 228.591,
+          "packet_bytes": 158,
+          "encoded_blocks": 4
+        },
+        {
+          "seq": 28056,
+          "timestamp": 3889442765,
+          "relative_send_seconds": 235.5099,
+          "packet_bytes": 77,
+          "encoded_blocks": 2
+        }
+      ],
+      "all_locally_accepted": true
+    },
+    "tail_180_to_237s": {
+      "counts": {
+        "payload/received": 1510,
+        "padding/received": 188,
+        "payload/missing": 10,
+        "padding/missing": 1
+      },
+      "missing_payloads": [
+        {
+          "seq": 26762,
+          "timestamp": 3887614925,
+          "relative_send_seconds": 197.4287,
+          "packet_bytes": 93,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 26850,
+          "timestamp": 3887730125,
+          "relative_send_seconds": 199.8284,
+          "packet_bytes": 75,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 26936,
+          "timestamp": 3887815565,
+          "relative_send_seconds": 201.6086,
+          "packet_bytes": 69,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 27018,
+          "timestamp": 3887883725,
+          "relative_send_seconds": 203.0292,
+          "packet_bytes": 81,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 27043,
+          "timestamp": 3887901965,
+          "relative_send_seconds": 203.4099,
+          "packet_bytes": 69,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 27125,
+          "timestamp": 3887973005,
+          "relative_send_seconds": 204.8897,
+          "packet_bytes": 76,
+          "encoded_blocks": 2
+        },
+        {
+          "seq": 27239,
+          "timestamp": 3888093005,
+          "relative_send_seconds": 207.4127,
+          "packet_bytes": 135,
+          "encoded_blocks": 4
+        },
+        {
+          "seq": 27511,
+          "timestamp": 3888616205,
+          "relative_send_seconds": 218.3117,
+          "packet_bytes": 140,
+          "encoded_blocks": 4
+        },
+        {
+          "seq": 27757,
+          "timestamp": 3889109645,
+          "relative_send_seconds": 228.591,
+          "packet_bytes": 158,
+          "encoded_blocks": 4
+        },
+        {
+          "seq": 28056,
+          "timestamp": 3889442765,
+          "relative_send_seconds": 235.5099,
+          "packet_bytes": 77,
+          "encoded_blocks": 2
+        }
+      ],
+      "all_locally_accepted": true
+    }
+  }
+}

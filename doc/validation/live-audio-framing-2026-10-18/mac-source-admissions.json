@@ -1,0 +1,496 @@
+[
+  {
+    "rtp_sequence": 5092,
+    "rtp_timestamp": 3497949266,
+    "rtp_bytes": 236,
+    "source_admissions": [
+      {
+        "connection_trace_id": 102,
+        "estimated_wire_bytes": 552
+      },
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 552
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 5516,
+    "rtp_timestamp": 3498806546,
+    "rtp_bytes": 163,
+    "source_admissions": [
+      {
+        "connection_trace_id": 102,
+        "estimated_wire_bytes": 479
+      },
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 479
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 5525,
+    "rtp_timestamp": 3498823826,
+    "rtp_bytes": 165,
+    "source_admissions": [
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 481
+      },
+      {
+        "connection_trace_id": 102,
+        "estimated_wire_bytes": 481
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 6178,
+    "rtp_timestamp": 3499560146,
+    "rtp_bytes": 81,
+    "source_admissions": [
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 397
+      },
+      {
+        "connection_trace_id": 102,
+        "estimated_wire_bytes": 397
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 6542,
+    "rtp_timestamp": 3500236946,
+    "rtp_bytes": 199,
+    "source_admissions": [
+      {
+        "connection_trace_id": 102,
+        "estimated_wire_bytes": 515
+      },
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 515
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 6805,
+    "rtp_timestamp": 3500600786,
+    "rtp_bytes": 81,
+    "source_admissions": [
+      {
+        "connection_trace_id": 102,
+        "estimated_wire_bytes": 397
+      },
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 397
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 6988,
+    "rtp_timestamp": 3500774546,
+    "rtp_bytes": 87,
+    "source_admissions": [
+      {
+        "connection_trace_id": 102,
+        "estimated_wire_bytes": 403
+      },
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 403
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 7210,
+    "rtp_timestamp": 3500985746,
+    "rtp_bytes": 85,
+    "source_admissions": [
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 401
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 7214,
+    "rtp_timestamp": 3500989586,
+    "rtp_bytes": 92,
+    "source_admissions": [
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 408
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 7215,
+    "rtp_timestamp": 3500990546,
+    "rtp_bytes": 89,
+    "source_admissions": [
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 405
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 7469,
+    "rtp_timestamp": 3501228626,
+    "rtp_bytes": 78,
+    "source_admissions": [
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 394
+      },
+      {
+        "connection_trace_id": 128,
+        "estimated_wire_bytes": 394
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 7831,
+    "rtp_timestamp": 3501645266,
+    "rtp_bytes": 73,
+    "source_admissions": [
+      {
+        "connection_trace_id": 128,
+        "estimated_wire_bytes": 389
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 8162,
+    "rtp_timestamp": 3501959186,
+    "rtp_bytes": 89,
+    "source_admissions": [
+      {
+        "connection_trace_id": 128,
+        "estimated_wire_bytes": 405
+      },
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 405
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 8404,
+    "rtp_timestamp": 3502189586,
+    "rtp_bytes": 92,
+    "source_admissions": [
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 408
+      },
+      {
+        "connection_trace_id": 128,
+        "estimated_wire_bytes": 408
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 8465,
+    "rtp_timestamp": 3502248146,
+    "rtp_bytes": 91,
+    "source_admissions": [
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 407
+      },
+      {
+        "connection_trace_id": 128,
+        "estimated_wire_bytes": 407
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 8520,
+    "rtp_timestamp": 3502300946,
+    "rtp_bytes": 89,
+    "source_admissions": [
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 405
+      },
+      {
+        "connection_trace_id": 128,
+        "estimated_wire_bytes": 405
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 8857,
+    "rtp_timestamp": 3502621586,
+    "rtp_bytes": 81,
+    "source_admissions": [
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 397
+      },
+      {
+        "connection_trace_id": 128,
+        "estimated_wire_bytes": 397
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 8863,
+    "rtp_timestamp": 3502627346,
+    "rtp_bytes": 92,
+    "source_admissions": [
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 408
+      },
+      {
+        "connection_trace_id": 128,
+        "estimated_wire_bytes": 408
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 9014,
+    "rtp_timestamp": 3502772306,
+    "rtp_bytes": 80,
+    "source_admissions": [
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 396
+      },
+      {
+        "connection_trace_id": 128,
+        "estimated_wire_bytes": 396
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 9363,
+    "rtp_timestamp": 3503125586,
+    "rtp_bytes": 95,
+    "source_admissions": [
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 411
+      },
+      {
+        "connection_trace_id": 128,
+        "estimated_wire_bytes": 411
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 9401,
+    "rtp_timestamp": 3503162066,
+    "rtp_bytes": 95,
+    "source_admissions": [
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 411
+      },
+      {
+        "connection_trace_id": 128,
+        "estimated_wire_bytes": 411
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 9428,
+    "rtp_timestamp": 3503187986,
+    "rtp_bytes": 92,
+    "source_admissions": [
+      {
+        "connection_trace_id": 128,
+        "estimated_wire_bytes": 408
+      },
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 408
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 9432,
+    "rtp_timestamp": 3503191826,
+    "rtp_bytes": 84,
+    "source_admissions": [
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 400
+      },
+      {
+        "connection_trace_id": 128,
+        "estimated_wire_bytes": 400
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 9610,
+    "rtp_timestamp": 3503361746,
+    "rtp_bytes": 88,
+    "source_admissions": [
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 404
+      },
+      {
+        "connection_trace_id": 128,
+        "estimated_wire_bytes": 404
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 9673,
+    "rtp_timestamp": 3503416466,
+    "rtp_bytes": 86,
+    "source_admissions": [
+      {
+        "connection_trace_id": 128,
+        "estimated_wire_bytes": 402
+      },
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 402
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 9680,
+    "rtp_timestamp": 3503421266,
+    "rtp_bytes": 89,
+    "source_admissions": [
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 405
+      },
+      {
+        "connection_trace_id": 128,
+        "estimated_wire_bytes": 405
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 9700,
+    "rtp_timestamp": 3503436626,
+    "rtp_bytes": 89,
+    "source_admissions": [
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 405
+      },
+      {
+        "connection_trace_id": 128,
+        "estimated_wire_bytes": 405
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 9905,
+    "rtp_timestamp": 3503734226,
+    "rtp_bytes": 89,
+    "source_admissions": [
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 405
+      },
+      {
+        "connection_trace_id": 128,
+        "estimated_wire_bytes": 405
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 9932,
+    "rtp_timestamp": 3503754386,
+    "rtp_bytes": 91,
+    "source_admissions": [
+      {
+        "connection_trace_id": 128,
+        "estimated_wire_bytes": 407
+      },
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 407
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 10058,
+    "rtp_timestamp": 3503878226,
+    "rtp_bytes": 146,
+    "source_admissions": [
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 462
+      },
+      {
+        "connection_trace_id": 128,
+        "estimated_wire_bytes": 462
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 10643,
+    "rtp_timestamp": 3504469586,
+    "rtp_bytes": 77,
+    "source_admissions": [
+      {
+        "connection_trace_id": 128,
+        "estimated_wire_bytes": 393
+      },
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 393
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 10644,
+    "rtp_timestamp": 3504470546,
+    "rtp_bytes": 88,
+    "source_admissions": [
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 404
+      },
+      {
+        "connection_trace_id": 128,
+        "estimated_wire_bytes": 404
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 10685,
+    "rtp_timestamp": 3504509906,
+    "rtp_bytes": 92,
+    "source_admissions": [
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 408
+      },
+      {
+        "connection_trace_id": 128,
+        "estimated_wire_bytes": 408
+      }
+    ]
+  },
+  {
+    "rtp_sequence": 10831,
+    "rtp_timestamp": 3504666386,
+    "rtp_bytes": 179,
+    "source_admissions": [
+      {
+        "connection_trace_id": 103,
+        "estimated_wire_bytes": 495
+      },
+      {
+        "connection_trace_id": 128,
+        "estimated_wire_bytes": 495
+      }
+    ]
+  }
+]

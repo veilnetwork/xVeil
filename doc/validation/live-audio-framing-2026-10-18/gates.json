@@ -1,0 +1,44 @@
+[
+  {
+    "label": "compile-new",
+    "pid": 78766,
+    "exit_code": 0,
+    "expected_exit": 0,
+    "seconds": 0.699
+  },
+  {
+    "label": "compile-before",
+    "pid": 78952,
+    "exit_code": 0,
+    "expected_exit": 0,
+    "seconds": 0.518
+  },
+  {
+    "label": "compile-planes",
+    "pid": 79073,
+    "exit_code": 0,
+    "expected_exit": 0,
+    "seconds": 0.512
+  },
+  {
+    "label": "before-fix",
+    "pid": 79206,
+    "exit_code": -6,
+    "expected_exit": -6,
+    "seconds": 12.678
+  },
+  {
+    "label": "live-framing-final",
+    "pid": 82368,
+    "exit_code": 0,
+    "expected_exit": 0,
+    "seconds": 36.702
+  },
+  {
+    "label": "independent-controller-framing",
+    "pid": 91512,
+    "exit_code": 0,
+    "expected_exit": 0,
+    "seconds": 0.285
+  }
+]

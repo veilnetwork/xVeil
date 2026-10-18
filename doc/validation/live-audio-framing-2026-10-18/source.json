@@ -1,0 +1,14 @@
+{
+  "sdk_base": "039dd32b989218f4aa82c2623b6e625d7f90ed80",
+  "own_source_sha256": {
+    "flutter/veil_media/src/veil_media_engine.cc": "add99635885ed20332bd84e138ab335e8abc6eab764b6d31f7c1ed2735955d84",
+    "flutter/veil_media/src/veil_media_engine.h": "6664364492621e70a800773a4e3905db11eac1e044d6174697cd6fae81ee429c",
+    "flutter/veil_media/lib/veil_media.dart": "efa595e673c047a33ef11a3ae036e5860547d033880ffade37a987d6eb0b6e02",
+    "flutter/veil_media/test/audio_playout_smoke.cc": "90e87f19acd5c1e3f1d7a3b5ceeeba1aa32eb55004cd3afba4d15ab1559bc78f",
+    "flutter/veil_media/test/call_plane_hooks.inc": "1ac54e655b563593116fafcf9314ebce39104de28eb9853a4f7da44ece0d8fe9",
+    "flutter/veil_media/test/bounded_audio_encoder_smoke.cc": "82fcd6e87df61362a198d07f6bb90ef563a80d94cf5ec8504a78433b5c797e5f",
+    "flutter/veil_media/test/run_audio_playout_smoke.sh": "a519221ffe91f81492f3846250b60fb25a36983a1263809d9fe3d57a32ed4e49"
+  },
+  "patch_sha256": "f491045f19d6799cad815074faec71690a2ec2b5a7f48eebd18794331157cdc1",
+  "foreign_wip_excluded": true
+}

@@ -1,5 +1,74 @@
 # Calls media handoff
 
+## 2026-10-18: exact RTP loss join and live audio framing updates
+
+The previous physical packet-budget capture now has a complete encoder → RTP
+send → RTP ingress join. Trace row counts match their begin counters and remain
+below capacity; timestamps/sequence pairs are unique, every encoded packet has
+one sender record, and every received payload length matches. Excluding one
+second at either capture boundary, **34 Mac → phone and 23 phone → Mac audio
+payloads are missing**. Padding is classified separately. All these payload
+losses occur after the relay transition; none occur in the earlier P2P portion.
+The longest consecutive missing encoded spans are **60/40 ms**, not measured
+playout pauses: FEC/PLC can recover or conceal them. Do not call the cumulative
+840/600 ms of missing encoded audio a peak pause.
+
+All 34 missing Mac payloads independently rejoin to sealed cells and at least
+one source `datagram_accepted` record in the original runtime log. **Thirty
+have two admissions; four have one**, across connection IDs 102/103/128 as
+sessions change. These are source admissions, not remote delivery, and do not
+identify the downstream dropping hop. Every admission has the ordinary-stream
+wire estimate RTP +316; replacing its 16-byte seal estimate with the actual
+60-byte opaque-flow/datagram codec gives **360 bytes below RTP**, before
+QUIC/IP. The current 209-byte native hint undercounts this observed relay case
+by 151 bytes. These are per-hop, unbatched costs, not replication or path sums.
+
+The native API now permits **positive-to-positive framing updates after
+adaptation was enabled before start**. It updates only the existing audio
+controller/allocator/pacer. The current encoder, RTP sender and receive buffer
+are retained; independent video-controller framing is unchanged. Enabling or
+disabling adaptation after start still fails. A blocked worker abandons the
+update after a 50-ms scheduling wait, with no late hint mutation; once execution
+has started the existing cancellation handshake waits for completion safely.
+Decreased overhead reaches the encoder on its next allocation; this is not a
+new BWE route identity or a claim that the sender immediately gains bandwidth.
+
+The real Opus/ANA unit checks one encoder through hints **209 →360 →209** and
+inspects actual encoded packet durations **20 →40 →20 ms**, retaining the
+24–32-kbit/s speech floor. A 36-second real Call/PCM test charges each packet
+and RTCP for the corresponding 209/360/209-byte model on a 160-kbit/s path:
+all **600/600/600 settled PCM blocks** contain the signal, packet-duration
+observations match **6/6 in every phase**, no source queue drops occur, the RTP
+sequence space remains continuous, and the maximum measured tone edge delay
+is **193.244 ms** (<200). Positive updates, invalid inputs, disabled factory,
+blocked-worker cancellation and unchanged video overhead are covered. A clean
+before-fix engine with the same test helpers fails at the first live update.
+
+Two earlier fixture runs legitimately retained 40-ms packets after recovery:
+their GCC estimate fell to 106–128 kbit/s, although the link ceiling was 160.
+They fail the original fixture's exact 20-ms expectation. The final fixture
+fixes its network allocation explicitly to isolate framing; **production GCC
+and recovery gates are unchanged**. Their failed logs remain in the evidence.
+The independent audio=509/video=536 controller regression also passes.
+
+Production native Mac/Android arm64 builds use a clean SDK snapshot plus only
+the seven media changes. All **100 public Mac /104 defined Android exports**
+match the preceding builds. Libraries are **prepared, not installed**. No GUI
+apps, microphone/speaker devices or servers were started or changed here;
+owned test/build helpers exited and the Android build container was removed.
+
+**This is a prerequisite, not an application fix for relay quality.** Dart still
+supplies the fixed 209-byte hint. Next implement and validate a route/carrier/
+batch-aware source cost model, including replication, and feed its changes to
+the live API. Do not replace every route with one larger constant. The failed
+physical relay video and full group/file workload gates, live speech/headset
+quality, fresh typed-factory migration and QUIC hot reload remain open. Goal
+**ACTIVE**.
+
+Evidence: **validation/call-live-audio-framing-2026-10-18.json** and
+**validation/live-audio-framing-2026-10-18/**. Private builds, clean snapshots,
+positive/negative binaries and logs: **xveil-live-framing-20261018**.
+
 ## 2026-10-18: canonical-only handoff retains usable independent children
 
 SDK **039dd32b** fixes unconditional retirement of all independent channels on
