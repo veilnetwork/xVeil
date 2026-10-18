@@ -1,0 +1,5 @@
+{
+  "mutation": "Remove only has_children guard on the private test snapshot; no worktree mutation",
+  "exit_code": 101,
+  "expected_failure": true
+}

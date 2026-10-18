@@ -1,0 +1,44 @@
+[
+  {
+    "label": "independent-gate",
+    "exit_code": 0,
+    "seconds": 17.835,
+    "pid": 2535
+  },
+  {
+    "label": "compatibility-gate",
+    "exit_code": 0,
+    "seconds": 1.793,
+    "pid": 7166
+  },
+  {
+    "label": "rotation-gate",
+    "exit_code": 0,
+    "seconds": 27.377,
+    "pid": 7617
+  },
+  {
+    "label": "swap-gate",
+    "exit_code": 0,
+    "seconds": 0.421,
+    "pid": 14541
+  },
+  {
+    "label": "handoff-gate",
+    "exit_code": 0,
+    "seconds": 0.272,
+    "pid": 14649
+  },
+  {
+    "label": "mac-build",
+    "exit_code": 0,
+    "seconds": 70.596,
+    "pid": 87853
+  },
+  {
+    "label": "android-build",
+    "exit_code": 0,
+    "seconds": 71.213,
+    "pid": 6124
+  }
+]
