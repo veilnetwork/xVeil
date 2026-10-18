@@ -1,0 +1,12 @@
+{
+  "qualified": false,
+  "reason": "Stopped owned call after detecting canary health stalled following same-config reload. Mac canary session was QUIC; phone was obfs4/TCP, so this is not a two-leg QUIC quality comparison.",
+  "ring_seconds": 0.6284346669854131,
+  "cleanup": {
+    "mac_pid_absent": true,
+    "launcher_pid_absent": true,
+    "logcat_pid_absent": true,
+    "phone_absent": true,
+    "test_forward_absent": true
+  }
+}

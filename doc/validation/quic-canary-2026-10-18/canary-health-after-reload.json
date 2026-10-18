@@ -1,0 +1,5 @@
+{
+  "exit": 0,
+  "stdout": "{\"health\": {\"exit\": 0, \"stdout\": \"status: stalled\\ntick: 2610\\nsessions: 0\\n\"}, \"listens\": {\"exit\": 0, \"stdout\": [\"quic://0.0.0.0:8443\", \"obfs4-tcp://0.0.0.0:5556\"]}}\n",
+  "stderr": ""
+}
