@@ -21,6 +21,16 @@ P = C.c_void_p
 E = C.POINTER(P)
 
 
+class MediaChannelStats(C.Structure):
+    # Published, stable 13-u64 VeilMediaChannelStats in veil_ffi.h. No new ABI.
+    _fields_ = [(name, C.c_uint64) for name in (
+        'video_frames_enqueued', 'video_frames_started', 'video_queue_depth',
+        'video_queue_max_depth', 'video_queue_age_max_ms', 'video_queue_holds_75ms',
+        'sender_lock_max_ms', 'sender_lock_holds_16ms', 'video_frame_ipc_max_ms',
+        'video_frame_ipc_holds_33ms', 'ipc_cell_max_ms', 'ipc_cell_holds_16ms',
+        'ipc_send_failures')]
+
+
 class GroupSdk:
     def __init__(self, sdk, directory, rate_kbps=0, *, attach=False, trace=False,
                  trace_capacity=100000):
@@ -76,6 +86,24 @@ class GroupSdk:
         return {'supported': True, 'flush_rc': flushed,
                 'dropped_records': dropped, 'write_errors': errors,
                 'ok': flushed == 0 and dropped == 0 and errors == 0}
+
+    def enable_client_trace(self):
+        # Each spawned process owns separate SDK trace/logger globals. The
+        # parent's node/trace initialization cannot enable a client's records.
+        self.fn('veil_debug_set_rt_trace', [C.c_int], None)(1)
+
+    def channel_snapshots_after_capture(self):
+        """Read lifetime maxima after producers stop, before channels close."""
+        snapshot = self.fn('veil_media_channel_get_stats',
+                           [C.c_uint64, C.POINTER(MediaChannelStats)], C.c_int)
+        result = []
+        for index, channel in enumerate(self.channels):
+            value = MediaChannelStats()
+            if snapshot(channel, C.byref(value)) != 0:
+                raise RuntimeError('Post-capture channel diagnostics unavailable')
+            result.append({'channel_index': index,
+                           **{name: getattr(value, name) for name, _ in value._fields_}})
+        return result
 
     def checked(self, function, *args):
         error = P()

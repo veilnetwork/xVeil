@@ -1,0 +1,421 @@
+{
+  "date": "2026-10-18",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "scope": "Diagnostic removal of one competing load from the existing full congestion fixture; no quality gate relaxation",
+  "captures": {
+    "group-clean-files-360": {
+      "ok": true,
+      "contention_qualification": false,
+      "load_kind": "files",
+      "duration_seconds": 360,
+      "rate_kbps": 1024,
+      "sdk_sha256": "3a681d8f48858c8d92c69cb42a834bc899e05b427eff627314e38a58da418ded",
+      "media_sha256": "3c2c476d4b7678d930afd099d1c207d5f7da21c78a3278097b09dceafac23c4c",
+      "fixture_sources": {
+        "group-process-preflight.py": "f681d8ae9092206428c3b6d09e18441a664135524b9a122e4b2f442a605f7a88",
+        "group_codec_sdk.py": "2e745dca0f3e01af84010817c51ab7f1c210c0d6dd4ef928307101e161834676",
+        "native_pcm_driver.py": "2c06e9d4c2c903686d6243fc5a5d7f33ee344ec633874ffe208540307bce6662",
+        "native_pcm_driver.cc": "2efd0cffa95f1f8b87c72c1f2b9d7adbe1ac28903cf3adcbfdd2187928503838",
+        "group_pcm_timing.py": "8231987186cee719d21dd88b9d4429f0461cd785f5da63a33a8097c6782a2925",
+        "udp_fifo_shaper.py": "530f6343d103708eff1b0af16a112995955192f4c7511f33912584850f996605",
+        "group_process_files.py": "1543a7e862fca7a4597581ab9ada1ee42fc6a0cafa771a0b54fb7ec3786fe47e",
+        "scripts/group_audio_policy.dart": "d5a2144c894701b97c37632a670661fe08f2b273f36098ea7414ff7db3bc9453",
+        "scripts/group_codec_policy.dart": "49ff4c2b8d606c3b9f848b8622fe0831c7820f2262f182256d0b4275df06a23f",
+        "lib/state/call_audio_source_pressure.dart": "1d353781f951ee6c95fd5108f1f1fa3f06082e9493b0a9831c46c539d13bfdad",
+        "lib/state/group_call_audio_adapter.dart": "352be63e283c9c5dcf1b77eb7842d8f77165b4ba10c512b4087ac346e9664d87",
+        "lib/state/call_audio_buffer_window.dart": "8542164f22054ce2b4e1ca7bfa1352623bc1744c9de00405db86333bc6e41f50",
+        "lib/state/call_bitrate_adapter.dart": "f02a3b7cbc696de3b5c098376d0b20df386daf1f884bd73a218e303174e94fb7",
+        "lib/state/call_audio_receive_activity.dart": "4871578d14ebaf70d121ed1aa3c0d66351e030776f512f9255e71b1e06f45f63",
+        "lib/state/call_rtcp_loss.dart": "f04713b986d339979d2c2d81d6d0163ccb2a77ac36c8f137db6f44a9e3d4b0fc"
+      },
+      "matched": 2112,
+      "missing": 0,
+      "max_ms_by_phase": {
+        "audio-only": 130.14941666915547,
+        "audio-files": 170.2765416703187
+      },
+      "files": [
+        {
+          "sender": 2,
+          "receiver": 0,
+          "queued": 524288,
+          "received": 524288,
+          "missing_chunks": 0,
+          "hash_matches": true,
+          "completion_seconds": 226.47923704099958,
+          "authentication_errors": 0,
+          "duplicates": 0,
+          "async_failures": {},
+          "write_error": false,
+          "late_fragments": 0
+        },
+        {
+          "sender": 0,
+          "receiver": 1,
+          "queued": 524288,
+          "received": 524288,
+          "missing_chunks": 0,
+          "hash_matches": true,
+          "completion_seconds": 146.65952975000255,
+          "authentication_errors": 0,
+          "duplicates": 0,
+          "async_failures": {},
+          "write_error": false,
+          "late_fragments": 0
+        },
+        {
+          "sender": 1,
+          "receiver": 2,
+          "queued": 524288,
+          "received": 524288,
+          "missing_chunks": 0,
+          "hash_matches": true,
+          "completion_seconds": 147.16134208299627,
+          "authentication_errors": 0,
+          "duplicates": 0,
+          "async_failures": {},
+          "write_error": false,
+          "late_fragments": 0
+        }
+      ],
+      "video_paths": [],
+      "parent_console_before": {
+        "supported": true,
+        "flush_rc": 0,
+        "dropped_records": 0,
+        "write_errors": 0,
+        "ok": true
+      },
+      "parent_console_after": {
+        "supported": true,
+        "flush_rc": 0,
+        "dropped_records": 0,
+        "write_errors": 0,
+        "ok": true
+      },
+      "worker_consoles": [
+        {
+          "supported": true,
+          "flush_rc": 0,
+          "dropped_records": 0,
+          "write_errors": 0,
+          "ok": true
+        },
+        {
+          "supported": true,
+          "flush_rc": 0,
+          "dropped_records": 0,
+          "write_errors": 0,
+          "ok": true
+        },
+        {
+          "supported": true,
+          "flush_rc": 0,
+          "dropped_records": 0,
+          "write_errors": 0,
+          "ok": true
+        }
+      ],
+      "source_logs_missing": true,
+      "traffic": [
+        {
+          "direction": 0,
+          "seconds_interval": [
+            20,
+            340
+          ],
+          "received_kbps": 697.218375,
+          "queue_p50_95_99_ms": [
+            8.47656250698492,
+            20.038458009366877,
+            28.124437492806464
+          ],
+          "max_queue_ms_in_interval": 78.12489636125974
+        },
+        {
+          "direction": 1,
+          "seconds_interval": [
+            20,
+            340
+          ],
+          "received_kbps": 694.411025,
+          "queue_p50_95_99_ms": [
+            5.055687521235086,
+            9.833625037572347,
+            15.7971250009723
+          ],
+          "max_queue_ms_in_interval": 54.62270804855507
+        }
+      ],
+      "peak_attribution": {
+        "source": 2,
+        "receiver": 1,
+        "phase": "audio-files",
+        "packet": {
+          "ssrc": 4098948044,
+          "rtp_origin": 4264862497,
+          "rtp_timestamp": 4281684097,
+          "rtp_sequence": 23969,
+          "source_at_seconds": 350.4700035416463,
+          "decoded_at_seconds": 350.6402800833166,
+          "packet_ms": 60,
+          "encoder_input_index": 15942,
+          "encoder_first_input_monotonic_us": 116011767599,
+          "encoded_monotonic_us": 116011818032,
+          "ingress": {
+            "seq": 23969,
+            "timestamp": 4281684097,
+            "arrived_us": 116011875884,
+            "drained_us": 116011875907,
+            "payload_bytes": 179
+          },
+          "total_ms": 170.2765416703187,
+          "spans_ms": {
+            "capture_to_encoded": 30.50570834602695,
+            "encoded_to_ingress": 57.85199999809265,
+            "ingress_to_webrtc": 0.02300000051036477,
+            "webrtc_to_pcm_edge": 81.89583332568873
+          }
+        },
+        "input_sha256": {
+          "summary.json": "a1b16d73f0b38a324830c455b97b67fbe157aae6f32ec875eda161fb22838c1a",
+          "worker-2/summary.json": "5560dd2701ec7335a9144cab52701108775dac407bf62fec166536a666541724",
+          "worker-1/summary.json": "d678415c1031d1bffee7423075a9f172d5d4350da2c20a8499176dd3d8b3aff0",
+          "worker-2/pcm-samples.json": "fee73a50518d0d2802d534f9299f51b761935681c846811eb1cf10387f5bee1a",
+          "worker-1/pcm-samples.json": "bdcd02106f301f6f838a09b56fec45f6153f0b12cd77dad8e6c318c27f3a7848",
+          "worker-2/codec-samples.json": "5ab6bd173f2c91858fba99c201a27a845ad226d48ecac755b589466cfae3a322",
+          "worker-2/playout-trace.log": "834cb26bf0bd77daf80d3d1e87a68cb0eeadf6cf43776fd1b4b69d419ea8de0f",
+          "worker-1/playout-trace.log": "ddbbf0eb18196193e406b32fa7ebd048bd851b1ccd683958eac4fb2b9961d486"
+        },
+        "limits": [
+          "Owned same-host clocks only; no physical acoustic latency claim",
+          "Encoded-to-ingress includes all local and transport stages; no per-hop attribution",
+          "Ingress-to-PCM can include codec lookahead/FEC and following packets; not NetEq alone",
+          "This analysis does not change the capture verdict or its quality gates"
+        ]
+      },
+      "cleanup": {
+        "owned_pids": [
+          25233,
+          25250,
+          25251,
+          30134,
+          30137,
+          30138,
+          30139,
+          30155,
+          30156,
+          30157
+        ],
+        "remaining": []
+      },
+      "summary_sha256": "a1b16d73f0b38a324830c455b97b67fbe157aae6f32ec875eda161fb22838c1a"
+    },
+    "group-clean-video-360": {
+      "ok": true,
+      "contention_qualification": false,
+      "load_kind": "video",
+      "duration_seconds": 360,
+      "rate_kbps": 1024,
+      "sdk_sha256": "3a681d8f48858c8d92c69cb42a834bc899e05b427eff627314e38a58da418ded",
+      "media_sha256": "3c2c476d4b7678d930afd099d1c207d5f7da21c78a3278097b09dceafac23c4c",
+      "fixture_sources": {
+        "group-process-preflight.py": "f681d8ae9092206428c3b6d09e18441a664135524b9a122e4b2f442a605f7a88",
+        "group_codec_sdk.py": "2e745dca0f3e01af84010817c51ab7f1c210c0d6dd4ef928307101e161834676",
+        "native_pcm_driver.py": "2c06e9d4c2c903686d6243fc5a5d7f33ee344ec633874ffe208540307bce6662",
+        "native_pcm_driver.cc": "2efd0cffa95f1f8b87c72c1f2b9d7adbe1ac28903cf3adcbfdd2187928503838",
+        "group_pcm_timing.py": "8231987186cee719d21dd88b9d4429f0461cd785f5da63a33a8097c6782a2925",
+        "udp_fifo_shaper.py": "530f6343d103708eff1b0af16a112995955192f4c7511f33912584850f996605",
+        "group_process_files.py": "1543a7e862fca7a4597581ab9ada1ee42fc6a0cafa771a0b54fb7ec3786fe47e",
+        "scripts/group_audio_policy.dart": "d5a2144c894701b97c37632a670661fe08f2b273f36098ea7414ff7db3bc9453",
+        "scripts/group_codec_policy.dart": "49ff4c2b8d606c3b9f848b8622fe0831c7820f2262f182256d0b4275df06a23f",
+        "lib/state/call_audio_source_pressure.dart": "1d353781f951ee6c95fd5108f1f1fa3f06082e9493b0a9831c46c539d13bfdad",
+        "lib/state/group_call_audio_adapter.dart": "352be63e283c9c5dcf1b77eb7842d8f77165b4ba10c512b4087ac346e9664d87",
+        "lib/state/call_audio_buffer_window.dart": "8542164f22054ce2b4e1ca7bfa1352623bc1744c9de00405db86333bc6e41f50",
+        "lib/state/call_bitrate_adapter.dart": "f02a3b7cbc696de3b5c098376d0b20df386daf1f884bd73a218e303174e94fb7",
+        "lib/state/call_audio_receive_activity.dart": "4871578d14ebaf70d121ed1aa3c0d66351e030776f512f9255e71b1e06f45f63",
+        "lib/state/call_rtcp_loss.dart": "f04713b986d339979d2c2d81d6d0163ccb2a77ac36c8f137db6f44a9e3d4b0fc"
+      },
+      "matched": 2112,
+      "missing": 0,
+      "max_ms_by_phase": {
+        "audio-only": 130.26158334105276,
+        "audio-video": 190.23941666819155
+      },
+      "files": [],
+      "video_paths": [
+        {
+          "receiver": 0,
+          "source": 1,
+          "decoded_pulls": 286,
+          "tail_changes": 12
+        },
+        {
+          "receiver": 0,
+          "source": 2,
+          "decoded_pulls": 298,
+          "tail_changes": 13
+        },
+        {
+          "receiver": 1,
+          "source": 0,
+          "decoded_pulls": 310,
+          "tail_changes": 13
+        },
+        {
+          "receiver": 1,
+          "source": 2,
+          "decoded_pulls": 298,
+          "tail_changes": 13
+        },
+        {
+          "receiver": 2,
+          "source": 0,
+          "decoded_pulls": 310,
+          "tail_changes": 13
+        },
+        {
+          "receiver": 2,
+          "source": 1,
+          "decoded_pulls": 286,
+          "tail_changes": 12
+        }
+      ],
+      "parent_console_before": {
+        "supported": true,
+        "flush_rc": 0,
+        "dropped_records": 0,
+        "write_errors": 0,
+        "ok": true
+      },
+      "parent_console_after": {
+        "supported": true,
+        "flush_rc": 0,
+        "dropped_records": 0,
+        "write_errors": 0,
+        "ok": true
+      },
+      "worker_consoles": [
+        {
+          "supported": true,
+          "flush_rc": 0,
+          "dropped_records": 0,
+          "write_errors": 0,
+          "ok": true
+        },
+        {
+          "supported": true,
+          "flush_rc": 0,
+          "dropped_records": 0,
+          "write_errors": 0,
+          "ok": true
+        },
+        {
+          "supported": true,
+          "flush_rc": 0,
+          "dropped_records": 0,
+          "write_errors": 0,
+          "ok": true
+        }
+      ],
+      "source_logs_missing": true,
+      "traffic": [
+        {
+          "direction": 0,
+          "seconds_interval": [
+            20,
+            340
+          ],
+          "received_kbps": 683.59875,
+          "queue_p50_95_99_ms": [
+            5.980999965686351,
+            15.549896663287655,
+            54.046104225562885
+          ],
+          "max_queue_ms_in_interval": 90.92435461934656
+        },
+        {
+          "direction": 1,
+          "seconds_interval": [
+            20,
+            340
+          ],
+          "received_kbps": 682.9960500000001,
+          "queue_p50_95_99_ms": [
+            7.929916027933359,
+            32.96462501748465,
+            52.361812529852614
+          ],
+          "max_queue_ms_in_interval": 88.80175038939342
+        }
+      ],
+      "peak_attribution": {
+        "source": 0,
+        "receiver": 2,
+        "phase": "audio-video",
+        "packet": {
+          "ssrc": 3117742331,
+          "rtp_origin": 2085624309,
+          "rtp_timestamp": 2095852629,
+          "rtp_sequence": 15530,
+          "source_at_seconds": 213.11001187530928,
+          "decoded_at_seconds": 213.30025129197747,
+          "packet_ms": 60,
+          "encoder_input_index": 20808,
+          "encoder_first_input_monotonic_us": 140082274017,
+          "encoded_monotonic_us": 140082324431,
+          "ingress": {
+            "seq": 15530,
+            "timestamp": 2095852629,
+            "arrived_us": 140082399484,
+            "drained_us": 140082399497,
+            "payload_bytes": 179
+          },
+          "total_ms": 190.23941666819155,
+          "spans_ms": {
+            "capture_to_encoded": 30.4619166709017,
+            "encoded_to_ingress": 75.05300000775605,
+            "ingress_to_webrtc": 0.01300001167692244,
+            "webrtc_to_pcm_edge": 84.71149997785687
+          }
+        },
+        "input_sha256": {
+          "summary.json": "ec50e686457816d74eb9819ead73b23e7257985e4735326dacc37dbd3a2d72e5",
+          "worker-0/summary.json": "368e1ac3fc7402db5c2541d8abfef4cb4edad1988813afc15cc0c74ecf62080b",
+          "worker-2/summary.json": "280563b1c1b96afc4d880c736f31e5e0f208e5d5a10473cea0bdf2b94400de9e",
+          "worker-0/pcm-samples.json": "7187687a7554ac07089e59525af239cd814cf75f63faad782baf5b16439a1244",
+          "worker-2/pcm-samples.json": "63d7a74d3d6be06255c36448e04be3c863fd7547fcc0aa676b84c2c896833c39",
+          "worker-0/codec-samples.json": "ef7a1cc392cb1302589a4e068ea260cd56f8086682337af170a20926f4a82919",
+          "worker-0/playout-trace.log": "159fd6f1510c5e26a456a984da3718c72c3789efdc2524e38941d2fc264f82df",
+          "worker-2/playout-trace.log": "3e90ddc2ca080914f48c0683266f834a0aa93136f9fb0e8c3d533e93271fcb9d"
+        },
+        "limits": [
+          "Owned same-host clocks only; no physical acoustic latency claim",
+          "Encoded-to-ingress includes all local and transport stages; no per-hop attribution",
+          "Ingress-to-PCM can include codec lookahead/FEC and following packets; not NetEq alone",
+          "This analysis does not change the capture verdict or its quality gates"
+        ]
+      },
+      "cleanup": {
+        "owned_pids": [
+          15468,
+          15469,
+          15470,
+          21870,
+          21871,
+          21872,
+          21873,
+          21892,
+          21893,
+          21894
+        ],
+        "remaining": []
+      },
+      "summary_sha256": "ec50e686457816d74eb9819ead73b23e7257985e4735326dacc37dbd3a2d72e5"
+    }
+  },
+  "interpretation": "Each reduced load passes the strict audio bound and its applicable completion checks; prior identical-binary full workload remains FAIL at 260.230 ms. This implicates coexistence/burst interaction, not proof of one exact offending stage. Single sequential runs with fresh identities/random file bytes; not a statistical performance comparison.",
+  "diagnostic_gap": "Spawned media clients neither enable their process-local trace toggle nor initialize a log sink (only embedded-node startup does). Native C++ timing remains available, but SDK source-stage logs are absent. A fresh-process FFI regression reproduces this; work continues on explicit client trace initialization.",
+  "full_gate_preserved": true
+}

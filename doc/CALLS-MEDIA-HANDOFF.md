@@ -1,5 +1,56 @@
 # Calls media handoff
 
+## 2026-10-18: source SDK diagnostics restored; full repeat still fails
+
+SDK `d10970d3` lets explicit `veil_debug_set_rt_trace(1)` initialize the
+existing queued-console/logcat bridge in a client-only process. Normal node
+startup shares that same initializer. Trace-off does not install a logger;
+an existing host logger and its maximum level remain untouched. No packet
+classification, wire field, admission, priority or network pacing changes.
+A fresh-process regression fails on the old code, passes after the fix; its
+two child cases check the default console and a host-owned Warn-level sink.
+FFI lib/tests Clippy with warnings denied is clean. **18** Python analysis/
+fixture tests pass; clang verifies the Python snapshot's 104-byte size and all
+13 offsets against the existing published C ABI.
+
+Spawned fixture clients previously neither enabled their own trace globals
+nor installed a sink; the parent's node initialization cannot cover another
+process. The fixture now explicitly enables source diagnostics when tracing
+is requested, verifies actual send/receive records after flushing console
+output, and reads existing channel lifetime maxima after producers stop and
+before channel close. No new metric enters any production controller.
+
+Evidence: `doc/validation/call-source-trace-2026-10-18.json`, private immutable
+SDK/captures under `xveil-client-trace-20261018`. Clean Rust d10970d3, same
+native media/Dart policies, original 360-s/1024-kbit neutral shared FIFO, six
+PCM directions and three encrypted 512-KiB files. Both captures match **2112
+markers / 0 missing**, authenticate complete files, have moving final video
+tails, zero console losses/errors and independent absence of all ten owned PIDs.
+
+- `group-source-trace-full-360`: **PASS**, **180.160 ms**, files finish by
+  **352.280 s**, final video tails **14/8/14/8/14/14**.
+- Identical-binary `group-source-trace-repeat-360`: **FAIL**, **210.209 ms**,
+  files finish by **352.258 s**, tails **9/13/14/13/14/9**. Preserve this failure
+  and all earlier failures; one green capture did not establish a stable fix.
+
+Source queues' logged cumulative maxima by worker are **0.505/1.128/3.699 ms**
+then **2.100/1.838/0.487 ms**. Sender-lock/IPC maxima all round down to zero ms
+(<1 ms); they are not literal zero durations. Authenticated sampled sealed-cell
+joins cover **713 / 708** pairs after five seconds and reach **95 / 96 ms**
+from source SDK send to receiver SDK receipt. Verify epoch/sequence, ciphertext
+length and both endpoint identities; these samples do not identify the worst
+PCM edge. Separate-process daemon delivery ages remain unknown by design.
+
+The failed repeat's exact peak is source 1 -> receiver 2 at **122.210 ->
+122.420 s**: **20.611 ms** capture-to-encode, **108.314 ms** encode-to-ingress,
+**0.025 ms** ingress-to-WebRTC, **81.260 ms** to the detected PCM edge. The
+group sender still lacks an exact per-packet native send boundary; do not
+assign all 108 ms to the wire. The green peak instead has **146.426 ms** after
+first ingress, which can include lookahead/following packets in addition to
+buffering. Continue investigating burst interaction and 60-ms packetization;
+do not guess a scheduler fix or relax the original <200-ms gate. No new phone
+work, deployment, push or release. Audio isolation remains ACTIVE.
+
 ## 2026-10-18: exact peak attribution and interrupted fresh device check
 
 Added `scripts/analyze_group_audio_peak.py`. It recomputes the original ordinal
@@ -43,10 +94,17 @@ from Mac before shutdown. Do not restart phone work until it is returned.
 
 Clean-SDK 360-s files-only comparator completed: **2112 matched / 0 missing**,
 **170.277 ms** peak; all three 512-KiB files hash-match, complete by **226.479 s**.
-All ten owned processes independently verify absent. This diagnostic omits video
-and explicitly cannot qualify full contention. A same-SDK video-only comparator
-is being captured separately. Preserve the original full-load FAIL verdicts and
-strict <200-ms gate. Audio isolation remains ACTIVE.
+All ten owned processes independently verify absent. Same-SDK video-only
+comparator: **2112 matched / 0 missing**, **190.239 ms** peak; all six final video
+tails move **12/13/13/13/13/12**, all ten owned processes independently absent.
+Evidence: `doc/validation/call-load-isolation-2026-10-18.json`. Each omits one
+competitor and explicitly cannot qualify full contention. The clean combined
+capture still fails at **260.230 ms**. Mean wire input during 20–340 s is about
+**694–697 / 683–684 / 773–778 kbit/s** by direction for files/video/combined,
+below the 1024-kbit limit; the remaining peaks concern bursts, not proof of
+continuous saturation. These are single sequential captures with fresh random
+identities/files, not a statistical performance comparison. Preserve the
+original full-load FAIL verdicts and strict <200-ms gate. Audio isolation is ACTIVE.
 
 ## 2026-10-18: console I/O moved off network tasks; sparse video retry
 
