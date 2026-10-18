@@ -1,0 +1,107 @@
+{
+  "date": "2026-10-19",
+  "complete": false,
+  "public_release": false,
+  "android_fix": {
+    "file": "android/app/src/main/kotlin/network/veil/xveil/MainActivity.kt",
+    "change": "On API 29-33 retain HIGH_PERF alongside LOW_LATENCY during an active call so the framework can select HIGH_PERF with the screen off. Complete-set acquisition, idempotence, independent release and rollback on partial acquisition failure. Below API29 HIGH_PERF only; API34+ LOW_LATENCY only.",
+    "primary_reference": "https://developer.android.com/reference/android/net/wifi/WifiManager#WIFI_MODE_FULL_LOW_LATENCY",
+    "physical_api": 30,
+    "baseline_high_perf_active_ms": 0,
+    "fixed_high_perf_active_ms": 6484,
+    "fixed_low_latency_active_ms": 5553,
+    "acquire_and_release_deltas": {
+      "baseline": [
+        0,
+        1
+      ],
+      "fixed": [
+        1,
+        1
+      ]
+    },
+    "screen_off_confirmed": true,
+    "installed_private_profile_version_code": 12616,
+    "limitations": [
+      "API below29 and34+ compile-reviewed only, not physically tested.",
+      "Held lock is not proof of effective radio mode; before/after framework active-time counters are the stronger evidence.",
+      "No live call or microphone/camera used in the platform regression. No claim that this fixes all foreground jitter or acoustic loudness.",
+      "Raw Wi-Fi dumps are private and deliberately excluded because they include SSIDs."
+    ],
+    "cleanup": "Owned app force-stopped; its process absent; instrumentation package removed. Independently rechecked."
+  },
+  "physical_timing": {
+    "source_capture": "xveil-bwe-handover-20261019/qa/physical-bwe-handover",
+    "central_sender_window_seconds": [
+      5,
+      230
+    ],
+    "missing_payloads": {
+      "mac_to_phone": {
+        "sent": 7556,
+        "missing": 1
+      },
+      "phone_to_mac": {
+        "sent": 5511,
+        "missing": 1
+      }
+    },
+    "full_trace_buffer_peak_ms": {
+      "phone": 253,
+      "mac": 245
+    },
+    "central_cumulative_decoded_skip_ms": {
+      "phone": 630,
+      "mac": 510
+    },
+    "skip_note": "Cumulative skipped audio is not an individual peak pause. Stop-boundary loss excluded from central window.",
+    "mac_unique_packet_to_cell_joins": 8032,
+    "central_mac_native_to_node_queue_max_ms": 3.062,
+    "relay_phase_mac_native_to_node_queue_max_ms": 0.456,
+    "limitation": "Queue admission is not NIC transmission. Cross-host delay excess is relative to a phase minimum, not absolute one-way latency; clocks are not synchronized.",
+    "handover_observation": "Current capture has 219.463/210.767 ms encode-to-RTP peaks at handover; previous capture peaks were 26.748/23.841 ms. Different captures do not establish causation; investigate retained congestion state before claiming a fix."
+  },
+  "full_contention_gate": {
+    "result": "FAIL, unchanged strict gate",
+    "duration_seconds": 360,
+    "shared_neutral_fifo_kbps": 1024,
+    "participants": 3,
+    "audio_directions": 6,
+    "matched_markers": 2112,
+    "missing_markers": 0,
+    "peak_capture_to_decoded_ms": 390.069,
+    "threshold_ms": 200,
+    "audio_only_peak_ms": 140.164,
+    "exact_peak_node_queue_to_receiving_sdk_ms": 221.046,
+    "all_three_files_bytes": 524288,
+    "all_file_hashes_match": true,
+    "all_video_paths_moving_at_end": true,
+    "clock_or_worker_failure": false,
+    "limitations": [
+      "No source-cell budget_admit trace in this run; deeper source-session attribution unavailable.",
+      "No media-role priority at the neutral shaper or public relays.",
+      "Full contention latency remains unresolved; do not mark the overarching audio-priority goal complete."
+    ],
+    "cleanup": "All ten owned fixture/helper/worker/policy PIDs independently absent; zero fixture sockets."
+  },
+  "evidence_directory": "audio-timing-2026-10-19/",
+  "evidence_sha256": {
+    "AndroidManifest.xml": "1ccf2d642967efa2e0b3b37dae335963e5bef91fa65614e70b07e795c9d4e75b",
+    "WifiProbe.java": "959abfa66fe5651cc31612234b10d5a3616c8427cf0840ae2d955e5e86aa2368",
+    "android-build.json": "264c423fe49fc57ad563b752db91b54b031a510eca5e6d670f717135352fed77",
+    "group-cleanup.json": "173bf2a1e6076ec0b81166b90f9d02ec51cc7096f99b884bc6d73ae8bd50173c",
+    "group-exact-peak.json": "0a34607cfe0cc8090cbf2b25cfc7bcafe2f94f1ee9ccf4a231904117aba3b97b",
+    "group-summary.json": "f377e26cb4ae68552011c76777c22b105784ed2d370f9cdf7663c85d554cff95",
+    "mac-source-timing.json": "2b847b1fbc7998b1d081f44163e0cbd4146cf91c21a5ae4edd11ceb3eb5dd711",
+    "pacer-comparison.json": "86c09103a42c440059abbf743cf3cc8b49a6b6f65f8095b36b83879e472223be",
+    "physical-timing.json": "5cd0da922e0658d118c22fcb44f075f60ac0a8eeb99028a0baf68ac235022b07",
+    "run-wifi-probe.py": "2ee1e0bda182fe35bb4a948c46412c18d99c9a3f6135dfe7383cd4fc5eb430b1",
+    "wifi-baseline.json": "26892e054976ffd6942d50a988062baad46cfbb8bb8f34c33d6e37f3b262d505",
+    "wifi-fixed.json": "f7075dc5fef7c7105df25d2ff91f867949fa8b0afa1e28e247a3c2481043ff36"
+  },
+  "foreign_wip_preserved": {
+    "root_scoped_diff_sha256": "529f7718edea4b6775cc11607bc2ff663a922cc3521b680cf94efa39d7b26859",
+    "sdk_scoped_diff_sha256": "1ceeb05d540078262f1480ba7210dfaa0f5895be9f0099f64bc18a56a4f6a363"
+  },
+  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-audio-timing-20261019"
+}
