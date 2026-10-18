@@ -1,0 +1,152 @@
+{
+  "date": "2026-10-19",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "previous_goal_turn_classification": "progress",
+  "public_release": false,
+  "changes": {
+    "source_framing": "Add optional SDK query for selected local source 0 audio / 2 video / 3 screen. Existing audio-only ABI preserved. Video/screen use their own prepared child and do not inherit audio replication. Unknown sources return null; no RPC or network packet is generated.",
+    "video_controller": "Optional live native setter applies below-RTP overhead independently to video allocator and pacer, retains streams and path identity, requires split feedback, bounds hint 0..1024 and cancels unscheduled work at 20ms. Real path handover retains both independent hints.",
+    "frame_packet_accounting": "Enable the pinned WebRTC video frame-rate overhead trial; small frames cannot be modeled only as full-MTU packets.",
+    "host": "Refresh video or screen framing before start, after host route handover and on each stats tick. Acknowledged hints persist through unknown metadata or busy worker. Packet-size deltas use payload counters plus the negotiated 20-byte RTP header. Older SDK/native combinations remain optional/unknown.",
+    "sizing": "Protect actual positive VP8 allocation <=30kbit/s even when the selected profile is higher. A suspended encoder retains last positive budget. Resolution cap releases at >=60kbit/s effective allocation, including recovery without a host profile change. Complete encoded reference frames are forwarded unchanged.",
+    "fixture_fidelity": "Both standalone bridges now pass sourceBudgetPressured only after local source feedback was queued, matching the application. The 1:1 bridge also uses the production peer recovery de-duplication and separate local/peer witnesses. Stimulus, blind FIFO, clocks, full-file sizes and <200ms gates were not relaxed."
+  },
+  "checks": {
+    "rust_packet_cost_tests": 2,
+    "flutter_policy_tests": 20,
+    "native_actual_allocation_sizing": {
+      "old_header_exit": -6,
+      "fixed_exit": 0
+    },
+    "native_live_framing_and_handover": "PASS including independent headers, busy-video cancellation, retry and unchanged audio",
+    "native_default_planes_regression": "PASS before final header-only sizing change; final sizing separately regression-tested and used by both complete workloads",
+    "production_builds": [
+      "macOS arm64",
+      "Android arm64"
+    ],
+    "export_compatibility": "One additive media export; no removed macOS exports or test hooks in production. New SDK source-query symbol checked.",
+    "dart_analysis": "PASS for changed host/policy paths"
+  },
+  "earlier_trials": {
+    "baseline_180s": "FAIL: peaks220.051/210.354ms; moving video at end; files incomplete at180s. Lacks acknowledged source-budget hold and current peer-recovery mapping, so not qualification of current application.",
+    "candidate_v1_180s": "FAIL: peaks399.982/360.120ms and no moving video at end. Missing actual-allocation image sizing plus old fixture wiring. Preserved as adverse evidence, not discarded.",
+    "candidate_full_interrupted": "Deliberate SIGINT after verified policy-fidelity defect; native finally cleanup completed. Not restarted because of an observation timeout and not a quality result."
+  },
+  "aligned_pair_360s": {
+    "result": "FAIL strict latency gate",
+    "shared_blind_fifo_kbps": 1024,
+    "peaks_ms": [
+      249.9581666488666,
+      240.1440833345987
+    ],
+    "competing_p95_ms": [
+      179.98987500322983,
+      170.1829583325889
+    ],
+    "markers_matched": 704,
+    "missing": 0,
+    "all_files_exact": true,
+    "file_bytes_each": 524288,
+    "moving_video_at_end_both": true,
+    "tail_content_changes": [
+      14,
+      14
+    ],
+    "max_sampled_video_pull_gap_seconds": [
+      11.995821499993326,
+      20.99487445797422
+    ],
+    "live_video_framing_verified": true,
+    "acknowledged_source_hold_samples": 248,
+    "actual_pixel_bound_samples": 531,
+    "peak_packet_attribution_ms": {
+      "capture_to_encoded": 40.135,
+      "encoded_to_send": 0.008,
+      "send_to_sdk": 0.003,
+      "sdk_to_ingress": 167.7,
+      "ingress_to_webrtc": 0.02,
+      "webrtc_to_pcm_edge": 42.092
+    },
+    "observed_growth_before_peak": "At206s one sender requests450->900kbit/s and7.5->15fps; peak at207.0505s. Temporal association is not a complete causal proof."
+  },
+  "aligned_group_360s": {
+    "result": "FAIL strict latency gate",
+    "participants": 3,
+    "audio_directions": 6,
+    "shared_blind_fifo_kbps": 1024,
+    "peak_ms": 380.1710416737478,
+    "markers_matched": 2112,
+    "missing": 0,
+    "all_files_exact": true,
+    "file_bytes_each": 524288,
+    "all_six_video_paths_moving_at_end": true,
+    "tail_content_changes": [
+      14,
+      14,
+      14,
+      14,
+      14,
+      14
+    ],
+    "neutral_queue_max_ms": 201.1192057398148,
+    "peak_exact_source": {
+      "native_admission_to_ingress_ms": 210.45,
+      "handler_to_budget_admit_ms": 0.151,
+      "budget_admit_to_quic_accept_ms": 0.014,
+      "quic_accept_to_authenticated_receiver_ms": 210.139
+    },
+    "clock_late_intervals": 0,
+    "deadline_misses": 0,
+    "max_callback_ms": 0.664583349134773,
+    "shaper_capture_complete": true
+  },
+  "remaining_work": [
+    "Protect the common bottleneck before competing traffic creates a long queue: the original full group gate still reaches380ms and 1:1 reaches250ms. Never claim completion from codec/header tests.",
+    "Investigate bounded increases to actual video bitrate/cadence and headroom-aware admission. The observed 1:1 peak follows a doubled profile/cadence; source hints currently exclude QUIC/TCP/IP and ACK overhead. Neither hypothesis is a verified fix yet.",
+    "Group video still lacks the live per-source framing integration used by 1:1/screen. Per-path headers and multi-peer/relay replication must remain separate models.",
+    "Verify fractional sparse-video behavior with large headers: pinned WebRTC rounds overhead packet rate up to at least1Hz, so a1kbit/s gross allocation can yield zero payload. The full test recovers moving video, but this edge is not qualified.",
+    "Native audio handover transient219/211ms from the earlier physical capture remains unexplained; no claim this cycle fixes it.",
+    "Validate actual application / phone, screen sharing, carrier fallback and live speech after the remaining source-admission fixes. No acoustic loudness claim from synthetic PCM."
+  ],
+  "cleanup": "All owned fixture, helper, worker and policy PIDs checked absent; zero fixture sockets. No GUI app or phone instance started this cycle. Android builder container removed.",
+  "policy": "Relays remain opaque and generic with no media role hint or preferential service. No server configuration, mailbox policy, push or release this cycle.",
+  "foreign_wip_preserved": {
+    "root_diff_sha256": "529f7718edea4b6775cc11607bc2ff663a922cc3521b680cf94efa39d7b26859",
+    "sdk_diff_sha256": "1ceeb05d540078262f1480ba7210dfaa0f5895be9f0099f64bc18a56a4f6a363"
+  },
+  "evidence_directory": "video-framing-2026-10-19/",
+  "evidence_sha256": {
+    "aligned-audio-pipeline.json": "f243676f736a8e24de82e2ae5c9ba16b2359ccb6590fcfc75c78fc86d0220797",
+    "aligned-inputs.json": "cf45f7be0a0a7dfa9919e013fb618a066fa243e8535c12113ae254362f45d73d",
+    "aligned-rtp-timing.json": "7a0f1b9509b0bf16ba03434f9b8c0944f7193dcdd24f3c9c7bcd8b384d03f1b5",
+    "aligned-runtime-witness.json": "d48ea70727d9cce29ce2005f18e96858e4ce6831a53e879e83ecff9a15ab57d7",
+    "artifact-hashes.json": "42b62a64052a7158a90654bd7d4d7ecf2884ee625f64da99d919f143d74614e2",
+    "build-proof-final.json": "4409638a428cfd60c1df522c14520b3a20a19befafb47cc5048db6a88b8505cf",
+    "bwe-handover-v3.log": "49f1137713a5c0903960bbe8c8c1baa12e3ad780e6f0090d60403b129c40cb1a",
+    "dart-analyze-v2.log": "ccc5788a4d1b585c3aa975edd2145dca495306ce3f28b4c24eecb2a37093e4af",
+    "dual-framing-v3.log": "e7fc04b4d82fb67c24c41de8ade28877768ce149ef121dbc14874dcdc8394cc4",
+    "frame-budget-gate-v3.json": "26f4732542a7adc86b1037f223401a10cc03c6265a524f81efc65c3419ab7147",
+    "frame-budget-v3-fixed.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "frame-budget-v3-negative.log": "92f86f5e40f35232480a089cda5bb797295164f73f2d4c26e77d360bc4e3c5b8",
+    "group-aligned-cleanup.json": "b232ab578c7ebac0c4a50e79fe1788544297695a4b32998942de07cf21100720",
+    "group-aligned-full-360.json": "76fc7ddcad20d54908d393ac95fc0cb66a84556488e42da01e8195d72a226a04",
+    "group-aligned-peak.json": "7586bce8f84a8e9987583564d43ba8740e8764eb9eabea5acb8fcb440e189f56",
+    "group-aligned-source.json": "5d25a23259139196730b7b96d6de698452231b31adf9a0a2223bec2f78699ce4",
+    "pair-baseline-cleanup.json": "2d9075fcdaae040f3346c9a1b6ea98bd8398b5580d33d0c4e5c5f95de4861d9f",
+    "pair-baseline.json": "82de1ec8a7314978cc8d32f32f11c17fbce89ba333d1c8f187fae5ff337dcb8b",
+    "pair-candidate-aligned-full-cleanup.json": "ae92077346663a74010e905298f44dff2b862e77a0c660611402a11cc1309312",
+    "pair-candidate-aligned-full.json": "82aae5270739e96c64cf05a7e16a10a04eb35483e938051e2425dbabb8008864",
+    "pair-candidate-cleanup.json": "4763bb857d4acdb16432cdccd3a42b1ce4f1d0e9323b48d23b78406f350374e8",
+    "pair-candidate-full-abort.json": "f83694bf2e3a3782f5ab31eea5c491d6331c57c46d1355c044d65d174c02f1d2",
+    "pair-candidate-full-cleanup.json": "5bd7d6eb759d76a6a9b49d760c367bfec6035e39ac8d45692d0571d06c86fa14",
+    "pair-candidate.json": "5c7e204b819cfb1734c5d64e9ceb84ad11caf3eb5c584ce2b129d3e2f9dc07ff",
+    "policy-analyze.log": "6ec6037e3f9313d175e852087d98ca5b05cf99eb7e41ff63a21dfac9801fa9b6",
+    "policy-tests.log": "14fe1498fe49b15457cfafce5463b6b167cf0e6f90eabbde26397944a9cd99d9",
+    "rust-cost.log": "f79b6ecd5fc6ba34f9f7722e9a69b3d8c1bb20543c7fcec8000fe19bfe1de219",
+    "source.json": "062f49537e878ad6c5b26e47ad0a36e373a4868ea47c41d08a2b2f1b4030e3ff",
+    "group-runtime-witness.json": "28fb160e1ed44a14d0448144a1af4f19e89cce773e297ba1a870f65b6e2f7fe3"
+  },
+  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-video-framing-20261019",
+  "sdk_commit": "80c4205e29b51173d17905713f4e9432c816bf73"
+}

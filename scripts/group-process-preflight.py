@@ -51,6 +51,7 @@ def worker(pipe, sdk_path, media_path, root, clock, participant,
     policy_log = None
     rows, snapshots, images = [], [], []
     video_started = False
+    source_feedback_queued = 0
     use_video, use_files = full_load and load_kind != 'files', full_load and load_kind != 'video'
     result = {'ok': False, 'pid': os.getpid(), 'participant': participant,
               'primary_receivers_in_process': 1,
@@ -155,6 +156,7 @@ def worker(pipe, sdk_path, media_path, root, clock, participant,
 
             def adapt(op, elapsed, snapshot=None):
                 request = {'op': op, 'now': int(elapsed * 1000), 'expectedPeers': 2}
+                request['sourceFeedbackQueued'] = source_feedback_queued > 0
                 if snapshot is not None:
                     request['stats'] = snapshot
                 if full_load:
@@ -283,6 +285,8 @@ def worker(pipe, sdk_path, media_path, root, clock, participant,
                                 int(video_policy['sourcePressured']), sampled_at_unix_ms)
                             if snapshot['source_report_rc'] != 0:
                                 raise RuntimeError('Local source-pressure report refused')
+                            source_feedback_queued += 1
+                        snapshot['source_feedback_queued'] = source_feedback_queued
                         preparing = use_video and not video_started and snapshot['t'] >= 20
                         if files and files.thread is None and snapshot['t'] >= 20:
                             files.start()

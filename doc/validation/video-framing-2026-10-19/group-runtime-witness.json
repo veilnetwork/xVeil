@@ -1,0 +1,23 @@
+[
+  {
+    "participant": 0,
+    "checked_samples": 359,
+    "acknowledged_hold_samples": 115,
+    "mapping_consistent": true,
+    "pixel_bound_samples": 294
+  },
+  {
+    "participant": 1,
+    "checked_samples": 359,
+    "acknowledged_hold_samples": 127,
+    "mapping_consistent": true,
+    "pixel_bound_samples": 311
+  },
+  {
+    "participant": 2,
+    "checked_samples": 359,
+    "acknowledged_hold_samples": 126,
+    "mapping_consistent": true,
+    "pixel_bound_samples": 293
+  }
+]

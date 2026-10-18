@@ -1,0 +1,10 @@
+[
+  {
+    "name": "negative",
+    "exit_code": -6
+  },
+  {
+    "name": "fixed",
+    "exit_code": 0
+  }
+]

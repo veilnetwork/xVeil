@@ -1,0 +1,22 @@
+00:00 +0: loading /Users/vart/Projects/veilnetwork/xVeil/test/call_source_budget_recovery_test.dart
+00:00 +0: /Users/vart/Projects/veilnetwork/xVeil/test/call_source_budget_recovery_test.dart: native video cannot grow while own source budget is held for audio
+00:00 +1: /Users/vart/Projects/veilnetwork/xVeil/test/call_source_budget_recovery_test.dart: native video cannot grow while own source budget is held for audio
+00:00 +2: /Users/vart/Projects/veilnetwork/xVeil/test/call_source_budget_recovery_test.dart: native video cannot grow while own source budget is held for audio
+00:00 +3: /Users/vart/Projects/veilnetwork/xVeil/test/call_source_budget_recovery_test.dart: native video cannot grow while own source budget is held for audio
+00:00 +4: /Users/vart/Projects/veilnetwork/xVeil/test/call_source_budget_recovery_test.dart: native video cannot grow while own source budget is held for audio
+00:00 +5: /Users/vart/Projects/veilnetwork/xVeil/test/call_source_budget_recovery_test.dart: native video cannot grow while own source budget is held for audio
+00:00 +6: /Users/vart/Projects/veilnetwork/xVeil/test/call_source_budget_recovery_test.dart: native video cannot grow while own source budget is held for audio
+00:00 +7: /Users/vart/Projects/veilnetwork/xVeil/test/call_source_budget_recovery_test.dart: native video cannot grow while own source budget is held for audio
+00:00 +8: /Users/vart/Projects/veilnetwork/xVeil/test/call_peer_audio_recovery_test.dart: delayed pending health event keeps its identity across unknown samples
+00:00 +9: /Users/vart/Projects/veilnetwork/xVeil/test/call_peer_audio_recovery_test.dart: delayed pending health event keeps its identity across unknown samples
+00:00 +10: /Users/vart/Projects/veilnetwork/xVeil/test/call_source_budget_recovery_test.dart: source hold preserves prompt degradation for fresh audio loss
+00:00 +11: /Users/vart/Projects/veilnetwork/xVeil/test/call_source_budget_recovery_test.dart: source hold preserves prompt degradation for fresh audio loss
+00:00 +12: /Users/vart/Projects/veilnetwork/xVeil/test/call_peer_audio_recovery_test.dart: wire validates identity pair and preserves legacy feedback
+00:00 +13: /Users/vart/Projects/veilnetwork/xVeil/test/call_peer_audio_recovery_test.dart: wire validates identity pair and preserves legacy feedback
+00:00 +14: /Users/vart/Projects/veilnetwork/xVeil/test/call_peer_audio_recovery_test.dart: health uses the decoder identity when aggregate counters race a sample
+00:00 +15: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_framing_test.dart: direct, relay, ordered framing and replication stay distinct
+00:00 +16: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_framing_test.dart: direct, relay, ordered framing and replication stay distinct
+00:00 +17: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_framing_test.dart: unknown or inconsistent wire models never overwrite a live hint
+00:00 +18: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_framing_test.dart: video retains acknowledged framing through a busy or unknown new path
+00:00 +19: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_framing_test.dart: video models payload packet deltas, including counter reset and ceiling
+00:00 +20: All tests passed!

@@ -5,6 +5,7 @@ import 'package:xveil/state/call_audio_receive_activity.dart';
 import 'package:xveil/state/call_peer_audio_playout.dart';
 import 'package:xveil/state/call_audio_source_pressure.dart';
 import 'package:xveil/state/call_audio_feedback_schedule.dart';
+import 'package:xveil/state/call_peer_audio_recovery.dart';
 import 'package:xveil/state/call_video_profile.dart';
 import 'package:xveil/domain/call_signal.dart';
 
@@ -34,6 +35,7 @@ Future<void> main() async {
   final activity = List.generate(2, (_) => CallAudioReceiveActivity());
   final peer = List.generate(2, (_) => CallPeerAudioPlayout());
   final sourcePressure = List.generate(2, (_) => CallAudioSourcePressure());
+  final peerRecovery = List.generate(2, (_) => CallPeerAudioRecovery());
   final feedbackSchedule = List.generate(2, (_) => CallAudioFeedbackSchedule());
   await for (final line
       in stdin.transform(utf8.decoder).transform(const LineSplitter())) {
@@ -83,7 +85,13 @@ Future<void> main() async {
     final peerInterrupted = peer[i].takeInterruption();
     final interrupted = activity[i].interrupted || peerInterrupted;
     final peerRecovered = peer[i].takeRecovery();
-    final recovered = activity[i].recovered || peerRecovered;
+    final recovered = activity[i].recovered;
+    final peerAudioRecovered = peerRecovery[i].observe(
+      stats: stats,
+      healthIdentity: peer[i].recoveryIdentity(now),
+      healthRecovered: peerRecovered,
+      expected: true,
+    );
     final sourcePressured = sourcePressure[i].observe(
       sendExpected: true,
       receiveExpected: true,
@@ -100,10 +108,12 @@ Future<void> main() async {
           : now.difference(activity[i].lastRxAt!).inMilliseconds,
       interrupted: interrupted,
       recovered: recovered,
+      peerRecoveryObserved: peerAudioRecovered,
       audioTxDrops: stats['audio_tx_rtp_drops'] is int
           ? stats['audio_tx_rtp_drops'] as int
           : null,
       audioLossReportUs: stats['audio_loss_report_us'],
+      peerAudioRecoveryReportUs: stats['audio_peer_recovery_report_us'],
     );
     if (req['prepare'] == true) {
       a.prepareVideoSend(
@@ -118,6 +128,8 @@ Future<void> main() async {
     }
     a.onNativeStats(
       stats,
+      sourceBudgetPressured:
+          req['sourceFeedbackQueued'] == true && sourcePressured == true,
       videoSendExpected: req['videoSendExpected'] == true,
       sendAudioExpected: true,
       requireAudioReceivePlayout: true,
@@ -130,6 +142,7 @@ Future<void> main() async {
       requirePeerAudioPlayout: true,
       audioInterrupted: interrupted,
       audioRecoveryObserved: recovered,
+      peerRecoveryObserved: peerAudioRecovered,
     );
     final target = a.target;
     bool? pause;
@@ -160,6 +173,8 @@ Future<void> main() async {
         'peerSampleSequence': peer[i].sampleSequence,
         'peerBufferGrowing': peer[i].bufferGrowing(now),
         'sourcePressured': sourcePressured,
+        'sourceBudgetPressured':
+            req['sourceFeedbackQueued'] == true && sourcePressured == true,
         'audioAdaptation': a.bufferDiagnostics,
       }),
     );

@@ -1,0 +1,22 @@
+{
+  "base_sdk": "2565d113509fdfdb61ad0880c6e63052de0946ea",
+  "foreign_wip_excluded": true,
+  "owned_sources_sha256": {
+    "crates/veilclient-ffi/include/veil_ffi.h": "bc205427b5f6cb50415035963798911700b503e64c5d94d2b7465e3a7af764db",
+    "crates/veilclient-ffi/src/media_ffi/packet_cost.rs": "90a1ef21d66fd9e9296ce02da3f5ddeaa1ad959fc986cc336b94db714dea86d2",
+    "flutter/veil_flutter/lib/src/bindings.dart": "3ac0805efcdf7fa08fbb9af48c3c9c722f4f513ade86f80ef06d420cbca18367",
+    "flutter/veil_flutter/lib/src/client.dart": "5f8bff482e5ee7b2cb11362c38d89f3b73a5543d1581b07dcd157a0c2d584da2",
+    "flutter/veil_flutter/lib/veil_ffi.dart": "ec96a9e1cad400387c6483c342979dbbaf6e77ffcd4dbf8c6e94536500183833",
+    "flutter/veil_flutter/lib/veil_flutter.dart": "a7c8ceef476352ae3651b9f467a2929ebb09d38c38561958a07570976cdb855f",
+    "flutter/veil_media/android/README.md": "d00fd59cef88dcb07a3be0c48d51f5856661cf26fb8f4f503a928978b622b4d9",
+    "flutter/veil_media/lib/src/bindings.dart": "d4a5cdf8ae6b65d098e16ed571925e6f7ba11112cf9abcc28fb3e2398191c061",
+    "flutter/veil_media/lib/veil_media.dart": "2b950a10efcd92c9e13d8a16dcd978e8e7d71fc6c5a58fd9df721e0ad34cb969",
+    "flutter/veil_media/src/veil_media_engine.cc": "1151a69e80db15f92ea560c1960ce883b36117b6f4094cac4a7504abbf0b451a",
+    "flutter/veil_media/src/veil_media_engine.h": "89d78e1855ae7e7f5af156792cad9fe6f88fd730c29ebb5d7e2480c1371a6bb7",
+    "flutter/veil_media/src/veil_video_frame_budget.h": "bc1126e64745851fbfdfd83c44dbec02e44fff594a7feb9d24692c854fa15700",
+    "flutter/veil_media/test/call_plane_hooks.inc": "1467a243078324ea1e48aae0ec9581cb98659db36c2a2a23baf1365e3180cd90",
+    "flutter/veil_media/test/call_planes_smoke.cc": "73fc81667243667bf30a7b82d2dfe655f3069e2e13310a4b6b476f1af0e53896",
+    "flutter/veil_media/test/video_frame_budget_smoke.cc": "dd95459d12126a215f9ec01ef49363c90b1fafbce7a402029a3de6f8b1503f65"
+  },
+  "sdk_library_sha256": "827129168678804251e92c32d6acd45a2a996fa6c6acd3f89efbffd45a9479dc"
+}
