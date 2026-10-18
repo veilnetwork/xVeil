@@ -1,5 +1,93 @@
 # Calls media handoff
 
+## 2026-10-18: low-rate encoder frame sizing reaches the physical source
+
+SDK native commit `1956cfa4` adds encoded-image size feedback to the existing
+adaptive source for **selected profiles <=30 kbit/s**. The actual encoder rate
+and RTP payload ceiling produce a frame-size hint: existing 4x pacing over
+100 ms, with at least one packet's usable payload. An actual oversized encode
+requests fewer pixels for subsequent inputs, with a coarse request floor and
+margin for the keyframe caused by resizing. Repeated old-resolution in-flight
+images do not multiply a single reduction. The host's higher selected profile
+releases this extra bound; native rate fluctuations cannot independently grow
+it. Every encoded image, reference chain, callback result and codec rate update
+is forwarded unchanged. Preview retains the original capture. No extra encoded
+frame discard, deadline extension, audio/source allowance or relay policy change.
+
+The preceding capture's original three-packet frame spans **318.695 ms** from
+first native attempt to marker, against the SDK's **200-ms oldest-fragment
+lifetime**; native FFI admission maxima round below 1 ms and the route is relay.
+Its 2296 raw RTP bytes never have an original seal witness. This establishes a
+producer/assembly timing conflict on the current source path, without an exact
+pre-seal discard witness in that old capture. Do not classify every missing
+seal as this cause. Increasing the frame lifetime would retain stale video;
+the new source feedback instead addresses a large encoded result at low rate.
+
+Pure sizing/concurrency checks and real direct/group VP8 integration pass.
+The latter verifies actual encoded pixels, RTP packetization, original preview
+and release at a higher profile. A private counterfactual disconnecting only
+the source cap fails the actual encoded-pixels assertion; full wiring passes.
+Real RTCP-loss integration and 13 Python attribution tests pass. macOS/Android
+arm64 production native builds retain 100 exports; macOS export sets are equal.
+Two initial counterfactual build attempts failed on missing copied test/helper
+files; these were fixed before obtaining the expected assertion failure.
+
+Only native media is replaced in the existing private b262 Profile AOT apps.
+Mac SDK remains clean c89, phone Rust remains its preceding clean binary;
+versionCode 12614 and signer/data stay unchanged. No release. Physical repeat:
+ring **0.144 s**, **102 samples through 208.247 s**, cameras after 30 s and
+explicit relay recovery at **121.670 s**. Both endpoints remain active at every
+poll after three seconds. Mac has 45 constrained observations, 39 oversized
+encoded results and 26 healthy full-640x360 observations after release. Phone
+frames already fit and never request this extra pixel cap.
+
+Interruption counters are zero, but cumulative decoded catch-up is **140 ms Mac /
+10 ms phone**. Final actual 20-second receive cadence is only **1.015 fps both**;
+the reported 11.2/10.5 aggregate rates are not final-window quality. Native first-
+attempt frame spans >=200 ms fall from 4 to 1 on Mac in sequential captures;
+this is not a randomized acoustic or network quality proof. All 5574 accepted
+Mac RTP keys eventually arrive, with nine lossy RR ranges. The first gap joins
+an exact **5724-byte / five-cell budget_drop work**, which fits 8192: the next
+source question is remaining/window credit and fresh admission timing, rather
+than treating every drop as oversized. A larger frame cap or weakened audio
+protection is not justified. The late high-nonce frame diagnostic change remains
+committed but is not in these unchanged Rust binaries.
+
+Private artifacts: `~/.cache/codex/xveil-frame-pacing-20261018`. Physical apps,
+launcher, logcat and owned ADB forward independently verify absent; Mac required
+SIGKILL after its termination budget. The original full contention gate is run
+separately after closing the physical apps; its final result is recorded below.
+Prior PCM/startup counterexamples and missing live headset/speech qualification
+remain retained. Goal ACTIVE.
+
+### Original full-load repeat: measured audio passes, capture remains unqualified
+
+Evidence: `validation/call-lowrate-frame-sizing-2026-10-18.json`. Original
+360-s / 1024-kbit/s neutral shared FIFO, three real SDK/native participants,
+six PCM paths, changing VP8 and three authenticated 512-KiB files. Clean c89
+Rust, current 1956 native test-hook build; source hashes and original clocks,
+workload, deadlines and strict quality gates pinned. Only the optional b262
+adapter parameter differs from the preceding harness source; its default false
+retains this native harness behavior, which does not qualify Flutter source-hold
+wiring. Physical apps were stopped before this separate load run.
+
+All **2112** markers match, **0 missing**, maximum **190.054542 ms**. All three
+files finish with correct hashes by **345.759 s**, six video tails each advance
+**14** times, topology **[3,1,1,1]** verifies, worker timing/QoS checks pass and
+179629 wire events fit the 250000-row capture. New sizing is actually exercised:
+workers observe **7 / 5 / 3** oversized encoded results and constrained inputs.
+However the parent console logger drops **21007 records** (workers' logs are
+complete). Therefore the unmodified gate correctly returns **ok=false,
+contention_qualification=false, exit 1**. Do not relabel this full run PASS or
+waive diagnostic completeness based on its good PCM number. **Next:** locate
+the parent logging bottleneck/capture budget and repeat with complete evidence;
+then examine fresh admission of the 5724-byte work and sustained video recovery.
+
+All node stops return 0, worker exits 0, socket files 0. Independent OS audit
+finds fixture, launcher, caffeinate, worker and policy PIDs absent. Four unrelated
+SDK security edits retain their original scoped diff hash. No release/push,
+relay deployment or hidden-volume changes. Goal ACTIVE.
+
 ## 2026-10-18: exact whole-frame charge and returned-phone repeat
 
 Evidence: `validation/call-frame-source-cost-2026-10-18.json`. New
