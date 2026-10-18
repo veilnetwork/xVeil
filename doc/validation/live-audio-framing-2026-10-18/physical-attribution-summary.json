@@ -1,0 +1,34 @@
+{
+  "mac": {
+    "interior_missing_payloads": 34,
+    "sum_missing_encoded_ms": 840,
+    "max_consecutive_missing_payloads": 2,
+    "max_consecutive_missing_encoded_ms": 60,
+    "note": "Encoded durations, not measured playout pause. FEC/PLC may recover/conceal loss; no inter-device clock subtraction."
+  },
+  "phone": {
+    "interior_missing_payloads": 23,
+    "sum_missing_encoded_ms": 600,
+    "max_consecutive_missing_payloads": 1,
+    "max_consecutive_missing_encoded_ms": 40,
+    "note": "Encoded durations, not measured playout pause. FEC/PLC may recover/conceal loss; no inter-device clock subtraction."
+  },
+  "mac_sealed_source_join": {
+    "all_34_missing_payloads_sealed_and_accepted": true,
+    "accepted_copies_histogram": {
+      "2": 30,
+      "1": 4
+    },
+    "accepted_connection_ids": [
+      102,
+      103,
+      128
+    ],
+    "estimated_wire_bytes_minus_rtp": 316,
+    "unordered_actual_delta_from_estimate": 44,
+    "actual_unbatched_flow_datagram_overhead": 360,
+    "audio_native_hint": 209,
+    "hint_shortfall": 151,
+    "note": "Trace wire_bytes uses ordinary-stream AEAD16 estimate. Actual flow datagram adds60 instead:316-16+60=360. Excludes RTP, QUIC/IP; not hop-summed or replication-amortized. Does not identify the dropping downstream hop."
+  }
+}
