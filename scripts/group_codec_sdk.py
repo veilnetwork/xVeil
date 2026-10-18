@@ -102,6 +102,9 @@ class GroupSdk:
             if snapshot(channel, C.byref(value)) != 0:
                 raise RuntimeError('Post-capture channel diagnostics unavailable')
             result.append({'channel_index': index,
+                           'channel_handle': channel,
+                           'participant_pair': next((list(pair) for pair, value in
+                               self.channel_pairs.items() if value == channel), None),
                            **{name: getattr(value, name) for name, _ in value._fields_}})
         return result
 
