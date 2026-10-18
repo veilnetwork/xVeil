@@ -1,0 +1,26 @@
+{
+  "sdk_commit": "4ed52ad7d151fd32db20f977bccf4ab685e1ccc4",
+  "app_base_commit": "757801f8",
+  "source_sha256": {
+    "lib/data/transport/veil_flutter_transport.dart": "2ff99e413a41b2c3ccc2018348bc018c751d3160077b8683549ce5ae4343f0df",
+    "lib/state/veil_call_media.dart": "f4e7a6b5ac50d925e32ba4457ea0bd02d2422ce919932fde7a73094420867c6a",
+    "lib/state/call_audio_framing.dart": "7c3ea69301923f428673c07a09ebc6b2c757a879b08f887cf7e007ad95e8609e",
+    "test/call_audio_framing_test.dart": "0871fd1ed3e0536044a3b82668a588462db34a78400cfcf1d177e42da09ae12f"
+  },
+  "snapshot_matches": true,
+  "analysis": {
+    "path": "dart-analyze-primed.log",
+    "last_lines": [
+      "Analyzing call_audio_framing.dart, veil_call_media.dart, veil_flutter_transport.dart...",
+      "No issues found!"
+    ]
+  },
+  "flutter_tests": {
+    "path": "flutter-cost-test.log",
+    "passed": 2
+  },
+  "private_profile_builds": {
+    "mac_build_succeeded": true,
+    "android_build_succeeded": true
+  }
+}

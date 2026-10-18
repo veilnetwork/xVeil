@@ -1,0 +1,10 @@
+running 7 tests
+test local_datagram_status::tests::a_new_preparation_requires_a_runner_check_before_reusing_ready ... ok
+test local_datagram_status::tests::framing_follows_live_child_owner_and_expires_on_refresh ... ok
+test local_datagram_status::tests::generic_transport_readiness_expires_and_does_not_claim_independent_support ... ok
+test local_datagram_status::tests::neutral_forward_readiness_requires_current_negotiation_and_live_transport ... ok
+test local_datagram_status::tests::ordered_parent_does_not_claim_an_additional_signaling_child ... ok
+test local_datagram_status::tests::retired_lease_cannot_publish_or_clear_a_replacement ... ok
+test local_datagram_status::tests::source_readiness_is_independent_and_never_applies_to_transit ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 597 filtered out; finished in 0.00s

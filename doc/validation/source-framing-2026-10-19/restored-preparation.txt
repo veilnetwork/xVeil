@@ -1,0 +1,7 @@
+running 4 tests
+test handlers::source_preparation::tests::direct_alias_prepares_each_verified_device_without_relay_fallback ... ok
+test handlers::source_preparation::tests::relay_preparation_uses_bounded_existing_candidates_even_if_unsupported ... ok
+test handlers::source_preparation::tests::relay_preparation_uses_the_senders_preferred_datagram_hops ... ok
+test handlers::source_preparation::tests::requires_negotiation_owned_source_and_valid_payload ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 171 filtered out; finished in 0.00s

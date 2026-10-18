@@ -1,0 +1,496 @@
+{
+  "qualified": false,
+  "ring_seconds": 0.28840754201519303,
+  "duration_seconds": 239.97542454200448,
+  "samples": 117,
+  "result_error": null,
+  "endpoints": {
+    "mac": {
+      "last": {
+        "audio_interruption_count": 0,
+        "audio_interruption_duration_ms": 0,
+        "audio_latency_discarded_ms": 160,
+        "audio_jb_ms": 10,
+        "remote_frames": 377,
+        "local_source_pressured": true,
+        "video_send_paused": 0,
+        "max_fps": 1.0
+      },
+      "max": {
+        "audio_jb_ms": 145,
+        "pacer_delay_ms": 0,
+        "audio_rx_age_ms": 441,
+        "audio_tx_rtp_max_gap_ms": 64
+      },
+      "phases": {
+        "audio_only": {
+          "span_seconds": 20.3732882909826,
+          "transports": {
+            "p2p": 11
+          },
+          "received_frames_delta": 0,
+          "receive_fps": 0.0,
+          "new_interruptions": 0,
+          "trimmed_ms_delta": 0,
+          "source_held_samples": 6,
+          "samples": 11
+        },
+        "p2p_video": {
+          "span_seconds": 38.92340570798842,
+          "transports": {
+            "p2p": 20
+          },
+          "received_frames_delta": 160,
+          "receive_fps": 4.110637214028846,
+          "new_interruptions": 0,
+          "trimmed_ms_delta": 0,
+          "source_held_samples": 7,
+          "samples": 20
+        },
+        "final_minute": {
+          "span_seconds": 59.69077112499508,
+          "transports": {
+            "relay": 30
+          },
+          "received_frames_delta": 52,
+          "receive_fps": 0.8711564454597132,
+          "new_interruptions": 0,
+          "trimmed_ms_delta": 90,
+          "source_held_samples": 30,
+          "samples": 30
+        }
+      },
+      "admission_observations": [
+        {
+          "peer_prefix": "1c3ec09b",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 5
+        },
+        {
+          "peer_prefix": "caafde32",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 2
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 3
+        },
+        {
+          "peer_prefix": "3d3575c9",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 5
+        },
+        {
+          "peer_prefix": "1ac128cd",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 3
+        },
+        {
+          "peer_prefix": "c92b85df",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 3
+        },
+        {
+          "peer_prefix": "1ac128cd",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 96
+        },
+        {
+          "peer_prefix": "1ac128cd",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 91
+        },
+        {
+          "peer_prefix": "1ac128cd",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 59
+        },
+        {
+          "peer_prefix": "1ac128cd",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "3",
+          "observations": 1
+        },
+        {
+          "peer_prefix": "1c3ec09b",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 38
+        },
+        {
+          "peer_prefix": "3d3575c9",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 19
+        },
+        {
+          "peer_prefix": "c92b85df",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 22
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 110
+        },
+        {
+          "peer_prefix": "caafde32",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 76
+        },
+        {
+          "peer_prefix": "caafde32",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 145
+        },
+        {
+          "peer_prefix": "1c3ec09b",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 48
+        },
+        {
+          "peer_prefix": "caafde32",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "3",
+          "observations": 1
+        },
+        {
+          "peer_prefix": "caafde32",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 54
+        },
+        {
+          "peer_prefix": "c6ace22e",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 11
+        },
+        {
+          "peer_prefix": "c6ace22e",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 3
+        },
+        {
+          "peer_prefix": "1c3ec09b",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 2
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 103
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 85
+        },
+        {
+          "peer_prefix": "c92b85df",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 1
+        },
+        {
+          "peer_prefix": "c6ace22e",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 1
+        }
+      ],
+      "canary_independent_connection_trace_ids": [
+        "139",
+        "161",
+        "49"
+      ]
+    },
+    "phone": {
+      "last": {
+        "audio_interruption_count": 0,
+        "audio_interruption_duration_ms": 0,
+        "audio_latency_discarded_ms": 480,
+        "audio_jb_ms": 85,
+        "remote_frames": 360,
+        "local_source_pressured": true,
+        "video_send_paused": 0,
+        "max_fps": 1.0
+      },
+      "max": {
+        "audio_jb_ms": 193,
+        "pacer_delay_ms": 0,
+        "audio_rx_age_ms": 90,
+        "audio_tx_rtp_max_gap_ms": 405
+      },
+      "phases": {
+        "audio_only": {
+          "span_seconds": 20.3732882909826,
+          "transports": {
+            "p2p": 11
+          },
+          "received_frames_delta": 0,
+          "receive_fps": 0.0,
+          "new_interruptions": 0,
+          "trimmed_ms_delta": 0,
+          "source_held_samples": 6,
+          "samples": 11
+        },
+        "p2p_video": {
+          "span_seconds": 38.92340570798842,
+          "transports": {
+            "p2p": 20
+          },
+          "received_frames_delta": 159,
+          "receive_fps": 4.084945731441166,
+          "new_interruptions": 0,
+          "trimmed_ms_delta": 0,
+          "source_held_samples": 9,
+          "samples": 20
+        },
+        "final_minute": {
+          "span_seconds": 59.69077112499508,
+          "transports": {
+            "relay": 30
+          },
+          "received_frames_delta": 45,
+          "receive_fps": 0.7538853854939825,
+          "new_interruptions": 0,
+          "trimmed_ms_delta": 320,
+          "source_held_samples": 24,
+          "samples": 30
+        }
+      },
+      "admission_observations": [
+        {
+          "peer_prefix": "0b29ccb3",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 4
+        },
+        {
+          "peer_prefix": "caafde32",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 2
+        },
+        {
+          "peer_prefix": "3d3575c9",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 5
+        },
+        {
+          "peer_prefix": "c92b85df",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 5
+        },
+        {
+          "peer_prefix": "1c3ec09b",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 5
+        },
+        {
+          "peer_prefix": "0b29ccb3",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 106
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "quic",
+          "independent": "false",
+          "local_slot": "6",
+          "observations": 4
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 34
+        },
+        {
+          "peer_prefix": "0b29ccb3",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 89
+        },
+        {
+          "peer_prefix": "0b29ccb3",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 57
+        },
+        {
+          "peer_prefix": "0b29ccb3",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "3",
+          "observations": 1
+        },
+        {
+          "peer_prefix": "3d3575c9",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 17
+        },
+        {
+          "peer_prefix": "1c3ec09b",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 27
+        },
+        {
+          "peer_prefix": "c92b85df",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 2
+        },
+        {
+          "peer_prefix": "caafde32",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 75
+        },
+        {
+          "peer_prefix": "1c3ec09b",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 43
+        },
+        {
+          "peer_prefix": "caafde32",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 60
+        },
+        {
+          "peer_prefix": "caafde32",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "3",
+          "observations": 1
+        },
+        {
+          "peer_prefix": "caafde32",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 50
+        },
+        {
+          "peer_prefix": "c6ace22e",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "6",
+          "observations": 97
+        },
+        {
+          "peer_prefix": "3d3575c9",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 3
+        },
+        {
+          "peer_prefix": "c6ace22e",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 84
+        },
+        {
+          "peer_prefix": "c6ace22e",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 76
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "0",
+          "observations": 98
+        },
+        {
+          "peer_prefix": "5ac04540",
+          "transport": "quic",
+          "independent": "true",
+          "local_slot": "2",
+          "observations": 4
+        }
+      ],
+      "canary_independent_connection_trace_ids": [
+        "161",
+        "67"
+      ]
+    }
+  },
+  "limits": [
+    "Active QUIC fleet sessions are prerequisites, not proof of a delivering relay media candidate or all relay-to-relay hops.",
+    "Admissions are sender observations, not peer ACKs; unique connection ids only within one process.",
+    "No live speech or headset loudness qualification; uncontrolled WAN conditions."
+  ]
+}

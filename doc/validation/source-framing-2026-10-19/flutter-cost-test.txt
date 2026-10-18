@@ -1,0 +1,4 @@
+00:00 +0: loading /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_framing_test.dart
+00:00 +0: direct, relay, ordered framing and replication stay distinct
+00:00 +1: unknown or inconsistent wire models never overwrite a live hint
+00:00 +2: All tests passed!

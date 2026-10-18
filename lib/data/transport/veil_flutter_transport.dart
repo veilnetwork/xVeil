@@ -513,6 +513,10 @@ class VeilFlutterTransport
       // (RTT-stall campaign, 2026-07-17). Same isolation precedent as
       // capabilityClient/realtimeClient above.
       mediaClient = await VeilClient.connect(socketPath);
+      // Source framing reads this connection's authenticated local node id.
+      // It has its own native bundle/cache, separate from the main client.
+      // Resolve once while idle; packet-cost polling never issues an RPC.
+      await mediaClient.nodeId();
       // The offline mailbox drives the node's SLOWEST inline IPC requests —
       // a drain FETCH warms the relay directory over the network (~5 s), a
       // relay-key lookup walks the DHT (3-9 s), sealing resolves the
@@ -553,6 +557,7 @@ class VeilFlutterTransport
       // Use a separate IPC connection because its receive table is keyed by
       // endpoint id alone, while the node distinguishes the two app ids.
       mediaDeviceClient = await VeilClient.connect(socketPath);
+      await mediaDeviceClient.nodeId();
       try {
         mediaDeviceApp = await mediaDeviceClient.bindDeviceScoped(
           namespace: veilChatNamespace,
@@ -847,6 +852,9 @@ class VeilFlutterTransport
   /// Relay drain queue/IPC timing for live call diagnostics.
   Map<String, int>? mediaChannelStats(int chan) =>
       _mediaApp.mediaChannelStats(chan);
+
+  Map<String, Object?>? mediaPacketCost(int chan, {required int packetBytes}) =>
+      _mediaApp.mediaPacketCost(chan, packetBytes: packetBytes);
 
   /// Trusted end-to-end observation for this node's own outgoing budgets.
   /// The generic IPC lease exposes no traffic role to relays or peers.

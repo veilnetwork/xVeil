@@ -1,5 +1,80 @@
 # Calls media handoff
 
+## 2026-10-19: live source framing and dedicated media identity caches
+
+SDK **4ed52ad7** derives RTP framing from the current authenticated source child:
+actual QUIC datagram ceiling/fragmentation or ordered obfs4 records and mean
+padding. It shares the flow fragment planner with the real codec and follows
+the existing child owner/readiness lease, expiring on retirement or refresh.
+The FFI getter reads embedded state without issuing a network query or RPC.
+Direct QUIC costs **209 bytes** below RTP; relayed QUIC costs **360**, ordered
+relay **508.5**, rounded to **509**. Fragmentation changes these values. These
+exclude QUIC/TCP/IP. Unbatched padding cost is an expectation, not a bound on
+one randomized padding sample or a measurement of batching savings.
+
+Per-path overhead and aggregate source copies are distinct. WebRTC receives
+only the former; the latter is reported separately and endpoint admission
+continues charging every physical copy. A fabricated larger header cannot
+model replication because it would also need to multiply the payload. No relay
+receives a media-role hint, scheduling privilege or this local cost snapshot.
+The existing small-cell replication policy is unchanged.
+
+Preparation and sending now share datagram-first relay ordering. Previously
+preparation could warm the first two unsorted peers while the sender selected a
+different QUIC peer. The mixed-carrier regression fails with the old ordering
+and passes with the shared one. **20 focused Rust checks** pass, including real
+flow encryption/fragmentation and live QUIC child retirement. Both production
+SDK arm64 libraries build; all old **194 Mac /202 Android** FFI exports remain,
+with only the packet-cost query added. Two Dart model checks and analysis pass.
+
+The host refreshes the native hint once per stats observation and after route
+rebind, estimating representative RTP size from actual payload counters. A
+missing/invalid snapshot retains the last hint and reports unknown metadata;
+initial unknown state retains the previous 209-byte fallback. Live updates
+retain the engine, encoder, sequence space and receive buffer.
+
+The first physical integration capture exposed another real bug: dedicated
+media IPC bundles had never cached their own authenticated local node id.
+Consequently every source-cost query returned null and the native hint stayed
+209 after relay handover. This **239.975-second negative integration capture
+is not a qualification of the model**, despite a successful call. The host now
+primes both identity/device media connections with one idle `nodeId()` request
+before binding. Polling remains free of RPCs. Both Profile AOT apps were rebuilt
+with this correction; no public release is made. Private Mac builds use the
+existing unsandboxed no-VPN stand entitlements; product entitlements are intact.
+
+All **six** relay listeners remain QUIC/UDP **8443** plus obfs4/TCP **5556**.
+Read-only revalidation confirms their exact configs, same deployment PIDs,
+advancing health ticks, active sessions and zero automatic restarts. No server
+mutation or restart was needed this cycle. A subsequent all-six attachment
+gate failed before any call: neither endpoint had a session to 87.237.54.48 or
+134.255.227.83. Server health alone does not qualify endpoint reachability.
+The narrower source-framing capture requires at least four authenticated QUIC
+fleet attachments per endpoint and records this scope explicitly.
+
+The corrected physical capture lasts **238.466 seconds**, ringing in **0.238 s**.
+Both endpoints report known framing matching the native hint in **115/116**
+snapshots (the first predates native stats), **209 P2P →360 relay**. Native
+traces confirm one shim start, one audio encoder SSRC and strictly advancing
+RTP timestamps per endpoint; allocation overhead changes **229 →380** including
+the negotiated RTP header. Actual packets move mostly **20 →40 ms**, with some
+60-ms packets. The source-framing integration gate passes.
+
+This narrower run has **four Mac /five phone** authenticated fleet QUIC sessions.
+Peak observed audio buffer is **154 ms** at each end; cumulative discarded audio
+is **40/160 ms**, not an individual pause. Final-minute received video averages
+**3.09/2.10 fps**, while both final video targets are still1fps. No native audio
+interruptions are counted, but speech/headset quality is not qualified. Do not
+attribute changes versus the negative capture solely to this fix on an
+uncontrolled WAN. Both apps/helpers exited, forwarding and debug properties
+were restored. Mac required SIGKILL after its bounded graceful-exit wait.
+
+Evidence: **validation/call-source-framing-2026-10-19.json** and
+**validation/source-framing-2026-10-19/**. Private clean snapshots/builds/captures:
+**xveil-source-cost-20261018**. Full group/file interference, physical speech and
+headset loudness, seamless fresh-factory migration and QUIC hot reload remain
+open. Goal **ACTIVE**.
+
 ## 2026-10-18: exact RTP loss join and live audio framing updates
 
 The previous physical packet-budget capture now has a complete encoder → RTP

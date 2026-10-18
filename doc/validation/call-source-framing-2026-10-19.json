@@ -1,0 +1,90 @@
+{
+  "date": "2026-10-19",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "sdk_commit": "4ed52ad7",
+  "scope": "Live endpoint-local source framing; six-node QUIC server revalidation. No public release.",
+  "relays": {
+    "enabled": 6,
+    "quic": "UDP 8443",
+    "obfs4": "TCP 5556 retained",
+    "new_mutations_this_cycle": 0,
+    "all_six_server_checks_passed": true,
+    "endpoint_reachability": "All-six gate failed before any call; narrowed proof has 4 authenticated fleet QUIC sessions on Mac, 5 on phone. Does not prove every backhaul hop."
+  },
+  "model": {
+    "quic_direct_per_path_bytes": 209,
+    "quic_relay_per_path_bytes": 360,
+    "ordered_relay_expected_per_path_bytes": 508.5,
+    "ordered_integral_hint": 509,
+    "fragmentation": "Actual source child ceiling and shared codec fragment planner",
+    "padding": "Expectation; unbatched; QUIC/TCP/IP excluded",
+    "copies": "Reported separately from per-path hint; physical endpoint admission still charges each copy",
+    "queries": "Local embedded state, no polling RPC or network probe",
+    "host_identity_cache_fix": "Prime dedicated identity/device media bundles once while idle; main client cache was insufficient",
+    "unknown": "Keep prior native hint; report unknown model. Initial fallback stays legacy209."
+  },
+  "verification": {
+    "rust_passed": 20,
+    "dart_passed": 2,
+    "dart_analysis": "No issues",
+    "negative_control": "Old unsorted source preparation fails; restored datagram-first preparation passes",
+    "mac_sdk_exports": 194,
+    "android_sdk_exports": 202,
+    "only_added_ffi_symbol": "veil_media_channel_packet_cost",
+    "production_arm64_sdk_builds": true,
+    "private_profile_aot_app_builds": true,
+    "foreign_wip_excluded": true
+  },
+  "physical": {
+    "source_framing_qualified": true,
+    "full_quality_qualified": false,
+    "ring_seconds": 0.23804924997966737,
+    "duration_seconds": 238.46591270901263,
+    "model_known_and_matches_native_per_endpoint": "115/116 snapshots; first snapshot predates native stats",
+    "overheads": "209 P2P ->360 relay on both",
+    "native_engine": "One shim Start and one audio encoder SSRC on each; RTP timestamps strictly advance",
+    "actual_packetization": "Mostly20ms direct ->40ms relay; some60ms packets, no fixed duration promise",
+    "peak_observed_audio_buffer_ms": {
+      "mac": 154,
+      "phone": 154
+    },
+    "cumulative_discarded_audio_ms": {
+      "mac": 40,
+      "phone": 160
+    },
+    "last_minute_received_video_fps": {
+      "mac": 3.087436106642718,
+      "phone": 2.0974430072301073
+    },
+    "notes": [
+      "Observed audio buffer is not a peak acoustic pause.",
+      "Zero native interruption counts do not qualify intelligibility or headset loudness.",
+      "WAN conditions uncontrolled; do not claim improvement caused solely by framing.",
+      "Final video target still1fps; some source pressure persists.",
+      "Both apps/helpers exited; owned forwarding removed and phone debug property restored; Mac needed SIGKILL after bounded graceful shutdown."
+    ]
+  },
+  "unprimed_negative_integration": {
+    "duration_seconds": 239.97542454200448,
+    "model": "null throughout at both ends; hint stayed209",
+    "qualified": false
+  },
+  "all_six_gate_failure": {
+    "no_call_placed": true,
+    "reason": "Both endpoints lacked authenticated fleet sessions to87.237.54.48 and134.255.227.83",
+    "cleanup_verified": true
+  },
+  "remaining": [
+    "Full group/file/screen interference gate",
+    "Physical live speech/headset loudness",
+    "Relay video recovery/continued low FPS",
+    "Intermittent fleet endpoint reachability",
+    "Seamless fresh typed-factory migration",
+    "QUIC hot reload"
+  ],
+  "evidence": "source-framing-2026-10-19/",
+  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-source-cost-20261018",
+  "foreign_wip_preserved": true,
+  "public_release": false
+}

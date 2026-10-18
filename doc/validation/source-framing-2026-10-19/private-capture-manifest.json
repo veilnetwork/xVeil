@@ -1,0 +1,29 @@
+{
+  "directory": "/Users/vart/.cache/codex/xveil-source-cost-20261018/qa-profile-v2/physical-source-cost-video-four-available",
+  "files": {
+    "result.json": {
+      "sha256": "8829241f5352a697e09aa3b53f63756099d655375f3582e5af5bdade7e55c20a",
+      "bytes": 13845
+    },
+    "phone-logcat.log": {
+      "sha256": "034ed1371c5815b5b107b2fe254c1d5586d6ed1c10089e2619989c6500139367",
+      "bytes": 14722333
+    },
+    "samples.json": {
+      "sha256": "9da749fd7ef8cbf8d5f5f13af0adbf2f7d89b5feba6387bc8a62da9c0d60de28",
+      "bytes": 4526070
+    },
+    "mac-native.log": {
+      "sha256": "c184b99cb200bc54d3bd9ebb1953530f427e35505b7c06b1c5c1b39c69b1da9a",
+      "bytes": 9781568
+    },
+    "mac-runtime.log": {
+      "sha256": "c3f5ea2b393adc0014c6c8ed911540fcd55fa19b76ea46be92f7a8cfadb82317",
+      "bytes": 47331452
+    },
+    "phone-native.log": {
+      "sha256": "8f11309b9e5599cfadf5eff6ba7976a1dfffd91e78476500c9e2565afb25d952",
+      "bytes": 9418349
+    }
+  }
+}

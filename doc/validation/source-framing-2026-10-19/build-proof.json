@@ -1,0 +1,47 @@
+{
+  "mac_public_exports": 194,
+  "android_defined_exports": 202,
+  "only_added_symbol": "veil_media_channel_packet_cost",
+  "mac_tls_defaults_preserved": true,
+  "android_default_features_disabled": true,
+  "features": [
+    "production-seeds",
+    "node-embedded",
+    "packet-tunnel"
+  ],
+  "foreign_wip_excluded": true,
+  "final_owned_sources_equal_build_snapshot": true,
+  "source_sha256": {
+    "crates/veil-ipc/src/handlers/send.rs": "9fd68e75c08429c1be6718f2a5d8c9d09a3ee1889f2d5ddf41de414c1235eae2",
+    "crates/veil-ipc/src/handlers/source_preparation.rs": "86ec76333f8d1328fec873048fb26b212270e006714de075d769a4fa68a6e259",
+    "crates/veil-ipc/src/lib.rs": "c1b0bcdabcc976dc19e2638561f2e54060acd556fe9193c7271521e2ed39c7aa",
+    "crates/veil-ipc/src/source_paths.rs": "5700de80857cc1b53d60b59c197d0d66a48ee8c6c37edb4a7aca701eeaa33dcd",
+    "crates/veil-node-runtime/src/runtime/mod.rs": "1c351683a6971e13a3696c48338567177eb828ed6f9c8fe9c10981e343d82b66",
+    "crates/veil-node-runtime/src/runtime/source_framing.rs": "2dbe0367713ac7f3067afba0b0482f7d9f49a169f857ecac4c2c3a233523ac67",
+    "crates/veil-session/src/datagram_flows.rs": "c03e7f7798db3f96f9cee3d7b0fd89cd1099c610666d0a3405a67bd30a96a8b7",
+    "crates/veil-session/src/frame_outbox.rs": "431a8721fc62d8e5cfc97928f6e9eee5347cfcc82daee6ac659a728f5ad6b8b6",
+    "crates/veil-session/src/lib.rs": "cd831f31c9541ed9fc6e3661a86a507d6e4a0334a44e1d040353843ff67e155e",
+    "crates/veil-session/src/local_datagram_status.rs": "a20a1097c3705ec8cf8492432c289a1591ef1e4429c96f0cc304421f31a6b99b",
+    "crates/veil-session/src/local_packet_framing.rs": "a5a2a7cadf4872649d25b0483b2c14e6411664c691ed9ae33b059e2a8f4a3942",
+    "crates/veil-session/src/ordered_lanes.rs": "7326fa7e3f8da4684ce1e7590e7be53194fc3d9320b1353acc154fb4b0ee4ae5",
+    "crates/veil-session/src/parallel_lanes.rs": "e9b6a365b84b35d7342781f2b37973bd2510b5f802dc0d596935fb924c9a40aa",
+    "crates/veil-session/src/primary_recovery_quic_tests.rs": "61fc0d79ea37ea8ae95dbefb7890acac621c0c410b495ad296d6a1b4f70b57ca",
+    "crates/veil-transport/src/obfs4_tcp.rs": "6fb81b4bc0a9de955f761737dfba331a4e7406f22f03daa080b133a01384d1c1",
+    "crates/veilclient-ffi/include/veil_ffi.h": "8469d60b241f1556d15a17207666b58d0e8e5513859b620fdcb9b083da4850a2",
+    "crates/veilclient-ffi/src/abi_contract.rs": "e9edc8daae491297e75d4a22aeed6f92ae77db27eb2194b7bd48506b2d48dd68",
+    "crates/veilclient-ffi/src/lib.rs": "0991ee925f266bb9f9cb834e2e10a0ee3e47a7faca9f20895e4ad44518d65498",
+    "crates/veilclient-ffi/src/media_ffi.rs": "31a12a9351feb22ec6df5b598a28ed2ba073de93e74e93abef43696105fde9dc",
+    "crates/veilclient-ffi/src/media_ffi/call_control_ffi.rs": "aa1b4f2f4d6e952da77af6737e4d99d9a1e56f84a7354304c234843305bef46b",
+    "crates/veilclient-ffi/src/media_ffi/media_priority_tests.rs": "2b6804a84f986c350fa44e078f1a72a94f569474068e7377ee2ed6de85daf0d6",
+    "crates/veilclient-ffi/src/media_ffi/media_route_network_tests.rs": "b6e301121dce6c3337342a69ccb8f968fa6dd7c620e2be2efb444b51ea0e6acc",
+    "crates/veilclient-ffi/src/media_ffi/packet_cost.rs": "237782df42c4be2e8c93b5f95b8a0bce9a4e20e2e29cda038128b0a939682334",
+    "crates/veilclient-ffi/src/media_ffi/path_probe_tests.rs": "9e1a0088f74cc56ab90f312460a25dc1fae9049f54d0479cda479cfa21199eb9",
+    "flutter/veil_flutter/lib/src/abi_contract.dart": "d479fd15d4b3ab739c9a9f941a694f80ddcb53dbb3e1788db52e946f7ff73e36",
+    "flutter/veil_flutter/lib/src/bindings.dart": "5436be5ddd7008c6110950f72dca7e71151c289fa097b19c7ff820259c86880e",
+    "flutter/veil_flutter/lib/src/client.dart": "f0f026800c04bff66c277f5fdd0a4704461f0178e6b98b1e59c08ec2d1ecc8ba"
+  },
+  "libraries": {
+    "libveilclient_ffi.dylib": "167f07d9ec8a24d6022a91f3e113bd9ad2cfea4b8e10bdfb0b3f8f0335279d85",
+    "libveilclient_ffi.so": "fc2ca76fe5f449ed614b42278e3ed86c22a8716e8f0d4d56548dc7dcb77ce7ce"
+  }
+}

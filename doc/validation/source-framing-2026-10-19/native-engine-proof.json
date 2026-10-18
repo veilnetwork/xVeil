@@ -1,0 +1,36 @@
+{
+  "mac": {
+    "shim_start_count": 1,
+    "encoded_packets": 8208,
+    "encoder_ssrcs": [
+      "571357242"
+    ],
+    "allocation_overhead_bytes_histogram": {
+      "229": 4583,
+      "380": 3625
+    },
+    "encoded_packet_ms_histogram": {
+      "20": 4582,
+      "40": 3454,
+      "60": 172
+    },
+    "rtp_timestamp_strictly_advances": true
+  },
+  "phone": {
+    "shim_start_count": 1,
+    "encoded_packets": 4815,
+    "encoder_ssrcs": [
+      "1814344980"
+    ],
+    "allocation_overhead_bytes_histogram": {
+      "229": 2654,
+      "380": 2161
+    },
+    "encoded_packet_ms_histogram": {
+      "20": 2469,
+      "60": 2,
+      "40": 2344
+    },
+    "rtp_timestamp_strictly_advances": true
+  }
+}

@@ -1,0 +1,7 @@
+running 4 tests
+test media_ffi::source_preparation::tests::legacy_is_immediate_and_does_not_request_more_sources ... ok
+test media_ffi::source_preparation::tests::quota_retry_cannot_reuse_stale_primary_readiness ... ok
+test media_ffi::source_preparation::tests::unready_or_wedged_queries_have_one_total_deadline ... ok
+test media_ffi::source_preparation::tests::waits_for_media_while_other_sources_prepare_once_in_background ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 276 filtered out; finished in 0.58s
