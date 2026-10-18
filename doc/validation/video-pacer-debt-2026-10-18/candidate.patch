@@ -1,0 +1,21 @@
+--- a/modules/pacing/pacing_controller.cc
++++ b/modules/pacing/pacing_controller.cc
+@@ -178,6 +178,7 @@
+ }
+ 
+ void PacingController::SetPacerConfig(PacerConfig pacer_config) {
++  const DataRate previous_rate = pacing_rate_;
+   RTC_DCHECK(pacer_config.time_window.IsFinite());
+   if (pacer_config.pad_rate() > pacer_config.data_rate()) {
+     RTC_LOG(LS_WARNING) << "Padding rate " << pacer_config.pad_rate().kbps()
+@@ -192,6 +193,10 @@
+   send_burst_interval_ = pacer_config.time_window;
+ 
+   MaybeUpdateMediaRateDueToLongQueue(CurrentTime());
++  if (pacing_rate_ < previous_rate) {
++    media_debt_ = std::min(media_debt_, adjusted_media_rate_ *
++        std::min(queue_time_limit_, kMaxDebtInTime));
++  }
+ 
+   RTC_LOG(LS_VERBOSE) << "bwe:pacer_updated pacing_kbps=" << pacing_rate_.kbps()
+                       << " padding_budget_kbps=" << padding_rate_.kbps();
