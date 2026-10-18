@@ -1,0 +1,372 @@
+{
+  "date": "2026-10-18",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "sdk_native_commit": "1956cfa4c7efee029310daa6460020662a1fba71",
+  "scope": "Encoded-frame size feedback to the existing adaptive video source when the selected video profile is at most 30 kbit/s. Normal higher profiles release the extra pixel cap. Encoded references, audio, source admission caps, packet expiry and relay treatment are unchanged.",
+  "constraint": {
+    "sdk_oldest_fragment_lifetime_ms": 200,
+    "physical_prior_original_frame_span_ms": 318.695,
+    "raw_original_rtp_bytes": 2296,
+    "native_first_attempt_us": 160896848560,
+    "native_marker_attempt_us": 160897167255,
+    "qualification": "The observed first-to-marker span exceeds the SDK lifetime; replaying these times on the current assembly/deadline path explains why a frame can expire before sealing. The old capture has no exact first-attempt discard witness; do not assign all missing seals to this cause.",
+    "native_ffi_admission_max_ms_rounded": 0,
+    "route_witness": [
+      {
+        "seconds": 161.10012629101402,
+        "transport": "relay",
+        "media_epoch": 1,
+        "route_handovers": 1,
+        "compact_relay_media": true,
+        "video_tx_rtp_admission_max_ms": 0
+      },
+      {
+        "seconds": 163.1442539159907,
+        "transport": "relay",
+        "media_epoch": 1,
+        "route_handovers": 1,
+        "compact_relay_media": true,
+        "video_tx_rtp_admission_max_ms": 0
+      },
+      {
+        "seconds": 165.18816645801417,
+        "transport": "relay",
+        "media_epoch": 1,
+        "route_handovers": 1,
+        "compact_relay_media": true,
+        "video_tx_rtp_admission_max_ms": 0
+      },
+      {
+        "seconds": 167.23265895800432,
+        "transport": "relay",
+        "media_epoch": 1,
+        "route_handovers": 1,
+        "compact_relay_media": true,
+        "video_tx_rtp_admission_max_ms": 0
+      },
+      {
+        "seconds": 169.2736346250167,
+        "transport": "relay",
+        "media_epoch": 1,
+        "route_handovers": 1,
+        "compact_relay_media": true,
+        "video_tx_rtp_admission_max_ms": 0
+      }
+    ]
+  },
+  "native_policy": {
+    "selected_profile_max_bps": 30000,
+    "sizing_hint": "max(one RTP payload after descriptor reserve, actual payload bps * existing pacing factor 4 * 100 ms / 8)",
+    "pixel_feedback": "Shrink only after an actual oversized encoded result; same old-resolution in-flight images cannot compound one reduction. Preserve the coarse pixel-request floor; no encoded image is dropped here.",
+    "recovery": "Selected host profile above 30 kbit/s clears the extra source cap. Native rate fluctuations within a low profile cannot grow it."
+  },
+  "verification": {
+    "pure_policy_and_concurrency_test": "PASS",
+    "real_vp8_direct_and_group_source_sizing_preview_packetization_recovery": "PASS",
+    "counterfactual_source_cap_disconnected": {
+      "exit_code": -6,
+      "scope": "Only source pixel-cap wiring removed; real VP8 encoder and frame observer unchanged."
+    },
+    "rtcp_loss_integration": "PASS",
+    "mac_production_exports": {
+      "old_exports": 100,
+      "new_exports": 100,
+      "removed": [],
+      "added": []
+    },
+    "mac_and_android_production_builds": "PASS, 100 exports on both",
+    "python_attribution_tests": 13
+  },
+  "physical": {
+    "private_directory": "/Users/vart/.cache/codex/xveil-frame-pacing-20261018/physical-build/physical-frame-sizing",
+    "build": {
+      "native_commit": "1956cfa4c7efee029310daa6460020662a1fba71",
+      "base": "/Users/vart/.cache/codex/xveil-direct-source-20261018/source-budget-apps/build.json",
+      "scope": "Only production native video frame sizing changes. Existing b262 Profile Dart AOT and clean Rust SDK unchanged. Actual versionCode 12614 retained; same QA signer; data preserved; not a release.",
+      "mac_app": "/Users/vart/.cache/codex/xveil-frame-pacing-20261018/physical-build/mac-stand/xveil.app",
+      "mac_signed_media_sha256": "9b035e856f8528f050bf0664e5d4db052f13d0d63000169c376ec16f0239ad90",
+      "apk": "/Users/vart/.cache/codex/xveil-frame-pacing-20261018/physical-build/phone-frame-sizing.apk",
+      "apk_sha256": "bff6bb474ecfcb2932c615fab0ff55612307dc1a0835f90835baf6d3b5fa16e8",
+      "before_apk_sha256": "b746c5d785f4033f4f2ce13ce47886ea855cdfb33ee4bb2f9ffdf382522c9b83",
+      "apk_changed_entries": [
+        "lib/arm64-v8a/libveil_media.so"
+      ],
+      "packaged_sha256": {
+        "lib/arm64-v8a/libapp.so": "84aa9255b33466afe9623feb2451de527cd8501b8d73fbe0b54e03486d133b42",
+        "lib/arm64-v8a/libveil_media.so": "3a2f9a389de046e0db8e863e9813dd82a56a4f2a4962fa27063ed246d5cf96e6",
+        "lib/arm64-v8a/libveilclient_ffi.so": "79afa7a40a5b6d4cfecb49b6b791e7aba1d56fa60347775979b7c1d48bca1e27"
+      },
+      "same_signer": true
+    },
+    "dart_aot_commit": "b262249d",
+    "mac_rust_commit": "c89c77316f7b5fb21ba75a40a4bc0247e16a7274",
+    "phone_rust": "Unchanged preceding clean be7-era binary",
+    "new_native_only": true,
+    "ring_seconds": 0.1439182079921011,
+    "last_sample_seconds": 208.24672341599944,
+    "sample_count": 102,
+    "explicit_relay_recovery_seconds": 121.67006666597445,
+    "quality": {
+      "mac": {
+        "max_interruption_count": 0,
+        "max_cumulative_decoded_catch_up_ms": 140,
+        "max_jitter_buffer_ms": 111,
+        "max_jitter_buffer_target_ms": 100,
+        "last_reported_remote_cadence_fps": 11.2,
+        "last_twenty_seconds_receive_fps": 1.014805997280886,
+        "final_max_fps": 1.0,
+        "final_encoded_pixels": 3520,
+        "final_encoded_bytes": 164,
+        "final_pixel_cap": 6144,
+        "final_frame_byte_hint": 916,
+        "oversize_count": 39,
+        "constrained_observations": 45,
+        "healthy_full_resolution_observations": 26,
+        "states_after_three_seconds": [
+          "active"
+        ]
+      },
+      "phone": {
+        "max_interruption_count": 0,
+        "max_cumulative_decoded_catch_up_ms": 10,
+        "max_jitter_buffer_ms": 116,
+        "max_jitter_buffer_target_ms": 100,
+        "last_reported_remote_cadence_fps": 10.5,
+        "last_twenty_seconds_receive_fps": 1.014805997280886,
+        "final_max_fps": 1.0,
+        "final_encoded_pixels": 20736,
+        "final_encoded_bytes": 376,
+        "final_pixel_cap": 0,
+        "final_frame_byte_hint": 916,
+        "oversize_count": 0,
+        "constrained_observations": 0,
+        "healthy_full_resolution_observations": 0,
+        "states_after_three_seconds": [
+          "active"
+        ]
+      }
+    },
+    "frame_spans": {
+      "mac": {
+        "complete_original_frames": 1824,
+        "frames_at_least_200ms": 1,
+        "max_span_ms": 524.709,
+        "scope": "Original native send-attempt first-to-marker span, one host clock; excludes retransmission copies. Not acoustic or one-way network latency."
+      },
+      "phone": {
+        "complete_original_frames": 1979,
+        "frames_at_least_200ms": 0,
+        "max_span_ms": 0.0,
+        "scope": "Original native send-attempt first-to-marker span, one host clock; excludes retransmission copies. Not acoustic or one-way network latency."
+      }
+    },
+    "prior_sequential_baseline_spans": {
+      "mac": {
+        "complete_original_frames": 948,
+        "frames_at_least_200ms": 4,
+        "max_span_ms": 739.044,
+        "scope": "Original native send-attempt first-to-marker span, one host clock; excludes retransmission copies. Not acoustic or one-way network latency."
+      },
+      "phone": {
+        "complete_original_frames": 1876,
+        "frames_at_least_200ms": 0,
+        "max_span_ms": 0.0,
+        "scope": "Original native send-attempt first-to-marker span, one host clock; excludes retransmission copies. Not acoustic or one-way network latency."
+      }
+    },
+    "first_new_gap_work": {
+      "epoch": "59ff7572cae8e1c6",
+      "first_seq": 13,
+      "last_seq": 17,
+      "cells": 5,
+      "raw_rtp_bytes": 4144,
+      "sealed_bytes": 4324,
+      "seal_bytes_per_cell": 36,
+      "envelope_bytes_per_cell": 280,
+      "whole_work_charge_bytes": 5724
+    },
+    "first_new_gap_verdicts": [
+      "budget_drop"
+    ],
+    "interpretation": "Component wiring has a failing counterfactual and passing real-codec tests. Sequential physical captures are not a randomized proof of voice quality. Final video remains near 1 fps; new budget_drop work costs only 5724 bytes, so it is not an oversized-cap violation.",
+    "cleanup": {
+      "mac_pid_absent": true,
+      "launcher_pid_absent": true,
+      "logcat_pid_absent": true,
+      "phone_process_absent": true,
+      "owned_forward_absent": true
+    },
+    "mac_exit_code": -9
+  },
+  "full_contention": {
+    "status": "UNQUALIFIED",
+    "private_directory": "/Users/vart/.cache/codex/xveil-frame-pacing-20261018/group-frame-sizing-360",
+    "scope": "Original 360 s, 1024 kbit/s neutral shared FIFO per direction, 3 real SDK/native participants, 6 PCM paths, changing video and 3 authenticated 512-KiB files. Original quality gates retained.",
+    "ok": false,
+    "contention_qualification": false,
+    "fixture_exit_code": 1,
+    "max_pcm_marker_latency_ms": 190.05454165744595,
+    "matched_markers": 2112,
+    "missing_markers": 0,
+    "all_three_files": [
+      {
+        "sender": 2,
+        "receiver": 0,
+        "queued": 524288,
+        "received": 524288,
+        "missing_chunks": 0,
+        "hash_matches": true,
+        "completion_seconds": 306.60950308298925,
+        "authentication_errors": 0,
+        "duplicates": 0,
+        "async_failures": {},
+        "write_error": false,
+        "late_fragments": 0
+      },
+      {
+        "sender": 0,
+        "receiver": 1,
+        "queued": 524288,
+        "received": 524288,
+        "missing_chunks": 0,
+        "hash_matches": true,
+        "completion_seconds": 345.7589902909822,
+        "authentication_errors": 0,
+        "duplicates": 0,
+        "async_failures": {},
+        "write_error": false,
+        "late_fragments": 0
+      },
+      {
+        "sender": 1,
+        "receiver": 2,
+        "queued": 524288,
+        "received": 524288,
+        "missing_chunks": 0,
+        "hash_matches": true,
+        "completion_seconds": 340.6187009580026,
+        "authentication_errors": 0,
+        "duplicates": 0,
+        "async_failures": {},
+        "write_error": false,
+        "late_fragments": 0
+      }
+    ],
+    "six_video_paths": [
+      {
+        "receiver": 0,
+        "source": 1,
+        "decoded_pulls": 317,
+        "tail_changes": 14
+      },
+      {
+        "receiver": 0,
+        "source": 2,
+        "decoded_pulls": 325,
+        "tail_changes": 14
+      },
+      {
+        "receiver": 1,
+        "source": 0,
+        "decoded_pulls": 326,
+        "tail_changes": 14
+      },
+      {
+        "receiver": 1,
+        "source": 2,
+        "decoded_pulls": 325,
+        "tail_changes": 14
+      },
+      {
+        "receiver": 2,
+        "source": 0,
+        "decoded_pulls": 326,
+        "tail_changes": 14
+      },
+      {
+        "receiver": 2,
+        "source": 1,
+        "decoded_pulls": 317,
+        "tail_changes": 14
+      }
+    ],
+    "end_topology": {
+      "verified": true,
+      "active_session_counts": [
+        3,
+        1,
+        1,
+        1
+      ]
+    },
+    "neutral_relay_route_verified": true,
+    "worker_clock_ok": [
+      true,
+      true,
+      true
+    ],
+    "console_log_before_read": {
+      "supported": true,
+      "flush_rc": 0,
+      "dropped_records": 21007,
+      "write_errors": 0,
+      "ok": false
+    },
+    "console_log_after_stop": {
+      "supported": true,
+      "flush_rc": 0,
+      "dropped_records": 21007,
+      "write_errors": 0,
+      "ok": false
+    },
+    "per_worker_console_complete": [
+      true,
+      true,
+      true
+    ],
+    "wire_capture_complete": true,
+    "wire_capture_events": 179629,
+    "shaper_failure": null,
+    "native_sizing_exercised": [
+      {
+        "worker": "worker-0",
+        "oversized_encodes": 7,
+        "constrained_observations": 262
+      },
+      {
+        "worker": "worker-1",
+        "oversized_encodes": 5,
+        "constrained_observations": 288
+      },
+      {
+        "worker": "worker-2",
+        "oversized_encodes": 3,
+        "constrained_observations": 289
+      }
+    ],
+    "cleanup": {
+      "owned_pids_absent": {
+        "27304": true,
+        "27315": true,
+        "27316": true,
+        "35790": true,
+        "35792": true,
+        "35793": true,
+        "35811": true,
+        "35812": true,
+        "35813": true
+      },
+      "remaining_socket_files": [],
+      "fixture_exit_code": 1,
+      "helper_exit_code": 0
+    },
+    "interpretation": "All timing/file/video/topology/worker checks succeed, but the original unmodified gate correctly rejects 21007 dropped parent console records. Preserve the failing overall verdict; do not waive the completeness gate. Native harness source hold defaults false and does not qualify Flutter source-hold wiring."
+  },
+  "remaining": [
+    "Restore complete parent diagnostic capture and repeat the original unchanged full contention gate. Retain the original startup/PCM counterexamples.",
+    "Investigate budget-drop work that fits the whole-work cap, including the new 5724-byte frame; avoid blaming all drops on oversized frames.",
+    "Restore sustained useful video after the low-rate fallback while preserving audio-first admission.",
+    "No new live speech/headset/acoustic quality qualification; earlier 230 ms PCM / 305 ms startup counterexamples retained."
+  ]
+}
