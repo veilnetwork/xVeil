@@ -1,0 +1,139 @@
+{
+  "date": "2026-10-18",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "scope": "Fresh Profile QA phone/Mac check interrupted by user-disconnected USB; not a complete video/relay qualification",
+  "build": {
+    "root_head": "85468ab6df750626731414ea098b10bd0c2b06cd",
+    "root_preexisting_changes": "See private root-worktree.patch; multi-device edits preserved",
+    "sdk_head": "be7a8235d7855a42560e69a03aeb3f2b31b0521c",
+    "sdk_worktree_clean": true,
+    "native_media_source": "c0c30821; unchanged production media algorithms",
+    "mac_qa": "Profile AOT, both hook opt-ins, DebugNoVpn signing, private bundle; 0.13.87-call-probe-8612",
+    "android_qa": "Profile AOT, debug hook, 0.13.87+8612, staged clean SDK --no-default-features and production-seeds,node-embedded,packet-tunnel",
+    "artifacts": {
+      "mac_sdk": "3cb420adbb5bdde4239dc08f16e4aa46e71a937620f0f053e0d84eb518d239c2",
+      "mac_media": "e10dfc47f08ea91747b83cff05f673a68a5012ebc3a83d2c8e82946669d1358c",
+      "android_sdk": "835aa4db71a72f821a687cefca4c82c2b99b8392accaa95a8f671b0a78393e7c",
+      "android_media": "86c6967a3f44e8c4801d36b4e8d3f344e5160608c08607c88b9c4eaad7d59aaa",
+      "previous_phone_apk": "f9f8a84b310d402fbe3f4c224eee1514b8ee8efe10586cbef6ddb97ef12c31c0",
+      "phone_apk": "f7a4a9ce8347f2e8622fe451f037b6a4210916e71fa9b13edf652ee7683dd7c6",
+      "mac_dart_aot": "36d2e0ea40bf7eeeb89bb69623f4df4433900f80fc80154586dc529e4b098027",
+      "android_dart_aot": "3e5678edaf382bb4158591a43d7a543a463a5b8da018462c50a04c2ac9889ac5"
+    },
+    "same_apk_signer": true,
+    "packaged_android_libraries": {
+      "lib/arm64-v8a/libhidden_volume_ffi.so": "ab4a0cf8b75f2be9e6d525c40f48c613aa13d881307e13464ef0e1a3af840156",
+      "lib/arm64-v8a/libveil_media.so": "71f3dc9c1abfd382d4a1b698c0c7d5f33670649b07eb940dabcbe9323448b552",
+      "lib/arm64-v8a/libveilclient_ffi.so": "79afa7a40a5b6d4cfecb49b6b791e7aba1d56fa60347775979b7c1d48bca1e27"
+    },
+    "discarded_8611": "Release Mac and single-opt-in Android have no hook; captured Mac failure without a call; replaced with double-opt-in Profile builds"
+  },
+  "install": {
+    "same_signer": true,
+    "data_preserved": true,
+    "previous_apk_retained_privately": true,
+    "android_version_code_actual": 10612,
+    "android_requested_build_number": 8612
+  },
+  "preflight_failure": {
+    "reason": "Release deliberately has no diagnostic hook; Profile also requires both explicit hook opt-ins. First attempt placed no call. Retained separately; both builds corrected without changing hook policy.",
+    "cleanup": {
+      "failed_release_preflight": {
+        "mac_pid_absent": true,
+        "mac_group_absent": true
+      }
+    }
+  },
+  "physical": {
+    "devices": [
+      "Mac Profile QA",
+      "Blackview BV6600Pro Android 11"
+    ],
+    "phone_network": "Wi-Fi",
+    "ring_seconds": 0.10631225000543054,
+    "sample_count": 19,
+    "last_sample_seconds": 37.58350424999662,
+    "video_enabled_after_seconds": 30,
+    "relay_recovery_requested": false,
+    "devices_observed": {
+      "mac": {
+        "observed_transports": [
+          "p2p"
+        ],
+        "audio_rx_packets_final": 789,
+        "audio_interruption_count_max": 0,
+        "audio_interruption_duration_ms_max": 0,
+        "audio_delay_ms_max": 82,
+        "audio_latency_discarded_ms_final": 120,
+        "recovery_occurrences": [
+          [
+            0.0,
+            null
+          ],
+          [
+            2.14,
+            120
+          ]
+        ],
+        "remote_frames_final": 6,
+        "final_remote_fps": 1.0,
+        "final_video_budget_fps": 1.0
+      },
+      "phone": {
+        "observed_transports": [
+          "p2p"
+        ],
+        "audio_rx_packets_final": 1810,
+        "audio_interruption_count_max": 0,
+        "audio_interruption_duration_ms_max": 0,
+        "audio_delay_ms_max": 92,
+        "audio_latency_discarded_ms_final": 0,
+        "recovery_occurrences": [
+          [
+            0.0,
+            null
+          ],
+          [
+            2.14,
+            0
+          ]
+        ],
+        "remote_frames_final": 4,
+        "final_remote_fps": 1.0,
+        "final_video_budget_fps": 1.0
+      }
+    },
+    "microphone_permissions": {
+      "mac": {
+        "ok": true,
+        "granted": true,
+        "before": "authorized",
+        "after": "authorized"
+      },
+      "phone": {
+        "ok": true,
+        "granted": true,
+        "before": "authorized",
+        "after": "authorized"
+      }
+    },
+    "interruption": "ADB vanished and forwarded API refused connections; user confirmed phone deliberately disconnected. Logs stop before removal; no post-removal process/crash verdict.",
+    "cleanup": {
+      "mac_pid_absent": true,
+      "mac_group_empty": true,
+      "logcat_processes_matching_capture": [],
+      "adb_forward_absent": true,
+      "phone_process_absent": null,
+      "phone_limit": "USB device absent; cannot inspect or force-stop phone package. Hangup requested on Mac before its shutdown."
+    }
+  },
+  "limits": [
+    "No live speech/headset listening or human loudness verdict",
+    "Native audio delay estimates are not full end-to-end/acoustic latency",
+    "Video observed only for startup at one-fps floor; no sustained-video verdict",
+    "Planned relay phase not reached",
+    "Phone package closure remains unverified until USB returns; Mac and logcat exited, forwarding removed",
+    "Original full 360-second congestion gate remains FAIL; no gates waived"
+  ]
+}
