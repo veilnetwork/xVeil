@@ -1,0 +1,5 @@
+BWE route callbacks audio=0 video=0 expected=0/0
+BWE route callbacks audio=0 video=0 expected=0/0
+BWE route callbacks audio=0 video=0 expected=0/0
+BWE route callbacks audio=0 video=0 expected=1/1
+Assertion failed: (a == audio && v == video), function operator(), file call_planes_smoke.cc, line 531.

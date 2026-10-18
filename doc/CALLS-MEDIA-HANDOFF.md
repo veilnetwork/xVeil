@@ -1,5 +1,70 @@
 # Calls media handoff
 
+## 2026-10-19: congestion controllers follow committed channel handovers
+
+SDK **2565d113** fixes a separate stale-state defect. Native channel rebinds
+advanced the RTCP route clock but never notified either WebRTC congestion
+controller of a different path. Framing updates used a connected route with
+default zero endpoint IDs, so they also could not reset BWE. A test-only observer
+around **real GoogCC** sees **0/0 route callbacks instead of1/1** with the old
+implementation; it delegates every controller method without replacing BWE.
+
+The direct-call engine now registers an initial opaque route and advances its
+local identity only after a successful new channel commit. Audio and video
+consume that generation on their own workers. Scheduling waits are **50/20 ms**;
+a cancelled update retries on that worker's next stats poll. Multiple unobserved
+changes may coalesce to the latest path. A blocked video worker cannot postpone
+the audio notification. Failed/idempotent candidates do not reset estimators.
+Live framing corrections retain the committed identity, avoiding a second BWE
+reset. Codec/SSRC/ADM/jitter-buffer state and encrypted transport policy remain
+unchanged. Local JSON exposes desired and applied generations; none is sent to
+a relay or used for relay scheduling.
+
+A reset-only candidate **failed** the existing **<200-ms decoded marker gate**:
+**212.400 ms**, versus **191.291 ms** for the old engine on the same fixture.
+It is not a qualified build. Default initial **3x/6x probing** is also rearmed
+by route changes. Audio now uses the same **p1:1,p2:0** initial probe policy as
+video, retaining normal feedback/later probes and the 24–32-kbit speech range.
+This limits initial probing to the selected allocation; it adds no network role
+or relay privilege. The combined candidate passes the unchanged gate at
+**192.772 ms**, all **600/600/600 settled PCM blocks** voiced, duration matches
+**6/6/6**, zero source drops and continuous RTP across **200 →201 →202**.
+The ordinary framing-only regression passes at **194.075 ms**. These are
+controlled local PCM results, not WAN speech/headset qualification.
+
+Real-controller tests additionally cover independent audio/video framing,
+failed/idempotent transitions, framing after handover, blocked video, both
+workers blocked, and exactly one application after retry. Asymmetric handover
+retains **993/1000** voiced ticks with no added concealment/interruptions.
+The complete existing direct/group Call-plane fixture passes: Opus is delivered
+while both video queues stall, stats stay bounded, native capture/pause/restart
+and teardown work, feedback namespaces remain independent. Mac/Android arm64
+production libraries build with all **100/104** previous defined exports intact.
+The private Profile AOT host is reused unchanged; only the media library is
+replaced. Foreign work remains excluded; no public release/server update occurs.
+
+The physical call lasts **238.058 s**, ringing in **0.242 s**. Both sides apply
+source framing **209 →360** and desired/audio/video BWE generation **1/1/1**
+after the confirmed relay handover. Complete real video-controller traces have
+**1840/1850 samples**, one controller each, and route callback count **0 →1**.
+Each endpoint retains one audio encoder SSRC with strictly advancing timestamps.
+
+**Full quality does not pass.** Observed buffers peak at **183/175 ms**, decoded
+catch-up discards total **550/660 ms**, and final-minute received video averages
+**0.67/1.31 fps**. Zero native interruption counts do not qualify speech. This
+capture is worse than the preceding one; do not describe the fix as a physical
+quality improvement. Before handover the selected playout targets were already
+60–100 ms versus40 ms, despite similar20-ms payloads and ~160-kbit/s audio BWE.
+Conditions are uncontrolled; a paired physical baseline is still needed. The
+native Call-plane helper ended20.27 s before call start. Both apps/helpers exit,
+forwarding and phone property are restored; Mac again needs bounded SIGKILL.
+
+Evidence: **validation/call-bwe-handover-2026-10-19.json** and
+**validation/bwe-handover-2026-10-19/**. Clean native snapshots, failed candidates,
+paired PCM comparison and private QA artifacts: **xveil-bwe-handover-20261019**.
+The full group/file interference gate, live speech/headset loudness, fresh typed
+factory migration and QUIC hot reload remain open. Goal **ACTIVE**.
+
 ## 2026-10-19: live source framing and dedicated media identity caches
 
 SDK **4ed52ad7** derives RTP framing from the current authenticated source child:
