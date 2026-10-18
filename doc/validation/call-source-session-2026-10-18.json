@@ -1,0 +1,946 @@
+{
+  "date": "2026-10-18",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "sdk_commit": "c219fa7b877344e71ffe36369a3452c42f1dbe51",
+  "scope": "Exact source-session and QUIC admission observations for an original PCM-peak packet; endpoint-only opt-in metadata. Relays retain opaque neutral forwarding. Scheduling, codecs, wire and quality gates are unchanged.",
+  "captures": [
+    {
+      "private_directory": "/Users/vart/.cache/codex/xveil-source-admission-20261018/group-source-admission-360",
+      "ok": true,
+      "contention_qualification": true,
+      "peak_ms": 190.11062500067055,
+      "matched": 2112,
+      "missing": 0,
+      "files": [
+        {
+          "sender": 2,
+          "receiver": 0,
+          "queued": 524288,
+          "received": 524288,
+          "missing_chunks": 0,
+          "hash_matches": true,
+          "completion_seconds": 351.848208166979,
+          "authentication_errors": 0,
+          "duplicates": 0,
+          "async_failures": {},
+          "write_error": false,
+          "late_fragments": 0
+        },
+        {
+          "sender": 0,
+          "receiver": 1,
+          "queued": 524288,
+          "received": 524288,
+          "missing_chunks": 0,
+          "hash_matches": true,
+          "completion_seconds": 352.305009957985,
+          "authentication_errors": 0,
+          "duplicates": 0,
+          "async_failures": {},
+          "write_error": false,
+          "late_fragments": 0
+        },
+        {
+          "sender": 1,
+          "receiver": 2,
+          "queued": 524288,
+          "received": 524288,
+          "missing_chunks": 0,
+          "hash_matches": true,
+          "completion_seconds": 352.1831250829855,
+          "authentication_errors": 0,
+          "duplicates": 0,
+          "async_failures": {},
+          "write_error": false,
+          "late_fragments": 0
+        }
+      ],
+      "video_tail_changes": [
+        6,
+        14,
+        14,
+        14,
+        14,
+        6
+      ],
+      "source_session_trace_complete": false,
+      "exact_sdk_peak": {
+        "native": {
+          "source": 2,
+          "receiver": 0,
+          "phase": "audio-video-file",
+          "packet": {
+            "ssrc": 1985057165,
+            "rtp_origin": 401888706,
+            "rtp_timestamp": 412165986,
+            "rtp_sequence": 4155,
+            "source_at_seconds": 214.12001950031845,
+            "decoded_at_seconds": 214.31013012531912,
+            "packet_ms": 60,
+            "encoder_input_index": 19308,
+            "encoder_first_input_monotonic_us": 148789992019,
+            "encoded_monotonic_us": 148790042604,
+            "ingress": {
+              "seq": 4155,
+              "timestamp": 412165986,
+              "arrived_us": 148790127884,
+              "drained_us": 148790127910,
+              "payload_bytes": 179
+            },
+            "total_ms": 190.11062500067055,
+            "spans_ms": {
+              "capture_to_encoded": 40.669166657608,
+              "encoded_to_ingress": 85.27999999932945,
+              "ingress_to_webrtc": 0.02600002335384488,
+              "webrtc_to_pcm_edge": 64.13545832037926
+            },
+            "native_send": {
+              "channel": 1,
+              "seq": 4155,
+              "timestamp": 412165986,
+              "attempted_us": 148790042672,
+              "admitted_us": 148790042686,
+              "packet_bytes": 199,
+              "accepted": 1
+            },
+            "native_send_spans_ms": {
+              "encoded_to_native_send": 0.068,
+              "native_send_admission": 0.014,
+              "native_admission_to_ingress": 85.198
+            }
+          },
+          "input_sha256": {
+            "summary.json": "4b44309dddc7831d696ecee327e3dfc1ea4aeee084ea289b162efb95f20d5e01",
+            "worker-2/summary.json": "270803c4bd289672bc027ffddbb261346f0cb2664f7e3b95d4cd3ab8e8ad4165",
+            "worker-0/summary.json": "4da1904e5d010a8b90dc35c07ec2cddb0f60f6ebd3fdd559f7009cbdd06570b1",
+            "worker-2/pcm-samples.json": "96d6ca12391f554c74e76b6b8f3d03fff8914b100cbbc8e0873fc056d6d361a4",
+            "worker-0/pcm-samples.json": "903661830c92686b4709ffa347f2ef320b57bb18c9db3ea3d16af02194797f7c",
+            "worker-2/codec-samples.json": "72e0c29361280eb6dc92a38a50908fbb5a168b218f8847d5993c0aa1d8713a45",
+            "worker-2/playout-trace.log": "b6d88157363c2a397bbc15d2844d45f112f17eca0ea8eb7dcb4f1535e1503732",
+            "worker-0/playout-trace.log": "ef2c0a6bd690bc65b6623a1a1efcfd1e7776248827720e5c621fa963d9818813"
+          },
+          "limits": [
+            "Owned same-host clocks only; no physical acoustic latency claim",
+            "Encoded-to-ingress includes all local and transport stages; no per-hop attribution",
+            "Ingress-to-PCM can include codec lookahead/FEC and following packets; not NetEq alone",
+            "This analysis does not change the capture verdict or its quality gates"
+          ]
+        },
+        "sdk": {
+          "epoch": "63af285de46590a2",
+          "cell_sequence": 3846,
+          "rtp_index_in_cell": 0,
+          "source_sdk_peer": "700fbde2",
+          "receiver_sdk_peer": "f88277a7",
+          "sealed_bytes": 235,
+          "observations_us": {
+            "native_attempt": 148790042672,
+            "sdk_seal": 148790042710,
+            "sdk_send_pump": 148790042722,
+            "daemon_read": 148790042771,
+            "handler_enter": 148790042810,
+            "relay_queued": 148790042836,
+            "sdk_authenticated": 148790127865,
+            "native_ingress": 148790127884
+          },
+          "socket_written_us": 148790042743,
+          "rtp_authenticated_metadata_us": 148790127876,
+          "native_enqueue_return_us": 148790042686,
+          "spans_ms": {
+            "native_attempt_to_sdk_seal": 0.038,
+            "sdk_seal_to_sdk_send_pump": 0.012,
+            "sdk_send_pump_to_daemon_read": 0.049,
+            "daemon_read_to_handler_enter": 0.039,
+            "handler_enter_to_relay_queued": 0.026,
+            "relay_queued_to_sdk_authenticated": 85.029,
+            "sdk_authenticated_to_native_ingress": 0.019
+          }
+        },
+        "sdk_log_sha256": {
+          "worker-2/native.log": "8abcd14944f6792d9cd180d29b79d43b29b95feb688c21e07b943555ba3d773c",
+          "worker-0/native.log": "29bbfc6c561daae67ac7ad9fb658cf2db365a50a2d8e98f72dba6225c80c7c90",
+          "native.log": "ba44ca4271539891cc67f25657d68f40d1d63d13c53740c22f6db063c1b89cb8"
+        },
+        "limits": [
+          "Owned same-host clocks; no remote/acoustic latency inference",
+          "Relay-queued is source-node admission, not proof of wire send",
+          "Socket-written and native-enqueue-return are post-completion observations; concurrency can place them after downstream work",
+          "This join changes no original quality gate or capture verdict"
+        ]
+      },
+      "source_transport_lifetime_observation": {
+        "scope": "Same-connection lifetime maxima observed after this packet arrived. These are upper bounds for timed outgoing datagram queue and prepared socket handoff on that connection, NOT this packet actual delays or a complete wire/relay attribution. Event/timer maxima overlap queue delays and must not be summed. Socket sample uses local wall clock; owned same-host diagnostic only.",
+        "connection_trace_id": 14,
+        "packet_receipt_estimated_unix_us": 1792316012229707,
+        "observation_unix_us": 1792316158498000,
+        "lifetime_counters": {
+          "datagram_queue_max_us": 289,
+          "udp_send_wait_max_us": 215,
+          "event_queue_max_us": 366,
+          "timer_late_max_us": 3448,
+          "datagram_cwnd_blocked_max_age_us": 0,
+          "datagram_pacing_blocked_max_age_us": 0,
+          "expired_outgoing_datagrams": 0,
+          "lost_packets": 0
+        },
+        "packet_datagram_accepted_to_native_ingress_ms": 84.915,
+        "native_log_sha256": "ba44ca4271539891cc67f25657d68f40d1d63d13c53740c22f6db063c1b89cb8"
+      },
+      "all_packet_pre_playout_lower_bounds": {
+        "scope": "Supplemental lower bound for all authenticated audio RTP arrivals: first 10-ms input block to native ingress, before decoding/playout. Same-host diagnostic clock; only 1 <= first-input seconds < duration-1. Original PCM gate unchanged.",
+        "paths": [
+          {
+            "source": 0,
+            "receiver": 1,
+            "encoded": 6150,
+            "received": 6150,
+            "missing_packets": 0,
+            "unknown_input_rows": 0,
+            "median_ms": 69.9555,
+            "p99_ms": 132.443,
+            "max_first_input_to_ingress_ms": 178.852,
+            "over_200ms": 0,
+            "worst": {
+              "age_ms": 178.852,
+              "first_us": 148576922025,
+              "encoded_us": 148576952331,
+              "arrived_us": 148577100877,
+              "rtp_timestamp": 3471696068,
+              "rtp_sequence": 9001,
+              "packet_ms": 40
+            }
+          },
+          {
+            "source": 0,
+            "receiver": 2,
+            "encoded": 6150,
+            "received": 6150,
+            "missing_packets": 0,
+            "unknown_input_rows": 0,
+            "median_ms": 66.6395,
+            "p99_ms": 136.813,
+            "max_first_input_to_ingress_ms": 183.229,
+            "over_200ms": 0,
+            "worst": {
+              "age_ms": 183.229,
+              "first_us": 148848032044,
+              "encoded_us": 148848082486,
+              "arrived_us": 148848215273,
+              "rtp_timestamp": 3484709348,
+              "rtp_sequence": 13702,
+              "packet_ms": 60
+            }
+          },
+          {
+            "source": 1,
+            "receiver": 0,
+            "encoded": 6133,
+            "received": 6133,
+            "missing_packets": 0,
+            "unknown_input_rows": 0,
+            "median_ms": 75.416,
+            "p99_ms": 131.889,
+            "max_first_input_to_ingress_ms": 189.37,
+            "over_200ms": 0,
+            "worst": {
+              "age_ms": 189.37,
+              "first_us": 148576882016,
+              "encoded_us": 148576912418,
+              "arrived_us": 148577071386,
+              "rtp_timestamp": 787839029,
+              "rtp_sequence": 17346,
+              "packet_ms": 40
+            }
+          },
+          {
+            "source": 1,
+            "receiver": 2,
+            "encoded": 6133,
+            "received": 6133,
+            "missing_packets": 0,
+            "unknown_input_rows": 0,
+            "median_ms": 66.693,
+            "p99_ms": 134.968,
+            "max_first_input_to_ingress_ms": 190.737,
+            "over_200ms": 0,
+            "worst": {
+              "age_ms": 190.737,
+              "first_us": 148739942056,
+              "encoded_us": 148739992498,
+              "arrived_us": 148740132793,
+              "rtp_timestamp": 795665909,
+              "rtp_sequence": 20230,
+              "packet_ms": 60
+            }
+          },
+          {
+            "source": 2,
+            "receiver": 0,
+            "encoded": 6133,
+            "received": 6133,
+            "missing_packets": 0,
+            "unknown_input_rows": 0,
+            "median_ms": 75.414,
+            "p99_ms": 132.423,
+            "max_first_input_to_ingress_ms": 194.84,
+            "over_200ms": 0,
+            "worst": {
+              "age_ms": 194.84,
+              "first_us": 148576922024,
+              "encoded_us": 148576952335,
+              "arrived_us": 148577116864,
+              "rtp_timestamp": 401938626,
+              "rtp_sequence": 438,
+              "packet_ms": 40
+            }
+          },
+          {
+            "source": 2,
+            "receiver": 1,
+            "encoded": 6133,
+            "received": 6133,
+            "missing_packets": 0,
+            "unknown_input_rows": 0,
+            "median_ms": 74.217,
+            "p99_ms": 130.068,
+            "max_first_input_to_ingress_ms": 185.09,
+            "over_200ms": 0,
+            "worst": {
+              "age_ms": 185.09,
+              "first_us": 148576882030,
+              "encoded_us": 148576912397,
+              "arrived_us": 148577067120,
+              "rtp_timestamp": 401936706,
+              "rtp_sequence": 437,
+              "packet_ms": 40
+            }
+          }
+        ]
+      },
+      "independent_cleanup": {
+        "owned_pids": [
+          10130,
+          10131,
+          10132,
+          17369,
+          17370,
+          17371,
+          17372,
+          17388,
+          17389,
+          17390
+        ],
+        "remaining": []
+      },
+      "summary_sha256": "4b44309dddc7831d696ecee327e3dfc1ea4aeee084ea289b162efb95f20d5e01",
+      "build": {
+        "sdk_commit": "eb16851e6d568c4da0b47f74ddc53fce3f13864e",
+        "clean_sdk_worktree": true,
+        "sdk_sha256": "d9db97677e34ff88d77bc209ed7507483cb066e2bc3a3d33195602ee83bee1b4",
+        "features": [
+          "default tls-boring",
+          "node-embedded",
+          "packet-tunnel",
+          "production-seeds"
+        ],
+        "cargo_incremental": false,
+        "macos_deployment_target": "12.0",
+        "build_cwd": "/Users/vart/Projects/veilnetwork/xVeil",
+        "native_media": "/Users/vart/.cache/codex/xveil-route-epoch-20261018/media/libveil_media.dylib",
+        "native_media_sha256": "f4f5f7a3ca029f10fd2943ca308ece3f23b78359e52197f76a9b0df089d9e90f",
+        "scope": "Explicit local source tracing only: monotonic budget and complete DATAGRAM acceptance. No scheduling/wire/QoS changes."
+      },
+      "partial_retained_source_witnesses": {
+        "scope": "Exact retained witnesses only; global source trace capped. This is not a complete session attribution capture.",
+        "packet": {
+          "ssrc": 1985057165,
+          "rtp_origin": 401888706,
+          "rtp_timestamp": 412165986,
+          "rtp_sequence": 4155,
+          "source_at_seconds": 214.12001950031845,
+          "decoded_at_seconds": 214.31013012531912,
+          "packet_ms": 60,
+          "encoder_input_index": 19308,
+          "encoder_first_input_monotonic_us": 148789992019,
+          "encoded_monotonic_us": 148790042604,
+          "ingress": {
+            "seq": 4155,
+            "timestamp": 412165986,
+            "arrived_us": 148790127884,
+            "drained_us": 148790127910,
+            "payload_bytes": 179
+          },
+          "total_ms": 190.11062500067055,
+          "spans_ms": {
+            "capture_to_encoded": 40.669166657608,
+            "encoded_to_ingress": 85.27999999932945,
+            "ingress_to_webrtc": 0.02600002335384488,
+            "webrtc_to_pcm_edge": 64.13545832037926
+          },
+          "native_send": {
+            "channel": 1,
+            "seq": 4155,
+            "timestamp": 412165986,
+            "attempted_us": 148790042672,
+            "admitted_us": 148790042686,
+            "packet_bytes": 199,
+            "accepted": 1
+          },
+          "native_send_spans_ms": {
+            "encoded_to_native_send": 0.068,
+            "native_send_admission": 0.014,
+            "native_admission_to_ingress": 85.198
+          }
+        },
+        "observations": {
+          "epoch": "63af285de46590a2",
+          "cell_sequence": 3846,
+          "connection_trace_id": 14,
+          "observations_us": {
+            "budget_admit": 148790042951,
+            "datagram_accepted": 148790042969
+          },
+          "encrypted_frame": {
+            "wire_bytes": "515",
+            "family": "3",
+            "msg_type": "3",
+            "body_len": "475",
+            "body_preview_sha256": "e4da7de3a72fbd86cb2017170a102e7c9edac5b8723d9cc93ede0f809b59c97f"
+          },
+          "spans_ms": {
+            "handler_enter_to_budget_admit": 0.141,
+            "budget_admit_to_datagram_accepted": 0.018,
+            "budget_admit_to_authenticated_receiver": 84.914
+          },
+          "post_completion_offsets_ms": {
+            "relay_queued_to_budget_admit": 0.115,
+            "datagram_accepted_to_authenticated_receiver": 84.896
+          }
+        }
+      },
+      "trace_limit_note": "The new acceptance observations shared the pre-existing 65536-row budget. Original full quality verdict remains valid, but the full source-session analyzer correctly rejects this capped diagnostic stream. Independent limits in 8e9cf099 address that instrumentation limit."
+    },
+    {
+      "private_directory": "/Users/vart/.cache/codex/xveil-source-admission-20261018/source-repeat-360",
+      "ok": false,
+      "contention_qualification": false,
+      "peak_ms": 210.11591664864682,
+      "matched": 2112,
+      "missing": 0,
+      "files": [
+        {
+          "sender": 2,
+          "receiver": 0,
+          "queued": 524288,
+          "received": 524288,
+          "missing_chunks": 0,
+          "hash_matches": true,
+          "completion_seconds": 352.232989458018,
+          "authentication_errors": 0,
+          "duplicates": 0,
+          "async_failures": {},
+          "write_error": false,
+          "late_fragments": 0
+        },
+        {
+          "sender": 0,
+          "receiver": 1,
+          "queued": 524288,
+          "received": 524288,
+          "missing_chunks": 0,
+          "hash_matches": true,
+          "completion_seconds": 352.2379699580197,
+          "authentication_errors": 0,
+          "duplicates": 0,
+          "async_failures": {},
+          "write_error": false,
+          "late_fragments": 0
+        },
+        {
+          "sender": 1,
+          "receiver": 2,
+          "queued": 524288,
+          "received": 524288,
+          "missing_chunks": 0,
+          "hash_matches": true,
+          "completion_seconds": 352.29205520800315,
+          "authentication_errors": 0,
+          "duplicates": 0,
+          "async_failures": {},
+          "write_error": false,
+          "late_fragments": 0
+        }
+      ],
+      "video_tail_changes": [
+        14,
+        14,
+        10,
+        14,
+        10,
+        14
+      ],
+      "source_session_trace_complete": true,
+      "exact_sdk_peak": {
+        "native": {
+          "source": 1,
+          "receiver": 0,
+          "phase": "audio-video-file",
+          "packet": {
+            "ssrc": 4042311161,
+            "rtp_origin": 79565397,
+            "rtp_timestamp": 85380597,
+            "rtp_sequence": 9315,
+            "source_at_seconds": 121.20001758367289,
+            "decoded_at_seconds": 121.41013350032154,
+            "packet_ms": 60,
+            "encoder_input_index": 10014,
+            "encoder_first_input_monotonic_us": 149300955801,
+            "encoded_monotonic_us": 149301006327,
+            "ingress": {
+              "seq": 9315,
+              "timestamp": 85380597,
+              "arrived_us": 149301140024,
+              "drained_us": 149301140046,
+              "payload_bytes": 179
+            },
+            "total_ms": 210.11591664864682,
+            "spans_ms": {
+              "capture_to_encoded": 0.5913333443459123,
+              "encoded_to_ingress": 133.69699998293072,
+              "ingress_to_webrtc": 0.0219999928958714,
+              "webrtc_to_pcm_edge": 75.80558332847431
+            },
+            "native_send": {
+              "channel": 1,
+              "seq": 9315,
+              "timestamp": 85380597,
+              "attempted_us": 149301006361,
+              "admitted_us": 149301006372,
+              "packet_bytes": 199,
+              "accepted": 1
+            },
+            "native_send_spans_ms": {
+              "encoded_to_native_send": 0.034,
+              "native_send_admission": 0.011,
+              "native_admission_to_ingress": 133.652
+            }
+          },
+          "input_sha256": {
+            "summary.json": "508b337210b94a997f1b98c11529cb9899aca728576bec7fce0ee681c942e847",
+            "worker-1/summary.json": "ccd827779e0c34f0c17a93b40205d4d82b6b1d50eb3c927b3e52150bb5c54995",
+            "worker-0/summary.json": "20442e800feafac6c367956e45f4a1967e90e2c6cbaa1f9e907242e5af42ce0b",
+            "worker-1/pcm-samples.json": "b906f03a3aae1e45fc534e32f536d7f590267bdcd75d9d561ccf33430044194b",
+            "worker-0/pcm-samples.json": "923e3f08e29efe86f31c500d2a343b4105f6bd89319f6facc1c2bc051564dc74",
+            "worker-1/codec-samples.json": "79b356b47656a67f37c6bc2c787cf9035c5c7789214b4007cb3feb353ae3f978",
+            "worker-1/playout-trace.log": "fe401793f1ef874842384e6fb4e092a1eeddc716e541b2cf44485b670dbb9056",
+            "worker-0/playout-trace.log": "87c5ac2ab228b0b3fa3405be813c1683d0ae3bc621046c0ae39e3561508138fb"
+          },
+          "limits": [
+            "Owned same-host clocks only; no physical acoustic latency claim",
+            "Encoded-to-ingress includes all local and transport stages; no per-hop attribution",
+            "Ingress-to-PCM can include codec lookahead/FEC and following packets; not NetEq alone",
+            "This analysis does not change the capture verdict or its quality gates"
+          ]
+        },
+        "sdk": {
+          "epoch": "fcce2b19ee47be56",
+          "cell_sequence": 2252,
+          "rtp_index_in_cell": 0,
+          "source_sdk_peer": "0e6067a3",
+          "receiver_sdk_peer": "cb04fc90",
+          "sealed_bytes": 235,
+          "observations_us": {
+            "native_attempt": 149301006361,
+            "sdk_seal": 149301006394,
+            "sdk_send_pump": 149301006405,
+            "daemon_read": 149301006452,
+            "handler_enter": 149301006487,
+            "relay_queued": 149301006509,
+            "sdk_authenticated": 149301140009,
+            "native_ingress": 149301140024
+          },
+          "socket_written_us": 149301006425,
+          "rtp_authenticated_metadata_us": 149301140019,
+          "native_enqueue_return_us": 149301006372,
+          "spans_ms": {
+            "native_attempt_to_sdk_seal": 0.033,
+            "sdk_seal_to_sdk_send_pump": 0.011,
+            "sdk_send_pump_to_daemon_read": 0.047,
+            "daemon_read_to_handler_enter": 0.035,
+            "handler_enter_to_relay_queued": 0.022,
+            "relay_queued_to_sdk_authenticated": 133.5,
+            "sdk_authenticated_to_native_ingress": 0.015
+          }
+        },
+        "sdk_log_sha256": {
+          "worker-1/native.log": "31b9cb9b0fa27ca991396414c597a5329134504b32a1adb0580225f53487dd41",
+          "worker-0/native.log": "aae3e0c37a7e6175347477a6109fe2e19b5a1e6d6d66ed90e80f19524e083f15",
+          "native.log": "a20b2d40cbac69f6bbd745eaeb646194dde69fe1ad1f45acad57eba3eb2033fb"
+        },
+        "limits": [
+          "Owned same-host clocks; no remote/acoustic latency inference",
+          "Relay-queued is source-node admission, not proof of wire send",
+          "Socket-written and native-enqueue-return are post-completion observations; concurrency can place them after downstream work",
+          "This join changes no original quality gate or capture verdict",
+          "DATAGRAM acceptance is a source-transport queue observation, not a NIC send",
+          "Opaque session-frame digests and connection IDs are local diagnostics only",
+          "Async source enqueue and transport returns may follow downstream processing"
+        ],
+        "source_session": {
+          "epoch": "fcce2b19ee47be56",
+          "cell_sequence": 2252,
+          "connection_trace_id": 14,
+          "observations_us": {
+            "budget_admit": 149301006622,
+            "datagram_accepted": 149301006633
+          },
+          "encrypted_frame": {
+            "wire_bytes": "515",
+            "family": "3",
+            "msg_type": "3",
+            "body_len": "475",
+            "body_preview_sha256": "b807e228af40bb4e469a6e98a596e2ae4179f552372c6696477fd52c9c74cff0"
+          },
+          "spans_ms": {
+            "handler_enter_to_budget_admit": 0.135,
+            "budget_admit_to_datagram_accepted": 0.011,
+            "budget_admit_to_authenticated_receiver": 133.387
+          },
+          "post_completion_offsets_ms": {
+            "relay_queued_to_budget_admit": 0.113,
+            "datagram_accepted_to_authenticated_receiver": 133.376
+          }
+        }
+      },
+      "source_transport_lifetime_observation": {
+        "scope": "Same-connection lifetime maxima observed after this packet arrived. These are upper bounds for timed outgoing datagram queue and prepared socket handoff on that connection, NOT this packet actual delays or a complete wire/relay attribution. Event/timer maxima overlap queue delays and must not be summed. Socket sample uses local wall clock; owned same-host diagnostic only.",
+        "connection_trace_id": 14,
+        "packet_receipt_estimated_unix_us": 1792316523241406,
+        "observation_unix_us": 1792316762425000,
+        "lifetime_counters": {
+          "datagram_queue_max_us": 1689,
+          "udp_send_wait_max_us": 244,
+          "event_queue_max_us": 170,
+          "timer_late_max_us": 3486,
+          "datagram_cwnd_blocked_max_age_us": 0,
+          "datagram_pacing_blocked_max_age_us": 0,
+          "expired_outgoing_datagrams": 0,
+          "lost_packets": 0
+        },
+        "packet_datagram_accepted_to_native_ingress_ms": 133.391,
+        "native_log_sha256": "a20b2d40cbac69f6bbd745eaeb646194dde69fe1ad1f45acad57eba3eb2033fb"
+      },
+      "all_packet_pre_playout_lower_bounds": {
+        "scope": "Supplemental lower bound for all authenticated audio RTP arrivals: first 10-ms input block to native ingress, before decoding/playout. Same-host diagnostic clock; only 1 <= first-input seconds < duration-1. Original PCM gate unchanged.",
+        "paths": [
+          {
+            "source": 0,
+            "receiver": 1,
+            "encoded": 6142,
+            "received": 6142,
+            "missing_packets": 0,
+            "unknown_input_rows": 0,
+            "median_ms": 80.69550000000001,
+            "p99_ms": 131.79,
+            "max_first_input_to_ingress_ms": 215.17,
+            "over_200ms": 3,
+            "worst": {
+              "age_ms": 215.17,
+              "first_us": 149180845833,
+              "encoded_us": 149180876133,
+              "arrived_us": 149181061003,
+              "rtp_timestamp": 2760747867,
+              "rtp_sequence": 21104,
+              "packet_ms": 40
+            }
+          },
+          {
+            "source": 0,
+            "receiver": 2,
+            "encoded": 6142,
+            "received": 6142,
+            "missing_packets": 0,
+            "unknown_input_rows": 0,
+            "median_ms": 67.851,
+            "p99_ms": 131.77,
+            "max_first_input_to_ingress_ms": 250.095,
+            "over_200ms": 8,
+            "worst": {
+              "age_ms": 250.095,
+              "first_us": 149180845833,
+              "encoded_us": 149180876133,
+              "arrived_us": 149181095928,
+              "rtp_timestamp": 2760747867,
+              "rtp_sequence": 21104,
+              "packet_ms": 40
+            }
+          },
+          {
+            "source": 1,
+            "receiver": 0,
+            "encoded": 6134,
+            "received": 6134,
+            "missing_packets": 0,
+            "unknown_input_rows": 0,
+            "median_ms": 75.3755,
+            "p99_ms": 144.101,
+            "max_first_input_to_ingress_ms": 304.784,
+            "over_200ms": 13,
+            "worst": {
+              "age_ms": 304.784,
+              "first_us": 149180805839,
+              "encoded_us": 149180836154,
+              "arrived_us": 149181110623,
+              "rtp_timestamp": 79613397,
+              "rtp_sequence": 7146,
+              "packet_ms": 40
+            }
+          },
+          {
+            "source": 1,
+            "receiver": 2,
+            "encoded": 6134,
+            "received": 6134,
+            "missing_packets": 0,
+            "unknown_input_rows": 0,
+            "median_ms": 71.8125,
+            "p99_ms": 139.931,
+            "max_first_input_to_ingress_ms": 300.012,
+            "over_200ms": 13,
+            "worst": {
+              "age_ms": 300.012,
+              "first_us": 149180805839,
+              "encoded_us": 149180836154,
+              "arrived_us": 149181105851,
+              "rtp_timestamp": 79613397,
+              "rtp_sequence": 7146,
+              "packet_ms": 40
+            }
+          },
+          {
+            "source": 2,
+            "receiver": 0,
+            "encoded": 6000,
+            "received": 6000,
+            "missing_packets": 0,
+            "unknown_input_rows": 0,
+            "median_ms": 75.294,
+            "p99_ms": 137.804,
+            "max_first_input_to_ingress_ms": 255.248,
+            "over_200ms": 9,
+            "worst": {
+              "age_ms": 255.248,
+              "first_us": 149180845833,
+              "encoded_us": 149180876143,
+              "arrived_us": 149181101081,
+              "rtp_timestamp": 2779187560,
+              "rtp_sequence": 16741,
+              "packet_ms": 40
+            }
+          },
+          {
+            "source": 2,
+            "receiver": 1,
+            "encoded": 6000,
+            "received": 6000,
+            "missing_packets": 0,
+            "unknown_input_rows": 0,
+            "median_ms": 77.6235,
+            "p99_ms": 128.618,
+            "max_first_input_to_ingress_ms": 208.259,
+            "over_200ms": 1,
+            "worst": {
+              "age_ms": 208.259,
+              "first_us": 149180805850,
+              "encoded_us": 149180836119,
+              "arrived_us": 149181014109,
+              "rtp_timestamp": 2779185640,
+              "rtp_sequence": 16740,
+              "packet_ms": 40
+            }
+          }
+        ]
+      },
+      "independent_cleanup": {
+        "owned_pids": [
+          6424,
+          6427,
+          6428,
+          16578,
+          16579,
+          16580,
+          16581,
+          16600,
+          16601,
+          16602
+        ],
+        "remaining": [],
+        "remaining_socket_files_now": [],
+        "original_remaining_sockets_at_stop": 1,
+        "note": "Original stop-time snapshot preserved; this audit checks later authoritative OS process/file state.",
+        "stale_socket_cleanup": {
+          "path": "/Users/vart/.cache/codex/xveil-source-admission-20261018/source-repeat-360/3/ipc.sock",
+          "lsof_returncode": 1,
+          "connect_errno": 61,
+          "owned_by_uid": 501,
+          "inode": 227600637,
+          "manually_unlinked": true
+        }
+      },
+      "summary_sha256": "508b337210b94a997f1b98c11529cb9899aca728576bec7fce0ee681c942e847",
+      "build": {
+        "sdk_commit": "8e9cf099cb04e0b899bccd1d4cfd72f62f315b94",
+        "clean_sdk_worktree": true,
+        "sdk_sha256": "36b9ad1198ce536753e7ae658bf39bebd2610a338f8c271eaf0061ae3a5892c6",
+        "features": [
+          "default tls-boring",
+          "node-embedded",
+          "packet-tunnel",
+          "production-seeds"
+        ],
+        "cargo_incremental": false,
+        "macos_deployment_target": "12.0",
+        "build_cwd": "/Users/vart/Projects/veilnetwork/xVeil",
+        "native_media": "/Users/vart/.cache/codex/xveil-route-epoch-20261018/media/libveil_media.dylib",
+        "native_media_sha256": "f4f5f7a3ca029f10fd2943ca308ece3f23b78359e52197f76a9b0df089d9e90f",
+        "scope": "Explicit local source tracing only: monotonic budget and complete DATAGRAM acceptance. No scheduling/wire/QoS changes. Additional observations have an independent 65536-row cap."
+      },
+      "supplemental_worst_arrival_session": {
+        "scope": "Supplemental worst measured pre-playout arrival, selected from all packet receipts in the original 1 <= first input seconds < duration-1 window. Does not change the PCM gate. Same-host diagnostics only.",
+        "source": 1,
+        "receiver": 0,
+        "first_input_seconds": 1.0001209170150105,
+        "lower_bound_first_input_to_ingress_ms": 304.784,
+        "packet": {
+          "ssrc": 4042311161,
+          "rtp_sequence": 7146,
+          "rtp_timestamp": 79613397,
+          "ingress": {
+            "seq": 7146,
+            "timestamp": 79613397,
+            "arrived_us": 149181110623,
+            "drained_us": 149181110648,
+            "payload_bytes": 159
+          },
+          "native_send": {
+            "channel": 1,
+            "seq": 7146,
+            "timestamp": 79613397,
+            "attempted_us": 149180836185,
+            "admitted_us": 149180836195,
+            "packet_bytes": 179,
+            "accepted": 1
+          },
+          "encoder_first_input_monotonic_us": 149180805839,
+          "encoded_monotonic_us": 149180836154
+        },
+        "sdk": {
+          "epoch": "fcce2b19ee47be56",
+          "cell_sequence": 38,
+          "rtp_index_in_cell": 0,
+          "source_sdk_peer": "0e6067a3",
+          "receiver_sdk_peer": "cb04fc90",
+          "sealed_bytes": 215,
+          "observations_us": {
+            "native_attempt": 149180836185,
+            "sdk_seal": 149180836219,
+            "sdk_send_pump": 149180836232,
+            "daemon_read": 149180836288,
+            "handler_enter": 149180836333,
+            "relay_queued": 149180836347,
+            "sdk_authenticated": 149181110606,
+            "native_ingress": 149181110623
+          },
+          "socket_written_us": 149180836251,
+          "rtp_authenticated_metadata_us": 149181110618,
+          "native_enqueue_return_us": 149180836195,
+          "spans_ms": {
+            "native_attempt_to_sdk_seal": 0.034,
+            "sdk_seal_to_sdk_send_pump": 0.013,
+            "sdk_send_pump_to_daemon_read": 0.056,
+            "daemon_read_to_handler_enter": 0.045,
+            "handler_enter_to_relay_queued": 0.014,
+            "relay_queued_to_sdk_authenticated": 274.259,
+            "sdk_authenticated_to_native_ingress": 0.017
+          }
+        },
+        "source_session": {
+          "epoch": "fcce2b19ee47be56",
+          "cell_sequence": 38,
+          "connection_trace_id": 14,
+          "observations_us": {
+            "budget_admit": 149180836453,
+            "datagram_accepted": 149180836464
+          },
+          "encrypted_frame": {
+            "wire_bytes": "495",
+            "family": "3",
+            "msg_type": "3",
+            "body_len": "455",
+            "body_preview_sha256": "14d873eb3e35eabcdf6fe97f4129e61641ff22fb761c38889bf945dfb6a7c990"
+          },
+          "spans_ms": {
+            "handler_enter_to_budget_admit": 0.12,
+            "budget_admit_to_datagram_accepted": 0.011,
+            "budget_admit_to_authenticated_receiver": 274.153
+          },
+          "post_completion_offsets_ms": {
+            "relay_queued_to_budget_admit": 0.106,
+            "datagram_accepted_to_authenticated_receiver": 274.142
+          }
+        }
+      },
+      "supplemental_worst_arrival_transport_bounds": {
+        "scope": "Same-connection lifetime maxima observed after this packet arrived. These are upper bounds for timed outgoing datagram queue and prepared socket handoff on that connection, NOT this packet actual delays or a complete wire/relay attribution. Event/timer maxima overlap queue delays and must not be summed. Socket sample uses local wall clock; owned same-host diagnostic only.",
+        "connection_trace_id": 14,
+        "packet_receipt_estimated_unix_us": 1792316403212108,
+        "observation_unix_us": 1792316762425000,
+        "lifetime_counters": {
+          "datagram_queue_max_us": 1689,
+          "udp_send_wait_max_us": 244,
+          "event_queue_max_us": 170,
+          "timer_late_max_us": 3486,
+          "datagram_cwnd_blocked_max_age_us": 0,
+          "datagram_pacing_blocked_max_age_us": 0,
+          "expired_outgoing_datagrams": 0,
+          "lost_packets": 0
+        },
+        "packet_datagram_accepted_to_native_ingress_ms": 274.159,
+        "native_log_sha256": "a20b2d40cbac69f6bbd745eaeb646194dde69fe1ad1f45acad57eba3eb2033fb"
+      },
+      "cleanup_note": "The original snapshot retained one IPC socket file after all workers/nodes stopped. Independent OS audit found all ten PIDs absent, lsof no owner, connect ECONNREFUSED; owned stale file was manually unlinked. Original FAIL / remaining_sockets=1 stays unchanged."
+    }
+  ],
+  "validation": {
+    "rust_local_source_trace_tests": 8,
+    "python_pipeline_tests": 37,
+    "clippy": "veil-session lib/tests, -D warnings: pass"
+  },
+  "latest_build": {
+    "sdk_commit": "c219fa7b877344e71ffe36369a3452c42f1dbe51",
+    "clean_sdk_worktree": true,
+    "sdk_sha256": "7ddb3c068845ce9f3a9771e958f89b0fc17e886b207d5da3237fdb854092b4bd",
+    "features": [
+      "default tls-boring",
+      "node-embedded",
+      "packet-tunnel",
+      "production-seeds"
+    ],
+    "cargo_incremental": false,
+    "macos_deployment_target": "12.0",
+    "build_cwd": "/Users/vart/Projects/veilnetwork/xVeil",
+    "native_media": "/Users/vart/.cache/codex/xveil-route-epoch-20261018/media/libveil_media.dylib",
+    "native_media_sha256": "f4f5f7a3ca029f10fd2943ca308ece3f23b78359e52197f76a9b0df089d9e90f",
+    "scope": "Explicit local source tracing only: monotonic budget and complete DATAGRAM acceptance. No scheduling/wire/QoS changes. Additional observations have an independent 65536-row cap. Connection ordinal lookup is lazy and does not acquire QUIC locks with disabled/non-primary diagnostics."
+  },
+  "late_guard_note": "Final SDK revision lazily reads the local connection ordinal after explicit opt-in and primary ownership. The recorded full captures use the same enabled metadata trace with eager lookup; off/invalid/transit paths are covered by callback-not-invoked assertions. Final clean release build passes; no additional physical-device or acoustic qualification is claimed.",
+  "private_repro_helpers": {
+    "/Users/vart/.cache/codex/xveil-source-admission-20261018/launch-full.py": "636f893529bc6a84c9c96d66afb26aa3522d60f8ba0551ec3d48eec86bd432de",
+    "/Users/vart/.cache/codex/xveil-source-admission-20261018/launch-repeat2.py": "48b6790aa6593988cba2fd58e21b7e0bcab85321a78f17980895bbeb88a5556f",
+    "/Users/vart/.cache/codex/xveil-source-admission-20261018/transport-bounds.py": "d7a75c53063c046b260d427a6da718177f00223535e08bd946df41e369c3eb3d",
+    "/Users/vart/.cache/codex/xveil-source-admission-20261018/worst-arrival-session.py": "b12ba8fbfca9bde9f9644f04f61325b1505ca24a15384da42e731e65889ed62f",
+    "/Users/vart/.cache/codex/xveil-rtp-cell-20261018/all-packet-arrivals.py": "d007599cf21486965392c89756831b8babdba6712e8ac3c7f4c6104902908113"
+  },
+  "remaining": "Preserve prior 230.302-ms failure and >=200-ms all-packet lower-bound captures. Trace the exact opaque payload through neutral relay and receiver delivery before changing queue admission or pacing. These passing samples do not establish a stable end-to-end latency bound."
+}
