@@ -1,0 +1,124 @@
+{
+  "independent-gate": {
+    "raw_log_sha256": "6a7902f96abfdbf020470b952a45630a7ad1f50ec0c5fe819b3f8919c80f1273",
+    "case_results": [
+      "test runner::quic_backlog_tests::primary_recovery_quic_tests::independent_sources_can_warm_after_canonical_swap_and_survive_another_swap ... ok",
+      "test runner::quic_backlog_tests::primary_recovery_quic_tests::independent_sources_reauthenticate_when_retained_quic_factory_closes_after_swap ... ok",
+      "test runner::quic_backlog_tests::primary_recovery_quic_tests::independent_sources_survive_canonical_stream_swap_without_reset_or_parent_spill ... ok",
+      "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 599 filtered out; finished in 3.53s"
+    ],
+    "summaries": [
+      "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 599 filtered out; finished in 3.53s"
+    ],
+    "failure_excerpt": []
+  },
+  "compatibility-gate": {
+    "raw_log_sha256": "27788b9278dbb162015a9babe48705883cd43d7b51cc560d615227dc69544f1a",
+    "case_results": [
+      "test runner::quic_backlog_tests::primary_recovery_quic_tests::negotiated_ordered_sources_do_not_enter_parent_and_preserve_ordinary_cipher_order ... ok",
+      "test runner::quic_backlog_tests::primary_recovery_quic_tests::negotiated_sources_never_spill_to_parent_while_children_warm_or_close ... ok",
+      "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 600 filtered out; finished in 1.45s"
+    ],
+    "summaries": [
+      "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 600 filtered out; finished in 1.45s"
+    ],
+    "failure_excerpt": []
+  },
+  "rotation-gate": {
+    "raw_log_sha256": "7d90197206095f33fb9b016d8a31ea51858936ebbb5540e532afecea15b14674",
+    "case_results": [
+      "test q7_rotation_deadline_fires_and_runner_returns_when_no_controller ... ok",
+      "test q7_rotation_reconnects_independent_children_without_rearming_their_lifetime ... [1792353644.222] INFO  session.realtime_datagram.enabled peer_id=01010101 transport=ordered max_datagram_size=1200 opaque_flows=true independent_available=true circuit_datagrams=true",
+      "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 118 filtered out; finished in 1.20s"
+    ],
+    "summaries": [
+      "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 118 filtered out; finished in 1.20s"
+    ],
+    "failure_excerpt": []
+  },
+  "swap-gate": {
+    "raw_log_sha256": "c62b5f266fa2c96d5f8f34e97781f68096e3ac5ace3d8d0a81a11219160d4cb1",
+    "case_results": [
+      "test phase650b_rekey_state_survives_transport_swap ... [1792353644.592] INFO  session.transport_swapped peer_id=f1f1f1f1 session preserved across transport handover",
+      "test swap_preserves_aead_counter_across_transports ... [1792353644.645] INFO  session.transport_swapped peer_id=01010101 session preserved across transport handover",
+      "test swap_redirects_runner_to_new_stream_without_reset ... [1792353644.645] INFO  session.transport_swapped peer_id=01010101 session preserved across transport handover",
+      "test the_swap_registry_follows_the_session_across_a_rekey ... [1792353644.648] INFO  session.primary_closed peer_id=aaaaaaaa primary transport read side closed error=EOF in frame header \u2014 reconnect path will recover",
+      "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 116 filtered out; finished in 0.06s"
+    ],
+    "summaries": [
+      "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 116 filtered out; finished in 0.06s"
+    ],
+    "failure_excerpt": []
+  },
+  "handoff-gate": {
+    "raw_log_sha256": "1cdf80779b663303b794c28f15c9336365f1da131a2cfaf57eba943df41eb3cd",
+    "case_results": [
+      "test end_to_end_handoff_pipeline_via_peek_and_dispatch ... [1792353644.817] INFO  session.handoff.init.received peer_id=3c3c3c3c stashed pending handoff",
+      "test handoff_ack_forwards_nonce_to_waiting_initiator ... [1792353644.818] INFO  session.primary_closed peer_id=77777777 primary transport read side closed error=EOF in frame header \u2014 reconnect path will recover",
+      "test handoff_init_stashes_registry_and_emits_ack ... [1792353644.818] INFO  session.handoff.init.received peer_id=55555555 stashed pending handoff",
+      "test handoff_init_with_malformed_body_is_a_violation ... [1792353644.818] WARN  session.violation  peer_id=66666666 reason=bad HandoffInit: malformed payload: HandoffInit: expected 32 bytes, got 8",
+      "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 116 filtered out; finished in 0.10s"
+    ],
+    "summaries": [
+      "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 116 filtered out; finished in 0.10s"
+    ],
+    "failure_excerpt": []
+  },
+  "regression-before": {
+    "raw_log_sha256": "5695a27591c66765eb500e4e5e442bc18260ecd03c392110afa5d0fd0653506e",
+    "case_results": [
+      "test runner::quic_backlog_tests::primary_recovery_quic_tests::independent_sources_survive_canonical_stream_swap_without_reset_or_parent_spill ... FAILED",
+      "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 599 filtered out; finished in 0.46s"
+    ],
+    "summaries": [
+      "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 599 filtered out; finished in 0.46s"
+    ],
+    "failure_excerpt": [
+      "thread 'runner::quic_backlog_tests::primary_recovery_quic_tests::independent_sources_survive_canonical_stream_swap_without_reset_or_parent_spill' (36138803) panicked at crates/veil-session/src/primary_recovery_quic_tests.rs:296:9:",
+      "assertion `left == right` failed: replacing the canonical stream must not retire independent connections",
+      "  left: 0",
+      " right: 3",
+      "note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace",
+      "test runner::quic_backlog_tests::primary_recovery_quic_tests::independent_sources_survive_canonical_stream_swap_without_reset_or_parent_spill ... FAILED",
+      ""
+    ]
+  },
+  "blocked-writer-before": {
+    "raw_log_sha256": "683e9fe7efa3a929a6df9c0ddba18dac540688a31ade73df77643a452dd7d16a",
+    "case_results": [
+      "test runner::quic_backlog_tests::primary_recovery_quic_tests::independent_sources_reauthenticate_when_retained_quic_factory_closes_after_swap ... FAILED",
+      "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 601 filtered out; finished in 2.48s"
+    ],
+    "summaries": [
+      "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 601 filtered out; finished in 2.48s"
+    ],
+    "failure_excerpt": [
+      "thread 'runner::quic_backlog_tests::primary_recovery_quic_tests::independent_sources_reauthenticate_when_retained_quic_factory_closes_after_swap' (36817799) panicked at crates/veil-session/src/primary_recovery_quic_tests.rs:431:18:",
+      "lost independent factory must abort the blocked writer promptly: Elapsed(())",
+      "note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace",
+      "test runner::quic_backlog_tests::primary_recovery_quic_tests::independent_sources_reauthenticate_when_retained_quic_factory_closes_after_swap ... FAILED",
+      "",
+      "failures:",
+      ""
+    ]
+  },
+  "rotation-without-lifetime-guard": {
+    "raw_log_sha256": "8625f7c1913480dce36155f594e08647f652a0afcb7115c75880041464ec2434",
+    "case_results": [
+      "test q7_rotation_reconnects_independent_children_without_rearming_their_lifetime ... [1792353335.038] INFO  session.realtime_datagram.enabled peer_id=01010101 transport=ordered max_datagram_size=1200 opaque_flows=true independent_available=true circuit_datagrams=true",
+      "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 119 filtered out; finished in 1.01s"
+    ],
+    "summaries": [
+      "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 119 filtered out; finished in 1.01s"
+    ],
+    "failure_excerpt": [
+      "thread 'q7_rotation_reconnects_independent_children_without_rearming_their_lifetime' (36665920) panicked at crates/veil-session-integration-tests/tests/runner_tests.rs:5961:10:",
+      "independent session must close at its original rotation deadline: Elapsed(())",
+      "note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace",
+      "FAILED",
+      "",
+      "failures:",
+      ""
+    ]
+  }
+}
