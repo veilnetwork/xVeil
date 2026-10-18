@@ -1,0 +1,11 @@
+{
+  "private_only": true,
+  "profile_aot": true,
+  "hook_double_opt_in": true,
+  "android_version_code": 12616,
+  "same_signer_as_target_and_probe": true,
+  "native_and_storage_library_bytes_preserved": true,
+  "platform_source_sha256": "2b3c5242d186b231a7b2640cdf8b7298606e071a59f8f3d5abb170d317e84408",
+  "apk_sha256": "4a560f8effe775bc7909fbd75c2ce331b936dbe53a858d7541e204cb8afd412a",
+  "foreign_wip_excluded": true
+}

@@ -1,0 +1,527 @@
+{
+  "ok": false,
+  "participants": 3,
+  "separate_sdk_processes": true,
+  "video_file_load": true,
+  "speech_listening_proof": false,
+  "load_kind": "both",
+  "duration_seconds": 360,
+  "rate_kbps": 1024,
+  "test_ptime_requested": null,
+  "sdk_sha256": "167f07d9ec8a24d6022a91f3e113bd9ad2cfea4b8e10bdfb0b3f8f0335279d85",
+  "media_sha256": "51054a648b48b8ef9e8952fc00e3fe28ee07feb4f7a42846fcd14007e3400b3b",
+  "fixture_sources": {
+    "group-process-preflight.py": "dc81f13f348ac789a6fa4f20b79a9f0ab3a99b25fbf86fc24c1f7a77d2bcfe75",
+    "group_codec_sdk.py": "4ce76496a808ff9c05d069d474c6330e54446006e3a4b62a88a7ffb5840b73c2",
+    "native_pcm_driver.py": "2c06e9d4c2c903686d6243fc5a5d7f33ee344ec633874ffe208540307bce6662",
+    "native_pcm_driver.cc": "2efd0cffa95f1f8b87c72c1f2b9d7adbe1ac28903cf3adcbfdd2187928503838",
+    "group_pcm_timing.py": "8231987186cee719d21dd88b9d4429f0461cd785f5da63a33a8097c6782a2925",
+    "udp_fifo_shaper.py": "530f6343d103708eff1b0af16a112995955192f4c7511f33912584850f996605",
+    "group_process_files.py": "1543a7e862fca7a4597581ab9ada1ee42fc6a0cafa771a0b54fb7ec3786fe47e",
+    "scripts/group_audio_policy.dart": "d5a2144c894701b97c37632a670661fe08f2b273f36098ea7414ff7db3bc9453",
+    "scripts/group_codec_policy.dart": "49ff4c2b8d606c3b9f848b8622fe0831c7820f2262f182256d0b4275df06a23f",
+    "lib/state/call_audio_source_pressure.dart": "1d353781f951ee6c95fd5108f1f1fa3f06082e9493b0a9831c46c539d13bfdad",
+    "lib/state/group_call_audio_adapter.dart": "352be63e283c9c5dcf1b77eb7842d8f77165b4ba10c512b4087ac346e9664d87",
+    "lib/state/call_audio_buffer_window.dart": "8542164f22054ce2b4e1ca7bfa1352623bc1744c9de00405db86333bc6e41f50",
+    "lib/state/call_bitrate_adapter.dart": "01ceccf53afe07cb8c53c59931a89399f1d9e48d5f767cb13fa39bb1ec73b99f",
+    "lib/state/call_audio_receive_activity.dart": "4871578d14ebaf70d121ed1aa3c0d66351e030776f512f9255e71b1e06f45f63",
+    "lib/state/call_rtcp_loss.dart": "f04713b986d339979d2c2d81d6d0163ccb2a77ac36c8f137db6f44a9e3d4b0fc"
+  },
+  "voice_paths": [
+    {
+      "receiver": 0,
+      "source": 1,
+      "phases": [
+        {
+          "phase": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "max_ms": 120.26845832588151,
+          "peak": {
+            "source_at_seconds": 11.110007958312053,
+            "decoded_at_seconds": 11.230276416637935,
+            "ordinal": 11,
+            "delay_ms": 120.26845832588151
+          }
+        },
+        {
+          "phase": "audio-video-file",
+          "matched": 337,
+          "missing": 0,
+          "max_ms": 380.0687500042841,
+          "peak": {
+            "source_at_seconds": 332.29000433330657,
+            "decoded_at_seconds": 332.67007308331085,
+            "ordinal": 329,
+            "delay_ms": 380.0687500042841
+          }
+        }
+      ],
+      "source_edges": 357,
+      "decoded_edges": 357,
+      "matching": "ordinal_from_capture_start",
+      "first_capture": 1.1583295417949557e-05,
+      "last_capture": 360.00001724998583
+    },
+    {
+      "receiver": 0,
+      "source": 2,
+      "phases": [
+        {
+          "phase": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "max_ms": 120.26487500406802,
+          "peak": {
+            "source_at_seconds": 11.110011541633867,
+            "decoded_at_seconds": 11.230276416637935,
+            "ordinal": 11,
+            "delay_ms": 120.26487500406802
+          }
+        },
+        {
+          "phase": "audio-video-file",
+          "matched": 337,
+          "missing": 0,
+          "max_ms": 390.06900001550093,
+          "peak": {
+            "source_at_seconds": 332.29000441663084,
+            "decoded_at_seconds": 332.68007341664634,
+            "ordinal": 329,
+            "delay_ms": 390.06900001550093
+          }
+        }
+      ],
+      "source_edges": 357,
+      "decoded_edges": 357,
+      "matching": "ordinal_from_capture_start",
+      "first_capture": 1.1874974006786942e-05,
+      "last_capture": 360.0000123749778
+    },
+    {
+      "receiver": 1,
+      "source": 0,
+      "phases": [
+        {
+          "phase": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "max_ms": 140.16437498503365,
+          "peak": {
+            "source_at_seconds": 5.050012291641906,
+            "decoded_at_seconds": 5.1901766666269396,
+            "ordinal": 5,
+            "delay_ms": 140.16437498503365
+          }
+        },
+        {
+          "phase": "audio-video-file",
+          "matched": 337,
+          "missing": 0,
+          "max_ms": 360.1620416739024,
+          "peak": {
+            "source_at_seconds": 332.29000383330276,
+            "decoded_at_seconds": 332.65016587497666,
+            "ordinal": 329,
+            "delay_ms": 360.1620416739024
+          }
+        }
+      ],
+      "source_edges": 357,
+      "decoded_edges": 357,
+      "matching": "ordinal_from_capture_start",
+      "first_capture": 1.4458317309617996e-05,
+      "last_capture": 360.0000084999774
+    },
+    {
+      "receiver": 1,
+      "source": 2,
+      "phases": [
+        {
+          "phase": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "max_ms": 130.27550000697374,
+          "peak": {
+            "source_at_seconds": 10.100010458292672,
+            "decoded_at_seconds": 10.230285958299646,
+            "ordinal": 10,
+            "delay_ms": 130.27550000697374
+          }
+        },
+        {
+          "phase": "audio-video-file",
+          "matched": 337,
+          "missing": 0,
+          "max_ms": 380.0745833432302,
+          "peak": {
+            "source_at_seconds": 332.29000441663084,
+            "decoded_at_seconds": 332.67007899997407,
+            "ordinal": 329,
+            "delay_ms": 380.0745833432302
+          }
+        }
+      ],
+      "source_edges": 357,
+      "decoded_edges": 357,
+      "matching": "ordinal_from_capture_start",
+      "first_capture": 1.1874974006786942e-05,
+      "last_capture": 360.0000123749778
+    },
+    {
+      "receiver": 2,
+      "source": 0,
+      "phases": [
+        {
+          "phase": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "max_ms": 120.27933335048147,
+          "peak": {
+            "source_at_seconds": 11.110007916635368,
+            "decoded_at_seconds": 11.23028724998585,
+            "ordinal": 11,
+            "delay_ms": 120.27933335048147
+          }
+        },
+        {
+          "phase": "audio-video-file",
+          "matched": 337,
+          "missing": 0,
+          "max_ms": 360.09224998997524,
+          "peak": {
+            "source_at_seconds": 332.29000383330276,
+            "decoded_at_seconds": 332.65009608329274,
+            "ordinal": 329,
+            "delay_ms": 360.09224998997524
+          }
+        }
+      ],
+      "source_edges": 357,
+      "decoded_edges": 357,
+      "matching": "ordinal_from_capture_start",
+      "first_capture": 1.4458317309617996e-05,
+      "last_capture": 360.0000084999774
+    },
+    {
+      "receiver": 2,
+      "source": 1,
+      "phases": [
+        {
+          "phase": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "max_ms": 120.27929167379625,
+          "peak": {
+            "source_at_seconds": 11.110007958312053,
+            "decoded_at_seconds": 11.23028724998585,
+            "ordinal": 11,
+            "delay_ms": 120.27929167379625
+          }
+        },
+        {
+          "phase": "audio-video-file",
+          "matched": 337,
+          "missing": 0,
+          "max_ms": 380.07091666804627,
+          "peak": {
+            "source_at_seconds": 332.29000433330657,
+            "decoded_at_seconds": 332.6700752499746,
+            "ordinal": 329,
+            "delay_ms": 380.07091666804627
+          }
+        }
+      ],
+      "source_edges": 357,
+      "decoded_edges": 357,
+      "matching": "ordinal_from_capture_start",
+      "first_capture": 1.1583295417949557e-05,
+      "last_capture": 360.00001724998583
+    }
+  ],
+  "neutral_relay_route_verified": true,
+  "end_topology": {
+    "verified": true,
+    "active_session_counts": [
+      3,
+      1,
+      1,
+      1
+    ]
+  },
+  "files": [
+    {
+      "sender": 2,
+      "receiver": 0,
+      "queued": 524288,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "completion_seconds": 352.23850708300597,
+      "authentication_errors": 0,
+      "duplicates": 0,
+      "async_failures": {},
+      "write_error": false,
+      "late_fragments": 0
+    },
+    {
+      "sender": 0,
+      "receiver": 1,
+      "queued": 524288,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "completion_seconds": 352.52754512499087,
+      "authentication_errors": 0,
+      "duplicates": 0,
+      "async_failures": {},
+      "write_error": false,
+      "late_fragments": 0
+    },
+    {
+      "sender": 1,
+      "receiver": 2,
+      "queued": 524288,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "completion_seconds": 352.22966258300585,
+      "authentication_errors": 0,
+      "duplicates": 0,
+      "async_failures": {},
+      "write_error": false,
+      "late_fragments": 0
+    }
+  ],
+  "video_paths": [
+    {
+      "receiver": 0,
+      "source": 1,
+      "decoded_pulls": 335,
+      "tail_changes": 14
+    },
+    {
+      "receiver": 0,
+      "source": 2,
+      "decoded_pulls": 328,
+      "tail_changes": 10
+    },
+    {
+      "receiver": 1,
+      "source": 0,
+      "decoded_pulls": 295,
+      "tail_changes": 2
+    },
+    {
+      "receiver": 1,
+      "source": 2,
+      "decoded_pulls": 328,
+      "tail_changes": 10
+    },
+    {
+      "receiver": 2,
+      "source": 0,
+      "decoded_pulls": 295,
+      "tail_changes": 2
+    },
+    {
+      "receiver": 2,
+      "source": 1,
+      "decoded_pulls": 335,
+      "tail_changes": 14
+    }
+  ],
+  "worker_exit_codes": [
+    0,
+    0,
+    0
+  ],
+  "workers_exited": true,
+  "shaper": {
+    "stats": [
+      {
+        "received": 101136,
+        "sent": 101095,
+        "drops": 41,
+        "max_queue_ms": 209.44877367583103
+      },
+      {
+        "received": 91817,
+        "sent": 91817,
+        "drops": 0,
+        "max_queue_ms": 107.35087509965524
+      }
+    ],
+    "failure": null,
+    "trace_events": 191624,
+    "trace_rows": 191624,
+    "trace_capacity": 250000,
+    "trace_truncated": false
+  },
+  "node_stop_results": [
+    0,
+    0,
+    0,
+    0
+  ],
+  "remaining_sockets": 0,
+  "contention_qualification": false,
+  "workers": [
+    {
+      "participant": 0,
+      "pid": 68747,
+      "policy_pid": 68779,
+      "policy_exit_code": 0,
+      "file_snapshot": {
+        "queued": 524288,
+        "received": 524288,
+        "missing_chunks": 0,
+        "hash_matches": true,
+        "completion_seconds": 352.23850708300597,
+        "authentication_errors": 0,
+        "duplicates": 0,
+        "async_failures": {},
+        "write_error": false,
+        "late_fragments": 0
+      },
+      "clock": {
+        "max_interval_ms": 10.094500001287088,
+        "late_intervals": 0,
+        "dropped_rows": 0,
+        "failures": [
+          0,
+          0
+        ],
+        "ticks": 36001,
+        "max_wake_lateness_ms": 0.043834,
+        "max_callback_ms": 2.7211249980609864,
+        "max_publication_ms": 0.01912500010803342,
+        "qos_supported": 1,
+        "qos_result": 0,
+        "qos_requested": 33,
+        "qos_actual": 33,
+        "timer_error": 0,
+        "deadline_requested": 1,
+        "deadline_result": 0,
+        "deadline_active": 1,
+        "deadline_period_ticks": 240000,
+        "deadline_computation_ticks": 72000,
+        "deadline_constraint_ticks": 120000,
+        "deadline_actual_period_ticks": 240000,
+        "deadline_actual_computation_ticks": 72000,
+        "deadline_actual_constraint_ticks": 120000,
+        "deadline_checks": 362,
+        "deadline_misses": 0
+      },
+      "source_trace_logging": {
+        "relay_send_samples": 13122,
+        "receive_samples": 17175,
+        "ok": true
+      }
+    },
+    {
+      "participant": 1,
+      "pid": 68749,
+      "policy_pid": 68777,
+      "policy_exit_code": 0,
+      "file_snapshot": {
+        "queued": 524288,
+        "received": 524288,
+        "missing_chunks": 0,
+        "hash_matches": true,
+        "completion_seconds": 352.52754512499087,
+        "authentication_errors": 0,
+        "duplicates": 0,
+        "async_failures": {},
+        "write_error": false,
+        "late_fragments": 0
+      },
+      "clock": {
+        "max_interval_ms": 10.092083335621282,
+        "late_intervals": 0,
+        "dropped_rows": 0,
+        "failures": [
+          0,
+          0
+        ],
+        "ticks": 36001,
+        "max_wake_lateness_ms": 0.043334,
+        "max_callback_ms": 2.712916670134291,
+        "max_publication_ms": 0.06125000072643161,
+        "qos_supported": 1,
+        "qos_result": 0,
+        "qos_requested": 33,
+        "qos_actual": 33,
+        "timer_error": 0,
+        "deadline_requested": 1,
+        "deadline_result": 0,
+        "deadline_active": 1,
+        "deadline_period_ticks": 240000,
+        "deadline_computation_ticks": 72000,
+        "deadline_constraint_ticks": 120000,
+        "deadline_actual_period_ticks": 240000,
+        "deadline_actual_computation_ticks": 72000,
+        "deadline_actual_constraint_ticks": 120000,
+        "deadline_checks": 362,
+        "deadline_misses": 0
+      },
+      "source_trace_logging": {
+        "relay_send_samples": 13138,
+        "receive_samples": 16971,
+        "ok": true
+      }
+    },
+    {
+      "participant": 2,
+      "pid": 68750,
+      "policy_pid": 68778,
+      "policy_exit_code": 0,
+      "file_snapshot": {
+        "queued": 524288,
+        "received": 524288,
+        "missing_chunks": 0,
+        "hash_matches": true,
+        "completion_seconds": 352.22966258300585,
+        "authentication_errors": 0,
+        "duplicates": 0,
+        "async_failures": {},
+        "write_error": false,
+        "late_fragments": 0
+      },
+      "clock": {
+        "max_interval_ms": 10.092083335621282,
+        "late_intervals": 0,
+        "dropped_rows": 0,
+        "failures": [
+          0,
+          0
+        ],
+        "ticks": 36001,
+        "max_wake_lateness_ms": 0.055958,
+        "max_callback_ms": 2.712541667278856,
+        "max_publication_ms": 0.03412499791011214,
+        "qos_supported": 1,
+        "qos_result": 0,
+        "qos_requested": 33,
+        "qos_actual": 33,
+        "timer_error": 0,
+        "deadline_requested": 1,
+        "deadline_result": 0,
+        "deadline_active": 1,
+        "deadline_period_ticks": 240000,
+        "deadline_computation_ticks": 72000,
+        "deadline_constraint_ticks": 120000,
+        "deadline_actual_period_ticks": 240000,
+        "deadline_actual_computation_ticks": 72000,
+        "deadline_actual_constraint_ticks": 120000,
+        "deadline_checks": 362,
+        "deadline_misses": 0
+      },
+      "source_trace_logging": {
+        "relay_send_samples": 12422,
+        "receive_samples": 16775,
+        "ok": true
+      }
+    }
+  ]
+}
