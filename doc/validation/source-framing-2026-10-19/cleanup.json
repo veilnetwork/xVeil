@@ -1,0 +1,10 @@
+{
+  "mac_pid_absent": true,
+  "launcher_pid_absent": true,
+  "logcat_pid_absent": true,
+  "phone_app_absent": true,
+  "owned_forward_absent": true,
+  "phone_property_restored": true,
+  "mac_termination_signal": -9,
+  "error": null
+}

@@ -23,6 +23,7 @@ import 'call_bitrate_adapter.dart';
 import 'call_video_profile.dart';
 import 'call_audio_receive_activity.dart';
 import 'call_audio_source_pressure.dart';
+import 'call_audio_framing.dart';
 import 'call_microphone_state.dart';
 import 'call_camera_state.dart';
 import 'desktop_screen_capture_start.dart';
@@ -591,7 +592,47 @@ class VeilCallMediaController implements CallMediaController {
   /// even when devLog is unavailable.
   bool _mediaBatching = false;
   bool _compactRelayMedia = false;
+  bool _audioFramingEnabled = false;
+  int _audioPacketOverhead = 0;
+  int _audioCostLastPackets = 0, _audioCostLastBytes = 0;
+  int _audioCostPacketBytes = 200;
+  Map<String, Object?>? _audioSourceCost;
   ({int bitrateKbps, double fps})? _diagnosticVideoTarget;
+
+  void _refreshAudioFraming(
+    VeilMediaEngine engine,
+    int channel, {
+    Map<String, dynamic>? stats,
+  }) {
+    if (!_audioFramingEnabled || _chanTransport == CallTransportKind.onion) {
+      return;
+    }
+    final packets = stats?['audio_tx_payload_pkts'];
+    final bytes = stats?['audio_tx_payload_bytes'];
+    if (packets is int && bytes is int) {
+      final count = packets - _audioCostLastPackets;
+      final payload = bytes - _audioCostLastBytes;
+      if (count > 0 && payload > 0) {
+        // Negotiated audio carries one TWCC extension: RTP header20. Padding
+        // and RTCP are excluded from these native payload counters.
+        _audioCostPacketBytes = ((payload / count).ceil() + 20).clamp(12, 1000);
+      }
+      _audioCostLastPackets = packets;
+      _audioCostLastBytes = bytes;
+    }
+    _audioSourceCost = _transport.mediaPacketCost(
+      channel,
+      packetBytes: _audioCostPacketBytes,
+    );
+    final overhead = callAudioFramingOverhead(_audioSourceCost);
+    if (overhead == null || overhead == _audioPacketOverhead) return;
+    // Failure leaves the existing encoder and hint intact. Retry on the next
+    // observation after a worker stall or unprepared replacement child.
+    if (engine.setAudioPacketOverhead(overhead)) {
+      _audioPacketOverhead = overhead;
+      devLog(() => 'xVeil[call-media]: audio framing updated bytes=$overhead');
+    }
+  }
 
   int _setMediaBatchingForDiagnostics(bool enabled) {
     final chan = _chan;
@@ -751,6 +792,8 @@ class VeilCallMediaController implements CallMediaController {
                   .inMilliseconds,
         'batching': _mediaBatching,
         'compact_relay_media': _compactRelayMedia,
+        'audio_source_cost': _audioSourceCost,
+        'audio_framing_applied_bytes': _audioPacketOverhead,
         'capture_camera_id': _selectedCameraId,
         'capture_microphone_id': _selectedMicrophoneId,
         'capture_microphone_label': _preferredMicrophoneLabel,
@@ -999,6 +1042,7 @@ class VeilCallMediaController implements CallMediaController {
       _transportFallbackReason = opened.fallbackReason;
       _mediaBatching = relay;
       _compactRelayMedia = relay;
+      _refreshAudioFraming(engine, candidate);
       _routeHandovers++;
       _lastNativeRxCount = 0;
       _engineRxStalledSince = null;
@@ -1436,14 +1480,20 @@ class VeilCallMediaController implements CallMediaController {
       return false;
     }
     if (feedback && highQuality) {
-      // Direct QUIC AppRtData framing: media seal 36 + authenticated app header
-      // 89 + OVL 24 + session seal 40 + opaque flow 20. RTP is separate. This
-      // hint excludes QUIC/IP; endpoint control headroom is reserved natively.
-      // This shared hint stays fixed across handover. Delivery/Forward and
-      // ordered carriers have different costs; replacing it requires a model
-      // that accounts for the actual route and batching, not just RTP bytes.
-      final adaptive = engine.setAudioPacketOverhead(209);
-      devLog(() => 'xVeil[call-media]: adaptive audio packets=$adaptive');
+      _audioSourceCost = _transport.mediaPacketCost(
+        chan,
+        packetBytes: _audioCostPacketBytes,
+      );
+      // A prepared child supplies its actual carrier/fragmentation model.
+      // Legacy/unknown nodes retain the old direct hint, explicitly marked
+      // unknown in diagnostics until a truthful source snapshot is available.
+      final overhead = callAudioFramingOverhead(_audioSourceCost) ?? 209;
+      _audioFramingEnabled = engine.setAudioPacketOverhead(overhead);
+      _audioPacketOverhead = _audioFramingEnabled ? overhead : 0;
+      devLog(
+        () =>
+            'xVeil[call-media]: adaptive audio packets=$_audioFramingEnabled overhead=$overhead',
+      );
     }
     // Batching is now purely a wire format: the batch header rides inside the
     // channel seal, which every route already carries, so the compact envelope
@@ -1504,6 +1554,10 @@ class VeilCallMediaController implements CallMediaController {
       if (_engine != engine) return;
       try {
         final stats = engine.getStats();
+        final channel = _chan;
+        if (channel != null) {
+          _refreshAudioFraming(engine, channel, stats: stats);
+        }
         final now = DateTime.now();
         _audioReceiveActivity.observe(stats, now);
         final peerInterrupted = _peerAudioPlayout.takeInterruption();
@@ -2156,6 +2210,11 @@ class VeilCallMediaController implements CallMediaController {
     _chanTransport = null;
     _mediaBatching = false;
     _compactRelayMedia = false;
+    _audioFramingEnabled = false;
+    _audioPacketOverhead = 0;
+    _audioCostLastPackets = _audioCostLastBytes = 0;
+    _audioCostPacketBytes = 200;
+    _audioSourceCost = null;
     if (ch != null) {
       try {
         _transport.closeMediaChannel(ch);

@@ -1,0 +1,38 @@
+[
+  {
+    "label": "framing-codec",
+    "pid": 6248,
+    "exit_code": 0,
+    "seconds": 25.923
+  },
+  {
+    "label": "framing-lease",
+    "pid": 13003,
+    "exit_code": 0,
+    "seconds": 0.346
+  },
+  {
+    "label": "framing-handoff",
+    "pid": 13087,
+    "exit_code": 0,
+    "seconds": 3.687
+  },
+  {
+    "label": "source-preparation",
+    "pid": 14008,
+    "exit_code": 0,
+    "seconds": 11.539
+  },
+  {
+    "label": "ffi-cost",
+    "pid": 16946,
+    "exit_code": 0,
+    "seconds": 43.331
+  },
+  {
+    "label": "ffi-preparation",
+    "pid": 28012,
+    "exit_code": 0,
+    "seconds": 1.118
+  }
+]

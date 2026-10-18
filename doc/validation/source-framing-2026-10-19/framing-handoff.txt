@@ -1,0 +1,6 @@
+running 3 tests
+test runner::quic_backlog_tests::primary_recovery_quic_tests::independent_sources_can_warm_after_canonical_swap_and_survive_another_swap ... ok
+test runner::quic_backlog_tests::primary_recovery_quic_tests::independent_sources_reauthenticate_when_retained_quic_factory_closes_after_swap ... ok
+test runner::quic_backlog_tests::primary_recovery_quic_tests::independent_sources_survive_canonical_stream_swap_without_reset_or_parent_spill ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 601 filtered out; finished in 3.52s
