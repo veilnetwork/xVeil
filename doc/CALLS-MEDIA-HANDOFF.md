@@ -1,5 +1,77 @@
 # Calls media handoff
 
+## 2026-10-18: reverse candidate preparation fixed; handover confirms, relay video still fails
+
+SDK **ff4d6995** fixes a deterministic endpoint preparation defect: a relay
+preparation request arriving during a P2P call was answered through the current
+P2P sender. It warmed only the forward candidate and left reverse relay setup
+to the later 600-ms qualification. The new real SDK/Unix-IPC regression fails
+before the fix with **App family 4, expected neutral Delivery family 3**.
+
+Preparation replies now use the requested reverse path only if the host has
+already pinned that path on **the same live ingress/channel**, with a matching
+receive key. The sender app, peer node, app id and endpoint come exclusively
+from this owner configuration. A separate live candidate sharing test keys
+cannot lend its permission to an unconfigured owner. Without an owner-pinned
+alternate, current outgoing posture is retained. All three generic local
+producer planes are prepared; relay wire priority stays ordinary. No relay media
+hint, codec/budget/deadline/replay change, or mailbox use. Opt-in local probe logs
+record a process-local id, match/status and observation age, without token, key
+or media plaintext. Age includes setup/queues/scheduling, not pure network RTT.
+
+**16 focused protocol/FFI tests pass**: crypto/replay, expiry, cancellation,
+retry bounds, identity/device aliases, old callback ownership, owner-scoped
+permission and all three reverse preparation planes. An existing direct-only
+preparation assertion now explicitly requests Direct; the new regression covers
+host-authorized Relay. No test permits a claimed envelope source to redirect
+responses. Low PoW difficulty is used **only for unit tests**.
+
+Production-feature Mac and Android FFI builds pass from a clean **323e8c39 +
+exact committed patch** snapshot, excluding all four unrelated SDK edits.
+Mac preserves default tls-boring features; Android preserves the preceding
+no-default mobile feature set. Private QA installation changes only Rust FFI
+libraries. Mac FFI APIs and all Android defined exports match; Android signer,
+versionCode12614, Dart AOT, native media, hidden-volume and data are preserved.
+No relay binary/config changed in this cycle. No public release or push.
+After the call all six relay processes/configs/executable digests remain intact,
+with healthy advancing ticks, sessions, both listeners active and no automatic
+restarts. No service mutation is performed by this verification.
+
+**Actual handover now succeeds.** The **239.313-s** Mac/Blackview call rings in
+**0.157 s**, cameras at 30 s, requests relay at **90.841 s**. Both endpoints
+qualify and commit Relay using authenticated matching replies within the
+**unchanged 600-ms** budget: Mac **224356 us**, phone **134758 us**. This is an
+actual endpoint delivery observation; it does not isolate every earlier timeout
+cause or every relay-to-relay hop. Native media engine is retained across rebind.
+
+**Overall relay quality still FAILS.** Final interruption counts **3 / 2**,
+cumulative trimmed audio **1360 / 2290 ms** in the last API sample, **1360 /
+2300 ms** in complete final playout traces (24066/24166 rows, observed count
+matches, below limit). Final **59.620 s** all Relay receives just **2 / 0** new
+frames (**0.034 / 0 fps**); source-held in all 30 samples per endpoint, selected
+max_fps 0.02. That tail adds **1 / 0** interruptions and **30 / 1030 ms** trim.
+Mac pacer peak **874 ms**, phone zero. Sampled jitter-buffer maxima **123 /
+126 ms**. No target/cap conflict; Mac render loop max gap **10.947 ms**, no
+>30-ms gaps; phone one **30.801-ms** gap. These are cumulative trim durations,
+not individual peak pauses. P2P video over 45–85 s receives **6.232 / 6.155 fps**,
+with no new interruptions/trim. Uncontrolled WAN prevents an isolated comparative
+performance claim. Live speech/headset loudness remains unqualified.
+
+Next concrete investigation: recurring NetEq catch-up, especially 60-ms Opus
+packetization and DTX, versus the source-pressure/recovery hold. Use the real
+Opus/NetEq fixture **flutter/veil_media/test/audio_playout_smoke.cc** and production
+**veil_playout_recovery.h**, not only the decoder stub in playout_recovery_smoke.
+Perfect-network long 60-ms/DTX arrival timing must be checked before relaxing
+protection. The failed QUIC hot reload and byte-stream-only network handoff
+remain open too; do not recreate datagram AEAD with unchanged keys/reset counters.
+
+Evidence: **validation/call-reverse-preparation-2026-10-18.json** and
+**validation/reverse-preparation-2026-10-18/**. Complete scripts, source patch,
+builds and traces: **~/.cache/codex/xveil-quic-route-confirmation-20261018/**.
+All owned apps/launcher/logcat/phone processes and ADB forward independently
+absent after the call; Android diagnostic property restored. Mac still needs
+SIGKILL after graceful timeout. Goal remains **ACTIVE**.
+
 ## 2026-10-18: user authorizes QUIC on all six relays; all listeners enabled
 
 After the one-node mixed-route trial, the user explicitly said **enable on all**.
