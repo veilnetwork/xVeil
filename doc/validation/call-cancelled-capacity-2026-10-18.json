@@ -1,0 +1,481 @@
+{
+  "date": "2026-10-18",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "previous_goal_turn": "progress: committed source cancellation handling, qualified unchanged 360-second load, completed physical P2P/relay recovery measurements",
+  "sdk_commit": "db19722ceb6cf7afc0f18424f3241c74e11e217c",
+  "scope": "Reject terminal owned work before ingress/restore can occupy a slot, reclaim terminal owned tails before class/aggregate capacity shedding, and recheck after shedding can cancel an incoming sibling. Active FIFO, source byte debt, queue capacities, expiry and neutral transit unchanged.",
+  "tests": {
+    "four_new_regressions_fail_on_preceding_code": true,
+    "final_priority_queue_tests_passed": 44,
+    "class_and_aggregate_capacity_covered": true,
+    "clippy_lib_and_tests_warnings_denied": true,
+    "baseline_log": "/Users/vart/.cache/codex/xveil-queue-cancel-20261018/capacity-baseline.log",
+    "positive_log": "/Users/vart/.cache/codex/xveil-queue-cancel-20261018/capacity-tests.log",
+    "tested_queue_sha256_matches_clean_build_source": "da83472bc60111d941cea181ed1d4c05289fe19c435615380f957bf30e2afe48"
+  },
+  "build": {
+    "sdk_commit": "db19722ceb6cf7afc0f18424f3241c74e11e217c",
+    "clean_sdk_worktree": true,
+    "source_worktree": "/Users/vart/.cache/codex/xveil-cancel-capacity-20261018/sdk-src",
+    "sdk_path": "/Users/vart/.cache/codex/xveil-cancel-capacity-20261018/sdk/libveilclient_ffi.dylib",
+    "sdk_sha256": "4fefafb0fec67dee8a851f32b067dea0fec0206d75ab71a6924e42869bbb2bdc",
+    "features": [
+      "default tls-boring",
+      "node-embedded",
+      "packet-tunnel",
+      "production-seeds"
+    ],
+    "cargo_incremental": false,
+    "macos_deployment_target": "12.0",
+    "tests": 44,
+    "clippy_warnings_denied": true,
+    "scope": "Reject cancelled ingress/restore and reclaim cancelled capacity before shedding useful work. Source byte budgets, deadlines, active FIFO and neutral relay treatment remain unchanged."
+  },
+  "abi": {
+    "previous_raw_exports": 199,
+    "current_raw_exports": 199,
+    "previous_c_exports": 193,
+    "current_c_exports": 193,
+    "removed": [],
+    "added": []
+  },
+  "preceding_physical_attribution": {
+    "private_directory": "/Users/vart/.cache/codex/xveil-queue-cancel-20261018/physical-build/physical-recovery-360",
+    "mac_unique_accepted_packets": 11886,
+    "phone_unique_received_packets_from_mac": 11886,
+    "permanent_end_to_end_unique_packet_loss_not_observed_in_that_direction": true,
+    "loss_reports": 14,
+    "scope": "Receiver reports describe packets absent at report time; later retransmissions arrived. Local first-attempt failure is separately witnessed below. This capture uses 9860a5ea, not the new capacity fix.",
+    "attribution": [
+      {
+        "rtp_sequence": 25372,
+        "native_attempt_us": 166155545307,
+        "verdict": "budget_drop",
+        "cost_bytes": 3426,
+        "cells": 3,
+        "first_admission": {
+          "at_unix_us": "1792333377818969",
+          "monotonic_us": "166155588941",
+          "local_slot": "2",
+          "epoch": "0d6a30d7ee871bb1",
+          "seq": "930",
+          "result": "wait",
+          "retry_us": "150649",
+          "span_us": "66542",
+          "remaining_us": "156478",
+          "attempt_elapsed_us": "27"
+        },
+        "last_admission": {
+          "at_unix_us": "1792333377909027",
+          "monotonic_us": "166155678998",
+          "local_slot": "2",
+          "epoch": "0d6a30d7ee871bb1",
+          "seq": "930",
+          "result": "rejected",
+          "retry_us": "-1",
+          "span_us": "66542",
+          "remaining_us": "66395",
+          "attempt_elapsed_us": "1"
+        }
+      },
+      {
+        "rtp_sequence": 25388,
+        "native_attempt_us": 166156081559,
+        "verdict": "budget_drop",
+        "cost_bytes": 9123,
+        "cells": 7,
+        "first_admission": {
+          "at_unix_us": "1792333378482315",
+          "monotonic_us": "166156252281",
+          "local_slot": "2",
+          "epoch": "0d6a30d7ee871bb1",
+          "seq": "963",
+          "result": "rejected",
+          "retry_us": "-1",
+          "span_us": "32668",
+          "remaining_us": "29417",
+          "attempt_elapsed_us": "1"
+        },
+        "last_admission": {
+          "at_unix_us": "1792333378482315",
+          "monotonic_us": "166156252281",
+          "local_slot": "2",
+          "epoch": "0d6a30d7ee871bb1",
+          "seq": "963",
+          "result": "rejected",
+          "retry_us": "-1",
+          "span_us": "32668",
+          "remaining_us": "29417",
+          "attempt_elapsed_us": "1"
+        }
+      },
+      {
+        "rtp_sequence": 25469,
+        "error": "Missing/ambiguous seal in the first attempt window"
+      },
+      {
+        "rtp_sequence": 25479,
+        "error": "Missing/ambiguous seal in the first attempt window"
+      },
+      {
+        "rtp_sequence": 25489,
+        "native_attempt_us": 166214345949,
+        "verdict": "budget_drop",
+        "cost_bytes": 1698,
+        "cells": 2,
+        "first_admission": {
+          "at_unix_us": "1792333436733247",
+          "monotonic_us": "166214502652",
+          "local_slot": "2",
+          "epoch": "0d6a30d7ee871bb1",
+          "seq": "1347",
+          "result": "rejected",
+          "retry_us": "-1",
+          "span_us": "69333",
+          "remaining_us": "43506",
+          "attempt_elapsed_us": "36"
+        },
+        "last_admission": {
+          "at_unix_us": "1792333436733247",
+          "monotonic_us": "166214502652",
+          "local_slot": "2",
+          "epoch": "0d6a30d7ee871bb1",
+          "seq": "1347",
+          "result": "rejected",
+          "retry_us": "-1",
+          "span_us": "69333",
+          "remaining_us": "43506",
+          "attempt_elapsed_us": "36"
+        }
+      },
+      {
+        "rtp_sequence": 25564,
+        "error": "Missing/ambiguous seal in the first attempt window"
+      },
+      {
+        "rtp_sequence": 25576,
+        "native_attempt_us": 166263558916,
+        "verdict": "budget_drop",
+        "cost_bytes": 4384,
+        "cells": 4,
+        "first_admission": {
+          "at_unix_us": "1792333485893424",
+          "monotonic_us": "166263662356",
+          "local_slot": "2",
+          "epoch": "0d6a30d7ee871bb1",
+          "seq": "1697",
+          "result": "rejected",
+          "retry_us": "-1",
+          "span_us": "100000",
+          "remaining_us": "96855",
+          "attempt_elapsed_us": "36"
+        },
+        "last_admission": {
+          "at_unix_us": "1792333485893424",
+          "monotonic_us": "166263662356",
+          "local_slot": "2",
+          "epoch": "0d6a30d7ee871bb1",
+          "seq": "1697",
+          "result": "rejected",
+          "retry_us": "-1",
+          "span_us": "100000",
+          "remaining_us": "96855",
+          "attempt_elapsed_us": "36"
+        }
+      },
+      {
+        "rtp_sequence": 25608,
+        "error": "Missing/ambiguous seal in the first attempt window"
+      },
+      {
+        "rtp_sequence": 25626,
+        "native_attempt_us": 166279241642,
+        "verdict": "no_complete_transport_admission_witness",
+        "cost_bytes": 3570,
+        "cells": 3,
+        "first_admission": null,
+        "last_admission": null
+      },
+      {
+        "rtp_sequence": 25630,
+        "native_attempt_us": 166279241663,
+        "verdict": "no_complete_transport_admission_witness",
+        "cost_bytes": 4782,
+        "cells": 4,
+        "first_admission": null,
+        "last_admission": null
+      },
+      {
+        "rtp_sequence": 25675,
+        "error": "Missing/ambiguous seal in the first attempt window"
+      },
+      {
+        "rtp_sequence": 25701,
+        "native_attempt_us": 166294245263,
+        "verdict": "budget_drop",
+        "cost_bytes": 9011,
+        "cells": 7,
+        "first_admission": {
+          "at_unix_us": "1792333516613207",
+          "monotonic_us": "166294381844",
+          "local_slot": "2",
+          "epoch": "0d6a30d7ee871bb1",
+          "seq": "2024",
+          "result": "rejected",
+          "retry_us": "-1",
+          "span_us": "100000",
+          "remaining_us": "63832",
+          "attempt_elapsed_us": "32"
+        },
+        "last_admission": {
+          "at_unix_us": "1792333516613207",
+          "monotonic_us": "166294381844",
+          "local_slot": "2",
+          "epoch": "0d6a30d7ee871bb1",
+          "seq": "2024",
+          "result": "rejected",
+          "retry_us": "-1",
+          "span_us": "100000",
+          "remaining_us": "63832",
+          "attempt_elapsed_us": "32"
+        }
+      },
+      {
+        "rtp_sequence": 25774,
+        "error": "Missing/ambiguous seal in the first attempt window"
+      },
+      {
+        "rtp_sequence": 25791,
+        "native_attempt_us": 166324283098,
+        "verdict": "no_complete_transport_admission_witness",
+        "cost_bytes": 3893,
+        "cells": 3,
+        "first_admission": null,
+        "last_admission": null
+      }
+    ],
+    "timing_examples_us": [
+      {
+        "rtp_sequence": 25372,
+        "native_first_to_last_fragment": 11,
+        "native_to_node_outbox": 108,
+        "first_budget_wait_after_native": 43634,
+        "original_work_bytes": 3426,
+        "initial_retry_us": 150649,
+        "planned_span_us": 66542,
+        "remaining_us_at_initial_wait": 156478,
+        "final_rejection_after_native": 133691
+      },
+      {
+        "rtp_sequence": 25489,
+        "native_first_to_last_fragment": 4,
+        "native_to_node_outbox": 267,
+        "first_failed_admission_after_native": 156703,
+        "original_work_bytes": 1698,
+        "planned_span_us": 69333,
+        "remaining_us_at_rejection": 43506
+      },
+      {
+        "rtp_sequence": 25576,
+        "native_first_to_last_fragment": 10,
+        "native_to_node_outbox": 331,
+        "first_failed_admission_after_native": 103440,
+        "original_work_bytes": 4384,
+        "planned_span_us": 100000,
+        "remaining_us_at_rejection": 96855
+      }
+    ],
+    "interpretation": "The timed examples are held after local node outbox admission, not during encoding, packet assembly or IPC. Some fit the 8192-byte allowance individually. Long scheduled budget waits and a complete post-admission pacing span can exhaust the original lifetime. The evidence does not yet establish which earlier work or transport-readiness hold occupies that interval. Do not extend expiry or remove audio protection on this evidence.",
+    "unqualified_frame_attributions_preserved": true
+  },
+  "remaining": [
+    "Attribute the pre-admission outbox/session hold and earlier whole-work reservations on the physical relay path.",
+    "Keep original audio isolation and relay neutrality; no new speech/headset/acoustic verification."
+  ],
+  "phone_or_macos_app_started_this_cycle": false,
+  "release_push_or_relay_deployment": false,
+  "unrelated_sdk_security_diff_sha256": "1ceeb05d540078262f1480ba7210dfaa0f5895be9f0099f64bc18a56a4f6a363",
+  "qualification_metadata_note": "The immutable captured native-build.json descriptive scope string erroneously retains 986 from the copied launcher metadata. Its sdk_commit field is db19722c and its SHA matches the actual db197 build and summary. Original capture file retained; parent build description corrected. No binary, stimulus, gate or clock change.",
+  "full_qualification": {
+    "ok": true,
+    "contention_qualification": true,
+    "matched": 2112,
+    "missing": 0,
+    "max_pcm_ms": 170.09579166187905,
+    "latest_file_seconds": 352.39919079098036,
+    "video_tails": [
+      11,
+      6,
+      13,
+      6,
+      13,
+      11
+    ],
+    "console": {
+      "supported": true,
+      "flush_rc": 0,
+      "dropped_records": 0,
+      "write_errors": 0,
+      "ok": true
+    },
+    "worker_consoles": [
+      {
+        "supported": true,
+        "flush_rc": 0,
+        "dropped_records": 0,
+        "write_errors": 0,
+        "ok": true
+      },
+      {
+        "supported": true,
+        "flush_rc": 0,
+        "dropped_records": 0,
+        "write_errors": 0,
+        "ok": true
+      },
+      {
+        "supported": true,
+        "flush_rc": 0,
+        "dropped_records": 0,
+        "write_errors": 0,
+        "ok": true
+      }
+    ],
+    "wire_truncated": false,
+    "node_stops": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "worker_exits": [
+      0,
+      0,
+      0
+    ],
+    "topology": {
+      "verified": true,
+      "active_session_counts": [
+        3,
+        1,
+        1,
+        1
+      ]
+    },
+    "cleanup": {
+      "all_owned_pids_absent": true,
+      "owned_pids_absent": {
+        "3083": true,
+        "3085": true,
+        "3087": true,
+        "3089": true,
+        "3104": true,
+        "3105": true,
+        "3106": true,
+        "96876": true,
+        "96895": true,
+        "96896": true
+      },
+      "remaining_socket_files": []
+    },
+    "private_directory": "/Users/vart/.cache/codex/xveil-cancel-capacity-20261018/group-full-360",
+    "sdk_commit": "db19722ceb6cf7afc0f18424f3241c74e11e217c",
+    "sdk_sha256": "4fefafb0fec67dee8a851f32b067dea0fec0206d75ab71a6924e42869bbb2bdc",
+    "native_media_sha256": "da67284afa5c2ced2938fd196c245bb933720af6bf510351eea034635d396a24",
+    "duration_seconds": 360,
+    "rate_kbps": 1024,
+    "files": [
+      {
+        "sender": 2,
+        "receiver": 0,
+        "queued": 524288,
+        "received": 524288,
+        "missing_chunks": 0,
+        "hash_matches": true,
+        "completion_seconds": 352.39919079098036,
+        "authentication_errors": 0,
+        "duplicates": 0,
+        "async_failures": {},
+        "write_error": false,
+        "late_fragments": 0
+      },
+      {
+        "sender": 0,
+        "receiver": 1,
+        "queued": 524288,
+        "received": 524288,
+        "missing_chunks": 0,
+        "hash_matches": true,
+        "completion_seconds": 276.7991029160039,
+        "authentication_errors": 0,
+        "duplicates": 0,
+        "async_failures": {},
+        "write_error": false,
+        "late_fragments": 0
+      },
+      {
+        "sender": 1,
+        "receiver": 2,
+        "queued": 524288,
+        "received": 524288,
+        "missing_chunks": 0,
+        "hash_matches": true,
+        "completion_seconds": 352.14960941599566,
+        "authentication_errors": 0,
+        "duplicates": 0,
+        "async_failures": {},
+        "write_error": false,
+        "late_fragments": 0
+      }
+    ],
+    "video_paths": [
+      {
+        "receiver": 0,
+        "source": 1,
+        "decoded_pulls": 310,
+        "tail_changes": 11
+      },
+      {
+        "receiver": 0,
+        "source": 2,
+        "decoded_pulls": 307,
+        "tail_changes": 6
+      },
+      {
+        "receiver": 1,
+        "source": 0,
+        "decoded_pulls": 330,
+        "tail_changes": 13
+      },
+      {
+        "receiver": 1,
+        "source": 2,
+        "decoded_pulls": 307,
+        "tail_changes": 6
+      },
+      {
+        "receiver": 2,
+        "source": 0,
+        "decoded_pulls": 330,
+        "tail_changes": 13
+      },
+      {
+        "receiver": 2,
+        "source": 1,
+        "decoded_pulls": 310,
+        "tail_changes": 11
+      }
+    ],
+    "wire": {
+      "trace_events": 178115,
+      "trace_rows": 178115,
+      "trace_capacity": 250000,
+      "trace_truncated": false,
+      "failure": null
+    },
+    "fixture_exit_code": 0,
+    "helper_exit_code": 0,
+    "scope": "Unchanged original 360-second / 1024-kbit/s neutral shared FIFO; three separate participants, six PCM directions, changing VP8 and three authenticated 512-KiB files. No quality gate or timing relaxation. Native harness optional Flutter source hold still defaults false; no physical speech/headset/acoustic proof; earlier startup/PCM counterexamples retained."
+  }
+}

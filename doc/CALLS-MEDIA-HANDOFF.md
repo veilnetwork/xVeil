@@ -1,5 +1,67 @@
 # Calls media handoff
 
+## 2026-10-18: terminal work cannot evict useful queue entries
+
+SDK `db19722c` completes the preceding queue cancellation fix at ingress,
+restore and capacity boundaries. A rejected/expired locally owned work item is
+refused before it can displace a useful frame. On class or aggregate capacity
+exhaustion, terminal owned tails are reclaimed before ordinary shedding,
+retaining every live entry's FIFO position and updating both lossy length and
+drop counters exactly once. Shedding can cancel the incoming item's sibling,
+so admission rechecks that state after class and aggregate shedding. Existing
+byte debt is not refunded, deadlines/capacities/source budgets are not enlarged,
+and forwarded traffic still has no trusted local work handle or media role.
+The scan is bounded by the existing queue capacity and only runs at capacity.
+
+All four new regressions FAIL on `9860a5ea`, then PASS with the fix: cancelled
+incoming work cannot evict a full live class; a cancelled tail releases class
+and aggregate slots before a live head is shed; cancelled restore stays absent;
+shedding a sibling prevents insertion of the newly cancelled incoming member
+(both class and aggregate cases). All **44 queue tests** and lib/tests Clippy
+with warnings denied pass. The isolated clean production-feature FFI release
+build passes, all **193 veil C exports / 199 total raw exports** remain identical.
+The four unrelated security edits retain their exact earlier scoped diff hash.
+Evidence: `validation/call-cancelled-capacity-2026-10-18.json`, private build
+`~/.cache/codex/xveil-cancel-capacity-20261018`.
+
+Further analysis of the preceding physical recovery capture (`9860a5ea`, not
+this new fix) locates several original video attempts failing locally, followed
+by retransmission: **11886 unique accepted / 11886 unique received** Mac-to-phone
+packets by capture end, despite 14 intermediate lossy receiver reports. This
+count is not a one-way-delay or decode guarantee and does not establish that
+all first attempts traversed the network. An exact 3426-byte / 3-cell frame
+first enters the node outbox **108 us** after the native attempt, waits for
+budget with a scheduled retry **150649 us** away while **156478 us** remain,
+and still needs its entire **66542-us** release span. It is later rejected,
+with its two cancelled siblings discarded. Two further fitting frames cost
+1698 / 4384 bytes, reach outbox in 267 / 331 us, but their first failed admission
+is only observed at **156703 / 103440 us** after the native attempt. Their
+remaining lifetimes 43506 / 96855 us no longer fit planned spans 69333 / 100000 us.
+
+Native first-to-last-fragment durations are just **11 / 4 / 10 us** in these
+three examples, not 100 ms of native packet pacing. Do not assign the delay to
+encoding, frame assembly, IPC or the 8192-byte cap alone. Earlier queued work,
+source credit and transport readiness must be joined before changing pacing or
+expiry. Missing/ambiguous first seals and incomplete transport witnesses for
+other frames remain explicitly UNQUALIFIED, not silently inferred drops.
+The new capacity fix is not claimed to solve those separate waits. No physical
+app is launched or phone package updated in this cycle.
+
+**Full qualification with db197 PASS:** original 360 s / 1024-kbit/s neutral
+shared FIFO, three separate participants, six PCM directions, moving VP8,
+three authenticated 512-KiB files. **2112 matched / 0 missing**, maximum PCM
+marker latency **170.095792 ms**. All files complete by **352.399 s**; video
+tails advance **11 / 6 / 13 / 6 / 13 / 11** times. Parent and worker consoles
+have zero dropped records/write errors, wire metadata is untruncated, topology
+[3,1,1,1] verifies, all node/worker/fixture/helper exits are 0. Independent OS
+check finds all recorded launcher/fixture/caffeinate/worker/policy PIDs absent,
+no remaining socket files. The captured native-build.json description retains
+an old copied `986` label; its commit field and exact loaded SDK SHA prove db197.
+Original capture retained and metadata discrepancy documented in the report.
+No stimulus or gate change. Optional Flutter source hold defaults false in this
+native harness; this is not speech/headset/acoustic proof. Earlier startup/PCM
+counterexamples remain retained. Goal ACTIVE.
+
 ## 2026-10-18: cancelled source work no longer blocks fresh queue work
 
 SDK `9860a5ea` treats attached rejected whole-work state as queue expiry,
@@ -32,7 +94,7 @@ independently verified. Mac requires SIGKILL after its graceful exit timeout.
 Mac diagnostics contain 727 failed admission ATTEMPTS: 715 Wait, 12 Rejected.
 All 12 rejections have remaining lifetime <= complete planned pacing span;
 examples are 32.759/34.441 ms and 30.814/32.810 ms. The fixed cancellation path
-removes 89 cells. Repeated attempts are not duplicate sends or 727 lost frames.
+removes 89 rejected/expired owned cells. Repeated attempts are not duplicate sends or 727 lost frames.
 These new records establish this class of rejection, not retrospectively the
 exact reason for the older uninstrumented 5724-byte-frame rejection.
 
