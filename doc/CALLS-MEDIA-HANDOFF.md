@@ -1,5 +1,47 @@
 # Calls media handoff
 
+## 2026-10-18: returned phone verifies current native media; sparse outbound video remains
+
+User returned Blackview BV6600Pro over ADB. Updated the existing QA package
+in place, same signer and versionCode 10613, data preserved. Repack changes
+only `libveil_media.so` to production native SDK `e2f55519`; Dart AOT and
+previous clean Rust SDK stay unchanged on both endpoints. Exact hashes and
+base manifest are in `validation/call-remb-phone-2026-10-18.json`. macOS uses
+a copied private QA bundle, with `/private/tmp/` TMPDIR, and the same native
+production source. This is a native follow-up, not a release/whole-new-SDK test.
+
+Same 210-second physical stimulus: audio first 30 s, both cameras afterward,
+explicit diagnostic relay handover at **121.777 s**. Ring **0.193 s**; both
+endpoints active by the first **2.127-s** poll and at every later poll through
+**207.990 s**. No spontaneous P2P fallback before the requested switch. Both
+route epochs become 1. Native interruption counters/duration stay **zero**;
+Mac's decoded catch-up discards **260 ms at startup**, no later increments;
+phone discards 0. Video-phase instantaneous audio buffer maxima are
+**113/111 ms**, filtered maxima **110/135 ms**. These are native observations,
+not capture-to-acoustic latency or proof of continuous intelligible speech.
+
+Video recovery is **not** a full pass: last relay receive windows advance
+**850 frames on Mac / 22 on phone**, **29.627 / 0.767 fps** over the actual
+28.690-s tail. Mac's send budget repeatedly moves 1 -> 6 -> 1 fps and ends
+6 fps; phone ends 60 fps. First reductions occur before the requested relay
+switch. Captured adaptation observations show video loss events, one local
+video-send drop event, and one peer-buffer growth event; audio loss and
+interruption guards are not the demonstrated cause of these repeated cuts.
+`CallRtcpLoss` consumes an advancing native loss timestamp once, retaining its
+high water through expiry. Mac's notifications advance; repeated consumption
+of one Dart loss witness is not supported by this capture. Distinct arrival
+timestamps alone cannot distinguish new RTP loss from repeated nonzero report
+contents. Next inspect receiver RR ranges/native RTP witnesses before changing
+thresholds. No material one-to-one RTCP-rate reduction is established here;
+the measured REMB volume gain remains scoped to the headless group capture.
+
+No live speech/headset/Bluetooth loudness test; do not ask the user again now.
+The quiet-speech gain fix retains its preceding real-WebRTC APM evidence.
+Both owned apps are closed; Mac again needs SIGKILL after its existing
+termination budget. Independent OS checks find Mac/launcher/logcat PIDs and
+phone package absent, owned ADB forwarding removed. No system-volume change,
+identity deletion, release, push or relay deployment. Goal remains ACTIVE.
+
 ## 2026-10-18: endpoint REMB cadence reduces video control; strict full repeat passes
 
 SDK `1406b4c8` records accepted compound RTCP block types; `e2f55519`
