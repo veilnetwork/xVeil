@@ -1,0 +1,31 @@
+{
+  "base": "d3098a77",
+  "snapshot": "/Users/vart/.cache/codex/xveil-canonical-swap-20261018/sdk-src",
+  "excluded_foreign_wip": true,
+  "test_low_difficulty_only_in_tests": true,
+  "mac_default_features": true,
+  "android_default_features": false,
+  "features": [
+    "production-seeds",
+    "node-embedded",
+    "packet-tunnel"
+  ],
+  "patch_sha256": "d9e5f2d08b84250c5f61bd54deda426a953a709cd0d149fbb5b7f02544c4dedf",
+  "source_sha256": {
+    "crates/veil-session/src/runner.rs": "2bea503c47c09865a2cf76caf10536dbfd822e74d242f254b9b6a04314645b40",
+    "crates/veil-session/src/primary_recovery_quic_tests.rs": "7878b76e2b6ad4373c8e5c8b85006db4206b8f0897b2ccf93b8a429a2653f760",
+    "crates/veil-session/src/parallel_lanes.rs": "8dfa849858e6e32f17e03415ed09421951b0f3d63910cd52b7cddcf3aefbe018",
+    "crates/veil-session/src/ordered_lanes.rs": "127c4389f8abece38b390c5460d60dc7372076346e41be44fd5bc41ab0024978",
+    "crates/veil-session-integration-tests/tests/runner_tests.rs": "b5012067656f4b7aa1d10d4f3f7447091ca43d0acdd24c63c1e3a9b9e2e6ae17"
+  },
+  "libraries": {
+    "libveilclient_ffi.dylib": {
+      "bytes": 25838832,
+      "sha256": "add1327f9b7dc1437c77ca044b41a832989b27cd941df427fa9e28f8049ff474"
+    },
+    "libveilclient_ffi.so": {
+      "bytes": 29273152,
+      "sha256": "4726d9c371e79fe907abf6d0891dac925a241210490e35c9cd32fe028651e3d5"
+    }
+  }
+}

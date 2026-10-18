@@ -1,5 +1,72 @@
 # Calls media handoff
 
+## 2026-10-18: canonical-only handoff retains usable independent children
+
+SDK **039dd32b** fixes unconditional retirement of all independent channels on
+`NextInput::SwapStream`. A real encrypted QUIC regression first fails with
+**0 active children, expected 3**. Canonical replacement now retires its shared
+DATAGRAM sender/receiver and old transport feedback, preserving separately
+owned children, their established authorization and nonce/replay state. No new
+permission is inferred for the replacement. Three source pipes retain the same
+authenticated parent/child ingress identities and original remote decryptors.
+The new ordered writer can be blocked in a **16-KiB body /1-KiB duplex** while
+those sources continue delivering. One ordered cipher still decrypts markers
+before/after the swap and the full ordinary body, detecting source spill or
+nonce reset. Cold children can warm after one swap and survive another.
+
+A retained factory is still bound to its original physical owner. When it
+closes, end the session for a normal fresh handshake instead of permanently
+black-holing sources or coupling them onto the replacement writer. **Abort the
+blocked writer promptly** on this terminal path: its ordinary five-second drain
+would delay audio recovery too. Removing only this cancellation makes the real
+blocked-writer regression fail its two-second completion bound. Ordered/obfs4
+owner retirement likewise requires fresh authentication. These are reconnect
+fallbacks; **seamless migration onto a fresh typed factory remains open**.
+
+Preserving children must not extend privacy rotation indefinitely. A configured
+rotation with independent children uses the existing full reconnect path,
+starting the existing bounded close at the original deadline. Removing just this guard
+makes the live rotation regression fail: the controller attempts a byte-only
+handoff and re-arms the old lifetime. The bounded negative control now uses
+wall time after advancing the synthetic deadline. No relay media hints,
+preferential scheduling, mailbox, codec or jitter-budget changes.
+
+**15 focused tests pass**: 3 real-QUIC independent-source cases, 2 compatibility
+cases, 2 live rotation cases, 4 ordered swap/rekey cases and 4 handoff protocol
+cases. This is not a full-suite result. Mac production-feature FFI (default
+TLS features retained) and Android arm64 FFI (same no-default mobile features)
+build from a clean d3098a77 snapshot plus only this change. 193 public Mac FFI
+exports and all 201 defined Android exports match the previous libraries. All
+final source hashes match the build snapshot; rustfmt passes. An existing
+multiline call was normalized before the final production rebuild.
+**Libraries are prepared, not installed; no server mutation or public release.**
+No GUI apps were started in this cycle; owned tests/build processes exited.
+
+**This defect does not explain the previous physical freezes.** Both earlier
+captured calls contain **zero canonical SessionRunner swaps** on each endpoint.
+Their P2P-to-relay media rebind is a different operation. Preserve the failed
+quality results below. Existing nested adaptation rings already contain **209
+unique 1-Hz observations per endpoint**. In the final 60 observations, source
+budget remains held in all 60 on both endpoints; fresh audio RTCP loss witnesses
+occur 8/6 times and decoded-recovery witnesses 11/12 times, versus receive-buffer
+pressure 1/1 and peer-buffer pressure 2/1. No RTP admission drops or counted audio
+interruptions in that tail. Quiet audio witness runs reach only 7/10 observations,
+shorter than twelve recovery samples. This helps explain the persistent hold,
+not why audio was lost/discarded. Good-streak maxima 14/15 also contradict a
+blanket claim that cached peer feedback alone prevents every recovery.
+
+Next: deduplicate the existing 1-Hz adaptation ring by observation id and
+correlate payload/padding loss, DTX and catch-up before changing recovery gates.
+Previous physical relay video quality, full group/file workloads through the
+new behavior, live speech/headphone loudness and QUIC hot reload remain open.
+Never reset datagram counters under unchanged keys. Goal **ACTIVE**.
+
+Evidence: **validation/call-independent-handoff-2026-10-18.json** and
+**validation/independent-handoff-2026-10-18/**. Full clean snapshot, patches,
+negative controls and production libraries:
+**~/.cache/codex/xveil-canonical-swap-20261018/**. Unrelated multi-device and
+ratchet/dispatcher/identity edits are preserved. No push.
+
 ## 2026-10-18: packet-dependent playout budget; real codec regression fixed, relay quality remains open
 
 SDK **d3098a77** fixes one reproducible audio loss mechanism. With production

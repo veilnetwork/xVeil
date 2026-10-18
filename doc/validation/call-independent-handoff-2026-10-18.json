@@ -1,0 +1,222 @@
+{
+  "date": "2026-10-18",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "previous_goal_turn": "Progress: packet-size-dependent native playout budget and real codec regression committed; relay video quality still fails.",
+  "sdk_commit": "039dd32b989218f4aa82c2623b6e625d7f90ed80",
+  "defect": "Canonical byte-stream replacement unconditionally dropped independent source pools. Real QUIC regression saw active independent children fall from3 to0.",
+  "behavior": [
+    "Canonical-only swap retires only the shared sender/receiver and old path feedback, retaining usable separately authenticated children and their nonce/replay state.",
+    "Fresh source traffic does not spill onto the replacement ordered writer while children warm, and continues when that writer is blocked.",
+    "If the retained factory dies, end the session for fresh authentication; do not remain indefinitely alive with unusable children or silently couple them onto ordered transport.",
+    "Abort a blocked writer immediately on this terminal factory-loss path, rather than delaying independent audio recovery for the ordinary five-second drain.",
+    "Privacy rotation for a session with independent children uses the existing full reconnect path, keeping the original transport lifetime. Byte-only handoff cannot yet supply fresh factories."
+  ],
+  "security": [
+    "No new peer permission inferred from an untyped replacement stream.",
+    "No datagram AEAD reconstruction/reset under unchanged keys.",
+    "Same authenticated child/parent ingress identities checked before and after swap; original remote decryptors continue accepting frames.",
+    "One ordered receiver cipher decrypts markers across the swap and a large blocked body; source traffic must not burn its nonce or interleave into that body.",
+    "Relay wire format, traffic role visibility and scheduling are unchanged; no mailbox change."
+  ],
+  "verification": {
+    "passed": 15,
+    "groups": {
+      "independent-gate": 3,
+      "compatibility-gate": 2,
+      "rotation-gate": 2,
+      "swap-gate": 4,
+      "handoff-gate": 4
+    },
+    "negative_controls": {
+      "before_fix": "Real QUIC regression fails independent-connection count:0 instead of3.",
+      "without_rotation_guard": {
+        "mutation": "Remove only has_children guard on the private test snapshot; no worktree mutation",
+        "exit_code": 101,
+        "expected_failure": true
+      },
+      "without_prompt_writer_cancel": {
+        "mutation": "Restore only five-second graceful drain in private snapshot; worktree never mutated",
+        "exit_code": 101,
+        "expected_failure": true
+      }
+    },
+    "production_build": {
+      "base": "d3098a77",
+      "snapshot": "/Users/vart/.cache/codex/xveil-canonical-swap-20261018/sdk-src",
+      "excluded_foreign_wip": true,
+      "test_low_difficulty_only_in_tests": true,
+      "mac_default_features": true,
+      "android_default_features": false,
+      "features": [
+        "production-seeds",
+        "node-embedded",
+        "packet-tunnel"
+      ],
+      "patch_sha256": "d9e5f2d08b84250c5f61bd54deda426a953a709cd0d149fbb5b7f02544c4dedf",
+      "source_sha256": {
+        "crates/veil-session/src/runner.rs": "2bea503c47c09865a2cf76caf10536dbfd822e74d242f254b9b6a04314645b40",
+        "crates/veil-session/src/primary_recovery_quic_tests.rs": "7878b76e2b6ad4373c8e5c8b85006db4206b8f0897b2ccf93b8a429a2653f760",
+        "crates/veil-session/src/parallel_lanes.rs": "8dfa849858e6e32f17e03415ed09421951b0f3d63910cd52b7cddcf3aefbe018",
+        "crates/veil-session/src/ordered_lanes.rs": "127c4389f8abece38b390c5460d60dc7372076346e41be44fd5bc41ab0024978",
+        "crates/veil-session-integration-tests/tests/runner_tests.rs": "b5012067656f4b7aa1d10d4f3f7447091ca43d0acdd24c63c1e3a9b9e2e6ae17"
+      },
+      "libraries": {
+        "libveilclient_ffi.dylib": {
+          "bytes": 25838832,
+          "sha256": "add1327f9b7dc1437c77ca044b41a832989b27cd941df427fa9e28f8049ff474"
+        },
+        "libveilclient_ffi.so": {
+          "bytes": 29273152,
+          "sha256": "4726d9c371e79fe907abf6d0891dac925a241210490e35c9cd32fe028651e3d5"
+        }
+      }
+    },
+    "build_results": [
+      {
+        "label": "independent-gate",
+        "exit_code": 0,
+        "seconds": 17.835,
+        "pid": 2535
+      },
+      {
+        "label": "compatibility-gate",
+        "exit_code": 0,
+        "seconds": 1.793,
+        "pid": 7166
+      },
+      {
+        "label": "rotation-gate",
+        "exit_code": 0,
+        "seconds": 27.377,
+        "pid": 7617
+      },
+      {
+        "label": "swap-gate",
+        "exit_code": 0,
+        "seconds": 0.421,
+        "pid": 14541
+      },
+      {
+        "label": "handoff-gate",
+        "exit_code": 0,
+        "seconds": 0.272,
+        "pid": 14649
+      },
+      {
+        "label": "mac-build",
+        "exit_code": 0,
+        "seconds": 70.596,
+        "pid": 87853
+      },
+      {
+        "label": "android-build",
+        "exit_code": 0,
+        "seconds": 71.213,
+        "pid": 6124
+      }
+    ],
+    "abi_and_cleanup": {
+      "all_final_source_hashes_match_verified_snapshot": true,
+      "abi_export_counts_unchanged": {
+        "libveilclient_ffi.dylib": 193,
+        "libveilclient_ffi.so": 201
+      },
+      "all_recorded_build_and_test_children_exited": true,
+      "apps_started": false,
+      "installed_on_stand": false,
+      "servers_changed": false,
+      "public_release": false,
+      "push": false
+    },
+    "formatting": "rustfmt check passes on all five changed source files. One existing work_admission call was normalized; production libraries rebuilt from final formatted source."
+  },
+  "physical_attribution": {
+    "canonical_swaps_in_previous_two_captured_calls": {
+      "uniform200_mac": 0,
+      "uniform200_phone": 0,
+      "packet_budget_mac": 0,
+      "packet_budget_phone": 0
+    },
+    "conclusion": "This reproducible handoff defect does not explain the previous physical call freezes; those calls performed no canonical SessionRunner swaps.",
+    "installed_on_devices": false,
+    "servers_changed": false
+  },
+  "existing_call_evidence": {
+    "source": "xveil-playout-budget-20261018/qa-v2/physical-playout-budget-video/samples.json; deduplicated nested audio_adaptation latest/recent by observation id",
+    "summary": {
+      "mac": {
+        "unique_observations": 209,
+        "tail_observations": 60,
+        "tail_events": {
+          "receive_pressure": 1,
+          "peer_pressure": 2,
+          "audio_rtp_drop": 0,
+          "audio_interruption": 0,
+          "audio_network_loss": 8,
+          "audio_latency_recovery": 11,
+          "source_budget_pressured": 60,
+          "video_network_loss": 4
+        },
+        "longest_tail_run_without_audio_loss_recovery_or_buffer_pressure": 7,
+        "maximum_good_streak_all_observations": 14,
+        "latest": {
+          "observation": 209,
+          "source_budget_pressured": true,
+          "receive_ms": 85,
+          "receive_target_ms": 100,
+          "peer_current_ms": 84,
+          "peer_target_ms": 80,
+          "receive_pressure": false,
+          "peer_pressure": false,
+          "audio_network_loss": false,
+          "audio_latency_recovery": false,
+          "good_streak_after": 0
+        }
+      },
+      "phone": {
+        "unique_observations": 209,
+        "tail_observations": 60,
+        "tail_events": {
+          "receive_pressure": 1,
+          "peer_pressure": 1,
+          "audio_rtp_drop": 0,
+          "audio_interruption": 0,
+          "audio_network_loss": 6,
+          "audio_latency_recovery": 12,
+          "source_budget_pressured": 60,
+          "video_network_loss": 0
+        },
+        "longest_tail_run_without_audio_loss_recovery_or_buffer_pressure": 10,
+        "maximum_good_streak_all_observations": 15,
+        "latest": {
+          "observation": 209,
+          "source_budget_pressured": true,
+          "receive_ms": 32,
+          "receive_target_ms": 80,
+          "peer_current_ms": 91,
+          "peer_target_ms": 80,
+          "receive_pressure": false,
+          "peer_pressure": false,
+          "audio_network_loss": false,
+          "audio_latency_recovery": false,
+          "good_streak_after": 0
+        }
+      }
+    },
+    "interpretation": "The last60 observations contain recurring fresh RTCP audio-loss and decoded-catch-up witnesses, with source budget held in all60 on both endpoints. Few actual buffer-pressure verdicts; the maximum quiet audio witness run is7/10, shorter than twelve recovery observations. This helps explain the hold, not the underlying packet/decoded loss. Cached peer reports alone do not prevent all recovery: observed good streak maxima are14/15.",
+    "next_action": "Use existing complete1Hz adaptation ring to correlate actual payload/padding loss, decoded catch-up and DTX before changing recovery policy. Do not repeat the disproved canonical-swap attribution or blindly raise jitter budgets."
+  },
+  "remaining": [
+    "Physical relay video is still below1fps in the previous final minute and audio catch-up continues; no quality-fix claim.",
+    "Typed fresh-factory handoff remains needed for seamless migration/rotation; current terminal-factory and privacy paths perform normal reconnect.",
+    "Actual file transfer and full group workload across this new handoff behavior are not qualified.",
+    "QUIC hot reload EADDRINUSE/stalled health remains unfixed.",
+    "Live speech/headphone loudness remains unqualified."
+  ],
+  "evidence_directory": "independent-handoff-2026-10-18",
+  "private_artifacts": "/Users/vart/.cache/codex/xveil-canonical-swap-20261018",
+  "foreign_wip_preserved": true,
+  "public_release": false,
+  "push": false
+}

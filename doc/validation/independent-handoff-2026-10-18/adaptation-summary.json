@@ -1,0 +1,60 @@
+{
+  "mac": {
+    "unique_observations": 209,
+    "tail_observations": 60,
+    "tail_events": {
+      "receive_pressure": 1,
+      "peer_pressure": 2,
+      "audio_rtp_drop": 0,
+      "audio_interruption": 0,
+      "audio_network_loss": 8,
+      "audio_latency_recovery": 11,
+      "source_budget_pressured": 60,
+      "video_network_loss": 4
+    },
+    "longest_tail_run_without_audio_loss_recovery_or_buffer_pressure": 7,
+    "maximum_good_streak_all_observations": 14,
+    "latest": {
+      "observation": 209,
+      "source_budget_pressured": true,
+      "receive_ms": 85,
+      "receive_target_ms": 100,
+      "peer_current_ms": 84,
+      "peer_target_ms": 80,
+      "receive_pressure": false,
+      "peer_pressure": false,
+      "audio_network_loss": false,
+      "audio_latency_recovery": false,
+      "good_streak_after": 0
+    }
+  },
+  "phone": {
+    "unique_observations": 209,
+    "tail_observations": 60,
+    "tail_events": {
+      "receive_pressure": 1,
+      "peer_pressure": 1,
+      "audio_rtp_drop": 0,
+      "audio_interruption": 0,
+      "audio_network_loss": 6,
+      "audio_latency_recovery": 12,
+      "source_budget_pressured": 60,
+      "video_network_loss": 0
+    },
+    "longest_tail_run_without_audio_loss_recovery_or_buffer_pressure": 10,
+    "maximum_good_streak_all_observations": 15,
+    "latest": {
+      "observation": 209,
+      "source_budget_pressured": true,
+      "receive_ms": 32,
+      "receive_target_ms": 80,
+      "peer_current_ms": 91,
+      "peer_target_ms": 80,
+      "receive_pressure": false,
+      "peer_pressure": false,
+      "audio_network_loss": false,
+      "audio_latency_recovery": false,
+      "good_streak_after": 0
+    }
+  }
+}
