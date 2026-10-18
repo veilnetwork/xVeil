@@ -44,7 +44,8 @@ def attribute(attempts, seals, decisions):
     if any(int(r['monotonic_us']) < int(sealed['monotonic_us']) for r in stages):
         raise ValueError('Source decision precedes sealing')
     names = [r['stage'] for r in stages]
-    failures = [n for n in names if n in ('child_unavailable', 'budget_drop')]
+    failures = [n for n in names if n in
+                ('child_unavailable', 'budget_drop', 'queue_work_rejected')]
     accepted = [r for r in stages if r['stage'] == 'datagram_accepted']
     if failures and ('budget_admit' in names or accepted) or len(failures) > 1 or len(accepted) > 1:
         raise ValueError('Mixed/multiple source decisions; single-path attribution is unsafe')

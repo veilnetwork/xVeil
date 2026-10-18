@@ -12,8 +12,8 @@ class DirectSourceTest(unittest.TestCase):
         self.decision = dict(epoch=self.sealed['epoch'], seq='20', local_slot='2',
                              monotonic_us='1200', connection_trace_id='0')
 
-    def test_actual_child_and_budget_rejections_are_distinct(self):
-        for reason in ['child_unavailable', 'budget_drop']:
+    def test_actual_source_rejections_are_distinct(self):
+        for reason in ['child_unavailable', 'budget_drop', 'queue_work_rejected']:
             result = attribute(self.native, [self.sealed], [dict(self.decision, stage=reason)])
             self.assertEqual(result['source_verdict'], reason)
             self.assertEqual(result['native_to_seal_ms'], .1)
