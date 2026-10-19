@@ -1,0 +1,19 @@
+{
+  "step": "build-sdk",
+  "ok": true,
+  "command": [
+    "cargo",
+    "build",
+    "--locked",
+    "--release",
+    "-p",
+    "veilclient-ffi",
+    "--features",
+    "production-seeds,node-embedded,packet-tunnel"
+  ],
+  "returncode": 0,
+  "elapsed_seconds": 99.24520816700533,
+  "owned_exited": true,
+  "helper_exited": true,
+  "finished_at_utc": "2026-10-19T18:52:29.982858+00:00"
+}
