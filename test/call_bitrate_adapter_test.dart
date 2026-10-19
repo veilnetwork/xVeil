@@ -314,15 +314,46 @@ void main() {
     },
   );
 
+  test('recorded 63-to-109ms spike and brief 250ms excursions hold video', () {
+    for (final peerDirection in [false, true]) {
+      final a = direct();
+      for (final delay in [
+        63,
+        63,
+        77,
+        99,
+        99,
+        109,
+        99,
+        90,
+        73,
+        73,
+        73,
+        250,
+        73,
+        73,
+        73,
+      ]) {
+        native(
+          a,
+          stats: {...healthy(), 'audio_delay_ms': peerDirection ? 60 : delay},
+          peerDelay: peerDirection ? delay : 60,
+        );
+        expect(a.level, 0);
+        expect(a.audioReserve, isFalse);
+      }
+    }
+  });
+
   test(
     'a growing receive buffer cuts two rungs before reaching the ceiling',
     () {
       final a = direct();
-      for (final delay in [60, 70, 80, 90, 100, 110]) {
+      for (final delay in [20, 40, 60, 80, 100, 120, 140, 160, 180]) {
         native(a, stats: {...healthy(), 'audio_delay_ms': delay});
         expect(a.level, 0);
       }
-      native(a, stats: {...healthy(), 'audio_delay_ms': 120});
+      native(a, stats: {...healthy(), 'audio_delay_ms': 200});
       expect(a.level, 2);
       expect(a.audioReserve, isFalse);
     },
@@ -593,11 +624,11 @@ void main() {
 
   test('growth is measured independently for the two audio directions', () {
     final a = direct();
-    for (var i = 0; i < 7; i++) {
+    for (var i = 0; i < 10; i++) {
       native(
         a,
-        stats: {...healthy(), 'audio_delay_ms': 140 - i * 10},
-        peerDelay: 60 + i * 10,
+        stats: {...healthy(), 'audio_delay_ms': 240 - i * 20},
+        peerDelay: 20 + i * 20,
         peerSequence: i,
       );
     }
@@ -629,8 +660,8 @@ void main() {
     expect(a.target.maxFps, 1.0);
     expect(
       a.audioBufferPressure,
-      isTrue,
-      reason: 'the subsequent fresh rise still protects audio',
+      isFalse,
+      reason: 'a brief subsequent rise still needs confirmation',
     );
   });
 
@@ -647,18 +678,18 @@ void main() {
       for (var i = 0; i < 6; i++) {
         sample(i, 60);
       }
-      sample(6, 70);
-      sample(7, 100);
-      sample(8, 130);
+      for (var n = 0; n < 9; n++) {
+        sample(6 + n, 20 + n * 20);
+      }
       expect(a.audioBufferPressure, isTrue);
-      for (var i = 0; i < 20; i++) {
-        sample(8, 130);
+      for (var i = 0; i < 5; i++) {
+        sample(14, 180);
       }
       expect(a.audioBufferPressure, isTrue, reason: 'pressure is retained');
       expect(a.level, level, reason: 'one report is not several bad samples');
       expect(a.audioReserve, isFalse);
       expect(a.videoAdvice, CallVideoAdvice.keep);
-      sample(9, 150);
+      sample(15, 200);
       if (level == 0) {
         expect(
           a.level,
@@ -677,7 +708,7 @@ void main() {
 
   test('fresh local growth still pauses with a cached healthy peer', () {
     final a = direct(level: 4);
-    for (final delay in [60, 70, 80, 90, 100, 110, 120]) {
+    for (final delay in [20, 40, 60, 80, 100, 120, 140, 160, 180, 200]) {
       native(
         a,
         stats: {...healthy(), 'audio_delay_ms': delay},
@@ -707,7 +738,7 @@ void main() {
     }
 
     // The peer's six-sample trend still includes the higher sending rungs.
-    for (final delay in [70, 80, 90, 100]) {
+    for (final delay in [20, 40, 60, 80, 100, 120, 140]) {
       tick(delay);
     }
     expect(a.atFloor, isTrue);
@@ -804,17 +835,30 @@ void main() {
         apply(a);
       }
 
-      for (var i = 0; i < 8; i++) {
+      for (var i = 0; i < 4; i++) {
         tick(60);
       }
       expect(a.atFloor, isTrue);
-      for (final delay in [70, 80, 90, 100, 110, 120]) {
+      for (final delay in [
+        20,
+        40,
+        60,
+        80,
+        100,
+        120,
+        140,
+        160,
+        180,
+        200,
+        220,
+        240,
+      ]) {
         tick(delay, growing: true);
       }
       expect(
         a.audioReserve,
         isTrue,
-        reason: 'trial-only growth must still protect audio below 200 ms',
+        reason: 'confirmed trial-only growth protects audio below the ceiling',
       );
     });
   }
@@ -1296,8 +1340,8 @@ void main() {
     }
     expect(a.audioReserve, isFalse);
     expect(a.level, 4, reason: 'a marginal buffer does not earn more video');
-    native(a, stats: {...healthy(), 'audio_delay_ms': 53, 'audio_jb_ms': 210});
-    native(a, stats: {...healthy(), 'audio_delay_ms': 53, 'audio_jb_ms': 210});
+    native(a, stats: {...healthy(), 'audio_delay_ms': 53, 'audio_jb_ms': 310});
+    native(a, stats: {...healthy(), 'audio_delay_ms': 53, 'audio_jb_ms': 310});
     expect(
       a.audioReserve,
       isTrue,

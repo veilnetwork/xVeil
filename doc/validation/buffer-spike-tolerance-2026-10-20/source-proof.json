@@ -1,0 +1,12 @@
+{
+  "root_base": "484b4ae4bf59f325d7d84b25df218498950b1747",
+  "sdk": "8011cfb6bce011c8d77a57102451c33bbc7050b3",
+  "policy_hashes": {
+    "lib/state/call_audio_buffer_window.dart": "8953d06808b934ba38be15a2c5d9c3f92443f255d74c1f8673c9ec095108afe9",
+    "lib/state/call_bitrate_adapter.dart": "79db9b2026c138cb6436a85111fa02f439a6f26216bdd2534c53fd0aa503ab76",
+    "lib/state/call_audio_source_pressure.dart": "514d81ee8fb4924b3b52d7cfbcc8e2833cb552ba308ad94a0ebdcadedfb024f6",
+    "lib/state/call_audio_receive_activity.dart": "eaf5b94ea4214148f8752852940b932298369c1b6cb864e0cb98d8d5730783d1",
+    "lib/state/group_call_audio_adapter.dart": "7955c20ef9783a0703aad1f2bbe8a8737ffff6ba7853301cb7e06d0e0c56f573"
+  },
+  "sealed_trace_every_override": null
+}

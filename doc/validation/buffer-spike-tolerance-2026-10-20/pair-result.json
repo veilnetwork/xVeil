@@ -1,0 +1,270 @@
+{
+  "ok": true,
+  "duration_seconds": 360,
+  "rate_kbps": 1024,
+  "sealed_trace_every_override": null,
+  "decoded_pcm_edges": [
+    {
+      "side": 0,
+      "phases": [
+        {
+          "name": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "p95_ms": 100.09087499929592,
+          "max_ms": 100.09366669692099
+        },
+        {
+          "name": "audio-video",
+          "matched": 337,
+          "missing": 0,
+          "p95_ms": 130.00391668174416,
+          "max_ms": 130.1921249832958
+        }
+      ],
+      "source_edge_capture_positions": {
+        "20": [
+          0,
+          1
+        ],
+        "40": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "60": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      }
+    },
+    {
+      "side": 1,
+      "phases": [
+        {
+          "name": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "p95_ms": 110.26258330093697,
+          "max_ms": 110.3166249813512
+        },
+        {
+          "name": "audio-video",
+          "matched": 337,
+          "missing": 0,
+          "p95_ms": 130.2789582987316,
+          "max_ms": 140.26999997440726
+        }
+      ],
+      "source_edge_capture_positions": {
+        "40": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "60": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      }
+    }
+  ],
+  "decoded_video_progress": {
+    "synthetic_fixture_only": true,
+    "screen_presentation_proof": false,
+    "sampled_retrieval_not_native_decode_timing": true,
+    "tail_seconds": 15,
+    "directions": [
+      {
+        "side": 0,
+        "decoded_frame_pulls": 338,
+        "decoded_counter": {
+          "frames": 3262,
+          "observation_seconds": 337.9987150840461,
+          "fps": 9.65092426220874
+        },
+        "last_minute_decoded_counter": {
+          "frames": 877,
+          "observation_seconds": 58.99985462502809,
+          "fps": 14.864443405390551
+        },
+        "last_dimensions": [
+          320,
+          240
+        ],
+        "content_changes": 337,
+        "last_decoded_pull_seconds": 359.0009308750159,
+        "max_sampled_pull_gap_seconds": 2.002768292033579,
+        "tail_decoded_pulls": 15,
+        "tail_content_changes": 14,
+        "tail_content_verified": true,
+        "moving_at_end": true
+      },
+      {
+        "side": 1,
+        "decoded_frame_pulls": 338,
+        "decoded_counter": {
+          "frames": 2643,
+          "observation_seconds": 337.99834883300355,
+          "fps": 7.819564826649019
+        },
+        "last_minute_decoded_counter": {
+          "frames": 877,
+          "observation_seconds": 58.99878391699167,
+          "fps": 14.864713164832262
+        },
+        "last_dimensions": [
+          320,
+          240
+        ],
+        "content_changes": 337,
+        "last_decoded_pull_seconds": 359.00178470800165,
+        "max_sampled_pull_gap_seconds": 2.0013632500194944,
+        "tail_decoded_pulls": 15,
+        "tail_content_changes": 14,
+        "tail_content_verified": true,
+        "moving_at_end": true
+      }
+    ],
+    "required_tail_content_changes": 14,
+    "tail_content_verified": true,
+    "moving_at_end": true
+  },
+  "file_results": [
+    {
+      "queued": 524288,
+      "queue_duration_ms": 6.5,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "receipt_duration_ms": 268775.7,
+      "missing_indices": []
+    },
+    {
+      "queued": 524288,
+      "queue_duration_ms": 6.3,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "receipt_duration_ms": 264608.3,
+      "missing_indices": []
+    }
+  ],
+  "neutral_shaper_final": [
+    {
+      "received": 99731,
+      "sent": 99731,
+      "drops": 0,
+      "max_queue_ms": 55.51725049735978
+    },
+    {
+      "received": 99485,
+      "sent": 99485,
+      "drops": 0,
+      "max_queue_ms": 36.096792260650545
+    }
+  ],
+  "local_media_channel_stats": [
+    {
+      "video_frames_enqueued": 8364,
+      "video_frames_started": 8364,
+      "video_queue_depth": 0,
+      "video_queue_max_depth": 6,
+      "video_queue_age_max_ms": 858,
+      "video_queue_holds_75ms": 10,
+      "sender_lock_max_ms": 0,
+      "sender_lock_holds_16ms": 0,
+      "video_frame_ipc_max_ms": 0,
+      "video_frame_ipc_holds_33ms": 0,
+      "ipc_cell_max_ms": 0,
+      "ipc_cell_holds_16ms": 0,
+      "ipc_send_failures": 0
+    },
+    {
+      "video_frames_enqueued": 8663,
+      "video_frames_started": 8663,
+      "video_queue_depth": 0,
+      "video_queue_max_depth": 3,
+      "video_queue_age_max_ms": 214,
+      "video_queue_holds_75ms": 14,
+      "sender_lock_max_ms": 0,
+      "sender_lock_holds_16ms": 0,
+      "video_frame_ipc_max_ms": 0,
+      "video_frame_ipc_holds_33ms": 0,
+      "ipc_cell_max_ms": 0,
+      "ipc_cell_holds_16ms": 0,
+      "ipc_send_failures": 0
+    }
+  ],
+  "node_stop_results": [
+    0,
+    0,
+    0
+  ],
+  "remaining_fixture_sockets": 0,
+  "remaining_rung_cuts": [
+    {
+      "side": 1,
+      "seconds": 145.00457287498284,
+      "before": 0,
+      "after": 2,
+      "receive_ms": 94,
+      "peer_ms": 73,
+      "reasons": [
+        "video_network_loss"
+      ]
+    },
+    {
+      "side": 0,
+      "seconds": 194.00608208298218,
+      "before": 0,
+      "after": 2,
+      "receive_ms": 73,
+      "peer_ms": 73,
+      "reasons": [
+        "video_network_loss"
+      ]
+    },
+    {
+      "side": 0,
+      "seconds": 231.0026414580061,
+      "before": 0,
+      "after": 2,
+      "receive_ms": 69,
+      "peer_ms": 62,
+      "reasons": [
+        "video_network_loss"
+      ]
+    }
+  ],
+  "matched_markers": 704,
+  "missing_markers": 0,
+  "maximum_decoded_marker_delay_ms": 140.26999997440726,
+  "final_targets": {
+    "0": {
+      "kbps": 900,
+      "fps": 15.0
+    },
+    "1": {
+      "kbps": 900,
+      "fps": 15.0
+    }
+  },
+  "capture_hashes": {
+    "native.log": "3727d4c027230ed092f477d9b85c9b8e7f56853d3b4d63b24b15d41edbe5208f",
+    "runtime.log": "d1fa8264d114483cf7a0e039a2f69787e855ec6ee4665511d83d5f17e0cba984",
+    "summary.json": "f929269b2cc1282f79255e8f245a73a44a22d2579a8f14e2c1a443157d21b252",
+    "codec-samples.json": "eb1b6cf8c40f20e4277636a3c22efda0d351a0972d8897eb104351c2124e235f",
+    "decoded-video-samples.json": "bd38cb60e197986c2185c33e03092eddcb8b1566005846eca69373ae791673fa"
+  }
+}

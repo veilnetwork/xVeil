@@ -1,0 +1,116 @@
+{
+  "successful_unique_packets": 11435,
+  "successful_not_observed_at_ingress": 10,
+  "received_not_delivered": 0,
+  "in_call_missing_payload": 0,
+  "in_call_missing_padding": 6,
+  "tail_seconds": 3,
+  "missing": [
+    {
+      "ssrc": 1164586942,
+      "sequence": 27369,
+      "timestamp": 1716849746,
+      "payload_bytes": 0,
+      "scope": "in_call",
+      "first_accepted_seconds": 141.135043,
+      "last_accepted_seconds": 141.135043,
+      "accepted_attempts": 1
+    },
+    {
+      "ssrc": 1164586942,
+      "sequence": 27374,
+      "timestamp": 1716860906,
+      "payload_bytes": 0,
+      "scope": "in_call",
+      "first_accepted_seconds": 141.210072,
+      "last_accepted_seconds": 141.210072,
+      "accepted_attempts": 1
+    },
+    {
+      "ssrc": 3585463545,
+      "sequence": 21680,
+      "timestamp": 2698661103,
+      "payload_bytes": 0,
+      "scope": "in_call",
+      "first_accepted_seconds": 189.255658,
+      "last_accepted_seconds": 189.255658,
+      "accepted_attempts": 1
+    },
+    {
+      "ssrc": 3585463545,
+      "sequence": 22292,
+      "timestamp": 2701983633,
+      "payload_bytes": 0,
+      "scope": "in_call",
+      "first_accepted_seconds": 226.128108,
+      "last_accepted_seconds": 226.128108,
+      "accepted_attempts": 1
+    },
+    {
+      "ssrc": 3585463545,
+      "sequence": 22294,
+      "timestamp": 2701983633,
+      "payload_bytes": 0,
+      "scope": "in_call",
+      "first_accepted_seconds": 226.14885,
+      "last_accepted_seconds": 226.14885,
+      "accepted_attempts": 1
+    },
+    {
+      "ssrc": 3585463545,
+      "sequence": 22295,
+      "timestamp": 2701983633,
+      "payload_bytes": 0,
+      "scope": "in_call",
+      "first_accepted_seconds": 226.159112,
+      "last_accepted_seconds": 226.159112,
+      "accepted_attempts": 1
+    },
+    {
+      "ssrc": 1164586942,
+      "sequence": 31813,
+      "timestamp": 1736568746,
+      "payload_bytes": 745,
+      "scope": "after_capture_end",
+      "first_accepted_seconds": 360.117332,
+      "last_accepted_seconds": 360.117332,
+      "accepted_attempts": 1
+    },
+    {
+      "ssrc": 1164586942,
+      "sequence": 31816,
+      "timestamp": 1736581706,
+      "payload_bytes": 976,
+      "scope": "after_capture_end",
+      "first_accepted_seconds": 360.260918,
+      "last_accepted_seconds": 360.260918,
+      "accepted_attempts": 1
+    },
+    {
+      "ssrc": 3585463545,
+      "sequence": 25178,
+      "timestamp": 2714070003,
+      "payload_bytes": 506,
+      "scope": "after_capture_end",
+      "first_accepted_seconds": 360.320518,
+      "last_accepted_seconds": 360.320518,
+      "accepted_attempts": 1
+    },
+    {
+      "ssrc": 1164586942,
+      "sequence": 31817,
+      "timestamp": 1736588276,
+      "payload_bytes": 920,
+      "scope": "after_capture_end",
+      "first_accepted_seconds": 360.333539,
+      "last_accepted_seconds": 360.333539,
+      "accepted_attempts": 1
+    }
+  ],
+  "limitations": [
+    "Requires explicitly asserted common monotonic host clock.",
+    "Ingress is eventual, not necessarily timely or decodable.",
+    "Tail and after-end packets are not evidence of in-call loss.",
+    "No missing native row by itself attributes a network or queue drop."
+  ]
+}

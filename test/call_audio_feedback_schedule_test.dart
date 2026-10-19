@@ -28,14 +28,14 @@ void main() {
     );
     expect(
       schedule.shouldSendUrgent(
-        sample(3, peak: 200, current: 200, growing: false),
+        sample(3, peak: 300, current: 300, growing: false),
         start,
       ),
       isTrue,
     );
     expect(
       schedule.shouldSendUrgent(
-        sample(4, peak: 199, current: 199, growing: false),
+        sample(4, peak: 299, current: 299, growing: false),
         start,
       ),
       isFalse,
@@ -146,7 +146,7 @@ void main() {
         'd': 60,
         'cd': 60,
         'g': false,
-        'td': 220,
+        'td': 320,
       })!;
       expect(schedule.shouldSendUrgent(report, start), isTrue);
       schedule.recordAttempt(report, start);
