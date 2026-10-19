@@ -1,0 +1,204 @@
+{
+  "ok": false,
+  "scope": "same-process synthetic fixture,360seconds,1Mbit/s blind FIFO,audio+video+2x512KiB",
+  "decoded_pcm_edges": [
+    {
+      "side": 0,
+      "phases": [
+        {
+          "name": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "p95_ms": 100.06679166690446,
+          "max_ms": 100.07566667627543
+        },
+        {
+          "name": "audio-video",
+          "matched": 337,
+          "missing": 0,
+          "p95_ms": 170.04962501232512,
+          "max_ms": 200.0068750057835
+        }
+      ],
+      "source_edge_capture_positions": {
+        "40": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "60": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      }
+    },
+    {
+      "side": 1,
+      "phases": [
+        {
+          "name": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "p95_ms": 100.20295833237469,
+          "max_ms": 100.28987500118092
+        },
+        {
+          "name": "audio-video",
+          "matched": 337,
+          "missing": 0,
+          "p95_ms": 170.0565833307337,
+          "max_ms": 190.22308333660476
+        }
+      ],
+      "source_edge_capture_positions": {
+        "40": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "60": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      }
+    }
+  ],
+  "total_matched": 704,
+  "total_missing": 0,
+  "peak_pipeline": {
+    "source": 1,
+    "input_seconds": 221.190597,
+    "output_seconds": 221.390603,
+    "total_ms": 200.007,
+    "packet_ms": 40,
+    "input_position_ms": 10,
+    "following_packet_ingress_seconds": 221.26034,
+    "spans_ms": {
+      "capture_to_encoded": 20.071,
+      "encoded_to_send": 0.017,
+      "send_to_sdk": 0.003,
+      "sdk_to_ingress": 10.051,
+      "ingress_to_webrtc": 0.022,
+      "webrtc_to_pcm_edge": 169.842
+    }
+  },
+  "files": [
+    {
+      "queued": 524288,
+      "queue_duration_ms": 3.8,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "receipt_duration_ms": 195463.3,
+      "missing_indices": []
+    },
+    {
+      "queued": 524288,
+      "queue_duration_ms": 3.7,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "receipt_duration_ms": 185482.9,
+      "missing_indices": []
+    }
+  ],
+  "decoded_video": {
+    "synthetic_fixture_only": true,
+    "screen_presentation_proof": false,
+    "sampled_retrieval_not_native_decode_timing": true,
+    "tail_seconds": 15,
+    "directions": [
+      {
+        "side": 0,
+        "decoded_frame_pulls": 296,
+        "content_changes": 295,
+        "last_decoded_pull_seconds": 359.0008389999857,
+        "max_sampled_pull_gap_seconds": 12.000079541991,
+        "tail_decoded_pulls": 15,
+        "tail_content_changes": 14,
+        "moving_at_end": true
+      },
+      {
+        "side": 1,
+        "decoded_frame_pulls": 320,
+        "content_changes": 319,
+        "last_decoded_pull_seconds": 359.00227945900406,
+        "max_sampled_pull_gap_seconds": 13.997539625008358,
+        "tail_decoded_pulls": 15,
+        "tail_content_changes": 14,
+        "moving_at_end": true
+      }
+    ],
+    "moving_at_end": true
+  },
+  "neutral_shaper": [
+    {
+      "received": 75718,
+      "sent": 75718,
+      "drops": 0,
+      "max_queue_ms": 94.27104212227277
+    },
+    {
+      "received": 75888,
+      "sent": 75888,
+      "drops": 0,
+      "max_queue_ms": 69.61531259003095
+    }
+  ],
+  "native_clock": {
+    "clock_check_span_us": 17.54099503159523,
+    "scheduling_mode": "deadline",
+    "dropped_rows": 0,
+    "ticks": 36000,
+    "observation_count_verified": true,
+    "stage_maxima_ms": {
+      "max_wake_lateness_ms": 0.046167,
+      "max_callback_ms": 0.7657500100322068,
+      "max_publication_ms": 0.012791657354682684
+    },
+    "scheduling": {
+      "qos_supported": 1,
+      "qos_result": 0,
+      "qos_requested": 33,
+      "qos_actual": 33
+    },
+    "deadline_scheduling": {
+      "deadline_requested": 1,
+      "deadline_result": 0,
+      "deadline_active": 1,
+      "deadline_period_ticks": 240000,
+      "deadline_computation_ticks": 72000,
+      "deadline_constraint_ticks": 120000,
+      "deadline_actual_period_ticks": 240000,
+      "deadline_actual_computation_ticks": 72000,
+      "deadline_actual_constraint_ticks": 120000,
+      "deadline_checks": 362,
+      "deadline_misses": 0
+    },
+    "timer_error": 0
+  },
+  "native_failures": [
+    0,
+    0
+  ],
+  "poll_failures": [
+    0,
+    0
+  ],
+  "remaining_fixture_sockets": 0,
+  "policy_exited": true,
+  "file_threads_exited": true,
+  "audio_thread_exited": true,
+  "source_snapshot": "runtime-source-pair.json",
+  "final_source_qualification": "Captured before the cold-refusal fix and actual-budget-only group logging. No full final-source1:1 run yet."
+}
