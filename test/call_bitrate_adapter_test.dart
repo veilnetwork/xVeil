@@ -264,6 +264,158 @@ void main() {
     expect(a.acknowledgedTarget, (maxBitrateKbps: 150, maxFps: 15.0));
   });
 
+  for (final incoming in [false, true]) {
+    test(
+      'duration evidence keeps repeated small damage at its video rung incoming=$incoming',
+      () {
+        final a = direct();
+        Map<String, Object> stats(int event, {int significant = 0}) => {
+          ...healthy(),
+          'audio_soft_loss_duration_supported': 1,
+          'audio_peer_soft_loss_duration_supported': 1,
+          'audio_local_soft_loss_report_us': incoming ? significant : 0,
+          'audio_peer_soft_loss_report_us': incoming ? 0 : significant,
+          incoming
+                  ? 'audio_local_concealment_report_us'
+                  : 'audio_peer_concealment_report_us':
+              event,
+        };
+        native(a, stats: stats(100), send: !incoming);
+        native(a, stats: stats(200), send: !incoming);
+        expect(
+          a.level,
+          0,
+          reason: 'two small events do not prove significant damage',
+        );
+        native(a, stats: stats(300, significant: 1000), send: !incoming);
+        expect(
+          a.level,
+          2,
+          reason: 'measured damage protects audio immediately',
+        );
+        for (var n = 0; n < 7; n++) {
+          native(a, stats: stats(300, significant: 1000), send: !incoming);
+          expect(
+            a.level,
+            2,
+            reason: 'cached duration witness cannot cut again',
+          );
+        }
+        native(
+          a,
+          stats: stats(300, significant: 1000),
+          send: !incoming,
+          interrupted: true,
+        );
+        expect(
+          a.level,
+          4,
+          reason: 'duration accounting cannot mask an audio interruption',
+        );
+      },
+    );
+  }
+
+  test(
+    'partial duration diagnostics retain conservative legacy protection',
+    () {
+      final a = direct();
+      for (final event in [100, 200]) {
+        native(
+          a,
+          stats: {
+            ...healthy(),
+            'audio_peer_soft_loss_duration_supported': 1,
+            'audio_peer_concealment_report_us': event,
+          },
+        );
+      }
+      expect(
+        a.level,
+        2,
+        reason: 'missing duration witness is unknown rather than healthy',
+      );
+    },
+  );
+
+  test(
+    'duration witnesses while receive is disabled or stalled cannot replay',
+    () {
+      for (final stalled in [false, true]) {
+        final a = direct();
+        Map<String, Object> stats(int witness, int worker) => {
+          ...healthy(),
+          'worker_stalled': worker,
+          'audio_soft_loss_duration_supported': 1,
+          'audio_peer_soft_loss_duration_supported': 1,
+          'audio_local_soft_loss_report_us': witness,
+          'audio_peer_soft_loss_report_us': 0,
+        };
+        native(a, stats: stats(1000, stalled ? 1 : 0), receive: stalled);
+        native(a, stats: stats(1000, 0));
+        expect(a.level, 0);
+        native(a, stats: stats(2000, 0));
+        expect(a.level, 2);
+      }
+    },
+  );
+
+  test(
+    'local catch-up duration cannot be reclassified as unknown outgoing damage',
+    () {
+      final a = direct();
+      final stats = {
+        ...healthy(),
+        'audio_soft_loss_duration_supported': 1,
+        'audio_peer_soft_loss_duration_supported': 0,
+        'audio_local_soft_loss_report_us': 0,
+        'audio_peer_soft_loss_report_us': 0,
+      };
+      native(a, stats: stats, recovered: true);
+      native(a, stats: stats, recovered: true);
+      expect(a.level, 0);
+      native(a, stats: {...stats, 'audio_peer_recovery_report_us': 100});
+      native(a, stats: {...stats, 'audio_peer_recovery_report_us': 200});
+      expect(
+        a.level,
+        2,
+        reason: 'unknown peer damage still uses legacy protection',
+      );
+    },
+  );
+
+  test(
+    'incoming damage remains actionable without optional packet-age diagnostics',
+    () {
+      for (final durationKnown in [false, true]) {
+        final a = direct();
+        final base = healthy()..remove('audio_rx_native_age_ms');
+        for (var n = 1; n <= 2; n++) {
+          a.onNativeStats(
+            {
+              ...base,
+              if (durationKnown) ...{
+                'audio_soft_loss_duration_supported': 1,
+                'audio_peer_soft_loss_duration_supported': 1,
+                'audio_local_soft_loss_report_us': 1000,
+                'audio_peer_soft_loss_report_us': 0,
+              },
+            },
+            sampledAt: DateTime(2026, 10, 20).add(Duration(seconds: n)),
+            receiveAudioExpected: true,
+            audioRecoveryObserved: true,
+          );
+        }
+        expect(
+          a.level,
+          2,
+          reason:
+              'receiving expectation and packet-age capability are independent',
+        );
+      }
+    },
+  );
+
   test(
     'isolated concealment at recorded 94/62-ms buffers holds the video rung',
     () {

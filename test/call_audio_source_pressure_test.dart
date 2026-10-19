@@ -24,7 +24,9 @@ void main() {
     Object? localConcealmentReportUs,
     bool recovered = false,
     DateTime? at,
+    Map<String, dynamic>? nativeStats,
   }) => policy.observe(
+    nativeStats: nativeStats,
     sampledAt: times[policy] =
         at ??
         (times[policy] ?? DateTime(2026, 10, 19)).add(
@@ -58,6 +60,68 @@ void main() {
     }
     expect(sample(policy, send: send, receive: receive), isFalse);
   }
+
+  test(
+    'measured small damage yields briefly and preserves genuine recovery credit',
+    () {
+      final policy = CallAudioSourcePressure();
+      Map<String, Object> stats([int pressure = 0]) => {
+        'worker_stalled': 0,
+        'audio_soft_loss_duration_supported': 1,
+        'audio_peer_soft_loss_duration_supported': 1,
+        'audio_local_soft_loss_report_us': 0,
+        'audio_peer_soft_loss_report_us': pressure,
+      };
+      recover(policy);
+      expect(
+        sample(policy, concealmentReportUs: 100, nativeStats: stats()),
+        isTrue,
+      );
+      expect(
+        sample(policy, concealmentReportUs: 200, nativeStats: stats()),
+        isTrue,
+      );
+      expect(sample(policy, nativeStats: stats()), isTrue);
+      expect(sample(policy, nativeStats: stats()), isTrue);
+      expect(sample(policy, nativeStats: stats()), isFalse);
+      expect(sample(policy, nativeStats: stats(1000)), isTrue);
+      for (var n = 0; n < 8; n++) {
+        expect(sample(policy, nativeStats: stats()), isTrue);
+      }
+      expect(
+        sample(policy, concealmentReportUs: 300, nativeStats: stats()),
+        isTrue,
+      );
+      for (var n = 0; n < 3; n++) {
+        expect(sample(policy, nativeStats: stats()), isTrue);
+      }
+      expect(
+        sample(policy, nativeStats: stats()),
+        isFalse,
+        reason: 'a small event did not erase eight healthy observations',
+      );
+    },
+  );
+
+  test(
+    'known incoming catch-up stays brief when peer duration support is unknown',
+    () {
+      final policy = CallAudioSourcePressure();
+      final stats = <String, Object>{
+        'worker_stalled': 0,
+        'audio_soft_loss_duration_supported': 1,
+        'audio_peer_soft_loss_duration_supported': 0,
+        'audio_local_soft_loss_report_us': 0,
+        'audio_peer_soft_loss_report_us': 0,
+      };
+      recover(policy);
+      expect(sample(policy, recovered: true, nativeStats: stats), isTrue);
+      expect(sample(policy, recovered: true, nativeStats: stats), isTrue);
+      expect(sample(policy, nativeStats: stats), isTrue);
+      expect(sample(policy, nativeStats: stats), isTrue);
+      expect(sample(policy, nativeStats: stats), isFalse);
+    },
+  );
 
   test('fresh peer audio loss restrains sources without a growing buffer', () {
     final policy = CallAudioSourcePressure();

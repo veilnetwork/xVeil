@@ -958,6 +958,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     }
     final receiveQuality = _groupAudioReceiveQuality(stats);
     final measuredPressure = _sourcePressure.observe(
+      nativeStats: stats,
       sampledAt: now,
       sendExpected: sendExpected,
       receiveExpected: receiveExpected,
