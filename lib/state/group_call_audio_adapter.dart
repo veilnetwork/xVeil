@@ -32,10 +32,13 @@ class GroupCallAudioAdapter {
   int? _sequence, _drops, _recoveries, _packets;
   int _lossUs = 0, _peerRecoveryUs = 0, _healthy = 0, _expectedPeers = 0;
   bool _supports60Ms = false;
+  bool _needsSecondaryYield = false;
+  bool get needsSecondaryYield => _needsSecondaryYield;
   final _buffer = CallAudioBufferWindow();
   final _rttWindow = Queue<({DateTime at, int ms})>();
 
   GroupAudioBudget get target => _budgets[_level];
+  GroupAudioBudget? get applied => _applied;
   int get level => _level;
   bool get pending => _applied != target;
 
@@ -57,7 +60,9 @@ class GroupCallAudioAdapter {
     required int expectedPeers,
     required bool sending,
     required bool receiving,
+    bool secondaryYielded = true,
   }) {
+    _needsSecondaryYield = false;
     final previousTime = _observedAt;
     _observedAt = now;
     if (previousTime != null && now.isBefore(previousTime)) {
@@ -151,7 +156,18 @@ class GroupCallAudioAdapter {
           _applied == _budgets[_shortPacketFloor] &&
           packetsAdvanced &&
           stats['audio_tx_packet_duration_ms'] == 40;
-      final maxLevel = measuredFloor || _level == _longPacketFloor
+      // The room controller must first reduce/pause actual secondary output.
+      // A smaller nominal video ceiling alone does not establish that yield.
+      final measuredEmergency =
+          nativeFresh &&
+          stats['audio_config_valid'] == 1 &&
+          _applied == _budgets[_longPacketFloor] &&
+          packetsAdvanced &&
+          stats['audio_tx_packet_duration_ms'] == 60;
+      _needsSecondaryYield =
+          (measuredFloor || measuredEmergency) && !secondaryYielded;
+      final maxLevel =
+          measuredFloor && secondaryYielded || _level == _longPacketFloor
           ? _longPacketFloor
           : _shortPacketFloor;
       if (!pending &&

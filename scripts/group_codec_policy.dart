@@ -6,6 +6,7 @@ import 'dart:io';
 import 'package:xveil/state/call_audio_receive_activity.dart';
 import 'package:xveil/state/call_audio_source_pressure.dart';
 import 'package:xveil/state/call_bitrate_adapter.dart';
+import 'package:xveil/state/group_call_source_priority.dart';
 
 int? measured(Object? value) =>
     value is num && value.isFinite && value >= 0 && value <= 60000
@@ -13,6 +14,7 @@ int? measured(Object? value) =>
     : null;
 
 class RoomPolicy {
+  final sourcePriority = GroupCallSourcePriority();
   final adapter = CallBitrateAdapter(
     baseBitrateKbps: 150,
     baseFps: 15,
@@ -83,7 +85,7 @@ class RoomPolicy {
         : null;
     final sequence = stats['audio_playout_sequence'];
     final peerSequence = sequence is int && sequence >= 0 ? sequence : null;
-    final pressured = source.observe(
+    final measuredPressure = source.observe(
       sendExpected: true,
       receiveExpected: true,
       requirePeerPlayout: true,
@@ -101,6 +103,7 @@ class RoomPolicy {
       audioLossReportUs: stats['audio_loss_report_us'],
       peerAudioRecoveryReportUs: stats['audio_peer_recovery_report_us'],
     );
+    final pressured = sourcePriority.floor ? true : measuredPressure;
     if (request['prepare'] == true) {
       adapter.prepareVideoSend(
         stats,
@@ -157,6 +160,7 @@ class RoomPolicy {
         'fps': adapter.target.maxFps,
       },
       'audioReserve': adapter.audioReserve,
+      'sourcePriority': sourcePriority.diagnostics,
       'audioAdaptation': adapter.bufferDiagnostics,
     };
   }

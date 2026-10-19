@@ -541,6 +541,7 @@ def main():
                           'scripts/group_codec_policy.dart',
                           'lib/state/call_audio_source_pressure.dart',
                           'lib/state/group_call_audio_adapter.dart',
+                          'lib/state/group_call_source_priority.dart',
                           'lib/state/call_audio_buffer_window.dart',
                           'lib/state/call_bitrate_adapter.dart',
                           'lib/state/call_audio_receive_activity.dart',
