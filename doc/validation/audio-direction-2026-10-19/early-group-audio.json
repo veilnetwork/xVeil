@@ -1,0 +1,305 @@
+{
+  "0": [
+    {
+      "t": 0.03,
+      "target": 40,
+      "native_duration": 0,
+      "packets": 0,
+      "loss": 0,
+      "peer_recovery": 0,
+      "own_recovery": 0,
+      "playout": -1,
+      "reports": 0
+    },
+    {
+      "t": 1.02,
+      "target": 40,
+      "native_duration": 40,
+      "packets": 28,
+      "loss": 0,
+      "peer_recovery": 0,
+      "own_recovery": 0,
+      "playout": -1,
+      "reports": 0
+    },
+    {
+      "t": 2.01,
+      "target": 40,
+      "native_duration": 40,
+      "packets": 53,
+      "loss": 0,
+      "peer_recovery": 0,
+      "own_recovery": 8,
+      "playout": -1,
+      "reports": 0
+    },
+    {
+      "t": 3.01,
+      "target": 40,
+      "native_duration": 40,
+      "packets": 78,
+      "loss": 0,
+      "peer_recovery": 0,
+      "own_recovery": 8,
+      "playout": -1,
+      "reports": 0
+    },
+    {
+      "t": 4.02,
+      "target": 40,
+      "native_duration": 40,
+      "packets": 103,
+      "loss": 0,
+      "peer_recovery": 224291278401,
+      "own_recovery": 8,
+      "playout": 122,
+      "reports": 1
+    },
+    {
+      "t": 5.0,
+      "target": 40,
+      "native_duration": 40,
+      "packets": 128,
+      "loss": 0,
+      "peer_recovery": 224291278401,
+      "own_recovery": 8,
+      "playout": 122,
+      "reports": 1
+    },
+    {
+      "t": 6.01,
+      "target": 40,
+      "native_duration": 40,
+      "packets": 153,
+      "loss": 0,
+      "peer_recovery": 224291278401,
+      "own_recovery": 8,
+      "playout": 122,
+      "reports": 2
+    },
+    {
+      "t": 7.02,
+      "target": 40,
+      "native_duration": 40,
+      "packets": 178,
+      "loss": 0,
+      "peer_recovery": 224291278401,
+      "own_recovery": 8,
+      "playout": 122,
+      "reports": 2
+    },
+    {
+      "t": 8.02,
+      "target": 40,
+      "native_duration": 40,
+      "packets": 203,
+      "loss": 0,
+      "peer_recovery": 224291278401,
+      "own_recovery": 8,
+      "playout": 102,
+      "reports": 2
+    }
+  ],
+  "1": [
+    {
+      "t": 0.03,
+      "target": 40,
+      "native_duration": 0,
+      "packets": 0,
+      "loss": 0,
+      "peer_recovery": 0,
+      "own_recovery": 0,
+      "playout": -1,
+      "reports": 0
+    },
+    {
+      "t": 1.02,
+      "target": 40,
+      "native_duration": 40,
+      "packets": 28,
+      "loss": 0,
+      "peer_recovery": 0,
+      "own_recovery": 0,
+      "playout": -1,
+      "reports": 0
+    },
+    {
+      "t": 2.0,
+      "target": 40,
+      "native_duration": 40,
+      "packets": 53,
+      "loss": 0,
+      "peer_recovery": 0,
+      "own_recovery": 8,
+      "playout": -1,
+      "reports": 0
+    },
+    {
+      "t": 3.01,
+      "target": 40,
+      "native_duration": 40,
+      "packets": 78,
+      "loss": 0,
+      "peer_recovery": 0,
+      "own_recovery": 8,
+      "playout": -1,
+      "reports": 0
+    },
+    {
+      "t": 4.02,
+      "target": 40,
+      "native_duration": 40,
+      "packets": 103,
+      "loss": 0,
+      "peer_recovery": 224291379270,
+      "own_recovery": 8,
+      "playout": 126,
+      "reports": 1
+    },
+    {
+      "t": 5.02,
+      "target": 40,
+      "native_duration": 40,
+      "packets": 128,
+      "loss": 0,
+      "peer_recovery": 224291379270,
+      "own_recovery": 8,
+      "playout": 126,
+      "reports": 1
+    },
+    {
+      "t": 6.01,
+      "target": 40,
+      "native_duration": 40,
+      "packets": 153,
+      "loss": 0,
+      "peer_recovery": 224291379270,
+      "own_recovery": 8,
+      "playout": 126,
+      "reports": 1
+    },
+    {
+      "t": 7.02,
+      "target": 40,
+      "native_duration": 40,
+      "packets": 178,
+      "loss": 0,
+      "peer_recovery": 224291379270,
+      "own_recovery": 8,
+      "playout": 145,
+      "reports": 2
+    },
+    {
+      "t": 8.02,
+      "target": 40,
+      "native_duration": 40,
+      "packets": 203,
+      "loss": 0,
+      "peer_recovery": 224291379270,
+      "own_recovery": 8,
+      "playout": 145,
+      "reports": 2
+    }
+  ],
+  "2": [
+    {
+      "t": 0.0,
+      "target": 40,
+      "native_duration": 0,
+      "packets": 0,
+      "loss": 0,
+      "peer_recovery": 0,
+      "own_recovery": 0,
+      "playout": -1,
+      "reports": 0
+    },
+    {
+      "t": 1.0,
+      "target": 40,
+      "native_duration": 40,
+      "packets": 28,
+      "loss": 0,
+      "peer_recovery": 0,
+      "own_recovery": 0,
+      "playout": -1,
+      "reports": 0
+    },
+    {
+      "t": 2.02,
+      "target": 40,
+      "native_duration": 40,
+      "packets": 53,
+      "loss": 0,
+      "peer_recovery": 0,
+      "own_recovery": 8,
+      "playout": -1,
+      "reports": 0
+    },
+    {
+      "t": 3.01,
+      "target": 40,
+      "native_duration": 40,
+      "packets": 78,
+      "loss": 0,
+      "peer_recovery": 0,
+      "own_recovery": 8,
+      "playout": -1,
+      "reports": 0
+    },
+    {
+      "t": 4.01,
+      "target": 40,
+      "native_duration": 40,
+      "packets": 103,
+      "loss": 0,
+      "peer_recovery": 0,
+      "own_recovery": 8,
+      "playout": -1,
+      "reports": 0
+    },
+    {
+      "t": 5.02,
+      "target": 40,
+      "native_duration": 40,
+      "packets": 128,
+      "loss": 0,
+      "peer_recovery": 0,
+      "own_recovery": 8,
+      "playout": -1,
+      "reports": 0
+    },
+    {
+      "t": 6.01,
+      "target": 40,
+      "native_duration": 40,
+      "packets": 153,
+      "loss": 0,
+      "peer_recovery": 0,
+      "own_recovery": 8,
+      "playout": -1,
+      "reports": 0
+    },
+    {
+      "t": 7.0,
+      "target": 40,
+      "native_duration": 40,
+      "packets": 178,
+      "loss": 0,
+      "peer_recovery": 0,
+      "own_recovery": 8,
+      "playout": -1,
+      "reports": 0
+    },
+    {
+      "t": 8.01,
+      "target": 40,
+      "native_duration": 40,
+      "packets": 203,
+      "loss": 0,
+      "peer_recovery": 0,
+      "own_recovery": 8,
+      "playout": 99,
+      "reports": 2
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "source_base_sdk": "d0e692662faba012fafa81a09e56b9da17ece8e6",
+  "sources": {
+    "crates/veil-session/src/runner.rs": "48cc3ed2623643cab74ab0006a6aeafe4ea002ded5bf1cc68b6bd73f857fd514",
+    "crates/veil-session/src/datagram_flows.rs": "eb6fcf740a070515f7578cd37049de16a26cf614b25cd211b6988a9fdfac1d9e",
+    "crates/veil-session/src/datagram_flows/tests.rs": "6f5450b87fb04d2fa61ce231fd1dd5a9e78f665f1097aec9edf1fe76c11cc1a8"
+  },
+  "sdk_sha256": "5ab01ef2a3967d8d71d350a6707b62cb1c3d9795576fef0945621bded26fd665",
+  "abi_exports": 202,
+  "exports_unchanged": true,
+  "pacer_removed": true,
+  "native_unchanged": true,
+  "source_archive": "sdk-src",
+  "rejected_source_archive": "rejected-pacer-src",
+  "cargo_features": [
+    "production-seeds",
+    "node-embedded",
+    "packet-tunnel"
+  ],
+  "scope": "Read-only packet sizing and encryption after queue/cadence/admission checks; existing rate and codec policy retained."
+}

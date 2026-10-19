@@ -43,6 +43,82 @@ GroupCallAudioAdapter start() {
 }
 
 void main() {
+  test(
+    'incoming catch-up cannot lengthen healthy or unknown outgoing audio',
+    () {
+      for (final kind in ['incoming', 'peer_recovered', 'unknown']) {
+        final p = start();
+        Map<String, dynamic> measured(int n) => {
+          ...sample(
+            n,
+            recoveries: kind == 'peer_recovered' ? 0 : n,
+            reports: kind == 'unknown' ? 0 : 2,
+          ),
+          if (kind == 'peer_recovered')
+            'audio_peer_recovery_report_us': n * 100,
+          'audio_max_packet_ms': 60,
+          'audio_tx_packet_duration_ms': 40,
+          'audio_tx_payload_pkts': n * 20,
+        };
+        p.observe(
+          measured(1),
+          at(1),
+          expectedPeers: 2,
+          sending: true,
+          receiving: true,
+          secondaryYielded: false,
+        );
+        p.observe(
+          measured(2),
+          at(2),
+          expectedPeers: 2,
+          sending: true,
+          receiving: true,
+          secondaryYielded: false,
+        );
+        p.applyPending((_) => true, at(2));
+        p.observe(
+          measured(3),
+          at(8),
+          expectedPeers: 2,
+          sending: true,
+          receiving: true,
+          secondaryYielded: true,
+        );
+        expect(p.target, (packetMs: 40, payloadBps: 24000), reason: kind);
+        p.observe(
+          measured(4),
+          at(12),
+          expectedPeers: 2,
+          sending: true,
+          receiving: true,
+          secondaryYielded: false,
+        );
+        expect(
+          p.needsSecondaryYield,
+          isTrue,
+          reason: 'secondary work still yields to recovered sound',
+        );
+        expect(p.target.packetMs, 40);
+        // A fresh real receiver ceiling can still use the emergency cadence.
+        p.observe(
+          {
+            ...measured(5),
+            'audio_playout_reports': 2,
+            'audio_feedback_reports': 2,
+            'audio_playout_ms': 240,
+          },
+          at(16),
+          expectedPeers: 2,
+          sending: true,
+          receiving: true,
+          secondaryYielded: true,
+        );
+        expect(p.target.packetMs, 60);
+      }
+    },
+  );
+
   test('renewed pressure yields video even at the long audio floor', () {
     final p = start();
     Map<String, dynamic> measured(int n, int loss, int duration) => {

@@ -1,0 +1,75 @@
+{
+  "goal_complete": false,
+  "root_base": "6cedc7b961bbc9b323a59fb0984a62027026ae31",
+  "sdk_commit": "3456ba3a7b2c6978809af1c352c216e52a28c4ab",
+  "retained": {
+    "sdk": "Size datagrams without flow/nonce mutation; encode only after capacity, source admission and cadence waits. Existing quotas and codec policy unchanged.",
+    "group_audio": "Incoming decoder catch-up or completed peer catch-up still yields secondary work, but cannot alone lengthen healthy or unknown outgoing40ms audio to60ms. Last step requires new outgoing loss/drop or fresh growing/capped peer buffer."
+  },
+  "checks": {
+    "flutter_passed": 194,
+    "session_passed": 598,
+    "session_ignored": 8,
+    "bootstrap_passed": 141,
+    "bootstrap_ignored": 1,
+    "static_analysis_clean": true,
+    "public_sdk_exports_unchanged": 202
+  },
+  "group_capture": {
+    "duration_seconds": 360,
+    "max_pcm_ms": 320.2269999892451,
+    "matched": 2112,
+    "missing": 0,
+    "all_files_exact": true,
+    "tail_changes": [
+      14,
+      14,
+      14,
+      14,
+      14,
+      14
+    ],
+    "strict200ms_pass": false,
+    "first60ms_seconds": [
+      258.01751975002117,
+      258.0108462079952,
+      null
+    ]
+  },
+  "unicast_captures": {
+    "retained_sdk_peaks_ms": [
+      190.02179167000577,
+      230.06412500399165
+    ],
+    "current_unmodified_sdk_peaks_ms": [
+      320.0235833355691,
+      210.27095834142528
+    ],
+    "rejected_pacer_peaks_ms": [
+      210.00254165846854,
+      200.1951250131242
+    ],
+    "all_have704_matched_zero_missing_and_exact_files": true,
+    "all_have_moving_final_video": true,
+    "strict200ms_pass": false,
+    "comparison_limit": "One capture per build; no causal or statistical improvement claim. Current unmodified SDK also reproduces the failure. Historical190ms captures do not prove current qualification."
+  },
+  "rejected_pacer": "Removed from source: both unicast/group qualification were not achieved; it was not a real joint capacity reservation. Its single group peak280ms is not a result of the retained version.",
+  "raw_private_artifacts": "/Users/vart/.cache/codex/xveil-group-packet-pacing-20261019",
+  "side_effects": {
+    "physical_call_or_install": false,
+    "server_mutation": false,
+    "push_or_release": false
+  },
+  "open": [
+    "Joint audio/video/DATA source allocation using real framing, fanout and observed delivery remains absent.",
+    "Separate network transit/queue delay from codec/following-packet/render delay using actual output timestamps.",
+    "Full channel audit including ordered signaling and maintenance RPC, screen/fallback, hardware/live speech/headset checks remain."
+  ],
+  "source_hashes": {
+    "group_audio_adapter": "447005bafbf6910697b18d074323f06f3599fc0d4f54779232c63758608bf8e1",
+    "crates/veil-session/src/runner.rs": "48cc3ed2623643cab74ab0006a6aeafe4ea002ded5bf1cc68b6bd73f857fd514",
+    "crates/veil-session/src/datagram_flows.rs": "eb6fcf740a070515f7578cd37049de16a26cf614b25cd211b6988a9fdfac1d9e",
+    "crates/veil-session/src/datagram_flows/tests.rs": "6f5450b87fb04d2fa61ce231fd1dd5a9e78f665f1097aec9edf1fe76c11cc1a8"
+  }
+}

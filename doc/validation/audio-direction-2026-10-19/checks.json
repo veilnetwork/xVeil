@@ -1,0 +1,34 @@
+{
+  "flutter": {
+    "passed": 194,
+    "command": "TMPDIR=/private/tmp/ flutter test --no-pub test/group_call_audio_adapter_test.dart test/group_call_source_priority_test.dart test/veil_group_call_media_test.dart test/call_bitrate_adapter_test.dart",
+    "last_lines": [
+      "00:00 +193: /Users/vart/Projects/veilnetwork/xVeil/test/veil_group_call_media_test.dart: room media is sealed per participant pair a room whose secret is unavailable opens no peer channel",
+      "00:00 +194: All tests passed!"
+    ]
+  },
+  "analyze": {
+    "command": "TMPDIR=/private/tmp/ flutter analyze --no-pub lib/state/group_call_audio_adapter.dart scripts/group_audio_policy.dart lib/state/veil_group_call_media.dart",
+    "stdout": "Analyzing 3 items...                                            \nNo issues found! (ran in 1.6s)"
+  },
+  "rust": {
+    "command": "CARGO_TARGET_DIR=/Users/vart/.cache/codex/veil-qos-target-20261016 cargo test --manifest-path <private-clean-sdk>/Cargo.toml -p veil-session -p veil-bootstrap --features veil-bootstrap/production-seeds --lib",
+    "results": [
+      "test result: ok. 141 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.01s",
+      "test result: ok. 598 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 57.72s"
+    ]
+  },
+  "negative_old_group_adapter": {
+    "control": "exact committed6cedc7b9 adapter",
+    "exit_code": 1,
+    "failure_excerpt": [
+      "00:00 +0: incoming catch-up cannot lengthen healthy or unknown outgoing audio",
+      "00:00 +0 -1: incoming catch-up cannot lengthen healthy or unknown outgoing audio [E]",
+      "  Expected: ({int packetMs, int payloadBps}):<(packetMs: 40, payloadBps: 24000)>",
+      "    Actual: ({int packetMs, int payloadBps}):<(packetMs: 60, payloadBps: 24000)>",
+      "  incoming",
+      "  /Users/vart/Projects/veilnetwork/xVeil/test/group_call_audio_adapter_test.dart: incoming catch-up cannot lengthen healthy or unknown outgoing audio"
+    ]
+  },
+  "limits": "The full200ms latency gate still fails; these checks verify bounded changes, not the whole goal."
+}
