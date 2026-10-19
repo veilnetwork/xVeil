@@ -1,0 +1,13 @@
+running 674 tests
+test result: ok. 663 passed; 0 failed; 11 ignored; 0 measured; 0 filtered out; finished in 76.71s
+running 839 tests
+test session::tests::auxiliary_only_requires_the_complete_negotiated_record_codec ... ok
+test result: ok. 839 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+running 645 tests
+test local_datagram_status::tests::independent_network_control_requires_the_negotiated_lease ... ok
+test resume_capabilities::tests::auxiliary_only_permission_is_authenticated_across_resume ... ok
+test runner::channel_assignments::tests::legacy_capacity_reserves_a_slot_without_reclassifying_live_connections ... ok
+test runner::quic_backlog_tests::auxiliary_records_quic_tests::auxiliary_only_app_stream_works_without_a_mixed_reliable_pool ... ok
+test runner::quic_backlog_tests::auxiliary_records_quic_tests::auxiliary_only_rpc_uses_control_connection_and_preserves_file_isolation ... ok
+test runner::quic_backlog_tests::primary_recovery_quic_tests::auxiliary_only_control_and_signaling_have_distinct_connections ... ok
+test result: ok. 637 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 347.33s

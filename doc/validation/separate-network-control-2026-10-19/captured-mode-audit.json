@@ -1,0 +1,12 @@
+{
+  "pair": {
+    "control_source_first_sends": 6,
+    "data_source_first_sends": 4,
+    "mixed_reliable_pool_offers": 0
+  },
+  "group": {
+    "control_source_first_sends": 6,
+    "data_source_first_sends": 3,
+    "mixed_reliable_pool_offers": 0
+  }
+}
