@@ -73,7 +73,7 @@ void main() {
             if (kind == 'incoming') 'audio_latency_recovery_count': 1,
             if (kind == 'peer_recovered') 'audio_peer_recovery_report_us': 300,
             if (kind == 'drop') 'audio_tx_rtp_drops': 1,
-            if (kind == 'buffer') 'audio_playout_ms': 240,
+            if (kind == 'buffer') 'audio_playout_ms': 340,
           },
           at(6),
           expectedPeers: 2,
@@ -258,7 +258,7 @@ void main() {
             ...measured(5),
             'audio_playout_reports': 2,
             'audio_feedback_reports': 2,
-            'audio_playout_ms': 240,
+            'audio_playout_ms': 340,
           },
           at(16),
           expectedPeers: 2,
@@ -575,20 +575,20 @@ void main() {
   });
   test('real sustained growth acts below the absolute ceiling', () {
     final policy = start();
-    for (var i = 1; i <= 6; i++) {
-      observe(policy, sample(i, delay: 40 + i * 10), i * 2);
+    for (var i = 1; i <= 8; i++) {
+      observe(policy, sample(i, delay: 20 + i * 20), i * 2);
     }
     expect(policy.target, (packetMs: 40, payloadBps: 24000));
   });
   test('cached ceiling cannot repeatedly degrade the payload', () {
     final policy = start();
-    observe(policy, sample(1, delay: 200), 4);
+    observe(policy, sample(1, delay: 300), 4);
     policy.applyPending((_) => true, at(4));
     for (var i = 5; i < 20; i++) {
-      observe(policy, sample(1, delay: 200), i);
+      observe(policy, sample(1, delay: 300), i);
     }
     expect(policy.target, (packetMs: 40, payloadBps: 24000));
-    observe(policy, sample(2, delay: 200), 20);
+    observe(policy, sample(2, delay: 300), 20);
     expect(policy.target, (packetMs: 40, payloadBps: 24000));
   });
   test('persistent overload stops at the speech payload floor', () {
