@@ -1,0 +1,115 @@
+{
+  "checked_at_utc": "2026-10-19T16:28:49.371932+00:00",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "native_commit": "18642c2bdaa75531230d51f7338086452fc681fe",
+  "rust_sdk_artifact_sha256": "4bc908202196047911be8812d093469312ca11ee450c7b8f7fce70f1c0e154bf",
+  "native_hooks": {
+    "sha256": "9864a9fb72484fb26b3536a8450f39cec163b2b29919fcb3d142470ec422ca21",
+    "exports": 135,
+    "unchanged_exports": true
+  },
+  "native_production": {
+    "sha256": "151bd167d46423a32519548c818f30350c3d9d7cfc082f8fba53a95075eb8563",
+    "exports": 101,
+    "unchanged_exports": true
+  },
+  "change": "Conversation NetEq controller preserves real history, target estimator and stock missing/future/CNG/DTMF behavior. Additional speech acceleration uses actual contiguous queued samples and reserves max(target, recent arrival jitter + one packet) + 20 ms; no jitter charged twice. Stock successful-timescale cooldown retained.",
+  "rejected": "First two candidates added concealment under lossless long-packet jitter. Neither is committed/qualified. First candidate also had an initial 41 ms timer-lateness failure; all retained in rejected-candidates.json.",
+  "tests": {
+    "unit_and_negative": "Three real-WebRTC smoke programs; restoring the stock extra-jitter guard fails the conversation acceleration assertion; restored positive passes.",
+    "real_codec": [
+      "120 s speech/DTX/resume with60-ms packets and40/140-ms delivery, no growing trim/PLC in settled speech, 8.015ms max timer lateness",
+      "20 s packet-loss recovery, 185 actual dropped packets, post-stall PCM markers about89-92ms",
+      "12 s sender restarts, 1194/1200 voiced ticks, max receiver buffer77ms"
+    ],
+    "all_test_and_helper_handles_reaped": true
+  },
+  "pair": {
+    "original_full_gate": "PASS",
+    "duration_s": 360,
+    "rate_kbps": 1024,
+    "maxima_ms": [
+      160.0776250124909,
+      150.24266665568575
+    ],
+    "matched": 704,
+    "missing": 0,
+    "exact_files": 2,
+    "video_tails": [
+      14,
+      14
+    ],
+    "max_sampled_video_pull_gaps_s": [
+      1.055092666996643,
+      3.999442750005983
+    ],
+    "driver_deadline_misses": 0
+  },
+  "group": {
+    "original_full_gate": "FAIL",
+    "duration_s": 360,
+    "rate_kbps": 1024,
+    "max_ms": 200.13237500097603,
+    "matched": 2112,
+    "missing": 0,
+    "exact_files": 3,
+    "video_tails": [
+      14,
+      14,
+      14,
+      14,
+      14,
+      14
+    ],
+    "driver_deadline_misses": 0
+  },
+  "limits": [
+    "Strict <200ms gate unchanged. Group200.132375ms is FAIL, not rounded into a pass.",
+    "Pair original gate passes but sampled receiver counters still show occasional concealment; not a blanket speech-quality qualification.",
+    "Group peak has153.727ms encoded-to-ingress and36.092ms after ingress. Its RTP render bracket contains PLC and precedes insertion, so it is not proof of actual signal output.",
+    "Single capture per candidate cannot establish causal performance improvement.",
+    "No physical speech/headset/screen or full outstanding interaction-separation qualification."
+  ],
+  "next_work": "Add explicit authenticated peer concealment feedback without relabeling discarded decoded audio. Existing VAP2 reports discarded_ms only; short PLC without discards is a separate loss signal. Then verify endpoint video/data reductions and preserve full quality gates.",
+  "cleanup": {
+    "group": {
+      "checked_at_utc": "2026-10-19T16:23:26.892013+00:00",
+      "recorded_processes_checked": 11,
+      "long_lived_processes_checked": 10,
+      "transient_recorders_checked": 1,
+      "remaining": [],
+      "workers_exited": true,
+      "node_stop_results": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "remaining_sockets": 0
+    },
+    "pair": {
+      "checked_at_utc": "2026-10-19T16:16:28.679065+00:00",
+      "recorded_processes_checked": 5,
+      "long_lived_processes_checked": 4,
+      "transient_recorders_checked": 1,
+      "remaining": [],
+      "audio_thread_exited": true,
+      "file_threads_exited": true,
+      "policy_exited": true,
+      "node_stop_results": [
+        0,
+        0,
+        0
+      ],
+      "remaining_fixture_sockets": 0
+    }
+  },
+  "evidence": "doc/validation/conversation-playout-2026-10-19",
+  "private_artifacts": "/Users/vart/.cache/codex/xveil-conversation-contiguous-20261019",
+  "adb_read_only_device": "Blackview BV6600Pro, installed0.13.87/code12616",
+  "installed_app_changed": false,
+  "relay_changed": false,
+  "pushed": false,
+  "released": false
+}

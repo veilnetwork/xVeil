@@ -1,0 +1,29 @@
+{
+  "base_sdk": "2889396e2f014beff9052ab103127ee037df55d3",
+  "sources": {
+    "flutter/veil_media/src/veil_conversation_neteq_controller.h": "1a60a10dc526aadead17acfb39998f27688a7a61ee4c4cb5f55aa20f0dc076f8",
+    "flutter/veil_media/src/veil_playout_recovery.h": "60ad8f433ad1f12063d4c14edd88da33abfacedd7d5e06038469786a63f227fb",
+    "flutter/veil_media/test/conversation_neteq_controller_smoke.cc": "402706a20ce04d7b3d101e7dc1d81d6e231d4b2337f9fa85e2043d52c0bd0919",
+    "flutter/veil_media/test/run_playout_recovery_smoke.py": "cdd7e71af2f3c9329c0ce80f01bcdff9e111629a42cea0c66a2a8e09bb9e96c2"
+  },
+  "pinned_webrtc_sources": {
+    "modules/audio_coding/neteq/decision_logic.cc": "c4318864c577e7b1db9c5dcaf2cd456caf56403cc648b43f7cd68ae3c93e0ba3",
+    "modules/audio_coding/neteq/decision_logic.h": "bd536ce1a020320711b3063e96eda6cdadb2f2a75f9615a03a14d5eed13b71bf",
+    "modules/audio_coding/neteq/packet_arrival_history.cc": "a41c2656bdd67487ab13b52e1869fdcec2e63e307e33fbdd2dc592ec817e1ca4",
+    "modules/audio_coding/neteq/delay_manager.cc": "9dc0c9dbb5e55cf281fdab4381d03f9b353f5e671ab60d25e9d80f849bbae833"
+  },
+  "codec_smoke_source_sha256": "4a80ed23003b54deba9b31789098adff3a340fac438d57a2e09601ee493d67cf",
+  "rejected_predecessor": "/Users/vart/.cache/codex/xveil-conversation-queued-20261019",
+  "media-hooks": {
+    "sha256": "9864a9fb72484fb26b3536a8450f39cec163b2b29919fcb3d142470ec422ca21",
+    "exports": 135,
+    "unchanged_exports": true
+  },
+  "media-production": {
+    "sha256": "151bd167d46423a32519548c818f30350c3d9d7cfc082f8fba53a95075eb8563",
+    "exports": 101,
+    "unchanged_exports": true
+  },
+  "codec_smoke_binary_sha256": "ddd7b3d89c000c6ba1de9f355b676a74abf4258d9eba7f34a0fce021d60ece06",
+  "commit": "18642c2bdaa75531230d51f7338086452fc681fe"
+}

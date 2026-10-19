@@ -1,0 +1,91 @@
+[
+  {
+    "private_directory": "/Users/vart/.cache/codex/xveil-conversation-playout-20261019",
+    "accepted": false,
+    "source_proof": {
+      "base_sdk": "2889396e2f014beff9052ab103127ee037df55d3",
+      "sources": {
+        "flutter/veil_media/src/veil_conversation_neteq_controller.h": "b37629d0fa085e72ad1cc2de750633cb31a38f317d9ce8fd7bc734fd6a2fe629",
+        "flutter/veil_media/src/veil_playout_recovery.h": "60ad8f433ad1f12063d4c14edd88da33abfacedd7d5e06038469786a63f227fb",
+        "flutter/veil_media/test/conversation_neteq_controller_smoke.cc": "43ab9dcbff7210a282127ad9fe85156caf9e5b55b91b69360c310fa4587813bc",
+        "flutter/veil_media/test/run_playout_recovery_smoke.py": "cdd7e71af2f3c9329c0ce80f01bcdff9e111629a42cea0c66a2a8e09bb9e96c2"
+      },
+      "pinned_webrtc_sources": {
+        "modules/audio_coding/neteq/decision_logic.cc": "c4318864c577e7b1db9c5dcaf2cd456caf56403cc648b43f7cd68ae3c93e0ba3",
+        "modules/audio_coding/neteq/decision_logic.h": "bd536ce1a020320711b3063e96eda6cdadb2f2a75f9615a03a14d5eed13b71bf",
+        "modules/audio_coding/neteq/packet_arrival_history.cc": "a41c2656bdd67487ab13b52e1869fdcec2e63e307e33fbdd2dc592ec817e1ca4",
+        "modules/audio_coding/neteq/delay_manager.cc": "9dc0c9dbb5e55cf281fdab4381d03f9b353f5e671ab60d25e9d80f849bbae833"
+      },
+      "media-hooks": {
+        "sha256": "2c38b4a9221a524e22c4a118b671b897d7d0d164d83264e3cd67e42d621fcba7",
+        "exports": 135,
+        "unchanged_exports": true
+      },
+      "media-production": {
+        "sha256": "44d23ca5a1c1d521ea2f0ec6e61afcd25e68fd5fad747735d1728f611e190c57",
+        "exports": 101,
+        "unchanged_exports": true
+      },
+      "codec_smoke_source_sha256": "4a80ed23003b54deba9b31789098adff3a340fac438d57a2e09601ee493d67cf",
+      "codec_smoke_binary_sha256": "29b9689744064b044e64d802dde69860c2ba1acc3780b26b842e0a072bcb0548"
+    },
+    "logs": [
+      {
+        "file": "long-packets-jitter.txt",
+        "sha256": "fde44b58909f66ac1953952da848e89d3f307824c67b73e746736a75018bb283",
+        "result_lines": [
+          "long-packets result: voiced=3993/24/3972 duration60=39/40/40 observations=40/40/40 lateness=41.029 trim_ms=20 interruptions=0",
+          "Assertion failed: (max_lateness < 30), function verify_long_packets, file audio_playout_smoke.cc, line 1028."
+        ]
+      },
+      {
+        "file": "long-packets-jitter-awake.txt",
+        "sha256": "ae915fe66117bcf888e0475237c8578997365cf53efd7ce0d1455016ea4684cc",
+        "result_lines": [
+          "Assertion failed: (metric(receiver.get(), \"audio_concealed_samples\") == settled_concealed[phase_index]), function verify_long_packets, file audio_playout_smoke.cc, line 969."
+        ]
+      }
+    ]
+  },
+  {
+    "private_directory": "/Users/vart/.cache/codex/xveil-conversation-queued-20261019",
+    "accepted": false,
+    "source_proof": {
+      "base_sdk": "2889396e2f014beff9052ab103127ee037df55d3",
+      "sources": {
+        "flutter/veil_media/src/veil_conversation_neteq_controller.h": "0c4ac81f025a30fc95bba5d31d67a732872d74ff05b5c8534d8a6a089bec5793",
+        "flutter/veil_media/src/veil_playout_recovery.h": "60ad8f433ad1f12063d4c14edd88da33abfacedd7d5e06038469786a63f227fb",
+        "flutter/veil_media/test/conversation_neteq_controller_smoke.cc": "8ca426290509eb4d81364843655a2f63aa9f06986a5c2f6b9697f7bb0e193e1d",
+        "flutter/veil_media/test/run_playout_recovery_smoke.py": "cdd7e71af2f3c9329c0ce80f01bcdff9e111629a42cea0c66a2a8e09bb9e96c2"
+      },
+      "pinned_webrtc_sources": {
+        "modules/audio_coding/neteq/decision_logic.cc": "c4318864c577e7b1db9c5dcaf2cd456caf56403cc648b43f7cd68ae3c93e0ba3",
+        "modules/audio_coding/neteq/decision_logic.h": "bd536ce1a020320711b3063e96eda6cdadb2f2a75f9615a03a14d5eed13b71bf",
+        "modules/audio_coding/neteq/packet_arrival_history.cc": "a41c2656bdd67487ab13b52e1869fdcec2e63e307e33fbdd2dc592ec817e1ca4",
+        "modules/audio_coding/neteq/delay_manager.cc": "9dc0c9dbb5e55cf281fdab4381d03f9b353f5e671ab60d25e9d80f849bbae833"
+      },
+      "codec_smoke_source_sha256": "4a80ed23003b54deba9b31789098adff3a340fac438d57a2e09601ee493d67cf",
+      "rejected_predecessor": "/Users/vart/.cache/codex/xveil-conversation-playout-20261019",
+      "media-hooks": {
+        "sha256": "89150ebb94df3254977d7d2fe2f804ecdd90b27c6555005907eabfcce090b9ca",
+        "exports": 135,
+        "unchanged_exports": true
+      },
+      "media-production": {
+        "sha256": "10ea61228bef4f2c68ec934b4c5095a8caea26b9533cc423f9b835f89bc36e8c",
+        "exports": 101,
+        "unchanged_exports": true
+      },
+      "codec_smoke_binary_sha256": "aaafe04d2aa0048739f42756beee7ad0a7f7e4826f39d63497852a972af313b1"
+    },
+    "logs": [
+      {
+        "file": "long-packets-jitter.txt",
+        "sha256": "7a0ca8696c4dc65b34530f6e79f4cecdb6fbb1356251771ee84ab53937fa94c3",
+        "result_lines": [
+          "Assertion failed: (metric(receiver.get(), \"audio_concealed_samples\") == settled_concealed[phase_index]), function verify_long_packets, file audio_playout_smoke.cc, line 969."
+        ]
+      }
+    ]
+  }
+]

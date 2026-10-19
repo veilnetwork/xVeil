@@ -1,5 +1,68 @@
 # Calls media handoff
 
+## 2026-10-19: bounded speech acceleration; pair passes, group200.132ms fails
+
+SDK **18642c2b** adds a conversation controller over the pinned WebRTC decision
+tree. The stock speech acceleration guard adds the recent maximum arrival
+variation to a target that already includes measured jitter. Real speech could
+remain queued around197ms with a140-ms target. The new controller keeps the
+real history/target, missing/future packet decisions, CNG/DTMF, decoder resets
+and successful-timescale cooldown. Additional acceleration requires actual
+contiguous queued samples, with reserve
+`max(target, recent arrival jitter + one packet) + 20ms`. RTP age alone cannot
+fund acceleration, and future samples beyond a hole do not count. No packet
+priority, relay hints, fabricated timing/capacity, hard queue cap or producer
+policy change is introduced.
+
+Two earlier private candidates are **REJECTED**: they added concealment in
+lossless60-ms speech with40/140-ms reordered delivery. Their proofs/logs are
+retained. The first candidate also had a41-ms timer-lateness failure; its
+unchanged repeat exposed the speech failure. Neither candidate is committed.
+The final controller has a production-factory regression using real WebRTC
+arrival history and delay manager, with stock comparison, four sample rates,
+missing/future/DTX/DTMF/PLC cases, insufficient/holed queues and cooldown/reset.
+Restoring the stock extra-jitter guard fails its acceleration assertion;
+restoring the final code passes all three unit smoke programs.
+
+The final real-codec checks PASS:120s speech/DTX/resume with60-ms packets and
+40/140-ms delivery, no growing trim/PLC in settled speech,0 interruptions and
+8.015ms maximum test timer lateness;20s actual packet-loss recovery with185
+dropped packets and post-stall markers about89–92ms;12s sender restarts with
+1194/1200 voiced ticks and77ms maximum receiver buffer. Original checks remain
+unchanged. Native production/test exports remain101/135. Rust SDK is unchanged
+from the clean2889396e artifact; native sources/provenance are in
+`conversation-playout-2026-10-19/source-proof.json`.
+
+Original **360s/1024-kbit pair gate PASSES**: **160.078/150.243ms**,704 matched/
+0 missing markers,2 exact512-KiB files, both final video tails14 and0 native
+driver deadline misses. Sampled video retrieval gaps reach about1.1/4.0s;
+this is not a general smooth-video claim. The original group gate still
+**FAILS at200.132375ms**, not rounded into a pass. Five loaded paths peak
+170–190ms; one exceeds the strict<200ms criterion. It has2112/0 markers,
+3 exact512-KiB files, all6 video tails14 and0 driver deadline misses. All
+three senders remain40-ms/24-kbit after their initial reductions.
+
+The group40-ms peak at175.740s has **10.314ms formation +153.727ms delivery
++36.092ms after ingress**. Its RTP render bracket contains PLC and precedes
+packet insertion; it is NOT proof of actual signal output. The PCM marker
+verdict remains authoritative. A counter audit at60–339s also finds short
+concealment events without changes to decoded-discard counters. VAP2 explicitly
+encodes discarded decoded audio only; `CallAudioSourcePressure` has no separate
+peer concealment witness. Next add explicit authenticated peer concealment
+feedback and verify endpoint video/data reductions, without counting PLC as
+discarded speech or interpreting it as network packet loss. Do not further
+trim a starving decoder merely to push this group peak below the gate.
+
+One capture per candidate cannot establish causal performance improvement.
+All16 recorded full-capture process observations exited, all7 node stops
+returned0 and fixture sockets are gone. Codec test/helper handles are reaped.
+ADB sees Blackview, installed0.13.87/code12616; only read-only queries occurred.
+No installed app, relay, public release or push change. Evidence:
+`call-conversation-playout-2026-10-19.json`, `conversation-playout-2026-10-19/`;
+raw artifacts `/Users/vart/.cache/codex/xveil-conversation-contiguous-20261019`.
+Goal **ACTIVE**; physical speech/headset/screen, streamful App/other outstanding
+interaction separation and the remaining original full-scope gates stay open.
+
 ## 2026-10-19: idle TLS churn fixed; full quality gates still fail
 
 SDK **2889396e** retains generic outgoing QUIC siblings with idle transport

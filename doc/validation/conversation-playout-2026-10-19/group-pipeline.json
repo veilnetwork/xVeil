@@ -1,0 +1,204 @@
+{
+  "native": {
+    "source": 1,
+    "receiver": 2,
+    "phase": "audio-video-file",
+    "packet": {
+      "ssrc": 3499929176,
+      "rtp_origin": 3151374022,
+      "rtp_timestamp": 3159808582,
+      "rtp_sequence": 28295,
+      "source_at_seconds": 175.7400074583129,
+      "decoded_at_seconds": 175.94013983331388,
+      "packet_ms": 40,
+      "encoder_input_index": 17572,
+      "encoder_first_input_monotonic_us": 259584171886,
+      "encoded_monotonic_us": 259584202094,
+      "ingress": {
+        "seq": 28295,
+        "timestamp": 3159808582,
+        "arrived_us": 259584355821,
+        "drained_us": 259584355842,
+        "payload_bytes": 119
+      },
+      "total_ms": 200.13237500097603,
+      "render_clock": {
+        "available": true,
+        "marker_rtp_timestamp": 3159809542,
+        "packet_inserted_us": 259584355865,
+        "before": {
+          "entered_us": 259584341876,
+          "exited_us": 259584341883,
+          "before_ms": 8,
+          "after_ms": 6,
+          "target_ms": 100,
+          "skipped": 0,
+          "fallback": 0,
+          "frame_headroom_ms": 40,
+          "target_ceiling_ms": 120,
+          "rtp_timestamp": 3159809375,
+          "speech_type": 1,
+          "muted": 0
+        },
+        "after": {
+          "entered_us": 259584351920,
+          "exited_us": 259584351927,
+          "before_ms": 6,
+          "after_ms": 4,
+          "target_ms": 100,
+          "skipped": 0,
+          "fallback": 0,
+          "frame_headroom_ms": 40,
+          "target_ceiling_ms": 120,
+          "rtp_timestamp": 3159809855,
+          "speech_type": 1,
+          "muted": 0
+        },
+        "continuous_normal_speech": false,
+        "rtp_clock_step_ms": 10.0,
+        "relative_arrival_clock": {
+          "history_window_ms": 30000,
+          "packet_count": 747,
+          "floor_witness": {
+            "received_us": 259561182801,
+            "ssrc": 3499929176,
+            "sequence": 27719,
+            "rtp_timestamp": 3158702662
+          },
+          "clock_age_ms": [
+            102.56116665649414,
+            102.60516665649413
+          ],
+          "absolute_one_way_latency": false
+        },
+        "source_to_clock_bracket_ms": [
+          150.10254168701172,
+          160.1465416870117
+        ],
+        "insertion_to_clock_bracket_ms": [
+          -13.982,
+          -3.938
+        ],
+        "clock_bracket_to_pcm_edge_ms": [
+          39.985833312988284,
+          50.02983331298828
+        ],
+        "signal_output_proof": false
+      },
+      "spans_ms": {
+        "capture_to_encoded": 10.313541686628014,
+        "encoded_to_ingress": 153.72699999716133,
+        "ingress_to_webrtc": 0.02099998528137803,
+        "webrtc_to_pcm_edge": 36.070833331905305
+      },
+      "native_send": {
+        "channel": 2,
+        "seq": 28295,
+        "timestamp": 3159808582,
+        "attempted_us": 259584202154,
+        "admitted_us": 259584202155,
+        "packet_bytes": 139,
+        "accepted": 1
+      },
+      "native_send_spans_ms": {
+        "encoded_to_native_send": 0.06,
+        "native_send_admission": 0.001,
+        "native_admission_to_ingress": 153.666
+      }
+    },
+    "input_sha256": {
+      "summary.json": "6c71c9312786fe2441c617f680ed33fe519c8ffccda7aa0ffc1574a376feb975",
+      "worker-1/summary.json": "b77b15112e4b1c6dacbdb3b3204de9e292bee3429336e4bc3f7f09c211bbcfce",
+      "worker-2/summary.json": "92f5f5fca2033fdf981bd9a5684c980b5e2bbbc8245abff92df9499a31c69904",
+      "worker-1/pcm-samples.json": "375871d6b14f43153dc6111f2ca84b62965e4936a31b2520d489bc29f994c678",
+      "worker-2/pcm-samples.json": "a0d5ee6e368475f69b531e6aac67dd97ad6b8a88822a28a40b19def4eada0a4c",
+      "worker-1/codec-samples.json": "2195497c3ee226ec2f665559e1add2f23c1dd6784c1b45551aaae8e812dfacd4",
+      "worker-1/playout-trace.log": "6d4c597f061a7238f4c5579a039d876a85b47966201acc9358999db6e8ace4ab",
+      "worker-2/playout-trace.log": "bc2f90b7fcabc714148554e666eb03ef40b82e7d44067d20f2221b60d056d379"
+    },
+    "limits": [
+      "Owned same-host clocks only; no physical acoustic latency claim",
+      "Encoded-to-ingress includes all local and transport stages; no per-hop attribution",
+      "Ingress-to-PCM can include codec lookahead/FEC and following packets; not NetEq alone",
+      "This analysis does not change the capture verdict or its quality gates"
+    ]
+  },
+  "sdk": {
+    "epoch": "61da4de1ac920935",
+    "cell_sequence": 4470,
+    "rtp_index_in_cell": 0,
+    "source_sdk_peer": "c3451101",
+    "receiver_sdk_peer": "5b5e7fe7",
+    "sealed_bytes": 175,
+    "observations_us": {
+      "native_attempt": 259584202154,
+      "sdk_seal": 259584202212,
+      "sdk_send_pump": 259584202214,
+      "daemon_read": 259584202270,
+      "handler_enter": 259584202285,
+      "relay_queued": 259584202302,
+      "sdk_authenticated": 259584355794,
+      "native_ingress": 259584355821
+    },
+    "socket_written_us": 259584202220,
+    "rtp_authenticated_metadata_us": 259584355815,
+    "native_enqueue_return_us": 259584202155,
+    "spans_ms": {
+      "native_attempt_to_sdk_seal": 0.058,
+      "sdk_seal_to_sdk_send_pump": 0.002,
+      "sdk_send_pump_to_daemon_read": 0.056,
+      "daemon_read_to_handler_enter": 0.015,
+      "handler_enter_to_relay_queued": 0.017,
+      "relay_queued_to_sdk_authenticated": 153.492,
+      "sdk_authenticated_to_native_ingress": 0.027
+    },
+    "opaque_route": {
+      "hops": [
+        {
+          "source": "5b5e7fe7",
+          "receiver": "a047ed27",
+          "selected_us": 259584202346,
+          "dispatched_us": 259584262356,
+          "selection_to_dispatch_ms": 60.01
+        },
+        {
+          "source": "a047ed27",
+          "receiver": "c3451101",
+          "selected_us": 259584262426,
+          "dispatched_us": 259584355731,
+          "selection_to_dispatch_ms": 93.305
+        }
+      ],
+      "relay_processing": [
+        {
+          "node": "a047ed27",
+          "ingress_to_selection_ms": 0.07
+        }
+      ],
+      "seal_to_first_selection_ms": 0.134,
+      "last_dispatch_to_authenticated_ms": 0.084,
+      "sealed_to_authenticated_ms": 153.603,
+      "limits": [
+        "Diagnostic node prefixes must be unique in this owned fixture",
+        "Selection-to-dispatch includes queues and network; it is not pure propagation time",
+        "This join does not identify an encrypted UDP datagram or its shaper queue"
+      ],
+      "unique_fixture_node_prefixes_verified": true
+    }
+  },
+  "sdk_log_sha256": {
+    "worker-1/native.log": "f918a471e1a804075d0eba000bfe221e2d404d9aed0d842c265a8611db99bef9",
+    "worker-2/native.log": "70612cb9981d2751615e932b91ea7ea1e213df8d3c3a95d6ca17979943bdd3ad",
+    "native.log": "57e885ac5be3ca9d0b69fd439a2541967d412807070e37207dcdfa83e39b919e",
+    "sessions-0.json": "c2e6637b7927938d1387a82096b307ff83a27f411b81cee735105fec3bf439bc",
+    "sessions-1.json": "4ecdb42d199f979c1f777176c775685dc6a88ebcd6493166fc49afd72e5cc27d",
+    "sessions-2.json": "4ecdb42d199f979c1f777176c775685dc6a88ebcd6493166fc49afd72e5cc27d",
+    "sessions-3.json": "4c8ee34baef2ba42f18033d15ec4215d99d4f8dc33dd8bc08d5c0edc3ad211ba"
+  },
+  "limits": [
+    "Owned same-host clocks; no remote/acoustic latency inference",
+    "Relay-queued is source-node admission, not proof of wire send",
+    "Socket-written and native-enqueue-return are post-completion observations; concurrency can place them after downstream work",
+    "This join changes no original quality gate or capture verdict"
+  ]
+}
