@@ -1,5 +1,58 @@
 # Calls media handoff
 
+## 2026-10-19: group reservation/probe hypotheses rejected
+
+**Do not reintroduce either candidate below. All nine changed production,
+fixture and test files were restored byte-for-byte to 4f275648.** The accepted
+057b0ea0 native unicast change remains. Only experimental evidence/patches are
+retained in this cycle; no app/phone/server change, binary build, push or release.
+
+First candidate held the node-local generic source lease while an acknowledged
+or pending group audio budget used 60-ms packets. This prevented video/DATA
+from treating stable long-packet audio as restored headroom. It passed its
+controller regression but **failed** the original 360-second full group workload
+at **280.064750 ms**. Two participants never recovered short packets. The peak
+spans **40.377 ms packet formation + 179.484 ms delivery + 60.133 ms after ingress**.
+
+Second candidate also allowed a 40-ms/24-kbit trial, using a locally accepted
+reservation younger than two seconds, three distinct complete peer observations,
+fresh actual RTP progression, no new loss, RTT below 250 ms and a 20-second
+decision cooldown. Refused native operations retained the reservation; mute,
+expired/future leases, incomplete/cached feedback and failed-probe recovery are
+covered. **261 candidate tests and analysis pass**, including real-controller
+ACK/no-ACK wiring. The old controller fails the proposed lease assertion.
+That assertion proves a behavior difference, not a desirable policy invariant:
+the full workload **FAILS worse at 340.142750 ms**, with **13 blind-FIFO drops**
+and a **208.189-ms maximum queue**. More frequent short-packet trials consume
+additional framing bandwidth without actually allocating that capacity.
+
+Both unchanged 360-second captures have **2112 matched / 0 missing** markers,
+all three 512-KiB files exact and all six synthetic video paths moving at the
+end. Capture is complete and clocks have zero late intervals/deadline misses.
+These facts do not excuse their latency failures or qualify speech quality.
+The second peak uses 60-ms packets after adaptive backoff: **0.178 ms encoding
++ 170.829 ms delivery + 169.115 ms after ingress**. Source QUIC acceptance to
+authenticated endpoint receipt is **170.713 ms**. Admission is not NIC send.
+The Forward-path analyser rejects these traces with **"Missing or mismatched
+authenticated opaque digest"**; no exact two-hop attribution is established.
+
+**Goal ACTIVE. Next investigate actual wire admission and carrier progress**,
+including room video's missing source framing/cadence accounting. Obtain full
+authenticated opaque Forward witnesses and distinguish first-hop/relay queues,
+CWND/pacing and receiver delay. Keep relays generic/opaque with no media hint or
+priority. Avoid more speculative growth knobs, unconditional lease pinning,
+RTCP removal, buffer shrinking or duplicate expiry work: QUIC already applies
+monotonic unsent-DATAGRAM expiry. The cost-query ABI relies on in-process
+embedded services; verify process-isolated group-fixture access before claiming
+room framing fidelity. Screen/fallback/phone/speech and the whole interaction
+channel audit remain open. All known owned PIDs are independently absent and
+both fixtures have zero remaining sockets. Foreign work is unchanged.
+
+Evidence: **validation/call-group-audio-reserve-2026-10-19.json** and
+**validation/group-audio-reserve-2026-10-19/**, including explicit **REJECTED**
+patches and restored-source hashes. Raw artifacts:
+**~/.cache/codex/xveil-group-audio-reserve-20261019/**.
+
 ## 2026-10-19: short Opus packets retain modeled control headroom
 
 SDK **057b0ea0** changes only native audio allocation and its real Opus

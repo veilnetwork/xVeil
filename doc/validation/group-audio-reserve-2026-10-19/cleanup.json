@@ -1,0 +1,119 @@
+{
+  "trials": [
+    {
+      "trial": "reserve",
+      "processes": [
+        {
+          "pid": 25906,
+          "absent": true
+        },
+        {
+          "pid": 25907,
+          "absent": true
+        },
+        {
+          "pid": 25909,
+          "absent": true
+        },
+        {
+          "pid": 25923,
+          "absent": true
+        },
+        {
+          "pid": 25924,
+          "absent": true
+        },
+        {
+          "pid": 25925,
+          "absent": true
+        },
+        {
+          "pid": 94879,
+          "absent": true
+        },
+        {
+          "pid": 94883,
+          "absent": true
+        },
+        {
+          "pid": 94884,
+          "absent": true
+        }
+      ],
+      "workers_exited": true,
+      "remaining_sockets": 0,
+      "worker_exit_codes": [
+        0,
+        0,
+        0
+      ],
+      "node_stop_results": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "trial": "probe",
+      "processes": [
+        {
+          "pid": 3203,
+          "absent": true
+        },
+        {
+          "pid": 3204,
+          "absent": true
+        },
+        {
+          "pid": 3207,
+          "absent": true
+        },
+        {
+          "pid": 3210,
+          "absent": true
+        },
+        {
+          "pid": 3234,
+          "absent": true
+        },
+        {
+          "pid": 3235,
+          "absent": true
+        },
+        {
+          "pid": 3236,
+          "absent": true
+        },
+        {
+          "pid": 94813,
+          "absent": true
+        },
+        {
+          "pid": 95294,
+          "absent": true
+        },
+        {
+          "pid": 95295,
+          "absent": true
+        }
+      ],
+      "workers_exited": true,
+      "remaining_sockets": 0,
+      "worker_exit_codes": [
+        0,
+        0,
+        0
+      ],
+      "node_stop_results": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "gui_apps_started": false,
+  "phone_or_server_modified": false,
+  "native_libraries_reused": true
+}
