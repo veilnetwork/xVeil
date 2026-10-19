@@ -1,0 +1,5 @@
+{
+  "rejected_candidate_source_sha256": "00b5f788c934a58cbd85ef1630ead894c0bcc3aa2107138d682c09ffb8f63658",
+  "restored_source_sha256": "0473d2add91305966da5e4d136620a97aec6280a552f733faae613251cb6f222",
+  "restored_exactly_to_sdk_head": true
+}

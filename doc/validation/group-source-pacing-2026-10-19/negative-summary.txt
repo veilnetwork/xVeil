@@ -1,0 +1,10 @@
+running 1 test
+test local_source_activity::tests::independent_small_work_items_are_byte_paced_without_banked_idle_credit ... FAILED
+---- local_source_activity::tests::independent_small_work_items_are_byte_paced_without_banked_idle_credit stdout ----
+thread 'local_source_activity::tests::independent_small_work_items_are_byte_paced_without_banked_idle_credit' (52024834) panicked at crates/veil-session/src/local_source_activity.rs:496:9:
+assertion `left == right` failed
+  left: Admitted
+ right: Wait(Instant { tv_sec: 216048, tv_nsec: 199556708 })
+    local_source_activity::tests::independent_small_work_items_are_byte_paced_without_banked_idle_credit
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 604 filtered out; finished in 0.00s
+error: test failed, to rerun pass `-p veil-session --lib`

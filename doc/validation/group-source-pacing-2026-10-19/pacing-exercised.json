@@ -1,0 +1,28 @@
+{
+  "baseline": {
+    "admission_results": {},
+    "wait_retry_ms": null,
+    "work_release": {
+      "first_cells": 7088,
+      "single_cell_works": 7074,
+      "envelope_work_bytes": 5916480
+    },
+    "trace_limits": {}
+  },
+  "candidate": {
+    "admission_results": {
+      "wait": 693
+    },
+    "wait_retry_ms": {
+      "min": 0.053,
+      "median": 17.862,
+      "max": 38.762
+    },
+    "work_release": {
+      "first_cells": 4799,
+      "single_cell_works": 4787,
+      "envelope_work_bytes": 3911107
+    },
+    "trace_limits": {}
+  }
+}
