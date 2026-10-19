@@ -1,0 +1,48 @@
+{
+  "unit-smokes": {
+    "exit_code": 0,
+    "elapsed_s": 2.862,
+    "raw_log_sha256": "f11d1e1ab07e0dcb66c96216711bc7eea3b79ddb4a473ca080de3dc085c19754"
+  },
+  "negative-stock-extra-jitter": {
+    "exit_code": 1,
+    "elapsed_s": 2.513,
+    "raw_log_sha256": "346a3f23a786a7995e24f3c54f6182fba7242869eb97bf573979634721e3b299"
+  },
+  "restored-unit-smokes": {
+    "exit_code": 0,
+    "elapsed_s": 2.686,
+    "raw_log_sha256": "f11d1e1ab07e0dcb66c96216711bc7eea3b79ddb4a473ca080de3dc085c19754"
+  },
+  "build-hooks": {
+    "exit_code": 0,
+    "elapsed_s": 9.655,
+    "raw_log_sha256": "606141663f3881ae7c312ef81bc526ab2a4f4da41466b956b61e939798b7c072"
+  },
+  "build-production": {
+    "exit_code": 0,
+    "elapsed_s": 8.644,
+    "raw_log_sha256": "cc093c23cb6cb04d3361db554c775a329f9179489990ac77e9727910c84fefd1"
+  },
+  "long-packets-jitter": {
+    "exit_code": 0,
+    "elapsed_s": 120.601,
+    "test_absent": true,
+    "helper_absent": true,
+    "raw_log_sha256": "e0147f6224f1198f2ef64e86cd310f712fba421b5d5005ed68f19273ce5d531f"
+  },
+  "delivery-loss": {
+    "exit_code": 0,
+    "elapsed_s": 20.051,
+    "test_absent": true,
+    "helper_absent": true,
+    "raw_log_sha256": "9b992f16a502fd3c135e6b1211f6a027353dccf9dbee6b06f662352e3dc2ec80"
+  },
+  "sender-restart": {
+    "exit_code": 0,
+    "elapsed_s": 12.044,
+    "test_absent": true,
+    "helper_absent": true,
+    "raw_log_sha256": "de256f22e8917b01f4bff32553b6acbb64997e4d21f3047da7ec6e582be4d6bb"
+  }
+}
