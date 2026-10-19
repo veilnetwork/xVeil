@@ -1,0 +1,21 @@
+{
+  "first_ack": {
+    "0": {
+      "at": 21.009309041983215,
+      "target": {
+        "kbps": 45,
+        "fps": 1.0
+      }
+    },
+    "1": {
+      "at": 21.010637291998137,
+      "target": {
+        "kbps": 45,
+        "fps": 1.0
+      }
+    }
+  },
+  "all_failed_budget_operations_before_video_start": true,
+  "failed_budget_operations": 42,
+  "note": "Pair captured before cold-refusal fix. All cold retries retain45kbps/1fps, with first ACK at21s. Separate cold negative/positive gate covers the final fix; pair is not a new full-run capture of that final source hash."
+}

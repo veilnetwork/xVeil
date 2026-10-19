@@ -1,0 +1,89 @@
+{
+  "owned_processes": [
+    {
+      "pid": 27275,
+      "absent": true,
+      "observed": null
+    },
+    {
+      "pid": 27573,
+      "absent": true,
+      "observed": null
+    },
+    {
+      "pid": 27574,
+      "absent": true,
+      "observed": null
+    },
+    {
+      "pid": 36543,
+      "absent": true,
+      "observed": null
+    },
+    {
+      "pid": 37085,
+      "absent": true,
+      "observed": null
+    },
+    {
+      "pid": 37087,
+      "absent": true,
+      "observed": null
+    },
+    {
+      "pid": 52594,
+      "absent": true,
+      "observed": null
+    },
+    {
+      "pid": 52595,
+      "absent": true,
+      "observed": null
+    },
+    {
+      "pid": 52596,
+      "absent": true,
+      "observed": null
+    },
+    {
+      "pid": 52598,
+      "absent": true,
+      "observed": null
+    },
+    {
+      "pid": 52631,
+      "absent": true,
+      "observed": null
+    },
+    {
+      "pid": 52632,
+      "absent": true,
+      "observed": null
+    },
+    {
+      "pid": 52633,
+      "absent": true,
+      "observed": null
+    }
+  ],
+  "all_absent": true,
+  "workers_exited": true,
+  "worker_exit_codes": [
+    0,
+    0,
+    0
+  ],
+  "node_stop_results": [
+    0,
+    0,
+    0,
+    0
+  ],
+  "remaining_sockets": 0,
+  "pair_launcher_cleanup": {
+    "fixture_absent": true,
+    "helper_absent": true,
+    "exit_code": 1
+  },
+  "apps_started": false
+}

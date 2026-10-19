@@ -116,6 +116,7 @@ class RoomPolicy {
     } else if (request['video'] == true) {
       adapter.onNativeStats(
         stats,
+        sampledAt: now,
         sourceBudgetPressured:
             request['sourceFeedbackQueued'] == true && pressured == true,
         videoSendExpected: true,
