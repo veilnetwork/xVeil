@@ -1,0 +1,37 @@
+{
+  "date": "2026-10-20",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "scope": "Concrete video degradation triage; no production thresholds changed in this cycle.",
+  "problem_statement": [
+    "Good audio can coexist with unnecessary video quality reductions. Video stability and recovery are the current priority.",
+    "The 200ms end-to-end synthetic audio test is a recorded diagnostic, not the current optimization target. It differs from the 200ms current-buffer guard and the 200ms local video work deadline.",
+    "The shared six-sample growth detector can still reduce video for a brief low absolute buffer rise: source0 63/63/77/99/99/109ms produced a second bad sample and a two-rung cut at128s; the next sample fell to99ms.",
+    "Fresh repeated concealment also caused a two-rung cut at176s. Do not attribute all reductions to the 200ms ceiling.",
+    "Raw cumulative video loss includes padding and temporary gaps. These need separate analysis from permanent image payload loss."
+  ],
+  "delivery_correction": {
+    "previous": "10 missing at ingress comprise2 in-call image-payload packets,5 padding packets and3 first sent after the capture end. Earlier5-payload interpretation included shutdown packets.",
+    "dense": "8 missing at ingress comprise3 in-call padding packets and5 first sent after the capture end;0 in-call image-payload packets and0 ingress-to-native delivery gaps.",
+    "limits": "Eventual delivery does not establish timely decoding. Sparse old SDK traces cannot attribute the two old missing payload packets to an exact source/relay stage; dense new trace did not reproduce that payload loss."
+  },
+  "next_acceptance_criteria": [
+    "Replay the recorded brief buffer rise and require video to hold its acknowledged quality while the buffer drains.",
+    "Tune growth magnitude and persistence separately from a sustained-buffer safety ceiling; tolerate short spikes, preserve reaction to actual interruptions and persistent overload.",
+    "Qualify recovery by decoded image counter, resolution and sampled freezes; retain raw audio measurements without making200ms the release blocker for this investigation.",
+    "Change one guard at a time and compare identical recorded policy input before another full media capture."
+  ],
+  "verification": {
+    "video_delivery_tests_passed": 6,
+    "all_video_path_analyzer_tests_passed": 86,
+    "diagnostic_cli_prerequisite_cases_passed": 3,
+    "full_capture_ok": true,
+    "owned_processes_exited": true,
+    "foreign_wip_preserved": true
+  },
+  "evidence_directory": "doc/validation/video-delivery-audit-2026-10-20",
+  "private_capture_root": "/Users/vart/.cache/codex/xveil-video-loss-path-20261019",
+  "production_policy_changed": false,
+  "pushed": false,
+  "released": false
+}
