@@ -689,7 +689,11 @@ void main() {
           requestMicrophone: () async => true,
           now: () => origin.add(clock.elapsed),
         );
-        Map<String, dynamic> sample({int reports = 2, int delay = 100}) => {
+        Map<String, dynamic> sample({
+          int reports = 2,
+          int delay = 100,
+          int? pressure,
+        }) => {
           'audio_rx_supported': 1,
           'audio_rx_native_age_supported': 1,
           'worker_stalled': 0,
@@ -702,6 +706,7 @@ void main() {
               peer.hex: {
                 'audio_rx_pkts': 20,
                 'audio_delay_ms': 100,
+                if (pressure != null) 'audio_pressure_delay_ms': pressure,
                 'audio_rx_native_age_ms': 10,
                 'audio_interruption_count': 0,
               },
@@ -733,6 +738,16 @@ void main() {
         clock.elapse(const Duration(seconds: 11));
         expect(transport.pressureReports.last.pressured, isTrue);
         clock.elapse(const Duration(seconds: 1));
+        expect(transport.pressureReports.last.pressured, isFalse);
+        engine.stats = sample(pressure: 269);
+        clock.elapse(const Duration(seconds: 1));
+        expect(
+          transport.pressureReports.last.pressured,
+          isTrue,
+          reason: 'a small local queue cannot hide old audio from upstream',
+        );
+        engine.stats = sample();
+        clock.elapse(const Duration(seconds: 12));
         expect(transport.pressureReports.last.pressured, isFalse);
         expect(
           engine.videoStarted,

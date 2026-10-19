@@ -1,0 +1,21 @@
+{
+  "flutter_tests": 252,
+  "static_analysis": "three files clean",
+  "original_helper_negative_regression": "Expected269 Actual109",
+  "native_unit_cases": [
+    "existing recovering NetEq",
+    "new RTP lag estimator: constant18/120/800ms delay, RTP/sequence wrap, reorder, upstream queue, history expiry, silence/reset and atomically published freshness"
+  ],
+  "native_sender_restart": "pass, known77 samples, max82ms, unknown retained on incompatible clock",
+  "native_long_packet_reorder_dtx": "pass, known39/6/40, no continuing settled trim/PLC or interruptions",
+  "native_main_call_planes": "pass before additional decoded packet epoch guard; final guard exercised by unit, sender, DTX and both full workloads",
+  "production_media_exports_unchanged": 101,
+  "sdk_rust_rebuilt": false,
+  "native_media_hooks_and_production_rebuilt": true,
+  "final_full_group_quality_gate": false,
+  "final_full_pair_quality_gate": false,
+  "android_build_or_install": false,
+  "physical_call": false,
+  "server_mutation": false,
+  "push_or_release": false
+}

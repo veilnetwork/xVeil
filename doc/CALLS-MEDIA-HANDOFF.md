@@ -1,5 +1,85 @@
 # Calls media handoff
 
+## 2026-10-19: receiver RTP lag drives local secondary-source pressure
+
+SDK **48553673**: a bounded Opus RTP-clock estimator accounts for delay
+accumulated before NetEq. It uses a recent minimum local arrival intercept,
+60 half-second buckets, no sender wall clock, allocation, extra wakeup or file
+I/O. Normal decoded output needs a matching actual packet-clock witness;
+concealment, unsupported codecs and incompatible output origins remain unknown.
+RTP/sequence wrap and bounded reorder preserve the floor; codec/SSRC/clock/large
+sequence changes, explicit flush and NetEq buffer flush invalidate it. A packed
+atomic publishes lag and render freshness together to the stats worker.
+
+The native stats keep `audio_delay_ms` as actual queue+ADM and expose
+`audio_rtp_lag_ms` separately (-1 unknown). `audio_pressure_delay_ms` is the
+larger queue/relative lag plus ADM. Group encrypted RTCP playout samples and
+the direct/group Dart receive helpers consume that pressure value, so video
+and reliable DATA yield even with a small receiver queue. The existing loss,
+trend windows, source-admission quotas, audio packet guards, jitter target and
+decoded-speech catch-up remain. No relay policy/priority/media hint or new
+network/IPC frame is introduced. This is additional measured pressure, **not
+shared capacity reservation** or absolute one-way latency.
+The arrival intercept also absorbs steady packet-formation time. A full audio
+reservation must account for known Opus packetization separately; do not equate
+this relative pressure value with the source-to-PCM200-ms quality gate.
+
+Checks so far:252 Flutter tests and three-file analysis pass. The new regression
+fails behaviorally with the original helper (269 expected,109 observed).
+Real Opus sender rebuilds keep PCM prompt: the final check has77 known samples
+and peaks82ms. WebRTC can retain an incompatible output RTP clock after a
+rebuild; the estimate then becomes unknown and falls back to queue. Known
+samples resume when actual packet/output witnesses align; no offset is guessed.
+The real120s 60-ms/reorder/DTX test passes with
+39/6/40 known phase samples, no repeated settled trim/PLC or interruptions.
+The private hook and production media builds succeed; all101 production C ABI
+exports match the previous library. Rust SDK is reused unchanged; foreign
+Rust changes are excluded from the archived native build source.
+
+The first full360s group run **FAILS at460.094 ms**,2112/0 markers, all3 files
+exact and all6 tails moving (14 changes each). The exact60-ms peak spans
+30.686ms formation,319.580ms delivery and109.807ms after ingress. Its two
+transport hops take167.091/152.040ms. Native receiver lag reaches385ms while
+storage is96–109ms; the signal is present and source restrictions follow, but
+cannot undo already queued network traffic. This is not an audio-quality pass
+or a demonstrated causal regression against one noisy prior run. The final
+candidate also verifies decoded packet sequence/SSRC belongs to the estimator's
+current epoch, preventing an old decoded packet from revalidating a reset floor.
+
+Next allocator evidence: `quinn-proto/src/connection/mod.rs:on_ack_received`
+has exact newly acknowledged packet sizes. The current exported transport
+stats carry ACK *counts*, not acknowledged bytes; cwnd/RTT and nominal encoder
+targets are not spendable capacity. Expose causal confirmed-byte observations,
+inside the validated wire-ACK `take(packet)` branch, **not** the common
+`on_packet_acked` helper (which also handles inferred handshake ACKs). Preserve
+connection/path epochs and exclude old-path delivery from a new route's credit.
+Keep local-source and mixed/transit ownership separate, and fund secondary growth
+against actual primary framing/fanout/control cost. Do not apply media-aware
+relay scheduling or a fixed capacity chosen to fit this stand.
+
+**Final full candidate is still NOT qualified.** Group360s peaks230.257ms on
+40-ms Opus:10.103ms formation,130.979ms delivery,89.161ms after ingress;
+the two transport hops are63.286/67.507ms. All2112 markers match, all3 files
+are exact and all6 final video tails change14 times. Relative lag is known for
+2153/2160 sampled receivers. The pair360s run fails at200.021/210.300ms,
+704/0 markers, both files exact and both tails moving. Its210.300ms peak has
+10.829ms delivery and198.697ms after ingress on60-ms packets. No deadline misses
+or missing audio markers are hidden by the new metric, and the200-ms gate is
+unchanged. Single captures do not support a causal improvement claim.
+
+All26 owned stand/worker/policy/helper processes from the three full captures
+are independently absent; the final native-test shell and executables are
+also absent. All11 node stops return0, no fixture sockets remain, and foreign
+root/SDK edits retain their original hashes. No phone build/install, physical
+call, server mutation, push or release. Evidence:
+**validation/call-rtp-lag-2026-10-19.json** and
+**validation/rtp-lag-2026-10-19/**; raw owned captures and hash-verified initial
+source variant remain under**~/.cache/codex/xveil-rtp-lag-20261019/**.
+**Goal ACTIVE:** measured lag now reaches secondary pressure; coordinated
+capacity funding, full interaction channel separation and hardware/live
+speech/headset qualification remain open. Native DTX playout checks alone do
+not qualify video/source adaptation during a combined DTX/media workload.
+
 ## 2026-10-19: correlate decoded output clocks with source markers
 
 Diagnostic work only; production media policy, SDK/native binaries, source

@@ -1,0 +1,3 @@
+00:00 +250: /Users/vart/Projects/veilnetwork/xVeil/test/veil_group_call_media_test.dart: room media is sealed per participant pair every opened peer channel carries that pair's keys
+00:00 +251: /Users/vart/Projects/veilnetwork/xVeil/test/veil_group_call_media_test.dart: room media is sealed per participant pair a room whose secret is unavailable opens no peer channel
+00:00 +252: All tests passed!

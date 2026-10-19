@@ -1,0 +1,36 @@
+{
+  "scope": "Receiver relative RTP lag and measured local video/DATA pressure; no new wire metadata or relay priority",
+  "previous_goal_turn": "Progress: diagnostic timestamp attribution and stand teardown fix committed06326c1e",
+  "result": "Production measurement/pressure path implemented and functionally verified; full audio-priority goal remains ACTIVE. Final group230.257ms and pair200.021/210.300ms still fail unchanged strict200ms gates.",
+  "private_artifacts": "/Users/vart/.cache/codex/xveil-rtp-lag-20261019",
+  "final_candidate_is_provenance_guard_variant": true,
+  "initial_variant": "Group460.094ms failed; decoded packet epoch guard added after this capture. Initial native source reconstructed and hash-verified privately.",
+  "limits": [
+    "Synthetic same-host PCM, not physical acoustic or headset quality",
+    "Relative lag removes stable transit and packet formation; not absolute source latency or available capacity",
+    "No causal improvement claim from one capture per build",
+    "No shared source capacity reservation yet; full interaction channel audit and hardware qualification remain"
+  ],
+  "artifacts": {
+    "analysis.txt": "9a912b17cfa4a41155c294ddc3fe7ae76f2dd565be8f2dd94b0a4de0aaccd1f3",
+    "checks.json": "5ef31b469dce59824bab869d920d122ca23b013d8d096f9b2258cbc81db65f43",
+    "cleanup.json": "36e85ade25cc329a9648bf87d2813ec59818b1a835768b654ac155766966d0fc",
+    "flutter-tests.txt": "680482da18d863f275058cee15b3ba9fd39f113e623a18478adbb32fed008a40",
+    "foreign-work.json": "39859b67e66aee7e24bb01e735763b2bf8e503798c658a1f6d2c1e289afa29e6",
+    "group-360-result.json": "3d397c831eb42d34d41fae08858cc5bfabe8d3f2ec8c2010e609986c07006b61",
+    "group-final-360-result.json": "043da72f53631b4e10c13162e784d37c530f7f77445fe99c4b19e5f051a9071a",
+    "group-final-peak.json": "a50e7cd8bd542ae225b880d82c17b6fdd24736b518cc609a69d1e66aa40e658f",
+    "group-peak.json": "886fad2f8d43a14534312d0f6c77a3242611279788499576bdb3f239d5365d85",
+    "initial-group-reaction.json": "8899ddd4807e8d107e43b5fdcdbe1f45d34845ad243d8216e08a5a5c6870f0a1",
+    "initial-native-source-proof.json": "11814b42f549d6131fd373123d6d194a33268e12637e4d96ace4cb7b4931beb9",
+    "long-packet-dtx.txt": "23f2f5e53a9207bc5061347a6a5789ea6becf4a3fa826784c2bbb48be3331448",
+    "native-source-proof.json": "f89ee7f4b853987a52a8728f71d8653e43ca8113900725d56116dc75a7fedc00",
+    "native-unit-tests.txt": "01e11a9e61190f2cfd224e32558ece9beb5fe858b56e89ef28bc2405c4b344db",
+    "negative-flutter.txt": "49b75ef1f6a45cfc45dc85bce85df31f7ca27a9d2dae8c06b4d4e19fcb0df394",
+    "pair-pipeline-peaks.json": "176d92e7ddab66ef68b9be546a754d48c7c71b47c9851590d01b5070324ce544",
+    "pair-result.json": "1d0e617a451ddc7256716a89aa55834e4fbcb37233d3d52c38fde17991dddd7b",
+    "root-source-proof.json": "1c0c91d84427eeff3c4dbb8cf065b73995d65509ed77309f38db8b90faafa6aa",
+    "sender-restart.txt": "9cb541040e5f0f3185c7961762b2b0f642f71e75518c9fe8be16c04283c3f7fa"
+  },
+  "sdk_commit": "4855367332808123cf5b2878b32773fd195e00c5"
+}

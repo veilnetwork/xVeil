@@ -1,0 +1,152 @@
+{
+  "initial_group": {
+    "processes": [
+      {
+        "pid": 22925,
+        "absent": true
+      },
+      {
+        "pid": 43262,
+        "absent": true
+      },
+      {
+        "pid": 43264,
+        "absent": true
+      },
+      {
+        "pid": 53418,
+        "absent": true
+      },
+      {
+        "pid": 53420,
+        "absent": true
+      },
+      {
+        "pid": 53422,
+        "absent": true
+      },
+      {
+        "pid": 53425,
+        "absent": true
+      },
+      {
+        "pid": 53449,
+        "absent": true
+      },
+      {
+        "pid": 53450,
+        "absent": true
+      },
+      {
+        "pid": 53451,
+        "absent": true
+      },
+      {
+        "pid": 53702,
+        "absent": true
+      }
+    ],
+    "all_absent": true,
+    "node_stop_results": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "remaining_sockets": 0,
+    "worker_exit_codes": [
+      0,
+      0,
+      0
+    ]
+  },
+  "final_group": {
+    "owned_processes": [
+      {
+        "pid": 21686,
+        "absent": true
+      },
+      {
+        "pid": 21689,
+        "absent": true
+      },
+      {
+        "pid": 21690,
+        "absent": true
+      },
+      {
+        "pid": 21691,
+        "absent": true
+      },
+      {
+        "pid": 21798,
+        "absent": true
+      },
+      {
+        "pid": 21799,
+        "absent": true
+      },
+      {
+        "pid": 21800,
+        "absent": true
+      },
+      {
+        "pid": 22071,
+        "absent": true
+      },
+      {
+        "pid": 96347,
+        "absent": true
+      },
+      {
+        "pid": 96348,
+        "absent": true
+      },
+      {
+        "pid": 96349,
+        "absent": true
+      }
+    ],
+    "all_absent": true,
+    "node_stop_results": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "remaining_sockets": 0
+  },
+  "pair": {
+    "owned_processes": [
+      {
+        "pid": 11828,
+        "absent": true
+      },
+      {
+        "pid": 11854,
+        "absent": true
+      },
+      {
+        "pid": 11855,
+        "absent": true
+      },
+      {
+        "pid": 15194,
+        "absent": true
+      }
+    ],
+    "all_absent": true,
+    "node_stop_results": [
+      0,
+      0,
+      0
+    ],
+    "remaining_sockets": 0,
+    "video_stop_results": [
+      0,
+      0
+    ]
+  },
+  "native_test_shell_terminal_exit": 0,
+  "owned_native_executable_prefix_verified_absent": true
+}
