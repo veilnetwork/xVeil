@@ -1,0 +1,54 @@
+{
+  "base_sdk": "18642c2bdaa75531230d51f7338086452fc681fe",
+  "sources": {
+    "flutter/veil_media/src/veil_audio_concealment_feedback.h": "ddf139e8c3404b551b90e225a8b21c5146038acbbd4cfae171f70691689cda89",
+    "flutter/veil_media/src/veil_transport_shim.h": "89e6977cb85aaa363f23ba43de7ba0c4e605ea81821bdd3afe9fb3135097618b",
+    "flutter/veil_media/src/veil_transport_shim.cc": "efe2ceb0633417def53bf005cd20d85b5d7c35148a3084572d1be2e04c75ea36",
+    "flutter/veil_media/src/veil_media_engine.cc": "ae84b38e266043bb3e661a8aeb4fe7db15d7befa6c1241ecce6b094f4eb5faa8",
+    "flutter/veil_media/test/audio_recovery_feedback_smoke.cc": "cba3b73dc57717cda5347b86ac2aef0a473df722fafdab7ce4629f4169556ab4",
+    "flutter/veil_media/test/audio_recovery_shim_smoke.cc": "92c5e7bcae95fdbeb06619d49d6af41cc041122991c04673e18060495fea32ec"
+  },
+  "sdk_library": "/Users/vart/.cache/codex/xveil-sibling-idle-20261019/sdk/libveilclient_ffi.dylib",
+  "sdk_library_sha256": "4bc908202196047911be8812d093469312ca11ee450c7b8f7fce70f1c0e154bf",
+  "media-hooks": {
+    "sha256": "fd67c0fb60ef3390fabf449fcd9ecdaa1d321f2d6738e7ece765145d80d93778",
+    "exports": 135,
+    "unchanged_exports": true
+  },
+  "media-production": {
+    "sha256": "d76c1310115817b0b5d371cb793c34c2468a1e4e3f4ec3a0014733e6cc9de35e",
+    "exports": 101,
+    "unchanged_exports": true
+  },
+  "root_sources": {
+    "lib/state/call_audio_source_pressure.dart": "a8a8c576a382d9b94d11997486576b3d769b59c3d81254b461a84701e846c4f3",
+    "lib/state/call_bitrate_adapter.dart": "a4dbf1cc5267264b48bf3ce48335bab2c9bdfd273b4ab78c7bef5bff5080cadc",
+    "lib/state/group_call_audio_adapter.dart": "c82c295a7fa50524eaec7077ce21acd75516d11776d7b436c956a1c767d318f7",
+    "lib/state/veil_call_media.dart": "dc6ae6c80005d6c72567ee01cf74114f9ed7bec2f6cafde0f7aa46fde3fdb3ee",
+    "lib/state/veil_group_call_media.dart": "708db3e469dc15c99594800bf97d101c9f70f13f7efd5b34d1dcc0f443396498",
+    "scripts/group_codec_policy.dart": "9ac4d994d573106c301b34ba41daa9d3091efbb26fb9e44bbbe2e0f033718821",
+    "scripts/relay_codec_policy.dart": "5d6b063c099a63d31a782e4170117f470b554571d39d86fbf49d9d3ba361353b",
+    "test/call_audio_source_pressure_test.dart": "5957788512898a20ada1ad8456e09a4d96aaaf03305cd6abf936113ee4868202",
+    "test/call_bitrate_adapter_test.dart": "63358c09da9e7da5dc64a8f6b0985c229792a635714e27b2ebc31ae87dc66f5b",
+    "test/group_call_audio_adapter_test.dart": "7e3151bd6c5e739ea347074525acc8ab69240a827dc7ff08f46e0f65e8695660"
+  },
+  "checks": {
+    "native_feedback_smoke": {
+      "exit_code": 0
+    },
+    "native_shim_smoke": {
+      "exit_code": 0
+    },
+    "flutter_policy_tests": {
+      "exit_code": 0,
+      "passed": 157
+    },
+    "dart_analyze": {
+      "exit_code": 0
+    },
+    "production_callers_analyze": {
+      "exit_code": 0
+    }
+  },
+  "commit": "3c91f9b0f7a287ce63f97ba048273959092b276f"
+}

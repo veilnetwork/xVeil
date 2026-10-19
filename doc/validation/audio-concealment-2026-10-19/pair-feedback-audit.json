@@ -1,0 +1,156 @@
+{
+  "0": [
+    {
+      "at_s": 66.00387758298893,
+      "witness_us": 261230603537,
+      "source_pressured": true,
+      "video_paused": false,
+      "video_target": {
+        "kbps": 45,
+        "fps": 1.0
+      },
+      "video_level_before": 3,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false
+    },
+    {
+      "at_s": 140.0041186659946,
+      "witness_us": 261304649021,
+      "source_pressured": true,
+      "video_paused": false,
+      "video_target": {
+        "kbps": 45,
+        "fps": 1.0
+      },
+      "video_level_before": 2,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false
+    },
+    {
+      "at_s": 201.0229248329997,
+      "witness_us": 261365604057,
+      "source_pressured": true,
+      "video_paused": false,
+      "video_target": {
+        "kbps": 45,
+        "fps": 1.0
+      },
+      "video_level_before": 2,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false
+    },
+    {
+      "at_s": 250.0051732909924,
+      "witness_us": 261414604452,
+      "source_pressured": true,
+      "video_paused": false,
+      "video_target": {
+        "kbps": 45,
+        "fps": 1.0
+      },
+      "video_level_before": 3,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false
+    }
+  ],
+  "1": [
+    {
+      "at_s": 38.005984999996144,
+      "witness_us": 261202617845,
+      "source_pressured": true,
+      "video_paused": false,
+      "video_target": {
+        "kbps": 45,
+        "fps": 1.0
+      },
+      "video_level_before": 3,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false
+    },
+    {
+      "at_s": 201.02606449997984,
+      "witness_us": 261365599995,
+      "source_pressured": true,
+      "video_paused": false,
+      "video_target": {
+        "kbps": 45,
+        "fps": 1.0
+      },
+      "video_level_before": 3,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false
+    },
+    {
+      "at_s": 250.0066742079798,
+      "witness_us": 261414600337,
+      "source_pressured": true,
+      "video_paused": false,
+      "video_target": {
+        "kbps": 45,
+        "fps": 1.0
+      },
+      "video_level_before": 4,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false
+    },
+    {
+      "at_s": 305.0041529579903,
+      "witness_us": 261469600013,
+      "source_pressured": true,
+      "video_paused": false,
+      "video_target": {
+        "kbps": 45,
+        "fps": 1.0
+      },
+      "video_level_before": 4,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false
+    },
+    {
+      "at_s": 337.0061719160003,
+      "witness_us": 261501629499,
+      "source_pressured": true,
+      "video_paused": false,
+      "video_target": {
+        "kbps": 45,
+        "fps": 1.0
+      },
+      "video_level_before": 3,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false
+    },
+    {
+      "at_s": 347.0054634999833,
+      "witness_us": 261511600279,
+      "source_pressured": true,
+      "video_paused": false,
+      "video_target": {
+        "kbps": 45,
+        "fps": 1.0
+      },
+      "video_level_before": 4,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false
+    }
+  ]
+}

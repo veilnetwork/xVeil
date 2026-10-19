@@ -1,0 +1,87 @@
+{
+  "date": "2026-10-19",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "change": "Authenticated optional VAP3 endpoint feedback for non-silent decoder concealment; source/video reductions consume each fresh witness once, separately from packet loss and decoded discard.",
+  "feedback": {
+    "sampling": "Receiver-worker cumulative concealed_samples minus silent_concealed_samples, bound to actual decoder origin and target SSRC. First/new/unknown/gapped samples establish a baseline; no historical event.",
+    "freshness": "Samples and locally detected events expire after 3 seconds before encoding; sender-local witness expires after 15 seconds. Monotonic origin/sequence/counter rejects replay. Detection time is not exact PCM concealment time or a cross-host clock.",
+    "cadence": "Event-triggered supplemental empty RR + optional APPs, at most once per second per peer; regular audio RTCP also carries VAP3. No invented RTT/loss report blocks, video RTCP changes or external C ABI change.",
+    "source_policy": "New witness restrains local competing sources and video. Room concealment alone cannot authorize longer audio packets; mute consumes event high water.",
+    "compatibility": "VAP1/VAP2 unchanged; optional VAP3 is ignored by older endpoints. All feedback remains inside authenticated encrypted media channels."
+  },
+  "checks": {
+    "native_feedback_smoke": "PASS, actual WebRTC RTCP framing/cursors; baseline, DTX, gap, unknown, rollback, replacement, stale and replay cases",
+    "native_shim_smoke": "PASS, production compound parser/sender; immediate/rate-limited send, regular carry, malformed/duplicate no partial publication, old/video/stopped compatibility",
+    "flutter_policy_tests": 157,
+    "dart_analyze": "PASS for policies, fixture bridges and both production callers",
+    "exports": {
+      "production": 101,
+      "test_hooks": 135,
+      "unchanged": true
+    }
+  },
+  "full_gates": {
+    "unchanged": "360 seconds, 1024 kbit/s, original full load and strict audio maximum <200 ms; no missing markers, exact 512-KiB files, final video tails >=14 and no native deadline misses",
+    "pair": {
+      "pass": true,
+      "max_ms": [
+        130.17874999786727,
+        140.3168750111945
+      ],
+      "matched": 704,
+      "missing": 0,
+      "files_exact": 2,
+      "video_tails": [
+        14,
+        14
+      ],
+      "deadline_misses": 0
+    },
+    "group": {
+      "pass": false,
+      "max_ms": 210.06058334023692,
+      "matched": 2112,
+      "missing": 0,
+      "files_exact": 3,
+      "video_tails": [
+        14,
+        14,
+        14,
+        14,
+        14,
+        14
+      ],
+      "deadline_misses": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  "runtime_feedback": {
+    "group_new_witnesses": [
+      8,
+      10,
+      7
+    ],
+    "pair_new_witnesses": [
+      4,
+      6
+    ],
+    "all_consumed_by_video_and_source_policy": true,
+    "group_witness_observations_without_new_network_loss_or_decoded_discard": 25,
+    "causality": "A single run per variant is not evidence of a causal performance improvement/regression."
+  },
+  "cleanup": "All 16 recorded process observations exited (14 long-lived, 2 transient); all 7 node stops returned zero, no fixture sockets. No installed app/phone/relay mutation in this cycle.",
+  "remaining": [
+    "Strict group gate still fails at 210.060583 ms: its 40-ms packet peak spans 10.173 ms capture-to-encoded, 70.006 ms encoded-to-ingress and 129.882 ms ingress-to-PCM. Continuous normal speech in the RTP bracket; no concealment signal alone can repair this queue peak.",
+    "Complete streamful App/independent network control separation, canonical/ordered fallbacks and full route/fanout accounting; retain generic opaque relay fairness.",
+    "Physical voice/headset and screen quality, reconnect/mute and all original full-scope gates remain unqualified."
+  ],
+  "evidence": "audio-concealment-2026-10-19/",
+  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-concealment-feedback-20261019",
+  "public_release": false,
+  "foreign_wip_preserved": true,
+  "sdk_commit": "3c91f9b0f7a287ce63f97ba048273959092b276f"
+}

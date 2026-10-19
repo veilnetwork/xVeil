@@ -1,0 +1,483 @@
+{
+  "0": [
+    {
+      "at_s": 22.023088290996384,
+      "witness_us": 260779075267,
+      "source_pressured": true,
+      "source_report_rc": 0,
+      "source_feedback_queued": 23,
+      "video_paused": false,
+      "video_target": {
+        "kbps": 8,
+        "fps": 1.0
+      },
+      "video_level_before": 4,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false,
+      "packet_ms": 40,
+      "needs_secondary_yield": false
+    },
+    {
+      "at_s": 84.01797458299552,
+      "witness_us": 260841050940,
+      "source_pressured": true,
+      "source_report_rc": 0,
+      "source_feedback_queued": 85,
+      "video_paused": false,
+      "video_target": {
+        "kbps": 8,
+        "fps": 1.0
+      },
+      "video_level_before": 2,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false,
+      "packet_ms": 40,
+      "needs_secondary_yield": false
+    },
+    {
+      "at_s": 102.01860108299297,
+      "witness_us": 260859033908,
+      "source_pressured": true,
+      "source_report_rc": 0,
+      "source_feedback_queued": 103,
+      "video_paused": true,
+      "video_target": {
+        "kbps": 8,
+        "fps": 1.0
+      },
+      "video_level_before": 4,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false,
+      "packet_ms": 40,
+      "needs_secondary_yield": true
+    },
+    {
+      "at_s": 133.0188543330005,
+      "witness_us": 260890029973,
+      "source_pressured": true,
+      "source_report_rc": 0,
+      "source_feedback_queued": 134,
+      "video_paused": true,
+      "video_target": {
+        "kbps": 8,
+        "fps": 1.0
+      },
+      "video_level_before": 4,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false,
+      "packet_ms": 40,
+      "needs_secondary_yield": true
+    },
+    {
+      "at_s": 167.0002162079909,
+      "witness_us": 260924035520,
+      "source_pressured": true,
+      "source_report_rc": 0,
+      "source_feedback_queued": 168,
+      "video_paused": true,
+      "video_target": {
+        "kbps": 8,
+        "fps": 1.0
+      },
+      "video_level_before": 4,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false,
+      "packet_ms": 40,
+      "needs_secondary_yield": true
+    },
+    {
+      "at_s": 177.01810987500357,
+      "witness_us": 260934068915,
+      "source_pressured": true,
+      "source_report_rc": 0,
+      "source_feedback_queued": 178,
+      "video_paused": true,
+      "video_target": {
+        "kbps": 8,
+        "fps": 1.0
+      },
+      "video_level_before": 4,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false,
+      "packet_ms": 40,
+      "needs_secondary_yield": false
+    },
+    {
+      "at_s": 185.00969133299077,
+      "witness_us": 260942033669,
+      "source_pressured": true,
+      "source_report_rc": 0,
+      "source_feedback_queued": 186,
+      "video_paused": true,
+      "video_target": {
+        "kbps": 8,
+        "fps": 1.0
+      },
+      "video_level_before": 4,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false,
+      "packet_ms": 60,
+      "needs_secondary_yield": false
+    },
+    {
+      "at_s": 273.005450208002,
+      "witness_us": 261030038685,
+      "source_pressured": true,
+      "source_report_rc": 0,
+      "source_feedback_queued": 274,
+      "video_paused": false,
+      "video_target": {
+        "kbps": 8,
+        "fps": 1.0
+      },
+      "video_level_before": 2,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false,
+      "packet_ms": 60,
+      "needs_secondary_yield": true
+    }
+  ],
+  "1": [
+    {
+      "at_s": 22.000210416008485,
+      "witness_us": 260779134297,
+      "source_pressured": true,
+      "source_report_rc": 0,
+      "source_feedback_queued": 23,
+      "video_paused": false,
+      "video_target": {
+        "kbps": 8,
+        "fps": 1.0
+      },
+      "video_level_before": 4,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false,
+      "packet_ms": 40,
+      "needs_secondary_yield": false
+    },
+    {
+      "at_s": 48.01464004101581,
+      "witness_us": 260805032537,
+      "source_pressured": true,
+      "source_report_rc": 0,
+      "source_feedback_queued": 49,
+      "video_paused": true,
+      "video_target": {
+        "kbps": 8,
+        "fps": 1.0
+      },
+      "video_level_before": 4,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false,
+      "packet_ms": 40,
+      "needs_secondary_yield": false
+    },
+    {
+      "at_s": 56.0002002500114,
+      "witness_us": 260813042008,
+      "source_pressured": true,
+      "source_report_rc": 0,
+      "source_feedback_queued": 57,
+      "video_paused": true,
+      "video_target": {
+        "kbps": 8,
+        "fps": 1.0
+      },
+      "video_level_before": 4,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false,
+      "packet_ms": 60,
+      "needs_secondary_yield": false
+    },
+    {
+      "at_s": 84.01107125001727,
+      "witness_us": 260841088779,
+      "source_pressured": true,
+      "source_report_rc": 0,
+      "source_feedback_queued": 85,
+      "video_paused": false,
+      "video_target": {
+        "kbps": 8,
+        "fps": 1.0
+      },
+      "video_level_before": 3,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false,
+      "packet_ms": 60,
+      "needs_secondary_yield": true
+    },
+    {
+      "at_s": 120.002920791012,
+      "witness_us": 260877024351,
+      "source_pressured": true,
+      "source_report_rc": 0,
+      "source_feedback_queued": 121,
+      "video_paused": false,
+      "video_target": {
+        "kbps": 8,
+        "fps": 1.0
+      },
+      "video_level_before": 3,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false,
+      "packet_ms": 60,
+      "needs_secondary_yield": true
+    },
+    {
+      "at_s": 156.01754387500114,
+      "witness_us": 260913034491,
+      "source_pressured": true,
+      "source_report_rc": 0,
+      "source_feedback_queued": 157,
+      "video_paused": true,
+      "video_target": {
+        "kbps": 8,
+        "fps": 1.0
+      },
+      "video_level_before": 4,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false,
+      "packet_ms": 60,
+      "needs_secondary_yield": false
+    },
+    {
+      "at_s": 177.0096906660183,
+      "witness_us": 260934112361,
+      "source_pressured": true,
+      "source_report_rc": 0,
+      "source_feedback_queued": 178,
+      "video_paused": true,
+      "video_target": {
+        "kbps": 8,
+        "fps": 1.0
+      },
+      "video_level_before": 4,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false,
+      "packet_ms": 60,
+      "needs_secondary_yield": true
+    },
+    {
+      "at_s": 273.00544941599946,
+      "witness_us": 261030052208,
+      "source_pressured": true,
+      "source_report_rc": 0,
+      "source_feedback_queued": 274,
+      "video_paused": false,
+      "video_target": {
+        "kbps": 10,
+        "fps": 1.0
+      },
+      "video_level_before": 1,
+      "video_level_after": 3,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false,
+      "packet_ms": 60,
+      "needs_secondary_yield": true
+    },
+    {
+      "at_s": 299.0001511659939,
+      "witness_us": 261056029272,
+      "source_pressured": true,
+      "source_report_rc": 0,
+      "source_feedback_queued": 300,
+      "video_paused": false,
+      "video_target": {
+        "kbps": 8,
+        "fps": 1.0
+      },
+      "video_level_before": 3,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false,
+      "packet_ms": 60,
+      "needs_secondary_yield": true
+    },
+    {
+      "at_s": 359.0098679160001,
+      "witness_us": 261116033200,
+      "source_pressured": true,
+      "source_report_rc": 0,
+      "source_feedback_queued": 360,
+      "video_paused": false,
+      "video_target": {
+        "kbps": 8,
+        "fps": 1.0
+      },
+      "video_level_before": 2,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false,
+      "packet_ms": 40,
+      "needs_secondary_yield": true
+    }
+  ],
+  "2": [
+    {
+      "at_s": 22.01876291600638,
+      "witness_us": 260779097905,
+      "source_pressured": true,
+      "source_report_rc": 0,
+      "source_feedback_queued": 23,
+      "video_paused": false,
+      "video_target": {
+        "kbps": 8,
+        "fps": 1.0
+      },
+      "video_level_before": 4,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false,
+      "packet_ms": 40,
+      "needs_secondary_yield": false
+    },
+    {
+      "at_s": 60.008940541010816,
+      "witness_us": 260817038497,
+      "source_pressured": true,
+      "source_report_rc": 0,
+      "source_feedback_queued": 61,
+      "video_paused": true,
+      "video_target": {
+        "kbps": 8,
+        "fps": 1.0
+      },
+      "video_level_before": 4,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false,
+      "packet_ms": 40,
+      "needs_secondary_yield": true
+    },
+    {
+      "at_s": 74.00052504101768,
+      "witness_us": 260831029607,
+      "source_pressured": true,
+      "source_report_rc": 0,
+      "source_feedback_queued": 75,
+      "video_paused": true,
+      "video_target": {
+        "kbps": 8,
+        "fps": 1.0
+      },
+      "video_level_before": 4,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false,
+      "packet_ms": 40,
+      "needs_secondary_yield": false
+    },
+    {
+      "at_s": 84.01033508300316,
+      "witness_us": 260841054912,
+      "source_pressured": true,
+      "source_report_rc": 0,
+      "source_feedback_queued": 85,
+      "video_paused": false,
+      "video_target": {
+        "kbps": 8,
+        "fps": 1.0
+      },
+      "video_level_before": 4,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false,
+      "packet_ms": 40,
+      "needs_secondary_yield": true
+    },
+    {
+      "at_s": 177.0048702500062,
+      "witness_us": 260934085419,
+      "source_pressured": true,
+      "source_report_rc": 0,
+      "source_feedback_queued": 178,
+      "video_paused": false,
+      "video_target": {
+        "kbps": 10,
+        "fps": 1.0
+      },
+      "video_level_before": 1,
+      "video_level_after": 3,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false,
+      "packet_ms": 40,
+      "needs_secondary_yield": true
+    },
+    {
+      "at_s": 202.01476774999173,
+      "witness_us": 260959034414,
+      "source_pressured": true,
+      "source_report_rc": 0,
+      "source_feedback_queued": 203,
+      "video_paused": false,
+      "video_target": {
+        "kbps": 8,
+        "fps": 1.0
+      },
+      "video_level_before": 3,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false,
+      "packet_ms": 40,
+      "needs_secondary_yield": true
+    },
+    {
+      "at_s": 273.0201579160057,
+      "witness_us": 261030034671,
+      "source_pressured": true,
+      "source_report_rc": 0,
+      "source_feedback_queued": 274,
+      "video_paused": false,
+      "video_target": {
+        "kbps": 8,
+        "fps": 1.0
+      },
+      "video_level_before": 2,
+      "video_level_after": 4,
+      "concealment_consumed": true,
+      "network_loss": false,
+      "discarded_audio": false,
+      "packet_ms": 40,
+      "needs_secondary_yield": true
+    }
+  ]
+}

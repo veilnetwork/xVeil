@@ -31,6 +31,7 @@ class GroupCallAudioAdapter {
   DateTime? _changedAt, _pressureAt, _observedAt, _lastDownAt;
   int? _sequence, _drops, _recoveries, _packets;
   int _lossUs = 0, _peerRecoveryUs = 0, _healthy = 0, _expectedPeers = 0;
+  int _peerConcealmentUs = 0;
   bool _supports60Ms = false;
   bool _needsSecondaryYield = false;
   bool get needsSecondaryYield => _needsSecondaryYield;
@@ -95,6 +96,10 @@ class GroupCallAudioAdapter {
     final peerRecovery = counter(stats['audio_peer_recovery_report_us']) ?? 0;
     final peerRecovered = peerRecovery > _peerRecoveryUs;
     if (peerRecovered) _peerRecoveryUs = peerRecovery;
+    final peerConcealment =
+        counter(stats['audio_peer_concealment_report_us']) ?? 0;
+    final concealed = peerConcealment > _peerConcealmentUs;
+    if (concealed) _peerConcealmentUs = peerConcealment;
     var newDrop = false, recovered = false, packetsAdvanced = false;
     if (nativeFresh) {
       final packets = counter(stats['audio_tx_payload_pkts']);
@@ -142,7 +147,12 @@ class GroupCallAudioAdapter {
     final peerPressure =
         freshPeer && _buffer.observe(delay, sequence: sequence);
     final pressure =
-        newLoss || newDrop || recovered || peerRecovered || peerPressure;
+        newLoss ||
+        newDrop ||
+        recovered ||
+        peerRecovered ||
+        peerPressure ||
+        concealed;
     if (pressure) {
       _pressureAt = now;
       _healthy = 0;
@@ -171,6 +181,8 @@ class GroupCallAudioAdapter {
       // outgoing congestion or fund longer packets on an otherwise healthy
       // (or unknown) listener path. Reserve that last step for real outgoing
       // loss/admission failure or a fresh growing/capped peer buffer.
+      // Concealment also yields secondary output, but alone cannot fund longer
+      // packets: it can result from reordering or local playout scheduling.
       final maxLevel =
           (measuredFloor &&
                   secondaryYielded &&
@@ -201,6 +213,7 @@ class GroupCallAudioAdapter {
         counter(stats['audio_feedback_reports']) == expectedPeers &&
         loss == 0 &&
         peerRecovery == 0 &&
+        peerConcealment == 0 &&
         transportAllowsRecovery &&
         delay < CallBitrateAdapter.playoutRecoverMs;
     if (!complete) {

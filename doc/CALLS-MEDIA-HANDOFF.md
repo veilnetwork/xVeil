@@ -1,5 +1,55 @@
 # Calls media handoff
 
+## 2026-10-19: explicit concealment feedback; pair passes, group210.061ms fails
+
+Optional encrypted RTCP APP **VAP3** now reports non-silent decoder concealment
+separately from VAP2 decoded discard and network packet loss. Receive-worker
+samples use the actual decoder origin and `concealed_samples` minus
+`silent_concealed_samples`. Initial/replaced/unknown/gapped samples establish a
+baseline; old sequences, retired origins, counter/clock rollback and cached
+events cannot create another impulse. Sample/event encoding freshness is3s,
+sender-local witness retention15s. Detection time is not an exact PCM event time
+or a cross-host clock. Supplemental empty RR + APP feedback is bounded to1/s
+per peer; ordinary audio RTCP also carries it. Video RTCP and VAP1/VAP2 stay
+unchanged, and no fake loss/RTT report block, relay label or relay priority is
+introduced. Public native exports remain101/135.
+
+Both production controllers and fixture bridges feed fresh witnesses into video
+adaptation and the local source budget, including audio-only calls. Room audio
+also yields secondary work; concealment alone cannot authorize longer packets.
+Mute consumes witnesses without replay on resume. Native codec/cursor and real
+production-shim smoke tests PASS, including supplemental send/rate limiting,
+malformed/duplicate compound atomicity, legacy/video/stopped sources. All157
+focused Flutter policy tests and analysis of policies, bridges and production
+callers PASS.
+
+Original **360s/1024-kbit pair gate PASSES**: **130.179/140.317ms**,704 matched/
+0 missing markers,2 exact512-KiB files, both final video tails14 and0 native
+deadline misses. Sampled video retrieval gaps reach about2s; this does not
+qualify smooth physical video. Original group gate **FAILS at210.060583ms**:
+2112/0 markers,3 exact512-KiB files, all6 video tails14 and0 deadline misses.
+Its40-ms peak at22.220s spans **10.173ms formation +70.006ms delivery
++129.882ms after ingress**. The RTP bracket is continuous normal speech;
+no claim that concealment feedback alone repairs this queue peak is supported.
+Some group senders later use60-ms packets under other measured pressure.
+Do not round a200+ms result into a pass or discard the remaining full scope.
+
+All25 new group witnesses (8/10/7) and10 pair witnesses (4/6) are consumed by
+video/source policy; their source-pressure verdict is true. The25 group
+observations have no simultaneous new network-loss/decoded-discard witness,
+confirming the previously missing path is exercised. This is not causal proof
+of latency improvement/regression from one run per variant. All16 recorded
+process observations exited (14 long-lived/2 transient), all7 node stops
+returned0 and fixture sockets are gone. No installed app, phone, relay, public
+release or push change. Evidence: `call-audio-concealment-2026-10-19.json`,
+`audio-concealment-2026-10-19/`; private artifacts:
+`/Users/vart/.cache/codex/xveil-concealment-feedback-20261019`.
+
+Goal **ACTIVE**. Next investigate the remaining real queue/delivery peaks and
+complete streamful App/independent network control, ordered/canonical fallbacks
+and route/fanout accounting. Physical voice/headset/screen and reconnect/mute
+qualification remain open. Preserve the original requirements and gates.
+
 ## 2026-10-19: bounded speech acceleration; pair passes, group200.132ms fails
 
 SDK **18642c2b** adds a conversation controller over the pinned WebRTC decision
