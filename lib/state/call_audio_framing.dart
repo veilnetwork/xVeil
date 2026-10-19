@@ -11,7 +11,7 @@ int? callMediaFramingOverhead(Map<String, Object?>? cost) {
   final copies = cost['source_copies_limit'];
   if (packet is! int ||
       packet < 12 ||
-      packet > 1000 ||
+      packet > 1460 ||
       overhead is! int ||
       overhead < 1 ||
       overhead > 4096 ||

@@ -1,0 +1,126 @@
+{
+  "ok": false,
+  "full_contention_qualified": false,
+  "duration": 60,
+  "max_ms": 190.22091664373875,
+  "matched": 330,
+  "missing": 0,
+  "basis": {
+    "startup_default": 129,
+    "native_logical_rtp": 177,
+    "native_fanout_payload_rtp": 234
+  },
+  "video_observed_min_bytes": 200,
+  "video_observed_max_bytes": 1436,
+  "video_observations_above1000": 16,
+  "video_observations_clipped_to1460": 0,
+  "cost_models": [
+    {
+      "lane": "0",
+      "overhead": 360,
+      "count": 354
+    },
+    {
+      "lane": "2",
+      "overhead": 360,
+      "count": 344
+    },
+    {
+      "lane": "3",
+      "overhead": 360,
+      "count": 170
+    },
+    {
+      "lane": "3",
+      "overhead": null,
+      "count": 182
+    },
+    {
+      "lane": "2",
+      "overhead": 420,
+      "count": 10
+    },
+    {
+      "lane": "3",
+      "overhead": 420,
+      "count": 2
+    }
+  ],
+  "worker_cost_traces": [
+    {
+      "requests": 60,
+      "responses_sampled": 59,
+      "fed_into_policy": false
+    },
+    {
+      "requests": 60,
+      "responses_sampled": 59,
+      "fed_into_policy": false
+    },
+    {
+      "requests": 60,
+      "responses_sampled": 59,
+      "fed_into_policy": false
+    }
+  ],
+  "all_files_exact": false,
+  "files": [
+    {
+      "sender": 2,
+      "receiver": 0,
+      "queued": 524288,
+      "received": 67584,
+      "missing_chunks": 223,
+      "hash_matches": false,
+      "completion_seconds": null,
+      "authentication_errors": 0,
+      "duplicates": 0,
+      "async_failures": {},
+      "write_error": false,
+      "late_fragments": 0
+    },
+    {
+      "sender": 0,
+      "receiver": 1,
+      "queued": 524288,
+      "received": 59392,
+      "missing_chunks": 227,
+      "hash_matches": false,
+      "completion_seconds": null,
+      "authentication_errors": 0,
+      "duplicates": 0,
+      "async_failures": {},
+      "write_error": false,
+      "late_fragments": 0
+    },
+    {
+      "sender": 1,
+      "receiver": 2,
+      "queued": 524288,
+      "received": 59392,
+      "missing_chunks": 227,
+      "hash_matches": false,
+      "completion_seconds": null,
+      "authentication_errors": 0,
+      "duplicates": 0,
+      "async_failures": {},
+      "write_error": false,
+      "late_fragments": 0
+    }
+  ],
+  "tail_changes": [
+    3,
+    12,
+    0,
+    14,
+    11,
+    11
+  ],
+  "clocks": {
+    "deadline_misses": 0,
+    "late_intervals": 0
+  },
+  "sdk_sha256": "a3f111a0be5dc35d44d49687079fb3c0818f6dfeb953487597d95fb23113f2e8",
+  "media_sha256": "d0cd5ab98e26fa45e220c9f90bf18958198cd19e2cf4575427983b5d76fd008d",
+  "remaining_sockets": 0
+}

@@ -23,6 +23,10 @@ void main() {
     ordered['source_wire_bytes_x2'] = 1417;
     expect(callMediaFramingOverhead(ordered), 509);
     expect(callMediaFramingOverhead(model(717)), 717);
+    // A full-size RTP packet may occupy two session datagrams. The schema
+    // accepts its real model without pretending it was a 1000-byte packet.
+    expect(callMediaFramingOverhead(model(420, packet: 1460)), 420);
+    expect(callMediaFramingOverhead(model(420, packet: 1461)), isNull);
   });
   test('unknown or inconsistent wire models never overwrite a live hint', () {
     expect(callMediaFramingOverhead(null), isNull);

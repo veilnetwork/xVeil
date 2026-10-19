@@ -1,0 +1,7 @@
+{
+  "rt_trace_explicitly_enabled": true,
+  "null_pointer_cases": 3,
+  "invalid_selector_or_size_cases": 4,
+  "all_returned_null": true,
+  "nodes_or_network_started": false
+}

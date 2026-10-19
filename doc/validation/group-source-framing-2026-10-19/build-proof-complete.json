@@ -1,0 +1,27 @@
+{
+  "base_sdk": "057b0ea02ede30014118b83c565cee3076fbd142",
+  "source_snapshot_matches_root": true,
+  "foreign_wip_excluded": true,
+  "source_sha256": {
+    "crates/veilclient-ffi/src/media_ffi/packet_cost.rs": "5170d568e84eb7947667e6e75e04a3acf8a9476d2388de0e4d412868429d87e5",
+    "crates/veilclient-ffi/include/veil_ffi.h": "9b5429bf84f8708b024ccd22a26217813f7e6e53fdebcfdde81fed8d4687ca44",
+    "flutter/veil_flutter/lib/src/client.dart": "56e60ecaebd54f9d2bee4f473190c6a8078b4ea1475edc785a5f46f50006ffca",
+    "flutter/veil_media/src/veil_audio_send_stats.h": "06e9818bb7f7fd91b249b841c44ceb06cec51c29914ab46350d16ce110f0375b",
+    "flutter/veil_media/src/veil_media_engine.cc": "481abeea8303a0b5cce81f392b848a6458bb23517761da41b57588f2ceb8c592",
+    "flutter/veil_media/test/audio_send_stats_smoke.cc": "f1fb7579a458a6fc03e2aef92eb695e0e70b6c8972bad1071d3506f850fe9d96",
+    "flutter/veil_media/test/call_planes_smoke.cc": "40e57cafe2750ffb5e9fb250d0c5fec29674b7ff9f8c79e0f6991339dedf90a0"
+  },
+  "libraries_sha256": {
+    "sdk/libveilclient_ffi.dylib": "946f8136843443da4f2682ba78214055b29fa67f1a958d3f9f04ecbd9813023f",
+    "media-hooks/libveil_media.dylib": "d0cd5ab98e26fa45e220c9f90bf18958198cd19e2cf4575427983b5d76fd008d",
+    "media-production/libveil_media.dylib": "01c4c9644979cdf983ba5c7b789f6554eef72362a754075df238343605628d4a",
+    "sdk/libveilclient_ffi-full-rtp.dylib": "a3f111a0be5dc35d44d49687079fb3c0818f6dfeb953487597d95fb23113f2e8"
+  },
+  "native_public_exports": 101,
+  "native_abi_unchanged": true,
+  "sdk_added_export": "veil_debug_media_source_packet_cost",
+  "native_code_change": "Counters/JSON only; no codec, scheduler, packet size, budget or priority changes.",
+  "scope": "Mac SDK/hooks/production built. Android not built or installed this cycle.",
+  "source_packet_model_max_rtp_bytes": 1460,
+  "active_controller_note": "Existing 1:1 packet sampler retains its1000-byte cap; no encoder budget or cadence change."
+}
