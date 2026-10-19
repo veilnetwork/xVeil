@@ -166,8 +166,16 @@ class GroupCallAudioAdapter {
           stats['audio_tx_packet_duration_ms'] == 60;
       _needsSecondaryYield =
           (measuredFloor || measuredEmergency) && !secondaryYielded;
+      // Incoming decoder catch-up and a peer's already completed catch-up
+      // still make secondary work yield. They do not establish current
+      // outgoing congestion or fund longer packets on an otherwise healthy
+      // (or unknown) listener path. Reserve that last step for real outgoing
+      // loss/admission failure or a fresh growing/capped peer buffer.
       final maxLevel =
-          measuredFloor && secondaryYielded || _level == _longPacketFloor
+          (measuredFloor &&
+                  secondaryYielded &&
+                  (newLoss || newDrop || peerPressure)) ||
+              _level == _longPacketFloor
           ? _longPacketFloor
           : _shortPacketFloor;
       if (!pending &&

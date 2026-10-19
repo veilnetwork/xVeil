@@ -1,5 +1,71 @@
 # Calls media handoff
 
+## 2026-10-19: direction-specific group pressure and late session encoding
+
+SDK **3456ba3a** retains a protocol/scheduling correction: derive exact datagram
+sizes without creating a flow or spending counters/nonces, then encrypt after
+capacity, source-admission and cadence waits. Restoring queued plaintext no
+longer repeatedly encrypts it. Existing quotas, codec policy and wire formats
+remain. The two real-codec geometry tests cover legacy/opaque flows and fragment
+boundaries;1000 sizing attempts leave the first actual nonce at1. Normal
+independent-source drops and neutral compatibility fallback remain. This is
+not a bandwidth reservation or a demonstrated audio-latency fix.
+
+The root group adapter now reserves its last40->60ms step for **current
+outgoing** loss/admission failure or fresh growing/capped peer playout. Own
+incoming catch-up and a peer's completed catch-up still yield secondary work,
+but cannot alone lengthen healthy or unknown outgoing audio. The exact old
+adapter fails the new regression (60ms when40ms was expected). The controller
+also checks that actual outgoing loss can still select60ms and that a fresh
+call does not inherit the old fake engine's loss report. The existing actual
+video-yield requirement, speech payload floor and RTT growth guard remain.
+
+**Not qualified:** the final full360s group capture peaks **320.227ms**, with
+2112 matched/0 missing synthetic markers, all3 files exact and6 moving tails
+(each14 changes). Two sources stay40ms until about258s; the third stays40ms
+throughout. Its40ms peak at251.490s spans **20.426ms formation +163.393ms
+delivery +136.408ms after ingress**; exact hop spans are
+**151.853/0.046/11.142/0.052ms**. FIFO maxima92.383/201.683ms, no drops,
+no lost clock deadlines. Do not claim the200ms gate passed.
+
+An experimental node-wide secondary packet pacer is **rejected and removed**.
+It retained original whole-work admission, paced already admitted members
+across neighbors and kept wait credit/deadlines. Its group run has280.188ms,
+2112/0, exact files and6 moving tails, but its unicast run has210.003/200.195ms.
+Neither qualifies. The exact patch and source hashes are archived. This is
+different from the earlier rejected whole-work start-spacing change, which
+rejected waiting work; do not reintroduce either as an accepted quality fix.
+
+The retained SDK-only unicast capture is also **FAIL** at190.022/230.064ms.
+A control using unchanged SDKd0e69266 with the same current native library,
+root policy and360s load fails at320.024/210.271ms. All three unicast captures
+have704 matched/0 missing markers, exact files, moving tails and zero clock
+misses. Historical190ms runs therefore do not establish current qualification.
+One capture per build does not establish a causal/statistical comparison.
+The retained230ms peak has only11.013ms delivery and218.375ms after ingress;
+the unchanged320ms peak has263.324ms delivery and56.270ms after ingress.
+Post-ingress includes codec/following packets/rendering, not solely NetEq.
+
+Checks: **194 Flutter tests**, three-file analysis clean, **598 session tests
+(8 ignored) +141 bootstrap tests (1 ignored)** with explicit production seeds.
+Clean production-feature Mac SDK build excludes foreign Rust edits; all202
+public SDK exports match. Native media is reused unchanged. No Android build,
+physical call, installation, server mutation, push or release. All32 known
+owned processes/helpers are independently absent, no fixture sockets remain;
+foreign root/SDK patches retain their original hashes. Evidence:
+**validation/call-audio-direction-2026-10-19.json** and
+**validation/audio-direction-2026-10-19/**. Raw private artifacts:
+**~/.cache/codex/xveil-group-packet-pacing-20261019/**.
+
+**Goal ACTIVE.** Current bandwidth allocation still does not reserve source
+capacity across audio/video/DATA. Next distinguish queued delivery from actual
+decoded sample timing (correlate native output timestamps, not only tone energy
+edges), then implement coordinated source allocation using actual framing,
+fanout and delivery observations. Full interaction-channel audit, ordered
+signaling/RPC separation, screen/fallback and hardware/live speech/headset
+qualification remain. Do not remove FEC/RTCP or blindly shrink native buffers
+to make the synthetic gate pass.
+
 ## 2026-10-19: measured group video yield and independent recovery
 
 The group controller now asks actual video/screen output to yield before its

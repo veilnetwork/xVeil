@@ -270,15 +270,24 @@ void main() {
         expect(engine.audioBudgets, hasLength(2));
         engine.stats = {
           ...engine.stats,
-          // The 60-ms fallback requires the applied 40-ms floor to have
-          // actually emitted packets before another fresh recovery event.
+          // Incoming catch-up cannot lengthen our outgoing audio on its own.
           'audio_tx_payload_pkts': 20,
           'audio_latency_recovery_count': 2,
+        };
+        clock.elapse(const Duration(seconds: 1));
+        expect(engine.audioBudgets.last, (packetMs: 40, payloadBps: 24000));
+        engine.stats = {
+          ...engine.stats,
+          'audio_tx_payload_pkts': 40,
+          'audio_loss_report_us': 100,
         };
         clock.elapse(const Duration(seconds: 1));
         expect(engine.audioBudgets.last, (packetMs: 60, payloadBps: 24000));
         controller.stop();
         clock.flushMicrotasks();
+        // The factory reuses this fake; a fresh native engine has no loss
+        // report left over from the previous call.
+        engine.stats = {...engine.stats, 'audio_loss_report_us': 0};
         controller.start(_call(self, [peer]));
         clock.flushMicrotasks();
         expect(engine.audioBudgets.last, (packetMs: 40, payloadBps: 32000));
