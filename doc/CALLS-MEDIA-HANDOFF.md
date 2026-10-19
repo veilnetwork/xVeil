@@ -1,5 +1,70 @@
 # Calls media handoff
 
+## 2026-10-19: measured group video yield and independent recovery
+
+The group controller now asks actual video/screen output to yield before its
+last resort 40 to 60 ms audio fallback. It reuses an already ACKed, natively
+observed 1 FPS floor rather than requesting the same reduction again. Continued
+measured pressure then pauses video. A successful pause ACK and 2 s without
+outgoing video payload progress are required before the long-audio step.
+Stale workers, refused native controls, clock/roster changes and contradictory
+native output cannot manufacture that permission. New pressure at the 60 ms
+floor also requests secondary reduction, without reducing Opus below 24 kbit/s.
+
+The source hold recovers after 20 s quiet and 8 fresh complete healthy peer
+reports at the **current** acknowledged audio cadence. It does not require
+40 ms first. The normal video adapter still owns native ACKs and bounded
+restoration (10% kbps/+1 FPS per fresh interval). Long audio alone never pauses
+an otherwise healthy late camera/screen. Existing startup/unknown-feedback
+protection remains. The coordinator also holds the existing generic local
+source-pressure observation while its actual secondary restriction is active;
+no media hints, priorities or protocol changes are sent to relays.
+
+**Rejected and removed:** allowing60 to 40 ms through the RTT guard after video
+pause. That full 360 s run peaks 350.167 ms and has 24 blind FIFO drops. The video
+pause had already preceded 60 ms; it supplies no new reservation for later
+cadence growth. The production audio RTT growth guard remains unchanged.
+The initial ordering candidate peaks 300.134 ms but pins two video sources off.
+Independent video recovery at unchanged cadence restores all 6 moving tails
+in the intermediate full run (260.173 ms, 2112/0 audio markers,all files exact).
+Its peak spans 20.634 ms formation, 94.354 ms delivery and 145.185 ms after ingress;
+its source/relay/destination/auth spans 89.019/0.087/4.833/0.060 ms. Nearby
+native NetEq target is 140 ms. Post-ingress includes following packets/codec
+and rendering; it is not a NetEq-only attribution. No blind buffer shrink,
+RTCP removal or new byte-pacing experiment is introduced here.
+
+**Final production-candidate capture still FAILS the strict quality gate:**
+**340.105 ms**, 2112 matched/0 missing synthetic audio markers, all 3 files exact.
+Tail changes are **[0,14,5,14,2,0]**: one sender re-enters video pause after
+new authenticated peer catch-up, leaving its two outgoing video paths still
+at capture end. It had resumed earlier; this is not the previous permanent
+cadence-coupling deadlock. Do not claim six moving final tails or a quality fix.
+Its 60-ms peak at 293.910 s spans **30.563 ms formation +145.302 ms delivery
++164.240 ms after ingress**. Hop spans **72.437/0.064/72.513/0.072 ms**.
+Blind FIFO queues peak 133.816/106.208 ms, zero drops; all three PCM clocks
+miss zero deadlines. Capture/model/policy hashes match current sources.
+Evidence: **validation/call-group-source-priority-2026-10-19.json** and
+**validation/group-source-priority-2026-10-19/**.
+
+Checks: 193 Flutter tests; six-file static analysis clean; 28 unchanged Python
+checks from the initial ordering candidate. New recovery/cadence-only tests
+fail behaviorally on the original coordinator; the controller pause-refusal
+regression fails on the committed old controller. Fixture uses the production
+audio/source/video policy classes and snapshots the new coordinator. No SDK
+or native change in this cycle; reuse clean SDK d0e69266/native 057b0ea0+d0.
+All known owned processes/helpers and sockets from all captures are checked
+independently after teardown. No physical call, installation, server mutation,
+push or release. Foreign root and SDK work is unchanged.
+
+**Goal ACTIVE.** This enforces source ordering and fixes recovery coupling;
+it is not a capacity reservation or a full audio-quality qualification. Next:
+actual framing/fanout-based joint audio/video/DATA allocation, source bursts
+and post-ingress delay, complete interaction channel audit, screen/ordered
+fallback and hardware/live speech/headset qualification. Current source slots
+separate audio/video/screen/DATA/QUIC signaling; own network-control RPCs and
+ordered signaling still need the full parent/child audit. Raw owned artifacts:
+**~/.cache/codex/xveil-group-source-order-20261019/**.
+
 ## 2026-10-19: truthful group source cost bridge and full-size RTP model
 
 SDK **d0e69266** fixes missing cost observations required before coordinated

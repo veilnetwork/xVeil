@@ -2,6 +2,67 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/state/call_bitrate_adapter.dart';
 
 void main() {
+  test('released source constraint grows from acknowledged reduced output', () {
+    final a = CallBitrateAdapter(
+      baseBitrateKbps: 900,
+      baseFps: 60,
+      initialLevel: 0,
+      supportsLowRateVideo: true,
+    );
+    a.applyPendingTarget((_) => true);
+    a.applyPendingPause((_) => true);
+    a.constrainSource(floor: true, paused: false);
+    a.applyPendingTarget((_) => true);
+    final floor = a.acknowledgedTarget!;
+    expect(floor.maxFps, 1);
+    expect(floor.maxBitrateKbps, 15);
+    a.constrainSource(floor: true, paused: true);
+    expect(a.applyPendingPause((_) => false), isFalse);
+    expect(a.acknowledgedPause, isFalse);
+    expect(a.applyPendingPause((_) => true), isTrue);
+    a.constrainSource(floor: false, paused: false);
+    var previous = floor;
+    for (var n = 1; n <= 20; n++) {
+      a.onNativeStats(
+        {
+          'worker_stalled': 0,
+          'video_worker_stalled': 0,
+          'audio_feedback_reports': 1,
+          'video_feedback_reports': 1,
+          'rtt_ms': 80,
+          'tx_loss_pct': 0,
+          'tx_jitter_ms': 10,
+          'audio_rx_pkts': n * 100,
+          'audio_rx_native_age_ms': 10,
+          'audio_delay_ms': 60,
+          'tx_drops': 0,
+        },
+        sampledAt: DateTime(2026, 10, 19).add(Duration(seconds: n)),
+        receiveAudioExpected: true,
+        requireAudioReceivePlayout: true,
+        peerAudioDelayMs: 60,
+        peerCurrentAudioDelayMs: 60,
+        peerAudioSampleSequence: n,
+        requirePeerAudioPlayout: true,
+        expectedAudioFeedbackReports: 1,
+        expectedVideoFeedbackReports: 1,
+      );
+      a.applyPendingTarget((_) => true);
+      final current = a.acknowledgedTarget!;
+      final step = (previous.maxBitrateKbps * 1.1).floor();
+      expect(
+        current.maxBitrateKbps,
+        lessThanOrEqualTo(
+          step > previous.maxBitrateKbps ? step : previous.maxBitrateKbps + 1,
+        ),
+      );
+      expect(current.maxFps, lessThanOrEqualTo(previous.maxFps + 1));
+      previous = current;
+    }
+    expect(previous.maxBitrateKbps, greaterThan(floor.maxBitrateKbps));
+    expect(previous.maxBitrateKbps, lessThan(a.target.maxBitrateKbps));
+  });
+
   CallBitrateAdapter direct({int level = 0, bool lowRate = true}) =>
       CallBitrateAdapter(
         baseBitrateKbps: 900,

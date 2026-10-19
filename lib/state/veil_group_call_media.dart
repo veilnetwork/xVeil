@@ -24,6 +24,7 @@ import 'call_audio_receive_activity.dart';
 import 'call_audio_source_pressure.dart';
 import 'group_call_service.dart';
 import 'group_call_audio_adapter.dart';
+import 'group_call_source_priority.dart';
 import 'mac_media_permissions.dart';
 import 'media_ffi.dart';
 
@@ -342,6 +343,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   bool? _sourcePressured;
   int? _lastAudioLatencyRecoveryCount;
   GroupCallAudioAdapter? _audioAdapter;
+  GroupCallSourcePriority _sourcePriority = GroupCallSourcePriority();
   bool _sourceFeedbackPending = false;
   int _sourceFeedbackQueued = 0;
   int _sourceFeedbackSkipped = 0;
@@ -360,6 +362,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
           'local_source_pressured': _sourcePressured,
           'local_source_feedback_queued': _sourceFeedbackQueued,
           'local_source_feedback_skipped': _sourceFeedbackSkipped,
+          'local_source_priority': _sourcePriority.diagnostics,
           if (_audioAdapter case final adapter?)
             'local_audio_budget': {
               'packet_ms': adapter.target.packetMs,
@@ -565,7 +568,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       );
       // Mount while transmission is paused: an older engine may reject the
       // cold budget and need its retry immediately after start.
-      if (!engine.setVideoSendPaused(true)) {
+      if (!_setVideoPaused(engine, true)) {
         return false;
       }
     }
@@ -588,9 +591,16 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       (_) => _pollFrames(engine),
     );
     if (startScreen) {
+      _prepareVideoCapture(engine);
       if (!_selectScreenSource(true)) return false;
       if (Platform.isAndroid) {
-        _screenSharing = await _startAndroidScreen(engine);
+        final start = _startAndroidScreen(engine);
+        _screenStarting = start;
+        try {
+          _screenSharing = await start;
+        } finally {
+          if (identical(_screenStarting, start)) _screenStarting = null;
+        }
       } else {
         try {
           _screenSharing = engine.startScreen(sourceId: _selectedScreenId);
@@ -640,6 +650,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       // source headroom while channel creation or its measurements are pending.
       _sourcePressure.reset();
       _sourcePressured = null;
+      _sourcePriority.invalidate();
     }
     _expectedMediaPeers
       ..clear()
@@ -797,21 +808,36 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         }, now);
       }
     }
-    _reportSourcePressure(expected, stats, now, recovered: audioRecovered);
     final audioAdapter = _audioAdapter;
     if (audioAdapter != null) {
+      _sourcePriority.observe(
+        stats,
+        now,
+        videoExpected:
+            _videoRunning &&
+            (_cameraEnabled || _screenSharing || _screenStarting != null),
+        appliedAudioMs: audioAdapter.applied?.packetMs,
+        expectedPeers: _expectedMediaPeers.every(_peers.containsKey)
+            ? _expectedMediaPeers.length
+            : 0,
+        audioSending: _audioEnabled && !_microphoneState.muted,
+      );
       audioAdapter.observe(
         stats,
         now,
         expectedPeers: _expectedMediaPeers.length,
         sending: _audioEnabled && !_microphoneState.muted,
         receiving: _hasExpectedIncomingAudio,
+        secondaryYielded: _sourcePriority.yielded,
       );
+      if (audioAdapter.needsSecondaryYield) _sourcePriority.requestYield(now);
       _applyAudioBudget(expected, audioAdapter);
     }
+    _reportSourcePressure(expected, stats, now, recovered: audioRecovered);
     if (!_videoRunning) return;
     final adapter = _bitrateAdapter;
     if (adapter == null) return;
+    _constrainVideoSource(adapter);
     try {
       // The encoder budget is shared by the whole fanout. One healthy peer
       // cannot establish audio quality for peers whose RTCP has gone missing.
@@ -845,18 +871,19 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       // Retry an abandoned video-worker operation on the next poll. Advancing
       // the policy is separate from successfully applying an encoder budget.
       if (expected.supportsVideoSendPause && adapter.audioReserve) {
-        adapter.applyPendingPause(expected.setVideoSendPaused);
+        adapter.applyPendingPause(
+          (paused) => _setVideoPaused(expected, paused),
+        );
       }
       final applied = adapter.applyPendingTarget(
-        (target) => expected.setVideoBitrate(
-          maxBitrateKbps: target.maxBitrateKbps,
-          maxFps: target.maxFps,
-        ),
+        (target) => _setVideoBudget(expected, target),
       );
       if (expected.supportsVideoSendPause && !adapter.audioReserve) {
         // A busy bitrate operation must not resume the previous larger budget.
         if (applied != false) {
-          adapter.applyPendingPause(expected.setVideoSendPaused);
+          adapter.applyPendingPause(
+            (paused) => _setVideoPaused(expected, paused),
+          );
         }
       }
       if (applied == true) {
@@ -921,7 +948,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       peerDelay = null;
     }
     final receiveQuality = _groupAudioReceiveQuality(stats);
-    final pressure = _sourcePressure.observe(
+    final measuredPressure = _sourcePressure.observe(
       sendExpected: sendExpected,
       receiveExpected: receiveExpected,
       requirePeerPlayout: sendExpected,
@@ -939,6 +966,9 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
           ? stats['audio_tx_rtp_drops'] as int
           : null,
     );
+    final pressure = sendExpected && _sourcePriority.floor
+        ? true
+        : measuredPressure;
     _sourcePressured = pressure;
     if (pressure == null || _sourceFeedbackPending) return;
     final epoch = _mediaEpoch;
@@ -971,20 +1001,56 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   }
 
   void _applyVideoPolicy(GroupAudioEngine engine, CallBitrateAdapter adapter) {
+    _constrainVideoSource(adapter);
     final applied = adapter.applyPendingTarget(
-      (target) => engine.setVideoBitrate(
-        maxBitrateKbps: target.maxBitrateKbps,
-        maxFps: target.maxFps,
-      ),
+      (target) => _setVideoBudget(engine, target),
     );
     if (applied == false) {
       // Keep the old encoder budget off the new fanout while the worker is
       // busy. The stats poll retries the budget before releasing this pause.
-      if (engine.supportsVideoSendPause) engine.setVideoSendPaused(true);
+      if (engine.supportsVideoSendPause) _setVideoPaused(engine, true);
       adapter.invalidateAppliedState();
     } else if (engine.supportsVideoSendPause) {
-      adapter.applyPendingPause(engine.setVideoSendPaused);
+      adapter.applyPendingPause((paused) => _setVideoPaused(engine, paused));
     }
+  }
+
+  void _prepareVideoCapture(GroupAudioEngine engine) {
+    final adapter = _bitrateAdapter;
+    if (adapter == null) return;
+    _applyVideoPolicy(engine, adapter);
+  }
+
+  void _constrainVideoSource(CallBitrateAdapter adapter) {
+    adapter.constrainSource(
+      floor: _sourcePriority.floor,
+      paused: _sourcePriority.paused,
+    );
+    final acknowledged = adapter.acknowledgedTarget;
+    if (acknowledged != null && acknowledged.maxFps <= 1) {
+      _sourcePriority.acknowledgeFloor(_now());
+    }
+    if (_sourcePriority.paused && adapter.acknowledgedPause == true) {
+      _sourcePriority.acknowledgePause(true, _now());
+    }
+  }
+
+  bool _setVideoBudget(
+    GroupAudioEngine engine,
+    ({int maxBitrateKbps, double maxFps}) target,
+  ) {
+    final ok = engine.setVideoBitrate(
+      maxBitrateKbps: target.maxBitrateKbps,
+      maxFps: target.maxFps,
+    );
+    if (ok && target.maxFps <= 1) _sourcePriority.acknowledgeFloor(_now());
+    return ok;
+  }
+
+  bool _setVideoPaused(GroupAudioEngine engine, bool paused) {
+    final ok = engine.setVideoSendPaused(paused);
+    if (ok) _sourcePriority.acknowledgePause(paused, _now());
+    return ok;
   }
 
   int? _groupAudioReceiveDelay(Map<String, dynamic> stats) {
@@ -1183,6 +1249,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     _cameraEnabled = enabled;
     if (enabled && (_screenSharing || _screenStarting != null)) return;
     if (enabled && !_selectScreenSource(false)) return;
+    if (enabled) _prepareVideoCapture(engine);
     if (Platform.isAndroid) {
       if (enabled) {
         await _startAndroidCamera(engine);
@@ -1212,6 +1279,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   Future<bool> setScreenShareEnabled(bool enabled) async {
     final engine = _engine;
     if (engine == null || !_videoRunning) return false;
+    if (enabled) _prepareVideoCapture(engine);
     if (Platform.isAndroid) {
       if (!enabled) {
         final screen = _androidScreen;
@@ -1370,6 +1438,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     _sourceFeedbackQueued = 0;
     _lastAudioLatencyRecoveryCount = null;
     _audioAdapter = null;
+    _sourcePriority = GroupCallSourcePriority();
     _sourceFeedbackSkipped = 0;
     _expectedMediaPeers.clear();
     _peerAudioPlayoutPeers = 0;

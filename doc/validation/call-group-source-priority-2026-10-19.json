@@ -1,0 +1,88 @@
+{
+  "goal_complete": false,
+  "component_verified": "Actual video yield precedes long group audio; bounded video recovery is independent of audio cadence growth.",
+  "audio_quality_qualified": false,
+  "final_capture": {
+    "duration_seconds": 360,
+    "participants": 3,
+    "directions": 6,
+    "blind_fifo_kbps_per_direction": 1024,
+    "max_pcm_ms": 340.1050833344925,
+    "matched": 2112,
+    "missing": 0,
+    "all_files_exact": true,
+    "video_tail_changes": [
+      0,
+      14,
+      5,
+      14,
+      2,
+      0
+    ],
+    "quality_pass": false,
+    "fifo_drops": [
+      0,
+      0
+    ]
+  },
+  "current_source_hashes": {
+    "lib/state/group_call_source_priority.dart": "10fbc5f1923ceaf010ba0759a965c62a6fa1bbf7c33d901d5e9eae5e19c79356",
+    "lib/state/group_call_audio_adapter.dart": "60cb316aefc8a85803c2b480ae755bcda5d8d58d4a076ff347d9ad740735eba0",
+    "lib/state/veil_group_call_media.dart": "b94f305cefdc6f5b95cd4c650b15d185a5d5c5d20a3afe51576a5f3c4585051b",
+    "lib/state/call_bitrate_adapter.dart": "2a733c14129c1000cd3767fb55893c163bcbe7eea98346f3bc99bcb7c5abda9f",
+    "scripts/group_audio_policy.dart": "9a04d023154bcded7f7e94dcbef49f84907dd12378d8f76af10b94c9e0c78c5e",
+    "scripts/group_codec_policy.dart": "ad71b4c86334996e10376cc95ae416b3ffb85b182f8a62d520f51b73da635628",
+    "scripts/group-process-preflight.py": "b1be9e94cf6cec74b10dfbc85517ee452ce0516bbc10e22348e343a0afd40124"
+  },
+  "sdk_sha256": "a3f111a0be5dc35d44d49687079fb3c0818f6dfeb953487597d95fb23113f2e8",
+  "media_sha256": "d0cd5ab98e26fa45e220c9f90bf18958198cd19e2cf4575427983b5d76fd008d",
+  "capture_sources_match_current": true,
+  "checks": {
+    "flutter_tests": 193,
+    "static_analysis": "6 items clean",
+    "python_tests": 28,
+    "old_controller_behavior_negative": true,
+    "old_coordinator_two_behavior_negatives": true
+  },
+  "rejected": {
+    "audio_rtt_bypass": "Removed:350.167ms peak and24FIFO drops; earlier source reduction is not credit for later audio cadence growth.",
+    "cadence_only_video_pause": "Removed:60ms alone is not new measured audio failure."
+  },
+  "open": [
+    "Strict full-group PCM latency still exceeds200ms.",
+    "One source is paused again near capture end after fresh authenticated peer catch-up, leaving two unmoving video tails.",
+    "Joint audio/video/DATA capacity reservation using actual framing and fanout is still absent.",
+    "Source burst and post-ingress delay remain; do not infer a NetEq-only cause from ingress-to-PCM spans.",
+    "Full interaction-channel audit, screen/ordered fallback, hardware/live speech/headset qualification remain."
+  ],
+  "cleanup": {
+    "pids": [
+      56259,
+      56286,
+      56287,
+      58570,
+      58571,
+      58573,
+      58574,
+      58591,
+      58592,
+      58593
+    ],
+    "ps_exit_code": 1,
+    "remaining_processes": "",
+    "remaining_socket_paths": [],
+    "node_stop_results": [
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "side_effects": {
+    "native_or_sdk_changes": false,
+    "phone_install_or_call": false,
+    "server_mutation": false,
+    "push_or_release": false
+  },
+  "raw_private_artifacts": "/Users/vart/.cache/codex/xveil-group-source-order-20261019"
+}

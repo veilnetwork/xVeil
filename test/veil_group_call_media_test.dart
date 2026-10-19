@@ -63,6 +63,97 @@ Map<String, dynamic> _sourceStats(List<NodeId> peers, {int delay = 100}) => {
 };
 
 void main() {
+  test(
+    'long audio packets wait for actual video yield when pause is refused',
+    () {
+      fakeAsync((clock) {
+        final self = _id(1), peer = _id(2);
+        final engine = _FakeEngine(supportsAudioBudget: true)
+          ..stats = {
+            ..._sourceStats([peer]),
+            'audio_feedback_reports': 1,
+            'rtt_ms': 40,
+            'audio_max_packet_ms': 60,
+            'audio_loss_report_us': 0,
+            'audio_config_valid': 1,
+            'audio_tx_payload_pkts': 20,
+            'audio_tx_packet_duration_ms': 40,
+            'audio_latency_recovery_count': 0,
+            'video_worker_stalled': 0,
+            'video_tx_payload_pkts': 0,
+            'max_fps': 1.0,
+            'video_send_paused': 0,
+          };
+        final controller = VeilGroupCallMediaController(
+          _FakeTransport(self),
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          requestMicrophone: () async => true,
+          requestCamera: () async => true,
+          now: () => DateTime(2026, 10, 19).add(clock.elapsed),
+        );
+        controller.start(_call(self, [peer], video: true));
+        clock.flushMicrotasks();
+        expect(engine.videoStarted, 1);
+        engine.acceptPause = false;
+        for (var n = 1; n <= 12; n++) {
+          engine.stats = {
+            ...engine.stats,
+            'audio_playout_sequence': n,
+            'audio_playout_ms': 240,
+            'audio_latency_recovery_count': n,
+            'audio_tx_payload_pkts': n * 100,
+            'audio_tx_packet_duration_ms': engine.audioBudgets.last.packetMs,
+            'video_tx_payload_pkts': n * 4,
+            'max_fps': engine.targets.last.maxFps,
+            'video_send_paused': engine.pauses.last ? 1 : 0,
+          };
+          clock.elapse(const Duration(seconds: 3));
+        }
+        expect(engine.audioBudgets.any((b) => b.packetMs == 60), isFalse);
+        expect(engine.audioBudgets.last.payloadBps, 24000);
+        // Once pause really succeeds and outgoing packet counters become quiet,
+        // persistent pressure may use the last-resort audio fallback.
+        engine.acceptPause = true;
+        var videoPackets = 48;
+        for (var n = 13; n <= 20; n++) {
+          if (!engine.pauses.last) videoPackets += 4;
+          engine.stats = {
+            ...engine.stats,
+            'audio_playout_sequence': n,
+            'audio_latency_recovery_count': n,
+            'audio_tx_payload_pkts': n * 100,
+            'audio_tx_packet_duration_ms': engine.audioBudgets.last.packetMs,
+            'video_tx_payload_pkts': videoPackets,
+            'video_send_paused': engine.pauses.last ? 1 : 0,
+          };
+          clock.elapse(const Duration(seconds: 3));
+        }
+        expect(engine.pauses.last, isTrue);
+        expect(engine.audioBudgets.any((b) => b.packetMs == 60), isTrue);
+        // Sound recovery can resume bounded video without spending bandwidth
+        // on a shorter audio cadence while the transport is still queued.
+        for (var n = 21; n <= 42; n++) {
+          engine.stats = {
+            ...engine.stats,
+            'audio_playout_sequence': n,
+            'audio_playout_ms': 80,
+            'rtt_ms': 77,
+            'audio_tx_payload_pkts': n * 100,
+            'audio_tx_packet_duration_ms': engine.audioBudgets.last.packetMs,
+            'max_fps': engine.targets.last.maxFps,
+            'video_send_paused': engine.pauses.last ? 1 : 0,
+          };
+          clock.elapse(const Duration(seconds: 3));
+        }
+        expect(engine.audioBudgets.last.packetMs, 60);
+        expect(engine.pauses.last, isFalse);
+        controller.stop();
+        clock.flushMicrotasks();
+      });
+    },
+  );
+
   for (final accepted in [true, false]) {
     test('group growth honors source budget only after SDK ACK=$accepted', () {
       fakeAsync((clock) {

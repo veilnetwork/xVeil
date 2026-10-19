@@ -1,0 +1,45 @@
+{
+  "flutter": {
+    "command": "TMPDIR=/private/tmp/ flutter test --no-pub test/group_call_source_priority_test.dart test/group_call_audio_adapter_test.dart test/veil_group_call_media_test.dart test/call_bitrate_adapter_test.dart",
+    "exit_code": 0,
+    "last_lines": [
+      "00:01 +192: /Users/vart/Projects/veilnetwork/xVeil/test/veil_group_call_media_test.dart: room media is sealed per participant pair a room whose secret is unavailable opens no peer channel",
+      "00:01 +193: All tests passed!"
+    ]
+  },
+  "analysis": {
+    "command": "TMPDIR=/private/tmp/ flutter analyze --no-pub lib/state/group_call_source_priority.dart lib/state/group_call_audio_adapter.dart lib/state/veil_group_call_media.dart lib/state/call_bitrate_adapter.dart scripts/group_audio_policy.dart scripts/group_codec_policy.dart",
+    "exit_code": 0,
+    "stdout": "Analyzing 6 items...                                            \nNo issues found! (ran in 2.6s)"
+  },
+  "negative_original_coordinator": {
+    "exit_code": 1,
+    "case": "long audio alone|video recovers without increasing",
+    "selected_lines": [
+      "00:00 +0 -1: long audio alone cannot pause a late video source [E]",
+      "  Expected: false",
+      "    Actual: <true>",
+      "00:00 +0 -2: video recovers without increasing the audio packet rate [E]",
+      "  Expected: false",
+      "    Actual: <true>",
+      "Failing tests:",
+      "  /Users/vart/Projects/veilnetwork/xVeil/test/group_call_source_priority_test.dart: long audio alone cannot pause a late video source",
+      "  /Users/vart/Projects/veilnetwork/xVeil/test/group_call_source_priority_test.dart: video recovers without increasing the audio packet rate"
+    ]
+  },
+  "negative_committed_controller": {
+    "exit_code": 1,
+    "selected_lines": [
+      "00:00 +0 -1: long audio packets wait for actual video yield when pause is refused [E]",
+      "  Expected: false",
+      "    Actual: <true>",
+      "Failing tests:",
+      "  /Users/vart/Projects/veilnetwork/xVeil/test/veil_group_call_media_test.dart: long audio packets wait for actual video yield when pause is refused"
+    ]
+  },
+  "python_unchanged_fixture_checks": {
+    "exit_code": 0,
+    "stdout": "............................\n----------------------------------------------------------------------\nRan 28 tests in 0.194s\n\nOK"
+  },
+  "limits": "Behavior/unit checks do not override the failed full360-second strict quality gate."
+}

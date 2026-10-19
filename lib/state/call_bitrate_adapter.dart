@@ -139,6 +139,16 @@ class CallBitrateAdapter {
   int _audioRecoveryStreak = 0;
   int _severeStreak = 0;
   bool _audioReserve = false;
+  bool _sourceFloor = false, _sourcePause = false;
+
+  /// An owning source coordinator may require secondary work to yield before
+  /// changing audio. Native ACKs still flow through the usual budget/pause
+  /// methods: releasing this constraint cannot restore an unacknowledged rung.
+  void constrainSource({required bool floor, required bool paused}) {
+    _sourceFloor = floor || paused;
+    _sourcePause = paused;
+  }
+
   bool _supportsNativeReceiveAge = false;
   int _mutedRecoveryStreak = 0;
   int? _lastTxDrops;
@@ -328,6 +338,9 @@ class CallBitrateAdapter {
   }
 
   bool? _appliedPause;
+  ({int maxBitrateKbps, double maxFps})? get acknowledgedTarget =>
+      _appliedTarget;
+  bool? get acknowledgedPause => _appliedPause;
 
   /// Pause immediately under severe audio pressure. A busy resume stays
   /// pending; unknown feedback never resumes video by itself.
@@ -438,7 +451,7 @@ class CallBitrateAdapter {
   /// True while the ladder is on its last rung and cannot spend less.
   bool get atFloor => _level == ladder.length - 1;
 
-  bool get audioReserve => _audioReserve;
+  bool get audioReserve => _audioReserve || _sourcePause;
 
   /// Begin with a one-frame/second trial when expected audio is not yet known
   /// to be healthy. Unknown feedback cannot earn a larger video budget.
@@ -510,10 +523,11 @@ class CallBitrateAdapter {
   /// Target for the current rung.
   ({int maxBitrateKbps, double maxFps}) get target {
     if (_audioReserve) return (maxBitrateKbps: 1, maxFps: 0.02);
-    final fps = supportsLowRateVideo
+    var fps = supportsLowRateVideo
         ? (_level == ladder.length - 1 ? 1.0 : baseFps * cadenceLadder[_level])
               .clamp(1.0, baseFps.toDouble())
         : (baseFps * cadenceLadder[_level]).round().clamp(1, 60).toDouble();
+    if (_sourceFloor && fps > 1) fps = 1;
     final rungKbps = (baseBitrateKbps * ladder[_level]).round();
     // A slower cadence must not grant each encoded frame more bytes. The
     // previous 30%-bitrate / 10%-cadence rung tripled the bytes per frame,

@@ -1,0 +1,584 @@
+{
+  "ok": false,
+  "qualified": false,
+  "max_ms": 260.173083312111,
+  "matched": 2112,
+  "missing": 0,
+  "files": [
+    {
+      "sender": 2,
+      "receiver": 0,
+      "queued": 524288,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "completion_seconds": 350.2123530000099,
+      "authentication_errors": 0,
+      "duplicates": 0,
+      "async_failures": {},
+      "write_error": false,
+      "late_fragments": 0
+    },
+    {
+      "sender": 0,
+      "receiver": 1,
+      "queued": 524288,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "completion_seconds": 349.13135508299456,
+      "authentication_errors": 0,
+      "duplicates": 0,
+      "async_failures": {},
+      "write_error": false,
+      "late_fragments": 0
+    },
+    {
+      "sender": 1,
+      "receiver": 2,
+      "queued": 524288,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "completion_seconds": 252.1203481249977,
+      "authentication_errors": 0,
+      "duplicates": 0,
+      "async_failures": {},
+      "write_error": false,
+      "late_fragments": 0
+    }
+  ],
+  "tail_changes": [
+    3,
+    3,
+    4,
+    6,
+    7,
+    4
+  ],
+  "workers": [
+    {
+      "worker": 0,
+      "stages": {
+        "0": 236,
+        "2": 98,
+        "1": 26
+      },
+      "durations": {
+        "0": 1,
+        "40": 91,
+        "60": 268
+      },
+      "audio_budget_events": [
+        {
+          "t": 0,
+          "level": 1,
+          "packet_ms": 40,
+          "payload_bps": 32000,
+          "rc": 0
+        },
+        {
+          "t": 2.023168792016804,
+          "level": 2,
+          "packet_ms": 40,
+          "payload_bps": 24000,
+          "rc": 0
+        },
+        {
+          "t": 37.00030987500213,
+          "level": 3,
+          "packet_ms": 60,
+          "payload_bps": 24000,
+          "rc": 0
+        },
+        {
+          "t": 265.0248303330154,
+          "level": 2,
+          "packet_ms": 40,
+          "payload_bps": 24000,
+          "rc": 0
+        },
+        {
+          "t": 319.02027091701166,
+          "level": 3,
+          "packet_ms": 60,
+          "payload_bps": 24000,
+          "rc": 0
+        }
+      ],
+      "transitions": [
+        {
+          "t": 0.021934417018201202,
+          "stage": 0,
+          "packet_ms": 0,
+          "video_paused": 0
+        },
+        {
+          "t": 1.0074677499942482,
+          "stage": 0,
+          "packet_ms": 40,
+          "video_paused": 0
+        },
+        {
+          "t": 31.007373041997198,
+          "stage": 2,
+          "packet_ms": 40,
+          "video_paused": 0
+        },
+        {
+          "t": 32.00020595800015,
+          "stage": 2,
+          "packet_ms": 40,
+          "video_paused": 1
+        },
+        {
+          "t": 38.00383016699925,
+          "stage": 2,
+          "packet_ms": 60,
+          "video_paused": 1
+        },
+        {
+          "t": 61.00451050000265,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 1
+        },
+        {
+          "t": 62.02029174999916,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 0
+        },
+        {
+          "t": 69.0050388330128,
+          "stage": 2,
+          "packet_ms": 60,
+          "video_paused": 0
+        },
+        {
+          "t": 70.01659220800502,
+          "stage": 2,
+          "packet_ms": 60,
+          "video_paused": 1
+        },
+        {
+          "t": 100.01257004201761,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 1
+        },
+        {
+          "t": 101.0069878330105,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 0
+        },
+        {
+          "t": 224.00334358299733,
+          "stage": 1,
+          "packet_ms": 60,
+          "video_paused": 0
+        },
+        {
+          "t": 247.020839875011,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 0
+        },
+        {
+          "t": 266.010594374995,
+          "stage": 0,
+          "packet_ms": 40,
+          "video_paused": 0
+        },
+        {
+          "t": 310.01025325001683,
+          "stage": 1,
+          "packet_ms": 40,
+          "video_paused": 0
+        },
+        {
+          "t": 313.01663237501634,
+          "stage": 2,
+          "packet_ms": 40,
+          "video_paused": 0
+        },
+        {
+          "t": 314.00026662502205,
+          "stage": 2,
+          "packet_ms": 40,
+          "video_paused": 1
+        },
+        {
+          "t": 320.01839087501867,
+          "stage": 2,
+          "packet_ms": 60,
+          "video_paused": 1
+        },
+        {
+          "t": 350.01773662501364,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 1
+        },
+        {
+          "t": 351.01801887500915,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 0
+        }
+      ],
+      "tail_state": [
+        0,
+        60,
+        0
+      ],
+      "worker_exit_code": 0,
+      "policy_exit_code": 0
+    },
+    {
+      "worker": 1,
+      "stages": {
+        "0": 275,
+        "2": 63,
+        "1": 22
+      },
+      "durations": {
+        "0": 1,
+        "40": 6,
+        "60": 353
+      },
+      "audio_budget_events": [
+        {
+          "t": 0,
+          "level": 1,
+          "packet_ms": 40,
+          "payload_bps": 32000,
+          "rc": 0
+        },
+        {
+          "t": 2.0102868330141064,
+          "level": 2,
+          "packet_ms": 40,
+          "payload_bps": 24000,
+          "rc": 0
+        },
+        {
+          "t": 6.015732625004603,
+          "level": 3,
+          "packet_ms": 60,
+          "payload_bps": 24000,
+          "rc": 0
+        }
+      ],
+      "transitions": [
+        {
+          "t": 0.019378500001039356,
+          "stage": 0,
+          "packet_ms": 0,
+          "video_paused": 0
+        },
+        {
+          "t": 1.0165699580102228,
+          "stage": 0,
+          "packet_ms": 40,
+          "video_paused": 0
+        },
+        {
+          "t": 7.004288249998353,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 0
+        },
+        {
+          "t": 20.000270292017376,
+          "stage": 2,
+          "packet_ms": 60,
+          "video_paused": 0
+        },
+        {
+          "t": 21.011619166994933,
+          "stage": 2,
+          "packet_ms": 60,
+          "video_paused": 1
+        },
+        {
+          "t": 41.020388375007315,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 1
+        },
+        {
+          "t": 42.020673874998465,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 0
+        },
+        {
+          "t": 234.00101866701152,
+          "stage": 1,
+          "packet_ms": 60,
+          "video_paused": 0
+        },
+        {
+          "t": 255.01099354200414,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 0
+        },
+        {
+          "t": 310.01017570801196,
+          "stage": 1,
+          "packet_ms": 60,
+          "video_paused": 0
+        },
+        {
+          "t": 311.0023308749951,
+          "stage": 2,
+          "packet_ms": 60,
+          "video_paused": 0
+        },
+        {
+          "t": 312.0202693750034,
+          "stage": 2,
+          "packet_ms": 60,
+          "video_paused": 1
+        },
+        {
+          "t": 353.01027991701267,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 1
+        },
+        {
+          "t": 354.01087487500627,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 0
+        }
+      ],
+      "tail_state": [
+        0,
+        60,
+        0
+      ],
+      "worker_exit_code": 0,
+      "policy_exit_code": 0
+    },
+    {
+      "worker": 2,
+      "stages": {
+        "0": 243,
+        "2": 111,
+        "1": 6
+      },
+      "durations": {
+        "0": 1,
+        "40": 32,
+        "60": 327
+      },
+      "audio_budget_events": [
+        {
+          "t": 0,
+          "level": 1,
+          "packet_ms": 40,
+          "payload_bps": 32000,
+          "rc": 0
+        },
+        {
+          "t": 2.0002558330015745,
+          "level": 2,
+          "packet_ms": 40,
+          "payload_bps": 24000,
+          "rc": 0
+        },
+        {
+          "t": 32.00020670800586,
+          "level": 3,
+          "packet_ms": 60,
+          "payload_bps": 24000,
+          "rc": 0
+        }
+      ],
+      "transitions": [
+        {
+          "t": 0.020907958009047434,
+          "stage": 0,
+          "packet_ms": 0,
+          "video_paused": 0
+        },
+        {
+          "t": 1.0003717500076164,
+          "stage": 0,
+          "packet_ms": 40,
+          "video_paused": 0
+        },
+        {
+          "t": 26.02030591701623,
+          "stage": 2,
+          "packet_ms": 40,
+          "video_paused": 0
+        },
+        {
+          "t": 27.020645000011427,
+          "stage": 2,
+          "packet_ms": 40,
+          "video_paused": 1
+        },
+        {
+          "t": 33.000221416994464,
+          "stage": 2,
+          "packet_ms": 60,
+          "video_paused": 1
+        },
+        {
+          "t": 48.019018749997485,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 1
+        },
+        {
+          "t": 49.020320417010225,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 0
+        },
+        {
+          "t": 88.00488375002169,
+          "stage": 2,
+          "packet_ms": 60,
+          "video_paused": 0
+        },
+        {
+          "t": 89.01340354201966,
+          "stage": 2,
+          "packet_ms": 60,
+          "video_paused": 1
+        },
+        {
+          "t": 110.01533416699385,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 1
+        },
+        {
+          "t": 111.01530604201253,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 0
+        },
+        {
+          "t": 176.0118848750135,
+          "stage": 1,
+          "packet_ms": 60,
+          "video_paused": 0
+        },
+        {
+          "t": 179.02264495802228,
+          "stage": 2,
+          "packet_ms": 60,
+          "video_paused": 0
+        },
+        {
+          "t": 180.02387237499352,
+          "stage": 2,
+          "packet_ms": 60,
+          "video_paused": 1
+        },
+        {
+          "t": 208.01228770799935,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 1
+        },
+        {
+          "t": 209.01666120800655,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 0
+        },
+        {
+          "t": 310.0066338330216,
+          "stage": 1,
+          "packet_ms": 60,
+          "video_paused": 0
+        },
+        {
+          "t": 313.02234804199543,
+          "stage": 2,
+          "packet_ms": 60,
+          "video_paused": 0
+        },
+        {
+          "t": 314.010906667012,
+          "stage": 2,
+          "packet_ms": 60,
+          "video_paused": 1
+        },
+        {
+          "t": 351.0179970000172,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 1
+        },
+        {
+          "t": 352.01024220799445,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 0
+        }
+      ],
+      "tail_state": [
+        0,
+        60,
+        0
+      ],
+      "worker_exit_code": 0,
+      "policy_exit_code": 0
+    }
+  ],
+  "shaper": {
+    "stats": [
+      {
+        "received": 107953,
+        "sent": 107953,
+        "drops": 0,
+        "max_queue_ms": 181.7553547443822
+      },
+      {
+        "received": 88813,
+        "sent": 88813,
+        "drops": 0,
+        "max_queue_ms": 92.58191726985388
+      }
+    ],
+    "failure": null,
+    "trace_events": 195440,
+    "trace_rows": 195440,
+    "trace_capacity": 250000,
+    "trace_truncated": false
+  },
+  "cleanup": {
+    "pids": [
+      34636,
+      34650,
+      34654,
+      40938,
+      40939,
+      40940,
+      40941,
+      40969,
+      40970,
+      40971
+    ],
+    "ps_exit_code": 1,
+    "remaining_processes": "",
+    "remaining_socket_paths": [],
+    "node_stop_results": [
+      0,
+      0,
+      0,
+      0
+    ]
+  }
+}
