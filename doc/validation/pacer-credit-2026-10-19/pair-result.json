@@ -1,0 +1,21 @@
+{
+  "qualified": false,
+  "duration_seconds": 360,
+  "rate_kbps": 1024,
+  "max_ms_by_side": [
+    189.9717500200495,
+    220.11804167414084
+  ],
+  "matched": 704,
+  "missing": 0,
+  "files_exact": true,
+  "video_tail_changes": [
+    14,
+    14
+  ],
+  "fifo_drops": [
+    0,
+    0
+  ],
+  "deadline_misses": 0
+}
