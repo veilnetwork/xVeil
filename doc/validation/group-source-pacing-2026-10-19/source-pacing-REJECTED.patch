@@ -1,0 +1,282 @@
+diff --git a/crates/veil-session/src/local_source_activity.rs b/crates/veil-session/src/local_source_activity.rs
+index 2c988c2f..6bc3a14e 100644
+--- a/crates/veil-session/src/local_source_activity.rs
++++ b/crates/veil-session/src/local_source_activity.rs
+@@ -23,7 +23,7 @@ struct SourceState {
+     last_primary: Option<Instant>,
+     pressure_until: Option<Instant>,
+     reliable_transport_pressure_until: Option<Instant>,
+-    secondary_window: Option<(Instant, usize)>,
++    secondary_next: Option<Instant>,
+     reliable_next: Option<Instant>,
+     source_feedback_seen: bool,
+     last_healthy_feedback: Option<Instant>,
+@@ -444,36 +444,29 @@ impl LocalSourceActivity {
+             .is_some_and(|at| now.saturating_duration_since(at) < IDLE_GRACE);
+         let pressured = state.pressure_until.is_some_and(|until| now < until);
+         if !active || !pressured {
+-            state.secondary_window = None;
++            state.secondary_next = None;
+             return Ok(());
+         }
+-        let bytes = bytes.max(1);
+-        let (deadline, used) = state
+-            .secondary_window
+-            .get_or_insert((now + SECONDARY_PROBE_INTERVAL, 0));
+-        if now >= *deadline {
+-            *deadline = now + SECONDARY_PROBE_INTERVAL;
+-            *used = 0;
+-        }
+-        if *used == 0
+-            || used
+-                .checked_add(bytes)
+-                .is_some_and(|n| n <= LOSSY_SECONDARY_BYTES)
+-        {
+-            // Admit an oversized compatibility item alone and charge its
+-            // size across future windows. Fresh pressure never refunds debt.
+-            if bytes > LOSSY_SECONDARY_BYTES {
+-                let windows =
+-                    u32::try_from(bytes.div_ceil(LOSSY_SECONDARY_BYTES)).unwrap_or(u32::MAX);
+-                *deadline = now + SECONDARY_PROBE_INTERVAL * windows;
+-            }
+-            *used = used.saturating_add(bytes);
+-            Ok(())
+-        } else {
+-            Err((*deadline)
++        if let Some(next) = state.secondary_next.filter(|next| now < *next) {
++            return Err(next
+                 .min(state.last_primary.unwrap() + IDLE_GRACE)
+-                .min(state.pressure_until.unwrap()))
++                .min(state.pressure_until.unwrap()));
+         }
++        // Keep the same byte rate, but spread independent work items instead
++        // of releasing an entire 8-KiB window at once. Whole-work admission
++        // charges once; its retries/tails retain their existing reservation.
++        // No idle credit, pressure refresh or canceled work refunds this debt.
++        let nanos = (bytes.max(1) as u128)
++            .saturating_mul(SECONDARY_PROBE_INTERVAL.as_nanos())
++            .div_ceil(LOSSY_SECONDARY_BYTES as u128)
++            .min(SECONDARY_PROBE_INTERVAL.as_nanos() * u32::MAX as u128);
++        state.secondary_next = Some(
++            now + Duration::new(
++                (nanos / 1_000_000_000) as u64,
++                (nanos % 1_000_000_000) as u32,
++            ),
++        );
++        Ok(())
+     }
+ }
+ 
+@@ -482,6 +475,47 @@ mod tests {
+     use super::*;
+     use std::sync::{Arc, Barrier};
+ 
++    #[test]
++    fn independent_small_work_items_are_byte_paced_without_banked_idle_credit() {
++        use veil_types::local_lossy_work::{LocalLossyWork, WorkAdmission};
++        let source = LocalSourceActivity::default();
++        let now = Instant::now();
++        source.note(now);
++        source.note_pressure(now);
++        let first = LocalLossyWork::new(vec![700]).unwrap();
++        let second = LocalLossyWork::new(vec![700]).unwrap();
++        assert_eq!(
++            source.admit_lossy_work(&first.cell(0).unwrap(), 1024, now),
++            WorkAdmission::Admitted
++        );
++        let due = now + Duration::from_millis(25);
++        assert_eq!(
++            source.admit_lossy_work(&second.cell(0).unwrap(), 1024, now),
++            WorkAdmission::Wait(due)
++        );
++        // Retrying an admitted work item does not pay again.
++        assert_eq!(
++            source.admit_lossy_work(&first.cell(0).unwrap(), 1024, now),
++            WorkAdmission::Admitted
++        );
++        assert_eq!(
++            source.admit_lossy_work(&second.cell(0).unwrap(), 1024, due),
++            WorkAdmission::Admitted
++        );
++        // Idle time cannot fund a new burst while the pressure lease is live.
++        let later = now + Duration::from_millis(500);
++        let third = LocalLossyWork::new(vec![700]).unwrap();
++        let fourth = LocalLossyWork::new(vec![700]).unwrap();
++        assert_eq!(
++            source.admit_lossy_work(&third.cell(0).unwrap(), 1024, later),
++            WorkAdmission::Admitted
++        );
++        assert_eq!(
++            source.admit_lossy_work(&fourth.cell(0).unwrap(), 1024, later),
++            WorkAdmission::Wait(later + Duration::from_millis(25))
++        );
++    }
++
+     #[test]
+     fn early_transport_pressure_restrains_only_data_and_preserves_its_debt() {
+         let source = LocalSourceActivity::default();
+@@ -513,7 +547,7 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn source_work_does_not_spend_a_partial_remaining_allowance() {
++    fn waiting_source_work_spends_no_credit_and_rejection_is_permanent() {
+         use veil_types::local_lossy_work::{LocalLossyWork, WorkAdmission};
+         let source = LocalSourceActivity::default();
+         let now = Instant::now();
+@@ -526,15 +560,17 @@ mod tests {
+             source.admit_lossy_work(&first, 1316, now),
+             WorkAdmission::Wait(_)
+         ));
+-        // A rejected datagram work item cannot sneak its tail into a later window.
++        // A rejected datagram work item cannot sneak its tail into a later turn.
+         first.reject();
+         assert_eq!(
+             source.admit_lossy_work(&work.cell(2).unwrap(), 1316, now + SECONDARY_PROBE_INTERVAL),
+             WorkAdmission::Rejected
+         );
+-        // The failed reservation spent nothing; another complete small item fits.
+-        assert!(source.allow_secondary(2192, now));
+-        assert!(!source.allow_secondary(1, now));
++        // Waiting and rejecting the second work item did not extend the debt.
++        let due = now + Duration::from_nanos(146_484_375);
++        assert_eq!(source.admit_lossy_secondary(2192, now), Err(due));
++        assert!(source.allow_secondary(2192, due));
++        assert!(!source.allow_secondary(1, due));
+     }
+ 
+     #[test]
+@@ -550,23 +586,26 @@ mod tests {
+             source.admit_lossy_work(&camera.cell(0).unwrap(), 1316, now),
+             WorkAdmission::Admitted
+         );
++        let screen_due = now + Duration::from_nanos(96_386_719);
+         assert_eq!(
+             source.admit_lossy_work(&screen.cell(0).unwrap(), 1316, now),
++            WorkAdmission::Wait(screen_due)
++        );
++        assert_eq!(
++            source.admit_lossy_work(&screen.cell(0).unwrap(), 1316, screen_due),
+             WorkAdmission::Admitted
+         );
+-        assert!(source.allow_secondary(296, now));
+-        assert!(!source.allow_secondary(1, now));
+         // Retries and tails remain paid, including after a pressure refresh.
+         source.note_pressure(now);
+         for work in [&camera, &screen] {
+             for index in 0..3 {
+                 assert_eq!(
+-                    source.admit_lossy_work(&work.cell(index).unwrap(), 1316, now),
++                    source.admit_lossy_work(&work.cell(index).unwrap(), 1316, screen_due),
+                     WorkAdmission::Admitted
+                 );
+             }
+         }
+-        assert!(!source.allow_secondary(1, now));
++        assert!(!source.allow_secondary(1, screen_due));
+     }
+ 
+     #[test]
+@@ -591,11 +630,7 @@ mod tests {
+         // Whole-frame rejection persists across later probe windows. Neither
+         // waiting nor replaying the tail makes the same oversized frame fit.
+         assert_eq!(
+-            source.admit_lossy_work(
+-                &work.cell(6).unwrap(),
+-                1247,
+-                now + SECONDARY_PROBE_INTERVAL
+-            ),
++            source.admit_lossy_work(&work.cell(6).unwrap(), 1247, now + SECONDARY_PROBE_INTERVAL),
+             WorkAdmission::Rejected
+         );
+         assert!(source.allow_secondary(LOSSY_SECONDARY_BYTES, now));
+@@ -609,15 +644,17 @@ mod tests {
+         let now = Instant::now();
+         source.note(now);
+         source.note_pressure(now);
+-        // Same route overhead, payload sized to leave exactly one byte of
+-        // shared source credit. The next byte fits, the following one cannot.
++        // Same route overhead, payload sized one byte below the whole-work cap.
+         let work = LocalLossyWork::new(vec![1085, 1085, 1085, 1085, 1085, 1086]).unwrap();
+         assert_eq!(
+             source.admit_lossy_work(&work.cell(0).unwrap(), 1365, now),
+             WorkAdmission::Admitted
+         );
+-        assert!(source.allow_secondary(1, now));
+         assert!(!source.allow_secondary(1, now));
++        assert_eq!(
++            source.admit_lossy_secondary(1, now),
++            Err(now + Duration::from_nanos(199_975_586))
++        );
+         for index in 0..6 {
+             let wire = if index == 5 { 1366 } else { 1365 };
+             assert_eq!(
+@@ -895,20 +932,27 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn short_control_and_packetized_frame_fit_one_pressure_allowance() {
++    fn short_control_does_not_consume_a_whole_window_before_a_complete_frame() {
+         let activity = LocalSourceActivity::default();
+         let now = Instant::now();
+         activity.note(now);
+         activity.note_pressure(now);
+-        // Representative encrypted work items from the physical camera call:
+-        // a short RTCP item followed by four MTU-sized RTP items. Packet count
+-        // throttling would admit only the first item, leaving this frame incomplete.
++        // A short item pays only for its bytes. The following complete frame
++        // reserves all members once; its tail must never be partially throttled.
++        use veil_types::local_lossy_work::{LocalLossyWork, WorkAdmission};
+         assert!(activity.allow_secondary(96, now));
+-        for _ in 0..4 {
+-            assert!(activity.allow_secondary(1200, now + Duration::from_millis(1)));
++        let frame = LocalLossyWork::new(vec![900; 4]).unwrap();
++        let due = now + Duration::from_nanos(2_343_750);
++        assert_eq!(
++            activity.admit_lossy_work(&frame.cell(0).unwrap(), 1200, now),
++            WorkAdmission::Wait(due)
++        );
++        for index in 0..4 {
++            assert_eq!(
++                activity.admit_lossy_work(&frame.cell(index).unwrap(), 1200, due),
++                WorkAdmission::Admitted
++            );
+         }
+-        let remaining = LOSSY_SECONDARY_BYTES - 96 - 4 * 1200;
+-        assert!(activity.allow_secondary(remaining, now));
+         assert!(!activity.allow_secondary(1, now));
+         // Reporting poor audio again cannot replenish the shared allowance.
+         activity.note_pressure(now + Duration::from_millis(100));
+@@ -917,7 +961,7 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn pressured_packet_bursts_share_a_byte_ceiling_across_neighbors() {
++    fn simultaneous_small_items_share_one_byte_paced_turn_across_neighbors() {
+         let activity = Arc::new(LocalSourceActivity::default());
+         let now = Instant::now();
+         activity.note(now);
+@@ -937,8 +981,9 @@ mod tests {
+             .into_iter()
+             .map(|t| t.join().unwrap())
+             .sum::<usize>();
+-        assert_eq!(admitted * 1024, LOSSY_SECONDARY_BYTES);
++        assert_eq!(admitted, 1);
+         assert!(!activity.allow_secondary(1024, now));
++        assert!(activity.allow_secondary(1024, now + Duration::from_millis(25)));
+     }
+ 
+     #[test]
+@@ -950,10 +995,8 @@ mod tests {
+         assert!(activity.allow_secondary(LOSSY_SECONDARY_BYTES + 1, now));
+         let one_window = now + SECONDARY_PROBE_INTERVAL;
+         activity.note_pressure(one_window);
+-        assert_eq!(
+-            activity.admit_lossy_secondary(1, one_window),
+-            Err(now + SECONDARY_PROBE_INTERVAL * 2)
+-        );
++        let due = now + Duration::from_nanos(200_024_415);
++        assert_eq!(activity.admit_lossy_secondary(1, one_window), Err(due));
+         assert!(activity.allow_secondary(usize::MAX, now + SECONDARY_PROBE_INTERVAL * 2));
+         assert!(!activity.allow_secondary(1, now + SECONDARY_PROBE_INTERVAL * 2));
+         // Without active primary traffic no producer retains the pressure cap.

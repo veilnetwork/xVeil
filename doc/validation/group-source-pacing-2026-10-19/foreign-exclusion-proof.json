@@ -1,0 +1,10 @@
+{
+  "sdk_base": "057b0ea02ede30014118b83c565cee3076fbd142",
+  "all_equal_committed_base": true,
+  "files_sha256": {
+    "crates/veil-dispatcher/src/app.rs": "5096e695390cb140c792acf5cfd21989eb51ad80dc5cc3f52bb76cd843116b59",
+    "crates/veil-dispatcher/src/delivery.rs": "f3968bbcd983004bbaebe85ce604d106ffbd31acc7007eca1f012ad707772954",
+    "crates/veil-e2e/src/ratchet.rs": "b8fae779cb343ee4add340b408edec29a40b5887fe20bc9951fe932d6eb77c0d",
+    "crates/veil-node-runtime/src/runtime/identity_publish.rs": "356ded7a99f082c7f49d8e637b24777c3c900fe6531b7fb604df81a1bb88ef32"
+  }
+}
