@@ -1,0 +1,109 @@
+--- a/lib/state/call_audio_source_pressure.dart
++++ b/lib/state/call_audio_source_pressure.dart
+@@ -38,6 +38,7 @@
+     Object? peerAudioRecoveryReportUs,
+     bool recovered = false,
+     bool? peerRecoveryObserved,
++    bool reserveForAudio = false,
+   }) {
+     final networkLoss = _rtcpLoss
+         .observe(
+@@ -120,7 +121,14 @@
+         (!receiveExpected ||
+             (receiveDelayMs! < playoutRecoverMs &&
+                 receiveAgeMs! < CallBitrateAdapter.audioReceiveRecoverMs));
+-    if (bad || recovered) {
++    if (sendExpected && reserveForAudio) {
++      // A measured degraded audio budget still needs source headroom even
++      // after its buffer stabilizes. Release through the normal healthy
++      // period once the caller acknowledges the shorter audio budget.
++      _pressured = true;
++      _healthy = 0;
++      _recoverySamples = CallBitrateAdapter.recoverAfter;
++    } else if (bad || recovered) {
+       if (bad) {
+         _recoverySamples = CallBitrateAdapter.recoverAfter;
+       } else if (!_pressured) {
+--- a/lib/state/group_call_audio_adapter.dart
++++ b/lib/state/group_call_audio_adapter.dart
+@@ -38,6 +38,12 @@
+   GroupAudioBudget get target => _budgets[_level];
+   int get level => _level;
+   bool get pending => _applied != target;
++
++  /// Keep competing local producers restrained until the short-packet budget
++  /// is acknowledged. Stable audio in the expensive-latency mode is not proof
++  /// that video/data can spend the bandwidth needed to recover shorter audio.
++  bool get needsShortPacketRecovery =>
++      target.packetMs > 40 || (_applied?.packetMs ?? 0) > 40;
+ 
+   bool? applyPending(bool Function(GroupAudioBudget) apply, DateTime now) {
+     if (!pending) return null;
+--- a/lib/state/veil_group_call_media.dart
++++ b/lib/state/veil_group_call_media.dart
+@@ -797,7 +797,6 @@
+         }, now);
+       }
+     }
+-    _reportSourcePressure(expected, stats, now, recovered: audioRecovered);
+     final audioAdapter = _audioAdapter;
+     if (audioAdapter != null) {
+       audioAdapter.observe(
+@@ -807,8 +806,9 @@
+         sending: _audioEnabled && !_microphoneState.muted,
+         receiving: _hasExpectedIncomingAudio,
+       );
+-      _applyAudioBudget(expected, audioAdapter);
+-    }
++    }
++    _reportSourcePressure(expected, stats, now, recovered: audioRecovered);
++    if (audioAdapter != null) _applyAudioBudget(expected, audioAdapter);
+     if (!_videoRunning) return;
+     final adapter = _bitrateAdapter;
+     if (adapter == null) return;
+@@ -922,6 +922,7 @@
+     }
+     final receiveQuality = _groupAudioReceiveQuality(stats);
+     final pressure = _sourcePressure.observe(
++      reserveForAudio: _audioAdapter?.needsShortPacketRecovery ?? false,
+       sendExpected: sendExpected,
+       receiveExpected: receiveExpected,
+       requirePeerPlayout: sendExpected,
+--- a/scripts/group_audio_policy.dart
++++ b/scripts/group_audio_policy.dart
+@@ -38,8 +38,12 @@
+         'level': policy.level,
+         'packet_ms': policy.target.packetMs,
+         'payload_bps': policy.target.payloadBps,
++        'audioNeedsShortPackets': policy.needsShortPacketRecovery,
+         if (request['op'] == 'poll' && request['load'] == true)
+-          'video_policy': room.poll(request),
++          'video_policy': room.poll(
++            request,
++            reserveForAudio: policy.needsShortPacketRecovery,
++          ),
+       }),
+     );
+   }
+--- a/scripts/group_codec_policy.dart
++++ b/scripts/group_codec_policy.dart
+@@ -23,7 +23,10 @@
+   int? recoveries;
+   int playoutPeers = 0;
+ 
+-  Map<String, Object?> poll(Map<String, dynamic> request) {
++  Map<String, Object?> poll(
++    Map<String, dynamic> request, {
++    bool reserveForAudio = false,
++  }) {
+     final stats = (request['stats'] as Map).cast<String, dynamic>();
+     final peers = (request['peers'] as List).cast<String>();
+     final now = DateTime.fromMillisecondsSinceEpoch(request['now'] as int);
+@@ -84,6 +87,7 @@
+     final sequence = stats['audio_playout_sequence'];
+     final peerSequence = sequence is int && sequence >= 0 ? sequence : null;
+     final pressured = source.observe(
++      reserveForAudio: reserveForAudio,
+       sendExpected: true,
+       receiveExpected: true,
+       requirePeerPlayout: true,

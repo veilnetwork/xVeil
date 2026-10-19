@@ -1,0 +1,22 @@
+00:00 +0: loading /Users/vart/.cache/codex/xveil-group-audio-reserve-20261019/old-controller-regression_test.dart
+00:00 +0: degraded group audio retains the producer lease after buffers stabilize
+00:00 +0 -1: degraded group audio retains the producer lease after buffers stabilize [E]
+  Expected: true
+    Actual: <false>
+  
+  package:matcher                                                                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18                                                  expect
+  ../../../.cache/codex/xveil-group-audio-reserve-20261019/old-controller-regression_test.dart 242:9  main.<fn>.<fn>
+  package:fake_async/fake_async.dart 182:47                                                           FakeAsync.run.<fn>.<fn>
+  dart:async                                                                                          runZoned
+  package:clock/src/default.dart 52:10                                                                withClock
+  package:fake_async/fake_async.dart 182:15                                                           FakeAsync.run.<fn>
+  dart:async                                                                                          runZoned
+  package:fake_async/fake_async.dart 181:52                                                           FakeAsync.run
+  package:fake_async/fake_async.dart 41:41                                                            fakeAsync
+  ../../../.cache/codex/xveil-group-audio-reserve-20261019/old-controller-regression_test.dart 205:7  main.<fn>
+  
+00:00 +0 -1: Some tests failed.
+
+Failing tests:
+  /Users/vart/.cache/codex/xveil-group-audio-reserve-20261019/old-controller-regression_test.dart: degraded group audio retains the producer lease after buffers stabilize

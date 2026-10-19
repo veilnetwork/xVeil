@@ -1,0 +1,126 @@
+{
+  "date": "2026-10-19",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "disposition": "Both policy candidates rejected. All nine production/fixture/test files restored byte-for-byte to4f275648. Only experimental evidence is committed; neither policy is active.",
+  "base": {
+    "root": "4f2756484d5655ac7527f48a5fb6a4d1976e9354",
+    "sdk": "057b0ea02ede30014118b83c565cee3076fbd142"
+  },
+  "hypotheses": {
+    "reserve": "Keep competing local source budgets held while acknowledged/pending Opus packets remain60ms, releasing through healthy hysteresis after40-ms ACK.",
+    "probe": "Additionally permit a bounded40-ms/24-kbit trial with accepted local reservation younger than2seconds, three distinct complete peer observations, fresh RTP progression, no new losses, valid RTT below250ms and20seconds between trial decisions. No new bandwidth was actually allocated."
+  },
+  "candidate_checks": {
+    "tests_passed": 261,
+    "tests_failed": 0,
+    "static_analysis": "No issues found in production/fixture candidate code; test-file analysis predates the final two controller ACK cases, which subsequently compile and pass.",
+    "python_syntax": "py_compile passed",
+    "controller_negative": "Old controller releases the source hold while long packets remain. The new assertion fails old code and passes the candidates. This tests a proposed policy invariant; it does not prove that the invariant improves the goal. End-to-end failures override those green unit tests."
+  },
+  "workload": "Original360-second three-process,three-party workload; six audio/video paths,three512-KiB files,1024-kbit/s blind aggregate FIFO; unchanged clocks, stimuli and strict decoded marker latency<200ms.",
+  "trials": {
+    "reserve": {
+      "strict_gate_passed": false,
+      "max_ms": 280.0647499971092,
+      "matched": 2112,
+      "missing": 0,
+      "all_files_complete": true,
+      "all_video_paths_moving_at_end": true,
+      "shaper_max_queue_ms": [
+        115.30925013357773,
+        117.41060385247692
+      ],
+      "shaper_drops": [
+        0,
+        0
+      ],
+      "peak_packet_ms": 60,
+      "peak_stages_ms": {
+        "capture_to_encoded": 40.376541670411825,
+        "encoded_to_ingress": 179.4839999929536,
+        "ingress_to_webrtc": 0.07100001676008105,
+        "webrtc_to_pcm_edge": 60.133208316983655
+      },
+      "quic_accept_to_authenticated_ms": 179.306,
+      "clock_deadline_misses": 0,
+      "clock_late_intervals": 0,
+      "trace_complete": true
+    },
+    "probe": {
+      "strict_gate_passed": false,
+      "max_ms": 340.14275000663474,
+      "matched": 2112,
+      "missing": 0,
+      "all_files_complete": true,
+      "all_video_paths_moving_at_end": true,
+      "shaper_max_queue_ms": [
+        208.1893786380533,
+        94.48970915400423
+      ],
+      "shaper_drops": [
+        13,
+        0
+      ],
+      "peak_packet_ms": 60,
+      "peak_stages_ms": {
+        "capture_to_encoded": 0.1778333680704236,
+        "encoded_to_ingress": 170.82900000968948,
+        "ingress_to_webrtc": 0.02099998528137803,
+        "webrtc_to_pcm_edge": 169.11491664359346
+      },
+      "quic_accept_to_authenticated_ms": 170.713,
+      "clock_deadline_misses": 0,
+      "clock_late_intervals": 0,
+      "trace_complete": true
+    }
+  },
+  "established": [
+    "Both workloads finish with2112 matched/0 missing PCM markers,all three files exact and all six synthetic videos moving; both fail the original latency gate.",
+    "Reserve alone does not establish usable wire capacity. Faster audio probes successfully change packet duration but overload the shared path in this workload; the second run has13 blind-FIFO drops and a208-ms maximum queue.",
+    "At the second peak,QUIC acceptance-to-authenticated endpoint receipt is170.713ms. Acceptance is a transport enqueue observation, not a NIC send.",
+    "The exact second peak still uses60-ms packets after adaptive backoff:0.178ms capture-to-encoded,170.829ms encoded-to-ingress,169.115ms after WebRTC ingress.",
+    "Production,fixture and test source restoration is verified againstgitHEAD; foreign root/SDK work remains unchanged."
+  ],
+  "not_established": [
+    "Neither run qualifies a fix for group audio, smooth video, acoustic speech, phone quality or full interaction separation.",
+    "A precise split of the170-ms transport span across the two hops is missing. Existing forward-path analysis rejects these captures with Missing or mismatched authenticated opaque digest; do not invent a per-hop cause.",
+    "The210/250/280/340-ms individual captures are not a statistical estimate; no quality threshold or load was relaxed."
+  ],
+  "next_work": [
+    "Trace admitted bytes and actual wire/transport progress per locally authored source before allowing more expensive audio cadence; group video still lacks actual per-source framing/cadence integration.",
+    "Inspect real first-hop and relay-to-recipient queue/cwnd/pacing observations with complete authenticated opaque Forward witnesses. Keep relays opaque/generic and add no media-role priority.",
+    "Do not repeat unconditional lease pinning or short-packet probes,blindly shrink buffers,remove RTCP,or add another expiry implementation: QUIC already supports monotonic datagram expiry inQuicDatagramHandle.send_before.",
+    "The source packet-cost query currently relies on in-process embedded node services. Verify its process-isolated fixture behavior before claiming room live-framing fidelity.",
+    "Continue with screen/fallback/phone/live-speech checks and complete interaction-channel audit after the remaining source-admission defects are fixed."
+  ],
+  "cleanup": {
+    "all_known_processes_absent": true,
+    "trials_checked": 2,
+    "remaining_sockets": [
+      0,
+      0
+    ],
+    "gui_apps_started": false,
+    "phone_or_server_modified": false,
+    "new_binaries_built": false
+  },
+  "no_push_or_release": true,
+  "active_sdk_commit": "057b0ea02ede30014118b83c565cee3076fbd142",
+  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-group-audio-reserve-20261019",
+  "evidence_directory": "group-audio-reserve-2026-10-19/",
+  "evidence_sha256": {
+    "REJECTED-probe.patch": "fd672fac3e7132bae31baeeee85f94e6bedafce18e1c191031900b4dfab55bd1",
+    "REJECTED-reserve.patch": "f335ee4490279a5a8084d8dbdc0a29707060718fddb46bbd8f835209f8a8445b",
+    "candidate-analysis.log": "8cdb1c263335de6618a002bff161a8ccd8f63b134c5aebc178517d3359894ef2",
+    "candidate-tests.log": "0065f8a7cfd48e0041202183f3b7674eaedbbc8c470dd244c9cfcc40b141a2c7",
+    "cleanup.json": "aaaeb0c75838b112c44d062f152a7027c3c7b7ac9fb8503e301d89f4fb4f7c50",
+    "controller-negative.log": "12b33af66181a9af24a97ce60ae583e676bbeb7efa5be4454718bcd2aab2991b",
+    "foreign-proof.json": "bbd5580ce4fbc95bea8466783c2ed98b7fdf0236c5de892de26f26adf36fe204",
+    "probe-result.json": "3050a5b2cdb53575564c8c2be18900ac33b4881619de67a43ef24ae153e36752",
+    "probe-source.json": "a11c6b771a26d1d7f844fce2b15e85b3380fea905528f1de31819258ff04a17d",
+    "reserve-result.json": "11cd9d48be2e072b3bcbb32b33b3af41c895accd82bd589bd213c007f7854ef3",
+    "reserve-source.json": "d4a95df78b173324848aa60d619d7c86c6a0c56e9fec0135ccf16b501bc2ff2a",
+    "restored-source.json": "bddf4f0af99993ec083524a2cb4ccad6f000b0c956c1708b9ddb865e83eae603"
+  }
+}
