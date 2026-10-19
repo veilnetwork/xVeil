@@ -148,7 +148,7 @@ class GroupCallAudioAdapter {
       return;
     }
     final peerPressure =
-        freshPeer && _buffer.observe(delay, sequence: sequence);
+        freshPeer && _buffer.observe(delay, sequence: sequence, sampledAt: now);
     final pressure =
         newLoss ||
         newDrop ||
@@ -215,6 +215,7 @@ class GroupCallAudioAdapter {
     // native authenticated loss observation is still within its freshness TTL.
     final complete =
         nativeFresh &&
+        _buffer.growing != true &&
         stats['audio_config_valid'] == 1 &&
         peerValid &&
         reports == expectedPeers &&

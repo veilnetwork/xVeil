@@ -156,18 +156,18 @@ void main() {
         interrupted: false,
         audioTxDrops: 0,
       );
-      expect(observe(6, 100, true), isTrue);
+      expect(observe(6, 100, true), isNull);
       expect(
         observe(6, 100, false),
-        isTrue,
-        reason: 'cached report cannot erase native pressure',
+        isNull,
+        reason: 'cached report cannot confirm native pressure',
       );
       for (var n = 7; n <= 18; n++) {
         observe(n, 100, false);
       }
       expect(observe(19, 100, false), isFalse);
       expect(
-        observe(20, 200, false),
+        observe(20, 300, false),
         isTrue,
         reason: 'hard ceiling is independent of the hint',
       );
@@ -213,7 +213,7 @@ void main() {
     for (final incoming in [false, true]) {
       final policy = CallAudioSourcePressure();
       recover(policy);
-      for (final delay in [110, 120, 130, 140, 150, 160]) {
+      for (final delay in [20, 40, 60, 80, 100, 120, 140, 160, 180]) {
         sample(
           policy,
           peer: incoming ? 100 : delay,
@@ -221,61 +221,37 @@ void main() {
         );
       }
       expect(
-        sample(policy, peer: incoming ? 100 : 160, local: incoming ? 160 : 100),
+        sample(policy, peer: incoming ? 100 : 200, local: incoming ? 200 : 100),
         isTrue,
       );
       recover(policy);
     }
   });
 
-  test('cached peer report cannot fill a source growth window', () {
+  test('cached peer report cannot confirm source growth', () {
     final policy = CallAudioSourcePressure();
     recover(policy, receive: false);
-    // An expired report breaks the trend, while the released latch is kept.
-    expect(sample(policy, receive: false, peer: null), isNull);
-    for (var i = 0; i < 5; i++) {
-      policy.observe(
-        sendExpected: true,
-        receiveExpected: false,
-        requirePeerPlayout: true,
-        peerDelayMs: 60 + i * 10,
-        peerSampleSequence: i,
-        receiveDelayMs: null,
-        receiveAgeMs: null,
-        interrupted: false,
-        audioTxDrops: 0,
-      );
-    }
-    for (var i = 0; i < 20; i++) {
-      expect(
-        policy.observe(
-          sendExpected: true,
-          receiveExpected: false,
-          requirePeerPlayout: true,
-          peerDelayMs: 110,
-          peerSampleSequence: 4,
-          receiveDelayMs: null,
-          receiveAgeMs: null,
-          interrupted: false,
-          audioTxDrops: 0,
-        ),
-        isFalse,
-      );
-    }
-    expect(
-      policy.observe(
-        sendExpected: true,
-        receiveExpected: false,
-        requirePeerPlayout: true,
-        peerDelayMs: 110,
-        peerSampleSequence: 5,
-        receiveDelayMs: null,
-        receiveAgeMs: null,
-        interrupted: false,
-        audioTxDrops: 0,
-      ),
-      isTrue,
+    final start = DateTime(2026, 10, 20);
+    bool? observe(int seq, int second, {bool growing = true}) => policy.observe(
+      sampledAt: start.add(Duration(seconds: second)),
+      sendExpected: true,
+      receiveExpected: false,
+      requirePeerPlayout: true,
+      peerDelayMs: 100,
+      peerCurrentDelayMs: 100,
+      peerSampleSequence: seq,
+      peerBufferGrowing: growing,
+      receiveDelayMs: null,
+      receiveAgeMs: null,
+      interrupted: false,
+      audioTxDrops: 0,
     );
+    expect(observe(1, 0), isNull);
+    for (var second = 1; second <= 3; second++) {
+      expect(observe(1, second), isNull);
+    }
+    expect(observe(2, 3), isTrue);
+    expect(observe(1, 4, growing: false), isTrue);
   });
 
   test(
@@ -361,7 +337,7 @@ void main() {
           isNull,
         );
         expect(sample(policy), isFalse);
-        expect(sample(policy, peer: 200), isTrue);
+        expect(sample(policy, peer: 300), isTrue);
         recover(policy);
       }
     }
@@ -381,12 +357,12 @@ void main() {
   test('capped buffers throttle sources until sustained recovery', () {
     final policy = CallAudioSourcePressure();
     recover(policy);
-    expect(sample(policy, peer: 200), isTrue);
+    expect(sample(policy, peer: 300), isTrue);
     for (var i = 0; i < 20; i++) {
       expect(sample(policy, peer: 180), isTrue);
     }
     recover(policy);
-    expect(sample(policy, local: 200), isTrue);
+    expect(sample(policy, local: 300), isTrue);
   });
 
   test('fresh peer measurements cannot hide stalled or old local audio', () {
@@ -473,8 +449,8 @@ void main() {
       expect(
         sample(
           policy,
-          targetPeer: incoming ? null : 220,
-          targetLocal: incoming ? 220 : null,
+          targetPeer: incoming ? null : 320,
+          targetLocal: incoming ? 320 : null,
         ),
         isTrue,
       );

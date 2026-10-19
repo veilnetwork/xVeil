@@ -927,8 +927,8 @@ void main() {
         );
         media.playout = const CallAudioPlayoutFeedback(
           sequence: 3,
-          delayMs: 210,
-          currentDelayMs: 210,
+          delayMs: 310,
+          currentDelayMs: 310,
           bufferGrowing: false,
         );
         async.elapse(const Duration(seconds: 1));
@@ -940,8 +940,8 @@ void main() {
         );
         media.playout = const CallAudioPlayoutFeedback(
           sequence: 4,
-          delayMs: 210,
-          currentDelayMs: 210,
+          delayMs: 310,
+          currentDelayMs: 310,
           bufferGrowing: false,
         );
         async.elapse(const Duration(seconds: 1));
@@ -949,7 +949,7 @@ void main() {
         expect(fake.sent, hasLength(3), reason: 'coalesce the periodic beat');
         media.playout = const CallAudioPlayoutFeedback(
           sequence: 5,
-          delayMs: 210,
+          delayMs: 310,
           currentDelayMs: 80,
           bufferGrowing: false,
         );
@@ -965,7 +965,11 @@ void main() {
           bufferGrowing: false,
         );
         async.elapse(const Duration(seconds: 1));
-        expect(fake.sent, hasLength(4), reason: 'healthy samples stay periodic');
+        expect(
+          fake.sent,
+          hasLength(4),
+          reason: 'healthy samples stay periodic',
+        );
         svc.dispose();
         async.elapse(const Duration(seconds: 6));
         expect(fake.sent, hasLength(4), reason: 'no feedback after disposal');
@@ -1451,10 +1455,12 @@ void main() {
           final svc = CallService(fake, now: () => clock.now(), media: media)
             ..start();
           final device = NodeId.fromHex('8' * 64);
-          fake.onCallSignal!(peer, offer('playout-auth').copyWith(
-            posture: CallPosture.direct,
-            replyDevice: device.hex,
-          ));
+          fake.onCallSignal!(
+            peer,
+            offer(
+              'playout-auth',
+            ).copyWith(posture: CallPosture.direct, replyDevice: device.hex),
+          );
           svc.accept();
           async.flushMicrotasks();
           const health = CallSignal(
@@ -1483,11 +1489,17 @@ void main() {
           expect(media.peerPlayout, isEmpty);
           fake.onCallSignal!(peer, CallSignal.tryDecode(health.encode())!);
           expect(media.peerPlayout.single.delayMs, 540);
-          fake.onCallSignal!(device, CallSignal(
-            callId: 'other-call',
-            type: CallSignalType.health,
-            audioPlayout: const CallAudioPlayoutFeedback(sequence: 2, delayMs: 100),
-          ));
+          fake.onCallSignal!(
+            device,
+            CallSignal(
+              callId: 'other-call',
+              type: CallSignalType.health,
+              audioPlayout: const CallAudioPlayoutFeedback(
+                sequence: 2,
+                delayMs: 100,
+              ),
+            ),
+          );
           expect(media.peerPlayout.length, 1);
           // A direct session without a sovereign alias names the physical
           // device pinned by the original offer, while media still belongs
@@ -3455,7 +3467,10 @@ void main() {
           expect(media.switches.length, 1, reason: 'failure must back off');
           async.elapse(kCallHeartbeatInterval);
           async.flushMicrotasks();
-          expect(media.switches, [CallTransportKind.p2p, CallTransportKind.p2p]);
+          expect(media.switches, [
+            CallTransportKind.p2p,
+            CallTransportKind.p2p,
+          ]);
           expect(svc.current?.transport, CallTransportKind.p2p);
           svc.dispose();
           async.flushMicrotasks();
@@ -3463,33 +3478,36 @@ void main() {
       });
     }
 
-    test('revoking local P2P consent during candidate backoff prevents retry', () {
-      fakeAsync((async) {
-        final fake = _FakeMessaging();
-        final media = _RejectDirectSwitchMedia()
-          ..openedTransport = CallTransportKind.relay;
-        var allowed = true;
-        final svc = CallService(
-          fake,
-          media: media,
-          now: () => clock.now(),
-          localAllowsP2P: (_) async => allowed,
-          peerReachableForP2P: (_) async => true,
-        )..start();
-        offer(fake, 'retry-revoked');
-        svc.accept();
-        async.flushMicrotasks();
-        fake.onCallSignal!(peer, ready('retry-revoked'));
-        async.flushMicrotasks();
-        allowed = false;
-        async.elapse(kCallP2PCandidateRetry);
-        async.flushMicrotasks();
-        expect(media.switches, [CallTransportKind.p2p]);
-        expect(svc.current?.transport, CallTransportKind.relay);
-        svc.dispose();
-        async.flushMicrotasks();
-      });
-    });
+    test(
+      'revoking local P2P consent during candidate backoff prevents retry',
+      () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _RejectDirectSwitchMedia()
+            ..openedTransport = CallTransportKind.relay;
+          var allowed = true;
+          final svc = CallService(
+            fake,
+            media: media,
+            now: () => clock.now(),
+            localAllowsP2P: (_) async => allowed,
+            peerReachableForP2P: (_) async => true,
+          )..start();
+          offer(fake, 'retry-revoked');
+          svc.accept();
+          async.flushMicrotasks();
+          fake.onCallSignal!(peer, ready('retry-revoked'));
+          async.flushMicrotasks();
+          allowed = false;
+          async.elapse(kCallP2PCandidateRetry);
+          async.flushMicrotasks();
+          expect(media.switches, [CallTransportKind.p2p]);
+          expect(svc.current?.transport, CallTransportKind.relay);
+          svc.dispose();
+          async.flushMicrotasks();
+        });
+      },
+    );
 
     test(
       'native admission loss announces relay and bounds candidate retries',

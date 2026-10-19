@@ -96,12 +96,14 @@ class CallAudioSourcePressure {
     final peerPressure = _peerBuffer.observe(
       peerNeeded ? peerDelay : null,
       sequence: peerSampleSequence,
+      sampledAt: sampledAt,
       measuredGrowing: peerNeeded && hasCurrentPeerDelay
           ? peerBufferGrowing
           : null,
     );
     final receivePressure = _receiveBuffer.observe(
       receiveExpected ? receiveDelayMs : null,
+      sampledAt: sampledAt,
     );
     // Competing sources honor fresh audio loss and the video buffer trigger.
     // Transport estimates or unknown feedback alone cannot cut this budget.
@@ -133,6 +135,8 @@ class CallAudioSourcePressure {
         (receiveTarget != null && receiveTarget >= playoutDegradeMs);
     final good =
         !bad &&
+        _peerBuffer.growing != true &&
+        _receiveBuffer.growing != true &&
         !transient &&
         !unknown &&
         !interrupted &&

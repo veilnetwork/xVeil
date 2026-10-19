@@ -1,0 +1,21 @@
+{
+  "baseline_replay_matches_all_archived_cut_times_and_levels": true,
+  "baseline_replay_matches_archived_floor_pause_and_source_pressure_counts": true,
+  "archived_counts": [
+    {
+      "samples": 340,
+      "floor_samples": 31,
+      "pause_samples": 3,
+      "source_pressure_samples": 60
+    },
+    {
+      "samples": 340,
+      "floor_samples": 41,
+      "pause_samples": 0,
+      "source_pressure_samples": 47
+    }
+  ],
+  "removed_cut_seconds": 128.00673716695746,
+  "repeated_concealment_cut_retained_seconds": 176.00406070798635,
+  "scope": "Identical recorded inputs; output changes are hypothetical, not a codec/network performance benchmark."
+}

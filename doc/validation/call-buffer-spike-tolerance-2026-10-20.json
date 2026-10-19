@@ -1,0 +1,82 @@
+{
+  "date": "2026-10-20",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "production_change": {
+    "shared_buffer_ceiling_ms": {
+      "before": 200,
+      "after": 300
+    },
+    "six_sample_growth_threshold_ms": {
+      "before": 20,
+      "after": 40
+    },
+    "growth_confirmation_seconds": 3,
+    "rule": "Only newly sampled, still-growing evidence can complete confirmation. Cache/replay cannot advance the timer. A draining window cancels it. Raw growing feedback is sent early; video growth is withheld during confirmation, without an extra receiver-side wait.",
+    "lifecycle": "Backwards clocks, observation gaps over6s, invalid input, stream resets and measured/legacy mode transitions restart the window. Untimed legacy calls require4 fresh growth observations.",
+    "scope": "Unicast video adaptation, shared local source pressure, outgoing receive feedback, group audio adaptation. Existing fresh audio-loss/interruption protection remains active.",
+    "boundary": "300ms is current receiver-buffer/pressure occupancy, not RTT or acoustic end-to-end latency. The unchanged200ms synthetic audio gate remains diagnostic; no relay role/priority or wire field was added."
+  },
+  "verification": {
+    "flutter_tests_passed": 383,
+    "analyze": "PASS,11changed files",
+    "format": "PASS",
+    "policy_replay": "Old policy exactly reproduces recorded cuts, floor/pause/source-pressure counts. New policy removes the128s brief-buffer cut and retains the176s repeated-concealment cut. Fixed recorded inputs, not a media performance comparison.",
+    "full_media_capture": {
+      "seconds": 360,
+      "aggregate_kbps": 1024,
+      "original_gate_ok": true,
+      "matched_markers": 704,
+      "missing_markers": 0,
+      "maximum_marker_delay_ms": 140.26999997440726,
+      "last_minute_decoded_fps": [
+        14.864443405390551,
+        14.864713164832262
+      ],
+      "last_dimensions": [
+        [
+          320,
+          240
+        ],
+        [
+          320,
+          240
+        ]
+      ],
+      "tail_content_changes": [
+        14,
+        14
+      ],
+      "exact_512kib_files": 2
+    },
+    "cleanup": {
+      "checked_at_utc": "2026-10-19T21:13:00.402236+00:00",
+      "recorded_processes_checked": 5,
+      "long_lived_processes_checked": 4,
+      "transient_recorders_checked": 1,
+      "remaining": [],
+      "audio_thread_exited": true,
+      "file_threads_exited": true,
+      "policy_exited": true,
+      "node_stop_results": [
+        0,
+        0,
+        0
+      ],
+      "remaining_fixture_sockets": 0
+    },
+    "foreign_wip_preserved": true
+  },
+  "remaining_work": [
+    "Three app cuts followed persistent video RTCP evidence at145/194/231s. Eventual in-call missing packets are6padding,0image payload; establish exact report/drop-stage attribution before changing loss handling. Timely decoding is not proved by eventual ingress.",
+    "Qualify group coexistence under real codec/file load after this policy change; unit coverage is not a full group call proof.",
+    "Finish ordered/canonical interaction isolation and full route/fanout cost accounting.",
+    "Physical speech/headset loudness, screen capture, mute/reconnect and heterogeneous-network qualification remain."
+  ],
+  "limits": "One synthetic loopback capture; no physical speech, microphone loudness, screen presentation, subsecond freeze timing or cellular quality proof. Some unit checks overlapped the first minute of the stand; no claim of a controlled performance comparison.",
+  "evidence_directory": "doc/validation/buffer-spike-tolerance-2026-10-20",
+  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-buffer-spike-tolerance-20261020",
+  "pushed": false,
+  "released": false,
+  "gui_or_phone_opened": false
+}
