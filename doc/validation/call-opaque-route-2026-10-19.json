@@ -1,0 +1,368 @@
+{
+  "checked_at_utc": "2026-10-19T15:16:07.087598+00:00",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "production_changes": false,
+  "changes": "Exact authenticated RTP/ciphertext/generic route joins; incomplete, ambiguous, disconnected or contradictory paths fail attribution.",
+  "full_load": {
+    "original_verdict": "FAIL",
+    "unchanged_360s_1024_kbit_gate": true,
+    "peak_ms": 280.0975416612346,
+    "route": {
+      "hops": [
+        {
+          "source": "9a966edd",
+          "receiver": "78ec1e04",
+          "selected_us": 253742391242,
+          "dispatched_us": 253742456941,
+          "selection_to_dispatch_ms": 65.699
+        },
+        {
+          "source": "78ec1e04",
+          "receiver": "2996cb56",
+          "selected_us": 253742457007,
+          "dispatched_us": 253742524449,
+          "selection_to_dispatch_ms": 67.442
+        }
+      ],
+      "relay_processing": [
+        {
+          "node": "78ec1e04",
+          "ingress_to_selection_ms": 0.066
+        }
+      ],
+      "seal_to_first_selection_ms": 0.164,
+      "last_dispatch_to_authenticated_ms": 0.065,
+      "sealed_to_authenticated_ms": 133.436,
+      "limits": [
+        "Diagnostic node prefixes must be unique in this owned fixture",
+        "Selection-to-dispatch includes queues and network; it is not pure propagation time",
+        "This join does not identify an encrypted UDP datagram or its shaper queue"
+      ],
+      "unique_fixture_node_prefixes_verified": true
+    }
+  },
+  "audio_only_diagnostic": {
+    "duration_seconds": 90,
+    "rate_kbps": 1024,
+    "verdict": false,
+    "qualifies_full_contention": false,
+    "source_sdk_sha256": "57843f770a0008bee2f47ee6a5fef06b705ac414139bba61b7b3c1f1832bcb2b",
+    "native_sha256": "fa92737825248b4cb44fc4e7209ebdff7334ca8ef91f527c76b2ee3606d77959",
+    "paths": [
+      {
+        "source": 1,
+        "receiver": 0,
+        "phases": [
+          {
+            "phase": "audio-only-initial",
+            "matched": 15,
+            "missing": 0,
+            "max_ms": 120.26562500977889,
+            "peak": {
+              "source_at_seconds": 19.190010625636205,
+              "decoded_at_seconds": 19.310276250645984,
+              "ordinal": 19,
+              "delay_ms": 120.26562500977889
+            }
+          },
+          {
+            "phase": "audio-only-steady",
+            "matched": 69,
+            "missing": 1,
+            "max_ms": 200.14108333270997,
+            "peak": {
+              "source_at_seconds": 61.61002050063689,
+              "decoded_at_seconds": 61.8101615839696,
+              "ordinal": 61,
+              "delay_ms": 200.14108333270997
+            }
+          }
+        ],
+        "source_edges": 90,
+        "decoded_edges": 89
+      },
+      {
+        "source": 2,
+        "receiver": 0,
+        "phases": [
+          {
+            "phase": "audio-only-initial",
+            "matched": 15,
+            "missing": 0,
+            "max_ms": 90.29716666555032,
+            "peak": {
+              "source_at_seconds": 14.140008583985036,
+              "decoded_at_seconds": 14.230305750650587,
+              "ordinal": 14,
+              "delay_ms": 90.29716666555032
+            }
+          },
+          {
+            "phase": "audio-only-steady",
+            "matched": 69,
+            "missing": 1,
+            "max_ms": 240.25375000201166,
+            "peak": {
+              "source_at_seconds": 88.88002866730676,
+              "decoded_at_seconds": 89.12028241730877,
+              "ordinal": 88,
+              "delay_ms": 240.25375000201166
+            }
+          }
+        ],
+        "source_edges": 90,
+        "decoded_edges": 89
+      },
+      {
+        "source": 0,
+        "receiver": 1,
+        "phases": [
+          {
+            "phase": "audio-only-initial",
+            "matched": 15,
+            "missing": 0,
+            "max_ms": 120.26054167654365,
+            "peak": {
+              "source_at_seconds": 19.190010958962375,
+              "decoded_at_seconds": 19.31027150063892,
+              "ordinal": 19,
+              "delay_ms": 120.26054167654365
+            }
+          },
+          {
+            "phase": "audio-only-steady",
+            "matched": 69,
+            "missing": 1,
+            "max_ms": 200.20179168204777,
+            "peak": {
+              "source_at_seconds": 88.88001654230175,
+              "decoded_at_seconds": 89.0802183339838,
+              "ordinal": 88,
+              "delay_ms": 200.20179168204777
+            }
+          }
+        ],
+        "source_edges": 90,
+        "decoded_edges": 89
+      },
+      {
+        "source": 2,
+        "receiver": 1,
+        "phases": [
+          {
+            "phase": "audio-only-initial",
+            "matched": 15,
+            "missing": 0,
+            "max_ms": 90.2946249989327,
+            "peak": {
+              "source_at_seconds": 14.140008583985036,
+              "decoded_at_seconds": 14.230303208983969,
+              "ordinal": 14,
+              "delay_ms": 90.2946249989327
+            }
+          },
+          {
+            "phase": "audio-only-steady",
+            "matched": 69,
+            "missing": 1,
+            "max_ms": 240.2521249896381,
+            "peak": {
+              "source_at_seconds": 88.88002866730676,
+              "decoded_at_seconds": 89.1202807922964,
+              "ordinal": 88,
+              "delay_ms": 240.2521249896381
+            }
+          }
+        ],
+        "source_edges": 90,
+        "decoded_edges": 89
+      },
+      {
+        "source": 0,
+        "receiver": 2,
+        "phases": [
+          {
+            "phase": "audio-only-initial",
+            "matched": 15,
+            "missing": 0,
+            "max_ms": 100.32675002003089,
+            "peak": {
+              "source_at_seconds": 7.07001929229591,
+              "decoded_at_seconds": 7.170346042315941,
+              "ordinal": 7,
+              "delay_ms": 100.32675002003089
+            }
+          },
+          {
+            "phase": "audio-only-steady",
+            "matched": 69,
+            "missing": 1,
+            "max_ms": 170.32154166372493,
+            "peak": {
+              "source_at_seconds": 35.35001104231924,
+              "decoded_at_seconds": 35.52033258398296,
+              "ordinal": 35,
+              "delay_ms": 170.32154166372493
+            }
+          }
+        ],
+        "source_edges": 90,
+        "decoded_edges": 89
+      },
+      {
+        "source": 1,
+        "receiver": 2,
+        "phases": [
+          {
+            "phase": "audio-only-initial",
+            "matched": 15,
+            "missing": 0,
+            "max_ms": 100.32779167522676,
+            "peak": {
+              "source_at_seconds": 7.0700182506407145,
+              "decoded_at_seconds": 7.170346042315941,
+              "ordinal": 7,
+              "delay_ms": 100.32779167522676
+            }
+          },
+          {
+            "phase": "audio-only-steady",
+            "matched": 69,
+            "missing": 1,
+            "max_ms": 150.24625000660308,
+            "peak": {
+              "source_at_seconds": 39.39002450063708,
+              "decoded_at_seconds": 39.540270750643685,
+              "ordinal": 39,
+              "delay_ms": 150.24625000660308
+            }
+          }
+        ],
+        "source_edges": 90,
+        "decoded_edges": 89
+      }
+    ],
+    "shaper": {
+      "stats": [
+        {
+          "received": 19642,
+          "sent": 19642,
+          "drops": 0,
+          "max_queue_ms": 119.11810445599258
+        },
+        {
+          "received": 21028,
+          "sent": 21028,
+          "drops": 0,
+          "max_queue_ms": 60.84633292630315
+        }
+      ],
+      "failure": null,
+      "trace_events": 39241,
+      "trace_rows": 39241,
+      "trace_capacity": 250000,
+      "trace_truncated": false
+    },
+    "budget_events": [
+      [
+        {
+          "t": 0,
+          "level": 1,
+          "packet_ms": 40,
+          "payload_bps": 32000,
+          "rc": 0
+        },
+        {
+          "t": 28.008272667007986,
+          "level": 2,
+          "packet_ms": 40,
+          "payload_bps": 24000,
+          "rc": 0
+        },
+        {
+          "t": 32.00275904199225,
+          "level": 3,
+          "packet_ms": 60,
+          "payload_bps": 24000,
+          "rc": 0
+        }
+      ],
+      [
+        {
+          "t": 0,
+          "level": 1,
+          "packet_ms": 40,
+          "payload_bps": 32000,
+          "rc": 0
+        },
+        {
+          "t": 28.013846458983608,
+          "level": 2,
+          "packet_ms": 40,
+          "payload_bps": 24000,
+          "rc": 0
+        },
+        {
+          "t": 35.01405908400193,
+          "level": 3,
+          "packet_ms": 60,
+          "payload_bps": 24000,
+          "rc": 0
+        }
+      ],
+      [
+        {
+          "t": 0,
+          "level": 1,
+          "packet_ms": 40,
+          "payload_bps": 32000,
+          "rc": 0
+        },
+        {
+          "t": 30.004146874998696,
+          "level": 2,
+          "packet_ms": 40,
+          "payload_bps": 24000,
+          "rc": 0
+        },
+        {
+          "t": 36.02625799999805,
+          "level": 3,
+          "packet_ms": 60,
+          "payload_bps": 24000,
+          "rc": 0
+        }
+      ]
+    ],
+    "stand_summary_sha256": "e838618b90b691e6ec2a60abf8b3c67b5beeec24d949832b6207804b5d284b55",
+    "matched_peak_is_partial_attribution": true
+  },
+  "interpretation": [
+    "Full-load peak: 65.699 ms first selection-to-dispatch, 0.066 ms relay dispatch-to-selection, 67.442 ms second selection-to-dispatch; transport selection is not a wire-send timestamp.",
+    "Audio-only matched peak: 240.254 ms including 169.798 ms encoded-to-ingress. Reducing video/files alone cannot explain or fix all observed peaks.",
+    "The 90-second diagnostic ends at the last input transition at 89.890 s; each path has one unmatched ordinal. The capture remains failed and the global peak analyzer still rejects it. A missing tone ordinal is not itself proof of a dropped network packet.",
+    "No opaque UDP packet identity is inferred from temporal proximity/size, and no per-hop bandwidth is inferred from first-hop ACKs.",
+    "Receiver and native codec clocks are same-host synthetic measurements; live speech/headset/screen remain unqualified."
+  ],
+  "next_work": "Measure generic transport/warm/maintenance bytes and their ownership during the audio-only spike, then constrain competing locally owned traffic across the complete route without relay media roles or user priority.",
+  "tests": {
+    "passed": 27,
+    "command": "TMPDIR=/private/tmp/ python3 -m unittest test_opaque_packet_route test_analyze_group_sdk_packet test_analyze_group_audio_peak"
+  },
+  "cleanup": {
+    "recorded_processes_checked": 11,
+    "remaining": [],
+    "workers_exited": true,
+    "node_stop_results": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "remaining_sockets": 0
+  },
+  "private_artifacts": "/Users/vart/.cache/codex/quic-all-confirm-20261019T150613Z",
+  "push": false,
+  "release": false
+}

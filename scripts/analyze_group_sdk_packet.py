@@ -3,10 +3,12 @@
 import argparse
 import hashlib
 import json
+from itertools import chain
 from pathlib import Path
 import re
 
 from analyze_group_audio_peak import analyze as analyze_native
+from opaque_packet_route import attribute_route
 
 
 def records(path, marker):
@@ -38,7 +40,7 @@ def clock(row):
     return value
 
 
-def attribute(packet, source_rows, receiver_rows, ipc_rows):
+def attribute(packet, source_rows, receiver_rows, ipc_rows, opaque_rows=None):
     """Logs must be complete and share the fixture's local monotonic clock."""
     key = (packet['ssrc'], packet['rtp_sequence'], packet['rtp_timestamp'],
            packet['ingress']['payload_bytes'])
@@ -87,7 +89,7 @@ def attribute(packet, source_rows, receiver_rows, ipc_rows):
              packet['ingress']['arrived_us'])
     if list(times) != sorted(times) or not clock(receipt) <= clock(received) <= times[-1]:
         raise ValueError('Invalid SDK pipeline clock order')
-    return {
+    result = {
         'epoch': identity[0], 'cell_sequence': identity[1],
         'rtp_index_in_cell': int(received['index']),
         'source_sdk_peer': sent['peer'], 'receiver_sdk_peer': receipt['peer'],
@@ -99,6 +101,15 @@ def attribute(packet, source_rows, receiver_rows, ipc_rows):
         'spans_ms': {a + '_to_' + b: (end-start)/1000
                      for a, b, start, end in zip(names, names[1:], times, times[1:])},
     }
+    if opaque_rows is not None:
+        digest = received.get('sealed_sha256', '')
+        if sealed.get('sealed_sha256') != digest:
+            raise ValueError('Different endpoint ciphertext digest')
+        result['opaque_route'] = attribute_route(
+            digest, opaque_rows, source=receipt['peer'], receiver=sent['peer'],
+            sealed_us=clock(sealed), received_us=clock(received),
+            sealed_bytes=int(sent['bytes']))
+    return result
 
 
 def analyze(directory):
@@ -130,9 +141,34 @@ def analyze(directory):
     ipc = [row for path in (paths[0], ipc_path)
            for row in records(path, 'ipc.rt_trace.sealed_sample ')
            if cell(row) in identities]
-    result = attribute(native['packet'], source, receiver, ipc)
+    # Older captures can lack the opt-in generic forwarding trace. If present,
+    # require a complete join for this exact packet; do not silently fall back.
+    opaque = records(ipc_path, 'delivery.opaque_trace ')
+    first = next(opaque, None)
+    if summary.get('opaque_forward_trace') is True and first is None:
+        raise ValueError('Missing opted-in opaque forwarding trace')
+    topology_paths = []
+    if first is not None:
+        opaque = chain((first,), opaque)
+        topology_paths = [directory/f'sessions-{index}.json' for index in range(4)]
+        identities = {row['node_id'].removeprefix('0x')
+                      for path in topology_paths
+                      for row in json.loads(path.read_text())['result']['sessions']}
+        if (len(identities) != 4 or
+                not all(re.fullmatch('[0-9a-f]{64}', node) for node in identities) or
+                len({node[:8] for node in identities}) != 4):
+            raise ValueError('Missing or ambiguous fixture node identities')
+    else:
+        opaque = None
+    result = attribute(native['packet'], source, receiver, ipc, opaque)
+    if first is not None:
+        prefixes = {node[:8] for node in identities}
+        if any(hop[side] not in prefixes for hop in result['opaque_route']['hops']
+               for side in ('source', 'receiver')):
+            raise ValueError('Opaque route leaves the owned fixture')
+        result['opaque_route']['unique_fixture_node_prefixes_verified'] = True
     hashes = {}
-    for path in [*paths, ipc_path]:
+    for path in [*paths, ipc_path, *topology_paths]:
         digest = hashlib.sha256()
         with path.open('rb') as stream:
             for chunk in iter(lambda: stream.read(1024*1024), b''):

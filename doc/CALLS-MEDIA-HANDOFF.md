@@ -1,5 +1,46 @@
 # Calls media handoff
 
+## 2026-10-19: exact route attribution; audio-only also has a delivery peak
+
+No production SDK/native/policy change in this cycle. The SDK remains
+**bfbb2311**, root input **c78fc322**. The group packet analyzer now joins the
+authenticated endpoint RTP/ciphertext witness to generic forwarding observations
+by ciphertext SHA-256. It verifies unique fixture node prefixes and rejects
+missing, duplicated, disconnected, cyclic, mismatched-size/digest and inverted
+observations. An opted-in but absent trace cannot silently use the old path.
+Dispatch-return is a completion observation and may race later stages.
+All **27** focused analyzer tests pass.
+
+The unchanged original full-load group peak of **280.098ms** is now joined
+through both hops: **65.699ms** first transport-selection-to-dispatch,
+**0.066ms** relay ingress-to-next-selection, and **67.442ms** second
+selection-to-dispatch. Endpoint seal-to-selection is0.164ms and final
+dispatch-to-authentication0.065ms. These are NOT pure propagation times or exact
+UDP/shaper-packet joins. Primary transport trace27's cumulative outgoing queue
+maximum after the peak is650us, without congestion-window/pacing blocked age.
+The recorded source-flight windows are mostly already at their reserve floor;
+unbounded secondary-window growth does not explain this capture's peak.
+
+A separate **90s/1024-kbit audio-only diagnostic**, with the same SDK/native,
+also **FAILS**: matched peak **240.254ms**, including **169.798ms** from encoded
+packet to ingress, with89.683/79.453ms across its two selected hops and0.053ms
+in relay dispatch. No video or file load is present. Its last source edge is
+89.890s and each of six paths has one unmatched ordinal at the capture tail;
+the global analyzer still rejects the capture. A matched-peak-only attribution
+is explicitly partial, not a completeness or quality pass. No missing ordinal
+was filled and no gate was loosened. All11 recorded process observations exited,
+workers/policies stopped, four node stops returned0 and no fixture sockets remain.
+
+Evidence: `call-opaque-route-2026-10-19.json`, `opaque-route-2026-10-19/`.
+Private capture: `/Users/vart/.cache/codex/quic-all-confirm-20261019T150613Z`.
+Goal **ACTIVE**. This changes the next investigation: separate actual generic
+transport/warm/maintenance bytes from audio during the audio-only spike before
+blaming video or changing receiver targets. No first-hop ACK capacity inference,
+relay media-role hints or preferential user service. Complete interaction
+separation, end-to-end source control and the full quality/hardware qualification
+listed below remain required. No phone, installed app, relay, push or release
+change occurred in this cycle.
+
 ## 2026-10-19: source records and early flight; pair passes, group fails
 
 SDK **6eb1f5b5** adds explicitly negotiated, independently keyed stateless
