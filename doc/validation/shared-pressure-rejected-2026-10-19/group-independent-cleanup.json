@@ -1,0 +1,12 @@
+{
+  "owned_processes_checked": 11,
+  "remaining": [],
+  "workers_exited": true,
+  "node_stop_results": [
+    0,
+    0,
+    0,
+    0
+  ],
+  "remaining_sockets": 0
+}

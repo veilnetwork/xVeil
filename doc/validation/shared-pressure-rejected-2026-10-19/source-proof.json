@@ -1,0 +1,15 @@
+{
+  "base_sdk": "827902ca3f02591988805e27ae26191e8517bd91",
+  "foreign_excluded": true,
+  "sources": {
+    "crates/veil-session/src/lib.rs": "f9abff0fa94f5e3142a424e0381ad7ea282cc9ca1bb056b4e43464e67a7674bb",
+    "crates/veil-session/src/local_source_activity.rs": "235f6d38a49ed34ac5c2e7c5dcd0818b4bd185180ddf0f75ac0e9a92c446b08e",
+    "crates/veil-session/src/local_source_window.rs": "84aff6898c886779cccbf808bc167e068400637acc0a483a6417653386a6940e",
+    "crates/veil-session/src/writer_progress_tests.rs": "463c4cd317df6a289cc6be8a87478658b4890ead1e570c5df92cca719abdb880",
+    "crates/veil-session/src/reliable_source_pressure_quic_tests.rs": "c570e111ef999f2b704f09678cdb8f5d9f6ce09556fcba36d1ca322d33aad927",
+    "crates/veil-session/src/tx_registry.rs": "f8316762b481d941c47626004c7e4add0de010592b3cb62a27eeae3a6e48914e"
+  },
+  "patch_sha256": "ce7b5e1231ea409c068fff105cd8ec695a994ce33093979a1726359efc7f4a01",
+  "sdk_sha256": "0fcce9e86cbfb32f2af2dabe8ed1c54c2bf475699b7b43a781ed80be609e2bc0",
+  "exports_unchanged": 202
+}
