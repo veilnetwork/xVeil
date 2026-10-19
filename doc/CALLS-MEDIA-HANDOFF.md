@@ -1,5 +1,62 @@
 # Calls media handoff
 
+## 2026-10-19: correlate decoded output clocks with source markers
+
+Diagnostic work only; production media policy, SDK/native binaries, source
+quotas and quality gates are unchanged. The pair fixture now supports
+`--playout-trace` with native timing, matching the existing group trace.
+Both analyzers join the exact source marker's RTP timestamp to adjacent
+receiver output callbacks. They distinguish normal speech from concealment,
+catch-up and timestamp jumps; no output-clock observation replaces PCM evidence.
+Missing streams remain unknown, incomplete/malformed traces fail attribution,
+and RTP wrap/encoder restart never license a guessed offset.
+
+The retained group capture's **320.227-ms** peak is genuine accumulated delay:
+its output RTP clock brackets **300.100–310.102 ms** after capture, leaving
+**10.125–20.127 ms** to tone detection. NetEq reports only **119/109 ms** storage
+at those callbacks. A causal minimum RTP/arrival intercept over the preceding
+30 seconds instead gives **269.080/269.082 ms** relative clock age. This needs
+no sender wall clock and is **not absolute one-way latency**. It includes
+upstream excess delay which storage-only pressure cannot describe. The nearest
+sender sample already has video at1 FPS; do not claim no secondary reduction
+was attempted or that this diagnostic alone fixes shared capacity allocation.
+
+The first instrumented360s pair run fails the unchanged gate at
+**200.080/190.151 ms**,704 matched/0 missing markers, both files exact and both
+video tails moving. Its render attribution is **unqualified**: the other
+engine's live synthetic video logger split one buffered playout line during
+destruction. No reconstruction is accepted. The fixture now stops **all**
+video producers after capture and before destroying any engine; successful
+stop results are recorded. This does not stop video during the timed workload.
+
+The repeated full360s run has complete **72000 output callbacks** across two
+streams and all **704 marker brackets** are normal speech, with no trace-limit
+loss. It still **FAILS** the original200-ms gate at **190.034/200.244 ms**.
+Both512-KiB files are exact, both final video tails change14 times, and no
+driver deadlines are missed. The200.244-ms peak has **50.592 ms formation,
+14.155 ms SDK-to-ingress and135.441 ms after WebRTC ingress**. Its output
+clock brackets180.362–190.181 ms; another10.063–19.882 ms precedes tone detection.
+Its relative age is only148.8–148.9 ms: the relative measure does not explain
+all absolute latency and must not replace the existing signal gate.
+
+Checks: **47 Python tests**, CLI validation and diff check. All8 owned stand,
+policy and helper processes are independently absent, six node stops return0,
+both explicit video stops return0 and both fixtures leave no sockets. Foreign
+root/SDK patches retain their original hashes. No Flutter/SDK/production-media rebuild
+(only the fixture PCM helper is compiled),
+physical call, install, server change, push or release this cycle. Evidence:
+**validation/call-render-clock-2026-10-19.json** and
+**validation/render-clock-2026-10-19/**; complete private captures remain under
+**~/.cache/codex/xveil-render-clock-20261019/**.
+
+Next production work: measure receiver RTP-clock lag with bounded recent
+arrival history, codec/SSRC/DTX reset rules and no sender-clock assumption;
+feed actual excess lag into coordinated local video/DATA pressure. First
+verify stable high delay and bounded reorder do not cause repeated speech
+trimming. Do not substitute a smaller fixed jitter-buffer cap. Joint source
+capacity reservation, complete interaction-channel separation and hardware
+qualification remain open. **Goal ACTIVE.**
+
 ## 2026-10-19: direction-specific group pressure and late session encoding
 
 SDK **3456ba3a** retains a protocol/scheduling correction: derive exact datagram

@@ -13,6 +13,7 @@ from pathlib import Path
 
 from analyze_relay_audio_pipeline import fields
 from group_pcm_timing import analyze_voice_path
+from audio_render_timing import attribute_render, playout_streams
 
 
 def trace_sections(lines, begin, record, selected_ssrc=None):
@@ -70,10 +71,13 @@ def attribute(peak, origin, captures, codec_rows, source_lines, receiver_lines,
             continue
         end = near + row['blocks']
         if end < len(clocks) and clocks[near] <= at < clocks[end]:
-            candidates.append((meta, row))
+            candidates.append((meta, row, near))
     if len(candidates) != 1:
         raise ValueError('Missing or ambiguous packet covering source input')
-    meta, enc = candidates[0]
+    meta, enc, first_capture = candidates[0]
+    marker_capture = min(range(max(0, bisect.bisect_left(clocks, at)-1),
+                               min(len(clocks), bisect.bisect_left(clocks, at)+1)),
+                         key=lambda i: abs(clocks[i]-at))
     stamp = (enc['timestamp'] + offset) % 2**32
     received = [row for _, row in trace_sections(receiver_lines,
                 'audio.rtp.ingress.begin', 'audio.rtp.ingress', meta['ssrc'])
@@ -95,6 +99,11 @@ def attribute(peak, origin, captures, codec_rows, source_lines, receiver_lines,
                 encoder_first_input_monotonic_us=enc['first_us'],
                 encoded_monotonic_us=enc['encoded_us'], ingress=ingress,
                 total_ms=(out-at)*1000,
+                render_clock=attribute_render(playout_streams(receiver_lines),
+                    ssrc=meta['ssrc'], packet_timestamp=stamp, sequence=ingress['seq'],
+                    marker_timestamp=(stamp + (marker_capture-first_capture)*(meta['rtp_hz']//100)) % 2**32,
+                    rtp_hz=meta['rtp_hz'], source_us=(at+origin)*1e6,
+                    pcm_edge_us=(out+origin)*1e6),
                 spans_ms={name: (b-a)*1000 for name, a, b in
                           zip(names, times, times[1:])})
     if any(line.startswith('audio.group.send.begin ') for line in source_lines):

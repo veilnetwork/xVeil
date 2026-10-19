@@ -1,0 +1,8 @@
+{
+  "scripts/relay-codec-control.py": "4d318d53d7703ec580e8c00efbd540df6c271bc1cda77abd385850fb267f8d27",
+  "scripts/relay_codec_policy.dart": "95134de1c15c008de99e06dc1d7abe8b77069858b6f080f1bb86e0370c69a97d",
+  "scripts/native_pcm_driver.cc": "2efd0cffa95f1f8b87c72c1f2b9d7adbe1ac28903cf3adcbfdd2187928503838",
+  "scripts/native_pcm_driver.py": "2c06e9d4c2c903686d6243fc5a5d7f33ee344ec633874ffe208540307bce6662",
+  "lib/state/call_bitrate_adapter.dart": "2a733c14129c1000cd3767fb55893c163bcbe7eea98346f3bc99bcb7c5abda9f",
+  "lib/state/veil_call_media.dart": "d9a812f17f4a34684e356c15d8f881eb649c46a6f0b43769ab046add613c7252"
+}
