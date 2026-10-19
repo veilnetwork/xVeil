@@ -1,0 +1,50 @@
+{
+  "frozen_before_implementation": true,
+  "root_base": "4dbfb6deeca5a0a19ff8983a55a224097427f356",
+  "sdk_base": "4855367332808123cf5b2878b32773fd195e00c5",
+  "objective": "One bounded rolling source budget; charge primary first and admit all secondary producers only from shared residual, preserving opaque relay service",
+  "confirmed_delivery_rules": [
+    "Only newly observed explicit authenticated wire ACKs in Data space; never inferred handshake ACKs or duplicates",
+    "Scope bytes and freshness to connection and monotonically changing route epoch; reject previous-path acknowledgments",
+    "Confirmed bytes are transport progress, not a capacity grant; guard ACK compression, app-limited input, stale observations and mixed/transit ownership",
+    "No independent full allowance for video, screen and DATA; one node source ledger keeps debt and primary framing/fanout cost"
+  ],
+  "acceptance": {
+    "group": {
+      "duration_seconds": 360,
+      "rate_kbps": 1024,
+      "audio_marker_paths": 6,
+      "audio_max_ms_exclusive": 200,
+      "missing_markers": 0,
+      "files": 3,
+      "file_bytes_each": 524288,
+      "file_hash_matches": true,
+      "moving_video_paths": 6,
+      "tail_changes_each_min": 14,
+      "deadline_misses": 0
+    },
+    "pair": {
+      "duration_seconds": 360,
+      "rate_kbps": 1024,
+      "audio_max_ms_exclusive": 200,
+      "missing_markers": 0,
+      "files": 2,
+      "file_bytes_each": 524288,
+      "file_hash_matches": true,
+      "moving_video_paths": 2,
+      "tail_changes_each_min": 14,
+      "deadline_misses": 0
+    }
+  },
+  "fixture_policy": "Reuse current original clocks, stimuli, shaper, file sizes and gates. No changed assertion to accept a candidate. Failed variants remain failed. No unrelated helper refactoring.",
+  "baseline": {
+    "group-final-360": {
+      "path": "/Users/vart/.cache/codex/xveil-rtp-lag-20261019/group-final-360",
+      "summary_sha256": "ca550109b219be7ea540d9bbb4592cdf40599e8d85ef55f0b28493ec07b96b48"
+    },
+    "pair-rtp-lag-full": {
+      "path": "/Users/vart/.cache/codex/xveil-rtp-lag-20261019/pair-rtp-lag-full",
+      "summary_sha256": "2701ccede6cfca67df460b139d6e8e1d09deed8f21fc03e807ddc05a0113d352"
+    }
+  }
+}

@@ -1,0 +1,115 @@
+{
+  "date": "2026-10-19",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "sdk_commit": "1fef65ad13acd009ae77825e36e519243efd4b4f",
+  "stage": "Confirmed delivery observation and route-epoch-aware relative RTT feedback; shared capacity allocator NOT implemented",
+  "private_artifacts": "/Users/vart/.cache/codex/xveil-source-credit-20261019",
+  "relays": {
+    "quic_enabled": 6,
+    "quic_port": 8443,
+    "obfs4_port": 5556,
+    "new_server_mutations": 0,
+    "all_six_server_checks_passed": true,
+    "fresh_endpoint_to_all_relays_verified_this_cycle": false
+  },
+  "functional_checks": {
+    "sdk_commit": "1fef65ad13acd009ae77825e36e519243efd4b4f",
+    "tests": {
+      "quinn_proto": {
+        "passed": 317,
+        "ignored": 0
+      },
+      "session": {
+        "passed": 600,
+        "ignored": 8
+      },
+      "bootstrap": {
+        "passed": 141,
+        "ignored": 1
+      },
+      "confirmed_feedback_final": {
+        "passed": 2
+      },
+      "epoch_negative_control": {
+        "expected_failed": 1,
+        "actual_failed": 1
+      }
+    },
+    "release_build": "passed",
+    "ffi_export_count": 202,
+    "ffi_export_names_unchanged": true,
+    "native_media_rebuilt": false,
+    "native_media_source": "48553673 reused hooks build from xveil-rtp-lag-20261019",
+    "shared_source_capacity_allocator_implemented": false,
+    "foreign_edits_excluded": true
+  },
+  "full_acceptance": {
+    "group": {
+      "qualified": false,
+      "duration_seconds": 360,
+      "max_ms": 340.10066668270156,
+      "matched": 2112,
+      "missing": 0,
+      "files_exact": true,
+      "video_tail_changes": [
+        9,
+        8,
+        8,
+        8,
+        8,
+        9
+      ],
+      "fifo_drops": [
+        23,
+        0
+      ]
+    },
+    "pair": {
+      "qualified": false,
+      "duration_seconds": 360,
+      "max_ms_by_side": [
+        299.99029167811386,
+        250.32370831468143
+      ],
+      "matched": 704,
+      "missing": 0,
+      "files_exact": true,
+      "video_tail_changes": [
+        14,
+        14
+      ],
+      "fifo_drops": [
+        54,
+        0
+      ]
+    }
+  },
+  "limits": [
+    "Both original full quality gates FAIL; no causal improvement or regression inferred from one capture per build",
+    "Synthetic same-host PCM, not physical headset/speech quality; phone not used this cycle",
+    "Explicit ACKed retained Data bytes include connection control and QUIC framing/padding, not UDP/IP; not available capacity",
+    "No shared source allocator, primary framing/fanout/control reservation or complete interaction channel audit yet",
+    "Source quotas, native media, test stimuli, clocks, shaper limits and assertions unchanged; no relay media hints or priority"
+  ],
+  "artifacts": {
+    "checks.json": "df19add9635483ded7cc9bac8c7ab238834b81c22b1872a65f77bfef4468e8e1",
+    "epoch-negative.txt": "00e92e12ff4d2cbddbca90416981bb7bd4c97a50f2c420644e5a43aa020b1afc",
+    "fleet-check-summary.json": "8d5a4ae19a4c1faf82a7093978153b73922cb86b26a7ae0722ad75d08eb5d628",
+    "group-confirmed-delivery.json": "235dfd7532f0b8dc67875ea90d70bef7ba61e7f15ec186e778852efad7030f7b",
+    "group-independent-cleanup.json": "ab67ed163b7968d323badf910de553eae2fdae57ba830772d4326ee6ff4799be",
+    "group-peak.json": "11ea281691c30db5af28428c0005f5bd01dada6d06e7256bafbe148e4e6cbd03",
+    "group-result.json": "e1c810821b3a6bf3a247e49d8c831bbe593276ea0cb43dfdfb2f5b20f9762c03",
+    "pair-confirmed-delivery.json": "a4205f72990c012d0e95b8cbaa36ec4652d43c8d6c91670b7ca3b635031b5806",
+    "pair-independent-cleanup.json": "f7f153996fdd074fd60203f3c4c3552f70f543807c501f042fee00b66f175324",
+    "pair-pipeline-peaks.json": "2ae40985fe307fdf392ad851700f7fa9ea3223d3a053031a33aa8d8d4daeabf5",
+    "pair-result.json": "30f548c6180cc122914f93011e74ada5c35897586e87c23b6f7844b5a98bbb86",
+    "proto-all.log.txt": "8e0f05d7d3f4f9b02138cb9594e2ab6de49f49584e7f73b4c136a835f18589c9",
+    "raw-artifacts.json": "16e578808f0a801f53f8ee6d73e5923af8cd82d95142de45f2da68ebe36808a0",
+    "root-source-proof.json": "1cc5f2d81e061fa6f6a14fabae1def7482e718547a41fc32d57a8d0c4b5c0af0",
+    "session-all.log.txt": "909ce9d3ab490324b89d4af8aca6923e11efbea9d4a337a8b258e4f48b426b28",
+    "session-confirmed-final.log.txt": "2488f6625991095c41fff3700cc299ddf4166a978ea9598e11c9cd09e4fa5cfd",
+    "source-proof.json": "08b1f3f0f22e1ffc032b0c2b30228a9d140f9205f159cf9aff1f1b4336dbda3f",
+    "summarize-delivery.py": "38c6db45e9a1c9bdb1d5e4378f55f6875c9abec51e397db9b9ec8ed3bfde1972"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "base": "4dbfb6deeca5a0a19ff8983a55a224097427f356",
+  "files": {
+    "scripts/group-process-preflight.py": "b1be9e94cf6cec74b10dfbc85517ee452ce0516bbc10e22348e343a0afd40124",
+    "scripts/relay-codec-control.py": "5353a989f62ebecba92872eadf9e0a3bf82f468f1021fd6a7013151d4fa08f4b",
+    "scripts/analyze_group_audio_peak.py": "b4a2bc1c3d31e6fc3446597da8656d1f5a0bd912c710065dca0add9be8848266",
+    "scripts/analyze_relay_audio_pipeline.py": "efc5835d4f2ff529f3ba6592d0e03da8670069dc4017335105f0a542bba7c766",
+    "scripts/group_codec_sdk.py": "f6c3f2274b1853d1d7d209095fd5d73b4833c130ff335afbd353d7c06940235d",
+    "lib/state/veil_call_media.dart": "d9a812f17f4a34684e356c15d8f881eb649c46a6f0b43769ab046add613c7252",
+    "lib/state/veil_group_call_media.dart": "fb364aed8971d7d681b933b6fb77868f7603c33d3d96c771c64aafdd48a5166d",
+    "lib/domain/call_signal.dart": "4f7ea0b97250945c0ddc6dc042a75ee79994eac7494fe214f43ed4283ecd3d05"
+  },
+  "group_fixture_sources_identical_to_baseline": true,
+  "native_media_sha256_unchanged": true
+}

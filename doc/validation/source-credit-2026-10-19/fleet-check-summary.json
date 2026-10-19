@@ -1,0 +1,120 @@
+{
+  "new_server_mutations": 0,
+  "server_checks": [
+    {
+      "host": "87.237.54.48",
+      "success": true,
+      "same_pid": true,
+      "pid": 57032,
+      "health_first": {
+        "tick": 53821,
+        "sessions": 6
+      },
+      "health_second": {
+        "tick": 53824,
+        "sessions": 6
+      },
+      "config_sha256": "b2b20e1bad627e526a0973a3be3f5d2a56b444a718c09137fc37c2f8f0924e5c",
+      "process_exe_sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+      "listeners_active": true,
+      "udp_8443_owned_by_service": true,
+      "automatic_restarts": 0
+    },
+    {
+      "host": "94.249.185.219",
+      "success": true,
+      "same_pid": true,
+      "pid": 51841,
+      "health_first": {
+        "tick": 53809,
+        "sessions": 6
+      },
+      "health_second": {
+        "tick": 53812,
+        "sessions": 6
+      },
+      "config_sha256": "f9519c0ce6ab61954c6493dc279b7e9de9dedbf8cf434db8a9c535a70236b61d",
+      "process_exe_sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+      "listeners_active": true,
+      "udp_8443_owned_by_service": true,
+      "automatic_restarts": 0
+    },
+    {
+      "host": "134.255.227.83",
+      "success": true,
+      "same_pid": true,
+      "pid": 48814,
+      "health_first": {
+        "tick": 53797,
+        "sessions": 6
+      },
+      "health_second": {
+        "tick": 53800,
+        "sessions": 6
+      },
+      "config_sha256": "5bc1dccf7437a47fe28d4b080f120221875ec83594dfdf289f20a55c478fa573",
+      "process_exe_sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+      "listeners_active": true,
+      "udp_8443_owned_by_service": true,
+      "automatic_restarts": 0
+    },
+    {
+      "host": "203.12.31.134",
+      "success": true,
+      "same_pid": true,
+      "pid": 977328,
+      "health_first": {
+        "tick": 54856,
+        "sessions": 6
+      },
+      "health_second": {
+        "tick": 54859,
+        "sessions": 6
+      },
+      "config_sha256": "4a5231688220f73d25306aa613ef16ea9a9d77721d217692cfbdcbbf2f533ec6",
+      "process_exe_sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+      "listeners_active": true,
+      "udp_8443_owned_by_service": true,
+      "automatic_restarts": 0
+    },
+    {
+      "host": "203.12.31.145",
+      "success": true,
+      "same_pid": true,
+      "pid": 1223069,
+      "health_first": {
+        "tick": 53784,
+        "sessions": 6
+      },
+      "health_second": {
+        "tick": 53787,
+        "sessions": 6
+      },
+      "config_sha256": "774b469128885bfc37e2734b01efb0efcb689584a89c28189e01924beab7cbf0",
+      "process_exe_sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+      "listeners_active": true,
+      "udp_8443_owned_by_service": true,
+      "automatic_restarts": 0
+    },
+    {
+      "host": "203.12.31.146",
+      "success": true,
+      "same_pid": true,
+      "pid": 1205487,
+      "health_first": {
+        "tick": 53775,
+        "sessions": 6
+      },
+      "health_second": {
+        "tick": 53778,
+        "sessions": 6
+      },
+      "config_sha256": "5a65e397b604a355c9898aa874bd0c78f7a7162c4344a02092f843526fc6aeb5",
+      "process_exe_sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
+      "listeners_active": true,
+      "udp_8443_owned_by_service": true,
+      "automatic_restarts": 0
+    }
+  ],
+  "scope": "Service, configuration, binary digest, sockets, listeners and advancing health. Not a fresh all-endpoint/all-backhaul reachability or media-quality proof."
+}
