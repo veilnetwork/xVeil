@@ -1,0 +1,33 @@
+{
+  "frozen_before_full_load": true,
+  "controller": "Cubic unchanged",
+  "change": "Settle pacing credit once, preserve fractions and monotonic time, honor optional explicit controller rate; no quotas/codec/native/workload changes",
+  "acceptance": {
+    "group": {
+      "duration_seconds": 360,
+      "rate_kbps": 1024,
+      "audio_marker_paths": 6,
+      "audio_max_ms_exclusive": 200,
+      "missing_markers": 0,
+      "files": 3,
+      "file_bytes_each": 524288,
+      "file_hash_matches": true,
+      "moving_video_paths": 6,
+      "tail_changes_each_min": 14,
+      "deadline_misses": 0
+    },
+    "pair": {
+      "duration_seconds": 360,
+      "rate_kbps": 1024,
+      "audio_max_ms_exclusive": 200,
+      "missing_markers": 0,
+      "files": 2,
+      "file_bytes_each": 524288,
+      "file_hash_matches": true,
+      "moving_video_paths": 2,
+      "tail_changes_each_min": 14,
+      "deadline_misses": 0
+    }
+  },
+  "controller_default_not_changed": true
+}
