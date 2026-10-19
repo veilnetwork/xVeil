@@ -1,0 +1,81 @@
+{
+  "date": "2026-10-19",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "sdk_commit": "492da08facc977f80c47bcf562f73edfe9632bd7",
+  "change": "Owned whole App streams use the existing source DATA generic QUIC child and its actual source-flight accounting, with immutable child-key/stream-scope pins.",
+  "negotiation": {
+    "capability": "SUPPORTS_AUXILIARY_APP_STREAMS, extra_flags2 bit 3",
+    "requires": "Explicit auxiliary records, duplex QUIC and reliable-parallel permission in authenticated parent capabilities, including authenticated resume metadata.",
+    "compatibility": "Stateless-record-only and older peers keep their original App carrier. No stream is moved mid-flight.",
+    "relay_policy": "No purpose/role on child proofs, no preferential relay service and no connection-quota increase; eight children per direction remains the bound."
+  },
+  "lifetime": "Each App channel has its own bounded neutral response FIFO. Authenticated RX tail drains before a local FIFO End marker retires pins. TX reservation/commit close races preserve that RX tail while the parent remains authorized; retirement invalidates old streams rather than replaying them on replacements.",
+  "checks": {
+    "cargo_check": true,
+    "cargo_fmt_all_check": true,
+    "cargo_clippy_workspace_all_targets_deny_warnings": true,
+    "full_library_tests": {
+      "passed": 2288,
+      "ignored": 19,
+      "scope": "After final EOF reservation/commit guard; subsequent changes only fix two equivalent Clippy boolean/let-chain expressions."
+    },
+    "final_auxiliary_tests": 18,
+    "new_tests": 8,
+    "functional_scope": "Actual QUIC App Open/Data/Close and receipts, primary activity/pressure pacing with byte preservation and independent RPC, legacy carrier, replacement without migration, full RX FIFO tail despite failed TX, scope checks and authenticated capability/resume tamper rejection. The pressure test supplies a real endpoint activity witness; it is not a PCM or perceptual speech test.",
+    "ffi_exports": 202,
+    "unchanged_exports": true
+  },
+  "timed_media": {
+    "scope": "Original unmodified 360s/1024-kbit pair/group fixtures with synthetic Opus/VP8 and authenticated 512-KiB files. These fixtures use streamless file records; new whole-App stream behavior is verified by separate QUIC tests.",
+    "candidate": "Before final Closed-commit guard and formatting/lint cleanup. Its binary/source archive is retained. Final rebuilt binary has not rerun these media gates; no release qualification claim.",
+    "pair": {
+      "pass": false,
+      "max_ms": [
+        200.07229165639728,
+        190.36474998574704
+      ],
+      "matched": 704,
+      "missing": 0,
+      "files_exact": 2,
+      "video_tails": [
+        14,
+        14
+      ],
+      "deadline_misses": 0
+    },
+    "group": {
+      "pass": false,
+      "max_ms": 210.16583329765126,
+      "matched": 2112,
+      "missing": 0,
+      "files_exact": 3,
+      "video_tails": [
+        11,
+        5,
+        9,
+        5,
+        9,
+        11
+      ],
+      "deadline_misses": [
+        0,
+        0,
+        0
+      ]
+    },
+    "no_gate_relaxation": true,
+    "causality": "One run per variant cannot establish a causal performance improvement or regression."
+  },
+  "remaining": [
+    "Fix excessive group source-coordinator pauses after short peer concealment: at the tail video_policy.audioReserve is true while its audioAdaptation.latest.paused_after is false. GroupCallAudioAdapter.needsSecondaryYield drives GroupCallSourcePriority requestYield, whose pause/quiet policy outlives brief impairment. Preserve real floor/secondary-yield requirements for actual sustained congestion.",
+    "Group peak 210.166ms and pair peak 200.072ms fail strict <200ms. The group60-ms peak at187.860s is 0.180ms formation +61.621ms encoded-to-ingress +148.365ms after ingress, with continuous normal speech. Do not blindly trim a starving decoder or round failures into a pass.",
+    "Requalify final SDK with original full gates; add whole-stream mixed PCM/load validation as needed.",
+    "Independent network-control/signaling, streamful App on ordered/canonical fallbacks, route/fanout accounting, physical voice/headset/screen and reconnect/mute remain open."
+  ],
+  "cleanup": "All16 recorded process observations exited, all7 node stops returned0 and no fixture sockets remain. No installed app, phone, relay, push or public release change.",
+  "evidence": "auxiliary-app-streams-2026-10-19/",
+  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-auxiliary-app-streams-20261019",
+  "foreign_wip_preserved": true,
+  "public_release": false
+}

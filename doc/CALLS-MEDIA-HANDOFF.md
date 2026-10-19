@@ -1,5 +1,67 @@
 # Calls media handoff
 
+## 2026-10-19: owned whole App streams isolated; media gates still FAIL
+
+SDK **492da08f** negotiates `SUPPORTS_AUXILIARY_APP_STREAMS` (extra_flags2 bit3)
+inside authenticated parent capabilities/resume metadata. New own AppOpen/Data/
+Close/Receipt/WindowUpdate streams use the existing source DATA generic QUIC
+child and its source-flight factory/accounting. A whole stream stays pinned to
+one child key and App scope. Older/stateless-only peers keep the old carrier.
+No role on child proofs, relay privilege or extra transport quota is introduced;
+the bound remains8 children per direction. Own network control/signaling and
+ordered/canonical fallback interaction separation are still unfinished.
+
+Each auxiliary App channel has its own bounded neutral response FIFO. A failed
+TX actor does not discard completed authenticated RX: the reader queues a local
+FIFO End marker after its tail. Parent retirement still cancels authorization
+immediately. Closed TX admission, including the reservation/commit race, waits
+for that RX tail before retiring pins; old streams never migrate to replacements.
+The last race guard was added AFTER the timed captures below. Their input
+archive/binary is retained separately from the final rebuilt SDK.
+
+All **2288 library tests PASS,19 ignored** after the EOF race guard. Subsequent
+changes only clean up equivalent Clippy boolean/let-chain expressions. Final
+focused auxiliary tests **18 PASS**;8 tests are new. They cover real QUIC stream
+bytes/receipts, source activity/pressure pacing and independent RPC, old-peer
+carrier, failure/replacement, completed RX tail under failed TX, stream scope,
+capability negotiation and authenticated resume tampering. The pressure test
+supplies an endpoint activity witness; it is not a PCM/speech test. Final full
+workspace Clippy with `-D warnings`, `cargo fmt --all --check`, release SDK build
+and unchanged202 FFI export checks PASS. Final SDK SHA:
+`174ced336efae2359b2ceb758f192de4b68670d86e59ac761992b9915356cd80`.
+
+The earlier unmodified **360s/1024-kbit** media captures both **FAIL**. Pair:
+**200.072/190.365ms**,704/0 markers,2 exact512-KiB files, both video tails14 and
+0 native deadline misses. Group: **210.166ms**,2112/0 markers,3 exact512-KiB
+files, video tails **11/5/9/5/9/11** (required>=14) and0 deadline misses. Its
+60-ms peak at187.860s is **0.180ms formation +61.621ms delivery +148.365ms after
+ingress**, with continuous normal speech in the RTP bracket. No gate is relaxed
+or rounded into a pass. These fixtures use streamless file records, so the
+whole-stream mechanism has separate transport-test evidence. One run per
+variant is not causal performance evidence. Final rebuilt SDK media gates
+remain unqualified; these failures cannot qualify a release.
+
+**Concrete next action:** fix the GROUP SOURCE COORDINATOR's excessive pause
+after short peer concealment. In late samples, `video_policy.audioReserve=true`
+while `audioAdaptation.latest.paused_after=false`: the regular video adapter
+is not requesting that pause. `GroupCallAudioAdapter.needsSecondaryYield`
+passes new concealment into `GroupCallSourcePriority.requestYield`, escalating
+to a pause with a20s quiet/8 fresh-report recovery. At these late events local/
+peer buffers are below the ceiling and no new network-loss/decoded-discard
+witness exists. Short isolated concealment must still cut competing quality,
+without spending the same prolonged pause as sustained congestion. Preserve
+real floor/yield evidence before lengthening audio and do not shorten an active
+genuine-congestion hold. `group-tail-policy-audit.json` retains exact inputs;
+all3 senders entered60-ms audio in this capture and did not recover40ms.
+
+All16 recorded process observations exited, all7 node stops returned0 and
+fixture sockets are gone. Foreign WIP is preserved. No installed app, phone,
+relay, public release or push change. Evidence:
+`call-auxiliary-app-streams-2026-10-19.json`, `auxiliary-app-streams-2026-10-19/`;
+private artifacts `/Users/vart/.cache/codex/xveil-auxiliary-app-streams-20261019`.
+Goal **ACTIVE**. Keep the full interaction-separation, route/fanout accounting,
+original media gates and physical voice/headset/screen/reconnect/mute scope.
+
 ## 2026-10-19: explicit concealment feedback; pair passes, group210.061ms fails
 
 Optional encrypted RTCP APP **VAP3** now reports non-silent decoder concealment

@@ -1,0 +1,25 @@
+{
+  "base_sdk": "3c91f9b0f7a287ce63f97ba048273959092b276f",
+  "root_base": "ff460c9b",
+  "own_sources": {
+    "crates/veil-node-runtime/src/runtime/peer_handshake.rs": "b79c6c90150c2b87bf5a7822a2ce3b1593fdd7b91bd259ed348f1e390edd970a",
+    "crates/veil-node-runtime/src/runtime/tests.rs": "c1abea6d596546a5d7c95c1cdbe8202d93a117b7c07328b3a9ea2c02004bf001",
+    "crates/veil-proto/src/session.rs": "4f905057798a0c28fbca2090ca513c67a9b61c64c3f0a0d106fbe762ac86586a",
+    "crates/veil-session/src/handshake.rs": "dfd54ddddcc8ba9b7ccc678815adf91696e1c803cc62b5643142b86e4b82c032",
+    "crates/veil-session/src/parallel_lanes.rs": "09009bfcacec182be5c4de4fb52769076e2d1bf03a85299320574408a4f12ddc",
+    "crates/veil-session/src/reliable_frames.rs": "0b5e75a3bcd933ac776501340c2769667eb14db1764499df439dc57d380dd1e1",
+    "crates/veil-session/src/reliable_streams.rs": "986f76f899190605e68ebb3e6d98d710fde6f7faaffa0957a0a2c3de024d2897",
+    "crates/veil-session/src/runner.rs": "549319433c0af23618d891b29b2375a72618fc4914d47aa717eed1dcbe768567",
+    "crates/veil-session/src/auxiliary_app_streams.rs": "d0d9ba479ba97724c4c5429b2100ffd0babb4a933156d3c748b3e2a60044ee2f",
+    "crates/veil-session/src/auxiliary_records_quic_tests.rs": "79870e0e65154a8f10b49b30f130588549e26c0b24aa6ccc8606fc417caa5a9f",
+    "crates/veil-session/src/resume_capabilities.rs": "ab8fc1110cfe4ce99027f3b12f942b6a8903bd1a80638ec875cb2b2bf902136a",
+    "crates/veil-session/src/reliable_streams_tests.rs": "eabac95613dd03775ab7bc1d139cca9da170c83f843ba904c97a2382c9f1d928",
+    "crates/veil-session/src/auxiliary_records.rs": "0db8e82806759fbd5daf758ce3e1b9511f0aaac81b8a7167f093d9542c52502c"
+  },
+  "native_library": "/Users/vart/.cache/codex/xveil-concealment-feedback-20261019/media-hooks/libveil_media.dylib",
+  "native_sha256": "fd67c0fb60ef3390fabf449fcd9ecdaa1d321f2d6738e7ece765145d80d93778",
+  "native_source_proof": "/Users/vart/.cache/codex/xveil-concealment-feedback-20261019/source-proof.json",
+  "foreign_wip_excluded": true,
+  "sdk_sha256": "0a9359caa32086328ac16de7b817594a9b1dca0ec84ec387cff38a50c124cd75",
+  "sdk_exports": 202
+}
