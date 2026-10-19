@@ -140,6 +140,51 @@ void main() {
     }
   }
 
+  test('acknowledged native pause preserves the usable video ceiling', () {
+    final a = direct(level: 4);
+    apply(a);
+    final floor = a.acknowledgedTarget;
+    poor(a, 2);
+    expect(a.audioReserve, isTrue);
+    expect(a.applyPendingPause((_) => false), isFalse);
+    // A library without a working pause still needs the sparse fallback.
+    expect(a.target, (maxBitrateKbps: 1, maxFps: 0.02));
+    expect(a.applyPendingPause((_) => true), isTrue);
+    expect(a.target, floor);
+    expect(
+      a.applyPendingTarget((_) => throw StateError('unneeded retune')),
+      isNull,
+    );
+    good(a, CallBitrateAdapter.recoverAfter);
+    expect(a.audioReserve, isFalse);
+    expect(
+      a.applyPendingTarget((_) => throw StateError('unneeded retune')),
+      isNull,
+    );
+    expect(a.applyPendingPause((_) => true), isTrue);
+    expect(a.acknowledgedTarget, floor);
+  });
+
+  test(
+    'late pause acknowledgement restores the floor while video is closed',
+    () {
+      final a = direct(level: 4);
+      apply(a);
+      final floor = a.acknowledgedTarget;
+      poor(a, 2);
+      expect(a.applyPendingPause((_) => false), isFalse);
+      expect(a.applyPendingTarget((_) => true), isTrue);
+      expect(a.acknowledgedTarget, (maxBitrateKbps: 1, maxFps: 0.02));
+      expect(a.applyPendingPause((_) => true), isTrue);
+      expect(a.applyPendingTarget((_) => true), isTrue);
+      expect(a.acknowledgedTarget, floor);
+      expect(a.acknowledgedPause, isTrue);
+      a.invalidateAppliedState();
+      expect(a.acknowledgedPause, isNull);
+      expect(a.target, (maxBitrateKbps: 1, maxFps: 0.02));
+    },
+  );
+
   test(
     'fresh peer decoded loss cuts video once with a recovered peer buffer',
     () {
