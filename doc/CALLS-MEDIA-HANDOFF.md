@@ -1,5 +1,72 @@
 # Calls media handoff
 
+## 2026-10-19: separate own QUIC network control; both media gates FAIL
+
+SDK **19205a98** adds authenticated `SUPPORTS_AUXILIARY_ONLY` (extra_flags2
+bit4), requiring the complete auxiliary App-stream codec and its duplex/
+reliable parent capabilities. New peers omit the mixed reliable child and
+use six own source selectors: audio0, camera2, screen3, App data4, call
+signaling6 and eligible network-control records5. Two neutral slots remain;
+the original8-child/direction bound is unchanged. Older peers retain seven
+generic slots plus their mixed child. Allocation never evicts a live neutral
+owner for a local source. There is no role on proofs or preferential relay
+service. Canonical session lifecycle and compatibility paths remain in scope.
+
+Record-only control5 stays outside the lossy datagram scheduler. Its TLS warm
+and retained flight use the shared endpoint source budget from the first packet.
+Whole App-stream tracking stays enabled without the mixed reliable pool.
+Seven new regression tests cover capability dependencies/authenticated resume,
+legacy/modern capacity, readiness ownership, real6-connection QUIC bindings,
+replacement at the original8-child quota without changing audio's connection,
+whole App bytes/receipts with no mixed pool, and RPC/file failure isolation.
+The old-peer paths are retained in the same tests.
+
+All **2139 library tests PASS,19 ignored** across proto/session/runtime;
+4 focused auxiliary-only tests also PASS. Worktree library tests contain the
+preserved foreign WIP dependencies; the release SDK and Clippy use a clean
+HEAD export plus only the12 owned source files. `cargo fmt --all --check` and
+clean3-crate/all-target Clippy with `-D warnings` PASS. Initial Clippy failed
+because the compiler-cache volume filled. Only regenerable Veil incremental
+caches were removed; the same command then passed without a code change.
+Clean SDK build/load and the unchanged202-export comparison PASS. SHA:
+`2816a30fba6804373521086f9d173b1ddee58a29ac8c860dee0150fc6f40b1ec`.
+Both timed captures show6 first network-control5 sends and0 mixed-pool offers.
+Native media remains the existingfd67c0fb test-hook binary.
+
+Original **360s/1024-kbit PAIR gate FAILS** at **200.035291666/220.246166689ms**:
+704 matched/0 missing markers,2 exact512-KiB files,0 native deadline misses,
+video tails13/14 changes and a sampled retrieval gap up to6.999s. At the
+220.246-ms peak, formation is20.305ms, SDK-to-ingress15.094ms and the remaining
+after-ingress span184.817ms. The native bracket is continuous normal speech,
+without skip/fallback; that residual is not NetEq alone. Near25s BOTH native
+unicast ANA encoders change40->60ms while video remains1fps, RTP progresses,
+no pause is requested and outgoing RTP drops remain0. Receive target/buffer
+then rises. **Concrete next defect:** native unicast long packets are not gated
+by the owning secondary-yield policy. Inspect `BoundedAudioEncoder`/
+`OnReceivedUplinkAllocation` and production unicast wiring. Preserve actual
+BWE/framing constraints and legitimate low-bandwidth audio-only/fully-yielded
+operation; do not simply turn60ms off everywhere or invent transport budget.
+
+Original **GROUP gate also FAILS** at **200.353083317ms**:2112/0 markers,
+3 exact files,0 native deadline misses; tails14/14/1/14/1/14. Its40-ms peak
+is10.180ms formation +30.656ms encoded-to-ingress +159.507ms after ingress.
+The current local playout budget still permits this end-to-end overflow;
+account for codec/lookahead and the other stages when bounding receiver queues.
+Source0 gets a genuine yield near346s and remains paused at359s with5 healthy
+samples and peer delay68ms. Inspect the actual pressure input before changing
+genuine hysteresis. This is not evidence that all coordinator pauses are fixed.
+
+All14 long-lived stand processes and2 transient recorders are gone; all7 node
+stops return0 and fixture sockets are absent. Compiler helpers have exited.
+Foreign WIP remains unchanged. No app install, relay mutation, push or release.
+No gate is relaxed/rounded, and one capture per scenario is not causal SDK
+performance evidence. Evidence: `call-separate-network-control-2026-10-19.json`,
+`separate-network-control-2026-10-19/`; private root
+`/Users/vart/.cache/codex/xveil-separate-network-control-20261019`.
+Goal **ACTIVE**. Native long-packet ordering and receive latency, group recovery,
+ordered/canonical interaction separation, full route/fanout accounting and
+physical voice/headset/screen/reconnect/mute qualification all remain required.
+
 ## 2026-10-19: group transient source yield; strict pair video gate remains open
 
 The group audio adapter now distinguishes completed decoder concealment/catch-up

@@ -1,0 +1,24 @@
+{
+  "root_base": "99713cb4767f747fa52d5052b9b6df7a593cebe2",
+  "sdk_base": "492da08facc977f80c47bcf562f73edfe9632bd7",
+  "own_sdk_sources": {
+    "crates/veil-node-runtime/src/runtime/peer_handshake.rs": "2c90e53732a2f35471def2add26c0d7b568abc0759f860fcbd7b9dcea13c8711",
+    "crates/veil-node-runtime/src/runtime/tests.rs": "ccae2a7a9c3a578655a05c165972193268cbb031d6c690313ab0dc19765c5bfc",
+    "crates/veil-proto/src/session.rs": "c582faaa79eaeb9d4049f57982e849f24280b5318c7e1ae32e9dd0b9cb85c63b",
+    "crates/veil-session/src/auxiliary_records_quic_tests.rs": "0103803f1bbe5c379d48bc97854dda8513ef903714dfc8502cd1bded8e538fe4",
+    "crates/veil-session/src/channel_assignments.rs": "56b4ea308ac63cb5d5621a94e81eaa8c5fbddb5d905dc6763a0d364fdd07d557",
+    "crates/veil-session/src/handshake.rs": "813c2887d2f895e22f553346785828bf8758c9952f08855818502c189d81b95a",
+    "crates/veil-session/src/local_datagram_status.rs": "f0cb51b93c81acef66e620a92a41407be8bf1da62cc2d6088636266516f54a65",
+    "crates/veil-session/src/local_source_activity.rs": "20a3b22ebf787952906695f8f61d82d771e5896f53f49625a3bad3a92f257a33",
+    "crates/veil-session/src/parallel_lanes.rs": "2c4f97f91cb8d87e1e2eecaf9c6768ecda5ac90659d7021232e759528ef86621",
+    "crates/veil-session/src/primary_recovery_quic_tests.rs": "d3912c4a068e83e046221996b90c039a352d379eea505a1d6e6d01eda30522a3",
+    "crates/veil-session/src/resume_capabilities.rs": "395323fdfb5b4833689c3fe1edb661d6059e8c1323696a12ca27f142fdcda1a7",
+    "crates/veil-session/src/runner.rs": "e23dd933f16929cbae21acba98847a3b7f327a8e0823a9b14638773219539108"
+  },
+  "foreign_wip_diff_sha256": "1ceeb05d540078262f1480ba7210dfaa0f5895be9f0099f64bc18a56a4f6a363",
+  "test_scope": "Current worktree crate library tests. Foreign dispatcher, ratchet and identity-publish edits are excluded from commits but present in the test build; no release binary has been built.",
+  "clean_sdk_source_export": "/Users/vart/.cache/codex/xveil-separate-network-control-20261019/sdk-src",
+  "clean_export_foreign_wip_excluded": true,
+  "sdk_commit": "19205a986a6833f1ae4b330819b99bef4ef7ddc8",
+  "sdk_base_archive_sha256": "8895bce632da55a56fdc60cd8583bad29055a12ea06ca941195b326db4aac217"
+}

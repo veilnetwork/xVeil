@@ -1,0 +1,9 @@
+{
+  "path": "/Users/vart/.cache/codex/xveil-separate-network-control-20261019/sdk/libveilclient_ffi.dylib",
+  "sha256": "2816a30fba6804373521086f9d173b1ddee58a29ac8c860dee0150fc6f40b1ec",
+  "exports": 202,
+  "exports_unchanged": true,
+  "dlopen": true,
+  "clean_source_export": true,
+  "foreign_wip_excluded": true
+}

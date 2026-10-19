@@ -1,0 +1,29 @@
+   Compiling veil-proto v0.11.42 (/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/crates/veil-proto)
+   Compiling veil-dht v0.11.42 (/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/crates/veil-dht)
+   Compiling veil-mesh v0.11.42 (/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/crates/veil-mesh)
+   Compiling veil-abuse v0.11.42 (/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/crates/veil-abuse)
+   Compiling veil-bootstrap v0.11.42 (/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/crates/veil-bootstrap)
+   Compiling veil-e2e v0.11.42 (/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/crates/veil-e2e)
+   Compiling veil-pending-ack v0.11.42 (/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/crates/veil-pending-ack)
+   Compiling veil-proxy v0.11.42 (/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/crates/veil-proxy)
+   Compiling veil-pex v0.11.42 (/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/crates/veil-pex)
+   Compiling veil-routing v0.11.42 (/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/crates/veil-routing)
+   Compiling veil-discovery v0.11.42 (/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/crates/veil-discovery)
+   Compiling veil-anycast v0.11.42 (/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/crates/veil-anycast)
+   Compiling veil-identity v0.11.42 (/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/crates/veil-identity)
+   Compiling veil-update v0.11.42 (/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/crates/veil-update)
+   Compiling veil-app v0.11.42 (/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/crates/veil-app)
+   Compiling veil-ipc v0.11.42 (/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/crates/veil-ipc)
+   Compiling veil-observability v0.11.42 (/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/crates/veil-observability)
+   Compiling veil-cfg v0.11.42 (/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/crates/veil-cfg)
+   Compiling veil-session v0.11.42 (/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/crates/veil-session)
+    Finished `test` profile [optimized + debuginfo] target(s) in 1m 28s
+     Running unittests src/lib.rs (/Volumes/cfb/target/debug/deps/veil_session-b7c7f4f3dd984dbb)
+
+running 4 tests
+test resume_capabilities::tests::auxiliary_only_permission_is_authenticated_across_resume ... ok
+test runner::quic_backlog_tests::auxiliary_records_quic_tests::auxiliary_only_app_stream_works_without_a_mixed_reliable_pool ... ok
+test runner::quic_backlog_tests::auxiliary_records_quic_tests::auxiliary_only_rpc_uses_control_connection_and_preserves_file_isolation ... ok
+test runner::quic_backlog_tests::primary_recovery_quic_tests::auxiliary_only_control_and_signaling_have_distinct_connections ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 641 filtered out; finished in 3.72s

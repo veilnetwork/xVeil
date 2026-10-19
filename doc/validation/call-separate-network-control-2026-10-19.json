@@ -1,0 +1,219 @@
+{
+  "date": "2026-10-19",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "sdk_commit": "19205a986a6833f1ae4b330819b99bef4ef7ddc8",
+  "change": {
+    "scope": "Negotiated own QUIC sources",
+    "sources": [
+      {
+        "local_selector": 0,
+        "kind": "audio"
+      },
+      {
+        "local_selector": 2,
+        "kind": "camera"
+      },
+      {
+        "local_selector": 3,
+        "kind": "screen"
+      },
+      {
+        "local_selector": 4,
+        "kind": "reliable application data"
+      },
+      {
+        "local_selector": 6,
+        "kind": "call signaling"
+      },
+      {
+        "local_selector": 5,
+        "kind": "eligible own network control records"
+      }
+    ],
+    "capability": "SUPPORTS_AUXILIARY_ONLY: extra_flags2 bit 4, dependent on full auxiliary App-stream codec and duplex/reliable parent support; authenticated across resume",
+    "quota": "Six own generic children plus two neutral slots, maximum eight per direction. New mode omits the mixed reliable child; older peers retain seven generic slots plus the mixed child. Live neutral connections are never evicted for local roles.",
+    "control": "Source 5 has its own generic proof/record writer/congestion state, retained source-flight accounting from the first TLS packet, and existing local control admission. Source selectors stay local; relays receive no role or preferential-service request.",
+    "stream_state": "Whole App stream tracking remains enabled independently of mixed-pool presence. Source 5 is record-only and is excluded from the lossy datagram scheduler. Canonical session lifecycle/compatibility and ordered paths remain outside this change."
+  },
+  "verification": {
+    "libraries": {
+      "checked_at_utc": "2026-10-19T18:44:37.371793+00:00",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "veil-session",
+        "-p",
+        "veil-proto",
+        "-p",
+        "veil-node-runtime",
+        "--lib",
+        "--",
+        "--test-threads=1"
+      ],
+      "passed": 2139,
+      "ignored": 19,
+      "failed": 0,
+      "process_observations": 4,
+      "remaining_owned_processes": [],
+      "no_gui_app_or_phone_launched": true,
+      "library_test_scope_only": true
+    },
+    "new_tests": 7,
+    "focused_auxiliary_only_tests": 4,
+    "format": "cargo fmt --all --check passed",
+    "clean_export_clippy": {
+      "step": "clippy",
+      "ok": true,
+      "command": [
+        "cargo",
+        "clippy",
+        "--locked",
+        "-p",
+        "veil-session",
+        "-p",
+        "veil-proto",
+        "-p",
+        "veil-node-runtime",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 21.61901491699973,
+      "owned_exited": true,
+      "helper_exited": true,
+      "finished_at_utc": "2026-10-19T18:50:30.658145+00:00"
+    },
+    "initial_clippy_failure": "Target cache volume exhausted; freed only regenerable Veil incremental caches, then the same Clippy command passed. No source change for the retry.",
+    "sdk_build": {
+      "path": "/Users/vart/.cache/codex/xveil-separate-network-control-20261019/sdk/libveilclient_ffi.dylib",
+      "sha256": "2816a30fba6804373521086f9d173b1ddee58a29ac8c860dee0150fc6f40b1ec",
+      "exports": 202,
+      "exports_unchanged": true,
+      "dlopen": true,
+      "clean_source_export": true,
+      "foreign_wip_excluded": true
+    },
+    "raw_library_log_sha256": "79da9ae9c982649429ab0b11b77cc01e6aeee56a65d523f8e325bcf4d45c149a",
+    "captured_modes": {
+      "pair": {
+        "control_source_first_sends": 6,
+        "data_source_first_sends": 4,
+        "mixed_reliable_pool_offers": 0
+      },
+      "group": {
+        "control_source_first_sends": 6,
+        "data_source_first_sends": 3,
+        "mixed_reliable_pool_offers": 0
+      }
+    }
+  },
+  "pair": {
+    "duration_seconds": 360,
+    "aggregate_kbps": 1024,
+    "qualified": false,
+    "maximum_decoded_marker_delay_ms": [
+      200.03529166569933,
+      220.2461666893214
+    ],
+    "matched_markers": 704,
+    "missing_markers": 0,
+    "exact_512kib_files": 2,
+    "tail_content_changes": [
+      13,
+      14
+    ],
+    "maximum_sampled_video_pull_gap_seconds": [
+      2.0012199159828015,
+      6.999010499974247
+    ],
+    "native_deadline_misses": 0,
+    "concrete_defect": "At about 25s both native unicast ANA encoders select 60-ms packets while video stays at 1 fps, video RTP counters advance and no pause was requested. Packet length is not gated by owning secondary-source yield. Peak: 20.305 ms capture-to-encode, 15.094 ms SDK-to-ingress, 184.817 ms after ingress. Continuous normal speech, no render skip/fallback at the peak. Attribution is not NetEq alone and does not prove the new SDK caused the latency."
+  },
+  "group": {
+    "duration_seconds": 360,
+    "aggregate_kbps": 1024,
+    "qualified": false,
+    "maximum_decoded_marker_delay_ms": 200.35308331716806,
+    "matched_markers": 2112,
+    "missing_markers": 0,
+    "exact_512kib_files": 3,
+    "tail_content_changes": [
+      14,
+      14,
+      1,
+      14,
+      1,
+      14
+    ],
+    "native_deadline_misses": [
+      0,
+      0,
+      0
+    ],
+    "peak_packet_ms": 40,
+    "peak_spans_ms": {
+      "capture_to_encoded": 10.179791715927422,
+      "encoded_to_ingress": 30.65599995898083,
+      "ingress_to_webrtc": 0.010000017937272787,
+      "webrtc_to_pcm_edge": 159.50729162432253
+    },
+    "late_video": "Source 0 receives a genuine yield request near 346s and remains paused at 359s, with 5 healthy samples and peer delay 68ms. Inspect the actual pressure input; this trace alone does not justify disabling genuine congestion protection."
+  },
+  "next_required_work": [
+    "Gate unicast native ANA long packets behind measured secondary yield without faking BWE budget or disabling legitimate low-bandwidth audio-only/fully-yielded behavior.",
+    "Review receive queue/codec lookahead accounting: the current local playout budget can still allow >200ms end-to-end markers with 40ms packets and low transport latency. Preserve stable high-RTT paths and measured jitter tolerance.",
+    "Diagnose the late group genuine-yield input and video recovery. Keep original audio/video/file gates unchanged.",
+    "Finish ordered/canonical interaction separation and complete route/fanout accounting.",
+    "Qualify physical speech, headset loudness, screen, mute and reconnect."
+  ],
+  "quality_limitations": [
+    "Both original fixed 360-second / 1024-kbit captures fail; no release qualification. No threshold was rounded or weakened.",
+    "One capture per scenario does not establish causal SDK performance improvement/regression.",
+    "Synthetic clocks and decoded frame pulls are not physical acoustic/screen-presentation proof."
+  ],
+  "cleanup": {
+    "pair": {
+      "checked_at_utc": "2026-10-19T19:16:06.716051+00:00",
+      "recorded_processes_checked": 5,
+      "long_lived_processes_checked": 4,
+      "transient_recorders_checked": 1,
+      "remaining": [],
+      "audio_thread_exited": true,
+      "file_threads_exited": true,
+      "policy_exited": true,
+      "node_stop_results": [
+        0,
+        0,
+        0
+      ],
+      "remaining_fixture_sockets": 0
+    },
+    "group": {
+      "checked_at_utc": "2026-10-19T19:16:06.785252+00:00",
+      "recorded_processes_checked": 11,
+      "long_lived_processes_checked": 10,
+      "transient_recorders_checked": 1,
+      "remaining": [],
+      "workers_exited": true,
+      "node_stop_results": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "remaining_sockets": 0
+    },
+    "build_helpers_exited": true,
+    "gui_apps_or_phone_opened": false
+  },
+  "foreign_wip_preserved": true,
+  "deployed": false,
+  "public_release": false,
+  "pushed": false,
+  "evidence_directory": "doc/validation/separate-network-control-2026-10-19",
+  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-separate-network-control-20261019"
+}
