@@ -1,0 +1,15 @@
+{
+  "sdk_base": "8011cfb6bce011c8d77a57102451c33bbc7050b3",
+  "clean_source_export": true,
+  "foreign_wip_excluded": true,
+  "overrides": {
+    "crates/veilclient-ffi/src/media/rtp_trace.rs": "fa1abca9684cae38ff8f7e8ce5bd281f9ba490d25a82ecd1b58926b6ca7e2568",
+    "crates/veilclient-ffi/src/media_ffi.rs": "8e477f94f481830a9ecec37a7130eb9348be97aee485d83c282d18d1a9b240eb",
+    "crates/veilclient-ffi/src/media_ffi/media_priority_tests.rs": "4d36771c0c363fbc22f2a994d0d83b3a9f7837df98378043a3f6b1d71344763b",
+    "crates/veilclient-ffi/include/veil_ffi.h": "d897342ae32051ee3e0758dcae56dcefc6de26eb7ca0b23fce921b9a57dfb16f",
+    "crates/veilclient-ffi/src/abi_contract.rs": "7e073f1a92e74ae2f5acdb128b87d3020c435930a4f1b0d3b40d67a7f43a5eea",
+    "flutter/veil_flutter/lib/src/abi_contract.dart": "a7fac8b17a4dffcb4a976bbae5734d9c82a43b8e30c847d2c7eee32a8f539327"
+  },
+  "public_c_declarations_semantically_unchanged": true,
+  "generated_abi_contract": "d897342ae32051ee3e0758dcae56dcefc6de26eb7ca0b23fce921b9a57dfb16f"
+}

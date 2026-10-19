@@ -1,0 +1,21 @@
+{
+  "step": "cadence-red",
+  "ok": true,
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "--release",
+    "-p",
+    "veilclient-ffi",
+    "--features",
+    "production-seeds,node-embedded,packet-tunnel",
+    "--lib",
+    "media_ffi::media_priority_tests"
+  ],
+  "returncode": 101,
+  "elapsed_seconds": 178.16198008297943,
+  "owned_exited": true,
+  "helper_exited": true,
+  "finished_at_utc": "2026-10-19T21:26:04.640287+00:00"
+}
