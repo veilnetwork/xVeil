@@ -1,0 +1,18 @@
+{
+  "0": {
+    "cuts": [],
+    "last_target": {
+      "kbps": 900,
+      "fps": 15.0
+    },
+    "non_silent_concealment_samples": 14963
+  },
+  "1": {
+    "cuts": [],
+    "last_target": {
+      "kbps": 900,
+      "fps": 15.0
+    },
+    "non_silent_concealment_samples": 17257
+  }
+}

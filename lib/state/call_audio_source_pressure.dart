@@ -17,8 +17,11 @@ class CallAudioSourcePressure {
   final _rtcpLoss = CallRtcpLoss();
   final _peerRecoveryLoss = CallRtcpLoss();
   final _peerConcealment = CallRtcpLoss();
+  final _localConcealment = CallRtcpLoss();
   final _transientLoss = CallAudioTransientLoss();
+  final _receiveTransientLoss = CallAudioTransientLoss();
   bool? _lastTransientSendExpected;
+  bool? _lastTransientReceiveExpected;
   final _peerBuffer = CallAudioBufferWindow();
   final _receiveBuffer = CallAudioBufferWindow();
 
@@ -42,6 +45,7 @@ class CallAudioSourcePressure {
     Object? audioLossReportUs,
     Object? peerAudioRecoveryReportUs,
     Object? peerAudioConcealmentReportUs,
+    Object? localAudioConcealmentReportUs,
     bool recovered = false,
     bool? peerRecoveryObserved,
   }) {
@@ -64,6 +68,13 @@ class CallAudioSourcePressure {
         .observe(
           audioReportUs: peerAudioConcealmentReportUs,
           audioExpected: sendExpected,
+          videoExpected: false,
+        )
+        .audio;
+    final localConcealed = _localConcealment
+        .observe(
+          audioReportUs: localAudioConcealmentReportUs,
+          audioExpected: receiveExpected,
           videoExpected: false,
         )
         .audio;
@@ -119,15 +130,24 @@ class CallAudioSourcePressure {
       _transientLoss.reset();
       _lastTransientSendExpected = sendExpected;
     }
-    final transient = concealed || recovered;
+    final transient = concealed || recovered || localConcealed;
     final repeatedTransient = _transientLoss.observe(
-      transient,
+      concealed || recovered,
+      sampledAt: sampledAt,
+    );
+    if (_lastTransientReceiveExpected != receiveExpected) {
+      _receiveTransientLoss.reset();
+      _lastTransientReceiveExpected = receiveExpected;
+    }
+    final repeatedReceiveLoss = _receiveTransientLoss.observe(
+      localConcealed,
       sampledAt: sampledAt,
     );
     final bad =
         newDrop ||
         networkLoss ||
         repeatedTransient ||
+        repeatedReceiveLoss ||
         interrupted ||
         peerPressure ||
         receivePressure ||
@@ -175,12 +195,15 @@ class CallAudioSourcePressure {
     _recoverySamples = CallBitrateAdapter.recoverAfter;
     _lastAudioDrops = null;
     _transientLoss.reset();
+    _receiveTransientLoss.reset();
     _lastTransientSendExpected = null;
+    _lastTransientReceiveExpected = null;
     _rtcpLoss.reset();
     _peerRecoveryLoss.reset();
     // Keep consuming this witness while both directions are muted, including
     // samples where its freshness TTL expires. Resume cannot replay it.
     if (!preserveConcealmentWitness) _peerConcealment.reset();
+    if (!preserveConcealmentWitness) _localConcealment.reset();
     _peerBuffer.reset();
     _receiveBuffer.reset();
   }

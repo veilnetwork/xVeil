@@ -1,0 +1,180 @@
+{
+  "ok": true,
+  "duration_seconds": 360,
+  "rate_kbps": 1024,
+  "decoded_pcm_edges": [
+    {
+      "side": 0,
+      "phases": [
+        {
+          "name": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "p95_ms": 100.05720832850784,
+          "max_ms": 100.12845828896388
+        },
+        {
+          "name": "audio-video",
+          "matched": 337,
+          "missing": 0,
+          "p95_ms": 130.0068333512172,
+          "max_ms": 150.10400000028312
+        }
+      ],
+      "source_edge_capture_positions": {
+        "20": [
+          0,
+          1
+        ],
+        "40": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "60": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      }
+    },
+    {
+      "side": 1,
+      "phases": [
+        {
+          "name": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "p95_ms": 100.23212502710521,
+          "max_ms": 100.33775004558265
+        },
+        {
+          "name": "audio-video",
+          "matched": 337,
+          "missing": 0,
+          "p95_ms": 130.26770832948387,
+          "max_ms": 150.28129162965342
+        }
+      ],
+      "source_edge_capture_positions": {
+        "40": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "60": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      }
+    }
+  ],
+  "decoded_video_progress": {
+    "synthetic_fixture_only": true,
+    "screen_presentation_proof": false,
+    "sampled_retrieval_not_native_decode_timing": true,
+    "tail_seconds": 15,
+    "directions": [
+      {
+        "side": 0,
+        "decoded_frame_pulls": 339,
+        "decoded_counter": {
+          "frames": 3713,
+          "observation_seconds": 337.9988822500454,
+          "fps": 10.985243428270245
+        },
+        "last_minute_decoded_counter": {
+          "frames": 870,
+          "observation_seconds": 58.99718649999704,
+          "fps": 14.746465918337371
+        },
+        "last_dimensions": [
+          320,
+          240
+        ],
+        "content_changes": 338,
+        "last_decoded_pull_seconds": 359.00147416704567,
+        "max_sampled_pull_gap_seconds": 1.004499415983446,
+        "tail_decoded_pulls": 15,
+        "tail_content_changes": 14,
+        "tail_content_verified": true,
+        "moving_at_end": true
+      },
+      {
+        "side": 1,
+        "decoded_frame_pulls": 339,
+        "decoded_counter": {
+          "frames": 3736,
+          "observation_seconds": 337.99745441699633,
+          "fps": 11.053337683989769
+        },
+        "last_minute_decoded_counter": {
+          "frames": 879,
+          "observation_seconds": 58.99631754204165,
+          "fps": 14.899235013670328
+        },
+        "last_dimensions": [
+          320,
+          240
+        ],
+        "content_changes": 338,
+        "last_decoded_pull_seconds": 359.00306425004965,
+        "max_sampled_pull_gap_seconds": 1.0056098330533132,
+        "tail_decoded_pulls": 15,
+        "tail_content_changes": 14,
+        "tail_content_verified": true,
+        "moving_at_end": true
+      }
+    ],
+    "required_tail_content_changes": 14,
+    "tail_content_verified": true,
+    "moving_at_end": true
+  },
+  "file_results": [
+    {
+      "queued": 524288,
+      "queue_duration_ms": 5.2,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "receipt_duration_ms": 274467.5,
+      "missing_indices": []
+    },
+    {
+      "queued": 524288,
+      "queue_duration_ms": 7.5,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "receipt_duration_ms": 250128.9,
+      "missing_indices": []
+    }
+  ],
+  "native_failures": [
+    0,
+    0
+  ],
+  "poll_failures": [
+    0,
+    0
+  ],
+  "audio_thread_exited": true,
+  "file_threads_exited": true,
+  "policy_exited": true,
+  "node_stop_results": [
+    0,
+    0,
+    0
+  ],
+  "remaining_fixture_sockets": 0,
+  "scope": "Same-host synthetic real Opus/VP8 pair, shared constrained QUIC path, 2 x 512KiB files; not microphone/headset or screen presentation proof."
+}

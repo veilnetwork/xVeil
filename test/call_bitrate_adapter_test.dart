@@ -355,6 +355,75 @@ void main() {
     });
   }
 
+  for (final muteAfterFirst in [false, true]) {
+    test(
+      'incoming concealment protects video with microphone muted=$muteAfterFirst',
+      () {
+        final a = direct();
+        native(
+          a,
+          stats: {...healthy(), 'audio_local_concealment_report_us': 100},
+        );
+        expect(a.level, 0, reason: 'one incoming event only holds growth');
+        native(
+          a,
+          stats: {...healthy(), 'audio_local_concealment_report_us': 100},
+        );
+        native(
+          a,
+          stats: {...healthy(), 'audio_local_concealment_report_us': 200},
+          send: !muteAfterFirst,
+        );
+        expect(
+          a.level,
+          2,
+          reason: 'repeated incoming damage yields local video',
+        );
+        for (var n = 0; n < 3; n++) {
+          native(
+            a,
+            stats: {...healthy(), 'audio_local_concealment_report_us': 200},
+            send: !muteAfterFirst,
+          );
+          expect(
+            a.level,
+            2,
+            reason: 'cached event is not fresh incoming damage',
+          );
+        }
+      },
+    );
+  }
+
+  test('incoming events while receive is off or stalled cannot replay', () {
+    for (final stalled in [false, true]) {
+      final a = direct();
+      native(
+        a,
+        stats: {
+          ...healthy(),
+          'worker_stalled': stalled ? 1 : 0,
+          'audio_local_concealment_report_us': 100,
+        },
+        receive: stalled,
+      );
+      native(
+        a,
+        stats: {...healthy(), 'audio_local_concealment_report_us': 100},
+      );
+      native(
+        a,
+        stats: {...healthy(), 'audio_local_concealment_report_us': 200},
+      );
+      expect(a.level, 0, reason: 'resume has only one fresh receive event');
+      native(
+        a,
+        stats: {...healthy(), 'audio_local_concealment_report_us': 201},
+      );
+      expect(a.level, 2);
+    }
+  });
+
   test('recorded 63-to-109ms spike and brief 250ms excursions hold video', () {
     for (final peerDirection in [false, true]) {
       final a = direct();
@@ -540,7 +609,9 @@ void main() {
       expect(a.level, 0);
       native(a, recovered: true);
       expect(a.level, 2);
-      native(a, recovered: true);
+      for (var second = 3; second <= 8; second++) {
+        native(a, recovered: true);
+      }
       expect(a.level, 4);
       expect(a.audioReserve, isFalse);
       native(a);
@@ -572,6 +643,80 @@ void main() {
       native(a);
     }
     expect(a.audioReserve, isFalse);
+  });
+
+  test(
+    'a burst of soft audio recovery gives each reduced video rung a trial',
+    () {
+      final a = direct();
+      native(a, recovered: true);
+      native(a, recovered: true);
+      expect(a.level, 2);
+      for (var second = 3; second < 8; second++) {
+        native(a, recovered: true);
+        expect(a.level, 2, reason: 'a short burst must not cascade to one fps');
+        expect(a.audioReserve, isFalse);
+      }
+      native(a, recovered: true);
+      expect(
+        a.level,
+        4,
+        reason: 'continued damage still reduces video further',
+      );
+      expect(a.audioReserve, isFalse);
+      native(a, recovered: true);
+      expect(a.audioReserve, isFalse);
+      native(a, recovered: true);
+      expect(
+        a.audioReserve,
+        isTrue,
+        reason: 'damage at the applied floor still pauses video',
+      );
+    },
+  );
+
+  test(
+    'opposite-direction soft events cannot double-cut the same video trial',
+    () {
+      final a = direct();
+      native(a, recovered: true);
+      native(a, recovered: true);
+      expect(a.level, 2);
+      native(
+        a,
+        send: false,
+        stats: {...healthy(), 'audio_local_concealment_report_us': 100},
+      );
+      native(
+        a,
+        send: false,
+        stats: {...healthy(), 'audio_local_concealment_report_us': 200},
+      );
+      expect(a.level, 2);
+      expect(a.audioReserve, isFalse);
+    },
+  );
+
+  test('hard audio loss bypasses the soft video trial immediately', () {
+    final a = direct();
+    native(a, recovered: true);
+    native(a, recovered: true);
+    expect(a.level, 2);
+    native(a, stats: {...healthy(), 'audio_loss_report_us': 100});
+    expect(a.level, 4);
+    native(a, stats: {...healthy(), 'audio_loss_report_us': 200});
+    native(a, stats: {...healthy(), 'audio_loss_report_us': 300});
+    expect(a.audioReserve, isTrue);
+  });
+
+  test('a capped buffer bypasses the soft video trial', () {
+    final a = direct();
+    native(a, recovered: true);
+    native(a, recovered: true);
+    expect(a.level, 2);
+    native(a, peerDelay: 300);
+    native(a, peerDelay: 300);
+    expect(a.level, 4);
   });
   test('healthy decoded audio retries one fps before another small trim', () {
     final a = direct(level: 4);
@@ -1211,6 +1356,33 @@ void main() {
     }
     expect(a.target.maxBitrateKbps, 90);
   });
+
+  test(
+    'fresh incoming concealment cannot count toward resuming paused video',
+    () {
+      final a = direct();
+      poor(a, 6);
+      expect(a.audioReserve, isTrue);
+      native(
+        a,
+        stats: {...healthy(), 'audio_local_concealment_report_us': 100},
+      );
+      native(
+        a,
+        stats: {...healthy(), 'audio_local_concealment_report_us': 100},
+      );
+      native(
+        a,
+        stats: {...healthy(), 'audio_local_concealment_report_us': 100},
+      );
+      expect(a.audioReserve, isTrue);
+      native(
+        a,
+        stats: {...healthy(), 'audio_local_concealment_report_us': 100},
+      );
+      expect(a.audioReserve, isFalse);
+    },
+  );
 
   test('healthy audio releases a protection pause while capture is off', () {
     for (final audioDrops in [null, 0]) {

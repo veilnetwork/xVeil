@@ -112,6 +112,7 @@ class RoomPolicy {
       audioLossReportUs: stats['audio_loss_report_us'],
       peerAudioRecoveryReportUs: stats['audio_peer_recovery_report_us'],
       peerAudioConcealmentReportUs: stats['audio_peer_concealment_report_us'],
+      localAudioConcealmentReportUs: stats['audio_local_concealment_report_us'],
     );
     final pressured = sourcePriority.floor ? true : measuredPressure;
     if (request['prepare'] == true) {
