@@ -1,0 +1,104 @@
+{
+  "date": "2026-10-19",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "sdk_commit": "827902ca3f02591988805e27ae26191e8517bd91",
+  "scope": "Debit complete owned work by actual session fragment planner before committing nonces; bind its reservation to codec/carrier/ceiling and pace by exact charged prefixes",
+  "fixed_regression": {
+    "prior_envelope_bytes": 8028,
+    "actual_codec_bytes": 8292,
+    "unchanged_pressure_limit": 8192,
+    "negative_control": "Behavioral failure under envelope-only admission; passes with planned admission"
+  },
+  "checks": {
+    "session_passed": 603,
+    "session_ignored": 8,
+    "types_passed": 18,
+    "types_ignored": 0,
+    "release_build_passed": true,
+    "unchanged_sdk_exports": 202,
+    "media_rebuilt": false,
+    "group_fixture_sources_identical_to_baseline": true,
+    "native_media_sha256_unchanged": true,
+    "foreign_edits_preserved": true
+  },
+  "full_gates": {
+    "group": {
+      "qualified": false,
+      "duration_seconds": 360,
+      "max_ms": 340.1167499832809,
+      "matched": 2112,
+      "missing": 0,
+      "files_exact": true,
+      "video_tail_changes": [
+        14,
+        14,
+        10,
+        14,
+        10,
+        14
+      ],
+      "fifo_drops": [
+        0,
+        0
+      ],
+      "deadline_misses": [
+        0,
+        0,
+        0
+      ]
+    },
+    "pair": {
+      "qualified": false,
+      "duration_seconds": 360,
+      "max_ms_by_side": [
+        200.08824998512864,
+        190.2047083422076
+      ],
+      "matched": 704,
+      "missing": 0,
+      "files_exact": true,
+      "video_tail_changes": [
+        14,
+        14
+      ],
+      "fifo_drops": [
+        0,
+        0
+      ],
+      "deadline_misses": 0
+    }
+  },
+  "private_artifacts": "/Users/vart/.cache/codex/xveil-work-wire-cost-20261019",
+  "limits": [
+    "Both original full audio gates FAIL, including the 200.088-ms direction; no rounding or threshold relaxation",
+    "No shared numeric source capacity allocation or primary reserve implemented yet; preexisting independent quotas remain",
+    "Codec costs exclude QUIC/TCP/IP/ACK and obfs4 padding; not available bandwidth",
+    "Separately addressed IPC fanout batches have independent work reservations; no reuse of another batch cost plan",
+    "Native media, root workload, file sizes, clocks and assertions unchanged",
+    "No causal improvement/regression from one capture per build",
+    "Synthetic same-host clocks, not hardware headset or speech quality; no phone or installed-app changes, no server mutations this cycle",
+    "Publication-start timing does not establish causality or cover other control producers"
+  ],
+  "artifacts": {
+    "final-full-tests-status.json": "c6a9dbe404344c6bb4771b18cb0171e679e9539c8eefb075276568bd613ba927",
+    "foreign-work.json": "4359dba57811b79b160a54e36e33d8f38c9b6851649f82cdb508252fd5870e5a",
+    "frozen-plan.json": "a0411ac8235b0c304965f208190e611f39be59871a395b1bbfb7ac82add9d61a",
+    "group-independent-cleanup.json": "ab67ed163b7968d323badf910de553eae2fdae57ba830772d4326ee6ff4799be",
+    "group-peak.json": "b131009da005b6bb6300b82e0398b1b8528561883a9ee8ed0636da7f03f6b446",
+    "group-publication-timing.json": "14a46d5769a3126db35fbc27b5ca29eab1884085bd98dc0b0bd2a0e32eebae89",
+    "group-result.json": "44e77cd506a64e9fc0befd8ea5915eade18898a958ba40533cb6a4575f74712e",
+    "group-work-cost-observations.json": "cf747ce1faa408f8b5ffa15055bdd3927f4e31784555b4d2364bfcc14b2ab672",
+    "negative-envelope-only-status.json": "b902eecc781927b7446f7f3873523a17a1206bbc10c746a611c9974097c9be6d",
+    "pair-independent-cleanup.json": "f7f153996fdd074fd60203f3c4c3552f70f543807c501f042fee00b66f175324",
+    "pair-pipeline-peaks.json": "2596a371d05bcf878af2dde6497c3bc470076080c2c9592b9370947e05cc509f",
+    "pair-result.json": "7c0ffed0c88ccf608e1b7761557ab747d0481fa6ad4c167843479f79a8ea1fa5",
+    "raw-artifacts.json": "0eb68cfecbf0ac0ad29957ffbb1747034e3e79f2ce399d09c1b1eac01138d804",
+    "release-build-status.json": "a47ed9c67131fb8134455dbb58226b2351de351e29de49954b4540a77875578b",
+    "release-build.txt": "efdaa3adfe85776b446edacc4abf9a6a705eea9e0da84bd54418032221a8a036",
+    "source-proof.json": "73b085eb00035db4febfd4418b77a03ca3799dfe814000776f4a54e47982629b",
+    "tests.txt": "ab9f8eed5fd295607023a253f50ea7744ee7f2a6285e6e8760f1397e27703d22",
+    "negative-envelope-only.txt": "c7c162721b5e6888129b6c9850d2808cdc68d464968c99a74459c258005d15e3"
+  },
+  "test_development_note": "Initial hand-calculated boundary expectation was off by one; corrected against the actual codec overhead before the final full tests. No workload or latency acceptance gate changed."
+}

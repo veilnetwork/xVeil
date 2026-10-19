@@ -1,0 +1,169 @@
+{
+  "group_peak_seconds": 163.6200074586377,
+  "events": [
+    {
+      "log": "group-final-360/native.log",
+      "reason": "first_session",
+      "at_seconds": 1.31441,
+      "clock": "same_host_monotonic",
+      "timestamp_resolution_us": 1,
+      "delta_from_group_peak_s": -162.305597
+    },
+    {
+      "log": "group-final-360/native.log",
+      "reason": "first_session",
+      "at_seconds": 1.31458,
+      "clock": "same_host_monotonic",
+      "timestamp_resolution_us": 1,
+      "delta_from_group_peak_s": -162.305427
+    },
+    {
+      "log": "group-final-360/native.log",
+      "reason": "first_session",
+      "at_seconds": 1.314644,
+      "clock": "same_host_monotonic",
+      "timestamp_resolution_us": 1,
+      "delta_from_group_peak_s": -162.305363
+    },
+    {
+      "log": "group-final-360/native.log",
+      "reason": "first_session",
+      "at_seconds": 1.319833,
+      "clock": "same_host_monotonic",
+      "timestamp_resolution_us": 1,
+      "delta_from_group_peak_s": -162.300174
+    },
+    {
+      "log": "group-final-360/native.log",
+      "reason": "warmup",
+      "at_seconds": 91.315812,
+      "clock": "same_host_monotonic",
+      "timestamp_resolution_us": 1,
+      "delta_from_group_peak_s": -72.304195
+    },
+    {
+      "log": "group-final-360/native.log",
+      "reason": "warmup",
+      "at_seconds": 91.316077,
+      "clock": "same_host_monotonic",
+      "timestamp_resolution_us": 1,
+      "delta_from_group_peak_s": -72.30393
+    },
+    {
+      "log": "group-final-360/native.log",
+      "reason": "warmup",
+      "at_seconds": 91.31702,
+      "clock": "same_host_monotonic",
+      "timestamp_resolution_us": 1,
+      "delta_from_group_peak_s": -72.302987
+    },
+    {
+      "log": "group-final-360/native.log",
+      "reason": "warmup",
+      "at_seconds": 91.321076,
+      "clock": "same_host_monotonic",
+      "timestamp_resolution_us": 1,
+      "delta_from_group_peak_s": -72.298931
+    },
+    {
+      "log": "group-final-360/native.log",
+      "reason": "warmup",
+      "at_seconds": 181.316852,
+      "clock": "same_host_monotonic",
+      "timestamp_resolution_us": 1,
+      "delta_from_group_peak_s": 17.696845
+    },
+    {
+      "log": "group-final-360/native.log",
+      "reason": "warmup",
+      "at_seconds": 181.317198,
+      "clock": "same_host_monotonic",
+      "timestamp_resolution_us": 1,
+      "delta_from_group_peak_s": 17.697191
+    },
+    {
+      "log": "group-final-360/native.log",
+      "reason": "warmup",
+      "at_seconds": 181.318346,
+      "clock": "same_host_monotonic",
+      "timestamp_resolution_us": 1,
+      "delta_from_group_peak_s": 17.698339
+    },
+    {
+      "log": "group-final-360/native.log",
+      "reason": "warmup",
+      "at_seconds": 181.322057,
+      "clock": "same_host_monotonic",
+      "timestamp_resolution_us": 1,
+      "delta_from_group_peak_s": 17.70205
+    },
+    {
+      "log": "group-final-360/native.log",
+      "reason": "warmup",
+      "at_seconds": 271.317411,
+      "clock": "same_host_monotonic",
+      "timestamp_resolution_us": 1,
+      "delta_from_group_peak_s": 107.697404
+    },
+    {
+      "log": "group-final-360/native.log",
+      "reason": "warmup",
+      "at_seconds": 271.319971,
+      "clock": "same_host_monotonic",
+      "timestamp_resolution_us": 1,
+      "delta_from_group_peak_s": 107.699964
+    },
+    {
+      "log": "group-final-360/native.log",
+      "reason": "warmup",
+      "at_seconds": 271.32031,
+      "clock": "same_host_monotonic",
+      "timestamp_resolution_us": 1,
+      "delta_from_group_peak_s": 107.700303
+    },
+    {
+      "log": "group-final-360/native.log",
+      "reason": "warmup",
+      "at_seconds": 271.323812,
+      "clock": "same_host_monotonic",
+      "timestamp_resolution_us": 1,
+      "delta_from_group_peak_s": 107.703805
+    },
+    {
+      "log": "group-final-360/native.log",
+      "reason": "warmup",
+      "at_seconds": 361.320274,
+      "clock": "same_host_monotonic",
+      "timestamp_resolution_us": 1,
+      "delta_from_group_peak_s": 197.700267
+    },
+    {
+      "log": "group-final-360/native.log",
+      "reason": "warmup",
+      "at_seconds": 361.324031,
+      "clock": "same_host_monotonic",
+      "timestamp_resolution_us": 1,
+      "delta_from_group_peak_s": 197.704024
+    },
+    {
+      "log": "group-final-360/native.log",
+      "reason": "warmup",
+      "at_seconds": 361.325299,
+      "clock": "same_host_monotonic",
+      "timestamp_resolution_us": 1,
+      "delta_from_group_peak_s": 197.705292
+    }
+  ],
+  "nearest_start": {
+    "log": "group-final-360/native.log",
+    "reason": "warmup",
+    "at_seconds": 181.316852,
+    "clock": "same_host_monotonic",
+    "timestamp_resolution_us": 1,
+    "delta_from_group_peak_s": 17.696845
+  },
+  "limits": [
+    "Publication starts are not publication completion or wire-send timestamps; no causality inferred.",
+    "Other network-control producers are not represented by this event list."
+  ]
+}

@@ -1,0 +1,856 @@
+{
+  "ok": false,
+  "participants": 3,
+  "separate_sdk_processes": true,
+  "video_file_load": true,
+  "speech_listening_proof": false,
+  "load_kind": "both",
+  "duration_seconds": 360,
+  "rate_kbps": 1024,
+  "budget_smoke": false,
+  "adaptive": true,
+  "playout_trace": true,
+  "opaque_forward_trace": true,
+  "source_framing_trace": true,
+  "test_ptime_requested": null,
+  "sdk_sha256": "9cb5d3d4aa77fefaa44c9123be73771201a438ac9efb862da02bf619a95d5ce3",
+  "media_sha256": "fa92737825248b4cb44fc4e7209ebdff7334ca8ef91f527c76b2ee3606d77959",
+  "fixture_sources": {
+    "group-process-preflight.py": "b1be9e94cf6cec74b10dfbc85517ee452ce0516bbc10e22348e343a0afd40124",
+    "group_codec_sdk.py": "f6c3f2274b1853d1d7d209095fd5d73b4833c130ff335afbd353d7c06940235d",
+    "native_pcm_driver.py": "2c06e9d4c2c903686d6243fc5a5d7f33ee344ec633874ffe208540307bce6662",
+    "native_pcm_driver.cc": "2efd0cffa95f1f8b87c72c1f2b9d7adbe1ac28903cf3adcbfdd2187928503838",
+    "group_pcm_timing.py": "8231987186cee719d21dd88b9d4429f0461cd785f5da63a33a8097c6782a2925",
+    "udp_fifo_shaper.py": "530f6343d103708eff1b0af16a112995955192f4c7511f33912584850f996605",
+    "group_process_files.py": "1543a7e862fca7a4597581ab9ada1ee42fc6a0cafa771a0b54fb7ec3786fe47e",
+    "scripts/group_audio_policy.dart": "9a04d023154bcded7f7e94dcbef49f84907dd12378d8f76af10b94c9e0c78c5e",
+    "scripts/group_codec_policy.dart": "21e2433ade6be25d5eb191b9479876476e1ab4549519231c8c85393589cc00ae",
+    "lib/state/call_audio_source_pressure.dart": "1d353781f951ee6c95fd5108f1f1fa3f06082e9493b0a9831c46c539d13bfdad",
+    "lib/state/group_call_audio_adapter.dart": "447005bafbf6910697b18d074323f06f3599fc0d4f54779232c63758608bf8e1",
+    "lib/state/group_call_source_priority.dart": "10fbc5f1923ceaf010ba0759a965c62a6fa1bbf7c33d901d5e9eae5e19c79356",
+    "lib/state/call_audio_buffer_window.dart": "8542164f22054ce2b4e1ca7bfa1352623bc1744c9de00405db86333bc6e41f50",
+    "lib/state/call_bitrate_adapter.dart": "2a733c14129c1000cd3767fb55893c163bcbe7eea98346f3bc99bcb7c5abda9f",
+    "lib/state/call_audio_receive_activity.dart": "e27c3c2a47fd3a94d99fe508123bb6ed135edf4c4b4c4b3d8b46af9cff48d55b",
+    "lib/state/call_rtcp_loss.dart": "f04713b986d339979d2c2d81d6d0163ccb2a77ac36c8f137db6f44a9e3d4b0fc"
+  },
+  "origin_monotonic": 235970.284839958,
+  "origin_unix_ms": 1792403192867,
+  "voice_paths": [
+    {
+      "receiver": 0,
+      "source": 1,
+      "phases": [
+        {
+          "phase": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "max_ms": 110.21658332902007,
+          "peak": {
+            "source_at_seconds": 7.0700104586430825,
+            "decoded_at_seconds": 7.180227041972103,
+            "ordinal": 7,
+            "delay_ms": 110.21658332902007
+          }
+        },
+        {
+          "phase": "audio-video-file",
+          "matched": 337,
+          "missing": 0,
+          "max_ms": 260.2033750154078,
+          "peak": {
+            "source_at_seconds": 163.62000558362342,
+            "decoded_at_seconds": 163.88020895863883,
+            "ordinal": 162,
+            "delay_ms": 260.2033750154078
+          }
+        }
+      ],
+      "source_edges": 357,
+      "decoded_edges": 357,
+      "matching": "ordinal_from_capture_start",
+      "first_capture": 1.050031278282404e-05,
+      "last_capture": 360.0000182503136
+    },
+    {
+      "receiver": 0,
+      "source": 2,
+      "phases": [
+        {
+          "phase": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "max_ms": 120.2024583471939,
+          "peak": {
+            "source_at_seconds": 6.0600149169622455,
+            "decoded_at_seconds": 6.180217375309439,
+            "ordinal": 6,
+            "delay_ms": 120.2024583471939
+          }
+        },
+        {
+          "phase": "audio-video-file",
+          "matched": 337,
+          "missing": 0,
+          "max_ms": 190.1955416542478,
+          "peak": {
+            "source_at_seconds": 273.7100116253132,
+            "decoded_at_seconds": 273.90020716696745,
+            "ordinal": 271,
+            "delay_ms": 190.1955416542478
+          }
+        }
+      ],
+      "source_edges": 357,
+      "decoded_edges": 357,
+      "matching": "ordinal_from_capture_start",
+      "first_capture": 1.0458636097609997e-05,
+      "last_capture": 360.0000137503084
+    },
+    {
+      "receiver": 1,
+      "source": 0,
+      "phases": [
+        {
+          "phase": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "max_ms": 110.21191667532548,
+          "peak": {
+            "source_at_seconds": 17.170010708621703,
+            "decoded_at_seconds": 17.28022262529703,
+            "ordinal": 17,
+            "delay_ms": 110.21191667532548
+          }
+        },
+        {
+          "phase": "audio-video-file",
+          "matched": 337,
+          "missing": 0,
+          "max_ms": 260.21245832089335,
+          "peak": {
+            "source_at_seconds": 163.6200074586377,
+            "decoded_at_seconds": 163.8802199169586,
+            "ordinal": 162,
+            "delay_ms": 260.21245832089335
+          }
+        }
+      ],
+      "source_edges": 357,
+      "decoded_edges": 357,
+      "matching": "ordinal_from_capture_start",
+      "first_capture": 2.8291979106143117e-05,
+      "last_capture": 360.0000217919587
+    },
+    {
+      "receiver": 1,
+      "source": 2,
+      "phases": [
+        {
+          "phase": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "max_ms": 90.22724998067133,
+          "peak": {
+            "source_at_seconds": 9.090010625310242,
+            "decoded_at_seconds": 9.180237875290914,
+            "ordinal": 9,
+            "delay_ms": 90.22724998067133
+          }
+        },
+        {
+          "phase": "audio-video-file",
+          "matched": 337,
+          "missing": 0,
+          "max_ms": 190.19866664893925,
+          "peak": {
+            "source_at_seconds": 273.7100116253132,
+            "decoded_at_seconds": 273.90021029196214,
+            "ordinal": 271,
+            "delay_ms": 190.19866664893925
+          }
+        }
+      ],
+      "source_edges": 357,
+      "decoded_edges": 357,
+      "matching": "ordinal_from_capture_start",
+      "first_capture": 1.0458636097609997e-05,
+      "last_capture": 360.0000137503084
+    },
+    {
+      "receiver": 2,
+      "source": 0,
+      "phases": [
+        {
+          "phase": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "max_ms": 110.12295831460506,
+          "peak": {
+            "source_at_seconds": 5.050012958643492,
+            "decoded_at_seconds": 5.160135916958097,
+            "ordinal": 5,
+            "delay_ms": 110.12295831460506
+          }
+        },
+        {
+          "phase": "audio-video-file",
+          "matched": 337,
+          "missing": 0,
+          "max_ms": 340.1167499832809,
+          "peak": {
+            "source_at_seconds": 163.6200074586377,
+            "decoded_at_seconds": 163.96012420862098,
+            "ordinal": 162,
+            "delay_ms": 340.1167499832809
+          }
+        }
+      ],
+      "source_edges": 357,
+      "decoded_edges": 357,
+      "matching": "ordinal_from_capture_start",
+      "first_capture": 2.8291979106143117e-05,
+      "last_capture": 360.0000217919587
+    },
+    {
+      "receiver": 2,
+      "source": 1,
+      "phases": [
+        {
+          "phase": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "max_ms": 110.12570833554491,
+          "peak": {
+            "source_at_seconds": 5.0500102086225525,
+            "decoded_at_seconds": 5.160135916958097,
+            "ordinal": 5,
+            "delay_ms": 110.12570833554491
+          }
+        },
+        {
+          "phase": "audio-video-file",
+          "matched": 337,
+          "missing": 0,
+          "max_ms": 330.12641669483855,
+          "peak": {
+            "source_at_seconds": 162.6100112919521,
+            "decoded_at_seconds": 162.94013770864694,
+            "ordinal": 161,
+            "delay_ms": 330.12641669483855
+          }
+        }
+      ],
+      "source_edges": 357,
+      "decoded_edges": 357,
+      "matching": "ordinal_from_capture_start",
+      "first_capture": 1.050031278282404e-05,
+      "last_capture": 360.0000182503136
+    }
+  ],
+  "workers": [
+    {
+      "ok": true,
+      "pid": 79388,
+      "participant": 0,
+      "primary_receivers_in_process": 1,
+      "test_ptime_requested": null,
+      "policy_pid": 79415,
+      "budget_events": [
+        {
+          "t": 0,
+          "level": 1,
+          "packet_ms": 40,
+          "payload_bps": 32000,
+          "rc": 0
+        },
+        {
+          "t": 2.0104443749878556,
+          "level": 2,
+          "packet_ms": 40,
+          "payload_bps": 24000,
+          "rc": 0
+        },
+        {
+          "t": 171.02440645798924,
+          "level": 3,
+          "packet_ms": 60,
+          "payload_bps": 24000,
+          "rc": 0
+        }
+      ],
+      "origin_monotonic": 235970.284839958,
+      "origin_unix_ms": 1792403192867,
+      "video_started_seconds": 20.007700832997216,
+      "file_snapshot": {
+        "queued": 524288,
+        "received": 524288,
+        "missing_chunks": 0,
+        "hash_matches": true,
+        "completion_seconds": 349.5216250419908,
+        "authentication_errors": 0,
+        "duplicates": 0,
+        "async_failures": {},
+        "write_error": false,
+        "late_fragments": 0
+      },
+      "file_snapshot_seconds": 360.001504291984,
+      "clock": {
+        "max_interval_ms": 10.076625010697171,
+        "late_intervals": 0,
+        "dropped_rows": 0,
+        "failures": [
+          0,
+          0
+        ],
+        "ticks": 36001,
+        "max_wake_lateness_ms": 0.046375,
+        "max_callback_ms": 0.7864583167247474,
+        "max_publication_ms": 0.019208324374631047,
+        "qos_supported": 1,
+        "qos_result": 0,
+        "qos_requested": 33,
+        "qos_actual": 33,
+        "timer_error": 0,
+        "deadline_requested": 1,
+        "deadline_result": 0,
+        "deadline_active": 1,
+        "deadline_period_ticks": 240000,
+        "deadline_computation_ticks": 72000,
+        "deadline_constraint_ticks": 120000,
+        "deadline_actual_period_ticks": 240000,
+        "deadline_actual_computation_ticks": 72000,
+        "deadline_actual_constraint_ticks": 120000,
+        "deadline_checks": 362,
+        "deadline_misses": 0
+      },
+      "rows": 108003,
+      "first_capture": 2.8291979106143117e-05,
+      "video_paths": [
+        {
+          "receiver": 0,
+          "source": 1,
+          "decoded_pulls": 292,
+          "tail_changes": 14
+        },
+        {
+          "receiver": 0,
+          "source": 2,
+          "decoded_pulls": 248,
+          "tail_changes": 14
+        }
+      ],
+      "file_thread_exited": true,
+      "channel_stats_after_capture": [
+        {
+          "channel_index": 0,
+          "channel_handle": 1,
+          "participant_pair": [
+            0,
+            1
+          ],
+          "video_frames_enqueued": 1053,
+          "video_frames_started": 1053,
+          "video_queue_depth": 0,
+          "video_queue_max_depth": 1,
+          "video_queue_age_max_ms": 0,
+          "video_queue_holds_75ms": 0,
+          "sender_lock_max_ms": 0,
+          "sender_lock_holds_16ms": 0,
+          "video_frame_ipc_max_ms": 0,
+          "video_frame_ipc_holds_33ms": 0,
+          "ipc_cell_max_ms": 0,
+          "ipc_cell_holds_16ms": 0,
+          "ipc_send_failures": 0
+        },
+        {
+          "channel_index": 1,
+          "channel_handle": 2,
+          "participant_pair": [
+            0,
+            2
+          ],
+          "video_frames_enqueued": 1063,
+          "video_frames_started": 1063,
+          "video_queue_depth": 0,
+          "video_queue_max_depth": 2,
+          "video_queue_age_max_ms": 0,
+          "video_queue_holds_75ms": 0,
+          "sender_lock_max_ms": 0,
+          "sender_lock_holds_16ms": 0,
+          "video_frame_ipc_max_ms": 0,
+          "video_frame_ipc_holds_33ms": 0,
+          "ipc_cell_max_ms": 0,
+          "ipc_cell_holds_16ms": 0,
+          "ipc_send_failures": 0
+        }
+      ],
+      "console_log_after_stop": {
+        "supported": true,
+        "flush_rc": 0,
+        "dropped_records": 0,
+        "write_errors": 0,
+        "ok": true
+      },
+      "source_trace_logging": {
+        "relay_send_samples": 14854,
+        "receive_samples": 19850,
+        "ok": true
+      },
+      "policy_exit_code": 0,
+      "source_cost_trace": {
+        "requests": 360,
+        "responses_sampled": 359,
+        "fed_into_policy": false
+      }
+    },
+    {
+      "ok": true,
+      "pid": 79395,
+      "participant": 1,
+      "primary_receivers_in_process": 1,
+      "test_ptime_requested": null,
+      "policy_pid": 79413,
+      "budget_events": [
+        {
+          "t": 0,
+          "level": 1,
+          "packet_ms": 40,
+          "payload_bps": 32000,
+          "rc": 0
+        },
+        {
+          "t": 2.000246582989348,
+          "level": 2,
+          "packet_ms": 40,
+          "payload_bps": 24000,
+          "rc": 0
+        }
+      ],
+      "origin_monotonic": 235970.284839958,
+      "origin_unix_ms": 1792403192867,
+      "video_started_seconds": 20.01672120799776,
+      "file_snapshot": {
+        "queued": 524288,
+        "received": 524288,
+        "missing_chunks": 0,
+        "hash_matches": true,
+        "completion_seconds": 352.27942854198045,
+        "authentication_errors": 0,
+        "duplicates": 0,
+        "async_failures": {},
+        "write_error": false,
+        "late_fragments": 0
+      },
+      "file_snapshot_seconds": 360.00548633298604,
+      "clock": {
+        "max_interval_ms": 10.073624987853691,
+        "late_intervals": 0,
+        "dropped_rows": 0,
+        "failures": [
+          0,
+          0
+        ],
+        "ticks": 36001,
+        "max_wake_lateness_ms": 0.043584,
+        "max_callback_ms": 0.8080416591838002,
+        "max_publication_ms": 0.0107916712295264,
+        "qos_supported": 1,
+        "qos_result": 0,
+        "qos_requested": 33,
+        "qos_actual": 33,
+        "timer_error": 0,
+        "deadline_requested": 1,
+        "deadline_result": 0,
+        "deadline_active": 1,
+        "deadline_period_ticks": 240000,
+        "deadline_computation_ticks": 72000,
+        "deadline_constraint_ticks": 120000,
+        "deadline_actual_period_ticks": 240000,
+        "deadline_actual_computation_ticks": 72000,
+        "deadline_actual_constraint_ticks": 120000,
+        "deadline_checks": 362,
+        "deadline_misses": 0
+      },
+      "rows": 108003,
+      "first_capture": 1.050031278282404e-05,
+      "video_paths": [
+        {
+          "receiver": 1,
+          "source": 0,
+          "decoded_pulls": 223,
+          "tail_changes": 10
+        },
+        {
+          "receiver": 1,
+          "source": 2,
+          "decoded_pulls": 248,
+          "tail_changes": 14
+        }
+      ],
+      "file_thread_exited": true,
+      "channel_stats_after_capture": [
+        {
+          "channel_index": 0,
+          "channel_handle": 1,
+          "participant_pair": [
+            1,
+            0
+          ],
+          "video_frames_enqueued": 1146,
+          "video_frames_started": 1146,
+          "video_queue_depth": 0,
+          "video_queue_max_depth": 2,
+          "video_queue_age_max_ms": 1,
+          "video_queue_holds_75ms": 0,
+          "sender_lock_max_ms": 0,
+          "sender_lock_holds_16ms": 0,
+          "video_frame_ipc_max_ms": 0,
+          "video_frame_ipc_holds_33ms": 0,
+          "ipc_cell_max_ms": 0,
+          "ipc_cell_holds_16ms": 0,
+          "ipc_send_failures": 0
+        },
+        {
+          "channel_index": 1,
+          "channel_handle": 2,
+          "participant_pair": [
+            1,
+            2
+          ],
+          "video_frames_enqueued": 1147,
+          "video_frames_started": 1147,
+          "video_queue_depth": 0,
+          "video_queue_max_depth": 2,
+          "video_queue_age_max_ms": 0,
+          "video_queue_holds_75ms": 0,
+          "sender_lock_max_ms": 0,
+          "sender_lock_holds_16ms": 0,
+          "video_frame_ipc_max_ms": 0,
+          "video_frame_ipc_holds_33ms": 0,
+          "ipc_cell_max_ms": 0,
+          "ipc_cell_holds_16ms": 0,
+          "ipc_send_failures": 0
+        }
+      ],
+      "console_log_after_stop": {
+        "supported": true,
+        "flush_rc": 0,
+        "dropped_records": 0,
+        "write_errors": 0,
+        "ok": true
+      },
+      "source_trace_logging": {
+        "relay_send_samples": 18006,
+        "receive_samples": 18186,
+        "ok": true
+      },
+      "policy_exit_code": 0,
+      "source_cost_trace": {
+        "requests": 360,
+        "responses_sampled": 359,
+        "fed_into_policy": false
+      }
+    },
+    {
+      "ok": true,
+      "pid": 79399,
+      "participant": 2,
+      "primary_receivers_in_process": 1,
+      "test_ptime_requested": null,
+      "policy_pid": 79414,
+      "budget_events": [
+        {
+          "t": 0,
+          "level": 1,
+          "packet_ms": 40,
+          "payload_bps": 32000,
+          "rc": 0
+        },
+        {
+          "t": 28.00067524999031,
+          "level": 2,
+          "packet_ms": 40,
+          "payload_bps": 24000,
+          "rc": 0
+        },
+        {
+          "t": 280.0196519579913,
+          "level": 3,
+          "packet_ms": 60,
+          "payload_bps": 24000,
+          "rc": 0
+        }
+      ],
+      "origin_monotonic": 235970.284839958,
+      "origin_unix_ms": 1792403192867,
+      "video_started_seconds": 20.00773070799187,
+      "file_snapshot": {
+        "queued": 524288,
+        "received": 524288,
+        "missing_chunks": 0,
+        "hash_matches": true,
+        "completion_seconds": 350.59050533297705,
+        "authentication_errors": 0,
+        "duplicates": 0,
+        "async_failures": {},
+        "write_error": false,
+        "late_fragments": 0
+      },
+      "file_snapshot_seconds": 360.0013881249761,
+      "clock": {
+        "max_interval_ms": 10.076999984448776,
+        "late_intervals": 0,
+        "dropped_rows": 0,
+        "failures": [
+          0,
+          0
+        ],
+        "ticks": 36001,
+        "max_wake_lateness_ms": 0.0515,
+        "max_callback_ms": 0.7857083401177078,
+        "max_publication_ms": 0.02683332422748208,
+        "qos_supported": 1,
+        "qos_result": 0,
+        "qos_requested": 33,
+        "qos_actual": 33,
+        "timer_error": 0,
+        "deadline_requested": 1,
+        "deadline_result": 0,
+        "deadline_active": 1,
+        "deadline_period_ticks": 240000,
+        "deadline_computation_ticks": 72000,
+        "deadline_constraint_ticks": 120000,
+        "deadline_actual_period_ticks": 240000,
+        "deadline_actual_computation_ticks": 72000,
+        "deadline_actual_constraint_ticks": 120000,
+        "deadline_checks": 362,
+        "deadline_misses": 0
+      },
+      "rows": 108003,
+      "first_capture": 1.0458636097609997e-05,
+      "video_paths": [
+        {
+          "receiver": 2,
+          "source": 0,
+          "decoded_pulls": 223,
+          "tail_changes": 10
+        },
+        {
+          "receiver": 2,
+          "source": 1,
+          "decoded_pulls": 292,
+          "tail_changes": 14
+        }
+      ],
+      "file_thread_exited": true,
+      "channel_stats_after_capture": [
+        {
+          "channel_index": 0,
+          "channel_handle": 1,
+          "participant_pair": [
+            2,
+            0
+          ],
+          "video_frames_enqueued": 1063,
+          "video_frames_started": 1063,
+          "video_queue_depth": 0,
+          "video_queue_max_depth": 1,
+          "video_queue_age_max_ms": 0,
+          "video_queue_holds_75ms": 0,
+          "sender_lock_max_ms": 0,
+          "sender_lock_holds_16ms": 0,
+          "video_frame_ipc_max_ms": 0,
+          "video_frame_ipc_holds_33ms": 0,
+          "ipc_cell_max_ms": 0,
+          "ipc_cell_holds_16ms": 0,
+          "ipc_send_failures": 0
+        },
+        {
+          "channel_index": 1,
+          "channel_handle": 2,
+          "participant_pair": [
+            2,
+            1
+          ],
+          "video_frames_enqueued": 1067,
+          "video_frames_started": 1067,
+          "video_queue_depth": 0,
+          "video_queue_max_depth": 2,
+          "video_queue_age_max_ms": 0,
+          "video_queue_holds_75ms": 0,
+          "sender_lock_max_ms": 0,
+          "sender_lock_holds_16ms": 0,
+          "video_frame_ipc_max_ms": 0,
+          "video_frame_ipc_holds_33ms": 0,
+          "ipc_cell_max_ms": 0,
+          "ipc_cell_holds_16ms": 0,
+          "ipc_send_failures": 0
+        }
+      ],
+      "console_log_after_stop": {
+        "supported": true,
+        "flush_rc": 0,
+        "dropped_records": 0,
+        "write_errors": 0,
+        "ok": true
+      },
+      "source_trace_logging": {
+        "relay_send_samples": 16672,
+        "receive_samples": 18941,
+        "ok": true
+      },
+      "policy_exit_code": 0,
+      "source_cost_trace": {
+        "requests": 360,
+        "responses_sampled": 359,
+        "fed_into_policy": false
+      }
+    }
+  ],
+  "console_log_before_read": {
+    "supported": true,
+    "flush_rc": 0,
+    "dropped_records": 0,
+    "write_errors": 0,
+    "ok": true
+  },
+  "neutral_relay_route_verified": true,
+  "end_topology": {
+    "verified": true,
+    "active_session_counts": [
+      3,
+      1,
+      1,
+      1
+    ]
+  },
+  "files": [
+    {
+      "sender": 2,
+      "receiver": 0,
+      "queued": 524288,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "completion_seconds": 349.5216250419908,
+      "authentication_errors": 0,
+      "duplicates": 0,
+      "async_failures": {},
+      "write_error": false,
+      "late_fragments": 0
+    },
+    {
+      "sender": 0,
+      "receiver": 1,
+      "queued": 524288,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "completion_seconds": 352.27942854198045,
+      "authentication_errors": 0,
+      "duplicates": 0,
+      "async_failures": {},
+      "write_error": false,
+      "late_fragments": 0
+    },
+    {
+      "sender": 1,
+      "receiver": 2,
+      "queued": 524288,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "completion_seconds": 350.59050533297705,
+      "authentication_errors": 0,
+      "duplicates": 0,
+      "async_failures": {},
+      "write_error": false,
+      "late_fragments": 0
+    }
+  ],
+  "video_paths": [
+    {
+      "receiver": 0,
+      "source": 1,
+      "decoded_pulls": 292,
+      "tail_changes": 14
+    },
+    {
+      "receiver": 0,
+      "source": 2,
+      "decoded_pulls": 248,
+      "tail_changes": 14
+    },
+    {
+      "receiver": 1,
+      "source": 0,
+      "decoded_pulls": 223,
+      "tail_changes": 10
+    },
+    {
+      "receiver": 1,
+      "source": 2,
+      "decoded_pulls": 248,
+      "tail_changes": 14
+    },
+    {
+      "receiver": 2,
+      "source": 0,
+      "decoded_pulls": 223,
+      "tail_changes": 10
+    },
+    {
+      "receiver": 2,
+      "source": 1,
+      "decoded_pulls": 292,
+      "tail_changes": 14
+    }
+  ],
+  "worker_exit_codes": [
+    0,
+    0,
+    0
+  ],
+  "worker_pids": [
+    79388,
+    79395,
+    79399
+  ],
+  "workers_exited": true,
+  "console_log_after_stop": {
+    "supported": true,
+    "flush_rc": 0,
+    "dropped_records": 0,
+    "write_errors": 0,
+    "ok": true
+  },
+  "shaper": {
+    "stats": [
+      {
+        "received": 106105,
+        "sent": 106105,
+        "drops": 0,
+        "max_queue_ms": 91.03875036817044
+      },
+      {
+        "received": 112290,
+        "sent": 112290,
+        "drops": 0,
+        "max_queue_ms": 153.0066269915551
+      }
+    ],
+    "failure": null,
+    "trace_events": 217024,
+    "trace_rows": 217024,
+    "trace_capacity": 250000,
+    "trace_truncated": false
+  },
+  "node_stop_results": [
+    0,
+    0,
+    0,
+    0
+  ],
+  "remaining_sockets": 0,
+  "contention_qualification": false
+}

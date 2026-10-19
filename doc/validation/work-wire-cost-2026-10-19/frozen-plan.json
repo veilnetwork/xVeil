@@ -1,0 +1,51 @@
+{
+  "frozen_before_implementation": true,
+  "root_base": "b0fee0e0b044e3778f6d175002cca1160ff68fd7",
+  "sdk_base": "1fef65ad13acd009ae77825e36e519243efd4b4f",
+  "objective": "One bounded rolling source budget; charge primary first and admit all secondary producers only from shared residual, preserving opaque relay service",
+  "confirmed_delivery_rules": [
+    "Only newly observed explicit authenticated wire ACKs in Data space; never inferred handshake ACKs or duplicates",
+    "Scope bytes and freshness to connection and monotonically changing route epoch; reject previous-path acknowledgments",
+    "Confirmed bytes are transport progress, not a capacity grant; guard ACK compression, app-limited input, stale observations and mixed/transit ownership",
+    "No independent full allowance for video, screen and DATA; one node source ledger keeps debt and primary framing/fanout cost"
+  ],
+  "acceptance": {
+    "group": {
+      "duration_seconds": 360,
+      "rate_kbps": 1024,
+      "audio_marker_paths": 6,
+      "audio_max_ms_exclusive": 200,
+      "missing_markers": 0,
+      "files": 3,
+      "file_bytes_each": 524288,
+      "file_hash_matches": true,
+      "moving_video_paths": 6,
+      "tail_changes_each_min": 14,
+      "deadline_misses": 0
+    },
+    "pair": {
+      "duration_seconds": 360,
+      "rate_kbps": 1024,
+      "audio_max_ms_exclusive": 200,
+      "missing_markers": 0,
+      "files": 2,
+      "file_bytes_each": 524288,
+      "file_hash_matches": true,
+      "moving_video_paths": 2,
+      "tail_changes_each_min": 14,
+      "deadline_misses": 0
+    }
+  },
+  "fixture_policy": "Reuse current original clocks, stimuli, shaper, file sizes and gates. No changed assertion to accept a candidate. Failed variants remain failed. No unrelated helper refactoring.",
+  "baseline": {
+    "group": {
+      "path": "/Users/vart/.cache/codex/xveil-source-credit-20261019/group-final-360",
+      "summary_sha256": "e1c810821b3a6bf3a247e49d8c831bbe593276ea0cb43dfdfb2f5b20f9762c03"
+    },
+    "pair": {
+      "path": "/Users/vart/.cache/codex/xveil-source-credit-20261019/pair-rtp-lag-full",
+      "summary_sha256": "161c4f4cb07f9e53f937f6610c7acf6d1e0fb08863a1507dcb7e56e5a861ca81"
+    }
+  },
+  "change_scope": "Charge actual per-cell session codec fragments and ordered length prefixes once for each separately addressed owned work; do not change quota values or introduce a fixed source pacer."
+}
