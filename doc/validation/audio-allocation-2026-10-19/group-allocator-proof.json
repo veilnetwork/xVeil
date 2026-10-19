@@ -1,0 +1,96 @@
+{
+  "before": [
+    {
+      "worker": 0,
+      "encoded_rows": 6041,
+      "native_allocation_observations": 0,
+      "observed_packet_ms": [
+        0,
+        40,
+        60
+      ],
+      "observed_payload_bps": [
+        -1,
+        24000,
+        32000
+      ]
+    },
+    {
+      "worker": 1,
+      "encoded_rows": 6041,
+      "native_allocation_observations": 0,
+      "observed_packet_ms": [
+        0,
+        40,
+        60
+      ],
+      "observed_payload_bps": [
+        -1,
+        24000,
+        32000
+      ]
+    },
+    {
+      "worker": 2,
+      "encoded_rows": 6208,
+      "native_allocation_observations": 0,
+      "observed_packet_ms": [
+        0,
+        40,
+        60
+      ],
+      "observed_payload_bps": [
+        -1,
+        24000,
+        32000
+      ]
+    }
+  ],
+  "after": [
+    {
+      "worker": 0,
+      "encoded_rows": 6224,
+      "native_allocation_observations": 0,
+      "observed_packet_ms": [
+        0,
+        40,
+        60
+      ],
+      "observed_payload_bps": [
+        -1,
+        24000,
+        32000
+      ]
+    },
+    {
+      "worker": 1,
+      "encoded_rows": 6291,
+      "native_allocation_observations": 0,
+      "observed_packet_ms": [
+        0,
+        40,
+        60
+      ],
+      "observed_payload_bps": [
+        -1,
+        24000,
+        32000
+      ]
+    },
+    {
+      "worker": 2,
+      "encoded_rows": 6266,
+      "native_allocation_observations": 0,
+      "observed_packet_ms": [
+        0,
+        40,
+        60
+      ],
+      "observed_payload_bps": [
+        -1,
+        24000,
+        32000
+      ]
+    }
+  ]
+}

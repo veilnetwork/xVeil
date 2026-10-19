@@ -1,0 +1,21 @@
+{
+  "old_source": "80c4205e29b51173d17905713f4e9432c816bf73",
+  "negative_runner_exit": 1,
+  "negative_native_exit": 25,
+  "negative_observation": "framing=360 RTP=20 ceiling=131840 phase=0: Opus packet=60 expected=40 ms",
+  "fixed_runner_exit": 0,
+  "positive_settled_cases": 9,
+  "all_packet_range_constraints_verified_ms": [
+    20,
+    40,
+    60
+  ],
+  "payload_floor_ceiling_bps": [
+    24000,
+    32000
+  ],
+  "source": {
+    "flutter/veil_media/src/bounded_audio_encoder.h": "2682c4adcb41159b61b5aa01e7eda7e51204387ee294350d1e57e1874fa82fee",
+    "flutter/veil_media/test/bounded_audio_encoder_smoke.cc": "8ddfbeb818a4a88904ec308544952a44cbfa18fd550a671a306ddc0a45afef6e"
+  }
+}

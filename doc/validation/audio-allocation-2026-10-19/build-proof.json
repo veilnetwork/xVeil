@@ -1,0 +1,37 @@
+{
+  "snapshot_matches_current_native_tree": true,
+  "foreign_wip_excluded": true,
+  "unchanged_public_exports": 101,
+  "production_test_exports": 0,
+  "libraries_sha256": {
+    "media-hooks/libveil_media.dylib": "3e92b10e6c28478be8936c370fa5423f8183eb88f0482ad1b0be6dee1b78e579",
+    "media-production/libveil_media.dylib": "ff0cedfb6cd6fdefe913c9e7adf5123dd440c0a3cfd67551a9cdf99aef017a23",
+    "android-production/libveil_media.so": "52cad42ba8f7f73b5994faf0b7007eadbcab9c0b8bbd2c2a3992b21e3472a767"
+  },
+  "sdk_reused_sha256": "827129168678804251e92c32d6acd45a2a996fa6c6acd3f89efbffd45a9479dc",
+  "hooks_cc_trace": false,
+  "source_hashes": {
+    "flutter/veil_media/src/bounded_audio_encoder.h": "2682c4adcb41159b61b5aa01e7eda7e51204387ee294350d1e57e1874fa82fee",
+    "flutter/veil_media/test/bounded_audio_encoder_smoke.cc": "8ddfbeb818a4a88904ec308544952a44cbfa18fd550a671a306ddc0a45afef6e"
+  },
+  "snapshot_matches_root": true,
+  "native_runtime_tests": {
+    "baseline_peak_ms": 193.82,
+    "no_reserve_peak_ms": 212.907,
+    "reserved_raw_peak_ms": 211.215,
+    "bounded_peak_ms": 191.588,
+    "unchanged_gate_ms": 200,
+    "all_settled_bounded_pcm_voiced": [
+      600,
+      600,
+      600
+    ],
+    "bounded_duration_matches": [
+      6,
+      6,
+      6
+    ]
+  },
+  "android_bounded_build_exit": 0,
+  "sdk_commit": "057b0ea02ede30014118b83c565cee3076fbd142"
+}

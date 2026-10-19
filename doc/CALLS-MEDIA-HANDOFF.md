@@ -1,5 +1,64 @@
 # Calls media handoff
 
+## 2026-10-19: short Opus packets retain modeled control headroom
+
+SDK **057b0ea0** changes only native audio allocation and its real Opus
+regression. The previous blanket 25% discount could select a 60-ms packet even
+when the allocated budget could fund 40 ms at the speech floor. The final
+policy still targets **25% headroom by trimming payload**, with **20% minimum
+headroom for selecting a shorter packet**. The payload remains **24..32 kbit/s**.
+One bit/s above the funded floor preserves ANA's strict duration comparison;
+receiver/codec duration constraints remain authoritative. No BWE allocation,
+wire role or relay priority is added. This is still a modeled framing budget,
+not complete QUIC/TCP/IP/ACK accounting.
+
+Two prototypes were **rejected** by the unchanged decoded **<200-ms** handover
+gate: removing the reserve entirely peaks at **212.907 ms**; keeping the payload
+reserve but selecting duration against the full allocation reaches **211.215 ms**.
+The old library passes the same fixture at **193.820 ms**. The bounded final
+candidate passes at **191.588 ms**, with **600/600/600** settled blocks voiced,
+duration matches **6/6/6** and zero drops across framing/channel changes.
+The real-encoder negative gate fails against the old header at **131840 bit/s**
+and 360-byte framing: actual 60-ms packet, expected 40 ms. The final header
+passes all nine settled cases and the 20/40/60-ms receiver constraints. Low
+budgets still select long packets, and short packets must leave control room.
+DTX on/off signal checks at 209/509-byte framing retain zero quiet blocks at
+the 24-kbit floor. Mac/Android arm64 production libraries build with the same
+**101** public exports; production has no test exports. The Rust SDK binary
+remains the clean 80c4205e build; foreign Rust work was not compiled.
+
+The final-source original **360-second 1:1 workload PASSES**: maxima
+**189.990042 / 190.099833 ms**, **704 matched / 0 missing** markers, both
+512-KiB files exact and both videos moving at the end. Sampled image gaps
+reach 2 / 6 seconds, which is not a smooth-video qualification. The unchanged
+1-Mbit blind FIFO peaks at 80 / 99 ms with zero drops; clocks miss no deadlines.
+The exact PCM peak spans **40.407 ms capture-to-encoded + 10.579 ms SDK-to-ingress
++ 139.056 ms after WebRTC ingress**. These are synthetic PCM measurements,
+not acoustic speech/headset quality or a statistical improvement estimate.
+
+The final-native original **360-second three-party workload FAILS** at
+**250.093917 ms** (previous capture 210.365708 ms). All **2112** markers match
+without omissions, all three files match, all six videos move at the end.
+Capture is complete; no clock misses or FIFO drops. The exact 60-ms peak spans
+**40.606 ms packet formation + 42.894 ms delivery + 166.585 ms after ingress**.
+Both old/new group encoder traces contain **zero allocation observations**:
+the changed unicast method never ran in these group captures. Group's separate
+packet-size policy remains open; do not call the worse observation a group
+fix or hide it behind the unicast pass. Source QUIC acceptance-to-authenticated
+receipt takes 42.619 ms; acceptance remains a queue observation, not NIC send.
+
+**Goal ACTIVE.** Next investigate group audio's long-packet budget while video/
+data compete, room video framing/cadence, full carrier/fanout accounting, sparse
+video and physical handover behavior. Screen/fallback/application/phone and
+live speech/headset qualification, plus the complete interaction-channel audit,
+remain outstanding. BV6600Pro is visible by ADB at the final read-only check;
+no phone installation/call or GUI app was started. All **13** known fixture/
+worker/policy/helper PIDs are independently absent, fixture sockets are gone,
+and the owned Android builder container is removed. No server, push or release
+change. Evidence: **validation/call-audio-allocation-2026-10-19.json** and
+**validation/audio-allocation-2026-10-19/**; private artifacts:
+**~/.cache/codex/xveil-audio-allocation-20261019/**. Foreign work is preserved.
+
 ## 2026-10-19: acknowledged video growth is gradual
 
 The adapter now separates an earned profile from the budget actually accepted
