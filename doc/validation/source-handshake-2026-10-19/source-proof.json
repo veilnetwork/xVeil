@@ -1,0 +1,29 @@
+{
+  "base_sdk": "a2bd262226fde2d84ec36c7010f6b40e16917425",
+  "sources": {
+    "crates/veil-session/src/auxiliary_records_quic_tests.rs": "7febae0176edeab7185a1d640e5e4b3215f34b8c800788d149f80810ce842ac6",
+    "crates/veil-session/src/local_source_activity.rs": "f988872a5f4e3adfceb7fafc5226fa8c535082131ef74e114f18efa29b9a4aab",
+    "crates/veil-session/src/local_source_flight.rs": "5ed5f93fbd26dba060de2efc04f2aed4d030deca6a76a8a4b29908a3e245b160",
+    "crates/veil-session/src/parallel_lanes.rs": "6a12e22160001b0345ff33afd973c5bef27450b84a9c3ce7ec2a5cdd9506a87e",
+    "crates/veil-session/src/runner.rs": "ec81cc66a5c9fc0bc3c2ade9680a96462c80725b97bc8cbbb798dd136cd523de",
+    "crates/veil-transport/src/lib.rs": "0b5448f61e12a3c7beccf03a38a4b3378270fc19223d8c08b4caad2dfb09863a",
+    "crates/veil-transport/src/quic.rs": "1b3190c216ac8dd6680e26d392a59edb0c60ff03fdff34fbbe3296fbb3b22287",
+    "crates/veil-transport/src/quic/parallel.rs": "bd16ebf2a406df90aa015cd4c020751765431705e06b8c7b93460999b4f113c6",
+    "third_party/quinn/src/connection.rs": "dd224c5566094c5a791450658b4d4e85743a96d881899dca01211fd814a38ee1",
+    "third_party/quinn/src/endpoint.rs": "f961162c0e8a34cf7800d05790fd9602b1d83f4bad17906a7f0963b8c22e2240",
+    "third_party/quinn/src/lib.rs": "14000e777ffa2f1dbb78bf82b97843ab87218ee5352e06d336ff3e51724ce450",
+    "crates/veil-transport/src/quic/source_budget_tests.rs": "d09584513350da33594f7f32fd32e4fde3b3d8648bb2daa31552327e00b66dc5"
+  },
+  "foreign_excluded": [
+    "crates/veil-dispatcher/src/app.rs",
+    "crates/veil-dispatcher/src/delivery.rs",
+    "crates/veil-e2e/src/ratchet.rs",
+    "crates/veil-node-runtime/src/runtime/identity_publish.rs"
+  ],
+  "target": "/Users/vart/.cache/codex/veil-auxiliary-neutral-target-20261019",
+  "foreign_diff_sha256": "1ceeb05d540078262f1480ba7210dfaa0f5895be9f0099f64bc18a56a4f6a363",
+  "sdk_sha256": "57843f770a0008bee2f47ee6a5fef06b705ac414139bba61b7b3c1f1832bcb2b",
+  "sdk_commit": "bfbb23115749e5930b85f491dbda2d8d56190f0a",
+  "exports_unchanged": 202,
+  "native_sha256": "fa92737825248b4cb44fc4e7209ebdff7334ca8ef91f527c76b2ee3606d77959"
+}

@@ -1,0 +1,21 @@
+{
+  "base_sdk": "6eb1f5b5732d3a590b5758296546c23c4942a930",
+  "sources": {
+    "crates/veil-session/src/auxiliary_records.rs": "b3cdc343ed84d3d7249e8dce45706e8f5d1fae17dbec2dcb6a3b39680bfe1420",
+    "crates/veil-session/src/runner.rs": "c5849c29f3c90efbeb55a71da2462bc53604541ad07522716c1bda6eeaefa403",
+    "crates/veil-node-runtime/src/runtime/tests.rs": "3c9ed5c7436e01aaaff7557f249047c2ddc599d7751367a7f0352bca544eff20"
+  },
+  "target": "/Users/vart/.cache/codex/veil-auxiliary-neutral-target-20261019",
+  "foreign_excluded": [
+    "crates/veil-dispatcher/src/app.rs",
+    "crates/veil-dispatcher/src/delivery.rs",
+    "crates/veil-e2e/src/ratchet.rs",
+    "crates/veil-node-runtime/src/runtime/identity_publish.rs"
+  ],
+  "supersedes": "/Users/vart/.cache/codex/xveil-auxiliary-records-20261019",
+  "qualified": false,
+  "sdk_sha256": "4e7147fe1478a7a82e652a1bed98dfcb23cc53a86f6020af61eb102e3cbf2315",
+  "sdk_commit": "a2bd262226fde2d84ec36c7010f6b40e16917425",
+  "exports_unchanged": 202,
+  "native_sha256": "fa92737825248b4cb44fc4e7209ebdff7334ca8ef91f527c76b2ee3606d77959"
+}

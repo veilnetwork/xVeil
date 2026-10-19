@@ -1,0 +1,83 @@
+{
+  "checked_at_utc": "2026-10-19T14:58:08.647185+00:00",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "prior_goal_turn_classification": "progress: unfinished auxiliary source changes existed; this cycle finished correctness fixes and produced new source/measurement evidence",
+  "sdk_commits": [
+    "6eb1f5b5732d3a590b5758296546c23c4942a930",
+    "a2bd262226fde2d84ec36c7010f6b40e16917425",
+    "bfbb23115749e5930b85f491dbda2d8d56190f0a"
+  ],
+  "latest_sdk_sha256": "57843f770a0008bee2f47ee6a5fef06b705ac414139bba61b7b3c1f1832bcb2b",
+  "native_sha256": "fa92737825248b4cb44fc4e7209ebdff7334ca8ef91f527c76b2ee3606d77959",
+  "exports_unchanged": 202,
+  "tests": {
+    "session_passed": 624,
+    "session_ignored": 8,
+    "transport_passed": 155,
+    "runtime_passed": 663,
+    "runtime_ignored": 11,
+    "protocol_passed": 837
+  },
+  "latest_original_full_gates": {
+    "duration_seconds": 360,
+    "rate_kbps": 1024,
+    "audio_max_ms_exclusive": 200,
+    "pair": {
+      "pass": true,
+      "max_ms": [
+        189.99970832373947,
+        180.19687497871928
+      ],
+      "matched_markers": 704,
+      "missing_markers": 0,
+      "exact_files": 2,
+      "tail_changes": [
+        14,
+        14
+      ]
+    },
+    "group": {
+      "pass": false,
+      "max_ms": 280.0975416612346,
+      "matched_markers": 2112,
+      "missing_markers": 0,
+      "exact_files": 3,
+      "tail_changes": [
+        14,
+        14,
+        14,
+        14,
+        14,
+        14
+      ]
+    }
+  },
+  "policy": "Node-local trusted own sources only. Generic opaque peer protocol; default/incoming/transit service unchanged; peer-triggered data replies neutral; no media-service request on wire.",
+  "cleanup": "All six cycle captures verified exited by PID plus exact command:48 recorded process observations,42 long-lived helpers/stands and6 transient recorders; no fixture sockets remain.",
+  "foreign_wip_preserved": {
+    "root_diff_sha256": "529f7718edea4b6775cc11607bc2ff663a922cc3521b680cf94efa39d7b26859",
+    "sdk_diff_sha256": "1ceeb05d540078262f1480ba7210dfaa0f5895be9f0099f64bc18a56a4f6a363"
+  },
+  "public_release": false,
+  "installed_app_changed": false,
+  "phone_touched": false,
+  "relay_changed_this_cycle": false,
+  "completion_audit": {
+    "audio_above_video_and_screen": "implemented on trusted own QUIC children; full group latency gate contradicts completion",
+    "separate_owned_stateless_data_and_control": "implemented and exercised by actual SDK files/RPC; legacy path tested",
+    "all_interactions_separated": "incomplete: streamful App/mixed paths, shared network/signaling and ordered/canonical paths remain",
+    "end_to_end_quality": "incomplete: group280ms; receiver residual and service across full route not solved",
+    "physical_speech_headset_screen": "unverified",
+    "relay_neutrality": "new incoming/default/transit no budget inheritance tested; promoted-reply negative fails as expected"
+  },
+  "next_actions": [
+    "Trace complete route service and receiver recovery at the actual group peak; do not treat first-hop ACKs as end-to-end capacity.",
+    "Finish trusted own streamful App and remaining interaction isolation without throttling transit.",
+    "Preserve full gates and verify reconnect/mute/fanout and physical speech/headset/screen."
+  ],
+  "evidence_directory": "source-handshake-2026-10-19/",
+  "earlier_candidates": "auxiliary-records-2026-10-19/",
+  "raw_artifacts": "/Users/vart/.cache/codex/xveil-source-handshake-20261019",
+  "qualification": false
+}

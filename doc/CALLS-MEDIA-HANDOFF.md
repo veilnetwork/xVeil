@@ -1,5 +1,99 @@
 # Calls media handoff
 
+## 2026-10-19: source records and early flight; pair passes, group fails
+
+SDK **6eb1f5b5** adds explicitly negotiated, independently keyed stateless
+records on existing generic QUIC proof streams. Own streamless data uses the
+existing local data child; own network requests use the existing control child.
+Both participate in the node's shared flight policy. Incoming records retain
+canonical peer identity, dispatcher admission and parent retirement checks.
+The record and DATAGRAM codecs have distinct keys/session ids. No source role
+or media-service request is transmitted. The quota remains eight connections
+**per direction**. At quota, a required control child stays live; recovery may
+replace the stalled child itself. Completed record RX drains after transport
+failure, while retained retired TX handles cannot admit new work.
+
+SDK **a2bd2622** fixes the first implementation's response classification:
+peer-triggered application/discovery/delivery replies remain ordinary, without
+own-source credit. Existing session/control responses retain their previous
+bounded control policy. The RPC pending table now also consumes auxiliary
+responses. Queued ingress timestamps cannot rewind liveness or make keepalive
+traffic count as genuine data. Streamful App ownership is still on its old
+carrier; this is not complete interaction separation.
+
+The final clean snapshot has **622 session /663 runtime /837 protocol** tests
+passing, with8 session and11 runtime tests ignored as before. Three behavioral
+negatives detect required-control eviction, missing RPC interception and promoted
+peer replies. The inbound-direction fixture now allows connection loss while
+reading a correctly rejected ordinary/duplicate handshake; the first accepted
+punched peer must still authenticate, exactly one original session must survive,
+and a successfully handshaken duplicate must still close. Earlier failing logs
+are retained. A shared Cargo target reused the clean ratchet artifact while
+compiling foreign dispatcher edits; the final snapshot uses a separate target.
+Foreign files/diffs are preserved and excluded from the SDK archive.
+
+The **6eb1f5b5** load captures are FAILED and superseded, not for installation:
+original360s/1024-kbit group **370.127ms**,2112/0 markers,3 exact files and six
+video tails14; pair **210.111/210.135ms**,704/0 markers,2 exact files and two
+tails14. Both have0 driver deadline misses. Pair sampled video retrieval gaps
+reach7–8s; final motion alone must not be presented as smooth video. Group peak
+spans **10.393ms formation +232.216ms encoded-to-ingress +127.518ms after ingress**.
+These spans do not identify a network hop or prove causality from one capture.
+All16 recorded stand/helper processes are exited and fixture sockets are gone.
+
+The **a2bd2622** original360s/1024-kbit gates also **FAIL**: group
+**240.253ms**,2112/0 markers,3 exact files and six tails14; pair
+**219.992/170.305ms**,704/0 markers,2 exact files and two tails14. Pair sampled
+retrieval gaps are about2s. No deadline misses; all16 additional recorded
+processes exited and all sockets are gone. Its group60-ms peak spans
+**50.406ms formation +65.770ms encoded-to-ingress +124.078ms after ingress**;
+one startup explanation cannot account for every remaining peak. The retained
+SDK hash is `4e7147fe1478a7a82e652a1bed98dfcb23cc53a86f6020af61eb102e3cbf2315`.
+Both captures remain below the required quality standard. No criterion or
+workload was changed; one capture per variant cannot establish causality.
+
+SDK **bfbb2311** now installs a generic local source-budget factory AFTER
+Quinn allocates its process-local connection ordinal and BEFORE spawning the
+driver. This covers Initial/Handshake/proof flight as well as application bytes.
+Only trusted own source assignments opt in; default/incoming/neutral connects
+remain ordinary. The same policy is reused after authentication, and source
+activity survives parent rekey. Real TLS tests hold the first Initial behind
+a gate, check ordinary/incoming isolation and pending-connect cancellation;
+a production runner test sees the source ledger before remote TLS acceptance.
+All **624 session /155 transport /663 runtime /837 protocol** tests pass, with
+the previous8/11 session/runtime ignores. Two negatives remove the initializer
+or the runner's own-source attachment and fail their behavioral assertions.
+Native media and202 exports are unchanged. SDK hash:
+`57843f770a0008bee2f47ee6a5fef06b705ac414139bba61b7b3c1f1832bcb2b`.
+
+The final **bfbb2311** original **360s/1024-kbit pair gate PASSES**:
+**190.000/180.197ms**,704 matched/0 missing markers,2 exact512-KiB files,
+both video tails14, about2s maximum sampled retrieval gap,0 native deadline
+misses. The original group gate still **FAILS at280.098ms**:2112/0 markers,
+3 exact512-KiB files, all6 tails14 and0 native deadline misses. Its40-ms
+peak at219.170s spans **20.381ms formation +133.565ms encoded-to-ingress
++126.151ms after ingress**. The early-attachment gap is closed, but these
+captures do NOT establish a causal latency improvement or complete quality.
+No native/policy/workload/clock/gate change was made. All48 recorded process
+observations across the6 cycle captures (42 long-lived/6 transient) are exited;
+all node stops return0 and fixture sockets are gone. No phone, installed app,
+relay, public release or push changes occurred. Evidence:
+`call-source-handshake-2026-10-19.json`, `source-handshake-2026-10-19/` and
+`auxiliary-records-2026-10-19/`. Retained raw artifacts:
+`/Users/vart/.cache/codex/xveil-source-handshake-20261019`.
+
+Goal **ACTIVE**. During the failed group peak, multiple generic siblings warm
+concurrently and a proof takes626ms. Before bfbb2311, source flight attachment occurred
+AFTER TLS/proof readiness, leaving their startup traffic outside that policy.
+This is a concrete coverage gap and a causal hypothesis, not a proven cause of
+the peak. The early factory closes that coverage gap; the final group result still fails
+and its peak is later in the call. Do not present startup traffic as the sole
+cause. Next trace actual route service and receiver recovery at that peak;
+first-hop ACKs do not measure available end-to-end capacity. Streamful
+App separation, independent network/control paths where still shared, ordered
+fallback/canonical paths, fanout/end-to-end accounting, receiver recovery,
+reconnect/mute and hardware speech/headset/screen qualification remain open. Preserve the original full pair/group gates.
+
 ## 2026-10-19: shared local source flight; pair passes, group still fails
 
 SDK **e05f1b98** adds actual node-local coupling of authenticated outgoing QUIC

@@ -1,0 +1,50 @@
+{
+  "xveil-source-flight-demand-20261019": {
+    "rows": 1066,
+    "with_flight": 632,
+    "members": {
+      "median": 3.0,
+      "p95": 4,
+      "max": 4
+    },
+    "flight": {
+      "median": 1056.0,
+      "p95": 2508,
+      "max": 4092
+    },
+    "window": {
+      "median": 5808.0,
+      "p95": 5808,
+      "max": 5808
+    },
+    "reserve": {
+      "median": 2904.0,
+      "p95": 2904,
+      "max": 2904
+    }
+  },
+  "xveil-auxiliary-records-20261019": {
+    "rows": 1141,
+    "with_flight": 552,
+    "members": {
+      "median": 4.0,
+      "p95": 4,
+      "max": 5
+    },
+    "flight": {
+      "median": 1153.0,
+      "p95": 3149,
+      "max": 7339
+    },
+    "window": {
+      "median": 5808.0,
+      "p95": 5808,
+      "max": 6000
+    },
+    "reserve": {
+      "median": 2904.0,
+      "p95": 2904,
+      "max": 3600
+    }
+  }
+}

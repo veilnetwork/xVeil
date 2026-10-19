@@ -1,0 +1,17 @@
+{
+  "clean-full-tests.txt": {
+    "raw_sha256": "5afb46fb7418007445c15d1bc2e9048cdc94adf23ef9e7a76b334ccfcf154fd8",
+    "repository_sha256": "bb67c537e5fda0d506159e18567a01605235f66eed7ca4cf12487a053b66574c",
+    "normalization": "Only trailing empty lines removed from the repository console-log copy; private raw log unchanged."
+  },
+  "restored-owned-warm-test.txt": {
+    "raw_sha256": "c68a962de00f15c44759b158604aafd12f83371fb436f9d4f343a6f92f5aa830",
+    "repository_sha256": "fb67502a003f8ebd7600008e5957b4fa857363f6b1a2f7379c4aea2e7a3931b4",
+    "normalization": "Only trailing empty lines removed from the repository console-log copy; private raw log unchanged."
+  },
+  "restored-source-budget-tests.txt": {
+    "raw_sha256": "b4700a4957a9f6820933e77a07bec8aeff4b089db87b862baff6d752301b17cf",
+    "repository_sha256": "593e8c4d445966c810151b983f9e1a16c4fde179434e62d3407f5130fc8ee370",
+    "normalization": "Only trailing empty lines removed from the repository console-log copy; private raw log unchanged."
+  }
+}
