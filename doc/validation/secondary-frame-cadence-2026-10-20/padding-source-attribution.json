@@ -1,0 +1,45 @@
+{
+  "native_rtp_key": {
+    "ssrc": 4055174319,
+    "sequence": 22186,
+    "timestamp": 4187853984,
+    "payload_bytes": 0
+  },
+  "native_attempt_us": 278056042959,
+  "seal_us": 278056042970,
+  "epoch": "ecada5a91934cdc7",
+  "cell_sequence": 5329,
+  "source_verdict": "accepted_by_local_transport",
+  "source_stages": [
+    {
+      "at_unix_us": "1792445278881648",
+      "monotonic_us": "278056156721",
+      "stage": "budget_admit",
+      "connection_trace_id": "0",
+      "local_slot": "2",
+      "epoch": "ecada5a91934cdc7",
+      "seq": "5329",
+      "wire_bytes": "591",
+      "family": "3",
+      "msg_type": "3",
+      "body_len": "551",
+      "body_preview_sha256": "eeace2b2a227dabefb7a6c881e089e999e1e7881da0a6d897f777092aaf99aaf"
+    },
+    {
+      "at_unix_us": "1792445278881653",
+      "monotonic_us": "278056156726",
+      "stage": "datagram_accepted",
+      "connection_trace_id": "14",
+      "local_slot": "2",
+      "epoch": "ecada5a91934cdc7",
+      "seq": "5329",
+      "wire_bytes": "591",
+      "family": "3",
+      "msg_type": "3",
+      "body_len": "551",
+      "body_preview_sha256": "eeace2b2a227dabefb7a6c881e089e999e1e7881da0a6d897f777092aaf99aaf"
+    }
+  ],
+  "native_to_seal_ms": 0.011,
+  "native_attempt_count": 1
+}
