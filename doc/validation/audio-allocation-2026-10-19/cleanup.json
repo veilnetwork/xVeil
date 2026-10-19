@@ -1,0 +1,91 @@
+{
+  "known_owned_processes": [
+    {
+      "pid": 30205,
+      "absent": true,
+      "observed": null
+    },
+    {
+      "pid": 30255,
+      "absent": true,
+      "observed": null
+    },
+    {
+      "pid": 30256,
+      "absent": true,
+      "observed": null
+    },
+    {
+      "pid": 40990,
+      "absent": true,
+      "observed": null
+    },
+    {
+      "pid": 41163,
+      "absent": true,
+      "observed": null
+    },
+    {
+      "pid": 41164,
+      "absent": true,
+      "observed": null
+    },
+    {
+      "pid": 54019,
+      "absent": true,
+      "observed": null
+    },
+    {
+      "pid": 54020,
+      "absent": true,
+      "observed": null
+    },
+    {
+      "pid": 54021,
+      "absent": true,
+      "observed": null
+    },
+    {
+      "pid": 54022,
+      "absent": true,
+      "observed": null
+    },
+    {
+      "pid": 54037,
+      "absent": true,
+      "observed": null
+    },
+    {
+      "pid": 54038,
+      "absent": true,
+      "observed": null
+    },
+    {
+      "pid": 54039,
+      "absent": true,
+      "observed": null
+    }
+  ],
+  "all_absent": true,
+  "workers_exited": true,
+  "worker_exit_codes": [
+    0,
+    0,
+    0
+  ],
+  "group_node_stop_results": [
+    0,
+    0,
+    0,
+    0
+  ],
+  "remaining_group_sockets": 0,
+  "pair_cleanup": {
+    "fixture_absent": true,
+    "helper_absent": true,
+    "exit_code": 0
+  },
+  "owned_builder_container_absent": true,
+  "gui_apps_started": false,
+  "phone_modified": false
+}

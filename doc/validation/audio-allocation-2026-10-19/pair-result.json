@@ -1,0 +1,232 @@
+{
+  "ok": true,
+  "duration_seconds": 360,
+  "rate_kbps": 1024,
+  "native_media_sha256": "3e92b10e6c28478be8936c370fa5423f8183eb88f0482ad1b0be6dee1b78e579",
+  "decoded_pcm_edges": [
+    {
+      "side": 0,
+      "phases": [
+        {
+          "name": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "p95_ms": 110.06566666765139,
+          "max_ms": 130.00416668364778
+        },
+        {
+          "name": "audio-video",
+          "matched": 337,
+          "missing": 0,
+          "p95_ms": 170.011041656835,
+          "max_ms": 189.99004166107625
+        }
+      ],
+      "source_edge_capture_positions": {
+        "40": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "60": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      }
+    },
+    {
+      "side": 1,
+      "phases": [
+        {
+          "name": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "p95_ms": 100.18383333226666,
+          "max_ms": 100.22520832717419
+        },
+        {
+          "name": "audio-video",
+          "matched": 337,
+          "missing": 0,
+          "p95_ms": 170.15783334500156,
+          "max_ms": 190.09983332944103
+        }
+      ],
+      "source_edge_capture_positions": {
+        "40": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "60": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      }
+    }
+  ],
+  "matched": 704,
+  "missing": 0,
+  "files": [
+    {
+      "queued": 524288,
+      "queue_duration_ms": 4.8,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "receipt_duration_ms": 189674.1,
+      "missing_indices": []
+    },
+    {
+      "queued": 524288,
+      "queue_duration_ms": 4.7,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "receipt_duration_ms": 163748.9,
+      "missing_indices": []
+    }
+  ],
+  "video": {
+    "synthetic_fixture_only": true,
+    "screen_presentation_proof": false,
+    "sampled_retrieval_not_native_decode_timing": true,
+    "tail_seconds": 15,
+    "directions": [
+      {
+        "side": 0,
+        "decoded_frame_pulls": 337,
+        "content_changes": 336,
+        "last_decoded_pull_seconds": 359.00198637499125,
+        "max_sampled_pull_gap_seconds": 2.0032242499873973,
+        "tail_decoded_pulls": 14,
+        "tail_content_changes": 13,
+        "moving_at_end": true
+      },
+      {
+        "side": 1,
+        "decoded_frame_pulls": 316,
+        "content_changes": 315,
+        "last_decoded_pull_seconds": 359.00427929198486,
+        "max_sampled_pull_gap_seconds": 6.0018354170024395,
+        "tail_decoded_pulls": 15,
+        "tail_content_changes": 14,
+        "moving_at_end": true
+      }
+    ],
+    "moving_at_end": true
+  },
+  "neutral_shaper": [
+    {
+      "received": 78405,
+      "sent": 78405,
+      "drops": 0,
+      "max_queue_ms": 80.2213967544958
+    },
+    {
+      "received": 78262,
+      "sent": 78262,
+      "drops": 0,
+      "max_queue_ms": 99.28212509839796
+    }
+  ],
+  "peak_pipeline": {
+    "source": 0,
+    "input_seconds": 27.270516,
+    "output_seconds": 27.460616,
+    "total_ms": 190.1,
+    "packet_ms": 60,
+    "input_position_ms": 10,
+    "following_packet_ingress_seconds": 27.38637,
+    "spans_ms": {
+      "capture_to_encoded": 40.407,
+      "encoded_to_send": 0.026,
+      "send_to_sdk": 0.01,
+      "sdk_to_ingress": 10.579,
+      "ingress_to_webrtc": 0.022,
+      "webrtc_to_pcm_edge": 139.056
+    }
+  },
+  "unattributed_edges": {},
+  "native_clock": {
+    "clock_check_span_us": 6.999995093792677,
+    "scheduling_mode": "deadline",
+    "dropped_rows": 0,
+    "ticks": 36000,
+    "observation_count_verified": true,
+    "stage_maxima_ms": {
+      "max_wake_lateness_ms": 0.05975,
+      "max_callback_ms": 2.1751666790805757,
+      "max_publication_ms": 0.010083313100039959
+    },
+    "scheduling": {
+      "qos_supported": 1,
+      "qos_result": 0,
+      "qos_requested": 33,
+      "qos_actual": 33
+    },
+    "deadline_scheduling": {
+      "deadline_requested": 1,
+      "deadline_result": 0,
+      "deadline_active": 1,
+      "deadline_period_ticks": 240000,
+      "deadline_computation_ticks": 72000,
+      "deadline_constraint_ticks": 120000,
+      "deadline_actual_period_ticks": 240000,
+      "deadline_actual_computation_ticks": 72000,
+      "deadline_actual_constraint_ticks": 120000,
+      "deadline_checks": 362,
+      "deadline_misses": 0
+    },
+    "timer_error": 0
+  },
+  "pcm_capture_coverage": {
+    "verified": true,
+    "directions": [
+      {
+        "side": 0,
+        "first_seconds": 0.0005030836327932775,
+        "last_seconds": 359.9905084169877,
+        "complete": true
+      },
+      {
+        "side": 1,
+        "first_seconds": 0.0011433336476329714,
+        "last_seconds": 359.99060508364346,
+        "complete": true
+      }
+    ]
+  },
+  "native_failures": [
+    0,
+    0
+  ],
+  "poll_failures": [
+    0,
+    0
+  ],
+  "codec_target_bounds_verified": true,
+  "tone_phase_coverage_verified": true,
+  "remaining_fixture_sockets": 0,
+  "cleanup": {
+    "audio_thread_exited": true,
+    "file_threads_exited": true,
+    "policy_exited": true,
+    "node_stop_results": [
+      0,
+      0,
+      0
+    ]
+  },
+  "scope": "Owned synthetic loopback, final root policy and bounded native candidate. No acoustic/headset or WAN voice qualification."
+}

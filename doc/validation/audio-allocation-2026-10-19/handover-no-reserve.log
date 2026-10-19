@@ -1,0 +1,39 @@
+live framing sample: tick=600 overhead=209 packet_ms=20 estimate_bps=160000 payload_bps=32000
+live framing sample: tick=700 overhead=209 packet_ms=20 estimate_bps=160000 payload_bps=32000
+live framing sample: tick=800 overhead=209 packet_ms=20 estimate_bps=160000 payload_bps=32000
+live framing sample: tick=900 overhead=209 packet_ms=20 estimate_bps=160000 payload_bps=32000
+live framing sample: tick=1000 overhead=209 packet_ms=20 estimate_bps=160000 payload_bps=32000
+live framing sample: tick=1100 overhead=209 packet_ms=20 estimate_bps=160000 payload_bps=32000
+live framing sample: tick=1800 overhead=360 packet_ms=40 estimate_bps=160000 payload_bps=32000
+live framing sample: tick=1900 overhead=360 packet_ms=40 estimate_bps=160000 payload_bps=32000
+live framing sample: tick=2000 overhead=360 packet_ms=40 estimate_bps=160000 payload_bps=32000
+live framing sample: tick=2100 overhead=360 packet_ms=40 estimate_bps=160000 payload_bps=32000
+live framing sample: tick=2200 overhead=360 packet_ms=40 estimate_bps=160000 payload_bps=32000
+live framing sample: tick=2300 overhead=360 packet_ms=40 estimate_bps=160000 payload_bps=32000
+live framing sample: tick=3000 overhead=209 packet_ms=20 estimate_bps=160000 payload_bps=32000
+live framing sample: tick=3100 overhead=209 packet_ms=20 estimate_bps=160000 payload_bps=32000
+live framing sample: tick=3200 overhead=209 packet_ms=20 estimate_bps=160000 payload_bps=32000
+live framing sample: tick=3300 overhead=209 packet_ms=20 estimate_bps=160000 payload_bps=32000
+live framing sample: tick=3400 overhead=209 packet_ms=20 estimate_bps=160000 payload_bps=32000
+live framing sample: tick=3500 overhead=209 packet_ms=20 estimate_bps=160000 payload_bps=32000
+framing marker handover=1 sent_ms=1000.020 latency_ms=203.004
+framing marker handover=1 sent_ms=3000.901 latency_ms=192.767
+framing marker handover=1 sent_ms=5003.224 latency_ms=141.363
+framing marker handover=1 sent_ms=7002.658 latency_ms=140.222
+framing marker handover=1 sent_ms=9003.741 latency_ms=139.050
+framing marker handover=1 sent_ms=11003.594 latency_ms=139.215
+framing marker handover=1 sent_ms=13001.957 latency_ms=178.384
+framing marker handover=1 sent_ms=15002.818 latency_ms=207.518
+framing marker handover=1 sent_ms=17004.401 latency_ms=210.273
+framing marker handover=1 sent_ms=19003.403 latency_ms=209.597
+framing marker handover=1 sent_ms=21001.081 latency_ms=212.178
+framing marker handover=1 sent_ms=23001.717 latency_ms=212.907
+framing marker handover=1 sent_ms=25000.867 latency_ms=201.571
+framing marker handover=1 sent_ms=27004.585 latency_ms=147.503
+framing marker handover=1 sent_ms=29003.419 latency_ms=139.301
+framing marker handover=1 sent_ms=31003.547 latency_ms=136.676
+framing marker handover=1 sent_ms=33001.292 latency_ms=143.305
+framing marker handover=1 sent_ms=35000.097 latency_ms=144.187
+live framing: voiced=600/600/600 settled_duration_matches=6/6/6 observations=6/6/6 marker_max_ms=212.907 lateness=6.650 drops=0/0/0 settled_drops=0/0/0
+framing queues max_ms=163.744/73.728/34.725
+Assertion failed: (max_lateness < 30 && max_marker_ms < 200), function verify_live_framing, file audio_playout_smoke.cc, line 304.

@@ -1,0 +1,62 @@
+{
+  "unicast_before": {
+    "at_seconds": 219.051,
+    "raw_bps": 131840,
+    "ana_bps": 82666,
+    "overhead_bytes": 380,
+    "old_packet_transition_ms": [
+      40,
+      60
+    ],
+    "minimum_40ms_gross_bps": 100000,
+    "revised_gross_bps": 100001,
+    "control_remainder_bps": 31839
+  },
+  "group_before": {
+    "packet_ms": 60,
+    "payload_bps": 24000,
+    "last_budget_changes_seconds": [
+      1.009483208,
+      5.020216666
+    ],
+    "separate_policy": true,
+    "unicast_ana_change_cannot_fix_group": true
+  },
+  "first_candidate": {
+    "blanket_reserve_removed": true,
+    "live_handover_gate_passed": false,
+    "decoded_peak_ms": 212.907,
+    "max_queue_ms": 163.744,
+    "native_fixture_exit_code": 134,
+    "disposition": "Rejected; final variant retains payload headroom."
+  },
+  "second_candidate": {
+    "payload_reserve_retained": true,
+    "duration_chosen_against_full_raw_allocation": true,
+    "live_handover_gate_passed": false,
+    "decoded_peak_ms": 211.215,
+    "max_queue_ms": 151.534,
+    "native_fixture_exit_code": 134,
+    "disposition": "Rejected; final candidate also retains a minimum duration control reserve."
+  },
+  "same_fixture_baseline": {
+    "library": "video-framing-20261019/media-hooks-v3",
+    "decoded_peak_ms": 193.82,
+    "native_fixture_exit_code": 0,
+    "all_settled_pcm_voiced": [
+      600,
+      600,
+      600
+    ]
+  },
+  "bounded_candidate": {
+    "target_payload_margin_percent": 25,
+    "minimum_duration_margin_percent": 20,
+    "payload_range_bps": [
+      24000,
+      32000
+    ],
+    "no_new_bwe_budget": true,
+    "shorter_packet_floor_epsilon_bps": 1
+  }
+}
