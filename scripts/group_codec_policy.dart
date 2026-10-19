@@ -41,13 +41,21 @@ class RoomPolicy {
         if (receiver is Map) ...{
           'audio_rx_pkts': receiver['audio_rx_pkts'],
           'audio_delay_ms': receiver['audio_delay_ms'],
+          'audio_pressure_delay_ms': receiver['audio_pressure_delay_ms'],
           'audio_rx_native_age_ms': receiver['audio_rx_native_age_ms'],
           'audio_interruption_count': receiver['audio_interruption_count'],
         },
       }, now);
       interrupted |= activity.interrupted;
       final packets = receiver is Map ? receiver['audio_rx_pkts'] : null;
-      final d = receiver is Map ? measured(receiver['audio_delay_ms']) : null;
+      final d = receiver is Map
+          ? CallAudioReceiveActivity.nativePlayoutDelay({
+              'worker_stalled': stats['worker_stalled'],
+              'audio_rx_pkts': receiver['audio_rx_pkts'],
+              'audio_delay_ms': receiver['audio_delay_ms'],
+              'audio_pressure_delay_ms': receiver['audio_pressure_delay_ms'],
+            })
+          : null;
       final a = receiver is Map
           ? measured(receiver['audio_rx_native_age_ms'])
           : null;

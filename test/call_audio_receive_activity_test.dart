@@ -108,6 +108,32 @@ void main() {
   });
 
   test(
+    'upstream RTP lag reaches authenticated feedback despite a small queue',
+    () {
+      final activity = CallAudioReceiveActivity();
+      final stats = <String, Object?>{
+        'audio_rx_pkts': 100,
+        'audio_rx_native_age_ms': 10,
+        'worker_stalled': 0,
+        'audio_delay_ms': 109,
+        'audio_jb_ms': 109,
+        'audio_pressure_delay_ms': 269,
+      };
+      activity.observe(stats, start);
+      expect(activity.playoutFeedback(start).delayMs, 269);
+      expect(activity.outgoingPlayoutFeedback(start).currentDelayMs, 269);
+      for (final unknown in [null, -1, double.nan, double.infinity, 60001]) {
+        activity.observe({...stats, 'audio_pressure_delay_ms': unknown}, start);
+        expect(activity.playoutFeedback(start).delayMs, 109);
+      }
+      activity.observe({...stats, 'worker_stalled': 1}, start);
+      expect(activity.playoutFeedback(start).delayMs, isNull);
+      activity.observe({...stats, 'audio_rx_pkts': 0}, start);
+      expect(activity.playoutFeedback(start).delayMs, isNull);
+    },
+  );
+
+  test(
     'outgoing heartbeat preserves an intervening peak and then expires it',
     () {
       final activity = CallAudioReceiveActivity();
