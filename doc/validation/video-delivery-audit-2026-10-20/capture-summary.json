@@ -1,0 +1,223 @@
+{
+  "ok": true,
+  "duration_seconds": 360,
+  "rate_kbps": 1024,
+  "decoded_pcm_edges": [
+    {
+      "side": 0,
+      "phases": [
+        {
+          "name": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "p95_ms": 100.03641666844487,
+          "max_ms": 100.11041670804843
+        },
+        {
+          "name": "audio-video",
+          "matched": 337,
+          "missing": 0,
+          "p95_ms": 139.96537501225248,
+          "max_ms": 160.1016249624081
+        }
+      ],
+      "source_edge_capture_positions": {
+        "20": [
+          0,
+          1
+        ],
+        "40": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "60": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      }
+    },
+    {
+      "side": 1,
+      "phases": [
+        {
+          "name": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "p95_ms": 100.28416669229046,
+          "max_ms": 100.33591667888686
+        },
+        {
+          "name": "audio-video",
+          "matched": 337,
+          "missing": 0,
+          "p95_ms": 140.11691667838022,
+          "max_ms": 170.27649999363348
+        }
+      ],
+      "source_edge_capture_positions": {
+        "40": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "60": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      }
+    }
+  ],
+  "decoded_video_progress": {
+    "synthetic_fixture_only": true,
+    "screen_presentation_proof": false,
+    "sampled_retrieval_not_native_decode_timing": true,
+    "tail_seconds": 15,
+    "directions": [
+      {
+        "side": 0,
+        "decoded_frame_pulls": 338,
+        "decoded_counter": {
+          "frames": 3079,
+          "observation_seconds": 337.9912942920346,
+          "fps": 9.10970208995872
+        },
+        "last_minute_decoded_counter": {
+          "frames": 879,
+          "observation_seconds": 58.99852870905306,
+          "fps": 14.898676615051272
+        },
+        "last_dimensions": [
+          320,
+          240
+        ],
+        "content_changes": 337,
+        "last_decoded_pull_seconds": 359.00281854200875,
+        "max_sampled_pull_gap_seconds": 2.0004397080047056,
+        "tail_decoded_pulls": 15,
+        "tail_content_changes": 14,
+        "tail_content_verified": true,
+        "moving_at_end": true
+      },
+      {
+        "side": 1,
+        "decoded_frame_pulls": 334,
+        "decoded_counter": {
+          "frames": 2129,
+          "observation_seconds": 337.99013466603355,
+          "fps": 6.299000419357372
+        },
+        "last_minute_decoded_counter": {
+          "frames": 792,
+          "observation_seconds": 58.99841137503972,
+          "fps": 13.424090268557112
+        },
+        "last_dimensions": [
+          320,
+          240
+        ],
+        "content_changes": 333,
+        "last_decoded_pull_seconds": 359.00450570799876,
+        "max_sampled_pull_gap_seconds": 3.99867483304115,
+        "tail_decoded_pulls": 15,
+        "tail_content_changes": 14,
+        "tail_content_verified": true,
+        "moving_at_end": true
+      }
+    ],
+    "required_tail_content_changes": 14,
+    "tail_content_verified": true,
+    "moving_at_end": true
+  },
+  "file_results": [
+    {
+      "queued": 524288,
+      "queue_duration_ms": 8.8,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "receipt_duration_ms": 205759.8,
+      "missing_indices": []
+    },
+    {
+      "queued": 524288,
+      "queue_duration_ms": 8.6,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "receipt_duration_ms": 170275.3,
+      "missing_indices": []
+    }
+  ],
+  "neutral_shaper_final": [
+    {
+      "received": 94478,
+      "sent": 94478,
+      "drops": 0,
+      "max_queue_ms": 55.58737594401464
+    },
+    {
+      "received": 93816,
+      "sent": 93816,
+      "drops": 0,
+      "max_queue_ms": 69.79285448323935
+    }
+  ],
+  "node_stop_results": [
+    0,
+    0,
+    0
+  ],
+  "remaining_fixture_sockets": 0,
+  "final_targets": {
+    "0": {
+      "kbps": 900,
+      "fps": 15.0
+    },
+    "1": {
+      "kbps": 900,
+      "fps": 15.0
+    }
+  },
+  "cleanup": {
+    "checked_at_utc": "2026-10-19T20:58:38.531889+00:00",
+    "recorded_processes_checked": 5,
+    "long_lived_processes_checked": 4,
+    "transient_recorders_checked": 1,
+    "remaining": [],
+    "audio_thread_exited": true,
+    "file_threads_exited": true,
+    "policy_exited": true,
+    "node_stop_results": [
+      0,
+      0,
+      0
+    ],
+    "remaining_fixture_sockets": 0
+  },
+  "source_proof": {
+    "root_base": "647960a1a37d3792bb93872d52695480c72816ae",
+    "sdk_commit": "8011cfb6bce011c8d77a57102451c33bbc7050b3",
+    "fixture_script_sha256": "1db5fab4d49d00d4545d6d6afaaf1bfef9bceaee8f4b512a7731750aae5f048f",
+    "sealed_trace_every": 1,
+    "sdk_and_native_unchanged": true,
+    "purpose": "Packet-to-cell/drop-stage attribution. Dense diagnostics can perturb timing; not a performance comparison."
+  },
+  "dense_diagnostics_are_not_a_performance_comparison": true,
+  "capture_hashes": {
+    "native.log": "06620b185525063f202072a1d9d4707b8187226bd67ad12c011c013b18eeabc1",
+    "runtime.log": "0b66b0000a91e18919f0c93f6c39d46400cac0662dd2046c712fe72d26f0b2d3",
+    "summary.json": "182dea37a5ccfd409b4850a2d1fa9c5c31cf3aea418e0ee5e08ccd33becdf258",
+    "codec-samples.json": "f8b4aae424584aba1f4aec3035a942c1932f15ea93e6ecf68b032992f3f09825"
+  }
+}
