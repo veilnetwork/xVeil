@@ -1,0 +1,336 @@
+{
+  "group": [
+    {
+      "receiver": 0,
+      "source_prefix": "5b5e7fe7",
+      "from_s": 60.00581716600573,
+      "to_s": 339.0002542079892,
+      "concealed_sample_delta": 2574,
+      "concealment_event_delta": 3,
+      "emitted_sample_delta": 13392000,
+      "discarded_ms_delta": 0,
+      "new_concealment_without_discard_counter_change": [
+        {
+          "at_s": 142.01723075000336,
+          "concealed_sample_delta": 395,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 176.01381733300514,
+          "concealed_sample_delta": 1663,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 272.01979916598066,
+          "concealed_sample_delta": 516,
+          "discarded_ms_delta": 0
+        }
+      ],
+      "input_sha256": "36a08f674e70e3ee9f729cd48f5f85bc3a09e0822e902a114b696f72d36b2d34"
+    },
+    {
+      "receiver": 0,
+      "source_prefix": "c3451101",
+      "from_s": 60.00581716600573,
+      "to_s": 339.0002542079892,
+      "concealed_sample_delta": 5038,
+      "concealment_event_delta": 11,
+      "emitted_sample_delta": 13393920,
+      "discarded_ms_delta": 30,
+      "new_concealment_without_discard_counter_change": [
+        {
+          "at_s": 78.00175058300374,
+          "concealed_sample_delta": 480,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 81.00848216598388,
+          "concealed_sample_delta": 576,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 124.02063420799095,
+          "concealed_sample_delta": 384,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 134.00154579099035,
+          "concealed_sample_delta": 576,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 216.01666399999522,
+          "concealed_sample_delta": 480,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 218.01363558298908,
+          "concealed_sample_delta": 768,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 245.00859020798816,
+          "concealed_sample_delta": 192,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 252.01041241598432,
+          "concealed_sample_delta": 503,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 279.01811437497963,
+          "concealed_sample_delta": 576,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 310.02036958298413,
+          "concealed_sample_delta": 503,
+          "discarded_ms_delta": 0
+        }
+      ],
+      "input_sha256": "36a08f674e70e3ee9f729cd48f5f85bc3a09e0822e902a114b696f72d36b2d34"
+    },
+    {
+      "receiver": 1,
+      "source_prefix": "4db3f7db",
+      "from_s": 60.006722624995746,
+      "to_s": 339.02033629099606,
+      "concealed_sample_delta": 3494,
+      "concealment_event_delta": 4,
+      "emitted_sample_delta": 13392000,
+      "discarded_ms_delta": 0,
+      "new_concealment_without_discard_counter_change": [
+        {
+          "at_s": 119.01567916598287,
+          "concealed_sample_delta": 747,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 176.00537445797818,
+          "concealed_sample_delta": 960,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 227.00809441599995,
+          "concealed_sample_delta": 587,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 272.0157574999903,
+          "concealed_sample_delta": 1200,
+          "discarded_ms_delta": 0
+        }
+      ],
+      "input_sha256": "2195497c3ee226ec2f665559e1add2f23c1dd6784c1b45551aaae8e812dfacd4"
+    },
+    {
+      "receiver": 1,
+      "source_prefix": "c3451101",
+      "from_s": 60.006722624995746,
+      "to_s": 339.02033629099606,
+      "concealed_sample_delta": 6458,
+      "concealment_event_delta": 12,
+      "emitted_sample_delta": 13393920,
+      "discarded_ms_delta": 20,
+      "new_concealment_without_discard_counter_change": [
+        {
+          "at_s": 78.00968545800424,
+          "concealed_sample_delta": 480,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 81.01008954099962,
+          "concealed_sample_delta": 768,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 124.00088220799807,
+          "concealed_sample_delta": 384,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 158.02123595800367,
+          "concealed_sample_delta": 384,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 216.0166504579829,
+          "concealed_sample_delta": 994,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 218.0062492500001,
+          "concealed_sample_delta": 672,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 245.0050393329875,
+          "concealed_sample_delta": 576,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 252.01845808298094,
+          "concealed_sample_delta": 503,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 272.0157574999903,
+          "concealed_sample_delta": 503,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 279.0180371659808,
+          "concealed_sample_delta": 691,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 310.0086580409843,
+          "concealed_sample_delta": 503,
+          "discarded_ms_delta": 0
+        }
+      ],
+      "input_sha256": "2195497c3ee226ec2f665559e1add2f23c1dd6784c1b45551aaae8e812dfacd4"
+    },
+    {
+      "receiver": 2,
+      "source_prefix": "4db3f7db",
+      "from_s": 60.017063957988285,
+      "to_s": 339.02618137499667,
+      "concealed_sample_delta": 9256,
+      "concealment_event_delta": 12,
+      "emitted_sample_delta": 13392000,
+      "discarded_ms_delta": 50,
+      "new_concealment_without_discard_counter_change": [
+        {
+          "at_s": 77.02192145798472,
+          "concealed_sample_delta": 480,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 92.00208449998172,
+          "concealed_sample_delta": 240,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 119.01609658298548,
+          "concealed_sample_delta": 1200,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 152.02119570798823,
+          "concealed_sample_delta": 587,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 154.01048212498426,
+          "concealed_sample_delta": 587,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 170.0016854580026,
+          "concealed_sample_delta": 480,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 176.0053198329988,
+          "concealed_sample_delta": 4108,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 214.01677724998444,
+          "concealed_sample_delta": 267,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 215.00117291600327,
+          "concealed_sample_delta": 587,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 239.01433091599029,
+          "concealed_sample_delta": 480,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 272.0107160829939,
+          "concealed_sample_delta": 240,
+          "discarded_ms_delta": 0
+        }
+      ],
+      "input_sha256": "188df77fc8f9e140ea267ad14d844f592afae4814ea0ec4b0a7171ef1cbe6850"
+    },
+    {
+      "receiver": 2,
+      "source_prefix": "5b5e7fe7",
+      "from_s": 60.017063957988285,
+      "to_s": 339.02618137499667,
+      "concealed_sample_delta": 10430,
+      "concealment_event_delta": 9,
+      "emitted_sample_delta": 13392000,
+      "discarded_ms_delta": 30,
+      "new_concealment_without_discard_counter_change": [
+        {
+          "at_s": 92.00208449998172,
+          "concealed_sample_delta": 1031,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 119.01609658298548,
+          "concealed_sample_delta": 2061,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 154.01048212498426,
+          "concealed_sample_delta": 790,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 174.0209107499977,
+          "concealed_sample_delta": 517,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 176.0053198329988,
+          "concealed_sample_delta": 2974,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 214.01677724998444,
+          "concealed_sample_delta": 480,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 220.02125654098927,
+          "concealed_sample_delta": 1546,
+          "discarded_ms_delta": 0
+        },
+        {
+          "at_s": 272.0107160829939,
+          "concealed_sample_delta": 1031,
+          "discarded_ms_delta": 0
+        }
+      ],
+      "input_sha256": "188df77fc8f9e140ea267ad14d844f592afae4814ea0ec4b0a7171ef1cbe6850"
+    }
+  ],
+  "pair": [
+    {
+      "receiver_side": 0,
+      "concealed_sample_delta": 6576,
+      "concealment_event_delta": 6,
+      "discarded_ms_delta": 0
+    },
+    {
+      "receiver_side": 1,
+      "concealed_sample_delta": 7008,
+      "concealment_event_delta": 6,
+      "discarded_ms_delta": 0
+    }
+  ],
+  "pair_input_sha256": "a9b95c2fe70be0fa41784f72adb22a1b08325769a95b3626a10ae25582cfad6b",
+  "limits": [
+    "Sampled decoder counters, not acoustic quality or packet-loss localization.",
+    "Unchanged discard counter does not exclude other feedback; VAR1 specifically reports discarded decoded audio only."
+  ]
+}
