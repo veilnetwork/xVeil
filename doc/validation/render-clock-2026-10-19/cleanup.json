@@ -1,0 +1,60 @@
+{
+  "first": {
+    "owned_processes": [
+      {
+        "pid": 83938,
+        "absent": true
+      },
+      {
+        "pid": 83967,
+        "absent": true
+      },
+      {
+        "pid": 83968,
+        "absent": true
+      },
+      {
+        "pid": 94955,
+        "absent": true
+      }
+    ],
+    "all_absent": true,
+    "node_stop_results": [
+      0,
+      0,
+      0
+    ],
+    "remaining_fixture_sockets": 0
+  },
+  "final": {
+    "owned_processes": [
+      {
+        "pid": 9692,
+        "absent": true
+      },
+      {
+        "pid": 9721,
+        "absent": true
+      },
+      {
+        "pid": 9722,
+        "absent": true
+      },
+      {
+        "pid": 13675,
+        "absent": true
+      }
+    ],
+    "all_absent": true,
+    "node_stop_results": [
+      0,
+      0,
+      0
+    ],
+    "remaining_fixture_sockets": 0,
+    "video_stop_results": [
+      0,
+      0
+    ]
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "scope": "Owned same-host diagnostic measurements; no production policy or gate change",
+  "result": "Goal remains active; pair strict 200-ms quality gate fails and retained group still fails at 320 ms",
+  "previous_goal_turn": "Verified all six generic QUIC listeners and advancing health; media implementation unchanged in that turn",
+  "progress_this_cycle": [
+    "Correlated the group peak with actual decoded output clock, separating signal detection from accumulated delay",
+    "Added paired-call playout trace and fail-closed timestamp attribution with 47 passing checks",
+    "Reproduced and fixed stand teardown corrupting a buffered trace via another engine live video logger",
+    "Repeated the complete 360s workload, validated output records and independently verified all 8 owned test processes exited"
+  ],
+  "private_artifacts": "/Users/vart/.cache/codex/xveil-render-clock-20261019",
+  "artifacts": {
+    "analyzer-tests.txt": "92b04e8f5b23f8839a8462698016f894e4eebf8a6fb46e696e0fbf43c7caed08",
+    "capture-sources.json": "e6c7723268dd5fdbe768191da82c683569d32bee2686be03b4c4fc1759b4fde0",
+    "checks.json": "52ed1d7f80ccdfda4b3066179201109ee5eae22193e2ebda799ad12ffb26ab4f",
+    "cleanup.json": "b9ba9778e95b7cb7e98802dbcc97de25082546512caa996456130fb1a8c4cf88",
+    "foreign-work.json": "86102a814aac37c3609c508a99bc1b2696f355cd4557ee4628e9558bf16e096e",
+    "group-peak-policy.json": "be650a5aadf87f64c51ad6cc4f56a08b11b91bb5e2ed49de125765ab63061680",
+    "group-peak-render.json": "00a5175153a49d435236bc595666428307fbfb910a3de142b8c74d9b4e6ef58a",
+    "pair-final.json": "c7d229c957ebf1da18116d6ff70279ab2b39fd74200fe6260fca80e79b114038",
+    "pair-first.json": "589cb2da1f631ebdacd1cacdee74a30dc9eedced1e32eef5d042a196ca37896a",
+    "pair-pipeline-peaks.json": "276d8d0bebacb5f474ffbf4f711e6bb3143da36edbb6f2604483e62846e126e8",
+    "stopped-capture-sources.json": "5cec25f838916a6db4acb87ed339bb2c96022d61f4f2361639a632ad232caeb3"
+  },
+  "remaining": [
+    "Production receiver relative RTP lag measurement with codec/SSRC/DTX reset safety and stable high RTT tests",
+    "Coordinated source capacity allocation for audio/video/screen/DATA and other local traffic",
+    "Complete interaction channel audit, ordered fallback and hardware/live speech/headset qualification"
+  ]
+}

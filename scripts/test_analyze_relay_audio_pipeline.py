@@ -37,6 +37,23 @@ audio.rtp.ingress seq=4 timestamp=32 arrived_us=21035000 drained_us=21036000 pay
         self.assertEqual(result['attributed_edges'], 0)
         self.assertEqual(result['unmatched_payload_rows'], 1)
 
+    def test_optional_render_trace_joins_the_exact_wrapped_marker(self):
+        summary, lines, pcm = self.fixture()
+        lines += '''audio.playout.begin count=2 observed=2 limit=8
+audio.playout entered_us=21040000 exited_us=21040020 rtp_timestamp=4294967088 speech_type=0 muted=0 skipped=0 fallback=0
+audio.playout entered_us=21050000 exited_us=21050020 rtp_timestamp=272 speech_type=0 muted=0 skipped=0 fallback=0
+audio.rtp.begin count=1 observed=1 limit=8
+audio.rtp received_us=21036001 ssrc=7 sequence=4 rtp_timestamp=32'''.splitlines()
+        result = analyze(summary, lines, pcm)
+        self.assertTrue(result['native_playout_trace_present'])
+        edge = result['largest_pcm_edges'][0]
+        self.assertEqual(edge['total_ms'], 50.)
+        self.assertEqual(edge['render_clock']['marker_rtp_timestamp'], 32)
+        self.assertEqual(edge['render_clock']['source_to_clock_bracket_ms'], [40.02, 50.02])
+        # The original signal edge remains the gate. A frame clock does not
+        # prove exactly when the codec emits that tone's samples.
+        self.assertEqual(edge['render_clock']['clock_bracket_to_pcm_edge_ms'], [-.02, 9.98])
+
     def test_missing_input_cannot_qualify_capture_index_alignment(self):
         summary, lines, pcm = self.fixture()
         result = analyze(summary, lines, pcm[1:])

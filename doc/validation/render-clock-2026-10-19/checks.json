@@ -1,0 +1,15 @@
+{
+  "python_tests": 47,
+  "test_command": "PYTHONPATH=scripts python3 -m unittest test_audio_render_timing test_analyze_relay_audio_pipeline test_analyze_group_audio_peak test_analyze_group_sdk_packet test_analyze_group_source_session test_analyze_group_forward_path",
+  "missing_native_timing_rejected": true,
+  "binaries_reused_unchanged": {
+    "sdk": "5ab01ef2a3967d8d71d350a6707b62cb1c3d9795576fef0945621bded26fd665",
+    "native_media": "d0cd5ab98e26fa45e220c9f90bf18958198cd19e2cf4575427983b5d76fd008d"
+  },
+  "final_capture_sources_match": true,
+  "android_or_physical_call": false,
+  "server_mutation": false,
+  "push_or_release": false,
+  "sdk_or_production_media_build": false,
+  "fixture_pcm_driver_built": true
+}
