@@ -7,6 +7,7 @@ The caller must stop codec/file producers before closing this fixture.
 import ctypes as C
 import errno
 import json
+from multiprocessing.connection import wait
 import os
 from pathlib import Path
 import secrets
@@ -19,6 +20,95 @@ from udp_fifo_shaper import UdpShaper
 
 P = C.c_void_p
 E = C.POINTER(P)
+
+
+def receive_participant_values(pipes, timeout, source_cost=None):
+    """Serve owned local metadata requests without blocking on one worker.
+
+    A worker finishing later must not prevent another worker getting its
+    source snapshot. Results retain participant order and the original single
+    response deadline; metadata requests never extend it.
+    """
+    pending = {pipe: index for index, pipe in enumerate(pipes)}
+    values = [None] * len(pipes)
+    until = time.monotonic() + timeout
+    while pending:
+        remaining = until - time.monotonic()
+        if remaining <= 0:
+            raise RuntimeError('Participant response deadline exceeded')
+        ready = wait(list(pending), remaining)
+        if not ready:
+            raise RuntimeError('Participant response deadline exceeded')
+        for pipe in ready:
+            value = pipe.recv()
+            if isinstance(value, dict) and 'source_cost_request' in value:
+                if source_cost is None:
+                    raise RuntimeError('Unexpected participant source cost request')
+                request = value['source_cost_request']
+                if (not isinstance(request, dict) or
+                        type(request.get('sequence')) is not int or request['sequence'] < 0 or
+                        not isinstance(request.get('packet_bytes'), dict) or
+                        set(request['packet_bytes']) != {'0', '2', '3'} or
+                        any(type(n) is not int or not 12 <= n <= 1460
+                            for n in request['packet_bytes'].values())):
+                    raise RuntimeError('Invalid participant source cost request')
+                pipe.send({'source_cost_response': source_cost(pending[pipe], request),
+                           'sequence': request['sequence'],
+                           'request_packet_bytes': dict(request['packet_bytes']),
+                           'sampled_monotonic': time.monotonic()})
+                continue
+            values[pending.pop(pipe)] = value
+    return values
+
+
+class SourcePacketSamples:
+    """Representative RTP sizes from counters in each plane's own scope.
+
+    These describe sampled packets, not NIC bytes or available bandwidth.
+    Reset/stalled/empty counters cannot manufacture a new representative size.
+    The SDK model accepts 12..1460 bytes; keep that bound explicit.
+    Audio counters are logical; group video counters include peer copies. Its
+    full RTP bytes and packet count must BOTH come from that fanout scope.
+    """
+    def __init__(self):
+        self.previous = {}
+        self.packet_bytes = {'0': 200, '2': 200, '3': 200}
+        self.observed_packet_bytes = dict(self.packet_bytes)
+        self.basis = {'0': 'startup_default', '2': 'startup_default', '3': 'startup_default'}
+
+    def observe(self, stats):
+        for source, lane, worker in [('audio', '0', 'worker_stalled'),
+                                     ('video', '2', 'video_worker_stalled')]:
+            if stats.get(worker) != 0:
+                continue
+            if source == 'video':
+                # Complete payload-carrying RTP packets: headers and padding
+                # are already included. Never infer count from logical frames
+                # or from attempts that also include padding-only probes.
+                values = [stats.get('video_tx_payload_pkts'),
+                          stats.get('video_tx_payload_rtp_bytes'), 0]
+            else:
+                keys = [source + suffix for suffix in
+                        ('_tx_payload_pkts', '_tx_payload_bytes', '_tx_header_padding_bytes')]
+                values = [stats.get(key) for key in keys]
+            if not all(type(n) is int and n >= 0 for n in values):
+                continue
+            previous = self.previous.get(source)
+            self.previous[source] = values
+            if previous is None:
+                continue
+            delta = [a - b for a, b in zip(values, previous)]
+            packets, payload, headers = delta
+            if packets > 0 and payload >= 0 and headers >= 0 and payload + headers > 0:
+                size = (payload + headers + packets - 1) // packets
+                self.observed_packet_bytes[lane] = size
+                self.packet_bytes[lane] = min(1460, max(12, size))
+                self.basis[lane] = ('native_fanout_payload_rtp' if source == 'video'
+                                    else 'native_logical_rtp')
+        self.packet_bytes['3'] = self.packet_bytes['2']
+        self.observed_packet_bytes['3'] = self.observed_packet_bytes['2']
+        self.basis['3'] = self.basis['2']
+        return dict(self.packet_bytes)
 
 
 class MediaChannelStats(C.Structure):
@@ -91,6 +181,29 @@ class GroupSdk:
         # Each spawned process owns separate SDK trace/logger globals. The
         # parent's node/trace initialization cannot enable a client's records.
         self.fn('veil_debug_set_rt_trace', [C.c_int], None)(1)
+
+    def source_packet_cost(self, participant, peer, local_lane, packet_bytes):
+        """Read actual prepared children on this owned embedded node process.
+
+        No extra app/channel, preparation, RPC, route or traffic is created.
+        Child codecs cannot access these process-local services directly.
+        """
+        if (type(participant) is not int or type(peer) is not int or
+                not 0 <= participant < 3 or not 0 <= peer < 3 or peer == participant or
+                type(local_lane) is not int or local_lane not in (0, 2, 3) or
+                type(packet_bytes) is not int or not 12 <= packet_bytes <= 1460):
+            raise ValueError('Invalid owned source cost selection')
+        query = self.fn('veil_debug_media_source_packet_cost',
+                        [P, P, C.c_uint8, C.c_uint8, C.c_size_t], P)
+        local = C.create_string_buffer(bytes.fromhex(self.node_ids[participant + 1]))
+        target = C.create_string_buffer(bytes.fromhex(self.node_ids[peer + 1]))
+        value = query(local, target, local_lane, 1, packet_bytes)
+        if not value:
+            return None
+        try:
+            return json.loads(C.string_at(value))
+        finally:
+            self.free(value)
 
     def channel_snapshots_after_capture(self):
         """Read lifetime maxima after producers stop, before channels close."""

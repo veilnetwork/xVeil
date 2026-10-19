@@ -1,0 +1,12 @@
+{
+  "negative": {
+    "exit_code": -6,
+    "loaded_library": "/Users/vart/.cache/codex/xveil-audio-allocation-20261019/media-hooks/libveil_media.dylib",
+    "expected_library_loaded": true
+  },
+  "positive": {
+    "exit_code": 0,
+    "loaded_library": "/Users/vart/.cache/codex/xveil-group-framing-20261019/media-hooks/libveil_media.dylib",
+    "expected_library_loaded": true
+  }
+}

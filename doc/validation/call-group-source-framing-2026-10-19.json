@@ -1,0 +1,321 @@
+{
+  "date": "2026-10-19",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "previous_goal_turn": "PROGRESS: authenticated hop witnesses and rejected burst-pacing experiment were committed as7224446d, changing the next action to truthful group framing/capacity accounting.",
+  "base": {
+    "root": "7224446d98e65f9d44a7cd876b8582a8fae85b44",
+    "sdk": "057b0ea02ede30014118b83c565cee3076fbd142",
+    "root_foreign_sha256": "529f7718edea4b6775cc11607bc2ff663a922cc3521b680cf94efa39d7b26859",
+    "sdk_foreign_sha256": "1ceeb05d540078262f1480ba7210dfaa0f5895be9f0099f64bc18a56a4f6a363"
+  },
+  "changes": [
+    "Optional debug ABI veil_debug_media_source_packet_cost reads prepared local children on the node process using the exact same cost helper as the channel getter. Requires local rt_trace; no source preparation,probes,RPCs,apps,channels or network traffic are created.",
+    "Group fixture optionally multiplexes asynchronous owned metadata requests over existing parent/worker pipes with a fixed total deadline. Source cost data is recorded, not fed into codec/audio/video policy.",
+    "Group video stats now expose full payload-carrying RTP bytes and packet count in the same fanout-attempt domain. CSRC,extensions and padding are counted once; malformed/padding-only packets excluded. Failures remain attempts, not wire proof.",
+    "SDK cost model/Dart wrapper and validation schema accept full RTP12..1460bytes. Existing session fragmentation is included; a1023-byte relayed RTP packet costs420 modeled overhead bytes on a1382-byte QUIC child,versus360at1022.",
+    "The production1:1 representative-packet sampler retains its1000-byte clamp. No encoder budget,cadence,pause,RTCP,relay priority or actual source allocation changes."
+  ],
+  "proofs": {
+    "native_public_exports": 101,
+    "native_abi_unchanged": true,
+    "sdk_exports_old": 201,
+    "sdk_exports_final": 202,
+    "sdk_export_added": "veil_debug_media_source_packet_cost",
+    "native_counter_runtime_negative": "Old accepted library lacks new JSON keys and fails the real C API assertion; final library passes actual per-peer copy accounting,including local rejection and peer removal.",
+    "node_getter": "Matches the normal channel model on all three prepared local lanes; returns null with trace disabled and after node stop. Separate client-process channel getter still returns null: production cross-process getter behavior is not changed.",
+    "tests": {
+      "cost-tests-full-rtp": {
+        "exit_code": 0,
+        "summary": [
+          "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 301 filtered out; finished in 0.00s"
+        ]
+      },
+      "python-tests-full-rtp": {
+        "exit_code": 0,
+        "summary": [
+          "Ran 28 tests in 0.179s",
+          "OK"
+        ]
+      },
+      "flutter-framing-tests": {
+        "exit_code": 0,
+        "summary": [
+          "00:00 +4: All tests passed!"
+        ]
+      },
+      "rtp-stats-unit": {
+        "exit_code": 0,
+        "summary": []
+      }
+    },
+    "isolated_trace_enabled_ffi_guards": {
+      "rt_trace_explicitly_enabled": true,
+      "null_pointer_cases": 3,
+      "invalid_selector_or_size_cases": 4,
+      "all_returned_null": true,
+      "nodes_or_network_started": false
+    }
+  },
+  "full360": {
+    "ok": false,
+    "max_ms": 390.10066667106,
+    "matched": 2112,
+    "missing": 0,
+    "cost_trace": [
+      {
+        "requests": 360,
+        "responses_sampled": 359,
+        "fed_into_policy": false
+      },
+      {
+        "requests": 360,
+        "responses_sampled": 359,
+        "fed_into_policy": false
+      },
+      {
+        "requests": 360,
+        "responses_sampled": 359,
+        "fed_into_policy": false
+      }
+    ],
+    "metadata": {
+      "no_response_yet": 3,
+      "responses_sampled": 1077,
+      "known_models": 4480,
+      "unknown_models": 1982
+    },
+    "source_sizes": {
+      "0": [
+        139,
+        149,
+        157,
+        159,
+        179,
+        182,
+        187,
+        196,
+        199,
+        200
+      ],
+      "2": [
+        200
+      ],
+      "3": [
+        200
+      ]
+    },
+    "cost_models": [
+      {
+        "lane": "0",
+        "overhead": 360,
+        "copies": 1,
+        "count": 2154
+      },
+      {
+        "lane": "2",
+        "overhead": 360,
+        "copies": 1,
+        "count": 2154
+      },
+      {
+        "lane": "3",
+        "overhead": 360,
+        "copies": 1,
+        "count": 172
+      }
+    ],
+    "max_metadata_age_ms": 1028.0338330194354,
+    "files_exact": true,
+    "tail_changes": [
+      4,
+      8,
+      10,
+      10,
+      14,
+      11
+    ],
+    "clocks": {
+      "deadline_misses": 0,
+      "late_intervals": 0
+    },
+    "remaining_sockets": 0
+  },
+  "intermediate60": "Final native counters worked,but the then1000-byte model clipped40video/screen observations; peak320.092ms,330matched/0missing,files incomplete and one video tail unmoving. This is retained as an unsuccessful integration,not hidden.",
+  "final60": {
+    "ok": false,
+    "full_contention_qualified": false,
+    "duration": 60,
+    "max_ms": 190.22091664373875,
+    "matched": 330,
+    "missing": 0,
+    "basis": {
+      "startup_default": 129,
+      "native_logical_rtp": 177,
+      "native_fanout_payload_rtp": 234
+    },
+    "video_observed_min_bytes": 200,
+    "video_observed_max_bytes": 1436,
+    "video_observations_above1000": 16,
+    "video_observations_clipped_to1460": 0,
+    "cost_models": [
+      {
+        "lane": "0",
+        "overhead": 360,
+        "count": 354
+      },
+      {
+        "lane": "2",
+        "overhead": 360,
+        "count": 344
+      },
+      {
+        "lane": "3",
+        "overhead": 360,
+        "count": 170
+      },
+      {
+        "lane": "3",
+        "overhead": null,
+        "count": 182
+      },
+      {
+        "lane": "2",
+        "overhead": 420,
+        "count": 10
+      },
+      {
+        "lane": "3",
+        "overhead": 420,
+        "count": 2
+      }
+    ],
+    "worker_cost_traces": [
+      {
+        "requests": 60,
+        "responses_sampled": 59,
+        "fed_into_policy": false
+      },
+      {
+        "requests": 60,
+        "responses_sampled": 59,
+        "fed_into_policy": false
+      },
+      {
+        "requests": 60,
+        "responses_sampled": 59,
+        "fed_into_policy": false
+      }
+    ],
+    "all_files_exact": false,
+    "files": [
+      {
+        "sender": 2,
+        "receiver": 0,
+        "queued": 524288,
+        "received": 67584,
+        "missing_chunks": 223,
+        "hash_matches": false,
+        "completion_seconds": null,
+        "authentication_errors": 0,
+        "duplicates": 0,
+        "async_failures": {},
+        "write_error": false,
+        "late_fragments": 0
+      },
+      {
+        "sender": 0,
+        "receiver": 1,
+        "queued": 524288,
+        "received": 59392,
+        "missing_chunks": 227,
+        "hash_matches": false,
+        "completion_seconds": null,
+        "authentication_errors": 0,
+        "duplicates": 0,
+        "async_failures": {},
+        "write_error": false,
+        "late_fragments": 0
+      },
+      {
+        "sender": 1,
+        "receiver": 2,
+        "queued": 524288,
+        "received": 59392,
+        "missing_chunks": 227,
+        "hash_matches": false,
+        "completion_seconds": null,
+        "authentication_errors": 0,
+        "duplicates": 0,
+        "async_failures": {},
+        "write_error": false,
+        "late_fragments": 0
+      }
+    ],
+    "tail_changes": [
+      3,
+      12,
+      0,
+      14,
+      11,
+      11
+    ],
+    "clocks": {
+      "deadline_misses": 0,
+      "late_intervals": 0
+    },
+    "sdk_sha256": "a3f111a0be5dc35d44d49687079fb3c0818f6dfeb953487597d95fb23113f2e8",
+    "media_sha256": "d0cd5ab98e26fa45e220c9f90bf18958198cd19e2cf4575427983b5d76fd008d",
+    "remaining_sockets": 0
+  },
+  "quality_verdict": "NOT QUALIFIED. The full360-second capture fails at390.100667ms. Final60-second capture has190.220917ms peak but is too short,files incomplete and a zero-change video tail; no full-contention or smooth-video/speech/phone improvement claim.",
+  "remaining_model_limits": [
+    "All costs exclude QUIC/TCP/IP/ACK and use an unbatched model; obfs4 padding is an expectation. They do not estimate available bandwidth.",
+    "Representative packet sizes are averages of concurrent cumulative RTP observations. An average packet model is not an exact sum across fragmentation boundaries. Use a conservative ceiling or actual packet distribution when funding.",
+    "Audio counters are logical,group video attempts and accepted RTCP copies already include fanout. Do not multiply those latter totals by roster count again.",
+    "Unprepared/idle screen children return null. Do not manufacture a known model or wake network paths just to get a quote.",
+    "The new helper is local stand diagnostics. General separate-process channel cost lookup remains unavailable; current metadata bridge is not a production IPC implementation."
+  ],
+  "budget_finding": "At20ms/32000payload,modeled audio alone totals2208000bit/s across both hops,exceeding the two FIFO caps2048000bit/s before QUIC/control/video/files. Quiet/good receiver reports cannot by themselves fund that promotion. At60ms/24000 ->40ms/24000,the modeled increment is152000bit/s one-hop-equivalent (50666.667bit/s per source) plus excluded transport/control costs. It must be reserved by reducing actual competing source work or established extra capacity. Do not impose this test-specific rate as a universal group limit.",
+  "build_scope": "Mac production SDK and native hooks/production built from clean committed source plus owned edits,foreignRustWIP excluded. Android not built/installed in this cycle.",
+  "artifact_note": "The first final60 launcher reused the older native-build.json scaffold; original retained. Its independently verified native-current-proof.json and summary library digest identify the actual new native library. The final1460-byte run has corrected SDK/native proofs matching both loaded library digests.",
+  "foreign_work_unchanged": true,
+  "cleanup": {
+    "group-cost-trace-360": {
+      "known_processes_checked": 10,
+      "all_absent": true,
+      "remaining_sockets": 0
+    },
+    "group-cost-final-60": {
+      "known_processes_checked": 10,
+      "all_absent": true,
+      "remaining_sockets": 0
+    },
+    "group-cost-full-rtp-60": {
+      "known_processes_checked": 10,
+      "all_absent": true,
+      "remaining_sockets": 0
+    },
+    "original-cost-probe": {
+      "known_processes_checked": 2,
+      "all_absent": true,
+      "remaining_sockets": 0
+    },
+    "node-cost-proof": {
+      "known_processes_checked": 2,
+      "all_absent": true,
+      "remaining_sockets": 0
+    }
+  },
+  "deployment": "No app installation,physical phone call,server mutation,push or release.",
+  "next_work": [
+    "Implement coordinated actual source budget reservation: reduce competing video/source work first and confirm the reduction before promoting audio cadence. The earlier unreserved40-ms probe and source-window pacing remain rejected.",
+    "A nominal video ceiling/lease is not a bandwidth reservation if the current codec emits much less. Reserve measured/conservative actual wire cost and fanout,including control/transport headroom; avoid merely lowering a still-nonbinding maximum.",
+    "The configured20-ms/32-kbit audio fanout alone exceeds the known aggregate fixture caps. Do not allow an unfunded promotion based only on quiet/good receiver reports; also do not impose this test-specific cap as a universal group limit.",
+    "Preserve real source/ACK state through failed or canceled native video/audio operations,roster/source changes and reconnect. Requalify the original full workloads and all media planes after actual allocation changes.",
+    "Whole interaction-channel audit,screen/fallback/physical phone/live speech/headset qualification remain open."
+  ],
+  "private_artifacts": "/Users/vart/.cache/codex/xveil-group-framing-20261019",
+  "sdk_commit": "d0e692662faba012fafa81a09e56b9da17ece8e6",
+  "resource_trackers_independently_absent_at_final_check": true
+}

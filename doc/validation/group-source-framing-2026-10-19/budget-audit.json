@@ -1,0 +1,87 @@
+{
+  "scope": "Capacity arithmetic for the owned three-party/six-direction relay star at configured continuous payload rates, not measured speech quality or an available-bandwidth estimator. Every media path crosses two hops; two direction FIFOs each cap UDP payload at1024kbit/s. Hop orientation can differ; the sum over both FIFOs is the invariant.",
+  "assumptions": {
+    "participants": 3,
+    "directed_audio_paths": 6,
+    "prepared_first_hop_copies_per_recipient": 1,
+    "modeled_service_overhead_bytes_per_unfragmented_packet": 360,
+    "rtp_base_header_bytes": 20,
+    "fifo_rate_bps_each_direction": 1024000,
+    "combined_fifo_rate_bps": 2048000,
+    "excluded": "QUIC/TCP/IP/ACK,RTCP,video,files,padding,FEC bitrate variation and other traffic. Shaper charges UDP payload bytes including QUIC, excluding IP/UDP headers."
+  },
+  "configured_audio_budgets": [
+    {
+      "packet_ms": 20,
+      "payload_bps_per_stream": 32000,
+      "modeled_audio_bps_one_hop_equivalent": 1104000.0,
+      "modeled_audio_bps_two_hops_combined": 2208000.0,
+      "fraction_of_combined_fifo_capacity": 1.078125
+    },
+    {
+      "packet_ms": 40,
+      "payload_bps_per_stream": 32000,
+      "modeled_audio_bps_one_hop_equivalent": 648000.0,
+      "modeled_audio_bps_two_hops_combined": 1296000.0,
+      "fraction_of_combined_fifo_capacity": 0.6328125
+    },
+    {
+      "packet_ms": 40,
+      "payload_bps_per_stream": 24000,
+      "modeled_audio_bps_one_hop_equivalent": 600000.0,
+      "modeled_audio_bps_two_hops_combined": 1200000.0,
+      "fraction_of_combined_fifo_capacity": 0.5859375
+    },
+    {
+      "packet_ms": 60,
+      "payload_bps_per_stream": 24000,
+      "modeled_audio_bps_one_hop_equivalent": 447999.99999999994,
+      "modeled_audio_bps_two_hops_combined": 895999.9999999999,
+      "fraction_of_combined_fifo_capacity": 0.43749999999999994
+    }
+  ],
+  "inference": "At20ms/32000payload,modeled audio alone totals2208000bit/s across both hops,exceeding the two FIFO caps2048000bit/s before QUIC/control/video/files. Quiet/good receiver reports cannot by themselves fund that promotion. At60ms/24000 ->40ms/24000,the modeled increment is152000bit/s one-hop-equivalent (50666.667bit/s per source) plus excluded transport/control costs. It must be reserved by reducing actual competing source work or established extra capacity. Do not impose this test-specific rate as a universal group limit.",
+  "wire_arrivals_observed": {
+    "0": {
+      "udp_payload_bytes": 32070248,
+      "mean_udp_payload_bps": 754594.0705882353,
+      "max_100ms_arrival_bps": 1647040.0,
+      "p95_nonempty_100ms_arrival_bps": 1067680.0,
+      "drops_in_window": 0
+    },
+    "1": {
+      "udp_payload_bytes": 32267903,
+      "mean_udp_payload_bps": 759244.7764705883,
+      "max_100ms_arrival_bps": 1522080.0,
+      "p95_nonempty_100ms_arrival_bps": 1088320.0,
+      "drops_in_window": 0
+    }
+  },
+  "shaper": {
+    "stats": [
+      {
+        "received": 90149,
+        "sent": 90147,
+        "drops": 0,
+        "max_queue_ms": 175.3997296327725
+      },
+      {
+        "received": 95982,
+        "sent": 95977,
+        "drops": 0,
+        "max_queue_ms": 163.10752139543183
+      }
+    ],
+    "failure": null,
+    "trace_events": 184746,
+    "trace_rows": 184746,
+    "trace_capacity": 250000,
+    "trace_truncated": false
+  },
+  "limits": [
+    "Configured payload budgets differ from observed VBR/DTX output. Arithmetic does not claim every packet uses the configured payload rate.",
+    "An average packet-size model cannot be summed as exact traffic cost across a fragmentation boundary. Use actual size distribution or a conservative packet ceiling for admission/funding.",
+    "Arrival rates in100ms bins measure bursts,not link capacity or packet loss. No claim that instrumentation has zero timing effect.",
+    "RTP counters used for audio are logical; video fanout attempts and RTCP accepted copies already include peers. Never multiply those latter totals by peer count again."
+  ]
+}

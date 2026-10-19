@@ -1,0 +1,84 @@
+{
+  "ok": false,
+  "max_ms": 390.10066667106,
+  "matched": 2112,
+  "missing": 0,
+  "cost_trace": [
+    {
+      "requests": 360,
+      "responses_sampled": 359,
+      "fed_into_policy": false
+    },
+    {
+      "requests": 360,
+      "responses_sampled": 359,
+      "fed_into_policy": false
+    },
+    {
+      "requests": 360,
+      "responses_sampled": 359,
+      "fed_into_policy": false
+    }
+  ],
+  "metadata": {
+    "no_response_yet": 3,
+    "responses_sampled": 1077,
+    "known_models": 4480,
+    "unknown_models": 1982
+  },
+  "source_sizes": {
+    "0": [
+      139,
+      149,
+      157,
+      159,
+      179,
+      182,
+      187,
+      196,
+      199,
+      200
+    ],
+    "2": [
+      200
+    ],
+    "3": [
+      200
+    ]
+  },
+  "cost_models": [
+    {
+      "lane": "0",
+      "overhead": 360,
+      "copies": 1,
+      "count": 2154
+    },
+    {
+      "lane": "2",
+      "overhead": 360,
+      "copies": 1,
+      "count": 2154
+    },
+    {
+      "lane": "3",
+      "overhead": 360,
+      "copies": 1,
+      "count": 172
+    }
+  ],
+  "max_metadata_age_ms": 1028.0338330194354,
+  "files_exact": true,
+  "tail_changes": [
+    4,
+    8,
+    10,
+    10,
+    14,
+    11
+  ],
+  "clocks": {
+    "deadline_misses": 0,
+    "late_intervals": 0
+  },
+  "remaining_sockets": 0
+}

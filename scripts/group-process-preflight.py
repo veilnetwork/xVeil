@@ -19,7 +19,8 @@ import subprocess
 import time
 import traceback
 
-from group_codec_sdk import GroupSdk, P, E
+from group_codec_sdk import (GroupSdk, P, E, SourcePacketSamples,
+                             receive_participant_values)
 from group_pcm_timing import analyze_voice_path
 from native_pcm_driver import NativePcmDriver, build as build_clock
 from group_process_files import ProcessFileLoad
@@ -38,7 +39,8 @@ def qualifies_full_contention(result):
 
 
 def worker(pipe, sdk_path, media_path, root, clock, participant,
-           full_load=False, load_kind='both', playout_trace=False):
+           full_load=False, load_kind='both', playout_trace=False,
+           source_framing_trace=False):
     os.umask(0o077)
     directory = Path(root) / ('worker-' + str(participant))
     directory.mkdir(mode=0o700)
@@ -52,6 +54,11 @@ def worker(pipe, sdk_path, media_path, root, clock, participant,
     rows, snapshots, images = [], [], []
     video_started = False
     source_feedback_queued = 0
+    source_sizes = SourcePacketSamples()
+    source_cost_sequence = 0
+    source_cost_pending = None
+    source_cost_latest = None
+    source_cost_responses = 0
     use_video, use_files = full_load and load_kind != 'files', full_load and load_kind != 'video'
     result = {'ok': False, 'pid': os.getpid(), 'participant': participant,
               'primary_receivers_in_process': 1,
@@ -275,6 +282,29 @@ def worker(pipe, sdk_path, media_path, root, clock, participant,
                     finally:
                         free_string(value)
                 snapshots.append(snapshot)
+                if source_framing_trace:
+                    if pipe.poll():
+                        response = pipe.recv()
+                        if (not isinstance(response, dict) or
+                                response.get('sequence') != source_cost_pending or
+                                'source_cost_response' not in response):
+                            raise RuntimeError('Unexpected source cost response')
+                        source_cost_pending = None
+                        source_cost_latest = response
+                        source_cost_responses += 1
+                    snapshot['source_cost_snapshot'] = source_cost_latest
+                    snapshot['source_cost_sample_age_ms'] = (
+                        max(0, (time.monotonic() - source_cost_latest['sampled_monotonic']) * 1000)
+                        if source_cost_latest else None)
+                    sizes = source_sizes.observe(snapshot['stats'])
+                    snapshot['source_cost_observed_packet_bytes'] = dict(
+                        source_sizes.observed_packet_bytes)
+                    snapshot['source_cost_packet_sample_basis'] = dict(source_sizes.basis)
+                    if source_cost_pending is None:
+                        pipe.send({'source_cost_request': {
+                            'sequence': source_cost_sequence, 'packet_bytes': sizes}})
+                        source_cost_pending = source_cost_sequence
+                        source_cost_sequence += 1
                 if adaptive:
                     decision = adapt('poll', snapshot['t'], snapshot['stats'])
                     snapshot['audio_policy'] = decision
@@ -424,6 +454,11 @@ def worker(pipe, sdk_path, media_path, root, clock, participant,
         if policy_log:
             policy_log.close()
         (directory / 'pcm-samples.json').write_text(json.dumps(rows))
+        if source_framing_trace:
+            result['source_cost_trace'] = {'requests': source_cost_sequence,
+                                           'responses_sampled': source_cost_responses,
+                                           'fed_into_policy': False}
+            result['ok'] &= source_cost_responses > 0
         (directory / 'codec-samples.json').write_text(json.dumps(snapshots))
         if full_load:
             (directory / 'decoded-video-samples.json').write_text(json.dumps(images))
@@ -448,6 +483,8 @@ def main():
                         help='bounded native timing metadata in each owned worker directory')
     parser.add_argument('--opaque-forward-trace', action='store_true',
                         help='hash owned opaque Forward payloads for authenticated hop joins; requires --playout-trace')
+    parser.add_argument('--source-framing-trace', action='store_true',
+                        help='sample prepared source costs on owned parent nodes; metadata only, not policy input')
     parser.add_argument('--load-kind', choices=['both', 'files', 'video'], default='both',
                         help='isolate a competitor; only both can qualify full contention')
     args = parser.parse_args()
@@ -485,6 +522,7 @@ def main():
               'adaptive': args.adaptive,
               'playout_trace': args.playout_trace,
               'opaque_forward_trace': os.environ.get('VEIL_DIAG_OPAQUE_FORWARD') == '1',
+              'source_framing_trace': args.source_framing_trace,
               'test_ptime_requested': os.environ.get('VEIL_MEDIA_TEST_GROUP_PTIME'),
               'sdk_sha256': hashlib.sha256(args.sdk.read_bytes()).hexdigest(),
               'media_sha256': hashlib.sha256(args.media.read_bytes()).hexdigest()}
@@ -517,14 +555,13 @@ def main():
                            stderr=subprocess.STDOUT, check=True)
 
     def receive_all(timeout):
-        values = []
-        until = time.monotonic() + timeout
-        for pipe in pipes:
-            if not pipe.poll(max(0, until - time.monotonic())):
-                raise RuntimeError('Participant response deadline exceeded')
-            value = pipe.recv()
-            values.append(value)
-        return values
+        def source_cost(participant, request):
+            return {str(peer): {lane: fixture.source_packet_cost(
+                        participant, peer, int(lane), size)
+                    for lane, size in request['packet_bytes'].items()}
+                    for peer in range(3) if peer != participant}
+        return receive_participant_values(
+            pipes, timeout, source_cost if args.source_framing_trace else None)
 
     try:
         fixture.start(transport_only=True)
@@ -534,7 +571,8 @@ def main():
             parent, child = context.Pipe()
             process = context.Process(target=worker, args=(child, str(args.sdk),
                 str(args.media), str(root), str(clock), participant,
-                args.full_load, args.load_kind, args.playout_trace))
+                args.full_load, args.load_kind, args.playout_trace,
+                args.source_framing_trace))
             process.start()
             child.close()
             pipes.append(parent)
