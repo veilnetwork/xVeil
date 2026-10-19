@@ -1,0 +1,94 @@
+{
+  "date": "2026-10-19",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "decision": "REJECTED",
+  "retained_sdk_commit": "827902ca3f02591988805e27ae26191e8517bd91",
+  "experiment": "Common rolling pressure byte guard across owned lossy, DATA, signaling and recovery; preserves healthy admissions on pressure entry",
+  "source_policy_retained": false,
+  "scope_limit": "A pressure-only guard using the existing8192-byte limit, not measured source capacity or primary-first reservation",
+  "tests": {
+    "session_passed": 611,
+    "ignored": 8,
+    "negative_control_expected_failure": true,
+    "release_build_passed": true,
+    "ffi_exports_unchanged": 202,
+    "test_witness_adjustment": "Read-only pressure observation replaces admission loops that themselves generated fake traffic; actual recovery-admission checks retained. Quota expectations updated only for the intended shared/rolling semantics."
+  },
+  "group": {
+    "qualified": false,
+    "duration_seconds": 360,
+    "rate_kbps": 1024,
+    "audio_max_ms": 280.1282916625496,
+    "matched": 2112,
+    "missing": 0,
+    "files_exact": true,
+    "video_tail_changes": [
+      14,
+      14,
+      14,
+      14,
+      14,
+      14
+    ],
+    "fifo_drops": [
+      0,
+      0
+    ],
+    "deadline_misses": [
+      0,
+      0,
+      0
+    ]
+  },
+  "pair": {
+    "run": false,
+    "reason": "Group prerequisite failed, so candidate rejected without further optional qualification"
+  },
+  "rollback": {
+    "candidate": "shared rolling secondary pressure window",
+    "decision": "REJECTED",
+    "reason": "Original 360s group audio max280.128ms fails strict200ms; all other group gates pass",
+    "production_sources_restored_to": "827902ca3f02591988805e27ae26191e8517bd91",
+    "candidate_patch_retained": "candidate.patch",
+    "candidate_source_snapshot_retained": "sdk-src",
+    "candidate_library_retained": "sdk/libveilclient_ffi.dylib",
+    "shared_target_generic_dylib_quarantined": true,
+    "quarantine_path": "/Users/vart/.cache/codex/xveil-shared-pressure-20261019/rejected-shared-target-output.dylib",
+    "pair_run": false,
+    "pair_skip_reason": "Group prerequisite already fails; candidate is rejected without further optional qualification",
+    "constants_retuned_after_failure": false
+  },
+  "private_artifacts": "/Users/vart/.cache/codex/xveil-shared-pressure-20261019",
+  "remaining": [
+    "Measured source service/capacity and primary framing/fanout/control reservation before secondary work, with freshness/ownership/app-limited/probe safeguards",
+    "Separate remaining interaction channels, including own network-control and ordered signaling",
+    "Qualified receiver playout, handoff and live hardware/headset/speech checks"
+  ],
+  "limits": [
+    "All original quality gates preserved;280.128ms fails strict200ms",
+    "No causal improvement/regression inference from one capture per build",
+    "No new rates or stand-specific constant tuning after failure",
+    "Encoded-to-ingress includes SDK, IPC, scheduling and all transport stages; not proof of a particular network hop",
+    "16-KiB local control-window override exists in code, but its causal role at this peak is unproven",
+    "No phone, installed-app or server changes; all11 recorded stand processes exited and all4 node stops succeeded",
+    "Experimental library quarantined; common target final dylib path is absent. A future build must rebuild it before use."
+  ],
+  "artifacts": {
+    "foreign-work.json": "9cb4a59b2682ca707be67f0c84ad018f7d2e9fd57b02c741bb381ae03cceb872",
+    "frozen-plan.json": "ce2d2126b14596c2c8674407c4bf6a79c7be1f88309ba6258f1e2f97bf9f0d0b",
+    "full-tests.txt": "1f4e0f5edbc4af2634af908ede423876d353206b14d47218ecdcee7577348723",
+    "group-independent-cleanup.json": "ab67ed163b7968d323badf910de553eae2fdae57ba830772d4326ee6ff4799be",
+    "group-peak.json": "706878ec18761fa7e093509ad29f845e0b418bc4d176d5261640c9330a16958d",
+    "group-result.json": "359a0c26ab8373d24fd76e66a410fcaf790ee0e1d7c2ee5756265f0b25e826e5",
+    "negative-control.txt": "9109561b830552fe80e14b43108dee3c167904616679e13629e7da4e84226f10",
+    "negative-independent-allowances-status.json": "1b42e8fae5df217eaf87617d637b3ed5e9718a8742a55db56ece58e7cc60b577",
+    "raw-artifacts.json": "2d5f85fe2f79cbf9c6f095fe346e7ebaba8b06327f79fd57061f1673356b58ac",
+    "rejection.json": "4a709f662579502de4ade5dc83dbfd4680f23b743661128429a21c7227efdbaf",
+    "release-build-status.json": "e4dbb1449e7d7b61dfe347f645fceeaff565618d048e06b39e36ed309afb454c",
+    "release-build.txt": "868d4d37c2af97b03f26b9ba2efda1750dbf2fa93c1f31243afefa327fe07867",
+    "source-proof.json": "6efc50665ca16bee5457a017bb4e53d60c942e2dee868b4d86519a02148f461d",
+    "candidate.patch.gz": "cff8710a470cc8d0698a0fd5bcb30222f6d178e772d7a1c895cb7077147e15c9"
+  },
+  "candidate_patch": "shared-pressure-rejected-2026-10-19/candidate.patch.gz; decompressed SHA-256 in source-proof.json"
+}

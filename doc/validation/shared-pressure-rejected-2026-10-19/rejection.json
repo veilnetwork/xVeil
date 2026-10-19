@@ -1,0 +1,14 @@
+{
+  "candidate": "shared rolling secondary pressure window",
+  "decision": "REJECTED",
+  "reason": "Original 360s group audio max280.128ms fails strict200ms; all other group gates pass",
+  "production_sources_restored_to": "827902ca3f02591988805e27ae26191e8517bd91",
+  "candidate_patch_retained": "candidate.patch",
+  "candidate_source_snapshot_retained": "sdk-src",
+  "candidate_library_retained": "sdk/libveilclient_ffi.dylib",
+  "shared_target_generic_dylib_quarantined": true,
+  "quarantine_path": "/Users/vart/.cache/codex/xveil-shared-pressure-20261019/rejected-shared-target-output.dylib",
+  "pair_run": false,
+  "pair_skip_reason": "Group prerequisite already fails; candidate is rejected without further optional qualification",
+  "constants_retuned_after_failure": false
+}

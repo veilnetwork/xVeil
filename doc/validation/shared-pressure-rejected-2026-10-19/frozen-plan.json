@@ -1,0 +1,46 @@
+{
+  "frozen_before_full_load": true,
+  "sdk_base": "827902ca3f02591988805e27ae26191e8517bd91",
+  "root_base": "fed1991c",
+  "hypothesis": "One rolling pressure guard across owned lossy, DATA, signaling and recovery prevents their independent allowances stacking; retain recent healthy admissions at pressure entry; primary and transit bypass. This is not measured spare capacity or a primary capacity reservation.",
+  "ceiling_bytes": 8192,
+  "ceiling_origin": "Existing modern lossy pressure limit, unchanged; no new fixed-rate pacer",
+  "acceptance": {
+    "group": {
+      "duration_seconds": 360,
+      "rate_kbps": 1024,
+      "audio_marker_paths": 6,
+      "audio_max_ms_exclusive": 200,
+      "missing_markers": 0,
+      "files": 3,
+      "file_bytes_each": 524288,
+      "file_hash_matches": true,
+      "moving_video_paths": 6,
+      "tail_changes_each_min": 14,
+      "deadline_misses": 0
+    },
+    "pair": {
+      "duration_seconds": 360,
+      "rate_kbps": 1024,
+      "audio_max_ms_exclusive": 200,
+      "missing_markers": 0,
+      "files": 2,
+      "file_bytes_each": 524288,
+      "file_hash_matches": true,
+      "moving_video_paths": 2,
+      "tail_changes_each_min": 14,
+      "deadline_misses": 0
+    }
+  },
+  "decision": "Reject this candidate if either original full gate fails; do not lower workload, soften latency/video/file/marker gates or retune constants to this stand",
+  "baseline": {
+    "group": {
+      "path": "/Users/vart/.cache/codex/xveil-work-wire-cost-20261019/group-final-360",
+      "summary_sha256": "44e77cd506a64e9fc0befd8ea5915eade18898a958ba40533cb6a4575f74712e"
+    },
+    "pair": {
+      "path": "/Users/vart/.cache/codex/xveil-work-wire-cost-20261019/pair-rtp-lag-full",
+      "summary_sha256": "e49636e6485cb57dd0074c09f83deb0abd4577a49c1b3df95622721a6cfb2b0f"
+    }
+  }
+}
