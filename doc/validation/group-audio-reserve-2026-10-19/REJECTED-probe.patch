@@ -1,0 +1,619 @@
+diff --git a/lib/state/call_audio_source_pressure.dart b/lib/state/call_audio_source_pressure.dart
+index 19ab1c86..51a0218c 100644
+--- a/lib/state/call_audio_source_pressure.dart
++++ b/lib/state/call_audio_source_pressure.dart
+@@ -38,6 +38,7 @@ class CallAudioSourcePressure {
+     Object? peerAudioRecoveryReportUs,
+     bool recovered = false,
+     bool? peerRecoveryObserved,
++    bool reserveForAudio = false,
+   }) {
+     final networkLoss = _rtcpLoss
+         .observe(
+@@ -120,7 +121,14 @@ class CallAudioSourcePressure {
+         (!receiveExpected ||
+             (receiveDelayMs! < playoutRecoverMs &&
+                 receiveAgeMs! < CallBitrateAdapter.audioReceiveRecoverMs));
+-    if (bad || recovered) {
++    if (sendExpected && reserveForAudio) {
++      // A measured degraded audio budget still needs source headroom even
++      // after its buffer stabilizes. Release through the normal healthy
++      // period once the caller acknowledges the shorter audio budget.
++      _pressured = true;
++      _healthy = 0;
++      _recoverySamples = CallBitrateAdapter.recoverAfter;
++    } else if (bad || recovered) {
+       if (bad) {
+         _recoverySamples = CallBitrateAdapter.recoverAfter;
+       } else if (!_pressured) {
+diff --git a/lib/state/group_call_audio_adapter.dart b/lib/state/group_call_audio_adapter.dart
+index e5f775b7..079fbd5b 100644
+--- a/lib/state/group_call_audio_adapter.dart
++++ b/lib/state/group_call_audio_adapter.dart
+@@ -22,6 +22,9 @@ class GroupCallAudioAdapter {
+   static const recoveryQuiet = Duration(seconds: 20);
+   static const recoveryCooldown = Duration(seconds: 8);
+   static const healthySamples = 8;
++  static const shortProbeSamples = 3;
++  static const shortProbeCooldown = Duration(seconds: 20);
++  static const reservationMaxAge = Duration(seconds: 2);
+   static const _rttWindowSpan = Duration(minutes: 2);
+ 
+   // Avoid filling a shared uplink before the first listener reports. Shorter
+@@ -29,6 +32,8 @@ class GroupCallAudioAdapter {
+   int _level = 1;
+   GroupAudioBudget? _applied;
+   DateTime? _changedAt, _pressureAt, _observedAt, _lastDownAt;
++  DateTime? _lastShortProbeAt;
++  int _shortProbeHealthy = 0;
+   int? _sequence, _drops, _recoveries, _packets;
+   int _lossUs = 0, _peerRecoveryUs = 0, _healthy = 0, _expectedPeers = 0;
+   bool _supports60Ms = false;
+@@ -39,6 +44,17 @@ class GroupCallAudioAdapter {
+   int get level => _level;
+   bool get pending => _applied != target;
+ 
++  /// Keep competing local producers restrained until the short-packet budget
++  /// is acknowledged. Stable audio in the expensive-latency mode is not proof
++  /// that video/data can spend the bandwidth needed to recover shorter audio.
++  bool get needsShortPacketRecovery =>
++      target.packetMs > 40 || (_applied?.packetMs ?? 0) > 40;
++
++  static bool reservationIsFresh(DateTime? queuedAt, DateTime now) =>
++      queuedAt != null &&
++      !now.isBefore(queuedAt) &&
++      now.difference(queuedAt) < reservationMaxAge;
++
+   bool? applyPending(bool Function(GroupAudioBudget) apply, DateTime now) {
+     if (!pending) return null;
+     if (!apply(target)) return false;
+@@ -57,6 +73,7 @@ class GroupCallAudioAdapter {
+     required int expectedPeers,
+     required bool sending,
+     required bool receiving,
++    bool sourceReserved = false,
+   }) {
+     final previousTime = _observedAt;
+     _observedAt = now;
+@@ -65,6 +82,8 @@ class GroupCallAudioAdapter {
+       _changedAt = _pressureAt = now;
+       _lastDownAt = now;
+       _healthy = 0;
++      _shortProbeHealthy = 0;
++      _lastShortProbeAt = now;
+       _buffer.reset();
+       _rttWindow.clear();
+     }
+@@ -73,6 +92,7 @@ class GroupCallAudioAdapter {
+       _buffer.reset();
+       _rttWindow.clear();
+       _healthy = 0;
++      _shortProbeHealthy = 0;
+     }
+     int? counter(Object? value) => value is int && value >= 0 ? value : null;
+     final nativeFresh = stats['worker_stalled'] == 0;
+@@ -131,6 +151,7 @@ class GroupCallAudioAdapter {
+     if (!sending || expectedPeers <= 0) {
+       // Consume counters while muted, so unmute cannot replay old pressure.
+       _healthy = 0;
++      _shortProbeHealthy = 0;
+       _buffer.reset();
+       return;
+     }
+@@ -141,6 +162,7 @@ class GroupCallAudioAdapter {
+     if (pressure) {
+       _pressureAt = now;
+       _healthy = 0;
++      _shortProbeHealthy = 0;
+       // A longer packet is a last step after the applied 40-ms/24-kbit
+       // floor has actually emitted packets and fresh pressure remains. Neither
+       // startup/unknown feedback nor a requested-but-unapplied floor qualifies.
+@@ -166,6 +188,43 @@ class GroupCallAudioAdapter {
+       }
+       return;
+     }
++    // With our other producers yielding, retry the 40-ms speech floor from
++    // measured healthy audio rather than waiting for RTT to prove bandwidth
++    // at the expensive 60-ms cadence. This is a bounded trial, not a promotion
++    // to full payload or 20-ms packets. New loss still backs off immediately.
++    final rtt = stats['rtt_ms'];
++    final canProbe =
++        sourceReserved &&
++        _applied == _budgets[_longPacketFloor] &&
++        !pending &&
++        nativeFresh &&
++        stats['audio_config_valid'] == 1 &&
++        stats['audio_tx_packet_duration_ms'] == 60 &&
++        packetsAdvanced &&
++        peerValid &&
++        reports == expectedPeers &&
++        counter(stats['audio_feedback_reports']) == expectedPeers &&
++        loss == 0 &&
++        peerRecovery == 0 &&
++        delay < CallBitrateAdapter.playoutRecoverMs &&
++        rtt is int &&
++        rtt >= 0 &&
++        rtt < 250 &&
++        (_pressureAt == null ||
++            now.difference(_pressureAt!) >= pressureCooldown) &&
++        (_changedAt == null ||
++            now.difference(_changedAt!) >= pressureCooldown) &&
++        (_lastShortProbeAt == null ||
++            now.difference(_lastShortProbeAt!) >= shortProbeCooldown);
++    if (!canProbe) {
++      _shortProbeHealthy = 0;
++    } else if (freshPeer && ++_shortProbeHealthy >= shortProbeSamples) {
++      _level = _shortPacketFloor;
++      _lastShortProbeAt = now;
++      _shortProbeHealthy = 0;
++      _healthy = 0;
++      return;
++    }
+     // One good listener, a cached peak, or a stale native snapshot cannot
+     // establish room-wide headroom. Loss timestamps remain nonzero while the
+     // native authenticated loss observation is still within its freshness TTL.
+diff --git a/lib/state/veil_group_call_media.dart b/lib/state/veil_group_call_media.dart
+index 458e627c..7936d571 100644
+--- a/lib/state/veil_group_call_media.dart
++++ b/lib/state/veil_group_call_media.dart
+@@ -345,6 +345,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
+   bool _sourceFeedbackPending = false;
+   int _sourceFeedbackQueued = 0;
+   int _sourceFeedbackSkipped = 0;
++  DateTime? _lastQueuedSourceReservation;
+   bool _supportsAudioReceiveStats = false;
+   bool _supportsAudioReceiveAgeStats = false;
+   int _peerAudioPlayoutPeers = 0;
+@@ -797,7 +798,6 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
+         }, now);
+       }
+     }
+-    _reportSourcePressure(expected, stats, now, recovered: audioRecovered);
+     final audioAdapter = _audioAdapter;
+     if (audioAdapter != null) {
+       audioAdapter.observe(
+@@ -806,9 +806,14 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
+         expectedPeers: _expectedMediaPeers.length,
+         sending: _audioEnabled && !_microphoneState.muted,
+         receiving: _hasExpectedIncomingAudio,
++        sourceReserved: GroupCallAudioAdapter.reservationIsFresh(
++          _lastQueuedSourceReservation,
++          now,
++        ),
+       );
+-      _applyAudioBudget(expected, audioAdapter);
+     }
++    _reportSourcePressure(expected, stats, now, recovered: audioRecovered);
++    if (audioAdapter != null) _applyAudioBudget(expected, audioAdapter);
+     if (!_videoRunning) return;
+     final adapter = _bitrateAdapter;
+     if (adapter == null) return;
+@@ -922,6 +927,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
+     }
+     final receiveQuality = _groupAudioReceiveQuality(stats);
+     final pressure = _sourcePressure.observe(
++      reserveForAudio: _audioAdapter?.needsShortPacketRecovery ?? false,
+       sendExpected: sendExpected,
+       receiveExpected: receiveExpected,
+       requirePeerPlayout: sendExpected,
+@@ -955,6 +961,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
+               if (_engine != engine || _mediaEpoch != epoch) return;
+               if (queued) {
+                 _sourceFeedbackQueued++;
++                _lastQueuedSourceReservation = pressure ? now : null;
+               } else {
+                 _sourceFeedbackSkipped++;
+               }
+@@ -1368,6 +1375,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
+     _sourcePressure.reset();
+     _sourcePressured = null;
+     _sourceFeedbackQueued = 0;
++    _lastQueuedSourceReservation = null;
+     _lastAudioLatencyRecoveryCount = null;
+     _audioAdapter = null;
+     _sourceFeedbackSkipped = 0;
+diff --git a/scripts/group-process-preflight.py b/scripts/group-process-preflight.py
+index 97617a38..3f5eb0a7 100644
+--- a/scripts/group-process-preflight.py
++++ b/scripts/group-process-preflight.py
+@@ -52,6 +52,7 @@ def worker(pipe, sdk_path, media_path, root, clock, participant,
+     rows, snapshots, images = [], [], []
+     video_started = False
+     source_feedback_queued = 0
++    source_reserved_at = None
+     use_video, use_files = full_load and load_kind != 'files', full_load and load_kind != 'video'
+     result = {'ok': False, 'pid': os.getpid(), 'participant': participant,
+               'primary_receivers_in_process': 1,
+@@ -157,6 +158,7 @@ def worker(pipe, sdk_path, media_path, root, clock, participant,
+             def adapt(op, elapsed, snapshot=None):
+                 request = {'op': op, 'now': int(elapsed * 1000), 'expectedPeers': 2}
+                 request['sourceFeedbackQueued'] = source_feedback_queued > 0
++                request['sourceReservedAt'] = source_reserved_at
+                 if snapshot is not None:
+                     request['stats'] = snapshot
+                 if full_load:
+@@ -286,6 +288,9 @@ def worker(pipe, sdk_path, media_path, root, clock, participant,
+                             if snapshot['source_report_rc'] != 0:
+                                 raise RuntimeError('Local source-pressure report refused')
+                             source_feedback_queued += 1
++                            source_reserved_at = (
++                                int(snapshot['t'] * 1000)
++                                if video_policy['sourcePressured'] else None)
+                         snapshot['source_feedback_queued'] = source_feedback_queued
+                         preparing = use_video and not video_started and snapshot['t'] >= 20
+                         if files and files.thread is None and snapshot['t'] >= 20:
+diff --git a/scripts/group_audio_policy.dart b/scripts/group_audio_policy.dart
+index d84550ed..b51a0a48 100644
+--- a/scripts/group_audio_policy.dart
++++ b/scripts/group_audio_policy.dart
+@@ -24,12 +24,19 @@ Future<void> main() async {
+         room.adapter.applyPendingPause((_) => request['pauseOk'] == true);
+       }
+     } else if (request['op'] == 'poll') {
++      final reservedAt = request['sourceReservedAt'];
+       policy.observe(
+         (request['stats'] as Map).cast<String, dynamic>(),
+         now,
+         expectedPeers: request['expectedPeers'] as int,
+         sending: true,
+         receiving: true,
++        sourceReserved: GroupCallAudioAdapter.reservationIsFresh(
++          reservedAt is int
++              ? DateTime.fromMillisecondsSinceEpoch(reservedAt)
++              : null,
++          now,
++        ),
+       );
+     }
+     stdout.writeln(
+@@ -38,8 +45,12 @@ Future<void> main() async {
+         'level': policy.level,
+         'packet_ms': policy.target.packetMs,
+         'payload_bps': policy.target.payloadBps,
++        'audioNeedsShortPackets': policy.needsShortPacketRecovery,
+         if (request['op'] == 'poll' && request['load'] == true)
+-          'video_policy': room.poll(request),
++          'video_policy': room.poll(
++            request,
++            reserveForAudio: policy.needsShortPacketRecovery,
++          ),
+       }),
+     );
+   }
+diff --git a/scripts/group_codec_policy.dart b/scripts/group_codec_policy.dart
+index 92fa0fcc..1fce43f6 100644
+--- a/scripts/group_codec_policy.dart
++++ b/scripts/group_codec_policy.dart
+@@ -23,7 +23,10 @@ class RoomPolicy {
+   int? recoveries;
+   int playoutPeers = 0;
+ 
+-  Map<String, Object?> poll(Map<String, dynamic> request) {
++  Map<String, Object?> poll(
++    Map<String, dynamic> request, {
++    bool reserveForAudio = false,
++  }) {
+     final stats = (request['stats'] as Map).cast<String, dynamic>();
+     final peers = (request['peers'] as List).cast<String>();
+     final now = DateTime.fromMillisecondsSinceEpoch(request['now'] as int);
+@@ -84,6 +87,7 @@ class RoomPolicy {
+     final sequence = stats['audio_playout_sequence'];
+     final peerSequence = sequence is int && sequence >= 0 ? sequence : null;
+     final pressured = source.observe(
++      reserveForAudio: reserveForAudio,
+       sendExpected: true,
+       receiveExpected: true,
+       requirePeerPlayout: true,
+diff --git a/test/call_audio_source_pressure_test.dart b/test/call_audio_source_pressure_test.dart
+index 33a2232e..89a544e7 100644
+--- a/test/call_audio_source_pressure_test.dart
++++ b/test/call_audio_source_pressure_test.dart
+@@ -20,6 +20,7 @@ void main() {
+     Object? lossReportUs,
+     Object? peerRecoveryReportUs,
+     bool recovered = false,
++    bool reserve = false,
+   }) => policy.observe(
+     sendExpected: send,
+     receiveExpected: receive,
+@@ -35,6 +36,7 @@ void main() {
+     audioLossReportUs: lossReportUs,
+     peerAudioRecoveryReportUs: peerRecoveryReportUs,
+     recovered: recovered,
++    reserveForAudio: reserve,
+   );
+ 
+   void recover(
+@@ -48,6 +50,35 @@ void main() {
+     expect(sample(policy, send: send, receive: receive), isFalse);
+   }
+ 
++  test(
++    'long-packet recovery keeps local competitors held until acknowledged',
++    () {
++      final policy = CallAudioSourcePressure();
++      recover(policy);
++      for (var i = 0; i < 60; i++) {
++        expect(sample(policy, reserve: true), isTrue);
++      }
++      // Acknowledging shorter audio still needs the ordinary measured healthy
++      // period before DATA and video growth can spend the restored headroom.
++      recover(policy);
++    },
++  );
++
++  test(
++    'muted or absent outgoing audio cannot reserve local producer bandwidth',
++    () {
++      final policy = CallAudioSourcePressure();
++      recover(policy, send: false);
++      for (var i = 0; i < 30; i++) {
++        expect(sample(policy, send: false, reserve: true), isFalse);
++      }
++      expect(
++        sample(policy, send: false, receive: false, reserve: true),
++        isNull,
++      );
++    },
++  );
++
+   test('fresh peer audio loss restrains sources without a growing buffer', () {
+     final policy = CallAudioSourcePressure();
+     recover(policy);
+diff --git a/test/group_call_audio_adapter_test.dart b/test/group_call_audio_adapter_test.dart
+index f0d689d5..6630405c 100644
+--- a/test/group_call_audio_adapter_test.dart
++++ b/test/group_call_audio_adapter_test.dart
+@@ -28,12 +28,14 @@ void observe(
+   int second, {
+   bool sending = true,
+   bool receiving = true,
++  bool reserved = false,
+ }) => policy.observe(
+   stats,
+   at(second),
+   expectedPeers: 2,
+   sending: sending,
+   receiving: receiving,
++  sourceReserved: reserved,
+ );
+ GroupCallAudioAdapter start() {
+   final policy = GroupCallAudioAdapter();
+@@ -43,6 +45,101 @@ GroupCallAudioAdapter start() {
+ }
+ 
+ void main() {
++  GroupCallAudioAdapter longPackets() {
++    final policy = start();
++    for (var n = 1; n <= 3; n++) {
++      observe(policy, {
++        ...sample(n, loss: n * 100),
++        'rtt_ms': 20,
++        'audio_max_packet_ms': 60,
++        'audio_tx_packet_duration_ms': 40,
++        'audio_tx_payload_pkts': n * 20,
++      }, n * 4);
++      policy.applyPending((_) => true, at(n * 4));
++    }
++    expect(policy.target.packetMs, 60);
++    return policy;
++  }
++
++  Map<String, dynamic> probeStats(int n, {int reports = 2}) => {
++    ...sample(n, reports: reports),
++    'rtt_ms': 100,
++    'audio_max_packet_ms': 60,
++    'audio_tx_packet_duration_ms': 60,
++    'audio_tx_payload_pkts': n * 20,
++  };
++
++  test(
++    'a reserved source can try short audio with complete fresh receivers',
++    () {
++      final policy = longPackets();
++      for (var n = 4; n <= 6; n++) {
++        observe(policy, probeStats(n), n * 4, reserved: true);
++      }
++      expect(policy.target, (packetMs: 40, payloadBps: 24000));
++      expect(policy.needsShortPacketRecovery, isTrue);
++      policy.applyPending((_) => true, at(24));
++      expect(policy.needsShortPacketRecovery, isFalse);
++    },
++  );
++
++  test('short-audio trial needs a lease and distinct complete feedback', () {
++    for (final kind in ['no_lease', 'cached', 'missing_peer', 'stalled']) {
++      final policy = longPackets();
++      for (var n = 4; n <= 10; n++) {
++        observe(
++          policy,
++          {
++            ...probeStats(
++              kind == 'cached' ? 4 : n,
++              reports: kind == 'missing_peer' ? 1 : 2,
++            ),
++            if (kind == 'stalled') 'worker_stalled': 1,
++          },
++          n * 4,
++          reserved: kind != 'no_lease',
++        );
++      }
++      expect(policy.target.packetMs, 60, reason: kind);
++    }
++  });
++
++  test('source reservation expires and rejects future clock values', () {
++    expect(GroupCallAudioAdapter.reservationIsFresh(null, at(1)), isFalse);
++    expect(GroupCallAudioAdapter.reservationIsFresh(at(2), at(1)), isFalse);
++    expect(GroupCallAudioAdapter.reservationIsFresh(at(1), at(2)), isTrue);
++    expect(GroupCallAudioAdapter.reservationIsFresh(at(1), at(3)), isFalse);
++  });
++
++  test(
++    'a failed short-packet trial protects audio and waits before retrying',
++    () {
++      final policy = longPackets();
++      for (var n = 4; n <= 6; n++) {
++        observe(policy, probeStats(n), n * 4, reserved: true);
++      }
++      policy.applyPending((_) => true, at(24));
++      observe(
++        policy,
++        {
++          ...probeStats(7),
++          'audio_tx_packet_duration_ms': 40,
++          'audio_loss_report_us': 400,
++        },
++        28,
++        reserved: true,
++      );
++      expect(policy.target.packetMs, 60);
++      policy.applyPending((_) => true, at(28));
++      for (var n = 8; n <= 12; n++) {
++        observe(policy, probeStats(n), n * 4, reserved: true);
++        expect(policy.target.packetMs, 60);
++      }
++      observe(policy, probeStats(13), 52, reserved: true);
++      expect(policy.target, (packetMs: 40, payloadBps: 24000));
++    },
++  );
++
+   test('sustained pressure preserves the characterized Opus payload floor', () {
+     for (final supported in [false, true]) {
+       final policy = start();
+@@ -316,6 +413,7 @@ void main() {
+       expect(policy.target, (packetMs: 40, payloadBps: 24000));
+       observe(policy, capable(4, loss: 300, packets: 31), 8);
+       expect(policy.target, (packetMs: 60, payloadBps: 24000));
++      expect(policy.needsShortPacketRecovery, isTrue);
+       policy.applyPending((_) => true, at(8));
+       // Replay/expiry cannot produce a second event or immediate recovery.
+       for (var n = 9; n < 20; n++) {
+@@ -331,6 +429,11 @@ void main() {
+         observe(policy, capable(n, packets: 32 + n, duration: 60), n);
+       }
+       expect(policy.target, (packetMs: 40, payloadBps: 24000));
++      expect(policy.needsShortPacketRecovery, isTrue);
++      expect(policy.applyPending((_) => false, at(38)), isFalse);
++      expect(policy.needsShortPacketRecovery, isTrue);
++      expect(policy.applyPending((_) => true, at(38)), isTrue);
++      expect(policy.needsShortPacketRecovery, isFalse);
+     },
+   );
+ 
+diff --git a/test/veil_group_call_media_test.dart b/test/veil_group_call_media_test.dart
+index 46549ca2..cd8402f7 100644
+--- a/test/veil_group_call_media_test.dart
++++ b/test/veil_group_call_media_test.dart
+@@ -199,6 +199,111 @@ void main() {
+     },
+   );
+ 
++  test(
++    'degraded group audio retains the producer lease after buffers stabilize',
++    () {
++      fakeAsync((clock) {
++        final self = _id(1), peer = _id(2);
++        final transport = _FakeTransport(self);
++        final engine = _FakeEngine(supportsAudioBudget: true)
++          ..stats = {
++            ..._sourceStats([peer]),
++            'audio_max_packet_ms': 60,
++            'audio_config_valid': 1,
++            'audio_tx_payload_pkts': 0,
++            'audio_tx_packet_duration_ms': 40,
++            'audio_latency_recovery_count': 0,
++          };
++        final controller = VeilGroupCallMediaController(
++          transport,
++          roomMediaSecret: _room(),
++          engineFactory: (_) => engine,
++          requestMicrophone: () async => true,
++          requestCamera: () async => true,
++          now: () => DateTime(2026, 10, 19).add(clock.elapsed),
++        );
++        controller.start(_call(self, [peer], video: true));
++        clock.flushMicrotasks();
++        clock.elapse(const Duration(seconds: 2));
++        engine.stats = {...engine.stats, 'audio_latency_recovery_count': 1};
++        clock.elapse(const Duration(seconds: 4));
++        engine.stats = {
++          ...engine.stats,
++          'audio_tx_payload_pkts': 20,
++          'audio_latency_recovery_count': 2,
++        };
++        clock.elapse(const Duration(seconds: 1));
++        expect(engine.audioBudgets.last, (packetMs: 60, payloadBps: 24000));
++        // A stable buffer at 60 ms is not proof that the short-packet budget
++        // has recovered. The encoder ACK and fresh audio headroom are separate.
++        engine.stats = {...engine.stats, 'audio_tx_packet_duration_ms': 60};
++        clock.elapse(const Duration(seconds: 120));
++        expect(engine.audioBudgets.last.packetMs, 60);
++        expect(transport.pressureReports.last.pressured, isTrue);
++        expect(engine.targets.last.maxFps, 1);
++        controller.stop();
++        clock.flushMicrotasks();
++      });
++    },
++  );
++
++  for (final acknowledged in [false, true]) {
++    test(
++      'short group audio trial requires source reservation ACK=$acknowledged',
++      () {
++        fakeAsync((clock) {
++          final self = _id(1), peer = _id(2);
++          final transport = _FakeTransport(self)
++            ..rejectPressure = !acknowledged;
++          final engine = _FakeEngine(supportsAudioBudget: true)
++            ..stats = {
++              ..._sourceStats([peer]),
++              'rtt_ms': 20,
++              'audio_feedback_reports': 1,
++              'audio_playout_sequence': 1,
++              'audio_max_packet_ms': 60,
++              'audio_config_valid': 1,
++              'audio_tx_payload_pkts': 0,
++              'audio_tx_packet_duration_ms': 40,
++              'audio_latency_recovery_count': 0,
++            };
++          final controller = VeilGroupCallMediaController(
++            transport,
++            roomMediaSecret: _room(),
++            engineFactory: (_) => engine,
++            requestMicrophone: () async => true,
++            now: () => DateTime(2026, 10, 19).add(clock.elapsed),
++          );
++          controller.start(_call(self, [peer]));
++          clock.flushMicrotasks();
++          clock.elapse(const Duration(seconds: 2));
++          engine.stats = {...engine.stats, 'audio_latency_recovery_count': 1};
++          clock.elapse(const Duration(seconds: 4));
++          engine.stats = {
++            ...engine.stats,
++            'audio_tx_payload_pkts': 20,
++            'audio_latency_recovery_count': 2,
++          };
++          clock.elapse(const Duration(seconds: 1));
++          expect(engine.audioBudgets.last.packetMs, 60);
++          for (var n = 8; n <= 16; n++) {
++            engine.stats = {
++              ...engine.stats,
++              'rtt_ms': 100,
++              'audio_tx_packet_duration_ms': 60,
++              'audio_tx_payload_pkts': n * 20,
++              'audio_playout_sequence': n ~/ 2,
++            };
++            clock.elapse(const Duration(seconds: 1));
++          }
++          expect(engine.audioBudgets.last.packetMs, acknowledged ? 40 : 60);
++          controller.stop();
++          clock.flushMicrotasks();
++        });
++      },
++    );
++  }
++
+   test(
+     'failed initial audio budget closes channels before capture starts',
+     () async {
