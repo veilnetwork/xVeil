@@ -1,0 +1,9 @@
+{
+  "checked_at_utc": "2026-10-19T12:48:33.971939+00:00",
+  "stand_runs": 5,
+  "recorded_processes_checked": 37,
+  "long_lived_processes_checked": 32,
+  "transient_recorders_checked": 5,
+  "matched_processes_remaining": [],
+  "ownership_check": "PID and exact recorded command; unrelated reused PIDs are not owned and are never killed"
+}

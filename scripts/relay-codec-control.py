@@ -25,6 +25,7 @@ from pcm_timing import capture_coverage, input_edges
 from decoded_video_progress import summarize as summarize_decoded_video
 from native_pcm_driver import NativePcmDriver, build as build_pcm_driver
 from file_transfer_snapshot import snapshot_transfers
+from fixture_admin import request_admin
 os.umask(0o077)
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--sdk', type=Path, required=True)
@@ -247,14 +248,7 @@ def checked(f, *args):
     return v
 
 def admin(index, command):
-    with socket.socket(socket.AF_UNIX) as s:
-        s.settimeout(4)
-        s.connect(str(ROOT / str(index) / 'admin.sock'))
-        request = {'version': 1, 'command': {'command': command}}
-        s.sendall((json.dumps(request) + '\n').encode())
-        s.shutdown(socket.SHUT_WR)
-        with s.makefile('rb') as reader:
-            return json.loads(reader.readline())
+    return request_admin(ROOT / str(index) / 'admin.sock', command)
 identities = []
 extra_handles = []
 extra_apps = []

@@ -1,0 +1,58 @@
+{
+  "group": {
+    "qualified": false,
+    "duration_seconds": 360,
+    "rate_kbps": 1024,
+    "max_ms_by_path": [
+      230.09825000190176,
+      190.19245833624154,
+      230.20491667557508,
+      220.07983335061,
+      190.19404167192988,
+      220.12620832538232
+    ],
+    "max_ms": 230.20491667557508,
+    "matched": 2112,
+    "missing": 0,
+    "files_exact": true,
+    "video_tail_changes": [
+      14,
+      14,
+      14,
+      14,
+      14,
+      14
+    ],
+    "fifo_drops": [
+      0,
+      0
+    ],
+    "deadline_misses": [
+      0,
+      0,
+      0
+    ]
+  },
+  "pair": {
+    "qualified": true,
+    "duration_seconds": 360,
+    "rate_kbps": 1024,
+    "max_ms_by_path": [
+      150.1705833361484,
+      160.27966668480076
+    ],
+    "max_ms": 160.27966668480076,
+    "matched": 704,
+    "missing": 0,
+    "files_exact": true,
+    "video_tail_changes": [
+      14,
+      14
+    ],
+    "fifo_drops": [
+      0,
+      0
+    ],
+    "deadline_misses": 0
+  }
+}

@@ -1,0 +1,124 @@
+{
+  "source": 0,
+  "receiver": 1,
+  "phase": "audio-video-file",
+  "packet": {
+    "ssrc": 3360041715,
+    "rtp_origin": 3722533553,
+    "rtp_timestamp": 3735136913,
+    "rtp_sequence": 10647,
+    "source_at_seconds": 262.6000132506597,
+    "decoded_at_seconds": 262.85010858398164,
+    "packet_ms": 60,
+    "encoder_input_index": 22854,
+    "encoder_first_input_monotonic_us": 243527043063,
+    "encoded_monotonic_us": 243527093302,
+    "ingress": {
+      "seq": 10647,
+      "timestamp": 3735136913,
+      "arrived_us": 243527157638,
+      "drained_us": 243527157663,
+      "payload_bytes": 179
+    },
+    "total_ms": 250.09533332195133,
+    "render_clock": {
+      "available": true,
+      "marker_rtp_timestamp": 3735138353,
+      "packet_inserted_us": 243527157690,
+      "before": {
+        "entered_us": 243527313084,
+        "exited_us": 243527313107,
+        "before_ms": 156,
+        "after_ms": 146,
+        "target_ms": 120,
+        "skipped": 0,
+        "fallback": 0,
+        "frame_headroom_ms": 60,
+        "target_ceiling_ms": 140,
+        "rtp_timestamp": 3735138053,
+        "speech_type": 0,
+        "muted": 0
+      },
+      "after": {
+        "entered_us": 243527323020,
+        "exited_us": 243527323029,
+        "before_ms": 146,
+        "after_ms": 136,
+        "target_ms": 120,
+        "skipped": 0,
+        "fallback": 0,
+        "frame_headroom_ms": 60,
+        "target_ceiling_ms": 140,
+        "rtp_timestamp": 3735138533,
+        "speech_type": 0,
+        "muted": 0
+      },
+      "continuous_normal_speech": true,
+      "rtp_clock_step_ms": 10.0,
+      "relative_arrival_clock": {
+        "history_window_ms": 30000,
+        "packet_count": 499,
+        "floor_witness": {
+          "received_us": 243507427640,
+          "ssrc": 3360041715,
+          "sequence": 10319,
+          "rtp_timestamp": 3734192273
+        },
+        "clock_age_ms": [
+          181.717,
+          181.639
+        ],
+        "absolute_one_way_latency": false
+      },
+      "source_to_clock_bracket_ms": [
+        240.16070834350586,
+        250.08270834350586
+      ],
+      "insertion_to_clock_bracket_ms": [
+        155.417,
+        165.339
+      ],
+      "clock_bracket_to_pcm_edge_ms": [
+        0.012624969482421875,
+        9.934624969482423
+      ],
+      "signal_output_proof": false
+    },
+    "spans_ms": {
+      "capture_to_encoded": 20.35570834414102,
+      "encoded_to_ingress": 64.33600001037121,
+      "ingress_to_webrtc": 0.024999986635521054,
+      "webrtc_to_pcm_edge": 165.37862498080358
+    },
+    "native_send": {
+      "channel": 1,
+      "seq": 10647,
+      "timestamp": 3735136913,
+      "attempted_us": 243527093329,
+      "admitted_us": 243527093337,
+      "packet_bytes": 199,
+      "accepted": 1
+    },
+    "native_send_spans_ms": {
+      "encoded_to_native_send": 0.027,
+      "native_send_admission": 0.008,
+      "native_admission_to_ingress": 64.301
+    }
+  },
+  "input_sha256": {
+    "summary.json": "b832867f664da464bc9ffbfdae161805cc96c08e4fb58ca4a018bde1885b821a",
+    "worker-0/summary.json": "81bfb6c5fd43e6b69f45814955a71523dec95f54b072eeab8afb6041ae624f03",
+    "worker-1/summary.json": "f56eb03f50487c1875ad8724f0ef150eaaf7b86327e7b56bfc02282a78a70b40",
+    "worker-0/pcm-samples.json": "b88d7ec10c6978b4f22c5b74f41f7a1a12a9f16f12d61918b3ea39472f07c796",
+    "worker-1/pcm-samples.json": "c1ffc1258811987f7e72ac2e407f3046aca1a79171703d31680b188645c25d12",
+    "worker-0/codec-samples.json": "3e26d5be63252d18efbca2c87556968a2f81b3abc04f58c0c49b3a956a733a99",
+    "worker-0/playout-trace.log": "df75d27852afded7a354228b55e09df591b594546c6ca06218ace30312e59bfd",
+    "worker-1/playout-trace.log": "a6c86fd1a61c52fe70b03c1a9bfd67ef7ed66e1076330e05c9442cb77b7bb6e7"
+  },
+  "limits": [
+    "Owned same-host clocks only; no physical acoustic latency claim",
+    "Encoded-to-ingress includes all local and transport stages; no per-hop attribution",
+    "Ingress-to-PCM can include codec lookahead/FEC and following packets; not NetEq alone",
+    "This analysis does not change the capture verdict or its quality gates"
+  ]
+}

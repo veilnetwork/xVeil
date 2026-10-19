@@ -1,0 +1,38 @@
+{
+  "frozen_before_full_load": true,
+  "controller": "Cubic unchanged",
+  "change": "Node-local aggregate source-child flight limit with primary/control reserve, serialized preparation, real byte accounting, current validated Data confirmations and fresh endpoint feedback; Cubic unchanged; growth needs a current blocked-send witness for the same window and primary/control reserve; drained senders clear demand and credit; primary retains normal QUIC congestion control and its actual flight is deducted before all secondary allowance",
+  "acceptance": {
+    "group": {
+      "duration_seconds": 360,
+      "rate_kbps": 1024,
+      "audio_marker_paths": 6,
+      "audio_max_ms_exclusive": 200,
+      "missing_markers": 0,
+      "files": 3,
+      "file_bytes_each": 524288,
+      "file_hash_matches": true,
+      "moving_video_paths": 6,
+      "tail_changes_each_min": 14,
+      "deadline_misses": 0
+    },
+    "pair": {
+      "duration_seconds": 360,
+      "rate_kbps": 1024,
+      "audio_max_ms_exclusive": 200,
+      "missing_markers": 0,
+      "files": 2,
+      "file_bytes_each": 524288,
+      "file_hash_matches": true,
+      "moving_video_paths": 2,
+      "tail_changes_each_min": 14,
+      "deadline_misses": 0
+    }
+  },
+  "controller_default_not_changed": true,
+  "known_incomplete_scope": [
+    "Reliable mixed/forwarded child is not assigned a source budget",
+    "Ordered fallback and canonical network controls retain existing admission",
+    "Physical headset/speech and end-to-end path quality not established"
+  ]
+}
