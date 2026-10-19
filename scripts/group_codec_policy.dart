@@ -94,6 +94,7 @@ class RoomPolicy {
     final sequence = stats['audio_playout_sequence'];
     final peerSequence = sequence is int && sequence >= 0 ? sequence : null;
     final measuredPressure = source.observe(
+      sampledAt: now,
       sendExpected: true,
       receiveExpected: true,
       requirePeerPlayout: true,

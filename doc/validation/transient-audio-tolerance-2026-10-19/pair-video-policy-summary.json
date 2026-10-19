@@ -1,0 +1,28 @@
+[
+  {
+    "side": 0,
+    "samples": 340,
+    "floor_samples": 73,
+    "rung_cuts": 3,
+    "max_selected_fps": 7.5,
+    "final_selected_fps": 1.0,
+    "final_applied_fps": 1.0,
+    "tail_average_native_fps": 2.3049999999999997,
+    "pauses": [],
+    "source_pressured_samples": 135,
+    "soft_event_samples": 10
+  },
+  {
+    "side": 1,
+    "samples": 340,
+    "floor_samples": 206,
+    "rung_cuts": 5,
+    "max_selected_fps": 3.75,
+    "final_selected_fps": 1.0,
+    "final_applied_fps": 1.0,
+    "tail_average_native_fps": 1.2983333333333333,
+    "pauses": [],
+    "source_pressured_samples": 122,
+    "soft_event_samples": 7
+  }
+]

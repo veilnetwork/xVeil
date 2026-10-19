@@ -1,0 +1,111 @@
+{
+  "successful_sends": 3157,
+  "missing_at_native_ingress": 0,
+  "missing_padding": 0,
+  "missing_payload": 0,
+  "rows": [],
+  "earliest_send_to_earliest_receive_ms": {
+    "max": 2350.022999999993,
+    "p95": 123.07899999998995,
+    "above_200ms": 39
+  },
+  "source1_rr_around_first_cut": [
+    {
+      "t": 125.169862,
+      "fraction": 0,
+      "lost": 0,
+      "highest": 373
+    },
+    {
+      "t": 126.103981,
+      "fraction": 0,
+      "lost": 0,
+      "highest": 377
+    },
+    {
+      "t": 126.626051,
+      "fraction": 0,
+      "lost": 0,
+      "highest": 382
+    },
+    {
+      "t": 126.901235,
+      "fraction": 204,
+      "lost": 4,
+      "highest": 387
+    },
+    {
+      "t": 126.968606,
+      "fraction": 0,
+      "lost": 4,
+      "highest": 387
+    },
+    {
+      "t": 127.020767,
+      "fraction": 0,
+      "lost": 3,
+      "highest": 387
+    },
+    {
+      "t": 127.158668,
+      "fraction": 0,
+      "lost": 2,
+      "highest": 387
+    },
+    {
+      "t": 127.17074,
+      "fraction": 0,
+      "lost": 2,
+      "highest": 387
+    },
+    {
+      "t": 127.222659,
+      "fraction": 0,
+      "lost": 1,
+      "highest": 387
+    },
+    {
+      "t": 128.507467,
+      "fraction": 0,
+      "lost": 0,
+      "highest": 387
+    },
+    {
+      "t": 129.172554,
+      "fraction": 0,
+      "lost": 0,
+      "highest": 387
+    },
+    {
+      "t": 129.172575,
+      "fraction": 0,
+      "lost": 0,
+      "highest": 387
+    },
+    {
+      "t": 129.206328,
+      "fraction": 191,
+      "lost": 3,
+      "highest": 391
+    },
+    {
+      "t": 129.229117,
+      "fraction": 0,
+      "lost": 3,
+      "highest": 391
+    },
+    {
+      "t": 129.249873,
+      "fraction": 0,
+      "lost": 1,
+      "highest": 391
+    },
+    {
+      "t": 130.658069,
+      "fraction": 0,
+      "lost": 0,
+      "highest": 392
+    }
+  ],
+  "interpretation": "All successfully sent unique video RTP keys appear at native ingress by the end, including delayed arrivals. This does not prove every frame was decoded or packets were useful before their media deadlines. RR missing counts fall from4 to0 after the first cut; a fractional-loss witness alone also reacts to temporary gaps. Native transport may already adapt to these raw reports."
+}

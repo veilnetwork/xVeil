@@ -1,0 +1,6 @@
+{
+  "base_script_sha256": "8df60e016dc609db5f232934ffee65b100c871e0c6cbbdadc6c15e2413852eeb",
+  "diagnostic_script_sha256": "64de5b2e9c4efb3c708e554c3301d0034299cc5d122cf8d04cd64f1358a38776",
+  "scope": "Controlled API operations, both directions: pin 45kbps/1fps, pause source35..40s, apply cap1kbps/0.02fps or retain floor45kbps/1fps while closed, then restore45kbps/1fps and reopen. No claim of automatic production decision or full quality qualification.",
+  "timing": "Same-clock native/shaper/SDK stand; 70s each, no competing file; run sequentially after main capture."
+}
