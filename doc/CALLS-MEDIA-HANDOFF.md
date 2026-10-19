@@ -1,5 +1,53 @@
 # Calls media handoff
 
+## 2026-10-19: confirmed QUIC delivery and route-epoch feedback; quality still fails
+
+SDK **1fef65ad** adds bounded confirmed-delivery observations inside the actual
+Data-space wire-ACK branch. Each retained congestion-counted packet contributes
+once; inferred handshake progress, repeated ranges, retired/lost packets and
+old-route ACKs do not contribute. A local rebind needs a packet-number cutoff
+as well as a generation check. Remote migration and validation rollback also
+start a new epoch. Original send times survive batched ACK processing. These
+bytes include QUIC framing/padding and connection control, exclude UDP/IP, and
+are **observed progress, not available capacity**. Ordered fallback stays unknown.
+
+The existing local primary relative-RTT detector now consumes fresh confirmed
+packet progress and rebases on a connection or delivery-epoch change. Cached,
+pending, stale and inconsistent observations cannot fill its growth window.
+Its epoch regression fails without the epoch guard and passes with it. Absolute
+RTT/loss checks and source quotas remain; no shared allocator is implemented.
+Relays get no source role, media hint, deadline or preferential service.
+
+All **317 protocol / 600 session / 141 bootstrap** tests pass (8 session and
+1 bootstrap tests remain ignored). The final two feedback tests pass after
+strengthening the negative control. The production SDK builds with all **202**
+export names unchanged. Builds exclude foreign Rust edits. Native media and
+all recorded group fixture sources match the previous baseline.
+
+Both original **360s / 1024-kbit** gates **FAIL**. Group peaks **340.101ms**,
+2112 matched / 0 missing markers, all three files exact, video tails only
+8–9 changes instead of 14; FIFO drops23/0. The peak is **40.539ms formation +
+151.530ms delivery + 148.032ms after ingress** on 60-ms packets. Pair peaks
+**299.990/250.324ms**, 704/0 markers, both files exact and both tails14 changes;
+FIFO drops54/0. Its 299.990-ms peak spends256.449ms from SDK admission to ingress
+and23.125ms after ingress. Both captures have zero driver deadline misses.
+No causal improvement/regression claim follows from one capture per build.
+
+All six relay service/listener/config/binary/health checks pass again, with no
+server mutation or restart this cycle. This is not a fresh proof of all public
+endpoint and backhaul paths. All15 recorded owned stand/helper/policy processes
+are independently absent, all7 node stops return0 and fixture sockets are gone.
+Phone/headset quality was not tested. Foreign work remains unchanged.
+
+Evidence: `doc/validation/call-confirmed-delivery-2026-10-19.json` and
+`doc/validation/source-credit-2026-10-19/`. The pre-implementation allocation
+plan remains `call-source-credit-plan-2026-10-19.json`; only its observation
+foundation is implemented. Next work must fund actual primary framing/fanout
+and mandatory control before one shared secondary residual, without treating
+ACK bytes or independent child cwnd/RTT estimates as free capacity. Full source
+allocation, interaction-channel audit and hardware qualification remain open.
+Goal **ACTIVE**.
+
 ## 2026-10-19: receiver RTP lag drives local secondary-source pressure
 
 SDK **48553673**: a bounded Opus RTP-clock estimator accounts for delay
