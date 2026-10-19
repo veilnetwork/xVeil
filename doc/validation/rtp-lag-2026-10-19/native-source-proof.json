@@ -1,0 +1,20 @@
+{
+  "base_sdk": "3456ba3a7b2c6978809af1c352c216e52a28c4ab",
+  "foreign_rust_excluded": true,
+  "sources": {
+    "flutter/veil_media/src/veil_audio_recovery.h": "9573bf8f43d955c491330555e40b82ce1f84ef3c4c106865be56846610721891",
+    "flutter/veil_media/src/veil_media_engine.cc": "3e335cfe87cd1fdbbb955671df172845da8784406ce3b4bb23027eceb394b222",
+    "flutter/veil_media/src/veil_media_engine.h": "779be616779737975d617ac443f2cda513ef5dc019ee90824f60d13729c9fd45",
+    "flutter/veil_media/src/veil_playout_recovery.h": "98bc222e891a86b16a9aea0a69d077a403b787e430499e5fe7c96154b30f4488",
+    "flutter/veil_media/src/veil_audio_rtp_lag.h": "98d5df2830e3d0e120a91f8e8336a69e2e16d95c9c211139ba57cdb6a78685d4",
+    "flutter/veil_media/test/audio_rtp_lag_smoke.cc": "3b5ec24349126d8391fdcd3b51daa59a811014203613650e8d609e6833c31f42",
+    "flutter/veil_media/test/run_playout_recovery_smoke.py": "5224d43a2dffdee1818674ed074fa6a1b0df81594dfe186809148fbeb2e3ba09",
+    "flutter/veil_media/test/audio_playout_smoke.cc": "4a80ed23003b54deba9b31789098adff3a340fac438d57a2e09601ee493d67cf"
+  },
+  "production_exports": 101,
+  "production_exports_unchanged": true,
+  "library_sha256": {
+    "media-production/libveil_media.dylib": "a45eb6fb5e5f1291e55f8af80e92323983da9b26b3513d5568f05368af7f0143",
+    "media-hooks/libveil_media.dylib": "fa92737825248b4cb44fc4e7209ebdff7334ca8ef91f527c76b2ee3606d77959"
+  }
+}

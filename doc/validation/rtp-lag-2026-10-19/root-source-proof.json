@@ -1,0 +1,9 @@
+{
+  "scripts/relay-codec-control.py": "5353a989f62ebecba92872eadf9e0a3bf82f468f1021fd6a7013151d4fa08f4b",
+  "scripts/relay_codec_policy.dart": "95134de1c15c008de99e06dc1d7abe8b77069858b6f080f1bb86e0370c69a97d",
+  "lib/state/call_audio_receive_activity.dart": "e27c3c2a47fd3a94d99fe508123bb6ed135edf4c4b4c4b3d8b46af9cff48d55b",
+  "lib/state/veil_group_call_media.dart": "fb364aed8971d7d681b933b6fb77868f7603c33d3d96c771c64aafdd48a5166d",
+  "scripts/group_codec_policy.dart": "21e2433ade6be25d5eb191b9479876476e1ab4549519231c8c85393589cc00ae",
+  "lib/state/group_call_audio_adapter.dart": "447005bafbf6910697b18d074323f06f3599fc0d4f54779232c63758608bf8e1",
+  "lib/state/group_call_source_priority.dart": "10fbc5f1923ceaf010ba0759a965c62a6fa1bbf7c33d901d5e9eae5e19c79356"
+}
