@@ -1,0 +1,163 @@
+{
+  "date": "2026-10-20",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "change": {
+    "rtt_recovery_margin_ms": {
+      "before": 60,
+      "after": 120
+    },
+    "rule": "Relative to observed minimum RTT, not absolute packet/audio latency. A 20ms low sample must not permanently pin otherwise healthy measured audio/video at stable120msRTT. Existing bounded acknowledged video ramp and150msRTTdegradation margin remain.",
+    "scope": "CallBitrateAdapter recovery eligibility. No native/relay/server update in this cycle."
+  },
+  "verification": {
+    "regression_red": "Old policy remained atlevel2 after75s of stable120msRTT,60msbuffers and fresh peer measurements.220ms case already withheld growth.",
+    "flutter": "385passed, including acknowledged full15fps recovery at120ms and held growth at220ms.",
+    "analyze": "PASS",
+    "format": "PASS",
+    "reconstructed_replay": "Rejected: baseline did not reproduce all archived cuts; not used as evidence.",
+    "full_capture": {
+      "seconds": 360,
+      "aggregate_kbps": 1024,
+      "original_gate_ok": false,
+      "fixture_exit_code": 1,
+      "matched_markers": 704,
+      "missing_markers": 0,
+      "max_marker_ms": 200.23187500191852,
+      "old200ms_marker_gate_overrun_ms": 0.2318750019185245,
+      "exact_512kib_files": 2,
+      "last_minute_decoded_fps": [
+        1.9661125793463194,
+        13.576506330382148
+      ],
+      "last_dimensions": [
+        [
+          320,
+          240
+        ],
+        [
+          320,
+          240
+        ]
+      ],
+      "remaining_cuts": [
+        {
+          "side": 1,
+          "seconds": 69.00541166699259,
+          "before": 3,
+          "after": 4,
+          "receive_ms": 117,
+          "peer_ms": 64,
+          "reasons": [
+            "soft_audio_loss_repeated"
+          ]
+        },
+        {
+          "side": 1,
+          "seconds": 113.00948079203954,
+          "before": 3,
+          "after": 4,
+          "receive_ms": 68,
+          "peer_ms": 82,
+          "reasons": [
+            "soft_audio_loss_repeated"
+          ]
+        },
+        {
+          "side": 1,
+          "seconds": 148.0069856250193,
+          "before": 3,
+          "after": 4,
+          "receive_ms": 127,
+          "peer_ms": 67,
+          "reasons": [
+            "soft_audio_loss_repeated"
+          ]
+        },
+        {
+          "side": 0,
+          "seconds": 166.00623404199723,
+          "before": 1,
+          "after": 3,
+          "receive_ms": 44,
+          "peer_ms": 138,
+          "reasons": [
+            "soft_audio_loss_repeated"
+          ]
+        },
+        {
+          "side": 0,
+          "seconds": 167.00470133300405,
+          "before": 3,
+          "after": 4,
+          "receive_ms": 44,
+          "peer_ms": 138,
+          "reasons": [
+            "soft_audio_loss_repeated"
+          ]
+        },
+        {
+          "side": 1,
+          "seconds": 263.0073089580401,
+          "before": 1,
+          "after": 3,
+          "receive_ms": 114,
+          "peer_ms": 104,
+          "reasons": [
+            "soft_audio_loss_repeated"
+          ]
+        },
+        {
+          "side": 1,
+          "seconds": 315.0045855829958,
+          "before": 1,
+          "after": 3,
+          "receive_ms": 85,
+          "peer_ms": 55,
+          "reasons": [
+            "soft_audio_loss_repeated"
+          ]
+        },
+        {
+          "side": 1,
+          "seconds": 317.00762233301066,
+          "before": 3,
+          "after": 4,
+          "receive_ms": 152,
+          "peer_ms": 109,
+          "reasons": [
+            "soft_audio_loss_repeated"
+          ]
+        }
+      ]
+    }
+  },
+  "assessment": "Stable120msRTT recovery is repaired in the actual adapter regression. Overall media quality is NOT resolved: full capture fails the original200ms marker criterion at200.23ms and one direction remains about2fps. User deferred the200msoptimization; preserve failure without changing the gate. Do not claim an FPS improvement from independent captures.",
+  "next_investigation": [
+    "Repeated fresh non-silent concealment drives current cuts while measured buffers are often below160ms. Measure event sizes and exact native audio ingress/playout timing. Do not blindly suppress genuine audio damage.",
+    "Native LocalAudioConcealment already subtracts silent_concealed_samples. Synthetic capture alternates continuous500/1000Hz, not silence; DTX speculation is not supported.",
+    "Check whether own incoming concealment is reported to the peer but not used to yield local competing video/DATA. Current Dart adapter consumes peer concealment timestamps; causal contribution needs verification.",
+    "Additional RTCP padding reaction, ordered/canonical isolation, route/fanoutcosts, fullgroupmedia and physicalvoice/screen/reconnect remain."
+  ],
+  "cleanup": {
+    "checked_at_utc": "2026-10-19T21:55:37.735398+00:00",
+    "recorded_processes_checked": 5,
+    "long_lived_processes_checked": 4,
+    "transient_recorders_checked": 1,
+    "remaining": [],
+    "audio_thread_exited": true,
+    "file_threads_exited": true,
+    "policy_exited": true,
+    "node_stop_results": [
+      0,
+      0,
+      0
+    ],
+    "remaining_fixture_sockets": 0
+  },
+  "foreign_wip_preserved": true,
+  "pushed": false,
+  "released": false,
+  "evidence_directory": "doc/validation/video-rtt-recovery-2026-10-20",
+  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-video-rtt-recovery-20261020"
+}
