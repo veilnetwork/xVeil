@@ -1,0 +1,61 @@
+{
+  "in_process": {
+    "0": {
+      "ordered_paths": 0,
+      "packet_bytes": 200,
+      "per_path_overhead_bytes": 360,
+      "per_path_wire_bytes_x2": 1120,
+      "quic_paths": 1,
+      "source_copies_limit": 1,
+      "source_wire_bytes_x2": 1120,
+      "unbatched_model": true
+    },
+    "2": {
+      "ordered_paths": 0,
+      "packet_bytes": 200,
+      "per_path_overhead_bytes": 360,
+      "per_path_wire_bytes_x2": 1120,
+      "quic_paths": 1,
+      "source_copies_limit": 1,
+      "source_wire_bytes_x2": 1120,
+      "unbatched_model": true
+    },
+    "3": {
+      "ordered_paths": 0,
+      "packet_bytes": 200,
+      "per_path_overhead_bytes": 360,
+      "per_path_wire_bytes_x2": 1120,
+      "quic_paths": 1,
+      "source_copies_limit": 1,
+      "source_wire_bytes_x2": 1120,
+      "unbatched_model": true
+    }
+  },
+  "separate_process": {
+    "pid": 91061,
+    "valid_channel_opened": true,
+    "cost": {
+      "0": null,
+      "2": null,
+      "3": null
+    }
+  },
+  "child_exit_code": 0,
+  "topology": {
+    "verified": true,
+    "active_session_counts": [
+      3,
+      1,
+      1,
+      1
+    ]
+  },
+  "node_stop_results": [
+    0,
+    0,
+    0,
+    0
+  ],
+  "remaining_sockets": 0,
+  "parent_pid": 73067
+}

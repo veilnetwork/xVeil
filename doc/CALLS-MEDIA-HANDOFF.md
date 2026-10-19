@@ -1,5 +1,103 @@
 # Calls media handoff
 
+## 2026-10-19: truthful group source cost bridge and full-size RTP model
+
+SDK **d0e69266** fixes missing cost observations required before coordinated
+group audio/video funding. **It does not implement that funding or qualify an
+audio/video quality fix.** No encoder budget, cadence, pause, RTCP or relay
+scheduling changes in this cycle. The existing 1:1 packet sampler keeps its
+1000-byte clamp; only its model-validation schema accepts larger packets.
+
+A real four-node probe confirms the existing channel getter returns **null
+in a separate codec process**, even with a valid prepared channel. The same
+getter in the embedded node process returns the actual source model. New
+optional **`veil_debug_media_source_packet_cost`** reads those same prepared
+children by explicit local/destination ids on the node process. It requires
+local `rt_trace`, sends no RPC/probe/frame and creates no app/channel/source.
+Real node tests match the regular getter on audio/video/screen, reject the
+trace-disabled case and return null after node stop. **General production IPC
+channel-cost lookup is still unavailable**; this adds an owned stand bridge.
+
+The group fixture's opt-in **`--source-framing-trace`** multiplexes bounded
+asynchronous snapshot requests over its existing parent/worker pipes, retaining
+one original final-response deadline and participant result order. Metadata
+does not enter the codec policy. A later worker can obtain its quote while
+the first worker is unfinished. Unknown models stay unknown; idle/unprepared
+screen children are not revived just to quote them. Sample age, requested
+packet size, raw observed size and its counter basis are recorded explicitly.
+
+Group video previously exposed per-peer payload bytes but lacked a matching
+payload-packet count/full RTP size. New native JSON fields provide
+**`video_tx_payload_pkts`**, **`video_tx_payload_rtp_bytes`** and explicit
+**`fanout_attempts`** scope. Actual CSRC/extensions/padding are counted once;
+padding-only/malformed packets are excluded. Local failed copies remain
+attempts, not wire or delivery proof. Audio counters are logical, video/RTCP
+copy counters already include peers: **never multiply the latter again**.
+The real C API regression fails against the old library (missing keys), passes
+the new library, and checks rejection/peer removal. Header/extension/padding
+and three-copy accounting pass the native stats regression.
+
+Live sampling then finds RTP means above **1000 bytes**. Compact batching's
+1000-byte threshold never truncated larger raw RTP; the existing session codec
+fragments it. The SDK model/Dart wrapper and schema now accept **12..1460**.
+Boundary tests prove relayed QUIC/1382 overhead **360 bytes at RTP1022** versus
+**420 at1023**, and direct overhead **209 at1173** versus **269 at1174**.
+Do not apply a1000-byte quote to a1436-byte sample. Models exclude
+QUIC/TCP/IP/ACK, are unbatched, and use expected obfs4 padding. An average-size
+quote is not an exact sum across a fragmentation boundary; use a conservative
+packet ceiling or actual size distribution for future reservations.
+
+**No quality pass:** the initial full360-second unchanged-policy capture
+**FAILS at390.100667 ms**, with2112 matched/0 missing, all files exact and six
+moving synthetic video tails. All2154 audio and2154 video source quotes are
+known; unused screen is often unknown. Its exact60-ms peak spans **30.591 ms
+capture-to-encoded +305.174 ms delivery +54.312 ms after ingress**. Exact
+first/relay/second/auth spans are **157.892 /0.030 /146.773 /0.088 ms**.
+FIFO maxima175.400/163.108ms; clocks miss no deadlines. This capture precedes
+the final native counters/model expansion; video quotes use the documented
+200-byte startup fallback. Do not claim final full-workload qualification or
+zero instrumentation timing effect from this capture.
+
+An intermediate final-native60-second run exposes the old1000-byte clipping
+(40 video/screen observations), peaks320.092ms and fails quality. The final
+1460-byte-source60-second run observes video packet-size means up to **1436 bytes**, has
+**16 observations above1000, zero clipped**, and receives the appropriate
+420-byte models. Its330 audio markers match without missing; peak190.221ms.
+It still has incomplete files and one zero-change video tail, and is too
+short: **NOT qualified**, even though its sampled audio maximum is below200.
+The first60-second launcher's reused native-build scaffold is retained with
+an independent current proof/digest; the final1460-byte run has corrected
+SDK/native proofs matching both actual loaded libraries.
+
+**Capacity finding:** configured20-ms/32-kbit audio for six directed streams,
+20-byte RTP headers, one prepared relay copy per recipient and360 modeled
+service bytes needs **2.208 Mbit/s over both hops**. The two fixture FIFOs
+allow **2.048 Mbit/s combined**, before QUIC/control/video/files. This is
+configured-rate arithmetic, not a speech/DTX measurement or universal group
+limit. A60/24 ->40/24 transition additionally needs **152 kbit/s per-hop
+equivalent**, about50.667kbit/s per source, plus omitted transport/control.
+Good receiver reports alone do not reserve that capacity. Observed UDP means
+are755/759kbit/s, with100-ms arrival peaks1647/1522kbit/s: bursts remain relevant.
+
+**Goal ACTIVE. Next implement coordinated actual source reservations**:
+reduce competing video/source work first, confirm the reduction, then promote
+audio cadence. A lower maximum/held lease is not a reservation when it does
+not constrain actual codec output. Preserve ACK/cancel/roster/reconnect state;
+do not reintroduce the rejected unfunded40-ms probe or burst-window pacing.
+Requalify original full workloads after actual allocation changes. Whole
+interaction-channel audit, screen/fallback/phone/live speech/headset remain.
+
+Checks: **4 Rust cost tests,28 Python tests,4 Flutter framing tests**, native
+RTP stats and real C API negative/positive regressions. Clean Mac SDK/native
+builds exclude foreign Rust work. SDK exports201->202 (one optional debug API);
+native production exports remain101. Android not built/installed this cycle.
+All ten known processes from each of three captures and both two-process
+cost probes are independently absent; zero sockets remain. No installation,
+physical call, server mutation, push or release. Foreign work is unchanged.
+Evidence: **validation/call-group-source-framing-2026-10-19.json** and
+**validation/group-source-framing-2026-10-19/**. Raw owned artifacts:
+**~/.cache/codex/xveil-group-framing-20261019/**.
+
 ## 2026-10-19: authenticated hop attribution; source byte pacing rejected
 
 The group fixture now has opt-in **`--opaque-forward-trace`**, requiring
