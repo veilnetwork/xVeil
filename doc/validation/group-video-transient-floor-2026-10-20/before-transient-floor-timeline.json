@@ -1,0 +1,278 @@
+{
+  "0": [
+    {
+      "second": 22.01364974997705,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": true,
+      "recovery": false,
+      "local_buffer": 111,
+      "peer_buffer": 102
+    },
+    {
+      "second": 77.00741641694913,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": true,
+      "recovery": false,
+      "local_buffer": 80,
+      "peer_buffer": 116
+    },
+    {
+      "second": 117.01026704197284,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": true,
+      "recovery": false,
+      "local_buffer": 100,
+      "peer_buffer": 146
+    },
+    {
+      "second": 177.01790699997218,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": true,
+      "recovery": false,
+      "local_buffer": 132,
+      "peer_buffer": 125
+    },
+    {
+      "second": 224.02019879198633,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": true,
+      "recovery": false,
+      "local_buffer": 152,
+      "peer_buffer": 162
+    },
+    {
+      "second": 273.0153637089534,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": true,
+      "recovery": false,
+      "local_buffer": 91,
+      "peer_buffer": 123
+    },
+    {
+      "second": 288.0039929589839,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": true,
+      "recovery": false,
+      "local_buffer": 90,
+      "peer_buffer": 117
+    },
+    {
+      "second": 335.00033316697227,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": true,
+      "recovery": false,
+      "local_buffer": 91,
+      "peer_buffer": 87
+    }
+  ],
+  "1": [
+    {
+      "second": 22.00409049994778,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": true,
+      "recovery": false,
+      "local_buffer": 99,
+      "peer_buffer": 123
+    },
+    {
+      "second": 64.02999299997464,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": true,
+      "recovery": false,
+      "local_buffer": 106,
+      "peer_buffer": 124
+    },
+    {
+      "second": 77.00104208395351,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": true,
+      "recovery": false,
+      "local_buffer": 93,
+      "peer_buffer": 84
+    },
+    {
+      "second": 84.00902491697343,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": true,
+      "recovery": false,
+      "local_buffer": 105,
+      "peer_buffer": 133
+    },
+    {
+      "second": 117.02586295898072,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": true,
+      "recovery": false,
+      "local_buffer": 103,
+      "peer_buffer": 142
+    },
+    {
+      "second": 177.01330241694814,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": true,
+      "recovery": false,
+      "local_buffer": 123,
+      "peer_buffer": 132
+    },
+    {
+      "second": 224.01765587495174,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": true,
+      "recovery": false,
+      "local_buffer": 135,
+      "peer_buffer": 161
+    },
+    {
+      "second": 256.00843408395303,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": true,
+      "recovery": false,
+      "local_buffer": 129,
+      "peer_buffer": 111
+    },
+    {
+      "second": 288.0118428749847,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": true,
+      "recovery": false,
+      "local_buffer": 100,
+      "peer_buffer": 126
+    }
+  ],
+  "2": [
+    {
+      "second": 22.02023395895958,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": true,
+      "recovery": false,
+      "local_buffer": 122,
+      "peer_buffer": 81
+    },
+    {
+      "second": 31.010196416988038,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": true,
+      "recovery": false,
+      "local_buffer": 103,
+      "peer_buffer": 105
+    },
+    {
+      "second": 46.01673554198351,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": true,
+      "recovery": false,
+      "local_buffer": 124,
+      "peer_buffer": 110
+    },
+    {
+      "second": 75.00022754195379,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": true,
+      "recovery": false,
+      "local_buffer": 74,
+      "peer_buffer": 88
+    },
+    {
+      "second": 88.0075496249483,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": true,
+      "recovery": false,
+      "local_buffer": 104,
+      "peer_buffer": 112
+    },
+    {
+      "second": 110.01287295896327,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": true,
+      "recovery": false,
+      "local_buffer": 103,
+      "peer_buffer": 82
+    },
+    {
+      "second": 142.00465191697003,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": true,
+      "recovery": false,
+      "local_buffer": 96,
+      "peer_buffer": 114
+    },
+    {
+      "second": 177.01581970899133,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": true,
+      "recovery": false,
+      "local_buffer": 125,
+      "peer_buffer": 113
+    },
+    {
+      "second": 196.01195374998497,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": true,
+      "recovery": false,
+      "local_buffer": 111,
+      "peer_buffer": 81
+    },
+    {
+      "second": 225.009493541962,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": false,
+      "recovery": true,
+      "local_buffer": 138,
+      "peer_buffer": 85
+    },
+    {
+      "second": 250.02211154199904,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": true,
+      "recovery": false,
+      "local_buffer": 118,
+      "peer_buffer": 79
+    },
+    {
+      "second": 318.0061747499858,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": true,
+      "recovery": false,
+      "local_buffer": 97,
+      "peer_buffer": 80
+    },
+    {
+      "second": 352.01664954196895,
+      "stage": 1,
+      "transient": true,
+      "peer_concealment": true,
+      "recovery": false,
+      "local_buffer": 96,
+      "peer_buffer": 104
+    }
+  ]
+}

@@ -18,7 +18,14 @@ class CaptureValidationTest(unittest.TestCase):
         return dict(ok=True, duration_seconds=360, load_kind='both',
                     video_file_load=True, end_topology={'verified': True},
                     files=[{}, {}, {}],
-                    video_paths=[{'tail_changes': 14} for _ in range(6)])
+                    video_paths=[{'tail_changes': 14,
+                                  'frame_witness': 'full-rgba-native-sequence-v1'}
+                                 for _ in range(6)])
+
+    def test_old_prefix_hash_capture_cannot_qualify_full_frame_motion(self):
+        result = self.complete()
+        del result['video_paths'][3]['frame_witness']
+        self.assertFalse(preflight.qualifies_full_contention(result))
 
     def test_full_contention_cannot_qualify_motion_only_video(self):
         for changes in (13, 1, 0):

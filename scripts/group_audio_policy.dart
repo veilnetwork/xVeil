@@ -46,11 +46,10 @@ Future<void> main() async {
         receiving: true,
         secondaryYielded: room.sourcePriority.yielded,
       );
-      if (policy.needsSecondaryYield) {
-        room.sourcePriority.requestYield(
-          now,
-          transient: policy.secondaryYieldTransient,
-        );
+      // Match the controller: the shared ladder handles short impairments;
+      // only hard outgoing pressure forces the additional group floor.
+      if (policy.needsSecondaryYield && !policy.secondaryYieldTransient) {
+        room.sourcePriority.requestYield(now);
       }
       room.adapter.constrainSource(
         floor: room.sourcePriority.floor,
