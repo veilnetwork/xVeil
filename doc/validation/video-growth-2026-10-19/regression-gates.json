@@ -1,0 +1,33 @@
+{
+  "bounded_growth": {
+    "negative_adapter": "611ce43f:lib/state/call_bitrate_adapter.dart",
+    "negative_exit": 255,
+    "negative_observed": "900kbps/15fps in one operation",
+    "fixed_exit": 0,
+    "fixed_observed": "495kbps/8.5fps from450kbps/7.5fps",
+    "gate_sha256": "67d893740d3d006f3053857755f5b7ab07349c9c405330dc224c7d6ad0eaa960"
+  },
+  "refused_cold_budget": {
+    "negative_adapter_sha256": "9530e98723b68f9e9cd0f7b1d8e0824abe0f6b53a481f882e2a93cb909905ec4",
+    "negative_exit": 255,
+    "negative_observed": "Unacknowledged cold budget banked growth: level0",
+    "fixed_adapter_sha256": "34cde3cc0e10d1db772b8e249bfeff4773f90f4b7883ae3e3be3dbacecbbd1e1",
+    "fixed_exit": 0,
+    "fixed_observed": "Cold budget cannot bank unapplied promotions",
+    "gate_sha256": "664ba277749922f2607cba0c38bfa250e3aaeb5dab5de88f257c11a9a8d442a7"
+  },
+  "policy_tests": {
+    "passed": 202,
+    "failed": 0,
+    "files": [
+      "call_video_growth_test",
+      "call_bitrate_adapter_test",
+      "call_audio_playout_feedback_test",
+      "call_source_budget_recovery_test",
+      "call_rtt_route_epoch_test",
+      "call_peer_audio_recovery_test",
+      "veil_group_call_media_test"
+    ]
+  },
+  "analysis": "No issues found"
+}

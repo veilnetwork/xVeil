@@ -1,0 +1,498 @@
+{
+  "ok": false,
+  "contention_qualification": false,
+  "duration_seconds": 360,
+  "rate_kbps": 1024,
+  "voice_paths": [
+    {
+      "receiver": 0,
+      "source": 1,
+      "phases": [
+        {
+          "phase": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "max_ms": 130.24883333127946,
+          "peak": {
+            "source_at_seconds": 17.170013083319645,
+            "decoded_at_seconds": 17.300261916650925,
+            "ordinal": 17,
+            "delay_ms": 130.24883333127946
+          }
+        },
+        {
+          "phase": "audio-video-file",
+          "matched": 337,
+          "missing": 0,
+          "max_ms": 210.25450000888668,
+          "peak": {
+            "source_at_seconds": 275.73000833331025,
+            "decoded_at_seconds": 275.94026283331914,
+            "ordinal": 273,
+            "delay_ms": 210.25450000888668
+          }
+        }
+      ],
+      "source_edges": 357,
+      "decoded_edges": 357,
+      "matching": "ordinal_from_capture_start",
+      "first_capture": 2.3541651898995042e-05,
+      "last_capture": 360.00000791664934
+    },
+    {
+      "receiver": 0,
+      "source": 2,
+      "phases": [
+        {
+          "phase": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "max_ms": 120.09350000880659,
+          "peak": {
+            "source_at_seconds": 6.060010124987457,
+            "decoded_at_seconds": 6.1801036249962635,
+            "ordinal": 6,
+            "delay_ms": 120.09350000880659
+          }
+        },
+        {
+          "phase": "audio-video-file",
+          "matched": 337,
+          "missing": 0,
+          "max_ms": 200.2582083514426,
+          "peak": {
+            "source_at_seconds": 288.86000720830634,
+            "decoded_at_seconds": 289.0602654166578,
+            "ordinal": 286,
+            "delay_ms": 200.2582083514426
+          }
+        }
+      ],
+      "source_edges": 357,
+      "decoded_edges": 357,
+      "matching": "ordinal_from_capture_start",
+      "first_capture": 2.3999979021027684e-05,
+      "last_capture": 360.00001099999645
+    },
+    {
+      "receiver": 1,
+      "source": 0,
+      "phases": [
+        {
+          "phase": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "max_ms": 130.24975001462735,
+          "peak": {
+            "source_at_seconds": 17.170011499983957,
+            "decoded_at_seconds": 17.300261249998584,
+            "ordinal": 17,
+            "delay_ms": 130.24975001462735
+          }
+        },
+        {
+          "phase": "audio-video-file",
+          "matched": 337,
+          "missing": 0,
+          "max_ms": 210.36570833530277,
+          "peak": {
+            "source_at_seconds": 275.73000837498694,
+            "decoded_at_seconds": 275.94037408332224,
+            "ordinal": 273,
+            "delay_ms": 210.36570833530277
+          }
+        }
+      ],
+      "source_edges": 357,
+      "decoded_edges": 357,
+      "matching": "ordinal_from_capture_start",
+      "first_capture": 2.32916499953717e-05,
+      "last_capture": 360.0000072083203
+    },
+    {
+      "receiver": 1,
+      "source": 2,
+      "phases": [
+        {
+          "phase": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "max_ms": 130.1638333243318,
+          "peak": {
+            "source_at_seconds": 6.060010124987457,
+            "decoded_at_seconds": 6.190173958311789,
+            "ordinal": 6,
+            "delay_ms": 130.1638333243318
+          }
+        },
+        {
+          "phase": "audio-video-file",
+          "matched": 337,
+          "missing": 0,
+          "max_ms": 210.19087499007583,
+          "peak": {
+            "source_at_seconds": 262.60001108332654,
+            "decoded_at_seconds": 262.8102019583166,
+            "ordinal": 260,
+            "delay_ms": 210.19087499007583
+          }
+        }
+      ],
+      "source_edges": 357,
+      "decoded_edges": 357,
+      "matching": "ordinal_from_capture_start",
+      "first_capture": 2.3999979021027684e-05,
+      "last_capture": 360.00001099999645
+    },
+    {
+      "receiver": 2,
+      "source": 0,
+      "phases": [
+        {
+          "phase": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "max_ms": 130.30766666634008,
+          "peak": {
+            "source_at_seconds": 14.140012708317954,
+            "decoded_at_seconds": 14.270320374984294,
+            "ordinal": 14,
+            "delay_ms": 130.30766666634008
+          }
+        },
+        {
+          "phase": "audio-video-file",
+          "matched": 337,
+          "missing": 0,
+          "max_ms": 200.33962500747293,
+          "peak": {
+            "source_at_seconds": 268.66001041664276,
+            "decoded_at_seconds": 268.86035004165024,
+            "ordinal": 266,
+            "delay_ms": 200.33962500747293
+          }
+        }
+      ],
+      "source_edges": 357,
+      "decoded_edges": 357,
+      "matching": "ordinal_from_capture_start",
+      "first_capture": 2.32916499953717e-05,
+      "last_capture": 360.0000072083203
+    },
+    {
+      "receiver": 2,
+      "source": 1,
+      "phases": [
+        {
+          "phase": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "max_ms": 130.3078333439771,
+          "peak": {
+            "source_at_seconds": 14.140012541640317,
+            "decoded_at_seconds": 14.270320374984294,
+            "ordinal": 14,
+            "delay_ms": 130.3078333439771
+          }
+        },
+        {
+          "phase": "audio-video-file",
+          "matched": 337,
+          "missing": 0,
+          "max_ms": 210.19004166009836,
+          "peak": {
+            "source_at_seconds": 263.61001466665766,
+            "decoded_at_seconds": 263.82020470831776,
+            "ordinal": 261,
+            "delay_ms": 210.19004166009836
+          }
+        }
+      ],
+      "source_edges": 357,
+      "decoded_edges": 357,
+      "matching": "ordinal_from_capture_start",
+      "first_capture": 2.3541651898995042e-05,
+      "last_capture": 360.00000791664934
+    }
+  ],
+  "total_matched": 2112,
+  "total_missing": 0,
+  "max_ms": 210.36570833530277,
+  "files": [
+    {
+      "sender": 2,
+      "receiver": 0,
+      "queued": 524288,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "completion_seconds": 352.4812566660112,
+      "authentication_errors": 0,
+      "duplicates": 0,
+      "async_failures": {},
+      "write_error": false,
+      "late_fragments": 0
+    },
+    {
+      "sender": 0,
+      "receiver": 1,
+      "queued": 524288,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "completion_seconds": 352.28766141599044,
+      "authentication_errors": 0,
+      "duplicates": 0,
+      "async_failures": {},
+      "write_error": false,
+      "late_fragments": 0
+    },
+    {
+      "sender": 1,
+      "receiver": 2,
+      "queued": 524288,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "completion_seconds": 352.1863111249986,
+      "authentication_errors": 0,
+      "duplicates": 0,
+      "async_failures": {},
+      "write_error": false,
+      "late_fragments": 0
+    }
+  ],
+  "video_paths": [
+    {
+      "receiver": 0,
+      "source": 1,
+      "decoded_pulls": 338,
+      "tail_changes": 14
+    },
+    {
+      "receiver": 0,
+      "source": 2,
+      "decoded_pulls": 339,
+      "tail_changes": 14
+    },
+    {
+      "receiver": 1,
+      "source": 0,
+      "decoded_pulls": 338,
+      "tail_changes": 14
+    },
+    {
+      "receiver": 1,
+      "source": 2,
+      "decoded_pulls": 339,
+      "tail_changes": 14
+    },
+    {
+      "receiver": 2,
+      "source": 0,
+      "decoded_pulls": 338,
+      "tail_changes": 14
+    },
+    {
+      "receiver": 2,
+      "source": 1,
+      "decoded_pulls": 338,
+      "tail_changes": 14
+    }
+  ],
+  "shaper": {
+    "stats": [
+      {
+        "received": 91738,
+        "sent": 91738,
+        "drops": 0,
+        "max_queue_ms": 66.87754212180153
+      },
+      {
+        "received": 106509,
+        "sent": 106507,
+        "drops": 0,
+        "max_queue_ms": 116.34389543905854
+      }
+    ],
+    "failure": null,
+    "trace_events": 196874,
+    "trace_rows": 196874,
+    "trace_capacity": 250000,
+    "trace_truncated": false
+  },
+  "clock": [
+    {
+      "max_interval_ms": 10.104041662998497,
+      "late_intervals": 0,
+      "dropped_rows": 0,
+      "failures": [
+        0,
+        0
+      ],
+      "ticks": 36001,
+      "max_wake_lateness_ms": 0.076209,
+      "max_callback_ms": 0.7986249984242022,
+      "max_publication_ms": 0.023375003365799785,
+      "qos_supported": 1,
+      "qos_result": 0,
+      "qos_requested": 33,
+      "qos_actual": 33,
+      "timer_error": 0,
+      "deadline_requested": 1,
+      "deadline_result": 0,
+      "deadline_active": 1,
+      "deadline_period_ticks": 240000,
+      "deadline_computation_ticks": 72000,
+      "deadline_constraint_ticks": 120000,
+      "deadline_actual_period_ticks": 240000,
+      "deadline_actual_computation_ticks": 72000,
+      "deadline_actual_constraint_ticks": 120000,
+      "deadline_checks": 362,
+      "deadline_misses": 0
+    },
+    {
+      "max_interval_ms": 10.105499997735023,
+      "late_intervals": 0,
+      "dropped_rows": 0,
+      "failures": [
+        0,
+        0
+      ],
+      "ticks": 36001,
+      "max_wake_lateness_ms": 0.076251,
+      "max_callback_ms": 0.7939166680444032,
+      "max_publication_ms": 0.020416657207533717,
+      "qos_supported": 1,
+      "qos_result": 0,
+      "qos_requested": 33,
+      "qos_actual": 33,
+      "timer_error": 0,
+      "deadline_requested": 1,
+      "deadline_result": 0,
+      "deadline_active": 1,
+      "deadline_period_ticks": 240000,
+      "deadline_computation_ticks": 72000,
+      "deadline_constraint_ticks": 120000,
+      "deadline_actual_period_ticks": 240000,
+      "deadline_actual_computation_ticks": 72000,
+      "deadline_actual_constraint_ticks": 120000,
+      "deadline_checks": 362,
+      "deadline_misses": 0
+    },
+    {
+      "max_interval_ms": 10.108083341037855,
+      "late_intervals": 0,
+      "dropped_rows": 0,
+      "failures": [
+        0,
+        0
+      ],
+      "ticks": 36001,
+      "max_wake_lateness_ms": 0.076417,
+      "max_callback_ms": 0.7913333247415721,
+      "max_publication_ms": 0.032083335099741817,
+      "qos_supported": 1,
+      "qos_result": 0,
+      "qos_requested": 33,
+      "qos_actual": 33,
+      "timer_error": 0,
+      "deadline_requested": 1,
+      "deadline_result": 0,
+      "deadline_active": 1,
+      "deadline_period_ticks": 240000,
+      "deadline_computation_ticks": 72000,
+      "deadline_constraint_ticks": 120000,
+      "deadline_actual_period_ticks": 240000,
+      "deadline_actual_computation_ticks": 72000,
+      "deadline_actual_constraint_ticks": 120000,
+      "deadline_checks": 362,
+      "deadline_misses": 0
+    }
+  ],
+  "console_capture": {
+    "before": {
+      "supported": true,
+      "flush_rc": 0,
+      "dropped_records": 0,
+      "write_errors": 0,
+      "ok": true
+    },
+    "after": {
+      "supported": true,
+      "flush_rc": 0,
+      "dropped_records": 0,
+      "write_errors": 0,
+      "ok": true
+    }
+  },
+  "sdk_sha256": "827129168678804251e92c32d6acd45a2a996fa6c6acd3f89efbffd45a9479dc",
+  "media_sha256": "afb6bd6b71a1634be6dcf528d5d8ce0a704bbfc356788d3061cc456559f2524f",
+  "native_peak": {
+    "ssrc": 747052978,
+    "rtp_origin": 252703677,
+    "rtp_timestamp": 265936797,
+    "rtp_sequence": 33311,
+    "source_at_seconds": 275.73000837498694,
+    "decoded_at_seconds": 275.94037408332224,
+    "packet_ms": 60,
+    "encoder_input_index": 27066,
+    "encoder_first_input_monotonic_us": 201215225660,
+    "encoded_monotonic_us": 201215275757,
+    "ingress": {
+      "seq": 33311,
+      "timestamp": 265936797,
+      "arrived_us": 201215313913,
+      "drained_us": 201215313933,
+      "payload_bytes": 179
+    },
+    "total_ms": 210.36570833530277,
+    "spans_ms": {
+      "capture_to_encoded": 10.191625013248995,
+      "encoded_to_ingress": 38.15599999506958,
+      "ingress_to_webrtc": 0.020000006770715117,
+      "webrtc_to_pcm_edge": 161.99808332021348
+    },
+    "native_send": {
+      "channel": 1,
+      "seq": 33311,
+      "timestamp": 265936797,
+      "attempted_us": 201215275770,
+      "admitted_us": 201215275777,
+      "packet_bytes": 199,
+      "accepted": 1
+    },
+    "native_send_spans_ms": {
+      "encoded_to_native_send": 0.013,
+      "native_send_admission": 0.007,
+      "native_admission_to_ingress": 38.136
+    }
+  },
+  "source_peak": {
+    "epoch": "743fccc18be93ca0",
+    "cell_sequence": 4753,
+    "connection_trace_id": 15,
+    "observations_us": {
+      "budget_admit": 201215275902,
+      "datagram_accepted": 201215275910
+    },
+    "encrypted_frame": {
+      "wire_bytes": "515",
+      "family": "3",
+      "msg_type": "3",
+      "body_len": "475",
+      "body_preview_sha256": "33fd012d818b49447ac36fe60b74f4d78a85135f8fdde63d458fba46ed77a793"
+    },
+    "spans_ms": {
+      "handler_enter_to_budget_admit": 0.035,
+      "budget_admit_to_datagram_accepted": 0.008,
+      "budget_admit_to_authenticated_receiver": 37.994
+    },
+    "post_completion_offsets_ms": {
+      "relay_queued_to_budget_admit": 0.027,
+      "datagram_accepted_to_authenticated_receiver": 37.986
+    }
+  },
+  "source_snapshot": "runtime-source-group.json",
+  "qualification_scope": "Full360second original workload and final candidate source. Synthetic PCM only; not acoustic speech quality."
+}

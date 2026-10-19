@@ -1,0 +1,11 @@
+{
+  "lib/state/call_bitrate_adapter.dart": "9530e98723b68f9e9cd0f7b1d8e0824abe0f6b53a481f882e2a93cb909905ec4",
+  "lib/state/veil_call_media.dart": "d9a812f17f4a34684e356c15d8f881eb649c46a6f0b43769ab046add613c7252",
+  "lib/state/veil_group_call_media.dart": "e84c3b25c5d1373a7a97fefcfaf2e005e6a219e3926b3578f8ce8bf54bbc9c56",
+  "scripts/relay_codec_policy.dart": "95134de1c15c008de99e06dc1d7abe8b77069858b6f080f1bb86e0370c69a97d",
+  "scripts/group_codec_policy.dart": "9cfee739552158adf0ca59270fa05f4e714ed2145c4c06d5d8a1870ef2ff0d76",
+  "scripts/relay-codec-control.py": "2b7ce08ca3320ef711c2a3f493cd5c8bd1f9d6427870691e48dc07ce21ce3b30",
+  "scripts/group-process-preflight.py": "7665fb66b78d416f05c2dbe9aebfe1a1b303c138a1785f3000cc98edf6f2a26e",
+  "scripts/group_codec_sdk.py": "4ce76496a808ff9c05d069d474c6330e54446006e3a4b62a88a7ffb5840b73c2",
+  "scripts/udp_fifo_shaper.py": "530f6343d103708eff1b0af16a112995955192f4c7511f33912584850f996605"
+}

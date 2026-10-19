@@ -128,6 +128,7 @@ Future<void> main() async {
     }
     a.onNativeStats(
       stats,
+      sampledAt: now,
       sourceBudgetPressured:
           req['sourceFeedbackQueued'] == true && sourcePressured == true,
       videoSendExpected: req['videoSendExpected'] == true,

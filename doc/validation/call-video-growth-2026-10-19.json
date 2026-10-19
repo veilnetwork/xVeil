@@ -1,0 +1,125 @@
+{
+  "date": "2026-10-19",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "root_base_commit": "611ce43fb97989a89ff986cf7cc674b1e85e2679",
+  "sdk_commit": "80c4205e29b51173d17905713f4e9432c816bf73",
+  "implementation": {
+    "growth": "Acknowledged video bitrate increases by at most10% per healthy step, with a minimum1-kbit integer quantum. Cadence increases at most1fps. Above10fps the bitrate factor is also bounded by the cadence ratio. Profile ceilings retained.",
+    "timing": "At most one successful positive operation per observation and950ms on timestamped runtime callers; preview/refused native operations spend no credit. Clock rollback resets the local interval and grants no step; idle gaps grant no accumulated credit.",
+    "protection": "Reductions remain immediate. A separately admitted1-fps recovery probe is funded immediately; it is not ramped from the protective1-kbit/0.02fps state. Interrupted pending ramps require fresh healthy recovery.",
+    "native_consistency": "Partial or refused initial budgets cannot bank nominal rungs. Recreated streams restore the last actual budget, clamped to the route ceiling. 1:1/group hosts and both fixture bridges use the same timestamped policy.",
+    "diagnostics": "Reports expose last acknowledged bitrate/FPS. Group retune logs use actual budget."
+  },
+  "verification": {
+    "bounded_growth": {
+      "negative_adapter": "611ce43f:lib/state/call_bitrate_adapter.dart",
+      "negative_exit": 255,
+      "negative_observed": "900kbps/15fps in one operation",
+      "fixed_exit": 0,
+      "fixed_observed": "495kbps/8.5fps from450kbps/7.5fps",
+      "gate_sha256": "67d893740d3d006f3053857755f5b7ab07349c9c405330dc224c7d6ad0eaa960"
+    },
+    "refused_cold_budget": {
+      "negative_adapter_sha256": "9530e98723b68f9e9cd0f7b1d8e0824abe0f6b53a481f882e2a93cb909905ec4",
+      "negative_exit": 255,
+      "negative_observed": "Unacknowledged cold budget banked growth: level0",
+      "fixed_adapter_sha256": "34cde3cc0e10d1db772b8e249bfeff4773f90f4b7883ae3e3be3dbacecbbd1e1",
+      "fixed_exit": 0,
+      "fixed_observed": "Cold budget cannot bank unapplied promotions",
+      "gate_sha256": "664ba277749922f2607cba0c38bfa250e3aaeb5dab5de88f257c11a9a8d442a7"
+    },
+    "policy_tests": {
+      "passed": 202,
+      "failed": 0,
+      "files": [
+        "call_video_growth_test",
+        "call_bitrate_adapter_test",
+        "call_audio_playout_feedback_test",
+        "call_source_budget_recovery_test",
+        "call_rtt_route_epoch_test",
+        "call_peer_audio_recovery_test",
+        "veil_group_call_media_test"
+      ]
+    },
+    "analysis": "No issues found"
+  },
+  "stand_gate": "Strict decoded synthetic PCM marker latency<200ms; unchanged stimuli, total FIFO capacity, clocks, files and quality gates. No acoustic speech or headset loudness qualification.",
+  "pair": {
+    "final_gate_passed": false,
+    "peak_ms": [
+      200.0068750057835,
+      190.22308333660476
+    ],
+    "matched": 704,
+    "missing": 0,
+    "files_complete": true,
+    "video_moving_at_end": true,
+    "queue_max_ms": [
+      94.27104212227277,
+      69.61531259003095
+    ],
+    "source_qualification": "Captured before final cold-refusal guard and group-only logging adjustment. Exact source snapshot and branch evidence retained; not represented as a final-source full1:1 run.",
+    "observed_previous_same_aligned_workload_peak_ms": [
+      249.958,
+      240.144
+    ],
+    "comparison_limit": "One capture each; not a statistical estimate of improvement or a proof of every causal contribution."
+  },
+  "group": {
+    "final_gate_passed": false,
+    "peak_ms": 210.36570833530277,
+    "all_final_sources_snapshotted": true,
+    "matched": 2112,
+    "missing": 0,
+    "files_complete": true,
+    "video_paths_moving_at_end": 6,
+    "queue_max_ms": [
+      66.87754212180153,
+      116.34389543905854
+    ],
+    "peak_stages_ms": {
+      "capture_to_encoded": 10.191625013248995,
+      "encoded_to_ingress": 38.15599999506958,
+      "ingress_to_webrtc": 0.020000006770715117,
+      "webrtc_to_pcm_edge": 161.99808332021348
+    },
+    "source_quic_admission_to_authenticated_receiver_ms": 37.986,
+    "capture_complete": true,
+    "clock_late_intervals": 0,
+    "clock_deadline_misses": 0,
+    "observed_previous_same_aligned_workload_peak_ms": 380.171
+  },
+  "remaining_work": [
+    "Both unchanged latency gates still fail. Follow exact peak packetization, receiver target/reorder headroom and competing wire load before claiming audio priority is qualified. Do not relax the200-ms threshold.",
+    "Group video still lacks live per-source framing; carrier cost still excludes QUIC/TCP/IP and ACK overhead. Keep fanout and per-source framing as distinct models.",
+    "Sparse fractional-rate video with large headers and the earlier physical handover219-ms audio pacer transient remain unqualified.",
+    "Final-source1:1 capture, screen sharing, carrier fallback, physical application/phone and live speech/headset quality still require verification. Final moving synthetic images do not prove smooth video."
+  ],
+  "cleanup": {
+    "all_known_owned_processes_absent": true,
+    "verified_process_count": 13,
+    "remaining_group_sockets": 0,
+    "gui_apps_started": false,
+    "phone_modified": false
+  },
+  "policy": "Opaque generic relaying without media-role hints or preferential relay service. No server change, binary rebuild, push or release this cycle.",
+  "evidence_directory": "video-growth-2026-10-19/",
+  "evidence_sha256": {
+    "cleanup.json": "9427c6853336b88595b4fc3d81e22ef472cef210263d8c1ab80cec8160676f5d",
+    "group-peak-source.json": "e1174bbaf459d9eb352688be68a1d636675d0bd54a64d72d82c226b7b73d83a6",
+    "group-result.json": "0babf135e5be37cbbf6634f65468fcad6425bcd2fd22511255feaafae42e5238",
+    "pair-cold-branch-proof.json": "d245e1ae9bdacc3db0512a00bf18be54ecab43eafec5fa5cc6b59d811456e3a7",
+    "pair-result.json": "cde7714cf674e7de708e6a5e409dcdcc3f5a263c487f6d0abb91b966a67fbc34",
+    "policy-analyze.log": "f322557e595906adb4101ce1e930b49c8508fce40770cf85a7d0e94eab4642a3",
+    "policy-tests.log": "1533834d297beb1f7d1f6b41245ce9564c57f2aa6a1d927dc6e8833c6f8df185",
+    "regression-gates.json": "e233a7824f4dc92764af1a9b2bb0f84ffc9ffa0468cb3ddd6b77bb4b9baaa5ec",
+    "source-final.json": "2bfbdab6f4699b55c0b8729b3ef3e6d8fbfe8acfa9d4e3359c37ca14924efcc4",
+    "source-pair.json": "c24ba18b87496875c50d3b6453d874af7ccf7f1a586634f892adfe682eca4a0d"
+  },
+  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-video-growth-20261019",
+  "foreign_wip_preserved": {
+    "root_diff_sha256": "529f7718edea4b6775cc11607bc2ff663a922cc3521b680cf94efa39d7b26859",
+    "sdk_diff_sha256": "1ceeb05d540078262f1480ba7210dfaa0f5895be9f0099f64bc18a56a4f6a363"
+  }
+}

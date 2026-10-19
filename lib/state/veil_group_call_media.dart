@@ -580,7 +580,9 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     _videoRunning = true;
     _cameraEnabled = startCamera;
     _applyVideoPolicy(engine, adapter);
-    await callAudioRouter.useDefaultFor(const CallMedia(audio: true, video: true));
+    await callAudioRouter.useDefaultFor(
+      const CallMedia(audio: true, video: true),
+    );
     _frameTimer ??= Timer.periodic(
       const Duration(milliseconds: 33),
       (_) => _pollFrames(engine),
@@ -816,6 +818,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       // Native aggregates count only fresh AUDIO reports, not video reports.
       adapter.onNativeStats(
         stats,
+        sampledAt: now,
         sourceBudgetPressured:
             _sourceFeedbackQueued > 0 && _sourcePressured == true,
         videoSendExpected: _cameraEnabled || _screenSharing,
@@ -857,7 +860,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         }
       }
       if (applied == true) {
-        final target = adapter.target;
+        final target = adapter.targetForStart;
         devLog(
           () =>
               'xVeil[group-call-media]: audio-quality retune level='

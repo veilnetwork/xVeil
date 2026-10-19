@@ -1751,6 +1751,7 @@ class VeilCallMediaController implements CallMediaController {
           // route profile stays the ceiling; adaptation only spends less.
           adapter.onNativeStats(
             stats,
+            sampledAt: now,
             sourceBudgetPressured:
                 _sourceFeedbackQueued > 0 && _sourcePressured == true,
             videoSendExpected:
@@ -1796,7 +1797,7 @@ class VeilCallMediaController implements CallMediaController {
               ),
             );
             if (ok != null) {
-              final target = adapter.target;
+              final target = adapter.targetForStart;
               devLog(
                 () =>
                     'xVeil[call-media]: link-quality retune level='
@@ -1854,7 +1855,7 @@ class VeilCallMediaController implements CallMediaController {
           : _anonymousVideoProfile;
       final adapter = _videoAdapterForProfile(profile, engine);
       if (!_prepareVideoAudioAdmission(call, engine, adapter)) return audioOk;
-      final target = adapter.target;
+      final target = adapter.targetForStart;
       videoOk = engine.startVideo(
         send: true,
         recv: true,
@@ -2083,7 +2084,7 @@ class VeilCallMediaController implements CallMediaController {
         : _anonymousVideoProfile;
     final adapter = _videoAdapterForProfile(profile, engine);
     if (!_prepareVideoAudioAdmission(call, engine, adapter)) return false;
-    final target = adapter.target;
+    final target = adapter.targetForStart;
     final bool ok;
     try {
       ok = engine.startVideo(
