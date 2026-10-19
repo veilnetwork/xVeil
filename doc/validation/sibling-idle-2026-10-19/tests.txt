@@ -1,0 +1,26 @@
+first-clean-full-tests: {"exit_code": 101, "elapsed_s": 135.653}
+test result: ok. 663 passed; 0 failed; 11 ignored; 0 measured; 0 filtered out; finished in 37.18s
+test result: ok. 837 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+test runner::quic_backlog_tests::primary_recovery_quic_tests::late_camera_and_screen_reopen_after_real_idle_without_retiring_audio ... FAILED
+---- runner::quic_backlog_tests::primary_recovery_quic_tests::late_camera_and_screen_reopen_after_real_idle_without_retiring_audio stdout ----
+thread 'runner::quic_backlog_tests::primary_recovery_quic_tests::late_camera_and_screen_reopen_after_real_idle_without_retiring_audio' (72638015) panicked at crates/veil-session/src/primary_recovery_quic_tests.rs:1301:34:
+unused child must really expire before reopening: Elapsed(())
+    runner::quic_backlog_tests::primary_recovery_quic_tests::late_camera_and_screen_reopen_after_real_idle_without_retiring_audio
+test result: FAILED. 623 passed; 1 failed; 8 ignored; 0 measured; 0 filtered out; finished in 57.84s
+clean-full-tests: {"exit_code": 0, "elapsed_s": 126.055}
+test result: ok. 663 passed; 0 failed; 11 ignored; 0 measured; 0 filtered out; finished in 17.86s
+test result: ok. 837 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+test runner::quic_backlog_tests::primary_recovery_quic_tests::late_camera_and_screen_survive_idle_and_reopen_after_close_without_retiring_audio ... ok
+test result: ok. 624 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 57.84s
+test quic::parallel::parallel_accept_tests::retained_generic_sibling_survives_idle_timeout_and_retires_with_parent ... ok
+test result: ok. 156 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 35.06s
+negative-no-retention-ping: {"exit_code": 101, "elapsed_s": 62.916}
+thread 'quic::parallel::parallel_accept_tests::retained_generic_sibling_survives_idle_timeout_and_retires_with_parent' (72764587) panicked at crates/veil-transport/src/quic/parallel_accept_tests.rs:73:5:
+retained sibling expired and would require a fresh TLS dial
+test quic::parallel::parallel_accept_tests::retained_generic_sibling_survives_idle_timeout_and_retires_with_parent ... FAILED
+    quic::parallel::parallel_accept_tests::retained_generic_sibling_survives_idle_timeout_and_retires_with_parent
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 155 filtered out; finished in 35.05s
+restored-idle-test: {"exit_code": 0, "elapsed_s": 42.632}
+test quic::parallel::parallel_accept_tests::retained_generic_sibling_survives_idle_timeout_and_retires_with_parent ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 155 filtered out; finished in 35.06s
+release-build: {"exit_code": 0, "elapsed_s": 76.468}
