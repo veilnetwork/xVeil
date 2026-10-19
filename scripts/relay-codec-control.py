@@ -81,6 +81,8 @@ parser.add_argument('--compact-call-health', action='store_true',
                     help='Diagnostic compact call-state carrier on a separate IPC sender; requires the optional SDK call-control API, not proof of application integration')
 parser.add_argument('--local-source-feedback', action='store_true', help='Feed actual endpoint quality to the shared local producer budget over negotiated IPC')
 parser.add_argument('--source-cell-trace', action='store_true', help='Privately correlate endpoint source work and encrypted primary previews with source admission; adds no relay roles or wire fields')
+parser.add_argument('--sealed-trace-every', type=int, choices=range(1, 51),
+                    help='Override SDK cell-metadata sampling (default every50); 1 records every cell in this owned fixture')
 parser.add_argument('--compete-file', action='store_true', help='Transfer encrypted file chunks through the reliable local DATA lane in each direction during real audio/video; 512 KiB by default')
 parser.add_argument('--file-bytes', type=int, default=512*1024, help='Bytes per competing file, a positive multiple of 2048; default keeps the full 512 KiB gate')
 parser.add_argument('--file-checkpoint-seconds', type=int,
@@ -93,6 +95,10 @@ parser.add_argument('--screen-video', action='store_true',
 parser.add_argument('--reannounce-interval-seconds', type=int,
                     help='Diagnostic routing refresh interval, below the unchanged 120-second route TTL; omitted retains production defaults')
 args = parser.parse_args()
+if args.sealed_trace_every is not None:
+    if not args.source_cell_trace or not args.native_timing_trace:
+        parser.error('--sealed-trace-every requires --source-cell-trace and --native-timing-trace')
+    os.environ['VEIL_RT_TRACE_SEALED_EVERY'] = str(args.sealed_trace_every)
 if args.playout_trace and not args.native_timing_trace:
     parser.error('Playout clocks require --native-timing-trace')
 if args.native_pcm_priority == 'deadline' and (
@@ -308,6 +314,7 @@ result['opaque_frame_capture_start_seconds'] = args.opaque_frame_capture_start_s
 result['opaque_frame_capture_limit'] = args.opaque_frame_capture_limit if args.opaque_frame_capture else None
 result['opaque_frame_capture_event_rate'] = args.opaque_frame_capture_event_rate if args.opaque_frame_capture else None
 result['source_cell_trace'] = args.source_cell_trace
+result['sealed_trace_every_override'] = args.sealed_trace_every
 result['control_carrier'] = 'compact_call_state_diagnostic' if args.compact_call_health else 'authenticated_application_envelope'
 try:
     pcm_driver_library=build_pcm_driver(ROOT) if args.native_pcm_driver else None
