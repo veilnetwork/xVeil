@@ -267,7 +267,10 @@ class CallBitrateAdapter {
       // The measured one-fps recovery trial has its own audio admission gate.
       // Fund it immediately rather than spending many polls below a usable
       // codec/header allocation after the protective pause.
-      floorProbe = atFloor && !_audioReserve && previous.maxFps < 1;
+      floorProbe =
+          atFloor &&
+          (!_audioReserve || _appliedPause == true) &&
+          previous.maxFps < 1;
       final sampleAt = _growthSampleAt;
       var timeReady = true;
       final lastAt = _lastGrowthAt;
@@ -524,7 +527,14 @@ class CallBitrateAdapter {
 
   /// Target for the current rung.
   ({int maxBitrateKbps, double maxFps}) get target {
-    if (_audioReserve) return (maxBitrateKbps: 1, maxFps: 0.02);
+    // The acknowledged native gate already stops both capture admission and
+    // queued video RTP. Retain the usable floor ceiling while it is closed:
+    // capping GCC at 1 kbit/s also collapses its pacer, so resumed keyframe
+    // fragments can emerge seconds apart and expire before assembly.
+    // An absent/failed pause still needs the old sparse fallback.
+    if (_audioReserve && _appliedPause != true) {
+      return (maxBitrateKbps: 1, maxFps: 0.02);
+    }
     var fps = supportsLowRateVideo
         ? (_level == ladder.length - 1 ? 1.0 : baseFps * cadenceLadder[_level])
               .clamp(1.0, baseFps.toDouble())
@@ -1267,6 +1277,11 @@ class CallBitrateAdapter {
     _audioRecoveryStreak = 0;
     _severeStreak = 0;
     _mutedRecoveryStreak = 0;
+    // The retained floor budget needs no new retune on resume. Start its
+    // measurement window here even when applyPendingTarget is a no-op.
+    _floorPeerSampleSequence = _lastPeerSampleSequence;
+    _floorReceiveBuffer.reset();
+    _floorPeerBuffer.reset();
   }
 
   int? _nativeReceiveDelay(Map<String, dynamic> stats) {

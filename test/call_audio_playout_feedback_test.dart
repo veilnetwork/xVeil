@@ -685,7 +685,7 @@ void main() {
       return true;
     });
     expect(nativePause, isTrue);
-    expect(adapter.target.maxBitrateKbps, 1);
+    expect(adapter.target.maxBitrateKbps, 15);
     for (var i = 0; i < 30; i++) {
       adapter.onNativeStats(
         {'audio_feedback_reports': 0},

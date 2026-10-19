@@ -1,5 +1,48 @@
 # Calls media handoff
 
+## 2026-10-19: user prioritizes video; strict 200-ms marker gate deferred
+
+The user explicitly redirects work to unnecessary video degradation and short
+spike tolerance. Keep reporting original raw audio gates, but **do not keep
+optimizing the strict 200-ms synthetic end-to-end bound as this cycle's blocker**.
+This does not claim all audio problems solved or change relay service policy.
+
+Two distinct problems now have concrete witnesses:
+
+1. **Transient decoded loss cuts healthy-delay video.** At175s source0 has
+94-ms receive /62-ms peer current buffers; one new peer-concealment witness
+cuts level2 directly to4. Similar witnesses occur at low buffers on both
+sources. Video stays at its floor for202/216 of340 video polls; source
+pressure lasts155/135 polls. Changing only the200-ms buffer rail cannot
+remove this independent event-triggered cut. **OPEN:** separate isolated
+concealment/catch-up from repeated impairment, then tune buffer rails/recovery.
+2. **Native pause is also a 1-kbit GCC cap.** Previous recorded resume emits
+keyframe fragments3–4 seconds apart after the source reopened. The policy
+now retains its usable floor ceiling after a real native pause ACK; capture
+and queued RTP remain gated. Missing/failed pause retains the sparse fallback.
+Late pause ACK can restore the floor while the gate is closed; replacement
+engines lose old ACKs. Reset floor measurement windows on pause release even
+when the retained budget needs no retune. Pair fixture now ACKs real pause
+before re-reading/applying the budget; no falsely acknowledged budget.
+
+Two new regression cases reproduce the old policy failure. **176 tests PASS**
+across bitrate adapter, group controller and playout feedback; targeted Dart
+analysis PASS. Native SDK/media binaries are unchanged from1e5a0c86.
+
+A **120-second** diagnostic capture shows120.089/130.306-ms maximum markers,
+228matched/0missing,99decoded frame pulls each and maximum sampled gaps
+**1.009/1.012 seconds**. **No pause was requested in this run**, so it does
+NOT verify the pause/resume repair or prove causal improvement over the older
+360-second run. Original fixture **FAIL** because both512-KiB file transfers
+are incomplete at the shortened cutoff; retain this failure. Do not call it
+a full media qualification. Next is transient event tolerance and actual
+pause recovery coverage, then the unchanged broad interaction-isolation goal.
+
+All owned stand processes exited, node stops0/0/0, zero remaining sockets.
+No GUI/phone opened. Foreign WIP preserved. No push/deploy/release. Goal ACTIVE.
+Evidence: `doc/validation/call-paused-video-ceiling-2026-10-19.json` and
+`doc/validation/paused-video-ceiling-2026-10-19/`.
+
 ## 2026-10-19: native packet ordering repaired; pair fixture PASS, video gaps remain
 
 SDK **1e5a0c86** coordinates native unicast ANA with the actual secondary

@@ -182,8 +182,9 @@ Future<void> main() async {
     final request = (jsonDecode(line) as Map).cast<String, dynamic>();
     final room = rooms[request['index'] as int];
     if (request['op'] == 'ack') {
-      room.adapter.applyPendingPause((_) => request['pauseOk'] == true);
+      // These results describe the budget selected before this pause ACK.
       room.adapter.applyPendingTarget((_) => request['budgetOk'] == true);
+      room.adapter.applyPendingPause((_) => request['pauseOk'] == true);
       stdout.writeln('{}');
     } else {
       stdout.writeln(jsonEncode(room.poll(request)));

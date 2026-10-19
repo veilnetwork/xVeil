@@ -1,0 +1,762 @@
+[
+  {
+    "side": 0,
+    "video_samples": 340,
+    "samples_at_floor": 202,
+    "source_pressured_samples": 155,
+    "reason_sample_counts": {
+      "audio_peer_concealment": 12,
+      "audio_latency_recovery": 3,
+      "receive_pressure": 4,
+      "peer_pressure": 5,
+      "video_network_loss": 3
+    },
+    "events": [
+      {
+        "t": 21.0,
+        "receive_ms": 42,
+        "peer_ms": 73,
+        "reasons": [
+          "audio_peer_concealment"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 26.0,
+        "receive_ms": 122,
+        "peer_ms": 55,
+        "reasons": [
+          "audio_latency_recovery"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 27.01,
+        "receive_ms": 152,
+        "peer_ms": 55,
+        "reasons": [
+          "audio_peer_concealment"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": true,
+        "source_pressure": true
+      },
+      {
+        "t": 28.0,
+        "receive_ms": 152,
+        "peer_ms": 55,
+        "reasons": [
+          "audio_latency_recovery",
+          "receive_pressure"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": true,
+        "source_pressure": true
+      },
+      {
+        "t": 29.0,
+        "receive_ms": 122,
+        "peer_ms": 151,
+        "reasons": [
+          "peer_pressure"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": true,
+        "source_pressure": true
+      },
+      {
+        "t": 30.01,
+        "receive_ms": 152,
+        "peer_ms": 151,
+        "reasons": [
+          "peer_pressure"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": true,
+        "source_pressure": true
+      },
+      {
+        "t": 44.0,
+        "receive_ms": 44,
+        "peer_ms": 77,
+        "reasons": [
+          "video_network_loss"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": false,
+        "source_pressure": false
+      },
+      {
+        "t": 52.0,
+        "receive_ms": 74,
+        "peer_ms": 52,
+        "reasons": [
+          "video_network_loss"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": false,
+        "source_pressure": false
+      },
+      {
+        "t": 53.01,
+        "receive_ms": 74,
+        "peer_ms": 52,
+        "reasons": [
+          "audio_peer_concealment"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 54.01,
+        "receive_ms": 74,
+        "peer_ms": 52,
+        "reasons": [
+          "audio_latency_recovery"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": true,
+        "source_pressure": true
+      },
+      {
+        "t": 64.0,
+        "receive_ms": 88,
+        "peer_ms": 57,
+        "reasons": [
+          "receive_pressure"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 74.0,
+        "receive_ms": 40,
+        "peer_ms": 57,
+        "reasons": [
+          "video_network_loss"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 75.0,
+        "receive_ms": 40,
+        "peer_ms": 57,
+        "reasons": [
+          "audio_peer_concealment"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 84.0,
+        "receive_ms": 100,
+        "peer_ms": 69,
+        "reasons": [
+          "audio_peer_concealment"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 94.0,
+        "receive_ms": 49,
+        "peer_ms": 59,
+        "reasons": [
+          "audio_peer_concealment"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 121.0,
+        "receive_ms": 79,
+        "peer_ms": 56,
+        "reasons": [],
+        "before": 4,
+        "after": 3,
+        "pause": false,
+        "source_pressure": false
+      },
+      {
+        "t": 138.0,
+        "receive_ms": 121,
+        "peer_ms": 58,
+        "reasons": [
+          "receive_pressure"
+        ],
+        "before": 3,
+        "after": 3,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 161.0,
+        "receive_ms": 46,
+        "peer_ms": 70,
+        "reasons": [],
+        "before": 3,
+        "after": 2,
+        "pause": false,
+        "source_pressure": false
+      },
+      {
+        "t": 175.0,
+        "receive_ms": 94,
+        "peer_ms": 62,
+        "reasons": [
+          "audio_peer_concealment"
+        ],
+        "before": 2,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 201.0,
+        "receive_ms": 77,
+        "peer_ms": 83,
+        "reasons": [],
+        "before": 4,
+        "after": 3,
+        "pause": false,
+        "source_pressure": false
+      },
+      {
+        "t": 213.0,
+        "receive_ms": 129,
+        "peer_ms": 47,
+        "reasons": [
+          "receive_pressure"
+        ],
+        "before": 3,
+        "after": 3,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 236.0,
+        "receive_ms": 79,
+        "peer_ms": 56,
+        "reasons": [],
+        "before": 3,
+        "after": 2,
+        "pause": false,
+        "source_pressure": false
+      },
+      {
+        "t": 261.01,
+        "receive_ms": 49,
+        "peer_ms": 56,
+        "reasons": [],
+        "before": 2,
+        "after": 1,
+        "pause": false,
+        "source_pressure": false
+      },
+      {
+        "t": 265.0,
+        "receive_ms": 84,
+        "peer_ms": 56,
+        "reasons": [
+          "audio_peer_concealment"
+        ],
+        "before": 1,
+        "after": 3,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 266.01,
+        "receive_ms": 72,
+        "peer_ms": 105,
+        "reasons": [
+          "audio_peer_concealment"
+        ],
+        "before": 3,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 291.0,
+        "receive_ms": 112,
+        "peer_ms": 50,
+        "reasons": [],
+        "before": 4,
+        "after": 3,
+        "pause": false,
+        "source_pressure": false
+      },
+      {
+        "t": 299.0,
+        "receive_ms": 59,
+        "peer_ms": 50,
+        "reasons": [
+          "audio_peer_concealment"
+        ],
+        "before": 3,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 301.0,
+        "receive_ms": 45,
+        "peer_ms": 78,
+        "reasons": [
+          "peer_pressure"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 302.0,
+        "receive_ms": 45,
+        "peer_ms": 78,
+        "reasons": [
+          "peer_pressure"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 317.0,
+        "receive_ms": 79,
+        "peer_ms": 58,
+        "reasons": [
+          "audio_peer_concealment"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 319.0,
+        "receive_ms": 83,
+        "peer_ms": 93,
+        "reasons": [
+          "peer_pressure"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 346.0,
+        "receive_ms": 47,
+        "peer_ms": 50,
+        "reasons": [],
+        "before": 4,
+        "after": 3,
+        "pause": false,
+        "source_pressure": false
+      },
+      {
+        "t": 357.01,
+        "receive_ms": 77,
+        "peer_ms": 50,
+        "reasons": [
+          "audio_peer_concealment"
+        ],
+        "before": 3,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      }
+    ]
+  },
+  {
+    "side": 1,
+    "video_samples": 340,
+    "samples_at_floor": 216,
+    "source_pressured_samples": 135,
+    "reason_sample_counts": {
+      "audio_peer_concealment": 10,
+      "audio_latency_recovery": 2,
+      "receive_pressure": 3,
+      "peer_pressure": 8,
+      "video_network_loss": 1
+    },
+    "events": [
+      {
+        "t": 26.0,
+        "receive_ms": 131,
+        "peer_ms": 56,
+        "reasons": [
+          "audio_peer_concealment"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 27.01,
+        "receive_ms": 151,
+        "peer_ms": 56,
+        "reasons": [
+          "audio_peer_concealment",
+          "audio_latency_recovery"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": true,
+        "source_pressure": true
+      },
+      {
+        "t": 28.01,
+        "receive_ms": 151,
+        "peer_ms": 56,
+        "reasons": [
+          "receive_pressure"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": true,
+        "source_pressure": true
+      },
+      {
+        "t": 29.0,
+        "receive_ms": 151,
+        "peer_ms": 152,
+        "reasons": [
+          "peer_pressure"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": true,
+        "source_pressure": true
+      },
+      {
+        "t": 30.01,
+        "receive_ms": 119,
+        "peer_ms": 152,
+        "reasons": [
+          "peer_pressure"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 42.01,
+        "receive_ms": 52,
+        "peer_ms": 74,
+        "reasons": [
+          "video_network_loss"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": false,
+        "source_pressure": false
+      },
+      {
+        "t": 53.01,
+        "receive_ms": 135,
+        "peer_ms": 74,
+        "reasons": [
+          "audio_latency_recovery"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 65.0,
+        "receive_ms": 57,
+        "peer_ms": 88,
+        "reasons": [
+          "peer_pressure"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 66.0,
+        "receive_ms": 57,
+        "peer_ms": 88,
+        "reasons": [
+          "peer_pressure"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 84.01,
+        "receive_ms": 63,
+        "peer_ms": 70,
+        "reasons": [
+          "audio_peer_concealment"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 102.0,
+        "receive_ms": 72,
+        "peer_ms": 79,
+        "reasons": [
+          "audio_peer_concealment"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 126.01,
+        "receive_ms": 56,
+        "peer_ms": 79,
+        "reasons": [],
+        "before": 4,
+        "after": 3,
+        "pause": false,
+        "source_pressure": false
+      },
+      {
+        "t": 137.01,
+        "receive_ms": 58,
+        "peer_ms": 49,
+        "reasons": [
+          "audio_peer_concealment"
+        ],
+        "before": 3,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 139.0,
+        "receive_ms": 72,
+        "peer_ms": 121,
+        "reasons": [
+          "peer_pressure"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 140.01,
+        "receive_ms": 72,
+        "peer_ms": 121,
+        "reasons": [
+          "peer_pressure"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 166.0,
+        "receive_ms": 58,
+        "peer_ms": 46,
+        "reasons": [],
+        "before": 4,
+        "after": 3,
+        "pause": false,
+        "source_pressure": false
+      },
+      {
+        "t": 174.0,
+        "receive_ms": 66,
+        "peer_ms": 46,
+        "reasons": [
+          "audio_peer_concealment"
+        ],
+        "before": 3,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 201.01,
+        "receive_ms": 71,
+        "peer_ms": 48,
+        "reasons": [],
+        "before": 4,
+        "after": 3,
+        "pause": false,
+        "source_pressure": false
+      },
+      {
+        "t": 212.01,
+        "receive_ms": 61,
+        "peer_ms": 47,
+        "reasons": [
+          "audio_peer_concealment"
+        ],
+        "before": 3,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 214.01,
+        "receive_ms": 47,
+        "peer_ms": 129,
+        "reasons": [
+          "peer_pressure"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 215.0,
+        "receive_ms": 47,
+        "peer_ms": 129,
+        "reasons": [
+          "peer_pressure"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 241.01,
+        "receive_ms": 56,
+        "peer_ms": 50,
+        "reasons": [],
+        "before": 4,
+        "after": 3,
+        "pause": false,
+        "source_pressure": false
+      },
+      {
+        "t": 261.01,
+        "receive_ms": 56,
+        "peer_ms": 79,
+        "reasons": [],
+        "before": 3,
+        "after": 2,
+        "pause": false,
+        "source_pressure": false
+      },
+      {
+        "t": 286.01,
+        "receive_ms": 50,
+        "peer_ms": 56,
+        "reasons": [],
+        "before": 2,
+        "after": 1,
+        "pause": false,
+        "source_pressure": false
+      },
+      {
+        "t": 289.01,
+        "receive_ms": 50,
+        "peer_ms": 56,
+        "reasons": [
+          "audio_peer_concealment"
+        ],
+        "before": 1,
+        "after": 3,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 300.01,
+        "receive_ms": 78,
+        "peer_ms": 82,
+        "reasons": [
+          "receive_pressure"
+        ],
+        "before": 3,
+        "after": 3,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 317.01,
+        "receive_ms": 93,
+        "peer_ms": 45,
+        "reasons": [
+          "audio_peer_concealment"
+        ],
+        "before": 3,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 318.0,
+        "receive_ms": 93,
+        "peer_ms": 45,
+        "reasons": [
+          "receive_pressure"
+        ],
+        "before": 4,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      },
+      {
+        "t": 341.0,
+        "receive_ms": 50,
+        "peer_ms": 77,
+        "reasons": [],
+        "before": 4,
+        "after": 3,
+        "pause": false,
+        "source_pressure": false
+      },
+      {
+        "t": 359.01,
+        "receive_ms": 64,
+        "peer_ms": 77,
+        "reasons": [
+          "audio_peer_concealment"
+        ],
+        "before": 3,
+        "after": 4,
+        "pause": false,
+        "source_pressure": true
+      }
+    ]
+  }
+]
