@@ -1,0 +1,44 @@
+{
+  "request": "Audio precedes camera/screen/reliable data at the endpoint; no relay media priority. Current focus is excessive video degradation, with strict 200ms acoustic target deferred.",
+  "fixes": [
+    "Group camera no longer jumps to one fps when the Opus controller reports a completed transient concealment/catch-up. The shared ladder and generic source budget handle that evidence. Hard outgoing pressure still forces real secondary yield before longer audio packets.",
+    "Otherwise healthy isolated soft loss pauses bounded growth and preserves already earned healthy credit; it cannot repeatedly restart a twelve-second ramp. Actual loss, buffer pressure and unknown/marginal samples retain resets.",
+    "Group fixture now hashes full RGBA frames, records native decode sequences and rates, rejects negative buffer-capacity results, and rejects old prefix-hash captures as motion evidence.",
+    "Fixture receiver aggregation uses production buffer and outage constants. Captured source proofs include the image helper and transient loss policy."
+  ],
+  "verified": {
+    "flutter_tests": 453,
+    "python_tests": 17,
+    "analysis": "6 selected Dart files, no issues",
+    "regressions": "Controller 150kbps/15fps -> 10kbps/1fps on one transient was reproduced and fixed. Recovery under isolated events every nine seconds stayed at level 3 on old policy and reached level 0 with the bounded ramp after the fix.",
+    "runtime_policy_observations": {
+      "0": {
+        "transient_growth_pauses": 78,
+        "pauses_preserving_healthy_credit": 27
+      },
+      "1": {
+        "transient_growth_pauses": 90,
+        "pauses_preserving_healthy_credit": 40
+      },
+      "2": {
+        "transient_growth_pauses": 95,
+        "pauses_preserving_healthy_credit": 35
+      }
+    },
+    "all_synthetic_audio_markers_delivered": true,
+    "all_three_512KiB_files_received": true,
+    "relay_route_and_topology_verified": true
+  },
+  "remaining": [
+    "Video quality in the three-participant constrained relay test is still inadequate: last-minute decode rates 1.37-1.92fps, 80x60 or 120x90. No overall video improvement is claimed.",
+    "Every remaining observed ladder reduction in the final capture was a repeated soft audio event. Own receive-side counter windows around two local events contained only about 11/27ms non-silent concealment in six seconds; peer event amounts are not available in the Dart stats yet. Use duration/severity evidence before changing this sensitivity.",
+    "Motion and decode counters do not prove screen presentation. Physical camera/headset/speech, screen load, and compatibility/ordered transport performance remain outside these captures."
+  ],
+  "strict_acoustic_gate": {
+    "unchanged": true,
+    "final_pass": false,
+    "peak_ms": 210.11566667584702
+  },
+  "scope": "Three independent SDK/media worker processes, a blind FIFO relay path at 1024kbit/s, 360 measured seconds, six directions and three encrypted files. Separate source selection remains endpoint-local; no relay changes were made.",
+  "source_controller_sha256": "87dc6cbff58b23ca5bbe67186e90993b626d5ffd39df36bc3faff3790b86b2b1"
+}

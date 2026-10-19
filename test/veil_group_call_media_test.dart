@@ -65,6 +65,88 @@ Map<String, dynamic> _sourceStats(List<NodeId> peers, {int delay = 100}) => {
 
 void main() {
   test(
+    'one group concealment cannot bypass video debouncing at the audio floor',
+    () {
+      fakeAsync((clock) {
+        final self = _id(1), alice = _id(2), bob = _id(3);
+        final transport = _FakeTransport(self);
+        final engine = _FakeEngine(supportsAudioBudget: true);
+        final controller = VeilGroupCallMediaController(
+          transport,
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          requestMicrophone: () async => true,
+          requestCamera: () async => true,
+          now: () => DateTime(2026, 10, 20).add(clock.elapsed),
+        );
+        var tick = 0;
+        void sample({int recovery = 0, int concealment = 0, int loss = 0}) {
+          tick++;
+          engine.stats = {
+            ..._sourceStats([alice, bob]),
+            'audio_config_valid': 1,
+            'audio_max_packet_ms': 60,
+            'audio_feedback_reports': 2,
+            'video_feedback_reports': 2,
+            'video_feedback_rtt_ms': 80,
+            'video_feedback_jitter_ms': 10,
+            'rtt_ms': 80,
+            'audio_playout_sequence': tick,
+            'audio_tx_payload_pkts': tick * 25,
+            'audio_tx_packet_duration_ms': engine.audioBudgets.last.packetMs,
+            'audio_latency_recovery_count': recovery,
+            'audio_peer_concealment_report_us': concealment,
+            'audio_loss_report_us': loss,
+            'video_worker_stalled': 0,
+            'video_tx_payload_pkts': tick * 30,
+            'max_fps': engine.targets.last.maxFps,
+            'video_send_paused': engine.pauses.last ? 1 : 0,
+          };
+          clock.elapse(const Duration(seconds: 1));
+        }
+
+        controller.start(_call(self, [alice, bob], video: true));
+        clock.flushMicrotasks();
+        for (var n = 0; n < 120; n++) {
+          sample();
+        }
+        expect(engine.targets.last, (maxBitrateKbps: 150, maxFps: 15));
+        sample(recovery: 1);
+        expect(engine.audioBudgets.last, (packetMs: 40, payloadBps: 24000));
+        for (var n = 0; n < 7; n++) {
+          sample(recovery: 1);
+        }
+        final earned = engine.targets.last;
+        expect(earned, (maxBitrateKbps: 150, maxFps: 15));
+        sample(recovery: 1, concealment: 100);
+        expect(transport.pressureReports.last.pressured, isTrue);
+        expect(
+          engine.targets.last,
+          earned,
+          reason:
+              'one soft event yields background work without forcing one fps',
+        );
+        sample(recovery: 1, concealment: 100);
+        expect(
+          engine.targets.last,
+          earned,
+          reason: 'cached event cannot reduce video',
+        );
+        sample(recovery: 1, concealment: 100, loss: 100);
+        expect(
+          engine.targets.last.maxFps,
+          1,
+          reason:
+              'fresh outgoing loss still forces video to yield before longer audio',
+        );
+        expect(engine.audioBudgets.last.packetMs, 40);
+        controller.stop();
+        clock.flushMicrotasks();
+      });
+    },
+  );
+
+  test(
     'long audio packets wait for actual video yield when pause is refused',
     () {
       fakeAsync((clock) {

@@ -1,0 +1,176 @@
+{
+  "0": [
+    {
+      "second": 177.01085687498562,
+      "before": 2,
+      "after": 4,
+      "own_two_receivers_non_silent_concealment_ms_in_window": 4.0,
+      "receive_buffer_ms": 135,
+      "peer_buffer_ms": 121,
+      "local_concealment": false,
+      "peer_concealment": false,
+      "soft_repeat": true,
+      "video_network_loss": false
+    },
+    {
+      "second": 217.0167942920234,
+      "before": 3,
+      "after": 4,
+      "own_two_receivers_non_silent_concealment_ms_in_window": 10.916666666666666,
+      "receive_buffer_ms": 125,
+      "peer_buffer_ms": 102,
+      "local_concealment": true,
+      "peer_concealment": false,
+      "soft_repeat": true,
+      "video_network_loss": false
+    },
+    {
+      "second": 276.00041583302664,
+      "before": 3,
+      "after": 4,
+      "own_two_receivers_non_silent_concealment_ms_in_window": 20.0,
+      "receive_buffer_ms": 133,
+      "peer_buffer_ms": 124,
+      "local_concealment": false,
+      "peer_concealment": true,
+      "soft_repeat": true,
+      "video_network_loss": false
+    }
+  ],
+  "1": [
+    {
+      "second": 50.000124583020806,
+      "before": 3,
+      "after": 4,
+      "own_two_receivers_non_silent_concealment_ms_in_window": 0.0,
+      "receive_buffer_ms": 85,
+      "peer_buffer_ms": 121,
+      "local_concealment": false,
+      "peer_concealment": true,
+      "soft_repeat": true,
+      "video_network_loss": false
+    },
+    {
+      "second": 86.02616104198387,
+      "before": 3,
+      "after": 4,
+      "own_two_receivers_non_silent_concealment_ms_in_window": 5.0,
+      "receive_buffer_ms": 100,
+      "peer_buffer_ms": 114,
+      "local_concealment": true,
+      "peer_concealment": true,
+      "soft_repeat": true,
+      "video_network_loss": false
+    },
+    {
+      "second": 176.02026995801134,
+      "before": 3,
+      "after": 4,
+      "own_two_receivers_non_silent_concealment_ms_in_window": 19.333333333333332,
+      "receive_buffer_ms": 135,
+      "peer_buffer_ms": 115,
+      "local_concealment": true,
+      "peer_concealment": false,
+      "soft_repeat": true,
+      "video_network_loss": false
+    },
+    {
+      "second": 276.0013770830119,
+      "before": 3,
+      "after": 4,
+      "own_two_receivers_non_silent_concealment_ms_in_window": 0.0,
+      "receive_buffer_ms": 82,
+      "peer_buffer_ms": 167,
+      "local_concealment": false,
+      "peer_concealment": true,
+      "soft_repeat": true,
+      "video_network_loss": false
+    },
+    {
+      "second": 332.00428558298154,
+      "before": 2,
+      "after": 4,
+      "own_two_receivers_non_silent_concealment_ms_in_window": 0.0,
+      "receive_buffer_ms": 82,
+      "peer_buffer_ms": 122,
+      "local_concealment": false,
+      "peer_concealment": true,
+      "soft_repeat": true,
+      "video_network_loss": false
+    }
+  ],
+  "2": [
+    {
+      "second": 50.02593279199209,
+      "before": 3,
+      "after": 4,
+      "own_two_receivers_non_silent_concealment_ms_in_window": 53.395833333333336,
+      "receive_buffer_ms": 134,
+      "peer_buffer_ms": 97,
+      "local_concealment": false,
+      "peer_concealment": true,
+      "soft_repeat": true,
+      "video_network_loss": false
+    },
+    {
+      "second": 85.01302437501727,
+      "before": 3,
+      "after": 4,
+      "own_two_receivers_non_silent_concealment_ms_in_window": 27.208333333333332,
+      "receive_buffer_ms": 98,
+      "peer_buffer_ms": 105,
+      "local_concealment": true,
+      "peer_concealment": false,
+      "soft_repeat": true,
+      "video_network_loss": false
+    },
+    {
+      "second": 179.00539112498518,
+      "before": 3,
+      "after": 4,
+      "own_two_receivers_non_silent_concealment_ms_in_window": 0.0,
+      "receive_buffer_ms": 113,
+      "peer_buffer_ms": 150,
+      "local_concealment": false,
+      "peer_concealment": true,
+      "soft_repeat": true,
+      "video_network_loss": false
+    },
+    {
+      "second": 214.00847720797174,
+      "before": 3,
+      "after": 4,
+      "own_two_receivers_non_silent_concealment_ms_in_window": 0.0,
+      "receive_buffer_ms": 116,
+      "peer_buffer_ms": 122,
+      "local_concealment": false,
+      "peer_concealment": true,
+      "soft_repeat": true,
+      "video_network_loss": false
+    },
+    {
+      "second": 275.0089721250115,
+      "before": 3,
+      "after": 4,
+      "own_two_receivers_non_silent_concealment_ms_in_window": 72.22916666666667,
+      "receive_buffer_ms": 167,
+      "peer_buffer_ms": 110,
+      "local_concealment": true,
+      "peer_concealment": false,
+      "soft_repeat": true,
+      "video_network_loss": false
+    },
+    {
+      "second": 331.00031720800325,
+      "before": 3,
+      "after": 4,
+      "own_two_receivers_non_silent_concealment_ms_in_window": 29.708333333333332,
+      "receive_buffer_ms": 122,
+      "peer_buffer_ms": 93,
+      "local_concealment": true,
+      "peer_concealment": false,
+      "soft_repeat": true,
+      "video_network_loss": false
+    }
+  ]
+}

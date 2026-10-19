@@ -6,6 +6,24 @@ are sampled observations, not native decoder or screen-presentation timing.
 """
 import math
 import re
+import hashlib
+
+
+def frame_witness(sequence, width, height, rgba):
+    """The native pull returns a sequence, never a byte count.
+
+    Hash all pixels: changing the sequence must not manufacture motion from
+    a different-length prefix of an unchanged image. Ignore spare capacity.
+    """
+    if (type(sequence) is not int or sequence <= 0 or
+            type(width) is not int or type(height) is not int or
+            not 0 < width <= 4096 or not 0 < height <= 4096):
+        raise ValueError('Invalid native decoded-frame metadata')
+    size = width * height * 4
+    if size > len(rgba):
+        raise ValueError('Native decoded frame exceeds destination capacity')
+    return dict(seq=sequence, width=width, height=height,
+                sha256=hashlib.sha256(rgba[:size]).hexdigest())
 
 
 def decoded_counter_rate(rows):

@@ -203,6 +203,67 @@ void main() {
     },
   );
 
+  test('isolated short holds cannot starve acknowledged video recovery', () {
+    final a = CallBitrateAdapter(
+      baseBitrateKbps: 150,
+      baseFps: 15,
+      initialLevel: 3,
+      supportsLowRateVideo: true,
+    );
+    a.constrainSource(floor: true, paused: false);
+    a.applyPendingTarget((_) => true);
+    a.applyPendingPause((_) => true);
+    a.constrainSource(floor: false, paused: false);
+    var previous = a.acknowledgedTarget!;
+    var witness = 0;
+    for (var n = 1; n <= 180; n++) {
+      // The capture contains isolated reports separated by nine seconds.
+      // Each briefly yields sources; no pair qualifies repeated audio damage.
+      final phase = n % 9;
+      if (phase == 0) witness++;
+      a.onNativeStats(
+        {
+          ...healthy(),
+          'audio_peer_concealment_report_us': witness,
+          'video_tx_frames': n * 10,
+        },
+        sampledAt: DateTime(2026, 10, 20).add(Duration(seconds: n)),
+        sourceBudgetPressured: phase <= 2 && witness > 0,
+        receiveAudioExpected: true,
+        requireAudioReceivePlayout: true,
+        requirePeerAudioPlayout: true,
+        peerAudioDelayMs: 90,
+        peerCurrentAudioDelayMs: 90,
+        peerAudioSampleSequence: n,
+      );
+      a.applyPendingTarget((_) => true);
+      final current = a.acknowledgedTarget!;
+      if (phase <= 2 && witness > 0) {
+        expect(current, previous, reason: 'short hold cannot spend growth');
+      } else {
+        expect(
+          current.maxBitrateKbps,
+          lessThanOrEqualTo(
+            previous.maxBitrateKbps >= 150
+                ? 150
+                : (previous.maxBitrateKbps * 1.1).floor().clamp(
+                    previous.maxBitrateKbps + 1,
+                    150,
+                  ),
+          ),
+        );
+        expect(current.maxFps, lessThanOrEqualTo(previous.maxFps + 1));
+      }
+      previous = current;
+    }
+    expect(
+      a.level,
+      0,
+      reason: 'isolated holds cannot erase all earned healthy credit',
+    );
+    expect(a.acknowledgedTarget, (maxBitrateKbps: 150, maxFps: 15.0));
+  });
+
   test(
     'isolated concealment at recorded 94/62-ms buffers holds the video rung',
     () {

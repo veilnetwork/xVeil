@@ -832,11 +832,13 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         receiving: _hasExpectedIncomingAudio,
         secondaryYielded: _sourcePriority.yielded,
       );
-      if (audioAdapter.needsSecondaryYield) {
-        _sourcePriority.requestYield(
-          now,
-          transient: audioAdapter.secondaryYieldTransient,
-        );
+      // Completed concealment/catch-up already reaches source-pressure and
+      // the shared video ladder. Its brief hold must not bypass that ladder
+      // by forcing the group camera straight to one fps. Hard outgoing
+      // pressure still requires actual secondary yield before longer audio.
+      if (audioAdapter.needsSecondaryYield &&
+          !audioAdapter.secondaryYieldTransient) {
+        _sourcePriority.requestYield(now);
       }
       _applyAudioBudget(expected, audioAdapter);
     }
