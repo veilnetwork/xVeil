@@ -2,6 +2,7 @@ import 'call_audio_receive_activity.dart';
 import 'call_audio_buffer_window.dart';
 import 'call_rtcp_loss.dart';
 import 'call_audio_transient_loss.dart';
+import 'call_audio_soft_loss.dart';
 
 /// Pure sender-side link-quality ladder for live call video.
 ///
@@ -168,6 +169,7 @@ class CallBitrateAdapter {
   final _peerRecoveryLoss = CallRtcpLoss();
   final _peerConcealment = CallRtcpLoss();
   final _localConcealment = CallRtcpLoss();
+  final _softLoss = CallAudioSoftLoss();
   final _transientLoss = CallAudioTransientLoss();
   final _receiveTransientLoss = CallAudioTransientLoss();
   bool? _lastTransientSendExpected;
@@ -406,6 +408,7 @@ class CallBitrateAdapter {
     _peerRecoveryLoss.reset();
     _peerConcealment.reset();
     _localConcealment.reset();
+    _softLoss.reset();
     _transientLoss.reset();
     _receiveTransientLoss.reset();
     _lastTransientSendExpected = null;
@@ -653,6 +656,13 @@ class CallBitrateAdapter {
           videoExpected: false,
         )
         .audio;
+    final softLoss = _softLoss.observe(
+      stats,
+      sending: sendAudioExpected,
+      receiving:
+          (audioReceiveQuality?.expected ?? receiveAudioExpected) &&
+          stats['worker_stalled'] == 0,
+    );
     final videoDrops = stats['video_tx_rtp_drops'];
     final validVideoDrops = videoDrops is int && videoDrops >= 0;
     final videoLoss =
@@ -730,6 +740,7 @@ class CallBitrateAdapter {
       measuredVideoProgress:
           videoProgress && videoFrames is num && videoFrames > 0,
       sendAudioExpected: sendAudioExpected,
+      receiveAudioExpected: receiveRequested,
       rttMs: anyFeedbackAvailable && routeRttUsable
           ? (stats[sendAudioExpected ? 'rtt_ms' : 'video_feedback_rtt_ms']
                         as num?)
@@ -779,9 +790,11 @@ class CallBitrateAdapter {
       audioNetworkLossObserved: networkLoss.audio,
       audioConcealmentObserved: concealed,
       audioReceiveConcealmentObserved: localConcealed,
+      audioSendSoftLossSignificant: softLoss.send,
+      audioReceiveSoftLossSignificant: softLoss.receive,
       videoNetworkLossObserved: networkLoss.video,
-      audioRecoveryObserved:
-          audioRecoveryObserved || (peerRecoveryObserved ?? peerRecovered),
+      audioRecoveryObserved: peerRecoveryObserved ?? peerRecovered,
+      audioReceiveRecoveryObserved: audioRecoveryObserved,
       videoFloorApplied:
           _appliedTarget == target &&
           _appliedPause != true &&
@@ -847,6 +860,7 @@ class CallBitrateAdapter {
     bool measuredVideoProgress = false,
     bool videoSendExpected = true,
     bool sendAudioExpected = true,
+    bool receiveAudioExpected = false,
     bool requireAudioReceivePlayout = false,
     int? audioReceiveDelayMs,
     int? audioReceiveTargetDelayMs,
@@ -855,8 +869,11 @@ class CallBitrateAdapter {
     bool audioNetworkLossObserved = false,
     bool audioConcealmentObserved = false,
     bool audioReceiveConcealmentObserved = false,
+    bool? audioSendSoftLossSignificant,
+    bool? audioReceiveSoftLossSignificant,
     bool videoNetworkLossObserved = false,
     bool audioRecoveryObserved = false,
+    bool audioReceiveRecoveryObserved = false,
     required int rttMs,
     required int txJitterMs,
     required int txLossPct,
@@ -1015,26 +1032,40 @@ class CallBitrateAdapter {
       _lastTransientSendExpected = sendAudioExpected;
     }
     final repeatedTransientLoss = _transientLoss.observe(
-      audioConcealmentObserved || audioRecoveryObserved,
+      audioConcealmentObserved ||
+          audioRecoveryObserved ||
+          audioSendSoftLossSignificant == true,
       sampledAt: sampledAt,
     );
-    final receiveExpected = requireAudioReceive || requireAudioReceivePlayout;
+    final receiveExpected =
+        receiveAudioExpected ||
+        requireAudioReceive ||
+        requireAudioReceivePlayout;
     if (_lastTransientReceiveExpected != receiveExpected) {
       _receiveTransientLoss.reset();
       _lastTransientReceiveExpected = receiveExpected;
     }
     final repeatedReceiveLoss = _receiveTransientLoss.observe(
-      receiveExpected && audioReceiveConcealmentObserved,
+      receiveExpected &&
+          (audioReceiveConcealmentObserved ||
+              audioReceiveRecoveryObserved ||
+              audioReceiveSoftLossSignificant == true),
       sampledAt: sampledAt,
     );
     final transientGrowthHeld =
         _transientLoss.holdingGrowth || _receiveTransientLoss.holdingGrowth;
+    final qualifiedSendLoss = audioSendSoftLossSignificant == null
+        ? repeatedTransientLoss
+        : sendAudioExpected && audioSendSoftLossSignificant;
+    final qualifiedReceiveLoss =
+        receiveExpected &&
+        (audioReceiveSoftLossSignificant ?? repeatedReceiveLoss);
     final freshAudioLoss =
         newAudioDrops ||
         audioInterrupted ||
         audioNetworkLossObserved ||
-        repeatedTransientLoss ||
-        repeatedReceiveLoss;
+        qualifiedSendLoss ||
+        qualifiedReceiveLoss;
     final freshMediaLoss =
         freshAudioLoss || videoLossObserved || videoNetworkLossObserved;
     final lossSampleAt = sampledAt ?? DateTime.now();
@@ -1050,7 +1081,7 @@ class CallBitrateAdapter {
         audioNetworkLossObserved ||
         videoLossObserved ||
         videoNetworkLossObserved;
-    final repeatedSoftLoss = repeatedTransientLoss || repeatedReceiveLoss;
+    final repeatedSoftLoss = qualifiedSendLoss || qualifiedReceiveLoss;
     final videoStepLoss = hardMediaLoss || (repeatedSoftLoss && softCutReady);
     _bufferInputs?.addAll({
       'audio_rtp_drop': newAudioDrops,
@@ -1060,8 +1091,12 @@ class CallBitrateAdapter {
       'audio_peer_concealment': audioConcealmentObserved,
       'audio_local_concealment': audioReceiveConcealmentObserved,
       'video_network_loss': videoNetworkLossObserved,
-      'audio_latency_recovery': audioRecoveryObserved,
+      'audio_latency_recovery':
+          audioRecoveryObserved || audioReceiveRecoveryObserved,
+      'audio_receiver_latency_recovery': audioReceiveRecoveryObserved,
       'soft_audio_loss_repeated': repeatedTransientLoss || repeatedReceiveLoss,
+      'soft_audio_send_significant': audioSendSoftLossSignificant,
+      'soft_audio_receive_significant': audioReceiveSoftLossSignificant,
       'soft_audio_growth_held': transientGrowthHeld,
       'soft_audio_cut_held':
           repeatedSoftLoss && !softCutReady && !hardMediaLoss,
@@ -1217,6 +1252,7 @@ class CallBitrateAdapter {
         !freshAudioLoss &&
         !audioConcealmentObserved &&
         !audioReceiveConcealmentObserved &&
+        !audioReceiveRecoveryObserved &&
         !audioRecoveryObserved &&
         (!requirePeerAudioPlayout ||
             (currentPeerDelay != null &&

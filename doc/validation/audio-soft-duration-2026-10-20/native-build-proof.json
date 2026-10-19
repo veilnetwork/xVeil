@@ -1,0 +1,20 @@
+{
+  "media-hooks": {
+    "path": "/Users/vart/.cache/codex/xveil-soft-duration-20261020/media-hooks/libveil_media.dylib",
+    "sha256": "795cb569cbf6bafb21e625287cd37a65a6c0d9c5975e89e3cceb79af27efcd33",
+    "exports": 135,
+    "same_exports_as_previous": true
+  },
+  "media-production": {
+    "path": "/Users/vart/.cache/codex/xveil-soft-duration-20261020/media-production/libveil_media.dylib",
+    "sha256": "a6b57f404060371b64bcad6d445d71945dc3ad8ed96557e04cfb3474aae86854",
+    "exports": 101,
+    "same_exports_as_previous": true
+  },
+  "native_source_sha256": {
+    "third_party/veil/flutter/veil_media/src/veil_audio_soft_loss.h": "6133c1a020e17a3e1349740630dcf4b914086b7c54cf74b2bda3de19ce4665dc",
+    "third_party/veil/flutter/veil_media/src/veil_transport_shim.h": "78644bec3766b73037361b0641d006b988615bfb01f8a0902ba7e9a06cd41469",
+    "third_party/veil/flutter/veil_media/src/veil_transport_shim.cc": "16b94c280e7d348c5316300adc3f3ae212fd177262edde17e7ff519d05e1ea11",
+    "third_party/veil/flutter/veil_media/src/veil_media_engine.cc": "8ceafd868810881c3b8453b1ada537677efcf6eb90058929261a503f8089ed2b"
+  }
+}

@@ -108,6 +108,7 @@ Future<void> main() async {
       expected: true,
     );
     final sourcePressured = sourcePressure[i].observe(
+      nativeStats: stats,
       sampledAt: now,
       sendExpected: true,
       receiveExpected: true,

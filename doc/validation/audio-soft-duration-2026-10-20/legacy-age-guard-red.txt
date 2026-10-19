@@ -1,0 +1,15 @@
+00:00 +0: loading /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart
+00:00 +0: incoming damage remains actionable without optional packet-age diagnostics
+00:00 +0 -1: incoming damage remains actionable without optional packet-age diagnostics [E]
+  Expected: <2>
+    Actual: <0>
+  receiving expectation and packet-age capability are independent
+
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  test/call_bitrate_adapter_test.dart 409:9           main.<fn>
+
+00:00 +0 -1: Some tests failed.
+
+Failing tests:
+  /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: incoming damage remains actionable without optional packet-age diagnostics

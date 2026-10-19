@@ -1,0 +1,26 @@
+00:00 +0: loading /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart
+00:00 +0: duration evidence keeps repeated small damage at its video rung incoming=false
+00:00 +0 -1: duration evidence keeps repeated small damage at its video rung incoming=false [E]
+  Expected: <0>
+    Actual: <2>
+  two small events do not prove significant damage
+
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  test/call_bitrate_adapter_test.dart 285:9           main.<fn>
+
+00:00 +0 -1: duration evidence keeps repeated small damage at its video rung incoming=true
+00:00 +0 -2: duration evidence keeps repeated small damage at its video rung incoming=true [E]
+  Expected: <0>
+    Actual: <2>
+  two small events do not prove significant damage
+
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  test/call_bitrate_adapter_test.dart 285:9           main.<fn>
+
+00:00 +0 -2: Some tests failed.
+
+Failing tests:
+  /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: duration evidence keeps repeated small damage at its video rung incoming=false
+  /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: duration evidence keeps repeated small damage at its video rung incoming=true

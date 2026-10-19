@@ -1,0 +1,47 @@
+{
+  "flutter_targeted_tests": {
+    "count": 461,
+    "passed": true,
+    "log": "/private/tmp/xveil-soft-duration-final-tests.txt"
+  },
+  "dart_analyze": {
+    "items": 9,
+    "passed": true,
+    "log": "/private/tmp/xveil-soft-duration-analyze.txt"
+  },
+  "native_smokes": {
+    "feedback": {
+      "log": "/private/tmp/xveil-soft-duration-feedback.txt",
+      "tail": [
+        "[unsafe-buffers] file '/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_media/src/veil_audio_concealment_feedback.h' bad test against path '../../'",
+        "[unsafe-buffers] file '/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_media/test/audio_recovery_feedback_smoke.cc' bad test against path '../../'",
+        "ld: warning: ignoring -lto_library '/Users/vart/Projects/veilnetwork/webrtc-checkout/src/third_party/llvm-build/Release+Asserts/lib/libLTO.dylib', file does not exist",
+        "ok real RTCP recovery framing, SSRC binding, replay, freshness, retirement and expiry"
+      ]
+    },
+    "shim": {
+      "log": "/private/tmp/xveil-soft-duration-shim.txt",
+      "tail": [
+        "      | \u001b[0;1;32m                   ^",
+        "\u001b[0m1 warning generated.",
+        "ld: warning: ignoring -lto_library '/Users/vart/Projects/veilnetwork/webrtc-checkout/src/third_party/llvm-build/Release+Asserts/lib/libLTO.dylib', file does not exist",
+        "ok production shim compound parsing, legacy feedback, freshness, replay and stopped/video sources"
+      ]
+    },
+    "call_planes": {
+      "log": "/private/tmp/xveil-soft-duration-call-planes-final.txt",
+      "tail": [
+        "group fanout: audio passed while video RTP/RTCP send was held; removed peer excluded",
+        "group video: cold codec budget applied before first encoded frame; consumed once",
+        "unicast: negotiated TWCC confirms separate audio/video SSRCs and counters; legacy mode sends none",
+        "direct/group: Opus delivered with both video queues stalled; telemetry bounded; restart/teardown ok"
+      ]
+    }
+  },
+  "live_capture_overall_passed": false,
+  "current_source_sha256": {
+    "lib/state/call_audio_soft_loss.dart": "3271a16593d6b1ec0323010bab829b24aa71753424ade0b31a4b36c319da3155",
+    "lib/state/call_bitrate_adapter.dart": "eb3f0f8ca439bd68a35e9fc84dcf8f4c488d4f66b4915554ee76c6053ae9212c",
+    "lib/state/call_audio_source_pressure.dart": "127fe8e7b74ecb11b8a167a8c1853b6d0972a2945c5a1b332385f1c23206454a"
+  }
+}
