@@ -1610,6 +1610,7 @@ class VeilCallMediaController implements CallMediaController {
         final receiveAt = _audioReceiveActivity.lastRxAt;
         final nativeDrops = stats['audio_tx_rtp_drops'];
         final sourcePressured = _sourcePressure.observe(
+          sampledAt: now,
           sendExpected: call.media.audio && !_microphoneState.muted,
           receiveExpected: call.media.audio && _peerAudioCaptureEnabled,
           requirePeerPlayout:
