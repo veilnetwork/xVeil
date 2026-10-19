@@ -1,0 +1,122 @@
+{
+  "date": "2026-10-19",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "sdk_commit": "e28a10cdefa93f7b8671a64be558ea7e3c03797d",
+  "scope": "Settle QUIC pacing time once, preserve fractional credit and honor optional controller pacing rates; default Cubic unchanged",
+  "checks": {
+    "protocol_passed": 324,
+    "session_passed": 603,
+    "session_ignored": 8,
+    "negative_old_credit_expected_failures": 3,
+    "negative_ignored_rate_expected_failures": 1,
+    "release_build_passed": true,
+    "unchanged_sdk_exports": 202,
+    "media_rebuilt": false,
+    "group_fixture_sources_identical_to_baseline": true,
+    "foreign_edits_preserved": true,
+    "six_relay_read_only_rechecks_passed": true,
+    "bbr_default_enabled": false
+  },
+  "bbr_diagnostics": {
+    "diagnostic_only": true,
+    "production_estimator_unchanged": true,
+    "unfixed_failures": [
+      "Positive application-limited delivery cannot establish nonzero bandwidth lower bound",
+      "Lower backlogged traffic cannot age old max estimate",
+      "Compressed old ACKs use unrelated newest send burst"
+    ],
+    "passed": [
+      "Low demand does not falsely reduce estimate"
+    ],
+    "not_a_safe_capacity_grant": true
+  },
+  "full_gates": {
+    "group": {
+      "qualified": false,
+      "duration_seconds": 360,
+      "rate_kbps": 1024,
+      "max_ms": 310.1101666688919,
+      "matched": 2112,
+      "missing": 0,
+      "files_exact": true,
+      "video_tail_changes": [
+        14,
+        14,
+        14,
+        14,
+        14,
+        14
+      ],
+      "fifo_drops": [
+        0,
+        0
+      ],
+      "deadline_misses": [
+        0,
+        0,
+        0
+      ]
+    },
+    "pair": {
+      "qualified": false,
+      "duration_seconds": 360,
+      "rate_kbps": 1024,
+      "max_ms_by_side": [
+        189.9717500200495,
+        220.11804167414084
+      ],
+      "matched": 704,
+      "missing": 0,
+      "files_exact": true,
+      "video_tail_changes": [
+        14,
+        14
+      ],
+      "fifo_drops": [
+        0,
+        0
+      ],
+      "deadline_misses": 0
+    }
+  },
+  "private_artifacts": "/Users/vart/.cache/codex/xveil-pacer-credit-20261019",
+  "limits": [
+    "Both original strict audio latency gates FAIL; no threshold, load or duration relaxation",
+    "No shared primary-first source allocator or complete interaction-channel separation implemented",
+    "One capture per build does not establish causal improvement or regression",
+    "Synthetic same-host clocks; not hardware headset, acoustic latency or speech quality",
+    "No phone or installed-app changes and no server restart or mutation this cycle",
+    "Pacer support for a controller rate does not validate that controller bandwidth estimate",
+    "Group peak includes material encoded-to-ingress and receiver delay; not per-hop attribution"
+  ],
+  "artifacts": {
+    "bbr-sampler-probe-tests.rs": "6fefa9b49456ffde13a5814ae1f479a6498089a3039675180069ca1618234d67",
+    "bbr-sampler-probes-status.json": "7711e7cb15d68e7004544d40814ed1b166f6592713b1751e39c156c99246b79e",
+    "bbr-sampler-probes.txt": "ca6437a17ed0b23ff49d9f218afbf228f181f6bbbeb5a6c219a7cf8ea1543a1a",
+    "fleet-recheck.json": "bf32e9ef48642ce9e7f2947501edf67c89819fc74aa90f7e6406ec961c65b880",
+    "foreign-work.json": "132c394624323f5c9e2618fc562b233a7445ce98e55a1e8fbc637a9bc1541361",
+    "frozen-plan.json": "f85fa778503a407e4e0b0a35395f0d0062c11b481b04df39603541def5c424b9",
+    "group-independent-cleanup.json": "ab67ed163b7968d323badf910de553eae2fdae57ba830772d4326ee6ff4799be",
+    "group-peak.json": "7ea198e54781d1d93183f5b6849a2ca9d75997122992c58ec5dd859b56aef6a0",
+    "group-result.json": "b7f1463447882af8127e8fd3f4af17fa51fbe35d24a54dcd9b3ae473c82e891b",
+    "launch-group-final.py": "d2134514a5706b92bfe1aaa686696ac09ade48b01d00c2519e1ce922e4297cfc",
+    "launch-pair.py": "a2747fdfcd95c6fefbe2c3acac7233a5c300b71e4b1281ba0edbdfefccc6f4da",
+    "negative-ignored-rate-status.json": "e7a16ff9ecb0b95d5ddfda0fbb0aa5cbfddc9692bffa2a0b920b8ca08659cd2c",
+    "negative-ignored-rate.txt": "adc2fb54dd8d9c0ed1be6ff3d5e8a7a5d7fa6b3361223386629dd8db76c203e3",
+    "negative-old-credit-status.json": "2f5868408cd32534fa7a8f3689bf23cd8171cd9dfbc5b5639ffc58af470076af",
+    "negative-old-credit.txt": "e4630691e66cc2de53ef46292135f0f223460ce8f0dcaa1b9edcb0d8681bc97c",
+    "pair-independent-cleanup.json": "7a6db183dc571499dc0d51da531cfd4c042efb1d70c270946edccf69fb1b7585",
+    "pair-pipeline-peaks.json": "58c5682153599de453c6b01e5cc5ed5fe79a7885128d04bd47d17f6dca39e36b",
+    "pair-result.json": "f13060a8c4e4ff00acde18d6a828db805bdfb0d824ee10c9db30233bf3cba98b",
+    "proto-restored-status.json": "4fef1761b5c2817c9a2fdfda135e73be1f377465a4515f7d8dcbde374f086177",
+    "protocol-tests.txt": "9d01080ca8032f9cfc959eb0fe3fe15348c8407019e07dc0ca1cd86916148c62",
+    "raw-artifacts.json": "241244166e08619396577db7ed8f268c8d7d4839bf7d1249a63518a9ec3a1059",
+    "release-build-status.json": "8202d9cd220d6f927b4995cba1c86e3538c7941b9ff0fdf25831e7bc70891462",
+    "release-build.txt": "2686a4f3d8583c15c918a90827d0a4a65f47451deaacf226ab81a18c4b205373",
+    "session-tests-status.json": "99fb62e2129856cc7259a4d6470487f18fd4e4a12922ed3774d0b569681e22fa",
+    "session-tests.txt": "d298237ecc0cea83cfbb1f919d52419fbc70376b1951d71d56decef5a3e6f725",
+    "source-proof.json": "6f1a7afb22247ac75e6c52e718b735e8a23818466cbdf1e67565a5c6d55e2c05",
+    "verify-build.py": "34eef6c985160892a89a9705a0ff3173db12fbc9883f7d64359a7ccd3c8fbe56"
+  }
+}

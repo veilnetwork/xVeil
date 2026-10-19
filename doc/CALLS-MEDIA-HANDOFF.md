@@ -1,5 +1,74 @@
 # Calls media handoff
 
+## 2026-10-19: QUIC pacing credit repaired; audio gates still fail
+
+SDK **e28a10cd** fixes reproducible transport accounting defects. Pacing now
+settles elapsed time before spending existing credit, retains fractional bytes
+across frequent polls and never rolls its clock backward. Old rate/capacity
+settles before installing a changed model, so idle time cannot fund two bursts
+or acquire a newly increased rate retroactively. RTT changes update capacity.
+The normal Cubic pacing rule, two-ms batching interval and burst bounds remain.
+
+The actual encrypted packet builder now honors a positive controller pacing
+rate in bits/s, without applying another pacing gain or deriving a burst from an
+unrelated large congestion window. Unknown/zero rates use the normal pacer.
+Explicit-rate burst bounds are two MTUs through 64 KiB (at least two MTUs for an
+unusually large MTU). **Default Cubic is unchanged; BBR remains opt-in.**
+This is a generic local transport fix, with no application-role hints or relay
+preferential service. It does not implement the shared source allocator.
+
+All **324 protocol /603 session** tests pass;8 session tests remain ignored.
+Restoring the old credit body makes three correctness tests fail. Ignoring the
+rate in the real packet builder makes the encrypted64-packet regression fail.
+Production SDK builds;202 export names match. The binary is from archived
+827902ca plus exactly the five committed files, excluding foreign edits.
+The generic target's release output now contains this retained pacer build,
+replacing the absent/quarantined output described in the previous entry.
+
+Both original **360s /1024-kbit** full gates still **FAIL**: group **310.110ms**,
+2112 matched/0 missing markers,3 exact files, six video tails14 changes; pair
+**189.972/220.118ms**,704/0 markers,2 exact files, both tails14. Both captures
+have0 FIFO drops and0 driver deadline misses. Group peak attribution is
+**50.286ms formation +113.392ms encoded-to-ingress +146.432ms after ingress**.
+The pair220.118-ms peak includes128.067ms SDK-to-ingress and61.554ms after
+ingress. These spans include local scheduling and codec lookahead; they do not
+identify a particular network hop or prove an improvement from one capture.
+Native media, fixtures, quotas, workload and strict200-ms gates are unchanged.
+
+Separate private diagnostic tests expose **three existing BBR sampler defects**:
+application-limited positive delivery cannot establish a nonzero lower bound;
+lower backlogged samples cannot age out an old maximum; compressed old ACKs
+can use an unrelated new send burst. The low-demand preservation test passes.
+These are **unfixed**, not production test regressions introduced by this patch.
+The diagnostic tests were appended only in the clean private source and then
+removed; production estimator source is unchanged. Do not enable BBR by default
+or treat its current estimate as a safe source capacity grant. Merely changing
+the sample-filter predicate will not fix send/ACK correlation.
+
+All six relays pass a fresh read-only service/config/executable/listener check:
+QUIC/UDP8443 and obfs4/TCP5556 active, service-owned UDP sockets, advancing
+health ticks, active sessions, unchanged PIDs and zero automatic restarts.
+No server restart/mutation, installed-app change or phone test this cycle.
+All15 long-lived stand/helper/policy processes are independently absent; the
+pair's process recording also includes one transient ps process, likewise gone.
+All7 node stops return0 and no fixture sockets remain. Foreign work is unchanged.
+Evidence: `call-pacer-credit-2026-10-19.json` and `pacer-credit-2026-10-19/`.
+
+Next implementation must couple trusted **locally authored** source children
+under one primary-first resource pool, not another pressure bucket. Quinn's
+`congestion_state()` returns a controller clone: a neutral wrapper can share a
+local role cell and bind it only after authenticated source-child binding.
+Keep the pool per node/LocalSourceActivity, not shared TransportContext; bypass
+neutral transit, forwarded work and mixed canonical parents. Driver wakeups
+must propagate pool progress without locking another connection or busy polls.
+Inspection/window reads must not manufacture demand. Account real bytes and
+current-route confirmed delivery, reserve actual primary framing/fanout and
+mandatory control first, and guard remaining service with fresh end-to-end
+feedback; first-hop ACKs and sums of child windows are not spare capacity.
+Path epochs, reconnect, cleanup and primary idle must not mint credit. Remaining
+DATA/control channel separation, receiver delay and hardware speech/headset
+qualification are still open. Goal **ACTIVE**.
+
 ## 2026-10-19: shared pressure-only window tested and REJECTED
 
 Previous turn made real progress with complete codec-cost accounting827902ca.

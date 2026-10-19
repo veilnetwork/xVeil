@@ -1,0 +1,63 @@
+   Compiling quinn-proto v0.11.18 (/Users/vart/.cache/codex/xveil-pacer-credit-20261019/sdk-src/third_party/quinn-proto)
+warning: unused `streams::ShouldTransmit` that must be used
+    --> src/tests/mod.rs:2655:5
+     |
+2655 |     chunks.finalize();
+     |     ^^^^^^^^^^^^^^^^^
+     |
+     = note: A frame might need to be enqueued
+     = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+     |
+2655 |     let _ = chunks.finalize();
+     |     +++++++
+
+warning: `quinn-proto` (lib test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.09s
+     Running unittests src/lib.rs (/Users/vart/.cache/codex/veil-qos-target-20261016/debug/deps/quinn_proto-05261a2d38292817)
+
+running 12 tests
+test connection::pacing::tests::derives_initial_capacity ... ok
+test connection::pacing::tests::does_not_panic_on_bad_instant ... ok
+test connection::pacing::tests::adjusts_capacity ... ok
+test connection::pacing::tests::a_rate_increase_cannot_reprice_old_time_as_new_credit ... ok
+test connection::pacing::tests::a_small_window_does_not_wait_for_ten_mtus_of_credit ... ok
+test connection::pacing::tests::an_unknown_controller_rate_uses_the_normal_pacer ... ok
+test connection::pacing::tests::earlier_small_window_wakes_preserve_the_byte_rate ... ok
+test connection::pacing::tests::explicit_controller_rate_limits_a_large_window_without_extra_gain ... ok
+test connection::pacing::tests::computes_pause_correctly ... ok
+test connection::pacing::tests::old_timestamps_cannot_replay_a_settled_refill_interval ... FAILED
+test connection::pacing::tests::idle_time_cannot_fund_two_bursts_at_the_same_instant ... FAILED
+test connection::pacing::tests::frequent_driver_polls_preserve_sub_byte_credit ... FAILED
+
+failures:
+
+---- connection::pacing::tests::old_timestamps_cannot_replay_a_settled_refill_interval stdout ----
+
+thread 'connection::pacing::tests::old_timestamps_cannot_replay_a_settled_refill_interval' (64280282) panicked at src/connection/pacing.rs:372:9:
+assertion `left == right` failed
+  left: 846
+ right: 423
+
+---- connection::pacing::tests::idle_time_cannot_fund_two_bursts_at_the_same_instant stdout ----
+
+thread 'connection::pacing::tests::idle_time_cannot_fund_two_bursts_at_the_same_instant' (64280281) panicked at src/connection/pacing.rs:337:17:
+the same idle time funded extra packets
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- connection::pacing::tests::frequent_driver_polls_preserve_sub_byte_credit stdout ----
+
+thread 'connection::pacing::tests::frequent_driver_polls_preserve_sub_byte_credit' (64280280) panicked at src/connection/pacing.rs:358:9:
+assertion `left == right` failed: poll frequency cannot erase all delivery credit
+  left: 0
+ right: 1
+
+
+failures:
+    connection::pacing::tests::frequent_driver_polls_preserve_sub_byte_credit
+    connection::pacing::tests::idle_time_cannot_fund_two_bursts_at_the_same_instant
+    connection::pacing::tests::old_timestamps_cannot_replay_a_settled_refill_interval
+
+test result: FAILED. 9 passed; 3 failed; 0 ignored; 0 measured; 312 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`

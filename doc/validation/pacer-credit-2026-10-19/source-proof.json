@@ -1,0 +1,14 @@
+{
+  "base_sdk": "827902ca3f02591988805e27ae26191e8517bd91",
+  "foreign_excluded": true,
+  "sources": {
+    "third_party/quinn-proto/src/connection/pacing.rs": "726a633d77342aa30248f8124045fa27b415b5fa13c18284d2af22816c095aaa",
+    "third_party/quinn-proto/src/connection/mod.rs": "4791ee9e839e4bfb06ccaf6b28bfe342d304ae819407309bbffadd235d435223",
+    "third_party/quinn-proto/src/congestion.rs": "7ca7849242ff8167a02ba8bd4fa05c6bf971c1f6699cd1ce002e69b8d9b73466",
+    "third_party/quinn-proto/src/tests/mod.rs": "73d472c78ab2d2856a190292e59d235c3141fddadf4df4dbe36747a4c9707c04",
+    "third_party/quinn-proto/src/tests/pacing_rate.rs": "ec3aa5171a9943b9ffb972666f055cf6302daa8112ddf6ce984300a66569fcfa"
+  },
+  "sdk_sha256": "f32c927f42c7194f3faa30e2ca6f3f0aec1daa2e3486024f040d3e681f3a15e4",
+  "exports_unchanged": 202,
+  "sdk_commit": "e28a10cdefa93f7b8671a64be558ea7e3c03797d"
+}

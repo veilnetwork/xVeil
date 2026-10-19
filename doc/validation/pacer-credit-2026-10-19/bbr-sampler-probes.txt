@@ -1,0 +1,55 @@
+   Compiling quinn-proto v0.11.18 (/Users/vart/.cache/codex/xveil-pacer-credit-20261019/sdk-src/third_party/quinn-proto)
+warning: unused `streams::ShouldTransmit` that must be used
+    --> src/tests/mod.rs:2655:5
+     |
+2655 |     chunks.finalize();
+     |     ^^^^^^^^^^^^^^^^^
+     |
+     = note: A frame might need to be enqueued
+     = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+     |
+2655 |     let _ = chunks.finalize();
+     |     +++++++
+
+warning: `quinn-proto` (lib test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3.12s
+     Running unittests src/lib.rs (/Users/vart/.cache/codex/veil-qos-target-20261016/debug/deps/quinn_proto-05261a2d38292817)
+
+running 4 tests
+test congestion::bbr::bw_estimation::bandwidth_estimation_probes::low_demand_cannot_claim_that_capacity_dropped ... ok
+test congestion::bbr::bw_estimation::bandwidth_estimation_probes::a_lower_backlogged_rate_expires_an_old_maximum ... FAILED
+test congestion::bbr::bw_estimation::bandwidth_estimation_probes::compressed_old_acks_cannot_use_an_unrelated_new_send_burst ... FAILED
+test congestion::bbr::bw_estimation::bandwidth_estimation_probes::app_limited_delivery_can_establish_a_nonzero_lower_bound ... FAILED
+
+failures:
+
+---- congestion::bbr::bw_estimation::bandwidth_estimation_probes::a_lower_backlogged_rate_expires_an_old_maximum stdout ----
+
+thread 'congestion::bbr::bw_estimation::bandwidth_estimation_probes::a_lower_backlogged_rate_expires_an_old_maximum' (64682698) panicked at src/congestion/bbr/bw_estimation.rs:122:9:
+assertion `left == right` failed
+  left: 1000000
+ right: 100000
+
+---- congestion::bbr::bw_estimation::bandwidth_estimation_probes::compressed_old_acks_cannot_use_an_unrelated_new_send_burst stdout ----
+
+thread 'congestion::bbr::bw_estimation::bandwidth_estimation_probes::compressed_old_acks_cannot_use_an_unrelated_new_send_burst' (64682700) panicked at src/congestion/bbr/bw_estimation.rs:141:9:
+old confirmations must not fund the unrelated burst: 1000000000
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- congestion::bbr::bw_estimation::bandwidth_estimation_probes::app_limited_delivery_can_establish_a_nonzero_lower_bound stdout ----
+
+thread 'congestion::bbr::bw_estimation::bandwidth_estimation_probes::app_limited_delivery_can_establish_a_nonzero_lower_bound' (64682699) panicked at src/congestion/bbr/bw_estimation.rs:114:9:
+assertion `left == right` failed
+  left: 0
+ right: 100000
+
+
+failures:
+    congestion::bbr::bw_estimation::bandwidth_estimation_probes::a_lower_backlogged_rate_expires_an_old_maximum
+    congestion::bbr::bw_estimation::bandwidth_estimation_probes::app_limited_delivery_can_establish_a_nonzero_lower_bound
+    congestion::bbr::bw_estimation::bandwidth_estimation_probes::compressed_old_acks_cannot_use_an_unrelated_new_send_burst
+
+test result: FAILED. 1 passed; 3 failed; 0 ignored; 0 measured; 324 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`
