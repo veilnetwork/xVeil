@@ -28,7 +28,8 @@ class CallAudioReceiveActivity {
 
   /// WebRTC's delay estimate filters recent buffer growth. Protect audio
   /// using the larger current buffer too, before that filter catches up.
-  /// Missing buffer stats on older libraries retain the validated estimate.
+  /// Relative RTP lag additionally accounts for backlog before this receiver.
+  /// Missing pressure stats on older libraries retain the validated estimate.
   static int? nativePlayoutDelay(Map<String, Object?> stats) {
     final packets = stats['audio_rx_pkts'];
     if (stats['worker_stalled'] != 0 ||
@@ -44,7 +45,10 @@ class CallAudioReceiveActivity {
     final delay = valid(stats['audio_delay_ms']);
     if (delay == null) return null;
     final buffer = valid(stats['audio_jb_ms']);
-    return buffer != null && buffer > delay ? buffer : delay;
+    final pressure = valid(stats['audio_pressure_delay_ms']);
+    var worst = buffer != null && buffer > delay ? buffer : delay;
+    if (pressure != null && pressure > worst) worst = pressure;
+    return worst;
   }
 
   static int? nativeTargetDelay(Map<String, Object?> stats) {

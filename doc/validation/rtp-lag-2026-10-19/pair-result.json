@@ -1,0 +1,175 @@
+{
+  "ok": false,
+  "duration_seconds": 360,
+  "rate_kbps": 1024,
+  "decoded_pcm_edges": [
+    {
+      "side": 0,
+      "phases": [
+        {
+          "name": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "p95_ms": 100.04695833777077,
+          "max_ms": 100.11849997681566
+        },
+        {
+          "name": "audio-video",
+          "matched": 337,
+          "missing": 0,
+          "p95_ms": 169.85866668983363,
+          "max_ms": 200.02133332309313
+        }
+      ],
+      "source_edge_capture_positions": {
+        "40": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "60": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      }
+    },
+    {
+      "side": 1,
+      "phases": [
+        {
+          "name": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "p95_ms": 100.26158334221691,
+          "max_ms": 100.2663749968633
+        },
+        {
+          "name": "audio-video",
+          "matched": 337,
+          "missing": 0,
+          "p95_ms": 160.31900001689792,
+          "max_ms": 210.2996666508261
+        }
+      ],
+      "source_edge_capture_positions": {
+        "40": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "60": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      }
+    }
+  ],
+  "file_results": [
+    {
+      "queued": 524288,
+      "queue_duration_ms": 5.4,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "receipt_duration_ms": 159201.4,
+      "missing_indices": []
+    },
+    {
+      "queued": 524288,
+      "queue_duration_ms": 5.2,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "receipt_duration_ms": 151187.0,
+      "missing_indices": []
+    }
+  ],
+  "decoded_video_progress": {
+    "synthetic_fixture_only": true,
+    "screen_presentation_proof": false,
+    "sampled_retrieval_not_native_decode_timing": true,
+    "tail_seconds": 15,
+    "directions": [
+      {
+        "side": 0,
+        "decoded_frame_pulls": 339,
+        "content_changes": 338,
+        "last_decoded_pull_seconds": 359.0009681250085,
+        "max_sampled_pull_gap_seconds": 1.0056734170066193,
+        "tail_decoded_pulls": 15,
+        "tail_content_changes": 14,
+        "moving_at_end": true
+      },
+      {
+        "side": 1,
+        "decoded_frame_pulls": 339,
+        "content_changes": 338,
+        "last_decoded_pull_seconds": 359.00305800000206,
+        "max_sampled_pull_gap_seconds": 1.0079647090169601,
+        "tail_decoded_pulls": 15,
+        "tail_content_changes": 14,
+        "moving_at_end": true
+      }
+    ],
+    "moving_at_end": true
+  },
+  "native_pcm_driver": {
+    "clock_check_span_us": 3.6249984987080097,
+    "scheduling_mode": "deadline",
+    "dropped_rows": 0,
+    "ticks": 36000,
+    "observation_count_verified": true,
+    "stage_maxima_ms": {
+      "max_wake_lateness_ms": 0.045291,
+      "max_callback_ms": 0.28291664784774184,
+      "max_publication_ms": 0.012916658306494355
+    },
+    "scheduling": {
+      "qos_supported": 1,
+      "qos_result": 0,
+      "qos_requested": 33,
+      "qos_actual": 33
+    },
+    "deadline_scheduling": {
+      "deadline_requested": 1,
+      "deadline_result": 0,
+      "deadline_active": 1,
+      "deadline_period_ticks": 240000,
+      "deadline_computation_ticks": 72000,
+      "deadline_constraint_ticks": 120000,
+      "deadline_actual_period_ticks": 240000,
+      "deadline_actual_computation_ticks": 72000,
+      "deadline_actual_constraint_ticks": 120000,
+      "deadline_checks": 362,
+      "deadline_misses": 0
+    },
+    "timer_error": 0
+  },
+  "driver_late_interval_count": 0,
+  "node_stop_results": [
+    0,
+    0,
+    0
+  ],
+  "remaining_fixture_sockets": 0,
+  "video_stop_results": [
+    0,
+    0
+  ],
+  "raw_sha256": {
+    "summary.json": "2701ccede6cfca67df460b139d6e8e1d09deed8f21fc03e807ddc05a0113d352",
+    "native.log": "5fb1709242e3140ce383ed94b0d34c2b6e6a54fb9421a5cb1bde04fe70fa3274",
+    "pcm-samples.json": "ee71470e58aa70d0412f956cd73df2f51b8644d4bce8d23d896d7e5e8b49b912",
+    "codec-samples.json": "365f54b4d65fa5dd31acbdab37789a02792a61d38df58c84eeffbbd89b11e90e"
+  }
+}

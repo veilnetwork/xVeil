@@ -802,6 +802,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
           'worker_stalled': stats['worker_stalled'],
           if (receiver is Map) 'audio_delay_ms': receiver['audio_delay_ms'],
           if (receiver is Map)
+            'audio_pressure_delay_ms': receiver['audio_pressure_delay_ms'],
+          if (receiver is Map)
             'audio_interruption_count': receiver['audio_interruption_count'],
           if (receiver is Map && _supportsAudioReceiveAgeStats)
             'audio_rx_native_age_ms': receiver['audio_rx_native_age_ms'],
@@ -1073,6 +1075,16 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         continue;
       }
       if (delay > worstDelay) worstDelay = delay.toInt();
+      final pressure = receiver is Map
+          ? receiver['audio_pressure_delay_ms']
+          : null;
+      if (pressure is num &&
+          pressure.isFinite &&
+          pressure >= 0 &&
+          pressure <= 60000 &&
+          pressure > worstDelay) {
+        worstDelay = pressure.toInt();
+      }
     }
     return complete || worstDelay >= CallBitrateAdapter.playoutDegradeMs
         ? worstDelay
