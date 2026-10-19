@@ -1,0 +1,126 @@
+{
+  "capture": "/Users/vart/.cache/codex/xveil-video-rtt-recovery-20261020/pair-rtp-lag-full/codec-samples.json",
+  "cut_rows": [
+    {
+      "side": 1,
+      "second": 69.005,
+      "levels": [
+        3,
+        4
+      ],
+      "local_buffer_ms": 117,
+      "peer_current_buffer_ms": 64,
+      "fresh_soft_repeat": true,
+      "local_catchup": false,
+      "peer_concealment": true,
+      "buffer_pressure": false,
+      "rtp_loss": false
+    },
+    {
+      "side": 1,
+      "second": 113.009,
+      "levels": [
+        3,
+        4
+      ],
+      "local_buffer_ms": 68,
+      "peer_current_buffer_ms": 82,
+      "fresh_soft_repeat": true,
+      "local_catchup": false,
+      "peer_concealment": true,
+      "buffer_pressure": false,
+      "rtp_loss": false
+    },
+    {
+      "side": 1,
+      "second": 148.007,
+      "levels": [
+        3,
+        4
+      ],
+      "local_buffer_ms": 127,
+      "peer_current_buffer_ms": 67,
+      "fresh_soft_repeat": true,
+      "local_catchup": true,
+      "peer_concealment": false,
+      "buffer_pressure": false,
+      "rtp_loss": false
+    },
+    {
+      "side": 0,
+      "second": 166.006,
+      "levels": [
+        1,
+        3
+      ],
+      "local_buffer_ms": 44,
+      "peer_current_buffer_ms": 138,
+      "fresh_soft_repeat": true,
+      "local_catchup": true,
+      "peer_concealment": false,
+      "buffer_pressure": false,
+      "rtp_loss": false
+    },
+    {
+      "side": 0,
+      "second": 167.005,
+      "levels": [
+        3,
+        4
+      ],
+      "local_buffer_ms": 44,
+      "peer_current_buffer_ms": 138,
+      "fresh_soft_repeat": true,
+      "local_catchup": true,
+      "peer_concealment": false,
+      "buffer_pressure": false,
+      "rtp_loss": false
+    },
+    {
+      "side": 1,
+      "second": 263.007,
+      "levels": [
+        1,
+        3
+      ],
+      "local_buffer_ms": 114,
+      "peer_current_buffer_ms": 104,
+      "fresh_soft_repeat": true,
+      "local_catchup": false,
+      "peer_concealment": true,
+      "buffer_pressure": false,
+      "rtp_loss": false
+    },
+    {
+      "side": 1,
+      "second": 315.005,
+      "levels": [
+        1,
+        3
+      ],
+      "local_buffer_ms": 85,
+      "peer_current_buffer_ms": 55,
+      "fresh_soft_repeat": true,
+      "local_catchup": false,
+      "peer_concealment": true,
+      "buffer_pressure": false,
+      "rtp_loss": false
+    },
+    {
+      "side": 1,
+      "second": 317.008,
+      "levels": [
+        3,
+        4
+      ],
+      "local_buffer_ms": 152,
+      "peer_current_buffer_ms": 109,
+      "fresh_soft_repeat": true,
+      "local_catchup": true,
+      "peer_concealment": false,
+      "buffer_pressure": false,
+      "rtp_loss": false
+    }
+  ],
+  "interpretation": "Distinct soft events can currently cut video on adjacent seconds despite recovered buffers. This evidence alone does not prove the underlying events describe one impairment or predict a full counterfactual replay."
+}

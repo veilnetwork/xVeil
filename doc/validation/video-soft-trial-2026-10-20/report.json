@@ -1,0 +1,37 @@
+{
+  "request": "Focus on video degradation; defer strict 200ms acoustic target.",
+  "confirmed_problem": "Earlier capture cut side 0 twice on adjacent seconds 166/167 at recovered 44/138ms local/peer buffers, driven by repeated soft recovery events.",
+  "changes": [
+    "Existing rails from 8f2993bb: 300ms buffer ceiling, growth >=40ms with 3s continuous confirmation; brief lower spikes hold growth.",
+    "Existing RTT recovery from 26e943e7: stable healthy 120ms RTT can recover video.",
+    "New: at least 6s between soft concealment/catch-up video reductions, shared across both directions; hard loss and sustained buffer pressure bypass it.",
+    "New: own incoming concealment yields local secondary sources and video, including with microphone muted; exact native event timestamp prevents polling replay."
+  ],
+  "checks": {
+    "flutter_tests": 451,
+    "flutter_analysis": "9 selected files, no issues",
+    "native_feedback_smoke": "pass",
+    "native_production_shim_smoke": "pass",
+    "native_direct_group_call_planes": "pass",
+    "native_export_sets": "unchanged: production 101 / hooks 135",
+    "media_commit": "ad55c9df",
+    "red_regressions": "Two burst/opposite-direction regressions fail before the six-second trial and pass after it."
+  },
+  "final_capture_policy_event_counts": {
+    "audio_latency_recovery": 2,
+    "audio_local_concealment": 13,
+    "audio_peer_concealment": 13
+  },
+  "final_capture_video_cuts": [],
+  "interpretation": [
+    "Both same-workload 360s runs passed their existing gates. Final decoded counter rates in the last minute were 14.75/14.90fps under the 15fps fixture cap.",
+    "No lost synthetic acoustic markers; audio-video p95 was 130.01/130.27ms, maxima 150.10/150.28ms.",
+    "Both 512KiB files were received without gaps and with matching hashes; they remained lower priority than the call.",
+    "Single runs do not isolate the causal contribution of each change. The soft-cut regressions establish the changed policy behavior; no full trace counterfactual replay is claimed."
+  ],
+  "remaining_scope": [
+    "Physical camera/headset/speech verification remains outstanding.",
+    "These pair runs do not establish group/screen/ordered-relay performance.",
+    "No relay media classification or priority was added."
+  ]
+}

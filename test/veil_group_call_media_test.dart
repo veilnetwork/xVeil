@@ -10,6 +10,7 @@ import 'package:xveil/data/transport/veil_flutter_transport.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/domain/group_call.dart';
 import 'package:xveil/state/veil_group_call_media.dart';
+import 'package:xveil/state/call_audio_buffer_window.dart';
 
 NodeId _id(int byte) => NodeId(Uint8List.fromList(List.filled(32, byte)));
 
@@ -100,7 +101,7 @@ void main() {
           engine.stats = {
             ...engine.stats,
             'audio_playout_sequence': n,
-            'audio_playout_ms': 240,
+            'audio_playout_ms': CallAudioBufferWindow.ceilingMs,
             'audio_latency_recovery_count': n,
             'audio_tx_payload_pkts': n * 100,
             'audio_tx_packet_duration_ms': engine.audioBudgets.last.packetMs,
@@ -443,7 +444,9 @@ void main() {
       };
       clock.elapse(const Duration(seconds: 20));
       expect(transport.pressureReports.last.pressured, isFalse);
-      final rising = [100, 100, 100, 125, 130, 135];
+      // Brief growth below the ceiling only holds further growth. It takes
+      // three seconds of continuing evidence to restrict competing sources.
+      final rising = [100, 100, 100, 150, 200, 250, 280, 290, 295];
       for (var i = 0; i < rising.length; i++) {
         engine.stats = {
           ..._sourceStats([peer], delay: rising[i]),
@@ -585,6 +588,59 @@ void main() {
     },
   );
 
+  test('group incoming concealment yields local video with a muted mic', () {
+    fakeAsync((clock) {
+      final self = _id(1), alice = _id(2), bob = _id(3);
+      final transport = _FakeTransport(self);
+      final engine = _FakeEngine()
+        ..stats = {
+          ..._sourceStats([alice, bob]),
+          'video_feedback_reports': 2,
+          'video_feedback_rtt_ms': 80,
+          'video_feedback_jitter_ms': 10,
+        };
+      final controller = VeilGroupCallMediaController(
+        transport,
+        roomMediaSecret: _room(),
+        engineFactory: (_) => engine,
+        requestMicrophone: () async => true,
+        requestCamera: () async => true,
+        now: () => DateTime(2026, 10, 20).add(clock.elapsed),
+      );
+      controller.start(_call(self, [alice, bob], video: true));
+      clock.flushMicrotasks();
+      controller.setMicMuted(true);
+      clock.flushMicrotasks();
+      clock.elapse(const Duration(seconds: 120));
+      expect(engine.targets.last, (maxBitrateKbps: 150, maxFps: 15));
+      expect(transport.pressureReports.last.pressured, isFalse);
+      engine.stats = {
+        ...engine.stats,
+        'audio_local_concealment_report_us': 100,
+      };
+      clock.elapse(const Duration(seconds: 1));
+      expect(transport.pressureReports.last.pressured, isTrue);
+      expect(engine.targets.last, (maxBitrateKbps: 150, maxFps: 15));
+      clock.elapse(const Duration(seconds: 1));
+      engine.stats = {
+        ...engine.stats,
+        'audio_local_concealment_report_us': 200,
+      };
+      clock.elapse(const Duration(seconds: 1));
+      final reduced = engine.targets.last;
+      expect(reduced.maxFps, lessThan(15));
+      expect(reduced.maxBitrateKbps, lessThan(150));
+      clock.elapse(const Duration(seconds: 3));
+      expect(
+        engine.targets.last,
+        reduced,
+        reason: 'cached report cannot cut again',
+      );
+      controller.stop();
+      clock.flushMicrotasks();
+    });
+  });
+
   test(
     'group feedback stays bounded and a stopped epoch cannot update its successor',
     () {
@@ -706,7 +762,7 @@ void main() {
               peer.hex: {
                 'audio_rx_pkts': 20,
                 'audio_delay_ms': 100,
-                if (pressure != null) 'audio_pressure_delay_ms': pressure,
+                'audio_pressure_delay_ms': ?pressure,
                 'audio_rx_native_age_ms': 10,
                 'audio_interruption_count': 0,
               },
@@ -720,7 +776,10 @@ void main() {
         expect(transport.pressureReports.last.at, origin.add(clock.elapsed));
         clock.elapse(const Duration(seconds: 11));
         expect(transport.pressureReports.last.pressured, isFalse);
-        engine.stats = sample(reports: 1, delay: 220);
+        engine.stats = sample(
+          reports: 1,
+          delay: CallAudioBufferWindow.ceilingMs,
+        );
         clock.elapse(const Duration(seconds: 1));
         expect(
           transport.pressureReports.last.pressured,
@@ -739,7 +798,7 @@ void main() {
         expect(transport.pressureReports.last.pressured, isTrue);
         clock.elapse(const Duration(seconds: 1));
         expect(transport.pressureReports.last.pressured, isFalse);
-        engine.stats = sample(pressure: 269);
+        engine.stats = sample(pressure: CallAudioBufferWindow.ceilingMs);
         clock.elapse(const Duration(seconds: 1));
         expect(
           transport.pressureReports.last.pressured,
@@ -1074,7 +1133,11 @@ void main() {
         engine.stats = sample(100, 100);
         clock.elapse(const Duration(seconds: 120));
         expect(engine.targets.last.maxBitrateKbps, 150);
-        engine.stats = sample(100, 4456, bobDelay: 220);
+        engine.stats = sample(
+          100,
+          4456,
+          bobDelay: CallAudioBufferWindow.ceilingMs,
+        );
         clock.elapse(const Duration(seconds: 6));
         expect(
           engine.pauses.last,
@@ -1158,7 +1221,7 @@ void main() {
           },
           bob.hex: {
             'audio_rx_pkts': 20,
-            'audio_delay_ms': 220,
+            'audio_delay_ms': CallAudioBufferWindow.ceilingMs,
             'audio_rx_native_age_ms': 13000,
           },
         },
@@ -1253,7 +1316,7 @@ void main() {
           'audio_receivers': {
             alice.hex: {
               'audio_rx_pkts': 20,
-              'audio_delay_ms': 220,
+              'audio_delay_ms': CallAudioBufferWindow.ceilingMs,
               'audio_rx_native_age_ms': 1085,
             },
             bob.hex: {

@@ -83,6 +83,12 @@ class CallBitrateAdapter {
   /// instead of oscillating.
   static const int recoverAfter = 12;
 
+  /// Give a reduced rung time to affect delivery before another short
+  /// concealment/catch-up event can cut it again. Hard loss and sustained
+  /// buffer pressure bypass this interval; damage at the applied floor still
+  /// protects audio immediately through the independent pause path.
+  static const softVideoTrial = Duration(seconds: 6);
+
   /// Healthy measured audio can retry the one-fps floor after three samples.
   /// A larger video budget still needs [recoverAfter] healthy samples. Small
   /// intermittent decoded trims must not restart a twelve-second camera hold.
@@ -161,8 +167,12 @@ class CallBitrateAdapter {
   final _rtcpLoss = CallRtcpLoss();
   final _peerRecoveryLoss = CallRtcpLoss();
   final _peerConcealment = CallRtcpLoss();
+  final _localConcealment = CallRtcpLoss();
   final _transientLoss = CallAudioTransientLoss();
+  final _receiveTransientLoss = CallAudioTransientLoss();
   bool? _lastTransientSendExpected;
+  bool? _lastTransientReceiveExpected;
+  DateTime? _lastVideoCutAt;
   int? _lastVideoTxFrames;
   int _videoIdleSamples = 0;
   int? _floorTrialLastFrames;
@@ -388,8 +398,12 @@ class CallBitrateAdapter {
     _rtcpLoss.reset();
     _peerRecoveryLoss.reset();
     _peerConcealment.reset();
+    _localConcealment.reset();
     _transientLoss.reset();
+    _receiveTransientLoss.reset();
     _lastTransientSendExpected = null;
+    _lastTransientReceiveExpected = null;
+    _lastVideoCutAt = null;
     _floorTrialLastFrames = null;
     _floorTrialFrames = 0;
     _floorPeerSampleSequence = null;
@@ -622,6 +636,15 @@ class CallBitrateAdapter {
           videoExpected: false,
         )
         .audio;
+    final localConcealed = _localConcealment
+        .observe(
+          audioReportUs: stats['audio_local_concealment_report_us'],
+          audioExpected:
+              (audioReceiveQuality?.expected ?? receiveAudioExpected) &&
+              stats['worker_stalled'] == 0,
+          videoExpected: false,
+        )
+        .audio;
     final videoDrops = stats['video_tx_rtp_drops'];
     final validVideoDrops = videoDrops is int && videoDrops >= 0;
     final videoLoss =
@@ -747,6 +770,7 @@ class CallBitrateAdapter {
       videoLossObserved: videoLoss,
       audioNetworkLossObserved: networkLoss.audio,
       audioConcealmentObserved: concealed,
+      audioReceiveConcealmentObserved: localConcealed,
       videoNetworkLossObserved: networkLoss.video,
       audioRecoveryObserved:
           audioRecoveryObserved || (peerRecoveryObserved ?? peerRecovered),
@@ -822,6 +846,7 @@ class CallBitrateAdapter {
     bool videoLossObserved = false,
     bool audioNetworkLossObserved = false,
     bool audioConcealmentObserved = false,
+    bool audioReceiveConcealmentObserved = false,
     bool videoNetworkLossObserved = false,
     bool audioRecoveryObserved = false,
     required int rttMs,
@@ -984,23 +1009,53 @@ class CallBitrateAdapter {
       audioConcealmentObserved || audioRecoveryObserved,
       sampledAt: sampledAt,
     );
+    final receiveExpected = requireAudioReceive || requireAudioReceivePlayout;
+    if (_lastTransientReceiveExpected != receiveExpected) {
+      _receiveTransientLoss.reset();
+      _lastTransientReceiveExpected = receiveExpected;
+    }
+    final repeatedReceiveLoss = _receiveTransientLoss.observe(
+      receiveExpected && audioReceiveConcealmentObserved,
+      sampledAt: sampledAt,
+    );
+    final transientGrowthHeld =
+        _transientLoss.holdingGrowth || _receiveTransientLoss.holdingGrowth;
     final freshAudioLoss =
         newAudioDrops ||
         audioInterrupted ||
         audioNetworkLossObserved ||
-        repeatedTransientLoss;
+        repeatedTransientLoss ||
+        repeatedReceiveLoss;
     final freshMediaLoss =
         freshAudioLoss || videoLossObserved || videoNetworkLossObserved;
+    final lossSampleAt = sampledAt ?? DateTime.now();
+    if (_lastVideoCutAt != null && lossSampleAt.isBefore(_lastVideoCutAt!)) {
+      _lastVideoCutAt = null;
+    }
+    final softCutReady =
+        _lastVideoCutAt == null ||
+        lossSampleAt.difference(_lastVideoCutAt!) >= softVideoTrial;
+    final hardMediaLoss =
+        newAudioDrops ||
+        audioInterrupted ||
+        audioNetworkLossObserved ||
+        videoLossObserved ||
+        videoNetworkLossObserved;
+    final repeatedSoftLoss = repeatedTransientLoss || repeatedReceiveLoss;
+    final videoStepLoss = hardMediaLoss || (repeatedSoftLoss && softCutReady);
     _bufferInputs?.addAll({
       'audio_rtp_drop': newAudioDrops,
       'video_rtp_drop': videoLossObserved,
       'audio_interruption': audioInterrupted,
       'audio_network_loss': audioNetworkLossObserved,
       'audio_peer_concealment': audioConcealmentObserved,
+      'audio_local_concealment': audioReceiveConcealmentObserved,
       'video_network_loss': videoNetworkLossObserved,
       'audio_latency_recovery': audioRecoveryObserved,
-      'soft_audio_loss_repeated': repeatedTransientLoss,
-      'soft_audio_growth_held': _transientLoss.holdingGrowth,
+      'soft_audio_loss_repeated': repeatedTransientLoss || repeatedReceiveLoss,
+      'soft_audio_growth_held': transientGrowthHeld,
+      'soft_audio_cut_held':
+          repeatedSoftLoss && !softCutReady && !hardMediaLoss,
     });
 
     final receiveOutage =
@@ -1071,7 +1126,7 @@ class CallBitrateAdapter {
     // With measured playout support, RTT/loss/gaps may withhold growth but
     // a growing/capped buffer or fresh media loss can reduce video.
     // Video-only and legacy calls retain their transport-based ladder.
-    final bad = (usePlayout ? bufferPressure : networkBad) || freshMediaLoss;
+    final bad = (usePlayout ? bufferPressure : networkBad) || videoStepLoss;
     final audioGood =
         targetsRecovered &&
         feedbackAvailable &&
@@ -1080,7 +1135,7 @@ class CallBitrateAdapter {
         txJitterMs < 40 &&
         rttGood &&
         !freshAudioLoss &&
-        !_transientLoss.holdingGrowth &&
+        !transientGrowthHeld &&
         _receiveBuffer.growing != true &&
         _peerBuffer.growing != true &&
         !bufferPressure &&
@@ -1143,6 +1198,7 @@ class CallBitrateAdapter {
         !audioInterrupted &&
         !freshAudioLoss &&
         !audioConcealmentObserved &&
+        !audioReceiveConcealmentObserved &&
         !audioRecoveryObserved &&
         (!requirePeerAudioPlayout ||
             (currentPeerDelay != null &&
@@ -1199,7 +1255,7 @@ class CallBitrateAdapter {
       return target;
     }
 
-    if (freshMediaLoss && _level < ladder.length - 1) {
+    if (videoStepLoss && _level < ladder.length - 1) {
       // A new RTP admission failure, peer loss report or audio interruption is
       // source congestion evidence. Consume its event once; a retained count,
       // estimated loss percentage or intentionally skipped camera frame is
@@ -1208,6 +1264,7 @@ class CallBitrateAdapter {
       _badStreak = 0;
       _floorBadStreak = 0;
       _level = (_level + 2).clamp(0, ladder.length - 1);
+      _lastVideoCutAt = lossSampleAt;
       return target;
     }
     if (bad) {
@@ -1217,6 +1274,7 @@ class CallBitrateAdapter {
       if (_badStreak >= degradeAfter && _level < ladder.length - 1) {
         _badStreak = 0;
         _level = (_level + 2).clamp(0, ladder.length - 1);
+        _lastVideoCutAt = lossSampleAt;
         // A rung was still available, so the floor streak restarts: the new
         // rung has not been given its chance yet.
         _floorBadStreak = 0;

@@ -1,0 +1,19 @@
+{
+  "media-hooks": {
+    "path": "/Users/vart/.cache/codex/xveil-incoming-audio-priority-20261020/media-hooks/libveil_media.dylib",
+    "sha256": "69229dee0004d6b48c624ce609ad24811242b35141c6518c607fbcf28bc17eb2",
+    "exports": 135,
+    "unchanged_export_set": true
+  },
+  "media-production": {
+    "path": "/Users/vart/.cache/codex/xveil-incoming-audio-priority-20261020/media-production/libveil_media.dylib",
+    "sha256": "c77c79e5c954743bc4ba4f572c34565beacfcb9c8381e6e0561b2a1066584a62",
+    "exports": 101,
+    "unchanged_export_set": true
+  },
+  "policy_sha256": {
+    "lib/state/call_bitrate_adapter.dart": "343eff0fde6d7277d8e26cd8e614a0a4e2f22cdf045f5c59292095c9705f1fda",
+    "lib/state/call_audio_source_pressure.dart": "3a76d2769ed62716f57aac6a9f8e72ec4e0d440a35d1693868d0c3428246bd35",
+    "scripts/relay_codec_policy.dart": "05dbbc17d1c75edc3eff73370d3ae74a21e7cc7e7d45dcad88dd7eeb34b19b0e"
+  }
+}

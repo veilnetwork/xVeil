@@ -1,0 +1,25 @@
+00:00 +0: loading /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart
+00:00 +0: a burst of soft audio recovery gives each reduced video rung a trial
+00:00 +0 -1: a burst of soft audio recovery gives each reduced video rung a trial [E]
+  Expected: <2>
+    Actual: <4>
+  a short burst must not cascade to one fps
+
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  test/call_bitrate_adapter_test.dart 655:9           main.<fn>
+
+00:00 +0 -1: opposite-direction soft events cannot double-cut the same video trial
+00:00 +0 -2: opposite-direction soft events cannot double-cut the same video trial [E]
+  Expected: <2>
+    Actual: <4>
+
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  test/call_bitrate_adapter_test.dart 693:7           main.<fn>
+
+00:00 +0 -2: Some tests failed.
+
+Failing tests:
+  /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: a burst of soft audio recovery gives each reduced video rung a trial
+  /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: opposite-direction soft events cannot double-cut the same video trial
