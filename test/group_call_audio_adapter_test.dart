@@ -43,6 +43,54 @@ GroupCallAudioAdapter start() {
 }
 
 void main() {
+  test('concealment yields secondary work before lengthening room audio', () {
+    final p = start();
+    Map<String, dynamic> measured(int n, int witness) => {
+      ...sample(n),
+      'audio_peer_concealment_report_us': witness,
+      'audio_max_packet_ms': 60,
+      'audio_tx_packet_duration_ms': 40,
+      'audio_tx_payload_pkts': n * 20,
+    };
+    observe(p, measured(1, 100), 1);
+    expect(p.target, (packetMs: 40, payloadBps: 24000));
+    p.applyPending((_) => true, at(1));
+    p.observe(
+      measured(2, 200),
+      at(5),
+      expectedPeers: 2,
+      sending: true,
+      receiving: true,
+      secondaryYielded: false,
+    );
+    expect(p.needsSecondaryYield, isTrue);
+    expect(p.target.packetMs, 40);
+    observe(p, measured(3, 300), 9);
+    expect(
+      p.target.packetMs,
+      40,
+      reason: 'PLC alone does not fund longer packets',
+    );
+    p.observe(
+      measured(4, 400),
+      at(13),
+      expectedPeers: 2,
+      sending: false,
+      receiving: false,
+      secondaryYielded: false,
+    );
+    expect(p.needsSecondaryYield, isFalse);
+    p.observe(
+      measured(5, 400),
+      at(17),
+      expectedPeers: 2,
+      sending: true,
+      receiving: true,
+      secondaryYielded: false,
+    );
+    expect(p.needsSecondaryYield, isFalse, reason: 'muted event replay');
+  });
+
   test(
     'incoming catch-up cannot lengthen healthy or unknown outgoing audio',
     () {

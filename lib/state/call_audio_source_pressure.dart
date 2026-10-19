@@ -15,6 +15,7 @@ class CallAudioSourcePressure {
   int? _lastAudioDrops;
   final _rtcpLoss = CallRtcpLoss();
   final _peerRecoveryLoss = CallRtcpLoss();
+  final _peerConcealment = CallRtcpLoss();
   final _peerBuffer = CallAudioBufferWindow();
   final _receiveBuffer = CallAudioBufferWindow();
 
@@ -36,6 +37,7 @@ class CallAudioSourcePressure {
     required int? audioTxDrops,
     Object? audioLossReportUs,
     Object? peerAudioRecoveryReportUs,
+    Object? peerAudioConcealmentReportUs,
     bool recovered = false,
     bool? peerRecoveryObserved,
   }) {
@@ -54,6 +56,13 @@ class CallAudioSourcePressure {
         )
         .audio;
     recovered = recovered || (peerRecoveryObserved ?? peerRecovered);
+    final concealed = _peerConcealment
+        .observe(
+          audioReportUs: peerAudioConcealmentReportUs,
+          audioExpected: sendExpected,
+          videoExpected: false,
+        )
+        .audio;
     final drops = audioTxDrops != null && audioTxDrops >= 0
         ? audioTxDrops
         : null;
@@ -64,7 +73,7 @@ class CallAudioSourcePressure {
         drops > _lastAudioDrops!;
     _lastAudioDrops = sendExpected ? drops : null;
     if (!sendExpected && !receiveExpected) {
-      reset();
+      _reset(preserveConcealmentWitness: true);
       return null;
     }
     bool valid(int? n) => n != null && n >= 0 && n <= 60000;
@@ -103,6 +112,7 @@ class CallAudioSourcePressure {
     final bad =
         newDrop ||
         networkLoss ||
+        concealed ||
         interrupted ||
         peerPressure ||
         receivePressure ||
@@ -140,13 +150,18 @@ class CallAudioSourcePressure {
     return _pressured ? true : (good ? false : null);
   }
 
-  void reset() {
+  void reset() => _reset();
+
+  void _reset({bool preserveConcealmentWitness = false}) {
     _pressured = true;
     _healthy = 0;
     _recoverySamples = CallBitrateAdapter.recoverAfter;
     _lastAudioDrops = null;
     _rtcpLoss.reset();
     _peerRecoveryLoss.reset();
+    // Keep consuming this witness while both directions are muted, including
+    // samples where its freshness TTL expires. Resume cannot replay it.
+    if (!preserveConcealmentWitness) _peerConcealment.reset();
     _peerBuffer.reset();
     _receiveBuffer.reset();
   }

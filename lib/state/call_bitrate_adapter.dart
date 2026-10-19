@@ -156,6 +156,7 @@ class CallBitrateAdapter {
   int? _lastVideoTxDrops;
   final _rtcpLoss = CallRtcpLoss();
   final _peerRecoveryLoss = CallRtcpLoss();
+  final _peerConcealment = CallRtcpLoss();
   int? _lastVideoTxFrames;
   int _videoIdleSamples = 0;
   int? _floorTrialLastFrames;
@@ -377,6 +378,7 @@ class CallBitrateAdapter {
     _lastVideoTxDrops = null;
     _rtcpLoss.reset();
     _peerRecoveryLoss.reset();
+    _peerConcealment.reset();
     _floorTrialLastFrames = null;
     _floorTrialFrames = 0;
     _floorPeerSampleSequence = null;
@@ -593,6 +595,13 @@ class CallBitrateAdapter {
           videoExpected: false,
         )
         .audio;
+    final concealed = _peerConcealment
+        .observe(
+          audioReportUs: stats['audio_peer_concealment_report_us'],
+          audioExpected: sendAudioExpected,
+          videoExpected: false,
+        )
+        .audio;
     final videoDrops = stats['video_tx_rtp_drops'];
     final validVideoDrops = videoDrops is int && videoDrops >= 0;
     final videoLoss =
@@ -717,6 +726,7 @@ class CallBitrateAdapter {
       audioInterrupted: audioInterrupted,
       videoLossObserved: videoLoss,
       audioNetworkLossObserved: networkLoss.audio,
+      audioConcealmentObserved: concealed,
       videoNetworkLossObserved: networkLoss.video,
       audioRecoveryObserved:
           audioRecoveryObserved || (peerRecoveryObserved ?? peerRecovered),
@@ -791,6 +801,7 @@ class CallBitrateAdapter {
     bool audioInterrupted = false,
     bool videoLossObserved = false,
     bool audioNetworkLossObserved = false,
+    bool audioConcealmentObserved = false,
     bool videoNetworkLossObserved = false,
     bool audioRecoveryObserved = false,
     required int rttMs,
@@ -944,6 +955,7 @@ class CallBitrateAdapter {
         newAudioDrops ||
         audioInterrupted ||
         audioNetworkLossObserved ||
+        audioConcealmentObserved ||
         audioRecoveryObserved;
     final freshMediaLoss =
         freshAudioLoss || videoLossObserved || videoNetworkLossObserved;
@@ -952,6 +964,7 @@ class CallBitrateAdapter {
       'video_rtp_drop': videoLossObserved,
       'audio_interruption': audioInterrupted,
       'audio_network_loss': audioNetworkLossObserved,
+      'audio_peer_concealment': audioConcealmentObserved,
       'video_network_loss': videoNetworkLossObserved,
       'audio_latency_recovery': audioRecoveryObserved,
     });
