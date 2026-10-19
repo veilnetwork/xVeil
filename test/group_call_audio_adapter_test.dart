@@ -43,6 +43,84 @@ GroupCallAudioAdapter start() {
 }
 
 void main() {
+  test('renewed pressure yields video even at the long audio floor', () {
+    final p = start();
+    Map<String, dynamic> measured(int n, int loss, int duration) => {
+      ...sample(n, loss: loss),
+      'audio_max_packet_ms': 60,
+      'audio_tx_packet_duration_ms': duration,
+      'audio_tx_payload_pkts': n * 20,
+      'rtt_ms': 40,
+    };
+    for (var n = 1; n <= 2; n++) {
+      observe(p, measured(n, n * 100, 40), n * 4);
+      p.applyPending((_) => true, at(n * 4));
+    }
+    expect(p.applied, (packetMs: 60, payloadBps: 24000));
+    p.observe(
+      measured(3, 300, 60),
+      at(12),
+      expectedPeers: 2,
+      sending: true,
+      receiving: true,
+      secondaryYielded: false,
+    );
+    expect(p.needsSecondaryYield, isTrue);
+    expect(
+      p.pending,
+      isFalse,
+      reason: 'audio is already at its safe payload floor',
+    );
+    p.observe(
+      measured(4, 300, 60),
+      at(16),
+      expectedPeers: 2,
+      sending: true,
+      receiving: true,
+      secondaryYielded: false,
+    );
+    expect(
+      p.needsSecondaryYield,
+      isFalse,
+      reason: 'cached loss is not new pressure',
+    );
+  });
+
+  test('healthy long audio does not fund a shorter packet cadence', () {
+    final p = start();
+    for (var n = 1; n <= 2; n++) {
+      observe(p, {
+        ...sample(n, loss: n * 100),
+        'audio_max_packet_ms': 60,
+        'audio_tx_packet_duration_ms': 40,
+        'audio_tx_payload_pkts': n * 20,
+        'rtt_ms': 40,
+      }, n * 4);
+      p.applyPending((_) => true, at(n * 4));
+    }
+    for (var n = 30; n < 60; n++) {
+      p.observe(
+        {
+          ...sample(n),
+          'audio_max_packet_ms': 60,
+          'audio_tx_packet_duration_ms': 60,
+          'audio_tx_payload_pkts': n * 20,
+          'rtt_ms': 77,
+        },
+        at(n),
+        expectedPeers: 2,
+        sending: true,
+        receiving: true,
+        secondaryYielded: true,
+      );
+    }
+    expect(p.target, (packetMs: 60, payloadBps: 24000));
+    for (var n = 60; n < 68; n++) {
+      observe(p, {...sample(n), 'rtt_ms': 40}, n);
+    }
+    expect(p.target, (packetMs: 40, payloadBps: 24000));
+  });
+
   test('sustained pressure preserves the characterized Opus payload floor', () {
     for (final supported in [false, true]) {
       final policy = start();
