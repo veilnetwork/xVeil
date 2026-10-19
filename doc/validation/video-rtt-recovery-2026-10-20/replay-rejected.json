@@ -1,0 +1,4 @@
+{
+  "accepted_for_evidence": false,
+  "reason": "Reconstructed inputs omit some health/recovery identities and baseline did not reproduce all recorded cut times/levels. Use actual adapter regression and full codec capture."
+}

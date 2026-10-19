@@ -1,0 +1,9 @@
+{
+  "root_base": "ebe5f3de8f94f5994ac51b60655af1ca38673e05",
+  "sdk_commit": "02c845526ba9d408c4d8258da6db627ee4835788",
+  "policy_sha256": "afd9df7c00c2d648a63f21190d2930e2c0405464ec9f8d217c1700c65684c22c",
+  "sdk_sha256": "f32b4510d90a220d7db81e85dbbb8dea53bd53050e586d0204daf3e523878c6e",
+  "media_sha256": "f1cfbc3a07010a03032ea1fa0cf19a575576c8d215484b499eb78d5823eee4ab",
+  "rtt_recovery_margin_ms": 120,
+  "replay_scope": "Discarded reconstructed policy replay: baseline did not reproduce all recorded cuts. Not used as before/after evidence."
+}
