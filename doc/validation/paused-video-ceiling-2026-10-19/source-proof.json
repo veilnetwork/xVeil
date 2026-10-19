@@ -1,0 +1,49 @@
+{
+  "root_base": "bd03809bae47a8ba529308bf2f5b4f553669f764",
+  "sdk_commit": "1e5a0c863c837e3975fbcbdc97a1af20cee54b4e",
+  "root_files": {
+    "lib/state/call_bitrate_adapter.dart": "78f62082141c6d514af0cec8a2712b05fbb2d41154029b7c1853a13278d7edb3",
+    "test/call_bitrate_adapter_test.dart": "0442a9d23fd56d741af5a3a1d0565180a372e15f05fac67965c32cad37559960",
+    "test/call_audio_playout_feedback_test.dart": "bf9ed05ef284de4ae99ebbfc3d796d85a4ce81572d36c7c9056b8b9cd28cf060",
+    "test/veil_group_call_media_test.dart": "657316ed063a9f2c1e0d1c5ec9520fcc1f0c324a5d489e67254ffd27df167341",
+    "scripts/relay_codec_policy.dart": "ddaf72e20a8ac751f56190474f918cd6b6666d09a6f46dda86698c4c81bf4207",
+    "scripts/relay-codec-control.py": "8df60e016dc609db5f232934ffee65b100c871e0c6cbbdadc6c15e2413852eeb",
+    "scripts/group_codec_policy.dart": "ec5f490f07c3a3966ffc84058ca9861859792019e5a017f6213954f4aca7e44c"
+  },
+  "native_unchanged_from_prior_capture": true,
+  "native": {
+    "media-hooks": {
+      "path": "/Users/vart/.cache/codex/xveil-audio-packet-priority-20261019/media-hooks/libveil_media.dylib",
+      "sha256": "40d583d92326ebac76de4f68b5d447899d5fae7523758a205f586ffb51d24dda",
+      "exports": 135,
+      "dlopen": true
+    },
+    "media-production": {
+      "path": "/Users/vart/.cache/codex/xveil-audio-packet-priority-20261019/media-production/libveil_media.dylib",
+      "sha256": "aba966ce1ac73d229474326e22e5fd8dc005bbbcc684aabe0ff65720ff4ed25d",
+      "exports": 101,
+      "dlopen": true
+    }
+  },
+  "prior_capture_audit": {
+    "fresh_concealment_events": [
+      12,
+      10
+    ],
+    "video_samples_at_floor": [
+      202,
+      216
+    ],
+    "video_sample_count": 340,
+    "example": {
+      "source": 0,
+      "at_seconds": 175,
+      "receive_ms": 94,
+      "peer_ms": 62,
+      "level_before": 2,
+      "level_after": 4,
+      "trigger": "single fresh peer concealment witness"
+    }
+  },
+  "user_steering": "Defer strict 200-ms synthetic end-to-end gate; prioritize video continuity, tolerance of short audio impairment and timely recovery. Existing raw diagnostic results retained."
+}

@@ -1,0 +1,16 @@
+[
+  {
+    "side": 0,
+    "pause_requests": [],
+    "one_kbps_samples": 0,
+    "floor_samples": 65,
+    "samples": 100
+  },
+  {
+    "side": 1,
+    "pause_requests": [],
+    "one_kbps_samples": 0,
+    "floor_samples": 69,
+    "samples": 100
+  }
+]

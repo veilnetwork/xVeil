@@ -1417,13 +1417,13 @@ void main() {
         reason: 'clean loss/RTT cannot hide a receiver playout queue',
       );
       clock.elapse(const Duration(seconds: 6));
-      expect(engine.targets.last, (maxBitrateKbps: 1, maxFps: 0.02));
+      expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 1.0));
       expect(engine.pauses.last, isTrue);
       engine.stats = {...engine.stats, 'audio_playout_ms': 250};
       clock.elapse(const Duration(seconds: 30));
       expect(
         engine.targets.last,
-        (maxBitrateKbps: 1, maxFps: 0.02),
+        (maxBitrateKbps: 8, maxFps: 1.0),
         reason: 'a borderline audio delay has not earned video recovery',
       );
       engine.stats = {...engine.stats, 'audio_playout_ms': 100};
@@ -1709,7 +1709,7 @@ void main() {
       expect(engine.pauses.last, isFalse);
       engine.stats = {...engine.stats, 'audio_playout_ms': 450};
       clock.elapse(const Duration(seconds: 8));
-      expect(engine.targets.last, (maxBitrateKbps: 1, maxFps: 0.02));
+      expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 1.0));
       expect(
         engine.pauses.last,
         isTrue,
