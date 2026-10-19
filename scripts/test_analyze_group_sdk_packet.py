@@ -87,6 +87,26 @@ class GroupSdkPacketTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'Missing or ambiguous'):
                 attribute(*args)
 
+    def test_opted_in_route_requires_the_exact_authenticated_ciphertext(self):
+        args = self.fixture()
+        args[1][0]['sealed_sha256'] = args[2][0]['sealed_sha256'] = 'a'*64
+        rows = [dict(stage=stage, node=node, peer=peer, monotonic_us=str(at),
+                     opaque_bytes='56', opaque_sha256='a'*64)
+                for stage, node, peer, at in [
+                    ('transport_selected', '10203040', '55667788', 170),
+                    ('dispatch_enter', '55667788', '10203040', 180),
+                    ('dispatch_return', '55667788', '10203040', 181),
+                    ('transport_selected', '55667788', 'aabbccdd', 190),
+                    ('dispatch_enter', 'aabbccdd', '55667788', 220),
+                    ('dispatch_return', 'aabbccdd', '55667788', 221),
+                ]]
+        self.assertEqual(len(attribute(*args, rows)['opaque_route']['hops']), 2)
+        with self.assertRaisesRegex(ValueError, 'Missing'):
+            attribute(*args, [])
+        args[1][0]['sealed_sha256'] = 'b'*64
+        with self.assertRaisesRegex(ValueError, 'Different endpoint ciphertext'):
+            attribute(*args, rows)
+
     def test_sdk_writer_and_node_reader_are_joined_from_separate_process_logs(self):
         packet, source, receiver, ipc = self.fixture()
         def line(marker, row):
@@ -114,6 +134,33 @@ class GroupSdkPacketTest(unittest.TestCase):
                 result = analyze(root)
             self.assertEqual(result['sdk']['socket_written_us'], 149)
             self.assertEqual(len(result['sdk_log_sha256']), 3)
+            state = json.loads((root/'summary.json').read_text())
+            state['opaque_forward_trace'] = True
+            (root/'summary.json').write_text(json.dumps(state))
+            with patch('analyze_group_sdk_packet.analyze_native', return_value={
+                    'source': 0, 'receiver': 1, 'packet': packet}):
+                with self.assertRaisesRegex(ValueError, 'Missing opted-in'):
+                    analyze(root)
+            # An opted-in but unrelated trace must require full topology and
+            # the selected packet's actual path, rather than silently skipping.
+            with (root/'native.log').open('a') as stream:
+                stream.write(line('delivery.opaque_trace', dict(
+                    stage='transport_selected', node='10203040', peer='aabbccdd',
+                    monotonic_us='170', opaque_bytes='56', opaque_sha256='b'*64)))
+            ids = ['10203040'+'0'*56, 'aabbccdd'+'0'*56,
+                   '55667788'+'0'*56, '77889900'+'0'*56]
+            for n in range(4):
+                (root/f'sessions-{n}.json').write_text(json.dumps({
+                    'result': {'sessions': [{'node_id': node} for node in ids]}}))
+            with patch('analyze_group_sdk_packet.analyze_native', return_value={
+                    'source': 0, 'receiver': 1, 'packet': packet}):
+                with self.assertRaisesRegex(ValueError, 'ciphertext digest'):
+                    analyze(root)
+                ids[-1] = ids[0][:8]+'1'*56
+                (root/'sessions-0.json').write_text(json.dumps({
+                    'result': {'sessions': [{'node_id': node} for node in ids]}}))
+                with self.assertRaisesRegex(ValueError, 'fixture node identities'):
+                    analyze(root)
 
 
 if __name__ == '__main__':
