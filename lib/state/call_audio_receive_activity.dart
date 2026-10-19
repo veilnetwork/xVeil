@@ -230,7 +230,7 @@ class CallAudioReceiveActivity {
       }
       _feedbackPeaks.add((at: now, delay: delay));
     }
-    _playoutWindow.observe(playoutFeedback(now).delayMs);
+    _playoutWindow.observe(playoutFeedback(now).delayMs, sampledAt: now);
   }
 
   void reset() {

@@ -884,10 +884,12 @@ class CallBitrateAdapter {
     // buffer occupancy. A target alone cannot substantiate a video reduction.
     final receiveBufferPressure = _receiveBuffer.observe(
       requireAudioReceivePlayout ? audioReceiveDelayMs : null,
+      sampledAt: sampledAt,
     );
     final peerBufferPressure = _peerBuffer.observe(
       requirePeerAudioPlayout ? currentPeerDelay : null,
       sequence: peerAudioSampleSequence,
+      sampledAt: sampledAt,
       measuredGrowing: requirePeerAudioPlayout && hasCurrentPeerDelay
           ? peerAudioBufferGrowing
           : null,
@@ -937,12 +939,14 @@ class CallBitrateAdapter {
     final measuredFloor = atFloor && !_audioReserve && videoFloorApplied;
     final floorReceivePressure = _floorReceiveBuffer.observe(
       measuredFloor && requireAudioReceivePlayout ? audioReceiveDelayMs : null,
+      sampledAt: sampledAt,
     );
     final floorPeerPressure = _floorPeerBuffer.observe(
       measuredFloor && peerTrialMeasured && requirePeerAudioPlayout
           ? currentPeerDelay
           : null,
       sequence: peerAudioSampleSequence,
+      sampledAt: sampledAt,
     );
     // Keep the original full trend for cuts and growth admission. For a
     // below-ceiling pause, additionally prove that the applied floor itself
@@ -1074,6 +1078,8 @@ class CallBitrateAdapter {
         rttGood &&
         !freshAudioLoss &&
         !_transientLoss.holdingGrowth &&
+        _receiveBuffer.growing != true &&
+        _peerBuffer.growing != true &&
         !bufferPressure &&
         !missingAudioReceiverFeedback &&
         !audioUnproven &&
