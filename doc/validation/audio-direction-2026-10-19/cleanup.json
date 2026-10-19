@@ -1,0 +1,134 @@
+{
+  "known_pids": [
+    1332,
+    39141,
+    39148,
+    39149,
+    60809,
+    75738,
+    75747,
+    75749,
+    76269,
+    76336,
+    76337,
+    85045,
+    85046,
+    85047,
+    85048,
+    85079,
+    85080,
+    85081,
+    89560,
+    89561,
+    89562,
+    89563,
+    89582,
+    89583,
+    89584,
+    90276,
+    90354,
+    90358,
+    92846,
+    92875,
+    92876,
+    95395
+  ],
+  "all_absent": true,
+  "ps_exit_code": 1,
+  "capture_cleanups": [
+    {
+      "pids": [
+        76269,
+        76336,
+        76337,
+        85045,
+        85046,
+        85047,
+        85048,
+        85079,
+        85080,
+        85081
+      ],
+      "ps_exit_code": 1,
+      "remaining_processes": "",
+      "remaining_socket_paths": [],
+      "node_stop_results": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "pids": [
+        1332,
+        92846,
+        92875,
+        92876
+      ],
+      "ps_exit_code": 1,
+      "remaining_processes": "",
+      "sockets_remaining": 0,
+      "node_stop_results": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "pids": [
+        90276,
+        90354,
+        90358,
+        95395
+      ],
+      "ps_exit_code": 1,
+      "remaining_processes": "",
+      "sockets_remaining": 0,
+      "node_stop_results": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "pids": [
+        39141,
+        39148,
+        39149,
+        60809
+      ],
+      "ps_exit_code": 1,
+      "remaining_processes": "",
+      "sockets_remaining": 0,
+      "node_stop_results": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "pids": [
+        75738,
+        75747,
+        75749,
+        89560,
+        89561,
+        89562,
+        89563,
+        89582,
+        89583,
+        89584
+      ],
+      "ps_exit_code": 1,
+      "remaining_processes": "",
+      "remaining_socket_paths": [],
+      "node_stop_results": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}

@@ -1,0 +1,544 @@
+{
+  "ok": false,
+  "qualified": false,
+  "max_ms": 280.18766664899886,
+  "matched": 2112,
+  "missing": 0,
+  "files": [
+    {
+      "sender": 2,
+      "receiver": 0,
+      "queued": 524288,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "completion_seconds": 352.1360410420166,
+      "authentication_errors": 0,
+      "duplicates": 0,
+      "async_failures": {},
+      "write_error": false,
+      "late_fragments": 0
+    },
+    {
+      "sender": 0,
+      "receiver": 1,
+      "queued": 524288,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "completion_seconds": 352.43294179200893,
+      "authentication_errors": 0,
+      "duplicates": 0,
+      "async_failures": {},
+      "write_error": false,
+      "late_fragments": 0
+    },
+    {
+      "sender": 1,
+      "receiver": 2,
+      "queued": 524288,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "completion_seconds": 352.28911775001325,
+      "authentication_errors": 0,
+      "duplicates": 0,
+      "async_failures": {},
+      "write_error": false,
+      "late_fragments": 0
+    }
+  ],
+  "tail_changes": [
+    14,
+    14,
+    14,
+    14,
+    14,
+    14
+  ],
+  "workers": [
+    {
+      "worker": 0,
+      "stages": {
+        "0": 281,
+        "2": 54,
+        "1": 25
+      },
+      "durations": {
+        "0": 1,
+        "40": 307,
+        "60": 52
+      },
+      "audio_budget_events": [
+        {
+          "t": 0,
+          "level": 1,
+          "packet_ms": 40,
+          "payload_bps": 32000,
+          "rc": 0
+        },
+        {
+          "t": 2.0103706250083633,
+          "level": 2,
+          "packet_ms": 40,
+          "payload_bps": 24000,
+          "rc": 0
+        },
+        {
+          "t": 307.02378966700053,
+          "level": 3,
+          "packet_ms": 60,
+          "payload_bps": 24000,
+          "rc": 0
+        }
+      ],
+      "transitions": [
+        {
+          "t": 0.025242667004931718,
+          "stage": 0,
+          "packet_ms": 0,
+          "video_paused": 0
+        },
+        {
+          "t": 1.0203158750082366,
+          "stage": 0,
+          "packet_ms": 40,
+          "video_paused": 0
+        },
+        {
+          "t": 34.003912083018804,
+          "stage": 2,
+          "packet_ms": 40,
+          "video_paused": 0
+        },
+        {
+          "t": 35.01957250002306,
+          "stage": 2,
+          "packet_ms": 40,
+          "video_paused": 1
+        },
+        {
+          "t": 56.00122779200319,
+          "stage": 0,
+          "packet_ms": 40,
+          "video_paused": 1
+        },
+        {
+          "t": 57.01641695800936,
+          "stage": 0,
+          "packet_ms": 40,
+          "video_paused": 0
+        },
+        {
+          "t": 141.02108812500956,
+          "stage": 1,
+          "packet_ms": 40,
+          "video_paused": 0
+        },
+        {
+          "t": 164.01020779201644,
+          "stage": 0,
+          "packet_ms": 40,
+          "video_paused": 0
+        },
+        {
+          "t": 275.0071527080145,
+          "stage": 1,
+          "packet_ms": 40,
+          "video_paused": 0
+        },
+        {
+          "t": 277.02815862500574,
+          "stage": 2,
+          "packet_ms": 40,
+          "video_paused": 0
+        },
+        {
+          "t": 278.01753620800446,
+          "stage": 2,
+          "packet_ms": 40,
+          "video_paused": 1
+        },
+        {
+          "t": 308.0202125000069,
+          "stage": 2,
+          "packet_ms": 60,
+          "video_paused": 1
+        },
+        {
+          "t": 309.02251179201994,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 1
+        },
+        {
+          "t": 310.0103189580259,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 0
+        }
+      ],
+      "tail_state": [
+        0,
+        60,
+        0
+      ],
+      "worker_exit_code": 0,
+      "policy_exit_code": 0
+    },
+    {
+      "worker": 1,
+      "stages": {
+        "0": 254,
+        "2": 79,
+        "1": 27
+      },
+      "durations": {
+        "0": 1,
+        "40": 30,
+        "60": 329
+      },
+      "audio_budget_events": [
+        {
+          "t": 0,
+          "level": 1,
+          "packet_ms": 40,
+          "payload_bps": 32000,
+          "rc": 0
+        },
+        {
+          "t": 2.0023137080133893,
+          "level": 2,
+          "packet_ms": 40,
+          "payload_bps": 24000,
+          "rc": 0
+        },
+        {
+          "t": 30.02046679201885,
+          "level": 3,
+          "packet_ms": 60,
+          "payload_bps": 24000,
+          "rc": 0
+        }
+      ],
+      "transitions": [
+        {
+          "t": 0.02792558301007375,
+          "stage": 0,
+          "packet_ms": 0,
+          "video_paused": 0
+        },
+        {
+          "t": 1.0202582920028362,
+          "stage": 0,
+          "packet_ms": 40,
+          "video_paused": 0
+        },
+        {
+          "t": 27.000333000003593,
+          "stage": 2,
+          "packet_ms": 40,
+          "video_paused": 0
+        },
+        {
+          "t": 28.020132292003836,
+          "stage": 2,
+          "packet_ms": 40,
+          "video_paused": 1
+        },
+        {
+          "t": 31.012035542022204,
+          "stage": 2,
+          "packet_ms": 60,
+          "video_paused": 1
+        },
+        {
+          "t": 60.01368862501113,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 1
+        },
+        {
+          "t": 61.01018770801602,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 0
+        },
+        {
+          "t": 134.0101644170063,
+          "stage": 1,
+          "packet_ms": 60,
+          "video_paused": 0
+        },
+        {
+          "t": 140.02024820802035,
+          "stage": 2,
+          "packet_ms": 60,
+          "video_paused": 0
+        },
+        {
+          "t": 141.02037208300317,
+          "stage": 2,
+          "packet_ms": 60,
+          "video_paused": 1
+        },
+        {
+          "t": 165.008488417021,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 1
+        },
+        {
+          "t": 166.00029200001154,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 0
+        },
+        {
+          "t": 176.00916845802567,
+          "stage": 2,
+          "packet_ms": 60,
+          "video_paused": 0
+        },
+        {
+          "t": 177.02180487502483,
+          "stage": 2,
+          "packet_ms": 60,
+          "video_paused": 1
+        },
+        {
+          "t": 197.01334425000823,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 1
+        },
+        {
+          "t": 198.0012332080223,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 0
+        },
+        {
+          "t": 275.0071766250185,
+          "stage": 1,
+          "packet_ms": 60,
+          "video_paused": 0
+        },
+        {
+          "t": 296.02025570801925,
+          "stage": 0,
+          "packet_ms": 60,
+          "video_paused": 0
+        }
+      ],
+      "tail_state": [
+        0,
+        60,
+        0
+      ],
+      "worker_exit_code": 0,
+      "policy_exit_code": 0
+    },
+    {
+      "worker": 2,
+      "stages": {
+        "0": 229,
+        "2": 120,
+        "1": 11
+      },
+      "durations": {
+        "0": 1,
+        "40": 359
+      },
+      "audio_budget_events": [
+        {
+          "t": 0,
+          "level": 1,
+          "packet_ms": 40,
+          "payload_bps": 32000,
+          "rc": 0
+        },
+        {
+          "t": 2.016031542007113,
+          "level": 2,
+          "packet_ms": 40,
+          "payload_bps": 24000,
+          "rc": 0
+        }
+      ],
+      "transitions": [
+        {
+          "t": 0.004091458016773686,
+          "stage": 0,
+          "packet_ms": 0,
+          "video_paused": 0
+        },
+        {
+          "t": 1.0012622080103029,
+          "stage": 0,
+          "packet_ms": 40,
+          "video_paused": 0
+        },
+        {
+          "t": 30.024463000008836,
+          "stage": 2,
+          "packet_ms": 40,
+          "video_paused": 0
+        },
+        {
+          "t": 31.01203662500484,
+          "stage": 2,
+          "packet_ms": 40,
+          "video_paused": 1
+        },
+        {
+          "t": 53.00818937501754,
+          "stage": 0,
+          "packet_ms": 40,
+          "video_paused": 1
+        },
+        {
+          "t": 54.000250917015364,
+          "stage": 0,
+          "packet_ms": 40,
+          "video_paused": 0
+        },
+        {
+          "t": 141.019369458023,
+          "stage": 1,
+          "packet_ms": 40,
+          "video_paused": 0
+        },
+        {
+          "t": 144.01605737500358,
+          "stage": 2,
+          "packet_ms": 40,
+          "video_paused": 0
+        },
+        {
+          "t": 145.01875270801247,
+          "stage": 2,
+          "packet_ms": 40,
+          "video_paused": 1
+        },
+        {
+          "t": 174.01215216700803,
+          "stage": 0,
+          "packet_ms": 40,
+          "video_paused": 1
+        },
+        {
+          "t": 175.00488804202178,
+          "stage": 0,
+          "packet_ms": 40,
+          "video_paused": 0
+        },
+        {
+          "t": 177.02377933301614,
+          "stage": 2,
+          "packet_ms": 40,
+          "video_paused": 0
+        },
+        {
+          "t": 178.01033412502147,
+          "stage": 2,
+          "packet_ms": 40,
+          "video_paused": 1
+        },
+        {
+          "t": 214.02674920801655,
+          "stage": 0,
+          "packet_ms": 40,
+          "video_paused": 1
+        },
+        {
+          "t": 215.00025037501473,
+          "stage": 0,
+          "packet_ms": 40,
+          "video_paused": 0
+        },
+        {
+          "t": 276.0102422920172,
+          "stage": 1,
+          "packet_ms": 40,
+          "video_paused": 0
+        },
+        {
+          "t": 284.0160017500166,
+          "stage": 2,
+          "packet_ms": 40,
+          "video_paused": 0
+        },
+        {
+          "t": 285.01411675001145,
+          "stage": 2,
+          "packet_ms": 40,
+          "video_paused": 1
+        },
+        {
+          "t": 314.01237904201844,
+          "stage": 0,
+          "packet_ms": 40,
+          "video_paused": 1
+        },
+        {
+          "t": 315.0153506670031,
+          "stage": 0,
+          "packet_ms": 40,
+          "video_paused": 0
+        }
+      ],
+      "tail_state": [
+        0,
+        40,
+        0
+      ],
+      "worker_exit_code": 0,
+      "policy_exit_code": 0
+    }
+  ],
+  "shaper": {
+    "stats": [
+      {
+        "received": 111067,
+        "sent": 111066,
+        "drops": 0,
+        "max_queue_ms": 122.53133414196782
+      },
+      {
+        "received": 101443,
+        "sent": 101442,
+        "drops": 0,
+        "max_queue_ms": 98.39733337867074
+      }
+    ],
+    "failure": null,
+    "trace_events": 211126,
+    "trace_rows": 211126,
+    "trace_capacity": 250000,
+    "trace_truncated": false
+  },
+  "cleanup": {
+    "pids": [
+      76269,
+      76336,
+      76337,
+      85045,
+      85046,
+      85047,
+      85048,
+      85079,
+      85080,
+      85081
+    ],
+    "ps_exit_code": 1,
+    "remaining_processes": "",
+    "remaining_socket_paths": [],
+    "node_stop_results": [
+      0,
+      0,
+      0,
+      0
+    ]
+  }
+}
