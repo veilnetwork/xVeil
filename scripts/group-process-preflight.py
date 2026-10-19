@@ -559,6 +559,7 @@ def main():
                           'lib/state/group_call_source_priority.dart',
                           'lib/state/call_audio_buffer_window.dart',
                           'lib/state/call_audio_transient_loss.dart',
+                          'lib/state/call_audio_soft_loss.dart',
                           'lib/state/call_bitrate_adapter.dart',
                           'lib/state/call_audio_receive_activity.dart',
                           'lib/state/call_rtcp_loss.dart']

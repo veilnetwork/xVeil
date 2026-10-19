@@ -2,6 +2,7 @@ import 'call_bitrate_adapter.dart';
 import 'call_audio_buffer_window.dart';
 import 'call_rtcp_loss.dart';
 import 'call_audio_transient_loss.dart';
+import 'call_audio_soft_loss.dart';
 
 /// Endpoint measurements for the shared source budget, including audio-only
 /// calls. The node receives only a generic, expiring pressure observation.
@@ -18,6 +19,7 @@ class CallAudioSourcePressure {
   final _peerRecoveryLoss = CallRtcpLoss();
   final _peerConcealment = CallRtcpLoss();
   final _localConcealment = CallRtcpLoss();
+  final _softLoss = CallAudioSoftLoss();
   final _transientLoss = CallAudioTransientLoss();
   final _receiveTransientLoss = CallAudioTransientLoss();
   bool? _lastTransientSendExpected;
@@ -48,6 +50,7 @@ class CallAudioSourcePressure {
     Object? localAudioConcealmentReportUs,
     bool recovered = false,
     bool? peerRecoveryObserved,
+    Map<String, dynamic>? nativeStats,
   }) {
     final networkLoss = _rtcpLoss
         .observe(
@@ -63,7 +66,7 @@ class CallAudioSourcePressure {
           videoExpected: false,
         )
         .audio;
-    recovered = recovered || (peerRecoveryObserved ?? peerRecovered);
+    final peerRecoveredSignal = peerRecoveryObserved ?? peerRecovered;
     final concealed = _peerConcealment
         .observe(
           audioReportUs: peerAudioConcealmentReportUs,
@@ -78,6 +81,13 @@ class CallAudioSourcePressure {
           videoExpected: false,
         )
         .audio;
+    final soft = _softLoss.observe(
+      nativeStats,
+      sending: sendExpected,
+      receiving:
+          receiveExpected &&
+          (nativeStats == null || nativeStats['worker_stalled'] == 0),
+    );
     final drops = audioTxDrops != null && audioTxDrops >= 0
         ? audioTxDrops
         : null;
@@ -130,9 +140,15 @@ class CallAudioSourcePressure {
       _transientLoss.reset();
       _lastTransientSendExpected = sendExpected;
     }
-    final transient = concealed || recovered || localConcealed;
+    final transient =
+        concealed ||
+        recovered ||
+        peerRecoveredSignal ||
+        localConcealed ||
+        soft.send == true ||
+        soft.receive == true;
     final repeatedTransient = _transientLoss.observe(
-      concealed || recovered,
+      concealed || peerRecoveredSignal,
       sampledAt: sampledAt,
     );
     if (_lastTransientReceiveExpected != receiveExpected) {
@@ -140,14 +156,14 @@ class CallAudioSourcePressure {
       _lastTransientReceiveExpected = receiveExpected;
     }
     final repeatedReceiveLoss = _receiveTransientLoss.observe(
-      localConcealed,
+      localConcealed || (receiveExpected && recovered),
       sampledAt: sampledAt,
     );
     final bad =
         newDrop ||
         networkLoss ||
-        repeatedTransient ||
-        repeatedReceiveLoss ||
+        (soft.send ?? repeatedTransient) ||
+        (soft.receive ?? repeatedReceiveLoss) ||
         interrupted ||
         peerPressure ||
         receivePressure ||
@@ -167,18 +183,32 @@ class CallAudioSourcePressure {
         (!receiveExpected ||
             (receiveDelayMs! < playoutRecoverMs &&
                 receiveAgeMs! < CallBitrateAdapter.audioReceiveRecoverMs));
-    if (bad || transient) {
-      if (bad) {
-        _recoverySamples = CallBitrateAdapter.recoverAfter;
-      } else if (!_pressured) {
+    final durationKnown =
+        nativeStats != null &&
+        (!(concealed || peerRecoveredSignal || soft.send == true) ||
+            soft.send != null) &&
+        (!(localConcealed || recovered || soft.receive == true) ||
+            soft.receive != null);
+    final shortHold =
+        durationKnown &&
+        (_transientLoss.holdingGrowth || _receiveTransientLoss.holdingGrowth);
+    if (bad) {
+      _recoverySamples = CallBitrateAdapter.recoverAfter;
+      _pressured = true;
+      _healthy = 0;
+    } else if (transient) {
+      if (!_pressured) {
         // Catch-up already restored the queue. Briefly yield our producers,
         // without shortening any still-active genuine congestion recovery.
         _recoverySamples = CallBitrateAdapter.startupRecoverAfter;
+        _healthy = 0;
       }
+      // Current measured short damage pauses producers without repeatedly
+      // erasing the healthy recovery credit from an earlier real failure.
+      if (!durationKnown) _healthy = 0;
       _pressured = true;
-      _healthy = 0;
     } else if (good) {
-      if (++_healthy >= _recoverySamples) _pressured = false;
+      if (++_healthy >= _recoverySamples && !shortHold) _pressured = false;
     } else {
       _healthy = 0;
     }
@@ -204,6 +234,7 @@ class CallAudioSourcePressure {
     // samples where its freshness TTL expires. Resume cannot replay it.
     if (!preserveConcealmentWitness) _peerConcealment.reset();
     if (!preserveConcealmentWitness) _localConcealment.reset();
+    if (!preserveConcealmentWitness) _softLoss.reset();
     _peerBuffer.reset();
     _receiveBuffer.reset();
   }
