@@ -1,0 +1,81 @@
+{
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "date": "2026-10-19",
+  "user_direction": "Prioritize video quality and continuity. Defer the strict 200-ms synthetic end-to-end gate as a completion blocker; investigate excessive reaction to brief audio impairment.",
+  "verified_problem_1": {
+    "description": "Fresh peer concealment alone immediately cuts two video rungs despite low current buffers. A single witness renews source producer pressure for twelve healthy polls.",
+    "example": {
+      "source": 0,
+      "at_seconds": 175,
+      "receive_ms": 94,
+      "peer_ms": 62,
+      "level_before": 2,
+      "level_after": 4,
+      "trigger": "single fresh peer concealment witness"
+    },
+    "prior_floor_samples": [
+      202,
+      216
+    ],
+    "prior_video_samples_per_direction": 340,
+    "state": "OPEN; change transient-loss admission next, before tuning absolute queue limits."
+  },
+  "problem_2": {
+    "description": "Paused policy capped native video/GCC at 1 kbit/s. In the recorded trace, resume keyframe fragments leave seconds apart and never meet whole-frame lifetime.",
+    "change": "After a successful native pause ACK, retain the usable floor ceiling; the source and queued-RTP gates still stop video. Failed or absent pause keeps 1-kbit/0.02-fps fallback. A replacement engine loses the old pause ACK. Reset trial buffer windows on release even when no retune is needed.",
+    "verification": "Two new policy regressions; 176 policy/controller/feedback tests PASS; targeted Dart analyze PASS. Pair fixture now re-reads budget after actual native pause ACK, avoiding false acknowledgement of a different budget.",
+    "live_pause_resume_status": "NOT QUALIFIED: the new 120-second capture contains no native pause requests, so it cannot prove this repair removed the previous pause/resume freeze."
+  },
+  "short_capture": {
+    "duration_seconds": 120,
+    "maximum_decoded_marker_delay_ms": [
+      120.0887500308454,
+      130.30633330345154
+    ],
+    "matched_markers": 228,
+    "missing_markers": 0,
+    "maximum_sampled_video_pull_gap_seconds": [
+      1.0089586669928394,
+      1.0117601249949075
+    ],
+    "tail_content_changes": [
+      14,
+      14
+    ],
+    "native_pause_requests": [
+      0,
+      0
+    ],
+    "original_fixture_ok": false,
+    "failure": "Both 512-KiB file transfers remain incomplete at the deliberately shortened 120-second cutoff. Original full gate remains FAIL; no retry or threshold change hides it.",
+    "scope": "Synthetic loopback video continuity and diagnostics only; not a comparable 360-second gate or physical voice/headset proof."
+  },
+  "next_work": [
+    "Treat a single short concealment/catch-up event as a brief growth hold, require repeated impairment before cutting video; preserve immediate response to a real audio outage.",
+    "Choose sustained buffer-growth/ceiling admission and recovery rails together; avoid increasing just one threshold while other signals still cut video immediately.",
+    "Exercise actual measured/native pause and recovery; require continued decoded image changes after reopening the source.",
+    "Finish interaction isolation on ordered/canonical paths and full route/fanout accounting."
+  ],
+  "cleanup": {
+    "checked_at_utc": "2026-10-19T20:04:55.205426+00:00",
+    "recorded_processes_checked": 5,
+    "long_lived_processes_checked": 4,
+    "transient_recorders_checked": 1,
+    "remaining": [],
+    "audio_thread_exited": true,
+    "file_threads_exited": true,
+    "policy_exited": true,
+    "node_stop_results": [
+      0,
+      0,
+      0
+    ],
+    "remaining_fixture_sockets": 0
+  },
+  "native_unchanged": true,
+  "deployed": false,
+  "pushed": false,
+  "public_release": false,
+  "evidence_directory": "doc/validation/paused-video-ceiling-2026-10-19"
+}

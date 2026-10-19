@@ -767,7 +767,13 @@ try:
                 urgent_feedback[i]=r['urgentFeedback']
                 feedback_recent[i]=r['feedbackRecentlyAttempted']
                 pauseok=True;budgetok=True
-                if r['pause'] is not None:pauseok=pause(e,int(r['pause']))==0
+                if r['pause'] is not None:
+                    pauseok=pause(e,int(r['pause']))==0
+                    # A real closed gate changes the pending budget. Match the
+                    # app's pause-before-retune order, never acknowledge a budget
+                    # that was computed before that native result was known.
+                    r.update(command({'index':i,'op':'pauseAck','pauseOk':pauseok}))
+                    targets[i]=r['target']
                 if r['budget'] is not None:budgetok=budget(e,r['budget']['kbps'],r['budget']['fps'])==0
                 command({'index':i,'op':'ack','pauseOk':pauseok,'budgetOk':budgetok})
                 samples.append({'t':time.monotonic()-startat,'side':i,'stats':stats,'policy':r,'pause_ok':pauseok,'budget_ok':budgetok})

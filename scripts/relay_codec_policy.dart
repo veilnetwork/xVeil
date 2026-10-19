@@ -70,6 +70,21 @@ Future<void> main() async {
       stdout.writeln('{}');
       continue;
     }
+    if (req['op'] == 'pauseAck') {
+      a.applyPendingPause((_) => req['pauseOk'] == true);
+      Map<String, Object>? budget;
+      a.applyPendingTarget((value) {
+        budget = {'kbps': value.maxBitrateKbps, 'fps': value.maxFps};
+        return false;
+      });
+      stdout.writeln(
+        jsonEncode({
+          'budget': budget,
+          'target': {'kbps': a.target.maxBitrateKbps, 'fps': a.target.maxFps},
+        }),
+      );
+      continue;
+    }
     final now = DateTime.fromMillisecondsSinceEpoch(req['now'] as int);
     for (final row in req['feedback'] as List) {
       final f = CallAudioPlayoutFeedback.fromJson(row['value']);
