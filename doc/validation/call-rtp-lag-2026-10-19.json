@@ -26,11 +26,12 @@
     "long-packet-dtx.txt": "23f2f5e53a9207bc5061347a6a5789ea6becf4a3fa826784c2bbb48be3331448",
     "native-source-proof.json": "f89ee7f4b853987a52a8728f71d8653e43ca8113900725d56116dc75a7fedc00",
     "native-unit-tests.txt": "01e11a9e61190f2cfd224e32558ece9beb5fe858b56e89ef28bc2405c4b344db",
-    "negative-flutter.txt": "49b75ef1f6a45cfc45dc85bce85df31f7ca27a9d2dae8c06b4d4e19fcb0df394",
+    "negative-flutter.txt": "8ffa143c65c71f8b997ea0bc98d6c71035ef76a9a4770848dbb23ff2b119fdde",
     "pair-pipeline-peaks.json": "176d92e7ddab66ef68b9be546a754d48c7c71b47c9851590d01b5070324ce544",
     "pair-result.json": "1d0e617a451ddc7256716a89aa55834e4fbcb37233d3d52c38fde17991dddd7b",
     "root-source-proof.json": "1c0c91d84427eeff3c4dbb8cf065b73995d65509ed77309f38db8b90faafa6aa",
     "sender-restart.txt": "9cb541040e5f0f3185c7961762b2b0f642f71e75518c9fe8be16c04283c3f7fa"
   },
-  "sdk_commit": "4855367332808123cf5b2878b32773fd195e00c5"
+  "sdk_commit": "4855367332808123cf5b2878b32773fd195e00c5",
+  "private_raw_negative_log_sha256": "49b75ef1f6a45cfc45dc85bce85df31f7ca27a9d2dae8c06b4d4e19fcb0df394"
 }
