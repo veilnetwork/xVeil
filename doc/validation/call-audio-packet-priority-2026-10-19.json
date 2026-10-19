@@ -1,0 +1,71 @@
+{
+  "date": "2026-10-19",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "sdk_commit": "1e5a0c863c837e3975fbcbdc97a1af20cee54b4e",
+  "change": "Own endpoint coordinates actual Opus packet length with measured video yield, admission quiescence and encoded short-packet acknowledgement. No relay priority or media-role metadata.",
+  "verification": {
+    "real_opus_packets_decoded": 368,
+    "policy_smoke": "PASS",
+    "legacy_real_ana": "PASS",
+    "unicast_signal": "PASS",
+    "group_signal": "PASS",
+    "group_native_engine": "PASS",
+    "production_exports": 101,
+    "test_hook_exports": 135,
+    "exact_export_sets_unchanged": true,
+    "isolated_dlopen": "PASS"
+  },
+  "pair": {
+    "fixture_gate_passed": true,
+    "duration_seconds": 360,
+    "aggregate_kbps": 1024,
+    "maximum_decoded_marker_delay_ms": [
+      179.90454169921577,
+      180.1452916697599
+    ],
+    "matched_markers": 704,
+    "missing_markers": 0,
+    "exact_512kib_files": 2,
+    "tail_content_changes": [
+      14,
+      14
+    ],
+    "maximum_sampled_video_pull_gap_seconds": [
+      13.999178875004873,
+      15.997661000001244
+    ],
+    "native_deadline_misses": 0,
+    "sampled_long_packets_with_unpaused_video": 0,
+    "interpretation": "Original fixed fixture gate passes. Long video gaps remain and this one synthetic capture does not qualify physical media or establish causal improvement."
+  },
+  "relay_fleet": "All six independently rechecked over SSH: QUIC/UDP8443 and obfs4/TCP5556 active; service-owned UDP sockets, progressing health, six sessions each, no restarts. No server mutation. See call-quic-fleet-recheck-2026-10-19.json.",
+  "cleanup": {
+    "checked_at_utc": "2026-10-19T19:53:44.283073+00:00",
+    "recorded_processes_checked": 5,
+    "long_lived_processes_checked": 4,
+    "transient_recorders_checked": 1,
+    "remaining": [],
+    "audio_thread_exited": true,
+    "file_threads_exited": true,
+    "policy_exited": true,
+    "node_stop_results": [
+      0,
+      0,
+      0
+    ],
+    "remaining_fixture_sockets": 0
+  },
+  "remaining_work": [
+    "Diagnose 14/16-second sampled video gaps and retain genuine audio congestion protection.",
+    "Recheck group receiver latency and late genuine video-yield input: previous full group capture failed.",
+    "Complete ordered/canonical interaction separation and route/fanout accounting.",
+    "Qualify physical speech, headset loudness, screen, mute and reconnect."
+  ],
+  "evidence_directory": "doc/validation/audio-packet-priority-2026-10-19",
+  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-audio-packet-priority-20261019",
+  "foreign_wip_preserved": true,
+  "deployed": false,
+  "pushed": false,
+  "public_release": false
+}

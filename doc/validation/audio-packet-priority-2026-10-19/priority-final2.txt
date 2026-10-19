@@ -1,0 +1,4 @@
+ok: emitted short ACK, real video quiescence, in-flight admission, resume and clock bounds
+[unsafe-buffers] file '/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_media/src/veil_diag_log.h' bad test against path '../../'
+ld: warning: ignoring -lto_library '/Users/vart/Projects/veilnetwork/webrtc-checkout/src/third_party/llvm-build/Release+Asserts/lib/libLTO.dylib', file does not exist
+ok: 368 real Opus packets decode; low BWE keeps video live with <=40ms; quiet permits60; short ACK resumes video

@@ -1,0 +1,52 @@
+{
+  "sdk_base": "19205a986a6833f1ae4b330819b99bef4ef7ddc8",
+  "root_base": "e2cbb7bc45d46129967eba305fa2f91c36591688",
+  "sdk_path": "/Users/vart/.cache/codex/xveil-separate-network-control-20261019/sdk/libveilclient_ffi.dylib",
+  "sdk_sha256": "2816a30fba6804373521086f9d173b1ddee58a29ac8c860dee0150fc6f40b1ec",
+  "source_files": {
+    "flutter/veil_media/src/bounded_audio_encoder.h": "10d247b6a7313d12cf52e267a92a9dc2bea1560868c700ef44e05cf37bf3ade9",
+    "flutter/veil_media/src/veil_media_engine.cc": "ee88704b53e79c46c9d8859d278fa9276c74c37de2a2dfe7ae6dd71f4b1a36ac",
+    "flutter/veil_media/src/veil_transport_shim.cc": "916b38017537919d29edaec5433e5712c86617b3a4ea2dd1bc8da5984baeb726",
+    "flutter/veil_media/src/veil_transport_shim.h": "0425a37755ffa1a9ab4d3ef2c872d48107994e63bfe410024078b933b7ed4a56",
+    "flutter/veil_media/src/webrtc_ana/controller_manager.cc": "dc581344d6bb4fdd62ca51302b0538a73791631ec12680575d96ec514a487212",
+    "flutter/veil_media/test/run_bounded_audio_encoder_smoke.py": "823520cb0dee4827b2ac2e702fd3e53ac4c729d8e9c92d0a0ea923e6a0e248cb",
+    "flutter/veil_media/src/veil_audio_packet_priority.h": "a59d0e9c34eb636533077c9d74d69433a64689eba975914b8eb92b2bd69277bb",
+    "flutter/veil_media/test/audio_packet_priority_opus_smoke.cc": "6ecdaa0c235d276efa8e2ee00a4e1c22671c19e36dc5c550cca4694adc3b67f7",
+    "flutter/veil_media/test/audio_packet_priority_smoke.cc": "a052bff4118fd9443f3f49721ceef3a9df3cefd4f5455ed98766ef483deaf915",
+    "flutter/veil_media/test/run_audio_packet_priority_smoke.py": "59e16802b7e3d892fc9f6770adeb129170494be0e0a11c4ae0c29920cd59a4d7"
+  },
+  "media": {
+    "media-hooks": {
+      "path": "/Users/vart/.cache/codex/xveil-audio-packet-priority-20261019/media-hooks/libveil_media.dylib",
+      "sha256": "40d583d92326ebac76de4f68b5d447899d5fae7523758a205f586ffb51d24dda",
+      "exports": 135,
+      "dlopen": true
+    },
+    "media-production": {
+      "path": "/Users/vart/.cache/codex/xveil-audio-packet-priority-20261019/media-production/libveil_media.dylib",
+      "sha256": "aba966ce1ac73d229474326e22e5fd8dc005bbbcc684aabe0ff65720ff4ed25d",
+      "exports": 101,
+      "dlopen": true
+    }
+  },
+  "foreign_wip_preserved": true,
+  "sdk_commit": "1e5a0c863c837e3975fbcbdc97a1af20cee54b4e",
+  "source_commit_contains_all_owned_files": true,
+  "abi": [
+    {
+      "mode": "media-hooks",
+      "exports": 135,
+      "reference_sha256": "fd67c0fb60ef3390fabf449fcd9ecdaa1d321f2d6738e7ece765145d80d93778",
+      "exact_export_set_unchanged": true,
+      "isolated_dlopen": true
+    },
+    {
+      "mode": "media-production",
+      "exports": 101,
+      "reference_sha256": "d76c1310115817b0b5d371cb793c34c2468a1e4e3f4ec3a0014733e6cc9de35e",
+      "exact_export_set_unchanged": true,
+      "isolated_dlopen": true
+    }
+  ],
+  "initial_combined_dlopen_probe": "Production and test hooks were initially loaded into one probe process, causing duplicate Objective-C class warnings. This process created no engine and exited before the separate capture launcher. Subsequent isolated per-library probes are clean."
+}
