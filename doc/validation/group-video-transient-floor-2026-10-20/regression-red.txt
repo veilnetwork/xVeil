@@ -1,0 +1,23 @@
+00:00 +0: loading /Users/vart/Projects/veilnetwork/xVeil/test/veil_group_call_media_test.dart
+00:00 +0: one group concealment cannot bypass video debouncing at the audio floor
+00:00 +0 -1: one group concealment cannot bypass video debouncing at the audio floor [E]
+  Expected: ({int maxBitrateKbps, double maxFps}):<(maxBitrateKbps: 150, maxFps: 15.0)>
+    Actual: ({int maxBitrateKbps, double maxFps}):<(maxBitrateKbps: 10, maxFps: 1.0)>
+  one soft event yields background work without forcing one fps
+
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  test/veil_group_call_media_test.dart 119:9          main.<fn>.<fn>
+  package:fake_async/fake_async.dart 182:47           FakeAsync.run.<fn>.<fn>
+  dart:async                                          runZoned
+  package:clock/src/default.dart 52:10                withClock
+  package:fake_async/fake_async.dart 182:15           FakeAsync.run.<fn>
+  dart:async                                          runZoned
+  package:fake_async/fake_async.dart 181:52           FakeAsync.run
+  package:fake_async/fake_async.dart 41:41            fakeAsync
+  test/veil_group_call_media_test.dart 70:7           main.<fn>
+
+00:00 +0 -1: Some tests failed.
+
+Failing tests:
+  /Users/vart/Projects/veilnetwork/xVeil/test/veil_group_call_media_test.dart: one group concealment cannot bypass video debouncing at the audio floor

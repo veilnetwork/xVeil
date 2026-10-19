@@ -1,5 +1,6 @@
 import unittest
-from decoded_video_progress import required_tail_content_changes, summarize
+from decoded_video_progress import (required_tail_content_changes, summarize,
+                                    frame_witness)
 
 
 def row(t, side, seq, shade='a'):
@@ -7,6 +8,24 @@ def row(t, side, seq, shade='a'):
 
 
 class DecodedVideoProgressTest(unittest.TestCase):
+    def test_native_sequence_is_not_a_byte_count_or_a_motion_witness(self):
+        image = bytes(range(32))
+        a = frame_witness(1, 4, 2, image)
+        b = frame_witness(16, 4, 2, image)
+        self.assertEqual(a['sha256'], b['sha256'])
+        # Motion outside both old sequence-sized prefixes still counts.
+        moving = image[:-1] + bytes([image[-1] ^ 0xff])
+        c = frame_witness(17, 4, 2, moving)
+        self.assertNotEqual(b['sha256'], c['sha256'])
+        self.assertEqual(frame_witness(18, 4, 2, image + b'extra')['sha256'],
+                         a['sha256'])
+
+    def test_native_frame_witness_refuses_invalid_dimensions_and_capacity(self):
+        for seq, width, height in [(0, 4, 2), (-1, 4, 2), (1, 0, 2),
+                                   (1, 4097, 1), (1, 4, 3)]:
+            with self.assertRaises(ValueError):
+                frame_witness(seq, width, height, bytes(32))
+
     def test_decode_rate_counts_skipped_frames_without_qualifying_motion(self):
         rows = [r for side in (0, 1)
                 for r in (row(345, side, 1), row(359, side, 141))]

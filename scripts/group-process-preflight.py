@@ -24,7 +24,8 @@ from group_codec_sdk import (GroupSdk, P, E, SourcePacketSamples,
 from group_pcm_timing import analyze_voice_path
 from native_pcm_driver import NativePcmDriver, build as build_clock
 from group_process_files import ProcessFileLoad
-from decoded_video_progress import required_tail_content_changes
+from decoded_video_progress import (required_tail_content_changes,
+                                    decoded_counter_rate, frame_witness)
 
 
 def qualifies_full_contention(result):
@@ -37,8 +38,10 @@ def qualifies_full_contention(result):
                 result.get('end_topology', {}).get('verified') is True and
                 len(result.get('files', [])) == 3 and
                 len(result.get('video_paths', [])) == 6 and
-                all(path.get('tail_changes', -1) >= required_tail_content_changes(
-                    result['duration_seconds']) for path in result['video_paths']))
+                all(path.get('frame_witness') == 'full-rgba-native-sequence-v1' and
+                    path.get('tail_changes', -1) >= required_tail_content_changes(
+                        result['duration_seconds'])
+                    for path in result['video_paths']))
 
 
 def worker(pipe, sdk_path, media_path, root, clock, participant,
@@ -352,15 +355,15 @@ def worker(pipe, sdk_path, media_path, root, clock, participant,
                             snapshot.update(video_budget_ok=budget_ok, video_pause_ok=pause_ok)
                             for peer, output in frame_buffers.items():
                                 width, height = C.c_int(), C.c_int()
-                                size = frame(engine, peers[peer], output, len(output),
+                                sequence = frame(engine, peers[peer], output, len(output),
                                              C.byref(width), C.byref(height))
-                                if size > len(output):
+                                if sequence < 0:
                                     raise RuntimeError('Oversized decoded frame')
-                                if size > 0:
+                                if sequence > 0:
                                     images.append({'t': time.monotonic() - origin,
                                         'receiver': participant, 'source': peer,
-                                        'width': width.value, 'height': height.value,
-                                        'sha256': hashlib.sha256(output.raw[:size]).hexdigest()})
+                                        **frame_witness(sequence, width.value,
+                                                        height.value, output.raw)})
                 if change and snapshot['t'] >= change[0]:
                     rc = set_audio(engine, change[1], change[2])
                     result['budget_events'].append({'t': snapshot['t'], 'packet_ms': change[1],
@@ -394,7 +397,14 @@ def worker(pipe, sdk_path, media_path, root, clock, participant,
                 tail = [x for x in observed if x['t'] >= duration - 15]
                 changes = sum(a['sha256'] != b['sha256'] for a, b in zip(tail, tail[1:]))
                 path = {'receiver': participant, 'source': peer,
+                        'frame_witness': 'full-rgba-native-sequence-v1',
                         'decoded_pulls': len(observed), 'tail_changes': changes,
+                        'decoded_counter': decoded_counter_rate(observed),
+                        'last_minute_decoded_counter': decoded_counter_rate(
+                            [x for x in observed if x['t'] >= duration - 60]),
+                        'last_dimensions': [observed[-1]['width'], observed[-1]['height']]
+                            if observed else None,
+                        'screen_presentation_proof': False,
                         'required_tail_content_changes': required_tail_content_changes(duration)}
                 result['video_paths'].append(path)
                 result['ok'] &= changes >= path['required_tail_content_changes']
@@ -532,7 +542,8 @@ def main():
               'media_sha256': hashlib.sha256(args.media.read_bytes()).hexdigest()}
     sources = ['group-process-preflight.py', 'group_codec_sdk.py',
                'native_pcm_driver.py', 'native_pcm_driver.cc',
-               'group_pcm_timing.py', 'udp_fifo_shaper.py', 'group_process_files.py']
+               'group_pcm_timing.py', 'udp_fifo_shaper.py', 'group_process_files.py',
+               'decoded_video_progress.py']
     result['fixture_sources'] = {}
     for name in sources:
         data = Path(__file__).with_name(name).read_bytes()
@@ -547,6 +558,7 @@ def main():
                           'lib/state/group_call_audio_adapter.dart',
                           'lib/state/group_call_source_priority.dart',
                           'lib/state/call_audio_buffer_window.dart',
+                          'lib/state/call_audio_transient_loss.dart',
                           'lib/state/call_bitrate_adapter.dart',
                           'lib/state/call_audio_receive_activity.dart',
                           'lib/state/call_rtcp_loss.dart']

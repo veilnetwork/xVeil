@@ -66,8 +66,11 @@ class RoomPolicy {
         if (a > age) age = a;
       }
     }
-    final receiveDelay = complete || delay >= 200 ? delay : null;
-    final receiveAge = complete || age >= 2000 ? age : null;
+    final receiveDelay =
+        complete || delay >= CallBitrateAdapter.playoutDegradeMs ? delay : null;
+    final receiveAge = complete || age >= CallBitrateAdapter.audioReceivePauseMs
+        ? age
+        : null;
     final count = stats['audio_latency_recovery_count'];
     var recovered = false;
     if (stats['worker_stalled'] == 0 && count is int && count >= 0) {
@@ -83,12 +86,14 @@ class RoomPolicy {
             reports is num &&
             reports > 0 &&
             peerValue != null &&
-            (reports >= playoutPeers || peerValue >= 200)
+            (reports >= playoutPeers ||
+                peerValue >= CallBitrateAdapter.playoutDegradeMs)
         ? peerValue
         : null;
     final sourcePeerDelay =
         reports is num && reports >= peers.length ||
-            (peerDelay != null && peerDelay >= 200)
+            (peerDelay != null &&
+                peerDelay >= CallAudioSourcePressure.playoutDegradeMs)
         ? peerDelay
         : null;
     final sequence = stats['audio_playout_sequence'];

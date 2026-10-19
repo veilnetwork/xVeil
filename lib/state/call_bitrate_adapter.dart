@@ -207,6 +207,9 @@ class CallBitrateAdapter {
       'level_after': _level,
       'bad_streak_after': _badStreak,
       'good_streak_after': _goodStreak,
+      'growth_pause_transient': _growthSampleTransient,
+      'ramp_recovery_needed': _rampNeedsRecovery,
+      'ramp_recovery_samples_after': _rampRecoverySamples,
       'audio_recovery_streak_after': _audioRecoveryStreak,
       'severe_streak_after': _severeStreak,
       'paused_after': _audioReserve,
@@ -217,6 +220,7 @@ class CallBitrateAdapter {
   ({int maxBitrateKbps, double maxFps})? _restartTarget;
   bool _growthAllowed = false;
   bool _growthSampleHealthy = false, _rampNeedsRecovery = false;
+  bool _growthSampleTransient = false;
   int _rampRecoverySamples = 0;
   int _lastGrowthObservation = -1;
   DateTime? _growthSampleAt, _lastGrowthAt;
@@ -275,6 +279,7 @@ class CallBitrateAdapter {
       _restartTarget ??= proposed;
     } else {
       if (!_growthSampleHealthy &&
+          !_growthSampleTransient &&
           (desired.maxBitrateKbps > previous.maxBitrateKbps ||
               desired.maxFps > previous.maxFps)) {
         _rampNeedsRecovery = true;
@@ -378,6 +383,7 @@ class CallBitrateAdapter {
     _restartTarget = null;
     _growthAllowed = false;
     _growthSampleHealthy = false;
+    _growthSampleTransient = false;
   }
 
   /// A replacement engine has no memory of either the bitrate or the pause
@@ -387,6 +393,7 @@ class CallBitrateAdapter {
     _appliedTarget = null;
     _growthAllowed = false;
     _growthSampleHealthy = false;
+    _growthSampleTransient = false;
     _rampRecoverySamples = 0;
     _lastGrowthObservation = -1;
     _appliedPause = null;
@@ -612,6 +619,7 @@ class CallBitrateAdapter {
   }) {
     _growthAllowed = false;
     _growthSampleHealthy = false;
+    _growthSampleTransient = false;
     _growthSampleAt = sampledAt;
     final routeRttUsable = _observeRttRoute(stats, sendAudioExpected);
     final networkLoss = _rtcpLoss.observe(
@@ -869,6 +877,7 @@ class CallBitrateAdapter {
   }) {
     _growthAllowed = false;
     _growthSampleHealthy = false;
+    _growthSampleTransient = false;
     _growthSampleAt = sampledAt;
     final freshPeerSample =
         peerAudioSampleSequence == null ||
@@ -1127,7 +1136,7 @@ class CallBitrateAdapter {
     // a growing/capped buffer or fresh media loss can reduce video.
     // Video-only and legacy calls retain their transport-based ladder.
     final bad = (usePlayout ? bufferPressure : networkBad) || videoStepLoss;
-    final audioGood =
+    final recoveredAudio =
         targetsRecovered &&
         feedbackAvailable &&
         rttMs > 0 &&
@@ -1135,7 +1144,6 @@ class CallBitrateAdapter {
         txJitterMs < 40 &&
         rttGood &&
         !freshAudioLoss &&
-        !transientGrowthHeld &&
         _receiveBuffer.growing != true &&
         _peerBuffer.growing != true &&
         !bufferPressure &&
@@ -1147,6 +1155,16 @@ class CallBitrateAdapter {
         (!requireAudioReceivePlayout ||
             (audioReceiveDelayMs != null &&
                 audioReceiveDelayMs < playoutRecoverMs));
+    final audioGood = recoveredAudio && !transientGrowthHeld;
+    // A completed isolated impairment pauses growth without erasing earned
+    // healthy credit or imposing another twelve-second ramp restart. Actual
+    // loss, buffer pressure and unknown/marginal measurements still reset it.
+    _growthSampleTransient =
+        recoveredAudio &&
+        transientGrowthHeld &&
+        !newDrops &&
+        !freshMediaLoss &&
+        videoSendExpected;
     // Audio alone cannot prove there is headroom for a larger video source.
     // Keep the measured rung while capture is off; healthy audio may still
     // release a protection pause, so an enabled sender can try its sparse floor.
@@ -1302,13 +1320,13 @@ class CallBitrateAdapter {
       // video here only creates local drops, NACKs and another quality cut.
       // Earn new growth evidence after that hold clears; the sparse floor
       // and prompt audio protection above retain their existing behavior.
-      _goodStreak = 0;
+      if (!_growthSampleTransient) _goodStreak = 0;
       _startupGoodStreak = 0;
       return null;
     }
     if (!good) {
       // Marginal sample: hold the rung, restart the recovery clock.
-      _goodStreak = 0;
+      if (!_growthSampleTransient) _goodStreak = 0;
       return null;
     }
     _growthSampleHealthy = true;
