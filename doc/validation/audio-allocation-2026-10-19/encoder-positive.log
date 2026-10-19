@@ -1,0 +1,15 @@
+[unsafe-buffers] file '/Users/vart/.cache/codex/xveil-audio-allocation-20261019/candidate-src/flutter/veil_media/src/veil_diag_log.h' bad test against path '../../'
+ld: warning: ignoring -lto_library '/Users/vart/Projects/veilnetwork/webrtc-checkout/src/third_party/llvm-build/Release+Asserts/lib/libLTO.dylib', file does not exist
+ok: real Opus/ANA maxptime=20, payload stays 24–32 kbit/s
+ok: real Opus/ANA maxptime=40, payload stays 24–32 kbit/s
+ok: real Opus/ANA maxptime=60, payload stays 24–32 kbit/s
+ok: framing=209 RTP=20 ceiling=160000, actual Opus 20/60/20 ms
+ok: framing=360 RTP=20 ceiling=160000, actual Opus 40/60/40 ms
+ok: framing=509 RTP=20 ceiling=160000, actual Opus 60/60/60 ms
+ok: framing=509 RTP=20 ceiling=183736, actual Opus 40/60/40 ms
+ok: framing=360 RTP=20 ceiling=131840, actual Opus 40/60/40 ms
+ok: framing=360 RTP=20 ceiling=96000, actual Opus 60/60/60 ms
+ok: framing=509 RTP=20 ceiling=165000, actual Opus 40/60/40 ms
+ok: framing=360 RTP=20 ceiling=120000, actual Opus 60/60/60 ms
+ok: framing=209 RTP=20 ceiling=120000, actual Opus 40/60/40 ms
+ok: one live Opus encoder, framing 209/360/209, actual packets 20/40/20 ms, payload 24..32 kbit/s

@@ -1,0 +1,175 @@
+{
+  "date": "2026-10-19",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "root_base": "78a67348f34b9bf4554bbc92a8f418e4b66213d8",
+  "sdk_base": "80c4205e29b51173d17905713f4e9432c816bf73",
+  "sdk_commit": "057b0ea02ede30014118b83c565cee3076fbd142",
+  "scope": "Unicast Opus/ANA allocation. Endpoint only; no BWE allocation increase, network role hints or relay priority.",
+  "implementation": {
+    "payload_margin": "Continue targeting25% gross allocation headroom by reducing payload within24..32kbit/s.",
+    "packet_selection": "Choose the shortest supported20/40/60-ms packet that leaves at least20% modeled gross headroom at minimum speech payload. If the5-percentage-point flexibility funds a shorter packet, trim payload before increasing packet duration.",
+    "strict_ana_floor": "A one-bit/s epsilon preserves ANA's strict shortest-duration comparison at the speech floor. Unsupported packet durations remain excluded.",
+    "scope_limit": "This remains a framed allocation model, not a total wire-cost measurement. QUIC/TCP/IP, ACK cost, physical latency and group fanout need separate qualification."
+  },
+  "rejected_variants": [
+    {
+      "variant": "Removed gross reserve entirely",
+      "handover_peak_ms": 212.907,
+      "strict200ms_gate_passed": false,
+      "private_sources_sha256": "53abeddb2a4ad42ecb7676825340674c5c6543bf7c9eb37e35f7ef0f8cc3def1"
+    },
+    {
+      "variant": "Retained payload reserve but selected duration using full raw allocation",
+      "handover_peak_ms": 211.215,
+      "strict200ms_gate_passed": false,
+      "private_sources_sha256": "12edc28f08f5c7fc20377fbea55bf12f43514f2e81b37195ba2e1bb9668781ab"
+    }
+  ],
+  "native_verification": {
+    "same_fixture_baseline_peak_ms": 193.82,
+    "bounded_candidate_peak_ms": 191.588,
+    "strict200ms_gate_passed": true,
+    "settled_voiced_blocks": [
+      600,
+      600,
+      600
+    ],
+    "settled_duration_matches": [
+      6,
+      6,
+      6
+    ],
+    "packet_duration_sequence_ms": [
+      20,
+      40,
+      20
+    ],
+    "encoder_regression": {
+      "old_source": "80c4205e29b51173d17905713f4e9432c816bf73",
+      "negative_runner_exit": 1,
+      "negative_native_exit": 25,
+      "negative_observation": "framing=360 RTP=20 ceiling=131840 phase=0: Opus packet=60 expected=40 ms",
+      "fixed_runner_exit": 0,
+      "positive_settled_cases": 9,
+      "all_packet_range_constraints_verified_ms": [
+        20,
+        40,
+        60
+      ],
+      "payload_floor_ceiling_bps": [
+        24000,
+        32000
+      ],
+      "source": {
+        "flutter/veil_media/src/bounded_audio_encoder.h": "2682c4adcb41159b61b5aa01e7eda7e51204387ee294350d1e57e1874fa82fee",
+        "flutter/veil_media/test/bounded_audio_encoder_smoke.cc": "8ddfbeb818a4a88904ec308544952a44cbfa18fd550a671a306ddc0a45afef6e"
+      }
+    },
+    "real_unicast_opus_signal": "DTX on/off,209/509-byte framing, minimum24-kbit payload: zero quiet blocks.",
+    "production_builds": [
+      "macOS arm64",
+      "Android arm64"
+    ],
+    "production_exports_unchanged_mac": 101,
+    "android_public_exports": 101,
+    "production_test_exports": 0,
+    "sdk_ffi_library": "Reused clean80c4205e SDK; only native media source changed in057b0ea0. Foreign Rust WIP not built."
+  },
+  "full_pair": {
+    "gate_passed": true,
+    "duration_seconds": 360,
+    "rate_kbps": 1024,
+    "load": "Real Opus and VP8 plus two512-KiB files over a blind FIFO; same workload/clocks/thresholds.",
+    "peak_ms": [
+      189.99004166107625,
+      190.09983332944103
+    ],
+    "matched": 704,
+    "missing": 0,
+    "files_complete": true,
+    "video_moving_at_end": true,
+    "max_sampled_video_gaps_seconds": [
+      2.0032242499873973,
+      6.0018354170024395
+    ],
+    "peak_stages_ms": {
+      "capture_to_encoded": 40.407,
+      "encoded_to_send": 0.026,
+      "send_to_sdk": 0.01,
+      "sdk_to_ingress": 10.579,
+      "ingress_to_webrtc": 0.022,
+      "webrtc_to_pcm_edge": 139.056
+    },
+    "clock_deadline_misses": 0,
+    "previous_capture_peak_ms": [
+      200.006875,
+      190.223083
+    ],
+    "comparison_limit": "One capture per configuration; no statistical estimate of improvement. Final moving synthetic pictures do not qualify smooth video or live speech."
+  },
+  "full_group": {
+    "gate_passed": false,
+    "duration_seconds": 360,
+    "rate_kbps": 1024,
+    "peak_ms": 250.09391666390002,
+    "matched": 2112,
+    "missing": 0,
+    "files_complete": true,
+    "moving_video_paths": 6,
+    "packet_ms_at_peak": 60,
+    "peak_stages_ms": {
+      "capture_to_encoded": 40.606333350297064,
+      "encoded_to_ingress": 42.89400001289323,
+      "ingress_to_webrtc": 0.00899998121894896,
+      "webrtc_to_pcm_edge": 166.58458331949078
+    },
+    "source_quic_accept_to_authenticated_receive_ms": 42.619,
+    "prior_capture_peak_ms": 210.365708,
+    "changed_allocation_method_observed": false,
+    "method_scope_proof": "Before/after group traces contain zero allocation observations in all three encoders. Group packet-size adaptation is separate; this change is not a group fix. The worse observed result remains unqualified.",
+    "shaper_complete": true,
+    "console_complete": true,
+    "clock_deadline_misses": 0
+  },
+  "remaining_work": [
+    "The original full group gate still fails at250ms. Its60-ms packet formation,42.9-ms transport and166.6-ms post-ingress span must be addressed while competing video/data yield. Do not lower quality gates or attribute the worse group observation to a method that never ran.",
+    "Room video still needs live per-source framing and cadence accounting. Keep per-path framing and multi-peer replication separate; model full carrier/control overhead.",
+    "The earlier physical handover219-ms audio pacer transient, sparse fractional-rate video and carrier fallback remain unqualified.",
+    "Verify current application/phone, screen sharing and actual speech/headset quality. The connected BV6600Pro was observed read-only, without installation or calls.",
+    "Audit all interaction channel boundaries before completion; one unicast synthetic gate is not proof of the full goal."
+  ],
+  "cleanup": {
+    "all_known_owned_processes_absent": true,
+    "verified_process_count": 13,
+    "owned_builder_container_absent": true,
+    "remaining_fixture_sockets": 0,
+    "gui_app_or_phone_call_started": false
+  },
+  "no_push_or_release": true,
+  "no_server_changes": true,
+  "foreign_wip": {
+    "root_diff_sha256": "529f7718edea4b6775cc11607bc2ff663a922cc3521b680cf94efa39d7b26859",
+    "sdk_diff_sha256": "1ceeb05d540078262f1480ba7210dfaa0f5895be9f0099f64bc18a56a4f6a363"
+  },
+  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-audio-allocation-20261019",
+  "evidence_directory": "audio-allocation-2026-10-19/",
+  "evidence_sha256": {
+    "build-proof.json": "11b282f82f95056e7e97fa308031303b67d05e95e602a9a5f3197c3885f732e1",
+    "cleanup.json": "055dbad39c4ba43581b40214f5acbfa25b4fd6f3546c57e6cde174bd56389951",
+    "encoder-negative.log": "439bc09fcdf179226b2a1649e4d85c75703a948d27b59d89479fbf68e60b11c2",
+    "encoder-positive.log": "049b63e170538596adf44d02d54d2e73101d4e5904f0cb6df11f0c0648decda3",
+    "encoder-regression.json": "8a46f7a79ba57c4b997f51c91f3b8e720648cfebecfc6fa117abccc3dace3cbf",
+    "findings.json": "c3407788afb08a5cad39cddb1fe4b23c9a5271ff7afefec68ed61327044f4e31",
+    "foreign-proof.json": "45a65d243a38e824eea2d86ed8783edaa4618bf4db8dc39cc5174ac83e44fa3a",
+    "group-allocator-proof.json": "1e2463a3bc65cb94f131ef73dc5064add92779551fa0aa1bb398e6a8360fabe2",
+    "group-result.json": "b734049354578e34e15a5377ecee7f7518fa3bc6e817ba4ed8fa3649e2e2b10a",
+    "handover-baseline.log": "e69b332b55bdc7e770d91e250e40939059c5b22cc3870c8c142e02db36f7df5b",
+    "handover-bounded.log": "f9fdd7f3973d380a9d3cbf5c6ee41c0ab8f564b927ffd2ac82e5c1064ad0ac2d",
+    "handover-no-reserve.log": "c01e208a1df346a39271f262a4b8f9e648bb0ba496b8918b4aa331586e208a26",
+    "handover-raw-duration.log": "9e07e67ae8ac4cbebcfefb2cbd5446d2d608496012b94801c2d2a0e9efb7cefd",
+    "opus-signal.log": "6d45408ef6866964e948da91a2f76ce44ff255a1b008fe137f0b3128c3dcd29b",
+    "pair-result.json": "3c92bcb7c5630adbe9432f2520610e012557a059094fca37c9058001dedc997c",
+    "source-root.json": "2bfbdab6f4699b55c0b8729b3ef3e6d8fbfe8acfa9d4e3359c37ca14924efcc4"
+  }
+}
