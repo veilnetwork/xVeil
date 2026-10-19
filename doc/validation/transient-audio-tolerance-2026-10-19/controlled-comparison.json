@@ -1,0 +1,43 @@
+{
+  "cap1": {
+    "fixture_ok": true,
+    "duration_seconds": 70,
+    "directions": [
+      {
+        "receiver": 0,
+        "source_pause_start_seconds": 35.00672691699583,
+        "source_reopen_seconds": 40.0051442499971,
+        "first_new_frame_after_reopen_seconds": 2.9957921669702046,
+        "maximum_sampled_gap_seconds": 7.998576499987394
+      },
+      {
+        "receiver": 1,
+        "source_pause_start_seconds": 35.003463791974355,
+        "source_reopen_seconds": 40.003565999970306,
+        "first_new_frame_after_reopen_seconds": 2.9998097920324653,
+        "maximum_sampled_gap_seconds": 7.997378625033889
+      }
+    ]
+  },
+  "floor": {
+    "fixture_ok": true,
+    "duration_seconds": 70,
+    "directions": [
+      {
+        "receiver": 0,
+        "source_pause_start_seconds": 35.00605720799649,
+        "source_reopen_seconds": 40.007292499998584,
+        "first_new_frame_after_reopen_seconds": 0.9945599170168862,
+        "maximum_sampled_gap_seconds": 6.000452417007182
+      },
+      {
+        "receiver": 1,
+        "source_pause_start_seconds": 35.00399645802099,
+        "source_reopen_seconds": 40.00537633302156,
+        "first_new_frame_after_reopen_seconds": 0.9989740839810111,
+        "maximum_sampled_gap_seconds": 5.999961916997563
+      }
+    ]
+  },
+  "scope": "Controlled native API comparison; 1Hz decoded frame pulls bound observation timing. Two runs, not a statistical/physical benchmark. Only closed-source video ceiling differs; source remains paused in both variants."
+}

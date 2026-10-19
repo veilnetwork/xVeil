@@ -1,0 +1,46 @@
+--- scripts/relay-codec-control.py
++++ private-controlled-recovery.py
+@@ -1,3 +1,5 @@
++import sys
++sys.path.insert(0, '/Users/vart/Projects/veilnetwork/xVeil/scripts')
+ #!/usr/bin/env python3
+ """Exercise real Opus/VP8 and the application's adapter over a neutral relay.
+ 
+@@ -28,6 +30,7 @@
+ from fixture_admin import request_admin
+ os.umask(0o077)
+ parser = argparse.ArgumentParser(description=__doc__)
++parser.add_argument('--controlled-pause-mode', choices=['cap1', 'floor'], required=True)
+ parser.add_argument('--sdk', type=Path, required=True)
+ parser.add_argument('--transport', choices=['quic', 'tcp', 'obfs4-tcp'], default='quic',
+                     help='Loopback transport; TCP checks ordered fallback, obfs4-tcp checks authenticated independent channels')
+@@ -153,7 +156,7 @@
+     os.environ['VEIL_DIAG_CAPTURE_EVENTS_PER_SEC'] = str(args.opaque_frame_capture_event_rate)
+ sdk_path = args.sdk.resolve(strict=True)
+ media_path = args.media.resolve(strict=True)
+-policy_path = Path(__file__).resolve().with_name('relay_codec_policy.dart')
++policy_path = Path('/Users/vart/Projects/veilnetwork/xVeil/scripts/relay_codec_policy.dart')
+ if args.directory is None:
+     ROOT = Path(tempfile.mkdtemp(prefix='xveil-relay-control-', dir='/private/tmp'))
+ else:
+@@ -776,6 +779,20 @@
+                     targets[i]=r['target']
+                 if r['budget'] is not None:budgetok=budget(e,r['budget']['kbps'],r['budget']['fps'])==0
+                 command({'index':i,'op':'ack','pauseOk':pauseok,'budgetOk':budgetok})
++                # Explicit diagnostic override: identical five-second source
++                # pause, only the closed-gate ceiling differs. Not an automatic
++                # production-policy or end-to-end quality qualification.
++                controlled_at=time.monotonic()-startat
++                if videostarted:
++                    in_pause=35 <= controlled_at < 40
++                    target_kbps=1 if in_pause and args.controlled_pause_mode=='cap1' else 45
++                    target_fps=0.02 if target_kbps==1 else 1.0
++                    if in_pause: assert pause(e,1)==0
++                    assert budget(e,target_kbps,target_fps)==0
++                    if controlled_at>=40: assert pause(e,0)==0
++                    result.setdefault('controlled_pause',[]).append({
++                        'side':i,'t':controlled_at,'paused':in_pause,
++                        'kbps':target_kbps,'fps':target_fps})
+                 samples.append({'t':time.monotonic()-startat,'side':i,'stats':stats,'policy':r,'pause_ok':pauseok,'budget_ok':budgetok})
+             if prepare:
+                 if not args.no_video:

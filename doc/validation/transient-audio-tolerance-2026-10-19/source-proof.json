@@ -1,0 +1,20 @@
+{
+  "root_base": "88024918e1886c88ebf4370d400f46342aea8d60",
+  "sdk_commit": "1e5a0c863c837e3975fbcbdc97a1af20cee54b4e",
+  "root_files": {
+    "lib/state/call_audio_transient_loss.dart": "66ae8b32025e3fa19ce717cca94c30d50b3495d47c1c050f6354483a24c8b326",
+    "lib/state/call_bitrate_adapter.dart": "829c144fd0bfc20f52afa29ac77f60dd031490cab43eaa579109cde531f2c2c3",
+    "lib/state/call_audio_source_pressure.dart": "c198a558e9323909324c872797dcf08a99487ec159db7db93fec3e08476c5a57",
+    "lib/state/veil_call_media.dart": "6f04fd78cf317a1c96ad0de7bba383fad960c3a8461f6e3de409fb8cd55b7c97",
+    "lib/state/veil_group_call_media.dart": "c07abd6eff4a21db24e62ee85186951542f756253798da2a655828dd70f0eb8f",
+    "scripts/group_codec_policy.dart": "5bd62f1d1094e57e3bfeafec5352b9a977c0cedd772596a0878527e762c36365",
+    "scripts/relay_codec_policy.dart": "c1aaa841a51e9bee8413c7de716b98cc0ab61537f881378e3b988052e7998dde",
+    "test/call_audio_transient_loss_test.dart": "a53cc939bec0c2c155899d25a4d3eefa5704da4cac4075c5c5753f453c6ed816",
+    "test/call_audio_source_pressure_test.dart": "8e257690ce9baff83f830f349135d2cb4c9e0f5dde2bd566010dfa20cc468fc2",
+    "test/call_bitrate_adapter_test.dart": "57e0265dbb76ddd3bde15157111d1a4191be135d44bb42135f86be82ceaa5856",
+    "test/veil_group_call_media_test.dart": "fc94c185adc3e22bd8b5beb3b1a6c2f3c12ae50ab77f7336e2b228b31a8f9273"
+  },
+  "native_unchanged": true,
+  "capture": "360s / 1024 kbit, same native SDK/media and original workloads",
+  "audio_200ms_gate": "Retained in raw fixture result; deferred as a completion blocker per user instruction."
+}

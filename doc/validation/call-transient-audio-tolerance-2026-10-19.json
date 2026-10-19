@@ -1,0 +1,211 @@
+{
+  "date": "2026-10-19",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "user_direction": "Improve video continuity/quality; defer strict synthetic 200-ms audio gate as a blocker. No thresholds or fixture gates silently weakened.",
+  "change": {
+    "isolated_event": "A fresh concealment or completed catch-up witness holds video growth for three wall-clock seconds without cutting its rung.",
+    "repeated_event": "Another fresh event within six seconds can cut video; cached/expired/replayed reports cannot qualify. Actual send loss/interruption and measured growing/capped buffers keep independent protection.",
+    "lifecycle": "Mute transitions, new engines and backward clock changes clear the transient episode. Group and unicast source-pressure reporters pass their actual sample time.",
+    "source_budget": "Isolated concealment uses three healthy source recovery polls, matching completed catch-up, without shortening an active genuine twelve-poll congestion recovery. Repeated transient events retain sustained protection.",
+    "limits": "No relay role/priority, transport estimate, production buffer ceiling or native audio/video binary changed."
+  },
+  "verification": {
+    "tests_passed": 304,
+    "recorded_case_red_then_green": "94-ms receive /62-ms peer buffers, one concealment at level2: old policy drops to4, new policy retains2.",
+    "analyze": "Seven changed Dart production/bridge files: no issues.",
+    "policy_replay": {
+      "before": [
+        {
+          "samples": 340,
+          "floor_samples": 202,
+          "rung_cuts": 5,
+          "pause_samples": 7,
+          "source_pressure_samples": 155
+        },
+        {
+          "samples": 340,
+          "floor_samples": 216,
+          "rung_cuts": 6,
+          "pause_samples": 3,
+          "source_pressure_samples": 135
+        }
+      ],
+      "after": [
+        {
+          "samples": 340,
+          "floor_samples": 101,
+          "rung_cuts": 1,
+          "pause_samples": 4,
+          "source_pressure_samples": 144
+        },
+        {
+          "samples": 340,
+          "floor_samples": 81,
+          "rung_cuts": 0,
+          "pause_samples": 3,
+          "source_pressure_samples": 100
+        }
+      ],
+      "baseline_reproduces_archived_counts": true,
+      "scope": "Hypothetical policy replay on fixed recorded stats/peer inputs; original frame counters and buffers do not reflect changed output. Not a media performance comparison."
+    }
+  },
+  "pair": {
+    "duration_seconds": 360,
+    "aggregate_kbps": 1024,
+    "original_fixture_gate_passed": true,
+    "maximum_decoded_marker_delay_ms": [
+      160.03508330322802,
+      160.36099998746067
+    ],
+    "matched_markers": 704,
+    "missing_markers": 0,
+    "exact_512kib_files": 2,
+    "maximum_sampled_video_pull_gap_seconds": [
+      2.000297042017337,
+      2.000917459023185
+    ],
+    "tail_content_changes": [
+      14,
+      14
+    ],
+    "video_policy": [
+      {
+        "side": 0,
+        "samples": 340,
+        "floor_samples": 73,
+        "rung_cuts": 3,
+        "max_selected_fps": 7.5,
+        "final_selected_fps": 1.0,
+        "final_applied_fps": 1.0,
+        "tail_average_native_fps": 2.3049999999999997,
+        "pauses": [],
+        "source_pressured_samples": 135,
+        "soft_event_samples": 10
+      },
+      {
+        "side": 1,
+        "samples": 340,
+        "floor_samples": 206,
+        "rung_cuts": 5,
+        "max_selected_fps": 3.75,
+        "final_selected_fps": 1.0,
+        "final_applied_fps": 1.0,
+        "tail_average_native_fps": 1.2983333333333333,
+        "pauses": [],
+        "source_pressured_samples": 122,
+        "soft_event_samples": 7
+      }
+    ],
+    "limitations": "Synthetic same-host stand. One full capture does not establish a causal/statistical performance gain. Both directions end at1fps; video-quality objective remains incomplete."
+  },
+  "controlled_pause_comparison": {
+    "cap1": {
+      "fixture_ok": true,
+      "duration_seconds": 70,
+      "directions": [
+        {
+          "receiver": 0,
+          "source_pause_start_seconds": 35.00672691699583,
+          "source_reopen_seconds": 40.0051442499971,
+          "first_new_frame_after_reopen_seconds": 2.9957921669702046,
+          "maximum_sampled_gap_seconds": 7.998576499987394
+        },
+        {
+          "receiver": 1,
+          "source_pause_start_seconds": 35.003463791974355,
+          "source_reopen_seconds": 40.003565999970306,
+          "first_new_frame_after_reopen_seconds": 2.9998097920324653,
+          "maximum_sampled_gap_seconds": 7.997378625033889
+        }
+      ]
+    },
+    "floor": {
+      "fixture_ok": true,
+      "duration_seconds": 70,
+      "directions": [
+        {
+          "receiver": 0,
+          "source_pause_start_seconds": 35.00605720799649,
+          "source_reopen_seconds": 40.007292499998584,
+          "first_new_frame_after_reopen_seconds": 0.9945599170168862,
+          "maximum_sampled_gap_seconds": 6.000452417007182
+        },
+        {
+          "receiver": 1,
+          "source_pause_start_seconds": 35.00399645802099,
+          "source_reopen_seconds": 40.00537633302156,
+          "first_new_frame_after_reopen_seconds": 0.9989740839810111,
+          "maximum_sampled_gap_seconds": 5.999961916997563
+        }
+      ]
+    },
+    "scope": "Controlled native API comparison; 1Hz decoded frame pulls bound observation timing. Two runs, not a statistical/physical benchmark. Only closed-source video ceiling differs; source remains paused in both variants."
+  },
+  "next_confirmed_video_problem": {
+    "evidence": "Most remaining live rung cuts follow fresh video RTCP fractional-loss witnesses with low audio buffers. All3157 successful unique video RTP sends eventually have native ingress witnesses;39 arrive later than200ms, maximum2350ms. These are not proofs of timely frame decode.",
+    "temporary_rr_gap": "At126.901s RR reports4 missing; policy cuts2\u21924 near127.008s; RR missing falls4\u21923\u21922\u21921\u21920 by128.507s. Native congestion control also consumes raw RTCP.",
+    "required_work": "Separate temporary sequence gaps/reordering from sustained unrecovered video loss before an additional application rung cut. Preserve response to real loss and audio congestion; qualify FPS and resolution, not only eventual video motion."
+  },
+  "remaining_broad_work": [
+    "Native group source-yield policy can still floor video on a transient impairment; inspect alongside regular adapter.",
+    "Persistent video RR loss admission and buffer-trend/ceiling tolerance still need work.",
+    "Complete ordered/canonical interaction separation and route/fanout accounting.",
+    "Physical speech/headset loudness, screen, mute and reconnect qualification."
+  ],
+  "cleanup": {
+    "pair": {
+      "checked_at_utc": "2026-10-19T20:18:11.503489+00:00",
+      "recorded_processes_checked": 5,
+      "long_lived_processes_checked": 4,
+      "transient_recorders_checked": 1,
+      "remaining": [],
+      "audio_thread_exited": true,
+      "file_threads_exited": true,
+      "policy_exited": true,
+      "node_stop_results": [
+        0,
+        0,
+        0
+      ],
+      "remaining_fixture_sockets": 0
+    },
+    "controlled_cap1": {
+      "checked_at_utc": "2026-10-19T20:21:06.530613+00:00",
+      "recorded_processes_checked": 4,
+      "remaining": [],
+      "node_stop_results": [
+        0,
+        0,
+        0
+      ],
+      "remaining_fixture_sockets": 0,
+      "audio_thread_exited": true,
+      "file_threads_exited": true,
+      "policy_exited": true
+    },
+    "controlled_floor": {
+      "checked_at_utc": "2026-10-19T20:23:30.981423+00:00",
+      "recorded_processes_checked": 5,
+      "remaining": [],
+      "node_stop_results": [
+        0,
+        0,
+        0
+      ],
+      "remaining_fixture_sockets": 0,
+      "audio_thread_exited": true,
+      "file_threads_exited": true,
+      "policy_exited": true
+    }
+  },
+  "gui_or_phone_opened": false,
+  "foreign_wip_preserved": true,
+  "sdk_unchanged": true,
+  "deployed": false,
+  "pushed": false,
+  "public_release": false,
+  "evidence_directory": "doc/validation/transient-audio-tolerance-2026-10-19",
+  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-transient-audio-tolerance-20261019"
+}

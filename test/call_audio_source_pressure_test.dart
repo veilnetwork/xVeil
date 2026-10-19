@@ -4,6 +4,7 @@ import 'package:xveil/state/call_peer_audio_playout.dart';
 import 'package:xveil/domain/call_signal.dart';
 
 void main() {
+  final times = Expando<DateTime>();
   bool? sample(
     CallAudioSourcePressure policy, {
     bool send = true,
@@ -21,7 +22,13 @@ void main() {
     Object? peerRecoveryReportUs,
     Object? concealmentReportUs,
     bool recovered = false,
+    DateTime? at,
   }) => policy.observe(
+    sampledAt: times[policy] =
+        at ??
+        (times[policy] ?? DateTime(2026, 10, 19)).add(
+          const Duration(seconds: 1),
+        ),
     sendExpected: send,
     receiveExpected: receive,
     requirePeerPlayout: requirePeer,
@@ -67,7 +74,7 @@ void main() {
     final policy = CallAudioSourcePressure();
     recover(policy);
     expect(sample(policy, concealmentReportUs: 100), isTrue);
-    for (var n = 0; n < 11; n++) {
+    for (var n = 0; n < 2; n++) {
       expect(sample(policy, concealmentReportUs: 100), isTrue);
     }
     expect(sample(policy, concealmentReportUs: 100), isFalse);
@@ -106,6 +113,22 @@ void main() {
     expect(sample(policy, peerRecoveryReportUs: 90), isFalse);
     expect(sample(policy, peerRecoveryReportUs: 200), isTrue);
   });
+
+  test(
+    'a second fresh transient inside six seconds keeps sustained protection',
+    () {
+      final policy = CallAudioSourcePressure();
+      recover(policy);
+      expect(sample(policy, concealmentReportUs: 100), isTrue);
+      expect(sample(policy, concealmentReportUs: 101), isTrue);
+      recover(policy);
+      // An expired episode only gets the short hold again.
+      expect(sample(policy, concealmentReportUs: 102), isTrue);
+      expect(sample(policy, concealmentReportUs: 102), isTrue);
+      expect(sample(policy, concealmentReportUs: 102), isTrue);
+      expect(sample(policy, concealmentReportUs: 102), isFalse);
+    },
+  );
 
   test('peer catch-up while not sending is consumed without later replay', () {
     final policy = CallAudioSourcePressure();

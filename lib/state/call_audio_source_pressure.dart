@@ -1,6 +1,7 @@
 import 'call_bitrate_adapter.dart';
 import 'call_audio_buffer_window.dart';
 import 'call_rtcp_loss.dart';
+import 'call_audio_transient_loss.dart';
 
 /// Endpoint measurements for the shared source budget, including audio-only
 /// calls. The node receives only a generic, expiring pressure observation.
@@ -16,12 +17,15 @@ class CallAudioSourcePressure {
   final _rtcpLoss = CallRtcpLoss();
   final _peerRecoveryLoss = CallRtcpLoss();
   final _peerConcealment = CallRtcpLoss();
+  final _transientLoss = CallAudioTransientLoss();
+  bool? _lastTransientSendExpected;
   final _peerBuffer = CallAudioBufferWindow();
   final _receiveBuffer = CallAudioBufferWindow();
 
   /// Null means no source or no verdict: stop refreshing the node lease.
   /// Freshness of peer and receive measurements is enforced by their trackers.
   bool? observe({
+    DateTime? sampledAt,
     required bool sendExpected,
     required bool receiveExpected,
     required bool requirePeerPlayout,
@@ -109,10 +113,19 @@ class CallAudioSourcePressure {
         receiveExpected && valid(receiveDelayMs) && valid(receiveTargetDelayMs)
         ? receiveTargetDelayMs
         : null;
+    if (_lastTransientSendExpected != sendExpected) {
+      _transientLoss.reset();
+      _lastTransientSendExpected = sendExpected;
+    }
+    final transient = concealed || recovered;
+    final repeatedTransient = _transientLoss.observe(
+      transient,
+      sampledAt: sampledAt,
+    );
     final bad =
         newDrop ||
         networkLoss ||
-        concealed ||
+        repeatedTransient ||
         interrupted ||
         peerPressure ||
         receivePressure ||
@@ -120,7 +133,7 @@ class CallAudioSourcePressure {
         (receiveTarget != null && receiveTarget >= playoutDegradeMs);
     final good =
         !bad &&
-        !recovered &&
+        !transient &&
         !unknown &&
         !interrupted &&
         !newDrop &&
@@ -130,7 +143,7 @@ class CallAudioSourcePressure {
         (!receiveExpected ||
             (receiveDelayMs! < playoutRecoverMs &&
                 receiveAgeMs! < CallBitrateAdapter.audioReceiveRecoverMs));
-    if (bad || recovered) {
+    if (bad || transient) {
       if (bad) {
         _recoverySamples = CallBitrateAdapter.recoverAfter;
       } else if (!_pressured) {
@@ -157,6 +170,8 @@ class CallAudioSourcePressure {
     _healthy = 0;
     _recoverySamples = CallBitrateAdapter.recoverAfter;
     _lastAudioDrops = null;
+    _transientLoss.reset();
+    _lastTransientSendExpected = null;
     _rtcpLoss.reset();
     _peerRecoveryLoss.reset();
     // Keep consuming this witness while both directions are muted, including
