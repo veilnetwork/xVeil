@@ -964,6 +964,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       recovered: recovered,
       audioLossReportUs: stats['audio_loss_report_us'],
       peerAudioRecoveryReportUs: stats['audio_peer_recovery_report_us'],
+      peerAudioConcealmentReportUs: stats['audio_peer_concealment_report_us'],
       audioTxDrops: stats['audio_tx_rtp_drops'] is int
           ? stats['audio_tx_rtp_drops'] as int
           : null,

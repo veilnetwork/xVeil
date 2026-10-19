@@ -253,6 +253,28 @@ void main() {
       expect(a.level, 2);
     });
   }
+  test(
+    'peer concealment reduces video once without fabricating network loss',
+    () {
+      final a = direct();
+      a.onNativeStats({...healthy(), 'audio_peer_concealment_report_us': 100});
+      expect(a.level, 2);
+      final diagnostic = a.bufferDiagnostics['latest'] as Map;
+      expect(diagnostic['audio_peer_concealment'], isTrue);
+      expect(diagnostic['audio_network_loss'], isFalse);
+      a.onNativeStats({...healthy(), 'audio_peer_concealment_report_us': 100});
+      expect(a.level, 2);
+      a.onNativeStats({
+        ...healthy(),
+        'audio_peer_concealment_report_us': 200,
+      }, sendAudioExpected: false);
+      a.onNativeStats({...healthy(), 'audio_peer_concealment_report_us': 200});
+      expect(a.level, 2, reason: 'muted event was already consumed');
+      a.onNativeStats({...healthy(), 'audio_peer_concealment_report_us': 300});
+      expect(a.level, 4);
+    },
+  );
+
   test('ongoing fresh audio network loss cannot earn video resume', () {
     final a = direct();
     for (var i = 0; i < 4; i++) {
