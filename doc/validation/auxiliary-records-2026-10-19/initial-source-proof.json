@@ -1,0 +1,32 @@
+{
+  "base_sdk": "e05f1b9886a7848590d9d316f847b2bdf649af67",
+  "sources": {
+    "crates/veil-node-runtime/src/runtime/peer_handshake.rs": "a5688e5daaa6e1885e148b62226cca907a63568753d2c57d82bada6be64ba628",
+    "crates/veil-node-runtime/src/runtime/tests.rs": "831416100513e2433f944305e0d10e3436e792165cc6c33d28178f4192b35442",
+    "crates/veil-proto/src/session.rs": "fe7ef690a5c369e62e2d6884b190c516bd405438a5ecf34dda11862375908082",
+    "crates/veil-session/src/handshake.rs": "2e22636a7a7ebdac0675750c28cbee7027eddec4ed57a83ea1cc453dc5588117",
+    "crates/veil-session/src/parallel_binding.rs": "a792551044c1da908f02e0980fdd6561a754917e7eecba704df5fac3881b7c77",
+    "crates/veil-session/src/parallel_binding_tests.rs": "ced516fb8d57694d72c75ee9b43d3ced0497449a177d12d4f4cca48bd6e64765",
+    "crates/veil-session/src/parallel_lanes.rs": "7104016b58072de20b957d2ceb1c22be1d29d18ec89b155d7b7c70100cdf0ce6",
+    "crates/veil-session/src/quic_backlog_tests.rs": "7ac501811506411c25b479216375f9124cbbb2aa0602bb862f1e77842cd3e429",
+    "crates/veil-session/src/reliable_frames.rs": "d3791b6af487cfcf67bc5f9a18ac7d33ece73528b9c900b46601962e1969dac8",
+    "crates/veil-session/src/reliable_frames_tests.rs": "1ece059f069a2e5d71919063ab31aac295dc2c4a7a1c251b7884b072916d1451",
+    "crates/veil-session/src/reliable_streams.rs": "6f478b4794597275ee0fbd32661cc2f9256503d4cd0e34fb9a55d17c36bc1ab7",
+    "crates/veil-session/src/resume_capabilities.rs": "2c0a2bc15394628c75ada82624e9e6fc94eb4863c59ee41d88166cb4276a4061",
+    "crates/veil-session/src/runner.rs": "57ecb81dfc93a855c4cd4620ac25701ddd030a4e963d1cdd12cf5982f6c78967",
+    "crates/veil-session/src/auxiliary_records.rs": "cc63b3dad1712c0f7ede20913e73c8e940ed469df39e40f6f1c5ee7a75776240",
+    "crates/veil-session/src/auxiliary_records_quic_tests.rs": "5c7a75114fcb49a50e499731f05ea02fe5571371566410d6a9241b02673db049",
+    "crates/veil-session/src/timers.rs": "140ed319ea1967ca9c78f77fed38e869e7278f509624f7c0e6f354795e93bb9c"
+  },
+  "foreign_excluded": [
+    "crates/veil-dispatcher/src/app.rs",
+    "crates/veil-dispatcher/src/delivery.rs",
+    "crates/veil-e2e/src/ratchet.rs",
+    "crates/veil-node-runtime/src/runtime/identity_publish.rs"
+  ],
+  "foreign_diff_sha256": "1ceeb05d540078262f1480ba7210dfaa0f5895be9f0099f64bc18a56a4f6a363",
+  "sdk_sha256": "c802e73661034c56517cdaffad5c09c60430041869ee21d876b4c279832d59a3",
+  "exports_unchanged": 202,
+  "native_sha256": "fa92737825248b4cb44fc4e7209ebdff7334ca8ef91f527c76b2ee3606d77959",
+  "sdk_commit": "6eb1f5b5732d3a590b5758296546c23c4942a930"
+}

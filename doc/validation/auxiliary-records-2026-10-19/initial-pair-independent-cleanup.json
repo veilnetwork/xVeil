@@ -1,0 +1,16 @@
+{
+  "checked_at_utc": "2026-10-19T13:47:46.377240+00:00",
+  "recorded_processes_checked": 5,
+  "long_lived_processes_checked": 4,
+  "transient_recorders_checked": 1,
+  "remaining": [],
+  "audio_thread_exited": true,
+  "file_threads_exited": true,
+  "policy_exited": true,
+  "node_stop_results": [
+    0,
+    0,
+    0
+  ],
+  "remaining_fixture_sockets": 0
+}
