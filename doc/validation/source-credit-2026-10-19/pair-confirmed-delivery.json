@@ -1,0 +1,365 @@
+{
+  "observation_only": true,
+  "capacity_grant": false,
+  "scope": "Explicit ACKed retained current-route congestion-counted QUIC Data; includes connection control. No sum across peers or allocation inferred.",
+  "rows": 3979,
+  "connections": [
+    {
+      "log": "runtime.log",
+      "connection_trace_id": 1,
+      "local_slot": 1,
+      "independent": false,
+      "rows": 2,
+      "epochs": [
+        0
+      ],
+      "progress_rows": 1,
+      "cached_rows": 0,
+      "empty_rows": 0,
+      "validation_pending_rows": 0,
+      "counter_regressions": 0,
+      "incoherent_rows": 0,
+      "min_positive_ack_age_us": 278085,
+      "max_ack_age_us": 742243,
+      "last_epoch": 0,
+      "last_bytes": 36394,
+      "last_packets": 56
+    },
+    {
+      "log": "runtime.log",
+      "connection_trace_id": 4,
+      "local_slot": 1,
+      "independent": false,
+      "rows": 2,
+      "epochs": [
+        0
+      ],
+      "progress_rows": 1,
+      "cached_rows": 0,
+      "empty_rows": 0,
+      "validation_pending_rows": 0,
+      "counter_regressions": 0,
+      "incoherent_rows": 0,
+      "min_positive_ack_age_us": 397625,
+      "max_ack_age_us": 805573,
+      "last_epoch": 0,
+      "last_bytes": 36755,
+      "last_packets": 56
+    },
+    {
+      "log": "runtime.log",
+      "connection_trace_id": 9,
+      "local_slot": 0,
+      "independent": true,
+      "rows": 355,
+      "epochs": [
+        0
+      ],
+      "progress_rows": 354,
+      "cached_rows": 0,
+      "empty_rows": 0,
+      "validation_pending_rows": 0,
+      "counter_regressions": 0,
+      "incoherent_rows": 0,
+      "min_positive_ack_age_us": 48,
+      "max_ack_age_us": 4623491,
+      "last_epoch": 0,
+      "last_bytes": 5079006,
+      "last_packets": 9072
+    },
+    {
+      "log": "runtime.log",
+      "connection_trace_id": 10,
+      "local_slot": 2,
+      "independent": true,
+      "rows": 293,
+      "epochs": [
+        0
+      ],
+      "progress_rows": 292,
+      "cached_rows": 0,
+      "empty_rows": 0,
+      "validation_pending_rows": 0,
+      "counter_regressions": 0,
+      "incoherent_rows": 0,
+      "min_positive_ack_age_us": 2807,
+      "max_ack_age_us": 24626075,
+      "last_epoch": 0,
+      "last_bytes": 1750600,
+      "last_packets": 2613
+    },
+    {
+      "log": "runtime.log",
+      "connection_trace_id": 11,
+      "local_slot": 3,
+      "independent": true,
+      "rows": 2,
+      "epochs": [
+        0
+      ],
+      "progress_rows": 1,
+      "cached_rows": 0,
+      "empty_rows": 0,
+      "validation_pending_rows": 0,
+      "counter_regressions": 0,
+      "incoherent_rows": 0,
+      "min_positive_ack_age_us": 99232,
+      "max_ack_age_us": 530218,
+      "last_epoch": 0,
+      "last_bytes": 7242,
+      "last_packets": 12
+    },
+    {
+      "log": "runtime.log",
+      "connection_trace_id": 13,
+      "local_slot": 6,
+      "independent": true,
+      "rows": 346,
+      "epochs": [
+        0
+      ],
+      "progress_rows": 345,
+      "cached_rows": 0,
+      "empty_rows": 0,
+      "validation_pending_rows": 0,
+      "counter_regressions": 0,
+      "incoherent_rows": 0,
+      "min_positive_ack_age_us": 3934,
+      "max_ack_age_us": 3715202,
+      "last_epoch": 0,
+      "last_bytes": 2321128,
+      "last_packets": 5311
+    },
+    {
+      "log": "runtime.log",
+      "connection_trace_id": 19,
+      "local_slot": 1,
+      "independent": true,
+      "rows": 1,
+      "epochs": [
+        0
+      ],
+      "progress_rows": 0,
+      "cached_rows": 0,
+      "empty_rows": 0,
+      "validation_pending_rows": 0,
+      "counter_regressions": 0,
+      "incoherent_rows": 0,
+      "min_positive_ack_age_us": 272591,
+      "max_ack_age_us": 272591,
+      "last_epoch": 0,
+      "last_bytes": 5892,
+      "last_packets": 6
+    },
+    {
+      "log": "runtime.log",
+      "connection_trace_id": 20,
+      "local_slot": 1,
+      "independent": true,
+      "rows": 293,
+      "epochs": [
+        0
+      ],
+      "progress_rows": 292,
+      "cached_rows": 0,
+      "empty_rows": 0,
+      "validation_pending_rows": 0,
+      "counter_regressions": 0,
+      "incoherent_rows": 0,
+      "min_positive_ack_age_us": 647,
+      "max_ack_age_us": 24639418,
+      "last_epoch": 0,
+      "last_bytes": 1744089,
+      "last_packets": 2603
+    },
+    {
+      "log": "runtime.log",
+      "connection_trace_id": 21,
+      "local_slot": 1,
+      "independent": true,
+      "rows": 353,
+      "epochs": [
+        0
+      ],
+      "progress_rows": 352,
+      "cached_rows": 0,
+      "empty_rows": 0,
+      "validation_pending_rows": 0,
+      "counter_regressions": 0,
+      "incoherent_rows": 0,
+      "min_positive_ack_age_us": 81,
+      "max_ack_age_us": 4631978,
+      "last_epoch": 0,
+      "last_bytes": 5072404,
+      "last_packets": 9154
+    },
+    {
+      "log": "runtime.log",
+      "connection_trace_id": 25,
+      "local_slot": 0,
+      "independent": true,
+      "rows": 354,
+      "epochs": [
+        0
+      ],
+      "progress_rows": 353,
+      "cached_rows": 0,
+      "empty_rows": 0,
+      "validation_pending_rows": 0,
+      "counter_regressions": 0,
+      "incoherent_rows": 0,
+      "min_positive_ack_age_us": 174,
+      "max_ack_age_us": 4623441,
+      "last_epoch": 0,
+      "last_bytes": 5106452,
+      "last_packets": 9123
+    },
+    {
+      "log": "runtime.log",
+      "connection_trace_id": 26,
+      "local_slot": 2,
+      "independent": true,
+      "rows": 292,
+      "epochs": [
+        0
+      ],
+      "progress_rows": 291,
+      "cached_rows": 0,
+      "empty_rows": 0,
+      "validation_pending_rows": 0,
+      "counter_regressions": 0,
+      "incoherent_rows": 0,
+      "min_positive_ack_age_us": 2612,
+      "max_ack_age_us": 24626079,
+      "last_epoch": 0,
+      "last_bytes": 1997118,
+      "last_packets": 2800
+    },
+    {
+      "log": "runtime.log",
+      "connection_trace_id": 27,
+      "local_slot": 3,
+      "independent": true,
+      "rows": 1,
+      "epochs": [
+        0
+      ],
+      "progress_rows": 0,
+      "cached_rows": 0,
+      "empty_rows": 0,
+      "validation_pending_rows": 0,
+      "counter_regressions": 0,
+      "incoherent_rows": 0,
+      "min_positive_ack_age_us": 98120,
+      "max_ack_age_us": 98120,
+      "last_epoch": 0,
+      "last_bytes": 5923,
+      "last_packets": 7
+    },
+    {
+      "log": "runtime.log",
+      "connection_trace_id": 30,
+      "local_slot": 6,
+      "independent": true,
+      "rows": 347,
+      "epochs": [
+        0
+      ],
+      "progress_rows": 346,
+      "cached_rows": 0,
+      "empty_rows": 0,
+      "validation_pending_rows": 0,
+      "counter_regressions": 0,
+      "incoherent_rows": 0,
+      "min_positive_ack_age_us": 3473,
+      "max_ack_age_us": 2609094,
+      "last_epoch": 0,
+      "last_bytes": 2343753,
+      "last_packets": 5384
+    },
+    {
+      "log": "runtime.log",
+      "connection_trace_id": 35,
+      "local_slot": 1,
+      "independent": true,
+      "rows": 294,
+      "epochs": [
+        0
+      ],
+      "progress_rows": 293,
+      "cached_rows": 0,
+      "empty_rows": 0,
+      "validation_pending_rows": 0,
+      "counter_regressions": 0,
+      "incoherent_rows": 0,
+      "min_positive_ack_age_us": 1114,
+      "max_ack_age_us": 24673112,
+      "last_epoch": 0,
+      "last_bytes": 1996475,
+      "last_packets": 2788
+    },
+    {
+      "log": "runtime.log",
+      "connection_trace_id": 36,
+      "local_slot": 1,
+      "independent": true,
+      "rows": 352,
+      "epochs": [
+        0
+      ],
+      "progress_rows": 351,
+      "cached_rows": 0,
+      "empty_rows": 0,
+      "validation_pending_rows": 0,
+      "counter_regressions": 0,
+      "incoherent_rows": 0,
+      "min_positive_ack_age_us": 54,
+      "max_ack_age_us": 4653187,
+      "last_epoch": 0,
+      "last_bytes": 5101323,
+      "last_packets": 9181
+    },
+    {
+      "log": "runtime.log",
+      "connection_trace_id": 41,
+      "local_slot": 1,
+      "independent": true,
+      "rows": 346,
+      "epochs": [
+        0
+      ],
+      "progress_rows": 345,
+      "cached_rows": 0,
+      "empty_rows": 0,
+      "validation_pending_rows": 0,
+      "counter_regressions": 0,
+      "incoherent_rows": 0,
+      "min_positive_ack_age_us": 2036,
+      "max_ack_age_us": 2142138,
+      "last_epoch": 0,
+      "last_bytes": 2322714,
+      "last_packets": 5290
+    },
+    {
+      "log": "runtime.log",
+      "connection_trace_id": 42,
+      "local_slot": 1,
+      "independent": true,
+      "rows": 346,
+      "epochs": [
+        0
+      ],
+      "progress_rows": 345,
+      "cached_rows": 0,
+      "empty_rows": 0,
+      "validation_pending_rows": 0,
+      "counter_regressions": 0,
+      "incoherent_rows": 0,
+      "min_positive_ack_age_us": 66,
+      "max_ack_age_us": 2145616,
+      "last_epoch": 0,
+      "last_bytes": 2341875,
+      "last_packets": 5345
+    }
+  ]
+}

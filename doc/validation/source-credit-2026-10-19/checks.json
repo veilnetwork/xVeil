@@ -1,0 +1,31 @@
+{
+  "sdk_commit": "1fef65ad13acd009ae77825e36e519243efd4b4f",
+  "tests": {
+    "quinn_proto": {
+      "passed": 317,
+      "ignored": 0
+    },
+    "session": {
+      "passed": 600,
+      "ignored": 8
+    },
+    "bootstrap": {
+      "passed": 141,
+      "ignored": 1
+    },
+    "confirmed_feedback_final": {
+      "passed": 2
+    },
+    "epoch_negative_control": {
+      "expected_failed": 1,
+      "actual_failed": 1
+    }
+  },
+  "release_build": "passed",
+  "ffi_export_count": 202,
+  "ffi_export_names_unchanged": true,
+  "native_media_rebuilt": false,
+  "native_media_source": "48553673 reused hooks build from xveil-rtp-lag-20261019",
+  "shared_source_capacity_allocator_implemented": false,
+  "foreign_edits_excluded": true
+}
