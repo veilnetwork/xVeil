@@ -35,6 +35,8 @@ class GroupCallAudioAdapter {
   bool _supports60Ms = false;
   bool _needsSecondaryYield = false;
   bool get needsSecondaryYield => _needsSecondaryYield;
+  bool _secondaryYieldTransient = false;
+  bool get secondaryYieldTransient => _secondaryYieldTransient;
   final _buffer = CallAudioBufferWindow();
   final _rttWindow = Queue<({DateTime at, int ms})>();
 
@@ -64,6 +66,7 @@ class GroupCallAudioAdapter {
     bool secondaryYielded = true,
   }) {
     _needsSecondaryYield = false;
+    _secondaryYieldTransient = false;
     final previousTime = _observedAt;
     _observedAt = now;
     if (previousTime != null && now.isBefore(previousTime)) {
@@ -176,6 +179,11 @@ class GroupCallAudioAdapter {
           stats['audio_tx_packet_duration_ms'] == 60;
       _needsSecondaryYield =
           (measuredFloor || measuredEmergency) && !secondaryYielded;
+      // Catch-up and concealment still reduce competing work. They describe
+      // damage already observed, without proving a persistently full outgoing
+      // path. Do not spend the coordinator's long pause on this evidence alone.
+      _secondaryYieldTransient =
+          _needsSecondaryYield && !(newLoss || newDrop || peerPressure);
       // Incoming decoder catch-up and a peer's already completed catch-up
       // still make secondary work yield. They do not establish current
       // outgoing congestion or fund longer packets on an otherwise healthy

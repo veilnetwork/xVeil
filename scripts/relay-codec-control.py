@@ -43,7 +43,7 @@ parser.add_argument('--playout-trace', action='store_true',
 parser.add_argument('--native-trace-capacity', type=int, default=4096,
                     help='Maximum native timestamp records per stream, 1–32768; requires native timing for a nondefault limit')
 parser.add_argument('--decoded-video-trace', action=argparse.BooleanOptionalAction, default=True,
-                    help='Require changing decoded synthetic images at both receivers near the end (default for video); disabling retains only RTP diagnostics, no pixels are retained')
+                    help='Require changing decoded synthetic images at both receivers near the end (14 changes per last 15s for captures >=360s, motion only for shorter smoke tests); disabling retains only RTP diagnostics, no pixels are retained')
 parser.add_argument('--gc-timing-trace', action='store_true',
                     help='Record bounded cyclic-GC pauses in the Python driver without changing collection or quality gates')
 parser.add_argument('--native-pcm-driver', action=argparse.BooleanOptionalAction, default=True,
@@ -1012,7 +1012,7 @@ try:
                 native_driver.stats.deadline_misses == 0)
     result['ok'] = result['ok'] and result['audio_rtcp_feedback_verified']
     if args.decoded_video_trace:
-        result['ok']=result['ok'] and result['decoded_video_progress']['moving_at_end'] and not any(decoded_video_failures)
+        result['ok']=result['ok'] and result['decoded_video_progress']['tail_content_verified'] and not any(decoded_video_failures)
     result['tone_phase_coverage_verified']=all(phase_coverage)
     if args.tone_period_ms!=1000:result['ok']=result['ok'] and result['tone_phase_coverage_verified']
     if args.transport=='obfs4-tcp':
