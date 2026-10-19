@@ -7,6 +7,22 @@ def row(t, side, seq, shade='a'):
 
 
 class DecodedVideoProgressTest(unittest.TestCase):
+    def test_decode_rate_counts_skipped_frames_without_qualifying_motion(self):
+        rows = [r for side in (0, 1)
+                for r in (row(345, side, 1), row(359, side, 141))]
+        result = summarize(rows, 360)
+        direction = result['directions'][0]
+        self.assertEqual(direction['decoded_frame_pulls'], 2)
+        self.assertEqual(direction['last_minute_decoded_counter']['fps'], 10)
+        self.assertEqual(direction['last_dimensions'], [320, 240])
+        self.assertFalse(result['moving_at_end'])
+        self.assertFalse(result['tail_content_verified'])
+
+    def test_missing_or_single_counter_observation_cannot_report_healthy_fps(self):
+        result = summarize([row(59, 0, 1)], 60)
+        self.assertIsNone(result['directions'][0]['decoded_counter']['fps'])
+        self.assertIsNone(result['directions'][1]['decoded_counter']['fps'])
+
     def test_requires_new_decoded_content_at_both_receivers_near_end(self):
         rows = [row(21, 0, 1), row(46, 0, 10), row(59, 0, 12, 'b'),
                 row(21, 1, 1), row(46, 1, 10), row(59, 1, 12, 'b')]

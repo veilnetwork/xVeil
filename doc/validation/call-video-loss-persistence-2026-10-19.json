@@ -1,0 +1,186 @@
+{
+  "date": "2026-10-19",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "sdk_commit": "8011cfb6bce011c8d77a57102451c33bbc7050b3",
+  "change": {
+    "scope": "Additional application video-quality reductions, unicast and each group peer. Native GCC/NACK/TWCC still consumes original RTCP immediately; no network role or relay prioritization.",
+    "rule": "Known cumulative video loss must increase and remain unrecovered for at least3 seconds, then be confirmed by a fresh report advancing the RTP sequence. A shrinking gap to baseline cancels; duplicate or old reports cannot confirm.",
+    "lifecycle": "Unknown initial loss starts a baseline. Signed counters, sequence wrap, report expiry, backwards clocks, confirmed-route changes and video-stream recreation are covered. Confirmed event identity expires after15 seconds without healthy-report renewal.",
+    "compatibility": "New local JSON video_persistent_loss_report_us is preferred by the app. Older native libraries retain the raw video_loss_report_us fallback. Existing raw loss metadata and all wire reports are preserved."
+  },
+  "verification": {
+    "flutter_tests_passed": 166,
+    "python_decode_metric_tests_passed": 10,
+    "native_policy_smoke": "PASS: recorded late fill, persistent loss, duplicate/reordered reports, signed counters, sequence wrap and lifecycle",
+    "native_integration": "PASS: real RR parsing, unicast/group persistence, healthy peer cannot mask another loss, malformed compound cannot partially publish",
+    "raw_rtcp_regression": "PASS: existing RR/SR, sub-percent, stream binding, cache/compound and group expiry tests",
+    "analyze": "PASS",
+    "abi": [
+      {
+        "mode": "media-hooks",
+        "sha256": "f1cfbc3a07010a03032ea1fa0cf19a575576c8d215484b499eb78d5823eee4ab",
+        "exports": 135,
+        "exact_export_set_unchanged": true,
+        "isolated_dlopen": true
+      },
+      {
+        "mode": "media-production",
+        "sha256": "49629066974743f2a45c242745c19515494ad47bf15ce82116426016e2734161",
+        "exports": 101,
+        "exact_export_set_unchanged": true,
+        "isolated_dlopen": true
+      }
+    ],
+    "native_replay": {
+      "scope": "Native cumulative-loss persistence replay on valid recorded same-peer video RR blocks; not a media performance benchmark.",
+      "complete_trace_headers": true,
+      "input_report_count": 699,
+      "confirmed_events": []
+    }
+  },
+  "pair": {
+    "duration_seconds": 360,
+    "aggregate_kbps": 1024,
+    "original_fixture_ok": true,
+    "matched_markers": 704,
+    "missing_markers": 0,
+    "maximum_decoded_marker_delay_ms": [
+      140.13845834415406,
+      150.2561666420661
+    ],
+    "exact_512kib_files": 2,
+    "maximum_sampled_video_pull_gap_seconds": [
+      2.0016164999688044,
+      1.0113625000230968
+    ],
+    "tail_content_changes": [
+      14,
+      14
+    ],
+    "last_minute_decode_comparison": [
+      {
+        "receiver": 0,
+        "baseline_fps": 1.2203458199253614,
+        "baseline_dimensions": [
+          80,
+          60
+        ],
+        "new_fps": 3.796524243660152,
+        "new_dimensions": [
+          320,
+          240
+        ]
+      },
+      {
+        "receiver": 1,
+        "baseline_fps": 1.5593450034195582,
+        "baseline_dimensions": [
+          80,
+          60
+        ],
+        "new_fps": 14.948817524170398,
+        "new_dimensions": [
+          320,
+          240
+        ]
+      }
+    ],
+    "remaining_reductions": [
+      {
+        "side": 1,
+        "t": 205.00823049998144,
+        "before": 0,
+        "after": 2,
+        "receive_ms": 114,
+        "peer_ms": 72,
+        "reasons": [
+          "video_network_loss"
+        ],
+        "raw_loss_event_us": 275025620387,
+        "persistent_loss_event_us": 275028533007
+      },
+      {
+        "side": 1,
+        "t": 245.00633783300873,
+        "before": 1,
+        "after": 3,
+        "receive_ms": 66,
+        "peer_ms": 78,
+        "reasons": [
+          "video_network_loss"
+        ],
+        "raw_loss_event_us": 275065336516,
+        "persistent_loss_event_us": 275067897275
+      },
+      {
+        "side": 1,
+        "t": 323.00728983298177,
+        "before": 1,
+        "after": 3,
+        "receive_ms": 68,
+        "peer_ms": 73,
+        "reasons": [
+          "video_network_loss"
+        ],
+        "raw_loss_event_us": 275142423496,
+        "persistent_loss_event_us": 275145997432
+      }
+    ],
+    "limitations": "One capture per revision; not statistical proof of a universal speedup. Native sink sequence increments for each decoded OnFrame; counter rate is not screen presentation or sub-second stutter timing. Original strict audio gate is still recorded unchanged, but is not the optimization target per user steering."
+  },
+  "remaining_work": [
+    "One direction remains about3.8fps at320x240, versus15fps in the other. Three reductions follow new persistent-loss evidence on that source; trace the remaining genuine loss/budget interaction.",
+    "Native group source-yield policy may still floor video on a short audio impairment; qualify a full group capture.",
+    "Complete ordered/canonical interaction isolation and full route/fanout accounting.",
+    "Qualify physical speech/headset loudness, screen, mute and reconnect."
+  ],
+  "remaining_loss_summary": {
+    "successful_unique_video_sends": 10324,
+    "missing_at_native_ingress": 10,
+    "missing_payload": 5,
+    "missing_padding": 5,
+    "sequence_range_audit": {
+      "1": {
+        "unique_sent_sequences": 6745,
+        "not_observed_at_successful_shim_send": 0,
+        "seq_range": [
+          13484,
+          20228
+        ]
+      },
+      "2": {
+        "unique_sent_sequences": 3579,
+        "not_observed_at_successful_shim_send": 0,
+        "seq_range": [
+          1859,
+          5437
+        ]
+      }
+    },
+    "scope": "Sequence holes at successful shim egress are not independently proof of network loss; investigate pre-send pacer discard/guarded RTP and decoder progress. Eventual ingress does not prove a timely useful frame."
+  },
+  "cleanup": {
+    "checked_at_utc": "2026-10-19T20:41:04.961581+00:00",
+    "recorded_processes_checked": 4,
+    "long_lived_processes_checked": 3,
+    "transient_recorders_checked": 1,
+    "remaining": [],
+    "audio_thread_exited": true,
+    "file_threads_exited": true,
+    "policy_exited": true,
+    "node_stop_results": [
+      0,
+      0,
+      0
+    ],
+    "remaining_fixture_sockets": 0
+  },
+  "foreign_wip_preserved": true,
+  "gui_or_phone_opened": false,
+  "deployed": false,
+  "pushed": false,
+  "public_release": false,
+  "evidence_directory": "doc/validation/video-loss-persistence-2026-10-19",
+  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-video-loss-persistence-20261019"
+}

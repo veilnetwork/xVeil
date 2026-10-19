@@ -1,0 +1,16 @@
+[
+  {
+    "mode": "media-hooks",
+    "sha256": "f1cfbc3a07010a03032ea1fa0cf19a575576c8d215484b499eb78d5823eee4ab",
+    "exports": 135,
+    "exact_export_set_unchanged": true,
+    "isolated_dlopen": true
+  },
+  {
+    "mode": "media-production",
+    "sha256": "49629066974743f2a45c242745c19515494ad47bf15ce82116426016e2734161",
+    "exports": 101,
+    "exact_export_set_unchanged": true,
+    "isolated_dlopen": true
+  }
+]

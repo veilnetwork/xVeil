@@ -8,6 +8,19 @@ import math
 import re
 
 
+def decoded_counter_rate(rows):
+    """Remote sink OnFrame counter delta over the actual pull observation span.
+
+    Pulling the newest image at1Hz can skip decoded frames; the native sequence
+    still counts them. This is a decode rate, not screen presentation timing.
+    """
+    if len(rows) < 2:
+        return dict(frames=0, observation_seconds=0, fps=None)
+    span = rows[-1]['t'] - rows[0]['t']
+    frames = rows[-1]['seq'] - rows[0]['seq']
+    return dict(frames=frames, observation_seconds=span, fps=frames/span)
+
+
 def required_tail_content_changes(duration):
     """Keep the recorded full-capture gate distinct from a short motion smoke."""
     if not math.isfinite(duration) or duration <= 20:
@@ -40,10 +53,14 @@ def summarize(rows, duration, video_start=20, tail_seconds=15):
             raise ValueError('Decoded-frame sequence did not advance')
         mixed = [r for r in decoded if video_start <= r['t'] <= duration]
         tail = [r for r in mixed if r['t'] >= max(video_start, duration-tail_seconds)]
+        minute = [r for r in mixed if r['t'] >= max(video_start, duration-60)]
         changes = sum(a['sha256'] != b['sha256'] for a, b in zip(mixed, mixed[1:]))
         tail_changes = sum(a['sha256'] != b['sha256'] for a, b in zip(tail, tail[1:]))
         clocks = [video_start] + [r['t'] for r in mixed] + [duration]
         directions.append(dict(side=side, decoded_frame_pulls=len(mixed),
+                               decoded_counter=decoded_counter_rate(mixed),
+                               last_minute_decoded_counter=decoded_counter_rate(minute),
+                               last_dimensions=[mixed[-1]['width'], mixed[-1]['height']] if mixed else None,
                                content_changes=changes,
                                last_decoded_pull_seconds=mixed[-1]['t'] if mixed else None,
                                max_sampled_pull_gap_seconds=max(b-a for a, b in zip(clocks, clocks[1:])),

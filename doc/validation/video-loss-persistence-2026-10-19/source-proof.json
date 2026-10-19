@@ -1,0 +1,46 @@
+{
+  "root_base": "69da9a22757567e2e18f368182785f47d0f8c9f2",
+  "sdk_base": "1e5a0c863c837e3975fbcbdc97a1af20cee54b4e",
+  "sdk_files": {
+    "flutter/veil_media/src/veil_video_loss_persistence.h": "8966b8452e8cff2a5ef37c749b3f41da35e825e8110cdc408ace45f0ceb0fc1b",
+    "flutter/veil_media/src/veil_transport_shim.h": "ce9103f0b9fdaf1bbbb3e28bcfe49f40004d3ea094fd782e8ec89df6f716cac6",
+    "flutter/veil_media/src/veil_transport_shim.cc": "fa9f2bf3908ca2a8d73dbed8cc26d1067de7ef506f6641c40ac67ffd90bf1b64",
+    "flutter/veil_media/src/veil_media_engine.cc": "c98b19722a24c2e3fe09d865b099fb576d9257b7173a5f663fac3e5552a3583f",
+    "flutter/veil_media/test/video_loss_persistence_smoke.cc": "372b3da744e5de757ebb83b91bdfb3d27b779af9b0de423f27ec38acf399345c",
+    "flutter/veil_media/test/run_video_loss_persistence_smoke.sh": "8e0b478374d53bf7b50be0da23d7c52eab9b7d330c86f002bbef6f57bb7b0031",
+    "flutter/veil_media/test/call_planes_smoke.cc": "2651b841e606d8fdd6bc86e9c3d443e5fab5b1623cc6e8a0194a7a599d1ef467",
+    "flutter/veil_media/test/run_call_planes_smoke.sh": "c8981c3dad9e177ea5c0e471ad8ae126c8f5a539c8e8d63e76d5064920346091"
+  },
+  "root_files": {
+    "lib/state/call_bitrate_adapter.dart": "528a42f1029c30f921cf01503b46fa1c3196fad3d96c1cf02d0576adffdf9df2",
+    "test/call_bitrate_adapter_test.dart": "d1d8207ba211ed8b32c8307920c6954effa92ca01878cd9422d8bbb49b9aa4ce"
+  },
+  "ffi_sdk_sha256": "2816a30fba6804373521086f9d173b1ddee58a29ac8c860dee0150fc6f40b1ec",
+  "native": [
+    {
+      "mode": "media-hooks",
+      "sha256": "f1cfbc3a07010a03032ea1fa0cf19a575576c8d215484b499eb78d5823eee4ab",
+      "exports": 135,
+      "exact_export_set_unchanged": true,
+      "isolated_dlopen": true
+    },
+    {
+      "mode": "media-production",
+      "sha256": "49629066974743f2a45c242745c19515494ad47bf15ce82116426016e2734161",
+      "exports": 101,
+      "exact_export_set_unchanged": true,
+      "isolated_dlopen": true
+    }
+  ],
+  "capture_scripts": {
+    "scripts/relay-codec-control.py": "8df60e016dc609db5f232934ffee65b100c871e0c6cbbdadc6c15e2413852eeb",
+    "scripts/relay_codec_policy.dart": "c1aaa841a51e9bee8413c7de716b98cc0ab61537f881378e3b988052e7998dde",
+    "scripts/decoded_video_progress.py": "95e877f2dd315f1e76abb15beffde60fcd89cc5ff7511e402a6be19c9320fd3c"
+  },
+  "sdk_commit": "8011cfb6bce011c8d77a57102451c33bbc7050b3",
+  "post_capture_metrics": {
+    "scripts/decoded_video_progress.py": "bc10fc05ad132e6b953c501e7954762ede9d6ee3c460c6353174a9632971fa5b",
+    "scripts/test_decoded_video_progress.py": "0d313e29d3352850f2dd06c741177335f5e20f4161cd7612bc8734bb9321e14b"
+  },
+  "post_capture_metrics_scope": "Added after capture: native decoded frame counter delta / observation span and last dimensions. Verified reanalysis preserves every original video gate/result field. Original capture helper hash remains in capture_scripts."
+}

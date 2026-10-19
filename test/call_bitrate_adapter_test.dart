@@ -370,6 +370,45 @@ void main() {
       expect(a.level, 2);
     });
   }
+  test('temporary video RR gap waits for native persistence evidence', () {
+    final a = direct();
+    native(
+      a,
+      stats: {
+        ...healthy(),
+        'video_loss_report_us': 100,
+        'video_persistent_loss_report_us': 0,
+      },
+    );
+    expect(a.level, 0);
+    native(
+      a,
+      stats: {
+        ...healthy(),
+        'video_loss_report_us': 100,
+        'video_persistent_loss_report_us': 200,
+      },
+    );
+    expect(a.level, 2);
+    native(
+      a,
+      stats: {
+        ...healthy(),
+        'video_loss_report_us': 300,
+        'video_persistent_loss_report_us': 200,
+      },
+    );
+    expect(a.level, 2, reason: 'raw and cached reports cannot renew a cut');
+    native(
+      a,
+      stats: {
+        ...healthy(),
+        'video_loss_report_us': 300,
+        'video_persistent_loss_report_us': 0,
+      },
+    );
+    expect(a.level, 2);
+  });
   test(
     'peer concealment repeats before cutting and never fabricates network loss',
     () {

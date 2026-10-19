@@ -1,0 +1,106 @@
+Resolving dependencies...
+Downloading packages...
+  _fe_analyzer_shared 99.0.0 (109.0.0 available)
+  analyzer 12.1.0 (14.5.0 available)
+  archive 4.0.9 (4.5.2 available)
+  camera 0.12.0+2 (0.12.1 available)
+  camera_android 0.10.11 (0.10.12 available)
+  camera_android_camerax 0.7.4+2 (0.7.5+1 available)
+  camera_avfoundation 0.10.2 (0.11.0+4 available)
+  camera_platform_interface 2.13.1 (2.15.0 available)
+  camera_web 0.3.5+4 (0.3.5+6 available)
+  cli_util 0.4.2 (0.6.0 available)
+  clock 1.1.2 (1.1.3 available)
+  code_assets 1.2.1 (2.1.0 available)
+  connectivity_plus 6.1.5 (7.3.2 available)
+  coverage 1.15.1 (1.16.0 available)
+  cross_file 0.3.5+4 (0.4.0 available)
+  cupertino_icons 1.0.9 (2.0.0 available)
+  dartssh2 2.22.3 (4.1.0 available)
+  dbus 0.7.14 (0.8.0 available)
+  file_picker 11.0.2 (13.1.0 available)
+  flutter_local_notifications 22.2.0 (22.3.2 available)
+  flutter_local_notifications_linux 8.0.1 (8.0.2 available)
+  flutter_local_notifications_platform_interface 12.1.0 (12.2.0 available)
+  flutter_riverpod 3.3.2 (3.4.3 available)
+  frontend_server_client 4.0.0 (4.1.0 available)
+  glob 2.1.3 (2.2.0 available)
+  go_router 17.3.0 (18.1.0 available)
+  hooks 2.0.2 (2.2.0 available)
+  html 0.15.6 (0.15.7 available)
+  image 4.8.0 (4.12.0 available)
+  intl 0.20.2 (0.20.3 available)
+  io 1.0.5 (1.1.0 available)
+  jni 1.0.0 (1.1.0 available)
+  jni_flutter 1.0.1 (1.0.4+1 available)
+  matcher 0.12.19 (0.12.20 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.18.0 (1.19.0 available)
+  mime 2.0.0 (2.1.0 available)
+  mobile_scanner 7.4.0 (7.4.2 available)
+  nm 0.5.0 (0.6.0 available)
+  objective_c 9.4.1 (9.6.2 available)
+  package_config 2.2.0 (3.0.0 available)
+  petitparser 7.0.2 (7.1.0 available)
+  platform 3.1.6 (3.2.0 available)
+  pool 1.5.2 (1.5.3 available)
+  pub_semver 2.2.0 (2.2.1 available)
+  qr 3.0.2 (4.0.0 available)
+  record_use 0.6.0 (1.1.1 available)
+  riverpod 3.3.2 (3.4.3 available)
+  screen_retriever 0.2.2 (0.3.0 available)
+  share_plus 12.0.2 (13.3.1 available)
+  share_plus_platform_interface 6.1.0 (7.2.0 available)
+  shared_preferences 2.5.5 (2.5.6 available)
+  shared_preferences_android 2.4.27 (2.5.0 available)
+  shared_preferences_foundation 2.5.6 (2.6.0 available)
+  shelf 1.4.2 (1.4.3 available)
+  shelf_static 1.1.3 (1.2.0 available)
+  source_maps 0.10.13 (0.10.14 available)
+  stack_trace 1.12.1 (1.12.2 available)
+  stream_transform 2.1.1 (2.1.2 available)
+  test 1.31.0 (1.33.0 available)
+  test_api 0.7.11 (0.7.15 available)
+  test_core 0.6.17 (0.6.21 available)
+  timezone 0.11.1 (0.11.2 available)
+  tray_manager 0.5.3 (0.8.0 available)
+  url_launcher 6.3.2 (6.3.3 available)
+  url_launcher_android 6.3.32 (6.3.33 available)
+  url_launcher_ios 6.4.1 (6.4.2 available)
+  url_launcher_linux 3.2.2 (3.2.3 available)
+  url_launcher_macos 3.2.5 (3.2.6 available)
+  url_launcher_windows 3.1.5 (3.1.6 available)
+  vector_math 2.2.0 (2.4.3 available)
+  video_player 2.13.0 (2.14.1 available)
+  video_player_android 2.12.0 (2.12.2 available)
+  video_player_avfoundation 2.11.0 (2.12.1 available)
+  vm_service 15.2.0 (15.4.0 available)
+  win32 5.15.0 (6.4.0 available)
+  xml 6.6.1 (7.1.0 available)
+  yaml 3.1.3 (3.1.4 available)
+Got dependencies!
+78 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+The following plugins do not support Swift Package Manager for ios:
+  - veil_media
+  - veil_flutter
+  - hidden_volume
+This will become an error in a future version of Flutter. Please contact the plugin maintainers to request Swift Package Manager adoption.
+The following plugins do not support Swift Package Manager for macos:
+  - veil_media
+  - veil_flutter
+This will become an error in a future version of Flutter. Please contact the plugin maintainers to request Swift Package Manager adoption.
+00:00 +0: loading /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart
+00:00 +0: temporary video RR gap waits for native persistence evidence
+00:00 +0 -1: temporary video RR gap waits for native persistence evidence [E]
+  Expected: <0>
+    Actual: <2>
+  
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  test/call_bitrate_adapter_test.dart 380:5           main.<fn>
+  
+00:00 +0 -1: Some tests failed.
+
+Failing tests:
+  /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: temporary video RR gap waits for native persistence evidence

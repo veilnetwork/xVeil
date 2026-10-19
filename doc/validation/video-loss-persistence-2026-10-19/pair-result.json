@@ -1,0 +1,178 @@
+{
+  "ok": true,
+  "duration_seconds": 360,
+  "rate_kbps": 1024,
+  "native_pcm_driver": {
+    "clock_check_span_us": 16.12497726455331,
+    "scheduling_mode": "deadline",
+    "dropped_rows": 0,
+    "ticks": 36000,
+    "observation_count_verified": true,
+    "stage_maxima_ms": {
+      "max_wake_lateness_ms": 0.102917,
+      "max_callback_ms": 0.6589166587218642,
+      "max_publication_ms": 0.02362497616559267
+    },
+    "scheduling": {
+      "qos_supported": 1,
+      "qos_result": 0,
+      "qos_requested": 33,
+      "qos_actual": 33
+    },
+    "deadline_scheduling": {
+      "deadline_requested": 1,
+      "deadline_result": 0,
+      "deadline_active": 1,
+      "deadline_period_ticks": 240000,
+      "deadline_computation_ticks": 72000,
+      "deadline_constraint_ticks": 120000,
+      "deadline_actual_period_ticks": 240000,
+      "deadline_actual_computation_ticks": 72000,
+      "deadline_actual_constraint_ticks": 120000,
+      "deadline_checks": 362,
+      "deadline_misses": 0
+    },
+    "timer_error": 0
+  },
+  "decoded_video_progress": {
+    "synthetic_fixture_only": true,
+    "screen_presentation_proof": false,
+    "sampled_retrieval_not_native_decode_timing": true,
+    "tail_seconds": 15,
+    "directions": [
+      {
+        "side": 0,
+        "decoded_frame_pulls": 338,
+        "content_changes": 337,
+        "last_decoded_pull_seconds": 359.00295349996304,
+        "max_sampled_pull_gap_seconds": 2.0016164999688044,
+        "tail_decoded_pulls": 15,
+        "tail_content_changes": 14,
+        "tail_content_verified": true,
+        "moving_at_end": true
+      },
+      {
+        "side": 1,
+        "decoded_frame_pulls": 339,
+        "content_changes": 338,
+        "last_decoded_pull_seconds": 359.00520749995485,
+        "max_sampled_pull_gap_seconds": 1.0113625000230968,
+        "tail_decoded_pulls": 15,
+        "tail_content_changes": 14,
+        "tail_content_verified": true,
+        "moving_at_end": true
+      }
+    ],
+    "required_tail_content_changes": 14,
+    "tail_content_verified": true,
+    "moving_at_end": true
+  },
+  "decoded_pcm_edges": [
+    {
+      "side": 0,
+      "phases": [
+        {
+          "name": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "p95_ms": 100.13454168802127,
+          "max_ms": 100.14087497256696
+        },
+        {
+          "name": "audio-video",
+          "matched": 337,
+          "missing": 0,
+          "p95_ms": 130.01612504012883,
+          "max_ms": 140.13845834415406
+        }
+      ],
+      "source_edge_capture_positions": {
+        "20": [
+          0,
+          1
+        ],
+        "40": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "60": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      }
+    },
+    {
+      "side": 1,
+      "phases": [
+        {
+          "name": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "p95_ms": 100.32966663129628,
+          "max_ms": 100.3540416713804
+        },
+        {
+          "name": "audio-video",
+          "matched": 337,
+          "missing": 0,
+          "p95_ms": 130.18379168352112,
+          "max_ms": 150.2561666420661
+        }
+      ],
+      "source_edge_capture_positions": {
+        "40": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "60": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      }
+    }
+  ],
+  "file_results": [
+    {
+      "queued": 524288,
+      "queue_duration_ms": 10.7,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "receipt_duration_ms": 237450.7,
+      "missing_indices": []
+    },
+    {
+      "queued": 524288,
+      "queue_duration_ms": 10.2,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "receipt_duration_ms": 197620.0,
+      "missing_indices": []
+    }
+  ],
+  "adaptive_audio_verified": true,
+  "live_video_framing_verified": true,
+  "audio_rtcp_feedback_verified": true,
+  "codec_target_bounds_verified": true,
+  "node_stop_results": [
+    0,
+    0,
+    0
+  ],
+  "remaining_fixture_sockets": 0,
+  "loopback_only": true,
+  "cellular_call_proof": false
+}
