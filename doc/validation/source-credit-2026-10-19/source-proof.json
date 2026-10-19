@@ -1,0 +1,17 @@
+{
+  "base_sdk": "4855367332808123cf5b2878b32773fd195e00c5",
+  "foreign_rust_excluded": true,
+  "sources": {
+    "third_party/quinn-proto/src/connection/stats.rs": "88c5d31e67ae699cc08a898a890aad8ed5a613d124b4cec203ff9e9ce93b8cb5",
+    "third_party/quinn-proto/src/connection/mod.rs": "918cd77efa0de547c3294e3a7aa86e4b75628c81e385e89963c7519c7909e041",
+    "third_party/quinn-proto/src/lib.rs": "fc70e3e28506cff11e143d90040743c05a9dd0d94d68563d35e552dd418fe64a",
+    "third_party/quinn-proto/src/tests/mod.rs": "a9087efb598a52fa1cf8a6f765201466c140dd87f93706cc3e3095caa4c8c97e",
+    "crates/veil-transport/src/quic.rs": "78f7c4e0c8837b95018c042efa49694aad8dfdaf36aca70aa47df1c6c30e0dc3",
+    "crates/veil-session/src/datagram_recovery.rs": "0195ce7d320b32e453efe28ec78a2d28a86c6345454fecd3f34c95813a95f643",
+    "crates/veil-session/src/local_reliable_admission.rs": "3f4c5fa96afda005c255cf6ff2de3faf36556b265a68d43a23fd0a7970ac4b8c",
+    "crates/veil-session/src/lossy_transport.rs": "0eb69124b2034a63e22fac08278382023e7c443cc3ce94ab9c2fd3f83c879ba3"
+  },
+  "sdk_sha256": "57ed26dd7fa8eeb1297a8120c1b7cebce306bb130589ac1c5dec7225ac8da0cb",
+  "export_count": 202,
+  "sdk_commit": "1fef65ad13acd009ae77825e36e519243efd4b4f"
+}
