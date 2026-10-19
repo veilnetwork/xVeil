@@ -1,5 +1,62 @@
 # Calls media handoff
 
+## 2026-10-19: persistent video-loss admission; decoded FPS/resolution recover
+
+SDK **8011cfb6** adds a separate application hint for persistent video loss.
+The shim tracks signed cumulative loss per authenticated peer/local video SSRC.
+An increase over a known baseline must remain unrecovered for**3 seconds** and
+be confirmed by a new sequence-progress report. Filling the gap cancels it;
+identical, old or expired reports cannot confirm it. New streams/route changes,
+sequence wrap and clock rollback have explicit reset/baseline handling.
+Raw RR/SR, fractional-loss telemetry and native GCC/NACK/TWCC processing remain
+immediate and unchanged. Audio loss keeps its original immediate witness.
+
+Local JSON **video_persistent_loss_report_us** is aggregated independently for
+each room peer; a healthy peer cannot mask another's persistent gap. The app
+uses it when present, falling back to the original raw video-loss field with
+older native libraries. No new wire field, relay role or preferential service.
+
+**166 Flutter tests PASS**, targeted analysis PASS. Native header smoke covers
+the actual recorded four-packet gap that fills in1.6s, sustained loss, replay,
+signed counters, wrap and lifecycle. Real native RR integration passes for
+unicast/group, malformed compound integrity, and the old raw RTCP RR/SR,
+sub-percent/cache/group-expiry regression. Production/hook builds preserve the
+exact101/135 export sets and independently dlopen with clean Rust SDK2816a30f.
+Replay of**699 recorded video RR blocks** confirms zero sustained-loss events
+from the previous temporary gaps; this replay is not a media quality benchmark.
+
+The original**360s /1024kbit pair gate PASS**:704matched/0missing PCM markers,
+140.138/150.256-ms maximum decoded marker delay, two exact512-KiB files,
+zero native deadline misses, max sampled image gaps2.002/1.011s, tail14/14
+content changes. **Last-minute decoded counter rates:** receiver0**3.80fps**,
+receiver1**14.95fps**, both ending at**320x240**. Previous capture reanalyzed by
+the same method gives1.22/1.56fps and80x60. One run per revision does not prove
+a universal/statistical improvement. Audio200ms stays a recorded diagnostic,
+not this work's optimization target, following the user's direction.
+
+Decode-rate evidence uses the remote sink's monotonic sequence increment on
+each decoded OnFrame, divided by actual observation span; it can count frames
+between1Hz image pulls. It does not prove screen presentation or sub-second
+stutter timing. The reporting helper now includes this rate and last dimensions;
+10tests PASS, including skipped frames versus frozen pixels. Reanalysis after
+capture preserves every original gate field exactly. Earlier native cadence
+averages are cumulative RTP-rate readings, not last-minute decoded FPS.
+
+**Still open:** source1 makes three app reductions at205/245/323s, each with
+new persistent-loss evidence; its final profile is225kbps/3.75fps. Source0
+ends900kbps/15fps. Of10324 successful unique video RTP sends,10 have no native
+ingress witness (5payload/5padding); no sequence holes occur before successful
+shim egress in these ranges. Trace those genuine losses/source budgets instead
+of treating all remaining reductions as temporary RR gaps. Native group short
+yield behavior, ordered/canonical isolation, full route/fanout accounting and
+physical voice/headset/screen/mute/reconnect qualification remain open.
+
+All owned fixture/helper/policy processes exited; node stops0/0/0, no remaining
+sockets. Native smoke processes also exited normally. No GUI/phone opened,
+foreign WIP preserved, no push/deploy/release. Goal ACTIVE.
+Evidence: `doc/validation/call-video-loss-persistence-2026-10-19.json` and
+`doc/validation/video-loss-persistence-2026-10-19/`.
+
 ## 2026-10-19: isolated audio impairments no longer cut video; RTCP gap cuts remain
 
 User direction stays **video first; strict synthetic200-ms audio gate deferred**.

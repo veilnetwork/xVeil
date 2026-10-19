@@ -1,0 +1,41 @@
+[
+  {
+    "side": 1,
+    "t": 205.00823049998144,
+    "before": 0,
+    "after": 2,
+    "receive_ms": 114,
+    "peer_ms": 72,
+    "reasons": [
+      "video_network_loss"
+    ],
+    "raw_loss_event_us": 275025620387,
+    "persistent_loss_event_us": 275028533007
+  },
+  {
+    "side": 1,
+    "t": 245.00633783300873,
+    "before": 1,
+    "after": 3,
+    "receive_ms": 66,
+    "peer_ms": 78,
+    "reasons": [
+      "video_network_loss"
+    ],
+    "raw_loss_event_us": 275065336516,
+    "persistent_loss_event_us": 275067897275
+  },
+  {
+    "side": 1,
+    "t": 323.00728983298177,
+    "before": 1,
+    "after": 3,
+    "receive_ms": 68,
+    "peer_ms": 73,
+    "reasons": [
+      "video_network_loss"
+    ],
+    "raw_loss_event_us": 275142423496,
+    "persistent_loss_event_us": 275145997432
+  }
+]
