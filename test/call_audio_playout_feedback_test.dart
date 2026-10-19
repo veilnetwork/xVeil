@@ -600,6 +600,7 @@ void main() {
             peerAudioDelayMs: 80,
             requirePeerAudioPlayout: true,
           );
+          adapter.applyPendingTarget((_) => true);
         }
         expect(adapter.audioReserve, isFalse);
         expect(adapter.atFloor, isTrue);

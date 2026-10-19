@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fake_async/fake_async.dart';
+import 'package:clock/clock.dart' as test_clock;
 import 'package:veil_media/veil_media.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/transport/veil_flutter_transport.dart';
@@ -90,7 +91,7 @@ void main() {
         );
         controller.start(_call(self, [peer], video: true));
         clock.flushMicrotasks();
-        clock.elapse(const Duration(seconds: 48));
+        clock.elapse(Duration(seconds: accepted ? 48 : 120));
         expect(transport.pressureReports.last.pressured, isTrue);
         expect(engine.targets.last.maxFps, accepted ? 1 : 15);
         if (accepted) {
@@ -102,7 +103,7 @@ void main() {
           clock.elapse(const Duration(seconds: 12));
           expect(transport.pressureReports.last.pressured, isFalse);
           expect(engine.targets.last.maxFps, 1);
-          clock.elapse(const Duration(seconds: 48));
+          clock.elapse(const Duration(seconds: 120));
           expect(engine.targets.last.maxFps, 15);
         }
         controller.stop();
@@ -117,6 +118,7 @@ void main() {
         final self = _id(1), peer = _id(2);
         final engine = _FakeEngine()..acceptColdTarget = cold;
         final controller = VeilGroupCallMediaController(
+          now: test_clock.clock.now,
           _FakeTransport(self),
           roomMediaSecret: _room(),
           engineFactory: (_) => engine,
@@ -205,6 +207,7 @@ void main() {
       final engine = _FakeEngine(supportsAudioBudget: true)
         ..acceptAudioBudget = false;
       final controller = VeilGroupCallMediaController(
+        now: test_clock.clock.now,
         transport,
         roomMediaSecret: _room(),
         engineFactory: (_) => engine,
@@ -242,7 +245,7 @@ void main() {
         );
         controller.start(_call(self, [alice, bob], video: true));
         clock.flushMicrotasks();
-        clock.elapse(const Duration(seconds: 48));
+        clock.elapse(const Duration(seconds: 120));
         expect(engine.targets.last.maxBitrateKbps, 150);
         expect(transport.pressureReports.last.pressured, isFalse);
 
@@ -262,7 +265,7 @@ void main() {
         // The next engine starts with a baseline, not a replayed catch-up.
         controller.start(_call(self, [alice, bob], video: true));
         clock.flushMicrotasks();
-        clock.elapse(const Duration(seconds: 48));
+        clock.elapse(const Duration(seconds: 120));
         expect(engine.targets.last.maxBitrateKbps, 150);
         engine.stats = sample(
           0,
@@ -304,7 +307,7 @@ void main() {
       clock.elapse(const Duration(seconds: 12));
       expect(engine.targets.last.maxBitrateKbps, 8);
       var sequence = 1;
-      for (var i = 0; i < 48; i++) {
+      for (var i = 0; i < 120; i++) {
         engine.stats = report(++sequence, 100);
         clock.elapse(const Duration(seconds: 1));
       }
@@ -652,6 +655,7 @@ void main() {
         final self = _id(1), alice = _id(2), bob = _id(3);
         final engine = _FakeEngine();
         final controller = VeilGroupCallMediaController(
+          now: test_clock.clock.now,
           _FakeTransport(self),
           roomMediaSecret: _room(),
           engineFactory: (_) => engine,
@@ -683,7 +687,7 @@ void main() {
         engine.stats = sample(0);
         controller.start(_call(self, [alice, bob], video: true));
         clock.flushMicrotasks();
-        clock.elapse(const Duration(seconds: 48));
+        clock.elapse(const Duration(seconds: 120));
         expect(engine.targets.last.maxBitrateKbps, 150);
         for (var i = 1; i <= 6; i++) {
           engine.stats = sample(i);
@@ -731,6 +735,7 @@ void main() {
             },
           };
         final controller = VeilGroupCallMediaController(
+          now: test_clock.clock.now,
           _FakeTransport(self),
           roomMediaSecret: _room(),
           engineFactory: (_) => engine,
@@ -785,6 +790,7 @@ void main() {
       final engine = _FakeEngine();
       Uint8List? nativeLocalId;
       final controller = VeilGroupCallMediaController(
+        now: test_clock.clock.now,
         VeilGroupMediaChannelTransport(sdk),
         roomMediaSecret: _room(),
         engineFactory: (id) {
@@ -826,6 +832,7 @@ void main() {
       final transport = _FakeTransport(self);
       final engine = _FakeEngine();
       final controller = VeilGroupCallMediaController(
+        now: test_clock.clock.now,
         transport,
         roomMediaSecret: _room(),
         engineFactory: (_) => engine,
@@ -855,6 +862,7 @@ void main() {
         final peer = _id(2);
         final engine = _FakeEngine();
         final controller = VeilGroupCallMediaController(
+          now: test_clock.clock.now,
           _FakeTransport(self),
           roomMediaSecret: _room(),
           engineFactory: (_) => engine,
@@ -875,7 +883,7 @@ void main() {
           'tx_loss_pct': 0,
           'rtt_ms': 80,
         };
-        clock.elapse(const Duration(seconds: 48));
+        clock.elapse(const Duration(seconds: 120));
         expect(engine.targets.last, (maxBitrateKbps: 150, maxFps: 15));
         engine.targets.clear();
         engine.stats = {'audio_feedback_reports': 2, 'tx_loss_pct': 12};
@@ -893,7 +901,7 @@ void main() {
           'tx_loss_pct': 0,
           'rtt_ms': 80,
         };
-        clock.elapse(const Duration(seconds: 48));
+        clock.elapse(const Duration(seconds: 120));
         expect(engine.targets.last, (maxBitrateKbps: 150, maxFps: 15));
         controller.stop();
         clock.flushMicrotasks();
@@ -915,6 +923,7 @@ void main() {
         final self = _id(1), alice = _id(2), bob = _id(3);
         final engine = _FakeEngine();
         final controller = VeilGroupCallMediaController(
+          now: test_clock.clock.now,
           _FakeTransport(self),
           roomMediaSecret: _room(),
           engineFactory: (_) => engine,
@@ -948,7 +957,7 @@ void main() {
           },
         };
         engine.stats = sample(100, 100);
-        clock.elapse(const Duration(seconds: 48));
+        clock.elapse(const Duration(seconds: 120));
         expect(engine.targets.last.maxBitrateKbps, 150);
         engine.stats = sample(100, 4456, bobDelay: 220);
         clock.elapse(const Duration(seconds: 6));
@@ -1000,6 +1009,7 @@ void main() {
       final self = _id(1), alice = _id(2), bob = _id(3);
       final engine = _FakeEngine();
       final controller = VeilGroupCallMediaController(
+        now: test_clock.clock.now,
         _FakeTransport(self),
         roomMediaSecret: _room(),
         engineFactory: (_) => engine,
@@ -1038,7 +1048,7 @@ void main() {
           },
         },
       };
-      clock.elapse(const Duration(seconds: 48));
+      clock.elapse(const Duration(seconds: 120));
       expect(
         engine.pauses.last,
         isFalse,
@@ -1084,6 +1094,7 @@ void main() {
         final self = _id(1), alice = _id(2), bob = _id(3);
         final engine = _FakeEngine();
         final controller = VeilGroupCallMediaController(
+          now: test_clock.clock.now,
           _FakeTransport(self),
           roomMediaSecret: _room(),
           engineFactory: (_) => engine,
@@ -1110,7 +1121,7 @@ void main() {
             },
           },
         };
-        clock.elapse(const Duration(seconds: 48));
+        clock.elapse(const Duration(seconds: 120));
         expect(
           engine.pauses.last,
           isFalse,
@@ -1155,6 +1166,7 @@ void main() {
       final self = _id(1);
       final engine = _FakeEngine();
       final controller = VeilGroupCallMediaController(
+        now: test_clock.clock.now,
         _FakeTransport(self),
         roomMediaSecret: _room(),
         engineFactory: (_) => engine,
@@ -1194,6 +1206,7 @@ void main() {
         final self = _id(1);
         final engine = _FakeEngine(supportsVideoSendPause: false);
         final controller = VeilGroupCallMediaController(
+          now: test_clock.clock.now,
           _FakeTransport(self),
           roomMediaSecret: _room(),
           engineFactory: (_) => engine,
@@ -1217,6 +1230,7 @@ void main() {
       final self = _id(1);
       final engine = _FakeEngine(supportsLowRateVideo: false);
       final controller = VeilGroupCallMediaController(
+        now: test_clock.clock.now,
         _FakeTransport(self),
         roomMediaSecret: _room(),
         engineFactory: (_) => engine,
@@ -1238,6 +1252,7 @@ void main() {
       final self = _id(1);
       final engine = _FakeEngine();
       final controller = VeilGroupCallMediaController(
+        now: test_clock.clock.now,
         _FakeTransport(self),
         roomMediaSecret: _room(),
         engineFactory: (_) => engine,
@@ -1261,6 +1276,7 @@ void main() {
       final self = _id(1);
       final engine = _FakeEngine();
       final controller = VeilGroupCallMediaController(
+        now: test_clock.clock.now,
         _FakeTransport(self),
         roomMediaSecret: _room(),
         engineFactory: (_) => engine,
@@ -1276,7 +1292,7 @@ void main() {
         'audio_playout_reports': 2,
         'audio_playout_ms': 100,
       };
-      clock.elapse(const Duration(seconds: 48));
+      clock.elapse(const Duration(seconds: 120));
       expect(engine.targets.last, (maxBitrateKbps: 150, maxFps: 15));
       engine.stats = {...engine.stats, 'audio_playout_ms': 380};
       clock.elapse(const Duration(seconds: 2));
@@ -1298,7 +1314,7 @@ void main() {
       engine.stats = {...engine.stats, 'audio_playout_ms': 100};
       clock.elapse(const Duration(seconds: 12));
       expect(engine.pauses.last, isFalse);
-      clock.elapse(const Duration(seconds: 48));
+      clock.elapse(const Duration(seconds: 120));
       expect(engine.targets.last, (maxBitrateKbps: 150, maxFps: 15));
       controller.stop();
       clock.flushMicrotasks();
@@ -1323,6 +1339,7 @@ void main() {
           },
         };
       final controller = VeilGroupCallMediaController(
+        now: test_clock.clock.now,
         _FakeTransport(self),
         roomMediaSecret: _room(),
         engineFactory: (_) => engine,
@@ -1331,7 +1348,7 @@ void main() {
       );
       controller.start(_call(self, [alice], video: true));
       clock.flushMicrotasks();
-      clock.elapse(const Duration(seconds: 48));
+      clock.elapse(const Duration(seconds: 120));
       expect(engine.targets.last, (maxBitrateKbps: 150, maxFps: 15));
       expect(engine.pauses.last, isFalse);
       controller.update(_call(self, [alice, bob], video: true));
@@ -1413,6 +1430,7 @@ void main() {
           },
         };
       final controller = VeilGroupCallMediaController(
+        now: test_clock.clock.now,
         _FakeTransport(self),
         roomMediaSecret: _room(),
         engineFactory: (_) => engine,
@@ -1421,7 +1439,7 @@ void main() {
       );
       controller.start(_call(self, [alice], video: true));
       clock.flushMicrotasks();
-      clock.elapse(const Duration(seconds: 48));
+      clock.elapse(const Duration(seconds: 120));
       expect(engine.targets.last.maxBitrateKbps, 150);
       engine.acceptTarget = false;
       controller.update(_call(self, [alice, bob], video: true));
@@ -1445,6 +1463,7 @@ void main() {
       final engine = _FakeEngine()
         ..stats = {'audio_feedback_reports': 1, 'rtt_ms': 80};
       final controller = VeilGroupCallMediaController(
+        now: test_clock.clock.now,
         _FakeTransport(self),
         roomMediaSecret: _room(),
         engineFactory: (_) => engine,
@@ -1462,6 +1481,8 @@ void main() {
       clock.elapse(const Duration(seconds: 11));
       expect(engine.targets.last, (maxBitrateKbps: 8, maxFps: 1.0));
       clock.elapse(const Duration(seconds: 1));
+      expect(engine.targets.last.maxBitrateKbps, 9);
+      clock.elapse(const Duration(seconds: 7));
       expect(engine.targets.last.maxBitrateKbps, 15);
       controller.stop();
       clock.flushMicrotasks();
@@ -1482,6 +1503,7 @@ void main() {
           'audio_playout_ms': -1,
         };
       final controller = VeilGroupCallMediaController(
+        now: test_clock.clock.now,
         _FakeTransport(self),
         roomMediaSecret: _room(),
         engineFactory: (_) => engine,
@@ -1551,6 +1573,7 @@ void main() {
       final self = _id(1);
       final engine = _FakeEngine();
       final controller = VeilGroupCallMediaController(
+        now: test_clock.clock.now,
         _FakeTransport(self),
         roomMediaSecret: _room(),
         engineFactory: (_) => engine,
@@ -1585,7 +1608,7 @@ void main() {
       };
       clock.elapse(const Duration(seconds: 12));
       expect(engine.pauses.last, isFalse);
-      clock.elapse(const Duration(seconds: 48));
+      clock.elapse(const Duration(seconds: 120));
       expect(engine.targets.last, (maxBitrateKbps: 150, maxFps: 15));
       engine.stats = {
         ...engine.stats,
@@ -1621,7 +1644,7 @@ void main() {
       expect(engine.pauses.last, isFalse);
       clock.elapse(const Duration(seconds: 1));
       expect(engine.pauses.last, isFalse);
-      clock.elapse(const Duration(seconds: 48));
+      clock.elapse(const Duration(seconds: 120));
       expect(
         engine.targets.last,
         (maxBitrateKbps: 150, maxFps: 15),
@@ -1639,6 +1662,7 @@ void main() {
         final self = _id(1), alice = _id(2), bob = _id(3), carol = _id(4);
         final engine = _FakeEngine();
         final controller = VeilGroupCallMediaController(
+          now: test_clock.clock.now,
           _FakeTransport(self),
           roomMediaSecret: _room(),
           engineFactory: (_) => engine,
@@ -1660,7 +1684,7 @@ void main() {
           reason: 'one healthy receiver cannot speak for the silent one',
         );
         engine.stats = {...engine.stats, 'audio_feedback_reports': 2};
-        clock.elapse(const Duration(seconds: 48));
+        clock.elapse(const Duration(seconds: 120));
         expect(engine.targets.last, (maxBitrateKbps: 150, maxFps: 15));
         engine.stats = {...engine.stats, 'audio_feedback_reports': 1};
         clock.elapse(const Duration(seconds: 8));
@@ -1671,7 +1695,7 @@ void main() {
               'missing feedback cannot cut video without measured buffer pressure',
         );
         engine.stats = {...engine.stats, 'audio_feedback_reports': 2};
-        clock.elapse(const Duration(seconds: 48));
+        clock.elapse(const Duration(seconds: 120));
         expect(engine.targets.last, (maxBitrateKbps: 150, maxFps: 15));
 
         controller.update(_call(self, [alice, bob, carol], video: true));
@@ -1684,7 +1708,7 @@ void main() {
         );
         controller.update(_call(self, [alice, bob], video: true));
         clock.flushMicrotasks();
-        clock.elapse(const Duration(seconds: 48));
+        clock.elapse(const Duration(seconds: 120));
         expect(engine.targets.last, (
           maxBitrateKbps: 150,
           maxFps: 15,
@@ -1697,7 +1721,7 @@ void main() {
           maxFps: 15,
         ), reason: 'unreadable stats hold the earned rung');
         engine.stats = healthy;
-        clock.elapse(const Duration(seconds: 48));
+        clock.elapse(const Duration(seconds: 120));
         expect(engine.targets.last, (maxBitrateKbps: 150, maxFps: 15));
         engine.throwStats = true;
         clock.elapse(const Duration(seconds: 8));
@@ -1707,7 +1731,7 @@ void main() {
           reason: 'a failed query cannot invent measured buffer pressure',
         );
         engine.throwStats = false;
-        clock.elapse(const Duration(seconds: 48));
+        clock.elapse(const Duration(seconds: 120));
         expect(engine.targets.last, (maxBitrateKbps: 150, maxFps: 15));
         engine.stats = {...engine.stats, 'worker_stalled': 1};
         clock.elapse(const Duration(seconds: 8));
@@ -1731,6 +1755,7 @@ void main() {
         final engine = _FakeEngine();
         final permission = Completer<bool>();
         final controller = VeilGroupCallMediaController(
+          now: test_clock.clock.now,
           _FakeTransport(self),
           roomMediaSecret: _room(),
           engineFactory: (_) => engine,
@@ -1758,7 +1783,7 @@ void main() {
           'tx_loss_pct': 0,
           'tx_jitter_ms': 10,
         };
-        clock.elapse(const Duration(seconds: 48));
+        clock.elapse(const Duration(seconds: 120));
         expect(
           engine.targets.last,
           (maxBitrateKbps: 150, maxFps: 15),
@@ -1977,6 +2002,7 @@ void main() {
       final self = _id(1);
       final engine = _FakeEngine();
       final controller = VeilGroupCallMediaController(
+        now: test_clock.clock.now,
         _FakeTransport(self),
         roomMediaSecret: _room(),
         engineFactory: (_) => engine,
@@ -2002,6 +2028,7 @@ void main() {
     final peer = _id(2);
     final engine = _FakeEngine();
     final controller = VeilGroupCallMediaController(
+      now: test_clock.clock.now,
       _FakeTransport(self),
       roomMediaSecret: _room(),
       engineFactory: (_) => engine,
@@ -2024,6 +2051,7 @@ void main() {
     final transport = _FakeTransport(self);
     final engine = _FakeEngine();
     final controller = VeilGroupCallMediaController(
+      now: test_clock.clock.now,
       transport,
       roomMediaSecret: _room(),
       engineFactory: (_) => engine,
@@ -2048,6 +2076,7 @@ void main() {
       final transport = _FakeTransport(self);
       final engine = _FakeEngine();
       final controller = VeilGroupCallMediaController(
+        now: test_clock.clock.now,
         transport,
         roomMediaSecret: _room(),
         engineFactory: (_) => engine,
@@ -2081,6 +2110,7 @@ void main() {
           ..screenStarts = false
           ..throwOnScreenStart = throws;
         final controller = VeilGroupCallMediaController(
+          now: test_clock.clock.now,
           transport,
           roomMediaSecret: _room(),
           engineFactory: (_) => engine,
@@ -2159,6 +2189,7 @@ void main() {
       final bob = _id(3);
       final transport = _FakeTransport(self);
       final controller = VeilGroupCallMediaController(
+        now: test_clock.clock.now,
         transport,
         roomMediaSecret: _room(),
         engineFactory: (_) => _FakeEngine(),
@@ -2194,6 +2225,7 @@ void main() {
       final transport = _FakeTransport(self);
       final engine = _FakeEngine();
       final controller = VeilGroupCallMediaController(
+        now: test_clock.clock.now,
         transport,
         roomMediaSecret: (_) async => null,
         engineFactory: (_) => engine,

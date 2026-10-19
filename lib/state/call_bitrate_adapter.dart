@@ -187,10 +187,35 @@ class CallBitrateAdapter {
   }
 
   ({int maxBitrateKbps, double maxFps})? _appliedTarget;
+  ({int maxBitrateKbps, double maxFps})? _restartTarget;
+  bool _growthAllowed = false;
+  bool _growthSampleHealthy = false, _rampNeedsRecovery = false;
+  int _rampRecoverySamples = 0;
+  int _lastGrowthObservation = -1;
+  DateTime? _growthSampleAt, _lastGrowthAt;
+
+  /// Budget to restore on a newly mounted stream. An earned nominal rung can
+  /// still be above the last acknowledged ramp step; recreating a stream must
+  /// not jump across those unmeasured steps.
+  ({int maxBitrateKbps, double maxFps}) get targetForStart {
+    final previous = _appliedTarget ?? _restartTarget;
+    final desired = target;
+    if (previous == null) return desired;
+    return (
+      maxBitrateKbps: previous.maxBitrateKbps < desired.maxBitrateKbps
+          ? previous.maxBitrateKbps
+          : desired.maxBitrateKbps,
+      maxFps: previous.maxFps < desired.maxFps
+          ? previous.maxFps
+          : desired.maxFps,
+    );
+  }
 
   Map<String, Object?> get bufferDiagnostics => {
     'latest': _bufferHistory.isEmpty ? null : _bufferHistory.last,
     'recent': List<Map<String, Object?>>.unmodifiable(_bufferHistory),
+    'applied_video_kbps': _appliedTarget?.maxBitrateKbps,
+    'applied_video_fps': _appliedTarget?.maxFps,
   };
 
   void _recordBufferDecision() {
@@ -204,22 +229,101 @@ class CallBitrateAdapter {
     if (_bufferHistory.length > 16) _bufferHistory.removeAt(0);
   }
 
-  /// Try the current video budget. A busy native worker leaves it pending;
-  /// the next poll retries the latest budget, never a superseded one.
-  /// Null means the current target was already applied.
+  /// Apply reductions immediately and ramp increases against fresh healthy
+  /// observations. A busy native worker spends no growth step. Null means
+  /// there is no admissible change now; a larger nominal rung can stay pending.
   bool? applyPendingTarget(
     bool Function(({int maxBitrateKbps, double maxFps}) target) apply,
   ) {
     final desired = target;
     if (_appliedTarget == desired) return null;
-    if (!apply(desired)) return false;
-    if (atFloor && !_audioReserve) {
+    final previous = _appliedTarget;
+    var proposed = desired;
+    var grows = false;
+    var floorProbe = false;
+    if (previous == null) {
+      proposed = targetForStart;
+      // Remember the cold request even if the worker is busy. Healthy audio
+      // while no video budget is acknowledged cannot earn larger rungs.
+      _restartTarget ??= proposed;
+    } else {
+      if (!_growthSampleHealthy &&
+          (desired.maxBitrateKbps > previous.maxBitrateKbps ||
+              desired.maxFps > previous.maxFps)) {
+        _rampNeedsRecovery = true;
+        _rampRecoverySamples = 0;
+      }
+      // The measured one-fps recovery trial has its own audio admission gate.
+      // Fund it immediately rather than spending many polls below a usable
+      // codec/header allocation after the protective pause.
+      floorProbe = atFloor && !_audioReserve && previous.maxFps < 1;
+      final sampleAt = _growthSampleAt;
+      var timeReady = true;
+      final lastAt = _lastGrowthAt;
+      if (sampleAt != null && lastAt != null) {
+        if (sampleAt.isBefore(lastAt)) {
+          // A wall-clock correction grants no step and cannot latch growth
+          // against the old clock for minutes. Establish a new local interval.
+          _lastGrowthAt = sampleAt;
+          timeReady = false;
+        } else {
+          // Tolerate jitter around the caller's one-second stats timer.
+          timeReady =
+              sampleAt.difference(lastAt) >= const Duration(milliseconds: 950);
+        }
+      }
+      final mayGrow =
+          floorProbe ||
+          (timeReady &&
+              _growthAllowed &&
+              _lastGrowthObservation != _bufferObservationSequence);
+      final cadenceFactor = (previous.maxFps + 1) / previous.maxFps;
+      final factor = cadenceFactor < 1.1 ? cadenceFactor : 1.1;
+      final kbpsStep = previous.maxBitrateKbps >= baseBitrateKbps
+          ? baseBitrateKbps
+          : (previous.maxBitrateKbps * factor).floor().clamp(
+              previous.maxBitrateKbps + 1,
+              baseBitrateKbps,
+            );
+      final fpsStep = (previous.maxFps + 1).clamp(1, baseFps).toDouble();
+      final upKbps = floorProbe ? desired.maxBitrateKbps : kbpsStep;
+      final upFps = floorProbe ? desired.maxFps : fpsStep;
+      proposed = (
+        maxBitrateKbps: desired.maxBitrateKbps <= previous.maxBitrateKbps
+            ? desired.maxBitrateKbps
+            : mayGrow
+            ? desired.maxBitrateKbps.clamp(1, upKbps)
+            : previous.maxBitrateKbps,
+        maxFps: desired.maxFps <= previous.maxFps
+            ? desired.maxFps
+            : mayGrow
+            ? desired.maxFps.clamp(0.02, upFps)
+            : previous.maxFps,
+      );
+      if (proposed == previous) return null;
+      grows =
+          proposed.maxBitrateKbps > previous.maxBitrateKbps ||
+          proposed.maxFps > previous.maxFps;
+    }
+    if (!apply(proposed)) return false;
+    if (floorProbe) {
+      // This separately admitted trial starts a fresh, measured floor. Its
+      // ordinary recovery period must not be preceded by an old ramp hold.
+      _rampNeedsRecovery = false;
+      _rampRecoverySamples = 0;
+    }
+    if (grows) {
+      _lastGrowthObservation = _bufferObservationSequence;
+      _lastGrowthAt = _growthSampleAt;
+    }
+    if (atFloor && !_audioReserve && proposed == desired) {
       // A report that preceded this trial cannot prove it failed.
       _floorPeerSampleSequence = _lastPeerSampleSequence;
       _floorReceiveBuffer.reset();
       _floorPeerBuffer.reset();
     }
-    _appliedTarget = desired;
+    _appliedTarget = proposed;
+    _restartTarget = null;
     return true;
   }
 
@@ -236,12 +340,22 @@ class CallBitrateAdapter {
   }
 
   /// A diagnostic override changed native state outside this policy.
-  void invalidateAppliedTarget() => _appliedTarget = null;
+  void invalidateAppliedTarget() {
+    _appliedTarget = null;
+    _restartTarget = null;
+    _growthAllowed = false;
+    _growthSampleHealthy = false;
+  }
 
   /// A replacement engine has no memory of either the bitrate or the pause
   /// applied to its predecessor. Keep the policy, reapply both native controls.
   void invalidateAppliedState() {
+    _restartTarget = targetForStart;
     _appliedTarget = null;
+    _growthAllowed = false;
+    _growthSampleHealthy = false;
+    _rampRecoverySamples = 0;
+    _lastGrowthObservation = -1;
     _appliedPause = null;
     _lastRttRouteEpoch = null;
     // Native counters belong to the replaced engine. Its first snapshot is
@@ -425,6 +539,7 @@ class CallBitrateAdapter {
   /// substantiate congestion even when other receivers have not reported.
   ({int maxBitrateKbps, double maxFps})? onNativeStats(
     Map<String, dynamic> stats, {
+    DateTime? sampledAt,
     bool sourceBudgetPressured = false,
     bool videoSendExpected = true,
     bool sendAudioExpected = true,
@@ -447,6 +562,9 @@ class CallBitrateAdapter {
     // another receiver is missing. A healthy peer cannot mask a silent one.
     ({bool expected, int? ageMs})? audioReceiveQuality,
   }) {
+    _growthAllowed = false;
+    _growthSampleHealthy = false;
+    _growthSampleAt = sampledAt;
     final routeRttUsable = _observeRttRoute(stats, sendAudioExpected);
     final networkLoss = _rtcpLoss.observe(
       audioReportUs: stats['audio_loss_report_us'],
@@ -532,6 +650,7 @@ class CallBitrateAdapter {
     final floorTrialMeasured = _observeFloorTrial(stats, videoSendExpected);
     final videoFrames = stats['video_tx_frames'];
     final outcome = onSample(
+      sampledAt: sampledAt,
       sourceBudgetPressured: sourceBudgetPressured,
       videoSendExpected: videoProgress,
       measuredVideoProgress:
@@ -647,6 +766,7 @@ class CallBitrateAdapter {
   /// Feed one stats sample; returns the new target when the rung changed and
   /// null otherwise. `rttMs` of 0 means "unknown yet" and is not judged.
   ({int maxBitrateKbps, double maxFps})? onSample({
+    DateTime? sampledAt,
     bool sourceBudgetPressured = false,
     bool measuredVideoProgress = false,
     bool videoSendExpected = true,
@@ -677,6 +797,9 @@ class CallBitrateAdapter {
     int? audioReceiveAgeMs,
     bool videoFloorApplied = true,
   }) {
+    _growthAllowed = false;
+    _growthSampleHealthy = false;
+    _growthSampleAt = sampledAt;
     final freshPeerSample =
         peerAudioSampleSequence == null ||
         (_lastPeerSampleSequence == null ||
@@ -1062,6 +1185,25 @@ class CallBitrateAdapter {
     if (!good) {
       // Marginal sample: hold the rung, restart the recovery clock.
       _goodStreak = 0;
+      return null;
+    }
+    _growthSampleHealthy = true;
+    if (_rampNeedsRecovery) {
+      if (_appliedTarget != null &&
+          _appliedTarget != target &&
+          ++_rampRecoverySamples < recoverAfter) {
+        return null;
+      }
+      _rampNeedsRecovery = false;
+      _rampRecoverySamples = 0;
+    }
+    _growthAllowed = true;
+    // A recovery rung is earned by the traffic that actually ran, not by an
+    // unapplied request. Continue its ramp before banking another promotion.
+    if ((_appliedTarget != null || _restartTarget != null) &&
+        _appliedTarget != target) {
+      _goodStreak = 0;
+      _startupGoodStreak = 0;
       return null;
     }
     _goodStreak++;

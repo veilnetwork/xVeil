@@ -1,5 +1,64 @@
 # Calls media handoff
 
+## 2026-10-19: acknowledged video growth is gradual
+
+The adapter now separates an earned profile from the budget actually accepted
+by the video worker. Upward operations add at most **10% bitrate** (minimum
+1-kbit integer quantum) and **1 fps**; above 10 fps the bitrate step also follows
+the smaller cadence ratio. Runtime callers supply their observation time:
+one successful step per observation and at least **950 ms** between steps.
+Refused operations, previews and idle gaps accumulate no credit. Clock rollback
+starts a new interval without granting a step. Reductions stay immediate.
+
+A partially applied profile cannot bank another promotion. Missing/held audio
+quality interrupts its ramp; fresh healthy recovery is required before growth.
+An independently admitted **1-fps floor trial** retains immediate funding and
+its ordinary recovery period. Recreated streams restore their acknowledged
+budget rather than jumping to the nominal ceiling. Even an initial request
+that the cold worker refuses is retained, preventing promotions before its
+first ACK. Actual budgets are exposed in local diagnostics and retune logs.
+The 1:1/group controllers and both fixture bridges use this same policy.
+
+**202 Dart tests and static analysis pass.** Group tests now inject their fake
+clock into the existing controller clock seam; full-profile warmups accommodate
+the gradual ramp. Immediate failure/unknown-feedback assertions remain.
+The bounded-growth gate fails on the original adapter (900 kbit/s, 15 fps in
+one operation) and passes at **495 kbit/s, 8.5 fps** from 450 kbit/s, 7.5 fps.
+A separate negative/positive gate proves that 100 healthy audio observations
+cannot bank promotions while the initial video budget remains unacknowledged.
+
+The original **360-second 1:1 workload still FAILS** the unchanged **<200-ms**
+decoded marker gate: **200.006875 / 190.223083 ms**, **704 matched / 0 missing**.
+Both 512-KiB files match and both videos move at the end; sampled gaps still
+reach 12 / 14 seconds. Neutral queue maxima are **94 / 70 ms**. The peak spans
+about **20 ms encoding, 10 ms delivery and 170 ms after WebRTC ingress**.
+Its trace shows an audio packet-duration change from 40 to 60 ms and receiver
+target change from 60 to 120 ms nearby; this is evidence for investigation,
+not proof that changing packet duration alone will fix the remaining delay.
+This capture precedes the final cold-refusal guard; exact source hashes and
+cold-retry evidence are retained. Do not call it a final-source 1:1 capture.
+
+The original **360-second three-party workload on final source also FAILS**:
+**210.365708 ms**, **2112 matched / 0 missing**. All three 512-KiB files match;
+all six video paths have 14 final content changes. The exact peak spans
+**10.192 ms capture-to-encoded + 38.156 ms delivery + 162 ms ingress-to-PCM**.
+Source budget admission takes 0.035 ms, QUIC acceptance another 0.008 ms;
+acceptance-to-authenticated receipt is **37.986 ms**, not a NIC-send metric.
+Queue maxima are **67 / 116 ms**, with zero drops. Captures are complete and
+all clocks have zero late intervals/deadline misses. The earlier aligned runs
+peaked near 250 / 380 ms respectively; these are individual observations,
+not a statistical estimate of improvement. No quality gate was loosened.
+
+**Goal ACTIVE.** Follow the remaining packetization/receiver-buffer delay and
+competing wire load. Full carrier overhead, room video framing, fractional
+sparse video, physical handover transients, screen/fallback/phone and live
+speech/headset qualification remain open. All **13** known fixture/helper/
+worker/policy PIDs are independently absent; no fixture sockets remain.
+No GUI app, phone, server, binary, push or release was changed this cycle.
+Evidence: **validation/call-video-growth-2026-10-19.json** and
+**validation/video-growth-2026-10-19/**; raw captures are private under
+**~/.cache/codex/xveil-video-growth-20261019/**. Foreign work remains excluded.
+
 ## 2026-10-19: live video framing, actual image budget, corrected fixture inputs
 
 SDK **80c4205e** adds an optional source-cost query that selects the actual local audio, video

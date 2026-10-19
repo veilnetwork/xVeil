@@ -577,23 +577,21 @@ void main() {
   }
 
   test(
-    'new low latency video probes each rung without a minute of sparse frames',
+    'healthy startup quickly leaves one fps and recovers through bounded steps',
     () {
       final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 30);
       var frames = 0;
-      for (var rung = 3; rung >= 0; rung--) {
-        for (var i = 0; i < CallBitrateAdapter.startupRecoverAfter; i++) {
-          native(
-            a,
-            stats: {...healthy(), 'rtt_ms': 40, 'video_tx_frames': ++frames},
-          );
-          expect(
-            a.level,
-            i == CallBitrateAdapter.startupRecoverAfter - 1 ? rung : rung + 1,
-          );
-        }
+      for (var i = 0; i < 90; i++) {
+        native(
+          a,
+          stats: {...healthy(), 'rtt_ms': 40, 'video_tx_frames': ++frames},
+        );
+        final actual = a.targetForStart;
+        if (i == 3) expect(actual.maxFps, greaterThan(1));
+        if (i == 29) expect(actual.maxFps, greaterThanOrEqualTo(6));
       }
       expect(a.target, (maxBitrateKbps: 900, maxFps: 30.0));
+      expect(a.targetForStart, a.target);
     },
   );
 
@@ -643,8 +641,17 @@ void main() {
           tick(12);
           expect(
             a.level,
+            initialLevel - 1,
+            reason: 'unapplied ramp steps do not bank another recovery rung',
+          );
+          for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
+            tick(12);
+          }
+          tick(13);
+          expect(
+            a.level,
             initialLevel - 2,
-            reason: 'slow reports do not multiply the recovery period',
+            reason: 'a fresh report confirms healthy traffic after the ramp',
           );
           return;
         }
