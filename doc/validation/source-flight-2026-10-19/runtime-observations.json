@@ -1,0 +1,34 @@
+{
+  "final": {
+    "group": {
+      "samples": 1066,
+      "max_members": 4,
+      "max_observed_flight": 4092,
+      "max_model_window": 5808,
+      "note": "Local model snapshots, not available capacity. Process-local trace IDs may repeat across group worker processes; no per-node comparison inferred."
+    },
+    "pair": {
+      "samples": 717,
+      "max_members": 4,
+      "max_observed_flight": 5616,
+      "max_model_window": 8712,
+      "note": "Local model snapshots, not available capacity. Process-local trace IDs may repeat across group worker processes; no per-node comparison inferred."
+    }
+  },
+  "superseded": {
+    "group": {
+      "samples": 1066,
+      "max_members": 4,
+      "max_observed_flight": 4038,
+      "max_model_window": 14520,
+      "note": "Local model snapshots, not available capacity. Process-local trace IDs may repeat across group worker processes; no per-node comparison inferred."
+    },
+    "pair": {
+      "samples": 717,
+      "max_members": 4,
+      "max_observed_flight": 4293,
+      "max_model_window": 22506,
+      "note": "Local model snapshots, not available capacity. Process-local trace IDs may repeat across group worker processes; no per-node comparison inferred."
+    }
+  }
+}

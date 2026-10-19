@@ -1,0 +1,29 @@
+{
+  "base_sdk": "e28a10cdefa93f7b8671a64be558ea7e3c03797d",
+  "foreign_excluded": [
+    "crates/veil-dispatcher/src/app.rs",
+    "crates/veil-dispatcher/src/delivery.rs",
+    "crates/veil-e2e/src/ratchet.rs",
+    "crates/veil-node-runtime/src/runtime/identity_publish.rs"
+  ],
+  "sources": {
+    "crates/veil-session/src/lib.rs": "9102904944201ce7ad4302248740de1d1f1dfceb62a09f4cc767d2f1c31e62b6",
+    "crates/veil-session/src/local_source_activity.rs": "6a9ca58641f7761e6da7d7f7268bacf4cfc689b5c8e9824a459a9c6bb2e99b50",
+    "crates/veil-session/src/local_source_flight.rs": "98ff373242fcb2f1f6115f2be445dd7c47dc51c7802f7c922acd6e602ea318e5",
+    "crates/veil-session/src/runner.rs": "6f73c1a8870280d429f073db6780c66d1f6b1ee64feef9a322dad91d13916e8c",
+    "crates/veil-transport/src/lib.rs": "3688f3d9525845f1ee94198f1a6548429c2a7bd0789f96ed95f3be68aba744c4",
+    "crates/veil-transport/src/quic.rs": "7502d6294800e2322c0a4e435cfb4131fc6eda7c9db3e8031b88c9019931f364",
+    "third_party/quinn-proto/src/connection/mod.rs": "c219a58582cfbfeca2b5c032ec4e6b5c7c280d998902a77d328abc2adf7fff59",
+    "third_party/quinn-proto/src/connection/packet_builder.rs": "abe0217d99d7c519e890e84266b557fb7c5292d863601f0af821f5d4fd055431",
+    "third_party/quinn-proto/src/connection/paths.rs": "f5e4c134ea1e41cc08ee06eb399a420159bb38740f9fb4a21b55d8f2fe22e3db",
+    "third_party/quinn-proto/src/lib.rs": "7514f7bff498a9c9c6dc013c8654adb9417cfe4b0e13da584e2d53dd55a2480c",
+    "third_party/quinn-proto/src/local_send_budget.rs": "8c1c02bfa66378a50b9c4ac95e86b5048eb008e5afefa563a6e360f3c29e7447",
+    "third_party/quinn-proto/src/tests/local_send_budget.rs": "6e78358ff15906052ef72ac8accfadfea746985c730424f83eed6be59fa9f2d4",
+    "third_party/quinn-proto/src/tests/mod.rs": "d9489868d900d96b0489d1a05e64b711392bef83ead32e12f3f1efa979a26b1a",
+    "third_party/quinn/src/connection.rs": "c5190d61882ca9462712c12fe0eb25f98db7631f77ec525ca1f3a2cf87d4c20c",
+    "third_party/quinn/src/lib.rs": "16f1463611eb2d6eae93bf11b35ba5c0f9e7d8bc34aae13506bad3d7a0ed4a73"
+  },
+  "sdk_sha256": "1f9196ea6837cc2bcaa2b877b4a95dd3ffdc8c522e2e2c7380ee52234a9b8daa",
+  "exports_unchanged": 202,
+  "native_reused_unchanged": true
+}
