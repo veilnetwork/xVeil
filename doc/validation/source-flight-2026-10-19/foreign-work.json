@@ -1,0 +1,23 @@
+{
+  "root": {
+    "files": [
+      "lib/state/group_service_providers.dart",
+      "test/e2e/README.md",
+      "test/e2e/device_fixture.dart",
+      "test/e2e/e2e_env.dart",
+      "test/e2e/multi_device_e2e_test.dart"
+    ],
+    "diff_sha256": "529f7718edea4b6775cc11607bc2ff663a922cc3521b680cf94efa39d7b26859",
+    "unchanged": true
+  },
+  "sdk": {
+    "files": [
+      "crates/veil-dispatcher/src/app.rs",
+      "crates/veil-dispatcher/src/delivery.rs",
+      "crates/veil-e2e/src/ratchet.rs",
+      "crates/veil-node-runtime/src/runtime/identity_publish.rs"
+    ],
+    "diff_sha256": "1ceeb05d540078262f1480ba7210dfaa0f5895be9f0099f64bc18a56a4f6a363",
+    "unchanged": true
+  }
+}

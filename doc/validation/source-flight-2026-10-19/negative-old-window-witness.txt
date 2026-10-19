@@ -1,0 +1,47 @@
+   Compiling quinn-proto v0.11.18 (/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/third_party/quinn-proto)
+   Compiling quinn v0.11.9 (/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/third_party/quinn)
+   Compiling veil-transport v0.11.42 (/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/crates/veil-transport)
+   Compiling veil-bootstrap v0.11.42 (/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/crates/veil-bootstrap)
+   Compiling veil-ipc v0.11.42 (/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/crates/veil-ipc)
+   Compiling veil-update v0.11.42 (/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/crates/veil-update)
+   Compiling veil-observability v0.11.42 (/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/crates/veil-observability)
+   Compiling veil-cfg v0.11.42 (/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/crates/veil-cfg)
+   Compiling veil-session v0.11.42 (/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/crates/veil-session)
+warning: unused variable: `used`
+  --> crates/veil-session/src/local_source_flight.rs:58:55
+   |
+58 |                 && r.blocked_window.is_some_and(|(at, used, reserved)| {
+   |                                                       ^^^^ help: if this is intentional, prefix it with an underscore: `_used`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `window`
+  --> crates/veil-session/src/local_source_flight.rs:53:38
+   |
+53 |     fn demanded(&self, now: Instant, window: u64) -> bool {
+   |                                      ^^^^^^ help: if this is intentional, prefix it with an underscore: `_window`
+
+warning: `veil-session` (lib test) generated 2 warnings (run `cargo fix --lib -p veil-session --tests` to apply 2 suggestions)
+    Finished `test` profile [optimized + debuginfo] target(s) in 23.82s
+     Running unittests src/lib.rs (/Users/vart/.cache/codex/veil-qos-target-20261016/debug/deps/veil_session-b7c7f4f3dd984dbb)
+
+running 1 test
+test local_source_flight::tests::a_new_window_requires_a_new_blocked_send_not_old_waiting_history ... FAILED
+
+failures:
+
+---- local_source_flight::tests::a_new_window_requires_a_new_blocked_send_not_old_waiting_history stdout ----
+
+thread 'local_source_flight::tests::a_new_window_requires_a_new_blocked_send_not_old_waiting_history' (66697139) panicked at crates/veil-session/src/local_source_flight.rs:459:9:
+assertion `left == right` failed: old waiting history cannot spend an unfilled new window
+  left: 4801
+ right: 3601
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    local_source_flight::tests::a_new_window_requires_a_new_blocked_send_not_old_waiting_history
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 619 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p veil-session --lib`

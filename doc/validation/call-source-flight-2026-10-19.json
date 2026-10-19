@@ -1,0 +1,138 @@
+{
+  "date": "2026-10-19",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "sdk_commit": "e05f1b9886a7848590d9d316f847b2bdf649af67",
+  "scope": "Shared local flight accounting for authenticated source-only QUIC children; primary retains normal CC, competing local work pays actual retained bytes, reserves primary/control headroom and uses fresh demanded-window/reserve witnesses for bounded growth",
+  "checks": {
+    "protocol_passed": 325,
+    "session_passed": 612,
+    "session_ignored": 8,
+    "expected_negative_failures": 4,
+    "release_build_passed": true,
+    "unchanged_sdk_exports": 202,
+    "media_rebuilt": false,
+    "foreign_edits_preserved": true,
+    "controller_default": "Cubic unchanged",
+    "group_fixture_sources_unchanged": true,
+    "pair_report_collection_fixed_only": true,
+    "workload_duration_clock_and_quality_gates_unchanged": true
+  },
+  "full_gates": {
+    "group": {
+      "qualified": false,
+      "duration_seconds": 360,
+      "rate_kbps": 1024,
+      "max_ms_by_path": [
+        230.09825000190176,
+        190.19245833624154,
+        230.20491667557508,
+        220.07983335061,
+        190.19404167192988,
+        220.12620832538232
+      ],
+      "max_ms": 230.20491667557508,
+      "matched": 2112,
+      "missing": 0,
+      "files_exact": true,
+      "video_tail_changes": [
+        14,
+        14,
+        14,
+        14,
+        14,
+        14
+      ],
+      "fifo_drops": [
+        0,
+        0
+      ],
+      "deadline_misses": [
+        0,
+        0,
+        0
+      ]
+    },
+    "pair": {
+      "qualified": true,
+      "duration_seconds": 360,
+      "rate_kbps": 1024,
+      "max_ms_by_path": [
+        150.1705833361484,
+        160.27966668480076
+      ],
+      "max_ms": 160.27966668480076,
+      "matched": 704,
+      "missing": 0,
+      "files_exact": true,
+      "video_tail_changes": [
+        14,
+        14
+      ],
+      "fifo_drops": [
+        0,
+        0
+      ],
+      "deadline_misses": 0
+    }
+  },
+  "private_artifacts": "/Users/vart/.cache/codex/xveil-source-flight-demand-20261019",
+  "superseded_private_artifacts": "/Users/vart/.cache/codex/xveil-source-flight-20261019",
+  "limits": [
+    "The full objective is NOT achieved; use the unrounded full-gate verdicts",
+    "The reliable child can mix own and transit traffic and is not assigned this source budget",
+    "Canonical own network control and ordered fallback retain their existing admission; complete interaction separation remains open",
+    "Primary reserve is one future transport packet per active primary/control physical child, not a complete future fanout forecast",
+    "First-hop confirmed ACK progress plus healthy endpoint feedback is not an end-to-end available-capacity estimate",
+    "Playback delay remains material; ingress-to-PCM includes decoder lookahead/FEC and rendering",
+    "Synthetic same-host clocks; hardware headset, speech and all public transport hops not qualified",
+    "No causal improvement claim from one capture per variant",
+    "No phone, installed-app, relay configuration, service or binary changes this cycle"
+  ],
+  "artifacts": {
+    "admin-observation-failure.txt": "3747b9ae8bb3df8d0940c57c99c25bd6e1510d460f50e60b3c0f6c2c898985bd",
+    "admin-race-proof.json": "575782a5bd430252a0a6707ca54ef72cb98c4559ec9e582d9bfa13f2e345266b",
+    "admin-race-tests.txt": "5279d1fc9a1ced44f9c96da1414ef59e4676f963fbad52e7a1a2903538819b0d",
+    "all-stands-cleanup.json": "3401b6496e4eacbeb4220dd28ac0b4033f5cd8bbf2715b28ef6a3a5f05980415",
+    "failed-admin-pair-independent-cleanup.json": "c30fc522cff7fa9435c8e97268e244efdab9b9b96789a74169ae33464e78f648",
+    "foreign-work.json": "132c394624323f5c9e2618fc562b233a7445ce98e55a1e8fbc637a9bc1541361",
+    "frozen-plan.json": "810d85e36939513952ea31fa9aaee1cd4a88644ea7a2375d0ca737eb872054b3",
+    "full-gates.json": "9040c293eda79b3c783fbc6f00a157b215b16f31a94622574d150a8009900235",
+    "group-independent-cleanup.json": "eead1c4d57dadff9ae719c6f8061c550988cc54190a234b124a90b20200ae836",
+    "group-peak.json": "48187b27e0d82835f81bc986bbd0e6186766007394a1247bd69b0d3ea21114ad",
+    "launch-group-final.py": "ce995a9666a9b81655407352b4f165cb620d53a9d7f26519d9a2e86072012450",
+    "launch-pair.py": "6ebfe78cc727a35f020bf8cc3865549bff1caabcd05344f8f31ae6a8069a6ac1",
+    "negative-admin-race-status.json": "b1d0f3d6848c28f253e9cd414231098736015b8409a1ce62bac510a279989908",
+    "negative-admin-race.txt": "dfee45212634b1dc20b109e6ef0598430563d599da0f0a630fd8704213af7d59",
+    "negative-ignored-idle-status.json": "c33d2fdec9fb8a59fbd724842567435b764960a597def6c72008314038edbfa5",
+    "negative-ignored-idle.txt": "4c4f761522a654cf943b8fea413e94fd0272536e9ea7abb136321549331f5502",
+    "negative-ignored-pool-status.json": "199829defc4e1bf082c7ba2822b47bd554eca31d6566bdfbf371690b6221a0e6",
+    "negative-ignored-pool.txt": "df3a476292039f35af983ad588399637b76f8761ce4f48ef4b24c9edcd907a6d",
+    "negative-old-reserve-witness-status.json": "236485bd52062332766daa6ec9d2b5e022c4ee71918ffe32c72df79d853e3493",
+    "negative-old-reserve-witness.txt": "ff66431099ba048295098039992648d85e303f751d3b07d77b472fcab7c51cbd",
+    "negative-old-window-witness-status.json": "cdecc5122c91655c4aaa0c9055f371601a1bc23d9019c141758c6016937b2124",
+    "negative-old-window-witness.txt": "4e12f4bc61cccd03eceb6e48acea94acedb6d960834f00f9c194b140b24c9314",
+    "pair-independent-cleanup.json": "fad9d0eba60e05acbd9c82196e622398523eccd9c44011f073ee452f54398b25",
+    "pair-pipeline-peaks.json": "ffeb3dff35b201f8cef588dedcbd7bbc40d3fc6c4d6cb41706bf7dd3966ae74d",
+    "protocol-tests-status.json": "d38b216791d5238c7f4838643c12fb48d9d4db78740b0d699f5f57605d58bc1d",
+    "protocol-tests.txt": "516a5b84c5824e7be1481beacf2c3f6099e5f4ef1b54c87335903f64f58d6f9d",
+    "raw-artifacts.json": "3b42f9825cf5f6b382060e2e33642c839537fa33b1c98989fd9e29b89c2f820c",
+    "release-build-status.json": "d9b97a67f4d1e6162e1728d9633eaa9a18aecfe47b4a27fafc8b970f1a99bd85",
+    "release-build.txt": "3db0de2163dfec0c95ba6e9901344f88302336f0e7da496080c43e973e467b28",
+    "runtime-observations.json": "92cda0f7c0b8d54965992529658421dac1d4a4476620c3cd7cc76c1653952a68",
+    "session-tests-status.json": "d144b521070579c8c39a56f0b6d2263057927e8290436c30b302dd293fbea2d0",
+    "session-tests.txt": "7cea3779c35e3e491e62c6329095e701d3f0ee5ca0bfe7d77a029ed45b77c73c",
+    "source-proof.json": "49be4ac58ca3bf8055f4d0f8e05fbe42bc0ed47e6aed65feac236b1070ec4be4",
+    "source-snapshot.json": "fb79180ae66294965e0955402251185eddec18f238d9a22ada44e73c892dc993",
+    "superseded-attempt.json": "6b91ca5ca9bfa12e0ccdc7380aae9d1a271155c7c979fc84bd7dec9f7229ea44",
+    "superseded-group-independent-cleanup.json": "90c8077337e4c4fc414c1e60ff1c39eff0287b7f1ea904ee0203734e86776d02",
+    "superseded-group-peak.json": "39e6054d82fc2b78f446174729e7a827eec5a594ec71a42dfd3e8191510ed655",
+    "superseded-negative-old-demand-status.json": "dea03c110e62c8c7d72d915d4e13a0c35db0cd60b4e5080756bba3efe175c339",
+    "superseded-negative-old-demand.txt": "e6c64250df0575ca015a8de36cbbd1230cc6c60a900cac1a05bf20b399169971",
+    "superseded-pair-independent-cleanup.json": "4e517fd9841060d1ff6f0fb134df3f03118e819f7473265022bc9016644e0a38",
+    "superseded-source-proof.json": "8dfaa281603e3ea0dbd21d0c4a2fd3d7afafd61d799eb96691a170e81d41ce53",
+    "superseded-source-snapshot.json": "3978b8a3f2c6206db98c1c80443f11e4bb07ce8407cc48227c5ebd2688051b87",
+    "verify-build.py": "397d44011cdaa887c517f1baf59e9466d23e940f7e1bf393241c7d0fce89ff0e",
+    "verify-cleanup.py": "7b111aa96a21668aac29934fc2a3f082e5f91f8dc16d2e4a99108938da539a5a"
+  }
+}

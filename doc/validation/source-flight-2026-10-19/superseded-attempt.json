@@ -1,0 +1,64 @@
+{
+  "sdk_sha256": "1f9196ea6837cc2bcaa2b877b4a95dd3ffdc8c522e2e2c7380ee52234a9b8daa",
+  "unfixed_stale_demand_growth": true,
+  "superseded_not_for_install_or_release": true,
+  "full_gates": {
+    "group": {
+      "qualified": false,
+      "duration_seconds": 360,
+      "rate_kbps": 1024,
+      "max_ms_by_path": [
+        240.07804165012203,
+        220.13208334101364,
+        250.09533332195133,
+        220.17662500729784,
+        210.17449998180382,
+        220.12349998112768
+      ],
+      "max_ms": 250.09533332195133,
+      "matched": 2112,
+      "missing": 0,
+      "files_exact": true,
+      "video_tail_changes": [
+        14,
+        14,
+        14,
+        14,
+        14,
+        14
+      ],
+      "fifo_drops": [
+        0,
+        0
+      ],
+      "deadline_misses": [
+        0,
+        0,
+        0
+      ]
+    },
+    "pair": {
+      "qualified": false,
+      "duration_seconds": 360,
+      "rate_kbps": 1024,
+      "max_ms_by_path": [
+        180.0286249781493,
+        170.19674999755807
+      ],
+      "max_ms": 180.0286249781493,
+      "matched": 704,
+      "missing": 0,
+      "files_exact": true,
+      "video_tail_changes": [
+        13,
+        14
+      ],
+      "fifo_drops": [
+        0,
+        0
+      ],
+      "deadline_misses": 0
+    }
+  },
+  "private_root": "/Users/vart/.cache/codex/xveil-source-flight-20261019"
+}

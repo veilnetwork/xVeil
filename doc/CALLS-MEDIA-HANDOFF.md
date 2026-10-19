@@ -1,5 +1,83 @@
 # Calls media handoff
 
+## 2026-10-19: shared local source flight; pair passes, group still fails
+
+SDK **e05f1b98** adds actual node-local coupling of authenticated outgoing QUIC
+source children. An optional generic budget belongs to the **connection**, not a
+congestion-controller clone, so inspection and controller/path resets cannot
+drop its ownership. Each prepared packet charges its actual retained size;
+ACK/loss/abandonment and forgotten padded ACK tails release the corresponding
+bytes across all routes/spaces. Packet preparation is serialized between pool
+members to prevent concurrent/GSO overspending. Driver wakeups propagate released
+flight without polling or acquiring another connection lock. MTU probes obey the
+budget and keep their search state while deferred; protocol loss/path-validation
+probes retain their liveness exceptions.
+
+The primary retains its **ordinary QUIC controller**, with no extra pause behind
+old secondary/route debt. Its real flight is deducted before competing local
+work; primary/control physical children also reserve a future transport packet.
+Control precedes secondary work and has a bounded one-packet liveness allowance.
+Only verified local-source children receive the policy. Canonical/mixed parents,
+neutral shards and forwarded INTERACTIVE traffic do not. No media role, priority
+request, changed wire format or preferential relay service was introduced.
+Default Cubic is unchanged; the previously identified BBR sampler issues remain.
+
+The shared competing-work target grows by one packet only with fresh healthy
+endpoint feedback, explicit validated/current-route Data confirmations and a
+**current blocked-send witness for the same window AND reserved primary cost**.
+A larger window must actually block a new send before another increase. Drained
+senders clear demand and unspent ACK credit. Unknown/zero RTT, stale/future samples,
+route changes, pressure and idle cannot manufacture growth. Closed participants
+retain abandoned flight through their activity grace; reconnect is not a refund.
+This is local congestion-flight control, **not an end-to-end capacity estimate**.
+
+All **325 protocol /612 session** tests pass;8 session tests remain ignored.
+Four behavioral negatives fail as expected when the packet-builder budget,
+drained-sender propagation, new-window witness or changed-reserve witness is
+removed. The production SDK builds with202 unchanged export names. Archived
+e28a10cd plus exactly15 own files produced the tested library; foreign edits are
+excluded and preserved. Native media and application policies are unchanged.
+
+The final original **360s /1024-kbit pair gate PASSES**: **150.171/160.280ms**,
+704 matched/0 missing markers,2 exact files, both final video tails14 changes,
+0 FIFO drops and0 driver deadline misses. The original group gate still
+**FAILS at230.205ms**:2112/0 markers,3 exact files, all6 tails14,0 FIFO drops
+and0 deadline misses. Its40-ms peak spans **10.582ms formation +108.765ms
+encoded-to-ingress +110.858ms after ingress**. These spans include scheduling,
+decoder lookahead/FEC and rendering; they do not identify a particular hop or
+prove a causal improvement from one capture per variant.
+
+The initial prototype is **superseded, not for installation/release**. It allowed
+old waiting history to grow unfilled windows; its new regression fails. That
+build had group250.095ms and pair180.029/170.197ms, but one pair video tail13.
+Keep its source/binary/results separately from the final demand-scoped build.
+
+One final-SDK pair capture completed360s but its report failed on Darwin
+`shutdown(SHUT_WR): ENOTCONN` after the Unix admin peer closed. PCM export was
+not reached, so its audio quality is **unknown**, not a failed latency result.
+The client now accepts only this half-close error and still reads/validates the
+original response, without retrying a command. Three real Unix-socket tests pass;
+the old-client negative gives two expected errors. The successful repeat uses
+the **same SDK/native binaries, workload, clocks, duration and assertions**.
+The fixture/helper edit changes report collection, not a quality gate.
+
+All recorded stand/helper/policy processes are independently exited, including
+the failed report's processes; cleanup compares command as well as PID to avoid
+PID-reuse false positives. All node stops return0 and no fixture sockets remain.
+No phone, installed-app or relay changes occurred. Evidence:
+`call-source-flight-2026-10-19.json` and `source-flight-2026-10-19/`.
+
+Goal **ACTIVE**. The reliable child can mix own and transit traffic and is not in
+this pool; own canonical network controls and ordered fallback retain their old
+admission. Complete interaction separation must cover those paths with trusted
+local ownership and independent keys/streams, within the generic connection
+quota, while leaving transit ordinary. The future reserve is one transport
+packet per active physical child, not a full fanout forecast. Group latency,
+end-to-end service accounting, receiver delay, reconnect/mute cases and hardware
+speech/headset qualification remain open. Do not substitute relay ACKs for
+available capacity or blindly shrink the receiver buffers (earlier caps caused
+repeated PLC). Preserve the original full gates.
+
 ## 2026-10-19: QUIC pacing credit repaired; audio gates still fail
 
 SDK **e28a10cd** fixes reproducible transport accounting defects. Pacing now
@@ -49,8 +127,8 @@ All six relays pass a fresh read-only service/config/executable/listener check:
 QUIC/UDP8443 and obfs4/TCP5556 active, service-owned UDP sockets, advancing
 health ticks, active sessions, unchanged PIDs and zero automatic restarts.
 No server restart/mutation, installed-app change or phone test this cycle.
-All15 long-lived stand/helper/policy processes are independently absent; the
-pair's process recording also includes one transient ps process, likewise gone.
+All recorded stand/helper/policy processes and transient ps recorders are
+independently absent.
 All7 node stops return0 and no fixture sockets remain. Foreign work is unchanged.
 Evidence: `call-pacer-credit-2026-10-19.json` and `pacer-credit-2026-10-19/`.
 

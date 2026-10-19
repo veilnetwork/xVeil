@@ -1,0 +1,24 @@
+   Compiling veil-session v0.11.42 (/Users/vart/.cache/codex/xveil-source-flight-20261019/sdk-src/crates/veil-session)
+    Finished `test` profile [optimized + debuginfo] target(s) in 16.02s
+     Running unittests src/lib.rs (/Users/vart/.cache/codex/veil-qos-target-20261016/debug/deps/veil_session-b7c7f4f3dd984dbb)
+
+running 1 test
+test local_source_flight::tests::a_new_window_requires_a_new_blocked_send_not_old_waiting_history ... FAILED
+
+failures:
+
+---- local_source_flight::tests::a_new_window_requires_a_new_blocked_send_not_old_waiting_history stdout ----
+
+thread 'local_source_flight::tests::a_new_window_requires_a_new_blocked_send_not_old_waiting_history' (66358334) panicked at crates/veil-session/src/local_source_flight.rs:385:9:
+assertion `left == right` failed: old waiting history cannot spend an unfilled new window
+  left: 4801
+ right: 3601
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    local_source_flight::tests::a_new_window_requires_a_new_blocked_send_not_old_waiting_history
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 617 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p veil-session --lib`

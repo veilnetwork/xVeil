@@ -1,0 +1,624 @@
+   Compiling quinn-proto v0.11.18 (/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/third_party/quinn-proto)
+warning: unused variable: `budget`
+    --> src/connection/mod.rs:1075:25
+     |
+1075 |             if let Some(budget) = &self.local_send_budget {
+     |                         ^^^^^^ help: if this is intentional, prefix it with an underscore: `_budget`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused `streams::ShouldTransmit` that must be used
+    --> src/tests/mod.rs:2656:5
+     |
+2656 |     chunks.finalize();
+     |     ^^^^^^^^^^^^^^^^^
+     |
+     = note: A frame might need to be enqueued
+     = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+     |
+2656 |     let _ = chunks.finalize();
+     |     +++++++
+
+warning: `quinn-proto` (lib test) generated 2 warnings (run `cargo fix --lib -p quinn-proto --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.12s
+     Running unittests src/lib.rs (/Users/vart/.cache/codex/veil-qos-target-20261016/debug/deps/quinn_proto-05261a2d38292817)
+
+running 1 test
+test tests::local_send_budget::a_local_budget_limits_real_packets_and_survives_a_route_reset ... FAILED
+
+failures:
+
+---- tests::local_send_budget::a_local_budget_limits_real_packets_and_survives_a_route_reset stdout ----
+2026-10-19T12:13:23.985906Z  INFO quinn_proto::tests::util: connecting
+2026-10-19T12:13:23.985991Z TRACE client: quinn_proto::endpoint: initial_dcid=1b3da3ded4238b32766ce38c86822e8d3a41deb9
+2026-10-19T12:13:23.986665Z TRACE client: quinn_proto::token_memory_cache: taking token server_name=localhost found=false
+2026-10-19T12:13:23.986909Z TRACE client: quinn_proto::connection: wrote 281 Initial CRYPTO bytes
+2026-10-19T12:13:23.987124Z TRACE client:send{space=Initial pn=0}: quinn_proto::connection: CRYPTO: off 0 len 281
+2026-10-19T12:13:23.987136Z TRACE client:send{space=Initial pn=0}: quinn_proto::connection::packet_builder: PADDING * 860
+2026-10-19T12:13:23.987231Z TRACE client: quinn_proto::connection: sending 1200 bytes in 1 datagrams
+2026-10-19T12:13:23.987514Z TRACE server:first recv:frame{ty=CRYPTO}: quinn_proto::connection: consumed 281 CRYPTO bytes
+2026-10-19T12:13:23.988652Z TRACE server:first recv: quinn_proto::connection: Handshake keys ready
+2026-10-19T12:13:23.988658Z TRACE server:first recv: quinn_proto::connection: wrote 90 Initial CRYPTO bytes
+2026-10-19T12:13:23.988695Z TRACE server:first recv: quinn_proto::connection: Data keys ready
+2026-10-19T12:13:23.988725Z TRACE server:first recv: quinn_proto::connection: wrote 640 Handshake CRYPTO bytes
+2026-10-19T12:13:23.988766Z TRACE server:first recv: quinn_proto::connection: negotiated max idle timeout Some(30s)
+2026-10-19T12:13:23.988776Z TRACE server: quinn_proto::endpoint: new connection id=0 icid=1b3da3ded4238b32766ce38c86822e8d3a41deb9
+2026-10-19T12:13:23.988803Z TRACE server:send{space=Initial pn=0}: quinn_proto::connection: ACK ArrayRangeSet([0..1]), Delay = 0us
+2026-10-19T12:13:23.988811Z TRACE server:send{space=Initial pn=0}: quinn_proto::connection: CRYPTO: off 0 len 90
+2026-10-19T12:13:23.988832Z TRACE server:send{space=Handshake pn=0}: quinn_proto::connection: CRYPTO: off 0 len 640
+2026-10-19T12:13:23.988842Z TRACE server:send{space=Handshake pn=0}: quinn_proto::connection::packet_builder: PADDING * 369
+2026-10-19T12:13:23.988857Z TRACE server: quinn_proto::connection: sending 1200 bytes in 1 datagrams
+2026-10-19T12:13:23.988892Z TRACE server:send{space=Data pn=0}: quinn_proto::connection: NEW_CONNECTION_ID sequence=1 id=267adc44bfd17774
+2026-10-19T12:13:23.988899Z TRACE server:send{space=Data pn=0}: quinn_proto::connection: NEW_CONNECTION_ID sequence=2 id=699ee746a437236b
+2026-10-19T12:13:23.988905Z TRACE server:send{space=Data pn=0}: quinn_proto::connection: NEW_CONNECTION_ID sequence=3 id=9675e19b0f3e4318
+2026-10-19T12:13:23.988911Z TRACE server:send{space=Data pn=0}: quinn_proto::connection: NEW_CONNECTION_ID sequence=4 id=ebd8262b525a48a0
+2026-10-19T12:13:23.988923Z TRACE server: quinn_proto::connection: sending 138 bytes in 1 datagrams
+2026-10-19T12:13:23.988962Z TRACE client: quinn_proto::connection: got Initial packet (145 bytes) from [::1]:4433 using id 4f1c6218bcfb6ab8
+2026-10-19T12:13:23.988977Z TRACE client:recv{space=Initial pn=0}: quinn_proto::connection: switching remote CID to ec9f9521f26251a4
+2026-10-19T12:13:23.989002Z TRACE client:recv{space=Initial pn=0}:frame{ty=CRYPTO}: quinn_proto::connection: consumed 90 CRYPTO bytes
+2026-10-19T12:13:23.989500Z TRACE client:recv{space=Initial pn=0}: quinn_proto::connection: Handshake keys ready
+2026-10-19T12:13:23.989511Z TRACE client: quinn_proto::connection: got Handshake packet (1055 bytes) from [::1]:4433 using id 4f1c6218bcfb6ab8
+2026-10-19T12:13:23.989528Z TRACE client:recv{space=Handshake pn=0}:frame{ty=CRYPTO}: quinn_proto::connection: consumed 640 CRYPTO bytes
+2026-10-19T12:13:23.989849Z TRACE client:recv{space=Handshake pn=0}: quinn_proto::connection: Data keys ready
+2026-10-19T12:13:23.989879Z TRACE client:recv{space=Handshake pn=0}: quinn_proto::connection: wrote 52 Handshake CRYPTO bytes
+2026-10-19T12:13:23.989902Z TRACE client:recv{space=Handshake pn=0}: quinn_proto::connection: negotiated max idle timeout Some(30s)
+2026-10-19T12:13:23.989910Z TRACE client:recv{space=Handshake pn=0}: quinn_proto::connection: established
+2026-10-19T12:13:23.989920Z TRACE client: quinn_proto::connection: got Data packet (138 bytes) from [::1]:4433 using id 4f1c6218bcfb6ab8
+2026-10-19T12:13:23.989937Z TRACE client:recv{space=Data pn=0}: quinn_proto::connection: got frame NewConnectionId(NewConnectionId { sequence: 1, retire_prior_to: 0, id: [38, 122, 220, 68, 191, 209, 119, 116], reset_token: ResetToken([149, 73, 127, 188, 101, 170, 40, 173, 69, 218, 18, 91, 92, 250, 60, 213]) })
+2026-10-19T12:13:23.989970Z TRACE client:recv{space=Data pn=0}:frame{ty=NEW_CONNECTION_ID}: quinn_proto::connection: sequence=1 id=267adc44bfd17774 retire_prior_to=0
+2026-10-19T12:13:23.989984Z TRACE client:recv{space=Data pn=0}: quinn_proto::connection: got frame NewConnectionId(NewConnectionId { sequence: 2, retire_prior_to: 0, id: [105, 158, 231, 70, 164, 55, 35, 107], reset_token: ResetToken([46, 109, 178, 137, 0, 238, 246, 112, 80, 105, 246, 93, 55, 155, 222, 40]) })
+2026-10-19T12:13:23.989995Z TRACE client:recv{space=Data pn=0}:frame{ty=NEW_CONNECTION_ID}: quinn_proto::connection: sequence=2 id=699ee746a437236b retire_prior_to=0
+2026-10-19T12:13:23.990010Z TRACE client:recv{space=Data pn=0}: quinn_proto::connection: got frame NewConnectionId(NewConnectionId { sequence: 3, retire_prior_to: 0, id: [150, 117, 225, 155, 15, 62, 67, 24], reset_token: ResetToken([130, 145, 120, 228, 249, 232, 234, 202, 70, 57, 134, 147, 40, 166, 28, 121]) })
+2026-10-19T12:13:23.990021Z TRACE client:recv{space=Data pn=0}:frame{ty=NEW_CONNECTION_ID}: quinn_proto::connection: sequence=3 id=9675e19b0f3e4318 retire_prior_to=0
+2026-10-19T12:13:23.990034Z TRACE client:recv{space=Data pn=0}: quinn_proto::connection: got frame NewConnectionId(NewConnectionId { sequence: 4, retire_prior_to: 0, id: [235, 216, 38, 43, 82, 90, 72, 160], reset_token: ResetToken([166, 218, 58, 158, 215, 62, 99, 224, 162, 226, 17, 85, 217, 64, 225, 200]) })
+2026-10-19T12:13:23.990044Z TRACE client:recv{space=Data pn=0}:frame{ty=NEW_CONNECTION_ID}: quinn_proto::connection: sequence=4 id=ebd8262b525a48a0 retire_prior_to=0
+2026-10-19T12:13:23.990068Z TRACE client:send{space=Initial pn=1}: quinn_proto::connection: ACK ArrayRangeSet([0..1]), Delay = 0us
+2026-10-19T12:13:23.990085Z TRACE client: quinn_proto::connection: discarding Initial keys
+2026-10-19T12:13:23.990098Z TRACE client:send{space=Handshake pn=0}: quinn_proto::connection: ACK ArrayRangeSet([0..1]), Delay = 0us
+2026-10-19T12:13:23.990105Z TRACE client:send{space=Handshake pn=0}: quinn_proto::connection: CRYPTO: off 0 len 52
+2026-10-19T12:13:23.990113Z TRACE client:send{space=Handshake pn=0}: quinn_proto::connection::packet_builder: PADDING * 1044
+2026-10-19T12:13:23.990129Z TRACE client: quinn_proto::connection: sending 1200 bytes in 1 datagrams
+2026-10-19T12:13:23.990145Z TRACE client:send{space=Data pn=0}: quinn_proto::connection::packet_builder: PADDING * 1298
+2026-10-19T12:13:23.990162Z TRACE client: quinn_proto::connection: writing MTUD probe probe_size=1326
+2026-10-19T12:13:23.990167Z TRACE client: quinn_proto::connection: sending 1326 bytes in 1 datagrams
+2026-10-19T12:13:23.990205Z TRACE client:send{space=Data pn=1}: quinn_proto::connection: NEW_CONNECTION_ID sequence=1 id=eea4af30388de2ce
+2026-10-19T12:13:23.990213Z TRACE client:send{space=Data pn=1}: quinn_proto::connection: NEW_CONNECTION_ID sequence=2 id=dfbf1b806c114172
+2026-10-19T12:13:23.990220Z TRACE client:send{space=Data pn=1}: quinn_proto::connection: NEW_CONNECTION_ID sequence=3 id=d1c3e5af268e510e
+2026-10-19T12:13:23.990226Z TRACE client:send{space=Data pn=1}: quinn_proto::connection: NEW_CONNECTION_ID sequence=4 id=21a273e61c34530d
+2026-10-19T12:13:23.990240Z TRACE client: quinn_proto::connection: sending 138 bytes in 1 datagrams
+2026-10-19T12:13:23.990261Z TRACE server: quinn_proto::connection: got Initial packet (51 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.990292Z TRACE server: quinn_proto::connection: got Handshake packet (1149 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.990305Z TRACE server:recv{space=Handshake pn=0}: quinn_proto::connection: discarding Initial keys
+2026-10-19T12:13:23.990327Z TRACE server:recv{space=Handshake pn=0}:frame{ty=CRYPTO}: quinn_proto::connection: consumed 52 CRYPTO bytes
+2026-10-19T12:13:23.990520Z TRACE server:recv{space=Handshake pn=0}: quinn_proto::connection: wrote 178 Data CRYPTO bytes
+2026-10-19T12:13:23.990527Z TRACE server:recv{space=Handshake pn=0}: quinn_proto::connection: discarding Handshake keys
+2026-10-19T12:13:23.990534Z TRACE server:recv{space=Handshake pn=0}: quinn_proto::connection: established
+2026-10-19T12:13:23.990543Z TRACE server: quinn_proto::connection: got Data packet (1326 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.990558Z TRACE server:recv{space=Data pn=0}: quinn_proto::connection: got frame Ping
+2026-10-19T12:13:23.990568Z TRACE server:recv{space=Data pn=0}: quinn_proto::connection: got frame ImmediateAck
+2026-10-19T12:13:23.990702Z TRACE server: quinn_proto::connection: got Data packet (138 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.990717Z TRACE server:recv{space=Data pn=1}: quinn_proto::connection: got frame NewConnectionId(NewConnectionId { sequence: 1, retire_prior_to: 0, id: [238, 164, 175, 48, 56, 141, 226, 206], reset_token: ResetToken([108, 115, 111, 185, 68, 253, 89, 160, 146, 54, 143, 52, 254, 157, 246, 139]) })
+2026-10-19T12:13:23.990727Z TRACE server:recv{space=Data pn=1}:frame{ty=NEW_CONNECTION_ID}: quinn_proto::connection: sequence=1 id=eea4af30388de2ce retire_prior_to=0
+2026-10-19T12:13:23.990742Z TRACE server:recv{space=Data pn=1}: quinn_proto::connection: got frame NewConnectionId(NewConnectionId { sequence: 2, retire_prior_to: 0, id: [223, 191, 27, 128, 108, 17, 65, 114], reset_token: ResetToken([152, 109, 16, 179, 4, 226, 192, 224, 187, 27, 101, 125, 27, 111, 188, 72]) })
+2026-10-19T12:13:23.990752Z TRACE server:recv{space=Data pn=1}:frame{ty=NEW_CONNECTION_ID}: quinn_proto::connection: sequence=2 id=dfbf1b806c114172 retire_prior_to=0
+2026-10-19T12:13:23.990764Z TRACE server:recv{space=Data pn=1}: quinn_proto::connection: got frame NewConnectionId(NewConnectionId { sequence: 3, retire_prior_to: 0, id: [209, 195, 229, 175, 38, 142, 81, 14], reset_token: ResetToken([157, 125, 84, 155, 9, 131, 108, 1, 57, 232, 164, 140, 234, 94, 19, 149]) })
+2026-10-19T12:13:23.990774Z TRACE server:recv{space=Data pn=1}:frame{ty=NEW_CONNECTION_ID}: quinn_proto::connection: sequence=3 id=d1c3e5af268e510e retire_prior_to=0
+2026-10-19T12:13:23.990786Z TRACE server:recv{space=Data pn=1}: quinn_proto::connection: got frame NewConnectionId(NewConnectionId { sequence: 4, retire_prior_to: 0, id: [33, 162, 115, 230, 28, 52, 83, 13], reset_token: ResetToken([153, 150, 137, 75, 23, 5, 124, 37, 86, 195, 252, 168, 247, 157, 121, 135]) })
+2026-10-19T12:13:23.990796Z TRACE server:recv{space=Data pn=1}:frame{ty=NEW_CONNECTION_ID}: quinn_proto::connection: sequence=4 id=21a273e61c34530d retire_prior_to=0
+2026-10-19T12:13:23.990816Z TRACE server:send{space=Data pn=1}: quinn_proto::connection: ACK ArrayRangeSet([0..2]), Delay = 0us
+2026-10-19T12:13:23.990823Z TRACE server:send{space=Data pn=1}: quinn_proto::connection: CRYPTO: off 0 len 178
+2026-10-19T12:13:23.990829Z TRACE server:send{space=Data pn=1}: quinn_proto::connection: RETIRE_CONNECTION_ID sequence=0
+2026-10-19T12:13:23.990858Z TRACE server: quinn_proto::connection: sending 339 bytes in 1 datagrams
+2026-10-19T12:13:23.990870Z TRACE server:send{space=Data pn=2}: quinn_proto::connection::packet_builder: PADDING * 1298
+2026-10-19T12:13:23.990886Z TRACE server: quinn_proto::connection: writing MTUD probe probe_size=1326
+2026-10-19T12:13:23.990890Z TRACE server: quinn_proto::connection: sending 1326 bytes in 1 datagrams
+2026-10-19T12:13:23.990913Z TRACE client: quinn_proto::connection: got Data packet (339 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.990928Z TRACE client:recv{space=Data pn=1}: quinn_proto::connection: got frame HandshakeDone
+2026-10-19T12:13:23.990934Z TRACE client:recv{space=Data pn=1}:frame{ty=HANDSHAKE_DONE}: quinn_proto::connection: discarding Handshake keys
+2026-10-19T12:13:23.990953Z TRACE client:recv{space=Data pn=1}: quinn_proto::connection: got frame Ack(Ack { largest: 1, delay: 0, ecn: Some(EcnCounts { ect0: 2, ect1: 0, ce: 0 }), ranges: "[0..=1]" })
+2026-10-19T12:13:23.990967Z TRACE client:recv{space=Data pn=1}:frame{ty=ACK}: quinn_proto::connection::mtud: new MTU detected current_mtu=1326
+2026-10-19T12:13:23.990983Z TRACE client:recv{space=Data pn=1}: quinn_proto::connection: got crypto frame offset=0 len=178
+2026-10-19T12:13:23.990990Z TRACE client:recv{space=Data pn=1}:frame{ty=CRYPTO}: quinn_proto::connection: consumed 178 CRYPTO bytes
+2026-10-19T12:13:23.991029Z TRACE client:recv{space=Data pn=1}: quinn_proto::connection: got frame RetireConnectionId { sequence: 0 }
+2026-10-19T12:13:23.991041Z TRACE client:recv{space=Data pn=1}: quinn_proto::connection: got frame NewToken(NewToken { token: b"XuP\xa6\x83\xe6\x05\xbb\xadQW\x975\x90\xf9\xab\xed\x9b)\x96\x0b\xb6_\x96\xed\x93~\xcc\xf6Ng\x1by\xce\xf2\xb9\xcfv\x7f\xb4\xafV\x14\xd9\x10'$(\xa8\xc1\x11]\xc4\xb8\xad3\xc3\xb7" })
+2026-10-19T12:13:23.991055Z TRACE client:recv{space=Data pn=1}:frame{ty=NEW_TOKEN}: quinn_proto::connection: got new token
+2026-10-19T12:13:23.991061Z TRACE client:recv{space=Data pn=1}:frame{ty=NEW_TOKEN}: quinn_proto::token_memory_cache: storing token server_name=localhost
+2026-10-19T12:13:23.991078Z TRACE client:recv{space=Data pn=1}: quinn_proto::connection: got frame NewToken(NewToken { token: b"\x02\xc6\xbdZL\xc4!\x7f`\xc2PO\x05\x8aN\x1c\xbb\xd1\xa9\x88Q\xc3\x82K/\xeeCm\x9a\xe0\xb0\xf2Q\xe9\x02\xdc\xff\xcb\xfb\xaa\xe1,\xd29\xd9\x1cS\x98\xe98\xd6\xa2\xae\x88cxl\xdc" })
+2026-10-19T12:13:23.991091Z TRACE client:recv{space=Data pn=1}:frame{ty=NEW_TOKEN}: quinn_proto::connection: got new token
+2026-10-19T12:13:23.991097Z TRACE client:recv{space=Data pn=1}:frame{ty=NEW_TOKEN}: quinn_proto::token_memory_cache: storing token server_name=localhost
+2026-10-19T12:13:23.991110Z TRACE client: quinn_proto::connection: got Data packet (1326 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.991125Z TRACE client:recv{space=Data pn=2}: quinn_proto::connection: got frame Ping
+2026-10-19T12:13:23.991134Z TRACE client:recv{space=Data pn=2}: quinn_proto::connection: got frame ImmediateAck
+2026-10-19T12:13:23.991272Z TRACE client:send{space=Data pn=2}: quinn_proto::connection: ACK ArrayRangeSet([0..3]), Delay = 0us
+2026-10-19T12:13:23.991285Z TRACE client: quinn_proto::connection: sending 34 bytes in 1 datagrams
+2026-10-19T12:13:23.991296Z TRACE client:send{space=Data pn=3}: quinn_proto::connection::packet_builder: PADDING * 1361
+2026-10-19T12:13:23.991312Z TRACE client: quinn_proto::connection: writing MTUD probe probe_size=1389
+2026-10-19T12:13:23.991317Z TRACE client: quinn_proto::connection: sending 1389 bytes in 1 datagrams
+2026-10-19T12:13:23.991325Z TRACE client: quinn_proto::endpoint: peer retired CID 0: 4f1c6218bcfb6ab8
+2026-10-19T12:13:23.991343Z TRACE client:send{space=Data pn=4}: quinn_proto::connection: NEW_CONNECTION_ID sequence=5 id=2e9a4eefea5f0fee
+2026-10-19T12:13:23.991357Z TRACE client: quinn_proto::connection: sending 54 bytes in 1 datagrams
+2026-10-19T12:13:23.991374Z TRACE server: quinn_proto::connection: got Data packet (34 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.991393Z TRACE server:recv{space=Data pn=2}: quinn_proto::connection: got frame Ack(Ack { largest: 2, delay: 0, ecn: Some(EcnCounts { ect0: 3, ect1: 0, ce: 0 }), ranges: "[0..=2]" })
+2026-10-19T12:13:23.991408Z TRACE server:recv{space=Data pn=2}:frame{ty=ACK}: quinn_proto::connection::mtud: new MTU detected current_mtu=1326
+2026-10-19T12:13:23.991422Z TRACE server: quinn_proto::connection: got Data packet (1389 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.991437Z TRACE server:recv{space=Data pn=3}: quinn_proto::connection: got frame Ping
+2026-10-19T12:13:23.991446Z TRACE server:recv{space=Data pn=3}: quinn_proto::connection: got frame ImmediateAck
+2026-10-19T12:13:23.991586Z TRACE server: quinn_proto::connection: got Data packet (54 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.991603Z TRACE server:recv{space=Data pn=4}: quinn_proto::connection: got frame NewConnectionId(NewConnectionId { sequence: 5, retire_prior_to: 0, id: [46, 154, 78, 239, 234, 95, 15, 238], reset_token: ResetToken([99, 59, 83, 229, 46, 73, 56, 206, 5, 177, 206, 199, 135, 135, 229, 92]) })
+2026-10-19T12:13:23.991616Z TRACE server:recv{space=Data pn=4}:frame{ty=NEW_CONNECTION_ID}: quinn_proto::connection: sequence=5 id=2e9a4eefea5f0fee retire_prior_to=0
+2026-10-19T12:13:23.991634Z TRACE server:send{space=Data pn=3}: quinn_proto::connection: ACK ArrayRangeSet([2..5]), Delay = 0us
+2026-10-19T12:13:23.991647Z TRACE server: quinn_proto::connection: sending 34 bytes in 1 datagrams
+2026-10-19T12:13:23.991657Z TRACE server:send{space=Data pn=4}: quinn_proto::connection::packet_builder: PADDING * 1361
+2026-10-19T12:13:23.991673Z TRACE server: quinn_proto::connection: writing MTUD probe probe_size=1389
+2026-10-19T12:13:23.991678Z TRACE server: quinn_proto::connection: sending 1389 bytes in 1 datagrams
+2026-10-19T12:13:23.991695Z TRACE client: quinn_proto::connection: got Data packet (34 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.991709Z TRACE client:recv{space=Data pn=3}: quinn_proto::connection: got frame Ack(Ack { largest: 4, delay: 0, ecn: Some(EcnCounts { ect0: 5, ect1: 0, ce: 0 }), ranges: "[2..=4]" })
+2026-10-19T12:13:23.991721Z TRACE client:recv{space=Data pn=3}:frame{ty=ACK}: quinn_proto::connection::mtud: new MTU detected current_mtu=1389
+2026-10-19T12:13:23.991735Z TRACE client: quinn_proto::connection: got Data packet (1389 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.991749Z TRACE client:recv{space=Data pn=4}: quinn_proto::connection: got frame Ping
+2026-10-19T12:13:23.991759Z TRACE client:recv{space=Data pn=4}: quinn_proto::connection: got frame ImmediateAck
+2026-10-19T12:13:23.991901Z TRACE client:send{space=Data pn=5}: quinn_proto::connection: ACK ArrayRangeSet([3..5]), Delay = 0us
+2026-10-19T12:13:23.991913Z TRACE client: quinn_proto::connection: sending 34 bytes in 1 datagrams
+2026-10-19T12:13:23.991927Z TRACE client:send{space=Data pn=6}: quinn_proto::connection::packet_builder: PADDING * 1392
+2026-10-19T12:13:23.991943Z TRACE client: quinn_proto::connection: writing MTUD probe probe_size=1420
+2026-10-19T12:13:23.991947Z TRACE client: quinn_proto::connection: sending 1420 bytes in 1 datagrams
+2026-10-19T12:13:23.991965Z TRACE server: quinn_proto::connection: got Data packet (34 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.991980Z TRACE server:recv{space=Data pn=5}: quinn_proto::connection: got frame Ack(Ack { largest: 4, delay: 0, ecn: Some(EcnCounts { ect0: 5, ect1: 0, ce: 0 }), ranges: "[3..=4]" })
+2026-10-19T12:13:23.991991Z TRACE server:recv{space=Data pn=5}:frame{ty=ACK}: quinn_proto::connection::mtud: new MTU detected current_mtu=1389
+2026-10-19T12:13:23.992005Z TRACE server: quinn_proto::connection: got Data packet (1420 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.992019Z TRACE server:recv{space=Data pn=6}: quinn_proto::connection: got frame Ping
+2026-10-19T12:13:23.992028Z TRACE server:recv{space=Data pn=6}: quinn_proto::connection: got frame ImmediateAck
+2026-10-19T12:13:23.992175Z TRACE server:send{space=Data pn=5}: quinn_proto::connection: ACK ArrayRangeSet([5..7]), Delay = 0us
+2026-10-19T12:13:23.992187Z TRACE server: quinn_proto::connection: sending 34 bytes in 1 datagrams
+2026-10-19T12:13:23.992197Z TRACE server:send{space=Data pn=6}: quinn_proto::connection::packet_builder: PADDING * 1392
+2026-10-19T12:13:23.992213Z TRACE server: quinn_proto::connection: writing MTUD probe probe_size=1420
+2026-10-19T12:13:23.992218Z TRACE server: quinn_proto::connection: sending 1420 bytes in 1 datagrams
+2026-10-19T12:13:23.992234Z TRACE client: quinn_proto::connection: got Data packet (34 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.992248Z TRACE client:recv{space=Data pn=5}: quinn_proto::connection: got frame Ack(Ack { largest: 6, delay: 0, ecn: Some(EcnCounts { ect0: 7, ect1: 0, ce: 0 }), ranges: "[5..=6]" })
+2026-10-19T12:13:23.992259Z TRACE client:recv{space=Data pn=5}:frame{ty=ACK}: quinn_proto::connection::mtud: new MTU detected current_mtu=1420
+2026-10-19T12:13:23.992272Z TRACE client: quinn_proto::connection: got Data packet (1420 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.992286Z TRACE client:recv{space=Data pn=6}: quinn_proto::connection: got frame Ping
+2026-10-19T12:13:23.992295Z TRACE client:recv{space=Data pn=6}: quinn_proto::connection: got frame ImmediateAck
+2026-10-19T12:13:23.992430Z TRACE client:send{space=Data pn=7}: quinn_proto::connection: ACK ArrayRangeSet([5..7]), Delay = 0us
+2026-10-19T12:13:23.992440Z TRACE client: quinn_proto::connection: sending 34 bytes in 1 datagrams
+2026-10-19T12:13:23.992447Z TRACE client:send{space=Data pn=8}: quinn_proto::connection::packet_builder: PADDING * 1424
+2026-10-19T12:13:23.992460Z TRACE client: quinn_proto::connection: writing MTUD probe probe_size=1452
+2026-10-19T12:13:23.992463Z TRACE client: quinn_proto::connection: sending 1452 bytes in 1 datagrams
+2026-10-19T12:13:23.992477Z TRACE server: quinn_proto::connection: got Data packet (34 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.992488Z TRACE server:recv{space=Data pn=7}: quinn_proto::connection: got frame Ack(Ack { largest: 6, delay: 0, ecn: Some(EcnCounts { ect0: 7, ect1: 0, ce: 0 }), ranges: "[5..=6]" })
+2026-10-19T12:13:23.992496Z TRACE server:recv{space=Data pn=7}:frame{ty=ACK}: quinn_proto::connection::mtud: new MTU detected current_mtu=1420
+2026-10-19T12:13:23.992506Z TRACE server: quinn_proto::connection: got Data packet (1452 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.992517Z TRACE server:recv{space=Data pn=8}: quinn_proto::connection: got frame Ping
+2026-10-19T12:13:23.992525Z TRACE server:recv{space=Data pn=8}: quinn_proto::connection: got frame ImmediateAck
+2026-10-19T12:13:23.992639Z TRACE server:send{space=Data pn=7}: quinn_proto::connection: ACK ArrayRangeSet([7..9]), Delay = 0us
+2026-10-19T12:13:23.992648Z TRACE server: quinn_proto::connection: sending 34 bytes in 1 datagrams
+2026-10-19T12:13:23.992656Z TRACE server:send{space=Data pn=8}: quinn_proto::connection::packet_builder: PADDING * 1424
+2026-10-19T12:13:23.992669Z TRACE server: quinn_proto::connection: writing MTUD probe probe_size=1452
+2026-10-19T12:13:23.992672Z TRACE server: quinn_proto::connection: sending 1452 bytes in 1 datagrams
+2026-10-19T12:13:23.992684Z TRACE client: quinn_proto::connection: got Data packet (34 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.992695Z TRACE client:recv{space=Data pn=7}: quinn_proto::connection: got frame Ack(Ack { largest: 8, delay: 0, ecn: Some(EcnCounts { ect0: 9, ect1: 0, ce: 0 }), ranges: "[7..=8]" })
+2026-10-19T12:13:23.992703Z TRACE client:recv{space=Data pn=7}:frame{ty=ACK}: quinn_proto::connection::mtud: new MTU detected current_mtu=1452
+2026-10-19T12:13:23.992713Z TRACE client: quinn_proto::connection: got Data packet (1452 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.992725Z TRACE client:recv{space=Data pn=8}: quinn_proto::connection: got frame Ping
+2026-10-19T12:13:23.992732Z TRACE client:recv{space=Data pn=8}: quinn_proto::connection: got frame ImmediateAck
+2026-10-19T12:13:23.992848Z TRACE client:send{space=Data pn=9}: quinn_proto::connection: ACK ArrayRangeSet([7..9]), Delay = 0us
+2026-10-19T12:13:23.992859Z TRACE client: quinn_proto::connection: sending 34 bytes in 1 datagrams
+2026-10-19T12:13:23.992870Z TRACE server: quinn_proto::connection: got Data packet (34 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.992883Z TRACE server:recv{space=Data pn=9}: quinn_proto::connection: got frame Ack(Ack { largest: 8, delay: 0, ecn: Some(EcnCounts { ect0: 9, ect1: 0, ce: 0 }), ranges: "[7..=8]" })
+2026-10-19T12:13:23.992892Z TRACE server:recv{space=Data pn=9}:frame{ty=ACK}: quinn_proto::connection::mtud: new MTU detected current_mtu=1452
+2026-10-19T12:13:23.992977Z TRACE client:send{space=Data pn=10}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.992998Z TRACE client:send{space=Data pn=11}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.993010Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.993027Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.993043Z TRACE server:recv{space=Data pn=10}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.993054Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.993066Z TRACE server:recv{space=Data pn=11}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.993079Z TRACE server:send{space=Data pn=9}: quinn_proto::connection: ACK ArrayRangeSet([9..12]), Delay = 0us
+2026-10-19T12:13:23.993090Z TRACE server: quinn_proto::connection: sending 34 bytes in 1 datagrams
+2026-10-19T12:13:23.993103Z TRACE client: quinn_proto::connection: got Data packet (34 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.993115Z TRACE client:recv{space=Data pn=9}: quinn_proto::connection: got frame Ack(Ack { largest: 11, delay: 0, ecn: Some(EcnCounts { ect0: 12, ect1: 0, ce: 0 }), ranges: "[9..=11]" })
+2026-10-19T12:13:23.993136Z TRACE client:send{space=Data pn=12}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.993152Z TRACE client:send{space=Data pn=13}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.993163Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.993181Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.993194Z TRACE server:recv{space=Data pn=12}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.993203Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.993215Z TRACE server:recv{space=Data pn=13}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.993228Z TRACE server:send{space=Data pn=10}: quinn_proto::connection: ACK ArrayRangeSet([9..14]), Delay = 0us
+2026-10-19T12:13:23.993239Z TRACE server: quinn_proto::connection: sending 34 bytes in 1 datagrams
+2026-10-19T12:13:23.993251Z TRACE client: quinn_proto::connection: got Data packet (34 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.993263Z TRACE client:recv{space=Data pn=10}: quinn_proto::connection: got frame Ack(Ack { largest: 13, delay: 0, ecn: Some(EcnCounts { ect0: 14, ect1: 0, ce: 0 }), ranges: "[9..=13]" })
+2026-10-19T12:13:23.993287Z TRACE client:send{space=Data pn=14}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.993304Z TRACE client:send{space=Data pn=15}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.993316Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.993335Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.993348Z TRACE server:recv{space=Data pn=14}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.993358Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.993369Z TRACE server:recv{space=Data pn=15}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.993382Z TRACE server:send{space=Data pn=11}: quinn_proto::connection: ACK ArrayRangeSet([9..16]), Delay = 0us
+2026-10-19T12:13:23.993395Z TRACE server: quinn_proto::connection: sending 34 bytes in 1 datagrams
+2026-10-19T12:13:23.993408Z TRACE client: quinn_proto::connection: got Data packet (34 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.993423Z TRACE client:recv{space=Data pn=11}: quinn_proto::connection: got frame Ack(Ack { largest: 15, delay: 0, ecn: Some(EcnCounts { ect0: 16, ect1: 0, ce: 0 }), ranges: "[9..=15]" })
+2026-10-19T12:13:23.993445Z TRACE client:send{space=Data pn=16}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.993461Z TRACE client:send{space=Data pn=17}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.993472Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.993486Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.993498Z TRACE server:recv{space=Data pn=16}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.993507Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.993519Z TRACE server:recv{space=Data pn=17}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.993532Z TRACE server:send{space=Data pn=12}: quinn_proto::connection: ACK ArrayRangeSet([9..18]), Delay = 0us
+2026-10-19T12:13:23.993542Z TRACE server: quinn_proto::connection: sending 34 bytes in 1 datagrams
+2026-10-19T12:13:23.993557Z TRACE client: quinn_proto::connection: got Data packet (34 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.993569Z TRACE client:recv{space=Data pn=12}: quinn_proto::connection: got frame Ack(Ack { largest: 17, delay: 0, ecn: Some(EcnCounts { ect0: 18, ect1: 0, ce: 0 }), ranges: "[9..=17]" })
+2026-10-19T12:13:23.993588Z TRACE client:send{space=Data pn=18}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.993604Z TRACE client:send{space=Data pn=19}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.993615Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.993629Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.993641Z TRACE server:recv{space=Data pn=18}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.993651Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.993662Z TRACE server:recv{space=Data pn=19}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.993675Z TRACE server:send{space=Data pn=13}: quinn_proto::connection: ACK ArrayRangeSet([9..20]), Delay = 0us
+2026-10-19T12:13:23.993685Z TRACE server: quinn_proto::connection: sending 34 bytes in 1 datagrams
+2026-10-19T12:13:23.993697Z TRACE client: quinn_proto::connection: got Data packet (34 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.993709Z TRACE client:recv{space=Data pn=13}: quinn_proto::connection: got frame Ack(Ack { largest: 19, delay: 0, ecn: Some(EcnCounts { ect0: 20, ect1: 0, ce: 0 }), ranges: "[9..=19]" })
+2026-10-19T12:13:23.993728Z TRACE client:send{space=Data pn=20}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.993743Z TRACE client:send{space=Data pn=21}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.993754Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.993768Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.993780Z TRACE server:recv{space=Data pn=20}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.993789Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.993801Z TRACE server:recv{space=Data pn=21}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.993813Z TRACE server:send{space=Data pn=14}: quinn_proto::connection: ACK ArrayRangeSet([9..22]), Delay = 0us
+2026-10-19T12:13:23.993824Z TRACE server: quinn_proto::connection: sending 34 bytes in 1 datagrams
+2026-10-19T12:13:23.993835Z TRACE client: quinn_proto::connection: got Data packet (34 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.993850Z TRACE client:recv{space=Data pn=14}: quinn_proto::connection: got frame Ack(Ack { largest: 21, delay: 0, ecn: Some(EcnCounts { ect0: 22, ect1: 0, ce: 0 }), ranges: "[9..=21]" })
+2026-10-19T12:13:23.993870Z TRACE client:send{space=Data pn=22}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.993885Z TRACE client:send{space=Data pn=23}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.993895Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.993913Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.993925Z TRACE server:recv{space=Data pn=22}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.993934Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.993946Z TRACE server:recv{space=Data pn=23}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.993959Z TRACE server:send{space=Data pn=15}: quinn_proto::connection: ACK ArrayRangeSet([9..24]), Delay = 0us
+2026-10-19T12:13:23.993970Z TRACE server: quinn_proto::connection: sending 34 bytes in 1 datagrams
+2026-10-19T12:13:23.993981Z TRACE client: quinn_proto::connection: got Data packet (34 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.993993Z TRACE client:recv{space=Data pn=15}: quinn_proto::connection: got frame Ack(Ack { largest: 23, delay: 0, ecn: Some(EcnCounts { ect0: 24, ect1: 0, ce: 0 }), ranges: "[9..=23]" })
+2026-10-19T12:13:23.994012Z TRACE client:send{space=Data pn=24}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.994028Z TRACE client:send{space=Data pn=25}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.994038Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.994052Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.994064Z TRACE server:recv{space=Data pn=24}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.994073Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.994085Z TRACE server:recv{space=Data pn=25}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.994097Z TRACE server:send{space=Data pn=16}: quinn_proto::connection: ACK ArrayRangeSet([9..26]), Delay = 0us
+2026-10-19T12:13:23.994108Z TRACE server: quinn_proto::connection: sending 34 bytes in 1 datagrams
+2026-10-19T12:13:23.994119Z TRACE client: quinn_proto::connection: got Data packet (34 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.994131Z TRACE client:recv{space=Data pn=16}: quinn_proto::connection: got frame Ack(Ack { largest: 25, delay: 0, ecn: Some(EcnCounts { ect0: 26, ect1: 0, ce: 0 }), ranges: "[9..=25]" })
+2026-10-19T12:13:23.994150Z TRACE client:send{space=Data pn=26}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.994165Z TRACE client:send{space=Data pn=27}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.994176Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.994189Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.994201Z TRACE server:recv{space=Data pn=26}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.994211Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.994224Z TRACE server:recv{space=Data pn=27}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.994238Z TRACE server:send{space=Data pn=17}: quinn_proto::connection: ACK ArrayRangeSet([9..28]), Delay = 0us
+2026-10-19T12:13:23.994248Z TRACE server: quinn_proto::connection: sending 34 bytes in 1 datagrams
+2026-10-19T12:13:23.994259Z TRACE client: quinn_proto::connection: got Data packet (34 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.994270Z TRACE client:recv{space=Data pn=17}: quinn_proto::connection: got frame Ack(Ack { largest: 27, delay: 0, ecn: Some(EcnCounts { ect0: 28, ect1: 0, ce: 0 }), ranges: "[9..=27]" })
+2026-10-19T12:13:23.994286Z TRACE client:send{space=Data pn=28}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.994300Z TRACE client:send{space=Data pn=29}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.994309Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.994321Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.994332Z TRACE server:recv{space=Data pn=28}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.994340Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.994350Z TRACE server:recv{space=Data pn=29}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.994361Z TRACE server:send{space=Data pn=18}: quinn_proto::connection: ACK ArrayRangeSet([9..30]), Delay = 0us
+2026-10-19T12:13:23.994371Z TRACE server: quinn_proto::connection: sending 34 bytes in 1 datagrams
+2026-10-19T12:13:23.994381Z TRACE client: quinn_proto::connection: got Data packet (34 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.994392Z TRACE client:recv{space=Data pn=18}: quinn_proto::connection: got frame Ack(Ack { largest: 29, delay: 0, ecn: Some(EcnCounts { ect0: 30, ect1: 0, ce: 0 }), ranges: "[9..=29]" })
+2026-10-19T12:13:23.994408Z TRACE client:send{space=Data pn=30}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.994422Z TRACE client:send{space=Data pn=31}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.994431Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.994443Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.994454Z TRACE server:recv{space=Data pn=30}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.994462Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.994473Z TRACE server:recv{space=Data pn=31}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.994486Z TRACE server:send{space=Data pn=19}: quinn_proto::connection: ACK ArrayRangeSet([9..32]), Delay = 0us
+2026-10-19T12:13:23.994495Z TRACE server: quinn_proto::connection: sending 34 bytes in 1 datagrams
+2026-10-19T12:13:23.994505Z TRACE client: quinn_proto::connection: got Data packet (34 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.994516Z TRACE client:recv{space=Data pn=19}: quinn_proto::connection: got frame Ack(Ack { largest: 31, delay: 0, ecn: Some(EcnCounts { ect0: 32, ect1: 0, ce: 0 }), ranges: "[9..=31]" })
+2026-10-19T12:13:23.994532Z TRACE client:send{space=Data pn=32}: quinn_proto::connection: ACK ArrayRangeSet([9..20]), Delay = 0us
+2026-10-19T12:13:23.994537Z TRACE client:send{space=Data pn=32}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.994551Z TRACE client:send{space=Data pn=33}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.994560Z TRACE client: quinn_proto::connection: sending 2114 bytes in 2 datagrams
+2026-10-19T12:13:23.994572Z TRACE server: quinn_proto::connection: got Data packet (1061 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.994583Z TRACE server:recv{space=Data pn=32}: quinn_proto::connection: got frame Ack(Ack { largest: 19, delay: 0, ecn: Some(EcnCounts { ect0: 20, ect1: 0, ce: 0 }), ranges: "[9..=19]" })
+2026-10-19T12:13:23.994600Z TRACE server:recv{space=Data pn=32}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.994609Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.994619Z TRACE server:recv{space=Data pn=33}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.994630Z TRACE server:send{space=Data pn=20}: quinn_proto::connection: ACK ArrayRangeSet([32..34]), Delay = 0us
+2026-10-19T12:13:23.994639Z TRACE server: quinn_proto::connection: sending 34 bytes in 1 datagrams
+2026-10-19T12:13:23.994650Z TRACE client: quinn_proto::connection: got Data packet (34 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.994660Z TRACE client:recv{space=Data pn=20}: quinn_proto::connection: got frame Ack(Ack { largest: 33, delay: 0, ecn: Some(EcnCounts { ect0: 34, ect1: 0, ce: 0 }), ranges: "[32..=33]" })
+2026-10-19T12:13:23.994677Z TRACE client:send{space=Data pn=34}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.994690Z TRACE client:send{space=Data pn=35}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.994699Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.994714Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.994725Z TRACE server:recv{space=Data pn=34}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.994733Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.994743Z TRACE server:recv{space=Data pn=35}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.994754Z TRACE server:send{space=Data pn=21}: quinn_proto::connection: ACK ArrayRangeSet([32..36]), Delay = 0us
+2026-10-19T12:13:23.994763Z TRACE server: quinn_proto::connection: sending 34 bytes in 1 datagrams
+2026-10-19T12:13:23.994774Z TRACE client: quinn_proto::connection: got Data packet (34 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.994785Z TRACE client:recv{space=Data pn=21}: quinn_proto::connection: got frame Ack(Ack { largest: 35, delay: 0, ecn: Some(EcnCounts { ect0: 36, ect1: 0, ce: 0 }), ranges: "[32..=35]" })
+2026-10-19T12:13:23.994803Z TRACE client:send{space=Data pn=36}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.994817Z TRACE client:send{space=Data pn=37}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.994826Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.994839Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.994850Z TRACE server:recv{space=Data pn=36}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.994858Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.994868Z TRACE server:recv{space=Data pn=37}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.994879Z TRACE server:send{space=Data pn=22}: quinn_proto::connection: ACK ArrayRangeSet([32..38]), Delay = 0us
+2026-10-19T12:13:23.994888Z TRACE server: quinn_proto::connection: sending 34 bytes in 1 datagrams
+2026-10-19T12:13:23.994898Z TRACE client: quinn_proto::connection: got Data packet (34 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.994909Z TRACE client:recv{space=Data pn=22}: quinn_proto::connection: got frame Ack(Ack { largest: 37, delay: 0, ecn: Some(EcnCounts { ect0: 38, ect1: 0, ce: 0 }), ranges: "[32..=37]" })
+2026-10-19T12:13:23.994926Z TRACE client:send{space=Data pn=38}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.994939Z TRACE client:send{space=Data pn=39}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.994949Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.994961Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.994975Z TRACE server:recv{space=Data pn=38}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.994983Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.994994Z TRACE server:recv{space=Data pn=39}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.995005Z TRACE server:send{space=Data pn=23}: quinn_proto::connection: ACK ArrayRangeSet([32..40]), Delay = 0us
+2026-10-19T12:13:23.995014Z TRACE server: quinn_proto::connection: sending 34 bytes in 1 datagrams
+2026-10-19T12:13:23.995024Z TRACE client: quinn_proto::connection: got Data packet (34 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.995035Z TRACE client:recv{space=Data pn=23}: quinn_proto::connection: got frame Ack(Ack { largest: 39, delay: 0, ecn: Some(EcnCounts { ect0: 40, ect1: 0, ce: 0 }), ranges: "[32..=39]" })
+2026-10-19T12:13:23.995052Z TRACE client:send{space=Data pn=40}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.995063Z TRACE client: quinn_proto::connection::spaces: skipping pn 41
+2026-10-19T12:13:23.995069Z TRACE client:send{space=Data pn=42}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.995078Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.995090Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.995101Z TRACE server:recv{space=Data pn=40}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.995109Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.995119Z TRACE server:recv{space=Data pn=42}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.995130Z TRACE server:send{space=Data pn=24}: quinn_proto::connection: ACK ArrayRangeSet([32..41, 42..43]), Delay = 0us
+2026-10-19T12:13:23.995140Z TRACE server: quinn_proto::connection: sending 36 bytes in 1 datagrams
+2026-10-19T12:13:23.995150Z TRACE client: quinn_proto::connection: got Data packet (36 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.995161Z TRACE client:recv{space=Data pn=24}: quinn_proto::connection: got frame Ack(Ack { largest: 42, delay: 0, ecn: Some(EcnCounts { ect0: 42, ect1: 0, ce: 0 }), ranges: "[42..=42,32..=40]" })
+2026-10-19T12:13:23.995179Z TRACE client:send{space=Data pn=43}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.995192Z TRACE client:send{space=Data pn=44}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.995201Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.995213Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.995224Z TRACE server:recv{space=Data pn=43}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.995233Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.995243Z TRACE server:recv{space=Data pn=44}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.995254Z TRACE server:send{space=Data pn=25}: quinn_proto::connection: ACK ArrayRangeSet([32..41, 42..45]), Delay = 0us
+2026-10-19T12:13:23.995264Z TRACE server: quinn_proto::connection: sending 36 bytes in 1 datagrams
+2026-10-19T12:13:23.995275Z TRACE client: quinn_proto::connection: got Data packet (36 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.995286Z TRACE client:recv{space=Data pn=25}: quinn_proto::connection: got frame Ack(Ack { largest: 44, delay: 0, ecn: Some(EcnCounts { ect0: 44, ect1: 0, ce: 0 }), ranges: "[42..=44,32..=40]" })
+2026-10-19T12:13:23.995303Z TRACE client:send{space=Data pn=45}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.995319Z TRACE client:send{space=Data pn=46}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.995329Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.995341Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.995352Z TRACE server:recv{space=Data pn=45}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.995360Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.995370Z TRACE server:recv{space=Data pn=46}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.995381Z TRACE server:send{space=Data pn=26}: quinn_proto::connection: ACK ArrayRangeSet([32..41, 42..47]), Delay = 0us
+2026-10-19T12:13:23.995390Z TRACE server: quinn_proto::connection: sending 36 bytes in 1 datagrams
+2026-10-19T12:13:23.995401Z TRACE client: quinn_proto::connection: got Data packet (36 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.995412Z TRACE client:recv{space=Data pn=26}: quinn_proto::connection: got frame Ack(Ack { largest: 46, delay: 0, ecn: Some(EcnCounts { ect0: 46, ect1: 0, ce: 0 }), ranges: "[42..=46,32..=40]" })
+2026-10-19T12:13:23.995431Z TRACE client:send{space=Data pn=47}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.995446Z TRACE client:send{space=Data pn=48}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.995457Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.995473Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.995485Z TRACE server:recv{space=Data pn=47}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.995494Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.995506Z TRACE server:recv{space=Data pn=48}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.995518Z TRACE server:send{space=Data pn=27}: quinn_proto::connection: ACK ArrayRangeSet([32..41, 42..49]), Delay = 0us
+2026-10-19T12:13:23.995529Z TRACE server: quinn_proto::connection: sending 36 bytes in 1 datagrams
+2026-10-19T12:13:23.995540Z TRACE client: quinn_proto::connection: got Data packet (36 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.995552Z TRACE client:recv{space=Data pn=27}: quinn_proto::connection: got frame Ack(Ack { largest: 48, delay: 0, ecn: Some(EcnCounts { ect0: 48, ect1: 0, ce: 0 }), ranges: "[42..=48,32..=40]" })
+2026-10-19T12:13:23.995575Z TRACE client:send{space=Data pn=49}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.995590Z TRACE client:send{space=Data pn=50}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.995600Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.995613Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.995626Z TRACE server:recv{space=Data pn=49}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.995635Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.995646Z TRACE server:recv{space=Data pn=50}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.995659Z TRACE server:send{space=Data pn=28}: quinn_proto::connection: ACK ArrayRangeSet([32..41, 42..51]), Delay = 0us
+2026-10-19T12:13:23.995669Z TRACE server: quinn_proto::connection: sending 36 bytes in 1 datagrams
+2026-10-19T12:13:23.995681Z TRACE client: quinn_proto::connection: got Data packet (36 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.995693Z TRACE client:recv{space=Data pn=28}: quinn_proto::connection: got frame Ack(Ack { largest: 50, delay: 0, ecn: Some(EcnCounts { ect0: 50, ect1: 0, ce: 0 }), ranges: "[42..=50,32..=40]" })
+2026-10-19T12:13:23.995712Z TRACE client:send{space=Data pn=51}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.995727Z TRACE client:send{space=Data pn=52}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.995739Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.995753Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.995765Z TRACE server:recv{space=Data pn=51}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.995774Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.995786Z TRACE server:recv{space=Data pn=52}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.995798Z TRACE server:send{space=Data pn=29}: quinn_proto::connection: ACK ArrayRangeSet([32..41, 42..53]), Delay = 0us
+2026-10-19T12:13:23.995809Z TRACE server: quinn_proto::connection: sending 36 bytes in 1 datagrams
+2026-10-19T12:13:23.995821Z TRACE client: quinn_proto::connection: got Data packet (36 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.995833Z TRACE client:recv{space=Data pn=29}: quinn_proto::connection: got frame Ack(Ack { largest: 52, delay: 0, ecn: Some(EcnCounts { ect0: 52, ect1: 0, ce: 0 }), ranges: "[42..=52,32..=40]" })
+2026-10-19T12:13:23.995852Z TRACE client:send{space=Data pn=53}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.995867Z TRACE client:send{space=Data pn=54}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.995878Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.995891Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.995903Z TRACE server:recv{space=Data pn=53}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.995912Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.995923Z TRACE server:recv{space=Data pn=54}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.995936Z TRACE server:send{space=Data pn=30}: quinn_proto::connection: ACK ArrayRangeSet([32..41, 42..55]), Delay = 0us
+2026-10-19T12:13:23.995946Z TRACE server: quinn_proto::connection: sending 36 bytes in 1 datagrams
+2026-10-19T12:13:23.995958Z TRACE client: quinn_proto::connection: got Data packet (36 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.995970Z TRACE client:recv{space=Data pn=30}: quinn_proto::connection: got frame Ack(Ack { largest: 54, delay: 0, ecn: Some(EcnCounts { ect0: 54, ect1: 0, ce: 0 }), ranges: "[42..=54,32..=40]" })
+2026-10-19T12:13:23.995999Z TRACE client:send{space=Data pn=55}: quinn_proto::connection: ACK ArrayRangeSet([20..31]), Delay = 0us
+2026-10-19T12:13:23.996005Z TRACE client:send{space=Data pn=55}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.996020Z TRACE client:send{space=Data pn=56}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.996031Z TRACE client: quinn_proto::connection: sending 2114 bytes in 2 datagrams
+2026-10-19T12:13:23.996044Z TRACE server: quinn_proto::connection: got Data packet (1061 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.996057Z TRACE server:recv{space=Data pn=55}: quinn_proto::connection: got frame Ack(Ack { largest: 30, delay: 0, ecn: Some(EcnCounts { ect0: 31, ect1: 0, ce: 0 }), ranges: "[20..=30]" })
+2026-10-19T12:13:23.996077Z TRACE server:recv{space=Data pn=55}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.996085Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.996097Z TRACE server:recv{space=Data pn=56}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.996110Z TRACE server:send{space=Data pn=31}: quinn_proto::connection: ACK ArrayRangeSet([55..57]), Delay = 0us
+2026-10-19T12:13:23.996120Z TRACE server: quinn_proto::connection: sending 34 bytes in 1 datagrams
+2026-10-19T12:13:23.996132Z TRACE client: quinn_proto::connection: got Data packet (34 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.996144Z TRACE client:recv{space=Data pn=31}: quinn_proto::connection: got frame Ack(Ack { largest: 56, delay: 0, ecn: Some(EcnCounts { ect0: 56, ect1: 0, ce: 0 }), ranges: "[55..=56]" })
+2026-10-19T12:13:23.996162Z TRACE client:send{space=Data pn=57}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.996177Z TRACE client:send{space=Data pn=58}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.996187Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.996201Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.996213Z TRACE server:recv{space=Data pn=57}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.996222Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.996234Z TRACE server:recv{space=Data pn=58}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.996246Z TRACE server:send{space=Data pn=32}: quinn_proto::connection: ACK ArrayRangeSet([55..59]), Delay = 0us
+2026-10-19T12:13:23.996256Z TRACE server: quinn_proto::connection: sending 34 bytes in 1 datagrams
+2026-10-19T12:13:23.996268Z TRACE client: quinn_proto::connection: got Data packet (34 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.996280Z TRACE client:recv{space=Data pn=32}: quinn_proto::connection: got frame Ack(Ack { largest: 58, delay: 0, ecn: Some(EcnCounts { ect0: 58, ect1: 0, ce: 0 }), ranges: "[55..=58]" })
+2026-10-19T12:13:23.996299Z TRACE client:send{space=Data pn=59}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.996314Z TRACE client:send{space=Data pn=60}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.996324Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.996341Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.996354Z TRACE server:recv{space=Data pn=59}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.996363Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.996374Z TRACE server:recv{space=Data pn=60}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.996386Z TRACE server:send{space=Data pn=33}: quinn_proto::connection: ACK ArrayRangeSet([55..61]), Delay = 0us
+2026-10-19T12:13:23.996397Z TRACE server: quinn_proto::connection: sending 34 bytes in 1 datagrams
+2026-10-19T12:13:23.996408Z TRACE client: quinn_proto::connection: got Data packet (34 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.996420Z TRACE client:recv{space=Data pn=33}: quinn_proto::connection: got frame Ack(Ack { largest: 60, delay: 0, ecn: Some(EcnCounts { ect0: 60, ect1: 0, ce: 0 }), ranges: "[55..=60]" })
+2026-10-19T12:13:23.996439Z TRACE client:send{space=Data pn=61}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.996454Z TRACE client:send{space=Data pn=62}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.996464Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.996478Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.996490Z TRACE server:recv{space=Data pn=61}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.996499Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.996511Z TRACE server:recv{space=Data pn=62}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.996524Z TRACE server:send{space=Data pn=34}: quinn_proto::connection: ACK ArrayRangeSet([55..63]), Delay = 0us
+2026-10-19T12:13:23.996534Z TRACE server: quinn_proto::connection: sending 34 bytes in 1 datagrams
+2026-10-19T12:13:23.996545Z TRACE client: quinn_proto::connection: got Data packet (34 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.996558Z TRACE client:recv{space=Data pn=34}: quinn_proto::connection: got frame Ack(Ack { largest: 62, delay: 0, ecn: Some(EcnCounts { ect0: 62, ect1: 0, ce: 0 }), ranges: "[55..=62]" })
+2026-10-19T12:13:23.996577Z TRACE client:send{space=Data pn=63}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.996592Z TRACE client:send{space=Data pn=64}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.996601Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.996613Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.996624Z TRACE server:recv{space=Data pn=63}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.996632Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.996642Z TRACE server:recv{space=Data pn=64}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.996654Z TRACE server:send{space=Data pn=35}: quinn_proto::connection: ACK ArrayRangeSet([55..65]), Delay = 0us
+2026-10-19T12:13:23.996663Z TRACE server: quinn_proto::connection: sending 36 bytes in 1 datagrams
+2026-10-19T12:13:23.996674Z TRACE client: quinn_proto::connection: got Data packet (36 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.996685Z TRACE client:recv{space=Data pn=35}: quinn_proto::connection: got frame Ack(Ack { largest: 64, delay: 0, ecn: Some(EcnCounts { ect0: 64, ect1: 0, ce: 0 }), ranges: "[55..=64]" })
+2026-10-19T12:13:23.996702Z TRACE client:send{space=Data pn=65}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.996715Z TRACE client:send{space=Data pn=66}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.996724Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.996736Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.996747Z TRACE server:recv{space=Data pn=65}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.996754Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.996764Z TRACE server:recv{space=Data pn=66}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.996775Z TRACE server:send{space=Data pn=36}: quinn_proto::connection: ACK ArrayRangeSet([55..67]), Delay = 0us
+2026-10-19T12:13:23.996784Z TRACE server: quinn_proto::connection: sending 36 bytes in 1 datagrams
+2026-10-19T12:13:23.996795Z TRACE client: quinn_proto::connection: got Data packet (36 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.996805Z TRACE client:recv{space=Data pn=36}: quinn_proto::connection: got frame Ack(Ack { largest: 66, delay: 0, ecn: Some(EcnCounts { ect0: 66, ect1: 0, ce: 0 }), ranges: "[55..=66]" })
+2026-10-19T12:13:23.996822Z TRACE client:send{space=Data pn=67}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.996836Z TRACE client:send{space=Data pn=68}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.996845Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.996859Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.996870Z TRACE server:recv{space=Data pn=67}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.996878Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.996888Z TRACE server:recv{space=Data pn=68}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.996899Z TRACE server:send{space=Data pn=37}: quinn_proto::connection: ACK ArrayRangeSet([55..69]), Delay = 0us
+2026-10-19T12:13:23.996908Z TRACE server: quinn_proto::connection: sending 36 bytes in 1 datagrams
+2026-10-19T12:13:23.996919Z TRACE client: quinn_proto::connection: got Data packet (36 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.996929Z TRACE client:recv{space=Data pn=37}: quinn_proto::connection: got frame Ack(Ack { largest: 68, delay: 0, ecn: Some(EcnCounts { ect0: 68, ect1: 0, ce: 0 }), ranges: "[55..=68]" })
+2026-10-19T12:13:23.996946Z TRACE client:send{space=Data pn=69}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.996956Z TRACE client: quinn_proto::connection::spaces: skipping pn 70
+2026-10-19T12:13:23.996963Z TRACE client:send{space=Data pn=71}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.996972Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.996984Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.996995Z TRACE server:recv{space=Data pn=69}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.997003Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.997013Z TRACE server:recv{space=Data pn=71}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.997024Z TRACE server:send{space=Data pn=38}: quinn_proto::connection: ACK ArrayRangeSet([55..70, 71..72]), Delay = 0us
+2026-10-19T12:13:23.997035Z TRACE server: quinn_proto::connection: sending 38 bytes in 1 datagrams
+2026-10-19T12:13:23.997047Z TRACE client: quinn_proto::connection: got Data packet (38 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.997057Z TRACE client:recv{space=Data pn=38}: quinn_proto::connection: got frame Ack(Ack { largest: 71, delay: 0, ecn: Some(EcnCounts { ect0: 70, ect1: 0, ce: 0 }), ranges: "[71..=71,55..=69]" })
+2026-10-19T12:13:23.997075Z TRACE client:send{space=Data pn=72}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.997088Z TRACE client:send{space=Data pn=73}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.997098Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.997112Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.997123Z TRACE server:recv{space=Data pn=72}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.997131Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.997141Z TRACE server:recv{space=Data pn=73}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.997153Z TRACE server:send{space=Data pn=39}: quinn_proto::connection: ACK ArrayRangeSet([55..70, 71..74]), Delay = 0us
+2026-10-19T12:13:23.997162Z TRACE server: quinn_proto::connection: sending 38 bytes in 1 datagrams
+2026-10-19T12:13:23.997173Z TRACE client: quinn_proto::connection: got Data packet (38 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.997183Z TRACE client:recv{space=Data pn=39}: quinn_proto::connection: got frame Ack(Ack { largest: 73, delay: 0, ecn: Some(EcnCounts { ect0: 72, ect1: 0, ce: 0 }), ranges: "[71..=73,55..=69]" })
+2026-10-19T12:13:23.997201Z TRACE client:send{space=Data pn=74}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.997214Z TRACE client:send{space=Data pn=75}: quinn_proto::connection::datagrams: DATAGRAM len=1024
+2026-10-19T12:13:23.997223Z TRACE client: quinn_proto::connection: sending 2106 bytes in 2 datagrams
+2026-10-19T12:13:23.997234Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.997244Z TRACE server:recv{space=Data pn=74}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.997252Z TRACE server: quinn_proto::connection: got Data packet (1053 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.997263Z TRACE server:recv{space=Data pn=75}: quinn_proto::connection: got datagram frame len=1024
+2026-10-19T12:13:23.997274Z TRACE server:send{space=Data pn=40}: quinn_proto::connection: ACK ArrayRangeSet([55..70, 71..76]), Delay = 0us
+2026-10-19T12:13:23.997283Z TRACE server: quinn_proto::connection: sending 38 bytes in 1 datagrams
+2026-10-19T12:13:23.997294Z TRACE client: quinn_proto::connection: got Data packet (38 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.997304Z TRACE client:recv{space=Data pn=40}: quinn_proto::connection: got frame Ack(Ack { largest: 75, delay: 0, ecn: Some(EcnCounts { ect0: 74, ect1: 0, ce: 0 }), ranges: "[71..=75,55..=69]" })
+2026-10-19T12:13:23.997321Z TRACE client:send{space=Data pn=76}: quinn_proto::connection::packet_builder: PADDING * 1298
+2026-10-19T12:13:23.997333Z TRACE client: quinn_proto::connection: writing MTUD probe probe_size=1326
+2026-10-19T12:13:23.997337Z TRACE client: quinn_proto::connection: sending 1326 bytes in 1 datagrams
+2026-10-19T12:13:23.997346Z TRACE server: quinn_proto::connection: got Data packet (1326 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.997357Z TRACE server:recv{space=Data pn=76}: quinn_proto::connection: got frame Ping
+2026-10-19T12:13:23.997364Z TRACE server:recv{space=Data pn=76}: quinn_proto::connection: got frame ImmediateAck
+2026-10-19T12:13:23.997469Z TRACE server:send{space=Data pn=41}: quinn_proto::connection: ACK ArrayRangeSet([55..70, 71..77]), Delay = 0us
+2026-10-19T12:13:23.997478Z TRACE server: quinn_proto::connection: sending 38 bytes in 1 datagrams
+2026-10-19T12:13:23.997488Z TRACE client: quinn_proto::connection: got Data packet (38 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.997499Z TRACE client:recv{space=Data pn=41}: quinn_proto::connection: got frame Ack(Ack { largest: 76, delay: 0, ecn: Some(EcnCounts { ect0: 75, ect1: 0, ce: 0 }), ranges: "[71..=76,55..=69]" })
+2026-10-19T12:13:23.997508Z TRACE client:recv{space=Data pn=41}:frame{ty=ACK}: quinn_proto::connection::mtud: new MTU detected current_mtu=1326
+2026-10-19T12:13:23.997521Z TRACE client:send{space=Data pn=77}: quinn_proto::connection::packet_builder: PADDING * 1361
+2026-10-19T12:13:23.997533Z TRACE client: quinn_proto::connection: writing MTUD probe probe_size=1389
+2026-10-19T12:13:23.997537Z TRACE client: quinn_proto::connection: sending 1389 bytes in 1 datagrams
+2026-10-19T12:13:23.997546Z TRACE server: quinn_proto::connection: got Data packet (1389 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.997557Z TRACE server:recv{space=Data pn=77}: quinn_proto::connection: got frame Ping
+2026-10-19T12:13:23.997564Z TRACE server:recv{space=Data pn=77}: quinn_proto::connection: got frame ImmediateAck
+2026-10-19T12:13:23.997670Z TRACE server: quinn_proto::connection::spaces: skipping pn 42
+2026-10-19T12:13:23.997676Z TRACE server:send{space=Data pn=43}: quinn_proto::connection: ACK ArrayRangeSet([55..70, 71..78]), Delay = 0us
+2026-10-19T12:13:23.997689Z TRACE server: quinn_proto::connection: sending 38 bytes in 1 datagrams
+2026-10-19T12:13:23.997700Z TRACE client: quinn_proto::connection: got Data packet (38 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.997711Z TRACE client:recv{space=Data pn=43}: quinn_proto::connection: got frame Ack(Ack { largest: 77, delay: 0, ecn: Some(EcnCounts { ect0: 76, ect1: 0, ce: 0 }), ranges: "[71..=77,55..=69]" })
+2026-10-19T12:13:23.997719Z TRACE client:recv{space=Data pn=43}:frame{ty=ACK}: quinn_proto::connection::mtud: new MTU detected current_mtu=1389
+2026-10-19T12:13:23.997732Z TRACE client:send{space=Data pn=78}: quinn_proto::connection::packet_builder: PADDING * 1392
+2026-10-19T12:13:23.997745Z TRACE client: quinn_proto::connection: writing MTUD probe probe_size=1420
+2026-10-19T12:13:23.997750Z TRACE client: quinn_proto::connection: sending 1420 bytes in 1 datagrams
+2026-10-19T12:13:23.997760Z TRACE server: quinn_proto::connection: got Data packet (1420 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.997770Z TRACE server:recv{space=Data pn=78}: quinn_proto::connection: got frame Ping
+2026-10-19T12:13:23.997777Z TRACE server:recv{space=Data pn=78}: quinn_proto::connection: got frame ImmediateAck
+2026-10-19T12:13:23.997889Z TRACE server:send{space=Data pn=44}: quinn_proto::connection: ACK ArrayRangeSet([55..70, 71..79]), Delay = 0us
+2026-10-19T12:13:23.997898Z TRACE server: quinn_proto::connection: sending 38 bytes in 1 datagrams
+2026-10-19T12:13:23.997909Z TRACE client: quinn_proto::connection: got Data packet (38 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.997919Z TRACE client:recv{space=Data pn=44}: quinn_proto::connection: got frame Ack(Ack { largest: 78, delay: 0, ecn: Some(EcnCounts { ect0: 77, ect1: 0, ce: 0 }), ranges: "[71..=78,55..=69]" })
+2026-10-19T12:13:23.997928Z TRACE client:recv{space=Data pn=44}:frame{ty=ACK}: quinn_proto::connection::mtud: new MTU detected current_mtu=1420
+2026-10-19T12:13:23.997941Z TRACE client:send{space=Data pn=79}: quinn_proto::connection::packet_builder: PADDING * 1424
+2026-10-19T12:13:23.997953Z TRACE client: quinn_proto::connection: writing MTUD probe probe_size=1452
+2026-10-19T12:13:23.997957Z TRACE client: quinn_proto::connection: sending 1452 bytes in 1 datagrams
+2026-10-19T12:13:23.997966Z TRACE server: quinn_proto::connection: got Data packet (1452 bytes) from [::1]:44433 using id ec9f9521f26251a4
+2026-10-19T12:13:23.997977Z TRACE server:recv{space=Data pn=79}: quinn_proto::connection: got frame Ping
+2026-10-19T12:13:23.997984Z TRACE server:recv{space=Data pn=79}: quinn_proto::connection: got frame ImmediateAck
+2026-10-19T12:13:23.998100Z TRACE server:send{space=Data pn=45}: quinn_proto::connection: ACK ArrayRangeSet([55..70, 71..80]), Delay = 0us
+2026-10-19T12:13:23.998109Z TRACE server: quinn_proto::connection: sending 38 bytes in 1 datagrams
+2026-10-19T12:13:23.998120Z TRACE client: quinn_proto::connection: got Data packet (38 bytes) from [::1]:4433 using id eea4af30388de2ce
+2026-10-19T12:13:23.998131Z TRACE client:recv{space=Data pn=45}: quinn_proto::connection: got frame Ack(Ack { largest: 79, delay: 0, ecn: Some(EcnCounts { ect0: 78, ect1: 0, ce: 0 }), ranges: "[71..=79,55..=69]" })
+2026-10-19T12:13:23.998139Z TRACE client:recv{space=Data pn=45}:frame{ty=ACK}: quinn_proto::connection::mtud: new MTU detected current_mtu=1452
+
+thread 'tests::local_send_budget::a_local_budget_limits_real_packets_and_survives_a_route_reset' (66683946) panicked at src/tests/local_send_budget.rs:89:5:
+drained sender must retire old budget demand
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tests::local_send_budget::a_local_budget_limits_real_packets_and_survives_a_route_reset
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 324 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `--lib`
