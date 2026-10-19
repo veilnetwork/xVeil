@@ -1,0 +1,255 @@
+{
+  "successful_unique_video_sends": 10324,
+  "missing_at_native_ingress": 10,
+  "missing_payload": 5,
+  "missing_padding": 5,
+  "sequence_range_audit": {
+    "1": {
+      "unique_sent_sequences": 6745,
+      "not_observed_at_successful_shim_send": 0,
+      "seq_range": [
+        13484,
+        20228
+      ]
+    },
+    "2": {
+      "unique_sent_sequences": 3579,
+      "not_observed_at_successful_shim_send": 0,
+      "seq_range": [
+        1859,
+        5437
+      ]
+    }
+  },
+  "rr_cut_examples": [
+    {
+      "source": 1,
+      "cut_seconds": 205.00823049998144,
+      "reports": [
+        {
+          "t": 201.416252,
+          "lost": 0,
+          "highest": 3601,
+          "fraction": 0
+        },
+        {
+          "t": 201.571024,
+          "lost": 1,
+          "highest": 3605,
+          "fraction": 63
+        },
+        {
+          "t": 201.66386,
+          "lost": 3,
+          "highest": 3610,
+          "fraction": 102
+        },
+        {
+          "t": 201.667828,
+          "lost": 3,
+          "highest": 3611,
+          "fraction": 0
+        },
+        {
+          "t": 201.779229,
+          "lost": 4,
+          "highest": 3614,
+          "fraction": 85
+        },
+        {
+          "t": 201.806394,
+          "lost": 4,
+          "highest": 3614,
+          "fraction": 0
+        },
+        {
+          "t": 201.806416,
+          "lost": 4,
+          "highest": 3615,
+          "fraction": 0
+        },
+        {
+          "t": 201.864323,
+          "lost": 4,
+          "highest": 3617,
+          "fraction": 0
+        },
+        {
+          "t": 201.904858,
+          "lost": 4,
+          "highest": 3618,
+          "fraction": 0
+        },
+        {
+          "t": 201.933889,
+          "lost": 4,
+          "highest": 3618,
+          "fraction": 0
+        },
+        {
+          "t": 202.005349,
+          "lost": 5,
+          "highest": 3620,
+          "fraction": 127
+        },
+        {
+          "t": 203.094905,
+          "lost": 2,
+          "highest": 3635,
+          "fraction": 0
+        },
+        {
+          "t": 203.623514,
+          "lost": 2,
+          "highest": 3642,
+          "fraction": 0
+        },
+        {
+          "t": 204.917969,
+          "lost": 2,
+          "highest": 3659,
+          "fraction": 0
+        },
+        {
+          "t": 206.16693,
+          "lost": 2,
+          "highest": 3666,
+          "fraction": 0
+        },
+        {
+          "t": 206.712476,
+          "lost": 2,
+          "highest": 3670,
+          "fraction": 0
+        }
+      ]
+    },
+    {
+      "source": 1,
+      "cut_seconds": 245.00633783300873,
+      "reports": [
+        {
+          "t": 241.035388,
+          "lost": 6,
+          "highest": 4215,
+          "fraction": 0
+        },
+        {
+          "t": 241.132294,
+          "lost": 4,
+          "highest": 4215,
+          "fraction": 0
+        },
+        {
+          "t": 241.433408,
+          "lost": 3,
+          "highest": 4220,
+          "fraction": 0
+        },
+        {
+          "t": 241.562137,
+          "lost": 6,
+          "highest": 4233,
+          "fraction": 58
+        },
+        {
+          "t": 241.624557,
+          "lost": 6,
+          "highest": 4233,
+          "fraction": 0
+        },
+        {
+          "t": 241.721478,
+          "lost": 7,
+          "highest": 4236,
+          "fraction": 85
+        },
+        {
+          "t": 241.768327,
+          "lost": 6,
+          "highest": 4236,
+          "fraction": 0
+        },
+        {
+          "t": 242.980641,
+          "lost": 3,
+          "highest": 4246,
+          "fraction": 0
+        },
+        {
+          "t": 243.613954,
+          "lost": 3,
+          "highest": 4254,
+          "fraction": 0
+        },
+        {
+          "t": 244.282237,
+          "lost": 3,
+          "highest": 4264,
+          "fraction": 0
+        },
+        {
+          "t": 244.92554,
+          "lost": 3,
+          "highest": 4278,
+          "fraction": 0
+        },
+        {
+          "t": 246.018478,
+          "lost": 3,
+          "highest": 4284,
+          "fraction": 0
+        }
+      ]
+    },
+    {
+      "source": 1,
+      "cut_seconds": 323.00728983298177,
+      "reports": [
+        {
+          "t": 319.580309,
+          "lost": 1,
+          "highest": 5095,
+          "fraction": 0
+        },
+        {
+          "t": 320.649957,
+          "lost": 1,
+          "highest": 5110,
+          "fraction": 0
+        },
+        {
+          "t": 321.615018,
+          "lost": 1,
+          "highest": 5125,
+          "fraction": 0
+        },
+        {
+          "t": 322.382394,
+          "lost": 1,
+          "highest": 5138,
+          "fraction": 0
+        },
+        {
+          "t": 323.097325,
+          "lost": 1,
+          "highest": 5148,
+          "fraction": 0
+        },
+        {
+          "t": 324.24289,
+          "lost": 1,
+          "highest": 5156,
+          "fraction": 0
+        },
+        {
+          "t": 324.771824,
+          "lost": 1,
+          "highest": 5157,
+          "fraction": 0
+        }
+      ]
+    }
+  ],
+  "scope": "Sequence holes at successful shim egress are not independently proof of network loss; investigate pre-send pacer discard/guarded RTP and decoder progress. Eventual ingress does not prove a timely useful frame."
+}
