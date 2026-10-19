@@ -1,5 +1,5 @@
 import unittest
-from decoded_video_progress import summarize
+from decoded_video_progress import required_tail_content_changes, summarize
 
 
 def row(t, side, seq, shade='a'):
@@ -14,6 +14,35 @@ class DecodedVideoProgressTest(unittest.TestCase):
         self.assertTrue(result['moving_at_end'])
         self.assertFalse(result['screen_presentation_proof'])
         self.assertEqual(result['directions'][0]['tail_content_changes'], 1)
+        self.assertTrue(result['tail_content_verified'])
+
+    def test_full_capture_requires_fourteen_content_changes_in_each_direction(self):
+        rows = [row(345 + i, side, i + 1, 'ab'[i % 2])
+                for side in (0, 1) for i in range(15)]
+        result = summarize(rows, 360)
+        self.assertEqual(result['required_tail_content_changes'], 14)
+        self.assertTrue(result['tail_content_verified'])
+        # A missing final pull still satisfies the old motion-only check.
+        rows.pop()
+        result = summarize(rows, 360)
+        self.assertTrue(result['moving_at_end'])
+        self.assertEqual(result['directions'][1]['tail_content_changes'], 13)
+        self.assertFalse(result['tail_content_verified'])
+
+    def test_skipped_decoded_frames_do_not_prove_unsampled_content_changes(self):
+        rows = [r for side in (0, 1)
+                for r in (row(345, side, 1), row(359, side, 30, 'b'))]
+        result = summarize(rows, 360)
+        self.assertTrue(result['moving_at_end'])
+        self.assertFalse(result['tail_content_verified'])
+
+    def test_full_gate_boundary_and_invalid_durations(self):
+        self.assertEqual(required_tail_content_changes(359), 1)
+        self.assertEqual(required_tail_content_changes(360), 14)
+        self.assertEqual(required_tail_content_changes(720), 14)
+        for duration in (0, 20, float('nan'), float('inf')):
+            with self.assertRaises(ValueError):
+                required_tail_content_changes(duration)
 
     def test_marker_counters_cannot_substitute_for_decoded_frames(self):
         result = summarize([dict(t=59, side=i, seq=0, video_rx_deliver_frames=1000)

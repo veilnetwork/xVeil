@@ -46,7 +46,12 @@ Future<void> main() async {
         receiving: true,
         secondaryYielded: room.sourcePriority.yielded,
       );
-      if (policy.needsSecondaryYield) room.sourcePriority.requestYield(now);
+      if (policy.needsSecondaryYield) {
+        room.sourcePriority.requestYield(
+          now,
+          transient: policy.secondaryYieldTransient,
+        );
+      }
       room.adapter.constrainSource(
         floor: room.sourcePriority.floor,
         paused: room.sourcePriority.paused,
@@ -66,6 +71,7 @@ Future<void> main() async {
         'packet_ms': policy.target.packetMs,
         'payload_bps': policy.target.payloadBps,
         'needs_secondary_yield': policy.needsSecondaryYield,
+        'secondary_yield_transient': policy.secondaryYieldTransient,
         if (request['op'] == 'poll' && request['load'] == true)
           'video_policy': room.poll(request),
       }),

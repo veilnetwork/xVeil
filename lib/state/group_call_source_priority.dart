@@ -4,11 +4,14 @@ class GroupCallSourcePriority {
   static const settle = Duration(seconds: 2);
   static const quietRecovery = Duration(seconds: 20);
   static const recoverySamples = 8;
+  static const transientQuietRecovery = Duration(seconds: 3);
+  static const transientRecoverySamples = 3;
   int _stage = 0; // Unrestricted, one-fps floor, paused.
   DateTime? _lastAt, _floorAckAt, _pauseAckAt, _quietAt, _pressureAt;
   int? _packets, _sequence;
   int _floorSamples = 0, _healthy = 0;
   bool _yielded = false;
+  bool _transientOnly = false;
 
   bool get floor => _stage > 0;
   bool get paused => _stage == 2;
@@ -18,13 +21,21 @@ class GroupCallSourcePriority {
     'yielded': _yielded,
     'floor_samples': _floorSamples,
     'healthy_samples': _healthy,
+    'transient_only': _transientOnly,
   };
 
-  void requestYield(DateTime now) {
-    _pressureAt = now;
+  void requestYield(DateTime now, {bool transient = false}) {
     _healthy = 0;
-    if (_stage == 0) _stage = 1;
-    if (_stage == 1 &&
+    if (_stage == 0) {
+      _stage = 1;
+      _transientOnly = transient;
+    }
+    if (!transient) _transientOnly = false;
+    // A short completed impairment cannot extend a genuine congestion hold,
+    // shorten that hold, or escalate a sparse video trial into a long pause.
+    if (!transient || _transientOnly) _pressureAt = now;
+    if (!transient &&
+        _stage == 1 &&
         _floorAckAt != null &&
         !now.isBefore(_floorAckAt!) &&
         now.difference(_floorAckAt!) >= settle &&
@@ -67,11 +78,16 @@ class GroupCallSourcePriority {
     required bool audioSending,
   }) {
     final previousAt = _lastAt;
-    if (previousAt != null && now.isBefore(previousAt)) invalidate();
+    if (previousAt != null && now.isBefore(previousAt)) {
+      invalidate();
+      if (_stage > 0) _pressureAt = now;
+    }
     final fresh = previousAt == null || now.isAfter(previousAt);
     _lastAt = now;
     if (!videoExpected || !audioSending) {
       _stage = 0;
+      _transientOnly = false;
+      _pressureAt = null;
       invalidate();
       _yielded = true; // No owned secondary sender competes with this audio.
       return;
@@ -89,15 +105,24 @@ class GroupCallSourcePriority {
         count('video_tx_payload_pkts') ?? count('video_tx_rtp_attempts');
     final nativeFresh = stats['video_worker_stalled'] == 0;
     final fps = stats['max_fps'];
+    if (nativeFresh &&
+        packets != null &&
+        _packets != null &&
+        packets < _packets!) {
+      invalidate();
+    }
     if (_stage < 2 &&
         _floorAckAt != null &&
+        !now.isBefore(_floorAckAt!) &&
         nativeFresh &&
         packets != null &&
         fps is num &&
         fps.isFinite &&
         fps > 0 &&
         fps <= 1) {
-      _floorSamples++;
+      // A configured one-fps ceiling and a cached counter are not emitted
+      // video. Count distinct native progress samples under the applied floor.
+      if (_packets != null && packets > _packets!) _floorSamples++;
     } else {
       _floorSamples = 0;
       if (nativeFresh && fps is num && fps > 1) _floorAckAt = null;
@@ -132,7 +157,8 @@ class GroupCallSourcePriority {
         stats['audio_playout_reports'] == expectedPeers &&
         stats['audio_feedback_reports'] == expectedPeers &&
         stats['audio_loss_report_us'] == 0 &&
-        (stats['audio_peer_recovery_report_us'] == null ||
+        (_transientOnly ||
+            stats['audio_peer_recovery_report_us'] == null ||
             stats['audio_peer_recovery_report_us'] == 0) &&
         stats['audio_playout_ms'] is int &&
         (stats['audio_playout_ms'] as int) >= 0 &&
@@ -141,10 +167,16 @@ class GroupCallSourcePriority {
       _healthy = 0;
     } else if (freshPeer && _stage > 0) {
       _healthy++;
-      if (_healthy >= recoverySamples &&
+      final samples = _transientOnly
+          ? transientRecoverySamples
+          : recoverySamples;
+      final quiet = _transientOnly ? transientQuietRecovery : quietRecovery;
+      if (_healthy >= samples &&
           _pressureAt != null &&
-          now.difference(_pressureAt!) >= quietRecovery) {
+          now.difference(_pressureAt!) >= quiet) {
         _stage = 0;
+        _transientOnly = false;
+        _pressureAt = null;
         invalidate();
       }
     }

@@ -1,0 +1,17 @@
+test_corrupt_clocks_sequences_and_incomplete_hashes_fail_closed (test_decoded_video_progress.DecodedVideoProgressTest.test_corrupt_clocks_sequences_and_incomplete_hashes_fail_closed) ... ok
+test_early_motion_cannot_qualify_a_frozen_tail_or_missing_receiver (test_decoded_video_progress.DecodedVideoProgressTest.test_early_motion_cannot_qualify_a_frozen_tail_or_missing_receiver) ... ok
+test_full_capture_requires_fourteen_content_changes_in_each_direction (test_decoded_video_progress.DecodedVideoProgressTest.test_full_capture_requires_fourteen_content_changes_in_each_direction) ... ok
+test_full_gate_boundary_and_invalid_durations (test_decoded_video_progress.DecodedVideoProgressTest.test_full_gate_boundary_and_invalid_durations) ... ok
+test_marker_counters_cannot_substitute_for_decoded_frames (test_decoded_video_progress.DecodedVideoProgressTest.test_marker_counters_cannot_substitute_for_decoded_frames) ... ok
+test_requires_new_decoded_content_at_both_receivers_near_end (test_decoded_video_progress.DecodedVideoProgressTest.test_requires_new_decoded_content_at_both_receivers_near_end) ... ok
+test_rising_sequence_with_frozen_pixels_is_not_motion (test_decoded_video_progress.DecodedVideoProgressTest.test_rising_sequence_with_frozen_pixels_is_not_motion) ... ok
+test_skipped_decoded_frames_do_not_prove_unsampled_content_changes (test_decoded_video_progress.DecodedVideoProgressTest.test_skipped_decoded_frames_do_not_prove_unsampled_content_changes) ... ok
+test_full_contention_cannot_qualify_motion_only_video (test_group_capture_validation.CaptureValidationTest.test_full_contention_cannot_qualify_motion_only_video) ... ok
+test_missing_proofs_short_diagnostic_and_failed_gate_never_qualify (test_group_capture_validation.CaptureValidationTest.test_missing_proofs_short_diagnostic_and_failed_gate_never_qualify) ... ok
+test_newline_framed_admin_reply_needs_no_half_close (test_group_capture_validation.CaptureValidationTest.test_newline_framed_admin_reply_needs_no_half_close) ... ok
+test_post_measurement_exception_cannot_keep_a_green_result (test_group_capture_validation.CaptureValidationTest.test_post_measurement_exception_cannot_keep_a_green_result) ... ok
+
+----------------------------------------------------------------------
+Ran 12 tests in 0.001s
+
+OK
