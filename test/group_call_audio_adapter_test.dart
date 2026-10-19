@@ -43,6 +43,108 @@ GroupCallAudioAdapter start() {
 }
 
 void main() {
+  test(
+    'secondary yield distinguishes transient damage from outgoing pressure',
+    () {
+      for (final kind in [
+        'concealment',
+        'incoming',
+        'peer_recovered',
+        'loss',
+        'drop',
+        'buffer',
+        'mixed',
+      ]) {
+        final p = start();
+        Map<String, dynamic> measured(int n, {int loss = 0}) => {
+          ...sample(n, loss: loss),
+          'audio_max_packet_ms': 60,
+          'audio_tx_packet_duration_ms': 40,
+          'audio_tx_payload_pkts': n * 20,
+        };
+        observe(p, measured(1, loss: 100), 1);
+        p.applyPending((_) => true, at(1));
+        observe(p, measured(2), 2);
+        p.observe(
+          {
+            ...measured(3, loss: kind == 'loss' || kind == 'mixed' ? 200 : 0),
+            if (kind == 'concealment' || kind == 'mixed')
+              'audio_peer_concealment_report_us': 300,
+            if (kind == 'incoming') 'audio_latency_recovery_count': 1,
+            if (kind == 'peer_recovered') 'audio_peer_recovery_report_us': 300,
+            if (kind == 'drop') 'audio_tx_rtp_drops': 1,
+            if (kind == 'buffer') 'audio_playout_ms': 240,
+          },
+          at(6),
+          expectedPeers: 2,
+          sending: true,
+          receiving: true,
+          secondaryYielded: false,
+        );
+        expect(p.needsSecondaryYield, isTrue, reason: kind);
+        expect(
+          p.secondaryYieldTransient,
+          ['concealment', 'incoming', 'peer_recovered'].contains(kind),
+          reason: kind,
+        );
+        expect(
+          p.target.packetMs,
+          40,
+          reason: 'secondary output has not yielded',
+        );
+      }
+    },
+  );
+
+  test(
+    'concealment at the long-packet floor does not request a prolonged pause',
+    () {
+      final p = start();
+      Map<String, dynamic> measured(int n, int duration, int loss) => {
+        ...sample(n, loss: loss),
+        'audio_max_packet_ms': 60,
+        'audio_tx_packet_duration_ms': duration,
+        'audio_tx_payload_pkts': n * 20,
+      };
+      observe(p, measured(1, 40, 100), 1);
+      p.applyPending((_) => true, at(1));
+      p.observe(
+        measured(2, 40, 200),
+        at(5),
+        expectedPeers: 2,
+        sending: true,
+        receiving: true,
+        secondaryYielded: true,
+      );
+      p.applyPending((_) => true, at(5));
+      expect(p.applied?.packetMs, 60);
+      p.observe(
+        {...measured(3, 60, 0), 'audio_peer_concealment_report_us': 300},
+        at(9),
+        expectedPeers: 2,
+        sending: true,
+        receiving: true,
+        secondaryYielded: false,
+      );
+      expect(p.needsSecondaryYield, isTrue);
+      expect(p.secondaryYieldTransient, isTrue);
+      p.observe(
+        {...measured(4, 60, 0), 'audio_peer_concealment_report_us': 300},
+        at(10),
+        expectedPeers: 2,
+        sending: true,
+        receiving: true,
+        secondaryYielded: false,
+      );
+      expect(
+        p.needsSecondaryYield,
+        isFalse,
+        reason: 'cached concealment is not another failure',
+      );
+      expect(p.secondaryYieldTransient, isFalse);
+    },
+  );
+
   test('concealment yields secondary work before lengthening room audio', () {
     final p = start();
     Map<String, dynamic> measured(int n, int witness) => {
@@ -64,6 +166,7 @@ void main() {
       secondaryYielded: false,
     );
     expect(p.needsSecondaryYield, isTrue);
+    expect(p.secondaryYieldTransient, isTrue);
     expect(p.target.packetMs, 40);
     observe(p, measured(3, 300), 9);
     expect(
@@ -80,6 +183,7 @@ void main() {
       secondaryYielded: false,
     );
     expect(p.needsSecondaryYield, isFalse);
+    expect(p.secondaryYieldTransient, isFalse);
     p.observe(
       measured(5, 400),
       at(17),

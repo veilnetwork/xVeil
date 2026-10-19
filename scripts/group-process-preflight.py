@@ -24,6 +24,7 @@ from group_codec_sdk import (GroupSdk, P, E, SourcePacketSamples,
 from group_pcm_timing import analyze_voice_path
 from native_pcm_driver import NativePcmDriver, build as build_clock
 from group_process_files import ProcessFileLoad
+from decoded_video_progress import required_tail_content_changes
 
 
 def qualifies_full_contention(result):
@@ -35,7 +36,9 @@ def qualifies_full_contention(result):
                 result.get('video_file_load') is True and
                 result.get('end_topology', {}).get('verified') is True and
                 len(result.get('files', [])) == 3 and
-                len(result.get('video_paths', [])) == 6)
+                len(result.get('video_paths', [])) == 6 and
+                all(path.get('tail_changes', -1) >= required_tail_content_changes(
+                    result['duration_seconds']) for path in result['video_paths']))
 
 
 def worker(pipe, sdk_path, media_path, root, clock, participant,
@@ -391,9 +394,10 @@ def worker(pipe, sdk_path, media_path, root, clock, participant,
                 tail = [x for x in observed if x['t'] >= duration - 15]
                 changes = sum(a['sha256'] != b['sha256'] for a, b in zip(tail, tail[1:]))
                 path = {'receiver': participant, 'source': peer,
-                        'decoded_pulls': len(observed), 'tail_changes': changes}
+                        'decoded_pulls': len(observed), 'tail_changes': changes,
+                        'required_tail_content_changes': required_tail_content_changes(duration)}
                 result['video_paths'].append(path)
-                result['ok'] &= changes > 0
+                result['ok'] &= changes >= path['required_tail_content_changes']
         if budget_smoke:
             active = [x['sender'] for x in snapshots if x['t'] > 2 and x.get('sender', {}).get('packets', 0) > 0]
             result['rtp_origin_preserved'] = bool(active) and len({x['rtp_origin'] for x in active}) == 1
