@@ -1,0 +1,163 @@
+{
+  "native": {
+    "source": 0,
+    "receiver": 1,
+    "phase": "audio-video-file",
+    "packet": {
+      "ssrc": 3498740895,
+      "rtp_origin": 223498061,
+      "rtp_timestamp": 228102701,
+      "rtp_sequence": 12832,
+      "source_at_seconds": 95.95001725063776,
+      "decoded_at_seconds": 96.34011791730882,
+      "packet_ms": 60,
+      "encoder_input_index": 9090,
+      "encoder_first_input_monotonic_us": 217859494922,
+      "encoded_monotonic_us": 217859545413,
+      "ingress": {
+        "seq": 12832,
+        "timestamp": 228102701,
+        "arrived_us": 217859850587,
+        "drained_us": 217859850610,
+        "payload_bytes": 179
+      },
+      "total_ms": 390.10066667106,
+      "spans_ms": {
+        "capture_to_encoded": 30.591208371333778,
+        "encoded_to_ingress": 305.1739999791607,
+        "ingress_to_webrtc": 0.02300000051036477,
+        "webrtc_to_pcm_edge": 54.31245832005516
+      },
+      "native_send": {
+        "channel": 1,
+        "seq": 12832,
+        "timestamp": 228102701,
+        "attempted_us": 217859545448,
+        "admitted_us": 217859545460,
+        "packet_bytes": 199,
+        "accepted": 1
+      },
+      "native_send_spans_ms": {
+        "encoded_to_native_send": 0.035,
+        "native_send_admission": 0.012,
+        "native_admission_to_ingress": 305.127
+      }
+    },
+    "input_sha256": {
+      "summary.json": "02f43f4e7ac1693a37c189ea0a4961a396c2419c7f2b3d0369fa73f67897234f",
+      "worker-0/summary.json": "00ee9d72f7e1a23243418a33ed60110c05265df1f97b4e83183ec4a8094d431b",
+      "worker-1/summary.json": "c01d0a3ebf8203a0aeab6d8450096785ca140c73741ef259484d3adcf03c7b37",
+      "worker-0/pcm-samples.json": "dae722b624581b60f2894a30faff4cdd182ac64a3f6702e1c09e4a8facdc2d05",
+      "worker-1/pcm-samples.json": "60d9c40924b86d6c116c837dabc9678d11d01d6b64b2283afc772452caaa3af8",
+      "worker-0/codec-samples.json": "8de1a3ddb9070a02e0ec7b96d02547fc4b0a51efebb955e7a9ae04fc8a597dfb",
+      "worker-0/playout-trace.log": "895eaaf69600ede1083f6c6339fb615b4edcc9c74337e240b261801c7459d352",
+      "worker-1/playout-trace.log": "dd252221137a56a6b25ed211b7c7c06e05677bd73a482cfbb2fc3a842115dff6"
+    },
+    "limits": [
+      "Owned same-host clocks only; no physical acoustic latency claim",
+      "Encoded-to-ingress includes all local and transport stages; no per-hop attribution",
+      "Ingress-to-PCM can include codec lookahead/FEC and following packets; not NetEq alone",
+      "This analysis does not change the capture verdict or its quality gates"
+    ]
+  },
+  "sdk": {
+    "epoch": "378fa3886b0ccdfd",
+    "cell_sequence": 1685,
+    "rtp_index_in_cell": 0,
+    "source_sdk_peer": "96c08115",
+    "receiver_sdk_peer": "4ee2491a",
+    "sealed_bytes": 235,
+    "observations_us": {
+      "native_attempt": 217859545448,
+      "sdk_seal": 217859545486,
+      "sdk_send_pump": 217859545499,
+      "daemon_read": 217859545553,
+      "handler_enter": 217859545593,
+      "relay_queued": 217859545617,
+      "sdk_authenticated": 217859850565,
+      "native_ingress": 217859850587
+    },
+    "socket_written_us": 217859545521,
+    "rtp_authenticated_metadata_us": 217859850581,
+    "native_enqueue_return_us": 217859545460,
+    "spans_ms": {
+      "native_attempt_to_sdk_seal": 0.038,
+      "sdk_seal_to_sdk_send_pump": 0.013,
+      "sdk_send_pump_to_daemon_read": 0.054,
+      "daemon_read_to_handler_enter": 0.04,
+      "handler_enter_to_relay_queued": 0.024,
+      "relay_queued_to_sdk_authenticated": 304.948,
+      "sdk_authenticated_to_native_ingress": 0.022
+    }
+  },
+  "sdk_log_sha256": {
+    "worker-0/native.log": "35dcc10b2cacb64da836b945bd952100383b38a26cb1d041626aba674af71af5",
+    "worker-1/native.log": "aec1ec16595f4ce831559279b32a894e2d74c90aa358a4ddaafa4bcd77774308",
+    "native.log": "89f2b86569fa08d104da46838075f0de349b279482bb0d23505e6d8e8e1f4190"
+  },
+  "limits": [
+    "Owned same-host clocks; no remote/acoustic latency inference",
+    "Relay-queued is source-node admission, not proof of wire send",
+    "Socket-written and native-enqueue-return are post-completion observations; concurrency can place them after downstream work",
+    "This join changes no original quality gate or capture verdict",
+    "DATAGRAM acceptance is a source-transport queue observation, not a NIC send",
+    "Opaque session-frame digests and connection IDs are local diagnostics only",
+    "Async source enqueue and transport returns may follow downstream processing",
+    "One-relay path only; complete authenticated endpoint witnesses required",
+    "Hop spans include transport queues, socket/shaper/scheduling and receive processing",
+    "Transport selection precedes acceptance; it is not proof of NIC send",
+    "Forward observations hash opaque payloads without RTP/role classification",
+    "Dispatch returns are asynchronous post-completion observations and are not causal handoff points"
+  ],
+  "source_session": {
+    "epoch": "378fa3886b0ccdfd",
+    "cell_sequence": 1685,
+    "connection_trace_id": 15,
+    "observations_us": {
+      "budget_admit": 217859545770,
+      "datagram_accepted": 217859545794
+    },
+    "encrypted_frame": {
+      "wire_bytes": "515",
+      "family": "3",
+      "msg_type": "3",
+      "body_len": "475",
+      "body_preview_sha256": "1cf59dc7ca626b74dd3eaf5135ec9b512240d94536d03fb7d32cc038f115aa01"
+    },
+    "spans_ms": {
+      "handler_enter_to_budget_admit": 0.177,
+      "budget_admit_to_datagram_accepted": 0.024,
+      "budget_admit_to_authenticated_receiver": 304.795
+    },
+    "post_completion_offsets_ms": {
+      "relay_queued_to_budget_admit": 0.153,
+      "datagram_accepted_to_authenticated_receiver": 304.771
+    }
+  },
+  "forward_path": {
+    "opaque_sha256": "06d71e05314163467ac5b00a295571166a9425475b8cb15719ff51cea2875c00",
+    "opaque_bytes": 235,
+    "source_node": "4ee2491a",
+    "relay_node": "5848c90d",
+    "destination_node": "96c08115",
+    "observations_us": {
+      "source_transport_selected": 217859545782,
+      "relay_dispatch_enter": 217859703674,
+      "relay_dispatch_return": 217859703683,
+      "relay_transport_selected": 217859703704,
+      "destination_dispatch_enter": 217859850477,
+      "destination_dispatch_return": 217859850491,
+      "sdk_authenticated": 217859850565
+    },
+    "spans_ms": {
+      "source_transport_selected_to_relay_dispatch_enter": 157.892,
+      "relay_dispatch_enter_to_relay_transport_selected": 0.03,
+      "relay_transport_selected_to_destination_dispatch_enter": 146.773,
+      "destination_dispatch_enter_to_sdk_authenticated": 0.088
+    },
+    "dispatch_duration_ms": {
+      "relay": 0.009,
+      "destination": 0.014
+    }
+  }
+}

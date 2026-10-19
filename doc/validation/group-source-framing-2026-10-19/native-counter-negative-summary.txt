@@ -1,0 +1,1 @@
+Old library loaded and verified. Exit -6: Assertion failed: (at), function group_stat, file call_planes_smoke.cc, line167. The new counter keys are absent.
