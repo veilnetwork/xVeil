@@ -1,0 +1,208 @@
+{
+  "sampled_not_per_packet_proof": true,
+  "directions": [
+    {
+      "side": 0,
+      "long_packet_samples": 1,
+      "long_packets_with_unpaused_video_samples": 0,
+      "events": [
+        {
+          "t": 20.004317249986343,
+          "packet_ms": 40,
+          "paused": 0,
+          "hold": 0,
+          "long_requested": 0,
+          "video_packets": 0,
+          "pause_request": null
+        },
+        {
+          "t": 26.002835916995537,
+          "packet_ms": 40,
+          "paused": 0,
+          "hold": 0,
+          "long_requested": 1,
+          "video_packets": 9,
+          "pause_request": null
+        },
+        {
+          "t": 28.003727875009645,
+          "packet_ms": 40,
+          "paused": 1,
+          "hold": 0,
+          "long_requested": 1,
+          "video_packets": 10,
+          "pause_request": null
+        },
+        {
+          "t": 30.005444084003102,
+          "packet_ms": 60,
+          "paused": 1,
+          "hold": 1,
+          "long_requested": 1,
+          "video_packets": 10,
+          "pause_request": null
+        },
+        {
+          "t": 31.00331062497571,
+          "packet_ms": 40,
+          "paused": 1,
+          "hold": 0,
+          "long_requested": 0,
+          "video_packets": 10,
+          "pause_request": null
+        },
+        {
+          "t": 32.004170208994765,
+          "packet_ms": 40,
+          "paused": 0,
+          "hold": 0,
+          "long_requested": 0,
+          "video_packets": 10,
+          "pause_request": null
+        },
+        {
+          "t": 52.00324508396443,
+          "packet_ms": 40,
+          "paused": 0,
+          "hold": 0,
+          "long_requested": 1,
+          "video_packets": 52,
+          "pause_request": null
+        },
+        {
+          "t": 53.00559420901118,
+          "packet_ms": 40,
+          "paused": 0,
+          "hold": 0,
+          "long_requested": 0,
+          "video_packets": 54,
+          "pause_request": null
+        },
+        {
+          "t": 55.008191416971385,
+          "packet_ms": 40,
+          "paused": 1,
+          "hold": 0,
+          "long_requested": 0,
+          "video_packets": 55,
+          "pause_request": null
+        },
+        {
+          "t": 58.005540624959394,
+          "packet_ms": 40,
+          "paused": 0,
+          "hold": 0,
+          "long_requested": 0,
+          "video_packets": 55,
+          "pause_request": null
+        },
+        {
+          "t": 264.00467470899457,
+          "packet_ms": 40,
+          "paused": 0,
+          "hold": 0,
+          "long_requested": 1,
+          "video_packets": 469,
+          "pause_request": null
+        },
+        {
+          "t": 269.0041739589651,
+          "packet_ms": 40,
+          "paused": 0,
+          "hold": 0,
+          "long_requested": 0,
+          "video_packets": 494,
+          "pause_request": null
+        }
+      ]
+    },
+    {
+      "side": 1,
+      "long_packet_samples": 0,
+      "long_packets_with_unpaused_video_samples": 0,
+      "events": [
+        {
+          "t": 20.0056593749905,
+          "packet_ms": 40,
+          "paused": 0,
+          "hold": 0,
+          "long_requested": 0,
+          "video_packets": 0,
+          "pause_request": null
+        },
+        {
+          "t": 26.004102916980628,
+          "packet_ms": 40,
+          "paused": 0,
+          "hold": 0,
+          "long_requested": 1,
+          "video_packets": 9,
+          "pause_request": null
+        },
+        {
+          "t": 27.009437166969292,
+          "packet_ms": 40,
+          "paused": 0,
+          "hold": 0,
+          "long_requested": 0,
+          "video_packets": 10,
+          "pause_request": null
+        },
+        {
+          "t": 28.00525004201336,
+          "packet_ms": 40,
+          "paused": 1,
+          "hold": 0,
+          "long_requested": 0,
+          "video_packets": 10,
+          "pause_request": null
+        },
+        {
+          "t": 31.004770917003043,
+          "packet_ms": 40,
+          "paused": 0,
+          "hold": 0,
+          "long_requested": 0,
+          "video_packets": 10,
+          "pause_request": null
+        },
+        {
+          "t": 212.0064893749659,
+          "packet_ms": 40,
+          "paused": 0,
+          "hold": 0,
+          "long_requested": 1,
+          "video_packets": 259,
+          "pause_request": null
+        },
+        {
+          "t": 213.006833499996,
+          "packet_ms": 40,
+          "paused": 0,
+          "hold": 0,
+          "long_requested": 0,
+          "video_packets": 261,
+          "pause_request": null
+        },
+        {
+          "t": 358.0053398750024,
+          "packet_ms": 40,
+          "paused": 0,
+          "hold": 0,
+          "long_requested": 1,
+          "video_packets": 911,
+          "pause_request": null
+        },
+        {
+          "t": 359.0069283340126,
+          "packet_ms": 40,
+          "paused": 0,
+          "hold": 0,
+          "long_requested": 0,
+          "video_packets": 919,
+          "pause_request": null
+        }
+      ]
+    }
+  ]
+}

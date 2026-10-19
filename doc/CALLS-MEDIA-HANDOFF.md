@@ -1,5 +1,48 @@
 # Calls media handoff
 
+## 2026-10-19: native packet ordering repaired; pair fixture PASS, video gaps remain
+
+SDK **1e5a0c86** coordinates native unicast ANA with the actual secondary
+source. A low BWE estimate alone does not pause an already-running video.
+The existing measured-audio policy must request yield, actual video admission
+must quiesce for two seconds with no enqueue in flight, and only then may
+Opus select 60-ms packets. With no video admitted yet, audio-only startup can
+select long packets immediately while withholding initial video. Resumption
+waits for an actual encoded short packet after a funded short ANA decision;
+a requested allocation or an older short packet cannot acknowledge recovery.
+The decision wraps native FrameLengthControllerV2 before BitrateController;
+no dynamic receiver-range mutation or invented bandwidth estimate is used.
+Group fixed packet policy remains uncoordinated by this unicast guard.
+
+Policy, real Opus (368 decodable packets), existing ANA, unicast/group signal,
+and native group-engine smoke checks PASS. Production/test-hook exports remain
+exactly 101/135; each library independently loads with the clean SDK2816a30f.
+
+The original **360-second / 1024-kbit** pair fixture **PASS**: maximum decoded
+marker delay **179.905 / 180.145 ms**, **704 matched / 0 missing**, both exact
+512-KiB files, zero native deadline misses, and **14/14** content changes in
+the last15 seconds. Sampled long packets never overlap unpaused video;
+source0 pauses at28s, selects60ms at30s, emits40ms at31s, resumes at32s.
+These samples complement the deterministic per-packet policy tests.
+
+Video still has **14.0 / 16.0-second** maximum sampled retrieval gaps. Passing
+the original fixture does not qualify all media behavior, physical speech or
+headphone loudness. A single run is not a causal performance comparison.
+The previous group latency/late-yield failures, receive budget, ordered and
+canonical interaction isolation, full route/fanout accounting, screen, mute
+and reconnect remain open. Goal **ACTIVE**; no deployment/push/release.
+
+All six relays were freshly checked over SSH: QUIC/UDP8443 and obfs4/TCP5556
+are active with service-owned UDP sockets, advancing health, six sessions each
+and zero automatic restarts. Their original PIDs/config/binaries match; no
+server mutation or additional restart was needed for the user's all-node request.
+
+Owned pair launcher/fixture/helper/policy processes exited; three node stops
+returned0, no fixture sockets remain. Native group smoke exited normally.
+No GUI/phone app opened. Foreign tracked WIP hashes are preserved.
+Evidence: `doc/validation/call-audio-packet-priority-2026-10-19.json` and
+`doc/validation/audio-packet-priority-2026-10-19/`.
+
 ## 2026-10-19: separate own QUIC network control; both media gates FAIL
 
 SDK **19205a98** adds authenticated `SUPPORTS_AUXILIARY_ONLY` (extra_flags2
