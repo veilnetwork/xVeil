@@ -17,7 +17,17 @@ class CaptureValidationTest(unittest.TestCase):
     def complete(self):
         return dict(ok=True, duration_seconds=360, load_kind='both',
                     video_file_load=True, end_topology={'verified': True},
-                    files=[{}, {}, {}], video_paths=[{} for _ in range(6)])
+                    files=[{}, {}, {}],
+                    video_paths=[{'tail_changes': 14} for _ in range(6)])
+
+    def test_full_contention_cannot_qualify_motion_only_video(self):
+        for changes in (13, 1, 0):
+            result = self.complete()
+            result['video_paths'][3]['tail_changes'] = changes
+            self.assertFalse(preflight.qualifies_full_contention(result))
+        result = self.complete()
+        del result['video_paths'][3]['tail_changes']
+        self.assertFalse(preflight.qualifies_full_contention(result))
 
     def test_post_measurement_exception_cannot_keep_a_green_result(self):
         result = self.complete()

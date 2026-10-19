@@ -1,0 +1,664 @@
+{
+  "0": {
+    "transient_requests": 11,
+    "genuine_requests": 2,
+    "source_stage_polls": {
+      "0": 245,
+      "1": 61,
+      "2": 54
+    },
+    "requests": [
+      {
+        "at_s": 30.018969583965372,
+        "transient": false,
+        "previous_stage": 0,
+        "source": {
+          "stage": 2,
+          "yielded": false,
+          "floor_samples": 10,
+          "healthy_samples": 0,
+          "transient_only": false
+        },
+        "video_paused": true,
+        "native_paused": 0,
+        "video_packets": 20,
+        "audio_ms": 40,
+        "peer_delay_ms": 116
+      },
+      {
+        "at_s": 64.00371595897013,
+        "transient": true,
+        "previous_stage": 0,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 0,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 22,
+        "audio_ms": 40,
+        "peer_delay_ms": 117
+      },
+      {
+        "at_s": 85.00065474997973,
+        "transient": true,
+        "previous_stage": 0,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 10,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 60,
+        "audio_ms": 40,
+        "peer_delay_ms": 106
+      },
+      {
+        "at_s": 120.01903829199728,
+        "transient": false,
+        "previous_stage": 0,
+        "source": {
+          "stage": 2,
+          "yielded": false,
+          "floor_samples": 25,
+          "healthy_samples": 0,
+          "transient_only": false
+        },
+        "video_paused": true,
+        "native_paused": 0,
+        "video_packets": 134,
+        "audio_ms": 40,
+        "peer_delay_ms": 127
+      },
+      {
+        "at_s": 121.01070141699165,
+        "transient": true,
+        "previous_stage": 2,
+        "source": {
+          "stage": 2,
+          "yielded": false,
+          "floor_samples": 0,
+          "healthy_samples": 0,
+          "transient_only": false
+        },
+        "video_paused": true,
+        "native_paused": 1,
+        "video_packets": 134,
+        "audio_ms": 40,
+        "peer_delay_ms": 104
+      },
+      {
+        "at_s": 142.00857220898615,
+        "transient": true,
+        "previous_stage": 2,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 0,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 1,
+        "video_packets": 134,
+        "audio_ms": 40,
+        "peer_delay_ms": 102
+      },
+      {
+        "at_s": 147.0046102500055,
+        "transient": true,
+        "previous_stage": 1,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 0,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 144,
+        "audio_ms": 40,
+        "peer_delay_ms": 122
+      },
+      {
+        "at_s": 151.01204145897646,
+        "transient": true,
+        "previous_stage": 1,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 0,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 152,
+        "audio_ms": 40,
+        "peer_delay_ms": 102
+      },
+      {
+        "at_s": 204.01911999995355,
+        "transient": true,
+        "previous_stage": 0,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 0,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 268,
+        "audio_ms": 40,
+        "peer_delay_ms": 100
+      },
+      {
+        "at_s": 266.0067619999754,
+        "transient": true,
+        "previous_stage": 0,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 55,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 392,
+        "audio_ms": 40,
+        "peer_delay_ms": 122
+      },
+      {
+        "at_s": 273.0045333749731,
+        "transient": true,
+        "previous_stage": 1,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 0,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 406,
+        "audio_ms": 40,
+        "peer_delay_ms": 101
+      },
+      {
+        "at_s": 288.0148114589974,
+        "transient": true,
+        "previous_stage": 0,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 11,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 436,
+        "audio_ms": 40,
+        "peer_delay_ms": 124
+      },
+      {
+        "at_s": 310.0188049169956,
+        "transient": true,
+        "previous_stage": 0,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 14,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 480,
+        "audio_ms": 40,
+        "peer_delay_ms": 125
+      }
+    ]
+  },
+  "1": {
+    "transient_requests": 7,
+    "genuine_requests": 2,
+    "source_stage_polls": {
+      "0": 271,
+      "1": 45,
+      "2": 44
+    },
+    "requests": [
+      {
+        "at_s": 27.01561187498737,
+        "transient": false,
+        "previous_stage": 0,
+        "source": {
+          "stage": 2,
+          "yielded": false,
+          "floor_samples": 7,
+          "healthy_samples": 0,
+          "transient_only": false
+        },
+        "video_paused": true,
+        "native_paused": 0,
+        "video_packets": 18,
+        "audio_ms": 40,
+        "peer_delay_ms": 131
+      },
+      {
+        "at_s": 52.01045633398462,
+        "transient": true,
+        "previous_stage": 0,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 1,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 22,
+        "audio_ms": 40,
+        "peer_delay_ms": 126
+      },
+      {
+        "at_s": 93.00636341696372,
+        "transient": true,
+        "previous_stage": 0,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 34,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 106,
+        "audio_ms": 40,
+        "peer_delay_ms": 127
+      },
+      {
+        "at_s": 119.01966999995057,
+        "transient": true,
+        "previous_stage": 0,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 18,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 158,
+        "audio_ms": 40,
+        "peer_delay_ms": 134
+      },
+      {
+        "at_s": 174.0189892089693,
+        "transient": true,
+        "previous_stage": 0,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 0,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 308,
+        "audio_ms": 40,
+        "peer_delay_ms": 105
+      },
+      {
+        "at_s": 177.00023174996022,
+        "transient": true,
+        "previous_stage": 1,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 3,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 314,
+        "audio_ms": 40,
+        "peer_delay_ms": 114
+      },
+      {
+        "at_s": 239.01021570898592,
+        "transient": true,
+        "previous_stage": 0,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 0,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 518,
+        "audio_ms": 40,
+        "peer_delay_ms": 106
+      },
+      {
+        "at_s": 269.0203237499809,
+        "transient": false,
+        "previous_stage": 0,
+        "source": {
+          "stage": 2,
+          "yielded": false,
+          "floor_samples": 23,
+          "healthy_samples": 0,
+          "transient_only": false
+        },
+        "video_paused": true,
+        "native_paused": 0,
+        "video_packets": 582,
+        "audio_ms": 40,
+        "peer_delay_ms": 118
+      },
+      {
+        "at_s": 302.01536658400437,
+        "transient": true,
+        "previous_stage": 0,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 11,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 606,
+        "audio_ms": 40,
+        "peer_delay_ms": 97
+      }
+    ]
+  },
+  "2": {
+    "transient_requests": 14,
+    "genuine_requests": 1,
+    "source_stage_polls": {
+      "0": 250,
+      "1": 88,
+      "2": 22
+    },
+    "requests": [
+      {
+        "at_s": 27.004020708962344,
+        "transient": false,
+        "previous_stage": 0,
+        "source": {
+          "stage": 2,
+          "yielded": false,
+          "floor_samples": 7,
+          "healthy_samples": 0,
+          "transient_only": false
+        },
+        "video_paused": true,
+        "native_paused": 0,
+        "video_packets": 14,
+        "audio_ms": 40,
+        "peer_delay_ms": 117
+      },
+      {
+        "at_s": 51.019852500001434,
+        "transient": true,
+        "previous_stage": 0,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 0,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 16,
+        "audio_ms": 40,
+        "peer_delay_ms": 86
+      },
+      {
+        "at_s": 64.00183404196287,
+        "transient": true,
+        "previous_stage": 0,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 3,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 42,
+        "audio_ms": 40,
+        "peer_delay_ms": 112
+      },
+      {
+        "at_s": 102.00026183400769,
+        "transient": true,
+        "previous_stage": 0,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 30,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 120,
+        "audio_ms": 40,
+        "peer_delay_ms": 106
+      },
+      {
+        "at_s": 151.00522424996598,
+        "transient": true,
+        "previous_stage": 0,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 0,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 224,
+        "audio_ms": 40,
+        "peer_delay_ms": 106
+      },
+      {
+        "at_s": 170.00417454197304,
+        "transient": true,
+        "previous_stage": 0,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 6,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 260,
+        "audio_ms": 40,
+        "peer_delay_ms": 86
+      },
+      {
+        "at_s": 173.01623524999013,
+        "transient": true,
+        "previous_stage": 1,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 8,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 264,
+        "audio_ms": 40,
+        "peer_delay_ms": 107
+      },
+      {
+        "at_s": 204.0165331249591,
+        "transient": true,
+        "previous_stage": 0,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 0,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 344,
+        "audio_ms": 40,
+        "peer_delay_ms": 104
+      },
+      {
+        "at_s": 226.0127612919896,
+        "transient": true,
+        "previous_stage": 0,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 16,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 386,
+        "audio_ms": 40,
+        "peer_delay_ms": 103
+      },
+      {
+        "at_s": 237.02244512498146,
+        "transient": true,
+        "previous_stage": 0,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 5,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 410,
+        "audio_ms": 40,
+        "peer_delay_ms": 98
+      },
+      {
+        "at_s": 259.02135679195635,
+        "transient": true,
+        "previous_stage": 0,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 16,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 456,
+        "audio_ms": 40,
+        "peer_delay_ms": 129
+      },
+      {
+        "at_s": 266.0127052089665,
+        "transient": true,
+        "previous_stage": 1,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 23,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 470,
+        "audio_ms": 40,
+        "peer_delay_ms": 112
+      },
+      {
+        "at_s": 268.01638524996815,
+        "transient": true,
+        "previous_stage": 1,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 25,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 474,
+        "audio_ms": 40,
+        "peer_delay_ms": 123
+      },
+      {
+        "at_s": 273.0139857499744,
+        "transient": true,
+        "previous_stage": 1,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 0,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 484,
+        "audio_ms": 40,
+        "peer_delay_ms": 106
+      },
+      {
+        "at_s": 347.00626091699814,
+        "transient": true,
+        "previous_stage": 0,
+        "source": {
+          "stage": 1,
+          "yielded": false,
+          "floor_samples": 0,
+          "healthy_samples": 0,
+          "transient_only": true
+        },
+        "video_paused": false,
+        "native_paused": 0,
+        "video_packets": 690,
+        "audio_ms": 40,
+        "peer_delay_ms": 126
+      }
+    ]
+  }
+}

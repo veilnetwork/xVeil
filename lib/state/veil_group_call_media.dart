@@ -832,7 +832,12 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         receiving: _hasExpectedIncomingAudio,
         secondaryYielded: _sourcePriority.yielded,
       );
-      if (audioAdapter.needsSecondaryYield) _sourcePriority.requestYield(now);
+      if (audioAdapter.needsSecondaryYield) {
+        _sourcePriority.requestYield(
+          now,
+          transient: audioAdapter.secondaryYieldTransient,
+        );
+      }
       _applyAudioBudget(expected, audioAdapter);
     }
     _reportSourcePressure(expected, stats, now, recovered: audioRecovered);

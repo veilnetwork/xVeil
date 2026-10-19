@@ -1,5 +1,52 @@
 # Calls media handoff
 
+## 2026-10-19: group transient source yield; strict pair video gate remains open
+
+The group audio adapter now distinguishes completed decoder concealment/catch-up
+from fresh outgoing loss, native TX drop or growing/capped peer buffer. The
+former still requests a sparse video floor, but cannot initiate/escalate the
+source coordinator's prolonged pause. A transient-only restriction recovers
+with3 seconds and3 fresh complete healthy reports. Genuine congestion keeps
+the20-second/8-report hold; a transient cannot shorten or restart that timer.
+Actual emitted floor progress is required before pause: cached configured-fps
+samples, future/missing ACKs and packet-counter rollback do not qualify. Clock
+rollback re-establishes the restriction timer. Production and fixture wiring
+are identical; audio cadence/budget limits are unchanged.
+
+All176 focused Flutter policy tests PASS and analysis reports no issues.
+The initial failure exposed an old paused-source fixture with a counter rollback;
+it now supplies monotonic emitted progress. The failed output is retained.
+Twelve Python verifier regression tests PASS. Source hashes match the frozen
+media captures; SDK492da08f and native media binaries were not changed.
+
+Original360s/1024-kbit GROUP capture PASSES: maximum decoded audio-marker
+latency190.200291690ms,2112 matched/0 missing markers,3 exact512-KiB files,
+all6 video tails14 changes and0 native deadline misses. All3 senders stay40ms
+and return to coordinator stage0. Of32 transient and5 genuine yield requests,
+no transient initiates/escalates a coordinator pause. Genuine pauses still
+occur. This single run does not prove causal latency improvement.
+
+PAIR audio stays below200ms:149.933708308/180.310875003ms,704 matched/0 missing,
+2 exact files and0 native deadline misses. However, tails are14/13 changes,
+so the strict recorded video gate is NOT satisfied. The old fixture reported
+ok=True because it only required any tail motion. Both pair and group
+full-duration verifiers now enforce>=14; the original raw results are preserved
+and the stricter review is a separate artifact. The second receiver advances20
+decoded sequences within the tail, but1-Hz pulls do not hash skipped images.
+RTP ingress/drain marker counts cannot substitute for decoded pixel evidence.
+No gate is weakened and no repeated capture is selected to hide this result.
+
+All14 long-lived processes and2 transient process recorders are gone;7 node
+stops returned0 and fixture sockets are absent. Foreign WIP is unchanged.
+No install, phone, relay mutation, release or push. Evidence:
+`call-group-transient-yield-2026-10-19.json`, `group-transient-yield-2026-10-19/`;
+private root `/Users/vart/.cache/codex/xveil-group-transient-yield-20261019`.
+Goal remains ACTIVE. Next transport work: separate own network control from
+call signaling (both currently source6), preserving generic relay behavior,
+old-peer compatibility and the8-child limit. Keep ordered/canonical fallback,
+route/fanout accounting, strict image qualification and physical speech/headset/
+screen/reconnect/mute requirements in scope.
+
 ## 2026-10-19: owned whole App streams isolated; media gates still FAIL
 
 SDK **492da08f** negotiates `SUPPORTS_AUXILIARY_APP_STREAMS` (extra_flags2 bit3)

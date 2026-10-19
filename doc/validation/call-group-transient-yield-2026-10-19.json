@@ -1,0 +1,108 @@
+{
+  "date": "2026-10-19",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "changes": [
+    "Completed decoder concealment/catch-up alone requests a temporary sparse secondary source floor, without escalating into the source coordinator long pause.",
+    "Transient-only floor recovery requires 3 seconds and 3 fresh complete healthy peer reports; genuine congestion preserves 20 seconds and 8 reports, with emitted floor proof before pause.",
+    "Transient requests cannot shorten or extend an active genuine-congestion timer. Distinct emitted RTP progress, applied floor ACK and non-rollback counters are required for floor proof.",
+    "Both full-duration synthetic video verifiers now enforce the recorded minimum 14 content changes in the last 15 seconds. Short motion smoke tests remain distinguishable."
+  ],
+  "source_proof": {
+    "root_base": "b8937c05",
+    "sdk_commit": "492da08f",
+    "sdk_path": "/Users/vart/.cache/codex/xveil-auxiliary-app-streams-20261019/sdk-final/libveilclient_ffi.dylib",
+    "sdk_sha256": "174ced336efae2359b2ceb758f192de4b68670d86e59ac761992b9915356cd80",
+    "sdk_build_proof": "/Users/vart/.cache/codex/xveil-auxiliary-app-streams-20261019/source-proof.json",
+    "media_path": "/Users/vart/.cache/codex/xveil-concealment-feedback-20261019/media-hooks/libveil_media.dylib",
+    "media_sha256": "fd67c0fb60ef3390fabf449fcd9ecdaa1d321f2d6738e7ece765145d80d93778",
+    "media_source_proof": "/Users/vart/.cache/codex/xveil-concealment-feedback-20261019/source-proof.json",
+    "root_sources": {
+      "lib/state/group_call_audio_adapter.dart": "6ae1ecfa3bbccb25282090720c3aac225a05990324c5ef983e952db3bb33804d",
+      "lib/state/group_call_source_priority.dart": "0171d17c0b57384f2e97f61e539a185bd2f9112241964aa44554916f0dae5bcc",
+      "lib/state/veil_group_call_media.dart": "e08838b5005ca662e28cea94cf4f32b75d97c7fb68df9748881dd6c31d455bb0",
+      "scripts/group_audio_policy.dart": "9c22cadf904aa89573dea8419bc4ada6831a26be094d7f34c88fcce20984b182",
+      "test/group_call_audio_adapter_test.dart": "51ee5ebd70c1e04a93786e42f13fa8ca9c6bb89aa2cb2c00aa12d770c62db0f9",
+      "test/group_call_source_priority_test.dart": "7bb4513fd3d52ee9fcd770ac38058719ddf54d62591c0148c968e0d854da0fa9"
+    }
+  },
+  "policy_verification": {
+    "flutter_pass": 176,
+    "analysis": "No issues",
+    "initial_failure": "Old paused-source fixture simulated an unintended packet-counter rollback; fixture changed to monotonically emitted packets. Initial failure retained.",
+    "python_verifier_tests_pass": 12
+  },
+  "group": {
+    "duration_seconds": 360,
+    "neutral_aggregate_kbps": 1024,
+    "original_fixture_ok": true,
+    "strict_gate_pass": true,
+    "maximum_decoded_audio_marker_delay_ms": 190.20029169041663,
+    "matched_markers": 2112,
+    "missing_markers": 0,
+    "exact_files_512kib": 3,
+    "video_tail_content_changes": [
+      14,
+      14,
+      14,
+      14,
+      14,
+      14
+    ],
+    "native_deadline_misses": [
+      0,
+      0,
+      0
+    ],
+    "audio_packet_ms": [
+      40,
+      40,
+      40
+    ],
+    "transient_requests": 32,
+    "genuine_requests": 5,
+    "transient_requests_escalating_to_pause": 0,
+    "final_source_stages": [
+      0,
+      0,
+      0
+    ],
+    "restriction": "Genuine source pauses still occur. One capture does not demonstrate causal performance improvement."
+  },
+  "pair": {
+    "duration_seconds": 360,
+    "neutral_aggregate_kbps": 1024,
+    "original_fixture_ok": true,
+    "strict_gate_pass": false,
+    "maximum_decoded_audio_marker_delay_ms": [
+      149.93370830779895,
+      180.31087500276044
+    ],
+    "matched_markers": 704,
+    "missing_markers": 0,
+    "exact_files_512kib": 2,
+    "video_tail_content_changes": [
+      14,
+      13
+    ],
+    "native_deadline_misses": 0,
+    "observation": "Second receiver decoded sequence advanced 20 within sampled tail, but unsampled pixel contents cannot prove 14 distinct image changes. No threshold relaxed and raw verdict preserved."
+  },
+  "cleanup": "All 14 long-lived owned processes and 2 transient process recorders exited; 7 nodes stopped with zero return codes, no fixture sockets. No physical app or phone was launched this cycle.",
+  "remaining": [
+    "Pair full-duration 14-change image gate remains unproven; 1-Hz retrieval cannot describe every native decode or physical presentation.",
+    "Own network control and call signaling still share source 6; ordered/canonical fallback interaction separation remains unfinished.",
+    "Complete route/fanout accounting plus physical speech, headset loudness, screen, reconnect and mute qualification remain required."
+  ],
+  "deployment": "No application install, relay change, release or push in this media-policy cycle. Separate read-only fleet confirmation verified six already-enabled generic QUIC listeners.",
+  "foreign_wip_preserved": true,
+  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-group-transient-yield-20261019",
+  "evidence_directory": "doc/validation/group-transient-yield-2026-10-19",
+  "verifier_sources": {
+    "scripts/decoded_video_progress.py": "95e877f2dd315f1e76abb15beffde60fcd89cc5ff7511e402a6be19c9320fd3c",
+    "scripts/relay-codec-control.py": "a090b85246c50b8746cd52643cbe281de92f8edada8bb089a5a4ded309f7ecd8",
+    "scripts/group-process-preflight.py": "a91d6e59359e8f5d9eb606ceabddca039b9a8ae068cb9f87c16f15fbb6ff56be",
+    "scripts/test_decoded_video_progress.py": "05efc7ed0a0401d662e7c8cb360de61174305faca4d365548ff34bb7601ec105",
+    "scripts/test_group_capture_validation.py": "4610cbab0cf36e501e9c25e98df22e675095dcdcc687a15807bec7d974f08aac"
+  }
+}

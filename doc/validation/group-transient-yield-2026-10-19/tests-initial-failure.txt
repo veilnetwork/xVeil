@@ -1,0 +1,279 @@
+Resolving dependencies...
+Downloading packages...
+  _fe_analyzer_shared 99.0.0 (109.0.0 available)
+  analyzer 12.1.0 (14.5.0 available)
+  archive 4.0.9 (4.5.2 available)
+  camera 0.12.0+2 (0.12.1 available)
+  camera_android 0.10.11 (0.10.12 available)
+  camera_android_camerax 0.7.4+2 (0.7.5+1 available)
+  camera_avfoundation 0.10.2 (0.11.0+4 available)
+  camera_platform_interface 2.13.1 (2.15.0 available)
+  camera_web 0.3.5+4 (0.3.5+6 available)
+  cli_util 0.4.2 (0.6.0 available)
+  clock 1.1.2 (1.1.3 available)
+  code_assets 1.2.1 (2.1.0 available)
+  connectivity_plus 6.1.5 (7.3.2 available)
+  coverage 1.15.1 (1.16.0 available)
+  cross_file 0.3.5+4 (0.4.0 available)
+  cupertino_icons 1.0.9 (2.0.0 available)
+  dartssh2 2.22.3 (4.1.0 available)
+  dbus 0.7.14 (0.8.0 available)
+  file_picker 11.0.2 (13.1.0 available)
+  flutter_local_notifications 22.2.0 (22.3.2 available)
+  flutter_local_notifications_linux 8.0.1 (8.0.2 available)
+  flutter_local_notifications_platform_interface 12.1.0 (12.2.0 available)
+  flutter_riverpod 3.3.2 (3.4.3 available)
+  frontend_server_client 4.0.0 (4.1.0 available)
+  glob 2.1.3 (2.2.0 available)
+  go_router 17.3.0 (18.1.0 available)
+  hooks 2.0.2 (2.2.0 available)
+  html 0.15.6 (0.15.7 available)
+  image 4.8.0 (4.12.0 available)
+  intl 0.20.2 (0.20.3 available)
+  io 1.0.5 (1.1.0 available)
+  jni 1.0.0 (1.1.0 available)
+  jni_flutter 1.0.1 (1.0.4+1 available)
+  matcher 0.12.19 (0.12.20 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.18.0 (1.19.0 available)
+  mime 2.0.0 (2.1.0 available)
+  mobile_scanner 7.4.0 (7.4.2 available)
+  nm 0.5.0 (0.6.0 available)
+  objective_c 9.4.1 (9.6.2 available)
+  package_config 2.2.0 (3.0.0 available)
+  petitparser 7.0.2 (7.1.0 available)
+  platform 3.1.6 (3.2.0 available)
+  pool 1.5.2 (1.5.3 available)
+  pub_semver 2.2.0 (2.2.1 available)
+  qr 3.0.2 (4.0.0 available)
+  record_use 0.6.0 (1.1.1 available)
+  riverpod 3.3.2 (3.4.3 available)
+  screen_retriever 0.2.2 (0.3.0 available)
+  share_plus 12.0.2 (13.3.1 available)
+  share_plus_platform_interface 6.1.0 (7.2.0 available)
+  shared_preferences 2.5.5 (2.5.6 available)
+  shared_preferences_android 2.4.27 (2.5.0 available)
+  shared_preferences_foundation 2.5.6 (2.6.0 available)
+  shelf 1.4.2 (1.4.3 available)
+  shelf_static 1.1.3 (1.2.0 available)
+  source_maps 0.10.13 (0.10.14 available)
+  stack_trace 1.12.1 (1.12.2 available)
+  stream_transform 2.1.1 (2.1.2 available)
+  test 1.31.0 (1.33.0 available)
+  test_api 0.7.11 (0.7.15 available)
+  test_core 0.6.17 (0.6.21 available)
+  timezone 0.11.1 (0.11.2 available)
+  tray_manager 0.5.3 (0.8.0 available)
+  url_launcher 6.3.2 (6.3.3 available)
+  url_launcher_android 6.3.32 (6.3.33 available)
+  url_launcher_ios 6.4.1 (6.4.2 available)
+  url_launcher_linux 3.2.2 (3.2.3 available)
+  url_launcher_macos 3.2.5 (3.2.6 available)
+  url_launcher_windows 3.1.5 (3.1.6 available)
+  vector_math 2.2.0 (2.4.3 available)
+  video_player 2.13.0 (2.14.1 available)
+  video_player_android 2.12.0 (2.12.2 available)
+  video_player_avfoundation 2.11.0 (2.12.1 available)
+  vm_service 15.2.0 (15.4.0 available)
+  win32 5.15.0 (6.4.0 available)
+  xml 6.6.1 (7.1.0 available)
+  yaml 3.1.3 (3.1.4 available)
+Got dependencies!
+78 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+The following plugins do not support Swift Package Manager for ios:
+  - veil_media
+  - veil_flutter
+  - hidden_volume
+This will become an error in a future version of Flutter. Please contact the plugin maintainers to request Swift Package Manager adoption.
+The following plugins do not support Swift Package Manager for macos:
+  - veil_media
+  - veil_flutter
+This will become an error in a future version of Flutter. Please contact the plugin maintainers to request Swift Package Manager adoption.
+00:00 +0: loading /Users/vart/Projects/veilnetwork/xVeil/test/group_call_audio_adapter_test.dart
+00:00 +0: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_source_priority_test.dart: a cached floor counter cannot justify pausing video
+00:00 +1: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_audio_adapter_test.dart: concealment yields secondary work before lengthening room audio
+00:00 +2: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_audio_adapter_test.dart: concealment yields secondary work before lengthening room audio
+00:00 +3: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_source_priority_test.dart: completed impairment keeps video running at its sparse floor
+00:00 +4: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_audio_adapter_test.dart: incoming catch-up cannot lengthen healthy or unknown outgoing audio
+00:00 +5: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_source_priority_test.dart: transient recovery requires fresh complete measured audio
+00:00 +6: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_audio_adapter_test.dart: renewed pressure yields video even at the long audio floor
+00:00 +7: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_source_priority_test.dart: transient events neither shorten nor extend a genuine quiet hold
+00:00 +8: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_audio_adapter_test.dart: healthy long audio does not fund a shorter packet cadence
+00:00 +9: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_audio_adapter_test.dart: healthy long audio does not fund a shorter packet cadence
+00:00 +10: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_source_priority_test.dart: an already applied video floor is not requested a second time
+00:00 +11: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_audio_adapter_test.dart: sustained pressure preserves the characterized Opus payload floor
+00:00 +12: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_audio_adapter_test.dart: sustained pressure preserves the characterized Opus payload floor
+00:00 +13: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_source_priority_test.dart: future ACKs cannot start floor or quiet evidence early
+00:00 +14: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_source_priority_test.dart: a refused floor or contradictory native cadence cannot justify pause
+00:00 +15: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_audio_adapter_test.dart: starts with bounded packet overhead and keeps full payload quality
+00:00 +16: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_source_priority_test.dart: pause ACK and actual quiet output precede long-packet permission
+00:00 +17: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_source_priority_test.dart: pause ACK and actual quiet output precede long-packet permission
+00:00 +18: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_source_priority_test.dart: repeated timestamps and a clock rollback cannot bank a quiet interval
+00:00 +19: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_audio_adapter_test.dart: fresh room-wide headroom restores short packets
+00:00 +20: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_source_priority_test.dart: roster invalidation preserves restriction without old quiet credit
+00:00 +21: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_source_priority_test.dart: roster invalidation preserves restriction without old quiet credit
+00:00 +22: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_source_priority_test.dart: roster invalidation preserves restriction without old quiet credit
+00:00 +22 -1: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_audio_adapter_test.dart: a stable 120-ms RTT is not accumulating transport delay
+00:00 +23 -1: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_audio_adapter_test.dart: missing RTT cannot erase already observed transport queueing
+00:00 +24 -1: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_audio_adapter_test.dart: transport growth alone cannot degrade an established audio budget
+00:00 +25 -1: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_audio_adapter_test.dart: a changed stable route can age out the old RTT floor
+00:00 +26 -1: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_audio_adapter_test.dart: one healthy listener cannot speak for a room
+00:00 +27 -1: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_audio_adapter_test.dart: fresh loss reacts once; cached and replayed losses cannot repeat it
+00:00 +28 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: fresh peer audio loss restrains sources without a growing buffer
+00:00 +29 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: fresh peer audio loss restrains sources without a growing buffer
+00:00 +30 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: fresh peer audio loss restrains sources without a growing buffer
+00:00 +31 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: fresh peer audio loss restrains sources without a growing buffer
+00:00 +32 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: fresh peer audio loss restrains sources without a growing buffer
+00:00 +33 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: fresh peer audio loss restrains sources without a growing buffer
+00:00 +34 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: fresh peer audio loss restrains sources without a growing buffer
+00:00 +35 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: fresh peer audio loss restrains sources without a growing buffer
+00:00 +36 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: fresh peer audio loss restrains sources without a growing buffer
+00:00 +36 -1: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_source_priority_test.dart: roster invalidation preserves restriction without old quiet credit [E]
+  Expected: true
+    Actual: <false>
+
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  test/group_call_source_priority_test.dart 247:7     main.<fn>
+
+00:00 +37 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: fresh peer audio loss restrains sources without a growing buffer
+00:00 +38 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: fresh peer audio loss restrains sources without a growing buffer
+00:00 +39 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: fresh peer audio loss restrains sources without a growing buffer
+00:00 +40 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: fresh peer audio loss restrains sources without a growing buffer
+00:00 +41 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: fresh peer audio loss restrains sources without a growing buffer
+00:00 +42 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: fresh peer audio loss restrains sources without a growing buffer
+00:00 +43 -1: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_audio_adapter_test.dart: capability, unknown feedback and an unmeasured floor cannot select 60 ms
+00:00 +44 -1: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_source_priority_test.dart: no local video or muted capture needs no extra secondary restriction
+00:00 +45 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: peer concealment yields sources once, including mute/resume
+00:00 +46 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: peer concealment yields sources once, including mute/resume
+00:00 +47 -1: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_audio_adapter_test.dart: a rejected 60-ms retune stays pending and an explicit legacy cap cancels it
+00:00 +48 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: planned catch-up uses brief pressure without shortening genuine failure recovery
+00:00 +49 -1: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_audio_adapter_test.dart: a backward clock change cannot complete a healthy streak
+00:00 +50 -1: /Users/vart/Projects/veilnetwork/xVeil/test/group_call_audio_adapter_test.dart: a backward clock change cannot complete a healthy streak
+00:00 +51 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: peer catch-up while not sending is consumed without later replay
+00:00 +52 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: source budget consumes native trend and cannot ignore a capped current buffer
+00:00 +53 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: audio-only source waits for sustained measured recovery
+00:00 +54 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: bounded playout oscillations leave competing sources admitted
+00:00 +55 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: source pressure follows sustained growth below the shared ceiling
+00:00 +56 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: cached peer report cannot fill a source growth window
+00:00 +57 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: recovered current playout releases pressure despite a retained peak
+00:00 +58 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: invalid or orphaned current measurements cannot hide pressure
+00:00 +59 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: expired or replayed peer reports cannot keep source recovery alive
+00:00 +60 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: recovered latch cannot authorize growth with intermediate playout
+00:00 +61 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: intermediate receive age cannot authorize growth after recovery
+00:00 +62 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: capped buffers throttle sources until sustained recovery
+00:00 +63 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: fresh peer measurements cannot hide stalled or old local audio
+00:00 +64 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: missing feedback and intermediate delays restart the recovery streak
+00:00 +65 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: fresh audio loss restrains other sources until sustained recovery
+00:00 +66 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: muted local mic still protects measured incoming audio
+00:00 +67 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: muted remote capture does not require a nonexistent receive stream
+00:00 +68 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: no expected audio stops the lease; a new source starts unproven
+00:00 +69 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: legacy peer does not invent end-to-end measurements
+00:00 +70 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: requested buffer ceiling restricts competing DATA until recovery
+00:00 +71 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: released source constraint grows from acknowledged reduced output
+00:00 +72 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: fresh peer decoded loss cuts video once with a recovered peer buffer
+00:00 +73 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: peer decoded loss while audio sending is off cannot replay at resume
+00:00 +74 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: transport estimates without actual RTP loss cannot cut stable buffers
+00:00 +75 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: a growing receive buffer cuts two rungs before reaching the ceiling
+00:00 +76 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: fresh audio network loss cuts once with healthy measured audio
+00:00 +77 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: fresh audio RTP loss cuts once despite healthy buffers
+00:00 +78 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: replacement engine starts a new audio loss baseline
+00:00 +79 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: fresh video network loss cuts once with healthy measured audio
+00:00 +80 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: fresh video RTP loss cuts once despite healthy buffers
+00:00 +81 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: replacement engine starts a new video loss baseline
+00:00 +82 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: peer concealment reduces video once without fabricating network loss
+00:00 +83 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: ongoing fresh audio network loss cannot earn video resume
+00:00 +84 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: fresh RTCP loss protects the floor with an older peer
+00:00 +85 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: isolated catch-up cuts video without immediately failing the sparse floor
+00:00 +86 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: ongoing decoded catch-up cannot resume paused video
+00:00 +87 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: healthy decoded audio retries one fps before another small trim
+00:00 +88 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: fresh local discards need actual floor frames but not a new peer report
+00:00 +89 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: fresh audio interruptions reduce video, then protect a failing floor
+00:00 +90 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: RTP loss while camera is off is not a new video failure on resume
+00:00 +91 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: growth is measured independently for the two audio directions
+00:00 +92 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: a recovered peer buffer cannot cut video using an older rise
+00:00 +93 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: a draining audio sample cannot falsely fail the one-fps trial
+00:00 +94 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: cached peer growth cannot repeat a video cut at level 0
+00:00 +95 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: cached peer growth cannot repeat a video cut at level 4
+00:00 +96 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: fresh local growth still pauses with a cached healthy peer
+00:00 +97 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: pre-floor growth cannot prove the new one-fps trial failed
+00:00 +98 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: bounded healthy audio can resume only a probe despite a growth verdict
+00:00 +99 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: new local growth during the floor trial still pauses video
+00:00 +100 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: new peer growth during the floor trial still pauses video
+00:00 +101 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: healthy startup quickly leaves one fps and recovers through bounded steps
+00:00 +102 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: cached peer audio cannot earn normal video growth
+00:00 +103 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: cached peer audio cannot earn startup video growth
+00:00 +104 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: normal growth remeasures a replacement engine with continuing peer sequence
+00:00 +105 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: normal growth remeasures a replacement engine with restarted peer sequence
+00:00 +106 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: startup growth remeasures a replacement engine with continuing peer sequence
+00:00 +107 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: startup growth remeasures a replacement engine with restarted peer sequence
+00:00 +108 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: startup needs consecutive fresh low delay measurements
+00:00 +109 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: measured startup congestion retains slow recovery afterward
+00:00 +110 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: higher playout latency cannot accelerate startup on a low RTT link
+00:00 +111 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: restored video policy retains slow recovery even on a healthy link
+00:00 +112 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: decreasing cadence cannot enlarge the mean frame byte budget
+00:00 +113 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: sparse relay cadence does not retain a 270-kbit burst budget
+00:00 +114 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: audio-only measurements cannot earn a larger video source
+00:00 +115 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: turning capture off breaks an unfinished recovery streak
+00:00 +116 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: capture intent and historical frames cannot prove video headroom
+00:00 +117 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: one-fps polling jitter still earns sustained video recovery
+00:00 +118 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: healthy audio releases a protection pause while capture is off
+00:00 +119 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: degrades two levels, trials one fps, then pauses failing audio
+00:00 +120 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: recovery resumes at one fps and grows one level at a time
+00:00 +121 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: a short burst does not cut video or earn an improvement
+00:00 +122 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: one-fps floor and route ceiling hold for 30 kbit/1 fps
+00:00 +123 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: one-fps floor and route ceiling hold for 30 kbit/15 fps
+00:00 +124 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: one-fps floor and route ceiling hold for 30 kbit/60 fps
+00:00 +125 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: one-fps floor and route ceiling hold for 45 kbit/1 fps
+00:00 +126 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: one-fps floor and route ceiling hold for 45 kbit/15 fps
+00:00 +127 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: one-fps floor and route ceiling hold for 45 kbit/60 fps
+00:00 +128 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: one-fps floor and route ceiling hold for 150 kbit/1 fps
+00:00 +129 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: one-fps floor and route ceiling hold for 150 kbit/15 fps
+00:00 +130 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: one-fps floor and route ceiling hold for 150 kbit/60 fps
+00:00 +131 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: one-fps floor and route ceiling hold for 900 kbit/1 fps
+00:00 +132 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: one-fps floor and route ceiling hold for 900 kbit/15 fps
+00:00 +133 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: one-fps floor and route ceiling hold for 900 kbit/60 fps
+00:00 +134 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: unknown startup audio permits one fps without inventing health
+00:00 +135 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: stale measurements hold earned video without claiming an outage
+00:00 +136 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: an unmeasured RTT cannot earn growth even with a report
+00:00 +137 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: receive buffer reduces video before pausing at the applied floor
+00:00 +138 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: peer buffer reduces video before pausing at the applied floor
+00:00 +139 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: buffer hysteresis tolerates 180ms but recovers below 160ms
+00:00 +140 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: a busy native floor cannot be counted as a completed trial
+00:00 +141 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: an old peak cannot reduce video when the current buffer recovered
+00:00 +142 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: pretrial peer report cannot be reused to claim the floor failed
+00:00 +143 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: busy floor application records readiness only when the budget is accepted
+00:00 +144 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: current recovery resumes and grows video despite a drained peak
+00:00 +145 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: secondary losses alone never pause known healthy audio
+00:00 +146 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: a floor trial requires newly sent frames, not an applied budget
+00:00 +147 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: engine replacement invalidates the measured floor trial
+00:00 +148 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: recovered playout resumes a probe on a high RTT and jitter route
+00:00 +149 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: probe recovery still requires both measured playouts and no outages
+00:00 +150 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: healthy audio may resume a trial despite secondary losses
+00:00 +151 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: missing measurement breaks a consecutive recovery streak
+00:00 +152 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: fresh primary drops protect audio even without buffer telemetry
+00:00 +153 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: missing and invalid primary counters still allow aggregate cuts
+00:00 +154 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: switching report domains does not invent a new loss
+00:00 +155 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: video reports cannot prove expected outgoing audio healthy
+00:00 +156 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: muted sender needs actual incoming recovery, then video reports
+00:00 +157 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: both intentionally muted endpoints release an existing audio pause
+00:00 +158 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: DTX, a muted peer and legacy receive telemetry do not prove outage
+00:00 +159 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: partial room reports cannot earn growth or fabricate disable advice
+00:00 +160 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: muted room needs video reports from every receiver to grow
+00:00 +161 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: fresh bad partial room feedback still substantiates video advice
+00:00 +162 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: RTT bloat lowers video and a changed baseline can recover
+00:00 +163 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: marginal feedback does not earn growth
+00:00 +164 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: busy retunes retry only the latest requested budget
+00:00 +165 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: busy pause and resume are retried, including after engine replacement
+00:00 +166 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: older native retains integer budgets and never pretends to pause
+00:00 +167 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: floor advice is latched until healthy growth
+00:00 +168 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: a good floor sample resets advice without claiming full recovery
+00:00 +169 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: a stalled worker cannot earn video growth from stale healthy fields
+00:00 +170 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: resuming a primary counter starts a new baseline after mute
+00:00 +171 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: requested buffer withholds growth without cutting measured video
+00:00 +172 -1: /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: requested peer buffer withholds growth without changing actual delay
+00:00 +173 -1: Some tests failed.
+
+Failing tests:
+  /Users/vart/Projects/veilnetwork/xVeil/test/group_call_source_priority_test.dart: roster invalidation preserves restriction without old quiet credit

@@ -1,0 +1,55 @@
+{
+  "raw_summaries_unchanged": true,
+  "required_tail_content_changes": 14,
+  "tail_seconds": 15,
+  "group": {
+    "old_fixture_ok": true,
+    "strict_contention_qualification": true,
+    "tail_changes": [
+      14,
+      14,
+      14,
+      14,
+      14,
+      14
+    ]
+  },
+  "pair": {
+    "old_fixture_ok": true,
+    "strict_decoded_video_progress": {
+      "synthetic_fixture_only": true,
+      "screen_presentation_proof": false,
+      "sampled_retrieval_not_native_decode_timing": true,
+      "tail_seconds": 15,
+      "directions": [
+        {
+          "side": 0,
+          "decoded_frame_pulls": 338,
+          "content_changes": 337,
+          "last_decoded_pull_seconds": 359.00752674997784,
+          "max_sampled_pull_gap_seconds": 1.999493875016924,
+          "tail_decoded_pulls": 15,
+          "tail_content_changes": 14,
+          "tail_content_verified": true,
+          "moving_at_end": true
+        },
+        {
+          "side": 1,
+          "decoded_frame_pulls": 336,
+          "content_changes": 335,
+          "last_decoded_pull_seconds": 358.0026771670091,
+          "max_sampled_pull_gap_seconds": 2.0015973749686964,
+          "tail_decoded_pulls": 14,
+          "tail_content_changes": 13,
+          "tail_content_verified": false,
+          "moving_at_end": true
+        }
+      ],
+      "required_tail_content_changes": 14,
+      "tail_content_verified": false,
+      "moving_at_end": true
+    },
+    "strict_gate_pass": false,
+    "sequence_progress_is_not_unsampled_content_proof": true
+  }
+}
