@@ -1,6 +1,7 @@
 import 'call_audio_receive_activity.dart';
 import 'call_audio_buffer_window.dart';
 import 'call_rtcp_loss.dart';
+import 'call_audio_transient_loss.dart';
 
 /// Pure sender-side link-quality ladder for live call video.
 ///
@@ -157,6 +158,8 @@ class CallBitrateAdapter {
   final _rtcpLoss = CallRtcpLoss();
   final _peerRecoveryLoss = CallRtcpLoss();
   final _peerConcealment = CallRtcpLoss();
+  final _transientLoss = CallAudioTransientLoss();
+  bool? _lastTransientSendExpected;
   int? _lastVideoTxFrames;
   int _videoIdleSamples = 0;
   int? _floorTrialLastFrames;
@@ -382,6 +385,8 @@ class CallBitrateAdapter {
     _rtcpLoss.reset();
     _peerRecoveryLoss.reset();
     _peerConcealment.reset();
+    _transientLoss.reset();
+    _lastTransientSendExpected = null;
     _floorTrialLastFrames = null;
     _floorTrialFrames = 0;
     _floorPeerSampleSequence = null;
@@ -958,15 +963,23 @@ class CallBitrateAdapter {
         _lastAudioTxDrops != null &&
         audioTxDrops > _lastAudioTxDrops!;
     _lastAudioTxDrops = audioTxDrops;
-    // Catch-up has already reduced the measured buffer, but discarded real
-    // decoded speech. Repeated fresh discards at a proven sparse floor must
-    // protect audio, and cannot count as healthy evidence for video resume.
+    // Concealment or completed catch-up at a recovered buffer can be a single
+    // short impairment. Hold growth briefly; require another fresh event in
+    // the time window before cutting video. Actual interruption, RTP loss and
+    // growing/capped buffers retain their independent protection paths.
+    if (_lastTransientSendExpected != sendAudioExpected) {
+      _transientLoss.reset();
+      _lastTransientSendExpected = sendAudioExpected;
+    }
+    final repeatedTransientLoss = _transientLoss.observe(
+      audioConcealmentObserved || audioRecoveryObserved,
+      sampledAt: sampledAt,
+    );
     final freshAudioLoss =
         newAudioDrops ||
         audioInterrupted ||
         audioNetworkLossObserved ||
-        audioConcealmentObserved ||
-        audioRecoveryObserved;
+        repeatedTransientLoss;
     final freshMediaLoss =
         freshAudioLoss || videoLossObserved || videoNetworkLossObserved;
     _bufferInputs?.addAll({
@@ -977,6 +990,8 @@ class CallBitrateAdapter {
       'audio_peer_concealment': audioConcealmentObserved,
       'video_network_loss': videoNetworkLossObserved,
       'audio_latency_recovery': audioRecoveryObserved,
+      'soft_audio_loss_repeated': repeatedTransientLoss,
+      'soft_audio_growth_held': _transientLoss.holdingGrowth,
     });
 
     final receiveOutage =
@@ -1056,6 +1071,7 @@ class CallBitrateAdapter {
         txJitterMs < 40 &&
         rttGood &&
         !freshAudioLoss &&
+        !_transientLoss.holdingGrowth &&
         !bufferPressure &&
         !missingAudioReceiverFeedback &&
         !audioUnproven &&
@@ -1115,6 +1131,8 @@ class CallBitrateAdapter {
         !audioUnproven &&
         !audioInterrupted &&
         !freshAudioLoss &&
+        !audioConcealmentObserved &&
+        !audioRecoveryObserved &&
         (!requirePeerAudioPlayout ||
             (currentPeerDelay != null &&
                 currentPeerDelay < playoutRecoverMs)) &&

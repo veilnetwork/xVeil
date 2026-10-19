@@ -108,6 +108,7 @@ Future<void> main() async {
       expected: true,
     );
     final sourcePressured = sourcePressure[i].observe(
+      sampledAt: now,
       sendExpected: true,
       receiveExpected: true,
       requirePeerPlayout: true,

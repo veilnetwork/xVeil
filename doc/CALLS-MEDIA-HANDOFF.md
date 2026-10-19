@@ -1,5 +1,55 @@
 # Calls media handoff
 
+## 2026-10-19: isolated audio impairments no longer cut video; RTCP gap cuts remain
+
+User direction stays **video first; strict synthetic200-ms audio gate deferred**.
+A fresh concealment/completed catch-up now holds video growth for3 real seconds,
+without cutting the rung. A second fresh event within6 seconds can cut it.
+Cached/expired/replayed witnesses cannot accumulate. New engines, mute
+transitions and backward clock changes clear the episode. Actual audio send
+loss/interruption and growing/capped buffers retain independent protection.
+Source pressure treats isolated concealment like short completed catch-up
+(3healthy polls); it cannot shorten genuine12-poll congestion recovery.
+All actual unicast/group/fixture source samples supply their sampling time.
+
+**304 tests PASS**; targeted analysis of7production/bridge files PASS. The
+recorded94/62-ms concealment regression fails before this change and passes
+after it. Baseline replay reproduces archived202/216 floor polls and155/135
+source-pressure polls exactly. On identical inputs the new policy cuts once
+rather than11times; this is a counterfactual policy replay, not a media gain.
+
+The original **360s /1024kbit pair fixture PASS**:704matched/0missing markers,
+160.035/160.361-ms maximum decoded edge delay, two exact512-KiB files,
+337/338 decoded pulls, maximum sampled gaps **2.000/2.001s**, tail14/14 content
+changes. No native binary changed. Both directions still end at**1fps**;
+video-quality readiness is NOT established by continued image motion.
+
+**Paused-ceiling comparison now exercised:** two sequential70s controlled
+native API runs pin45kbps/1fps and close the source35..40s. Keeping the old
+1kbps/0.02fps cap while closed delays the next observed image by2.996/3.000s
+after reopening; keeping the floor yields0.995/0.999s. Maximum sampled gaps
+are8.0s versus6.0s, including the intentional5s pause. Both raw fixture gates
+PASS. Pulling at1Hz bounds precision. This controlled API experiment supports
+the paused-ceiling fix; it is not an automatic audio-pressure or physical-call
+qualification. Diagnostic override patch/provenance are preserved.
+
+**Next concrete cause:** most remaining cuts are video RTCP loss witnesses,
+not audio concealment. At126.901s a peer RR reports4missing video packets;
+near127.008s the app cuts2→4 with90/59-ms audio buffers. RR missing then
+falls4→3→2→1→0 by128.507s. All3157 successful unique video RTP sends have
+an eventual native ingress witness;39take>200ms, maximum2350ms. Eventual
+arrival does not prove a timely decoded frame. Add persistence/reordering
+admission to the application's video-loss cut while native GCC retains raw
+RTCP handling; avoid treating an isolated fraction as sustained congestion.
+Native group source-yield transients, buffer rails, ordered/canonical path
+isolation, full route/fanout accounting and physical media remain open.
+
+All owned processes from all3captures exited;9node stops returned0, no
+remaining sockets. No GUI/phone opened, relay policy unchanged, foreign WIP
+preserved. No push/deploy/release. Goal ACTIVE.
+Evidence: `doc/validation/call-transient-audio-tolerance-2026-10-19.json` and
+`doc/validation/transient-audio-tolerance-2026-10-19/`.
+
 ## 2026-10-19: user prioritizes video; strict 200-ms marker gate deferred
 
 The user explicitly redirects work to unnecessary video degradation and short

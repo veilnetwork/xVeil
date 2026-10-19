@@ -2,6 +2,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/state/call_bitrate_adapter.dart';
 
 void main() {
+  final times = Expando<DateTime>();
+  DateTime nextTime(CallBitrateAdapter adapter) =>
+      times[adapter] = (times[adapter] ?? DateTime(2026, 10, 19)).add(
+        const Duration(seconds: 1),
+      );
   test('released source constraint grows from acknowledged reduced output', () {
     final a = CallBitrateAdapter(
       baseBitrateKbps: 900,
@@ -111,6 +116,7 @@ void main() {
     apply(a);
     a.onNativeStats(
       stats ?? healthy(),
+      sampledAt: nextTime(a),
       videoSendExpected: video,
       sendAudioExpected: send,
       receiveAudioExpected: receive,
@@ -130,13 +136,25 @@ void main() {
 
   void good(CallBitrateAdapter a, [int n = 1]) {
     for (var i = 0; i < n; i++) {
-      a.onSample(rttMs: 80, txJitterMs: 10, txLossPct: 0, txDrops: 0);
+      a.onSample(
+        sampledAt: nextTime(a),
+        rttMs: 80,
+        txJitterMs: 10,
+        txLossPct: 0,
+        txDrops: 0,
+      );
     }
   }
 
   void poor(CallBitrateAdapter a, [int n = 1]) {
     for (var i = 0; i < n; i++) {
-      a.onSample(rttMs: 80, txJitterMs: 10, txLossPct: 12, txDrops: 0);
+      a.onSample(
+        sampledAt: nextTime(a),
+        rttMs: 80,
+        txJitterMs: 10,
+        txLossPct: 12,
+        txDrops: 0,
+      );
     }
   }
 
@@ -186,20 +204,72 @@ void main() {
   );
 
   test(
-    'fresh peer decoded loss cuts video once with a recovered peer buffer',
+    'isolated concealment at recorded 94/62-ms buffers holds the video rung',
+    () {
+      final a = direct(level: 2);
+      apply(a);
+      final before = a.acknowledgedTarget;
+      a.onNativeStats(
+        {
+          ...healthy(),
+          'audio_delay_ms': 94,
+          'audio_peer_concealment_report_us': 100,
+        },
+        sampledAt: DateTime(2026, 10, 19, 12),
+        receiveAudioExpected: true,
+        requireAudioReceivePlayout: true,
+        requirePeerAudioPlayout: true,
+        peerAudioDelayMs: 62,
+        peerCurrentAudioDelayMs: 62,
+        peerAudioSampleSequence: 1,
+      );
+      expect(a.level, 2);
+      expect(a.audioReserve, isFalse);
+      expect(a.acknowledgedTarget, before);
+      expect(
+        a.bufferDiagnostics['latest'],
+        containsPair('soft_audio_loss_repeated', false),
+      );
+    },
+  );
+
+  test(
+    'isolated decoded loss holds its rung, repeated fresh loss cuts once',
     () {
       final a = direct();
       native(a, stats: {...healthy(), 'audio_peer_recovery_report_us': 1000});
-      expect(a.level, 2);
+      expect(a.level, 0);
       native(a, stats: {...healthy(), 'audio_peer_recovery_report_us': 1000});
-      expect(a.level, 2);
+      expect(a.level, 0);
       native(a, stats: {...healthy(), 'audio_peer_recovery_report_us': 0});
       native(a, stats: {...healthy(), 'audio_peer_recovery_report_us': 900});
-      expect(a.level, 2);
+      expect(a.level, 0);
       native(a, stats: {...healthy(), 'audio_peer_recovery_report_us': 2000});
-      expect(a.level, CallBitrateAdapter.ladder.length - 1);
+      expect(a.level, 2);
     },
   );
+
+  test('expired concealment does not combine with a new episode', () {
+    final a = direct();
+    final start = DateTime(2026, 10, 19);
+    void report(int us, int second) => a.onNativeStats({
+      ...healthy(),
+      'audio_peer_concealment_report_us': us,
+    }, sampledAt: start.add(Duration(seconds: second)));
+    report(100, 0);
+    report(100, 1);
+    report(0, 2);
+    report(90, 3);
+    report(101, 7);
+    expect(a.level, 0);
+    report(102, 8);
+    expect(a.level, 2);
+    report(102, 9);
+    expect(a.level, 2);
+    a.invalidateAppliedState();
+    report(200, 10);
+    expect(a.level, 2, reason: 'replacement cannot join the old episode');
+  });
 
   test(
     'peer decoded loss while audio sending is off cannot replay at resume',
@@ -214,6 +284,8 @@ void main() {
       native(a, stats: {...healthy(), 'audio_peer_recovery_report_us': 1000});
       expect(a.level, 0);
       native(a, stats: {...healthy(), 'audio_peer_recovery_report_us': 2000});
+      expect(a.level, 0);
+      native(a, stats: {...healthy(), 'audio_peer_recovery_report_us': 3000});
       expect(a.level, 2);
     },
   );
@@ -299,24 +371,26 @@ void main() {
     });
   }
   test(
-    'peer concealment reduces video once without fabricating network loss',
+    'peer concealment repeats before cutting and never fabricates network loss',
     () {
       final a = direct();
       a.onNativeStats({...healthy(), 'audio_peer_concealment_report_us': 100});
-      expect(a.level, 2);
+      expect(a.level, 0);
       final diagnostic = a.bufferDiagnostics['latest'] as Map;
       expect(diagnostic['audio_peer_concealment'], isTrue);
       expect(diagnostic['audio_network_loss'], isFalse);
       a.onNativeStats({...healthy(), 'audio_peer_concealment_report_us': 100});
-      expect(a.level, 2);
+      expect(a.level, 0);
       a.onNativeStats({
         ...healthy(),
         'audio_peer_concealment_report_us': 200,
       }, sendAudioExpected: false);
       a.onNativeStats({...healthy(), 'audio_peer_concealment_report_us': 200});
-      expect(a.level, 2, reason: 'muted event was already consumed');
+      expect(a.level, 0, reason: 'muted event was already consumed');
       a.onNativeStats({...healthy(), 'audio_peer_concealment_report_us': 300});
-      expect(a.level, 4);
+      expect(a.level, 0, reason: 'mute transition starts a new episode');
+      a.onNativeStats({...healthy(), 'audio_peer_concealment_report_us': 400});
+      expect(a.level, 2);
     },
   );
 
@@ -348,14 +422,15 @@ void main() {
   });
 
   test(
-    'isolated catch-up cuts video without immediately failing the sparse floor',
+    'only repeated catch-up cuts video and then measures the sparse floor',
     () {
       final a = direct();
+      native(a, recovered: true);
+      expect(a.level, 0);
       native(a, recovered: true);
       expect(a.level, 2);
       native(a, recovered: true);
       expect(a.level, 4);
-      native(a, recovered: true);
       expect(a.audioReserve, isFalse);
       native(a);
       native(a, recovered: true);
@@ -374,6 +449,7 @@ void main() {
   );
   test('ongoing decoded catch-up cannot resume paused video', () {
     final a = direct(level: 4);
+    native(a, recovered: true);
     native(a, recovered: true);
     native(a, recovered: true);
     expect(a.audioReserve, isTrue);

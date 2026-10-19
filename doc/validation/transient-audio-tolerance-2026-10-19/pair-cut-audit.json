@@ -1,0 +1,91 @@
+[
+  {
+    "side": 1,
+    "t": 127.00832520896802,
+    "before": 2,
+    "after": 4,
+    "receive_ms": 90,
+    "peer_ms": 59,
+    "reasons": [
+      "video_network_loss"
+    ]
+  },
+  {
+    "side": 1,
+    "t": 246.0066496669897,
+    "before": 3,
+    "after": 4,
+    "receive_ms": 68,
+    "peer_ms": 48,
+    "reasons": [
+      "video_network_loss"
+    ]
+  },
+  {
+    "side": 0,
+    "t": 271.00316216697684,
+    "before": 1,
+    "after": 3,
+    "receive_ms": 83,
+    "peer_ms": 83,
+    "reasons": [
+      "video_network_loss"
+    ]
+  },
+  {
+    "side": 0,
+    "t": 272.0067043749732,
+    "before": 3,
+    "after": 4,
+    "receive_ms": 83,
+    "peer_ms": 83,
+    "reasons": [
+      "video_network_loss"
+    ]
+  },
+  {
+    "side": 1,
+    "t": 289.0048520420096,
+    "before": 3,
+    "after": 4,
+    "receive_ms": 45,
+    "peer_ms": 43,
+    "reasons": [
+      "video_network_loss"
+    ]
+  },
+  {
+    "side": 1,
+    "t": 327.00503795896657,
+    "before": 3,
+    "after": 4,
+    "receive_ms": 74,
+    "peer_ms": 47,
+    "reasons": [
+      "video_network_loss"
+    ]
+  },
+  {
+    "side": 0,
+    "t": 337.0018839169643,
+    "before": 2,
+    "after": 4,
+    "receive_ms": 47,
+    "peer_ms": 97,
+    "reasons": [
+      "audio_peer_concealment",
+      "soft_audio_loss_repeated"
+    ]
+  },
+  {
+    "side": 1,
+    "t": 345.0058590839617,
+    "before": 3,
+    "after": 4,
+    "receive_ms": 105,
+    "peer_ms": 77,
+    "reasons": [
+      "video_network_loss"
+    ]
+  }
+]

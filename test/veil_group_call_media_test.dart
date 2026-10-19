@@ -322,7 +322,7 @@ void main() {
   );
 
   test(
-    'group decoded catch-up cuts video once and briefly yields producers',
+    'isolated group decoded catch-up holds video while briefly yielding producers',
     () {
       fakeAsync((clock) {
         final self = _id(1), alice = _id(2), bob = _id(3);
@@ -353,7 +353,7 @@ void main() {
         // counters look healthy. Its discarded audio must still reach policy.
         engine.stats = sample(1);
         clock.elapse(const Duration(seconds: 1));
-        expect(engine.targets.last.maxBitrateKbps, lessThan(150));
+        expect(engine.targets.last.maxBitrateKbps, 150);
         expect(transport.pressureReports.last.pressured, isTrue);
         final targetsAfterCatchup = engine.targets.length;
         clock.elapse(const Duration(seconds: 3));
@@ -374,7 +374,7 @@ void main() {
         expect(engine.targets.last.maxBitrateKbps, 150);
         engine.stats = sample(1);
         clock.elapse(const Duration(seconds: 1));
-        expect(engine.targets.last.maxBitrateKbps, lessThan(150));
+        expect(engine.targets.last.maxBitrateKbps, 150);
         controller.stop();
         clock.flushMicrotasks();
       });
