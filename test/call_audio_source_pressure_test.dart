@@ -19,6 +19,7 @@ void main() {
     int? drops = 0,
     Object? lossReportUs,
     Object? peerRecoveryReportUs,
+    Object? concealmentReportUs,
     bool recovered = false,
   }) => policy.observe(
     sendExpected: send,
@@ -34,6 +35,7 @@ void main() {
     audioTxDrops: drops,
     audioLossReportUs: lossReportUs,
     peerAudioRecoveryReportUs: peerRecoveryReportUs,
+    peerAudioConcealmentReportUs: concealmentReportUs,
     recovered: recovered,
   );
 
@@ -59,6 +61,23 @@ void main() {
     expect(sample(policy, lossReportUs: 0), isFalse);
     expect(sample(policy, lossReportUs: 50), isFalse);
     expect(sample(policy, lossReportUs: 101), isTrue);
+  });
+
+  test('peer concealment yields sources once, including mute/resume', () {
+    final policy = CallAudioSourcePressure();
+    recover(policy);
+    expect(sample(policy, concealmentReportUs: 100), isTrue);
+    for (var n = 0; n < 11; n++) {
+      expect(sample(policy, concealmentReportUs: 100), isTrue);
+    }
+    expect(sample(policy, concealmentReportUs: 100), isFalse);
+    sample(policy, send: false, concealmentReportUs: 200);
+    expect(sample(policy, concealmentReportUs: 200), isFalse);
+    sample(policy, send: false, receive: false, concealmentReportUs: 300);
+    sample(policy, send: false, receive: false, concealmentReportUs: 0);
+    recover(policy);
+    expect(sample(policy, concealmentReportUs: 300), isFalse);
+    expect(sample(policy, concealmentReportUs: 301), isTrue);
   });
 
   test(
