@@ -1,0 +1,10 @@
+{
+  "path": "/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-fixed/libveilclient_ffi.dylib",
+  "sha256": "f32b4510d90a220d7db81e85dbbb8dea53bd53050e586d0204daf3e523878c6e",
+  "exports": 202,
+  "contract_hash": "d897342ae32051ee3e0758dcae56dcefc6de26eb7ca0b23fce921b9a57dfb16f",
+  "exports_unchanged": true,
+  "dlopen": true,
+  "clean_source_export": true,
+  "foreign_wip_excluded": true
+}

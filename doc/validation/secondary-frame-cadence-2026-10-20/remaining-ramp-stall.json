@@ -1,0 +1,450 @@
+[
+  {
+    "t": 280.00421520799864,
+    "target": {
+      "kbps": 225,
+      "fps": 3.75
+    },
+    "applied_kbps": 108,
+    "applied_fps": 3.5,
+    "rtt_ms": 47,
+    "rtt_baseline": 23,
+    "receive_ms": 76,
+    "peer_ms": 98,
+    "transient_hold": false,
+    "source_pressure": false,
+    "good_streak": 0
+  },
+  {
+    "t": 281.0020472080214,
+    "target": {
+      "kbps": 225,
+      "fps": 3.75
+    },
+    "applied_kbps": 108,
+    "applied_fps": 3.5,
+    "rtt_ms": 47,
+    "rtt_baseline": 23,
+    "receive_ms": 106,
+    "peer_ms": 50,
+    "transient_hold": false,
+    "source_pressure": false,
+    "good_streak": 0
+  },
+  {
+    "t": 282.0032942920225,
+    "target": {
+      "kbps": 225,
+      "fps": 3.75
+    },
+    "applied_kbps": 108,
+    "applied_fps": 3.5,
+    "rtt_ms": 47,
+    "rtt_baseline": 23,
+    "receive_ms": 64,
+    "peer_ms": 50,
+    "transient_hold": false,
+    "source_pressure": false,
+    "good_streak": 0
+  },
+  {
+    "t": 283.00697220797883,
+    "target": {
+      "kbps": 225,
+      "fps": 3.75
+    },
+    "applied_kbps": 108,
+    "applied_fps": 3.5,
+    "rtt_ms": 122,
+    "rtt_baseline": 23,
+    "receive_ms": 123,
+    "peer_ms": 50,
+    "transient_hold": false,
+    "source_pressure": false,
+    "good_streak": 0
+  },
+  {
+    "t": 284.0082960000145,
+    "target": {
+      "kbps": 225,
+      "fps": 3.75
+    },
+    "applied_kbps": 108,
+    "applied_fps": 3.5,
+    "rtt_ms": 122,
+    "rtt_baseline": 23,
+    "receive_ms": 123,
+    "peer_ms": 50,
+    "transient_hold": false,
+    "source_pressure": false,
+    "good_streak": 0
+  },
+  {
+    "t": 285.0058891249937,
+    "target": {
+      "kbps": 225,
+      "fps": 3.75
+    },
+    "applied_kbps": 108,
+    "applied_fps": 3.5,
+    "rtt_ms": 122,
+    "rtt_baseline": 23,
+    "receive_ms": 123,
+    "peer_ms": 50,
+    "transient_hold": false,
+    "source_pressure": false,
+    "good_streak": 0
+  },
+  {
+    "t": 286.00248770799953,
+    "target": {
+      "kbps": 225,
+      "fps": 3.75
+    },
+    "applied_kbps": 108,
+    "applied_fps": 3.5,
+    "rtt_ms": 122,
+    "rtt_baseline": 23,
+    "receive_ms": 122,
+    "peer_ms": 80,
+    "transient_hold": false,
+    "source_pressure": false,
+    "good_streak": 0
+  },
+  {
+    "t": 287.0034429579973,
+    "target": {
+      "kbps": 225,
+      "fps": 3.75
+    },
+    "applied_kbps": 108,
+    "applied_fps": 3.5,
+    "rtt_ms": 122,
+    "rtt_baseline": 23,
+    "receive_ms": 104,
+    "peer_ms": 80,
+    "transient_hold": false,
+    "source_pressure": false,
+    "good_streak": 0
+  },
+  {
+    "t": 288.0042577920249,
+    "target": {
+      "kbps": 225,
+      "fps": 3.75
+    },
+    "applied_kbps": 108,
+    "applied_fps": 3.5,
+    "rtt_ms": 69,
+    "rtt_baseline": 23,
+    "receive_ms": 96,
+    "peer_ms": 80,
+    "transient_hold": false,
+    "source_pressure": false,
+    "good_streak": 0
+  },
+  {
+    "t": 289.00396829203237,
+    "target": {
+      "kbps": 225,
+      "fps": 3.75
+    },
+    "applied_kbps": 108,
+    "applied_fps": 3.5,
+    "rtt_ms": 69,
+    "rtt_baseline": 23,
+    "receive_ms": 126,
+    "peer_ms": 80,
+    "transient_hold": false,
+    "source_pressure": false,
+    "good_streak": 0
+  },
+  {
+    "t": 290.0022329579806,
+    "target": {
+      "kbps": 225,
+      "fps": 3.75
+    },
+    "applied_kbps": 108,
+    "applied_fps": 3.5,
+    "rtt_ms": 69,
+    "rtt_baseline": 23,
+    "receive_ms": 96,
+    "peer_ms": 80,
+    "transient_hold": false,
+    "source_pressure": false,
+    "good_streak": 0
+  },
+  {
+    "t": 291.00382824998815,
+    "target": {
+      "kbps": 225,
+      "fps": 3.75
+    },
+    "applied_kbps": 108,
+    "applied_fps": 3.5,
+    "rtt_ms": 69,
+    "rtt_baseline": 23,
+    "receive_ms": 72,
+    "peer_ms": 50,
+    "transient_hold": false,
+    "source_pressure": false,
+    "good_streak": 0
+  },
+  {
+    "t": 292.0042992500239,
+    "target": {
+      "kbps": 225,
+      "fps": 3.75
+    },
+    "applied_kbps": 108,
+    "applied_fps": 3.5,
+    "rtt_ms": 69,
+    "rtt_baseline": 23,
+    "receive_ms": 72,
+    "peer_ms": 50,
+    "transient_hold": false,
+    "source_pressure": false,
+    "good_streak": 0
+  },
+  {
+    "t": 293.00358062499436,
+    "target": {
+      "kbps": 225,
+      "fps": 3.75
+    },
+    "applied_kbps": 108,
+    "applied_fps": 3.5,
+    "rtt_ms": 69,
+    "rtt_baseline": 23,
+    "receive_ms": 87,
+    "peer_ms": 50,
+    "transient_hold": false,
+    "source_pressure": false,
+    "good_streak": 0
+  },
+  {
+    "t": 294.00268966698786,
+    "target": {
+      "kbps": 225,
+      "fps": 3.75
+    },
+    "applied_kbps": 108,
+    "applied_fps": 3.5,
+    "rtt_ms": 69,
+    "rtt_baseline": 23,
+    "receive_ms": 87,
+    "peer_ms": 50,
+    "transient_hold": false,
+    "source_pressure": false,
+    "good_streak": 0
+  },
+  {
+    "t": 295.0017115829978,
+    "target": {
+      "kbps": 225,
+      "fps": 3.75
+    },
+    "applied_kbps": 108,
+    "applied_fps": 3.5,
+    "rtt_ms": 106,
+    "rtt_baseline": 23,
+    "receive_ms": 87,
+    "peer_ms": 50,
+    "transient_hold": false,
+    "source_pressure": false,
+    "good_streak": 0
+  },
+  {
+    "t": 296.0022246669978,
+    "target": {
+      "kbps": 225,
+      "fps": 3.75
+    },
+    "applied_kbps": 108,
+    "applied_fps": 3.5,
+    "rtt_ms": 106,
+    "rtt_baseline": 23,
+    "receive_ms": 87,
+    "peer_ms": 80,
+    "transient_hold": false,
+    "source_pressure": false,
+    "good_streak": 0
+  },
+  {
+    "t": 297.0037487919908,
+    "target": {
+      "kbps": 225,
+      "fps": 3.75
+    },
+    "applied_kbps": 108,
+    "applied_fps": 3.5,
+    "rtt_ms": 106,
+    "rtt_baseline": 23,
+    "receive_ms": 87,
+    "peer_ms": 80,
+    "transient_hold": false,
+    "source_pressure": false,
+    "good_streak": 0
+  },
+  {
+    "t": 298.0045362500241,
+    "target": {
+      "kbps": 225,
+      "fps": 3.75
+    },
+    "applied_kbps": 108,
+    "applied_fps": 3.5,
+    "rtt_ms": 74,
+    "rtt_baseline": 23,
+    "receive_ms": 87,
+    "peer_ms": 80,
+    "transient_hold": false,
+    "source_pressure": false,
+    "good_streak": 0
+  },
+  {
+    "t": 299.00334533298155,
+    "target": {
+      "kbps": 225,
+      "fps": 3.75
+    },
+    "applied_kbps": 108,
+    "applied_fps": 3.5,
+    "rtt_ms": 74,
+    "rtt_baseline": 23,
+    "receive_ms": 116,
+    "peer_ms": 80,
+    "transient_hold": false,
+    "source_pressure": false,
+    "good_streak": 0
+  },
+  {
+    "t": 300.00261737499386,
+    "target": {
+      "kbps": 225,
+      "fps": 3.75
+    },
+    "applied_kbps": 108,
+    "applied_fps": 3.5,
+    "rtt_ms": 74,
+    "rtt_baseline": 23,
+    "receive_ms": 87,
+    "peer_ms": 80,
+    "transient_hold": false,
+    "source_pressure": false,
+    "good_streak": 0
+  },
+  {
+    "t": 301.00458449998405,
+    "target": {
+      "kbps": 225,
+      "fps": 3.75
+    },
+    "applied_kbps": 108,
+    "applied_fps": 3.5,
+    "rtt_ms": 74,
+    "rtt_baseline": 23,
+    "receive_ms": 87,
+    "peer_ms": 98,
+    "transient_hold": false,
+    "source_pressure": false,
+    "good_streak": 0
+  },
+  {
+    "t": 302.00469912501285,
+    "target": {
+      "kbps": 225,
+      "fps": 3.75
+    },
+    "applied_kbps": 108,
+    "applied_fps": 3.5,
+    "rtt_ms": 74,
+    "rtt_baseline": 33,
+    "receive_ms": 123,
+    "peer_ms": 98,
+    "transient_hold": false,
+    "source_pressure": false,
+    "good_streak": 0
+  },
+  {
+    "t": 303.00329062499804,
+    "target": {
+      "kbps": 225,
+      "fps": 3.75
+    },
+    "applied_kbps": 108,
+    "applied_fps": 3.5,
+    "rtt_ms": 74,
+    "rtt_baseline": 33,
+    "receive_ms": 123,
+    "peer_ms": 98,
+    "transient_hold": false,
+    "source_pressure": false,
+    "good_streak": 0
+  },
+  {
+    "t": 304.0025569170248,
+    "target": {
+      "kbps": 225,
+      "fps": 3.75
+    },
+    "applied_kbps": 108,
+    "applied_fps": 3.5,
+    "rtt_ms": 74,
+    "rtt_baseline": 33,
+    "receive_ms": 123,
+    "peer_ms": 98,
+    "transient_hold": false,
+    "source_pressure": false,
+    "good_streak": 0
+  },
+  {
+    "t": 305.00579133298015,
+    "target": {
+      "kbps": 225,
+      "fps": 3.75
+    },
+    "applied_kbps": 108,
+    "applied_fps": 3.5,
+    "rtt_ms": 74,
+    "rtt_baseline": 33,
+    "receive_ms": 123,
+    "peer_ms": 98,
+    "transient_hold": false,
+    "source_pressure": false,
+    "good_streak": 0
+  },
+  {
+    "t": 306.00376858300297,
+    "target": {
+      "kbps": 225,
+      "fps": 3.75
+    },
+    "applied_kbps": 108,
+    "applied_fps": 3.5,
+    "rtt_ms": 74,
+    "rtt_baseline": 33,
+    "receive_ms": 89,
+    "peer_ms": 69,
+    "transient_hold": false,
+    "source_pressure": false,
+    "good_streak": 0
+  },
+  {
+    "t": 307.0036891250056,
+    "target": {
+      "kbps": 225,
+      "fps": 3.75
+    },
+    "applied_kbps": 108,
+    "applied_fps": 3.5,
+    "rtt_ms": 74,
+    "rtt_baseline": 33,
+    "receive_ms": 75,
+    "peer_ms": 69,
+    "transient_hold": false,
+    "source_pressure": false,
+    "good_streak": 0
+  }
+]

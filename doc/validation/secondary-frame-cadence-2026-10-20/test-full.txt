@@ -1,0 +1,435 @@
+   Compiling veilclient-ffi v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veilclient-ffi)
+    Finished `release` profile [optimized] target(s) in 2m 40s
+     Running unittests src/lib.rs (/Volumes/cfb/target/release/deps/veilclient_ffi-0859ec928623771f)
+
+running 308 tests
+test anon_stream::media_routes::tests::extended_offers_bind_four_distinct_receive_planes_and_keep_legacy_bytes ... ok
+test anon_stream::media_routes::tests::compatibility_reordering_cannot_collapse_extended_routes_or_change_addresses ... ok
+test anon_stream::media_routes::tests::offers_have_exact_bounded_shape_and_canonical_order ... ok
+test anon_stream::media_routes::tests::stale_and_conflicting_offers_cannot_retarget_a_route ... ok
+test anon_stream::tests::a_full_frame_fills_exactly_one_cell_at_every_negotiable_size ... ok
+test anon_stream::tests::datagram_data_cell_fits_authenticated_delivery_envelope ... ok
+test anon_stream::tests::protected_circuit_envelopes_fit_one_cell_without_reducing_data_mss ... ok
+test anon_stream::tests::stream_peer_intro_plaintext_is_bound_to_peer_tag ... ok
+test anon_stream::tests::the_send_path_budgets_track_the_policy_not_the_legacy_cell ... ok
+test anon_stream::tests::circuit_env_is_strict_opt_in ... ok
+test anon_stream::tests::a_circuit_left_longer_than_the_ttl_is_evicted ... ok
+test anon_stream::tests::the_heartbeat_cadence_outruns_the_relays_idle_gc ... ok
+test anon_stream::tests::a_route_to_an_identity_names_the_device_that_answers_it ... ok
+test anon_stream::tests::the_heartbeat_wait_is_drawn_inside_its_band ... ok
+test anon_stream::tests::private_media_registrations_cannot_replace_other_producers_at_a_relay ... ok
+[1792445658.102] INFO  node.mlock.unsupported mlockall not supported on this platform; key material may swap to disk
+test fs_beneath::tests::a_directory_is_refused ... [1792445658.105] INFO  node.mlock.unsupported mlockall not supported on this platform; key material may swap to disk
+[1792445658.107] INFO  node.mlock.unsupported mlockall not supported on this platform; key material may swap to disk
+[1792445658.108] INFO  node.mlock.unsupported mlockall not supported on this platform; key material may swap to disk
+[1792445658.108] INFO  node.mlock.unsupported mlockall not supported on this platform; key material may swap to disk
+ok
+[1792445658.114] INFO  node.mlock.unsupported mlockall not supported on this platform; key material may swap to disk
+[1792445658.114] INFO  node.mlock.unsupported mlockall not supported on this platform; key material may swap to disk
+test anon_stream::source_lane_tests::fallback_data_and_resends_keep_anonymous_routing_on_the_recoverable_source_lane ... [1792445658.122] INFO  node.mlock.unsupported mlockall not supported on this platform; key material may swap to disk
+ok
+test fs_beneath::tests::a_parent_component_is_refused_rather_than_resolved ... ok
+[1792445658.145] INFO  node.mlock.unsupported mlockall not supported on this platform; key material may swap to disk
+test fs_beneath::tests::a_fifo_is_refused_without_waiting_for_a_writer ... ok
+test fs_beneath::tests::a_new_file_is_created_beneath_the_root ... ok
+[1792445658.171] INFO  node.sovereign_identity.standalone_built node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 (master_pk == device_pk; auto-built degenerate IdentityDocument from [identity] keypair)
+[1792445658.171] INFO  node.sovereign_identity.standalone_built node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 (master_pk == device_pk; auto-built degenerate IdentityDocument from [identity] keypair)
+[1792445658.171] INFO  node.mlkem_dk.source mlkem dk_seed source=identity_derived
+[1792445658.171] INFO  node.mlkem_dk.source mlkem dk_seed source=identity_derived
+[1792445658.172] INFO  node.sovereign_identity.published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 valid_until_unix=1793050458
+[1792445658.172] INFO  node.sovereign_identity.published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 valid_until_unix=1793050458
+[1792445658.172] INFO  node.sovereign_identity.registry_published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 reg_version=1792445658 instances=1
+[1792445658.172] INFO  node.sovereign_identity.registry_published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 reg_version=1792445658 instances=1
+[1792445658.172] INFO  node.sovereign_identity.mlkem_cert_published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 instance_id=f309e1c507f788482b33d446273ede91 cert_version=1 advertises ratchet_pk=1667e9a1 ek=036a35d1
+[1792445658.172] INFO  node.sovereign_identity.mlkem_cert_published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 instance_id=f309e1c507f788482b33d446273ede91 cert_version=1 advertises ratchet_pk=1667e9a1 ek=036a35d1
+[1792445658.174] INFO  node.sovereign_identity.standalone_built node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 (master_pk == device_pk; auto-built degenerate IdentityDocument from [identity] keypair)
+[1792445658.174] INFO  node.mlkem_dk.source mlkem dk_seed source=identity_derived
+[1792445658.174] INFO  node.sovereign_identity.published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 valid_until_unix=1793050458
+[1792445658.174] INFO  node.sovereign_identity.registry_published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 reg_version=1792445658 instances=1
+[1792445658.174] INFO  node.sovereign_identity.mlkem_cert_published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 instance_id=f309e1c507f788482b33d446273ede91 cert_version=1 advertises ratchet_pk=1667e9a1 ek=036a35d1
+[1792445658.180] INFO  node.sovereign_identity.standalone_built node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 (master_pk == device_pk; auto-built degenerate IdentityDocument from [identity] keypair)
+[1792445658.180] INFO  node.mlkem_dk.source mlkem dk_seed source=identity_derived
+[1792445658.180] INFO  node.sovereign_identity.published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 valid_until_unix=1793050458
+[1792445658.180] INFO  node.sovereign_identity.registry_published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 reg_version=1792445658 instances=1
+[1792445658.180] INFO  node.sovereign_identity.mlkem_cert_published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 instance_id=f309e1c507f788482b33d446273ede91 cert_version=1 advertises ratchet_pk=1667e9a1 ek=036a35d1
+test fs_beneath::tests::a_real_file_beneath_the_root_opens_and_reads ... [1792445658.183] INFO  node.sovereign_identity.standalone_built node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 (master_pk == device_pk; auto-built degenerate IdentityDocument from [identity] keypair)
+[1792445658.183] INFO  node.mlkem_dk.source mlkem dk_seed source=identity_derived
+[1792445658.183] INFO  node.sovereign_identity.published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 valid_until_unix=1793050458
+[1792445658.183] INFO  node.sovereign_identity.registry_published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 reg_version=1792445658 instances=1
+[1792445658.183] INFO  node.sovereign_identity.mlkem_cert_published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 instance_id=f309e1c507f788482b33d446273ede91 cert_version=1 advertises ratchet_pk=1667e9a1 ek=036a35d1
+ok
+[1792445658.189] INFO  node.sovereign_identity.standalone_built node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 (master_pk == device_pk; auto-built degenerate IdentityDocument from [identity] keypair)
+[1792445658.189] INFO  node.sovereign_identity.standalone_built node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 (master_pk == device_pk; auto-built degenerate IdentityDocument from [identity] keypair)
+[1792445658.189] INFO  node.mlkem_dk.source mlkem dk_seed source=identity_derived
+[1792445658.189] INFO  node.mlkem_dk.source mlkem dk_seed source=identity_derived
+[1792445658.189] INFO  node.sovereign_identity.published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 valid_until_unix=1793050458
+[1792445658.189] INFO  node.sovereign_identity.registry_published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 reg_version=1792445658 instances=1
+[1792445658.189] INFO  node.sovereign_identity.published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 valid_until_unix=1793050458
+[1792445658.189] INFO  node.sovereign_identity.registry_published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 reg_version=1792445658 instances=1
+[1792445658.189] INFO  node.sovereign_identity.mlkem_cert_published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 instance_id=f309e1c507f788482b33d446273ede91 cert_version=1 advertises ratchet_pk=1667e9a1 ek=036a35d1
+[1792445658.189] INFO  node.sovereign_identity.mlkem_cert_published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 instance_id=f309e1c507f788482b33d446273ede91 cert_version=1 advertises ratchet_pk=1667e9a1 ek=036a35d1
+[1792445658.192] INFO  node.sovereign_identity.standalone_built node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 (master_pk == device_pk; auto-built degenerate IdentityDocument from [identity] keypair)
+[1792445658.192] INFO  node.mlkem_dk.source mlkem dk_seed source=identity_derived
+[1792445658.192] INFO  node.sovereign_identity.published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 valid_until_unix=1793050458
+[1792445658.192] INFO  node.sovereign_identity.registry_published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 reg_version=1792445658 instances=1
+[1792445658.192] INFO  node.sovereign_identity.mlkem_cert_published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 instance_id=f309e1c507f788482b33d446273ede91 cert_version=1 advertises ratchet_pk=1667e9a1 ek=036a35d1
+test fs_beneath::tests::an_empty_component_is_refused_by_the_helper ... ok
+test fs_beneath::tests::an_absolute_path_is_refused ... ok
+test fs_beneath::tests::a_symlinked_directory_component_is_refused ... ok
+[1792445658.198] INFO  node.sovereign_identity.standalone_built node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 (master_pk == device_pk; auto-built degenerate IdentityDocument from [identity] keypair)
+[1792445658.198] INFO  node.mlkem_dk.source mlkem dk_seed source=identity_derived
+[1792445658.198] INFO  node.sovereign_identity.published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 valid_until_unix=1793050458
+[1792445658.198] INFO  node.sovereign_identity.registry_published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 reg_version=1792445658 instances=1
+[1792445658.198] INFO  node.sovereign_identity.mlkem_cert_published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 instance_id=f309e1c507f788482b33d446273ede91 cert_version=1 advertises ratchet_pk=1667e9a1 ek=036a35d1
+test fs_beneath::tests::an_nt_name_past_the_length_field_is_refused_rather_than_wrapped ... ok
+test fs_beneath::tests::a_symlinked_file_is_refused_not_followed ... ok
+test fs_beneath::tests::a_rename_after_the_walk_cannot_change_what_was_opened ... ok
+[1792445658.245] INFO  node.start         config=/private/tmp/.tmptqQXuJ/config.toml
+[1792445658.245] INFO  node.start         config=/private/tmp/.tmpPjMGtE/config.toml
+[1792445658.245] INFO  bootstrap.none     no entry points: 0 configured, builtin seeds refused (policy=never), DNS discovery not configured; node stays offline until a peer is added
+[1792445658.245] INFO  bootstrap.none     no entry points: 0 configured, builtin seeds refused (policy=never), DNS discovery not configured; node stays offline until a peer is added
+onion-stream[f309e1c5]: circuit shared DATA pacer 50us outbound_pool=3 ack_pool=3 ack_redundancy=2 bulk_route_active_limit=2 stripe_routes=1
+onion-stream[f309e1c5]: circuit open retry #1: NoRendezvous
+onion-stream[f309e1c5]: outbound circuit open failed for 8b8b8b8b: resolve receiver ads: NoRendezvous
+onion-stream[f309e1c5]: outbound circuit open failed for 8b8b8b8b: resolve receiver ads: NoRendezvous
+test fs_beneath::tests::an_existing_name_is_refused_rather_than_truncated ... ok[1792445658.261] INFO  node.start         config=/private/tmp/.tmptjWHYI/config.toml
+
+[1792445658.261] INFO  bootstrap.none     no entry points: 0 configured, builtin seeds refused (policy=never), DNS discovery not configured; node stays offline until a peer is added
+onion-stream[f309e1c5]: circuit shared DATA pacer 50us outbound_pool=3 ack_pool=3 ack_redundancy=2 bulk_route_active_limit=2 stripe_routes=1
+onion-stream[f309e1c5]: circuit open retry #1: NoRendezvous
+[1792445658.277] INFO  node.start         config=/private/tmp/.tmpsLgL8m/config.toml
+[1792445658.277] INFO  bootstrap.none     no entry points: 0 configured, builtin seeds refused (policy=never), DNS discovery not configured; node stays offline until a peer is added
+[1792445658.281] INFO  node.start         config=/private/tmp/.tmpfpPTvJ/config.toml
+[1792445658.281] INFO  bootstrap.none     no entry points: 0 configured, builtin seeds refused (policy=never), DNS discovery not configured; node stays offline until a peer is added
+onion-stream[f309e1c5]: circuit shared DATA pacer 50us outbound_pool=3 ack_pool=3 ack_redundancy=2 bulk_route_active_limit=2 stripe_routes=1
+onion-stream[f309e1c5]: circuit open retry #1: NoRendezvous
+[1792445658.284] INFO  node.start         config=/private/tmp/.tmpfSQ710/config.toml
+[1792445658.284] INFO  bootstrap.none     no entry points: 0 configured, builtin seeds refused (policy=never), DNS discovery not configured; node stays offline until a peer is added
+[1792445658.291] INFO  node.start         config=/private/tmp/.tmpiAEBCf/config.toml
+[1792445658.291] INFO  bootstrap.none     no entry points: 0 configured, builtin seeds refused (policy=never), DNS discovery not configured; node stays offline until a peer is added
+test fs_beneath::tests::an_offset_this_platform_cannot_express_is_refused ... ok
+[1792445658.294] INFO  node.start         config=/private/tmp/.tmpwfbr8g/config.toml
+[1792445658.294] INFO  bootstrap.none     no entry points: 0 configured, builtin seeds refused (policy=never), DNS discovery not configured; node stays offline until a peer is added
+test fs_beneath::tests::repeated_separators_are_read_the_way_a_filesystem_reads_them ... ok
+test guard::tests::null_check_writes_consistent_message ... ok[1792445658.305] INFO  node.start         config=/private/tmp/.tmpST7iSB/config.toml
+[1792445658.306] INFO  bootstrap.none     no entry points: 0 configured, builtin seeds refused (policy=never), DNS discovery not configured; node stays offline until a peer is added
+
+test guard::tests::prelude_succeeds_outside_tokio ... ok
+test fs_beneath::tests::creating_through_a_symlinked_directory_is_refused ... onion-stream[f309e1c5]: circuit shared DATA pacer 50us outbound_pool=3 ack_pool=3 ack_redundancy=2 bulk_route_active_limit=2 stripe_routes=1
+onion-stream[f309e1c5]: circuit open retry #1: NoRendezvous
+onion-stream[f309e1c5]: outbound circuit open failed for c1c1c1c1: resolve receiver ads: NoRendezvous
+ok
+test fs_beneath::tests::creating_over_a_symlink_does_not_write_through_it ... ok
+test identity_sign::tests::garbage_is_refused_rather_than_trusted ... ok
+test identity_sign::tests::sign_rejects_null_and_bad_toml ... ok
+test identity_sign::tests::sign_then_verify_roundtrip ... ok
+test identity_sign::tests::a_key_the_document_does_not_name_is_refused ... ok
+test media::detached_singleton_lifetime_tests::a_frames_declared_size_is_checked_before_it_is_decoded ... ok
+test identity_sign::tests::tampered_message_or_key_fails ... ok
+test identity_sign::tests::a_document_for_another_identity_authorizes_nothing ... ok
+test media::detached_singleton_lifetime_tests::every_call_decoder_factory_carries_the_bound ... ok
+test media::detached_singleton_lifetime_tests::the_audio_host_thread_owner_is_never_destroyed ... ok
+test media::detached_singleton_lifetime_tests::the_media_foundation_owner_is_never_destroyed ... ok
+test media::rtp_trace::tests::batches_keep_each_packet_identity_and_reject_partial_corruption ... ok
+test media::rtp_trace::tests::csrc_extension_and_padding_are_excluded_from_payload_size ... ok
+test media::rtp_trace::tests::padding_only_probe_keeps_identity_without_becoming_image_payload ... ok
+test media::rtp_trace::tests::rtcp_and_malformed_headers_do_not_become_rtp_witnesses ... ok
+test identity_sign::tests::a_row_is_authorised_by_the_window_at_the_time_it_arrived ... ok
+test media::rtp_trace::tests::rtp_header_witness_preserves_wrapped_values_and_marker ... ok
+test media::tests::a_captured_cell_replayed_is_dropped_on_every_transport ... ok
+test media::tests::a_commit_far_behind_the_window_is_ignored_rather_than_shifted ... ok
+test identity_sign::tests::a_tampered_document_authorizes_nothing ... ok
+test identity_sign::tests::a_subkey_the_document_names_is_authorized ... ok
+test media::tests::a_held_secondary_cipher_lock_does_not_block_primary ... ok
+test media::tests::clear_by_chan_sweeps_the_orphaned_registration ... ok
+test media::tests::a_channel_cannot_be_opened_with_unusable_keys ... ok
+test media::tests::a_cell_for_another_call_leg_does_not_open ... ok
+test media::tests::batch_roundtrip_delivers_each_packet ... ok
+test media::tests::media_cell_folds_one_packet_raw_and_many_behind_the_batch_magic ... ok
+test media::tests::media_cipher_roundtrip_reorders_and_rejects_replay ... ok
+test media::tests::media_magic_is_not_a_stream_proto_ver ... ok
+test media::tests::a_cell_opened_for_a_replaced_channel_never_reaches_its_successor ... ok
+test media::tests::dispatch_routes_by_peer_and_honors_clear ... ok
+test media::tests::held_screen_cipher_lock_does_not_block_camera_or_audio ... ok
+test identity_sign::tests::a_restore_given_a_node_key_names_that_key ... ok
+test media::tests::honest_call_flows_on_every_transport ... ok
+test media::tests::injection_by_a_third_party_never_reaches_the_engine ... ok
+test media::tests::malformed_batch_is_atomic_drop ... ok
+test media::tests::parallel_producers_use_distinct_keys_and_unique_sequences ... ok
+test media::tests::private_receive_address_cannot_deliver_into_a_successor_call ... ok
+test media::tests::unauthenticated_epoch_cannot_evict_receive_state ... ok
+[1792445658.450] INFO  listen.stop        all listeners stopped
+[1792445658.450] INFO  listen.stop        all listeners stopped
+[1792445658.450] INFO  node.stop          runtime stopped
+[1792445658.450] INFO  node.stop          runtime stopped
+[1792445658.465] INFO  listen.stop        all listeners stopped
+[1792445658.465] INFO  node.stop          runtime stopped
+[1792445658.479] INFO  listen.stop        all listeners stopped
+[1792445658.479] INFO  node.stop          runtime stopped
+[1792445658.484] INFO  listen.stop        all listeners stopped
+[1792445658.484] INFO  node.stop          runtime stopped
+[1792445658.487] INFO  listen.stop        all listeners stopped
+[1792445658.487] INFO  node.stop          runtime stopped
+test anon_stream::tests::isolated_media_pools_do_not_wait_for_file_or_video_pool_locks ... ok
+test anon_stream::tests::private_feed_admits_only_its_call_and_never_bridges_files ... ok
+[1792445658.497] INFO  listen.stop        all listeners stopped
+[1792445658.497] INFO  node.stop          runtime stopped
+[1792445658.508] INFO  listen.stop        all listeners stopped
+[1792445658.508] INFO  node.stop          runtime stopped
+test anon_stream::media_routes::tests::stopping_routes_cancels_workers_and_prevents_restart ... ok
+test anon_stream::tests::circuit_feed_stops_when_the_stream_mux_has_closed ... ok
+test anon_stream::tests::private_feed_liveness_requires_fresh_authenticated_data ... ok
+test anon_stream::media_routes::tests::compatibility_advertisement_stops_after_peer_proves_extended_decoder ... ok
+test anon_stream::tests::circuit_feed_media_and_probe_bypass_a_full_stream_ingress ... ok
+test anon_stream::media_routes::tests::blocked_control_route_cannot_hold_audio_or_retarget_its_receive_address ... ok
+test media::tests::replacing_a_context_on_the_same_channel_waits_for_the_old_one ... ok
+test media::tests::replacing_a_receiver_inside_a_batch_does_not_retarget_remaining_packets ... ok
+test media::tests::replay_survives_an_identity_to_device_route_rebind ... ok
+test media::tests::replay_survives_the_route_rebuild_that_a_call_performs_routinely ... ok
+test media::tests::stale_channel_close_cannot_wipe_live_registration ... ok
+test media_ffi::media_priority_tests::anonymous_batch_preserves_other_producer_and_overflow ... ok
+test media::tests::three_producers_survive_make_before_break_route_overlap ... ok
+test media::tests::two_receivers_sharing_a_window_deliver_one_cell_once ... ok
+test media_ffi::media_priority_tests::batching_never_puts_video_into_an_audio_cell ... ok
+test media_ffi::media_priority_tests::audio_feedback_overflow_and_writer_stall_never_enter_audio_or_video ... ok
+test media_ffi::media_priority_tests::camera_and_screen_relay_assemblers_cannot_merge_equal_timestamps ... ok
+test media::tests::video_flood_cannot_age_delayed_audio_out_on_any_transport ... ok
+test media::v01_quiescence_tests::clearing_an_idle_registration_returns_at_once ... ok
+test media_ffi::media_priority_tests::anonymous_video_does_not_construct_unused_routes ... ok
+test media_ffi::media_priority_tests::closing_channel_cancels_both_blocked_pumps ... ok
+test media_ffi::media_priority_tests::blocked_screen_writer_does_not_hold_audio_or_camera ... ok
+test media_ffi::call_control_ffi::tests::expired_receive_work_is_not_renewed_by_polling ... ok
+test media_ffi::media_priority_tests::complete_relay_frames_reach_the_batch_sink_as_independent_work_items ... ok
+test media_ffi::media_priority_tests::anonymous_repair_fans_out_with_independent_backpressure ... ok
+test media_ffi::call_control_ffi::tests::malformed_foreign_and_superseded_control_do_not_reach_the_host ... ok
+test media_ffi::call_control_ffi::tests::control_queues_are_bounded_and_close_releases_the_owner ... ok
+test media_ffi::call_control_ffi::tests::expired_send_work_does_not_precede_current_state ... ok
+test media_ffi::call_control_ffi::tests::authenticated_control_is_polled_once_and_never_enters_the_engine ... ok
+test media_ffi::call_control_ffi::tests::four_producers_keep_replay_windows_across_two_generations ... ok
+test media_ffi::media_priority_tests::direct_audio_does_not_wait_for_video_writer ... ok
+test media_ffi::media_priority_tests::media_priority_classifies_only_vp8_rtp_as_video ... ok
+test media_ffi::media_priority_tests::media_repair_rejects_zero_and_unknown_channels ... ok
+test media_ffi::media_priority_tests::feedback_pump_preserves_rtcp_and_original_deadline_without_audio_wait ... ok
+test media_ffi::media_priority_tests::native_ingress_registry_mutation_drops_without_waiting ... ok
+test media_ffi::media_priority_tests::padding_classification_validates_csrc_extensions_and_padding_bounds ... ok
+test media_ffi::media_priority_tests::native_ingress_audio_control_and_other_channels_pass_held_video_assembly ... ok
+test media_ffi::media_priority_tests::old_video_repair_does_not_retime_the_next_original_frame ... ok
+test media_ffi::media_priority_tests::padding_is_independent_of_an_incomplete_video_frame_and_its_cadence ... ok
+test media_ffi::media_priority_tests::anonymous_active_producers_rewarm_on_repair_and_stop_with_closed_ingress ... ok
+test media_ffi::media_priority_tests::relay_audio_batches_respect_compact_size_and_packet_limits ... ok
+test media_ffi::media_priority_tests::compact_video_batches_ready_frames_without_crossing_cell_or_frame_boundaries ... ok
+test media_ffi::media_priority_tests::native_video_contention_discards_tail_and_close_retires_surviving_ingress ... ok
+test media_ffi::media_priority_tests::relay_frame_repair_and_control_cannot_renew_original_fragment_age ... ok
+test media_ffi::media_priority_tests::relay_marker_with_older_admission_must_set_the_whole_frame_deadline ... ok
+test media_ffi::media_priority_tests::relay_stats_separate_queue_lock_and_ipc_holds ... ok
+test media_ffi::media_priority_tests::relay_video_assembler_admits_a_complete_frame_atomically ... ok
+test media_ffi::media_priority_tests::relay_audio_does_not_wait_for_video_writer ... ok
+test media_ffi::media_priority_tests::relay_video_assembler_discards_an_unterminated_old_frame ... ok
+test media_ffi::media_priority_tests::relay_video_batching_emits_immediately_in_order_bounded_groups ... ok
+test media_ffi::media_priority_tests::relay_video_assembler_bounds_pathological_frames_and_recovers ... ok
+test media_ffi::media_priority_tests::relay_video_batching_stays_legacy_when_not_negotiated ... ok
+test media_ffi::media_priority_tests::relay_video_control_cannot_consume_partial_frame_or_audio_capacity ... ok
+test media_ffi::media_priority_tests::anonymous_audio_continues_during_blocked_video_or_control_send_and_warm ... ok
+test media_ffi::media_priority_tests::relay_video_repair_is_immediate_and_preserves_the_next_frame_prefix ... ok
+test media_ffi::media_priority_tests::relay_video_repair_marker_cannot_clear_a_contended_frame_discard ... ok
+test media_ffi::media_priority_tests::relay_video_repairs_remain_separate_after_completion_and_timestamp_wrap ... ok
+test media_ffi::media_priority_tests::relay_video_repairs_use_bounded_video_capacity_and_leave_audio_and_prefix_intact ... ok
+test media_ffi::media_priority_tests::screen_switch_routes_at_ingress_and_backpressure_stays_local ... ok
+test media_ffi::media_priority_tests::stale_assembled_video_never_seals_or_precedes_a_fresh_frame ... ok
+test media_ffi::media_priority_tests::timed_cell_deadlines_follow_actual_batches_and_raw_fallback_packets ... ok
+test media_ffi::media_priority_tests::video_control_accepts_only_complete_rtcp_compounds ... ok
+test media_ffi::media_priority_tests::sealed_relay_media_size_accounts_for_ordered_record_framing ... ok
+test media_ffi::media_priority_tests::video_control_backpressure_never_falls_into_audio ... ok
+test media_ffi::packet_cost::tests::full_rtp_sizes_include_each_actual_session_fragment ... ok
+test media_ffi::packet_cost::tests::source_selection_does_not_charge_video_for_audio_replication ... ok
+test media_ffi::packet_cost::tests::stand_snapshot_rejects_null_identity_pointers ... ok
+test media_ffi::packet_cost::tests::serialized_routes_carriers_and_replication_are_distinct ... ok
+test media_ffi::source_preflight::tests::all_three_distinct_challenges_are_required_and_cross_plane_replies_do_not_qualify ... ok
+test media_ffi::source_preflight::tests::legacy_decoder_consumes_extension_as_unknown_not_rtp ... ok
+test media_ffi::source_preflight::tests::retries_are_bounded_and_late_replies_cannot_revive_preparation ... ok
+test media_ffi::source_preparation::tests::legacy_is_immediate_and_does_not_request_more_sources ... ok
+
+running 1 test
+test media_ffi::media_priority_tests::native_ingress_registry_readers_do_not_discard_audio_or_video ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 307 filtered out; finished in 0.00s
+
+[1792445658.597] INFO  node.mlock.unsupported mlockall not supported on this platform; key material may swap to disk
+test media_ffi::media_priority_tests::native_ingress_registry_readers_do_not_discard_audio_or_video ... ok
+test media_ffi::media_priority_tests::anonymous_overflow_preserves_the_original_deadline ... ok
+[1792445658.609] INFO  node.sovereign_identity.standalone_built node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 (master_pk == device_pk; auto-built degenerate IdentityDocument from [identity] keypair)
+[1792445658.609] INFO  node.mlkem_dk.source mlkem dk_seed source=identity_derived
+[1792445658.609] INFO  node.sovereign_identity.published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 valid_until_unix=1793050458
+[1792445658.609] INFO  node.sovereign_identity.registry_published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 reg_version=1792445658 instances=1
+[1792445658.609] INFO  node.sovereign_identity.mlkem_cert_published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 instance_id=f309e1c507f788482b33d446273ede91 cert_version=1 advertises ratchet_pk=1667e9a1 ek=036a35d1
+test media_ffi::media_priority_tests::sealed_cell_expires_while_waiting_for_a_writer_without_changing_wire_bytes ... ok
+test media_path_probe::tests::an_old_attempt_cannot_qualify_its_replacement ... ok
+test media_path_probe::tests::late_replayed_and_cancelled_replies_do_not_revive_a_candidate ... ok
+test media_path_probe::tests::malformed_control_and_ordinary_rtp_are_not_probe_evidence ... ok
+test media_path_probe::tests::only_a_matching_timely_reply_qualifies ... ok
+test media_path_probe::tests::request_and_reply_use_the_existing_seal_and_replay_gate ... ok
+test media_path_probe::tests::retries_are_spaced_bounded_and_keep_the_original_deadline ... ok
+test media_path_probe::tests::short_qualified_and_cancelled_attempts_never_retry ... ok
+test media_ffi::source_preparation::tests::unready_or_wedged_queries_have_one_total_deadline ... ok
+[1792445658.622] INFO  node.start         config=/private/tmp/.tmpb7zPvE/config.toml
+[1792445658.622] INFO  bootstrap.none     no entry points: 0 configured, builtin seeds refused (policy=never), DNS discovery not configured; node stays offline until a peer is added
+onion-stream[f309e1c5]: circuit shared DATA pacer 50us outbound_pool=3 ack_pool=3 ack_redundancy=2 bulk_route_active_limit=2 stripe_routes=1
+onion-stream[f309e1c5]: circuit open retry #1: NoRendezvous
+test node::tests::a_node_that_stops_reports_that_it_stopped ... ok
+test node::tests::a_null_handle_is_refused_rather_than_dereferenced ... ok
+test media::v01_quiescence_tests::clearing_waits_for_a_dispatch_already_inside_the_callback ... ok
+test media_ffi::source_preparation::tests::waits_for_media_while_other_sources_prepare_once_in_background ... ok
+test node::tests::a_stale_token_never_matches_its_successor ... ok
+test node::tests::apply_config_gives_up_at_once_when_the_node_thread_is_gone ... ok
+test node::tests::apply_config_rejects_null_node ... ok
+test node::tests::apply_config_requires_a_deferred_node ... ok
+test node::tests::config_compose_escapes_windows_runtime_paths ... ok
+test node::tests::config_compose_keeps_quotes_in_paths_out_of_the_grammar ... ok
+test node::tests::config_compose_merges_identity_with_runtime ... ok
+test node::tests::config_compose_preserves_authenticated_loopback_endpoints ... ok
+test node::tests::config_init_from_phrase_is_deterministic_in_the_phrase ... ok
+test node::tests::config_init_mines_identity_in_memory ... ok
+test node::tests::deferred_boot_then_apply_brings_node_up ... ignored, boots a real node; run with --ignored --nocapture
+test node::tests::each_boot_derives_its_own_deferred_work_dir ... ok
+test node::tests::start_rejects_null_path ... ok
+test node::tests::start_rejects_unreadable_config ... ok
+test node::tests::a_detached_node_keeps_its_runtime_directory ... ok
+test node::tests::toml_basic_string_escapes_only_what_the_grammar_reserves ... ok
+test node::tests::vpn_upstream_accepts_an_ordered_exit_chain ... ok
+test node::tests::vpn_upstream_owns_a_ready_loopback_socks_lifecycle ... ignored, spawns a full embedded node; run in the Apple VPN build profile
+test node::tests::vpn_upstream_rejects_non_node_id_before_starting_runtime ... ok
+test node::tests::stopping_twice_is_a_safe_no_op ... ok
+test media_ffi::media_priority_tests::route_warm_stall_drops_old_audio_and_keeps_current_audio_and_control ... ok
+test packet_tunnel::tests::a_failed_flow_setup_neither_stops_the_tunnel_nor_leaks_a_slot ... ok
+[1792445658.825] INFO  listen.stop        all listeners stopped
+[1792445658.825] INFO  node.stop          runtime stopped
+test media_ffi::media_priority_tests::private_address_control_requires_call_aead_and_never_reaches_the_engine ... ok
+test node::tests::a_stop_that_runs_out_of_budget_returns_and_reports_it ... ok
+test media_ffi::path_probe_ffi::tests::a_lost_first_challenge_retries_without_stealing_the_live_audio_receiver ... ok
+test packet_tunnel::tests::callback_device_preserves_ingress_and_egress_packets ... ok
+test packet_tunnel::tests::callback_device_rejects_over_mtu_output ... ok
+test media_ffi::path_probe_ffi::tests::a_relay_receiver_accepts_authenticated_media_from_both_pinned_paths ... ok
+test packet_tunnel::tests::dns_policy_selects_overlay_or_explicit_bypass ... ok
+test media_ffi::source_preparation::tests::quota_retry_cannot_reuse_stale_primary_readiness ... ok
+test packet_tunnel::tests::phase_codes_are_stable_for_platform_bridges ... ok
+test media_ffi::media_priority_tests::a_dequeued_burst_expires_while_its_first_ipc_request_finishes_normally ... ok
+test packet_tunnel::tests::a_blocking_task_that_never_finishes_does_not_hold_the_slot ... ok
+test packet_tunnel::write_sink_tests::a_dispatch_marks_this_thread_only_while_it_runs ... ok
+test packet_tunnel::write_sink_tests::a_retired_sink_never_calls_the_host ... ok
+test packet_tunnel::tests::a_clean_teardown_counts_nothing ... ok
+test media_ffi::path_probe_ffi::tests::a_relay_request_uses_a_neutral_relay_echo_even_while_direct_is_active ... ok
+test path_acl::tests::a_backslash_survives_the_journey_through_json ... ok
+test path_acl::tests::a_quote_and_a_control_character_cannot_break_out ... ok
+test path_acl::tests::an_error_is_a_json_object_the_other_side_can_read ... ok
+test path_acl::tests::an_unreadable_ace_that_could_grant_is_not_droppable ... ok
+test path_acl::tests::off_windows_it_refuses_rather_than_answering_emptily ... ok
+test ratchet::send_position_snapshot_tests::a_real_crossed_v4_snapshot_reports_both_retained_positions ... ok
+test ratchet::send_position_snapshot_tests::malformed_snapshot_is_refused_without_output ... ok
+test ratchet::send_position_snapshot_tests::positions_use_record_counts_and_never_partially_write ... ok
+test ratchet::send_position_snapshot_tests::the_state_ceiling_covers_two_bounded_ratchets ... ok
+test media_ffi::path_probe_ffi::tests::a_short_observation_also_bounds_the_queued_challenge ... ok
+test tests::a_bumped_generation_always_fits_the_token_field ... ok
+test media_ffi::path_probe_ffi::tests::candidate_alias_requires_its_sealed_reply_and_never_counts_as_audio ... ok
+test packet_tunnel::tests::a_process_that_has_stranded_too_many_workers_refuses_to_start_another ... ok
+test media_ffi::path_probe_ffi::tests::closing_replaced_alias_owner_cannot_clear_the_new_receiver ... ok
+test tests::a_refusal_over_another_argument_still_wipes_the_secret ... ok
+test tests::abi_contract_accessor_returns_the_compiled_in_hash ... ok
+test tests::close_before_stream_io_subscription_does_not_admit_ready_bytes ... ok
+test tests::connect_to_invalid_path_returns_null ... ok
+test tests::connect_with_null_path_returns_null ... ok
+test tests::abi_contract_hash_is_the_hash_of_the_committed_header ... ok
+test tests::direct_media_receiver_binds_named_app_to_authenticated_node ... ok
+test tests::ephemeral_service_registration_rejects_zero_seed_after_scrub ... ok
+test tests::ephemeral_service_registration_zeroizes_seed_before_dead_handle_error ... ok
+test media_ffi::path_probe_ffi::tests::preparation_cannot_borrow_another_channels_pinned_paths ... ok
+test media_ffi::path_probe_ffi::tests::relay_preparation_warms_the_host_pinned_reverse_route_while_direct_is_active ... ok
+test tests::event_kind_constants_match_proto ... ok
+test tests::free_replica_buf_null_is_noop ... ok
+test tests::generate_master_phrase_null_out_is_invalid_arg ... ok
+test tests::a_lapsed_device_renews_through_the_ffi_with_one_secret ... ok
+test tests::generate_master_phrase_roundtrips ... ok
+test tests::generate_wake_hmac_key_rejects_null_out ... ok
+test tests::generate_wake_hmac_key_writes_32_bytes ... ok
+test tests::handle_table_generation_defeats_aba ... ok
+test tests::handle_table_insert_get_remove_roundtrip ... ok
+test tests::handle_table_tokens_are_per_table ... ok
+test tests::legacy_mailbox_put_exports_keep_abi ... ok
+test tests::local_lane_send_rejects_invalid_hints_before_inputs ... ok
+test tests::local_source_feedback_rejects_invalid_flags_and_unknown_handles ... ok
+test tests::lookup_rendezvous_replicas_rejects_null_out_params ... ok
+test tests::mailbox_abi_constants_track_the_daemon ... ok
+test tests::mailbox_put_with_wake_hmac_rejects_null_handle ... ok
+test tests::max_data_len_leaves_frame_headroom ... ok
+test tests::epic489_8_restore_writes_identity_files ... ok
+test tests::null_app_close_is_noop ... ok
+test tests::null_app_get_endpoint_id_returns_zero ... ok
+test tests::null_app_get_id_returns_invalid_arg ... ok
+test tests::null_app_realtime_send_returns_invalid_arg ... ok
+test tests::null_app_relay_realtime_send_returns_invalid_arg ... ok
+test tests::null_app_send_returns_invalid_arg ... ok
+test tests::null_callback_set_event_handler_returns_invalid_arg ... ok
+test tests::null_handle_close_is_noop ... ok
+test tests::null_handle_set_event_handler_returns_invalid_arg ... ok
+test tests::null_stream_close_is_noop ... ok
+test tests::null_string_free_is_noop ... ok
+test tests::opt_slice_to_str_distinguishes_null_utf8_and_invalid_m26 ... ok
+test tests::delegation_expiry_is_reported_and_renewal_moves_it ... ok
+test tests::phase647_h6_connect_from_plain_thread_does_not_trip_guard ... ok
+test tests::phase647_h8_validate_zeroize_clears_phrase_buffer_on_error ... ok
+test tests::phase647_h8_validate_zeroize_clears_phrase_buffer_on_success ... ok
+test tests::phase647_h8_validate_zeroize_rejects_null ... ok
+test tests::provider_slot_registration_rejects_range_after_seed_scrub ... ok
+test tests::phase647_h6_connect_from_tokio_runtime_returns_reentrant ... ok
+test tests::replica_buf_leak_then_free_roundtrips ... ok
+test tests::serialize_replica_buf_empty_is_count_header_only ... ok
+test tests::serialize_replica_buf_roundtrips_layout ... ok
+test tests::slice_to_str_rejects_null_overcap_and_invalid ... ok
+test tests::sovereign_signer_is_one_burst_phrase_bound_and_zeroizing ... ok
+test tests::sovereign_signer_rejects_invalid_phrase_after_wiping_it ... ok
+test tests::epic489_8_restore_same_phrase_yields_same_node_id ... ok
+test media_ffi::path_probe_ffi::tests::source_preflight_qualifies_before_rtp_callback_and_preserves_old_key_owner ... ok
+test tests::stream_sender_isolation_tests::close_cancels_blocked_ffi_stream_halves_and_releases_peer_state ... ok
+test tests::use_with_unknown_app_token_returns_error_not_uaf ... ok
+test tests::use_with_unknown_handle_token_returns_error_not_uaf ... ok
+test tests::use_with_unknown_stream_token_returns_error_not_uaf ... ok
+test tests::validate_bip39_zeroize_wipes_invalid_utf8_input ... ok
+test tests::validate_bip39_zeroize_wipes_rejected_phrase ... ok
+test tests::verify_wake_hmac_accepts_well_formed_payload ... ok
+test tests::verify_wake_hmac_rejects_forged_payload_silently ... ok
+test tests::verify_wake_hmac_rejects_malformed_length ... ok
+test tests::verify_wake_hmac_rejects_null_args ... ok
+test tests::verify_wake_hmac_surfaces_expired_distinct_from_tampered ... ok
+test tests::wake_hmac_constants_match_crypto ... ok
+test tests::stream_sender_isolation_tests::ffi_signalling_datagrams_use_a_separate_source_lane_without_wire_hints ... ok
+test v01_close_quiescence::a_v2_handler_is_told_the_origin_device_or_null ... ok
+test trace_logging_tests::client_only_trace_keeps_its_diagnostics ... ok
+test v01_close_quiescence::v01_control_live_slot_dispatches_every_frame ... ok
+test v01_close_quiescence::v01_reentrant_caller_defers_instead_of_deadlocking ... ok
+test v01_close_quiescence::v01_retired_slot_drops_events_without_entering_the_trampoline ... ok
+test v01_close_quiescence::v01_retired_slot_drops_frames_without_entering_the_trampoline ... ok
+test xv01_ffi_edge::provenance_byte_matches_core_enum ... ok
+test packet_tunnel::write_sink_tests::retire_waits_for_a_callback_already_in_flight ... ok
+test xv01_ffi_edge::stamped_provenance_survives_from_the_delivery_layer_to_the_ffi_edge ... ok
+test tests::hybrid_identity_is_provisioned_from_the_credential_and_named_by_both_halves ... ok
+test tests::sovereign_hybrid_bundle_ffi_round_trip_is_variable_length_and_zeroizing ... ok
+test xv01_ffi_edge::the_origin_device_survives_from_the_delivery_layer_to_a_v2_host ... ok
+test xv01_ffi_edge::stream_initiator_provenance_reaches_the_ffi_edge ... ok
+test tests::stream_sender_isolation_tests::dedicated_p2p_file_sender_keeps_chat_live_during_remote_open_wait ... ok
+test tests::a_hybrid_identity_admits_and_revokes_a_second_device_through_the_ffi ... ok
+test tests::sovereign_recovery_certificate_ffi_preserves_node_id_and_wipes_codes ... ok
+test packet_tunnel::tests::abandoned_workers_counts_threads_not_teardowns ... ok
+test packet_tunnel::tests::an_ordinary_worker_frees_the_slot ... ok
+test tests::a_recovery_certificate_restores_the_same_identity ... ok
+test v01_close_quiescence::v01_close_does_not_return_while_a_dispatch_is_in_flight ... ok
+test packet_tunnel::tests::cancellable_blocking_work_does_not_pile_up_across_cycles ... ok
+test packet_tunnel::tests::invalid_inputs_fail_before_creating_global_tunnel ... ok
+test packet_tunnel::tests::remote_proxy_is_rejected_so_vpn_cannot_bypass_veil ... ok
+test packet_tunnel::tests::work_that_cannot_be_woken_is_counted ... ok
+test packet_tunnel::write_sink_tests::stop_from_inside_the_callback_refuses_instead_of_deadlocking ... ok
+test node::tests::a_stop_during_apply_config_does_not_free_it_underneath ... ok
+[1792445663.916] INFO  listen.stop        all listeners stopped
+[1792445663.916] INFO  node.stop          runtime stopped
+test anon_stream::tests::circuit_feed_media_passes_while_stream_arq_recovers_the_file ... ok
+
+test result: ok. 306 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 5.86s
+

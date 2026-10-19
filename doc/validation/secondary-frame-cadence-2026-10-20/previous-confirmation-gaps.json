@@ -1,0 +1,94 @@
+{
+  "scope": "Receiver gaps at exact RTCP confirmation, not a deployable sender-only loss classifier.",
+  "cuts": [
+    {
+      "side": 1,
+      "cut_seconds": 145.00457287498284,
+      "source_ssrc": 1164586942,
+      "exact_source_report_us": 276920374020,
+      "exact_receiver_report_us": 276920365369,
+      "reported_cumulative_lost": 1,
+      "highest_sequence": 27415,
+      "gaps_at_receiver_report": [
+        {
+          "sequence": 27369,
+          "kind": "padding",
+          "payload_sizes": [
+            0
+          ],
+          "successful_native_attempts": 1
+        },
+        {
+          "sequence": 27374,
+          "kind": "padding",
+          "payload_sizes": [
+            0
+          ],
+          "successful_native_attempts": 1
+        }
+      ]
+    },
+    {
+      "side": 0,
+      "cut_seconds": 194.00608208298218,
+      "source_ssrc": 3585463545,
+      "exact_source_report_us": 276969211022,
+      "exact_receiver_report_us": 276969027598,
+      "reported_cumulative_lost": 1,
+      "highest_sequence": 21731,
+      "gaps_at_receiver_report": [
+        {
+          "sequence": 21680,
+          "kind": "padding",
+          "payload_sizes": [
+            0
+          ],
+          "successful_native_attempts": 1
+        }
+      ]
+    },
+    {
+      "side": 0,
+      "cut_seconds": 231.0026414580061,
+      "source_ssrc": 3585463545,
+      "exact_source_report_us": 277006141678,
+      "exact_receiver_report_us": 277006098294,
+      "reported_cumulative_lost": 1,
+      "highest_sequence": 22380,
+      "gaps_at_receiver_report": [
+        {
+          "sequence": 21680,
+          "kind": "padding",
+          "payload_sizes": [
+            0
+          ],
+          "successful_native_attempts": 1
+        },
+        {
+          "sequence": 22292,
+          "kind": "padding",
+          "payload_sizes": [
+            0
+          ],
+          "successful_native_attempts": 1
+        },
+        {
+          "sequence": 22294,
+          "kind": "padding",
+          "payload_sizes": [
+            0
+          ],
+          "successful_native_attempts": 1
+        },
+        {
+          "sequence": 22295,
+          "kind": "padding",
+          "payload_sizes": [
+            0
+          ],
+          "successful_native_attempts": 1
+        }
+      ]
+    }
+  ]
+}

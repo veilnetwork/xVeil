@@ -1,0 +1,23 @@
+{
+  "step": "clippy-fixed",
+  "ok": true,
+  "command": [
+    "cargo",
+    "clippy",
+    "--locked",
+    "--release",
+    "-p",
+    "veilclient-ffi",
+    "--features",
+    "production-seeds,node-embedded,packet-tunnel",
+    "--lib",
+    "--",
+    "-D",
+    "warnings"
+  ],
+  "returncode": 0,
+  "elapsed_seconds": 17.022033207991626,
+  "owned_exited": true,
+  "helper_exited": true,
+  "finished_at_utc": "2026-10-19T21:36:28.398395+00:00"
+}

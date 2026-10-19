@@ -1,0 +1,20 @@
+{
+  "step": "test-full",
+  "ok": true,
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "--release",
+    "-p",
+    "veilclient-ffi",
+    "--features",
+    "production-seeds,node-embedded,packet-tunnel",
+    "--lib"
+  ],
+  "returncode": 0,
+  "elapsed_seconds": 166.46746512502432,
+  "owned_exited": true,
+  "helper_exited": true,
+  "finished_at_utc": "2026-10-19T21:34:23.973890+00:00"
+}

@@ -1,0 +1,98 @@
+   Compiling tun2proxy v0.8.2 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/third_party/tun2proxy)
+   Compiling veilclient-ffi v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veilclient-ffi)
+    Finished `release` profile [optimized] target(s) in 2m 56s
+     Running unittests src/lib.rs (/Volumes/cfb/target/release/deps/veilclient_ffi-0859ec928623771f)
+
+running 48 tests
+test media_ffi::media_priority_tests::media_priority_classifies_only_vp8_rtp_as_video ... ok
+test media_ffi::media_priority_tests::media_repair_rejects_zero_and_unknown_channels ... ok
+test media_ffi::media_priority_tests::batching_never_puts_video_into_an_audio_cell ... ok
+test media_ffi::media_priority_tests::anonymous_batch_preserves_other_producer_and_overflow ... ok
+test media_ffi::media_priority_tests::camera_and_screen_relay_assemblers_cannot_merge_equal_timestamps ... ok
+test media_ffi::media_priority_tests::audio_feedback_overflow_and_writer_stall_never_enter_audio_or_video ... ok
+test media_ffi::media_priority_tests::complete_relay_frames_reach_the_batch_sink_as_independent_work_items ... ok
+test media_ffi::media_priority_tests::feedback_pump_preserves_rtcp_and_original_deadline_without_audio_wait ... ok
+test media_ffi::media_priority_tests::blocked_screen_writer_does_not_hold_audio_or_camera ... ok
+test media_ffi::media_priority_tests::anonymous_video_does_not_construct_unused_routes ... ok
+test media_ffi::media_priority_tests::direct_audio_does_not_wait_for_video_writer ... ok
+test media_ffi::media_priority_tests::anonymous_repair_fans_out_with_independent_backpressure ... ok
+test media_ffi::media_priority_tests::closing_channel_cancels_both_blocked_pumps ... ok
+test media_ffi::media_priority_tests::compact_video_batches_ready_frames_without_crossing_cell_or_frame_boundaries ... ok
+test media_ffi::media_priority_tests::native_ingress_audio_control_and_other_channels_pass_held_video_assembly ... ok
+test media_ffi::media_priority_tests::relay_frame_repair_and_control_cannot_renew_original_fragment_age ... ok
+test media_ffi::media_priority_tests::native_ingress_registry_mutation_drops_without_waiting ... ok
+test media_ffi::media_priority_tests::relay_audio_batches_respect_compact_size_and_packet_limits ... ok
+test media_ffi::media_priority_tests::native_video_contention_discards_tail_and_close_retires_surviving_ingress ... ok
+test media_ffi::media_priority_tests::relay_audio_does_not_wait_for_video_writer ... ok
+test media_ffi::media_priority_tests::relay_marker_with_older_admission_must_set_the_whole_frame_deadline ... ok
+test media_ffi::media_priority_tests::relay_stats_separate_queue_lock_and_ipc_holds ... ok
+test media_ffi::media_priority_tests::anonymous_active_producers_rewarm_on_repair_and_stop_with_closed_ingress ... ok
+test media_ffi::media_priority_tests::relay_video_assembler_admits_a_complete_frame_atomically ... ok
+test media_ffi::media_priority_tests::relay_video_assembler_discards_an_unterminated_old_frame ... ok
+test media_ffi::media_priority_tests::relay_video_assembler_bounds_pathological_frames_and_recovers ... ok
+test media_ffi::media_priority_tests::relay_video_batching_emits_immediately_in_order_bounded_groups ... ok
+test media_ffi::media_priority_tests::relay_video_batching_stays_legacy_when_not_negotiated ... ok
+test media_ffi::media_priority_tests::anonymous_audio_continues_during_blocked_video_or_control_send_and_warm ... ok
+test media_ffi::media_priority_tests::padding_is_independent_of_an_incomplete_video_frame_and_its_cadence ... FAILED
+test media_ffi::media_priority_tests::old_video_repair_does_not_retime_the_next_original_frame ... FAILED
+test media_ffi::media_priority_tests::relay_video_control_cannot_consume_partial_frame_or_audio_capacity ... ok
+test media_ffi::media_priority_tests::relay_video_repair_is_immediate_and_preserves_the_next_frame_prefix ... ok
+test media_ffi::media_priority_tests::relay_video_repair_marker_cannot_clear_a_contended_frame_discard ... ok
+test media_ffi::media_priority_tests::relay_video_repairs_remain_separate_after_completion_and_timestamp_wrap ... ok
+test media_ffi::media_priority_tests::relay_video_repairs_use_bounded_video_capacity_and_leave_audio_and_prefix_intact ... ok
+test media_ffi::media_priority_tests::screen_switch_routes_at_ingress_and_backpressure_stays_local ... ok
+test media_ffi::media_priority_tests::timed_cell_deadlines_follow_actual_batches_and_raw_fallback_packets ... ok
+test media_ffi::media_priority_tests::stale_assembled_video_never_seals_or_precedes_a_fresh_frame ... ok
+test media_ffi::media_priority_tests::video_control_accepts_only_complete_rtcp_compounds ... ok
+test media_ffi::media_priority_tests::sealed_relay_media_size_accounts_for_ordered_record_framing ... ok
+test media_ffi::media_priority_tests::video_control_backpressure_never_falls_into_audio ... ok
+
+running 1 test
+test media_ffi::media_priority_tests::native_ingress_registry_readers_do_not_discard_audio_or_video ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 306 filtered out; finished in 0.00s
+
+test media_ffi::media_priority_tests::native_ingress_registry_readers_do_not_discard_audio_or_video ... ok
+[1792445163.936] INFO  node.mlock.unsupported mlockall not supported on this platform; key material may swap to disk
+[1792445163.949] INFO  node.sovereign_identity.standalone_built node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 (master_pk == device_pk; auto-built degenerate IdentityDocument from [identity] keypair)
+[1792445163.950] INFO  node.mlkem_dk.source mlkem dk_seed source=identity_derived
+[1792445163.950] INFO  node.sovereign_identity.published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 valid_until_unix=1793049963
+[1792445163.950] INFO  node.sovereign_identity.registry_published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 reg_version=1792445163 instances=1
+[1792445163.950] INFO  node.sovereign_identity.mlkem_cert_published node_id=f309e1c507f788482b33d446273ede9195324f41a87002b6e6ed87034aaa2506 instance_id=f309e1c507f788482b33d446273ede91 cert_version=1 advertises ratchet_pk=1667e9a1 ek=036a35d1
+test media_ffi::media_priority_tests::sealed_cell_expires_while_waiting_for_a_writer_without_changing_wire_bytes ... ok
+test media_ffi::media_priority_tests::anonymous_overflow_preserves_the_original_deadline ... ok
+[1792445163.964] INFO  node.start         config=/private/tmp/.tmpvgZB3x/config.toml
+[1792445163.965] INFO  bootstrap.none     no entry points: 0 configured, builtin seeds refused (policy=never), DNS discovery not configured; node stays offline until a peer is added
+onion-stream[f309e1c5]: circuit shared DATA pacer 50us outbound_pool=3 ack_pool=3 ack_redundancy=2 bulk_route_active_limit=2 stripe_routes=1
+onion-stream[f309e1c5]: circuit open retry #1: NoRendezvous
+test media_ffi::media_priority_tests::route_warm_stall_drops_old_audio_and_keeps_current_audio_and_control ... ok
+[1792445164.167] INFO  listen.stop        all listeners stopped
+[1792445164.167] INFO  node.stop          runtime stopped
+test media_ffi::media_priority_tests::private_address_control_requires_call_aead_and_never_reaches_the_engine ... ok
+test media_ffi::media_priority_tests::a_dequeued_burst_expires_while_its_first_ipc_request_finishes_normally ... ok
+
+failures:
+
+---- media_ffi::media_priority_tests::padding_is_independent_of_an_incomplete_video_frame_and_its_cadence stdout ----
+
+thread 'media_ffi::media_priority_tests::padding_is_independent_of_an_incomplete_video_frame_and_its_cadence' (83886835) panicked at crates/veilclient-ffi/src/media_ffi/media_priority_tests.rs:61:5:
+assertion `left == right` failed
+  left: [([[128, 96, 0, 0, 0, 0, 0, 7, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [160, 96, 0, 0, 0, 0, 0, 7, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 108], [128, 224, 0, 0, 0, 0, 0, 7, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]], true)]
+ right: [([[160, 96, 0, 0, 0, 0, 0, 7, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 108]], false), ([[128, 96, 0, 0, 0, 0, 0, 7, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [128, 224, 0, 0, 0, 0, 0, 7, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]], true)]
+
+---- media_ffi::media_priority_tests::old_video_repair_does_not_retime_the_next_original_frame stdout ----
+
+thread 'media_ffi::media_priority_tests::old_video_repair_does_not_retime_the_next_original_frame' (83886834) panicked at crates/veilclient-ffi/src/media_ffi/media_priority_tests.rs:79:5:
+assertion `left == right` failed
+  left: [([[128, 224, 0, 0, 0, 0, 0, 7, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]], true), ([[128, 96, 0, 0, 0, 0, 0, 7, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3]], true), ([[128, 96, 0, 0, 0, 0, 0, 8, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2], [128, 224, 0, 0, 0, 0, 0, 8, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]], true)]
+ right: [([[128, 224, 0, 0, 0, 0, 0, 7, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]], true), ([[128, 96, 0, 0, 0, 0, 0, 7, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3]], false), ([[128, 96, 0, 0, 0, 0, 0, 8, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2], [128, 224, 0, 0, 0, 0, 0, 8, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4]], true)]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    media_ffi::media_priority_tests::old_video_repair_does_not_retime_the_next_original_frame
+    media_ffi::media_priority_tests::padding_is_independent_of_an_incomplete_video_frame_and_its_cadence
+
+test result: FAILED. 46 passed; 2 failed; 0 ignored; 0 measured; 259 filtered out; finished in 0.67s
+
+error: test failed, to rerun pass `-p veilclient-ffi --lib`

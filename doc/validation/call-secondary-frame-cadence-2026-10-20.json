@@ -1,0 +1,92 @@
+{
+  "date": "2026-10-20",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "sdk_commit": "02c845526ba9d408c4d8258da6db627ee4835788",
+  "change": {
+    "cadence": "Padding bypasses the VP8 assembler; old repair fragments retain their own work/deadline without publishing original-frame cadence. Original frames preserve complete-frame source work. Camera/screen share the corrected drain; all local byte/source limits remain. No relay roles or prioritization added.",
+    "diagnostics": "Padding-only RTP is included in optional endpoint RTP-to-cell metadata. Validates padding/CSRC/extension bounds.",
+    "abi": "Canonical generator fixes pre-existing committed-header/ABI mismatch. C declarations and202export symbols unchanged; paired native/Dart contract is d897342ae32051ee3e0758dcae56dcefc6de26eb7ca0b23fce921b9a57dfb16f."
+  },
+  "verification": {
+    "behavioral_red": "46pass,2expected failures on previous cadence implementation; exact padding/repair regressions.",
+    "ffi_full": "306passed,2ignored",
+    "clippy": "PASS,release lib with-Dwarnings",
+    "dart_real_abi": "4passed,0skipped against actual fixed dylib",
+    "header_regeneration_idempotent": true,
+    "fixed_capture": {
+      "seconds": 360,
+      "aggregate_kbps": 1024,
+      "original_gate_ok": true,
+      "matched_markers": 704,
+      "missing_markers": 0,
+      "max_marker_ms": 189.98862494481727,
+      "last_minute_decoded_fps": [
+        10.626822331340549,
+        3.796530544277312
+      ],
+      "dimensions": [
+        [
+          320,
+          240
+        ],
+        [
+          320,
+          240
+        ]
+      ],
+      "exact_512kib_files": 2,
+      "remaining_cuts": [
+        {
+          "side": 1,
+          "seconds": 87.00558441702742,
+          "before": 2,
+          "after": 4,
+          "receive_ms": 79,
+          "reasons": [
+            "soft_audio_loss_repeated"
+          ]
+        },
+        {
+          "side": 0,
+          "seconds": 127.00678208301542,
+          "before": 1,
+          "after": 3,
+          "receive_ms": 82,
+          "reasons": [
+            "soft_audio_loss_repeated"
+          ]
+        },
+        {
+          "side": 0,
+          "seconds": 220.00278808298754,
+          "before": 1,
+          "after": 3,
+          "receive_ms": 62,
+          "reasons": [
+            "video_network_loss"
+          ]
+        }
+      ]
+    },
+    "foreign_wip_preserved": true
+  },
+  "findings": {
+    "prior_cuts": "At the exact RR confirmations for145/194/231s of the prior capture, remaining receiver gaps were padding only; all image payload in the reported sequence ranges had arrived. Cumulative counters alone cannot provide this classification at the sender.",
+    "diagnostic_drop": "One in-call missing padding packet has exact seal + local budget admission + local QUIC acceptance witnesses. No source rejection for that packet. Loss location beyond local transport admission remains unproven; absence of a receive log is not a NIC/relay attribution.",
+    "quality_limit": "The fixed full capture still ends around10.6/3.8decodedfps. This does not demonstrate an FPS improvement or resolution of all video quality issues. One capture perrevision is not a controlled performance comparison.",
+    "remaining_ramp_stall": "Source0 stayed at applied108kbit/3.5fps despite nominal225kbit/3.75fps on280..307s, with measured buffers50..126ms. RTT recovery gate and short-hold recovery resets need a focused regression and policy replay."
+  },
+  "remaining_work": [
+    "Repair recovery starvation under otherwise usable measured audio; qualify stable120msRTT without a permanently sparse camera.",
+    "Resolve additional app RTCP reaction to padding; exact loss stage beyond source QUIC acceptance remains unknown.",
+    "Qualify group coexistence under real codec/file load; finish ordered/canonical interaction isolation and full route/fanout cost accounting.",
+    "Physical speech/headset loudness, screen presentation and mute/reconnect remain to qualify."
+  ],
+  "limits": "Synthetic same-host loopback. Ordinary sampling in fixed capture; diagnostic capture overlapped compilation and is for attribution only. No physical speech/cellular/screen/subsecond presentation proof.",
+  "evidence_directory": "doc/validation/secondary-frame-cadence-2026-10-20",
+  "private_diagnostic_root": "/Users/vart/.cache/codex/xveil-padding-path-20261020",
+  "private_fixed_root": "/Users/vart/.cache/codex/xveil-cadence-fixed-20261020",
+  "pushed": false,
+  "released": false
+}

@@ -1,0 +1,34 @@
+Resolving dependencies...
+Downloading packages...
+  cli_util 0.4.2 (0.6.0 available)
+  clock 1.1.2 (1.1.3 available)
+  connectivity_plus 6.1.5 (7.3.2 available)
+  dbus 0.7.14 (0.8.0 available)
+  ffigen 11.0.0 (23.0.0 available)
+  glob 2.1.3 (2.2.0 available)
+  matcher 0.12.19 (0.12.20 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  meta 1.18.0 (1.19.0 available)
+  mobile_scanner 7.4.0 (7.4.2 available)
+  nm 0.5.0 (0.6.0 available)
+  package_config 2.2.0 (3.0.0 available)
+  petitparser 7.0.2 (7.1.0 available)
+  qr 3.0.2 (4.0.0 available)
+  stack_trace 1.12.1 (1.12.2 available)
+  test_api 0.7.11 (0.7.15 available)
+  vector_math 2.2.0 (2.4.3 available)
+  vm_service 15.2.0 (15.4.0 available)
+  xml 6.6.1 (7.1.0 available)
+  yaml 3.1.3 (3.1.4 available)
+Got dependencies!
+20 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Resolving dependencies in `./example`...
+Downloading packages...
+Got dependencies in `./example`.
+00:00 +0: loading /Users/vart/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_flutter/test/abi_contract_test.dart
+00:00 +0: ABI contract hash the generated hash is a full lowercase SHA-256
+00:00 +1: ABI contract hash a matching library loads and reports the expected hash
+00:00 +2: ABI contract hash a mismatched contract is refused at load, before any other symbol
+00:00 +3: ABI contract hash a library with no contract symbol at all is refused too
+00:00 +4: All tests passed!

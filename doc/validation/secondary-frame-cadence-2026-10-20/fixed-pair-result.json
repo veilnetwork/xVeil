@@ -1,0 +1,249 @@
+{
+  "ok": true,
+  "duration_seconds": 360,
+  "rate_kbps": 1024,
+  "decoded_pcm_edges": [
+    {
+      "side": 0,
+      "phases": [
+        {
+          "name": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "p95_ms": 100.03800003323704,
+          "max_ms": 100.04758334252983
+        },
+        {
+          "name": "audio-video",
+          "matched": 337,
+          "missing": 0,
+          "p95_ms": 160.00212501967326,
+          "max_ms": 189.98862494481727
+        }
+      ],
+      "source_edge_capture_positions": {
+        "20": [
+          0,
+          1
+        ],
+        "40": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "60": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      }
+    },
+    {
+      "side": 1,
+      "phases": [
+        {
+          "name": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "p95_ms": 110.20004167221487,
+          "max_ms": 110.25337496539578
+        },
+        {
+          "name": "audio-video",
+          "matched": 337,
+          "missing": 0,
+          "p95_ms": 150.0985833699815,
+          "max_ms": 180.26904168073088
+        }
+      ],
+      "source_edge_capture_positions": {
+        "40": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "60": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      }
+    }
+  ],
+  "decoded_video_progress": {
+    "synthetic_fixture_only": true,
+    "screen_presentation_proof": false,
+    "sampled_retrieval_not_native_decode_timing": true,
+    "tail_seconds": 15,
+    "directions": [
+      {
+        "side": 0,
+        "decoded_frame_pulls": 338,
+        "decoded_counter": {
+          "frames": 1634,
+          "observation_seconds": 337.9948244160041,
+          "fps": 4.834393552692015
+        },
+        "last_minute_decoded_counter": {
+          "frames": 627,
+          "observation_seconds": 59.00164512498304,
+          "fps": 10.626822331340549
+        },
+        "last_dimensions": [
+          320,
+          240
+        ],
+        "content_changes": 337,
+        "last_decoded_pull_seconds": 359.00253108300967,
+        "max_sampled_pull_gap_seconds": 2.003429625008721,
+        "tail_decoded_pulls": 15,
+        "tail_content_changes": 14,
+        "tail_content_verified": true,
+        "moving_at_end": true
+      },
+      {
+        "side": 1,
+        "decoded_frame_pulls": 339,
+        "decoded_counter": {
+          "frames": 1117,
+          "observation_seconds": 337.99401158303954,
+          "fps": 3.3047922795092823
+        },
+        "last_minute_decoded_counter": {
+          "frames": 224,
+          "observation_seconds": 59.00123741599964,
+          "fps": 3.796530544277312
+        },
+        "last_dimensions": [
+          320,
+          240
+        ],
+        "content_changes": 338,
+        "last_decoded_pull_seconds": 359.0041770830285,
+        "max_sampled_pull_gap_seconds": 1.0101654999889433,
+        "tail_decoded_pulls": 15,
+        "tail_content_changes": 14,
+        "tail_content_verified": true,
+        "moving_at_end": true
+      }
+    ],
+    "required_tail_content_changes": 14,
+    "tail_content_verified": true,
+    "moving_at_end": true
+  },
+  "file_results": [
+    {
+      "queued": 524288,
+      "queue_duration_ms": 5.0,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "receipt_duration_ms": 188130.5,
+      "missing_indices": []
+    },
+    {
+      "queued": 524288,
+      "queue_duration_ms": 4.4,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "receipt_duration_ms": 203518.4,
+      "missing_indices": []
+    }
+  ],
+  "neutral_shaper_final": [
+    {
+      "received": 89193,
+      "sent": 89193,
+      "drops": 0,
+      "max_queue_ms": 74.0343545912765
+    },
+    {
+      "received": 89799,
+      "sent": 89799,
+      "drops": 0,
+      "max_queue_ms": 67.44297873228788
+    }
+  ],
+  "local_media_channel_stats": [
+    {
+      "video_frames_enqueued": 4768,
+      "video_frames_started": 4768,
+      "video_queue_depth": 0,
+      "video_queue_max_depth": 3,
+      "video_queue_age_max_ms": 208,
+      "video_queue_holds_75ms": 39,
+      "sender_lock_max_ms": 0,
+      "sender_lock_holds_16ms": 0,
+      "video_frame_ipc_max_ms": 0,
+      "video_frame_ipc_holds_33ms": 0,
+      "ipc_cell_max_ms": 0,
+      "ipc_cell_holds_16ms": 0,
+      "ipc_send_failures": 0
+    },
+    {
+      "video_frames_enqueued": 5333,
+      "video_frames_started": 5333,
+      "video_queue_depth": 0,
+      "video_queue_max_depth": 3,
+      "video_queue_age_max_ms": 281,
+      "video_queue_holds_75ms": 26,
+      "sender_lock_max_ms": 0,
+      "sender_lock_holds_16ms": 0,
+      "video_frame_ipc_max_ms": 0,
+      "video_frame_ipc_holds_33ms": 0,
+      "ipc_cell_max_ms": 0,
+      "ipc_cell_holds_16ms": 0,
+      "ipc_send_failures": 0
+    }
+  ],
+  "cuts": [
+    {
+      "side": 1,
+      "seconds": 87.00558441702742,
+      "before": 2,
+      "after": 4,
+      "receive_ms": 79,
+      "reasons": [
+        "soft_audio_loss_repeated"
+      ]
+    },
+    {
+      "side": 0,
+      "seconds": 127.00678208301542,
+      "before": 1,
+      "after": 3,
+      "receive_ms": 82,
+      "reasons": [
+        "soft_audio_loss_repeated"
+      ]
+    },
+    {
+      "side": 0,
+      "seconds": 220.00278808298754,
+      "before": 1,
+      "after": 3,
+      "receive_ms": 62,
+      "reasons": [
+        "video_network_loss"
+      ]
+    }
+  ],
+  "matched_markers": 704,
+  "missing_markers": 0,
+  "max_marker_ms": 189.98862494481727,
+  "capture_hashes": {
+    "native.log": "3c96fe7d566cdc23709fc1778e3c6adb7c2965035ef71e7d24a7925a67f19503",
+    "runtime.log": "4c7ce70722a138d95fba0b19f0e9c72f35a970d5c0c4565434436c05ad751d69",
+    "summary.json": "e1b1d3203dfe2d22a5726346f76a140a59cc70c849944d67b9764bf07c7bec62",
+    "codec-samples.json": "9e076bcd9e2c398091bdca88c6983771d0c2c78399a0edf4d8958a0afdc059a3"
+  }
+}
