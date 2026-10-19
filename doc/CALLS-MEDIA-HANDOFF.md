@@ -1,5 +1,56 @@
 # Calls media handoff
 
+## 2026-10-19: idle TLS churn fixed; full quality gates still fail
+
+SDK **2889396e** retains generic outgoing QUIC siblings with idle transport
+PINGs at10s while their canonical owner remains alive. No producer role,
+admission privilege or peer priority is introduced; parent retirement still
+closes children. The previous audio-only trace contains24 endpoint/generation
+observations for the mixed reliable plane, all with0 completed application
+records: its three duplex children expired/reopened at about26/58/89s after
+their pre-capture startup. They generated TLS bursts without file/video work.
+The new full group capture keeps the same6 published connection ordinals for
+the entire360s. This closes a concrete unwanted-traffic/lifetime defect, not
+the entire quality problem or interaction-separation scope.
+
+Clean **156 transport /624 session /663 runtime /837 protocol** tests pass
+(the previous8/11 session/runtime ignores). Removing keepalive fails the new
+35s real-clock idle test; restoring it passes. The first full run failed one
+old camera/screen test that explicitly required idle expiry. Its replacement
+requires35s survival, then forces real closes and verifies new keys, independent
+camera/screen delivery and uninterrupted audio. Original failure and passing
+test-log provenance are retained. The new raw transport test also verifies
+bidirectional data after35s and closure with the parent. All202 SDK exports are
+unchanged. SDK hash:
+`4bc908202196047911be8812d093469312ca11ee450c7b8f7fce70f1c0e154bf`.
+Native media and production Dart policies are unchanged.
+
+Original **360s/1024-kbit group gate FAILS at240.261ms**:2112 matched/0 missing
+markers,3 exact512-KiB files, six final video tails14 and0 native driver deadline
+misses. Its60-ms peak at289.870s spans **30.609ms formation +76.872ms
+encoded-to-ingress +132.780ms after ingress**. Its two selected hops account
+for40.364/36.010ms, with0.032ms in relay dispatch. One sender enters60-ms
+packets at31s and stays there until capture end; the other two remain40ms.
+
+The original **360s/1024-kbit pair gate also FAILS**: **189.991/220.248ms**,
+704 matched/0 missing markers,2 exact512-KiB files and0 deadline misses. Final
+video tails are14/13; sampled decoded-frame retrieval gaps reach13/16s. These
+are not proof of smooth video. The220-ms peak is at27.271s on a60-ms packet:
+only26.215ms is before WebRTC, followed by **194.033ms WebRTC-to-PCM**. The
+actual decoded buffer is about197ms, target/ceiling140ms, and the bracket has
+normal speech with no recovery skip. Investigate receiver/packetization recovery
+and audio recovery before competing producer growth; do not blame all residual
+delay on delivery or blindly shrink the buffer and introduce PLC.
+
+No criterion, clock, workload or verdict was loosened. One capture per variant
+cannot establish causal quality improvement/regression. All16 recorded process
+observations across both captures exited (14 long-lived/2 transient); all7 node
+stops returned0 and fixture sockets are gone. No phone, installed app, relay,
+public release or push change. Evidence: `call-sibling-idle-2026-10-19.json`,
+`sibling-idle-2026-10-19/`; raw artifacts:
+`/Users/vart/.cache/codex/xveil-sibling-idle-20261019`.
+Goal **ACTIVE**. Preserve the full scope and original gates listed below.
+
 ## 2026-10-19: exact route attribution; audio-only also has a delivery peak
 
 No production SDK/native/policy change in this cycle. The SDK remains

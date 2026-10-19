@@ -1,0 +1,10 @@
+{
+  "base": "bfbb23115749e5930b85f491dbda2d8d56190f0a",
+  "sources": {
+    "crates/veil-transport/src/quic/parallel.rs": "2970b2dd1faaa6db7cd17d3df72684d3c529fc8becaa6f093f60a8c0d46e1104",
+    "crates/veil-transport/src/quic/parallel_accept_tests.rs": "acda024718e8ea2eb5a177e8f811e846c19c6405a6307b6b0b0f5b9893765f81",
+    "crates/veil-session/src/primary_recovery_quic_tests.rs": "6aaef28745b3666a2ee3f0f5308f4bf967cb2adf08a3f5ca07b946f9f81b1717"
+  },
+  "sdk_sha256": "4bc908202196047911be8812d093469312ca11ee450c7b8f7fce70f1c0e154bf",
+  "commit": "2889396e2f014beff9052ab103127ee037df55d3"
+}

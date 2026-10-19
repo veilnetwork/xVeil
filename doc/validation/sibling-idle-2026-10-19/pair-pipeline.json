@@ -1,0 +1,948 @@
+{
+  "same_process_fixture_only": true,
+  "exact_sender_offsets_required": true,
+  "edge_attribution_basis": "packet_containing_source_input",
+  "residual_can_include_following_packet_and_playout": true,
+  "native_playout_trace_present": true,
+  "capture_index_verified": {
+    "1": true,
+    "0": true
+  },
+  "native_trace_limit_may_have_been_reached": false,
+  "unmatched_payload_rows": 0,
+  "unattributed_edges": {},
+  "packets": [
+    {
+      "source": 0,
+      "phase": "audio-only",
+      "spans_ms": {
+        "encoded_to_send": {
+          "count": 319,
+          "max_ms": 22.192,
+          "p95_ms": 0.054
+        },
+        "send_to_sdk": {
+          "count": 319,
+          "max_ms": 0.269,
+          "p95_ms": 0.025
+        },
+        "sdk_to_ingress": {
+          "count": 319,
+          "max_ms": 17.623,
+          "p95_ms": 14.382
+        },
+        "ingress_to_webrtc": {
+          "count": 319,
+          "max_ms": 0.201,
+          "p95_ms": 0.056
+        },
+        "first_encode_input_to_encoded": {
+          "count": 319,
+          "max_ms": 50.852,
+          "p95_ms": 50.519
+        }
+      }
+    },
+    {
+      "source": 0,
+      "phase": "competing",
+      "spans_ms": {
+        "encoded_to_send": {
+          "count": 8379,
+          "max_ms": 26.058,
+          "p95_ms": 0.059
+        },
+        "send_to_sdk": {
+          "count": 8379,
+          "max_ms": 0.085,
+          "p95_ms": 0.022
+        },
+        "sdk_to_ingress": {
+          "count": 8379,
+          "max_ms": 137.224,
+          "p95_ms": 27.794
+        },
+        "ingress_to_webrtc": {
+          "count": 8379,
+          "max_ms": 1.921,
+          "p95_ms": 0.053
+        },
+        "first_encode_input_to_encoded": {
+          "count": 8379,
+          "max_ms": 51.151,
+          "p95_ms": 30.507
+        }
+      }
+    },
+    {
+      "source": 1,
+      "phase": "audio-only",
+      "spans_ms": {
+        "encoded_to_send": {
+          "count": 319,
+          "max_ms": 22.1,
+          "p95_ms": 0.052
+        },
+        "send_to_sdk": {
+          "count": 319,
+          "max_ms": 0.039,
+          "p95_ms": 0.023
+        },
+        "sdk_to_ingress": {
+          "count": 319,
+          "max_ms": 19.387,
+          "p95_ms": 14.967
+        },
+        "ingress_to_webrtc": {
+          "count": 319,
+          "max_ms": 0.148,
+          "p95_ms": 0.053
+        },
+        "first_encode_input_to_encoded": {
+          "count": 319,
+          "max_ms": 50.615,
+          "p95_ms": 50.535
+        }
+      }
+    },
+    {
+      "source": 1,
+      "phase": "competing",
+      "spans_ms": {
+        "encoded_to_send": {
+          "count": 8369,
+          "max_ms": 28.721,
+          "p95_ms": 0.052
+        },
+        "send_to_sdk": {
+          "count": 8369,
+          "max_ms": 0.259,
+          "p95_ms": 0.02
+        },
+        "sdk_to_ingress": {
+          "count": 8369,
+          "max_ms": 153.22,
+          "p95_ms": 27.121
+        },
+        "ingress_to_webrtc": {
+          "count": 8369,
+          "max_ms": 1.323,
+          "p95_ms": 0.051
+        },
+        "first_encode_input_to_encoded": {
+          "count": 8369,
+          "max_ms": 50.938,
+          "p95_ms": 30.526
+        }
+      }
+    }
+  ],
+  "attributed_edges": 704,
+  "largest_pcm_edges": [
+    {
+      "source": 0,
+      "input_seconds": 27.27053,
+      "output_seconds": 27.490778,
+      "total_ms": 220.248,
+      "packet_ms": 60,
+      "input_position_ms": 50,
+      "following_packet_ingress_seconds": 27.342755,
+      "render_clock": {
+        "available": true,
+        "marker_rtp_timestamp": 926571663,
+        "packet_inserted_us": 257042552137,
+        "before": {
+          "entered_us": 257042726092,
+          "exited_us": 257042726096,
+          "before_ms": 197,
+          "after_ms": 187,
+          "target_ms": 140,
+          "skipped": 0,
+          "fallback": 0,
+          "frame_headroom_ms": 60,
+          "target_ceiling_ms": 140,
+          "rtp_timestamp": 926571311,
+          "speech_type": 0,
+          "muted": 0
+        },
+        "after": {
+          "entered_us": 257042736116,
+          "exited_us": 257042736256,
+          "before_ms": 187,
+          "after_ms": 177,
+          "target_ms": 140,
+          "skipped": 0,
+          "fallback": 0,
+          "frame_headroom_ms": 60,
+          "target_ceiling_ms": 140,
+          "rtp_timestamp": 926571791,
+          "speech_type": 0,
+          "muted": 0
+        },
+        "continuous_normal_speech": true,
+        "rtp_clock_step_ms": 10.0,
+        "relative_arrival_clock": {
+          "history_window_ms": 30000,
+          "packet_count": 576,
+          "floor_witness": {
+            "received_us": 257015288367,
+            "ssrc": 1558937521,
+            "sequence": 18830,
+            "rtp_timestamp": 925262703
+          },
+          "clock_age_ms": [
+            175.06233334350586,
+            175.22233334350585
+          ],
+          "absolute_one_way_latency": false
+        },
+        "source_to_clock_bracket_ms": [
+          200.19779165649413,
+          210.35779165649413
+        ],
+        "insertion_to_clock_bracket_ms": [
+          173.959,
+          184.119
+        ],
+        "clock_bracket_to_pcm_edge_ms": [
+          9.88995834350586,
+          20.04995834350586
+        ],
+        "signal_output_proof": false
+      },
+      "spans_ms": {
+        "capture_to_encoded": 0.313,
+        "encoded_to_send": 3.851,
+        "send_to_sdk": 0.017,
+        "sdk_to_ingress": 22.01,
+        "ingress_to_webrtc": 0.024,
+        "webrtc_to_pcm_edge": 194.033
+      }
+    },
+    {
+      "source": 0,
+      "input_seconds": 129.280537,
+      "output_seconds": 129.480745,
+      "total_ms": 200.208,
+      "packet_ms": 60,
+      "input_position_ms": 0,
+      "following_packet_ingress_seconds": 129.40262,
+      "render_clock": {
+        "available": true,
+        "marker_rtp_timestamp": 931468143,
+        "packet_inserted_us": 257144598425,
+        "before": {
+          "entered_us": 257144726169,
+          "exited_us": 257144726174,
+          "before_ms": 180,
+          "after_ms": 170,
+          "target_ms": 120,
+          "skipped": 0,
+          "fallback": 0,
+          "frame_headroom_ms": 60,
+          "target_ceiling_ms": 140,
+          "rtp_timestamp": 931468126,
+          "speech_type": 0,
+          "muted": 0
+        },
+        "after": {
+          "entered_us": 257144736105,
+          "exited_us": 257144736110,
+          "before_ms": 170,
+          "after_ms": 160,
+          "target_ms": 120,
+          "skipped": 0,
+          "fallback": 0,
+          "frame_headroom_ms": 60,
+          "target_ceiling_ms": 140,
+          "rtp_timestamp": 931468606,
+          "speech_type": 0,
+          "muted": 0
+        },
+        "continuous_normal_speech": true,
+        "rtp_clock_step_ms": 10.0,
+        "relative_arrival_clock": {
+          "history_window_ms": 30000,
+          "packet_count": 735,
+          "floor_witness": {
+            "received_us": 257124135797,
+            "ssrc": 1558937521,
+            "sequence": 21462,
+            "rtp_timestamp": 930487023
+          },
+          "clock_age_ms": [
+            150.73116665649414,
+            150.66716665649415
+          ],
+          "absolute_one_way_latency": false
+        },
+        "source_to_clock_bracket_ms": [
+          190.26870834350586,
+          200.20470834350587
+        ],
+        "insertion_to_clock_bracket_ms": [
+          127.749,
+          137.685
+        ],
+        "clock_bracket_to_pcm_edge_ms": [
+          0.003249969482421875,
+          9.939249969482422
+        ],
+        "signal_output_proof": false
+      },
+      "spans_ms": {
+        "capture_to_encoded": 50.653,
+        "encoded_to_send": 0.047,
+        "send_to_sdk": 0.012,
+        "sdk_to_ingress": 11.74,
+        "ingress_to_webrtc": 0.025,
+        "webrtc_to_pcm_edge": 137.731
+      }
+    },
+    {
+      "source": 0,
+      "input_seconds": 131.300531,
+      "output_seconds": 131.500714,
+      "total_ms": 200.184,
+      "packet_ms": 60,
+      "input_position_ms": 40,
+      "following_packet_ingress_seconds": 131.383152,
+      "render_clock": {
+        "available": true,
+        "marker_rtp_timestamp": 931565103,
+        "packet_inserted_us": 257146577521,
+        "before": {
+          "entered_us": 257146745999,
+          "exited_us": 257146746002,
+          "before_ms": 140,
+          "after_ms": 130,
+          "target_ms": 120,
+          "skipped": 0,
+          "fallback": 0,
+          "frame_headroom_ms": 60,
+          "target_ceiling_ms": 140,
+          "rtp_timestamp": 931565086,
+          "speech_type": 0,
+          "muted": 0
+        },
+        "after": {
+          "entered_us": 257146756004,
+          "exited_us": 257146756078,
+          "before_ms": 130,
+          "after_ms": 120,
+          "target_ms": 120,
+          "skipped": 0,
+          "fallback": 0,
+          "frame_headroom_ms": 60,
+          "target_ceiling_ms": 140,
+          "rtp_timestamp": 931565566,
+          "speech_type": 0,
+          "muted": 0
+        },
+        "continuous_normal_speech": true,
+        "rtp_clock_step_ms": 10.0,
+        "relative_arrival_clock": {
+          "history_window_ms": 30000,
+          "packet_count": 717,
+          "floor_witness": {
+            "received_us": 257124135797,
+            "ssrc": 1558937521,
+            "sequence": 21462,
+            "rtp_timestamp": 930487023
+          },
+          "clock_age_ms": [
+            150.55916665649414,
+            150.63516665649414
+          ],
+          "absolute_one_way_latency": false
+        },
+        "source_to_clock_bracket_ms": [
+          190.10329165649415,
+          200.17929165649414
+        ],
+        "insertion_to_clock_bracket_ms": [
+          168.481,
+          178.557
+        ],
+        "clock_bracket_to_pcm_edge_ms": [
+          0.00445831298828125,
+          10.08045831298828
+        ],
+        "signal_output_proof": false
+      },
+      "spans_ms": {
+        "capture_to_encoded": 10.329,
+        "encoded_to_send": 0.023,
+        "send_to_sdk": 0.012,
+        "sdk_to_ingress": 11.216,
+        "ingress_to_webrtc": 0.026,
+        "webrtc_to_pcm_edge": 178.577
+      }
+    },
+    {
+      "source": 0,
+      "input_seconds": 130.290542,
+      "output_seconds": 130.490659,
+      "total_ms": 200.117,
+      "packet_ms": 60,
+      "input_position_ms": 50,
+      "following_packet_ingress_seconds": 130.361815,
+      "render_clock": {
+        "available": true,
+        "marker_rtp_timestamp": 931516623,
+        "packet_inserted_us": 257145557280,
+        "before": {
+          "entered_us": 257145735994,
+          "exited_us": 257145736059,
+          "before_ms": 130,
+          "after_ms": 120,
+          "target_ms": 120,
+          "skipped": 0,
+          "fallback": 0,
+          "frame_headroom_ms": 60,
+          "target_ceiling_ms": 140,
+          "rtp_timestamp": 931516606,
+          "speech_type": 0,
+          "muted": 0
+        },
+        "after": {
+          "entered_us": 257145746023,
+          "exited_us": 257145746026,
+          "before_ms": 180,
+          "after_ms": 170,
+          "target_ms": 120,
+          "skipped": 0,
+          "fallback": 0,
+          "frame_headroom_ms": 60,
+          "target_ceiling_ms": 140,
+          "rtp_timestamp": 931517086,
+          "speech_type": 0,
+          "muted": 0
+        },
+        "continuous_normal_speech": true,
+        "rtp_clock_step_ms": 10.0,
+        "relative_arrival_clock": {
+          "history_window_ms": 30000,
+          "packet_count": 726,
+          "floor_witness": {
+            "received_us": 257124135797,
+            "ssrc": 1558937521,
+            "sequence": 21462,
+            "rtp_timestamp": 930487023
+          },
+          "clock_age_ms": [
+            150.61616665649413,
+            150.58316665649414
+          ],
+          "absolute_one_way_latency": false
+        },
+        "source_to_clock_bracket_ms": [
+          190.14908334350585,
+          200.11608334350586
+        ],
+        "insertion_to_clock_bracket_ms": [
+          178.779,
+          188.746
+        ],
+        "clock_bracket_to_pcm_edge_ms": [
+          0.00120831298828125,
+          9.968208312988281
+        ],
+        "signal_output_proof": false
+      },
+      "spans_ms": {
+        "capture_to_encoded": 0.631,
+        "encoded_to_send": 0.038,
+        "send_to_sdk": 0.011,
+        "sdk_to_ingress": 10.62,
+        "ingress_to_webrtc": 0.033,
+        "webrtc_to_pcm_edge": 188.784
+      }
+    },
+    {
+      "source": 0,
+      "input_seconds": 26.260538,
+      "output_seconds": 26.450762,
+      "total_ms": 190.224,
+      "packet_ms": 60,
+      "input_position_ms": 0,
+      "following_packet_ingress_seconds": 26.382134,
+      "render_clock": {
+        "available": true,
+        "marker_rtp_timestamp": 926523183,
+        "packet_inserted_us": 257041602070,
+        "before": {
+          "entered_us": 257041696097,
+          "exited_us": 257041696253,
+          "before_ms": 125,
+          "after_ms": 115,
+          "target_ms": 140,
+          "skipped": 0,
+          "fallback": 0,
+          "frame_headroom_ms": 60,
+          "target_ceiling_ms": 140,
+          "rtp_timestamp": 926522927,
+          "speech_type": 0,
+          "muted": 0
+        },
+        "after": {
+          "entered_us": 257041706120,
+          "exited_us": 257041706127,
+          "before_ms": 175,
+          "after_ms": 165,
+          "target_ms": 140,
+          "skipped": 0,
+          "fallback": 0,
+          "frame_headroom_ms": 60,
+          "target_ceiling_ms": 140,
+          "rtp_timestamp": 926523407,
+          "speech_type": 0,
+          "muted": 0
+        },
+        "continuous_normal_speech": true,
+        "rtp_clock_step_ms": 10.0,
+        "relative_arrival_clock": {
+          "history_window_ms": 30000,
+          "packet_count": 558,
+          "floor_witness": {
+            "received_us": 257015288367,
+            "ssrc": 1558937521,
+            "sequence": 18830,
+            "rtp_timestamp": 925262703
+          },
+          "clock_age_ms": [
+            153.21933334350587,
+            153.09333334350586
+          ],
+          "absolute_one_way_latency": false
+        },
+        "source_to_clock_bracket_ms": [
+          180.34670834350587,
+          190.22070834350586
+        ],
+        "insertion_to_clock_bracket_ms": [
+          94.183,
+          104.057
+        ],
+        "clock_bracket_to_pcm_edge_ms": [
+          0.003041656494140625,
+          9.877041656494141
+        ],
+        "signal_output_proof": false
+      },
+      "spans_ms": {
+        "capture_to_encoded": 50.376,
+        "encoded_to_send": 0.034,
+        "send_to_sdk": 0.014,
+        "sdk_to_ingress": 35.685,
+        "ingress_to_webrtc": 0.026,
+        "webrtc_to_pcm_edge": 104.089
+      }
+    },
+    {
+      "source": 1,
+      "input_seconds": 215.130684,
+      "output_seconds": 215.320675,
+      "total_ms": 189.991,
+      "packet_ms": 60,
+      "input_position_ms": 10,
+      "following_packet_ingress_seconds": 215.267225,
+      "render_clock": {
+        "available": true,
+        "marker_rtp_timestamp": 437957863,
+        "packet_inserted_us": 257230440797,
+        "before": {
+          "entered_us": 257230555980,
+          "exited_us": 257230555987,
+          "before_ms": 119,
+          "after_ms": 109,
+          "target_ms": 140,
+          "skipped": 0,
+          "fallback": 0,
+          "frame_headroom_ms": 60,
+          "target_ceiling_ms": 140,
+          "rtp_timestamp": 437957389,
+          "speech_type": 0,
+          "muted": 0
+        },
+        "after": {
+          "entered_us": 257230566002,
+          "exited_us": 257230566016,
+          "before_ms": 109,
+          "after_ms": 99,
+          "target_ms": 140,
+          "skipped": 0,
+          "fallback": 0,
+          "frame_headroom_ms": 60,
+          "target_ceiling_ms": 140,
+          "rtp_timestamp": 437957869,
+          "speech_type": 0,
+          "muted": 0
+        },
+        "continuous_normal_speech": true,
+        "rtp_clock_step_ms": 10.0,
+        "relative_arrival_clock": {
+          "history_window_ms": 30000,
+          "packet_count": 742,
+          "floor_witness": {
+            "received_us": 257215855806,
+            "ssrc": 3191109361,
+            "sequence": 8183,
+            "rtp_timestamp": 437258503
+          },
+          "clock_age_ms": [
+            140.056,
+            140.085
+          ],
+          "absolute_one_way_latency": false
+        },
+        "source_to_clock_bracket_ms": [
+          169.935,
+          179.964
+        ],
+        "insertion_to_clock_bracket_ms": [
+          115.19,
+          125.219
+        ],
+        "clock_bracket_to_pcm_edge_ms": [
+          10.026875,
+          20.055875
+        ],
+        "signal_output_proof": false
+      },
+      "spans_ms": {
+        "capture_to_encoded": 40.669,
+        "encoded_to_send": 0.029,
+        "send_to_sdk": 0.007,
+        "sdk_to_ingress": 13.972,
+        "ingress_to_webrtc": 0.038,
+        "webrtc_to_pcm_edge": 135.276
+      }
+    },
+    {
+      "source": 0,
+      "input_seconds": 28.280535,
+      "output_seconds": 28.460883,
+      "total_ms": 180.348,
+      "packet_ms": 40,
+      "input_position_ms": 0,
+      "following_packet_ingress_seconds": 28.361759,
+      "render_clock": {
+        "available": true,
+        "marker_rtp_timestamp": 926620143,
+        "packet_inserted_us": 257043580416,
+        "before": {
+          "entered_us": 257043696085,
+          "exited_us": 257043696198,
+          "before_ms": 127,
+          "after_ms": 117,
+          "target_ms": 120,
+          "skipped": 0,
+          "fallback": 0,
+          "frame_headroom_ms": 40,
+          "target_ceiling_ms": 120,
+          "rtp_timestamp": 926619791,
+          "speech_type": 0,
+          "muted": 0
+        },
+        "after": {
+          "entered_us": 257043706100,
+          "exited_us": 257043706105,
+          "before_ms": 157,
+          "after_ms": 147,
+          "target_ms": 120,
+          "skipped": 0,
+          "fallback": 0,
+          "frame_headroom_ms": 40,
+          "target_ceiling_ms": 120,
+          "rtp_timestamp": 926620271,
+          "speech_type": 0,
+          "muted": 0
+        },
+        "continuous_normal_speech": true,
+        "rtp_clock_step_ms": 10.0,
+        "relative_arrival_clock": {
+          "history_window_ms": 30000,
+          "packet_count": 599,
+          "floor_witness": {
+            "received_us": 257015288367,
+            "ssrc": 1558937521,
+            "sequence": 18830,
+            "rtp_timestamp": 925262703
+          },
+          "clock_age_ms": [
+            135.16433334350586,
+            135.07133334350587
+          ],
+          "absolute_one_way_latency": false
+        },
+        "source_to_clock_bracket_ms": [
+          160.29504168701172,
+          170.20204168701173
+        ],
+        "insertion_to_clock_bracket_ms": [
+          115.782,
+          125.689
+        ],
+        "clock_bracket_to_pcm_edge_ms": [
+          10.145625,
+          20.052625
+        ],
+        "signal_output_proof": false
+      },
+      "spans_ms": {
+        "capture_to_encoded": 30.496,
+        "encoded_to_send": 0.043,
+        "send_to_sdk": 0.015,
+        "sdk_to_ingress": 13.888,
+        "ingress_to_webrtc": 0.035,
+        "webrtc_to_pcm_edge": 135.871
+      }
+    },
+    {
+      "source": 0,
+      "input_seconds": 30.300535,
+      "output_seconds": 30.480875,
+      "total_ms": 180.34,
+      "packet_ms": 40,
+      "input_position_ms": 20,
+      "following_packet_ingress_seconds": 30.372072,
+      "render_clock": {
+        "available": true,
+        "marker_rtp_timestamp": 926717103,
+        "packet_inserted_us": 257045576942,
+        "before": {
+          "entered_us": 257045716269,
+          "exited_us": 257045716274,
+          "before_ms": 147,
+          "after_ms": 137,
+          "target_ms": 120,
+          "skipped": 0,
+          "fallback": 0,
+          "frame_headroom_ms": 40,
+          "target_ceiling_ms": 120,
+          "rtp_timestamp": 926716751,
+          "speech_type": 0,
+          "muted": 0
+        },
+        "after": {
+          "entered_us": 257045726095,
+          "exited_us": 257045726100,
+          "before_ms": 137,
+          "after_ms": 127,
+          "target_ms": 120,
+          "skipped": 0,
+          "fallback": 0,
+          "frame_headroom_ms": 40,
+          "target_ceiling_ms": 120,
+          "rtp_timestamp": 926717231,
+          "speech_type": 0,
+          "muted": 0
+        },
+        "continuous_normal_speech": true,
+        "rtp_clock_step_ms": 10.0,
+        "relative_arrival_clock": {
+          "history_window_ms": 30000,
+          "packet_count": 640,
+          "floor_witness": {
+            "received_us": 257040235461,
+            "ssrc": 1558937521,
+            "sequence": 19363,
+            "rtp_timestamp": 926459823
+          },
+          "clock_age_ms": [
+            128.14633334350586,
+            127.97233334350587
+          ],
+          "absolute_one_way_latency": false
+        },
+        "source_to_clock_bracket_ms": [
+          160.370625,
+          170.196625
+        ],
+        "insertion_to_clock_bracket_ms": [
+          139.332,
+          149.158
+        ],
+        "clock_bracket_to_pcm_edge_ms": [
+          10.143499969482422,
+          19.96949996948242
+        ],
+        "signal_output_proof": false
+      },
+      "spans_ms": {
+        "capture_to_encoded": 10.683,
+        "encoded_to_send": 0.054,
+        "send_to_sdk": 0.019,
+        "sdk_to_ingress": 10.226,
+        "ingress_to_webrtc": 0.027,
+        "webrtc_to_pcm_edge": 159.331
+      }
+    },
+    {
+      "source": 0,
+      "input_seconds": 32.320532,
+      "output_seconds": 32.50086,
+      "total_ms": 180.328,
+      "packet_ms": 40,
+      "input_position_ms": 0,
+      "following_packet_ingress_seconds": 32.401881,
+      "render_clock": {
+        "available": true,
+        "marker_rtp_timestamp": 926814063,
+        "packet_inserted_us": 257047617668,
+        "before": {
+          "entered_us": 257047736131,
+          "exited_us": 257047736286,
+          "before_ms": 127,
+          "after_ms": 117,
+          "target_ms": 120,
+          "skipped": 0,
+          "fallback": 0,
+          "frame_headroom_ms": 40,
+          "target_ceiling_ms": 120,
+          "rtp_timestamp": 926813711,
+          "speech_type": 0,
+          "muted": 0
+        },
+        "after": {
+          "entered_us": 257047746096,
+          "exited_us": 257047746102,
+          "before_ms": 157,
+          "after_ms": 147,
+          "target_ms": 120,
+          "skipped": 0,
+          "fallback": 0,
+          "frame_headroom_ms": 40,
+          "target_ceiling_ms": 120,
+          "rtp_timestamp": 926814191,
+          "speech_type": 0,
+          "muted": 0
+        },
+        "continuous_normal_speech": true,
+        "rtp_clock_step_ms": 10.0,
+        "relative_arrival_clock": {
+          "history_window_ms": 30000,
+          "packet_count": 657,
+          "floor_witness": {
+            "received_us": 257040235461,
+            "ssrc": 1558937521,
+            "sequence": 19363,
+            "rtp_timestamp": 926459823
+          },
+          "clock_age_ms": [
+            128.15833334350586,
+            127.97433334350586
+          ],
+          "absolute_one_way_latency": false
+        },
+        "source_to_clock_bracket_ms": [
+          160.38558334350586,
+          170.20158334350586
+        ],
+        "insertion_to_clock_bracket_ms": [
+          118.618,
+          128.434
+        ],
+        "clock_bracket_to_pcm_edge_ms": [
+          10.126083312988282,
+          19.94208331298828
+        ],
+        "signal_output_proof": false
+      },
+      "spans_ms": {
+        "capture_to_encoded": 30.329,
+        "encoded_to_send": 0.03,
+        "send_to_sdk": 0.014,
+        "sdk_to_ingress": 11.336,
+        "ingress_to_webrtc": 0.032,
+        "webrtc_to_pcm_edge": 138.587
+      }
+    },
+    {
+      "source": 0,
+      "input_seconds": 29.290532,
+      "output_seconds": 29.470734,
+      "total_ms": 180.202,
+      "packet_ms": 40,
+      "input_position_ms": 10,
+      "following_packet_ingress_seconds": 29.362933,
+      "render_clock": {
+        "available": true,
+        "marker_rtp_timestamp": 926668623,
+        "packet_inserted_us": 257044577710,
+        "before": {
+          "entered_us": 257044706081,
+          "exited_us": 257044706086,
+          "before_ms": 157,
+          "after_ms": 147,
+          "target_ms": 120,
+          "skipped": 0,
+          "fallback": 0,
+          "frame_headroom_ms": 40,
+          "target_ceiling_ms": 120,
+          "rtp_timestamp": 926668271,
+          "speech_type": 0,
+          "muted": 0
+        },
+        "after": {
+          "entered_us": 257044716200,
+          "exited_us": 257044716207,
+          "before_ms": 147,
+          "after_ms": 137,
+          "target_ms": 120,
+          "skipped": 0,
+          "fallback": 0,
+          "frame_headroom_ms": 40,
+          "target_ceiling_ms": 120,
+          "rtp_timestamp": 926668751,
+          "speech_type": 0,
+          "muted": 0
+        },
+        "continuous_normal_speech": true,
+        "rtp_clock_step_ms": 10.0,
+        "relative_arrival_clock": {
+          "history_window_ms": 30000,
+          "packet_count": 625,
+          "floor_witness": {
+            "received_us": 257015288367,
+            "ssrc": 1558937521,
+            "sequence": 18830,
+            "rtp_timestamp": 925262703
+          },
+          "clock_age_ms": [
+            135.05233334350586,
+            135.17333334350585
+          ],
+          "absolute_one_way_latency": false
+        },
+        "source_to_clock_bracket_ms": [
+          160.185625,
+          170.306625
+        ],
+        "insertion_to_clock_bracket_ms": [
+          128.376,
+          138.497
+        ],
+        "clock_bracket_to_pcm_edge_ms": [
+          9.89516665649414,
+          20.01616665649414
+        ],
+        "signal_output_proof": false
+      },
+      "spans_ms": {
+        "capture_to_encoded": 20.502,
+        "encoded_to_send": 0.042,
+        "send_to_sdk": 0.011,
+        "sdk_to_ingress": 11.167,
+        "ingress_to_webrtc": 0.041,
+        "webrtc_to_pcm_edge": 148.439
+      }
+    }
+  ],
+  "input_sha256": {
+    "summary.json": "eadf60043876192315eb2a14b35af5d72c5cc10aa6374fcbbe012926bfd684f0",
+    "pcm-samples.json": "f2af7799d09e1a2e76c55679da9e264d0c183f33c2478795c2c3eea5230c014d",
+    "native.log": "a28ff234b830752d49cd4b5499a9a43d1e66c280671a734e60b82331a7bce792"
+  }
+}

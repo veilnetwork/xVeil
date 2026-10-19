@@ -1,0 +1,116 @@
+{
+  "checked_at_utc": "2026-10-19T15:45:09.102731+00:00",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "sdk_commit": "2889396e2f014beff9052ab103127ee037df55d3",
+  "sdk_sha256": "4bc908202196047911be8812d093469312ca11ee450c7b8f7fce70f1c0e154bf",
+  "native_sha256": "fa92737825248b4cb44fc4e7209ebdff7334ca8ef91f527c76b2ee3606d77959",
+  "change": "Generic outgoing QUIC siblings retained by the canonical owner use idle keepalive PINGs (10 s) instead of recurring 30 s idle-expiry/TLS redial bursts. Parent retirement still closes children. Same rule for all generic siblings; no media role, admission privilege or peer priority.",
+  "tests": {
+    "transport": 156,
+    "session": 624,
+    "runtime": 663,
+    "protocol": 837,
+    "ignored": 19,
+    "negative": "Removing keepalive causes the 35 s live idle regression to fail; restored version passes.",
+    "first_failure": "Existing late-camera test required obsolete idle expiry. It now verifies 35 s survival, then explicit close/reopen, distinct keys and uninterrupted primary traffic. Original failure log retained."
+  },
+  "group": {
+    "original_360s_1024_kbit_gate": "FAIL",
+    "max_ms": 240.26083335047588,
+    "matched": 2112,
+    "missing": 0,
+    "exact_files": 3,
+    "video_tails": [
+      14,
+      14,
+      14,
+      14,
+      14,
+      14
+    ],
+    "driver_deadline_misses": 0,
+    "reliable_connection_ids_stable_for_capture": true,
+    "peak_spans_ms": {
+      "capture_to_encoded": 30.60912503860891,
+      "encoded_to_ingress": 76.8720000050962,
+      "ingress_to_webrtc": 0.03500000457279384,
+      "webrtc_to_pcm_edge": 132.74470830219798
+    }
+  },
+  "pair": {
+    "original_360s_1024_kbit_gate": "FAIL",
+    "maxima_ms": [
+      189.99087499105372,
+      220.2477499959059
+    ],
+    "matched": 704,
+    "missing": 0,
+    "exact_files": 2,
+    "video_tails": [
+      14,
+      13
+    ],
+    "max_sampled_video_pull_gaps_s": [
+      13.000075792020652,
+      15.998130416992353
+    ],
+    "driver_deadline_misses": 0,
+    "peak_spans_ms": {
+      "capture_to_encoded": 0.313,
+      "encoded_to_send": 3.851,
+      "send_to_sdk": 0.017,
+      "sdk_to_ingress": 22.01,
+      "ingress_to_webrtc": 0.024,
+      "webrtc_to_pcm_edge": 194.033
+    }
+  },
+  "limits": [
+    "Both full gates fail unchanged; these are not install/release candidates.",
+    "One capture per SDK variant does not establish a causal quality change.",
+    "Group main peak: 60 ms packet, 30.609 ms formation, 76.872 ms encoded-to-ingress, 132.780 ms after ingress.",
+    "Pair main peak: 60 ms packet, about 26.19 ms capture-to-WebRTC, 194.033 ms WebRTC-to-PCM; decoded buffer about 197 ms, target/ceiling 140 ms, no recovery skip at the bracket.",
+    "No acoustic speech/headset/screen qualification. No production native/policy change in this cycle."
+  ],
+  "next_work": "Investigate 60 ms receiver target/actual-buffer recovery and audio recovery before competing producer growth. Preserve complete streamful App/other interaction separation, end-to-end accounting and all original full quality gates.",
+  "cleanup": {
+    "group": {
+      "checked_at_utc": "2026-10-19T15:36:24.806032+00:00",
+      "recorded_processes_checked": 11,
+      "long_lived_processes_checked": 10,
+      "transient_recorders_checked": 1,
+      "remaining": [],
+      "workers_exited": true,
+      "node_stop_results": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "remaining_sockets": 0
+    },
+    "pair": {
+      "checked_at_utc": "2026-10-19T15:43:24.424073+00:00",
+      "recorded_processes_checked": 5,
+      "long_lived_processes_checked": 4,
+      "transient_recorders_checked": 1,
+      "remaining": [],
+      "audio_thread_exited": true,
+      "file_threads_exited": true,
+      "policy_exited": true,
+      "node_stop_results": [
+        0,
+        0,
+        0
+      ],
+      "remaining_fixture_sockets": 0
+    }
+  },
+  "evidence": "doc/validation/sibling-idle-2026-10-19",
+  "private_artifacts": "/Users/vart/.cache/codex/xveil-sibling-idle-20261019",
+  "phone_touched": false,
+  "relay_touched": false,
+  "installed_app_touched": false,
+  "pushed": false,
+  "released": false
+}

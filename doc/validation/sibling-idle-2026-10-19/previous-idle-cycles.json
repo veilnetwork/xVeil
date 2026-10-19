@@ -1,0 +1,275 @@
+{
+  "capture": "/Users/vart/.cache/codex/quic-all-confirm-20261019T150613Z/group-audio-only-90",
+  "native_log_sha256": "5dd2550a011f5a0392013275e56eaf43ca2ccd1e2ba9f75de72631cf7c242f14",
+  "rows": [
+    {
+      "node": "9545986b",
+      "peer": "58dcee49",
+      "connection_trace_id": 10,
+      "first_observed_seconds": -4.251420021057129,
+      "last_observed_seconds": 25.671977996826172,
+      "completed_records_max": 0,
+      "actor_buffered_max": 0,
+      "record_buffered_max": 0,
+      "udp_socket_sent_bytes": 8479
+    },
+    {
+      "node": "8c659993",
+      "peer": "58dcee49",
+      "connection_trace_id": 9,
+      "first_observed_seconds": -4.251403093338013,
+      "last_observed_seconds": 25.711790084838867,
+      "completed_records_max": 0,
+      "actor_buffered_max": 0,
+      "record_buffered_max": 0,
+      "udp_socket_sent_bytes": 8479
+    },
+    {
+      "node": "58dcee49",
+      "peer": "8c659993",
+      "connection_trace_id": 8,
+      "first_observed_seconds": -4.251244068145752,
+      "last_observed_seconds": 25.72148895263672,
+      "completed_records_max": 0,
+      "actor_buffered_max": 0,
+      "record_buffered_max": 0,
+      "udp_socket_sent_bytes": 9668
+    },
+    {
+      "node": "58dcee49",
+      "peer": "9545986b",
+      "connection_trace_id": 7,
+      "first_observed_seconds": -4.251183986663818,
+      "last_observed_seconds": 25.716800928115845,
+      "completed_records_max": 0,
+      "actor_buffered_max": 0,
+      "record_buffered_max": 0,
+      "udp_socket_sent_bytes": 9639
+    },
+    {
+      "node": "58dcee49",
+      "peer": "13d405b2",
+      "connection_trace_id": 12,
+      "first_observed_seconds": -4.250373125076294,
+      "last_observed_seconds": 25.677160024642944,
+      "completed_records_max": 0,
+      "actor_buffered_max": 0,
+      "record_buffered_max": 0,
+      "udp_socket_sent_bytes": 8479
+    },
+    {
+      "node": "13d405b2",
+      "peer": "58dcee49",
+      "connection_trace_id": 11,
+      "first_observed_seconds": -4.250272989273071,
+      "last_observed_seconds": 25.71191692352295,
+      "completed_records_max": 0,
+      "actor_buffered_max": 0,
+      "record_buffered_max": 0,
+      "udp_socket_sent_bytes": 9637
+    },
+    {
+      "node": "58dcee49",
+      "peer": "13d405b2",
+      "connection_trace_id": 88,
+      "first_observed_seconds": 26.634013891220093,
+      "last_observed_seconds": 57.08775591850281,
+      "completed_records_max": 0,
+      "actor_buffered_max": 0,
+      "record_buffered_max": 0,
+      "udp_socket_sent_bytes": 8717
+    },
+    {
+      "node": "9545986b",
+      "peer": "58dcee49",
+      "connection_trace_id": 89,
+      "first_observed_seconds": 26.67490005493164,
+      "last_observed_seconds": 57.1518669128418,
+      "completed_records_max": 0,
+      "actor_buffered_max": 0,
+      "record_buffered_max": 0,
+      "udp_socket_sent_bytes": 8621
+    },
+    {
+      "node": "13d405b2",
+      "peer": "58dcee49",
+      "connection_trace_id": 86,
+      "first_observed_seconds": 26.680856943130493,
+      "last_observed_seconds": 57.08167886734009,
+      "completed_records_max": 0,
+      "actor_buffered_max": 0,
+      "record_buffered_max": 0,
+      "udp_socket_sent_bytes": 13306
+    },
+    {
+      "node": "58dcee49",
+      "peer": "9545986b",
+      "connection_trace_id": 85,
+      "first_observed_seconds": 26.725682020187378,
+      "last_observed_seconds": 57.08764386177063,
+      "completed_records_max": 0,
+      "actor_buffered_max": 0,
+      "record_buffered_max": 0,
+      "udp_socket_sent_bytes": 10879
+    },
+    {
+      "node": "8c659993",
+      "peer": "58dcee49",
+      "connection_trace_id": 90,
+      "first_observed_seconds": 26.733306884765625,
+      "last_observed_seconds": 57.14196991920471,
+      "completed_records_max": 0,
+      "actor_buffered_max": 0,
+      "record_buffered_max": 0,
+      "udp_socket_sent_bytes": 8621
+    },
+    {
+      "node": "58dcee49",
+      "peer": "8c659993",
+      "connection_trace_id": 87,
+      "first_observed_seconds": 26.771467924118042,
+      "last_observed_seconds": 57.09195303916931,
+      "completed_records_max": 0,
+      "actor_buffered_max": 0,
+      "record_buffered_max": 0,
+      "udp_socket_sent_bytes": 10873
+    },
+    {
+      "node": "9545986b",
+      "peer": "58dcee49",
+      "connection_trace_id": 106,
+      "first_observed_seconds": 57.85852003097534,
+      "last_observed_seconds": 88.11210608482361,
+      "completed_records_max": 0,
+      "actor_buffered_max": 0,
+      "record_buffered_max": 0,
+      "udp_socket_sent_bytes": 8616
+    },
+    {
+      "node": "58dcee49",
+      "peer": "9545986b",
+      "connection_trace_id": 104,
+      "first_observed_seconds": 57.88019895553589,
+      "last_observed_seconds": 88.10843086242676,
+      "completed_records_max": 0,
+      "actor_buffered_max": 0,
+      "record_buffered_max": 0,
+      "udp_socket_sent_bytes": 10875
+    },
+    {
+      "node": "8c659993",
+      "peer": "58dcee49",
+      "connection_trace_id": 107,
+      "first_observed_seconds": 57.900887966156006,
+      "last_observed_seconds": 88.1622269153595,
+      "completed_records_max": 0,
+      "actor_buffered_max": 0,
+      "record_buffered_max": 0,
+      "udp_socket_sent_bytes": 8584
+    },
+    {
+      "node": "58dcee49",
+      "peer": "8c659993",
+      "connection_trace_id": 103,
+      "first_observed_seconds": 57.922247886657715,
+      "last_observed_seconds": 88.11237001419067,
+      "completed_records_max": 0,
+      "actor_buffered_max": 0,
+      "record_buffered_max": 0,
+      "udp_socket_sent_bytes": 10880
+    },
+    {
+      "node": "58dcee49",
+      "peer": "13d405b2",
+      "connection_trace_id": 108,
+      "first_observed_seconds": 57.942790031433105,
+      "last_observed_seconds": 88.16744089126587,
+      "completed_records_max": 0,
+      "actor_buffered_max": 0,
+      "record_buffered_max": 0,
+      "udp_socket_sent_bytes": 8589
+    },
+    {
+      "node": "13d405b2",
+      "peer": "58dcee49",
+      "connection_trace_id": 105,
+      "first_observed_seconds": 57.96313405036926,
+      "last_observed_seconds": 88.21327686309814,
+      "completed_records_max": 0,
+      "actor_buffered_max": 0,
+      "record_buffered_max": 0,
+      "udp_socket_sent_bytes": 10900
+    },
+    {
+      "node": "9545986b",
+      "peer": "58dcee49",
+      "connection_trace_id": 112,
+      "first_observed_seconds": 88.86229991912842,
+      "last_observed_seconds": 90.49160194396973,
+      "completed_records_max": 0,
+      "actor_buffered_max": 0,
+      "record_buffered_max": 0,
+      "udp_socket_sent_bytes": 8717
+    },
+    {
+      "node": "58dcee49",
+      "peer": "9545986b",
+      "connection_trace_id": 109,
+      "first_observed_seconds": 88.88962602615356,
+      "last_observed_seconds": 91.16442489624023,
+      "completed_records_max": 0,
+      "actor_buffered_max": 0,
+      "record_buffered_max": 0,
+      "udp_socket_sent_bytes": 12106
+    },
+    {
+      "node": "8c659993",
+      "peer": "58dcee49",
+      "connection_trace_id": 113,
+      "first_observed_seconds": 88.91797804832458,
+      "last_observed_seconds": 90.72573804855347,
+      "completed_records_max": 0,
+      "actor_buffered_max": 0,
+      "record_buffered_max": 0,
+      "udp_socket_sent_bytes": 8589
+    },
+    {
+      "node": "58dcee49",
+      "peer": "8c659993",
+      "connection_trace_id": 110,
+      "first_observed_seconds": 88.93662905693054,
+      "last_observed_seconds": 90.98164892196655,
+      "completed_records_max": 0,
+      "actor_buffered_max": 0,
+      "record_buffered_max": 0,
+      "udp_socket_sent_bytes": 10900
+    },
+    {
+      "node": "58dcee49",
+      "peer": "13d405b2",
+      "connection_trace_id": 114,
+      "first_observed_seconds": 88.94955492019653,
+      "last_observed_seconds": 90.94862699508667,
+      "completed_records_max": 0,
+      "actor_buffered_max": 0,
+      "record_buffered_max": 0,
+      "udp_socket_sent_bytes": 8584
+    },
+    {
+      "node": "13d405b2",
+      "peer": "58dcee49",
+      "connection_trace_id": 111,
+      "first_observed_seconds": 88.95922899246216,
+      "last_observed_seconds": 90.25842905044556,
+      "completed_records_max": 0,
+      "actor_buffered_max": 0,
+      "record_buffered_max": 0,
+      "udp_socket_sent_bytes": 10880
+    }
+  ],
+  "limits": [
+    "First/last observed statistics are not exact TLS dial/close timestamps.",
+    "Record counters describe this mixed reliable plane, not all network traffic.",
+    "Idle expiry cause is additionally checked by the live transport regression and its no-keepalive negative."
+  ]
+}

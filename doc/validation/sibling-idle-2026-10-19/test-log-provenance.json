@@ -1,0 +1,27 @@
+{
+  "first-clean-full-tests": {
+    "exit_code": 101,
+    "elapsed_s": 135.653,
+    "raw_log_sha256": "16ad70b8b351a5eb3c589908e475fa269c673893a7c9e2a0050cf74353675dbb"
+  },
+  "clean-full-tests": {
+    "exit_code": 0,
+    "elapsed_s": 126.055,
+    "raw_log_sha256": "791922cbda3f86f10cc34b62e35bdde26f29e37182e54b14509131b8379c87dd"
+  },
+  "negative-no-retention-ping": {
+    "exit_code": 101,
+    "elapsed_s": 62.916,
+    "raw_log_sha256": "90c930063a09fdefa4206f5670ac186b36138a630223ebd2106d547699717d08"
+  },
+  "restored-idle-test": {
+    "exit_code": 0,
+    "elapsed_s": 42.632,
+    "raw_log_sha256": "caef75fd16ccd7b8f0d1753c8807f7d3e1f477127e15a45f5beb168e32211e46"
+  },
+  "release-build": {
+    "exit_code": 0,
+    "elapsed_s": 76.468,
+    "raw_log_sha256": "97cd0237d0cea75a318db7384f1717843de977c26fc8e303b963fa106f4520f0"
+  }
+}

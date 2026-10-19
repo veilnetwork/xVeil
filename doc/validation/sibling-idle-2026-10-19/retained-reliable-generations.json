@@ -1,0 +1,57 @@
+{
+  "native_log_sha256": "8388bfbe873eb8e7228cd35df0c90698f1faaa6d73da426340638fc7d62729ba",
+  "rows": [
+    {
+      "node": "cc7fd339",
+      "peer": "2dbb4f41",
+      "connection_trace_id": 8,
+      "first_observed_s": -3.880089044570923,
+      "last_observed_s": 361.84822607040405,
+      "completed_records_max": 1536
+    },
+    {
+      "node": "2dbb4f41",
+      "peer": "cc7fd339",
+      "connection_trace_id": 7,
+      "first_observed_s": -3.8799169063568115,
+      "last_observed_s": 361.13971996307373,
+      "completed_records_max": 0
+    },
+    {
+      "node": "fd8ef91c",
+      "peer": "cc7fd339",
+      "connection_trace_id": 10,
+      "first_observed_s": -3.8798720836639404,
+      "last_observed_s": 361.2292890548706,
+      "completed_records_max": 0
+    },
+    {
+      "node": "cc7fd339",
+      "peer": "fd8ef91c",
+      "connection_trace_id": 9,
+      "first_observed_s": -3.8797740936279297,
+      "last_observed_s": 361.92070388793945,
+      "completed_records_max": 1536
+    },
+    {
+      "node": "cc7fd339",
+      "peer": "1295d06b",
+      "connection_trace_id": 12,
+      "first_observed_s": -3.8788299560546875,
+      "last_observed_s": 361.88450503349304,
+      "completed_records_max": 1536
+    },
+    {
+      "node": "1295d06b",
+      "peer": "cc7fd339",
+      "connection_trace_id": 11,
+      "first_observed_s": -3.8787310123443604,
+      "last_observed_s": 361.50033497810364,
+      "completed_records_max": 0
+    }
+  ],
+  "one_published_connection_per_pair": true,
+  "limits": [
+    "Observed published reliable-plane ordinals; not a count of every generic child."
+  ]
+}
