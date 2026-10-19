@@ -1,5 +1,60 @@
 # Calls media handoff
 
+## 2026-10-19: shared pressure-only window tested and REJECTED
+
+Previous turn made real progress with complete codec-cost accounting827902ca.
+This turn tested a production-path candidate combining owned camera/screen,
+DATA, signaling and recovery in one rolling200-ms pressure window, preserving
+recent healthy admissions when pressure starts. It used the **existing8192-byte
+pressure limit**, not a new bandwidth estimate or a fixed packet pacer.
+Primary and neutral transit bypassed it; separate per-class pacing remained.
+Whole-work reservations charged once, declined DATA kept its neighbor turn,
+large legacy control retained proportional debt and primary idle cleared state.
+History coalesced conservatively into bounded1-ms buckets (at most201).
+
+The candidate's **611 session tests pass**,8 remain ignored; disabling the shared
+guard makes the cross-class-budget regression fail behaviorally. Tests which
+previously polled pressure by repeatedly admitting fake traffic now used a
+read-only test witness and then asserted real recovery admission. Three other
+expectations changed for the intended shared/rolling semantics. No full-load
+quality gate, stimulus, clock, file size, quota constant or native media changed.
+Production SDK built;202 export names matched. Foreign work was excluded.
+
+The original **360s /1024-kbit group gate FAILS at280.128ms**. All2112 markers
+match,0 are missing, all3 files are exact, all6 final video tails change14 times,
+FIFO drops0/0 and driver deadline misses0/0/0. The40-ms peak at29.290s spans
+**20.479ms formation +222.738ms encoded-to-ingress +36.911ms after ingress**.
+Encoded-to-ingress includes SDK/IPC/scheduling and all transport stages; do not
+attribute it to a particular hop from this figure. One capture per build does
+not establish causal improvement against the prior340.117-ms capture.
+
+The pre-recorded decision rule was to reject on either original full gate.
+**Candidate REJECTED; all six experimental source/test files restored to SDK
+827902ca.** The new module was removed from the production worktree. The pair
+test was not run after the group prerequisite failed. Full source snapshot,
+patch and built library remain private for reproducibility; compressed patch,
+hashes, checks and result are committed under
+`doc/validation/shared-pressure-rejected-2026-10-19/` and indexed by
+`call-shared-pressure-rejected-2026-10-19.json`.
+
+The shared target's final `release/libveilclient_ffi.dylib` was this **rejected**
+build. It was quarantined to the private experiment directory, so the generic
+output path is now absent: **rebuild before using that path again**. Do not
+install or release the rejected private library. All11 recorded stand processes
+are independently absent, all4 node stops return0, no sockets remain; no phone,
+installed-app or server mutations occurred. Foreign work is unchanged.
+
+Conclusion: coupling independent pressure allowances alone does not qualify
+audio priority. Actual primary framing/fanout and mandatory-control cost must
+be funded before secondary work, using guarded fresh source-service evidence
+and bounded probing, not another pressure bucket or cwnd/RTT capacity claim.
+First-hop relay ACKs alone do not prove far-end delivery or available capacity.
+The existing16-KiB own-control write-window override also deserves inspection,
+but its causal contribution at this peak is **unproven**; production rekey byte
+thresholds are128GiB, so do not assume periodic small-transfer rekeys caused it.
+Full interaction-channel separation and hardware qualification remain open.
+Goal **ACTIVE**.
+
 ## 2026-10-19: owned work pays its complete codec fragment cost
 
 SDK **827902ca** fixes real under-accounting at source admission. Whole-work
