@@ -95,11 +95,11 @@ This will become an error in a future version of Flutter. Please contact the plu
 00:00 +0 -1: upstream RTP lag reaches authenticated feedback despite a small queue [E]
   Expected: <269>
     Actual: <109>
-  
+
   package:matcher                                     expect
   package:flutter_test/src/widget_tester.dart 473:18  expect
   test/call_audio_receive_activity_test.dart 123:7    main.<fn>
-  
+
 00:00 +0 -1: Some tests failed.
 
 Failing tests:
