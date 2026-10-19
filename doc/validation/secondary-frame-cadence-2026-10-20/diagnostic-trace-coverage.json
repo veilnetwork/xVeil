@@ -1,0 +1,13 @@
+{
+  "source_trace_bounds_exhausted": false,
+  "cell_stage_counts": {
+    "budget_admit": 37351,
+    "datagram_accepted": 37351,
+    "budget_drop": 51,
+    "queue_work_rejected": 33
+  },
+  "rtp_stage_counts": {
+    "sealed": 28689,
+    "received": 28506
+  }
+}

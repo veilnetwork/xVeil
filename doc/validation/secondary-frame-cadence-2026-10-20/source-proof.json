@@ -1,0 +1,9 @@
+{
+  "root_base": "8f2993bb0d415b0cd7399693881aa0857a571f94",
+  "sdk_base": "8011cfb6bce011c8d77a57102451c33bbc7050b3",
+  "only_override": "crates/veilclient-ffi/src/media/rtp_trace.rs",
+  "override_sha256": "fa1abca9684cae38ff8f7e8ce5bd281f9ba490d25a82ecd1b58926b6ca7e2568",
+  "clean_export": true,
+  "foreign_wip_excluded": true,
+  "purpose": "Attribute padding RTP to encrypted cells and exact local admission; dense diagnostics are not a performance comparison."
+}

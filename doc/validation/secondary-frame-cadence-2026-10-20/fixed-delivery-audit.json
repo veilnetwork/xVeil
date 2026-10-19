@@ -1,0 +1,66 @@
+{
+  "successful_unique_packets": 7911,
+  "successful_not_observed_at_ingress": 5,
+  "received_not_delivered": 0,
+  "in_call_missing_payload": 2,
+  "in_call_missing_padding": 2,
+  "tail_seconds": 3,
+  "missing": [
+    {
+      "ssrc": 891714737,
+      "sequence": 17191,
+      "timestamp": 2087780135,
+      "payload_bytes": 0,
+      "scope": "in_call",
+      "first_accepted_seconds": 214.232659,
+      "last_accepted_seconds": 214.232659,
+      "accepted_attempts": 1
+    },
+    {
+      "ssrc": 2747064629,
+      "sequence": 7503,
+      "timestamp": 1457021963,
+      "payload_bytes": 659,
+      "scope": "in_call",
+      "first_accepted_seconds": 254.75003,
+      "last_accepted_seconds": 254.960698,
+      "accepted_attempts": 2
+    },
+    {
+      "ssrc": 2747064629,
+      "sequence": 7504,
+      "timestamp": 1457021963,
+      "payload_bytes": 660,
+      "scope": "in_call",
+      "first_accepted_seconds": 254.75004,
+      "last_accepted_seconds": 254.960722,
+      "accepted_attempts": 2
+    },
+    {
+      "ssrc": 2747064629,
+      "sequence": 9143,
+      "timestamp": 1463752073,
+      "payload_bytes": 0,
+      "scope": "in_call",
+      "first_accepted_seconds": 329.705567,
+      "last_accepted_seconds": 329.705567,
+      "accepted_attempts": 1
+    },
+    {
+      "ssrc": 2747064629,
+      "sequence": 9813,
+      "timestamp": 1466529473,
+      "payload_bytes": 504,
+      "scope": "after_capture_end",
+      "first_accepted_seconds": 360.388164,
+      "last_accepted_seconds": 360.388164,
+      "accepted_attempts": 1
+    }
+  ],
+  "limitations": [
+    "Requires explicitly asserted common monotonic host clock.",
+    "Ingress is eventual, not necessarily timely or decodable.",
+    "Tail and after-end packets are not evidence of in-call loss.",
+    "No missing native row by itself attributes a network or queue drop."
+  ]
+}
