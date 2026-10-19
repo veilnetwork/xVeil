@@ -1,5 +1,70 @@
 # Calls media handoff
 
+## 2026-10-19: authenticated hop attribution; source byte pacing rejected
+
+The group fixture now has opt-in **`--opaque-forward-trace`**, requiring
+`--playout-trace`. It enables the existing role-blind payload-digest witnesses
+**before** SDK loading and child creation. Owned launchers also select
+`VEIL_RT_TRACE_SEALED_EVERY=1`. No workload, codec, admission policy, latency
+gate or relay scheduling changes. Both new full captures join their exact PCM
+peak across both transport hops using authenticated opaque payload digests;
+no trace limit is reached.
+
+The unchanged **360-second baseline FAILS at 230.081083 ms**. Its exact 60-ms
+packet peak has **20.211 ms capture-to-encoded + 54.970 ms delivery + 154.881 ms
+after WebRTC ingress**. The Forward path separates **27.174 ms first hop,
+0.048 ms relay handoff, 27.508 ms second hop and 0.070 ms endpoint auth**.
+The relay handler is not the dominant delay at this peak. Hop spans include
+transport queues, socket/shaper/scheduling and reception; neither transport
+selection nor QUIC acceptance proves NIC send. The post-ingress span includes
+following-packet/lookahead/render behavior and is not a NetEq-only measurement.
+
+A clean SDK candidate replaced the local secondary producer's **8192-byte /
+200-ms burst window** with byte-proportional start spacing at the same nominal
+rate. Whole work still paid once, retries/tails remained admitted, idle time
+could not bank credit and pressure refresh could not refund debt. Compatibility
+oversize charges became proportional instead of rounded whole windows. The
+old code fails the proposed two-independent-work spacing assertion. The
+candidate passes **597 session tests (8 ignored)** and **8 whole-work tests**;
+its 31-test source subset passes too. These establish behavior and preserved
+invariants, not an end-to-end improvement. Production-feature SDK compilation
+succeeds from a clean archive excluding foreign Rust work, with all **201**
+exports unchanged.
+
+**REJECT this pacing candidate: full unchanged group load FAILS at
+250.246375 ms.** It actually engages: **693 Wait observations**, median retry
+17.862 ms, maximum 38.762 ms; these are not 693 proven unique frame losses.
+Its exact 60-ms peak has **0.638 ms capture-to-encoded + 99.918 ms delivery +
+149.663 ms after ingress**. First/relay/second/auth spans are **85.018 / 0.063 /
+14.396 / 0.075 ms**. The first-marker formation offset is not the complete
+packet's formation duration. A single baseline/candidate pair is not a
+statistical estimate. Both retain **2112 matched / 0 missing** markers, three
+exact 512-KiB files and all six synthetic video paths moving at the end. Both
+captures have zero FIFO drops, zero clock misses and complete console traces.
+Their maximum FIFO queues are **91.841 / 90.422 ms** and **66.257 / 108.167 ms**.
+
+**The candidate source is restored byte-for-byte to SDK 057b0ea0.** Only the
+diagnostic fixture flag and evidence remain active in this cycle. Both sets
+of ten known fixture/worker/policy/helper PIDs are independently absent; both
+have zero remaining sockets. Foreign root/SDK work is unchanged. No GUI app,
+phone installation/call, server mutation, push or release in this experiment.
+The analyzer's **21 regressions pass**.
+
+**Goal ACTIVE.** Next allocate group audio/video using actual source framing
+and fanout costs, funding short audio cadence before increasing it. Verify
+cost propagation into process-isolated fixture workers: the current cost API
+depends on in-process `embedded_services_for`. Do not substitute more video
+discarding, unfunded audio probes, relay priority, RTCP removal or arbitrary
+buffer cuts. Screen/fallback/phone/live speech/headset qualification and the
+complete interaction-channel audit remain open.
+
+Evidence: **validation/call-group-source-pacing-2026-10-19.json** and
+**validation/group-source-pacing-2026-10-19/**, including the explicit
+**REJECTED** patch, exact peak joins, build/exclusion/restoration proofs and
+test summaries. Raw owned artifacts:
+**~/.cache/codex/xveil-group-hop-20261019/** and
+**~/.cache/codex/xveil-source-pacing-20261019/**.
+
 ## 2026-10-19: group reservation/probe hypotheses rejected
 
 **Do not reintroduce either candidate below. All nine changed production,

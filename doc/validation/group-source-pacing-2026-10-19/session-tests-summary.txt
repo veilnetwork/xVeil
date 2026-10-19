@@ -1,0 +1,5 @@
+running 605 tests
+test local_source_activity::tests::independent_small_work_items_are_byte_paced_without_banked_idle_credit ... ok
+test result: ok. 597 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 57.71s
+running 1 test
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s

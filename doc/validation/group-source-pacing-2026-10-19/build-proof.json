@@ -1,0 +1,7 @@
+{
+  "sdk_base": "057b0ea02ede30014118b83c565cee3076fbd142",
+  "foreign_wip_excluded": true,
+  "features": "default,production-seeds,node-embedded,packet-tunnel",
+  "source_sha256": "00b5f788c934a58cbd85ef1630ead894c0bcc3aa2107138d682c09ffb8f63658",
+  "sdk_sha256": "c6ee0bb73440021fc5805537e2679d041ac3432b2788a39d2de001b2b5e15892"
+}

@@ -446,6 +446,8 @@ def main():
     parser.add_argument('--full-load', action='store_true')
     parser.add_argument('--playout-trace', action='store_true',
                         help='bounded native timing metadata in each owned worker directory')
+    parser.add_argument('--opaque-forward-trace', action='store_true',
+                        help='hash owned opaque Forward payloads for authenticated hop joins; requires --playout-trace')
     parser.add_argument('--load-kind', choices=['both', 'files', 'video'], default='both',
                         help='isolate a competitor; only both can qualify full contention')
     args = parser.parse_args()
@@ -461,6 +463,12 @@ def main():
         parser.error('Full load requires the production adaptive policy and at least 60 seconds')
     if not args.full_load and args.load_kind != 'both':
         parser.error('Load isolation requires --full-load')
+    if args.opaque_forward_trace and not args.playout_trace:
+        parser.error('Opaque forwarding attribution requires --playout-trace')
+    if args.opaque_forward_trace:
+        # Set before loading any SDK: its opt-in gate is cached per process,
+        # and spawned clients must inherit it before their first sealed cell.
+        os.environ['VEIL_DIAG_OPAQUE_FORWARD'] = '1'
     os.umask(0o077)
     fixture = GroupSdk(args.sdk, args.directory, args.rate_kbps, trace=True,
                        trace_capacity=args.wire_trace_capacity)
@@ -476,6 +484,7 @@ def main():
               'budget_smoke': args.budget_smoke,
               'adaptive': args.adaptive,
               'playout_trace': args.playout_trace,
+              'opaque_forward_trace': os.environ.get('VEIL_DIAG_OPAQUE_FORWARD') == '1',
               'test_ptime_requested': os.environ.get('VEIL_MEDIA_TEST_GROUP_PTIME'),
               'sdk_sha256': hashlib.sha256(args.sdk.read_bytes()).hexdigest(),
               'media_sha256': hashlib.sha256(args.media.read_bytes()).hexdigest()}

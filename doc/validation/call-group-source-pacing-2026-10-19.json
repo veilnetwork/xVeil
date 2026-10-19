@@ -1,0 +1,377 @@
+{
+  "date": "2026-10-19",
+  "goal_status": "ACTIVE",
+  "complete": false,
+  "previous_goal_turn": "No new movement toward audio priority: relay configuration was independently revalidated as already enabled. This cycle takes the next safe implementation/measurement step.",
+  "disposition": "Source byte pacing candidate REJECTED by unchanged full-load quality gate and restored exactly. The only active source edit is an opt-in group fixture flag to collect authenticated opaque hop witnesses. No production audio policy change is claimed.",
+  "base": {
+    "root": "4b86810b379cfd4508c1a6a764bdac8989f651c0",
+    "sdk": "057b0ea02ede30014118b83c565cee3076fbd142",
+    "root_foreign_sha256": "529f7718edea4b6775cc11607bc2ff663a922cc3521b680cf94efa39d7b26859",
+    "sdk_foreign_sha256": "1ceeb05d540078262f1480ba7210dfaa0f5895be9f0099f64bc18a56a4f6a363"
+  },
+  "diagnostic_change": "--opaque-forward-trace requires --playout-trace and sets VEIL_DIAG_OPAQUE_FORWARD=1 before loading SDK/starting children. Owned launchers also set VEIL_RT_TRACE_SEALED_EVERY=1. No traffic roles, thresholds or scheduling are changed.",
+  "candidate": "Replace 8192-byte/200-ms burst windows with byte-proportional start spacing at the same nominal rate across local lossy secondary producers/neighbors. Exact whole-work reservation remains once; no idle banking/refund; compatibility oversize debt becomes proportional rather than rounded whole windows.",
+  "tests": {
+    "session_passed": 597,
+    "session_ignored": 8,
+    "session_failed": 0,
+    "session_doctest_ignored": 1,
+    "whole_work_passed": 8,
+    "source_subset_passed": 31,
+    "negative": "Old source admits the second independent 1024-byte work immediately; proposed 25-ms-spacing assertion fails. Candidate passes. This establishes the proposed policy difference, not a desirable end-to-end invariant.",
+    "analyzer_regressions_passed": 21,
+    "python_syntax": "passed",
+    "candidate_build": "clean committed SDK archive with only candidate source overlaid; four foreign Rust edits excluded",
+    "abi": "201 SDK exports unchanged"
+  },
+  "workload": "Original 360-second three-process/three-participant workload, six audio/video paths and three 512-KiB files; adaptive production policy, blind 1024-kbit FIFO, unchanged clocks/QoS/stimuli and strict decoded <200-ms gate. No heavy jobs during captures.",
+  "runs": {
+    "baseline": {
+      "strict_gate_passed": false,
+      "max_ms": 230.0810833403375,
+      "matched": 2112,
+      "missing": 0,
+      "all_files_exact": true,
+      "files": [
+        {
+          "sender": 2,
+          "receiver": 0,
+          "queued": 524288,
+          "received": 524288,
+          "missing_chunks": 0,
+          "hash_matches": true,
+          "completion_seconds": 352.4553071249975,
+          "authentication_errors": 0,
+          "duplicates": 0,
+          "async_failures": {},
+          "write_error": false,
+          "late_fragments": 0
+        },
+        {
+          "sender": 0,
+          "receiver": 1,
+          "queued": 524288,
+          "received": 524288,
+          "missing_chunks": 0,
+          "hash_matches": true,
+          "completion_seconds": 352.2065062079928,
+          "authentication_errors": 0,
+          "duplicates": 0,
+          "async_failures": {},
+          "write_error": false,
+          "late_fragments": 0
+        },
+        {
+          "sender": 1,
+          "receiver": 2,
+          "queued": 524288,
+          "received": 524288,
+          "missing_chunks": 0,
+          "hash_matches": true,
+          "completion_seconds": 352.5819704160094,
+          "authentication_errors": 0,
+          "duplicates": 0,
+          "async_failures": {},
+          "write_error": false,
+          "late_fragments": 0
+        }
+      ],
+      "video_paths": [
+        {
+          "receiver": 0,
+          "source": 1,
+          "decoded_pulls": 338,
+          "tail_changes": 14
+        },
+        {
+          "receiver": 0,
+          "source": 2,
+          "decoded_pulls": 338,
+          "tail_changes": 14
+        },
+        {
+          "receiver": 1,
+          "source": 0,
+          "decoded_pulls": 339,
+          "tail_changes": 14
+        },
+        {
+          "receiver": 1,
+          "source": 2,
+          "decoded_pulls": 338,
+          "tail_changes": 14
+        },
+        {
+          "receiver": 2,
+          "source": 0,
+          "decoded_pulls": 339,
+          "tail_changes": 14
+        },
+        {
+          "receiver": 2,
+          "source": 1,
+          "decoded_pulls": 338,
+          "tail_changes": 14
+        }
+      ],
+      "shaper": {
+        "stats": [
+          {
+            "received": 95173,
+            "sent": 95172,
+            "drops": 0,
+            "max_queue_ms": 91.84058324899524
+          },
+          {
+            "received": 101449,
+            "sent": 101446,
+            "drops": 0,
+            "max_queue_ms": 90.42210443294607
+          }
+        ],
+        "failure": null,
+        "trace_events": 195266,
+        "trace_rows": 195266,
+        "trace_capacity": 250000,
+        "trace_truncated": false
+      },
+      "clock_deadline_misses": 0,
+      "clock_late_intervals": 0,
+      "console_complete": true,
+      "worker_exit_codes": [
+        0,
+        0,
+        0
+      ],
+      "cleanup": {
+        "known_processes_checked": 10,
+        "all_absent": true,
+        "remaining_sockets": 0
+      },
+      "peak_packet_ms": 60,
+      "peak_stages_ms": {
+        "capture_to_encoded": 20.210791699355468,
+        "encoded_to_ingress": 54.96999999741092,
+        "ingress_to_webrtc": 0.018999999156221747,
+        "webrtc_to_pcm_edge": 154.8812916444149
+      },
+      "source_admission_ms": {
+        "handler_enter_to_budget_admit": 0.05,
+        "budget_admit_to_datagram_accepted": 0.008,
+        "budget_admit_to_authenticated_receiver": 54.804
+      },
+      "forward_hop_spans_ms": {
+        "source_transport_selected_to_relay_dispatch_enter": 27.174,
+        "relay_dispatch_enter_to_relay_transport_selected": 0.048,
+        "relay_transport_selected_to_destination_dispatch_enter": 27.508,
+        "destination_dispatch_enter_to_sdk_authenticated": 0.07
+      },
+      "dispatch_duration_ms": {
+        "relay": 0.014,
+        "destination": 0.016
+      },
+      "sdk_sha256": "827129168678804251e92c32d6acd45a2a996fa6c6acd3f89efbffd45a9479dc",
+      "media_sha256": "3e92b10e6c28478be8936c370fa5423f8183eb88f0482ad1b0be6dee1b78e579"
+    },
+    "candidate": {
+      "strict_gate_passed": false,
+      "max_ms": 250.24637498427182,
+      "matched": 2112,
+      "missing": 0,
+      "all_files_exact": true,
+      "files": [
+        {
+          "sender": 2,
+          "receiver": 0,
+          "queued": 524288,
+          "received": 524288,
+          "missing_chunks": 0,
+          "hash_matches": true,
+          "completion_seconds": 351.9210310410126,
+          "authentication_errors": 0,
+          "duplicates": 0,
+          "async_failures": {},
+          "write_error": false,
+          "late_fragments": 0
+        },
+        {
+          "sender": 0,
+          "receiver": 1,
+          "queued": 524288,
+          "received": 524288,
+          "missing_chunks": 0,
+          "hash_matches": true,
+          "completion_seconds": 351.38563008300844,
+          "authentication_errors": 0,
+          "duplicates": 0,
+          "async_failures": {},
+          "write_error": false,
+          "late_fragments": 0
+        },
+        {
+          "sender": 1,
+          "receiver": 2,
+          "queued": 524288,
+          "received": 524288,
+          "missing_chunks": 0,
+          "hash_matches": true,
+          "completion_seconds": 351.6721083750017,
+          "authentication_errors": 0,
+          "duplicates": 0,
+          "async_failures": {},
+          "write_error": false,
+          "late_fragments": 0
+        }
+      ],
+      "video_paths": [
+        {
+          "receiver": 0,
+          "source": 1,
+          "decoded_pulls": 265,
+          "tail_changes": 14
+        },
+        {
+          "receiver": 0,
+          "source": 2,
+          "decoded_pulls": 269,
+          "tail_changes": 13
+        },
+        {
+          "receiver": 1,
+          "source": 0,
+          "decoded_pulls": 249,
+          "tail_changes": 14
+        },
+        {
+          "receiver": 1,
+          "source": 2,
+          "decoded_pulls": 305,
+          "tail_changes": 14
+        },
+        {
+          "receiver": 2,
+          "source": 0,
+          "decoded_pulls": 313,
+          "tail_changes": 14
+        },
+        {
+          "receiver": 2,
+          "source": 1,
+          "decoded_pulls": 299,
+          "tail_changes": 14
+        }
+      ],
+      "shaper": {
+        "stats": [
+          {
+            "received": 89424,
+            "sent": 89421,
+            "drops": 0,
+            "max_queue_ms": 66.25702063320205
+          },
+          {
+            "received": 105897,
+            "sent": 105893,
+            "drops": 0,
+            "max_queue_ms": 108.16699999850243
+          }
+        ],
+        "failure": null,
+        "trace_events": 193961,
+        "trace_rows": 193961,
+        "trace_capacity": 250000,
+        "trace_truncated": false
+      },
+      "clock_deadline_misses": 0,
+      "clock_late_intervals": 0,
+      "console_complete": true,
+      "worker_exit_codes": [
+        0,
+        0,
+        0
+      ],
+      "cleanup": {
+        "known_processes_checked": 10,
+        "all_absent": true,
+        "remaining_sockets": 0
+      },
+      "peak_packet_ms": 60,
+      "peak_stages_ms": {
+        "capture_to_encoded": 0.6383750005625188,
+        "encoded_to_ingress": 99.91800002171658,
+        "ingress_to_webrtc": 0.027000001864507794,
+        "webrtc_to_pcm_edge": 149.66299996012822
+      },
+      "source_admission_ms": {
+        "handler_enter_to_budget_admit": 0.085,
+        "budget_admit_to_datagram_accepted": 0.052,
+        "budget_admit_to_authenticated_receiver": 99.56
+      },
+      "forward_hop_spans_ms": {
+        "source_transport_selected_to_relay_dispatch_enter": 85.018,
+        "relay_dispatch_enter_to_relay_transport_selected": 0.063,
+        "relay_transport_selected_to_destination_dispatch_enter": 14.396,
+        "destination_dispatch_enter_to_sdk_authenticated": 0.075
+      },
+      "dispatch_duration_ms": {
+        "relay": 0.02,
+        "destination": 0.012
+      },
+      "sdk_sha256": "c6ee0bb73440021fc5805537e2679d041ac3432b2788a39d2de001b2b5e15892",
+      "media_sha256": "3e92b10e6c28478be8936c370fa5423f8183eb88f0482ad1b0be6dee1b78e579"
+    }
+  },
+  "pacing_exercised": {
+    "baseline": {
+      "admission_results": {},
+      "wait_retry_ms": null,
+      "work_release": {
+        "first_cells": 7088,
+        "single_cell_works": 7074,
+        "envelope_work_bytes": 5916480
+      },
+      "trace_limits": {}
+    },
+    "candidate": {
+      "admission_results": {
+        "wait": 693
+      },
+      "wait_retry_ms": {
+        "min": 0.053,
+        "median": 17.862,
+        "max": 38.762
+      },
+      "work_release": {
+        "first_cells": 4799,
+        "single_cell_works": 4787,
+        "envelope_work_bytes": 3911107
+      },
+      "trace_limits": {}
+    }
+  },
+  "findings": [
+    "Both complete captures have 2112 matched/0 missing markers, exact files and moving synthetic video tails; both FAIL the original audio latency gate. One baseline/candidate pair is not a statistical improvement estimate.",
+    "Authenticated opaque payload digests now join the exact peak end to end across one neutral relay, with complete bounded traces. Relay handler/dispatch time is small at both measured peaks; do not infer it explains their total latency.",
+    "Candidate visibly restrains independent secondary work: 693 Wait observations, median retry17.862ms, max38.762ms. This is not proof of693 unique lost frames. It does not qualify a fix: peak250.246ms versus baseline230.081ms.",
+    "Both exact peaks still use60-ms audio packets. WebRTC-ingress-to-decoded-edge spans154.881/149.663ms include following-packet/lookahead/render behavior; do not label that span NetEq-only or remove RTCP based on it.",
+    "Transport-selected-to-dispatch spans include transport queues, shaper, socket, scheduling and receive processing. They are not NIC-send measurements. Local QUIC acceptance remains a queue observation."
+  ],
+  "restoration": {
+    "rejected_candidate_source_sha256": "00b5f788c934a58cbd85ef1630ead894c0bcc3aa2107138d682c09ffb8f63658",
+    "restored_source_sha256": "0473d2add91305966da5e4d136620a97aec6280a552f733faae613251cb6f222",
+    "restored_exactly_to_sdk_head": true
+  },
+  "foreign_work_unchanged": true,
+  "deployment": "No app installation/call, server mutation, push or release in this source experiment; all owned synthetic fixture, worker, policy and helper processes independently absent; zero sockets remain.",
+  "next_work": [
+    "Integrate actual per-source framing and fanout costs with group audio/video budgets; reserve the cost of shorter audio cadence before increasing it, instead of probing unfunded40-ms audio or dropping more already-encoded video.",
+    "Verify how the packet-cost API behaves with process-isolated workers: embedded_services_for requires in-process runtime state. Add faithful cost propagation for the fixture before claiming complete carrier-budget validation.",
+    "Use the exact opaque path evidence to target sender/transport queues and receiver delay; do not add relay media hints/priority, remove RTCP or blindly shrink existing buffers.",
+    "Keep full screen/fallback/phone/live-speech/headset and interaction-channel audit open."
+  ],
+  "private_artifacts": [
+    "/Users/vart/.cache/codex/xveil-group-hop-20261019",
+    "/Users/vart/.cache/codex/xveil-source-pacing-20261019"
+  ]
+}
