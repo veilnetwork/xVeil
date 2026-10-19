@@ -21,6 +21,7 @@ void main() {
     Object? lossReportUs,
     Object? peerRecoveryReportUs,
     Object? concealmentReportUs,
+    Object? localConcealmentReportUs,
     bool recovered = false,
     DateTime? at,
   }) => policy.observe(
@@ -43,6 +44,7 @@ void main() {
     audioLossReportUs: lossReportUs,
     peerAudioRecoveryReportUs: peerRecoveryReportUs,
     peerAudioConcealmentReportUs: concealmentReportUs,
+    localAudioConcealmentReportUs: localConcealmentReportUs,
     recovered: recovered,
   );
 
@@ -85,6 +87,46 @@ void main() {
     recover(policy);
     expect(sample(policy, concealmentReportUs: 300), isFalse);
     expect(sample(policy, concealmentReportUs: 301), isTrue);
+  });
+
+  test('incoming concealment yields sources with the microphone muted', () {
+    final policy = CallAudioSourcePressure();
+    recover(policy, send: false);
+    expect(sample(policy, send: false, localConcealmentReportUs: 100), isTrue);
+    expect(sample(policy, send: false, localConcealmentReportUs: 100), isTrue);
+    expect(sample(policy, send: false, localConcealmentReportUs: 100), isTrue);
+    expect(sample(policy, send: false, localConcealmentReportUs: 100), isFalse);
+    // A second event in the same receive episode needs sustained recovery,
+    // even though sending was resumed between the two receive events.
+    expect(sample(policy, localConcealmentReportUs: 200), isTrue);
+    recover(policy);
+    expect(sample(policy, localConcealmentReportUs: 200), isFalse);
+  });
+
+  test('incoming events while receive is off cannot replay on resume', () {
+    final policy = CallAudioSourcePressure();
+    recover(policy);
+    expect(
+      sample(policy, receive: false, localConcealmentReportUs: 100),
+      isFalse,
+    );
+    expect(sample(policy, localConcealmentReportUs: 100), isFalse);
+    sample(policy, send: false, receive: false, localConcealmentReportUs: 200);
+    sample(policy, send: false, receive: false, localConcealmentReportUs: 0);
+    recover(policy);
+    expect(sample(policy, localConcealmentReportUs: 200), isFalse);
+    expect(sample(policy, localConcealmentReportUs: 201), isTrue);
+    expect(
+      sample(policy, receive: false, localConcealmentReportUs: 202),
+      isTrue,
+    );
+    expect(sample(policy), isTrue);
+    expect(sample(policy), isFalse);
+    expect(sample(policy, localConcealmentReportUs: 202), isFalse);
+    expect(sample(policy, localConcealmentReportUs: 203), isTrue);
+    expect(sample(policy, localConcealmentReportUs: 203), isTrue);
+    expect(sample(policy, localConcealmentReportUs: 203), isTrue);
+    expect(sample(policy, localConcealmentReportUs: 203), isFalse);
   });
 
   test(
