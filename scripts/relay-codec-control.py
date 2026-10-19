@@ -37,6 +37,8 @@ parser.add_argument('--shaper-trace', action='store_true', help='Privately recor
 parser.add_argument('--shaper-process', action='store_true', help='Isolate the unchanged blind TCP FIFO from the codec driver GIL; no traffic classification or extra capacity')
 parser.add_argument('--native-timing-trace', action='store_true',
                     help='Enable bounded private RTP timestamp diagnostics for source/receive attribution; records no audio samples')
+parser.add_argument('--playout-trace', action='store_true',
+                    help='Also record bounded decoder output clocks at teardown; requires --native-timing-trace and records no PCM')
 parser.add_argument('--native-trace-capacity', type=int, default=4096,
                     help='Maximum native timestamp records per stream, 1–32768; requires native timing for a nondefault limit')
 parser.add_argument('--decoded-video-trace', action=argparse.BooleanOptionalAction, default=True,
@@ -90,6 +92,8 @@ parser.add_argument('--screen-video', action='store_true',
 parser.add_argument('--reannounce-interval-seconds', type=int,
                     help='Diagnostic routing refresh interval, below the unchanged 120-second route TTL; omitted retains production defaults')
 args = parser.parse_args()
+if args.playout_trace and not args.native_timing_trace:
+    parser.error('Playout clocks require --native-timing-trace')
 if args.native_pcm_priority == 'deadline' and (
         sys.platform != 'darwin' or not args.native_pcm_driver):
     parser.error('Deadline scheduling requires the native macOS PCM driver')
@@ -173,6 +177,8 @@ if args.native_timing_trace:
     native_log.write_text('')
     os.environ['VEIL_MEDIA_DIAG_PATH'] = str(native_log)
     os.environ['VEIL_MEDIA_RTP_TRACE_LIMIT'] = str(args.native_trace_capacity)
+    if args.playout_trace:
+        os.environ['VEIL_MEDIA_PLAYOUT_TRACE'] = '1'
 for index in range(3):
     if (ROOT / str(index)).is_symlink():
         parser.error('Fixture node directories must not be symbolic links')
@@ -295,6 +301,7 @@ result = {'loopback_only': True, 'cellular_call_proof': False, 'ok': False,
           'independent_control_ipc': not args.shared_control_ipc,
           'independent_audio_feedback_ipc': True,
           'native_timing_trace': args.native_timing_trace,
+          'playout_trace': args.playout_trace,
           'decoded_video_trace': args.decoded_video_trace,
           'native_trace_capacity': args.native_trace_capacity if args.native_timing_trace else None,
           'competing_file_bytes': file_bytes if args.compete_file else 0}
@@ -440,6 +447,7 @@ try:
     framing_applied=[0,0]
     timing_anchor=mf('veil_media_test_audio_timing_anchor',[P,C.c_int],C.c_int) if args.native_timing_trace else None
     destroy=mf('veil_media_engine_destroy',[P],None)
+    stopvideo=mf('veil_media_engine_stop_video',[P],C.c_int)
     set_packet_size=mf('veil_media_engine_set_max_rtp_packet_size',[P,C.c_int],C.c_int) if args.max_rtp_packet_size is not None else None
     capture=mf('veil_media_test_audio_capture_tone',[P,C.c_int],C.c_int)
     playout=mf('veil_media_test_audio_playout_pcm',[P,P,C.c_size_t],C.c_int)
@@ -1058,6 +1066,11 @@ finally:
         try:policy.wait(timeout=5)
         except subprocess.TimeoutExpired:policy.kill();policy.wait()
         result['policy_exited']=policy.poll() is not None
+    # Stop every producer before any destructor flushes its buffered audio
+    # trace. The other engine's live synthetic video logger can otherwise
+    # split an audio record across two stdio flushes to the shared diag file.
+    result['video_stop_results'] = [stopvideo(e) for e in engines]
+    result['ok'] = result['ok'] and not any(result['video_stop_results'])
     for e in reversed(engines):destroy(e)
     # Sample before closing channel handles, after media production has stopped.
     # No per-packet logging or extra polling perturbs the live driver.

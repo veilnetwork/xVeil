@@ -15,6 +15,7 @@ import re
 
 from analyze_relay_rtp_timing import distribution
 from pcm_timing import input_edges
+from audio_render_timing import attribute_render, playout_streams
 
 
 def fields(line):
@@ -26,6 +27,8 @@ def analyze(summary, lines, pcm):
         raise ValueError('Requires an owned same-process fixture')
     start = summary['stand_start_monotonic_us']
     duration = summary['duration_seconds']
+    lines = list(lines)
+    render_streams = playout_streams(lines)
     anchors, encoders, encoded, sends, received = {}, {}, {}, {}, {}
     send_ssrc = receive_ssrc = None
     limits, counts = [], []
@@ -194,11 +197,19 @@ def analyze(summary, lines, pcm):
                                   packet_ms=packet['blocks']*10,
                                   input_position_ms=(tick-packet['first_index'])*10,
                                   following_packet_ingress_seconds=following_arrival,
+                                  render_clock=attribute_render(render_streams,
+                                      ssrc=ssrc, packet_timestamp=sent['timestamp'],
+                                      sequence=sent['seq'],
+                                      marker_timestamp=(sent['timestamp'] +
+                                          (tick-packet['first_index'])*(owner['meta']['rtp_hz']//100)) % 2**32,
+                                      rtp_hz=owner['meta']['rtp_hz'],
+                                      source_us=times[0], pcm_edge_us=times[-1]),
                                   spans_ms=spans))
     return dict(same_process_fixture_only=True,
                 exact_sender_offsets_required=True,
                 edge_attribution_basis='packet_containing_source_input',
                 residual_can_include_following_packet_and_playout=True,
+                native_playout_trace_present=bool(render_streams),
                 capture_index_verified={str(v['source']): v['index_verified'] for v in sources.values()},
                 native_trace_limit_may_have_been_reached=(any(n >= limit for n, limit in zip(counts, limits))
                     or any(v['meta']['seen'] > v['meta']['count'] for v in sources.values())),

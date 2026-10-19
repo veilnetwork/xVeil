@@ -1,0 +1,187 @@
+{
+  "ok": false,
+  "duration_seconds": 360,
+  "rate_kbps": 1024,
+  "playout_trace": true,
+  "decoded_pcm_edges": [
+    {
+      "side": 0,
+      "phases": [
+        {
+          "name": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "p95_ms": 90.05658331443556,
+          "max_ms": 90.14720833511092
+        },
+        {
+          "name": "audio-video",
+          "matched": 337,
+          "missing": 0,
+          "p95_ms": 170.1393333496526,
+          "max_ms": 200.08037498337217
+        }
+      ],
+      "source_edge_capture_positions": {
+        "20": [
+          0,
+          1
+        ],
+        "40": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "60": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      }
+    },
+    {
+      "side": 1,
+      "phases": [
+        {
+          "name": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "p95_ms": 100.29216666589491,
+          "max_ms": 100.48074999940582
+        },
+        {
+          "name": "audio-video",
+          "matched": 337,
+          "missing": 0,
+          "p95_ms": 170.21362500963733,
+          "max_ms": 190.150916663697
+        }
+      ],
+      "source_edge_capture_positions": {
+        "40": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "60": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      }
+    }
+  ],
+  "file_results": [
+    {
+      "queued": 524288,
+      "queue_duration_ms": 5.2,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "receipt_duration_ms": 203501.4,
+      "missing_indices": []
+    },
+    {
+      "queued": 524288,
+      "queue_duration_ms": 5.1,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "receipt_duration_ms": 182486.0,
+      "missing_indices": []
+    }
+  ],
+  "decoded_video_progress": {
+    "synthetic_fixture_only": true,
+    "screen_presentation_proof": false,
+    "sampled_retrieval_not_native_decode_timing": true,
+    "tail_seconds": 15,
+    "directions": [
+      {
+        "side": 0,
+        "decoded_frame_pulls": 339,
+        "content_changes": 338,
+        "last_decoded_pull_seconds": 359.0016369999794,
+        "max_sampled_pull_gap_seconds": 1.009904334001476,
+        "tail_decoded_pulls": 15,
+        "tail_content_changes": 14,
+        "moving_at_end": true
+      },
+      {
+        "side": 1,
+        "decoded_frame_pulls": 336,
+        "content_changes": 335,
+        "last_decoded_pull_seconds": 359.0035812499991,
+        "max_sampled_pull_gap_seconds": 3.000378540979,
+        "tail_decoded_pulls": 15,
+        "tail_content_changes": 14,
+        "moving_at_end": true
+      }
+    ],
+    "moving_at_end": true
+  },
+  "driver_late_interval_count": 0,
+  "native_failures": [
+    0,
+    0
+  ],
+  "poll_failures": [
+    0,
+    0
+  ],
+  "native_pcm_driver": {
+    "clock_check_span_us": 15.500001609325409,
+    "scheduling_mode": "deadline",
+    "dropped_rows": 0,
+    "ticks": 36000,
+    "observation_count_verified": true,
+    "stage_maxima_ms": {
+      "max_wake_lateness_ms": 0.127333,
+      "max_callback_ms": 1.6952500154729933,
+      "max_publication_ms": 0.024833338102325797
+    },
+    "scheduling": {
+      "qos_supported": 1,
+      "qos_result": 0,
+      "qos_requested": 33,
+      "qos_actual": 33
+    },
+    "deadline_scheduling": {
+      "deadline_requested": 1,
+      "deadline_result": 0,
+      "deadline_active": 1,
+      "deadline_period_ticks": 240000,
+      "deadline_computation_ticks": 72000,
+      "deadline_constraint_ticks": 120000,
+      "deadline_actual_period_ticks": 240000,
+      "deadline_actual_computation_ticks": 72000,
+      "deadline_actual_constraint_ticks": 120000,
+      "deadline_checks": 362,
+      "deadline_misses": 0
+    },
+    "timer_error": 0
+  },
+  "video_stop_results": null,
+  "node_stop_results": [
+    0,
+    0,
+    0
+  ],
+  "remaining_fixture_sockets": 0,
+  "raw_sha256": {
+    "summary.json": "22d2f09f83ab2fd7ef010b2cb4a3f29922421dc8d8e648e63d06d640c2038b5e",
+    "native.log": "b9489968996e3a07d74bdd8fa3f933d4ef1aee08997775b47bb8f7cd0cd80047",
+    "pcm-samples.json": "23207526884524d892a2f64500fe8edcd78d1ba79736c25ef3ee7d551a09e20a",
+    "codec-samples.json": "1c67095ba252fd25de786399a12204ea3b1ae8382e1e332a3b994f2fecdf31d1",
+    "shaper-queues.json": "cb85a445e2515450ded3b1b026ba91249b1055ac513cbf7356caf520a7a1a2fd"
+  },
+  "render_attribution_rejected": "Malformed playout record; no repair or interpolation allowed"
+}
