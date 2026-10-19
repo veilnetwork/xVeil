@@ -117,7 +117,10 @@ class CallBitrateAdapter {
   /// Degrade once RTT stands [bloatDegradeMs] above the windowed-min
   /// baseline; count a sample as good only within [bloatRecoverMs] of it.
   static const int bloatDegradeMs = 150;
-  static const int bloatRecoverMs = 60;
+  // With current playout measured independently, an otherwise healthy 120ms
+  // path must not keep a reduced camera pinned behind a rare 20ms RTT minimum.
+  // Keep a margin below degradation and retain the bounded acknowledged ramp.
+  static const int bloatRecoverMs = 120;
 
   /// Windowed-min RTT baseline: two ~[minWindowSamples]-sample buckets
   /// (≈2 min total at the 1 s poll). Taking the min of the current + previous

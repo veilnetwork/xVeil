@@ -314,6 +314,47 @@ void main() {
     },
   );
 
+  for (final rtt in [120, 220]) {
+    test('video recovery with measured stable audio at $rtt ms RTT', () {
+      final a = CallBitrateAdapter(
+        baseBitrateKbps: 900,
+        baseFps: 15,
+        initialLevel: 2,
+        supportsLowRateVideo: true,
+      );
+      var frames = 0;
+      native(
+        a,
+        stats: {...healthy(), 'rtt_ms': 20, 'video_tx_frames': ++frames},
+        peerSequence: 0,
+      );
+      for (var n = 1; n <= 75; n++) {
+        native(
+          a,
+          stats: {...healthy(), 'rtt_ms': rtt, 'video_tx_frames': ++frames},
+          peerSequence: 1 + n ~/ 5,
+        );
+        expect(a.audioReserve, isFalse);
+      }
+      if (rtt == 120) {
+        expect(
+          a.level,
+          0,
+          reason:
+              'stable 120ms RTT must not pin usable audio/video at the low rung',
+        );
+        expect(a.acknowledgedTarget?.maxFps, 15);
+      } else {
+        expect(
+          a.level,
+          2,
+          reason:
+              'an RTT queue beyond the recovery margin still withholds growth',
+        );
+      }
+    });
+  }
+
   test('recorded 63-to-109ms spike and brief 250ms excursions hold video', () {
     for (final peerDirection in [false, true]) {
       final a = direct();
