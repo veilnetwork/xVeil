@@ -1,0 +1,190 @@
+{
+  "source": 2,
+  "receiver": 0,
+  "packet": {
+    "ssrc": 4167884724,
+    "rtp_origin": 4268373232,
+    "rtp_timestamp": 4272637072,
+    "rtp_sequence": 19933,
+    "source_at_seconds": 88.88002866730676,
+    "decoded_at_seconds": 89.12028241730877,
+    "packet_ms": 60,
+    "encoder_input_index": 5280,
+    "encoder_first_input_monotonic_us": 255589217296,
+    "encoded_monotonic_us": 255589267657,
+    "ingress": {
+      "seq": 19933,
+      "timestamp": 4272637072,
+      "arrived_us": 255589437455,
+      "drained_us": 255589437485,
+      "payload_bytes": 179
+    },
+    "total_ms": 240.25375000201166,
+    "render_clock": {
+      "available": true,
+      "marker_rtp_timestamp": 4272639472,
+      "packet_inserted_us": 255589437517,
+      "before": {
+        "entered_us": 255589497308,
+        "exited_us": 255589497318,
+        "before_ms": 72,
+        "after_ms": 62,
+        "target_ms": 120,
+        "skipped": 0,
+        "fallback": 0,
+        "frame_headroom_ms": 60,
+        "target_ceiling_ms": 140,
+        "rtp_timestamp": 4272639352,
+        "speech_type": 0,
+        "muted": 0
+      },
+      "after": {
+        "entered_us": 255589507320,
+        "exited_us": 255589507448,
+        "before_ms": 62,
+        "after_ms": 52,
+        "target_ms": 120,
+        "skipped": 0,
+        "fallback": 0,
+        "frame_headroom_ms": 60,
+        "target_ceiling_ms": 140,
+        "rtp_timestamp": 4272639832,
+        "speech_type": 0,
+        "muted": 0
+      },
+      "continuous_normal_speech": true,
+      "rtp_clock_step_ms": 10.0,
+      "relative_arrival_clock": {
+        "history_window_ms": 30000,
+        "packet_count": 498,
+        "floor_witness": {
+          "received_us": 255580281903,
+          "ssrc": 4167884724,
+          "sequence": 19783,
+          "rtp_timestamp": 4272205072
+        },
+        "clock_age_ms": [
+          167.915,
+          168.045
+        ],
+        "absolute_one_way_latency": false
+      },
+      "source_to_clock_bracket_ms": [
+        230.0971666870117,
+        240.22716668701173
+      ],
+      "insertion_to_clock_bracket_ms": [
+        59.801,
+        69.931
+      ],
+      "clock_bracket_to_pcm_edge_ms": [
+        0.02658331298828125,
+        10.156583312988282
+      ],
+      "signal_output_proof": false
+    },
+    "spans_ms": {
+      "capture_to_encoded": 0.436166679719463,
+      "encoded_to_ingress": 169.79800001718104,
+      "ingress_to_webrtc": 0.029999995604157448,
+      "webrtc_to_pcm_edge": 69.989583309507
+    },
+    "native_send": {
+      "channel": 1,
+      "seq": 19933,
+      "timestamp": 4272637072,
+      "attempted_us": 255589267707,
+      "admitted_us": 255589267725,
+      "packet_bytes": 199,
+      "accepted": 1
+    },
+    "native_send_spans_ms": {
+      "encoded_to_native_send": 0.05,
+      "native_send_admission": 0.018,
+      "native_admission_to_ingress": 169.73
+    }
+  },
+  "capture_qualified": false,
+  "limits": [
+    "Diagnostic audio-only 90-second capture; no full-load qualification",
+    "One unmatched marker on every path; global analyzer still rejects this capture",
+    "This is the recorded matched peak only; missing transitions are not filled or skipped in the quality verdict"
+  ],
+  "last_capture_edge_seconds": 89.89000641729217,
+  "capture_duration_seconds": 90,
+  "sdk": {
+    "epoch": "b384421ec94a8db3",
+    "cell_sequence": 1823,
+    "rtp_index_in_cell": 0,
+    "source_sdk_peer": "8c659993",
+    "receiver_sdk_peer": "13d405b2",
+    "sealed_bytes": 235,
+    "observations_us": {
+      "native_attempt": 255589267707,
+      "sdk_seal": 255589267766,
+      "sdk_send_pump": 255589267779,
+      "daemon_read": 255589267880,
+      "handler_enter": 255589267927,
+      "relay_queued": 255589267949,
+      "sdk_authenticated": 255589437426,
+      "native_ingress": 255589437455
+    },
+    "socket_written_us": 255589267806,
+    "rtp_authenticated_metadata_us": 255589437446,
+    "native_enqueue_return_us": 255589267725,
+    "spans_ms": {
+      "native_attempt_to_sdk_seal": 0.059,
+      "sdk_seal_to_sdk_send_pump": 0.013,
+      "sdk_send_pump_to_daemon_read": 0.101,
+      "daemon_read_to_handler_enter": 0.047,
+      "handler_enter_to_relay_queued": 0.022,
+      "relay_queued_to_sdk_authenticated": 169.477,
+      "sdk_authenticated_to_native_ingress": 0.029
+    },
+    "opaque_route": {
+      "hops": [
+        {
+          "source": "13d405b2",
+          "receiver": "58dcee49",
+          "selected_us": 255589268097,
+          "dispatched_us": 255589357780,
+          "selection_to_dispatch_ms": 89.683
+        },
+        {
+          "source": "58dcee49",
+          "receiver": "8c659993",
+          "selected_us": 255589357833,
+          "dispatched_us": 255589437286,
+          "selection_to_dispatch_ms": 79.453
+        }
+      ],
+      "relay_processing": [
+        {
+          "node": "58dcee49",
+          "ingress_to_selection_ms": 0.053
+        }
+      ],
+      "seal_to_first_selection_ms": 0.331,
+      "last_dispatch_to_authenticated_ms": 0.16,
+      "sealed_to_authenticated_ms": 169.68,
+      "limits": [
+        "Diagnostic node prefixes must be unique in this owned fixture",
+        "Selection-to-dispatch includes queues and network; it is not pure propagation time",
+        "This join does not identify an encrypted UDP datagram or its shaper queue"
+      ]
+    }
+  },
+  "input_sha256": {
+    "summary.json": "e838618b90b691e6ec2a60abf8b3c67b5beeec24d949832b6207804b5d284b55",
+    "worker-2/summary.json": "d480e9891b388518ed10489f64e9a71d5f100b71bacd355c1403a5c1484e24c4",
+    "worker-0/summary.json": "c96ef3c073cce794f4b203640a1c6f29dcbcec5d1ca62a3337cf4bddaafd0572",
+    "worker-2/pcm-samples.json": "284761a9c1aa37fad591da70f377dbfed797a240a80c17144e9162b1d2072178",
+    "worker-0/pcm-samples.json": "85ce4edab1219ae8acb8dd75cb32681b3362c96bad37d5b0abf8e133b4da4d5c",
+    "worker-2/codec-samples.json": "d0e1b2c738799609a1f1c2db2a5f22299dae3eabedc78fc49419ca21e71d23c2",
+    "worker-2/playout-trace.log": "e912f29141b171989fad7aea1e485436e11b90887276c5e1784d0ba42545961a",
+    "worker-0/playout-trace.log": "472256cc1811e73e4b7d6f0e7e36416a6f434cbe6350bed3d9e52dba6cd2183a",
+    "worker-2/native.log": "4cfd09e6b4500a44bbaa9ad02d8a8a1da30be84d24239fc385311389704f8853",
+    "worker-0/native.log": "cb8125f994d6f2e7d93c743810de37d7a381d8bf6e64957da8147b934b06f0a1",
+    "native.log": "5dd2550a011f5a0392013275e56eaf43ca2ccd1e2ba9f75de72631cf7c242f14"
+  }
+}
