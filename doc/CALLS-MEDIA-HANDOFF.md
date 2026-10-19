@@ -1,5 +1,56 @@
 # Calls media handoff
 
+## 2026-10-19: owned work pays its complete codec fragment cost
+
+SDK **827902ca** fixes real under-accounting at source admission. Whole-work
+credit previously used the ordered-envelope size, although the selected codec
+can add a header, AEAD and opaque-flow prefix to every fragment. Admission now
+uses the same side-effect-free `SessionDatagramTx::frame_wire_sizes` planner as
+the eventual encryption, for **every** member before any member starts. Ordered
+children also pay each two-byte record prefix. The old envelope counter remains
+separate; new `admitted_work_bytes` records the actual charged codec total.
+QUIC/TCP/IP/ACK and obfs4 padding remain excluded: this is not available capacity.
+
+Reservations retain the source owner, local sender identifier, format,
+ceiling and envelope shape. A changed carrier/geometry cannot reuse prior credit.
+Exact charged byte prefixes determine member release times, including a short
+tail or an extra encrypted fragment. Retries cannot double-pay or renew expiry;
+invalid/overflowing member plans fail before spending anything. Separately
+addressed IPC fanout batches have independent work reservations. No relay media
+hint, priority, source quota value or fixed-rate pacer was added.
+
+The boundary regression is concrete: **8028 envelope bytes /8292 actual codec
+bytes** against the existing8192 pressure limit. Envelope-only admission lets
+the work through; the negative control fails behaviorally and the restored
+planner rejects it before the first send. The real encryption matrix covers
+legacy/flow codecs, single/multiple fragments, both carriers and byte boundaries.
+All **603 session +18 type** tests pass;8 session tests remain ignored. Production
+SDK builds and all202 export names match. The running library source hashes
+match the commit and exclude foreign changes; native media is reused unchanged.
+
+Both original **360s /1024-kbit** full gates still **FAIL**. Group peaks
+**340.117ms**,2112 matched/0 missing markers,3 exact files; tails14/14/10/14/10/14
+fail the all14 requirement. Its40-ms peak is **10.366ms formation +192.035ms
+delivery +137.716ms after ingress**. Pair peaks **200.088/190.205ms**,704/0 markers,
+both files exact and both tails14. The strict200-ms gate is **not rounded away**.
+Its200.088-ms signal-edge peak spends10.870ms SDK-to-ingress and168.653ms after
+ingress. Both captures have0 FIFO drops and0 driver deadline misses. No causal
+improvement/regression is established by one capture per build.
+
+The group peak is at163.620s; the nearest observed identity-publication start
+is181.317s,17.697s later. This does not establish that publication caused the
+peak, or cover other control producers or publication completion. Inspect real
+source/control service overlap before assigning a cause. Network control still
+has a separate pressure-only allowance; shared primary-first capacity and all
+interaction-channel separation remain unimplemented. Receiver playout delay
+also remains material. Do not replace that work with further measurement-only
+claims or retune the gates.
+
+All15 recorded owned stand/helper/policy processes are independently absent;
+all7 node stops return0 and no fixture sockets remain. No phone, installed-app
+or server changes this cycle. Evidence: `call-work-wire-cost-2026-10-19.json`
+and `work-wire-cost-2026-10-19/` under `doc/validation/`. Goal **ACTIVE**.
+
 ## 2026-10-19: confirmed QUIC delivery and route-epoch feedback; quality still fails
 
 SDK **1fef65ad** adds bounded confirmed-delivery observations inside the actual
