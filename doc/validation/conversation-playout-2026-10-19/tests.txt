@@ -1,0 +1,21 @@
+unit-smokes: {"exit_code": 0, "elapsed_s": 2.862}
+catch-up preserves usable speech on PLC/mute/error; work bounded to 16 pulls
+RTP lag: constant high delay, wrap, reorder, upstream queue, floor expiry, silence, reset and fresh publication verified
+conversation NetEq: real history/target retained, speech drains, loss/DTX/DTMF and timescale cooldown preserved
+negative-stock-extra-jitter: {"exit_code": 1, "elapsed_s": 2.513}
+catch-up preserves usable speech on PLC/mute/error; work bounded to 16 pulls
+RTP lag: constant high delay, wrap, reorder, upstream queue, floor expiry, silence, reset and fresh publication verified
+Assertion failed: (conversation.decide() == Op::kAccelerate), function main, file conversation_neteq_controller_smoke.cc, line 53.
+restored-unit-smokes: {"exit_code": 0, "elapsed_s": 2.686}
+catch-up preserves usable speech on PLC/mute/error; work bounded to 16 pulls
+RTP lag: constant high delay, wrap, reorder, upstream queue, floor expiry, silence, reset and fresh publication verified
+conversation NetEq: real history/target retained, speech drains, loss/DTX/DTMF and timescale cooldown preserved
+build-hooks: {"exit_code": 0, "elapsed_s": 9.655}
+build-production: {"exit_code": 0, "elapsed_s": 8.644}
+long-packets-jitter: {"exit_code": 0, "elapsed_s": 120.601, "test_absent": true, "helper_absent": true}
+long-packets result: voiced=3993/25/3972 duration60=39/40/40 observations=40/40/40 lateness=8.015 trim_ms=140 interruptions=0
+delivery-loss: {"exit_code": 0, "elapsed_s": 20.051, "test_absent": true, "helper_absent": true}
+{"delivery_stall_drop":true,"sent_packets":1001,"dropped_packets":185,"max_delivery_batch":1,"max_tick_lateness_ms":3.11,"final_nonsilent_ticks":300,"max_buffer_ms":56,"max_playout_delay_ms":56,"post_stall_marker_latency_ms":[91.90,89.98,90.23,91.01,88.99,90.02],"concealed_samples":176862,"interruption_count":2,"buffer_flushes":1}
+sender-restart: {"exit_code": 0, "elapsed_s": 12.044, "test_absent": true, "helper_absent": true}
+sender RTP lag: known=68 max_ms=77
+sender rebuilds: nonsilent=1194/1200 delay_max=77 buffer_max=77 marker_latency_ms=[99.47,149.77,100.13,79.67,80.32,80.45]
