@@ -34,6 +34,17 @@ audio.rtp.ingress seq=9 timestamp=1904 arrived_us=1100000 drained_us=1100020 pay
             with self.assertRaises(ValueError):
                 attribute(*args[:-1], receiver)
 
+    def test_output_clock_uses_marker_position_after_encoder_restart(self):
+        args = list(self.fixture())
+        args[-1] += '''audio.playout.begin count=2 observed=2 limit=8
+audio.playout entered_us=1140000 exited_us=1140020 rtp_timestamp=2400 speech_type=0 muted=0 skipped=0 fallback=0
+audio.playout entered_us=1150000 exited_us=1150020 rtp_timestamp=2880 speech_type=0 muted=0 skipped=0 fallback=0
+audio.rtp.begin count=1 observed=1 limit=8
+audio.rtp received_us=1100021 ssrc=7 sequence=9 rtp_timestamp=1904'''.splitlines()
+        result = attribute(*args)['render_clock']
+        self.assertEqual(result['marker_rtp_timestamp'], 2864)
+        self.assertEqual(result['source_to_clock_bracket_ms'], [80.02, 90.02])
+
     def test_wrong_or_changing_rtp_origin_is_rejected(self):
         args = list(self.fixture())
         for codec in [[dict(sender=dict(rtp_origin=4294967279))],
