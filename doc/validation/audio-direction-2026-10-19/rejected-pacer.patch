@@ -1,0 +1,514 @@
+diff --git a/crates/veil-session/src/datagram_flows.rs b/crates/veil-session/src/datagram_flows.rs
+index 89a9fd70..a0f11bf8 100644
+--- a/crates/veil-session/src/datagram_flows.rs
++++ b/crates/veil-session/src/datagram_flows.rs
+@@ -258,6 +258,36 @@ pub(crate) enum SessionDatagramTx {
+ }
+ 
+ impl SessionDatagramTx {
++    /// Exact ciphertext lengths without allocating a flow, counter or nonce.
++    /// Scheduling waits must happen before encode_frame commits those values.
++    pub(crate) fn frame_wire_sizes(
++        &self,
++        frame_len: usize,
++        ceiling: usize,
++    ) -> Result<Vec<usize>, RealtimeDatagramError> {
++        use crate::realtime_datagram::{FRAGMENT_OVERHEAD, MAX_FRAGMENTS};
++        if frame_len == 0 || frame_len > MAX_REALTIME_FRAME {
++            return Err(RealtimeDatagramError::FrameSize(frame_len));
++        }
++        let prefix = if matches!(self, Self::Flows(_)) {
++            PREFIX_LEN
++        } else {
++            0
++        };
++        let overhead = prefix + FRAGMENT_OVERHEAD;
++        let capacity = ceiling
++            .checked_sub(overhead)
++            .filter(|n| *n > 0)
++            .ok_or(RealtimeDatagramError::DatagramTooSmall(ceiling))?;
++        let fragments = frame_len.div_ceil(capacity);
++        if fragments > MAX_FRAGMENTS {
++            return Err(RealtimeDatagramError::TooManyFragments(fragments));
++        }
++        Ok((0..fragments)
++            .map(|i| (frame_len - i * capacity).min(capacity) + overhead)
++            .collect())
++    }
++
+     pub(crate) fn new(key: &[u8; 32], session: &[u8; 32], flows: bool) -> Self {
+         if flows {
+             Self::Flows(FlowDatagramTx::new(key, session))
+diff --git a/crates/veil-session/src/datagram_flows/tests.rs b/crates/veil-session/src/datagram_flows/tests.rs
+index b1983c21..7693375d 100644
+--- a/crates/veil-session/src/datagram_flows/tests.rs
++++ b/crates/veil-session/src/datagram_flows/tests.rs
+@@ -5,6 +5,61 @@ use std::time::Duration;
+ const KEY: [u8; 32] = [1; 32];
+ const SESSION: [u8; 32] = [2; 32];
+ 
++#[test]
++fn ciphertext_size_plans_match_both_codecs_across_fragment_boundaries() {
++    for flows in [false, true] {
++        for ceiling in [10, 40, 41, 60, 61, 100, 1200, 1382] {
++            for len in [
++                0,
++                1,
++                40,
++                1022,
++                1023,
++                1382,
++                1460,
++                16000,
++                MAX_REALTIME_FRAME,
++                MAX_REALTIME_FRAME + 1,
++            ] {
++                let mut tx = SessionDatagramTx::new(&KEY, &SESSION, flows);
++                let plan = tx.frame_wire_sizes(len, ceiling);
++                let actual = tx.encode_frame(0, &vec![7; len], ceiling);
++                assert_eq!(
++                    plan.is_ok(),
++                    actual.is_ok(),
++                    "flows={flows} ceiling={ceiling} len={len}"
++                );
++                if let (Ok(sizes), Ok(packets)) = (plan, actual) {
++                    assert_eq!(sizes, packets.iter().map(Vec::len).collect::<Vec<_>>());
++                }
++            }
++        }
++    }
++}
++
++#[test]
++fn repeated_scheduler_plans_do_not_create_flows_or_burn_nonces() {
++    for flows in [false, true] {
++        let mut tx = SessionDatagramTx::new(&KEY, &SESSION, flows);
++        for _ in 0..1000 {
++            tx.frame_wire_sizes(1460, 1382).unwrap();
++        }
++        if let SessionDatagramTx::Flows(ref codec) = tx {
++            assert!(codec.flows.is_empty());
++        }
++        let packets = tx.encode_frame(2, &[7; 1460], 1382).unwrap();
++        let offset = if flows { PREFIX_LEN } else { 0 };
++        assert_eq!(
++            u64::from_be_bytes(packets[0][offset + 16..offset + 24].try_into().unwrap()),
++            1
++        );
++        assert_eq!(
++            u64::from_be_bytes(packets[1][offset + 16..offset + 24].try_into().unwrap()),
++            2
++        );
++    }
++}
++
+ #[test]
+ fn delayed_channel_survives_another_channels_replay_and_fragment_flood() {
+     let now = Instant::now();
+diff --git a/crates/veil-session/src/local_source_activity.rs b/crates/veil-session/src/local_source_activity.rs
+index 2c988c2f..e0b8f862 100644
+--- a/crates/veil-session/src/local_source_activity.rs
++++ b/crates/veil-session/src/local_source_activity.rs
+@@ -24,6 +24,7 @@ struct SourceState {
+     pressure_until: Option<Instant>,
+     reliable_transport_pressure_until: Option<Instant>,
+     secondary_window: Option<(Instant, usize)>,
++    secondary_packet_next: Option<Instant>,
+     reliable_next: Option<Instant>,
+     source_feedback_seen: bool,
+     last_healthy_feedback: Option<Instant>,
+@@ -102,6 +103,37 @@ impl Drop for ReliableSource {
+ }
+ 
+ impl LocalSourceActivity {
++    /// Smooth already admitted members, including single-cell frames on
++    /// different neighbors. Whole-work admission alone permits all of their
++    /// bytes at once. Primary and neutral transit never enter this method.
++    pub(crate) fn pace_lossy_packet(
++        &self,
++        cell: &veil_types::local_lossy_work::LocalLossyCell,
++        bytes: usize,
++        now: Instant,
++    ) -> veil_types::local_lossy_work::WorkAdmission {
++        cell.pace_packet_at(self.work_owner, bytes, now, |cost| {
++            let mut state = lock!(self.state);
++            let active_until = state.last_primary.map(|at| at + IDLE_GRACE);
++            let Some(active_until) = active_until.filter(|until| now < *until) else {
++                state.secondary_packet_next = None;
++                return Ok(());
++            };
++            let Some(pressure_until) = state.pressure_until.filter(|until| now < *until) else {
++                return Ok(());
++            };
++            if let Some(next) = state.secondary_packet_next.filter(|next| now < *next) {
++                return Err(next.min(active_until).min(pressure_until));
++            }
++            let nanos = (cost as u128)
++                .saturating_mul(SECONDARY_PROBE_INTERVAL.as_nanos())
++                .div_ceil(LOSSY_SECONDARY_BYTES as u128);
++            let charge = Duration::from_nanos(nanos.min(u64::MAX as u128) as u64);
++            state.secondary_packet_next = Some(now + charge);
++            Ok(())
++        })
++    }
++
+     pub(crate) fn admit_lossy_work(
+         &self,
+         cell: &veil_types::local_lossy_work::LocalLossyCell,
+@@ -479,6 +511,83 @@ impl LocalSourceActivity {
+ 
+ #[cfg(test)]
+ mod tests {
++    #[test]
++    fn admitted_packets_on_different_neighbors_share_pacing_and_keep_work_credit() {
++        use veil_types::local_lossy_work::{LocalLossyWork, WorkAdmission};
++        let source = super::LocalSourceActivity::default();
++        let now = std::time::Instant::now();
++        source.note(now);
++        source.note_pressure(now);
++        let make = || {
++            LocalLossyWork::new_paced(
++                vec![1000],
++                std::time::Duration::ZERO,
++                now + std::time::Duration::from_millis(200),
++            )
++            .unwrap()
++            .cell(0)
++            .unwrap()
++        };
++        let first = make();
++        let second = make();
++        assert_eq!(
++            source.admit_lossy_work(&first, 1360, now),
++            WorkAdmission::Admitted
++        );
++        assert_eq!(
++            source.admit_lossy_work(&second, 1360, now),
++            WorkAdmission::Admitted
++        );
++        assert_eq!(
++            source.pace_lossy_packet(&first, 1420, now),
++            WorkAdmission::Admitted
++        );
++        let WorkAdmission::Wait(due) = source.pace_lossy_packet(&second, 1420, now) else {
++            panic!("second neighbor burst")
++        };
++        assert!(due > now && due < now + std::time::Duration::from_millis(40));
++        source.note_pressure(now + std::time::Duration::from_millis(1));
++        assert_eq!(
++            source.pace_lossy_packet(&first, 1420, now),
++            WorkAdmission::Admitted
++        );
++        assert_eq!(
++            source.pace_lossy_packet(&second, 1420, now),
++            WorkAdmission::Wait(due)
++        );
++        assert_eq!(
++            source.pace_lossy_packet(&second, 1420, due),
++            WorkAdmission::Admitted
++        );
++        assert!(!first.rejected());
++        assert!(!second.rejected());
++    }
++
++    #[test]
++    fn packet_pacing_requires_actual_local_primary_pressure() {
++        use veil_types::local_lossy_work::{LocalLossyWork, WorkAdmission};
++        for pressure in [false, true] {
++            let source = super::LocalSourceActivity::default();
++            let now = std::time::Instant::now();
++            if pressure {
++                source.note_pressure(now);
++            } else {
++                source.note(now);
++            }
++            for _ in 0..10 {
++                let cell = LocalLossyWork::new(vec![1000]).unwrap().cell(0).unwrap();
++                assert_eq!(
++                    source.admit_lossy_work(&cell, 1360, now),
++                    WorkAdmission::Admitted
++                );
++                assert_eq!(
++                    source.pace_lossy_packet(&cell, 1420, now),
++                    WorkAdmission::Admitted
++                );
++            }
++        }
++    }
++
+     use super::*;
+     use std::sync::{Arc, Barrier};
+ 
+@@ -591,11 +700,7 @@ mod tests {
+         // Whole-frame rejection persists across later probe windows. Neither
+         // waiting nor replaying the tail makes the same oversized frame fit.
+         assert_eq!(
+-            source.admit_lossy_work(
+-                &work.cell(6).unwrap(),
+-                1247,
+-                now + SECONDARY_PROBE_INTERVAL
+-            ),
++            source.admit_lossy_work(&work.cell(6).unwrap(), 1247, now + SECONDARY_PROBE_INTERVAL),
+             WorkAdmission::Rejected
+         );
+         assert!(source.allow_secondary(LOSSY_SECONDARY_BYTES, now));
+diff --git a/crates/veil-session/src/runner.rs b/crates/veil-session/src/runner.rs
+index 385b294c..ac97fc11 100644
+--- a/crates/veil-session/src/runner.rs
++++ b/crates/veil-session/src/runner.rs
+@@ -5040,12 +5040,11 @@ impl SessionRunner {
+                         let signaling_source = lane.source_activity.clone();
+                         let mut sender_state = lock!(sender);
+                         let max_datagram_size = sender_state.max_datagram_size;
+-                        let datagrams = match sender_state.tx.encode_frame(
+-                            local_datagram_flow(outgoing_priority, body, lane_kind),
+-                            outgoing,
++                        let datagram_sizes = match sender_state.tx.frame_wire_sizes(
++                            outgoing.len(),
+                             max_datagram_size,
+                         ) {
+-                            Ok(datagrams) => datagrams,
++                            Ok(sizes) => sizes,
+                             Err(error) => {
+                                 self.logger.debug(
+                                     "session.realtime_datagram.encode_fallback",
+@@ -5063,10 +5062,10 @@ impl SessionRunner {
+                                 break;
+                             }
+                         };
+-                        let planned_wire_len = datagrams.iter().map(Vec::len).sum::<usize>();
+-                        let planned_queue_charge = datagrams
++                        let planned_wire_len = datagram_sizes.iter().sum::<usize>();
++                        let planned_queue_charge = datagram_sizes
+                             .iter()
+-                            .map(|packet| sender_state.handle.queue_charge(packet.len()))
++                            .map(|bytes| sender_state.handle.queue_charge(*bytes))
+                             .sum::<usize>();
+                         let available = sender_state.handle.send_buffer_space();
+                         let primary_fits = outgoing_priority != veil_proto::priority::REALTIME
+@@ -5199,6 +5198,28 @@ impl SessionRunner {
+                                 }
+                                 veil_types::local_lossy_work::WorkAdmission::Admitted => {}
+                             }
++                            if envelope.carrier.is_none()
++                                && matches!(outgoing_priority,
++                                    veil_proto::priority::BULK | veil_proto::priority::BACKGROUND)
++                            {
++                                match lane.source_activity.pace_lossy_packet(
++                                    work, planned_wire_len, std::time::Instant::now(),
++                                ) {
++                                    veil_types::local_lossy_work::WorkAdmission::Wait(until) => {
++                                        pq.restore_lossy_envelope(envelope);
++                                        datagram_waiting[outgoing_priority as usize] = true;
++                                        source_pressure_retry = Some(
++                                            source_pressure_retry.map_or(until, |old| old.min(until)),
++                                        );
++                                        continue;
++                                    }
++                                    veil_types::local_lossy_work::WorkAdmission::Rejected => {
++                                        datagram_drained += 1;
++                                        continue;
++                                    }
++                                    veil_types::local_lossy_work::WorkAdmission::Admitted => {}
++                                }
++                            }
+                         }
+                         crate::local_lossy_trace::cell("budget_admit", outgoing_priority, outgoing);
+                         if outgoing_priority == crate::LOCAL_SIGNALING_LANE
+@@ -5213,6 +5234,24 @@ impl SessionRunner {
+                                 Some(source_pressure_retry.map_or(retry, |old| old.min(retry)));
+                             continue;
+                         }
++                        // Only now commit session counters/nonces. A source pacing
++                        // wait above restores plaintext, never a half-sent frame.
++                        let datagrams = match sender_state.tx.encode_frame(
++                            local_datagram_flow(outgoing_priority, body, lane_kind),
++                            outgoing, max_datagram_size,
++                        ) {
++                            Ok(datagrams) => datagrams,
++                            Err(error) => {
++                                self.logger.debug("session.realtime_datagram.encode_drop",
++                                    format!("peer_id={} error={error}", hex_short(&self.peer_id)));
++                                if independent_source {
++                                    datagram_drained += 1;
++                                    continue;
++                                }
++                                pq.restore_lossy_envelope(envelope);
++                                break;
++                            }
++                        };
+                         if !self.dispatcher.allow_outbound_bandwidth(planned_wire_len) {
+                             sender_state.trace_admission(
+                                 &self.logger,
+@@ -5705,6 +5744,11 @@ impl SessionRunner {
+                                 (veil_types::local_lossy_work::WorkAdmission::Admitted, Some(work)) => work.release_at(now),
+                                 (other, _) => other,
+                             };
++                            let admission = match (admission, local_work) {
++                                (veil_types::local_lossy_work::WorkAdmission::Admitted, Some(work)) =>
++                                    outbox.source_activity().pace_lossy_packet(work, bytes, now),
++                                (other, _) => other,
++                            };
+                             match admission {
+                                 veil_types::local_lossy_work::WorkAdmission::Wait(retry) => {
+                                     source_pressure_retry = Some(source_pressure_retry.map_or(retry, |old| old.min(retry)));
+diff --git a/crates/veil-types/src/local_lossy_work.rs b/crates/veil-types/src/local_lossy_work.rs
+index 489d5ac8..e25e58f7 100644
+--- a/crates/veil-types/src/local_lossy_work.rs
++++ b/crates/veil-types/src/local_lossy_work.rs
+@@ -16,6 +16,7 @@ enum Decision {
+         overhead: usize,
+         admitted_at: Instant,
+         wire_bytes: usize,
++        packet_costs: Vec<Option<usize>>,
+     },
+     Rejected,
+ }
+@@ -205,6 +206,7 @@ impl LocalLossyCell {
+                             overhead,
+                             admitted_at: now,
+                             wire_bytes: total,
++                            packet_costs: vec![None; self.work.sizes.len()],
+                         };
+                         WorkAdmission::Admitted
+                     }
+@@ -214,6 +216,56 @@ impl LocalLossyCell {
+         }
+     }
+ 
++    /// Pace one admitted member across the endpoint's competing producers.
++    /// A scheduler retry keeps its original reservation, deadline and charge;
++    /// waiting here must not reject the already admitted complete work.
++    pub fn pace_packet_at(
++        &self,
++        owner: u64,
++        wire_bytes: usize,
++        now: Instant,
++        reserve: impl FnOnce(usize) -> Result<(), Instant>,
++    ) -> WorkAdmission {
++        let mut state = self.work.decision.lock().unwrap_or_else(|p| p.into_inner());
++        if wire_bytes == 0
++            || self
++                .work
++                .pacing
++                .as_ref()
++                .is_some_and(|p| now >= p.expires_at)
++        {
++            *state = Decision::Rejected;
++            return WorkAdmission::Rejected;
++        }
++        let Decision::Admitted {
++            owner: bound,
++            packet_costs,
++            ..
++        } = &mut *state
++        else {
++            return WorkAdmission::Rejected;
++        };
++        if *bound != owner {
++            *state = Decision::Rejected;
++            return WorkAdmission::Rejected;
++        }
++        if let Some(paid) = packet_costs[self.index] {
++            if paid == wire_bytes {
++                return WorkAdmission::Admitted;
++            }
++            // A changed frame/transport shape cannot reuse the old charge.
++            *state = Decision::Rejected;
++            return WorkAdmission::Rejected;
++        }
++        match reserve(wire_bytes) {
++            Ok(()) => {
++                packet_costs[self.index] = Some(wire_bytes);
++                WorkAdmission::Admitted
++            }
++            Err(until) => WorkAdmission::Wait(until),
++        }
++    }
++
+     /// Query release only AFTER whole-work admission. Waiting here never
+     /// refunds/repeats the reservation and never changes the original expiry.
+     pub fn release_at(&self, now: Instant) -> WorkAdmission {
+@@ -283,6 +335,82 @@ impl LocalLossyCell {
+ mod tests {
+     use super::*;
+ 
++    #[test]
++    fn packet_wait_keeps_complete_work_and_charges_each_member_once() {
++        let now = Instant::now();
++        let work =
++            LocalLossyWork::new_paced(vec![100, 200], Duration::ZERO, now + SOURCE_WORK_MAX_AGE)
++                .unwrap();
++        let first = work.cell(0).unwrap();
++        let last = work.cell(1).unwrap();
++        assert_eq!(
++            first.pace_packet_at(7, 160, now, |_| panic!("not admitted")),
++            WorkAdmission::Rejected
++        );
++        assert_eq!(
++            first.admit_at(7, 140, now, |_| Ok(())),
++            WorkAdmission::Admitted
++        );
++        let due = now + Duration::from_millis(10);
++        assert_eq!(
++            first.pace_packet_at(7, 160, now, |_| Err(due)),
++            WorkAdmission::Wait(due)
++        );
++        assert!(!first.rejected());
++        assert_eq!(
++            first.pace_packet_at(7, 160, due, |bytes| {
++                assert_eq!(bytes, 160);
++                Ok(())
++            }),
++            WorkAdmission::Admitted
++        );
++        assert_eq!(
++            first.pace_packet_at(7, 160, due, |_| panic!("already paid")),
++            WorkAdmission::Admitted
++        );
++        assert_eq!(
++            last.admit_at(7, 240, due, |_| panic!("whole work already paid")),
++            WorkAdmission::Admitted
++        );
++        assert_eq!(
++            last.pace_packet_at(7, 260, due, |bytes| {
++                assert_eq!(bytes, 260);
++                Ok(())
++            }),
++            WorkAdmission::Admitted
++        );
++    }
++
++    #[test]
++    fn packet_pacing_cannot_renew_expiry_or_reuse_a_changed_shape_or_owner() {
++        for kind in ["expiry", "owner", "shape"] {
++            let now = Instant::now();
++            let end = now + SOURCE_WORK_MAX_AGE;
++            let first = LocalLossyWork::new_paced(vec![100], Duration::ZERO, end)
++                .unwrap()
++                .cell(0)
++                .unwrap();
++            assert_eq!(
++                first.admit_at(7, 140, now, |_| Ok(())),
++                WorkAdmission::Admitted
++            );
++            assert_eq!(
++                first.pace_packet_at(7, 160, now, |_| Ok(())),
++                WorkAdmission::Admitted
++            );
++            assert_eq!(
++                first.pace_packet_at(
++                    if kind == "owner" { 8 } else { 7 },
++                    if kind == "shape" { 161 } else { 160 },
++                    if kind == "expiry" { end } else { now },
++                    |_| panic!("no new credit")
++                ),
++                WorkAdmission::Rejected
++            );
++            assert!(first.rejected());
++        }
++    }
++
+     #[test]
+     fn paced_members_reserve_the_whole_wire_cost_once_and_keep_release_times() {
+         let now = Instant::now();
