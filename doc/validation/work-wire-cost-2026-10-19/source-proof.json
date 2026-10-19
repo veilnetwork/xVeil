@@ -1,0 +1,14 @@
+{
+  "sdk_base": "1fef65ad13acd009ae77825e36e519243efd4b4f",
+  "foreign_excluded": true,
+  "sources": {
+    "crates/veil-types/src/local_lossy_work.rs": "75dbb4f51e816a253106718aa5103d63be92c5e42710b215e741dbc25f3ac8ff",
+    "crates/veil-session/src/source_work_cost.rs": "ffa28118e53a068bbf479094597eaa1738132155b2af6dc4c81e86dd7aff708f",
+    "crates/veil-session/src/local_source_activity.rs": "755984452ff73e363821d81767c1994d5ce270b7c3a429ed8179b50ff1a0005d",
+    "crates/veil-session/src/local_lossy_trace.rs": "d0d5d2e3aea6ed0d76456600616ee0415ff4b2552e5a20f1bf465c3c203979e9",
+    "crates/veil-session/src/runner.rs": "cff7136b83b18ca2c0cfcf8c34ee84b6b37ac37f980669593b0a940e6c54641e"
+  },
+  "sdk_sha256": "9cb5d3d4aa77fefaa44c9123be73771201a438ac9efb862da02bf619a95d5ce3",
+  "ffi_exports_unchanged": 202,
+  "sdk_commit": "827902ca3f02591988805e27ae26191e8517bd91"
+}

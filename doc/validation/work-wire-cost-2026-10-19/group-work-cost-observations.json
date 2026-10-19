@@ -1,0 +1,46 @@
+{
+  "rows": 2808,
+  "raw_envelope_bytes_are_not_spent_as_datagram_cost": true,
+  "examples": [
+    {
+      "at_unix_us": "1792403212960349",
+      "monotonic_us": "235990377145",
+      "connection_trace_id": "19",
+      "local_slot": "2",
+      "epoch": "bd4a70038bf59261",
+      "seq": "3",
+      "cell": "0",
+      "cells": "1",
+      "sealed_bytes": "814",
+      "envelope_work_bytes": "1094",
+      "envelope_cell_bytes": "1094",
+      "span_us": "0",
+      "admission_age_us": "44",
+      "remaining_us": "199902",
+      "datagram_cell_bytes": "1138",
+      "admitted_work_bytes": "1138",
+      "log": "native.log"
+    },
+    {
+      "at_unix_us": "1792403212960392",
+      "monotonic_us": "235990377187",
+      "connection_trace_id": "16",
+      "local_slot": "2",
+      "epoch": "79038719fadd4c9d",
+      "seq": "3",
+      "cell": "0",
+      "cells": "1",
+      "sealed_bytes": "814",
+      "envelope_work_bytes": "1094",
+      "envelope_cell_bytes": "1094",
+      "span_us": "0",
+      "admission_age_us": "85",
+      "remaining_us": "199862",
+      "datagram_cell_bytes": "1138",
+      "admitted_work_bytes": "1138",
+      "log": "native.log"
+    }
+  ],
+  "limit_reached": false,
+  "scope": "Boundary observations, not proof all middle cells were sent. Total codec cost is independently checked against actual encryption in tests."
+}
