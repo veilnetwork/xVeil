@@ -599,7 +599,9 @@ class CallBitrateAdapter {
     final routeRttUsable = _observeRttRoute(stats, sendAudioExpected);
     final networkLoss = _rtcpLoss.observe(
       audioReportUs: stats['audio_loss_report_us'],
-      videoReportUs: stats['video_loss_report_us'],
+      videoReportUs: stats.containsKey('video_persistent_loss_report_us')
+          ? stats['video_persistent_loss_report_us']
+          : stats['video_loss_report_us'],
       audioExpected: sendAudioExpected,
       videoExpected: videoSendExpected,
     );

@@ -1,0 +1,4 @@
+Running --video-loss-persistence
+video loss: real RR parsing, late fill, unicast/group persistence and compound integrity PASS
+Running --rtcp-loss
+RTCP loss: RR/SR, sub-percent, stream binding, cache, compound and room expiry verified

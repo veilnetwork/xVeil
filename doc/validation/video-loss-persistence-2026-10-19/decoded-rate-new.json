@@ -1,0 +1,61 @@
+{
+  "synthetic_fixture_only": true,
+  "screen_presentation_proof": false,
+  "sampled_retrieval_not_native_decode_timing": true,
+  "tail_seconds": 15,
+  "directions": [
+    {
+      "side": 0,
+      "decoded_frame_pulls": 338,
+      "decoded_counter": {
+        "frames": 1260,
+        "observation_seconds": 338.00026929198066,
+        "fps": 3.727807680861793
+      },
+      "last_minute_decoded_counter": {
+        "frames": 224,
+        "observation_seconds": 59.001335332985036,
+        "fps": 3.796524243660152
+      },
+      "last_dimensions": [
+        320,
+        240
+      ],
+      "content_changes": 337,
+      "last_decoded_pull_seconds": 359.00295349996304,
+      "max_sampled_pull_gap_seconds": 2.0016164999688044,
+      "tail_decoded_pulls": 15,
+      "tail_content_changes": 14,
+      "tail_content_verified": true,
+      "moving_at_end": true
+    },
+    {
+      "side": 1,
+      "decoded_frame_pulls": 339,
+      "decoded_counter": {
+        "frames": 3365,
+        "observation_seconds": 338.0010789579828,
+        "fps": 9.955589521707727
+      },
+      "last_minute_decoded_counter": {
+        "frames": 882,
+        "observation_seconds": 59.00132224999834,
+        "fps": 14.948817524170398
+      },
+      "last_dimensions": [
+        320,
+        240
+      ],
+      "content_changes": 338,
+      "last_decoded_pull_seconds": 359.00520749995485,
+      "max_sampled_pull_gap_seconds": 1.0113625000230968,
+      "tail_decoded_pulls": 15,
+      "tail_content_changes": 14,
+      "tail_content_verified": true,
+      "moving_at_end": true
+    }
+  ],
+  "required_tail_content_changes": 14,
+  "tail_content_verified": true,
+  "moving_at_end": true
+}
