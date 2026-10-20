@@ -62,6 +62,23 @@ void main() {
   }
 
   test(
+    'pixel feedback distinguishes measured state from transport recovery',
+    () {
+      final policy = CallAudioSourcePressure();
+      expect(sample(policy), isTrue); // Cold transport reservation remains.
+      expect(policy.measuredAudioPressure, isFalse);
+      expect(sample(policy, peer: null), isTrue);
+      expect(policy.measuredAudioPressure, isNull);
+      expect(sample(policy, local: 350), isTrue);
+      expect(policy.measuredAudioPressure, isTrue);
+      expect(sample(policy), isTrue); // Transport still earns its recovery.
+      expect(policy.measuredAudioPressure, isFalse);
+      expect(sample(policy, send: false, receive: false), isNull);
+    expect(policy.measuredAudioPressure, isFalse);
+    },
+  );
+
+  test(
     'measured small damage does not contract transport and preserves recovery credit',
     () {
       final policy = CallAudioSourcePressure();

@@ -173,6 +173,7 @@ abstract interface class GroupAudioEngine {
   bool get supportsLowRateVideo => false;
   bool get supportsVideoSendPause => false;
   bool setVideoSendPaused(bool paused) => false;
+  bool setAudioSourcePressure(bool? pressured) => false;
   bool startVideo() => false;
   bool stopVideo() => true;
   bool startCamera() => false;
@@ -245,6 +246,10 @@ class NativeGroupAudioEngine implements GroupAudioEngine {
 
   @override
   bool setVideoSendPaused(bool paused) => _engine.setVideoSendPaused(paused);
+
+  @override
+  bool setAudioSourcePressure(bool? pressured) =>
+      _engine.setAudioSourcePressure(pressured);
 
   @override
   bool setVideoBitrate({required int maxBitrateKbps, required num maxFps}) =>
@@ -650,6 +655,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       // source headroom while channel creation or its measurements are pending.
       _sourcePressure.reset();
       _sourcePressured = null;
+      _engine?.setAudioSourcePressure(null);
       _sourcePriority.invalidate();
     }
     _expectedMediaPeers
@@ -979,6 +985,9 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
           ? stats['audio_tx_rtp_drops'] as int
           : null,
     );
+    // Forward measured state before the transport floor override and without
+    // waiting for SDK IPC. A cold reservation is not measured audio damage.
+    engine.setAudioSourcePressure(_sourcePressure.measuredAudioPressure);
     final pressure = sendExpected && _sourcePriority.floor
         ? true
         : measuredPressure;
