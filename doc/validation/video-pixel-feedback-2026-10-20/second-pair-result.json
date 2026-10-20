@@ -1,0 +1,249 @@
+{
+  "ok": true,
+  "duration_seconds": 180,
+  "rate_kbps": 1024,
+  "video_policy_profile": {
+    "name": "anonymous",
+    "kbps": 150,
+    "fps": 15,
+    "profileCameraWidth": 352,
+    "profileCameraHeight": 198,
+    "syntheticCameraWidth": 320,
+    "syntheticCameraHeight": 240
+  },
+  "decoded_video_progress": {
+    "synthetic_fixture_only": true,
+    "screen_presentation_proof": false,
+    "sampled_retrieval_not_native_decode_timing": true,
+    "tail_seconds": 15,
+    "directions": [
+      {
+        "side": 0,
+        "decoded_frame_pulls": 146,
+        "decoded_counter": {
+          "frames": 972,
+          "observation_seconds": 157.99915220797993,
+          "fps": 6.151931744042029
+        },
+        "last_minute_decoded_counter": {
+          "frames": 732,
+          "observation_seconds": 58.99848458298948,
+          "fps": 12.407098337760548
+        },
+        "last_dimensions": [
+          320,
+          240
+        ],
+        "content_changes": 145,
+        "last_decoded_pull_seconds": 179.0016619579983,
+        "max_sampled_pull_gap_seconds": 7.0042672080453485,
+        "tail_decoded_pulls": 15,
+        "tail_content_changes": 14,
+        "tail_content_verified": true,
+        "moving_at_end": true
+      },
+      {
+        "side": 1,
+        "decoded_frame_pulls": 151,
+        "decoded_counter": {
+          "frames": 889,
+          "observation_seconds": 157.99922283401247,
+          "fps": 5.626609954492922
+        },
+        "last_minute_decoded_counter": {
+          "frames": 669,
+          "observation_seconds": 58.998467417026404,
+          "fps": 11.339277599725122
+        },
+        "last_dimensions": [
+          320,
+          240
+        ],
+        "content_changes": 150,
+        "last_decoded_pull_seconds": 179.00449474999914,
+        "max_sampled_pull_gap_seconds": 3.0015228340053,
+        "tail_decoded_pulls": 15,
+        "tail_content_changes": 14,
+        "tail_content_verified": true,
+        "moving_at_end": true
+      }
+    ],
+    "required_tail_content_changes": 1,
+    "tail_content_verified": true,
+    "moving_at_end": true
+  },
+  "phases": [
+    {
+      "name": "audio-only",
+      "directions": [
+        {
+          "maxima": {
+            "audio_delay_ms": 115,
+            "audio_jb_ms": 115,
+            "audio_interruption_count": 0,
+            "audio_interruption_duration_ms": 0,
+            "audio_rx_native_age_ms": 60,
+            "video_tx_frames": 0,
+            "video_rx_deliver_frames": 0
+          },
+          "pcm_frames": 1500,
+          "quiet_pcm_frames": 0,
+          "video_pause_samples": 0
+        },
+        {
+          "maxima": {
+            "audio_delay_ms": 89,
+            "audio_jb_ms": 89,
+            "audio_interruption_count": 0,
+            "audio_interruption_duration_ms": 0,
+            "audio_rx_native_age_ms": 62,
+            "video_tx_frames": 0,
+            "video_rx_deliver_frames": 0
+          },
+          "pcm_frames": 1500,
+          "quiet_pcm_frames": 0,
+          "video_pause_samples": 0
+        }
+      ]
+    },
+    {
+      "name": "audio-video",
+      "directions": [
+        {
+          "maxima": {
+            "audio_delay_ms": 136,
+            "audio_jb_ms": 136,
+            "audio_interruption_count": 0,
+            "audio_interruption_duration_ms": 0,
+            "audio_rx_native_age_ms": 46,
+            "video_tx_frames": 913,
+            "video_rx_deliver_frames": 991
+          },
+          "pcm_frames": 16000,
+          "quiet_pcm_frames": 0,
+          "video_pause_samples": 0
+        },
+        {
+          "maxima": {
+            "audio_delay_ms": 132,
+            "audio_jb_ms": 132,
+            "audio_interruption_count": 0,
+            "audio_interruption_duration_ms": 0,
+            "audio_rx_native_age_ms": 67,
+            "video_tx_frames": 994,
+            "video_rx_deliver_frames": 898
+          },
+          "pcm_frames": 16000,
+          "quiet_pcm_frames": 0,
+          "video_pause_samples": 0
+        }
+      ]
+    }
+  ],
+  "file_results": [
+    {
+      "queued": 524288,
+      "queue_duration_ms": 4.8,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "receipt_duration_ms": 142908.9,
+      "missing_indices": []
+    },
+    {
+      "queued": 524288,
+      "queue_duration_ms": 5.1,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "receipt_duration_ms": 149997.6,
+      "missing_indices": []
+    }
+  ],
+  "decoded_pcm_edges": [
+    {
+      "side": 0,
+      "phases": [
+        {
+          "name": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "p95_ms": 100.12224997626618,
+          "max_ms": 139.9216249701567
+        },
+        {
+          "name": "audio-video",
+          "matched": 159,
+          "missing": 0,
+          "p95_ms": 140.00837499042973,
+          "max_ms": 160.02333333017305
+        }
+      ],
+      "source_edge_capture_positions": {
+        "20": [
+          0,
+          1
+        ],
+        "40": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "60": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      }
+    },
+    {
+      "side": 1,
+      "phases": [
+        {
+          "name": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "p95_ms": 110.20220833597705,
+          "max_ms": 110.43866665568203
+        },
+        {
+          "name": "audio-video",
+          "matched": 159,
+          "missing": 0,
+          "p95_ms": 130.2796250092797,
+          "max_ms": 170.31358333770186
+        }
+      ],
+      "source_edge_capture_positions": {
+        "40": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "60": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ]
+      }
+    }
+  ],
+  "audio_thread_exited": true,
+  "file_threads_exited": true,
+  "policy_exited": true,
+  "node_stop_results": [
+    0,
+    0,
+    0
+  ],
+  "remaining_fixture_sockets": 0,
+  "remaining_processes": []
+}

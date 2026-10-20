@@ -1,0 +1,28 @@
+{
+  "sdk": {
+    "path": "/Users/vart/.cache/codex/xveil-flight-drain-20261020/sdk-fixed/libveilclient_ffi.dylib",
+    "sha256": "6b23c5dd905a8ec67c2a849a68d2027a56f4f1baa74a9328ceace62cad0cf5f8",
+    "exports": 202,
+    "exports_unchanged": true,
+    "contract_hash": "d897342ae32051ee3e0758dcae56dcefc6de26eb7ca0b23fce921b9a57dfb16f",
+    "dlopen": true,
+    "clean_export": true,
+    "foreign_wip_excluded": true,
+    "owned_source": "crates/veil-session/src/local_source_flight.rs",
+    "owned_source_sha256": "628f714dc0dc76017e547c7fb4cc8dd813669b14c2b05c3e44a2c3c31f28a347"
+  },
+  "media": {
+    "path": "/Users/vart/.cache/codex/xveil-transient-frame-20261020/media-hooks/libveil_media.dylib",
+    "sha256": "52c69ead4fd82a9ff4118b385d122d99c97d0eccbe61c6f81afcefb4a7d8eadd",
+    "exports": 135,
+    "exports_unchanged": true
+  },
+  "root_head": "ba9f8f1cdf279a43d1eb223e116e376d152df9e4",
+  "native_build_proof": "native-build-proof.json",
+  "sdk_head": "b7f84b864cc1f240a76c8ccc3d0cc32f44c949b6",
+  "root_source_pressure_sha256": "06bb512a16840aebf2776c0ac685251bd975468f47e6ecf08ce58997304aa237",
+  "native_source_sha256": {
+    "third_party/veil/flutter/veil_media/src/veil_video_frame_budget.h": "79be668ff9699cda078c5da7fa5a16432e86c5dca7121b52b49e990d41efb834",
+    "third_party/veil/flutter/veil_media/src/veil_media_engine.cc": "5e914d18066c076000cfe1d6c9d40386995a6893230b01a70641121f4c45ea99"
+  }
+}

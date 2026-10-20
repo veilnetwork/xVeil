@@ -1,0 +1,50 @@
+{
+  "path": "/Users/vart/.cache/codex/xveil-transient-frame-20261020/native-frame-analysis.json",
+  "sha256": "cd7ec259adb261e4c22b88bd9781e0802e1a21105fb4065b875c7df2aaa0ed68",
+  "sdk_admission_audited": false,
+  "scope": "Same-host endpoint metadata; no live speech or display quality claim. Unknown SDK witnesses are not proof of drops. Final three seconds are censored.",
+  "directions": [
+    {
+      "source": 0,
+      "receiver": 1,
+      "frames": 513,
+      "decoded": 494,
+      "pixel_cuts": 0
+    },
+    {
+      "source": 0,
+      "receiver": 2,
+      "frames": 513,
+      "decoded": 507,
+      "pixel_cuts": 0
+    },
+    {
+      "source": 1,
+      "receiver": 0,
+      "frames": 431,
+      "decoded": 424,
+      "pixel_cuts": 0
+    },
+    {
+      "source": 1,
+      "receiver": 2,
+      "frames": 431,
+      "decoded": 430,
+      "pixel_cuts": 0
+    },
+    {
+      "source": 2,
+      "receiver": 0,
+      "frames": 542,
+      "decoded": 524,
+      "pixel_cuts": 0
+    },
+    {
+      "source": 2,
+      "receiver": 1,
+      "frames": 542,
+      "decoded": 538,
+      "pixel_cuts": 0
+    }
+  ]
+}

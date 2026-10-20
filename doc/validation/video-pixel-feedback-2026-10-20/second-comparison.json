@@ -1,0 +1,439 @@
+{
+  "baseline": {
+    "path": "/Users/vart/.cache/codex/xveil-flight-drain-20261020/group-final-360",
+    "duration_seconds": 360,
+    "audio_markers": 2112,
+    "audio_missing": 0,
+    "audio_peak_ms": 200.17154165543616,
+    "files_ok": true,
+    "video_paths": [
+      {
+        "receiver": 0,
+        "source": 1,
+        "tail_changes": 14,
+        "required_tail_content_changes": 14,
+        "last_dimensions": [
+          80,
+          60
+        ],
+        "last_minute_decoded_counter": {
+          "frames": 106,
+          "observation_seconds": 57.98024779203115,
+          "fps": 1.8282088131152954
+        }
+      },
+      {
+        "receiver": 0,
+        "source": 2,
+        "tail_changes": 14,
+        "required_tail_content_changes": 14,
+        "last_dimensions": [
+          80,
+          60
+        ],
+        "last_minute_decoded_counter": {
+          "frames": 141,
+          "observation_seconds": 56.97784883301938,
+          "fps": 2.4746458999043277
+        }
+      },
+      {
+        "receiver": 1,
+        "source": 0,
+        "tail_changes": 14,
+        "required_tail_content_changes": 14,
+        "last_dimensions": [
+          80,
+          60
+        ],
+        "last_minute_decoded_counter": {
+          "frames": 159,
+          "observation_seconds": 56.9891832920257,
+          "fps": 2.7900031341956137
+        }
+      },
+      {
+        "receiver": 1,
+        "source": 2,
+        "tail_changes": 14,
+        "required_tail_content_changes": 14,
+        "last_dimensions": [
+          80,
+          60
+        ],
+        "last_minute_decoded_counter": {
+          "frames": 132,
+          "observation_seconds": 55.00862254196545,
+          "fps": 2.399623802601105
+        }
+      },
+      {
+        "receiver": 2,
+        "source": 0,
+        "tail_changes": 14,
+        "required_tail_content_changes": 14,
+        "last_dimensions": [
+          80,
+          60
+        ],
+        "last_minute_decoded_counter": {
+          "frames": 134,
+          "observation_seconds": 55.99104729201645,
+          "fps": 2.3932397495823685
+        }
+      },
+      {
+        "receiver": 2,
+        "source": 1,
+        "tail_changes": 14,
+        "required_tail_content_changes": 14,
+        "last_dimensions": [
+          80,
+          60
+        ],
+        "last_minute_decoded_counter": {
+          "frames": 96,
+          "observation_seconds": 54.00292520801304,
+          "fps": 1.7776814798498244
+        }
+      }
+    ],
+    "final_targets": [
+      {
+        "video_kbps": 38,
+        "max_fps": 3.75,
+        "video_encoder_target_bps": 29424,
+        "video_frame_pixel_cap": 7510,
+        "video_frame_encoded_pixels": 4800,
+        "video_tx_frames": 766,
+        "video_tx_key_frames": 14,
+        "tx_drops": 0
+      },
+      {
+        "video_kbps": 26,
+        "max_fps": 3.75,
+        "video_encoder_target_bps": 25232,
+        "video_frame_pixel_cap": 7275,
+        "video_frame_encoded_pixels": 4800,
+        "video_tx_frames": 918,
+        "video_tx_key_frames": 15,
+        "tx_drops": 0
+      },
+      {
+        "video_kbps": 38,
+        "max_fps": 3.75,
+        "video_encoder_target_bps": 29232,
+        "video_frame_pixel_cap": 7910,
+        "video_frame_encoded_pixels": 4800,
+        "video_tx_frames": 923,
+        "video_tx_key_frames": 14,
+        "tx_drops": 0
+      }
+    ],
+    "pressure_samples": [
+      {
+        "True": 17,
+        "False": 336,
+        "None": 7
+      },
+      {
+        "True": 19,
+        "False": 340,
+        "None": 1
+      },
+      {
+        "True": 18,
+        "False": 337,
+        "None": 5
+      }
+    ],
+    "source_flight_window": {
+      "samples": 1103,
+      "min": 3600,
+      "p50": 5808,
+      "p90": 7260,
+      "max": 7260
+    },
+    "expired_outgoing_datagrams": 2715,
+    "expired_by_connection": {
+      "native.log:24": 764,
+      "native.log:22": 847,
+      "native.log:23": 1104
+    },
+    "cleanup": {
+      "worker_pids": [
+        73517,
+        73518,
+        73519
+      ],
+      "workers_exited": true,
+      "node_stop_results": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "remaining_sockets": 0
+    },
+    "raw_ok": false,
+    "audio_impairment": [
+      {
+        "worker": "worker-0",
+        "counter_delta_after_60s": {
+          "audio_latency_recovery_count": 0,
+          "audio_latency_discarded_ms": 0,
+          "audio_latency_fallback_frames": 0
+        },
+        "peak_after_60s": {
+          "audio_local_soft_loss_window_ms": 21.5,
+          "audio_peer_soft_loss_window_ms": 26.354167
+        }
+      },
+      {
+        "worker": "worker-1",
+        "counter_delta_after_60s": {
+          "audio_latency_recovery_count": 0,
+          "audio_latency_discarded_ms": 0,
+          "audio_latency_fallback_frames": 0
+        },
+        "peak_after_60s": {
+          "audio_local_soft_loss_window_ms": 31.1875,
+          "audio_peer_soft_loss_window_ms": 32.229167
+        }
+      },
+      {
+        "worker": "worker-2",
+        "counter_delta_after_60s": {
+          "audio_latency_recovery_count": 0,
+          "audio_latency_discarded_ms": 0,
+          "audio_latency_fallback_frames": 0
+        },
+        "peak_after_60s": {
+          "audio_local_soft_loss_window_ms": 32.229167,
+          "audio_peer_soft_loss_window_ms": 31.1875
+        }
+      }
+    ]
+  },
+  "candidate": {
+    "path": "/Users/vart/.cache/codex/xveil-host-pixel-grant-20261020/group-final-360",
+    "duration_seconds": 360,
+    "audio_markers": 2112,
+    "audio_missing": 0,
+    "audio_peak_ms": 250.12766662985086,
+    "files_ok": true,
+    "video_paths": [
+      {
+        "receiver": 0,
+        "source": 1,
+        "tail_changes": 13,
+        "required_tail_content_changes": 14,
+        "last_dimensions": [
+          320,
+          240
+        ],
+        "last_minute_decoded_counter": {
+          "frames": 84,
+          "observation_seconds": 59.000167208956555,
+          "fps": 1.423724778651955
+        }
+      },
+      {
+        "receiver": 0,
+        "source": 2,
+        "tail_changes": 14,
+        "required_tail_content_changes": 14,
+        "last_dimensions": [
+          320,
+          240
+        ],
+        "last_minute_decoded_counter": {
+          "frames": 89,
+          "observation_seconds": 59.00024404202122,
+          "fps": 1.5084683367853922
+        }
+      },
+      {
+        "receiver": 1,
+        "source": 0,
+        "tail_changes": 13,
+        "required_tail_content_changes": 14,
+        "last_dimensions": [
+          320,
+          240
+        ],
+        "last_minute_decoded_counter": {
+          "frames": 72,
+          "observation_seconds": 58.98002600000473,
+          "fps": 1.220752259417353
+        }
+      },
+      {
+        "receiver": 1,
+        "source": 2,
+        "tail_changes": 14,
+        "required_tail_content_changes": 14,
+        "last_dimensions": [
+          320,
+          240
+        ],
+        "last_minute_decoded_counter": {
+          "frames": 89,
+          "observation_seconds": 58.980364249960985,
+          "fps": 1.5089767778105723
+        }
+      },
+      {
+        "receiver": 2,
+        "source": 0,
+        "tail_changes": 13,
+        "required_tail_content_changes": 14,
+        "last_dimensions": [
+          320,
+          240
+        ],
+        "last_minute_decoded_counter": {
+          "frames": 76,
+          "observation_seconds": 59.01931141701061,
+          "fps": 1.2877141087433155
+        }
+      },
+      {
+        "receiver": 2,
+        "source": 1,
+        "tail_changes": 13,
+        "required_tail_content_changes": 14,
+        "last_dimensions": [
+          320,
+          240
+        ],
+        "last_minute_decoded_counter": {
+          "frames": 84,
+          "observation_seconds": 59.019405250030104,
+          "fps": 1.4232606994960721
+        }
+      }
+    ],
+    "final_targets": [
+      {
+        "video_kbps": 9,
+        "max_fps": 1.5,
+        "video_encoder_target_bps": 8616,
+        "video_frame_pixel_cap": 76800,
+        "video_frame_encoded_pixels": 76800,
+        "video_tx_frames": 501,
+        "video_tx_key_frames": 16,
+        "tx_drops": 0
+      },
+      {
+        "video_kbps": 15,
+        "max_fps": 1.5,
+        "video_encoder_target_bps": 14584,
+        "video_frame_pixel_cap": 76800,
+        "video_frame_encoded_pixels": 76800,
+        "video_tx_frames": 422,
+        "video_tx_key_frames": 21,
+        "tx_drops": 0
+      },
+      {
+        "video_kbps": 15,
+        "max_fps": 1.5,
+        "video_encoder_target_bps": 14616,
+        "video_frame_pixel_cap": 76800,
+        "video_frame_encoded_pixels": 76800,
+        "video_tx_frames": 594,
+        "video_tx_key_frames": 15,
+        "tx_drops": 0
+      }
+    ],
+    "pressure_samples": [
+      {
+        "True": 57,
+        "False": 264,
+        "None": 39
+      },
+      {
+        "True": 39,
+        "False": 294,
+        "None": 27
+      },
+      {
+        "True": 30,
+        "False": 312,
+        "None": 18
+      }
+    ],
+    "source_flight_window": {
+      "samples": 1099,
+      "min": 3600,
+      "p50": 5808,
+      "p90": 7260,
+      "max": 7260
+    },
+    "expired_outgoing_datagrams": 1530,
+    "expired_by_connection": {
+      "native.log:23": 607,
+      "native.log:22": 568,
+      "native.log:24": 355
+    },
+    "cleanup": {
+      "worker_pids": [
+        23027,
+        23028,
+        23029
+      ],
+      "workers_exited": true,
+      "node_stop_results": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "remaining_sockets": 0
+    },
+    "raw_ok": false,
+    "audio_impairment": [
+      {
+        "worker": "worker-0",
+        "counter_delta_after_60s": {
+          "audio_latency_recovery_count": 28,
+          "audio_latency_discarded_ms": 300,
+          "audio_latency_fallback_frames": 0
+        },
+        "peak_after_60s": {
+          "audio_local_soft_loss_window_ms": 120.458333,
+          "audio_peer_soft_loss_window_ms": 112.229167
+        }
+      },
+      {
+        "worker": "worker-1",
+        "counter_delta_after_60s": {
+          "audio_latency_recovery_count": 41,
+          "audio_latency_discarded_ms": 500,
+          "audio_latency_fallback_frames": 0
+        },
+        "peak_after_60s": {
+          "audio_local_soft_loss_window_ms": 152.229167,
+          "audio_peer_soft_loss_window_ms": 73.583333
+        }
+      },
+      {
+        "worker": "worker-2",
+        "counter_delta_after_60s": {
+          "audio_latency_recovery_count": 38,
+          "audio_latency_discarded_ms": 410,
+          "audio_latency_fallback_frames": 0
+        },
+        "peak_after_60s": {
+          "audio_local_soft_loss_window_ms": 142.229167,
+          "audio_peer_soft_loss_window_ms": 96.0
+        }
+      }
+    ]
+  },
+  "limits": [
+    "Synthetic same-host neutral-relay experiment; no speech-listening or physical display proof.",
+    "Raw expiry totals are counts, not normalized network loss.",
+    "The strict 200 ms acoustic gate remains unchanged."
+  ]
+}

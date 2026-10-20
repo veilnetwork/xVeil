@@ -1,0 +1,51 @@
+{
+  "ownership": {
+    "launcher_pid": 66732,
+    "fixture_pid": 22891,
+    "helper_pid": 22892,
+    "command": [
+      "python3",
+      "/Users/vart/Projects/veilnetwork/xVeil/scripts/relay-codec-control.py",
+      "--sdk",
+      "/Users/vart/.cache/codex/xveil-flight-drain-20261020/sdk-fixed/libveilclient_ffi.dylib",
+      "--media",
+      "/Users/vart/.cache/codex/xveil-transient-frame-20261020/media-hooks/libveil_media.dylib",
+      "--directory",
+      "/Users/vart/.cache/codex/xveil-transient-frame-20261020/pair-candidate-180",
+      "--duration",
+      "180",
+      "--rate-kbps",
+      "1024",
+      "--video-profile",
+      "anonymous",
+      "--adaptive-audio",
+      "--audio-overhead-bytes",
+      "360",
+      "--max-rtp-packet-size",
+      "1000",
+      "--compact-media",
+      "--compact-call-health",
+      "--local-source-feedback",
+      "--compete-file",
+      "--tone-period-ms",
+      "1010",
+      "--native-pcm-priority",
+      "deadline",
+      "--native-timing-trace",
+      "--playout-trace",
+      "--native-trace-capacity",
+      "32768",
+      "--source-cell-trace",
+      "--shaper-trace",
+      "--sealed-trace-every",
+      "1",
+      "--live-video-framing"
+    ]
+  },
+  "cleanup": {
+    "fixture_absent": true,
+    "helper_absent": true,
+    "exit_code": 0
+  },
+  "independent_process_and_summary_checks": "validated in pair-comparison.json or pair-result.json; remaining_processes=[]"
+}
