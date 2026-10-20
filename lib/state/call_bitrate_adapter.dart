@@ -1199,7 +1199,7 @@ class CallBitrateAdapter {
     // a growing/capped buffer or fresh media loss can reduce video.
     // Video-only and legacy calls retain their transport-based ladder.
     final bad = (usePlayout ? bufferPressure : networkBad) || videoStepLoss;
-    final recoveredAudio =
+    final audioWithinRecoveryLimits =
         targetsRecovered &&
         feedbackAvailable &&
         rttMs > 0 &&
@@ -1207,8 +1207,6 @@ class CallBitrateAdapter {
         jitterGood &&
         rttGood &&
         !freshAudioLoss &&
-        _receiveBuffer.growing != true &&
-        _peerBuffer.growing != true &&
         !bufferPressure &&
         !missingAudioReceiverFeedback &&
         !audioUnproven &&
@@ -1218,16 +1216,27 @@ class CallBitrateAdapter {
         (!requireAudioReceivePlayout ||
             (audioReceiveDelayMs != null &&
                 audioReceiveDelayMs < playoutRecoverMs));
+    final bufferGrowing =
+        _receiveBuffer.growing == true || _peerBuffer.growing == true;
+    final recoveredAudio = audioWithinRecoveryLimits && !bufferGrowing;
     final audioGood = recoveredAudio && !transientGrowthHeld;
-    // A completed isolated impairment pauses growth without erasing earned
-    // healthy credit or imposing another twelve-second ramp restart. Actual
-    // loss, buffer pressure and unknown/marginal measurements still reset it.
+    // An unconfirmed rise and a completed isolated impairment pause growth
+    // without erasing earned healthy credit or restarting the applied ramp.
+    // The current sample earns no credit. Confirmed pressure, real loss and
+    // unknown/marginal measurements still reset recovery normally.
     _growthSampleTransient =
-        recoveredAudio &&
-        transientGrowthHeld &&
+        audioWithinRecoveryLimits &&
+        (transientGrowthHeld || bufferGrowing) &&
         !newDrops &&
         !freshMediaLoss &&
         videoSendExpected;
+    _bufferInputs?.addAll({
+      'buffer_growth_pending': bufferGrowing && !bufferPressure,
+      'audio_within_recovery_limits': audioWithinRecoveryLimits,
+      'video_recovery_eligible': videoSendExpected,
+      'audio_receive_age_ms': audioReceiveAgeMs,
+      'audio_receiver_feedback_missing': missingAudioReceiverFeedback,
+    });
     // Audio alone cannot prove there is headroom for a larger video source.
     // Keep the measured rung while capture is off; healthy audio may still
     // release a protection pause, so an enabled sender can try its sparse floor.
