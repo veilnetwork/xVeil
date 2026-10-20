@@ -272,3 +272,56 @@ The complete existing recovery/controller tests and real three-party mixed
 recovery test pass. The final source only relocates the private helper and
 clarifies comments relative to the evaluated candidate; its decisions are
 unchanged. No relay scheduling, application class or on-wire role was added.
+
+## Remaining video gap starts at the encoder
+
+`video-source-gap-witness.json` joins the existing image, RTP and decoder
+metadata around the two failing tails. Source 2 emits a 1477-byte image at
+346.097 s. Both RTP fragments arrive; the complete image is decoded at
+346.271 s and 346.233 s on the two receivers. The sender does not produce its
+next encoded image until 348.053 s. The corresponding decoded gaps are
+1.935 s and 1.950 s. This particular pause is already present at the sender,
+despite successful delivery of the preceding frame.
+
+During that interval the camera is not paused, current audio pressure and
+network-loss indications are false, and the video policy starts recovering
+from 1 to 1.5 fps. The image-size recorder reports only 5833 payload bit/s at
+the 1-fps setting: approximately 729 bytes of allocation per frame. The
+1477-byte image spends more than two such allocations. The existing sizing
+hint considers only a transport-sized frame (1376 bytes), and a fresh healthy
+audio report exempts a moderate isolated overshoot. It has no frame-rate input.
+The timing is consistent with codec frame debt; the recorded sender gap does
+not establish a relay scheduling or receiver-buffering defect.
+
+The candidate passes the real encoder rate-control FPS to the sizing policy.
+At cadences of five fps or less, an image spending more than 1.5 allocations
+requests fewer source pixels for future images. Every encoded reference and
+callback remains forwarded unchanged. A separate funded pixel ceiling stops
+healthy audio alone from undoing that sizing limit. Actual growth in bytes per
+frame can relax it; temporary audio cuts can still recover toward that limit.
+Unknown/invalid FPS and ordinary faster-camera cadence retain their existing
+overshoot behavior. No bitrate, target FPS, audio profile or relay policy is
+changed.
+
+The sizing tests retain the existing cases and add the recorded 5833-bit/s
+example, fractional FPS, funding-based recovery, suspension and rate jitter,
+recovery after a separate audio cut, and invalid/unknown FPS. The new full
+capture keeps every existing audio/video/file gate.
+
+`cadence-full-workload.json` records its passing result: raw `ok` and
+`contention_qualification` are both true. The six audio maxima range from
+180.262 to 190.256 ms. All 2112 measured voice transitions match, all three
+files are hash-verified and finish in 351.945–352.015 seconds. Every video
+direction has all 14 required tail image changes. Each receiver records 23
+actual decoded frames in the final 15 seconds; the largest inter-frame gap
+there is 730.774 ms, compared with the earlier 1.950-second source gap.
+The observed final image dimensions are 160×120 at this constrained budget.
+The sources' codec-rate/FPS records confirm that the new sizing rule is active.
+
+All capture clocks pass, the route remains the neutral relay, and all eleven
+owned processes are independently verified absent. The full QA source tree
+matches the production media source tree byte-for-byte; only the build's test
+hooks differ. The remaining gate is an independent run after committing these
+sources. Its fixture additionally snapshots final native receiver counters
+after all measured callbacks stop; the old periodic poll stops at 359 seconds
+and cannot alone prove those counters through the end of the capture.

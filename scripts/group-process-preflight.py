@@ -426,6 +426,17 @@ def worker(pipe, sdk_path, media_path, root, clock, participant,
         time.sleep(1)
         result['audio_observation_tail_seconds'] = time.monotonic() - tail_started
         rows.extend(driver.stop())
+        # Snapshot after every measured callback has stopped. The regular
+        # one-second poll ends before the final source markers; it cannot
+        # prove the receiver counters through the whole capture interval.
+        final_stats = stats(engine)
+        if not final_stats:
+            raise RuntimeError('Missing final group receiver statistics')
+        try:
+            result['final_native_stats'] = json.loads(C.string_at(final_stats))
+            result['final_native_stats_seconds'] = time.monotonic() - origin
+        finally:
+            free_string(final_stats)
         clock_stats = {k: getattr(driver.stats, k) for k, _ in driver.stats._fields_}
         clock_stats['failures'] = list(driver.stats.failures)
         result.update(clock=clock_stats, rows=len(rows),
