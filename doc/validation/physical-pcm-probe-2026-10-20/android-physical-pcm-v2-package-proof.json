@@ -1,0 +1,23 @@
+{
+  "version_code": 12624,
+  "profile_aot": true,
+  "qa_pcm_source": 1,
+  "synthetic_adm": true,
+  "same_signer": true,
+  "apk_sha256": "89efd2169f0491eb66c86163f45aa8992fa1e61181c0b135b7bbcd97068a861f",
+  "libraries": {
+    "lib/arm64-v8a/libbarhopper_v3.so": "ec09597e9eb3aee0eb55ae3366da0d4ba416f5aa35a1af0b3811f50ff46743a1",
+    "lib/arm64-v8a/libdartjni.so": "749220702bf4707fad06c8d1f6777ea9efaa1b03a68d92b7e18419a8f497ca07",
+    "lib/arm64-v8a/libdatastore_shared_counter.so": "d3e48717c9aa147e0ab21063ba0e8e0211cabf8bf40b222640829519edbf58e1",
+    "lib/arm64-v8a/libhidden_volume_ffi.so": "ab4a0cf8b75f2be9e6d525c40f48c613aa13d881307e13464ef0e1a3af840156",
+    "lib/arm64-v8a/libimage_processing_util_jni.so": "0292b063fafccf734472cbb59588e756c2dbca907c72021ba6fbf126385508a2",
+    "lib/arm64-v8a/libjnidispatch.so": "fe9c603f2a7a5d19197b87f275d6e0afb975f997a57ff4f8ca801cb8c5e7b731",
+    "lib/arm64-v8a/libsurface_util_jni.so": "a5c9d1928ea92ec7a94dff8cf666e7739cd734198b9f0ae1d4e28ea3c86516ba",
+    "lib/arm64-v8a/libveil_media.so": "d39f0a2db9142609d6328567f5dd14a14248f7d71fc49872b5d6fb7209c40f2b",
+    "lib/arm64-v8a/libveil_whisper.so": "52c1860e68ea6828dc06ce7917b00d0a4b86338fe214356ea2a039ed10d880dc",
+    "lib/arm64-v8a/libvmservice_snapshot.so": "0746fec131370d7b1dccc105554e81b759a575fe12dbfd8089b757f28aa7a9b0",
+    "lib/arm64-v8a/libveilclient_ffi.so": "8063f28785c392eb25aa50f2ef9c47b36c80cd1ad12ba40723f84ee42c42f30d",
+    "lib/arm64-v8a/libxveil_pcm_driver.so": "f14012149f34fef6d578d58f0960734334a93ea84b4bbec9bf1b0b67677dcb02",
+    "lib/arm64-v8a/libapp.so": "904221448f1f81fec0a8d8adf8ab209625380783a1402e867797fcae105693e0"
+  }
+}

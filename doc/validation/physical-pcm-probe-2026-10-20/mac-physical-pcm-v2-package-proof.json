@@ -1,0 +1,15 @@
+{
+  "version": "0.13.87-qa-physical-pcm-v2-20261020",
+  "profile_aot": true,
+  "qa_pcm_source": 0,
+  "synthetic_adm": true,
+  "codesign_deep_strict": true,
+  "private_no_vpn": true,
+  "aot_sha256": "b3c7bd72c7ab827bf96cc1e668fa259118b0c2946a07b9f3d042deca34298ce4",
+  "libraries": {
+    "libveilclient_ffi.dylib": "346f8f10147050c8e8d42aa939082af535d36b3039124cb1e29603587c9fad9a",
+    "libxveil_pcm_driver.dylib": "d1e2f80572929b1a2bdad6aec3693a36ac9572deb159944ed7181aaa22b3c820",
+    "libveil_media.dylib": "74d0bb849cb8797ffb91f50564fa64d31580704b10332add490c7696d669603c",
+    "libhidden_volume_ffi.dylib": "a923c8ec596f3cd95a0c2967a1c713797fb60dd626dd53b08f689c7251dc1e4f"
+  }
+}

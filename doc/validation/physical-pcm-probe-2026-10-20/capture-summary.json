@@ -1,0 +1,96 @@
+{
+  "status": "aborted_on_real_engine_repair",
+  "error": "Engine generation changed during PCM measurement",
+  "files_not_started": true,
+  "normal_phone_build_restored": true,
+  "capture_collection_errors": {},
+  "pcm_stopped": {
+    "mac": {
+      "ok": true,
+      "clock": 321349.72578687494,
+      "source": 0,
+      "probes": [
+        {
+          "source": 0,
+          "path": "/private/tmp/xveil-pcm-15323-lANA8w/observations.jsonl",
+          "origin": 321335.2170000001,
+          "started": true,
+          "stopped": true,
+          "rows": 3423,
+          "stats": {
+            "ticks": 1141,
+            "dropped_rows": 0,
+            "failures": [
+              0,
+              0
+            ],
+            "max_interval_ms": 42.5376666826196,
+            "max_wake_lateness_ms": 32.436667,
+            "max_callback_ms": 12.467666645534337,
+            "max_publication_ms": 0.04712503869086504,
+            "qos_supported": 1,
+            "qos_requested": 33,
+            "qos_result": 0,
+            "qos_actual": 33,
+            "timer_error": 0
+          }
+        },
+        {
+          "source": 0,
+          "path": "/private/tmp/xveil-pcm-15323-9PQxR7/observations.jsonl",
+          "origin": null,
+          "started": false,
+          "stopped": true,
+          "rows": 0,
+          "stats": {}
+        }
+      ]
+    },
+    "phone": {
+      "ok": true,
+      "clock": 3927295.073143007,
+      "source": 1,
+      "probes": [
+        {
+          "source": 1,
+          "path": "/data/user/0/network.veil.xveil/cache/xveil-pcm-5552-SFLKBO/observations.jsonl",
+          "origin": 3927280.2776735886,
+          "started": true,
+          "stopped": true,
+          "rows": 4344,
+          "stats": {
+            "ticks": 1448,
+            "dropped_rows": 0,
+            "failures": [
+              0,
+              0
+            ],
+            "max_interval_ms": 12.691769283264875,
+            "max_wake_lateness_ms": 3.116264,
+            "max_callback_ms": 6.569846998900175,
+            "max_publication_ms": 0.11715386062860489,
+            "qos_supported": 0,
+            "qos_requested": 0,
+            "qos_result": 0,
+            "qos_actual": 0,
+            "timer_error": 0
+          }
+        }
+      ]
+    }
+  },
+  "early_counters": {
+    "mac": {
+      "audio_rx_pkts": 273,
+      "audio_tx_rtp_attempts": 268,
+      "audio_tx_rtp_queued": 268,
+      "audio_tx_rtp_drops": 0
+    },
+    "phone": {
+      "audio_rx_pkts": 0,
+      "audio_tx_rtp_attempts": 343,
+      "audio_tx_rtp_queued": 343,
+      "audio_tx_rtp_drops": 0
+    }
+  }
+}
