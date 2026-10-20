@@ -1,0 +1,524 @@
+{
+  "android_qa_build": 12629,
+  "mac_qa_build": 12628,
+  "sdk": "70a99c1f",
+  "source_sha256": {
+    "NativeCallCamera.kt": "397e1d129775e6bf6abe46e73289981814a5fd6555b6d45e31a404464bf5f81b",
+    "CallCameraSizePolicy.kt": "082f9169eab5adc963ecded5aef371b346868735052a9ffd4417781b256099e3"
+  },
+  "source_matches_qa_export": true,
+  "duration_seconds": 149.85578620800516,
+  "ring_seconds": 0.174633749993518,
+  "capture": {
+    "camera_native": true,
+    "camera_capture_width": 960,
+    "camera_capture_height": 540,
+    "camera_capture_fps": 29.6,
+    "camera_processed_frames": 3573,
+    "video_frame_encoded_pixels": 518400
+  },
+  "decoded_sizes": {
+    "mac": {
+      "frames": 1868,
+      "first_elapsed": 36.09413572907215,
+      "last_elapsed": 153.96173372905469,
+      "all_sizes": {
+        "180x320": 68,
+        "270x480": 108,
+        "360x640": 151,
+        "540x960": 1541
+      },
+      "last_minute_sizes": {
+        "360x640": 46,
+        "540x960": 1423
+      },
+      "last_minute_median_pixels": 518400,
+      "last": {
+        "id": "1",
+        "ssrc": "1337202493",
+        "timestamp": "2546496802",
+        "at_us": "343649925691",
+        "width": "540",
+        "height": "960"
+      }
+    },
+    "phone": {
+      "frames": 1036,
+      "first_elapsed": 35.37523418292403,
+      "last_elapsed": 154.0258531831205,
+      "all_sizes": {
+        "320x180": 64,
+        "80x44": 2,
+        "120x66": 109,
+        "160x90": 104,
+        "240x132": 97,
+        "640x360": 660
+      },
+      "last_minute_sizes": {
+        "160x90": 30,
+        "240x132": 97,
+        "320x180": 62,
+        "640x360": 556
+      },
+      "last_minute_median_pixels": 230400,
+      "last": {
+        "id": "1",
+        "ssrc": "1951021253",
+        "timestamp": "1921957661",
+        "at_us": "3942313966732",
+        "width": "640",
+        "height": "360"
+      }
+    }
+  },
+  "baseline_decoded_phone_sizes": {
+    "frames": 2471,
+    "sizes": {
+      "108x192": 2471
+    },
+    "last": {
+      "id": "1",
+      "ssrc": "1337202493",
+      "timestamp": "2666927602",
+      "at_us": "342762488418",
+      "width": "108",
+      "height": "192"
+    }
+  },
+  "pcm": {
+    "scope": "synthetic ADM, real codec/network, decoded PCM; not hardware acoustics",
+    "duration_seconds": 150.0,
+    "paths": {
+      "mac_to_phone": {
+        "phases": [
+          {
+            "phase": "audio_only",
+            "from_seconds": 5,
+            "until_seconds": 30,
+            "matched": 25,
+            "unmatched": 0,
+            "first_unmatched_ordinals": [],
+            "median_ms": 61.283238464966416,
+            "p95_ms": 100.44388915412128,
+            "max_ms": 100.64603283535689,
+            "max_clock_interval_ms": [
+              89.28768523037434,
+              107.11782472208142
+            ]
+          },
+          {
+            "phase": "audio_video",
+            "from_seconds": 30,
+            "until_seconds": 45,
+            "matched": 15,
+            "unmatched": 0,
+            "first_unmatched_ordinals": [],
+            "median_ms": 60.642882133834064,
+            "p95_ms": 70.84515003953129,
+            "max_ms": 70.84515003953129,
+            "max_clock_interval_ms": [
+              59.486802434548736,
+              77.31694192625582
+            ]
+          },
+          {
+            "phase": "p2p_video_files",
+            "from_seconds": 45,
+            "until_seconds": 150,
+            "matched": 105,
+            "unmatched": 0,
+            "first_unmatched_ordinals": [],
+            "median_ms": 70.70624158950523,
+            "p95_ms": 109.89707271801308,
+            "max_ms": 130.44499303214252,
+            "max_clock_interval_ms": [
+              119.08664542715997,
+              136.91678491886705
+            ]
+          }
+        ],
+        "source_edges": 154,
+        "decoded_edges": 154,
+        "matching": "ordinal_from_actual_capture_start",
+        "pcm_block_ms": 10,
+        "rms_threshold": 500
+      },
+      "phone_to_mac": {
+        "phases": [
+          {
+            "phase": "audio_only",
+            "from_seconds": 5,
+            "until_seconds": 30,
+            "matched": 25,
+            "unmatched": 0,
+            "first_unmatched_ordinals": [],
+            "median_ms": 80.55829937802628,
+            "p95_ms": 100.86618433706462,
+            "max_ms": 100.99900857312605,
+            "max_clock_interval_ms": [
+              94.52721680281684,
+              112.35735629452392
+            ]
+          },
+          {
+            "phase": "audio_video",
+            "from_seconds": 30,
+            "until_seconds": 45,
+            "matched": 15,
+            "unmatched": 0,
+            "first_unmatched_ordinals": [],
+            "median_ms": 70.90650690952316,
+            "p95_ms": 80.98991331644356,
+            "max_ms": 80.98991331644356,
+            "max_clock_interval_ms": [
+              74.51812154613435,
+              92.34826103784144
+            ]
+          },
+          {
+            "phase": "p2p_video_files",
+            "from_seconds": 45,
+            "until_seconds": 150,
+            "matched": 105,
+            "unmatched": 0,
+            "first_unmatched_ordinals": [],
+            "median_ms": 80.86600748356432,
+            "p95_ms": 110.69375352235511,
+            "max_ms": 130.8948784135282,
+            "max_clock_interval_ms": [
+              124.423086643219,
+              142.25322613492608
+            ]
+          }
+        ],
+        "source_edges": 155,
+        "decoded_edges": 154,
+        "matching": "ordinal_from_actual_capture_start",
+        "pcm_block_ms": 10,
+        "rms_threshold": 500
+      }
+    },
+    "driver_stats": {
+      "mac": {
+        "ticks": 15400,
+        "dropped_rows": 0,
+        "failures": [
+          0,
+          0
+        ],
+        "max_interval_ms": 11.047624982893467,
+        "max_wake_lateness_ms": 1.684564,
+        "max_callback_ms": 3.0031250207684934,
+        "max_publication_ms": 0.017208338249474764,
+        "qos_supported": 1,
+        "qos_requested": 33,
+        "qos_result": 0,
+        "qos_actual": 33,
+        "timer_error": 0
+      },
+      "phone": {
+        "ticks": 15444,
+        "dropped_rows": 0,
+        "failures": [
+          0,
+          0
+        ],
+        "max_interval_ms": 19.997384399175644,
+        "max_wake_lateness_ms": 9.388235,
+        "max_callback_ms": 9.275614749640226,
+        "max_publication_ms": 0.38538500666618347,
+        "qos_supported": 0,
+        "qos_requested": 0,
+        "qos_result": 0,
+        "qos_actual": 0,
+        "timer_error": 0
+      }
+    },
+    "observed_clock_offset_envelopes": {
+      "mac": {
+        "initial_mid": -7.868796819821e-05,
+        "low": -0.0002739589544944465,
+        "high": 0.00012820801930502057,
+        "count": 6
+      },
+      "phone": {
+        "initial_mid": -3598663.9770002337,
+        "low": -3598663.9881516853,
+        "high": -3598663.970723713,
+        "count": 6
+      }
+    },
+    "clock_limit": "Envelope across measured brackets; unsampled clock drift is not proven bounded",
+    "overall_quality_verdict": null
+  },
+  "video_intervals": {
+    "mac": [
+      {
+        "range": [
+          30.913068833004218,
+          45.28807599999709
+        ],
+        "tx_fps": 0.6956518270795349,
+        "rx_fps": 0.6956518270795349,
+        "adaptLevel_start": 4,
+        "adaptLevel_end": 4
+      },
+      {
+        "range": [
+          45.28807599999709,
+          74.50813370803371
+        ],
+        "tx_fps": 2.8747376490258207,
+        "rx_fps": 5.2019062220467225,
+        "adaptLevel_start": 4,
+        "adaptLevel_end": 3
+      },
+      {
+        "range": [
+          74.50813370803371,
+          89.09889379201923
+        ],
+        "tx_fps": 6.031214240619773,
+        "rx_fps": 7.40194474985154,
+        "adaptLevel_start": 3,
+        "adaptLevel_end": 3
+      },
+      {
+        "range": [
+          89.09889379201923,
+          120.55109712498961
+        ],
+        "tx_fps": 7.980363008046701,
+        "rx_fps": 19.680656183190866,
+        "adaptLevel_start": 3,
+        "adaptLevel_end": 2
+      },
+      {
+        "range": [
+          120.55109712498961,
+          149.85578620800516
+        ],
+        "tx_fps": 17.26686123734608,
+        "rx_fps": 29.278590793760745,
+        "adaptLevel_start": 2,
+        "adaptLevel_end": 1
+      }
+    ],
+    "phone": [
+      {
+        "range": [
+          30.913068833004218,
+          45.28807599999709
+        ],
+        "tx_fps": 0.6956518270795349,
+        "rx_fps": 0.6956518270795349,
+        "adaptLevel_start": 4,
+        "adaptLevel_end": 4
+      },
+      {
+        "range": [
+          45.28807599999709,
+          74.50813370803371
+        ],
+        "tx_fps": 5.2019062220467225,
+        "rx_fps": 2.9089607162761277,
+        "adaptLevel_start": 4,
+        "adaptLevel_end": 3
+      },
+      {
+        "range": [
+          74.50813370803371,
+          89.09889379201923
+        ],
+        "tx_fps": 7.40194474985154,
+        "rx_fps": 5.962677715158185,
+        "adaptLevel_start": 3,
+        "adaptLevel_end": 2
+      },
+      {
+        "range": [
+          89.09889379201923,
+          120.55109712498961
+        ],
+        "tx_fps": 19.712450458123325,
+        "rx_fps": 7.980363008046701,
+        "adaptLevel_start": 2,
+        "adaptLevel_end": 1
+      },
+      {
+        "range": [
+          120.55109712498961,
+          149.85578620800516
+        ],
+        "tx_fps": 29.278590793760745,
+        "rx_fps": 17.06211584717992,
+        "adaptLevel_start": 1,
+        "adaptLevel_end": 0
+      }
+    ]
+  },
+  "policy": {
+    "mac": {
+      "transitions": [
+        {
+          "t": 30.913068833004218,
+          "from": null,
+          "to": 4
+        },
+        {
+          "t": 61.945102541998494,
+          "from": 4,
+          "to": 3
+        },
+        {
+          "t": 110.151404208038,
+          "from": 3,
+          "to": 2
+        },
+        {
+          "t": 137.35952708299737,
+          "from": 2,
+          "to": 1
+        }
+      ],
+      "cuts": [],
+      "ramp_recovery_observations": 0
+    },
+    "phone": {
+      "transitions": [
+        {
+          "t": 30.913068833004218,
+          "from": null,
+          "to": 4
+        },
+        {
+          "t": 49.51260383299086,
+          "from": 4,
+          "to": 3
+        },
+        {
+          "t": 84.93242291698698,
+          "from": 3,
+          "to": 2
+        },
+        {
+          "t": 101.76430966699263,
+          "from": 2,
+          "to": 1
+        },
+        {
+          "t": 124.88492245803354,
+          "from": 1,
+          "to": 0
+        }
+      ],
+      "cuts": [],
+      "ramp_recovery_observations": 0
+    }
+  },
+  "native_checks": {
+    "mac": {
+      "session_violations": 0,
+      "peer_bans": 0,
+      "closed_streams": 0
+    },
+    "phone": {
+      "session_violations": 0,
+      "peer_bans": 0,
+      "closed_streams": 2
+    }
+  },
+  "cleanup": {
+    "mac_pid_absent": true,
+    "launcher_pid_absent": true,
+    "logcat_pid_absent": true,
+    "phone_all_processes_absent": true,
+    "owned_forward_absent": true,
+    "ordinary_phone_apk_sha256_matches": true
+  },
+  "mac_exit_code": -9,
+  "ordinary_phone_restored": true,
+  "file_requests": {
+    "p2p-mac": {
+      "sender": "mac",
+      "receiver": "phone",
+      "error_type": "RemoteDisconnected"
+    },
+    "p2p-phone": {
+      "sender": "phone",
+      "receiver": "mac",
+      "error_type": "RemoteDisconnected"
+    }
+  },
+  "mac_first_startup_retirement": {
+    "source_budget_pressured": false,
+    "observation": 8,
+    "level_before": 4,
+    "receive_required": true,
+    "receive_ms": 56,
+    "receive_target_ms": 60,
+    "receive_window_ms": [
+      45,
+      46,
+      45,
+      45,
+      46,
+      56
+    ],
+    "receive_pressure": false,
+    "peer_required": true,
+    "peer_peak_ms": 65,
+    "peer_current_ms": 65,
+    "peer_target_ms": 60,
+    "peer_sequence": 40,
+    "peer_fresh": true,
+    "recovery_peer_baseline": 35,
+    "recovery_peer_confirmed": true,
+    "peer_growing": false,
+    "peer_window_ms": [
+      65,
+      47,
+      65
+    ],
+    "peer_pressure": false,
+    "pressure_can_advance": true,
+    "targets_recovered": true,
+    "feedback_available": true,
+    "rtt_ms": 200,
+    "tx_jitter_ms": 1,
+    "tx_loss_pct": 0,
+    "audio_rtp_drop": false,
+    "video_rtp_drop": false,
+    "audio_interruption": false,
+    "audio_network_loss": false,
+    "audio_peer_concealment": false,
+    "audio_local_concealment": false,
+    "video_network_loss": false,
+    "audio_latency_recovery": false,
+    "audio_receiver_latency_recovery": false,
+    "soft_audio_loss_repeated": false,
+    "soft_audio_send_significant": false,
+    "soft_audio_receive_significant": false,
+    "soft_audio_growth_held": false,
+    "soft_audio_cut_held": false,
+    "buffer_growth_pending": false,
+    "rtt_growth_hold": false,
+    "audio_within_recovery_limits": false,
+    "video_recovery_eligible": true,
+    "audio_receive_age_ms": 8,
+    "audio_receiver_feedback_missing": false,
+    "rtt_route_epoch": 0,
+    "rtt_baseline_ms_after": 16,
+    "level_after": 4,
+    "bad_streak_after": 0,
+    "good_streak_after": 0,
+    "startup_recovery": false,
+    "startup_good_streak_after": 0,
+    "growth_pause_transient": false,
+    "ramp_recovery_needed": false,
+    "ramp_recovery_samples_after": 0,
+    "audio_recovery_streak_after": 0,
+    "severe_streak_after": 0,
+    "paused_after": false
+  }
+}
