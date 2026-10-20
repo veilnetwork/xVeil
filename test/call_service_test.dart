@@ -1101,6 +1101,112 @@ void main() {
       });
     });
 
+    test('compact mute updates the peer before the direct audio watchdog', () {
+      fakeAsync((async) {
+        final messages = [_FakeMessaging(), _FakeMessaging()];
+        final media = [
+          _CompactHealthMedia()..audioTelemetry = true,
+          _CompactHealthMedia()..audioTelemetry = true,
+        ];
+        final services = [
+          for (var i = 0; i < 2; i++)
+            CallService(
+              messages[i],
+              now: () => clock.now(),
+              media: media[i],
+              localAllowsP2P: (_) async => true,
+              peerReachableForP2P: (_) async => true,
+            )..start(),
+        ];
+        for (var i = 0; i < 2; i++) {
+          messages[i].onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: 'compact-mute-watchdog',
+              type: CallSignalType.offer,
+              media: CallMedia(audio: true, video: true),
+              posture: CallPosture.direct,
+              transport: CallTransportProposal(CallTransportKind.p2p),
+            ),
+          );
+          services[i].accept();
+        }
+        async.flushMicrotasks();
+        CallSignal receivePosture(int i) {
+          final signal = CallSignal(
+            callId: 'compact-mute-watchdog',
+            type: CallSignalType.health,
+            compactHealthReady: true,
+            capture: const CallMedia(audio: true, video: true),
+            sentAtMs: clock.now().millisecondsSinceEpoch,
+          );
+          messages[i].onCallSignal!(peer, signal);
+          return signal;
+        }
+
+        for (var i = 0; i < 2; i++) {
+          expect(services[i].current!.transport, CallTransportKind.p2p);
+          receivePosture(i);
+          media[i].onCompact = (signal) =>
+              media[1 - i].health.add(CallSignal.tryDecode(signal.encode())!);
+        }
+        // Establish ordinary heartbeat/readiness and actual audio first.
+        for (var n = 0; n < 12; n++) {
+          for (final m in media) {
+            m.rxAt = m.audioRxAt = clock.now();
+          }
+          async.elapse(const Duration(milliseconds: 500));
+          async.flushMicrotasks();
+        }
+        final olderPostures = [for (var i = 0; i < 2; i++) receivePosture(i)];
+        async.elapse(const Duration(milliseconds: 1));
+        for (var i = 0; i < 2; i++) {
+          services[i].setMicEnabled(false);
+          async.flushMicrotasks();
+        }
+        // Video/control continue, but intentionally muted audio stops. The
+        // next five-second heartbeat must not be needed to cancel a three-
+        // second audio outage verdict.
+        for (var n = 0; n < 8; n++) {
+          for (final m in media) {
+            m.rxAt = clock.now();
+          }
+          async.elapse(const Duration(milliseconds: 500));
+          async.flushMicrotasks();
+        }
+        for (var i = 0; i < 2; i++) {
+          expect(media[i].compact, isNotEmpty);
+          expect(media[i].switches, isEmpty);
+          expect(services[i].current!.peerCapture!.audio, isFalse);
+        }
+        // Replayed earlier heartbeats cannot undo the newer mute.
+        for (var i = 0; i < 2; i++) {
+          media[i].health.add(olderPostures[i]);
+        }
+        async.flushMicrotasks();
+        expect(services.every((s) => !s.current!.peerCapture!.audio), isTrue);
+        // A real unmute is visible immediately and keeps actual subsequent
+        // audio loss eligible for the existing early recovery.
+        async.elapse(const Duration(milliseconds: 1));
+        services[0].setMicEnabled(true);
+        async.flushMicrotasks();
+        expect(services[1].current!.peerCapture!.audio, isTrue);
+        media[1].audioRxAt = clock.now();
+        for (var n = 0; n < 8; n++) {
+          for (final m in media) {
+            m.rxAt = clock.now();
+          }
+          async.elapse(const Duration(milliseconds: 500));
+          async.flushMicrotasks();
+        }
+        expect(media[1].switches, [CallTransportKind.relay]);
+        for (final s in services) {
+          s.dispose();
+        }
+        async.flushMicrotasks();
+      });
+    });
+
     test('compact health is not used with an older peer', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();
@@ -5168,6 +5274,7 @@ class _CompactHealthMedia extends _FakeMedia {
   final health = StreamController<CallSignal>.broadcast();
   final compact = <CallSignal>[];
   bool admit = true;
+  void Function(CallSignal)? onCompact;
 
   @override
   Stream<CallSignal> get peerHealth => health.stream;
@@ -5179,6 +5286,7 @@ class _CompactHealthMedia extends _FakeMedia {
   bool sendEphemeralHealth(CallSignal signal) {
     if (!admit) return false;
     compact.add(signal);
+    onCompact?.call(signal);
     return true;
   }
 }
