@@ -1,0 +1,32 @@
+{
+  "source": "previous physical cancellation run, SDK 70a99c1f, before adapter change 2bb377c6",
+  "key": {
+    "epoch": "5b2a0288d480520f",
+    "seq": 2750,
+    "index": 0,
+    "ssrc": 435165122,
+    "rtp_seq": 11257,
+    "timestamp": 3724243222,
+    "payload_bytes": 94
+  },
+  "records": {
+    "phone": {
+      "line": "10-20 18:40:28.890 19054 19274 I veilnode: veilclient_ffi::media::rtp_trace: media.rtp.cell stage=sealed monotonic_us=3935407275930 epoch=5b2a0288d480520f seq=2750 index=0 ssrc=435165122 rtp_seq=11257 timestamp=3724243222 payload_bytes=94 sealed_sha256=-",
+      "monotonic_us": 3935407275930,
+      "source_origin": 3935357.062788079,
+      "seconds_from_common_epoch": 50.21314192097634
+    },
+    "mac": {
+      "line": "[INFO veilclient_ffi::media::rtp_trace] media.rtp.cell stage=received monotonic_us=336743773876 epoch=5b2a0288d480520f seq=2750 index=0 ssrc=435165122 rtp_seq=11257 timestamp=3724243222 payload_bytes=94 sealed_sha256=-",
+      "monotonic_us": 336743773876,
+      "source_origin": 336693.1130339168,
+      "seconds_from_common_epoch": 50.660842083219904
+    }
+  },
+  "point_delay_ms": 447.7001622435637,
+  "observed_clock_envelope_ms": [
+    439.6472664666362,
+    457.2634378564544
+  ],
+  "limits": "Sealed sender to authenticated receiver, including IPC/scheduling/transport/network; not wire-only. Unsampled clock drift is not proven bounded. Not a PCM block estimate."
+}
