@@ -1,0 +1,586 @@
+{
+  "baseline": {
+    "ring_seconds": 0.12254262500209734,
+    "duration_seconds": 298.7211720000487,
+    "windows": {
+      "60-120": {
+        "first_t": 60.08601816603914,
+        "last_t": 119.76731154101435,
+        "elapsed_seconds": 59.68129337497521,
+        "mac": {
+          "remote_frames": {
+            "first": 28,
+            "last": 80,
+            "per_second": 0.871
+          },
+          "video_rx_deliver_frames": {
+            "first": 33,
+            "last": 84,
+            "per_second": 0.855
+          },
+          "video_tx_frames": {
+            "first": 31,
+            "last": 117,
+            "per_second": 1.441
+          }
+        },
+        "phone": {
+          "remote_frames": {
+            "first": 29,
+            "last": 117,
+            "per_second": 1.474
+          },
+          "video_rx_deliver_frames": {
+            "first": 31,
+            "last": 117,
+            "per_second": 1.441
+          },
+          "video_tx_frames": {
+            "first": 33,
+            "last": 84,
+            "per_second": 0.855
+          }
+        }
+      },
+      "120-150": {
+        "first_t": 121.81737708300352,
+        "last_t": 148.5427252080408,
+        "elapsed_seconds": 26.72534812503727,
+        "mac": {
+          "remote_frames": {
+            "first": 85,
+            "last": 109,
+            "per_second": 0.898
+          },
+          "video_rx_deliver_frames": {
+            "first": 89,
+            "last": 113,
+            "per_second": 0.898
+          },
+          "video_tx_frames": {
+            "first": 128,
+            "last": 284,
+            "per_second": 5.837
+          }
+        },
+        "phone": {
+          "remote_frames": {
+            "first": 127,
+            "last": 284,
+            "per_second": 5.875
+          },
+          "video_rx_deliver_frames": {
+            "first": 128,
+            "last": 284,
+            "per_second": 5.837
+          },
+          "video_tx_frames": {
+            "first": 89,
+            "last": 113,
+            "per_second": 0.898
+          }
+        }
+      },
+      "180-215": {
+        "first_t": 180.80795504100388,
+        "last_t": 213.86285791604314,
+        "elapsed_seconds": 33.05490287503926,
+        "mac": {
+          "remote_frames": {
+            "first": 135,
+            "last": 157,
+            "per_second": 0.666
+          },
+          "video_rx_deliver_frames": {
+            "first": 144,
+            "last": 169,
+            "per_second": 0.756
+          },
+          "video_tx_frames": {
+            "first": 474,
+            "last": 668,
+            "per_second": 5.869
+          }
+        },
+        "phone": {
+          "remote_frames": {
+            "first": 472,
+            "last": 666,
+            "per_second": 5.869
+          },
+          "video_rx_deliver_frames": {
+            "first": 473,
+            "last": 667,
+            "per_second": 5.869
+          },
+          "video_tx_frames": {
+            "first": 154,
+            "last": 184,
+            "per_second": 0.908
+          }
+        }
+      },
+      "270-300": {
+        "first_t": 271.8498393750051,
+        "last_t": 298.7211720000487,
+        "elapsed_seconds": 26.87133262504358,
+        "mac": {
+          "remote_frames": {
+            "first": 202,
+            "last": 215,
+            "per_second": 0.484
+          },
+          "video_rx_deliver_frames": {
+            "first": 229,
+            "last": 252,
+            "per_second": 0.856
+          },
+          "video_tx_frames": {
+            "first": 1366,
+            "last": 2107,
+            "per_second": 27.576
+          }
+        },
+        "phone": {
+          "remote_frames": {
+            "first": 1358,
+            "last": 2075,
+            "per_second": 26.683
+          },
+          "video_rx_deliver_frames": {
+            "first": 1364,
+            "last": 2093,
+            "per_second": 27.129
+          },
+          "video_tx_frames": {
+            "first": 248,
+            "last": 287,
+            "per_second": 1.451
+          }
+        }
+      }
+    },
+    "route_events": [
+      {
+        "endpoint": "mac",
+        "at": 0.0,
+        "transport": "p2p",
+        "fallback_reason": null
+      },
+      {
+        "endpoint": "mac",
+        "at": 150.585,
+        "transport": "relay",
+        "fallback_reason": null
+      },
+      {
+        "endpoint": "phone",
+        "at": 0.0,
+        "transport": "p2p",
+        "fallback_reason": null
+      },
+      {
+        "endpoint": "phone",
+        "at": 156.099,
+        "transport": "relay",
+        "fallback_reason": null
+      }
+    ],
+    "cuts": {
+      "mac": [
+        {
+          "observation": 31,
+          "level_before": 3,
+          "level_after": 4,
+          "rtt_ms": 12,
+          "tx_jitter_ms": 174,
+          "tx_loss_pct": 0,
+          "video_network_loss": false,
+          "video_rtp_drop": false,
+          "peer_pressure": false,
+          "receive_pressure": false
+        }
+      ],
+      "phone": [
+        {
+          "observation": 18,
+          "level_before": 3,
+          "level_after": 4,
+          "rtt_ms": 12,
+          "tx_jitter_ms": 189,
+          "tx_loss_pct": 0,
+          "video_network_loss": false,
+          "video_rtp_drop": false,
+          "peer_pressure": false,
+          "receive_pressure": false
+        },
+        {
+          "observation": 61,
+          "level_before": 3,
+          "level_after": 4,
+          "rtt_ms": 13,
+          "tx_jitter_ms": 82,
+          "tx_loss_pct": 0,
+          "video_network_loss": false,
+          "video_rtp_drop": false,
+          "peer_pressure": false,
+          "receive_pressure": false
+        },
+        {
+          "observation": 93,
+          "level_before": 3,
+          "level_after": 4,
+          "rtt_ms": 11,
+          "tx_jitter_ms": 88,
+          "tx_loss_pct": 0,
+          "video_network_loss": false,
+          "video_rtp_drop": false,
+          "peer_pressure": false,
+          "receive_pressure": false
+        },
+        {
+          "observation": 120,
+          "level_before": 3,
+          "level_after": 4,
+          "rtt_ms": 9,
+          "tx_jitter_ms": 83,
+          "tx_loss_pct": 0,
+          "video_network_loss": false,
+          "video_rtp_drop": false,
+          "peer_pressure": false,
+          "receive_pressure": false
+        },
+        {
+          "observation": 195,
+          "level_before": 3,
+          "level_after": 4,
+          "rtt_ms": 105,
+          "tx_jitter_ms": 93,
+          "tx_loss_pct": 0,
+          "video_network_loss": false,
+          "video_rtp_drop": false,
+          "peer_pressure": false,
+          "receive_pressure": false
+        },
+        {
+          "observation": 247,
+          "level_before": 3,
+          "level_after": 4,
+          "rtt_ms": 202,
+          "tx_jitter_ms": 169,
+          "tx_loss_pct": 0,
+          "video_network_loss": false,
+          "video_rtp_drop": false,
+          "peer_pressure": false,
+          "receive_pressure": false
+        }
+      ]
+    },
+    "files": {
+      "mac": {
+        "hash_matches": null,
+        "error_type": "TypeError",
+        "received_sha256": null,
+        "source_sha256": "b4df17638524d708768bc851fbe87931f35dd18d3bcdc10846b860371205a585"
+      },
+      "phone": {
+        "hash_matches": null,
+        "error_type": "TypeError",
+        "received_sha256": null,
+        "source_sha256": "7ced58242f3384cfbb3184964c035d2474009c54464e98625faf545d3520a3cc"
+      }
+    },
+    "screen_on_observed": false,
+    "cleanup": {
+      "phone_process_absent": true,
+      "mac_exit_code": -9,
+      "file_threads_exited": true
+    }
+  },
+  "candidate": {
+    "ring_seconds": 0.2265555000049062,
+    "duration_seconds": 298.7887239169795,
+    "windows": {
+      "60-120": {
+        "first_t": 60.26796120899962,
+        "last_t": 119.78991383401444,
+        "elapsed_seconds": 59.52195262501482,
+        "mac": {
+          "remote_frames": {
+            "first": 39,
+            "last": 555,
+            "per_second": 8.669
+          },
+          "video_rx_deliver_frames": {
+            "first": 40,
+            "last": 572,
+            "per_second": 8.938
+          },
+          "video_tx_frames": {
+            "first": 37,
+            "last": 560,
+            "per_second": 8.787
+          }
+        },
+        "phone": {
+          "remote_frames": {
+            "first": 36,
+            "last": 543,
+            "per_second": 8.518
+          },
+          "video_rx_deliver_frames": {
+            "first": 37,
+            "last": 558,
+            "per_second": 8.753
+          },
+          "video_tx_frames": {
+            "first": 42,
+            "last": 577,
+            "per_second": 8.988
+          }
+        }
+      },
+      "120-150": {
+        "first_t": 121.83815645897994,
+        "last_t": 148.43164045899175,
+        "elapsed_seconds": 26.593484000011813,
+        "mac": {
+          "remote_frames": {
+            "first": 587,
+            "last": 1089,
+            "per_second": 18.877
+          },
+          "video_rx_deliver_frames": {
+            "first": 604,
+            "last": 1110,
+            "per_second": 19.027
+          },
+          "video_tx_frames": {
+            "first": 591,
+            "last": 1281,
+            "per_second": 25.946
+          }
+        },
+        "phone": {
+          "remote_frames": {
+            "first": 574,
+            "last": 1257,
+            "per_second": 25.683
+          },
+          "video_rx_deliver_frames": {
+            "first": 588,
+            "last": 1276,
+            "per_second": 25.871
+          },
+          "video_tx_frames": {
+            "first": 608,
+            "last": 1114,
+            "per_second": 19.027
+          }
+        }
+      },
+      "180-215": {
+        "first_t": 181.21940991701558,
+        "last_t": 214.08696470898576,
+        "elapsed_seconds": 32.86755479197018,
+        "mac": {
+          "remote_frames": {
+            "first": 1309,
+            "last": 1382,
+            "per_second": 2.221
+          },
+          "video_rx_deliver_frames": {
+            "first": 1340,
+            "last": 1415,
+            "per_second": 2.282
+          },
+          "video_tx_frames": {
+            "first": 2063,
+            "last": 2179,
+            "per_second": 3.529
+          }
+        },
+        "phone": {
+          "remote_frames": {
+            "first": 1992,
+            "last": 2054,
+            "per_second": 1.886
+          },
+          "video_rx_deliver_frames": {
+            "first": 2016,
+            "last": 2116,
+            "per_second": 3.043
+          },
+          "video_tx_frames": {
+            "first": 1348,
+            "last": 1424,
+            "per_second": 2.312
+          }
+        }
+      },
+      "270-300": {
+        "first_t": 271.88454220897984,
+        "last_t": 298.7887239169795,
+        "elapsed_seconds": 26.90418170799967,
+        "mac": {
+          "remote_frames": {
+            "first": 1993,
+            "last": 2179,
+            "per_second": 6.913
+          },
+          "video_rx_deliver_frames": {
+            "first": 2103,
+            "last": 2311,
+            "per_second": 7.731
+          },
+          "video_tx_frames": {
+            "first": 2420,
+            "last": 2694,
+            "per_second": 10.184
+          }
+        },
+        "phone": {
+          "remote_frames": {
+            "first": 2266,
+            "last": 2541,
+            "per_second": 10.221
+          },
+          "video_rx_deliver_frames": {
+            "first": 2346,
+            "last": 2619,
+            "per_second": 10.147
+          },
+          "video_tx_frames": {
+            "first": 2151,
+            "last": 2377,
+            "per_second": 8.4
+          }
+        }
+      }
+    },
+    "route_events": [
+      {
+        "endpoint": "mac",
+        "at": 0.0,
+        "transport": "p2p",
+        "fallback_reason": null
+      },
+      {
+        "endpoint": "mac",
+        "at": 41.827,
+        "transport": "relay",
+        "fallback_reason": null
+      },
+      {
+        "endpoint": "phone",
+        "at": 0.0,
+        "transport": "p2p",
+        "fallback_reason": null
+      },
+      {
+        "endpoint": "phone",
+        "at": 39.736,
+        "transport": "relay",
+        "fallback_reason": null
+      }
+    ],
+    "cuts": {
+      "mac": [
+        {
+          "observation": 140,
+          "level_before": 0,
+          "level_after": 2,
+          "rtt_ms": 110,
+          "tx_jitter_ms": 11,
+          "tx_loss_pct": 0,
+          "video_network_loss": true,
+          "video_rtp_drop": false,
+          "peer_pressure": false,
+          "receive_pressure": false
+        },
+        {
+          "observation": 146,
+          "level_before": 2,
+          "level_after": 4,
+          "rtt_ms": 112,
+          "tx_jitter_ms": 13,
+          "tx_loss_pct": 66,
+          "video_network_loss": false,
+          "video_rtp_drop": false,
+          "peer_pressure": false,
+          "receive_pressure": false
+        },
+        {
+          "observation": 174,
+          "level_before": 3,
+          "level_after": 4,
+          "rtt_ms": 118,
+          "tx_jitter_ms": 375,
+          "tx_loss_pct": 40,
+          "video_network_loss": true,
+          "video_rtp_drop": true,
+          "peer_pressure": false,
+          "receive_pressure": false
+        }
+      ],
+      "phone": [
+        {
+          "observation": 110,
+          "level_before": 1,
+          "level_after": 3,
+          "rtt_ms": 107,
+          "tx_jitter_ms": 12,
+          "tx_loss_pct": 0,
+          "video_network_loss": true,
+          "video_rtp_drop": false,
+          "peer_pressure": false,
+          "receive_pressure": false
+        },
+        {
+          "observation": 143,
+          "level_before": 2,
+          "level_after": 4,
+          "rtt_ms": 143,
+          "tx_jitter_ms": 26,
+          "tx_loss_pct": 0,
+          "video_network_loss": true,
+          "video_rtp_drop": false,
+          "peer_pressure": false,
+          "receive_pressure": false
+        },
+        {
+          "observation": 235,
+          "level_before": 1,
+          "level_after": 3,
+          "rtt_ms": 114,
+          "tx_jitter_ms": 3,
+          "tx_loss_pct": 16,
+          "video_network_loss": true,
+          "video_rtp_drop": false,
+          "peer_pressure": false,
+          "receive_pressure": false
+        }
+      ]
+    },
+    "files": {
+      "mac": {
+        "hash_matches": true,
+        "error_type": null,
+        "received_sha256": "9de411686854801625b7d1bb08a8bf0692718e8d44a0847263d2f403d10a2a0b",
+        "source_sha256": "9de411686854801625b7d1bb08a8bf0692718e8d44a0847263d2f403d10a2a0b"
+      },
+      "phone": {
+        "hash_matches": true,
+        "error_type": null,
+        "received_sha256": "e7fbd74f5886ca6c8f0fecb78f8402b0397c5809f90f7cad6d926dcca3f1af3e",
+        "source_sha256": "e7fbd74f5886ca6c8f0fecb78f8402b0397c5809f90f7cad6d926dcca3f1af3e"
+      }
+    },
+    "screen_on_observed": false,
+    "cleanup": {
+      "phone_process_absent": true,
+      "mac_exit_code": -9,
+      "file_threads_exited": true
+    }
+  }
+}

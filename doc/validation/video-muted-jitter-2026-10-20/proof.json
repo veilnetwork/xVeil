@@ -1,0 +1,135 @@
+{
+  "parent_root": "7fae40dfd0736bba88d1ac238e95c008da2f52ef",
+  "sdk_head": "19004dc5ceabb52e7977c79862d5c251ecff9002",
+  "native_code_changed_this_cycle": false,
+  "source_files": {
+    "lib/state/call_bitrate_adapter.dart": "d99a65b8aa3e39e6ff4c2060b687f9593dd9c1b4be01876e2be5a694730ec4a7",
+    "test/call_bitrate_adapter_test.dart": "4c1abd5ce81c7e0a4e7d9bb5ecbdc3a977ea5314efb59f3de8052ba55ec6de7d"
+  },
+  "private_artifacts": {
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/source-proof.json": {
+      "sha256": "ccfcfb3e8a5e1412d19a0c20c672de653dc90d13796e95578860b742f273fda7",
+      "bytes": 338
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-check.py": {
+      "sha256": "339ef251b53875fe66cd11d421e143776877c67ef1dadd32d193cca5a1c1097e",
+      "bytes": 11209
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-check-fresh.py": {
+      "sha256": "b72ad2591bba9ff4f73487950f7fb2a131b06730eae5dc5b5226682627f08ff5",
+      "bytes": 11273
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-check-quic.py": {
+      "sha256": "1f579a61438e7de3d86fe1c906505bad1875249388ef4dce2f08b7955edb0533",
+      "bytes": 11681
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-check-silent-fixed.py": {
+      "sha256": "36eb642a46b1808d9ec3b6b2044a06eb7c5c464ad47fab170a32fc040bfd9c8d",
+      "bytes": 11911
+    },
+    "/private/tmp/xveil-silent-video-before.txt": {
+      "sha256": "ddd5e560d9cb3730d949aad0a7637bb5bef6ffae83d038308809195ebe2edf7b",
+      "bytes": 5223
+    },
+    "/private/tmp/xveil-silent-video-final-tests.txt": {
+      "sha256": "afd0f75459a643a761adc8dae7474221ea0e1a938095a749c13299042a07fb31",
+      "bytes": 13731
+    },
+    "/private/tmp/xveil-silent-video-final-analysis.txt": {
+      "sha256": "1cedd1f3ac4804477beb407906d420c7f9007603b44f21ac06b78d0f1353c61d",
+      "bytes": 96
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call/result.json": {
+      "sha256": "e08346200181b6fa5f5b8a13d90ee49d0388a794203574af9cd87b5a9cca95d3",
+      "bytes": 1162
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call/mac-runtime.log": {
+      "sha256": "7b6933c72f5eee9c3e5c949bd2dd19ffb62c2eb54226e7451b529a575acbaa7d",
+      "bytes": 2619906
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call/phone-logcat.log": {
+      "sha256": "873c36e5eb0a9692d9f0396e50877b7467be8c2d856d11b3d473bc309d70efbf",
+      "bytes": 94103
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call/mac-devlog.json": {
+      "sha256": "58a9582ca226846f9c58ad95e25ea79c83872c0113319fa8db88fd77458ea846",
+      "bytes": 19166
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call/phone-devlog.json": {
+      "sha256": "ab73da45cccefbe07c2bc560687eddd927cd2fe91fb64051d4a528c510051035",
+      "bytes": 27401
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-fresh/result.json": {
+      "sha256": "e08346200181b6fa5f5b8a13d90ee49d0388a794203574af9cd87b5a9cca95d3",
+      "bytes": 1162
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-fresh/mac-runtime.log": {
+      "sha256": "8775aee1790ffab940346aaed7e044814782e5fc98d3fccf7a1ba4b39f4ba44d",
+      "bytes": 1809993
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-fresh/phone-logcat.log": {
+      "sha256": "09d20bb1eacafda29b956912525cab99de83c643bdcc29d9d13c3544ecd0d1c3",
+      "bytes": 59047
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-fresh/mac-devlog.json": {
+      "sha256": "711ec0e777838215bd89eff0de2f5b57984aa2d7466919276c1f5f79848793d9",
+      "bytes": 20746
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-fresh/phone-devlog.json": {
+      "sha256": "16f955fcedaca1e3c8a5783e17b9470d88dd47b87316e13ce6c815207d2e4cd3",
+      "bytes": 25847
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-quic/samples.json": {
+      "sha256": "508079365f83f5b9a3e79496a4aa8d6e98b55905ac60a9f7c3df002d2373a12f",
+      "bytes": 7723779
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-quic/result.json": {
+      "sha256": "d6726a2df88afe99258dded086e8758f0479a7cd431457a8bd433ab2a2d99a19",
+      "bytes": 112042
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-quic/mac-runtime.log": {
+      "sha256": "0e1e1f91778380af8ab1704f6d077440cfe5f9967dd7091e405f82262e47a12e",
+      "bytes": 19680071
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-quic/phone-logcat.log": {
+      "sha256": "35eb15f175ae924163495e9c3bb6ec2629ee957d135941888f54053269b3be23",
+      "bytes": 19047017
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-quic/mac-devlog.json": {
+      "sha256": "581ecb786dbafa03528991b908cdc3baa3046d59bcc043c1bc6ec42d97f60459",
+      "bytes": 115841
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-quic/phone-devlog.json": {
+      "sha256": "017f0018d5caaa61826b8377077e450edb0397525b40017d78674a2fdfc76ef4",
+      "bytes": 107305
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-silent-fixed/samples.json": {
+      "sha256": "173054ad28b6714b64a94758383b4d9c473fb4368b3f21133599477654f42c96",
+      "bytes": 7889761
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-silent-fixed/result.json": {
+      "sha256": "84f3fad2d9ad6248ef9659a2dff8de11d265645f3c96cfb1867ff4245862dddf",
+      "bytes": 154243
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-silent-fixed/mac-runtime.log": {
+      "sha256": "e0716da338c451e33c4d8206b4ebcc7debdc0adcbe539e3fc5fc6562c5886fd1",
+      "bytes": 23673350
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-silent-fixed/phone-logcat.log": {
+      "sha256": "38a9d47cd6ea79e1d3561b33c99b9489fca257774ee971e0a4e32de5e35f74e7",
+      "bytes": 19167474
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-silent-fixed/mac-devlog.json": {
+      "sha256": "c323a13e193399e810d2d338bb4d1e61e8b856884e16de253168abddb14ad587",
+      "bytes": 143082
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-silent-fixed/phone-devlog.json": {
+      "sha256": "013620e91982b8f26a0a500350a61f5c487e06d244225b0f967ae7a7773b88b0",
+      "bytes": 158196
+    }
+  },
+  "flutter_tests_passed": 133,
+  "regression_before": "two video-only jitter tests fail; three remaining safety tests pass",
+  "analysis": "No issues found",
+  "no_push_or_release": true
+}

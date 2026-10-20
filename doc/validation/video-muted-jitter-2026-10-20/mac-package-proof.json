@@ -1,0 +1,25 @@
+{
+  "profile_aot": true,
+  "double_hook_opt_in": true,
+  "private_no_vpn_build": true,
+  "isolated_project_adjustment": "Removed PacketTunnel target/dependency from cache QA project; production source unchanged.",
+  "fresh_dart_version_and_recovery_diagnostic_in_aot": true,
+  "sdk_rust_sources_identical_to_ab6": "19004 changes only three native media source/test files",
+  "original_sdk_media": {
+    "libveilclient_ffi.dylib": {
+      "path": "/Users/vart/.cache/codex/xveil-explicit-source-hold-20261020/sdk-final/libveilclient_ffi.dylib",
+      "sha256": "8062a0b3296a1f30b6cdb9530d5b3940b4971fa04ebc16b43f6381e78cb9099d"
+    },
+    "libveil_media.dylib": {
+      "path": "/Users/vart/.cache/codex/xveil-soft-burst-recovery-20261020/media-production/libveil_media.dylib",
+      "sha256": "8bfdaa2fc3cfa74b41e7104d46e900506e9f9e05c0bf9aebc266bef9e2d9a6ff"
+    }
+  },
+  "signed_sdk_media": {
+    "libveilclient_ffi.dylib": "346f8f10147050c8e8d42aa939082af535d36b3039124cb1e29603587c9fad9a",
+    "libveil_media.dylib": "d218c7dd6bbd9ef7e6ffcbe5d149c82fc84f1160082bdb0d6950466b1cfb36af"
+  },
+  "signed_aot_sha256": "993a91c273e8a8966f1645200ac6c198f3d3cd5f3f97a58b274e406aef1159e9",
+  "storage_library_sha256": "a923c8ec596f3cd95a0c2967a1c713797fb60dd626dd53b08f689c7251dc1e4f",
+  "codesign_deep_strict": "pass"
+}

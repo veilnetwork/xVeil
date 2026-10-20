@@ -1,0 +1,31 @@
+{
+  "owned_host_pids_checked_absent": [
+    52230,
+    52065,
+    59350,
+    48305,
+    48194,
+    51728,
+    98898,
+    98797,
+    2725,
+    49084,
+    48962,
+    53866
+  ],
+  "phone_package_process_absent": true,
+  "owned_forwards_removed": [
+    43820,
+    43821,
+    43822,
+    43823,
+    43824
+  ],
+  "codegraph_processes_checked_absent": [
+    54730,
+    59436
+  ],
+  "built_and_committed_adapter_differ_only_in_whitespace": true,
+  "built_adapter_sha256": "f6e73507eff18beeac6245faeaebaf954b04a1f3901ba182bf71ee8b2bd32e05",
+  "formatted_adapter_sha256": "d99a65b8aa3e39e6ff4c2060b687f9593dd9c1b4be01876e2be5a694730ec4a7"
+}
