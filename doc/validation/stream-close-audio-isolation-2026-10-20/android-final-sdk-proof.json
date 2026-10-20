@@ -1,0 +1,12 @@
+{
+  "source_sdk": "70a99c1f",
+  "apk_sha256": "9da6722b33e336f4089be3d82f862dccb18d61e3f14557a914ad561d247f23c0",
+  "sdk_sha256": "7ddc538ac60544085fdb82a5029563a6d471b08ef7044aa0687050857e6ea95b",
+  "ffi_exports_unchanged": 197,
+  "same_signer": true,
+  "changed_entries": [
+    "lib/arm64-v8a/libveilclient_ffi.so"
+  ],
+  "versionCode": 12624,
+  "temporary_pcm_stand": true
+}

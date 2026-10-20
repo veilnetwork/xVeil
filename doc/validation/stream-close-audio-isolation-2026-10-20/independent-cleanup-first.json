@@ -1,0 +1,7 @@
+{
+  "mac_pid": true,
+  "logcat_pid": true,
+  "launcher_pid": true,
+  "phone": true,
+  "owned_forward": true
+}

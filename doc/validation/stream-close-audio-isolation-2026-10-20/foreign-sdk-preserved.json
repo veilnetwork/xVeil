@@ -1,0 +1,19 @@
+{
+  "crates/veil-dispatcher/src/app.rs": {
+    "foreign_bytes_preserved": true,
+    "before_sha256": "8d46a4e21ec77db3849d03af978d9175c3336c1fdd96473eaafd751411963fa6"
+  },
+  "crates/veil-dispatcher/src/delivery.rs": {
+    "foreign_bytes_preserved": true,
+    "before_sha256": "55c622d86745c4ae76331e03365c961b26ef3494fa1c8a6f0db7d2625218495b"
+  },
+  "crates/veil-e2e/src/ratchet.rs": {
+    "foreign_bytes_preserved": true,
+    "before_sha256": "95096fef777e9fa9a3e6da09dcc33cb889a5efa735b63f8e0259e68d771b4330"
+  },
+  "crates/veil-node-runtime/src/runtime/identity_publish.rs": {
+    "foreign_bytes_preserved": true,
+    "before_sha256": "56e1936ccaff6db35da0a9152e12c987c09c032aa4d1dd5fdb4547a75230e1a7"
+  },
+  "clean_native_source_excludes_foreign_edits": true
+}
