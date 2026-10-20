@@ -1,0 +1,10 @@
+{
+  "mac_pid": true,
+  "logcat_pid": true,
+  "launcher_pid": true,
+  "phone": true,
+  "owned_forward": true,
+  "ordinary_phone_version_code": 12622,
+  "ordinary_phone_apk_sha256": "b2bedeab5cf7a2c62ac6a5b1843c14c04ba9ebdf1604c7175aa25259f55430ab",
+  "synthetic_apk_no_longer_installed": true
+}

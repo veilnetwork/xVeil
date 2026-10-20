@@ -1,4 +1,4 @@
-# Physical decoded-PCM probe and an audio-only startup failure
+# Physical decoded-PCM probe and a startup delivery failure
 
 ## Scope
 
@@ -68,12 +68,14 @@ waits, but no complete file hash was verified. This is not called a successful
 file-load qualification. The repeat uses a longer HTTP wait and explicit bounded
 cancellation after measurement; its later file phase was never reached.
 
-## Second attempt: audio-only one-way failure
+## Second attempt: one-way failure with resumed background downloads
 
 Builds 12624 fix recording preservation. Both source recordings were collected
 and remained readable after restoring the ordinary app. The call failed the
-fixture's engine-generation guard at about 14 seconds, before camera or file
-activation. The original error and complete short recordings are retained.
+fixture's engine-generation guard at about 14 seconds, before the scheduled
+camera or new file activation. Retained logs subsequently established that old
+unfinished downloads had already resumed during warmup. This was **not** an
+audio-only network test. The original error and complete short recordings remain.
 
 | Early observation | Mac | Android |
 | --- | ---: | ---: |
@@ -85,10 +87,11 @@ The phone requested recovery after receiving no audio. Mac rebuilt its local P2P
 media engine in response. The new generation had not been given a measurement
 source, so the fixture stopped instead of quietly restarting/re-aligning it and
 turning the outage into a passing result. This leaves a concrete startup delivery
-failure to investigate; its production cause is not established here.
+failure to investigate. The follow-up below establishes why the phone's
+dispatcher silently refused the arriving direct traffic.
 
 For the first generation only, the actual source and decoded observations on
-the audio-only interval **5–9 s** show:
+the early interval **5–9 s**, with old transfers in the background, show:
 
 | Direction | Matched transitions | Unmatched transitions |
 | --- | ---: | ---: |
@@ -102,16 +105,49 @@ no delay estimate for the undelivered reverse direction.
 
 `early-one-way-pcm.json` retains that explicitly partial result. The full analyzer
 correctly rejects this capture because Mac has two engine generations. No camera
-quality or file-interference conclusion is drawn from this short attempt.
+quality qualification is drawn from this short attempt.
+
+### Follow-up: a file failure temporarily banned all traffic from Mac
+
+Phone logs report `APP_DATA exceeds receive window` at **14:20:44.933**, followed
+by `App stream carrier or scope mismatch` and automatic bans of the physical
+Mac peer `0b29ccb3`. The last ban is **25 seconds**, expiring around
+**14:21:09.933**. The first `media.ingress.arrived` is at **14:21:10.174**.
+File retries precede this failure; the new call starts at **14:20:54**.
+
+The direct phone QUIC receiver `(connection_trace_id=50, receiver=30)` records
+**298** authenticated, eligible datagrams passed to the dispatcher, with zero
+decode rejections, rate-limit results or reported violations. Its `dispatched`
+counter counts dispatcher calls, **not** successful endpoint delivery. The
+dispatcher returns `NoResponse` for a banned peer before routing to any app.
+This explains the apparent contradiction between successful QUIC delivery and
+zero media ingress. The source is the clean SDK `19004dc5`; unrelated security
+work in the main checkout was not compiled into these packages.
+
+Source inspection and a new regression reproduce one concrete cause of this
+ban cascade: after local bridge backpressure removes a stream, further bytes
+already admitted by the peer are treated as a receive-window violation because
+the stream is absent. A reliable-child violation retires that carrier, after
+which queued records can generate further scope/carrier errors. An absent
+stream and a live stream with exhausted credit were conflated. The follow-up
+fix distinguishes these atomically: absent-stream bytes receive `AppClose`
+without delivery or new state; an open stream's credit overrun remains a
+violation. Both new lifecycle regressions fail on the old source; the window
+overrun guard passes before and after. **313** app/dispatcher tests pass after
+the change (40 + 273).
+
+The retained old log cannot distinguish an absent stream from a real credit
+overrun at its first error. Therefore the exact first teardown cause and the
+fix's effect on this physical reproduction still require a new device run.
+`delivery-ban-cause.json` records the relevant original lines and their hashes.
 
 ## Remaining work
 
-The next action is to trace the queued Mac audio through the direct SDK transport
-and the phone's ingress/demultiplexing/decryption path. The startup failure occurs
-before video, so this capture does not justify another video-threshold change.
-Then repeat complete decoded-PCM measurement under real video/file load and
-qualify screen traffic. Live speech, physical device audio and headphone loudness
-remain separate unverified requirements.
+The follow-up in `../stream-close-audio-isolation-2026-10-20/` records the stream
+lifecycle fix, a further bounded-reply-queue fix, and a physical cancellation
+regression with no peer bans. This failure precedes video and does not justify
+another video-threshold change. Successful full file/screen qualification,
+live speech, physical device audio and headphone loudness remain unverified.
 
 ## Provenance, restoration and cleanup
 
