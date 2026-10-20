@@ -1,0 +1,194 @@
+[
+  {
+    "source": 0,
+    "receiver": 1,
+    "baseline": {
+      "packets": 9000,
+      "edges": 357,
+      "expected_edges": 357,
+      "ordinal_mismatches": 0,
+      "max_ms": 200.0,
+      "source_at_seconds": 217.15,
+      "concealed_samples": 9650,
+      "silent_concealed_samples": 0,
+      "interruption_count": 0,
+      "inserted_samples": 20160,
+      "removed_samples": 24720,
+      "discarded_ms": 50
+    },
+    "single_target80": {
+      "packets": 9000,
+      "edges": 357,
+      "expected_edges": 357,
+      "ordinal_mismatches": 0,
+      "max_ms": 180.0,
+      "source_at_seconds": 72.72,
+      "concealed_samples": 11409,
+      "silent_concealed_samples": 0,
+      "interruption_count": 0,
+      "inserted_samples": 18240,
+      "removed_samples": 27014,
+      "discarded_ms": 0
+    }
+  },
+  {
+    "source": 0,
+    "receiver": 2,
+    "baseline": {
+      "packets": 9000,
+      "edges": 357,
+      "expected_edges": 357,
+      "ordinal_mismatches": 0,
+      "max_ms": 180.0,
+      "source_at_seconds": 47.47,
+      "concealed_samples": 14270,
+      "silent_concealed_samples": 0,
+      "interruption_count": 0,
+      "inserted_samples": 12720,
+      "removed_samples": 21120,
+      "discarded_ms": 50
+    },
+    "single_target80": {
+      "packets": 9000,
+      "edges": 357,
+      "expected_edges": 357,
+      "ordinal_mismatches": 0,
+      "max_ms": 170.0,
+      "source_at_seconds": 47.47,
+      "concealed_samples": 14163,
+      "silent_concealed_samples": 0,
+      "interruption_count": 0,
+      "inserted_samples": 14880,
+      "removed_samples": 25200,
+      "discarded_ms": 10
+    }
+  },
+  {
+    "source": 1,
+    "receiver": 0,
+    "baseline": {
+      "packets": 9000,
+      "edges": 357,
+      "expected_edges": 357,
+      "ordinal_mismatches": 0,
+      "max_ms": 180.0,
+      "source_at_seconds": 59.59,
+      "concealed_samples": 9926,
+      "silent_concealed_samples": 0,
+      "interruption_count": 0,
+      "inserted_samples": 19019,
+      "removed_samples": 22644,
+      "discarded_ms": 70
+    },
+    "single_target80": {
+      "packets": 9000,
+      "edges": 357,
+      "expected_edges": 357,
+      "ordinal_mismatches": 0,
+      "max_ms": 180.0,
+      "source_at_seconds": 103.02,
+      "concealed_samples": 12880,
+      "silent_concealed_samples": 0,
+      "interruption_count": 0,
+      "inserted_samples": 16968,
+      "removed_samples": 26904,
+      "discarded_ms": 10
+    }
+  },
+  {
+    "source": 1,
+    "receiver": 2,
+    "baseline": {
+      "packets": 9000,
+      "edges": 357,
+      "expected_edges": 357,
+      "ordinal_mismatches": 0,
+      "max_ms": 180.0,
+      "source_at_seconds": 218.16,
+      "concealed_samples": 11286,
+      "silent_concealed_samples": 0,
+      "interruption_count": 0,
+      "inserted_samples": 16824,
+      "removed_samples": 20855,
+      "discarded_ms": 80
+    },
+    "single_target80": {
+      "packets": 9000,
+      "edges": 357,
+      "expected_edges": 357,
+      "ordinal_mismatches": 0,
+      "max_ms": 170.0,
+      "source_at_seconds": 66.66,
+      "concealed_samples": 10769,
+      "silent_concealed_samples": 0,
+      "interruption_count": 0,
+      "inserted_samples": 17388,
+      "removed_samples": 23819,
+      "discarded_ms": 20
+    }
+  },
+  {
+    "source": 2,
+    "receiver": 0,
+    "baseline": {
+      "packets": 9000,
+      "edges": 357,
+      "expected_edges": 357,
+      "ordinal_mismatches": 0,
+      "max_ms": 180.0,
+      "source_at_seconds": 92.92,
+      "concealed_samples": 12708,
+      "silent_concealed_samples": 0,
+      "interruption_count": 0,
+      "inserted_samples": 17004,
+      "removed_samples": 22790,
+      "discarded_ms": 70
+    },
+    "single_target80": {
+      "packets": 9000,
+      "edges": 357,
+      "expected_edges": 357,
+      "ordinal_mismatches": 0,
+      "max_ms": 180.0,
+      "source_at_seconds": 66.66,
+      "concealed_samples": 13831,
+      "silent_concealed_samples": 0,
+      "interruption_count": 0,
+      "inserted_samples": 17774,
+      "removed_samples": 27360,
+      "discarded_ms": 10
+    }
+  },
+  {
+    "source": 2,
+    "receiver": 1,
+    "baseline": {
+      "packets": 9000,
+      "edges": 357,
+      "expected_edges": 357,
+      "ordinal_mismatches": 0,
+      "max_ms": 180.0,
+      "source_at_seconds": 350.47,
+      "concealed_samples": 9645,
+      "silent_concealed_samples": 0,
+      "interruption_count": 0,
+      "inserted_samples": 16644,
+      "removed_samples": 19468,
+      "discarded_ms": 70
+    },
+    "single_target80": {
+      "packets": 9000,
+      "edges": 357,
+      "expected_edges": 357,
+      "ordinal_mismatches": 0,
+      "max_ms": 170.0,
+      "source_at_seconds": 68.68,
+      "concealed_samples": 10509,
+      "silent_concealed_samples": 0,
+      "interruption_count": 0,
+      "inserted_samples": 15336,
+      "removed_samples": 23414,
+      "discarded_ms": 0
+    }
+  }
+]

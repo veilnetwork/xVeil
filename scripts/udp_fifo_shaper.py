@@ -1,9 +1,62 @@
 """Blind FIFO shaper for loopback UDP. Never parses encrypted packet bytes."""
 import collections
+import math
 import selectors
 import socket
+import struct
 import threading
 import time
+
+
+class _PendingTrace(dict):
+    def __init__(self, event, values):
+        super().__init__(values)
+        self.event = event
+
+
+class WireTrace:
+    """Retain completed metadata as GC leaves, not one tracked dict per UDP.
+
+    Only packets still waiting for their FIFO deadline retain mutable rows.
+    Decoding the archive happens after capture, when consumers iterate it.
+    A late completion cannot overwrite a newer record after ring wrap.
+    """
+    fields = ('at', 'direction', 'link', 'bytes', 'pending', 'ready',
+              'queue_ms', 'sent_at', 'release_lateness_ms', 'dropped')
+    integer_fields = frozenset(('direction', 'link', 'bytes', 'pending'))
+    record = struct.Struct('!10d')
+
+    def __init__(self, capacity):
+        self.maxlen = capacity
+        self.rows = collections.deque(maxlen=capacity)
+        self.events = 0
+
+    def add(self, values):
+        row = _PendingTrace(self.events, values)
+        self.events += 1
+        self.rows.append(row)
+        return row
+
+    def finish(self, row):
+        offset = self.events - row.event
+        if 0 < offset <= len(self.rows):
+            self.rows[-offset] = self.record.pack(
+                *(row.get(key, math.nan) for key in self.fields))
+
+    def __len__(self):
+        return len(self.rows)
+
+    def __iter__(self):
+        for row in self.rows:
+            if isinstance(row, _PendingTrace):
+                yield dict(row)
+                continue
+            values = self.record.unpack(row)
+            yield {key: (bool(value) if key == 'dropped' else
+                         int(value) if key in self.integer_fields else value)
+                   for key, value in zip(self.fields, values)
+                   if not math.isnan(value)}
+
 
 class UdpShaper:
     def __init__(self, target, max_queue_ms=200, trace=False, trace_capacity=100000):
@@ -14,7 +67,7 @@ class UdpShaper:
         self.max_queue_ms = max_queue_ms
         # Optional bounded metadata trace. Never retain payloads, addresses or
         # application classes; link indices name only fixture UDP fronts.
-        self.trace_rows = collections.deque(maxlen=trace_capacity) if trace else None
+        self.trace_rows = WireTrace(trace_capacity) if trace else None
         self.trace_events = 0
         self.selector = selectors.DefaultSelector()
         self.fronts = []
@@ -41,14 +94,16 @@ class UdpShaper:
         stat['received'] += 1
         row = None
         if self.trace_rows is not None and self.rate_bps:
-            row = {'at':now, 'direction':direction, 'link':link,
-                   'bytes':len(data), 'pending':len(self.queues[direction])}
-            self.trace_rows.append(row)
+            row = self.trace_rows.add(
+                {'at':now, 'direction':direction, 'link':link,
+                 'bytes':len(data), 'pending':len(self.queues[direction])})
             self.trace_events += 1
         backlog_ms = max(0., (self.next_at[direction] - now) * 1000)
         if self.rate_bps and backlog_ms >= self.max_queue_ms:
             stat['drops'] += 1
-            if row is not None:row['dropped']=True;row['queue_ms']=backlog_ms
+            if row is not None:
+                row['dropped']=True;row['queue_ms']=backlog_ms
+                self.trace_rows.finish(row)
             return
         ready = max(now, self.next_at[direction])
         if self.rate_bps:
@@ -97,6 +152,7 @@ class UdpShaper:
                     except BlockingIOError:
                         self.stats[direction]['drops'] += 1
                         if row is not None:row['dropped']=True
+                    if row is not None:self.trace_rows.finish(row)
 
     def stop(self):
         self.stopped.set()
