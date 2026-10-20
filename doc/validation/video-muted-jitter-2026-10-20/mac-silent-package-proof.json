@@ -1,0 +1,12 @@
+{
+  "profile_aot": true,
+  "codesign_deep_strict": true,
+  "private_no_vpn": true,
+  "adapter_sha256": "f6e73507eff18beeac6245faeaebaf954b04a1f3901ba182bf71ee8b2bd32e05",
+  "aot_sha256": "cd5394a2168dc302df0b6006538c054fd8c3f7bbc7198ca7e127b9f710e3bfbd",
+  "libraries": {
+    "libveilclient_ffi.dylib": "346f8f10147050c8e8d42aa939082af535d36b3039124cb1e29603587c9fad9a",
+    "libveil_media.dylib": "d218c7dd6bbd9ef7e6ffcbe5d149c82fc84f1160082bdb0d6950466b1cfb36af",
+    "libhidden_volume_ffi.dylib": "a923c8ec596f3cd95a0c2967a1c713797fb60dd626dd53b08f689c7251dc1e4f"
+  }
+}

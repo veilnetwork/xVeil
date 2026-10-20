@@ -1,0 +1,12 @@
+{
+  "version_code": 12621,
+  "profile_aot": true,
+  "same_signer": true,
+  "apk_sha256": "4b043f438321995948d8c79fd6680d3042e37d6c9f6411bdedba0f8b04c869a2",
+  "libraries": {
+    "lib/arm64-v8a/libveilclient_ffi.so": "8063f28785c392eb25aa50f2ef9c47b36c80cd1ad12ba40723f84ee42c42f30d",
+    "lib/arm64-v8a/libveil_media.so": "55052ea79ceb7cdd1e2f2b2651dfe82a4a39d7693cd089d64c872344ece7190c",
+    "lib/arm64-v8a/libhidden_volume_ffi.so": "ab4a0cf8b75f2be9e6d525c40f48c613aa13d881307e13464ef0e1a3af840156",
+    "lib/arm64-v8a/libapp.so": "02f96d32959030a2e0078d028079744830a621571afcb5c30e57ebe59fa4992f"
+  }
+}
