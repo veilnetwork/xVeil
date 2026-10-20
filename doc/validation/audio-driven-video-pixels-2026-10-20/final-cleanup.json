@@ -1,0 +1,7 @@
+{
+  "checked_at_utc": "2026-10-20T02:46:05.153058+00:00",
+  "recorded_processes_checked": 14,
+  "remaining": [],
+  "fixture_helper_pids_absent": true,
+  "notes": "Group final summary PIDs also checked independently; pair thread/process waits and empty sockets checked in pair-result.json."
+}

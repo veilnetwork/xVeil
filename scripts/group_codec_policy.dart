@@ -167,6 +167,7 @@ class RoomPolicy {
       return false;
     });
     return {
+      'measuredAudioPressure': source.measuredAudioPressure,
       'sourcePressured': pressured,
       'sourceBudgetPressured':
           request['sourceFeedbackQueued'] == true && pressured == true,

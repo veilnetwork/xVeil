@@ -1,0 +1,53 @@
+{
+  "sdk": {
+    "path": "/Users/vart/.cache/codex/xveil-flight-drain-20261020/sdk-fixed/libveilclient_ffi.dylib",
+    "sha256": "6b23c5dd905a8ec67c2a849a68d2027a56f4f1baa74a9328ceace62cad0cf5f8",
+    "exports": 202,
+    "exports_unchanged": true,
+    "contract_hash": "d897342ae32051ee3e0758dcae56dcefc6de26eb7ca0b23fce921b9a57dfb16f",
+    "dlopen": true,
+    "clean_export": true,
+    "foreign_wip_excluded": true,
+    "owned_source": "crates/veil-session/src/local_source_flight.rs",
+    "owned_source_sha256": "628f714dc0dc76017e547c7fb4cc8dd813669b14c2b05c3e44a2c3c31f28a347"
+  },
+  "media": {
+    "path": "/Users/vart/.cache/codex/xveil-audio-pixel-feedback-20261020/media-hooks/libveil_media.dylib",
+    "sha256": "e9199d567fdd56e7a0028e795b9e6f6e7a926c2821077901679b05c11fd28ff0",
+    "exports": 137,
+    "additive_exports": [
+      "_veil_media_engine_set_audio_source_pressure",
+      "_veil_media_group_engine_set_audio_source_pressure"
+    ]
+  },
+  "root_head": "463f3dd29013a227607857e7d122e9b7b503a045",
+  "native_build_proof": "native-build-proof.json",
+  "sdk_head": "b7f84b864cc1f240a76c8ccc3d0cc32f44c949b6",
+  "root_source_pressure_sha256": "5af4269adaeb5c2c383cf474f2814f932c31b63754637bae143aed6b76c00112",
+  "native_source_sha256": {
+    "third_party/veil/flutter/veil_media/src/veil_video_frame_budget.h": "bd50f72c639c0eff0426d27c3861bdcb072827a8bd4edf2a86f67c39b58c6e0e",
+    "third_party/veil/flutter/veil_media/src/veil_media_engine.cc": "72fdc4e0ef333b570f1cf5a6c2e8f8abdab844faf71fb5091b5ec831641cdc64",
+    "third_party/veil/flutter/veil_media/src/veil_media_engine.h": "88ea10d33cb4a45dd017cb14e19689945233e4a2bea99db8d66e5f976244500b"
+  },
+  "media_production": {
+    "path": "/Users/vart/.cache/codex/xveil-audio-pixel-feedback-20261020/media-production/libveil_media.dylib",
+    "sha256": "366da6a7d3d08d995d5fc85ce328eac4dae53bac33e8f9c7d43a2ff6b3f8c04b",
+    "exports": 103,
+    "additive_exports": [
+      "_veil_media_engine_set_audio_source_pressure",
+      "_veil_media_group_engine_set_audio_source_pressure"
+    ],
+    "dlopen_with_sdk": true,
+    "test_hooks_absent": true
+  },
+  "native_sdk_commit": "b88f3fa72bfac89e4da6b9d5eb67a4ca1b7a4c31",
+  "root_owned_source_sha256": {
+    "lib/state/call_audio_source_pressure.dart": "5af4269adaeb5c2c383cf474f2814f932c31b63754637bae143aed6b76c00112",
+    "lib/state/veil_call_media.dart": "f0c4c973c0ddd449b96abb399610413c8477987ac3c4352336f58a9d230f1949",
+    "lib/state/veil_group_call_media.dart": "fd8c11f7a02a11ec644758a7286555e982278931ea4f496651c08b88fd5c6557",
+    "scripts/group_codec_policy.dart": "61291b8d1a6d6cdc48624edfdd5a910201aea028435243b5711638aac2c1c463",
+    "scripts/relay_codec_policy.dart": "dd21ab2138e122b150a75b05d8fbbe64fe5eebad66659ea3bb14b2f7a5e61b97",
+    "scripts/group-process-preflight.py": "db46f67548df44ec2fc1fefdb9179c9a7bf66b90c370e0af13dc5496f9b28ea6",
+    "scripts/relay-codec-control.py": "c1458c8f0ca4bc497b6b80b4e686f6c655e5ef564672f510450be01fe495a49a"
+  }
+}

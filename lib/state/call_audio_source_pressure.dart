@@ -15,6 +15,11 @@ class CallAudioSourcePressure {
   int _healthy = 0;
   int _recoverySamples = CallBitrateAdapter.recoverAfter;
   int? _lastAudioDrops;
+  bool? _measuredAudioPressure;
+
+  /// Current measured state for video pixels, without the transport budget's
+  /// cold/recovery latch. Unknown feedback cannot authorize source growth.
+  bool? get measuredAudioPressure => _measuredAudioPressure;
   final _rtcpLoss = CallRtcpLoss();
   final _peerRecoveryLoss = CallRtcpLoss();
   final _peerConcealment = CallRtcpLoss();
@@ -99,6 +104,9 @@ class CallAudioSourcePressure {
     _lastAudioDrops = sendExpected ? drops : null;
     if (!sendExpected && !receiveExpected) {
       _reset(preserveConcealmentWitness: true);
+      // No audio to protect: stop the transport lease, but allow video to
+      // recover through its own normal controller and fresh encode evidence.
+      _measuredAudioPressure = false;
       return null;
     }
     bool valid(int? n) => n != null && n >= 0 && n <= 60000;
@@ -190,6 +198,9 @@ class CallAudioSourcePressure {
         (!(localConcealed || recovered || soft.receive == true) ||
             soft.receive != null);
     final good = measuredHealthy && !transient;
+    _measuredAudioPressure = bad
+        ? true
+        : (measuredHealthy && (!transient || durationKnown) ? false : null);
     final measuredSmallTransient =
         measuredHealthy && durationKnown && transient;
     final shortHold =
@@ -227,6 +238,7 @@ class CallAudioSourcePressure {
   void reset() => _reset();
 
   void _reset({bool preserveConcealmentWitness = false}) {
+    _measuredAudioPressure = null;
     _pressured = true;
     _healthy = 0;
     _recoverySamples = CallBitrateAdapter.recoverAfter;

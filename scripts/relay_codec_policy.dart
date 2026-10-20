@@ -192,6 +192,7 @@ Future<void> main() async {
         'peerTargetDelay': peer[i].targetDelayMs(now),
         'peerSampleSequence': peer[i].sampleSequence,
         'peerBufferGrowing': peer[i].bufferGrowing(now),
+        'measuredAudioPressure': sourcePressure[i].measuredAudioPressure,
         'sourcePressured': sourcePressured,
         'sourceBudgetPressured':
             req['sourceFeedbackQueued'] == true && sourcePressured == true,
