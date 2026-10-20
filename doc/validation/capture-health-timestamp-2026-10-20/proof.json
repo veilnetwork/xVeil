@@ -1,0 +1,70 @@
+{
+  "parent_root": "8528e61aaff136ce3d9363929dc1f0b0fe6ad6ec",
+  "sdk_head": "19004dc5ceabb52e7977c79862d5c251ecff9002",
+  "native_code_changed_this_cycle": false,
+  "production_sources_match_built_export": {
+    "lib/state/call_service.dart": "1fc6efe1b898b3617854bce62e72b340f2cb974f455f5ef0c08048d382bbc10c",
+    "lib/state/call_bitrate_adapter.dart": "d99a65b8aa3e39e6ff4c2060b687f9593dd9c1b4be01876e2be5a694730ec4a7"
+  },
+  "tests_passed": 308,
+  "analysis": "No issues found",
+  "regression_before": "Paired compact-control mute reproduction fails: an endpoint switches to relay",
+  "regression_after": "Same paired FSM/encode-decode test passes; later real unmute and actual audio outage still trigger relay recovery",
+  "private_artifacts": {
+    "/private/tmp/xveil-compact-mute-before.txt": {
+      "bytes": 1330,
+      "sha256": "7904edd5f1055c2283d2b5ab186e885ac27011a4cbae5c457cc2374b94004289"
+    },
+    "/private/tmp/xveil-compact-mute-after.txt": {
+      "bytes": 217,
+      "sha256": "4feba8b2532fc15deee9a25a64d8e498550d59142b167d241ef917d107ee4b68"
+    },
+    "/private/tmp/xveil-compact-health-final-tests.txt": {
+      "bytes": 50161,
+      "sha256": "4cff5a19770014a93a568665f27cb9607267942a0ba57b1ca5efda43fb397ded"
+    },
+    "/private/tmp/xveil-compact-health-analysis.txt": {
+      "bytes": 96,
+      "sha256": "133f06cf6ee82c132a362756942fae64159a934c70d726f373b36cd4c5d37c41"
+    },
+    "/private/tmp/xveil-capture-stamp-android-build.txt": {
+      "bytes": 1711,
+      "sha256": "714b248818cab3848e911299adb4050d339484164ebd67d5fcf0367ba0c5018a"
+    },
+    "/private/tmp/xveil-capture-stamp-mac-build.txt": {
+      "bytes": 284282,
+      "sha256": "b9ea3147bd68766b79d6b3b4e5867ad871f86c64641834513c9fd540310ea0f9"
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-capture-stamp/samples.json": {
+      "bytes": 6948814,
+      "sha256": "ee817ff173397b2e697c3533f9768d8aeb534357799ea24aa8eafb547348626c"
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-capture-stamp/result.json": {
+      "bytes": 73322,
+      "sha256": "be2c9499b4a8fdc8f85f2edc0ae28b8ee1a62406e8a7d1320128a161d9319413"
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-capture-stamp/mac-devlog.json": {
+      "bytes": 178326,
+      "sha256": "9abba53d26aeb8534c9bbfdfa904974cbe430d446e11cbd1d72fa2d1cc65eee5"
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-capture-stamp/phone-devlog.json": {
+      "bytes": 190081,
+      "sha256": "9f2c70631072bb6eeb020341ddd6b05bbe610047adcbbb95706013e7a7d926ff"
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-capture-stamp/phone-logcat.log": {
+      "bytes": 19449901,
+      "sha256": "54cae65989fdc4d9e4e5d9b215f93ba63f3c8c239a1c4ff1d0ab686fcf59c76f"
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-capture-stamp/mac-runtime.log": {
+      "bytes": 18478675,
+      "sha256": "d338c495f57ed94e2f9270bb8a9b59e3cdd9c07c7b1286fa82ca8d933dc64515"
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-check-capture-stamp.py": {
+      "bytes": 11534,
+      "sha256": "a95ba3b9f8cf7d98af50aeb027f94b8c106886c46e5b7d171321bc685e1f5ed6"
+    }
+  },
+  "no_push_or_release": true,
+  "foreign_root_diff_sha256": "529f7718edea4b6775cc11607bc2ff663a922cc3521b680cf94efa39d7b26859",
+  "foreign_sdk_diff_sha256": "1ceeb05d540078262f1480ba7210dfaa0f5895be9f0099f64bc18a56a4f6a363"
+}

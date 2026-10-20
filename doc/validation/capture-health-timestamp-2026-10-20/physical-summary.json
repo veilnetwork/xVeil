@@ -1,0 +1,230 @@
+{
+  "ring_seconds": 0.1418122500181198,
+  "duration_seconds": 269.8337959169876,
+  "sample_count": 131,
+  "muted_at": 35.74907370901201,
+  "explicit_relay_requested_at": 150.63682720897486,
+  "explicit_relay_response": {
+    "ok": true
+  },
+  "route_events": [
+    {
+      "endpoint": "mac",
+      "at": 0.0,
+      "transport": "p2p"
+    },
+    {
+      "endpoint": "mac",
+      "at": 150.637,
+      "transport": "relay"
+    },
+    {
+      "endpoint": "phone",
+      "at": 0.0,
+      "transport": "p2p"
+    },
+    {
+      "endpoint": "phone",
+      "at": 158.438,
+      "transport": "relay"
+    }
+  ],
+  "first_observed_peer_muted": {
+    "mac": {
+      "t": 38.00187341700075,
+      "sender_capture_at_ms": 1792492863820
+    },
+    "phone": {
+      "t": 38.00187341700075,
+      "sender_capture_at_ms": 1792492863715
+    }
+  },
+  "frame_windows": {
+    "40-90": {
+      "first_t": 40.03429929201957,
+      "last_t": 89.11591483402299,
+      "elapsed_seconds": 49.08161554200342,
+      "mac": {
+        "remote_frames": {
+          "first": 7,
+          "last": 274,
+          "per_second": 5.44
+        },
+        "video_rx_deliver_frames": {
+          "first": 7,
+          "last": 281,
+          "per_second": 5.583
+        },
+        "video_tx_frames": {
+          "first": 5,
+          "last": 259,
+          "per_second": 5.175
+        }
+      },
+      "phone": {
+        "remote_frames": {
+          "first": 5,
+          "last": 256,
+          "per_second": 5.114
+        },
+        "video_rx_deliver_frames": {
+          "first": 5,
+          "last": 258,
+          "per_second": 5.155
+        },
+        "video_tx_frames": {
+          "first": 7,
+          "last": 285,
+          "per_second": 5.664
+        }
+      }
+    },
+    "90-145": {
+      "first_t": 91.16190520901,
+      "last_t": 144.49160087498603,
+      "elapsed_seconds": 53.32969566597603,
+      "mac": {
+        "remote_frames": {
+          "first": 304,
+          "last": 549,
+          "per_second": 4.594
+        },
+        "video_rx_deliver_frames": {
+          "first": 312,
+          "last": 564,
+          "per_second": 4.725
+        },
+        "video_tx_frames": {
+          "first": 275,
+          "last": 510,
+          "per_second": 4.407
+        }
+      },
+      "phone": {
+        "remote_frames": {
+          "first": 273,
+          "last": 506,
+          "per_second": 4.369
+        },
+        "video_rx_deliver_frames": {
+          "first": 274,
+          "last": 509,
+          "per_second": 4.407
+        },
+        "video_tx_frames": {
+          "first": 317,
+          "last": 570,
+          "per_second": 4.744
+        }
+      }
+    },
+    "180-225": {
+      "first_t": 180.99320512497798,
+      "last_t": 224.25629641697742,
+      "elapsed_seconds": 43.263091291999444,
+      "mac": {
+        "remote_frames": {
+          "first": 652,
+          "last": 966,
+          "per_second": 7.258
+        },
+        "video_rx_deliver_frames": {
+          "first": 692,
+          "last": 1052,
+          "per_second": 8.321
+        },
+        "video_tx_frames": {
+          "first": 749,
+          "last": 933,
+          "per_second": 4.253
+        }
+      },
+      "phone": {
+        "remote_frames": {
+          "first": 681,
+          "last": 823,
+          "per_second": 3.282
+        },
+        "video_rx_deliver_frames": {
+          "first": 703,
+          "last": 860,
+          "per_second": 3.629
+        },
+        "video_tx_frames": {
+          "first": 738,
+          "last": 1104,
+          "per_second": 8.46
+        }
+      }
+    },
+    "225-270": {
+      "first_t": 226.31816820899257,
+      "last_t": 269.8337959169876,
+      "elapsed_seconds": 43.51562770799501,
+      "mac": {
+        "remote_frames": {
+          "first": 992,
+          "last": 1202,
+          "per_second": 4.826
+        },
+        "video_rx_deliver_frames": {
+          "first": 1077,
+          "last": 1341,
+          "per_second": 6.067
+        },
+        "video_tx_frames": {
+          "first": 934,
+          "last": 1099,
+          "per_second": 3.792
+        }
+      },
+      "phone": {
+        "remote_frames": {
+          "first": 823,
+          "last": 956,
+          "per_second": 3.056
+        },
+        "video_rx_deliver_frames": {
+          "first": 860,
+          "last": 1020,
+          "per_second": 3.677
+        },
+        "video_tx_frames": {
+          "first": 1128,
+          "last": 1409,
+          "per_second": 6.457
+        }
+      }
+    }
+  },
+  "file_hashes": {
+    "mac": {
+      "hash_matches": true,
+      "source_sha256": "17f1ca5f677579cd4ac3ab80b3f9ada42040ef8972a16bad88d9d0bc381ab9ca",
+      "received_sha256": "17f1ca5f677579cd4ac3ab80b3f9ada42040ef8972a16bad88d9d0bc381ab9ca",
+      "error_type": null
+    },
+    "phone": {
+      "hash_matches": true,
+      "source_sha256": "9b99000c11bb3d5c563676a6a4e02e84cd6929687d8d3e80c0c5fe0959c71094",
+      "received_sha256": "9b99000c11bb3d5c563676a6a4e02e84cd6929687d8d3e80c0c5fe0959c71094",
+      "error_type": null
+    }
+  },
+  "cleanup": {
+    "owned_host_pids_checked_absent": [
+      9957,
+      9828,
+      14658
+    ],
+    "phone_process_absent": true,
+    "forward_removed": 43825,
+    "mac_exit_code": -9,
+    "file_threads_exited": true
+  },
+  "phone_native_trace_copied": false,
+  "established_audio_stall_log_count": {
+    "mac": 0,
+    "phone": 0
+  }
+}
