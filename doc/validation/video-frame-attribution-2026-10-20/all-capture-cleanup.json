@@ -1,0 +1,89 @@
+{
+  "captures": [
+    {
+      "capture": "xveil-frame-attribution-20261020",
+      "summary_and_owner_pids_checked": [
+        31223,
+        31224,
+        44030,
+        44031,
+        44032,
+        44063,
+        44064,
+        44065
+      ],
+      "remaining": {},
+      "node_stop_results": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "sockets": 0
+    },
+    {
+      "capture": "xveil-native-video-adaptation-20261020",
+      "summary_and_owner_pids_checked": [
+        55526,
+        55529,
+        66822,
+        66823,
+        66824,
+        66860,
+        66861,
+        66862
+      ],
+      "remaining": {},
+      "node_stop_results": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "sockets": 0
+    },
+    {
+      "capture": "xveil-source-pressure-qualified-20261020",
+      "summary_and_owner_pids_checked": [
+        43554,
+        43555,
+        51521,
+        51522,
+        51526,
+        51552,
+        51553,
+        51554
+      ],
+      "remaining": {},
+      "node_stop_results": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "sockets": 0
+    },
+    {
+      "capture": "xveil-source-pressure-original-pixels-20261020",
+      "summary_and_owner_pids_checked": [
+        8844,
+        8845,
+        8846,
+        8873,
+        8874,
+        8875,
+        86407,
+        86408
+      ],
+      "remaining": {},
+      "node_stop_results": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "sockets": 0
+    }
+  ],
+  "retained_native_smoke_process_absent": true
+}
