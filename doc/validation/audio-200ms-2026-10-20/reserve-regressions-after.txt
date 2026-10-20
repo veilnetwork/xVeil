@@ -1,0 +1,29 @@
+   Compiling veil-session v0.11.42 (/Users/vart/.cache/codex/xveil-audio-200-20261020/sdk-reserve-src/crates/veil-session)
+    Finished `release` profile [optimized] target(s) in 1m 07s
+     Running unittests src/lib.rs (/Volumes/cfb/target/release/deps/veil_bootstrap-f5dfc9994a230705)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 142 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/Volumes/cfb/target/release/deps/veil_session-4e0f10af3550187b)
+
+running 15 tests
+test local_source_flight::tests::control_and_other_nodes_cannot_spend_the_primary_reserve ... ok
+test local_source_flight::tests::closed_control_reserve_does_not_refund_its_outstanding_wire_debt ... ok
+test local_source_flight::tests::changing_primary_reserve_cannot_reprice_old_credit ... ok
+test local_source_flight::tests::a_new_window_requires_a_new_blocked_send_not_old_waiting_history ... ok
+test local_source_flight::tests::independent_secondary_children_share_flight_and_leave_a_primary_packet ... ok
+test local_source_flight::tests::expired_control_reserve_does_not_become_unfunded_secondary_flight ... ok
+test local_source_flight::tests::expired_control_reserve_preserves_only_the_paid_secondary_growth ... ok
+test local_source_flight::tests::drained_secondary_cannot_bank_primary_acks_for_a_later_burst ... ok
+test local_source_flight::tests::stale_progress_and_reordered_pressure_cannot_fund_growth ... ok
+test local_source_flight::tests::reconnect_retains_abandoned_flight_without_blocking_the_primary ... ok
+test local_source_flight::tests::a_drained_queue_still_funds_its_outstanding_blocked_flight ... ok
+test local_source_flight::tests::only_fresh_feedback_and_real_demand_allow_bounded_growth ... ok
+test local_source_flight::tests::growth_hold_keeps_paid_flight_and_cannot_bank_delivery_or_renew_on_replay ... ok
+test local_source_flight::tests::a_finished_partial_flight_cannot_fund_a_later_blocked_send ... ok
+test local_source_flight::tests::serialization_and_flight_progress_wake_other_connections_without_polling ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 638 filtered out; finished in 0.00s
+

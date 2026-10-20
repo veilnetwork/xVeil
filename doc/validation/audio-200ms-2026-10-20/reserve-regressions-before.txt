@@ -1,0 +1,48 @@
+   Compiling veil-session v0.11.42 (/Users/vart/.cache/codex/xveil-audio-200-20261020/sdk-reserve-src/crates/veil-session)
+    Finished `release` profile [optimized] target(s) in 1m 10s
+     Running unittests src/lib.rs (/Volumes/cfb/target/release/deps/veil_bootstrap-f5dfc9994a230705)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 142 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (/Volumes/cfb/target/release/deps/veil_session-4e0f10af3550187b)
+
+running 3 tests
+test local_source_flight::tests::expired_control_reserve_preserves_only_the_paid_secondary_growth ... FAILED
+test local_source_flight::tests::closed_control_reserve_does_not_refund_its_outstanding_wire_debt ... FAILED
+test local_source_flight::tests::expired_control_reserve_does_not_become_unfunded_secondary_flight ... FAILED
+
+failures:
+
+---- local_source_flight::tests::expired_control_reserve_preserves_only_the_paid_secondary_growth stdout ----
+
+thread 'local_source_flight::tests::expired_control_reserve_preserves_only_the_paid_secondary_growth' (121103198) panicked at crates/veil-session/src/local_source_flight.rs:874:9:
+assertion `left == right` failed: retain the real paid packet without spending retired control headroom
+  left: 4801
+ right: 3601
+
+---- local_source_flight::tests::closed_control_reserve_does_not_refund_its_outstanding_wire_debt stdout ----
+
+thread 'local_source_flight::tests::closed_control_reserve_does_not_refund_its_outstanding_wire_debt' (121103196) panicked at crates/veil-session/src/local_source_flight.rs:889:9:
+assertion `left == right` failed: closed control bytes still debit the correctly scoped window
+  left: 2401
+ right: 1201
+
+---- local_source_flight::tests::expired_control_reserve_does_not_become_unfunded_secondary_flight stdout ----
+
+thread 'local_source_flight::tests::expired_control_reserve_does_not_become_unfunded_secondary_flight' (121103197) panicked at crates/veil-session/src/local_source_flight.rs:851:9:
+assertion `left == right` failed: an expired control reserve is not an ACK-funded extra packet
+  left: 3601
+ right: 2401
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    local_source_flight::tests::closed_control_reserve_does_not_refund_its_outstanding_wire_debt
+    local_source_flight::tests::expired_control_reserve_does_not_become_unfunded_secondary_flight
+    local_source_flight::tests::expired_control_reserve_preserves_only_the_paid_secondary_growth
+
+test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 650 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p veil-session --lib`
