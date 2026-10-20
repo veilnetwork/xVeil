@@ -1,0 +1,260 @@
+{
+  "limits": [
+    "Same-host metadata from complete native traces",
+    "Encoded-to-ingress includes all transport stages; no per-hop attribution"
+  ],
+  "rows": [
+    {
+      "capture": "reserve-360",
+      "source": 0,
+      "receiver": 1,
+      "packets": 9000,
+      "encoded_to_ingress_ms": {
+        "min": 8.873,
+        "p50": 52.744,
+        "p95": 86.894,
+        "p99": 96.066,
+        "max": 158.179
+      },
+      "sorted_ingress_gap_ms": {
+        "min": 3.866,
+        "p50": 39.635,
+        "p95": 63.612,
+        "p99": 74.799,
+        "max": 103.37
+      },
+      "reordered": 0
+    },
+    {
+      "capture": "reserve-360",
+      "source": 0,
+      "receiver": 2,
+      "packets": 9000,
+      "encoded_to_ingress_ms": {
+        "min": 8.877,
+        "p50": 47.596,
+        "p95": 81.264,
+        "p99": 91.403,
+        "max": 153.642
+      },
+      "sorted_ingress_gap_ms": {
+        "min": 3.589,
+        "p50": 39.367,
+        "p95": 64.609,
+        "p99": 74.77,
+        "max": 112.774
+      },
+      "reordered": 0
+    },
+    {
+      "capture": "reserve-360",
+      "source": 1,
+      "receiver": 0,
+      "packets": 9000,
+      "encoded_to_ingress_ms": {
+        "min": 8.966,
+        "p50": 52.843,
+        "p95": 85.976,
+        "p99": 96.361,
+        "max": 149.682
+      },
+      "sorted_ingress_gap_ms": {
+        "min": 3.676,
+        "p50": 39.48,
+        "p95": 63.658,
+        "p99": 75.21,
+        "max": 112.974
+      },
+      "reordered": 0
+    },
+    {
+      "capture": "reserve-360",
+      "source": 1,
+      "receiver": 2,
+      "packets": 9000,
+      "encoded_to_ingress_ms": {
+        "min": 8.775,
+        "p50": 47.92,
+        "p95": 80.664,
+        "p99": 91.8,
+        "max": 150.908
+      },
+      "sorted_ingress_gap_ms": {
+        "min": 3.876,
+        "p50": 39.43,
+        "p95": 63.602,
+        "p99": 75.046,
+        "max": 100.422
+      },
+      "reordered": 0
+    },
+    {
+      "capture": "reserve-360",
+      "source": 2,
+      "receiver": 0,
+      "packets": 9000,
+      "encoded_to_ingress_ms": {
+        "min": 9.137,
+        "p50": 53.213,
+        "p95": 85.988,
+        "p99": 96.019,
+        "max": 163.704
+      },
+      "sorted_ingress_gap_ms": {
+        "min": 3.791,
+        "p50": 39.367,
+        "p95": 63.198,
+        "p99": 73.883,
+        "max": 101.842
+      },
+      "reordered": 0
+    },
+    {
+      "capture": "reserve-360",
+      "source": 2,
+      "receiver": 1,
+      "packets": 9000,
+      "encoded_to_ingress_ms": {
+        "min": 8.928,
+        "p50": 47.791,
+        "p95": 80.953,
+        "p99": 91.1,
+        "max": 140.279
+      },
+      "sorted_ingress_gap_ms": {
+        "min": 3.774,
+        "p50": 39.456,
+        "p95": 63.543,
+        "p99": 74.306,
+        "max": 95.772
+      },
+      "reordered": 0
+    },
+    {
+      "capture": "history30-360",
+      "source": 0,
+      "receiver": 1,
+      "packets": 9000,
+      "encoded_to_ingress_ms": {
+        "min": 9.174,
+        "p50": 53.62,
+        "p95": 87.225,
+        "p99": 98.235,
+        "max": 170.319
+      },
+      "sorted_ingress_gap_ms": {
+        "min": 2.956,
+        "p50": 39.381,
+        "p95": 62.977,
+        "p99": 73.163,
+        "max": 148.222
+      },
+      "reordered": 0
+    },
+    {
+      "capture": "history30-360",
+      "source": 0,
+      "receiver": 2,
+      "packets": 9000,
+      "encoded_to_ingress_ms": {
+        "min": 8.944,
+        "p50": 46.315,
+        "p95": 80.171,
+        "p99": 93.007,
+        "max": 164.403
+      },
+      "sorted_ingress_gap_ms": {
+        "min": 3.934,
+        "p50": 39.357,
+        "p95": 62.848,
+        "p99": 73.822,
+        "max": 120.171
+      },
+      "reordered": 0
+    },
+    {
+      "capture": "history30-360",
+      "source": 1,
+      "receiver": 0,
+      "packets": 9000,
+      "encoded_to_ingress_ms": {
+        "min": 8.931,
+        "p50": 53.901,
+        "p95": 87.054,
+        "p99": 98.337,
+        "max": 162.983
+      },
+      "sorted_ingress_gap_ms": {
+        "min": 4.016,
+        "p50": 39.338,
+        "p95": 62.76,
+        "p99": 73.499,
+        "max": 123.117
+      },
+      "reordered": 0
+    },
+    {
+      "capture": "history30-360",
+      "source": 1,
+      "receiver": 2,
+      "packets": 9000,
+      "encoded_to_ingress_ms": {
+        "min": 8.868,
+        "p50": 46.525,
+        "p95": 79.969,
+        "p99": 90.847,
+        "max": 159.84
+      },
+      "sorted_ingress_gap_ms": {
+        "min": 3.897,
+        "p50": 39.464,
+        "p95": 62.554,
+        "p99": 73.001,
+        "max": 110.764
+      },
+      "reordered": 0
+    },
+    {
+      "capture": "history30-360",
+      "source": 2,
+      "receiver": 0,
+      "packets": 9000,
+      "encoded_to_ingress_ms": {
+        "min": 9.172,
+        "p50": 53.855,
+        "p95": 87.204,
+        "p99": 98.092,
+        "max": 163.246
+      },
+      "sorted_ingress_gap_ms": {
+        "min": 2.164,
+        "p50": 39.531,
+        "p95": 62.753,
+        "p99": 72.839,
+        "max": 122.831
+      },
+      "reordered": 0
+    },
+    {
+      "capture": "history30-360",
+      "source": 2,
+      "receiver": 1,
+      "packets": 9000,
+      "encoded_to_ingress_ms": {
+        "min": 8.819,
+        "p50": 46.119,
+        "p95": 79.425,
+        "p99": 90.95,
+        "max": 174.754
+      },
+      "sorted_ingress_gap_ms": {
+        "min": 3.66,
+        "p50": 39.361,
+        "p95": 62.409,
+        "p99": 72.74,
+        "max": 157.424
+      },
+      "reordered": 0
+    }
+  ]
+}

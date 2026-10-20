@@ -1,0 +1,386 @@
+[
+  {
+    "capture": "reserve-360",
+    "source": 0,
+    "receiver": 1,
+    "arrival_gap_ms": 103.36999999998397,
+    "encoder_gap_ms": 40.158000000019456,
+    "input_gap_ms": 40.07099999995489,
+    "before": {
+      "timestamp": 2999143051,
+      "sequence": 20303,
+      "first_input_seconds": 347.2001247919922,
+      "encoded_seconds": 347.2302997919922,
+      "arrived_seconds": 347.2675397919922,
+      "delivery_ms": 37.24
+    },
+    "after": {
+      "timestamp": 2999144971,
+      "sequence": 20304,
+      "first_input_seconds": 347.24019579199216,
+      "encoded_seconds": 347.2704577919922,
+      "arrived_seconds": 347.3709097919922,
+      "delivery_ms": 100.452
+    },
+    "maximum_delivery_packet": {
+      "timestamp": 2982506251,
+      "sequence": 11638,
+      "first_input_seconds": 0.6001617919921876,
+      "encoded_seconds": 0.6302737919921875,
+      "arrived_seconds": 0.7884527919921875,
+      "delivery_ms": 158.179
+    }
+  },
+  {
+    "capture": "reserve-360",
+    "source": 0,
+    "receiver": 2,
+    "arrival_gap_ms": 112.7740000000017,
+    "encoder_gap_ms": 40.158000000019456,
+    "input_gap_ms": 40.07099999995489,
+    "before": {
+      "timestamp": 2999143051,
+      "sequence": 20303,
+      "first_input_seconds": 347.2001247919922,
+      "encoded_seconds": 347.2302997919922,
+      "arrived_seconds": 347.2623837919922,
+      "delivery_ms": 32.084
+    },
+    "after": {
+      "timestamp": 2999144971,
+      "sequence": 20304,
+      "first_input_seconds": 347.24019579199216,
+      "encoded_seconds": 347.2704577919922,
+      "arrived_seconds": 347.3751577919922,
+      "delivery_ms": 104.7
+    },
+    "maximum_delivery_packet": {
+      "timestamp": 2982506251,
+      "sequence": 11638,
+      "first_input_seconds": 0.6001617919921876,
+      "encoded_seconds": 0.6302737919921875,
+      "arrived_seconds": 0.7839157919921875,
+      "delivery_ms": 153.642
+    }
+  },
+  {
+    "capture": "reserve-360",
+    "source": 1,
+    "receiver": 0,
+    "arrival_gap_ms": 112.97400000000835,
+    "encoder_gap_ms": 40.14399999999796,
+    "input_gap_ms": 40.091000000018084,
+    "before": {
+      "timestamp": 1532641702,
+      "sequence": 36214,
+      "first_input_seconds": 227.36008979199218,
+      "encoded_seconds": 227.3904437919922,
+      "arrived_seconds": 227.40116579199218,
+      "delivery_ms": 10.722
+    },
+    "after": {
+      "timestamp": 1532643622,
+      "sequence": 36215,
+      "first_input_seconds": 227.4001807919922,
+      "encoded_seconds": 227.4305877919922,
+      "arrived_seconds": 227.5141397919922,
+      "delivery_ms": 83.552
+    },
+    "maximum_delivery_packet": {
+      "timestamp": 1521757222,
+      "sequence": 30545,
+      "first_input_seconds": 0.6001377919921875,
+      "encoded_seconds": 0.6302617919921875,
+      "arrived_seconds": 0.7799437919921876,
+      "delivery_ms": 149.682
+    }
+  },
+  {
+    "capture": "reserve-360",
+    "source": 1,
+    "receiver": 2,
+    "arrival_gap_ms": 100.4220000000089,
+    "encoder_gap_ms": 40.3790000000015,
+    "input_gap_ms": 39.968999999985044,
+    "before": {
+      "timestamp": 1532418982,
+      "sequence": 36098,
+      "first_input_seconds": 222.7201217919922,
+      "encoded_seconds": 222.7503017919922,
+      "arrived_seconds": 222.7619447919922,
+      "delivery_ms": 11.643
+    },
+    "after": {
+      "timestamp": 1532420902,
+      "sequence": 36099,
+      "first_input_seconds": 222.76009079199218,
+      "encoded_seconds": 222.7906807919922,
+      "arrived_seconds": 222.8623667919922,
+      "delivery_ms": 71.686
+    },
+    "maximum_delivery_packet": {
+      "timestamp": 1521759142,
+      "sequence": 30546,
+      "first_input_seconds": 0.6400737919921875,
+      "encoded_seconds": 0.6703247919921875,
+      "arrived_seconds": 0.8212327919921875,
+      "delivery_ms": 150.908
+    }
+  },
+  {
+    "capture": "reserve-360",
+    "source": 2,
+    "receiver": 0,
+    "arrival_gap_ms": 101.84199999997645,
+    "encoder_gap_ms": 39.96599999999262,
+    "input_gap_ms": 40.01399999998512,
+    "before": {
+      "timestamp": 3182199334,
+      "sequence": 32068,
+      "first_input_seconds": 347.0401257919922,
+      "encoded_seconds": 347.0703757919922,
+      "arrived_seconds": 347.0801217919922,
+      "delivery_ms": 9.746
+    },
+    "after": {
+      "timestamp": 3182201254,
+      "sequence": 32069,
+      "first_input_seconds": 347.08013979199217,
+      "encoded_seconds": 347.1103417919922,
+      "arrived_seconds": 347.1819637919922,
+      "delivery_ms": 71.622
+    },
+    "maximum_delivery_packet": {
+      "timestamp": 3165570214,
+      "sequence": 23407,
+      "first_input_seconds": 0.6001467919921875,
+      "encoded_seconds": 0.6302427919921875,
+      "arrived_seconds": 0.7939467919921875,
+      "delivery_ms": 163.704
+    }
+  },
+  {
+    "capture": "reserve-360",
+    "source": 2,
+    "receiver": 1,
+    "arrival_gap_ms": 95.77199999998243,
+    "encoder_gap_ms": 40.02900000000409,
+    "input_gap_ms": 40.02600000001166,
+    "before": {
+      "timestamp": 3177178534,
+      "sequence": 29453,
+      "first_input_seconds": 242.44003879199218,
+      "encoded_seconds": 242.4702487919922,
+      "arrived_seconds": 242.5312597919922,
+      "delivery_ms": 61.011
+    },
+    "after": {
+      "timestamp": 3177180454,
+      "sequence": 29454,
+      "first_input_seconds": 242.4800647919922,
+      "encoded_seconds": 242.5102777919922,
+      "arrived_seconds": 242.62703179199218,
+      "delivery_ms": 116.754
+    },
+    "maximum_delivery_packet": {
+      "timestamp": 3165570214,
+      "sequence": 23407,
+      "first_input_seconds": 0.6001467919921875,
+      "encoded_seconds": 0.6302427919921875,
+      "arrived_seconds": 0.7705217919921875,
+      "delivery_ms": 140.279
+    }
+  },
+  {
+    "capture": "history30-360",
+    "source": 0,
+    "receiver": 1,
+    "arrival_gap_ms": 148.22199999997565,
+    "encoder_gap_ms": 40.02199999996492,
+    "input_gap_ms": 39.78799999998728,
+    "before": {
+      "timestamp": 82196699,
+      "sequence": 29556,
+      "first_input_seconds": 345.0403126669922,
+      "encoded_seconds": 345.0704966669922,
+      "arrived_seconds": 345.1326156669922,
+      "delivery_ms": 62.119
+    },
+    "after": {
+      "timestamp": 82198619,
+      "sequence": 29557,
+      "first_input_seconds": 345.08010066699217,
+      "encoded_seconds": 345.11051866699216,
+      "arrived_seconds": 345.28083766699217,
+      "delivery_ms": 170.319
+    },
+    "maximum_delivery_packet": {
+      "timestamp": 82198619,
+      "sequence": 29557,
+      "first_input_seconds": 345.08010066699217,
+      "encoded_seconds": 345.11051866699216,
+      "arrived_seconds": 345.28083766699217,
+      "delivery_ms": 170.319
+    }
+  },
+  {
+    "capture": "history30-360",
+    "source": 0,
+    "receiver": 2,
+    "arrival_gap_ms": 120.17100000002756,
+    "encoder_gap_ms": 40.02199999996492,
+    "input_gap_ms": 39.78799999998728,
+    "before": {
+      "timestamp": 82196699,
+      "sequence": 29556,
+      "first_input_seconds": 345.0403126669922,
+      "encoded_seconds": 345.0704966669922,
+      "arrived_seconds": 345.12348566699217,
+      "delivery_ms": 52.989
+    },
+    "after": {
+      "timestamp": 82198619,
+      "sequence": 29557,
+      "first_input_seconds": 345.08010066699217,
+      "encoded_seconds": 345.11051866699216,
+      "arrived_seconds": 345.2436566669922,
+      "delivery_ms": 133.138
+    },
+    "maximum_delivery_packet": {
+      "timestamp": 82200539,
+      "sequence": 29558,
+      "first_input_seconds": 345.1201366669922,
+      "encoded_seconds": 345.1507456669922,
+      "arrived_seconds": 345.3151486669922,
+      "delivery_ms": 164.403
+    }
+  },
+  {
+    "capture": "history30-360",
+    "source": 1,
+    "receiver": 0,
+    "arrival_gap_ms": 123.11699999997927,
+    "encoder_gap_ms": 40.00500000000784,
+    "input_gap_ms": 39.820999999960804,
+    "before": {
+      "timestamp": 2844092781,
+      "sequence": 10710,
+      "first_input_seconds": 345.0402786669922,
+      "encoded_seconds": 345.0704976669922,
+      "arrived_seconds": 345.1406356669922,
+      "delivery_ms": 70.138
+    },
+    "after": {
+      "timestamp": 2844094701,
+      "sequence": 10711,
+      "first_input_seconds": 345.08009966699217,
+      "encoded_seconds": 345.1105026669922,
+      "arrived_seconds": 345.26375266699216,
+      "delivery_ms": 153.25
+    },
+    "maximum_delivery_packet": {
+      "timestamp": 2827557741,
+      "sequence": 2098,
+      "first_input_seconds": 0.5600496669921875,
+      "encoded_seconds": 0.5901896669921874,
+      "arrived_seconds": 0.7531726669921875,
+      "delivery_ms": 162.983
+    }
+  },
+  {
+    "capture": "history30-360",
+    "source": 1,
+    "receiver": 2,
+    "arrival_gap_ms": 110.7640000000174,
+    "encoder_gap_ms": 40.00500000000784,
+    "input_gap_ms": 39.820999999960804,
+    "before": {
+      "timestamp": 2844092781,
+      "sequence": 10710,
+      "first_input_seconds": 345.0402786669922,
+      "encoded_seconds": 345.0704976669922,
+      "arrived_seconds": 345.13690666699216,
+      "delivery_ms": 66.409
+    },
+    "after": {
+      "timestamp": 2844094701,
+      "sequence": 10711,
+      "first_input_seconds": 345.08009966699217,
+      "encoded_seconds": 345.1105026669922,
+      "arrived_seconds": 345.2476706669922,
+      "delivery_ms": 137.168
+    },
+    "maximum_delivery_packet": {
+      "timestamp": 2844096621,
+      "sequence": 10712,
+      "first_input_seconds": 345.1201486669922,
+      "encoded_seconds": 345.1508706669922,
+      "arrived_seconds": 345.3107106669922,
+      "delivery_ms": 159.84
+    }
+  },
+  {
+    "capture": "history30-360",
+    "source": 2,
+    "receiver": 0,
+    "arrival_gap_ms": 122.83100000001923,
+    "encoder_gap_ms": 40.002000000015414,
+    "input_gap_ms": 39.81999999996333,
+    "before": {
+      "timestamp": 3696632900,
+      "sequence": 20725,
+      "first_input_seconds": 345.0402796669922,
+      "encoded_seconds": 345.0705006669922,
+      "arrived_seconds": 345.1448176669922,
+      "delivery_ms": 74.317
+    },
+    "after": {
+      "timestamp": 3696634820,
+      "sequence": 20726,
+      "first_input_seconds": 345.08009966699217,
+      "encoded_seconds": 345.1105026669922,
+      "arrived_seconds": 345.2676486669922,
+      "delivery_ms": 157.146
+    },
+    "maximum_delivery_packet": {
+      "timestamp": 3680088260,
+      "sequence": 12108,
+      "first_input_seconds": 0.3600996669921875,
+      "encoded_seconds": 0.3905886669921875,
+      "arrived_seconds": 0.5538346669921875,
+      "delivery_ms": 163.246
+    }
+  },
+  {
+    "capture": "history30-360",
+    "source": 2,
+    "receiver": 1,
+    "arrival_gap_ms": 157.42400000004864,
+    "encoder_gap_ms": 40.002000000015414,
+    "input_gap_ms": 39.81999999996333,
+    "before": {
+      "timestamp": 3696632900,
+      "sequence": 20725,
+      "first_input_seconds": 345.0402796669922,
+      "encoded_seconds": 345.0705006669922,
+      "arrived_seconds": 345.12783266699216,
+      "delivery_ms": 57.332
+    },
+    "after": {
+      "timestamp": 3696634820,
+      "sequence": 20726,
+      "first_input_seconds": 345.08009966699217,
+      "encoded_seconds": 345.1105026669922,
+      "arrived_seconds": 345.2852566669922,
+      "delivery_ms": 174.754
+    },
+    "maximum_delivery_packet": {
+      "timestamp": 3696634820,
+      "sequence": 20726,
+      "first_input_seconds": 345.08009966699217,
+      "encoded_seconds": 345.1105026669922,
+      "arrived_seconds": 345.2852566669922,
+      "delivery_ms": 174.754
+    }
+  }
+]
