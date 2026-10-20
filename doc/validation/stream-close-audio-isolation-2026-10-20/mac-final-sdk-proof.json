@@ -1,0 +1,15 @@
+{
+  "sdk_sha256": "afde20ad4d35363909b4387eabe68a394d043ef844194c2bd8729e36b6752c5e",
+  "ffi_veil_exports": 197,
+  "exports_unchanged": true,
+  "versionCode": 12624,
+  "temporary_pcm_stand": true,
+  "packaging_inputs": {
+    "libveilclient_ffi.dylib": "afde20ad4d35363909b4387eabe68a394d043ef844194c2bd8729e36b6752c5e",
+    "libveil_media.dylib": "74d0bb849cb8797ffb91f50564fa64d31580704b10332add490c7696d669603c",
+    "libhidden_volume_ffi.dylib": "a923c8ec596f3cd95a0c2967a1c713797fb60dd626dd53b08f689c7251dc1e4f",
+    "libxveil_pcm_driver.dylib": "d1e2f80572929b1a2bdad6aec3693a36ac9572deb159944ed7181aaa22b3c820",
+    "App.framework/App": "b3c7bd72c7ab827bf96cc1e668fa259118b0c2946a07b9f3d042deca34298ce4"
+  },
+  "source_sdk": "70a99c1f"
+}
