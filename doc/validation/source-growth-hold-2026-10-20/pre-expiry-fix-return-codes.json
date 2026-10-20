@@ -1,0 +1,31 @@
+{
+  "pair-candidate-180": [
+    {
+      "worker": "pair-candidate-180",
+      "native_hold_rc": 1,
+      "sdk_hold_rc": 1,
+      "legacy_fallback_was_used": true
+    }
+  ],
+  "pair-screen-180": [],
+  "group-final-360": [
+    {
+      "worker": "worker-1",
+      "native_hold_rc": 1,
+      "sdk_hold_rc": 1,
+      "legacy_fallback_was_used": true
+    },
+    {
+      "worker": "worker-1",
+      "native_hold_rc": 1,
+      "sdk_hold_rc": 1,
+      "legacy_fallback_was_used": true
+    },
+    {
+      "worker": "worker-2",
+      "native_hold_rc": 1,
+      "sdk_hold_rc": 1,
+      "legacy_fallback_was_used": true
+    }
+  ]
+}

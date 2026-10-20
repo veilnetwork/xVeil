@@ -7,6 +7,9 @@ class CallAudioTransientLoss {
   DateTime? _lastAt;
   bool holdingGrowth = false;
 
+  /// Original fresh event behind the current hold; polls do not renew it.
+  DateTime? get lastEventAt => _events.isEmpty ? null : _events.last;
+
   /// Only a new event can confirm repetition. Cached reports and faster
   /// polling neither add events nor advance a sample-count-based timeout.
   bool observe(bool event, {DateTime? sampledAt}) {

@@ -49,6 +49,7 @@ abstract interface class GroupMediaChannelTransport {
   Future<bool> reportLocalSourcePressure({
     required bool pressured,
     required DateTime sampledAt,
+    DateTime? growthHoldStartedAt,
   });
 }
 
@@ -82,9 +83,11 @@ class VeilGroupMediaChannelTransport implements GroupMediaChannelTransport {
   Future<bool> reportLocalSourcePressure({
     required bool pressured,
     required DateTime sampledAt,
+    DateTime? growthHoldStartedAt,
   }) => _transport.reportLocalSourcePressure(
     pressured: pressured,
     sampledAt: sampledAt,
+    growthHoldStartedAt: growthHoldStartedAt,
   );
 }
 
@@ -173,7 +176,11 @@ abstract interface class GroupAudioEngine {
   bool get supportsLowRateVideo => false;
   bool get supportsVideoSendPause => false;
   bool setVideoSendPaused(bool paused) => false;
-  bool setAudioSourcePressure(bool? pressured) => false;
+  bool setAudioSourcePressure(
+    bool? pressured, {
+    DateTime? sampledAt,
+    DateTime? growthHoldStartedAt,
+  }) => false;
   bool startVideo() => false;
   bool stopVideo() => true;
   bool startCamera() => false;
@@ -248,8 +255,15 @@ class NativeGroupAudioEngine implements GroupAudioEngine {
   bool setVideoSendPaused(bool paused) => _engine.setVideoSendPaused(paused);
 
   @override
-  bool setAudioSourcePressure(bool? pressured) =>
-      _engine.setAudioSourcePressure(pressured);
+  bool setAudioSourcePressure(
+    bool? pressured, {
+    DateTime? sampledAt,
+    DateTime? growthHoldStartedAt,
+  }) => _engine.setAudioSourcePressure(
+    pressured,
+    sampledAt: sampledAt,
+    growthHoldStartedAt: growthHoldStartedAt,
+  );
 
   @override
   bool setVideoBitrate({required int maxBitrateKbps, required num maxFps}) =>
@@ -987,7 +1001,11 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     );
     // Forward measured state before the transport floor override and without
     // waiting for SDK IPC. A cold reservation is not measured audio damage.
-    engine.setAudioSourcePressure(_sourcePressure.measuredAudioPressure);
+    engine.setAudioSourcePressure(
+      _sourcePressure.measuredAudioPressure,
+      sampledAt: now,
+      growthHoldStartedAt: _sourcePressure.growthHoldStartedAt,
+    );
     final pressure = sendExpected && _sourcePriority.floor
         ? true
         : measuredPressure;
@@ -1000,6 +1018,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
             () => _transport.reportLocalSourcePressure(
               pressured: pressure,
               sampledAt: now,
+              growthHoldStartedAt: _sourcePressure.growthHoldStartedAt,
             ),
           )
           .then<void>(

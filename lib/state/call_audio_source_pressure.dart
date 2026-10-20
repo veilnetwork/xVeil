@@ -16,6 +16,11 @@ class CallAudioSourcePressure {
   int _recoverySamples = CallBitrateAdapter.recoverAfter;
   int? _lastAudioDrops;
   bool? _measuredAudioPressure;
+  DateTime? _growthHoldStartedAt;
+
+  /// Keep current admission, but earn no growth until this event's hold ends.
+  /// Distinct from unknown measurements and from measured pressure.
+  DateTime? get growthHoldStartedAt => _growthHoldStartedAt;
 
   /// Current measured state for video pixels, without the transport budget's
   /// cold/recovery latch. Unknown feedback cannot authorize source growth.
@@ -206,6 +211,17 @@ class CallAudioSourcePressure {
     final shortHold =
         durationKnown &&
         (_transientLoss.holdingGrowth || _receiveTransientLoss.holdingGrowth);
+    _growthHoldStartedAt = null;
+    if (measuredHealthy && durationKnown && shortHold) {
+      for (final tracker in [_transientLoss, _receiveTransientLoss]) {
+        final event = tracker.holdingGrowth ? tracker.lastEventAt : null;
+        if (event != null &&
+            (_growthHoldStartedAt == null ||
+                event.isAfter(_growthHoldStartedAt!))) {
+          _growthHoldStartedAt = event;
+        }
+      }
+    }
     if (bad) {
       _recoverySamples = CallBitrateAdapter.recoverAfter;
       _pressured = true;
@@ -239,6 +255,7 @@ class CallAudioSourcePressure {
 
   void _reset({bool preserveConcealmentWitness = false}) {
     _measuredAudioPressure = null;
+    _growthHoldStartedAt = null;
     _pressured = true;
     _healthy = 0;
     _recoverySamples = CallBitrateAdapter.recoverAfter;
