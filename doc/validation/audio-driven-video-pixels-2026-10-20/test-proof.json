@@ -1,0 +1,75 @@
+{
+  "logs": {
+    "xveil-audio-pixel-feedback-red.txt": {
+      "path": "/private/tmp/xveil-audio-pixel-feedback-red.txt",
+      "sha256": "aa1932c596bbc25c794565b1fd77db07aa21ea200da007ed5fbc191589d2185c",
+      "bytes": 4529
+    },
+    "xveil-audio-pixel-budget-final.txt": {
+      "path": "/private/tmp/xveil-audio-pixel-budget-final.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "xveil-audio-pixel-feedback-native-final.txt": {
+      "path": "/private/tmp/xveil-audio-pixel-feedback-native-final.txt",
+      "sha256": "ba3bdf8f0409d844a674920fe32569876801267718fe3e8815882dc26368abee",
+      "bytes": 131
+    },
+    "xveil-audio-pixel-call-planes.txt": {
+      "path": "/private/tmp/xveil-audio-pixel-call-planes.txt",
+      "sha256": "5ed0b0ed57deb8e61c673d739b9abcc8c4597005e89f44c3021c18508028ee8b",
+      "bytes": 1512
+    },
+    "xveil-audio-pixel-dart-analyze-final.txt": {
+      "path": "/private/tmp/xveil-audio-pixel-dart-analyze-final.txt",
+      "sha256": "b44a4c8262c200a10494fc41567ed28886101aa894445cd5b93b10f302f50c37",
+      "bytes": 265
+    },
+    "xveil-audio-pixel-flutter-tests-complete.txt": {
+      "path": "/private/tmp/xveil-audio-pixel-flutter-tests-complete.txt",
+      "sha256": "48582c3e315bae7c5d8c1212d5b2b8ae67ca46775993fd2886e9c8b51b984082",
+      "bytes": 17144
+    },
+    "xveil-audio-pixel-feedback-build-final.txt": {
+      "path": "/private/tmp/xveil-audio-pixel-feedback-build-final.txt",
+      "sha256": "996b9689f6ed3da8a2b503f51f6fa86801dbf69784a26b685bce902afcfb99fb",
+      "bytes": 6358
+    },
+    "xveil-audio-pixel-production-build.txt": {
+      "path": "/private/tmp/xveil-audio-pixel-production-build.txt",
+      "sha256": "0cb43181fcc36d45f0266af320843b9818d1a05ab4635b120da2ade90ddb1f56",
+      "bytes": 5631
+    },
+    "xveil-audio-pixel-symbols-hooks.txt": {
+      "path": "/private/tmp/xveil-audio-pixel-symbols-hooks.txt",
+      "sha256": "f7db57bd14c7c6f8332e126f3ecee75070532235edf9c6d13c64ac77148104f4",
+      "bytes": 91
+    },
+    "xveil-audio-pixel-symbols-production.txt": {
+      "path": "/private/tmp/xveil-audio-pixel-symbols-production.txt",
+      "sha256": "c9e57d96a659be6ebb46c52f7c3f201daef3ca98d3c23ee14ac7ee0206bfb058",
+      "bytes": 91
+    }
+  },
+  "initial_red_kind": "compile failure: new SetAudioPressure method absent on original budget",
+  "verified_exit_codes": {
+    "budget_smoke": 0,
+    "native_audio_pixels": 0,
+    "native_call_planes": 0,
+    "flutter_84_tests": 0,
+    "dart_analysis": 0,
+    "hook_symbol_gate": 0,
+    "production_symbol_gate": 0,
+    "hook_build": 0,
+    "production_build": 0
+  },
+  "build_inputs": {
+    "third_party/veil/flutter/veil_media/src/veil_video_frame_budget.h": "bd50f72c639c0eff0426d27c3861bdcb072827a8bd4edf2a86f67c39b58c6e0e",
+    "third_party/veil/flutter/veil_media/src/veil_media_engine.cc": "72fdc4e0ef333b570f1cf5a6c2e8f8abdab844faf71fb5091b5ec831641cdc64",
+    "third_party/veil/flutter/veil_media/src/veil_media_engine.h": "88ea10d33cb4a45dd017cb14e19689945233e4a2bea99db8d66e5f976244500b"
+  },
+  "foreign_diff_sha256": {
+    "root": "529f7718edea4b6775cc11607bc2ff663a922cc3521b680cf94efa39d7b26859",
+    "sdk": "1ceeb05d540078262f1480ba7210dfaa0f5895be9f0099f64bc18a56a4f6a363"
+  }
+}
