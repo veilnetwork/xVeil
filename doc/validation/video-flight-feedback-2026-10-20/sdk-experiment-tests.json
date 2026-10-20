@@ -1,0 +1,15 @@
+{
+  "tests": "cargo test --locked --release -p veil-session -p veil-bootstrap --features veil-bootstrap/production-seeds --lib",
+  "passed": 642,
+  "failed": 0,
+  "ignored": 8,
+  "log": "/private/tmp/xveil-feedback-paced-flight-tests.txt",
+  "regressions": {
+    "data_only_delay": "old shared-window cut: left 2401; expected 3601",
+    "reused_audio_feedback": "old duplicate growth: left 4801; expected 3601"
+  },
+  "red_logs": [
+    "/private/tmp/xveil-data-only-flight-red.txt",
+    "/private/tmp/xveil-feedback-paced-flight-red.txt"
+  ]
+}

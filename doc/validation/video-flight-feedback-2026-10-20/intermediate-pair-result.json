@@ -1,0 +1,97 @@
+{
+  "capture": "/Users/vart/.cache/codex/xveil-feedback-paced-flight-20261020/pair-candidate-180",
+  "raw_ok": true,
+  "duration_seconds": 180,
+  "audio_markers": 348,
+  "audio_missing": 0,
+  "audio_peak_ms": 140.32541669439524,
+  "audio_impairment_after_60s": [
+    {
+      "audio_latency_recovery_count": 0,
+      "audio_latency_discarded_ms": 0,
+      "audio_latency_fallback_frames": 0,
+      "video_audio_pixel_cuts": 0,
+      "video_audio_pixel_recoveries": 0
+    },
+    {
+      "audio_latency_recovery_count": 0,
+      "audio_latency_discarded_ms": 0,
+      "audio_latency_fallback_frames": 0,
+      "video_audio_pixel_cuts": 0,
+      "video_audio_pixel_recoveries": 0
+    }
+  ],
+  "video_directions": [
+    {
+      "side": 0,
+      "decoded_frame_pulls": 146,
+      "decoded_counter": {
+        "frames": 1222,
+        "observation_seconds": 157.99547999998322,
+        "fps": 7.734398477729425
+      },
+      "last_minute_decoded_counter": {
+        "frames": 880,
+        "observation_seconds": 58.99911637499463,
+        "fps": 14.915477621847351
+      },
+      "last_dimensions": [
+        320,
+        240
+      ],
+      "content_changes": 145,
+      "last_decoded_pull_seconds": 179.00213879201328,
+      "max_sampled_pull_gap_seconds": 3.0043877500575036,
+      "tail_decoded_pulls": 15,
+      "tail_content_changes": 14,
+      "tail_content_verified": true,
+      "moving_at_end": true
+    },
+    {
+      "side": 1,
+      "decoded_frame_pulls": 148,
+      "decoded_counter": {
+        "frames": 1221,
+        "observation_seconds": 157.99546733300667,
+        "fps": 7.728069802322247
+      },
+      "last_minute_decoded_counter": {
+        "frames": 877,
+        "observation_seconds": 58.99948054103879,
+        "fps": 14.86453765283539
+      },
+      "last_dimensions": [
+        320,
+        240
+      ],
+      "content_changes": 147,
+      "last_decoded_pull_seconds": 179.0046779580298,
+      "max_sampled_pull_gap_seconds": 3.001805207983125,
+      "tail_decoded_pulls": 15,
+      "tail_content_changes": 14,
+      "tail_content_verified": true,
+      "moving_at_end": true
+    }
+  ],
+  "files": [
+    {
+      "queued": 524288,
+      "queue_duration_ms": 7.9,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "receipt_duration_ms": 150765.1,
+      "missing_indices": []
+    },
+    {
+      "queued": 524288,
+      "queue_duration_ms": 7.6,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "receipt_duration_ms": 143565.8,
+      "missing_indices": []
+    }
+  ],
+  "screen_capture_proof": false
+}

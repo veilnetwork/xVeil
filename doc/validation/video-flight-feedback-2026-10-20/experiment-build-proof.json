@@ -1,0 +1,49 @@
+{
+  "sdk": {
+    "path": "/Users/vart/.cache/codex/xveil-feedback-paced-flight-20261020/sdk-fixed/libveilclient_ffi.dylib",
+    "exports": 202,
+    "exports_unchanged": true,
+    "contract_hash": "d897342ae32051ee3e0758dcae56dcefc6de26eb7ca0b23fce921b9a57dfb16f",
+    "dlopen": true,
+    "clean_export": true,
+    "foreign_wip_excluded": true,
+    "owned_source_sha256": {
+      "crates/veil-session/src/local_source_flight.rs": "b1de360a4f80554f82bd7e386b580d1a9a43ddfa4c8f1261c3cfd8d4b9db19d1",
+      "crates/veil-session/src/local_source_activity.rs": "1f9fc620652bb9d8c6ee68970d2abee47a8b7e87c58c6c64e53b55618e0e3b62"
+    },
+    "source_export_root": "/Users/vart/.cache/codex/xveil-flight-reasons-20261020/sdk-src",
+    "sha256": "c438c0d33daccd671b4be4bcb13cb2a82e7442d9ab8493839e6872a1b41e06cf"
+  },
+  "media": {
+    "path": "/Users/vart/.cache/codex/xveil-audio-pixel-feedback-20261020/media-hooks/libveil_media.dylib",
+    "sha256": "e9199d567fdd56e7a0028e795b9e6f6e7a926c2821077901679b05c11fd28ff0",
+    "exports": 137,
+    "additive_exports": [
+      "_veil_media_engine_set_audio_source_pressure",
+      "_veil_media_group_engine_set_audio_source_pressure"
+    ]
+  },
+  "root_head": "aa63ee8ba201082cc526bca9aa7ac8cfe83ecd4e",
+  "sdk_head": "b88f3fa72bfac89e4da6b9d5eb67a4ca1b7a4c31",
+  "root_source_pressure_sha256": "5af4269adaeb5c2c383cf474f2814f932c31b63754637bae143aed6b76c00112",
+  "native_source_sha256": {
+    "third_party/veil/flutter/veil_media/src/veil_video_frame_budget.h": "bd50f72c639c0eff0426d27c3861bdcb072827a8bd4edf2a86f67c39b58c6e0e",
+    "third_party/veil/flutter/veil_media/src/veil_media_engine.cc": "72fdc4e0ef333b570f1cf5a6c2e8f8abdab844faf71fb5091b5ec831641cdc64",
+    "third_party/veil/flutter/veil_media/src/veil_media_engine.h": "88ea10d33cb4a45dd017cb14e19689945233e4a2bea99db8d66e5f976244500b"
+  },
+  "media_production": {
+    "path": "/Users/vart/.cache/codex/xveil-audio-pixel-feedback-20261020/media-production/libveil_media.dylib",
+    "sha256": "366da6a7d3d08d995d5fc85ce328eac4dae53bac33e8f9c7d43a2ff6b3f8c04b",
+    "exports": 103,
+    "additive_exports": [
+      "_veil_media_engine_set_audio_source_pressure",
+      "_veil_media_group_engine_set_audio_source_pressure"
+    ],
+    "dlopen_with_sdk": true,
+    "test_hooks_absent": true
+  },
+  "baseline_capture": "/Users/vart/.cache/codex/xveil-audio-pixel-feedback-20261020/group-final-360",
+  "previous_candidate_build_proof": "/Users/vart/.cache/codex/xveil-flight-reasons-20261020/build-proof.json",
+  "first_fix_capture": "/Users/vart/.cache/codex/xveil-flight-reasons-20261020/group-final-360",
+  "dlopen_harness_note": "Initial RTLD_LOCAL check failed because SDK symbols must be global. The RTLD_GLOBAL checks passed. Final hook and production checks each ran in a separate process without duplicate Objective-C classes or stderr."
+}

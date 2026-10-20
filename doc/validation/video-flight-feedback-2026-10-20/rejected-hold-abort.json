@@ -1,0 +1,6 @@
+{
+  "reason": "Ordinary capture regressed FPS and did not finish files; reject unknown-as-growth-hold policy. Remaining group capture interrupted; screen capture not started. Partial group data are not a completed result.",
+  "stopped_at_utc": "2026-10-20T04:00:32.058014+00:00",
+  "coordinator_pid": 30279,
+  "group_fixture_pid": 87801
+}
