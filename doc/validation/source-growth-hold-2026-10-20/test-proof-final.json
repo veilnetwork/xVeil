@@ -1,0 +1,146 @@
+{
+  "rust_components": {
+    "veil-bootstrap": {
+      "passed": 141,
+      "ignored": 1
+    },
+    "veil-ipc": {
+      "passed": 171,
+      "ignored": 5
+    },
+    "veil-proto": {
+      "passed": 840,
+      "ignored": 0
+    },
+    "veil-session": {
+      "passed": 641,
+      "ignored": 8
+    },
+    "veilclient": {
+      "passed": 48,
+      "ignored": 0
+    },
+    "veilclient-ffi": {
+      "passed": 307,
+      "ignored": 2
+    }
+  },
+  "rust_total_passed": 2148,
+  "rust_ignored": 16,
+  "flutter_related_passed": 231,
+  "native_budget_smoke": "passed",
+  "native_direct_group_abi_hold": "passed",
+  "native_default_call_planes": "passed",
+  "analysis": "root and fixture policies pass",
+  "ffi_first_full_run_failure": "Eight-epoch test used fixture keys shared with parallel tests. Isolated run passed; distinct per-test keys preserve all original assertions. No production crypto change. Full FFI rerun passed.",
+  "logs": {
+    "xveil-explicit-source-hold-core-tests.txt": {
+      "path": "/private/tmp/xveil-explicit-source-hold-core-tests.txt",
+      "sha256": "6a654e07c4d4812757099078fdba94d95a2b2ac6efadeb6157557d123cf0861a",
+      "bytes": 840
+    },
+    "xveil-explicit-source-hold-sdk-tests-final.txt": {
+      "path": "/private/tmp/xveil-explicit-source-hold-sdk-tests-final.txt",
+      "sha256": "68dbb6e9469fd13120085f467188e29d0a4020a241181d0f8a9f0d01728f58d7",
+      "bytes": 195453
+    },
+    "xveil-explicit-source-hold-ffi-tests-final.txt": {
+      "path": "/private/tmp/xveil-explicit-source-hold-ffi-tests-final.txt",
+      "sha256": "34c998281dee4ffcbed3f9d23f06d6a5cec8b17ff37fea760ca0c358f1e5d06e",
+      "bytes": 42253
+    },
+    "xveil-source-hold-sender-priority-tests.txt": {
+      "path": "/private/tmp/xveil-source-hold-sender-priority-tests.txt",
+      "sha256": "9e3de0a1f006ceb86fd55304288ab54f08ec6ec5ce99d072e1b97691fc4b741a",
+      "bytes": 46451
+    },
+    "xveil-explicit-source-hold-flutter-tests.txt": {
+      "path": "/private/tmp/xveil-explicit-source-hold-flutter-tests.txt",
+      "sha256": "94b0a1251aa78077ead981135bbd61ce16b87de5685af52aab2b71494a109a3f",
+      "bytes": 39253
+    },
+    "xveil-explicit-source-hold-analyze.txt": {
+      "path": "/private/tmp/xveil-explicit-source-hold-analyze.txt",
+      "sha256": "8645f0c36e95eba244505db6941c6d32ff96ab857888ccd5850c5e3fda653869",
+      "bytes": 244
+    },
+    "xveil-explicit-source-hold-policy-analyze.txt": {
+      "path": "/private/tmp/xveil-explicit-source-hold-policy-analyze.txt",
+      "sha256": "bda7631873b294d5e6a1c24b257de95df14f263238ad716707d9cd47ab0225fb",
+      "bytes": 79
+    },
+    "xveil-explicit-source-hold-native-abi.txt": {
+      "path": "/private/tmp/xveil-explicit-source-hold-native-abi.txt",
+      "sha256": "ba3bdf8f0409d844a674920fe32569876801267718fe3e8815882dc26368abee",
+      "bytes": 131
+    },
+    "xveil-explicit-source-hold-call-planes.txt": {
+      "path": "/private/tmp/xveil-explicit-source-hold-call-planes.txt",
+      "sha256": "3734172ea7563c69a225e3fee9e804e5dce9da3c02fe01febf3af4df87907dc6",
+      "bytes": 1512
+    },
+    "xveil-explicit-source-hold-native-build.txt": {
+      "path": "/private/tmp/xveil-explicit-source-hold-native-build.txt",
+      "sha256": "4260228798368ce6018d2210b9263939a58998c8de73254dbec8db200f5f4ed8",
+      "bytes": 6358
+    },
+    "xveil-explicit-source-hold-production-build.txt": {
+      "path": "/private/tmp/xveil-explicit-source-hold-production-build.txt",
+      "sha256": "43adf7a87d441679fe00082461b78eb0021782cd9d86ddd4591c7e858f4e5f4d",
+      "bytes": 5631
+    },
+    "xveil-explicit-source-hold-sdk-build.txt": {
+      "path": "/private/tmp/xveil-explicit-source-hold-sdk-build.txt",
+      "sha256": "4ee552da02ce56f4c3e7da0d851b61225d28f1c7ef4daeab98414fed92584bde",
+      "bytes": 3854
+    },
+    "xveil-source-hold-header-final.txt": {
+      "path": "/private/tmp/xveil-source-hold-header-final.txt",
+      "sha256": "b0f1632ea002c13caebf7fa827bc8fccba58a825cd3b482c094f86f503a46174",
+      "bytes": 13366
+    },
+    "xveil-explicit-source-hold-hook-symbols.txt": {
+      "path": "/private/tmp/xveil-explicit-source-hold-hook-symbols.txt",
+      "sha256": "bde670e6ab6a670eb2accc85c18bcba59a62c6aca5ccc6b80d780ed4835527da",
+      "bytes": 91
+    },
+    "xveil-explicit-source-hold-production-symbols.txt": {
+      "path": "/private/tmp/xveil-explicit-source-hold-production-symbols.txt",
+      "sha256": "efe332a83c1dc2b497e804f59850292b16c6ad9339bbc35b6accd1738744ccdf",
+      "bytes": 91
+    },
+    "xveil-source-hold-expiry-tests-final.txt": {
+      "path": "/private/tmp/xveil-source-hold-expiry-tests-final.txt",
+      "sha256": "dd59910197f5d98eed06555daff8d2cd05f9d1ce378c39975bdf5c3d34719ff7",
+      "bytes": 46451
+    },
+    "xveil-source-hold-expiry-flutter-tests.txt": {
+      "path": "/private/tmp/xveil-source-hold-expiry-flutter-tests.txt",
+      "sha256": "ea58577743d66ecf76223eb567a2382caea35074461f412a1d1b557e9a1e94a1",
+      "bytes": 39155
+    },
+    "xveil-source-hold-expiry-analyze.txt": {
+      "path": "/private/tmp/xveil-source-hold-expiry-analyze.txt",
+      "sha256": "b156f30e77db2d048119056aac300937a63b67e92bbcc821b1c6cc1d656b47d5",
+      "bytes": 3944
+    },
+    "xveil-source-hold-expiry-policy-analyze.txt": {
+      "path": "/private/tmp/xveil-source-hold-expiry-policy-analyze.txt",
+      "sha256": "fa10a8794817abd0189ad1ad345575aa61bb6cc170d9fb9f162e95f201084880",
+      "bytes": 79
+    },
+    "xveil-source-hold-expiry-sdk-build.txt": {
+      "path": "/private/tmp/xveil-source-hold-expiry-sdk-build.txt",
+      "sha256": "b89c5873d17df3647048858e6f1dae279950ef5df06ab5c247f235c98b663b2b",
+      "bytes": 411
+    }
+  },
+  "final_expiry_rerun": {
+    "veilclient_passed": 48,
+    "veilclient_ffi_passed": 307,
+    "ffi_ignored": 2,
+    "root_flutter_passed": 231,
+    "root_and_policy_analysis": "pass",
+    "expiry_result": "distinct from unsupported; fresh sample with expired original hold is rejected"
+  }
+}

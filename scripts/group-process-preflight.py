@@ -60,6 +60,7 @@ def worker(pipe, sdk_path, media_path, root, clock, participant,
     rows, snapshots, images = [], [], []
     video_started = False
     source_feedback_queued = 0
+    source_feedback_skipped = 0
     source_sizes = SourcePacketSamples()
     source_cost_sequence = 0
     source_cost_pending = None
@@ -132,6 +133,14 @@ def worker(pipe, sdk_path, media_path, root, clock, participant,
                 audio_pixels = mf('veil_media_group_engine_set_audio_source_pressure', [P, C.c_int], C.c_int)
             except AttributeError:
                 audio_pixels = None
+            try:
+                audio_growth_hold = mf('veil_media_group_engine_hold_source_growth', [P, C.c_uint64, C.c_uint64], C.c_int)
+            except AttributeError:
+                audio_growth_hold = None
+            try:
+                source_growth_hold = fixture.fn('veil_app_hold_local_source_growth', [P, C.c_uint64, C.c_uint64, E], C.c_int)
+            except AttributeError:
+                source_growth_hold = None
             frame = mf('veil_media_group_engine_get_peer_video_frame', [P, P, P, C.c_int, P, P], C.c_int)
             source_report = fixture.fn('veil_app_report_local_source_pressure',
                                        [P, C.c_uint8, C.c_uint64, E], C.c_int)
@@ -171,8 +180,12 @@ def worker(pipe, sdk_path, media_path, root, clock, participant,
             if policy_read() != {'ready': True}:
                 raise RuntimeError('Production policy startup failed')
 
-            def adapt(op, elapsed, snapshot=None):
-                request = {'op': op, 'now': int(elapsed * 1000), 'expectedPeers': 2}
+            def adapt(op, elapsed, snapshot=None, sampled_at_unix_ms=None):
+                # The production policy returns absolute event timestamps.
+                # Use the SAME sample clock as native/SDK feedback, not fixture
+                # elapsed time; phase scheduling continues to use monotonic t.
+                request = {'op': op, 'now': (sampled_at_unix_ms if sampled_at_unix_ms is not None
+                                             else int(time.time() * 1000)), 'expectedPeers': 2}
                 request['sourceFeedbackQueued'] = source_feedback_queued > 0
                 if snapshot is not None:
                     request['stats'] = snapshot
@@ -316,24 +329,40 @@ def worker(pipe, sdk_path, media_path, root, clock, participant,
                         source_cost_pending = source_cost_sequence
                         source_cost_sequence += 1
                 if adaptive:
-                    decision = adapt('poll', snapshot['t'], snapshot['stats'])
+                    decision = adapt('poll', snapshot['t'], snapshot['stats'], sampled_at_unix_ms)
                     snapshot['audio_policy'] = decision
                     if full_load:
                         video_policy = decision['video_policy']
                         measured_audio = video_policy['measuredAudioPressure']
                         snapshot['native_audio_pixel_feedback_supported'] = audio_pixels is not None
-                        if audio_pixels is not None:
+                        held_at = video_policy.get('growthHoldStartedAt')
+                        snapshot['growth_hold_started_at_ms'] = held_at
+                        snapshot['native_audio_growth_hold_rc'] = None
+                        if audio_growth_hold is not None and measured_audio is False and held_at is not None:
+                            snapshot['native_audio_growth_hold_rc'] = audio_growth_hold(engine, sampled_at_unix_ms, held_at)
+                        if snapshot['native_audio_growth_hold_rc'] is not None:
+                            snapshot['native_audio_pixel_feedback_rc'] = snapshot['native_audio_growth_hold_rc']
+                        if audio_pixels is not None and snapshot['native_audio_growth_hold_rc'] is None:
                             hint = -1 if measured_audio is None else int(measured_audio)
                             snapshot['native_audio_pixel_feedback_rc'] = audio_pixels(engine, hint)
                             if snapshot['native_audio_pixel_feedback_rc'] != 0:
                                 raise RuntimeError('Native audio pixel feedback refused')
                         if video_policy['sourcePressured'] is not None:
-                            snapshot['source_report_rc'] = fixture.checked(source_report, app,
-                                int(video_policy['sourcePressured']), sampled_at_unix_ms)
-                            if snapshot['source_report_rc'] != 0:
+                            snapshot['source_growth_hold_rc'] = None
+                            if source_growth_hold is not None and video_policy['sourcePressured'] is False and held_at is not None:
+                                snapshot['source_growth_hold_rc'] = fixture.checked(source_growth_hold, app, sampled_at_unix_ms, held_at)
+                            snapshot['source_report_rc'] = snapshot['source_growth_hold_rc']
+                            if snapshot['source_report_rc'] is None or snapshot['source_report_rc'] == 1:
+                                snapshot['source_report_rc'] = fixture.checked(source_report, app,
+                                    int(video_policy['sourcePressured']), sampled_at_unix_ms)
+                            if snapshot['source_report_rc'] == 0:
+                                source_feedback_queued += 1
+                            elif snapshot['source_report_rc'] in (1, 2):
+                                source_feedback_skipped += 1
+                            else:
                                 raise RuntimeError('Local source-pressure report refused')
-                            source_feedback_queued += 1
                         snapshot['source_feedback_queued'] = source_feedback_queued
+                        snapshot['source_feedback_skipped'] = source_feedback_skipped
                         preparing = use_video and not video_started and snapshot['t'] >= 20
                         if files and files.thread is None and snapshot['t'] >= 20:
                             files.start()
