@@ -1202,13 +1202,12 @@ class CallBitrateAdapter {
     // a growing/capped buffer or fresh media loss can reduce video.
     // Video-only and legacy calls retain their transport-based ladder.
     final bad = (usePlayout ? bufferPressure : networkBad) || videoStepLoss;
-    final audioWithinRecoveryLimits =
+    final audioHealthyApartFromRtt =
         targetsRecovered &&
         feedbackAvailable &&
         rttMs > 0 &&
         txLossPct <= 1 &&
         jitterGood &&
-        rttGood &&
         !freshAudioLoss &&
         !bufferPressure &&
         !missingAudioReceiverFeedback &&
@@ -1219,6 +1218,7 @@ class CallBitrateAdapter {
         (!requireAudioReceivePlayout ||
             (audioReceiveDelayMs != null &&
                 audioReceiveDelayMs < playoutRecoverMs));
+    final audioWithinRecoveryLimits = audioHealthyApartFromRtt && rttGood;
     final bufferGrowing =
         _receiveBuffer.growing == true || _peerBuffer.growing == true;
     final recoveredAudio = audioWithinRecoveryLimits && !bufferGrowing;
@@ -1226,15 +1226,35 @@ class CallBitrateAdapter {
     // An unconfirmed rise and a completed isolated impairment pause growth
     // without erasing earned healthy credit or restarting the applied ramp.
     // The current sample earns no credit. Confirmed pressure, real loss and
-    // unknown/marginal measurements still reset recovery normally.
-    _growthSampleTransient =
-        audioWithinRecoveryLimits &&
-        (transientGrowthHeld || bufferGrowing) &&
+    // unproven audio still reset recovery normally.
+    // A measured healthy audio path may hold between the RTT recovery and
+    // degradation rails. It earns no growth while RTT is marginal, but does
+    // not prove an audio failure that needs another twelve healthy samples.
+    // Every expected audio direction must have measured playout; legacy,
+    // unknown, congested and idle producers retain the ordinary reset.
+    final rttGrowthHold =
+        audioHealthyApartFromRtt &&
+        !rttGood &&
+        !rttBad &&
+        usePlayout &&
+        (!sendAudioExpected || requirePeerAudioPlayout) &&
+        (!receiveAudioExpected || requireAudioReceivePlayout) &&
+        !bufferGrowing &&
         !newDrops &&
         !freshMediaLoss &&
-        videoSendExpected;
+        !sourceBudgetPressured &&
+        videoSendExpected &&
+        measuredVideoProgress;
+    _growthSampleTransient =
+        rttGrowthHold ||
+        (audioWithinRecoveryLimits &&
+            (transientGrowthHeld || bufferGrowing) &&
+            !newDrops &&
+            !freshMediaLoss &&
+            videoSendExpected);
     _bufferInputs?.addAll({
       'buffer_growth_pending': bufferGrowing && !bufferPressure,
+      'rtt_growth_hold': rttGrowthHold,
       'audio_within_recovery_limits': audioWithinRecoveryLimits,
       'video_recovery_eligible': videoSendExpected,
       'audio_receive_age_ms': audioReceiveAgeMs,

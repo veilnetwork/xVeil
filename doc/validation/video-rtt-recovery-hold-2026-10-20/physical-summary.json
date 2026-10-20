@@ -1,0 +1,416 @@
+{
+  "qa_build": 12628,
+  "source_adapter_sha256": "2d0a79d415b121bd1c35ce0d3d08d8c361b280db22fabeceead5097a8b0f9e2e",
+  "source_matches_qa_export": true,
+  "sdk": "70a99c1f",
+  "duration_seconds": 149.81693041702965,
+  "ring_seconds": 0.24077433301135898,
+  "pcm": {
+    "scope": "synthetic ADM, real codec/network, decoded PCM; not hardware acoustics",
+    "duration_seconds": 150.0,
+    "paths": {
+      "mac_to_phone": {
+        "phases": [
+          {
+            "phase": "audio_only",
+            "from_seconds": 5,
+            "until_seconds": 30,
+            "matched": 25,
+            "unmatched": 0,
+            "first_unmatched_ordinals": [],
+            "median_ms": 70.4230897827074,
+            "p95_ms": 121.57104746438563,
+            "max_ms": 131.0873389011249,
+            "max_clock_interval_ms": [
+              119.3576852674596,
+              137.39463785896078
+            ]
+          },
+          {
+            "phase": "audio_video",
+            "from_seconds": 30,
+            "until_seconds": 45,
+            "matched": 15,
+            "unmatched": 0,
+            "first_unmatched_ordinals": [],
+            "median_ms": 50.24379660608247,
+            "p95_ms": 50.951343786437064,
+            "max_ms": 50.951343786437064,
+            "max_clock_interval_ms": [
+              39.22169015277177,
+              57.25864274427295
+            ]
+          },
+          {
+            "phase": "p2p_video_files",
+            "from_seconds": 45,
+            "until_seconds": 150,
+            "matched": 105,
+            "unmatched": 0,
+            "first_unmatched_ordinals": [],
+            "median_ms": 59.92885318119079,
+            "p95_ms": 70.00717736082152,
+            "max_ms": 90.74904263252392,
+            "max_clock_interval_ms": [
+              79.01938899885863,
+              97.0563415903598
+            ]
+          }
+        ],
+        "source_edges": 155,
+        "decoded_edges": 155,
+        "matching": "ordinal_from_actual_capture_start",
+        "pcm_block_ms": 10,
+        "rms_threshold": 500
+      },
+      "phone_to_mac": {
+        "phases": [
+          {
+            "phase": "audio_only",
+            "from_seconds": 5,
+            "until_seconds": 30,
+            "matched": 25,
+            "unmatched": 0,
+            "first_unmatched_ordinals": [],
+            "median_ms": 90.44649329734966,
+            "p95_ms": 150.9726227959618,
+            "max_ms": 151.00036963121966,
+            "max_clock_interval_ms": [
+              144.69307084800676,
+              162.73002309026197
+            ]
+          },
+          {
+            "phase": "audio_video",
+            "from_seconds": 30,
+            "until_seconds": 45,
+            "matched": 15,
+            "unmatched": 0,
+            "first_unmatched_ordinals": [],
+            "median_ms": 80.50538395764306,
+            "p95_ms": 81.03260112693533,
+            "max_ms": 81.03260112693533,
+            "max_clock_interval_ms": [
+              74.72530234372243,
+              92.76225458597764
+            ]
+          },
+          {
+            "phase": "p2p_video_files",
+            "from_seconds": 45,
+            "until_seconds": 150,
+            "matched": 105,
+            "unmatched": 0,
+            "first_unmatched_ordinals": [],
+            "median_ms": 80.93772019492462,
+            "p95_ms": 99.94713420746848,
+            "max_ms": 101.01340961409733,
+            "max_clock_interval_ms": [
+              94.70611083088443,
+              112.74306307313964
+            ]
+          }
+        ],
+        "source_edges": 155,
+        "decoded_edges": 155,
+        "matching": "ordinal_from_actual_capture_start",
+        "pcm_block_ms": 10,
+        "rms_threshold": 500
+      }
+    },
+    "driver_stats": {
+      "mac": {
+        "ticks": 15421,
+        "dropped_rows": 0,
+        "failures": [
+          0,
+          0
+        ],
+        "max_interval_ms": 11.051125009544194,
+        "max_wake_lateness_ms": 1.192084,
+        "max_callback_ms": 0.8728333050385118,
+        "max_publication_ms": 0.007833295967429876,
+        "qos_supported": 1,
+        "qos_requested": 33,
+        "qos_result": 0,
+        "qos_actual": 33,
+        "timer_error": 0
+      },
+      "phone": {
+        "ticks": 15457,
+        "dropped_rows": 0,
+        "failures": [
+          0,
+          0
+        ],
+        "max_interval_ms": 14.905077405273914,
+        "max_wake_lateness_ms": 4.729925,
+        "max_callback_ms": 6.8490770645439625,
+        "max_publication_ms": 0.3520003519952297,
+        "qos_supported": 0,
+        "qos_requested": 0,
+        "qos_result": 0,
+        "qos_actual": 0,
+        "timer_error": 0
+      }
+    },
+    "observed_clock_offset_envelopes": {
+      "mac": {
+        "initial_mid": -0.000146583653986454,
+        "low": -0.00045029231114313006,
+        "high": 0.00015712500317022204,
+        "count": 6
+      },
+      "phone": {
+        "initial_mid": -3598663.9734588284,
+        "low": -3598663.9848847734,
+        "high": -3598663.967455238,
+        "count": 6
+      }
+    },
+    "clock_limit": "Envelope across measured brackets; unsampled clock drift is not proven bounded",
+    "overall_quality_verdict": null
+  },
+  "video_intervals": {
+    "mac": [
+      {
+        "range": [
+          31.058733834011946,
+          44.88536125002429
+        ],
+        "tx_fps": 1.8081054220820325,
+        "rx_fps": 3.833183494813909,
+        "adaptLevel_start": 4,
+        "adaptLevel_end": 3
+      },
+      {
+        "range": [
+          44.88536125002429,
+          74.34501112502767
+        ],
+        "tx_fps": 8.350404741528578,
+        "rx_fps": 8.316460006806917,
+        "adaptLevel_start": 3,
+        "adaptLevel_end": 2
+      },
+      {
+        "range": [
+          74.34501112502767,
+          90.9050584170036
+        ],
+        "tx_fps": 19.806706721117294,
+        "rx_fps": 19.4443889152432,
+        "adaptLevel_start": 2,
+        "adaptLevel_end": 1
+      },
+      {
+        "range": [
+          90.9050584170036,
+          120.23681475000922
+        ],
+        "tx_fps": 29.592500024394425,
+        "rx_fps": 29.18338712083137,
+        "adaptLevel_start": 1,
+        "adaptLevel_end": 0
+      },
+      {
+        "range": [
+          120.23681475000922,
+          149.81693041702965
+        ],
+        "tx_fps": 29.715908142307153,
+        "rx_fps": 29.310230215449717,
+        "adaptLevel_start": 0,
+        "adaptLevel_end": 0
+      }
+    ],
+    "phone": [
+      {
+        "range": [
+          31.058733834011946,
+          44.88536125002429
+        ],
+        "tx_fps": 3.833183494813909,
+        "rx_fps": 1.8081054220820325,
+        "adaptLevel_start": 4,
+        "adaptLevel_end": 3
+      },
+      {
+        "range": [
+          44.88536125002429,
+          74.34501112502767
+        ],
+        "tx_fps": 8.316460006806917,
+        "rx_fps": 8.350404741528578,
+        "adaptLevel_start": 3,
+        "adaptLevel_end": 2
+      },
+      {
+        "range": [
+          74.34501112502767,
+          90.9050584170036
+        ],
+        "tx_fps": 19.504775216222214,
+        "rx_fps": 19.806706721117294,
+        "adaptLevel_start": 2,
+        "adaptLevel_end": 1
+      },
+      {
+        "range": [
+          90.9050584170036,
+          120.23681475000922
+        ],
+        "tx_fps": 29.149294378867783,
+        "rx_fps": 29.592500024394425,
+        "adaptLevel_start": 1,
+        "adaptLevel_end": 0
+      },
+      {
+        "range": [
+          120.23681475000922,
+          149.81693041702965
+        ],
+        "tx_fps": 29.310230215449717,
+        "rx_fps": 29.715908142307153,
+        "adaptLevel_start": 0,
+        "adaptLevel_end": 0
+      }
+    ]
+  },
+  "nominal_transitions": {
+    "mac": [
+      {
+        "t": 31.058733834011946,
+        "old": null,
+        "level": 4
+      },
+      {
+        "t": 38.60125704202801,
+        "old": 4,
+        "level": 3
+      },
+      {
+        "t": 63.98378541698912,
+        "old": 3,
+        "level": 2
+      },
+      {
+        "t": 78.50119899999117,
+        "old": 2,
+        "level": 1
+      },
+      {
+        "t": 99.44670800003223,
+        "old": 1,
+        "level": 0
+      }
+    ],
+    "phone": [
+      {
+        "t": 31.058733834011946,
+        "old": null,
+        "level": 4
+      },
+      {
+        "t": 36.54937983403215,
+        "old": 4,
+        "level": 3
+      },
+      {
+        "t": 63.98378541698912,
+        "old": 3,
+        "level": 2
+      },
+      {
+        "t": 78.50119899999117,
+        "old": 2,
+        "level": 1
+      },
+      {
+        "t": 99.44670800003223,
+        "old": 1,
+        "level": 0
+      }
+    ]
+  },
+  "policy": {
+    "mac": {
+      "unique_observations": 119,
+      "rtt_hold_field_present": 119,
+      "rtt_hold_true": 0,
+      "ramp_recovery_needed": 0
+    },
+    "phone": {
+      "unique_observations": 119,
+      "rtt_hold_field_present": 119,
+      "rtt_hold_true": 0,
+      "ramp_recovery_needed": 0
+    }
+  },
+  "native_checks": {
+    "mac": {
+      "session_violations": 0,
+      "peer_bans": 0,
+      "closed_streams": 0
+    },
+    "phone": {
+      "session_violations": 0,
+      "peer_bans": 0,
+      "closed_streams": 2
+    }
+  },
+  "cleanup": {
+    "mac_pid_absent": true,
+    "launcher_pid_absent": true,
+    "logcat_pid_absent": true,
+    "phone_all_processes_absent": true,
+    "owned_forward_absent": true,
+    "ordinary_phone_apk_sha256_matches": true
+  },
+  "mac_exit_code": -9,
+  "phone_build_restored": true,
+  "activity_counts": {
+    "idle": {
+      "mac_assertions": 0,
+      "phone_wifi_locks": 0
+    },
+    "active": {
+      "mac_assertions": 1,
+      "phone_wifi_locks": 2
+    },
+    "released": {
+      "mac_assertions": 0,
+      "phone_wifi_locks": 0
+    }
+  },
+  "file_requests": {
+    "p2p-mac": {
+      "sender": "mac",
+      "receiver": "phone",
+      "error_type": "RemoteDisconnected"
+    },
+    "p2p-phone": {
+      "sender": "phone",
+      "receiver": "mac",
+      "error_type": "RemoteDisconnected"
+    }
+  },
+  "final_frame_metrics": {
+    "mac": {
+      "video_frame_encoded_pixels": 230400,
+      "video_frame_pixel_cap": 0,
+      "video_texture_width": null,
+      "video_texture_height": null,
+      "video_tx_rtp_drops": 0,
+      "audio_tx_rtp_drops": 0
+    },
+    "phone": {
+      "video_frame_encoded_pixels": 20736,
+      "video_frame_pixel_cap": 0,
+      "video_texture_width": 640,
+      "video_texture_height": 360,
+      "video_tx_rtp_drops": 0,
+      "audio_tx_rtp_drops": 0
+    }
+  }
+}

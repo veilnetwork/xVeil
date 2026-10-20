@@ -1456,6 +1456,109 @@ void main() {
     },
   );
 
+  test('a marginal RTT hold preserves the measured pending video ramp', () {
+    final a = direct(level: 3);
+    var frames = 0, sequence = 0;
+    void tick(int rtt) => native(
+      a,
+      peerSequence: ++sequence,
+      stats: {...healthy(), 'rtt_ms': rtt, 'video_tx_frames': ++frames},
+    );
+    for (var second = 0; second < CallBitrateAdapter.recoverAfter; second++) {
+      tick(13);
+    }
+    expect(a.level, 2);
+    final before = a.acknowledgedTarget!;
+    expect(
+      before,
+      isNot(a.target),
+      reason: 'a measured native ramp is pending',
+    );
+    // Replay the observed 156 ms RTT against a 13 ms baseline. Both audio
+    // buffers remain at 60 ms, without loss or receive gaps.
+    for (var second = 0; second < 5; second++) {
+      tick(156);
+      expect(
+        a.acknowledgedTarget,
+        before,
+        reason: 'the RTT hold earns no growth',
+      );
+      expect(a.level, 2);
+    }
+    tick(13);
+    final resumed = a.acknowledgedTarget!;
+    expect(
+      resumed.maxBitrateKbps,
+      greaterThan(before.maxBitrateKbps),
+      reason: 'a cleared RTT hold needs no extra twelve-sample recovery',
+    );
+    expect(
+      resumed.maxBitrateKbps,
+      lessThanOrEqualTo((before.maxBitrateKbps * 1.1).floor()),
+    );
+    expect(resumed.maxFps, lessThanOrEqualTo(before.maxFps + 1));
+  });
+
+  for (final failure in [
+    'congested RTT',
+    'missing peer',
+    'audio buffer',
+    'source pressure',
+    'stalled worker',
+    'audio packet drop',
+  ]) {
+    test('RTT grace cannot bypass $failure', () {
+      final a = direct(level: 3);
+      var frames = 0, sequence = 0;
+      void tick({bool failing = false, bool marginal = false}) {
+        apply(a);
+        a.onNativeStats(
+          {
+            ...healthy(),
+            'rtt_ms': !failing
+                ? (marginal ? 156 : 13)
+                : failure == 'congested RTT'
+                ? 170
+                : 156,
+            'video_tx_frames': ++frames,
+            if (failing && failure == 'audio buffer') 'audio_delay_ms': 200,
+            if (failing && failure == 'stalled worker') 'worker_stalled': 1,
+            if (failing && failure == 'audio packet drop')
+              'audio_tx_rtp_drops': 1,
+          },
+          sampledAt: nextTime(a),
+          sourceBudgetPressured: failing && failure == 'source pressure',
+          receiveAudioExpected: true,
+          requireAudioReceivePlayout: true,
+          requirePeerAudioPlayout: true,
+          peerAudioDelayMs: failing && failure == 'missing peer' ? null : 60,
+          peerAudioSampleSequence: ++sequence,
+        );
+        apply(a);
+      }
+
+      for (var second = 0; second < CallBitrateAdapter.recoverAfter; second++) {
+        tick();
+      }
+      expect(a.level, 2);
+      final before = a.acknowledgedTarget!;
+      tick(failing: true);
+      expect(
+        (a.bufferDiagnostics['latest'] as Map)['rtt_growth_hold'],
+        isNot(true),
+      );
+      // Later healthy playout during an RTT hold cannot erase a recovery
+      // debt already established by this failure.
+      tick(marginal: true);
+      tick();
+      expect(
+        a.acknowledgedTarget!.maxBitrateKbps,
+        lessThanOrEqualTo(before.maxBitrateKbps),
+      );
+      expect(a.acknowledgedTarget!.maxFps, lessThanOrEqualTo(before.maxFps));
+    });
+  }
+
   test(
     'healthy startup quickly leaves one fps and recovers through bounded steps',
     () {
