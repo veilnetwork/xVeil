@@ -1770,6 +1770,130 @@ void main() {
     expect(a.level, 3);
   });
 
+  test(
+    'a relative RTT warning remeasures healthy startup without retiring it',
+    () {
+      final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 30);
+      var frames = 0, sequence = 0;
+      void tick(int rtt) => native(
+        a,
+        peerSequence: ++sequence,
+        stats: {...healthy(), 'rtt_ms': rtt, 'video_tx_frames': ++frames},
+      );
+      tick(16);
+      final floor = a.acknowledgedTarget;
+      tick(200);
+      expect(a.level, 4);
+      expect(
+        a.acknowledgedTarget,
+        floor,
+        reason: 'a warning earns no video growth',
+      );
+      // The warning must reset startup credit, then let a newly measured
+      // healthy period and a new peer report earn the bounded first step.
+      tick(16);
+      tick(16);
+      expect(a.level, 4);
+      tick(16);
+      expect(
+        a.level,
+        3,
+        reason: 'RTT alone cannot permanently retire measured healthy startup',
+      );
+    },
+  );
+
+  for (final failure in [
+    'absolute RTT',
+    'loss',
+    'buffer',
+    'missing peer',
+    'source pressure',
+    'legacy peer',
+  ]) {
+    test('a relative RTT warning cannot bypass $failure during startup', () {
+      final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 30);
+      var frames = 0, sequence = 0;
+      void tick({bool failing = false}) {
+        apply(a);
+        a.onNativeStats(
+          {
+            ...healthy(),
+            'rtt_ms': !failing
+                ? 16
+                : failure == 'absolute RTT'
+                ? 400
+                : 200,
+            'video_tx_frames': ++frames,
+            if (failing && failure == 'loss') 'tx_loss_pct': 8,
+            if (failing && failure == 'buffer') 'audio_delay_ms': 200,
+          },
+          sampledAt: nextTime(a),
+          sourceBudgetPressured: failing && failure == 'source pressure',
+          receiveAudioExpected: true,
+          requireAudioReceivePlayout: true,
+          requirePeerAudioPlayout: !(failing && failure == 'legacy peer'),
+          peerAudioDelayMs: failing && failure == 'missing peer' ? null : 60,
+          peerAudioSampleSequence: ++sequence,
+        );
+        apply(a);
+      }
+
+      tick();
+      tick(failing: true);
+      expect(
+        (a.bufferDiagnostics['latest'] as Map)['relative_rtt_warning'],
+        isNot(true),
+      );
+      for (var n = 0; n < CallBitrateAdapter.startupRecoverAfter; n++) {
+        tick();
+      }
+      expect(
+        a.level,
+        4,
+        reason: 'the RTT exception cannot restore fast startup after $failure',
+      );
+    });
+  }
+
+  test(
+    'a relative RTT warning still remeasures an already pending native ramp',
+    () {
+      final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 30);
+      var frames = 0, sequence = 0;
+      void tick(int rtt) => native(
+        a,
+        peerSequence: ++sequence,
+        stats: {...healthy(), 'rtt_ms': rtt, 'video_tx_frames': ++frames},
+      );
+      for (var n = 0; n < CallBitrateAdapter.startupRecoverAfter; n++) {
+        tick(16);
+      }
+      expect(a.level, 3);
+      final before = a.acknowledgedTarget!;
+      expect(before, isNot(a.target));
+      tick(200);
+      expect(a.acknowledgedTarget, before);
+      for (var n = 0; n < CallBitrateAdapter.recoverAfter - 1; n++) {
+        tick(16);
+        expect(
+          a.acknowledgedTarget,
+          before,
+          reason: 'a relative warning resets the pending-ramp credit',
+        );
+      }
+      tick(16);
+      expect(
+        a.acknowledgedTarget!.maxBitrateKbps,
+        greaterThan(before.maxBitrateKbps),
+      );
+      expect(
+        a.acknowledgedTarget!.maxFps,
+        lessThanOrEqualTo(before.maxFps + 1),
+      );
+    },
+  );
+
   test('measured startup congestion retains slow recovery afterward', () {
     final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 30);
     native(
