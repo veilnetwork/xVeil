@@ -1,0 +1,360 @@
+{
+  "qa_build": 12626,
+  "duration_seconds": 149.6592628750368,
+  "ring_seconds": 0.127595541998744,
+  "pcm": {
+    "scope": "synthetic ADM, real codec/network, decoded PCM; not hardware acoustics",
+    "duration_seconds": 150.0,
+    "paths": {
+      "mac_to_phone": {
+        "phases": [
+          {
+            "phase": "audio_only",
+            "from_seconds": 5,
+            "until_seconds": 30,
+            "matched": 25,
+            "unmatched": 0,
+            "first_unmatched_ordinals": [],
+            "median_ms": 70.94000116921961,
+            "p95_ms": 120.26145844720304,
+            "max_ms": 121.91986601101235,
+            "max_clock_interval_ms": [
+              113.71157804387622,
+              130.846062063938
+            ]
+          },
+          {
+            "phase": "audio_video",
+            "from_seconds": 30,
+            "until_seconds": 45,
+            "matched": 15,
+            "unmatched": 0,
+            "first_unmatched_ordinals": [],
+            "median_ms": 60.20339601673186,
+            "p95_ms": 70.33806637628004,
+            "max_ms": 70.33806637628004,
+            "max_clock_interval_ms": [
+              62.12977840914391,
+              79.2642624292057
+            ]
+          },
+          {
+            "phase": "p2p_video_files",
+            "from_seconds": 45,
+            "until_seconds": 150,
+            "matched": 105,
+            "unmatched": 0,
+            "first_unmatched_ordinals": [],
+            "median_ms": 70.05050790030509,
+            "p95_ms": 100.66018748329952,
+            "max_ms": 120.09815365308896,
+            "max_clock_interval_ms": [
+              111.88986568595283,
+              129.02434970601462
+            ]
+          }
+        ],
+        "source_edges": 154,
+        "decoded_edges": 154,
+        "matching": "ordinal_from_actual_capture_start",
+        "pcm_block_ms": 10,
+        "rms_threshold": 500
+      },
+      "phone_to_mac": {
+        "phases": [
+          {
+            "phase": "audio_only",
+            "from_seconds": 5,
+            "until_seconds": 30,
+            "matched": 25,
+            "unmatched": 0,
+            "first_unmatched_ordinals": [],
+            "median_ms": 90.94730956712738,
+            "p95_ms": 121.0566473309882,
+            "max_ms": 121.07551237568259,
+            "max_clock_interval_ms": [
+              112.14931635186076,
+              129.28380025550723
+            ]
+          },
+          {
+            "phase": "audio_video",
+            "from_seconds": 30,
+            "until_seconds": 45,
+            "matched": 15,
+            "unmatched": 0,
+            "first_unmatched_ordinals": [],
+            "median_ms": 70.75384666677564,
+            "p95_ms": 81.03725797263905,
+            "max_ms": 81.03725797263905,
+            "max_clock_interval_ms": [
+              72.11106194881722,
+              89.24554585246369
+            ]
+          },
+          {
+            "phase": "p2p_video_files",
+            "from_seconds": 45,
+            "until_seconds": 150,
+            "matched": 105,
+            "unmatched": 0,
+            "first_unmatched_ordinals": [],
+            "median_ms": 69.91162593476474,
+            "p95_ms": 100.94254731666297,
+            "max_ms": 140.95995528623462,
+            "max_clock_interval_ms": [
+              132.0337592624128,
+              149.16824316605926
+            ]
+          }
+        ],
+        "source_edges": 155,
+        "decoded_edges": 154,
+        "matching": "ordinal_from_actual_capture_start",
+        "pcm_block_ms": 10,
+        "rms_threshold": 500
+      }
+    },
+    "driver_stats": {
+      "mac": {
+        "ticks": 15395,
+        "dropped_rows": 0,
+        "failures": [
+          0,
+          0
+        ],
+        "max_interval_ms": 11.059166688937694,
+        "max_wake_lateness_ms": 1.566313,
+        "max_callback_ms": 0.8983333827927709,
+        "max_publication_ms": 1.452875032555312,
+        "qos_supported": 1,
+        "qos_requested": 33,
+        "qos_result": 0,
+        "qos_actual": 33,
+        "timer_error": 0
+      },
+      "phone": {
+        "ticks": 15433,
+        "dropped_rows": 0,
+        "failures": [
+          0,
+          0
+        ],
+        "max_interval_ms": 19.19161481782794,
+        "max_wake_lateness_ms": 9.576523,
+        "max_callback_ms": 6.7855375818908215,
+        "max_publication_ms": 0.6793844513595104,
+        "qos_supported": 0,
+        "qos_requested": 0,
+        "qos_result": 0,
+        "qos_actual": 0,
+        "timer_error": 0
+      }
+    },
+    "observed_clock_offset_envelopes": {
+      "mac": {
+        "initial_mid": -9.427082841284573e-05,
+        "low": -0.00048070825869217515,
+        "high": 0.000197707733605057,
+        "count": 6
+      },
+      "phone": {
+        "initial_mid": -3598663.9696543496,
+        "low": -3598663.977570659,
+        "high": -3598663.961114591,
+        "count": 6
+      }
+    },
+    "clock_limit": "Envelope across measured brackets; unsampled clock drift is not proven bounded",
+    "overall_quality_verdict": null
+  },
+  "video_intervals": {
+    "mac": [
+      {
+        "range": [
+          30.774703708011657,
+          45.201297708030324
+        ],
+        "tx_fps": 0.6931643047546122,
+        "rx_fps": 0.901113596180996,
+        "adaptLevel_start": 4,
+        "adaptLevel_end": 4,
+        "audio_pressure_start": false,
+        "audio_pressure_end": false
+      },
+      {
+        "range": [
+          45.201297708030324,
+          74.37452129099984
+        ],
+        "tx_fps": 3.8048589208632606,
+        "rx_fps": 4.936033194633419,
+        "adaptLevel_start": 4,
+        "adaptLevel_end": 3,
+        "audio_pressure_start": false,
+        "audio_pressure_end": false
+      },
+      {
+        "range": [
+          74.37452129099984,
+          90.94113666604972
+        ],
+        "tx_fps": 5.915511272603862,
+        "rx_fps": 6.881309031396329,
+        "adaptLevel_start": 3,
+        "adaptLevel_end": 2,
+        "audio_pressure_start": false,
+        "audio_pressure_end": false
+      },
+      {
+        "range": [
+          90.94113666604972,
+          120.45318241603673
+        ],
+        "tx_fps": 14.705859555676211,
+        "rx_fps": 16.70504322799164,
+        "adaptLevel_start": 2,
+        "adaptLevel_end": 1,
+        "audio_pressure_start": false,
+        "audio_pressure_end": false
+      },
+      {
+        "range": [
+          120.45318241603673,
+          149.6592628750368
+        ],
+        "tx_fps": 28.521458097377277,
+        "rx_fps": 29.03504977980304,
+        "adaptLevel_start": 1,
+        "adaptLevel_end": 0,
+        "audio_pressure_start": false,
+        "audio_pressure_end": false
+      }
+    ],
+    "phone": [
+      {
+        "range": [
+          30.774703708011657,
+          45.201297708030324
+        ],
+        "tx_fps": 0.901113596180996,
+        "rx_fps": 0.6931643047546122,
+        "adaptLevel_start": 4,
+        "adaptLevel_end": 4,
+        "audio_pressure_start": false,
+        "audio_pressure_end": false
+      },
+      {
+        "range": [
+          45.201297708030324,
+          74.37452129099984
+        ],
+        "tx_fps": 4.9703112029294845,
+        "rx_fps": 3.8048589208632606,
+        "adaptLevel_start": 4,
+        "adaptLevel_end": 3,
+        "audio_pressure_start": false,
+        "audio_pressure_end": false
+      },
+      {
+        "range": [
+          74.37452129099984,
+          90.94113666604972
+        ],
+        "tx_fps": 6.881309031396329,
+        "rx_fps": 5.915511272603862,
+        "adaptLevel_start": 3,
+        "adaptLevel_end": 2,
+        "audio_pressure_start": false,
+        "audio_pressure_end": false
+      },
+      {
+        "range": [
+          90.94113666604972,
+          120.45318241603673
+        ],
+        "tx_fps": 16.70504322799164,
+        "rx_fps": 14.739744024698506,
+        "adaptLevel_start": 2,
+        "adaptLevel_end": 1,
+        "audio_pressure_start": false,
+        "audio_pressure_end": false
+      },
+      {
+        "range": [
+          120.45318241603673,
+          149.6592628750368
+        ],
+        "tx_fps": 29.00081033430799,
+        "rx_fps": 28.487218651882227,
+        "adaptLevel_start": 1,
+        "adaptLevel_end": 0,
+        "audio_pressure_start": false,
+        "audio_pressure_end": false
+      }
+    ]
+  },
+  "native_checks": {
+    "mac": {
+      "session_violations": 0,
+      "peer_bans": 0,
+      "closed_streams": 0
+    },
+    "phone": {
+      "session_violations": 0,
+      "peer_bans": 0,
+      "closed_streams": 2
+    }
+  },
+  "cleanup": {
+    "mac_pid_absent": true,
+    "launcher_pid_absent": true,
+    "logcat_pid_absent": true,
+    "phone_all_processes_absent": true,
+    "owned_forward_absent": true,
+    "ordinary_phone_apk_sha256_matches": true
+  },
+  "mac_exit_code": -9,
+  "phone_build_restored": true,
+  "files": {
+    "p2p-mac": {
+      "sender": "mac",
+      "receiver": "phone",
+      "error_type": "RemoteDisconnected"
+    },
+    "p2p-phone": {
+      "sender": "phone",
+      "receiver": "mac",
+      "error_type": "RemoteDisconnected"
+    }
+  },
+  "activity": {
+    "idle": {
+      "mac_assertions": 0,
+      "phone_wifi_lines": [],
+      "call_flags": {
+        "mac": null,
+        "phone": null
+      }
+    },
+    "active": {
+      "mac_assertions": 1,
+      "phone_wifi_lines": [
+        "WifiLock{network.veil.xveil:call-low-latency type=4 uid=1000 workSource=WorkSource{10384}}",
+        "WifiLock{network.veil.xveil:call-screen-off type=3 uid=1000 workSource=WorkSource{10384}}"
+      ],
+      "call_flags": {
+        "mac": true,
+        "phone": true
+      }
+    },
+    "released": {
+      "mac_assertions": 0,
+      "phone_wifi_lines": [],
+      "call_flags": {
+        "mac": null,
+        "phone": null
+      }
+    }
+  }
+}

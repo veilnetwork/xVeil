@@ -3,6 +3,8 @@ import FlutterMacOS
 import AVFoundation
 
 class MainFlutterWindow: NSWindow {
+  private let callActivity = CallActivity()
+
   override func awakeFromNib() {
     // Forward the command line to the Dart entrypoint. The Linux and Windows
     // runners do this for free; macOS drops argv unless it is handed to the
@@ -47,6 +49,22 @@ class MainFlutterWindow: NSWindow {
         @unknown default:
           result(false)
         }
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+
+    let networkChannel = FlutterMethodChannel(
+      name: "xveil/call_network",
+      binaryMessenger: flutterViewController.engine.binaryMessenger)
+    networkChannel.setMethodCallHandler { [weak self] call, result in
+      guard let self = self else { result(false); return }
+      switch call.method {
+      case "setActive":
+        let active = (call.arguments as? [String: Any])?["active"] as? Bool ?? false
+        result(self.callActivity.setActive(active))
+      case "isActive":
+        result(self.callActivity.isActive)
       default:
         result(FlutterMethodNotImplemented)
       }

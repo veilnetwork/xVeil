@@ -11,6 +11,7 @@ import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/domain/group_call.dart';
 import 'package:xveil/state/veil_group_call_media.dart';
 import 'package:xveil/state/call_audio_buffer_window.dart';
+import 'package:xveil/state/call_network_activity.dart';
 
 NodeId _id(int byte) => NodeId(Uint8List.fromList(List.filled(32, byte)));
 
@@ -72,6 +73,7 @@ void main() {
         final transport = _FakeTransport(self);
         final engine = _FakeEngine(supportsAudioBudget: true);
         final controller = VeilGroupCallMediaController(
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
           transport,
           roomMediaSecret: _room(),
           engineFactory: (_) => engine,
@@ -168,6 +170,7 @@ void main() {
             'video_send_paused': 0,
           };
         final controller = VeilGroupCallMediaController(
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
           _FakeTransport(self),
           roomMediaSecret: _room(),
           engineFactory: (_) => engine,
@@ -256,6 +259,7 @@ void main() {
             },
           };
         final controller = VeilGroupCallMediaController(
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
           transport,
           roomMediaSecret: _room(),
           engineFactory: (_) => engine,
@@ -292,6 +296,7 @@ void main() {
         final self = _id(1), peer = _id(2);
         final engine = _FakeEngine()..acceptColdTarget = cold;
         final controller = VeilGroupCallMediaController(
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
           now: test_clock.clock.now,
           _FakeTransport(self),
           roomMediaSecret: _room(),
@@ -328,6 +333,7 @@ void main() {
             'audio_latency_recovery_count': 0,
           };
         final controller = VeilGroupCallMediaController(
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
           _FakeTransport(self),
           roomMediaSecret: _room(),
           engineFactory: (_) => engine,
@@ -385,11 +391,19 @@ void main() {
   test(
     'failed initial audio budget closes channels before capture starts',
     () async {
+      final networkCalls = <bool>[];
+      final network = CallNetworkActivity(
+        setActive: (active) async {
+          networkCalls.add(active);
+          return active;
+        },
+      );
       final self = _id(1), peer = _id(2);
       final transport = _FakeTransport(self);
       final engine = _FakeEngine(supportsAudioBudget: true)
         ..acceptAudioBudget = false;
       final controller = VeilGroupCallMediaController(
+        networkActivity: network,
         now: test_clock.clock.now,
         transport,
         roomMediaSecret: _room(),
@@ -400,7 +414,45 @@ void main() {
       expect(engine.started, 0);
       expect(transport.closed, isNotEmpty);
       expect(controller.debugNativeStats, isEmpty);
+      expect(networkCalls, [true, false]);
       await controller.stop();
+      expect(networkCalls, [true, false]);
+    },
+  );
+
+  test(
+    'group activity follows successful media and releases on start exceptions',
+    () async {
+      for (final fail in [false, true]) {
+        final calls = <bool>[];
+        final network = CallNetworkActivity(
+          setActive: (active) async {
+            calls.add(active);
+            return active;
+          },
+        );
+        final self = _id(1), peer = _id(2);
+        final engine = _FakeEngine()..throwOnAudioStart = fail;
+        final controller = VeilGroupCallMediaController(
+          _FakeTransport(self),
+          networkActivity: network,
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          requestMicrophone: () async => true,
+        );
+        if (fail) {
+          await expectLater(
+            controller.start(_call(self, [peer])),
+            throwsStateError,
+          );
+          expect(calls, [true, false]);
+        } else {
+          expect(await controller.start(_call(self, [peer])), isTrue);
+          expect(calls, [true]);
+        }
+        await controller.stop();
+        expect(calls, [true, false]);
+      }
     },
   );
 
@@ -419,6 +471,7 @@ void main() {
         };
         engine.stats = sample(0);
         final controller = VeilGroupCallMediaController(
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
           transport,
           roomMediaSecret: _room(),
           engineFactory: (_) => engine,
@@ -476,6 +529,7 @@ void main() {
       };
       engine.stats = report(1, 100);
       final controller = VeilGroupCallMediaController(
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
         _FakeTransport(self),
         roomMediaSecret: _room(),
         engineFactory: (_) => engine,
@@ -510,6 +564,7 @@ void main() {
       final transport = _FakeTransport(self);
       final engine = _FakeEngine()..stats = _sourceStats([peer]);
       final controller = VeilGroupCallMediaController(
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
         transport,
         roomMediaSecret: _room(),
         engineFactory: (_) => engine,
@@ -558,6 +613,7 @@ void main() {
               'audio_playout_reports': count,
             };
           final controller = VeilGroupCallMediaController(
+            networkActivity: CallNetworkActivity(setActive: (_) async => false),
             transport,
             roomMediaSecret: _room(),
             engineFactory: (_) => engine,
@@ -592,6 +648,7 @@ void main() {
         final transport = _FakeTransport(self);
         final engine = _FakeEngine()..stats = _sourceStats([alice]);
         final controller = VeilGroupCallMediaController(
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
           transport,
           roomMediaSecret: _room(),
           engineFactory: (_) => engine,
@@ -641,6 +698,7 @@ void main() {
             },
           };
         final controller = VeilGroupCallMediaController(
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
           transport,
           roomMediaSecret: _room(),
           engineFactory: (_) => engine,
@@ -687,6 +745,7 @@ void main() {
           'video_feedback_jitter_ms': 10,
         };
       final controller = VeilGroupCallMediaController(
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
         transport,
         roomMediaSecret: _room(),
         engineFactory: (_) => engine,
@@ -745,6 +804,7 @@ void main() {
           };
         final origin = DateTime(2026, 10, 20);
         final controller = VeilGroupCallMediaController(
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
           transport,
           roomMediaSecret: _room(),
           engineFactory: (_) => engine,
@@ -802,6 +862,7 @@ void main() {
         final engine = _FakeEngine()..stats = _sourceStats([peer]);
         final origin = DateTime(2026, 10, 15);
         final controller = VeilGroupCallMediaController(
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
           transport,
           roomMediaSecret: _room(),
           engineFactory: (_) => engine,
@@ -859,6 +920,7 @@ void main() {
             ..rejectPressure = mode == 'reject';
           final engine = _FakeEngine()..stats = _sourceStats([peer]);
           final controller = VeilGroupCallMediaController(
+            networkActivity: CallNetworkActivity(setActive: (_) async => false),
             transport,
             roomMediaSecret: _room(),
             engineFactory: (_) => engine,
@@ -894,6 +956,7 @@ void main() {
         final engine = _FakeEngine();
         final origin = DateTime(2026, 10, 15);
         final controller = VeilGroupCallMediaController(
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
           transport,
           roomMediaSecret: _room(),
           engineFactory: (_) => engine,
@@ -984,6 +1047,7 @@ void main() {
         final self = _id(1), alice = _id(2), bob = _id(3);
         final engine = _FakeEngine();
         final controller = VeilGroupCallMediaController(
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
           now: test_clock.clock.now,
           _FakeTransport(self),
           roomMediaSecret: _room(),
@@ -1064,6 +1128,7 @@ void main() {
             },
           };
         final controller = VeilGroupCallMediaController(
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
           now: test_clock.clock.now,
           _FakeTransport(self),
           roomMediaSecret: _room(),
@@ -1119,6 +1184,7 @@ void main() {
       final engine = _FakeEngine();
       Uint8List? nativeLocalId;
       final controller = VeilGroupCallMediaController(
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
         now: test_clock.clock.now,
         VeilGroupMediaChannelTransport(sdk),
         roomMediaSecret: _room(),
@@ -1161,6 +1227,7 @@ void main() {
       final transport = _FakeTransport(self);
       final engine = _FakeEngine();
       final controller = VeilGroupCallMediaController(
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
         now: test_clock.clock.now,
         transport,
         roomMediaSecret: _room(),
@@ -1191,6 +1258,7 @@ void main() {
         final peer = _id(2);
         final engine = _FakeEngine();
         final controller = VeilGroupCallMediaController(
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
           now: test_clock.clock.now,
           _FakeTransport(self),
           roomMediaSecret: _room(),
@@ -1252,6 +1320,7 @@ void main() {
         final self = _id(1), alice = _id(2), bob = _id(3);
         final engine = _FakeEngine();
         final controller = VeilGroupCallMediaController(
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
           now: test_clock.clock.now,
           _FakeTransport(self),
           roomMediaSecret: _room(),
@@ -1342,6 +1411,7 @@ void main() {
       final self = _id(1), alice = _id(2), bob = _id(3);
       final engine = _FakeEngine();
       final controller = VeilGroupCallMediaController(
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
         now: test_clock.clock.now,
         _FakeTransport(self),
         roomMediaSecret: _room(),
@@ -1427,6 +1497,7 @@ void main() {
         final self = _id(1), alice = _id(2), bob = _id(3);
         final engine = _FakeEngine();
         final controller = VeilGroupCallMediaController(
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
           now: test_clock.clock.now,
           _FakeTransport(self),
           roomMediaSecret: _room(),
@@ -1499,6 +1570,7 @@ void main() {
       final self = _id(1);
       final engine = _FakeEngine();
       final controller = VeilGroupCallMediaController(
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
         now: test_clock.clock.now,
         _FakeTransport(self),
         roomMediaSecret: _room(),
@@ -1539,6 +1611,7 @@ void main() {
         final self = _id(1);
         final engine = _FakeEngine(supportsVideoSendPause: false);
         final controller = VeilGroupCallMediaController(
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
           now: test_clock.clock.now,
           _FakeTransport(self),
           roomMediaSecret: _room(),
@@ -1563,6 +1636,7 @@ void main() {
       final self = _id(1);
       final engine = _FakeEngine(supportsLowRateVideo: false);
       final controller = VeilGroupCallMediaController(
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
         now: test_clock.clock.now,
         _FakeTransport(self),
         roomMediaSecret: _room(),
@@ -1585,6 +1659,7 @@ void main() {
       final self = _id(1);
       final engine = _FakeEngine();
       final controller = VeilGroupCallMediaController(
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
         now: test_clock.clock.now,
         _FakeTransport(self),
         roomMediaSecret: _room(),
@@ -1609,6 +1684,7 @@ void main() {
       final self = _id(1);
       final engine = _FakeEngine();
       final controller = VeilGroupCallMediaController(
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
         now: test_clock.clock.now,
         _FakeTransport(self),
         roomMediaSecret: _room(),
@@ -1672,6 +1748,7 @@ void main() {
           },
         };
       final controller = VeilGroupCallMediaController(
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
         now: test_clock.clock.now,
         _FakeTransport(self),
         roomMediaSecret: _room(),
@@ -1763,6 +1840,7 @@ void main() {
           },
         };
       final controller = VeilGroupCallMediaController(
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
         now: test_clock.clock.now,
         _FakeTransport(self),
         roomMediaSecret: _room(),
@@ -1796,6 +1874,7 @@ void main() {
       final engine = _FakeEngine()
         ..stats = {'audio_feedback_reports': 1, 'rtt_ms': 80};
       final controller = VeilGroupCallMediaController(
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
         now: test_clock.clock.now,
         _FakeTransport(self),
         roomMediaSecret: _room(),
@@ -1836,6 +1915,7 @@ void main() {
           'audio_playout_ms': -1,
         };
       final controller = VeilGroupCallMediaController(
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
         now: test_clock.clock.now,
         _FakeTransport(self),
         roomMediaSecret: _room(),
@@ -1906,6 +1986,7 @@ void main() {
       final self = _id(1);
       final engine = _FakeEngine();
       final controller = VeilGroupCallMediaController(
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
         now: test_clock.clock.now,
         _FakeTransport(self),
         roomMediaSecret: _room(),
@@ -1995,6 +2076,7 @@ void main() {
         final self = _id(1), alice = _id(2), bob = _id(3), carol = _id(4);
         final engine = _FakeEngine();
         final controller = VeilGroupCallMediaController(
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
           now: test_clock.clock.now,
           _FakeTransport(self),
           roomMediaSecret: _room(),
@@ -2088,6 +2170,7 @@ void main() {
         final engine = _FakeEngine();
         final permission = Completer<bool>();
         final controller = VeilGroupCallMediaController(
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
           now: test_clock.clock.now,
           _FakeTransport(self),
           roomMediaSecret: _room(),
@@ -2162,6 +2245,7 @@ void main() {
         final base = DateTime(2026, 10, 7);
         final engine = _FakeEngine();
         final controller = VeilGroupCallMediaController(
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
           _FakeTransport(self),
           roomMediaSecret: _room(),
           engineFactory: (_) => engine,
@@ -2220,6 +2304,7 @@ void main() {
     final peer = _id(2);
     final engine = _FakeEngine();
     final controller = VeilGroupCallMediaController(
+      networkActivity: CallNetworkActivity(setActive: (_) async => false),
       _FakeTransport(self),
       roomMediaSecret: _room(),
       engineFactory: (_) => engine,
@@ -2247,6 +2332,7 @@ void main() {
         final engine = _FakeEngine();
         final base = DateTime(2026, 10, 5);
         final controller = VeilGroupCallMediaController(
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
           _FakeTransport(self),
           roomMediaSecret: _room(),
           engineFactory: (_) => engine,
@@ -2335,6 +2421,7 @@ void main() {
       final self = _id(1);
       final engine = _FakeEngine();
       final controller = VeilGroupCallMediaController(
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
         now: test_clock.clock.now,
         _FakeTransport(self),
         roomMediaSecret: _room(),
@@ -2361,6 +2448,7 @@ void main() {
     final peer = _id(2);
     final engine = _FakeEngine();
     final controller = VeilGroupCallMediaController(
+      networkActivity: CallNetworkActivity(setActive: (_) async => false),
       now: test_clock.clock.now,
       _FakeTransport(self),
       roomMediaSecret: _room(),
@@ -2384,6 +2472,7 @@ void main() {
     final transport = _FakeTransport(self);
     final engine = _FakeEngine();
     final controller = VeilGroupCallMediaController(
+      networkActivity: CallNetworkActivity(setActive: (_) async => false),
       now: test_clock.clock.now,
       transport,
       roomMediaSecret: _room(),
@@ -2409,6 +2498,7 @@ void main() {
       final transport = _FakeTransport(self);
       final engine = _FakeEngine();
       final controller = VeilGroupCallMediaController(
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
         now: test_clock.clock.now,
         transport,
         roomMediaSecret: _room(),
@@ -2443,6 +2533,7 @@ void main() {
           ..screenStarts = false
           ..throwOnScreenStart = throws;
         final controller = VeilGroupCallMediaController(
+          networkActivity: CallNetworkActivity(setActive: (_) async => false),
           now: test_clock.clock.now,
           transport,
           roomMediaSecret: _room(),
@@ -2522,6 +2613,7 @@ void main() {
       final bob = _id(3);
       final transport = _FakeTransport(self);
       final controller = VeilGroupCallMediaController(
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
         now: test_clock.clock.now,
         transport,
         roomMediaSecret: _room(),
@@ -2558,6 +2650,7 @@ void main() {
       final transport = _FakeTransport(self);
       final engine = _FakeEngine();
       final controller = VeilGroupCallMediaController(
+        networkActivity: CallNetworkActivity(setActive: (_) async => false),
         now: test_clock.clock.now,
         transport,
         roomMediaSecret: (_) async => null,
@@ -2788,8 +2881,11 @@ class _FakeEngine implements GroupAudioEngine {
   @override
   void setMicMuted(bool value) => muted = value;
 
+  bool throwOnAudioStart = false;
+
   @override
   bool startAudio() {
+    if (throwOnAudioStart) throw StateError('capture failed');
     audioStartMuted.add(muted);
     started++;
     return true;

@@ -1,0 +1,47 @@
+{
+  "phases": [
+    {
+      "phase": "before",
+      "owned_assertions": [],
+      "count": 0
+    },
+    {
+      "phase": "first",
+      "owned_assertions": [
+        "   pid 25842(activity-probe): [0x00053248000195c8] 00:00:00 PreventUserIdleSystemSleep named: \"xVeil active call\"  "
+      ],
+      "count": 1
+    },
+    {
+      "phase": "duplicate",
+      "owned_assertions": [
+        "   pid 25842(activity-probe): [0x00053248000195c8] 00:00:00 PreventUserIdleSystemSleep named: \"xVeil active call\"  "
+      ],
+      "count": 1
+    },
+    {
+      "phase": "released",
+      "owned_assertions": [],
+      "count": 0
+    },
+    {
+      "phase": "reacquired",
+      "owned_assertions": [
+        "   pid 25842(activity-probe): [0x00053248000195c9] 00:00:00 PreventUserIdleSystemSleep named: \"xVeil active call\"  "
+      ],
+      "count": 1
+    },
+    {
+      "phase": "deinitialized",
+      "owned_assertions": [],
+      "count": 0
+    }
+  ],
+  "initial": {
+    "state": "ready",
+    "pid": 25842,
+    "active": false
+  },
+  "exit": 0,
+  "process_absent": true
+}

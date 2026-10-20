@@ -1,0 +1,266 @@
+{
+  "baseline": "physical-call-pcm-close-final",
+  "method": "ciphertext digest+bytes; source37; sender47-53s; sampled native clock envelope",
+  "origins": {
+    "mac": 336693.1130339168,
+    "phone": 3935357.062788079
+  },
+  "wall_zero": {
+    "mac": 1792510778.6427765,
+    "phone": 1792510778.676573
+  },
+  "joined": [
+    {
+      "digest": "555cda194ca3e4a0",
+      "bytes": 300,
+      "phone_elapsed": 51.21542692184448,
+      "mac_receive_elapsed": 51.79722356796265,
+      "receive_delay_ms": 581.7966460017487,
+      "kernel_receive_delay_ms": 580.961465719156,
+      "kernel_receive_delay_interval_ms": [
+        572.90857002954,
+        590.5247412447352
+      ],
+      "kernel_to_userspace_ms": 0.8351802825927734
+    },
+    {
+      "digest": "3b5ba62243390730",
+      "bytes": 348,
+      "phone_elapsed": 50.436426877975464,
+      "mac_receive_elapsed": 50.81822347640991,
+      "receive_delay_ms": 381.7965983180329,
+      "kernel_receive_delay_ms": 382.1485041407868,
+      "kernel_receive_delay_interval_ms": [
+        374.09560845117085,
+        391.71177966636606
+      ],
+      "kernel_to_userspace_ms": -0.35190582275390625
+    },
+    {
+      "digest": "a18206fc39caf910",
+      "bytes": 341,
+      "phone_elapsed": 50.454427003860474,
+      "mac_receive_elapsed": 50.81822347640991,
+      "receive_delay_ms": 363.79647243302315,
+      "kernel_receive_delay_ms": 364.1824721125886,
+      "kernel_receive_delay_interval_ms": [
+        356.1295764229726,
+        373.7457476381678
+      ],
+      "kernel_to_userspace_ms": -0.3859996795654297
+    },
+    {
+      "digest": "5c43fb27f9419130",
+      "bytes": 305,
+      "phone_elapsed": 51.59642696380615,
+      "mac_receive_elapsed": 51.79722356796265,
+      "receive_delay_ms": 200.79660404007882,
+      "kernel_receive_delay_ms": 200.70838916581124,
+      "kernel_receive_delay_interval_ms": [
+        192.65549347619526,
+        210.27166469139047
+      ],
+      "kernel_to_userspace_ms": 0.08821487426757812
+    },
+    {
+      "digest": "493c6426361d62b0",
+      "bytes": 302,
+      "phone_elapsed": 51.634427070617676,
+      "mac_receive_elapsed": 51.79722356796265,
+      "receive_delay_ms": 162.79649722855538,
+      "kernel_receive_delay_ms": 162.82248485367745,
+      "kernel_receive_delay_interval_ms": [
+        154.76958916406147,
+        172.38576037925668
+      ],
+      "kernel_to_userspace_ms": -0.025987625122070312
+    },
+    {
+      "digest": "918d64402134d600",
+      "bytes": 304,
+      "phone_elapsed": 51.675426959991455,
+      "mac_receive_elapsed": 51.79722356796265,
+      "receive_delay_ms": 121.79660785477608,
+      "kernel_receive_delay_ms": 121.94561946671456,
+      "kernel_receive_delay_interval_ms": [
+        113.89272377709858,
+        131.5088949922938
+      ],
+      "kernel_to_userspace_ms": -0.14901161193847656
+    },
+    {
+      "digest": "056c825f8f89ee00",
+      "bytes": 299,
+      "phone_elapsed": 49.87442708015442,
+      "mac_receive_elapsed": 49.99022340774536,
+      "receive_delay_ms": 115.79632747452706,
+      "kernel_receive_delay_ms": 115.7863138942048,
+      "kernel_receive_delay_interval_ms": [
+        107.73341820458882,
+        125.34958941978402
+      ],
+      "kernel_to_userspace_ms": 0.010013580322265625
+    },
+    {
+      "digest": "49f0daa3d2f20420",
+      "bytes": 324,
+      "phone_elapsed": 51.05842685699463,
+      "mac_receive_elapsed": 51.16922354698181,
+      "receive_delay_ms": 110.7966898707673,
+      "kernel_receive_delay_ms": 110.75353610794991,
+      "kernel_receive_delay_interval_ms": [
+        102.70064041833393,
+        120.31681163352914
+      ],
+      "kernel_to_userspace_ms": 0.04315376281738281
+    },
+    {
+      "digest": "efe1c504856d4b90",
+      "bytes": 302,
+      "phone_elapsed": 49.99542689323425,
+      "mac_receive_elapsed": 50.10122346878052,
+      "receive_delay_ms": 105.79657542984933,
+      "kernel_receive_delay_ms": 105.92555988114327,
+      "kernel_receive_delay_interval_ms": [
+        97.87266419152729,
+        115.4888354067225
+      ],
+      "kernel_to_userspace_ms": -0.1289844512939453
+    },
+    {
+      "digest": "a18a36b698bae660",
+      "bytes": 304,
+      "phone_elapsed": 51.71442699432373,
+      "mac_receive_elapsed": 51.7982234954834,
+      "receive_delay_ms": 83.79650104325265,
+      "kernel_receive_delay_ms": 83.0576418666169,
+      "kernel_receive_delay_interval_ms": [
+        75.00474617700092,
+        92.62091739219613
+      ],
+      "kernel_to_userspace_ms": 0.7388591766357422
+    },
+    {
+      "digest": "26818ebdbb70ef20",
+      "bytes": 297,
+      "phone_elapsed": 49.71542692184448,
+      "mac_receive_elapsed": 49.75022339820862,
+      "receive_delay_ms": 34.79647624772042,
+      "kernel_receive_delay_ms": 35.33768642228097,
+      "kernel_receive_delay_interval_ms": [
+        27.284790732664987,
+        44.900961947860196
+      ],
+      "kernel_to_userspace_ms": -0.5412101745605469
+    },
+    {
+      "digest": "b5bb1fc239c91b50",
+      "bytes": 350,
+      "phone_elapsed": 48.57642698287964,
+      "mac_receive_elapsed": 48.59622359275818,
+      "receive_delay_ms": 19.796609762124717,
+      "kernel_receive_delay_ms": 20.636558416299522,
+      "kernel_receive_delay_interval_ms": [
+        12.583662726683542,
+        30.19983394187875
+      ],
+      "kernel_to_userspace_ms": -0.8399486541748047
+    },
+    {
+      "digest": "893a821198880ee0",
+      "bytes": 304,
+      "phone_elapsed": 51.87542700767517,
+      "mac_receive_elapsed": 51.88822340965271,
+      "receive_delay_ms": 12.79640186112374,
+      "kernel_receive_delay_ms": 13.073444250039756,
+      "kernel_receive_delay_interval_ms": [
+        5.0205485604237765,
+        22.636719775618985
+      ],
+      "kernel_to_userspace_ms": -0.2770423889160156
+    },
+    {
+      "digest": "cd7fd2fdbb66e650",
+      "bytes": 315,
+      "phone_elapsed": 47.8934268951416,
+      "mac_receive_elapsed": 47.90522360801697,
+      "receive_delay_ms": 11.796712758950889,
+      "kernel_receive_delay_ms": 12.329578283242881,
+      "kernel_receive_delay_interval_ms": [
+        4.2766825936269015,
+        21.89285380882211
+      ],
+      "kernel_to_userspace_ms": -0.5328655242919922
+    },
+    {
+      "digest": "de16b284b9a8bf60",
+      "bytes": 356,
+      "phone_elapsed": 52.175426959991455,
+      "mac_receive_elapsed": 52.18622350692749,
+      "receive_delay_ms": 10.796546819619834,
+      "kernel_receive_delay_ms": 11.120557668618858,
+      "kernel_receive_delay_interval_ms": [
+        3.067661979002878,
+        20.683833194198087
+      ],
+      "kernel_to_userspace_ms": -0.32401084899902344
+    },
+    {
+      "digest": "511b43dcce8623d0",
+      "bytes": 353,
+      "phone_elapsed": 52.234426975250244,
+      "mac_receive_elapsed": 52.24522352218628,
+      "receive_delay_ms": 10.796546819619834,
+      "kernel_receive_delay_ms": 10.508537176065147,
+      "kernel_receive_delay_interval_ms": [
+        2.455641486449167,
+        20.071812701644376
+      ],
+      "kernel_to_userspace_ms": 0.2880096435546875
+    },
+    {
+      "digest": "285cbc7629054970",
+      "bytes": 351,
+      "phone_elapsed": 52.294426918029785,
+      "mac_receive_elapsed": 52.30522346496582,
+      "receive_delay_ms": 10.796546819619834,
+      "kernel_receive_delay_ms": 11.181592824868858,
+      "kernel_receive_delay_interval_ms": [
+        3.128697135252878,
+        20.744868350448087
+      ],
+      "kernel_to_userspace_ms": -0.38504600524902344
+    },
+    {
+      "digest": "b353bcfbabdc2860",
+      "bytes": 334,
+      "phone_elapsed": 52.634427070617676,
+      "mac_receive_elapsed": 52.64522361755371,
+      "receive_delay_ms": 10.796546819619834,
+      "kernel_receive_delay_ms": 11.754274251870811,
+      "kernel_receive_delay_interval_ms": [
+        3.701378562254831,
+        21.31754977745004
+      ],
+      "kernel_to_userspace_ms": -0.9577274322509766
+    },
+    {
+      "digest": "d5d255a5bece00f0",
+      "bytes": 350,
+      "phone_elapsed": 48.354426860809326,
+      "mac_receive_elapsed": 48.36322355270386,
+      "receive_delay_ms": 8.796691778115928,
+      "kernel_receive_delay_ms": 9.381770971231163,
+      "kernel_receive_delay_interval_ms": [
+        1.3288752816151828,
+        18.94504649681039
+      ],
+      "kernel_to_userspace_ms": -0.5850791931152344
+    }
+  ],
+  "limitations": [
+    "UDP send log does not prove NIC departure",
+    "Sampled clock envelope does not bound unsampled drift",
+    "Not an acoustic measurement or identification of power-management cause"
+  ]
+}
