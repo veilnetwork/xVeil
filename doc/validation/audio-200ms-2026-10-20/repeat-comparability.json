@@ -1,0 +1,19 @@
+{
+  "same_media_sha256": "c6ebea250cadacc9ecf8b502aeb6d5c2527d9ccbf5d1645cdef87d58fba2485c",
+  "same_sdk_sha256": "a9b833a7c28221d50587806cead46bfc7da14d37196c4564bc678d6dbdbf13dd",
+  "only_fixture_difference": "Post-capture final native statistics snapshot; all timed source code identical",
+  "sdk_rust_source_equivalent_to_9eef87b9": true,
+  "committed_sdk_changes_since_9eef87b9": [
+    "flutter/veil_media/src/veil_frame_sizing_vp8.h",
+    "flutter/veil_media/src/veil_playout_recovery.h",
+    "flutter/veil_media/src/veil_video_frame_budget.h",
+    "flutter/veil_media/test/playout_recovery_smoke.cc",
+    "flutter/veil_media/test/video_frame_budget_smoke.cc"
+  ],
+  "committed_media_source": "50eb39cb48a0f7342d39cb71c8771c164bf4a12c",
+  "raw_verdicts": [
+    true,
+    true
+  ],
+  "audited_source_hashes_match": true
+}
