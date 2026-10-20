@@ -1,0 +1,7 @@
+{
+  "checked_at_utc": "2026-10-20T02:07:20.377849+00:00",
+  "snapshots_checked": 31,
+  "remaining": [],
+  "fixture_and_helper_pids_absent": true,
+  "notes": "Final group summary PIDs separately checked in per-run summary-pid-cleanup proofs; pair process/thread wait results checked in pair-result proofs."
+}
