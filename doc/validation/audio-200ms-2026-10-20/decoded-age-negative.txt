@@ -1,0 +1,11 @@
+[unsafe-buffers] file '/Users/vart/.cache/codex/xveil-audio-200-20261020/age-negative-media-src/src/veil_diag_log.h' bad test against path '../../'
+ld: warning: ignoring -lto_library '/Users/vart/Projects/veilnetwork/webrtc-checkout/src/third_party/llvm-build/Release+Asserts/lib/libLTO.dylib', file does not exist
+Assertion failed: (observed->pulls == (attempt ? 3 : 2)), function DecodedAgeRegression, file playout_recovery_smoke.cc, line 125.
+Traceback (most recent call last):
+  File "/Users/vart/.cache/codex/xveil-audio-200-20261020/age-negative-media-src/test/run_playout_recovery_smoke.py", line 42, in <module>
+    subprocess.run([str(temp / 'smoke')], check=True)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/subprocess.py", line 578, in run
+    raise CalledProcessError(retcode, process.args,
+                             output=stdout, stderr=stderr)
+subprocess.CalledProcessError: Command '['/private/tmp/veil-playout-recovery-r20zv1_y/smoke']' died with <Signals.SIGABRT: 6>.

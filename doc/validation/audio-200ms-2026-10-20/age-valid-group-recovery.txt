@@ -1,0 +1,1 @@
+group decoded mix: warm=50 recovered=15 first_tick=252 resume_tick=250 packets=1143 max_clock_gap_ms=17.591 fresh_marker_age_ms=170.648 recoveries=6 discarded_ms=890 fallback=0
