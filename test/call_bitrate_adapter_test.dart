@@ -105,6 +105,7 @@ void main() {
     int? currentPeerDelay,
     int? peerTargetDelay,
     int? peerSequence,
+    bool? peerBufferGrowing,
     bool interrupted = false,
     bool recovered = false,
     bool send = true,
@@ -126,6 +127,7 @@ void main() {
       peerCurrentAudioDelayMs: currentPeerDelay,
       peerTargetAudioDelayMs: peerTargetDelay,
       peerAudioSampleSequence: peerSequence,
+      peerAudioBufferGrowing: peerBufferGrowing,
       audioInterrupted: interrupted,
       audioRecoveryObserved: recovered,
       expectedAudioFeedbackReports: audioReceivers,
@@ -263,6 +265,139 @@ void main() {
     );
     expect(a.acknowledgedTarget, (maxBitrateKbps: 150, maxFps: 15.0));
   });
+
+  for (final incoming in [false, true]) {
+    test(
+      'unconfirmed buffer rise holds earned recovery incoming=$incoming',
+      () {
+        final a = direct(level: 3);
+        apply(a);
+        var sequence = 0;
+        void sample(int delay, {bool growing = false}) {
+          native(
+            a,
+            stats: {...healthy(), 'audio_delay_ms': incoming ? delay : 50},
+            peerDelay: incoming ? 50 : delay,
+            currentPeerDelay: incoming ? 50 : delay,
+            peerBufferGrowing: incoming ? false : growing,
+            peerSequence: ++sequence,
+          );
+        }
+
+        for (var n = 0; n < (incoming ? 9 : 11); n++) {
+          sample(50);
+        }
+        final before = a.acknowledgedTarget!;
+        if (incoming) {
+          // The native six-sample window sees a short rise, not three seconds
+          // of continuing growth. Its newest sample then drains immediately.
+          sample(100);
+          sample(105);
+        }
+        sample(110, growing: true);
+        expect(a.audioBufferPressure, isFalse);
+        expect(
+          a.acknowledgedTarget,
+          before,
+          reason: 'no growth during the rise',
+        );
+        expect(a.level, 3);
+        sample(50);
+        expect(
+          a.level,
+          2,
+          reason: 'the short rise did not erase eleven good samples',
+        );
+        final after = a.acknowledgedTarget!;
+        expect(
+          after.maxBitrateKbps,
+          lessThanOrEqualTo((before.maxBitrateKbps * 1.1).floor()),
+        );
+        expect(after.maxFps, lessThanOrEqualTo(before.maxFps + 1));
+      },
+    );
+  }
+
+  test(
+    'cached rising report cannot earn growth or confirm continuing damage',
+    () {
+      final a = direct(level: 3);
+      for (var n = 1; n <= 11; n++) {
+        native(
+          a,
+          currentPeerDelay: 60,
+          peerSequence: n,
+          peerBufferGrowing: false,
+        );
+      }
+      final before = a.acknowledgedTarget;
+      for (var n = 0; n < 6; n++) {
+        native(
+          a,
+          peerDelay: 110,
+          currentPeerDelay: 110,
+          peerSequence: 12,
+          peerBufferGrowing: true,
+        );
+        expect(a.acknowledgedTarget, before);
+        expect(a.level, 3);
+        expect(a.audioBufferPressure, isFalse);
+      }
+      native(
+        a,
+        currentPeerDelay: 60,
+        peerSequence: 13,
+        peerBufferGrowing: false,
+      );
+      expect(a.level, 2, reason: 'the hold earned no samples and erased none');
+    },
+  );
+
+  test(
+    'confirmed continuing growth still clears earned recovery and cuts video',
+    () {
+      final a = direct(level: 3);
+      for (var n = 1; n <= 11; n++) {
+        native(
+          a,
+          currentPeerDelay: 60,
+          peerSequence: n,
+          peerBufferGrowing: false,
+        );
+      }
+      for (var n = 12; n <= 16; n++) {
+        native(
+          a,
+          peerDelay: 110 + n - 12,
+          currentPeerDelay: 110 + n - 12,
+          peerSequence: n,
+          peerBufferGrowing: true,
+        );
+      }
+      expect(a.audioBufferPressure, isTrue);
+      expect(a.level, 4);
+      for (var n = 17; n < 28; n++) {
+        native(
+          a,
+          currentPeerDelay: 60,
+          peerSequence: n,
+          peerBufferGrowing: false,
+        );
+        expect(
+          a.level,
+          4,
+          reason: 'real pressure erased the previous recovery credit',
+        );
+      }
+      native(
+        a,
+        currentPeerDelay: 60,
+        peerSequence: 28,
+        peerBufferGrowing: false,
+      );
+      expect(a.level, 3);
+    },
+  );
 
   for (final incoming in [false, true]) {
     test(
