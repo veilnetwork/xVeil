@@ -1,0 +1,65 @@
+{
+  "red": {
+    "path": "/private/tmp/xveil-flight-drain-red.txt",
+    "sha256": "a67a12f7d25c2ef78df03281fb9787e8bbb1e1959974921f1a1f58e9571ea26e",
+    "results": [
+      "    Finished `release` profile [optimized] target(s) in 1m 22s",
+      "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 142 filtered out; finished in 0.00s",
+      "  left: 2401",
+      " right: 3601",
+      "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 645 filtered out; finished in 0.00s"
+    ]
+  },
+  "local": {
+    "path": "/private/tmp/xveil-flight-drain-tests.txt",
+    "sha256": "204638173014cc958f1a4446c1be99d6d05432d5cb7ecf3089fc8e5389d58544",
+    "results": [
+      "    Finished `release` profile [optimized] target(s) in 1m 08s",
+      "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 142 filtered out; finished in 0.00s",
+      "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 636 filtered out; finished in 0.00s"
+    ]
+  },
+  "full": {
+    "path": "/private/tmp/xveil-flight-drain-session-full.txt",
+    "sha256": "9202326523712f2db12a7a68c3d89da0339875d1b84e0657545ecb7ef0674137",
+    "results": [
+      "    Finished `release` profile [optimized] target(s) in 0.56s",
+      "test result: ok. 141 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.04s",
+      "test result: ok. 639 passed; 0 failed; 8 ignored; 0 measured; 0 filtered out; finished in 57.89s"
+    ]
+  },
+  "build": {
+    "path": "/private/tmp/xveil-flight-drain-build.txt",
+    "sha256": "0fcabe59274b1cfabf348a5d744ea6e34013217598203beafabe6325a62b92fa",
+    "results": [
+      "    Finished `release` profile [optimized] target(s) in 1m 26s"
+    ]
+  },
+  "commands": {
+    "tests": "TMPDIR=/private/tmp/ CARGO_TARGET_DIR=/Volumes/cfb/target CARGO_INCREMENTAL=0 cargo test --locked --release -p veil-session -p veil-bootstrap --features veil-bootstrap/production-seeds --lib [local_source_flight]",
+    "build": "TMPDIR=/private/tmp/ CARGO_TARGET_DIR=/Volumes/cfb/target CARGO_INCREMENTAL=0 cargo build --locked --release -p veilclient-ffi --features production-seeds,node-embedded,packet-tunnel",
+    "group": [
+      "python3",
+      "/Users/vart/Projects/veilnetwork/xVeil/scripts/group-process-preflight.py",
+      "--sdk",
+      "/Users/vart/.cache/codex/xveil-flight-drain-20261020/sdk-fixed/libveilclient_ffi.dylib",
+      "--media",
+      "/Users/vart/.cache/codex/xveil-frame-attribution-20261020/media-hooks/libveil_media.dylib",
+      "--directory",
+      "/Users/vart/.cache/codex/xveil-flight-drain-20261020/group-final-360",
+      "--duration",
+      "360",
+      "--rate-kbps",
+      "1024",
+      "--adaptive",
+      "--full-load",
+      "--playout-trace",
+      "--wire-trace-capacity",
+      "250000"
+    ]
+  },
+  "foreign_work_diff_sha256": {
+    "root": "529f7718edea4b6775cc11607bc2ff663a922cc3521b680cf94efa39d7b26859",
+    "sdk": "1ceeb05d540078262f1480ba7210dfaa0f5895be9f0099f64bc18a56a4f6a363"
+  }
+}
