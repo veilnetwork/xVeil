@@ -168,6 +168,7 @@ class RoomPolicy {
     });
     return {
       'measuredAudioPressure': source.measuredAudioPressure,
+      'growthHoldStartedAt': source.growthHoldStartedAt?.millisecondsSinceEpoch,
       'sourcePressured': pressured,
       'sourceBudgetPressured':
           request['sourceFeedbackQueued'] == true && pressured == true,

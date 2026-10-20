@@ -729,6 +729,68 @@ void main() {
   });
 
   test(
+    'known group damage carries one hold event to native and SDK independently',
+    () {
+      fakeAsync((clock) {
+        final self = _id(1), peer = _id(2);
+        final transport = _FakeTransport(self)..rejectPressure = false;
+        final engine = _FakeEngine()
+          ..stats = {
+            ..._sourceStats([peer]),
+            'audio_soft_loss_duration_supported': 1,
+            'audio_peer_soft_loss_duration_supported': 1,
+            'audio_local_soft_loss_report_us': 0,
+            'audio_peer_soft_loss_report_us': 0,
+            'audio_latency_recovery_count': 0,
+          };
+        final origin = DateTime(2026, 10, 20);
+        final controller = VeilGroupCallMediaController(
+          transport,
+          roomMediaSecret: _room(),
+          engineFactory: (_) => engine,
+          requestMicrophone: () async => true,
+          now: () => origin.add(clock.elapsed),
+        );
+        controller.start(_call(self, [peer]));
+        clock.flushMicrotasks();
+        clock.elapse(const Duration(seconds: 15));
+        expect(transport.pressureReports.last.pressured, isFalse);
+        final pending = Completer<bool>();
+        transport.pendingPressure = pending;
+        engine.stats = {...engine.stats, 'audio_latency_recovery_count': 1};
+        clock.elapse(const Duration(seconds: 1));
+        final event = origin.add(const Duration(seconds: 16));
+        expect(transport.pressureReports.last.pressured, isFalse);
+        expect(transport.growthHoldReports.last, (at: event, event: event));
+        expect(engine.audioSourcePressure.last, isFalse);
+        clock.elapse(const Duration(seconds: 2));
+        expect(
+          engine.audioGrowthHolds,
+          hasLength(3),
+          reason: 'native hold must not wait for SDK admission ACK',
+        );
+        expect(engine.audioGrowthHolds.every((r) => r.event == event), isTrue);
+        expect(
+          engine.audioGrowthHolds.last.at,
+          origin.add(const Duration(seconds: 18)),
+        );
+        transport.pendingPressure = null;
+        pending.complete(true);
+        clock.flushMicrotasks();
+        clock.elapse(const Duration(seconds: 1));
+        expect(
+          engine.audioGrowthHolds,
+          hasLength(3),
+          reason: 'polls cannot renew the hold',
+        );
+        expect(transport.pressureReports.last.pressured, isFalse);
+        controller.stop();
+        clock.flushMicrotasks();
+      });
+    },
+  );
+
+  test(
     'group feedback stays bounded and a stopped epoch cannot update its successor',
     () {
       fakeAsync((clock) {
@@ -2573,6 +2635,7 @@ class _FakeTransport implements GroupMediaChannelTransport {
   final Map<String, Uint8List> txKeys = {};
   final Map<String, Uint8List> rxKeys = {};
   final List<({bool pressured, DateTime at})> pressureReports = [];
+  final List<({DateTime at, DateTime event})> growthHoldReports = [];
   Completer<bool>? pendingPressure;
   bool failPressure = false;
   bool throwPressure = false;
@@ -2584,8 +2647,12 @@ class _FakeTransport implements GroupMediaChannelTransport {
   Future<bool> reportLocalSourcePressure({
     required bool pressured,
     required DateTime sampledAt,
+    DateTime? growthHoldStartedAt,
   }) {
     pressureReports.add((pressured: pressured, at: sampledAt));
+    if (growthHoldStartedAt != null) {
+      growthHoldReports.add((at: sampledAt, event: growthHoldStartedAt));
+    }
     if (throwPressure) throw StateError('local IPC unavailable');
     if (failPressure) return Future.error(StateError('local IPC unavailable'));
     return pendingPressure?.future ?? Future.value(!rejectPressure);
@@ -2641,9 +2708,17 @@ class _FakeEngine implements GroupAudioEngine {
   final bool supportsVideoSendPause;
   final List<bool> pauses = [];
   final List<bool?> audioSourcePressure = [];
+  final List<({DateTime at, DateTime event})> audioGrowthHolds = [];
   @override
-  bool setAudioSourcePressure(bool? pressured) {
+  bool setAudioSourcePressure(
+    bool? pressured, {
+    DateTime? sampledAt,
+    DateTime? growthHoldStartedAt,
+  }) {
     audioSourcePressure.add(pressured);
+    if (growthHoldStartedAt != null && sampledAt != null) {
+      audioGrowthHolds.add((at: sampledAt, event: growthHoldStartedAt));
+    }
     return true;
   }
 

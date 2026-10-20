@@ -1641,7 +1641,11 @@ class VeilCallMediaController implements CallMediaController {
               stats['audio_local_concealment_report_us'],
         );
         _sourcePressured = sourcePressured;
-        engine.setAudioSourcePressure(_sourcePressure.measuredAudioPressure);
+        engine.setAudioSourcePressure(
+          _sourcePressure.measuredAudioPressure,
+          sampledAt: now,
+          growthHoldStartedAt: _sourcePressure.growthHoldStartedAt,
+        );
         if (sourcePressured != null && !_sourceFeedbackPending) {
           // One small outstanding report, with the ORIGINAL sampling time.
           // Delayed workers/writes cannot renew pressure after this call ends.
@@ -1651,6 +1655,7 @@ class VeilCallMediaController implements CallMediaController {
                 .reportLocalSourcePressure(
                   pressured: sourcePressured,
                   sampledAt: now,
+                  growthHoldStartedAt: _sourcePressure.growthHoldStartedAt,
                 )
                 .then<void>(
                   (queued) {

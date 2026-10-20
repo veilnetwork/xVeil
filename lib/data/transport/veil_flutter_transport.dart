@@ -865,9 +865,11 @@ class VeilFlutterTransport
   Future<bool> reportLocalSourcePressure({
     required bool pressured,
     required DateTime sampledAt,
+    DateTime? growthHoldStartedAt,
   }) => _mediaApp.reportLocalSourcePressure(
     pressured: pressured,
     sampledAt: sampledAt,
+    growthHoldStartedAt: growthHoldStartedAt,
   );
 
   /// Refresh a black-holed anonymous media route after end-to-end silence.

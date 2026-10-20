@@ -74,9 +74,51 @@ void main() {
       expect(sample(policy), isTrue); // Transport still earns its recovery.
       expect(policy.measuredAudioPressure, isFalse);
       expect(sample(policy, send: false, receive: false), isNull);
-    expect(policy.measuredAudioPressure, isFalse);
+      expect(policy.measuredAudioPressure, isFalse);
     },
   );
+
+  test('known small damage holds growth with the original event time', () {
+    final policy = CallAudioSourcePressure();
+    final stats = <String, Object>{
+      'worker_stalled': 0,
+      'audio_soft_loss_duration_supported': 1,
+      'audio_peer_soft_loss_duration_supported': 1,
+      'audio_local_soft_loss_report_us': 0,
+      'audio_peer_soft_loss_report_us': 0,
+    };
+    recover(policy);
+    final first = times[policy]!.add(const Duration(seconds: 1));
+    expect(
+      sample(policy, concealmentReportUs: 100, nativeStats: stats),
+      isFalse,
+    );
+    expect(policy.measuredAudioPressure, isFalse);
+    expect(policy.growthHoldStartedAt, first);
+    for (var i = 0; i < 2; i++) {
+      expect(sample(policy, nativeStats: stats), isFalse);
+      expect(
+        policy.growthHoldStartedAt,
+        first,
+        reason: 'polling refreshes current health, not the hold event',
+      );
+    }
+    expect(sample(policy, nativeStats: stats), isFalse);
+    expect(policy.growthHoldStartedAt, isNull);
+    expect(sample(policy, recovered: true, nativeStats: stats), isFalse);
+    expect(policy.growthHoldStartedAt, times[policy]);
+    sample(policy, local: null, nativeStats: stats);
+    expect(
+      policy.growthHoldStartedAt,
+      isNull,
+      reason: 'unknown audio cannot claim known current health',
+    );
+    sample(policy, local: 350, nativeStats: stats);
+    expect(policy.measuredAudioPressure, isTrue);
+    expect(policy.growthHoldStartedAt, isNull);
+    sample(policy, send: false, receive: false);
+    expect(policy.growthHoldStartedAt, isNull);
+  });
 
   test(
     'measured small damage does not contract transport and preserves recovery credit',

@@ -103,3 +103,12 @@ All owned fixture/helper/policy processes were reaped, node stops returned zero,
 and sockets closed, including the interrupted capture. Foreign root/SDK WIP is
 preserved. No physical apps, installations, push, release or relay update were
 performed in this cycle. The broader audio/video goal remains unfinished.
+
+## Follow-up: explicit source hold
+
+The separate bounded hold is implemented and validated in
+[the source-hold report](../source-growth-hold-2026-10-20/README.md). That report
+also retains the final unsuccessful quality captures: the remaining policy
+issues are the 120 ms/six-second soft-loss cut and delayed video recovery.
+Do not repeat the unknown-as-hold or one-positive-report flight experiments
+as a substitute for testing those specific mechanisms.
