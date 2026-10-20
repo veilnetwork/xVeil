@@ -1357,6 +1357,58 @@ void main() {
     );
   }
 
+  test(
+    'a fresh peer report during a short hold confirms recovery after it drains',
+    () {
+      final a = direct(level: 2);
+      var frames = 0;
+      void tick(int sequence, {bool event = false}) => native(
+        a,
+        peerSequence: sequence,
+        stats: {
+          ...healthy(),
+          'video_tx_frames': ++frames,
+          'audio_soft_loss_duration_supported': 1,
+          'audio_peer_soft_loss_duration_supported': 1,
+          'audio_local_soft_loss_report_us': 0,
+          'audio_peer_soft_loss_report_us': 0,
+          'audio_peer_concealment_report_us': event ? 100 : 0,
+        },
+      );
+      tick(10);
+      for (var i = 0; i < CallBitrateAdapter.recoverAfter; i++) {
+        tick(10);
+      }
+      expect(a.level, 2, reason: 'one cached report cannot establish recovery');
+      tick(12, event: true);
+      for (var i = 0; i < 2; i++) {
+        tick(12);
+        expect(
+          a.level,
+          2,
+          reason: 'the original three-second hold remains effective',
+        );
+      }
+      tick(11);
+      expect(a.level, 2, reason: 'an older report cannot confirm growth');
+      tick(12);
+      expect(
+        a.level,
+        1,
+        reason:
+            'a current distinct report and earned healthy time survive the short hold',
+      );
+      for (var i = 0; i < 60; i++) {
+        tick(12);
+      }
+      expect(
+        a.level,
+        1,
+        reason: 'one report cannot confirm a second promotion',
+      );
+    },
+  );
+
   for (final startup in [false, true]) {
     for (final restartedSequence in [false, true]) {
       test(

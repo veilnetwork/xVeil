@@ -1,0 +1,38 @@
+{
+  "root_base": "bff8bf0f86d04493de31429cb58e6a5762270ee7",
+  "sdk_base": "ab6d6c14d83e41c4aff0685cab5aea82efc2f54c",
+  "sdk": {
+    "path": "/Users/vart/.cache/codex/xveil-explicit-source-hold-20261020/sdk-final/libveilclient_ffi.dylib",
+    "sha256": "8062a0b3296a1f30b6cdb9530d5b3940b4971fa04ebc16b43f6381e78cb9099d"
+  },
+  "baseline_media": {
+    "path": "/Users/vart/.cache/codex/xveil-explicit-source-hold-20261020/media-hooks/libveil_media.dylib",
+    "sha256": "f90f40a6adecd4fb1155e6a298e0f655bfcf42311407f5d41c4c6c94ca7edc9f"
+  },
+  "media": {
+    "path": "/Users/vart/.cache/codex/xveil-soft-burst-recovery-20261020/media-hooks/libveil_media.dylib",
+    "sha256": "12a618a2baab18401d8fedd19e79bd96d38a1e6d7308be0257a0bfeb62190dfe"
+  },
+  "media_production": {
+    "path": "/Users/vart/.cache/codex/xveil-soft-burst-recovery-20261020/media-production/libveil_media.dylib",
+    "sha256": "8bfdaa2fc3cfa74b41e7104d46e900506e9f9e05c0bf9aebc266bef9e2d9a6ff"
+  },
+  "source_sha256": {
+    "lib/state/call_bitrate_adapter.dart": "9a9582af3e719932fced4aaa371e04243bff443db0e2cd9e1a096b7081689937",
+    "test/call_bitrate_adapter_test.dart": "ee6f6b63845f98ee96718c451e92ab009acba881a69904b2955d49bf160adb9a",
+    "third_party/veil/flutter/veil_media/src/veil_audio_soft_loss.h": "a667ae0d666612d51f51de7f5a93dbdecc6a52792bc2c60c2ac0324345f0acf5",
+    "third_party/veil/flutter/veil_media/test/audio_recovery_feedback_smoke.cc": "65b0495ea955abcef745122541ee36789233ae93a77f4194a4cc3f2236618b88",
+    "third_party/veil/flutter/veil_media/test/audio_recovery_shim_smoke.cc": "c562920bfc1ec07f816c83c369e6b5ac05b2e60263d9756973cbdbfc4694e1d2"
+  },
+  "capacity_step_fixture_sha256": "0447c8e8819cdc850498d33a41ca90154838aa6a0cbd6cd450699170934d024c",
+  "capacity_step_plan": {
+    "duration_seconds": 300,
+    "initial_kbps": 1024,
+    "step_at_seconds": 120,
+    "new_kbps": 8192,
+    "same_call_and_routes": true,
+    "scope": "Additional recovery verification; prior unchanged saturated 360 s capture is retained."
+  },
+  "observation_tail": "One extra second of PCM observation, with the same 300 s source-edge interval and already frozen video/file metrics.",
+  "retained_native_sdk_commit": "19004dc5ceabb52e7977c79862d5c251ecff9002"
+}

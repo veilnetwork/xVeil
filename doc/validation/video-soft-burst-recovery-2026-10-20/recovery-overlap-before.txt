@@ -1,0 +1,15 @@
+00:00 +0: loading /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart
+00:00 +0: a fresh peer report during a short hold confirms recovery after it drains
+00:00 +0 -1: a fresh peer report during a short hold confirms recovery after it drains [E]
+  Expected: <1>
+    Actual: <2>
+  a current distinct report and earned healthy time survive the short hold
+  
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  test/call_bitrate_adapter_test.dart 1389:5          main.<fn>
+  
+00:00 +0 -1: Some tests failed.
+
+Failing tests:
+  /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: a fresh peer report during a short hold confirms recovery after it drains

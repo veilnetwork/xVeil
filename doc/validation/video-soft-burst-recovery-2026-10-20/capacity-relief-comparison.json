@@ -1,0 +1,362 @@
+{
+  "group-relief-300": {
+    "path": "/Users/vart/.cache/codex/xveil-soft-burst-recovery-20261020/group-relief-300",
+    "raw_ok": false,
+    "measurement_seconds": 300,
+    "capacity_step": {
+      "requested_at_seconds": 120,
+      "applied_at_seconds": 120.00414341600845,
+      "old_rate_bps": 1024000,
+      "new_rate_bps": 8192000
+    },
+    "capacity_timer_exited": true,
+    "matched_audio_markers": 1752,
+    "missing_audio_markers": 6,
+    "peak_acoustic_ms": 210.09820833569393,
+    "video_paths": [
+      {
+        "receiver": 0,
+        "source": 1,
+        "before_step_60_to_120s": {
+          "frames": 166,
+          "observation_seconds": 59.00864504202036,
+          "fps": 2.813147122456219
+        },
+        "last_minute_240_to_300s": {
+          "frames": 853,
+          "observation_seconds": 59.00807433400769,
+          "fps": 14.455648818019414
+        },
+        "last_dimensions": [
+          320,
+          240
+        ]
+      },
+      {
+        "receiver": 0,
+        "source": 2,
+        "before_step_60_to_120s": {
+          "frames": 76,
+          "observation_seconds": 59.008598958025686,
+          "fps": 1.2879478811903453
+        },
+        "last_minute_240_to_300s": {
+          "frames": 854,
+          "observation_seconds": 59.00807687500492,
+          "fps": 14.472595028117984
+        },
+        "last_dimensions": [
+          320,
+          240
+        ]
+      },
+      {
+        "receiver": 1,
+        "source": 0,
+        "before_step_60_to_120s": {
+          "frames": 73,
+          "observation_seconds": 59.000861749984324,
+          "fps": 1.2372700641108754
+        },
+        "last_minute_240_to_300s": {
+          "frames": 851,
+          "observation_seconds": 58.9771794580156,
+          "fps": 14.429309909705092
+        },
+        "last_dimensions": [
+          320,
+          240
+        ]
+      },
+      {
+        "receiver": 1,
+        "source": 2,
+        "before_step_60_to_120s": {
+          "frames": 78,
+          "observation_seconds": 59.000774541986175,
+          "fps": 1.3220165430962874
+        },
+        "last_minute_240_to_300s": {
+          "frames": 853,
+          "observation_seconds": 58.97715425002389,
+          "fps": 14.463227513213806
+        },
+        "last_dimensions": [
+          320,
+          240
+        ]
+      },
+      {
+        "receiver": 2,
+        "source": 0,
+        "before_step_60_to_120s": {
+          "frames": 78,
+          "observation_seconds": 58.999618708039634,
+          "fps": 1.3220424421043124
+        },
+        "last_minute_240_to_300s": {
+          "frames": 851,
+          "observation_seconds": 59.01521262497408,
+          "fps": 14.420010742109458
+        },
+        "last_dimensions": [
+          320,
+          240
+        ]
+      },
+      {
+        "receiver": 2,
+        "source": 1,
+        "before_step_60_to_120s": {
+          "frames": 190,
+          "observation_seconds": 58.999665207986254,
+          "fps": 3.220357256777813
+        },
+        "last_minute_240_to_300s": {
+          "frames": 853,
+          "observation_seconds": 59.01524099998642,
+          "fps": 14.453893359517016
+        },
+        "last_dimensions": [
+          320,
+          240
+        ]
+      }
+    ],
+    "workers": [
+      {
+        "worker": 0,
+        "audio_delta_after_capacity_step_plus_5s": {
+          "audio_latency_recovery_count": 0,
+          "audio_latency_discarded_ms": 0,
+          "audio_interruption_count": 0,
+          "audio_latency_fallback_frames": 0
+        },
+        "audio_observation_tail_seconds": null
+      },
+      {
+        "worker": 1,
+        "audio_delta_after_capacity_step_plus_5s": {
+          "audio_latency_recovery_count": 0,
+          "audio_latency_discarded_ms": 0,
+          "audio_interruption_count": 0,
+          "audio_latency_fallback_frames": 0
+        },
+        "audio_observation_tail_seconds": null
+      },
+      {
+        "worker": 2,
+        "audio_delta_after_capacity_step_plus_5s": {
+          "audio_latency_recovery_count": 0,
+          "audio_latency_discarded_ms": 0,
+          "audio_interruption_count": 0,
+          "audio_latency_fallback_frames": 0
+        },
+        "audio_observation_tail_seconds": null
+      }
+    ],
+    "files": [
+      {
+        "sender": 2,
+        "receiver": 0,
+        "queued": 524288,
+        "received": 524288,
+        "hash_matches": true
+      },
+      {
+        "sender": 0,
+        "receiver": 1,
+        "queued": 524288,
+        "received": 524288,
+        "hash_matches": true
+      },
+      {
+        "sender": 1,
+        "receiver": 2,
+        "queued": 524288,
+        "received": 524288,
+        "hash_matches": true
+      }
+    ]
+  },
+  "group-relief-tail-300": {
+    "path": "/Users/vart/.cache/codex/xveil-soft-burst-recovery-20261020/group-relief-tail-300",
+    "raw_ok": false,
+    "measurement_seconds": 300,
+    "capacity_step": {
+      "requested_at_seconds": 120,
+      "applied_at_seconds": 120.00522020895733,
+      "old_rate_bps": 1024000,
+      "new_rate_bps": 8192000
+    },
+    "capacity_timer_exited": true,
+    "matched_audio_markers": 1758,
+    "missing_audio_markers": 0,
+    "peak_acoustic_ms": 210.1025416632183,
+    "video_paths": [
+      {
+        "receiver": 0,
+        "source": 1,
+        "before_step_60_to_120s": {
+          "frames": 239,
+          "observation_seconds": 58.99263733398402,
+          "fps": 4.051353029818159
+        },
+        "last_minute_240_to_300s": {
+          "frames": 851,
+          "observation_seconds": 58.98574725002982,
+          "fps": 14.427214024987533
+        },
+        "last_dimensions": [
+          240,
+          180
+        ]
+      },
+      {
+        "receiver": 0,
+        "source": 2,
+        "before_step_60_to_120s": {
+          "frames": 72,
+          "observation_seconds": 58.00574937497731,
+          "fps": 1.2412562681426123
+        },
+        "last_minute_240_to_300s": {
+          "frames": 849,
+          "observation_seconds": 58.98568916594377,
+          "fps": 14.393321702345768
+        },
+        "last_dimensions": [
+          320,
+          240
+        ]
+      },
+      {
+        "receiver": 1,
+        "source": 0,
+        "before_step_60_to_120s": {
+          "frames": 63,
+          "observation_seconds": 54.00399875000585,
+          "fps": 1.1665802803166159
+        },
+        "last_minute_240_to_300s": {
+          "frames": 850,
+          "observation_seconds": 59.01391312497435,
+          "fps": 14.40338311746836
+        },
+        "last_dimensions": [
+          320,
+          240
+        ]
+      },
+      {
+        "receiver": 1,
+        "source": 2,
+        "before_step_60_to_120s": {
+          "frames": 75,
+          "observation_seconds": 59.001862499979325,
+          "fps": 1.2711463133901286
+        },
+        "last_minute_240_to_300s": {
+          "frames": 849,
+          "observation_seconds": 59.01379774999805,
+          "fps": 14.386466087077544
+        },
+        "last_dimensions": [
+          320,
+          240
+        ]
+      },
+      {
+        "receiver": 2,
+        "source": 0,
+        "before_step_60_to_120s": {
+          "frames": 63,
+          "observation_seconds": 58.00608216703404,
+          "fps": 1.0860930034644556
+        },
+        "last_minute_240_to_300s": {
+          "frames": 850,
+          "observation_seconds": 58.998408125014976,
+          "fps": 14.407168379846592
+        },
+        "last_dimensions": [
+          320,
+          240
+        ]
+      },
+      {
+        "receiver": 2,
+        "source": 1,
+        "before_step_60_to_120s": {
+          "frames": 221,
+          "observation_seconds": 58.99954104202334,
+          "fps": 3.745791850187264
+        },
+        "last_minute_240_to_300s": {
+          "frames": 852,
+          "observation_seconds": 58.99830945796566,
+          "fps": 14.441091750383487
+        },
+        "last_dimensions": [
+          240,
+          180
+        ]
+      }
+    ],
+    "workers": [
+      {
+        "worker": 0,
+        "audio_delta_after_capacity_step_plus_5s": {
+          "audio_latency_recovery_count": 0,
+          "audio_latency_discarded_ms": 0,
+          "audio_interruption_count": 0,
+          "audio_latency_fallback_frames": 0
+        },
+        "audio_observation_tail_seconds": 1.0019794579711743
+      },
+      {
+        "worker": 1,
+        "audio_delta_after_capacity_step_plus_5s": {
+          "audio_latency_recovery_count": 0,
+          "audio_latency_discarded_ms": 0,
+          "audio_interruption_count": 0,
+          "audio_latency_fallback_frames": 0
+        },
+        "audio_observation_tail_seconds": 1.0005429579759948
+      },
+      {
+        "worker": 2,
+        "audio_delta_after_capacity_step_plus_5s": {
+          "audio_latency_recovery_count": 0,
+          "audio_latency_discarded_ms": 0,
+          "audio_interruption_count": 0,
+          "audio_latency_fallback_frames": 0
+        },
+        "audio_observation_tail_seconds": 1.0033679580083117
+      }
+    ],
+    "files": [
+      {
+        "sender": 2,
+        "receiver": 0,
+        "queued": 524288,
+        "received": 524288,
+        "hash_matches": true
+      },
+      {
+        "sender": 0,
+        "receiver": 1,
+        "queued": 524288,
+        "received": 524288,
+        "hash_matches": true
+      },
+      {
+        "sender": 1,
+        "receiver": 2,
+        "queued": 524288,
+        "received": 524288,
+        "hash_matches": true
+      }
+    ]
+  }
+}

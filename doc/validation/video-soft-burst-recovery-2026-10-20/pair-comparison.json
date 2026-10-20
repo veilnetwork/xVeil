@@ -1,0 +1,186 @@
+{
+  "baseline": {
+    "path": "/Users/vart/.cache/codex/xveil-soft-burst-recovery-20261020/pair-baseline-180",
+    "raw_ok": false,
+    "source_feedback_skipped": [
+      5,
+      0
+    ],
+    "measured_seconds": 180,
+    "markers": 348,
+    "missing_markers": 0,
+    "acoustic_peak_ms": 180.27895834529772,
+    "video": [
+      {
+        "side": 0,
+        "last_minute_decoded_counter": {
+          "frames": 882,
+          "observation_seconds": 59.00000770803308,
+          "fps": 14.949150589346656
+        },
+        "last_dimensions": [
+          320,
+          240
+        ],
+        "tail_content_changes": 14,
+        "moving_at_end": true
+      },
+      {
+        "side": 1,
+        "last_minute_decoded_counter": {
+          "frames": 881,
+          "observation_seconds": 58.99990845803404,
+          "fps": 14.932226558057208
+        },
+        "last_dimensions": [
+          320,
+          240
+        ],
+        "tail_content_changes": 14,
+        "moving_at_end": true
+      }
+    ],
+    "files": [
+      {
+        "queued": 524288,
+        "received": 524288,
+        "missing_chunks": 0,
+        "hash_matches": true,
+        "receipt_duration_ms": 144710.5
+      },
+      {
+        "queued": 524288,
+        "received": 524288,
+        "missing_chunks": 0,
+        "hash_matches": true,
+        "receipt_duration_ms": 153647.7
+      }
+    ],
+    "sides": [
+      {
+        "side": 0,
+        "native_hold_reports_accepted": 21,
+        "sdk_hold_reports_queued": 17,
+        "audio_counter_delta_after_60s": {
+          "audio_latency_recovery_count": 0,
+          "audio_latency_discarded_ms": 0,
+          "audio_latency_fallback_frames": 0,
+          "audio_interruption_count": 0
+        },
+        "final_native_growth_hold_counter": 15
+      },
+      {
+        "side": 1,
+        "native_hold_reports_accepted": 22,
+        "sdk_hold_reports_queued": 18,
+        "audio_counter_delta_after_60s": {
+          "audio_latency_recovery_count": 0,
+          "audio_latency_discarded_ms": 0,
+          "audio_latency_fallback_frames": 0,
+          "audio_interruption_count": 0
+        },
+        "final_native_growth_hold_counter": 14
+      }
+    ],
+    "maximum_single_pool_snapshot_hold_observations": 18,
+    "maximum_single_pool_snapshot_held_acks": 1072,
+    "runtime_has_recovery_confirmation": false,
+    "scope": {
+      "synthetic_video_source": "camera",
+      "screen_capture_proof": false,
+      "cellular_call_proof": false
+    }
+  },
+  "candidate": {
+    "path": "/Users/vart/.cache/codex/xveil-soft-burst-recovery-20261020/pair-candidate-180",
+    "raw_ok": false,
+    "source_feedback_skipped": [
+      2,
+      2
+    ],
+    "measured_seconds": 180,
+    "markers": 348,
+    "missing_markers": 0,
+    "acoustic_peak_ms": 170.37654167506844,
+    "video": [
+      {
+        "side": 0,
+        "last_minute_decoded_counter": {
+          "frames": 858,
+          "observation_seconds": 58.999541290977504,
+          "fps": 14.542485945245977
+        },
+        "last_dimensions": [
+          320,
+          240
+        ],
+        "tail_content_changes": 14,
+        "moving_at_end": true
+      },
+      {
+        "side": 1,
+        "last_minute_decoded_counter": {
+          "frames": 868,
+          "observation_seconds": 58.99964599998202,
+          "fps": 14.711952678500214
+        },
+        "last_dimensions": [
+          320,
+          240
+        ],
+        "tail_content_changes": 14,
+        "moving_at_end": true
+      }
+    ],
+    "files": [
+      {
+        "queued": 524288,
+        "received": 524288,
+        "missing_chunks": 0,
+        "hash_matches": true,
+        "receipt_duration_ms": 159388.8
+      },
+      {
+        "queued": 524288,
+        "received": 524288,
+        "missing_chunks": 0,
+        "hash_matches": true,
+        "receipt_duration_ms": 141355.3
+      }
+    ],
+    "sides": [
+      {
+        "side": 0,
+        "native_hold_reports_accepted": 23,
+        "sdk_hold_reports_queued": 23,
+        "audio_counter_delta_after_60s": {
+          "audio_latency_recovery_count": 0,
+          "audio_latency_discarded_ms": 0,
+          "audio_latency_fallback_frames": 0,
+          "audio_interruption_count": 0
+        },
+        "final_native_growth_hold_counter": 17
+      },
+      {
+        "side": 1,
+        "native_hold_reports_accepted": 25,
+        "sdk_hold_reports_queued": 25,
+        "audio_counter_delta_after_60s": {
+          "audio_latency_recovery_count": 0,
+          "audio_latency_discarded_ms": 0,
+          "audio_latency_fallback_frames": 0,
+          "audio_interruption_count": 0
+        },
+        "final_native_growth_hold_counter": 14
+      }
+    ],
+    "maximum_single_pool_snapshot_hold_observations": 24,
+    "maximum_single_pool_snapshot_held_acks": 1618,
+    "runtime_has_recovery_confirmation": true,
+    "scope": {
+      "synthetic_video_source": "camera",
+      "screen_capture_proof": false,
+      "cellular_call_proof": false
+    }
+  }
+}
