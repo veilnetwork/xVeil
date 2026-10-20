@@ -21,6 +21,7 @@ import 'android_native_call_camera.dart';
 import 'android_native_call_video.dart';
 import 'android_screen_capture.dart';
 import 'call_bitrate_adapter.dart';
+import 'call_network_activity.dart';
 import 'call_video_profile.dart';
 import 'call_audio_receive_activity.dart';
 import 'call_audio_source_pressure.dart';
@@ -488,9 +489,6 @@ class VeilCallMediaController implements CallMediaController {
     });
   }
 
-  static const MethodChannel _androidCallNetwork = MethodChannel(
-    'xveil/call_network',
-  );
   static const MethodChannel _androidAudioDevices = MethodChannel(
     'xveil/audio_devices',
   );
@@ -553,7 +551,7 @@ class VeilCallMediaController implements CallMediaController {
   Call? _activeCall;
   final _routeOperations = CallMediaRouteOperations();
   bool get _routeRepairing => _routeOperations.busy;
-  bool _androidCallNetworkActive = false;
+  final _networkActivityOwner = Object();
   int _mediaEpoch = 0;
   bool _devicePreferencesLoaded = false;
   String? _selectedCameraId;
@@ -768,6 +766,9 @@ class VeilCallMediaController implements CallMediaController {
         'transport': _chanTransport?.name,
         'running': false,
         'media_repairing': _routeRepairing,
+        'call_network_activity_active': CallNetworkActivity.shared.heldBy(
+          _networkActivityOwner,
+        ),
       };
     }
     try {
@@ -789,6 +790,9 @@ class VeilCallMediaController implements CallMediaController {
       return {
         'transport': _chanTransport?.name,
         'running': true,
+        'call_network_activity_active': CallNetworkActivity.shared.heldBy(
+          _networkActivityOwner,
+        ),
         'media_epoch': _mediaEpoch,
         'route_handovers': _routeHandovers,
         'receive_only_channels': _receiveOnlyChannels.length,
@@ -1370,7 +1374,7 @@ class VeilCallMediaController implements CallMediaController {
     final epoch = ++_mediaEpoch;
     _activeCall = call;
     await _loadDevicePreferences();
-    await _setAndroidCallNetworkActive(true);
+    await CallNetworkActivity.shared.acquire(_networkActivityOwner);
     // Before capture opens: the grant must exist by the time the screen can
     // lock, and the typed service may only start while the app is visible.
     if (call.media.audio) {
@@ -2278,28 +2282,8 @@ class VeilCallMediaController implements CallMediaController {
     // that internal gap; release them only when the call itself ends.
     if (clearActiveCall) {
       await callAudioRouter.release();
-      await _setAndroidCallNetworkActive(false);
+      await CallNetworkActivity.shared.release(_networkActivityOwner);
       await AndroidCallForegroundService.setActive(false);
-    }
-  }
-
-  Future<void> _setAndroidCallNetworkActive(bool active) async {
-    if (!Platform.isAndroid || _androidCallNetworkActive == active) return;
-    try {
-      final held = await _androidCallNetwork.invokeMethod<bool>('setActive', {
-        'active': active,
-      });
-      _androidCallNetworkActive = active && held == true;
-      devLog(
-        () =>
-            'xVeil[call-media]: Android low-latency Wi-Fi '
-            'requested=$active held=${held == true}',
-      );
-    } catch (error) {
-      _androidCallNetworkActive = false;
-      devLog(
-        () => 'xVeil[call-media]: Android low-latency Wi-Fi failed: $error',
-      );
     }
   }
 
