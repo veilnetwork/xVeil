@@ -118,8 +118,11 @@ if __name__ == '__main__':
         # The parent capture is already complete; never build during a timed run.
         build(binary, args.media_source.resolve(), args.webrtc_source.resolve(),
               args.webrtc_out, log)
-    result = json.loads(subprocess.check_output([str(binary), str(csv), str(duration)], text=True))
+    result = json.loads(subprocess.check_output(
+        [str(binary), str(csv), str(duration), str(args.source)], text=True))
     result.update(source=args.source, receiver=args.receiver,
+                  generator_version=2,
+                  tone_hz=([600, 900], [1300, 1700], [2100, 2500])[args.source],
                   replay_source_sha256=hashlib.sha256(
                       Path(__file__).with_name('audio_arrival_replay.cc').read_bytes()
                   ).hexdigest(),

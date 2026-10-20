@@ -114,3 +114,52 @@ This is a receiver comparison tool. Regenerated tones and quantized arrivals
 do not reproduce the exact original PCM, the group mix, human speech, device
 I/O latency, or acoustic latency. Its result cannot replace a full workload
 qualification.
+
+## Rejected longer estimator history
+
+The pinned arrival history used a two-second RTP window, while the delay
+manager's jitter histogram decays much more slowly (500-ms resampling,
+0.983 forgetting factor). A sustained 80-ms delivery step therefore became
+the new arrival zero after two seconds, while the target still remembered the
+earlier variation. Normal speech could look underfilled and be expanded on
+top of the upstream delay.
+
+The candidate regression feeds actual `DecisionLogic::PacketArrived` calls
+through the controller factory. At six seconds, the original factory reports
+zero instead of the retained 80-ms delivery step. The negative run fails that
+assertion. With a bounded 30-second history, the case passes at all four
+supported sample rates, with ordinary and wrapping RTP timestamps. The test
+also checks duplicates, non-speech notifications, eventual rebasing after a
+sustained route change, and clearing the history on a stream/codec reset.
+The existing missing-packet, DTX/CNG, DTMF, concealment and cooldown cases pass.
+
+The candidate's 30-second observation horizon matches the endpoint RTP-age window. No
+target ceiling, packet duration, bitrate, sender priority, relay behavior or
+latency gate was changed. A persistent new path still establishes a new floor;
+this is not a lifetime minimum or a claim of a universal network-delay bound.
+
+`history30-paired-replays.json` compares the same six recorded schedules with
+both receivers. Generator version 2 uses each participant's original tone
+bands, rather than normalizing all directions to 600/900 Hz. All 357 markers
+per direction remain present. Baseline maxima are 180–200 ms; the candidate
+maxima are 170–180 ms. Concealed and preemptively inserted samples decrease in
+every direction. These regenerated, virtual-clock results remain diagnostic;
+the full workload must independently pass the original gates.
+
+It did not: `history30-full-workload.json` records a 230.126-ms maximum, with
+all measured voice transitions present and all three files hash-verified, but
+all six video tails failing (7–12 changes rather than 14). There were no clock
+failures, late intervals or dropped PCM rows, and the shaper trace is complete.
+All owned processes were independently verified absent after teardown.
+
+The worst packet spends 10.293 ms before encoding, 100.207 ms in delivery,
+0.019 ms between ingress and WebRTC, and 119.607 ms before decoded PCM. Its
+receiver holds 134–144 ms with a 120-ms target. The new recorded arrivals
+also fail in a paired replay with the original receiver: merely extending
+the jitter estimator's history does not resolve the latency gate. It changes
+the target's input distribution as well as the speech timing decision.
+
+The candidate header and its regression were removed from production sources.
+`rejected-history30.patch` preserves the exact evaluated change. The next
+investigation keeps the original jitter estimator and tests a separate arrival
+floor for continuous-speech timing, without feeding it to `DelayManager`.
