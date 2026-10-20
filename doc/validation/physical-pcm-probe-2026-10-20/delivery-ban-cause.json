@@ -1,0 +1,31 @@
+{
+  "source": "SDK 19004dc5, original aborted physical PCM repeat",
+  "raw": {
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-repeat/phone-logcat.log": "10bd5bc2721309155bd8341a0666328b185b80e5721960c01d4f5bd82ede2647",
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-repeat/phone-devlog.json": "fb4d5304b794df748f6d38f32fd7ad1a30f2f9ece9fc911a684fe73c24894a58",
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-repeat/mac-runtime.log": "750eef049c401d323465e37f0107a5e3dae9493899f8d16f9073c5c01893a7b4"
+  },
+  "last_bans": [
+    "10-20 14:20:44.933  5552  5635 I veilnode: veil_observability: [1792495244.933] WARN  abuse.auto_ban     peer_id=0b29ccb3 violation threshold exceeded \u2014 banned for 20s",
+    "10-20 14:20:44.933  5552  5635 I veilnode: veil_observability: [1792495244.933] WARN  abuse.auto_ban     peer_id=0b29ccb3 violation threshold exceeded \u2014 banned for 25s"
+  ],
+  "first_window_error_at_last_ban": [
+    "10-20 14:20:44.933  5552  5635 I veilnode: veil_observability: [1792495244.933] WARN  session.violation  peer_id=0b29ccb3 reason=APP_DATA exceeds receive window"
+  ],
+  "first_media_ingress": "10-20 14:21:10.174  5552  5677 I veilnode: veilclient_ffi::media_ffi: media.ingress.arrived n=1 from=220e383a bytes=60",
+  "direct_receiver_totals": {
+    "datagrams": 298,
+    "decode_rejected": 0,
+    "ineligible": 0,
+    "dispatched": 298,
+    "rate_limited": 0,
+    "violations": 0,
+    "unexpected": 0
+  },
+  "background_file_retry_lines": [
+    "2026-10-20T14:20:41.938177 #217 xVeil[content]: stream-pull retry-open e92965c07a3a -> 220e383a (attempt 3, p2p)",
+    "2026-10-20T14:20:41.968685 #218 xVeil[content]: stream-pull retry-open ok e92965c07a3a -> 220e383a (attempt 3, direct-session)",
+    "2026-10-20T14:20:45.513206 #220 xVeil[content]: stream-pull retry-open e92965c07a3a -> 220e383a (attempt 4, p2p)"
+  ],
+  "interpretation": "QUIC dispatched counts calls, not successful endpoint routing. Global ban explains no media ingress. Original error does not distinguish unknown stream from real window exhaustion."
+}

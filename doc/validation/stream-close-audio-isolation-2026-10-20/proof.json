@@ -1,0 +1,206 @@
+{
+  "sdk_commit": "70a99c1fd7ff10b893ae4007b129038f48b97203",
+  "root_parent_commit": "e29a73a9d283d242fc5bc3fbc62450498008a619",
+  "tests": {
+    "passed": 955,
+    "ignored": 8,
+    "scope": [
+      "veil-app",
+      "veil-dispatcher",
+      "veil-session"
+    ]
+  },
+  "final_physical": {
+    "duration_seconds": 149.2781215410214,
+    "ring_seconds": 0.20799437502864748,
+    "cancel_at_seconds": 90.64463270799024,
+    "active_streams_cancelled": 2,
+    "decoded_tone_edges_matched": 290,
+    "decoded_tone_edges_unmatched": 0,
+    "log_counts": {
+      "phone-logcat.log": {
+        "session_violations": 0,
+        "automatic_bans": 0
+      },
+      "mac-runtime.log": {
+        "session_violations": 0,
+        "automatic_bans": 0
+      }
+    },
+    "ordinary_phone_apk_restored": true,
+    "file_http_waiters_ended_only_at_app_shutdown": true,
+    "live_speech_or_hardware_loudness_qualified": false,
+    "goal_complete": false
+  },
+  "owned_rust_source_sha256": {
+    "crates/veil-app/src/streams.rs": "82f55aa561384e4511ddef9297f8ea8eb0be27a2c625e90f1dce1b7343ac1432",
+    "crates/veil-dispatcher/src/app.rs": "a7eac8768d8ac21fff9ee648a4a07c6e56badc3cbca3a65584bb920fdd6a2376",
+    "crates/veil-dispatcher/src/app_stream_lifecycle_tests.rs": "d4d0a217bf5cc0c3a391a11401b8761ed444eff603250f159792561339256575",
+    "crates/veil-dispatcher/src/lib.rs": "7b072fdef5aca39d8285a99758aa7be9c3106ff2f66476e2f03bacf51c7f3644",
+    "crates/veil-session/src/reliable_streams.rs": "cec444661c7c84b4313392c3ea1b46636051b77bce2398268c22c26828d496f7",
+    "crates/veil-session/src/reliable_streams_tests.rs": "b275d9a8aa0a5b24bd473d3da5c1e89155d7fc07d1b1d8206994265b183080a6"
+  },
+  "foreign_root_diff_sha256": "529f7718edea4b6775cc11607bc2ff663a922cc3521b680cf94efa39d7b26859",
+  "artifacts": {
+    "/private/tmp/xveil-late-stream-before.txt": {
+      "sha256": "4345d792456b23d2228f6d94cdc31c6d4346fe5e1b92de72c65f11a0b8fe7354",
+      "bytes": 1687
+    },
+    "/private/tmp/xveil-late-stream-after.txt": {
+      "sha256": "d8b21870b78a78da4fb78966d0c893ba03f719c1e2a7cf3dfd10714a17d1bc80",
+      "bytes": 63369
+    },
+    "/private/tmp/xveil-close-coalesce-before.txt": {
+      "sha256": "3245863f448e277d717db096e4d482c4c5b3a68442ec7a10aea6aeaab83c5c31",
+      "bytes": 4796
+    },
+    "/private/tmp/xveil-close-coalesce-after.txt": {
+      "sha256": "9c945ce325f3de2d38cb3f4bced50fab98cb612ee675f2701cd27731c76fda4b",
+      "bytes": 126665
+    },
+    "/private/tmp/xveil-close-coalesce-format.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "/private/tmp/xveil-close-coalesce-mac-build.txt": {
+      "sha256": "a617f2f274e7cd779c748086c5f4a7d5ad1cd0dbe2f25405b94a12363dfab8b2",
+      "bytes": 833
+    },
+    "/private/tmp/xveil-close-coalesce-android-build.txt": {
+      "sha256": "78e2f2f509a725bd1e91e1fa10ea042f14f8ec29a3d63545ac23c3c970ddbe43",
+      "bytes": 1003
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-repeat/result.json": {
+      "sha256": "3698bfa8df0a6eab68b83a1c4db6c9ed22737271ae73b349a61909aefb8ee973",
+      "bytes": 8795
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-repeat/samples.json": {
+      "sha256": "52c91c252ba85ee2459a80957f296385dd1bfbe5462f927e5771b3970bbcb4d9",
+      "bytes": 90909
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-repeat/mac-runtime.log": {
+      "sha256": "750eef049c401d323465e37f0107a5e3dae9493899f8d16f9073c5c01893a7b4",
+      "bytes": 3198637
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-repeat/phone-logcat.log": {
+      "sha256": "10bd5bc2721309155bd8341a0666328b185b80e5721960c01d4f5bd82ede2647",
+      "bytes": 3211359
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-repeat/mac-devlog.json": {
+      "sha256": "7a351d817d5d8e6e63455bfd6f10e44c0ce933e971425b9409e3331f8c74c36a",
+      "bytes": 58519
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-repeat/phone-devlog.json": {
+      "sha256": "fb4d5304b794df748f6d38f32fd7ad1a30f2f9ece9fc911a684fe73c24894a58",
+      "bytes": 43692
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-repeat/mac-pcm-0.jsonl": {
+      "sha256": "3747ec32b2b7bfe2166515c3e2102fca7e95d8d353fdfb475a22a652fb467b1b",
+      "bytes": 522562
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-repeat/phone-pcm-0.jsonl": {
+      "sha256": "3ed81b590544374a725ad9a6cc4e57960098eb66c8263bd9b60a0cfc37488124",
+      "bytes": 620145
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-repeat/owned.json": {
+      "sha256": "e79613220cae0efde118072fb769e4025a120bb27da134934dd389e275045d64",
+      "bytes": 125
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-stream-fixed/result.json": {
+      "sha256": "02d883b84bcb26519798cf84769695d9965e2611cc97d6049409963cead8a5e2",
+      "bytes": 209
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-stream-fixed/mac-runtime.log": {
+      "sha256": "d7935860a84d3d7c4bc0eca7bee6fb3229fa46da4c1c01c38856a5505e4612d1",
+      "bytes": 186
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-stream-fixed/owned.json": {
+      "sha256": "42a4bd727b6e266472d8148ae599aa35aefdd85e6c367c398e91089593d904b5",
+      "bytes": 81
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-stream-fixed-ready/result.json": {
+      "sha256": "09fc100c45bc7ae6fa866f42390f9d9072287464adc71a6abbb978506bb1c879",
+      "bytes": 76487
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-stream-fixed-ready/samples.json": {
+      "sha256": "ec22288c9cef43a7ec436f2fd06deb39bc8356ddaee39e46ed58232ef34e2491",
+      "bytes": 7767751
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-stream-fixed-ready/mac-runtime.log": {
+      "sha256": "028e18d30247c5680dce713df1cb13f348724301c7c93630a7fb08dee70c5c67",
+      "bytes": 36380298
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-stream-fixed-ready/phone-logcat.log": {
+      "sha256": "ca8fd7cbe5202742ea16274f2f5e01daa8eea6ecb95d1eec5f1ec86d889730ee",
+      "bytes": 35797150
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-stream-fixed-ready/mac-devlog.json": {
+      "sha256": "228c6a4dc9a15519677b91c67e6eef0df038fb8c5f1425e0a270c46e5cbcf967",
+      "bytes": 204812
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-stream-fixed-ready/phone-devlog.json": {
+      "sha256": "dfb7fd593eac523fa403d59fb59a24e96446dfa06b78ebc695c8414766813705",
+      "bytes": 210337
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-stream-fixed-ready/mac-pcm-0.jsonl": {
+      "sha256": "59eee9a69a4f8ddad7e4dd0614e4dd0d64c7cb615faaf8fdd1a0c1897c10ab7b",
+      "bytes": 14007092
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-stream-fixed-ready/phone-pcm-0.jsonl": {
+      "sha256": "d27a833d1fe5aa356ffd64d5dde25318b78a5af8500957d25d356beab9fe5b31",
+      "bytes": 14075676
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-stream-fixed-ready/owned.json": {
+      "sha256": "b1965d131459cefd5a25f19091b387bc67d6b0695c66627b418dc09409a7eee7",
+      "bytes": 126
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-close-final/result.json": {
+      "sha256": "dce13a6979fbaaab3d8b84eeed6606b96011e1c5256afdf453143953154efa88",
+      "bytes": 55051
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-close-final/samples.json": {
+      "sha256": "a10f49eb12fe3712680e8e5008e7217254f9570e736c85c50cc7001bbdea9ef0",
+      "bytes": 3497485
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-close-final/mac-runtime.log": {
+      "sha256": "1c0280d8a295e697720941a4dc1cddf26084c07b13212b245eb70bb8795e52d5",
+      "bytes": 12772526
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-close-final/phone-logcat.log": {
+      "sha256": "239a8c254f25fb16beeff6b1e2b732cae513e5c73448e450f2b3dc5cecd6105f",
+      "bytes": 12139672
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-close-final/mac-devlog.json": {
+      "sha256": "5ad9dc47718b28e73fd10ae6e028433ef6232bd5090411c6f532f8fe643ec6c8",
+      "bytes": 108534
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-close-final/phone-devlog.json": {
+      "sha256": "79ababf19e4c0091a58bb12c3b5ded80c28fabbe9dc3daacdf3111371181483a",
+      "bytes": 105788
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-close-final/mac-pcm-0.jsonl": {
+      "sha256": "fbd4256e97cf137b71b9bc1c5905ce80abeeec1aad2ff927f28131b91f468efa",
+      "bytes": 7034452
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-close-final/phone-pcm-0.jsonl": {
+      "sha256": "bd34820a33aee8de7cd2bc694d3ed0a19b715bf29c1cad8b1005075f002d8844",
+      "bytes": 7070354
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-close-final/owned.json": {
+      "sha256": "6fd8daf099664e6a0be2092fce892c7ddac98691132b86ffb34c1784fda5b925",
+      "bytes": 126
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-check-pcm-stream-fixed.py": {
+      "sha256": "9d28fadb981ac52f4fb379bf9954b6f8adf1111d35682e56674291c3b628049b",
+      "bytes": 15527
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-check-pcm-stream-fixed-ready.py": {
+      "sha256": "386e7ef737750a19b8825f6a4a8c5f4f7d0bdb4bc81f54104606c2919b8a7d6a",
+      "bytes": 15539
+    },
+    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-check-pcm-close-final.py": {
+      "sha256": "59a56ba96664724447086579bd465cef482c3dc6928f747da12465a3303c29df",
+      "bytes": 16351
+    }
+  }
+}
