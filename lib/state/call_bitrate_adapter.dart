@@ -125,6 +125,7 @@ class CallBitrateAdapter {
   /// Degrade once RTT stands [bloatDegradeMs] above the windowed-min
   /// baseline; count a sample as good only within [bloatRecoverMs] of it.
   static const int bloatDegradeMs = 150;
+  static const int absoluteRttDegradeMs = 400;
   // With current playout measured independently, an otherwise healthy 120ms
   // path must not keep a reduced camera pinned behind a rare 20ms RTT minimum.
   // Keep a margin below degradation and retain the bounded acknowledged ramp.
@@ -1174,7 +1175,7 @@ class CallBitrateAdapter {
     // itself already high.
     final rttBad =
         rttMs > 0 &&
-        (rttMs >= 400 ||
+        (rttMs >= absoluteRttDegradeMs ||
             (baseline != null && rttMs >= baseline + bloatDegradeMs));
     final rttGood =
         rttMs == 0 ||
@@ -1232,10 +1233,8 @@ class CallBitrateAdapter {
     // not prove an audio failure that needs another twelve healthy samples.
     // Every expected audio direction must have measured playout; legacy,
     // unknown, congested and idle producers retain the ordinary reset.
-    final rttGrowthHold =
+    final measuredAudioPathHealthy =
         audioHealthyApartFromRtt &&
-        !rttGood &&
-        !rttBad &&
         usePlayout &&
         (!sendAudioExpected || requirePeerAudioPlayout) &&
         (!receiveAudioExpected || requireAudioReceivePlayout) &&
@@ -1245,6 +1244,13 @@ class CallBitrateAdapter {
         !sourceBudgetPressured &&
         videoSendExpected &&
         measuredVideoProgress;
+    final rttGrowthHold = measuredAudioPathHealthy && !rttGood && !rttBad;
+    // Relative RTT bloat is a warning while both audio directions remain
+    // measured and healthy. It still resets growth credit and any pending
+    // ramp, but cannot retire startup for the rest of the call. Absolute
+    // RTT failure, unproven audio and real impairments keep that protection.
+    final relativeRttWarning =
+        measuredAudioPathHealthy && rttBad && rttMs < absoluteRttDegradeMs;
     _growthSampleTransient =
         rttGrowthHold ||
         (audioWithinRecoveryLimits &&
@@ -1255,6 +1261,7 @@ class CallBitrateAdapter {
     _bufferInputs?.addAll({
       'buffer_growth_pending': bufferGrowing && !bufferPressure,
       'rtt_growth_hold': rttGrowthHold,
+      'relative_rtt_warning': relativeRttWarning,
       'audio_within_recovery_limits': audioWithinRecoveryLimits,
       'video_recovery_eligible': videoSendExpected,
       'audio_receive_age_ms': audioReceiveAgeMs,
@@ -1264,7 +1271,10 @@ class CallBitrateAdapter {
     // Keep the measured rung while capture is off; healthy audio may still
     // release a protection pause, so an enabled sender can try its sparse floor.
     final good = audioGood && !newDrops && !freshMediaLoss && videoSendExpected;
-    if (networkBad || receiveOutage || peerPlayoutOutage || freshMediaLoss) {
+    if ((networkBad && !relativeRttWarning) ||
+        receiveOutage ||
+        peerPlayoutOutage ||
+        freshMediaLoss) {
       _startupRecovery = false;
       _startupGoodStreak = 0;
     }
