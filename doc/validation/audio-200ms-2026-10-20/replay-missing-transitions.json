@@ -1,0 +1,15 @@
+{
+  "packets": 8899,
+  "edges": 353,
+  "expected_edges": 357,
+  "ordinal_mismatches": 0,
+  "max_ms": 4320.0,
+  "source_at_seconds": 239.37,
+  "concealed_samples": 214475,
+  "silent_concealed_samples": 174080,
+  "interruption_count": 1,
+  "inserted_samples": 27308,
+  "removed_samples": 14640,
+  "discarded_ms": 670,
+  "sequence_complete": false
+}
