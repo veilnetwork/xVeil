@@ -1,0 +1,349 @@
+{
+  "matching": "full capture ordinals; no phase resetting",
+  "default_summary_reproduces_exactly": true,
+  "paths": [
+    {
+      "receiver": 0,
+      "source": 1,
+      "phases": [
+        {
+          "phase": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "max_ms": 130.0813749548979,
+          "peak": {
+            "source_at_seconds": 5.05000600067433,
+            "decoded_at_seconds": 5.180087375629228,
+            "ordinal": 5,
+            "delay_ms": 130.0813749548979
+          }
+        },
+        {
+          "phase": "loaded-narrow",
+          "matched": 99,
+          "missing": 0,
+          "max_ms": 190.30645833117887,
+          "peak": {
+            "source_at_seconds": 104.0300117089646,
+            "decoded_at_seconds": 104.22031816729577,
+            "ordinal": 103,
+            "delay_ms": 190.30645833117887
+          }
+        },
+        {
+          "phase": "after-step-settling",
+          "matched": 60,
+          "missing": 0,
+          "max_ms": 150.09962499607354,
+          "peak": {
+            "source_at_seconds": 120.19000683398917,
+            "decoded_at_seconds": 120.34010645898525,
+            "ordinal": 119,
+            "delay_ms": 150.09962499607354
+          }
+        },
+        {
+          "phase": "wide-steady",
+          "matched": 178,
+          "missing": 0,
+          "max_ms": 120.16962497727945,
+          "peak": {
+            "source_at_seconds": 211.09001120901667,
+            "decoded_at_seconds": 211.21018083399395,
+            "ordinal": 209,
+            "delay_ms": 120.16962497727945
+          }
+        }
+      ],
+      "source_edges": 358,
+      "decoded_edges": 358,
+      "matching": "ordinal_from_capture_start"
+    },
+    {
+      "receiver": 0,
+      "source": 2,
+      "phases": [
+        {
+          "phase": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "max_ms": 120.29125000117347,
+          "peak": {
+            "source_at_seconds": 18.18000875064172,
+            "decoded_at_seconds": 18.300300000642892,
+            "ordinal": 18,
+            "delay_ms": 120.29125000117347
+          }
+        },
+        {
+          "phase": "loaded-narrow",
+          "matched": 99,
+          "missing": 0,
+          "max_ms": 200.0834999489598,
+          "peak": {
+            "source_at_seconds": 77.77000712568406,
+            "decoded_at_seconds": 77.97009062563302,
+            "ordinal": 77,
+            "delay_ms": 200.0834999489598
+          }
+        },
+        {
+          "phase": "after-step-settling",
+          "matched": 60,
+          "missing": 0,
+          "max_ms": 150.2068749978207,
+          "peak": {
+            "source_at_seconds": 124.23001225065673,
+            "decoded_at_seconds": 124.38021912565455,
+            "ordinal": 123,
+            "delay_ms": 150.2068749978207
+          }
+        },
+        {
+          "phase": "wide-steady",
+          "matched": 178,
+          "missing": 0,
+          "max_ms": 130.1731250132434,
+          "peak": {
+            "source_at_seconds": 298.96001320896903,
+            "decoded_at_seconds": 299.0901863339823,
+            "ordinal": 296,
+            "delay_ms": 130.1731250132434
+          }
+        }
+      ],
+      "source_edges": 358,
+      "decoded_edges": 358,
+      "matching": "ordinal_from_capture_start"
+    },
+    {
+      "receiver": 1,
+      "source": 0,
+      "phases": [
+        {
+          "phase": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "max_ms": 140.25662501808256,
+          "peak": {
+            "source_at_seconds": 18.18000787566416,
+            "decoded_at_seconds": 18.320264500682242,
+            "ordinal": 18,
+            "delay_ms": 140.25662501808256
+          }
+        },
+        {
+          "phase": "loaded-narrow",
+          "matched": 99,
+          "missing": 0,
+          "max_ms": 210.24983329698443,
+          "peak": {
+            "source_at_seconds": 102.01001679233741,
+            "decoded_at_seconds": 102.2202666256344,
+            "ordinal": 101,
+            "delay_ms": 210.24983329698443
+          }
+        },
+        {
+          "phase": "after-step-settling",
+          "matched": 60,
+          "missing": 0,
+          "max_ms": 150.22870828397572,
+          "peak": {
+            "source_at_seconds": 124.2300092090154,
+            "decoded_at_seconds": 124.38023791729938,
+            "ordinal": 123,
+            "delay_ms": 150.22870828397572
+          }
+        },
+        {
+          "phase": "wide-steady",
+          "matched": 178,
+          "missing": 0,
+          "max_ms": 120.23374997079372,
+          "peak": {
+            "source_at_seconds": 298.9600117090158,
+            "decoded_at_seconds": 299.0802454589866,
+            "ordinal": 296,
+            "delay_ms": 120.23374997079372
+          }
+        }
+      ],
+      "source_edges": 358,
+      "decoded_edges": 358,
+      "matching": "ordinal_from_capture_start"
+    },
+    {
+      "receiver": 1,
+      "source": 2,
+      "phases": [
+        {
+          "phase": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "max_ms": 120.15337502816692,
+          "peak": {
+            "source_at_seconds": 10.100009750633035,
+            "decoded_at_seconds": 10.220163125661202,
+            "ordinal": 10,
+            "delay_ms": 120.15337502816692
+          }
+        },
+        {
+          "phase": "loaded-narrow",
+          "matched": 99,
+          "missing": 0,
+          "max_ms": 190.2286249678582,
+          "peak": {
+            "source_at_seconds": 104.03000920900377,
+            "decoded_at_seconds": 104.22023783397162,
+            "ordinal": 103,
+            "delay_ms": 190.2286249678582
+          }
+        },
+        {
+          "phase": "after-step-settling",
+          "matched": 60,
+          "missing": 0,
+          "max_ms": 150.13137500500306,
+          "peak": {
+            "source_at_seconds": 121.2000176673173,
+            "decoded_at_seconds": 121.3501490423223,
+            "ordinal": 120,
+            "delay_ms": 150.13137500500306
+          }
+        },
+        {
+          "phase": "wide-steady",
+          "matched": 178,
+          "missing": 0,
+          "max_ms": 120.23225001757964,
+          "peak": {
+            "source_at_seconds": 298.96001320896903,
+            "decoded_at_seconds": 299.0802454589866,
+            "ordinal": 296,
+            "delay_ms": 120.23225001757964
+          }
+        }
+      ],
+      "source_edges": 358,
+      "decoded_edges": 358,
+      "matching": "ordinal_from_capture_start"
+    },
+    {
+      "receiver": 2,
+      "source": 0,
+      "phases": [
+        {
+          "phase": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "max_ms": 130.32850000308827,
+          "peak": {
+            "source_at_seconds": 18.18000787566416,
+            "decoded_at_seconds": 18.310336375667248,
+            "ordinal": 18,
+            "delay_ms": 130.32850000308827
+          }
+        },
+        {
+          "phase": "loaded-narrow",
+          "matched": 99,
+          "missing": 0,
+          "max_ms": 190.0582083617337,
+          "peak": {
+            "source_at_seconds": 75.75002129230415,
+            "decoded_at_seconds": 75.94007950066589,
+            "ordinal": 75,
+            "delay_ms": 190.0582083617337
+          }
+        },
+        {
+          "phase": "after-step-settling",
+          "matched": 60,
+          "missing": 0,
+          "max_ms": 150.09970834944397,
+          "peak": {
+            "source_at_seconds": 120.19000679231249,
+            "decoded_at_seconds": 120.34010650066193,
+            "ordinal": 119,
+            "delay_ms": 150.09970834944397
+          }
+        },
+        {
+          "phase": "wide-steady",
+          "matched": 178,
+          "missing": 0,
+          "max_ms": 120.31254166504368,
+          "peak": {
+            "source_at_seconds": 298.9600117090158,
+            "decoded_at_seconds": 299.08032425068086,
+            "ordinal": 296,
+            "delay_ms": 120.31254166504368
+          }
+        }
+      ],
+      "source_edges": 358,
+      "decoded_edges": 358,
+      "matching": "ordinal_from_capture_start"
+    },
+    {
+      "receiver": 2,
+      "source": 1,
+      "phases": [
+        {
+          "phase": "audio-only",
+          "matched": 15,
+          "missing": 0,
+          "max_ms": 130.07991662016138,
+          "peak": {
+            "source_at_seconds": 5.05000600067433,
+            "decoded_at_seconds": 5.180085917294491,
+            "ordinal": 5,
+            "delay_ms": 130.07991662016138
+          }
+        },
+        {
+          "phase": "loaded-narrow",
+          "matched": 99,
+          "missing": 0,
+          "max_ms": 190.04783337004483,
+          "peak": {
+            "source_at_seconds": 72.7200071256375,
+            "decoded_at_seconds": 72.91005495900754,
+            "ordinal": 72,
+            "delay_ms": 190.04783337004483
+          }
+        },
+        {
+          "phase": "after-step-settling",
+          "matched": 60,
+          "missing": 0,
+          "max_ms": 150.09966667275876,
+          "peak": {
+            "source_at_seconds": 120.19000683398917,
+            "decoded_at_seconds": 120.34010650066193,
+            "ordinal": 119,
+            "delay_ms": 150.09966667275876
+          }
+        },
+        {
+          "phase": "wide-steady",
+          "matched": 178,
+          "missing": 0,
+          "max_ms": 120.10783335426822,
+          "peak": {
+            "source_at_seconds": 252.50000654230826,
+            "decoded_at_seconds": 252.62011437566252,
+            "ordinal": 250,
+            "delay_ms": 120.10783335426822
+          }
+        }
+      ],
+      "source_edges": 358,
+      "decoded_edges": 358,
+      "matching": "ordinal_from_capture_start"
+    }
+  ],
+  "analysis_source_sha256": "9783edc97b5f6ca75963f327ac7ab4bc0a30277b8d28f8339462ab855d4fcba2"
+}
