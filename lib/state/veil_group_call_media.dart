@@ -18,6 +18,7 @@ import 'android_screen_capture.dart';
 import 'call_service.dart' show CallMediaDevice, screenSourceDeviceKind;
 import 'call_audio_route.dart';
 import 'call_microphone_state.dart';
+import 'call_network_activity.dart';
 import 'desktop_screen_capture_start.dart';
 import 'call_bitrate_adapter.dart';
 import 'call_audio_receive_activity.dart';
@@ -327,6 +328,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     bool? desktopScreenCaptureSupported,
     this._statsInterval = const Duration(seconds: 1),
     DateTime Function()? now,
+    CallNetworkActivity? networkActivity,
   }) : // Public `roomMediaSecret:` param → private field, as with `media:` on
        // GroupCallService.
        // ignore: prefer_initializing_formals
@@ -335,7 +337,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
        _requestCamera = requestCamera ?? _defaultCameraPermission,
        _desktopScreenCaptureSupported =
            desktopScreenCaptureSupported ?? Platform.isMacOS,
-       _now = now ?? DateTime.now;
+       _now = now ?? DateTime.now,
+       _networkActivity = networkActivity ?? CallNetworkActivity.shared;
 
   // Keep this in sync with the platforms that bundle the group-engine ABI.
   static bool get isSupportedPlatform =>
@@ -350,6 +353,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   final bool _desktopScreenCaptureSupported;
   final Duration _statsInterval;
   final DateTime Function() _now;
+  final CallNetworkActivity _networkActivity;
+  final _networkActivityOwner = Object();
   final AndroidScreenCaptureFactory _screenCaptureFactory =
       createAndroidScreenCapture;
   final Map<String, _GroupPeerChannel> _peers = {};
@@ -382,6 +387,9 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
           'local_source_feedback_queued': _sourceFeedbackQueued,
           'local_source_feedback_skipped': _sourceFeedbackSkipped,
           'local_source_priority': _sourcePriority.diagnostics,
+          'call_network_activity_active': _networkActivity.heldBy(
+            _networkActivityOwner,
+          ),
           if (_audioAdapter case final adapter?)
             'local_audio_budget': {
               'packet_ms': adapter.target.packetMs,
@@ -477,44 +485,50 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     final engine = _engineFactory(localId);
     if (engine == null) return false;
     _engine = engine;
-    // Capture intent can change while permission or channel setup is pending.
-    // Apply it before audio starts, then keep it as the video policy's source.
-    engine.setMicMuted(_microphoneState.mutedForCall(call.callId));
-    // Before capture opens: keeps AudioRecord unmuted once the screen locks;
-    // released by _stopLocked on every teardown path.
-    if (call.media.audio) {
-      await AndroidCallForegroundService.setActive(true);
-    }
-    await _syncPeersLocked(call);
-    if (call.media.audio && engine.supportsAudioBudget) {
-      _audioAdapter = GroupCallAudioAdapter();
-      if (_applyAudioBudget(engine, _audioAdapter!) == false) {
+    try {
+      await _networkActivity.acquire(_networkActivityOwner);
+      // Capture intent can change while permission or channel setup is pending.
+      // Apply it before audio starts, then keep it as the video policy's source.
+      engine.setMicMuted(_microphoneState.mutedForCall(call.callId));
+      // Before capture opens: keeps AudioRecord unmuted once the screen locks;
+      // released by _stopLocked on every teardown path.
+      if (call.media.audio) {
+        await AndroidCallForegroundService.setActive(true);
+      }
+      await _syncPeersLocked(call);
+      if (call.media.audio && engine.supportsAudioBudget) {
+        _audioAdapter = GroupCallAudioAdapter();
+        if (_applyAudioBudget(engine, _audioAdapter!) == false) {
+          await _stopLocked();
+          return false;
+        }
+      }
+      if (call.media.audio) {
+        await callAudioRouter.useDefaultFor(call.media);
+      }
+      final audioReady = !call.media.audio || engine.startAudio();
+      var videoReady = !(call.media.video || call.media.screen);
+      if (!videoReady) {
+        videoReady = await _startVideoLocked(
+          startCamera: call.cameraOn && call.media.video,
+          startScreen: call.screenOn || call.media.screen,
+        );
+      }
+      if (!audioReady || !videoReady) {
         await _stopLocked();
         return false;
       }
-    }
-    if (call.media.audio) {
-      await callAudioRouter.useDefaultFor(call.media);
-    }
-    final audioReady = !call.media.audio || engine.startAudio();
-    var videoReady = !(call.media.video || call.media.screen);
-    if (!videoReady) {
-      videoReady = await _startVideoLocked(
-        startCamera: call.cameraOn && call.media.video,
-        startScreen: call.screenOn || call.media.screen,
+      _statsTimer = Timer.periodic(_statsInterval, (_) => _pollStats(engine));
+      devLog(
+        () =>
+            'xVeil[group-call-media]: audio started peers=${_peers.length} '
+            'video=${call.media.video || call.media.screen}',
       );
-    }
-    if (!audioReady || !videoReady) {
+      return true;
+    } catch (_) {
       await _stopLocked();
-      return false;
+      rethrow;
     }
-    _statsTimer = Timer.periodic(_statsInterval, (_) => _pollStats(engine));
-    devLog(
-      () =>
-          'xVeil[group-call-media]: audio started peers=${_peers.length} '
-          'video=${call.media.video || call.media.screen}',
-    );
-    return true;
   });
 
   @override
@@ -1563,8 +1577,12 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     _supportsAudioReceiveStats = false;
     _localIdHex = null;
     _localNode = null;
-    await callAudioRouter.release();
-    await AndroidCallForegroundService.setActive(false);
+    try {
+      await callAudioRouter.release();
+    } finally {
+      await _networkActivity.release(_networkActivityOwner);
+      await AndroidCallForegroundService.setActive(false);
+    }
   }
 
   Future<void> _startAndroidCamera(GroupAudioEngine engine) async {
