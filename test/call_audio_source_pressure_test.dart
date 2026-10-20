@@ -62,7 +62,7 @@ void main() {
   }
 
   test(
-    'measured small damage yields briefly and preserves genuine recovery credit',
+    'measured small damage does not contract transport and preserves recovery credit',
     () {
       final policy = CallAudioSourcePressure();
       Map<String, Object> stats([int pressure = 0]) => {
@@ -75,14 +75,14 @@ void main() {
       recover(policy);
       expect(
         sample(policy, concealmentReportUs: 100, nativeStats: stats()),
-        isTrue,
+        isFalse,
       );
       expect(
         sample(policy, concealmentReportUs: 200, nativeStats: stats()),
-        isTrue,
+        isFalse,
       );
-      expect(sample(policy, nativeStats: stats()), isTrue);
-      expect(sample(policy, nativeStats: stats()), isTrue);
+      expect(sample(policy, nativeStats: stats()), isFalse);
+      expect(sample(policy, nativeStats: stats()), isFalse);
       expect(sample(policy, nativeStats: stats()), isFalse);
       expect(sample(policy, nativeStats: stats(1000)), isTrue);
       for (var n = 0; n < 8; n++) {
@@ -104,7 +104,7 @@ void main() {
   );
 
   test(
-    'known incoming catch-up stays brief when peer duration support is unknown',
+    'known small incoming catch-up does not contract the transport window',
     () {
       final policy = CallAudioSourcePressure();
       final stats = <String, Object>{
@@ -115,11 +115,25 @@ void main() {
         'audio_peer_soft_loss_report_us': 0,
       };
       recover(policy);
-      expect(sample(policy, recovered: true, nativeStats: stats), isTrue);
-      expect(sample(policy, recovered: true, nativeStats: stats), isTrue);
-      expect(sample(policy, nativeStats: stats), isTrue);
-      expect(sample(policy, nativeStats: stats), isTrue);
+      expect(sample(policy, recovered: true, nativeStats: stats), isFalse);
+      expect(sample(policy, recovered: true, nativeStats: stats), isFalse);
       expect(sample(policy, nativeStats: stats), isFalse);
+      expect(
+        sample(
+          policy,
+          recovered: true,
+          nativeStats: {...stats, 'worker_stalled': 1},
+        ),
+        isNull,
+        reason: 'stalled audio measurements cannot authorize transport growth',
+      );
+      expect(sample(policy, nativeStats: stats), isFalse);
+      expect(sample(policy, nativeStats: stats), isFalse);
+      expect(
+        sample(policy, recovered: true, nativeStats: stats, local: null),
+        isNull,
+        reason: 'known damage counters do not invent healthy missing feedback',
+      );
     },
   );
 

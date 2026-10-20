@@ -1,0 +1,225 @@
+{
+  "ok": false,
+  "duration_seconds": 360,
+  "rate_kbps": 1024,
+  "sdk_sha256": "f32b4510d90a220d7db81e85dbbb8dea53bd53050e586d0204daf3e523878c6e",
+  "media_sha256": "c8f0b3e33d192f0b5280815c85f5dcbb56a0b817c3cf43110a2c6a36e35d94c9",
+  "fixture_sources": {
+    "group-process-preflight.py": "2c6812847f0cf2e7581321884adfa24a0b83f3be46028b49e8e64dba5609435d",
+    "group_codec_sdk.py": "f6c3f2274b1853d1d7d209095fd5d73b4833c130ff335afbd353d7c06940235d",
+    "native_pcm_driver.py": "2c06e9d4c2c903686d6243fc5a5d7f33ee344ec633874ffe208540307bce6662",
+    "native_pcm_driver.cc": "2efd0cffa95f1f8b87c72c1f2b9d7adbe1ac28903cf3adcbfdd2187928503838",
+    "group_pcm_timing.py": "8231987186cee719d21dd88b9d4429f0461cd785f5da63a33a8097c6782a2925",
+    "udp_fifo_shaper.py": "530f6343d103708eff1b0af16a112995955192f4c7511f33912584850f996605",
+    "group_process_files.py": "1543a7e862fca7a4597581ab9ada1ee42fc6a0cafa771a0b54fb7ec3786fe47e",
+    "decoded_video_progress.py": "574271a1f90a8affaf9e8dfb6c76b5e082e375981dfe9ef1f0e2fcd8ade5ae63",
+    "scripts/group_audio_policy.dart": "9a87d452084fcb421b9c22e5cd2c3bcce20b37fcd35f8df4bcd8f60db576330e",
+    "scripts/group_codec_policy.dart": "9dc12349fcb5e9ea6db27bfe7e49d687911b20810e6e63df70aa3678048e4ded",
+    "lib/state/call_audio_source_pressure.dart": "127fe8e7b74ecb11b8a167a8c1853b6d0972a2945c5a1b332385f1c23206454a",
+    "lib/state/group_call_audio_adapter.dart": "7955c20ef9783a0703aad1f2bbe8a8737ffff6ba7853301cb7e06d0e0c56f573",
+    "lib/state/group_call_source_priority.dart": "0171d17c0b57384f2e97f61e539a185bd2f9112241964aa44554916f0dae5bcc",
+    "lib/state/call_audio_buffer_window.dart": "8953d06808b934ba38be15a2c5d9c3f92443f255d74c1f8673c9ec095108afe9",
+    "lib/state/call_audio_transient_loss.dart": "66ae8b32025e3fa19ce717cca94c30d50b3495d47c1c050f6354483a24c8b326",
+    "lib/state/call_audio_soft_loss.dart": "3271a16593d6b1ec0323010bab829b24aa71753424ade0b31a4b36c319da3155",
+    "lib/state/call_bitrate_adapter.dart": "eb3f0f8ca439bd68a35e9fc84dcf8f4c488d4f66b4915554ee76c6053ae9212c",
+    "lib/state/call_audio_receive_activity.dart": "eaf5b94ea4214148f8752852940b932298369c1b6cb864e0cb98d8d5730783d1",
+    "lib/state/call_rtcp_loss.dart": "f04713b986d339979d2c2d81d6d0163ccb2a77ac36c8f137db6f44a9e3d4b0fc"
+  },
+  "files": [
+    {
+      "sender": 2,
+      "receiver": 0,
+      "queued": 524288,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "completion_seconds": 352.0545524159679,
+      "authentication_errors": 0,
+      "duplicates": 0,
+      "async_failures": {},
+      "write_error": false,
+      "late_fragments": 0
+    },
+    {
+      "sender": 0,
+      "receiver": 1,
+      "queued": 524288,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "completion_seconds": 352.3593578750151,
+      "authentication_errors": 0,
+      "duplicates": 0,
+      "async_failures": {},
+      "write_error": false,
+      "late_fragments": 0
+    },
+    {
+      "sender": 1,
+      "receiver": 2,
+      "queued": 524288,
+      "received": 524288,
+      "missing_chunks": 0,
+      "hash_matches": true,
+      "completion_seconds": 352.31817620800575,
+      "authentication_errors": 0,
+      "duplicates": 0,
+      "async_failures": {},
+      "write_error": false,
+      "late_fragments": 0
+    }
+  ],
+  "video_paths": [
+    {
+      "receiver": 0,
+      "source": 1,
+      "frame_witness": "full-rgba-native-sequence-v1",
+      "decoded_pulls": 270,
+      "tail_changes": 6,
+      "decoded_counter": {
+        "frames": 721,
+        "observation_seconds": 337.9901073750225,
+        "fps": 2.1331985293877334
+      },
+      "last_minute_decoded_counter": {
+        "frames": 213,
+        "observation_seconds": 58.99454133299878,
+        "fps": 3.6105035345169774
+      },
+      "last_dimensions": [
+        160,
+        120
+      ],
+      "screen_presentation_proof": false,
+      "required_tail_content_changes": 14
+    },
+    {
+      "receiver": 0,
+      "source": 2,
+      "frame_witness": "full-rgba-native-sequence-v1",
+      "decoded_pulls": 257,
+      "tail_changes": 5,
+      "decoded_counter": {
+        "frames": 576,
+        "observation_seconds": 336.99013829097385,
+        "fps": 1.7092488312006724
+      },
+      "last_minute_decoded_counter": {
+        "frames": 62,
+        "observation_seconds": 57.99498529097764,
+        "fps": 1.0690579485265501
+      },
+      "last_dimensions": [
+        320,
+        240
+      ],
+      "screen_presentation_proof": false,
+      "required_tail_content_changes": 14
+    },
+    {
+      "receiver": 1,
+      "source": 0,
+      "frame_witness": "full-rgba-native-sequence-v1",
+      "decoded_pulls": 255,
+      "tail_changes": 10,
+      "decoded_counter": {
+        "frames": 388,
+        "observation_seconds": 338.0035531249596,
+        "fps": 1.1479169269459033
+      },
+      "last_minute_decoded_counter": {
+        "frames": 71,
+        "observation_seconds": 59.005067457968835,
+        "fps": 1.2032864812937556
+      },
+      "last_dimensions": [
+        320,
+        240
+      ],
+      "screen_presentation_proof": false,
+      "required_tail_content_changes": 14
+    },
+    {
+      "receiver": 1,
+      "source": 2,
+      "frame_witness": "full-rgba-native-sequence-v1",
+      "decoded_pulls": 273,
+      "tail_changes": 6,
+      "decoded_counter": {
+        "frames": 587,
+        "observation_seconds": 336.9859774169745,
+        "fps": 1.7419122436470613
+      },
+      "last_minute_decoded_counter": {
+        "frames": 61,
+        "observation_seconds": 57.987662333995104,
+        "fps": 1.0519479065849309
+      },
+      "last_dimensions": [
+        320,
+        240
+      ],
+      "screen_presentation_proof": false,
+      "required_tail_content_changes": 14
+    },
+    {
+      "receiver": 2,
+      "source": 0,
+      "frame_witness": "full-rgba-native-sequence-v1",
+      "decoded_pulls": 275,
+      "tail_changes": 11,
+      "decoded_counter": {
+        "frames": 382,
+        "observation_seconds": 337.9917380840052,
+        "fps": 1.1302051410057157
+      },
+      "last_minute_decoded_counter": {
+        "frames": 67,
+        "observation_seconds": 58.99517341697356,
+        "fps": 1.1356861268370027
+      },
+      "last_dimensions": [
+        320,
+        240
+      ],
+      "screen_presentation_proof": false,
+      "required_tail_content_changes": 14
+    },
+    {
+      "receiver": 2,
+      "source": 1,
+      "frame_witness": "full-rgba-native-sequence-v1",
+      "decoded_pulls": 282,
+      "tail_changes": 8,
+      "decoded_counter": {
+        "frames": 706,
+        "observation_seconds": 337.99155925004743,
+        "fps": 2.088809559524232
+      },
+      "last_minute_decoded_counter": {
+        "frames": 212,
+        "observation_seconds": 58.995164125051815,
+        "fps": 3.5935148777724297
+      },
+      "last_dimensions": [
+        160,
+        120
+      ],
+      "screen_presentation_proof": false,
+      "required_tail_content_changes": 14
+    }
+  ],
+  "node_stop_results": [
+    0,
+    0,
+    0,
+    0
+  ],
+  "remaining_sockets": 0,
+  "workers_exited": true,
+  "raw_artifact_root": "/Users/vart/.cache/codex/xveil-native-video-adaptation-20261020/group-final-360",
+  "audio_matched": 2112,
+  "audio_missing": 0,
+  "audio_max_ms": 260.1791250053793,
+  "disposition": "Pixel-cap removal not retained: larger resolution did not establish better overall quality."
+}

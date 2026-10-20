@@ -169,11 +169,11 @@ class CallAudioSourcePressure {
         receivePressure ||
         (peerTarget != null && peerTarget >= playoutDegradeMs) ||
         (receiveTarget != null && receiveTarget >= playoutDegradeMs);
-    final good =
+    final measuredHealthy =
         !bad &&
+        nativeStats?['worker_stalled'] != 1 &&
         _peerBuffer.growing != true &&
         _receiveBuffer.growing != true &&
-        !transient &&
         !unknown &&
         !interrupted &&
         !newDrop &&
@@ -189,6 +189,9 @@ class CallAudioSourcePressure {
             soft.send != null) &&
         (!(localConcealed || recovered || soft.receive == true) ||
             soft.receive != null);
+    final good = measuredHealthy && !transient;
+    final measuredSmallTransient =
+        measuredHealthy && durationKnown && transient;
     final shortHold =
         durationKnown &&
         (_transientLoss.holdingGrowth || _receiveTransientLoss.holdingGrowth);
@@ -196,25 +199,29 @@ class CallAudioSourcePressure {
       _recoverySamples = CallBitrateAdapter.recoverAfter;
       _pressured = true;
       _healthy = 0;
-    } else if (transient) {
+    } else if (transient && !durationKnown) {
       if (!_pressured) {
         // Catch-up already restored the queue. Briefly yield our producers,
         // without shortening any still-active genuine congestion recovery.
         _recoverySamples = CallBitrateAdapter.startupRecoverAfter;
         _healthy = 0;
       }
-      // Current measured short damage pauses producers without repeatedly
-      // erasing the healthy recovery credit from an earlier real failure.
-      if (!durationKnown) _healthy = 0;
+      _healthy = 0;
       _pressured = true;
     } else if (good) {
       if (++_healthy >= _recoverySamples && !shortHold) _pressured = false;
-    } else {
+    } else if (!measuredSmallTransient) {
       _healthy = 0;
     }
     // Unknown/marginal measurements cannot authorize producer growth, but
     // must not renew a congestion lease after measured pressure has cleared.
-    return _pressured ? true : (good ? false : null);
+    // A true node report contracts shared transport flight and source budgets;
+    // it is stronger than the video ladder's brief growth hold. Known small
+    // damage must not repeatedly halve transport credit while audio is healthy.
+    // Real pressure/recovery remains latched; unknown peer counters keep the
+    // conservative legacy path. Video's independent transient tracker still
+    // pauses growth without reducing its target.
+    return _pressured ? true : (good || measuredSmallTransient ? false : null);
   }
 
   void reset() => _reset();
