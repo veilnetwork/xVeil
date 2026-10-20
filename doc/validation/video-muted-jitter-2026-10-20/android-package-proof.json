@@ -1,0 +1,17 @@
+{
+  "apk_sha256": "6b1c54970d147293da9194e0b3a521733811da5c52bbe8328f4111e32f411a7d",
+  "before_apk_sha256": "4a560f8effe775bc7909fbd75c2ce331b936dbe53a858d7541e204cb8afd412a",
+  "version_code": 12620,
+  "same_signer": true,
+  "profile_aot": true,
+  "recovery_diagnostic_present_in_aot": true,
+  "compiled_qa_version_present_in_aot": true,
+  "packaged_libraries": {
+    "lib/arm64-v8a/libveilclient_ffi.so": "8063f28785c392eb25aa50f2ef9c47b36c80cd1ad12ba40723f84ee42c42f30d",
+    "lib/arm64-v8a/libveil_media.so": "55052ea79ceb7cdd1e2f2b2651dfe82a4a39d7693cd089d64c872344ece7190c",
+    "lib/arm64-v8a/libhidden_volume_ffi.so": "ab4a0cf8b75f2be9e6d525c40f48c613aa13d881307e13464ef0e1a3af840156",
+    "lib/arm64-v8a/libapp.so": "02c7f40dbc7dcb58ba6b53e51b1e916da0c715943ea36045c4ef2f12e101da68"
+  },
+  "storage_library_preserved_from_device": true,
+  "sdk_media_replaced_with_fresh_proven_binaries": true
+}

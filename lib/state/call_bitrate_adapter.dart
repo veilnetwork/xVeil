@@ -1178,12 +1178,23 @@ class CallBitrateAdapter {
         (rttMs < 250 &&
             (baseline == null || rttMs <= baseline + bloatRecoverMs));
 
+    // With both microphones intentionally off, this is video RTP packet
+    // jitter, not an audio playout measurement. Sparse VP8 frames produced
+    // 50–110 ms jitter on a loss-free 11 ms path, cutting the camera to one
+    // fps and preventing its recovery. Let video delivery/loss, RTT and the
+    // acknowledged source ramp establish headroom in that mode. Any expected
+    // audio direction retains the existing jitter guard.
+    final audioExpected =
+        sendAudioExpected ||
+        receiveAudioExpected ||
+        requireAudioReceive ||
+        requireAudioReceivePlayout ||
+        requirePeerAudioPlayout;
+    final jitterBad = audioExpected && txJitterMs >= 80;
+    final jitterGood = !audioExpected || txJitterMs < 40;
+
     final networkBad =
-        txLossPct >= 5 ||
-        txJitterMs >= 80 ||
-        rttBad ||
-        newDrops ||
-        newAudioDrops;
+        txLossPct >= 5 || jitterBad || rttBad || newDrops || newAudioDrops;
     // With measured playout support, RTT/loss/gaps may withhold growth but
     // a growing/capped buffer or fresh media loss can reduce video.
     // Video-only and legacy calls retain their transport-based ladder.
@@ -1193,7 +1204,7 @@ class CallBitrateAdapter {
         feedbackAvailable &&
         rttMs > 0 &&
         txLossPct <= 1 &&
-        txJitterMs < 40 &&
+        jitterGood &&
         rttGood &&
         !freshAudioLoss &&
         _receiveBuffer.growing != true &&
