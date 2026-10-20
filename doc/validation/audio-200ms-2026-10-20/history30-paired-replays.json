@@ -1,0 +1,230 @@
+{
+  "diagnostic_only": true,
+  "generator_version": 2,
+  "tone_hz": [
+    [
+      600,
+      900
+    ],
+    [
+      1300,
+      1700
+    ],
+    [
+      2100,
+      2500
+    ]
+  ],
+  "capture": "reserve-360",
+  "rows": [
+    {
+      "source": 0,
+      "receiver": 1,
+      "baseline": {
+        "packets": 9000,
+        "edges": 357,
+        "expected_edges": 357,
+        "ordinal_mismatches": 0,
+        "max_ms": 190.0,
+        "source_at_seconds": 254.52,
+        "concealed_samples": 8996,
+        "silent_concealed_samples": 0,
+        "interruption_count": 0,
+        "inserted_samples": 20160,
+        "removed_samples": 24480,
+        "discarded_ms": 30
+      },
+      "history30": {
+        "packets": 9000,
+        "edges": 357,
+        "expected_edges": 357,
+        "ordinal_mismatches": 0,
+        "max_ms": 180.0,
+        "source_at_seconds": 197.96,
+        "concealed_samples": 6080,
+        "silent_concealed_samples": 0,
+        "interruption_count": 0,
+        "inserted_samples": 1680,
+        "removed_samples": 1680,
+        "discarded_ms": 30
+      }
+    },
+    {
+      "source": 0,
+      "receiver": 2,
+      "baseline": {
+        "packets": 9000,
+        "edges": 357,
+        "expected_edges": 357,
+        "ordinal_mismatches": 0,
+        "max_ms": 180.0,
+        "source_at_seconds": 63.63,
+        "concealed_samples": 10372,
+        "silent_concealed_samples": 0,
+        "interruption_count": 0,
+        "inserted_samples": 17414,
+        "removed_samples": 23280,
+        "discarded_ms": 30
+      },
+      "history30": {
+        "packets": 9000,
+        "edges": 357,
+        "expected_edges": 357,
+        "ordinal_mismatches": 0,
+        "max_ms": 180.0,
+        "source_at_seconds": 199.98,
+        "concealed_samples": 5840,
+        "silent_concealed_samples": 0,
+        "interruption_count": 0,
+        "inserted_samples": 2640,
+        "removed_samples": 2640,
+        "discarded_ms": 40
+      }
+    },
+    {
+      "source": 1,
+      "receiver": 0,
+      "baseline": {
+        "packets": 9000,
+        "edges": 357,
+        "expected_edges": 357,
+        "ordinal_mismatches": 0,
+        "max_ms": 200.0,
+        "source_at_seconds": 254.52,
+        "concealed_samples": 11870,
+        "silent_concealed_samples": 0,
+        "interruption_count": 0,
+        "inserted_samples": 20808,
+        "removed_samples": 28451,
+        "discarded_ms": 10
+      },
+      "history30": {
+        "packets": 9000,
+        "edges": 357,
+        "expected_edges": 357,
+        "ordinal_mismatches": 0,
+        "max_ms": 180.0,
+        "source_at_seconds": 5.05,
+        "concealed_samples": 4536,
+        "silent_concealed_samples": 0,
+        "interruption_count": 0,
+        "inserted_samples": 2880,
+        "removed_samples": 2004,
+        "discarded_ms": 10
+      }
+    },
+    {
+      "source": 1,
+      "receiver": 2,
+      "baseline": {
+        "packets": 9000,
+        "edges": 357,
+        "expected_edges": 357,
+        "ordinal_mismatches": 0,
+        "max_ms": 190.0,
+        "source_at_seconds": 91.91,
+        "concealed_samples": 11319,
+        "silent_concealed_samples": 0,
+        "interruption_count": 0,
+        "inserted_samples": 18395,
+        "removed_samples": 24611,
+        "discarded_ms": 30
+      },
+      "history30": {
+        "packets": 9000,
+        "edges": 357,
+        "expected_edges": 357,
+        "ordinal_mismatches": 0,
+        "max_ms": 170.0,
+        "source_at_seconds": 5.05,
+        "concealed_samples": 7521,
+        "silent_concealed_samples": 0,
+        "interruption_count": 0,
+        "inserted_samples": 1883,
+        "removed_samples": 3048,
+        "discarded_ms": 30
+      }
+    },
+    {
+      "source": 2,
+      "receiver": 0,
+      "baseline": {
+        "packets": 9000,
+        "edges": 357,
+        "expected_edges": 357,
+        "ordinal_mismatches": 0,
+        "max_ms": 200.0,
+        "source_at_seconds": 254.52,
+        "concealed_samples": 11524,
+        "silent_concealed_samples": 0,
+        "interruption_count": 0,
+        "inserted_samples": 22142,
+        "removed_samples": 29460,
+        "discarded_ms": 30
+      },
+      "history30": {
+        "packets": 9000,
+        "edges": 357,
+        "expected_edges": 357,
+        "ordinal_mismatches": 0,
+        "max_ms": 180.0,
+        "source_at_seconds": 5.05,
+        "concealed_samples": 6274,
+        "silent_concealed_samples": 0,
+        "interruption_count": 0,
+        "inserted_samples": 1656,
+        "removed_samples": 2496,
+        "discarded_ms": 40
+      }
+    },
+    {
+      "source": 2,
+      "receiver": 1,
+      "baseline": {
+        "packets": 9000,
+        "edges": 357,
+        "expected_edges": 357,
+        "ordinal_mismatches": 0,
+        "max_ms": 200.0,
+        "source_at_seconds": 254.52,
+        "concealed_samples": 9792,
+        "silent_concealed_samples": 0,
+        "interruption_count": 0,
+        "inserted_samples": 20342,
+        "removed_samples": 27192,
+        "discarded_ms": 10
+      },
+      "history30": {
+        "packets": 9000,
+        "edges": 357,
+        "expected_edges": 357,
+        "ordinal_mismatches": 0,
+        "max_ms": 180.0,
+        "source_at_seconds": 5.05,
+        "concealed_samples": 6446,
+        "silent_concealed_samples": 0,
+        "interruption_count": 0,
+        "inserted_samples": 924,
+        "removed_samples": 2880,
+        "discarded_ms": 20
+      }
+    }
+  ],
+  "limits": [
+    "Regenerated Opus, not original encoded PCM",
+    "Quantized virtual 10-ms receiver callbacks",
+    "Cannot replace full group workload qualification"
+  ],
+  "binaries": {
+    "baseline": "e8cdc4ce0a83c869ce618dfcabf6ec4bcef579a1164b9f492565954970abf593",
+    "history30": "3c20a03bcf604b11f186beac0eeab5f42f060ebb3220bcaed17d99cebddf5d8d"
+  },
+  "arrivals_sha256": {
+    "1-2.csv": "898e3a143423eaae858885f1b45e40ca086c6604050b0f522ab691351db7f47c",
+    "1-0.csv": "7b5528277c673e6654d34d26579e37aa5ad7c24c435467523c7d19a867fbd772",
+    "0-1.csv": "7e3da4ddc8ae0258773de26e7d200d5020d990efbfcf6b82c3af222865bf07ab",
+    "2-1.csv": "daa1fececa69daabd3833cae0089fd1c1f0aa690fedb42d1a851a8f240df938d",
+    "2-0.csv": "4c8a22d4f016050ec3211f2cf6b6ba8fff959ca616036682849edf6290094776",
+    "0-2.csv": "16f1d0f51827242e2357f844cb1cd511d2e5135621f336134394feafc4c94a57"
+  }
+}

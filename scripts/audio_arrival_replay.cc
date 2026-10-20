@@ -24,7 +24,12 @@ struct Packet {
   std::vector<uint8_t> bytes;
 };
 int main(int argc, char **argv) {
-  assert(argc == 3);
+  assert(argc == 3 || argc == 4);
+  const int source = argc == 4 ? std::stoi(argv[3]) : 0;
+  assert(source >= 0 && source < 3);
+  constexpr int lows[] = {600, 1300, 2100};
+  constexpr int highs[] = {900, 1700, 2500};
+  const int low = lows[source], high = highs[source];
   const double duration = std::stod(argv[2]);
   assert(duration >= 20 && duration <= 600);
   std::ifstream f(argv[1]);
@@ -47,7 +52,7 @@ int main(int argc, char **argv) {
     std::vector<int16_t> input(p.blocks * 480);
     for (size_t i = 0; i < input.size(); ++i) {
       const int tick = int(std::llround(p.first / 10000.)) + int(i / 480);
-      int hz = (tick / 101) % 2 ? 900 : 600;
+      int hz = (tick / 101) % 2 ? high : low;
       input[i] = int16_t(5000 * std::sin(phase));
       phase += 2 * pi * hz / 48000;
     }
@@ -113,8 +118,8 @@ int main(int argc, char **argv) {
     bool muted = false;
     assert(neteq->GetAudio(&out, &muted, nullptr, std::nullopt) == 0);
     assert(out.num_channels_ == 1);
-    const auto lo = power(out.data(), out.samples_per_channel_, 600),
-               hi = power(out.data(), out.samples_per_channel_, 900);
+    const auto lo = power(out.data(), out.samples_per_channel_, low),
+               hi = power(out.data(), out.samples_per_channel_, high);
     int freq = std::max(lo, hi) > 125000 ? (hi > lo ? 1 : 0) : -1;
     if (freq < 0 || freq == prev) {
       pending = -1;

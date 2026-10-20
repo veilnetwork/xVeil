@@ -1,0 +1,77 @@
+diff --git a/flutter/veil_media/src/veil_conversation_neteq_controller.h b/flutter/veil_media/src/veil_conversation_neteq_controller.h
+index e74f7e2d..784c97f2 100644
+--- a/flutter/veil_media/src/veil_conversation_neteq_controller.h
++++ b/flutter/veil_media/src/veil_conversation_neteq_controller.h
+@@ -108,7 +108,13 @@ class ConversationNetEqController final : public webrtc::DecisionLogic {
+ 
+ inline std::unique_ptr<webrtc::NetEqController> MakeConversationNetEqController(
+     const webrtc::Environment& env, webrtc::NetEqController::Config config) {
+-  auto history = std::make_unique<webrtc::PacketArrivalHistory>(config.tick_timer, 2000);
++  // Keep a stable arrival floor while the delay manager remembers a burst.
++  // With only two seconds of history, a standing upstream queue became the
++  // new zero before the target decayed. Normal speech then looked underfilled
++  // and preemptive expansion added local delay to that upstream queue. A
++  // bounded 30-second window matches the endpoint RTP-age observation window;
++  // real stream/codec resets still clear it through DecisionLogic::SoftReset.
++  auto history = std::make_unique<webrtc::PacketArrivalHistory>(config.tick_timer, 30000);
+   auto* history_view = history.get();
+   return std::make_unique<ConversationNetEqController>(config,
+       std::make_unique<webrtc::DelayManager>(
+diff --git a/flutter/veil_media/test/conversation_neteq_controller_smoke.cc b/flutter/veil_media/test/conversation_neteq_controller_smoke.cc
+index b8c53a2d..b53f2cc9 100644
+--- a/flutter/veil_media/test/conversation_neteq_controller_smoke.cc
++++ b/flutter/veil_media/test/conversation_neteq_controller_smoke.cc
+@@ -41,7 +41,53 @@ struct Fixture {
+   Op decide() { return controller->GetDecision(status, &reset); }
+ };
+ 
++void ArrivalBaselineRegression(int hz, uint32_t origin) {
++  webrtc::TickTimer clock;
++  auto env = webrtc::CreateEnvironment();
++  webrtc::NetEqController::Config config{true, false, 30, 0, &clock};
++  auto controller = veil_media::MakeConversationNetEqController(env, config);
++  controller->SetSampleRate(hz, hz / 100);
++  webrtc::NetEqController::PacketArrivedInfo packet{};
++  packet.packet_length_samples = hz / 25;
++  int now = 0;
++  for (int sent = 0; sent <= 32040; sent += 40) {
++    // A path gains 80 ms at 2 s, then stays there. Forgetting the old
++    // minimum at 4 s must not report zero while the target retains that
++    // variation and asks the receiver to expand its local queue again.
++    const int arrival = sent + (sent >= 2000 ? 80 : 0);
++    for (; now < arrival; now += 10) clock.Increment();
++    packet.main_timestamp = origin + static_cast<uint32_t>(sent * (hz / 1000));
++    packet.main_sequence_number = static_cast<uint16_t>(65500 + sent / 40);
++    const auto delay = controller->PacketArrived(hz, true, packet);
++    if (sent == 6000) assert(delay == 80);
++    // A genuinely changed route still establishes a new floor after the
++    // bounded observation window. This is not a lifetime minimum.
++    if (sent == 32040) assert(delay == 0);
++    if (sent == 6040) {
++      // Duplicate and non-speech notifications cannot replace the floor.
++      assert(!controller->PacketArrived(hz, true, packet));
++      packet.is_cng_or_dtmf = true;
++      assert(!controller->PacketArrived(hz, true, packet));
++      packet.is_cng_or_dtmf = false;
++    }
++  }
++  // Codec/stream resets clear the longer history as well as the target.
++  controller->SoftReset();
++  controller->SetSampleRate(hz, hz / 100);
++  packet.main_timestamp = 123456;
++  packet.main_sequence_number = 1;
++  assert(!controller->PacketArrived(hz, true, packet));
++  for (int i = 0; i < 4; ++i) clock.Increment();
++  packet.main_timestamp += hz / 25;
++  packet.main_sequence_number = 2;
++  assert(controller->PacketArrived(hz, true, packet) == 0);
++}
++
+ int main() {
++  for (int hz : {8000, 16000, 32000, 48000}) {
++    ArrivalBaselineRegression(hz, 0);
++    ArrivalBaselineRegression(hz, UINT32_MAX - hz);
++  }
+   // Real history sees 100 ms arrival variation. The real delay manager still
+   // starts at80ms. Stock WebRTC tolerates180ms here (80+100+20), even though
+   // the expected speech is ready. Production wiring must gently accelerate.
