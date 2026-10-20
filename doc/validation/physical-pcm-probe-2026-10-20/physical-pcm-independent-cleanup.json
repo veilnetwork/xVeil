@@ -1,0 +1,23 @@
+{
+  "physical-call-pcm": {
+    "host_pids_absent": [
+      72267,
+      72127,
+      77051
+    ]
+  },
+  "physical-call-pcm-repeat": {
+    "host_pids_absent": [
+      15323,
+      15212,
+      19914
+    ]
+  },
+  "phone_process_absent": true,
+  "normal_phone_version_code": 12622,
+  "owned_adb_forwards_removed": [
+    43826,
+    43827
+  ],
+  "normal_mac_stand_restored": true
+}
