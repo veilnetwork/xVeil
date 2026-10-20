@@ -1,11 +1,49 @@
 """Trace retention must not alter blind FIFO admission or its byte schedule."""
+import gc
 import unittest
 from unittest.mock import patch
 
-from udp_fifo_shaper import UdpShaper
+from udp_fifo_shaper import UdpShaper, WireTrace
 
 
 class TraceRetentionTest(unittest.TestCase):
+    def test_completed_rows_roundtrip_and_late_completion_after_wrap(self):
+        trace = WireTrace(2)
+        old = trace.add({'at': 1.0, 'direction': 0, 'link': 2, 'bytes': 100,
+                         'pending': 0, 'ready': 1.1, 'queue_ms': 100.0})
+        sent = trace.add({'at': 2.0, 'direction': 1, 'link': 0, 'bytes': 200,
+                          'pending': 1, 'ready': 2.1, 'queue_ms': 100.0})
+        sent.update(sent_at=2.101, release_lateness_ms=1.0)
+        trace.finish(sent)
+        dropped = trace.add({'at': 3.0, 'direction': 0, 'link': 1, 'bytes': 300,
+                             'pending': 2, 'queue_ms': 200.0, 'dropped': True})
+        trace.finish(dropped)
+        old.update(sent_at=3.1, release_lateness_ms=2000.0)
+        trace.finish(old)  # The first row has already been evicted.
+        self.assertEqual(list(trace), [dict(sent), dict(dropped)])
+        self.assertIs(type(list(trace)[0]['bytes']), int)
+        self.assertIs(type(list(trace)[1]['dropped']), bool)
+        self.assertNotIn('sent_at', list(trace)[1])
+
+    def test_retained_archive_does_not_grow_the_gc_object_graph_per_packet(self):
+        shaper = UdpShaper(('127.0.0.1', 9), trace=True, trace_capacity=5000)
+        shaper.stop()
+        shaper.rate_bps = 1
+        shaper.max_queue_ms = 1
+        # One queued packet; all following arrivals are dropped and complete
+        # immediately. Retaining their metadata must not leave 5000 mutable
+        # containers for the collector to walk during a timed capture.
+        gc.collect()
+        before = len(gc.get_objects())
+        for _ in range(5000):
+            shaper.enqueue(0, None, None, bytes(1000), 0)
+        after = len(gc.get_objects())
+        self.assertLess(after - before, 100)
+        self.assertEqual(shaper.trace_events, 5000)
+        self.assertEqual(len(shaper.trace_rows), 5000)
+        self.assertEqual(sum(row.get('dropped', False)
+                             for row in shaper.trace_rows), 4999)
+
     def test_capacity_only_changes_retained_metadata(self):
         shapers = [UdpShaper(('127.0.0.1', 9), trace=True, trace_capacity=n)
                    for n in (3, 20)]

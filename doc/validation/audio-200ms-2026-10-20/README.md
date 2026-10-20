@@ -160,6 +160,66 @@ the jitter estimator's history does not resolve the latency gate. It changes
 the target's input distribution as well as the speech timing decision.
 
 The candidate header and its regression were removed from production sources.
-`rejected-history30.patch` preserves the exact evaluated change. The next
-investigation keeps the original jitter estimator and tests a separate arrival
-floor for continuous-speech timing, without feeding it to `DelayManager`.
+`rejected-history30.patch` preserves the exact evaluated change. The subsequent
+diagnostic kept the original jitter estimator and used a separate arrival floor
+for continuous-speech timing, without feeding it to `DelayManager`. Its peak
+remained 230 ms and concealed samples increased. Neither it nor the following
+private prototypes was applied to production.
+
+Lowering only the native target ceiling to 100 or 80 ms did not clear the new
+arrival schedule's peak (220–230 ms). Avoiding a second maximum-jitter reserve
+with the 80-ms ceiling reached 200 ms on the selected path, still failing the
+strict gate. Adding the separate speech floor across all six directions still
+reached 210 ms. All regenerated marker sequences remained complete, but these
+candidates do not establish a latency/quality solution.
+
+## Delivery gaps and fixture timing
+
+`delivery-distributions.json` and `delivery-gap-witnesses.json` retain native
+packet joins for both full runs. In the longer-history run, all six paths have
+their largest ingress gap around 345.08 seconds. On source 2 to receiver 1,
+successive packets are encoded 40.002 ms apart but arrive 157.424 ms apart.
+The latter spends 174.754 ms in encoded-to-ingress delivery. This gap precedes
+the decoder; lowering its target cannot remove the gap.
+
+The blind FIFO's recorded release deadlines reveal an additional fixture
+delay there: a packet ready at approximately 345.153 seconds is sent only at
+345.238 seconds, 84.710 ms late. This is separate from the FIFO's intended byte
+serialization delay. The original 280-ms peak's surrounding FIFO release
+lateness is only 1.668 ms; the reservation-fixed 200.179-ms peak's is 1.188 ms.
+The fixture stall therefore does not explain away either earlier result.
+
+The old archive retains 250000 GC-tracked dictionaries on this Python 3.14
+host. The updated archive packs completed scalar records into immutable bytes,
+retaining mutable dictionaries only for pending packets. A comparison retains
+the same 250000 records with two additional tracked objects instead of 250001.
+One measured full collection takes 2.719 rather than 11.841 ms. This shows an
+avoidable diagnostics cost, not proof that GC caused the entire 84.710-ms
+stall in the earlier uninstrumented run.
+
+Four tests verify metadata roundtrips, completion after ring wrap, bounded GC
+object growth, unchanged FIFO admission across trace capacities, and capacity
+validation. A new full capture uses the original media library and records GC
+event times without changing thresholds or forcing collections. All raw audio,
+video and file gates remain intact.
+
+That full capture is retained in `packed-trace-full-workload.json`. No GC
+collections occur during capture; FIFO release lateness peaks at 9.068 ms.
+The unchanged media library still peaks at 200.254 ms, with no missing voice
+markers and all files hash-verified. Video tails are 8–13, still failing. No
+clock failures, late intervals or dropped PCM rows occur, and every owned
+process is independently verified absent. The fixture improvement does not
+turn the existing application into a qualifying result.
+
+The new worst marker spends 10.487 ms before encoding, 70.905 ms in delivery,
+0.031 ms between ingress and WebRTC, and 118.831 ms before decoded PCM. The
+RTP clock age is approximately 150 ms, despite only 50–90 ms being stored at
+the surrounding render callbacks. The existing hard catch-up checks storage
+against 160 ms and therefore cannot respond to that upstream contribution.
+
+The next candidate keeps the original target estimator and codec. It extends
+bounded catch-up to a high, authenticated decoded RTP age, with at least one
+complete packet plus 20 ms left locally. Unlike the earlier age prototype,
+the alignment check carries the actual decoded-packet witness across its
+subsequent 10-ms blocks. A standalone replay retains all markers and does not
+increase concealed samples, but its new full workload remains required.
