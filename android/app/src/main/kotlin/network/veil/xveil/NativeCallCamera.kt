@@ -67,6 +67,8 @@ class NativeCallCamera(
     private var pushHolds33Ms = 0L
     private var replacedFrames = 0L
     private var selectedFps = 0
+    private var selectedWidth = 0
+    private var selectedHeight = 0
     private val pendingImage = AtomicReference<android.media.Image?>(null)
     private val processorScheduled = AtomicBoolean(false)
 
@@ -163,8 +165,12 @@ class NativeCallCamera(
             processingThread = frameThread
             processingHandler = frameHandler
             this.engineAddress = engineAddress
-            selectedFps = fpsRange.upper
             resetStats()
+            synchronized(statsLock) {
+                selectedFps = fpsRange.upper
+                selectedWidth = size.width
+                selectedHeight = size.height
+            }
 
             val entry = textures.createSurfaceTexture()
             textureEntry = entry
@@ -465,6 +471,8 @@ class NativeCallCamera(
         mapOf(
             "camera_native" to true,
             "camera_requested_fps" to selectedFps,
+            "camera_capture_width" to selectedWidth,
+            "camera_capture_height" to selectedHeight,
             "camera_capture_fps" to ((fps * 10.0).toInt() / 10.0),
             "camera_capture_frames" to inputFrames,
             "camera_processed_frames" to pushedFrames,
@@ -645,14 +653,12 @@ class NativeCallCamera(
         val yuvSizes = map.getOutputSizes(ImageFormat.YUV_420_888)?.toSet().orEmpty()
         val common = previewSizes.filter { it in yuvSizes }
         if (common.isEmpty()) throw IllegalStateException("Camera has no common preview/YUV size")
-        val targetArea = requestedWidth.toLong() * requestedHeight.toLong()
-        val targetRatio = requestedWidth.toDouble() / requestedHeight.toDouble()
-        return common.minByOrNull { size ->
-            val area = size.width.toLong() * size.height.toLong()
-            val areaError = abs(area - targetArea).toDouble() / targetArea.toDouble()
-            val ratioError = abs(size.width.toDouble() / size.height.toDouble() - targetRatio)
-            ratioError * 8.0 + areaError
-        }!!
+        val selected = CallCameraSizePolicy.choose(
+            common.map { CallCameraCaptureSize(it.width, it.height) },
+            requestedWidth,
+            requestedHeight,
+        ) ?: throw IllegalStateException("Camera has no usable preview/YUV size")
+        return Size(selected.width, selected.height)
     }
 
     private fun chooseStableFps(
