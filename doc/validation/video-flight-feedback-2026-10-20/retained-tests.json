@@ -1,0 +1,19 @@
+{
+  "retained_code": "diagnostic counters only; experimental source policies reverted",
+  "sdk_base_commit": "b88f3fa72bfac89e4da6b9d5eb67a4ca1b7a4c31",
+  "owned_source_sha256": {
+    "crates/veil-session/src/local_source_flight.rs": "f8e745579bbd339f8113844e87492306868154df807a623c0c3a28412d6cf13d"
+  },
+  "test_command": "TMPDIR=/private/tmp/ CARGO_TARGET_DIR=/Volumes/cfb/target CARGO_INCREMENTAL=0 cargo test --locked --release -p veil-session -p veil-bootstrap --features veil-bootstrap/production-seeds --lib",
+  "passed": 639,
+  "failed": 0,
+  "ignored": 8,
+  "log": {
+    "path": "/private/tmp/xveil-source-flight-diagnostics-retained-tests.txt",
+    "sha256": "ef63e7db52412168ea2b7cdaec30edc2049690a2bc114956ea91f806a6952d48"
+  },
+  "clean_source_export_excludes_foreign_wip": true,
+  "new_retained_ffi_binary_built": false,
+  "experiment_binary_proof_is_not_retained_binary_proof": true,
+  "retained_sdk_commit": "72043a070a4256d8b4873994c18a1657931fa03c"
+}

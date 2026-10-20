@@ -1,0 +1,35 @@
+{
+  "checked_at_utc": "2026-10-20T04:01:31.270925+00:00",
+  "recorded_processes_checked": 14,
+  "remaining": [],
+  "summaries": {
+    "pair-candidate-180": {
+      "node_stop_results": [
+        0,
+        0,
+        0
+      ],
+      "remaining_fixture_sockets": 0,
+      "audio_thread_exited": true,
+      "file_threads_exited": true,
+      "policy_exited": true
+    },
+    "group-final-360": {
+      "node_stop_results": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "remaining_sockets": 0,
+      "workers_exited": true,
+      "worker_exit_codes": [
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  "group_capture_interrupted": true,
+  "screen_capture_not_started": true
+}
