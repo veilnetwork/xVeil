@@ -7,7 +7,7 @@ every subsequent decoded transition must keep its original ordinal.
 from pcm_timing import input_edges
 
 
-def analyze_voice_path(rows, duration, captures=None):
+def analyze_voice_path(rows, duration, captures=None, phase_ranges=None):
     edges = input_edges(rows if captures is None else captures)
     decoded = []
     previous = pending = None
@@ -27,7 +27,11 @@ def analyze_voice_path(rows, duration, captures=None):
             previous = frequency
             pending, run = None, 0
     phases = []
-    for lo, hi, name in [(5, 20, 'audio-only'), (20, duration, 'audio-video-file')]:
+    ranges = phase_ranges if phase_ranges is not None else [
+        (5, 20, 'audio-only'), (20, duration, 'audio-video-file')]
+    # Decode and establish ordinals from the complete capture before slicing
+    # phases; a post-change view must never rephase a stale decoded stream.
+    for lo, hi, name in ranges:
         delays, missing, peak = [], 0, None
         for ordinal, (at, frequency, _) in enumerate(edges):
             if not lo <= at < hi:
