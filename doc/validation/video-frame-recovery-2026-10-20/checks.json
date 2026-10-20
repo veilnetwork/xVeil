@@ -1,0 +1,11 @@
+{
+  "candidate_enabled": false,
+  "candidate_patch_sha256": "ca57bac69a4e1a5bb4441c0add13207cd06765cea833a483818f6772b4722cc2",
+  "native_budget_smoke_exit_code": 0,
+  "real_vp8_direct_and_group_smoke_exit_code": 0,
+  "full_call_planes_smoke_exit_code": 0,
+  "raw_capture_passed": false,
+  "speech_listening_proof": false,
+  "production_sources_restored": true,
+  "production_sdk_head": "6d3e3ab8798d0862c1decb9c6fd2797fe545cedb"
+}

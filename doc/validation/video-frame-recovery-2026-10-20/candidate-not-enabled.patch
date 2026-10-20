@@ -1,0 +1,255 @@
+diff --git a/flutter/veil_media/src/veil_frame_sizing_vp8.h b/flutter/veil_media/src/veil_frame_sizing_vp8.h
+index e3a5e20a..ae8eb2d9 100644
+--- a/flutter/veil_media/src/veil_frame_sizing_vp8.h
++++ b/flutter/veil_media/src/veil_frame_sizing_vp8.h
+@@ -7,6 +7,7 @@
+ #include <utility>
+ #include "api/video_codecs/video_encoder.h"
+ #include "api/video_codecs/video_encoder_factory.h"
++#include "rtc_base/time_utils.h"
+ #include "veil_video_frame_budget.h"
+
+ namespace veil_media {
+@@ -56,7 +57,8 @@ class FrameSizingVp8Encoder final : public webrtc::VideoEncoder,
+  private:
+   Result OnEncodedImage(const webrtc::EncodedImage& image,
+                         const webrtc::CodecSpecificInfo* info) override {
+-    budget_->Observe(image.size(), image._encodedWidth, image._encodedHeight);
++    budget_->Observe(image.size(), image._encodedWidth, image._encodedHeight,
++                     webrtc::TimeMicros());
+     auto* callback = callback_.load(std::memory_order_acquire);
+     return callback ? callback->OnEncodedImage(image, info) : Result(Result::ERROR_SEND_FAILED);
+   }
+diff --git a/flutter/veil_media/src/veil_video_frame_budget.h b/flutter/veil_media/src/veil_video_frame_budget.h
+index b99010f6..31f12778 100644
+--- a/flutter/veil_media/src/veil_video_frame_budget.h
++++ b/flutter/veil_media/src/veil_video_frame_budget.h
+@@ -32,7 +32,10 @@ class VideoFrameBudget {
+     // controller can fund its keyframes. The host still owns bitrate and fps.
+     if (!enabled()) {
+       max_pixels_ = 0;
++      failed_pixels_ = 0;
++      failed_bytes_ = 0;
+       bytes_ = 0;
++      ResetRecovery();
+     } else {
+       UpdateBytes();
+     }
+@@ -55,12 +58,28 @@ class VideoFrameBudget {
+     UpdateBytes();
+   }
+
+-  void Observe(size_t bytes, uint32_t width, uint32_t height) {
++  void Observe(size_t bytes, uint32_t width, uint32_t height, int64_t at_us = 0) {
+     if (!bytes || !width || !height || width > 4096 || height > 4096) return;
+     std::lock_guard lock(mu_);
+     last_pixels_ = static_cast<int>(uint64_t(width) * height);
++    largest_pixels_ = std::max(largest_pixels_, last_pixels_);
+     last_bytes_ = bytes;
+-    if (!enabled() || bytes <= bytes_) return;
++    if (!enabled()) {
++      ResetRecovery();
++      return;
++    }
++    if (bytes <= bytes_) {
++      MaybeRecover(bytes, at_us);
++      return;
++    }
++    ResetRecovery();
++    last_observed_us_ = std::max(last_observed_us_, at_us);
++    if (!failed_pixels_ || CanFundFailedFrame() || last_pixels_ < failed_pixels_) {
++      failed_pixels_ = last_pixels_;
++      failed_bytes_ = bytes;
++    } else if (last_pixels_ == failed_pixels_) {
++      failed_bytes_ = std::max(failed_bytes_, bytes);
++    }
+     ++oversize_frames_;
+     const uint64_t pixels = uint64_t(width) * height;
+     // Scale pixel area from the actual encoded result, retaining margin for
+@@ -83,14 +102,60 @@ class VideoFrameBudget {
+     return payload_bps_ ? std::min<uint32_t>(payload_bps_, selected_bps_)
+                         : static_cast<uint32_t>(selected_bps_);
+   }
+-  bool enabled() const { return effective_rate() > 0 && effective_rate() <= 30000; }
++  bool enabled() const {
++    const auto rate = effective_rate();
++    return rate > 0 && (rate <= 30000 || (max_pixels_ > 0 && rate < 60000));
++  }
++  void ResetRecovery() {
++    small_frames_since_us_ = 0;
++    small_frames_ = 0;
++  }
++  bool CanFundFailedFrame() const {
++    return failed_bytes_ <= bytes_ * 4 / 5;
++  }
++  void MaybeRecover(size_t bytes, int64_t at_us) {
++    // Never raise bitrate or enlarge the allowed encoded frame. Probe source
++    // pixels only after real, comfortably sized encodes over ten seconds.
++    // A stopped/sparse encoder and cached/out-of-order callbacks earn no time.
++    if (at_us <= 0) {
++      ResetRecovery();
++      return;
++    }
++    if (at_us <= last_observed_us_) return;
++    if (last_observed_us_ && at_us - last_observed_us_ >= 3'000'000)
++      ResetRecovery();
++    last_observed_us_ = at_us;
++    if (!max_pixels_ || bytes > bytes_ * 3 / 4) {
++      ResetRecovery();
++      return;
++    }
++    if (!small_frames_since_us_) small_frames_since_us_ = at_us;
++    ++small_frames_;
++    if (small_frames_ < 8 || at_us - small_frames_since_us_ < 10'000'000) return;
++    // Delta frames being cheap does not prove that a resize keyframe fits.
++    // A failed resolution stays unavailable until the measured byte budget
++    // can fund its actual oversized frame with 25% margin. This prevents
++    // repeated expensive resize/repair cycles at the same small allocation.
++    int ceiling = largest_pixels_;
++    if (failed_pixels_ && !CanFundFailedFrame())
++      ceiling = std::min(ceiling, failed_pixels_ - 1);
++    // One area step (about 12% per dimension), bounded by actual capture size.
++    if (ceiling > max_pixels_)
++      max_pixels_ = std::min(ceiling, max_pixels_ + max_pixels_ / 4);
++    ResetRecovery();
++  }
+   void UpdateBytes() {
+     if (!enabled()) {
+       bytes_ = 0;
++      ResetRecovery();
+       // Recover source resolution even if the host is already at its maximum
+       // profile and cannot select a larger one. Require twice the low-rate
+       // threshold to avoid resizing on every small allocation fluctuation.
+-      if (effective_rate() >= 60000) max_pixels_ = 0;
++      if (effective_rate() >= 60000) {
++        max_pixels_ = 0;
++        failed_pixels_ = 0;
++        failed_bytes_ = 0;
++      }
+       return;
+     }
+     const uint32_t rate = effective_rate();
+@@ -108,7 +173,13 @@ class VideoFrameBudget {
+   int max_pixels_ = 0;
+   uint64_t oversize_frames_ = 0;
+   int last_pixels_ = 0;
++  int largest_pixels_ = 0;
++  int failed_pixels_ = 0;
++  size_t failed_bytes_ = 0;
+   size_t last_bytes_ = 0;
++  int64_t last_observed_us_ = 0;
++  int64_t small_frames_since_us_ = 0;
++  unsigned small_frames_ = 0;
+ };
+
+ }  // namespace veil_media
+diff --git a/flutter/veil_media/test/call_planes_smoke.cc b/flutter/veil_media/test/call_planes_smoke.cc
+index beb78e71..61548248 100644
+--- a/flutter/veil_media/test/call_planes_smoke.cc
++++ b/flutter/veil_media/test/call_planes_smoke.cc
+@@ -425,9 +425,31 @@ int main(int argc, char** argv) {
+           ? veil_media_group_engine_get_local_video_frame(group.get(), rgba.data(), rgba.size(), &w, &h)
+           : veil_media_engine_get_local_video_frame(one.get(), rgba.data(), rgba.size(), &w, &h);
+       assert(preview > 0 && w == width && h == height);
++      // A static, simple image leaves room under the same low allocation.
++      // The real encoder callback must reopen source pixels on both paths,
++      // without relying on a host bitrate increase or a codec restart.
++      const auto restricted_pixels = metric("video_frame_pixel_cap");
++      const auto restricted_bytes = metric("video_frame_budget_bytes");
++      std::vector<uint8_t> simple(width * height, 128);
++      const auto recover_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(18);
++      while (std::chrono::steady_clock::now() < recover_deadline &&
++             metric("video_frame_pixel_cap") <= restricted_pixels) {
++        assert((room ? veil_media_group_engine_push_video_frame(group.get(), simple.data(), uv.data(), uv.data(),
++                    width, height, width, width / 2, width / 2, 0)
++                     : veil_media_engine_push_video_frame(one.get(), simple.data(), uv.data(), uv.data(),
++                    width, height, width, width / 2, width / 2, 0)) == VEIL_MEDIA_OK);
++        std::this_thread::sleep_for(std::chrono::milliseconds(35));
++      }
++      assert(metric("video_frame_pixel_cap") > restricted_pixels);
++      assert(metric("video_frame_budget_bytes") == restricted_bytes);
++      assert(metric(room ? "video_kbps" : "target_bitrate_bps") == (room ? 8 : 8000));
+       assert(budget(150, 6) == VEIL_MEDIA_OK);
+-      assert(metric("video_frame_pixel_cap") == 0);
+-      assert(metric("video_frame_budget_bytes") == 0);
++      // A larger host request alone need not lift the cap: after this longer
++      // low-rate run, the actual encoder allocation may still be below 60k.
++      // Exact allocation recovery/release is covered by the budget smoke.
++      assert(metric(room ? "video_kbps" : "target_bitrate_bps") == (room ? 150 : 150000));
++      if (metric("video_frame_pixel_cap") > 0)
++        assert(metric("video_frame_budget_bytes") > 0);
+       std::printf("%s low-rate VP8 frame sizing, packetization, preview and recovery OK\n",
+                   room ? "group" : "direct");
+     }
+diff --git a/flutter/veil_media/test/video_frame_budget_smoke.cc b/flutter/veil_media/test/video_frame_budget_smoke.cc
+index 650ac901..a284d3b5 100644
+--- a/flutter/veil_media/test/video_frame_budget_smoke.cc
++++ b/flutter/veil_media/test/video_frame_budget_smoke.cc
+@@ -58,12 +58,66 @@ int main() {
+   assert(allocated.snapshot().bytes == 1200);
+   assert(allocated.snapshot().max_pixels == low.max_pixels);
+   allocated.SetRate(40000);
+-  assert(allocated.snapshot().bytes == 0);
++  // Keep the frame envelope while a previous pixel cap is recovering in the
++  // hysteresis band; a partial rate recovery must not leave it latched.
++  assert(allocated.snapshot().bytes == 2000);
+   assert(allocated.snapshot().max_pixels == low.max_pixels);
+   allocated.SetRate(60000); // Actual recovery, even without a host profile change.
+   assert(allocated.snapshot().max_pixels == 0);
+   allocated.SetProfile(225000);
+   assert(allocated.snapshot().max_pixels == 0);
++  // A low but stable allocation must not latch a startup oversize forever.
++  // Probe resolution from actual small encodes, without increasing bitrate
++  // or the allowed encoded-frame size. Time and several real frames count.
++  veil_media::VideoFrameBudget recovery;
++  recovery.SetPacketPayload(980);
++  recovery.SetProfile(150000);
++  recovery.SetRate(24000);
++  recovery.Observe(4000, 320, 240, 1'000'000);
++  const auto initial = recovery.snapshot();
++  for (int i = 0; i < 10; ++i)
++    recovery.Observe(400, 80, 60, 2'000'000 + i * 1'000'000);
++  assert(recovery.snapshot().max_pixels == initial.max_pixels);
++  recovery.Observe(400, 80, 60, 12'000'000);
++  assert(recovery.snapshot().max_pixels > initial.max_pixels);
++  assert(recovery.snapshot().bytes == initial.bytes);
++  const auto probe = recovery.snapshot();
++  // Duplicate timestamps and a stalled encoder cannot fund another probe.
++  for (int i = 0; i < 20; ++i)
++    recovery.Observe(400, 80, 60, 12'000'000);
++  recovery.Observe(400, 80, 60, 30'000'000);
++  assert(recovery.snapshot().max_pixels == probe.max_pixels);
++  // Near-budget frames have insufficient room for an upsize keyframe.
++  for (int i = 0; i < 15; ++i)
++    recovery.Observe(1100, 80, 60, 31'000'000 + i * 1'000'000);
++  assert(recovery.snapshot().max_pixels == probe.max_pixels);
++  recovery.Observe(4000, 160, 120, 46'000'000);
++  const auto reduced = recovery.snapshot();
++  assert(reduced.max_pixels < probe.max_pixels);
++  for (int i = 0; i < 10; ++i)
++    recovery.Observe(400, 80, 60, 47'000'000 + i * 1'000'000);
++  assert(recovery.snapshot().max_pixels == reduced.max_pixels);
++  recovery.Observe(400, 80, 60, 57'000'000);
++  assert(recovery.snapshot().max_pixels > reduced.max_pixels);
++  // Cheap delta frames cannot prove that a previously oversized resize
++  // keyframe fits. Do not repeatedly retry that resolution at the same rate.
++  veil_media::VideoFrameBudget failed_probe;
++  failed_probe.SetPacketPayload(980);
++  failed_probe.SetProfile(150000);
++  failed_probe.SetRate(24000);
++  failed_probe.Observe(1500, 160, 120, 1'000'000);
++  const auto failed_cap = failed_probe.snapshot().max_pixels;
++  for (int i = 0; i < 120; ++i)
++    failed_probe.Observe(300, 120, 90, 2'000'000 + i * 1'000'000);
++  assert(failed_probe.snapshot().max_pixels > failed_cap);
++  assert(failed_probe.snapshot().max_pixels < 160 * 120);
++  // A measured allocation increase can fund that same keyframe with margin,
++  // before the old all-or-nothing 60k release threshold.
++  failed_probe.SetRate(40000);
++  for (int i = 0; i < 12; ++i)
++    failed_probe.Observe(300, 120, 90, 122'000'000 + i * 1'000'000);
++  assert(failed_probe.snapshot().max_pixels >= 160 * 120);
++  assert(failed_probe.snapshot().bytes == 2000);
+   // Packetizer setup, codec output and source requests have different queues.
+   std::thread encoder([&] {
+     for (int i = 0; i < 1000; ++i) {
