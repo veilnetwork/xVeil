@@ -1,0 +1,16 @@
+{
+  "version": "0.13.87-qa-capture-stamp-20261020",
+  "profile_aot": true,
+  "codesign_deep_strict": true,
+  "private_no_vpn": true,
+  "production_dart_sources": {
+    "lib/state/call_service.dart": "1fc6efe1b898b3617854bce62e72b340f2cb974f455f5ef0c08048d382bbc10c",
+    "lib/state/call_bitrate_adapter.dart": "d99a65b8aa3e39e6ff4c2060b687f9593dd9c1b4be01876e2be5a694730ec4a7"
+  },
+  "aot_sha256": "3d34893d1750d9bbed3183e1ee716c134b5031e661ec6d97c4f1d7891193c6bf",
+  "libraries": {
+    "libveilclient_ffi.dylib": "346f8f10147050c8e8d42aa939082af535d36b3039124cb1e29603587c9fad9a",
+    "libveil_media.dylib": "d218c7dd6bbd9ef7e6ffcbe5d149c82fc84f1160082bdb0d6950466b1cfb36af",
+    "libhidden_volume_ffi.dylib": "a923c8ec596f3cd95a0c2967a1c713797fb60dd626dd53b08f689c7251dc1e4f"
+  }
+}
