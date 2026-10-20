@@ -1,0 +1,166 @@
+{
+  "scope": "synthetic ADM, real codec/network, decoded PCM; not hardware acoustics",
+  "duration_seconds": 150.0,
+  "paths": {
+    "mac_to_phone": {
+      "phases": [
+        {
+          "phase": "audio_only",
+          "from_seconds": 5,
+          "until_seconds": 30,
+          "matched": 25,
+          "unmatched": 0,
+          "first_unmatched_ordinals": [],
+          "median_ms": 70.57648373302072,
+          "p95_ms": 100.52542213816196,
+          "max_ms": 100.89482623152435,
+          "max_clock_interval_ms": [
+            88.12750095967203,
+            107.38043615128845
+          ]
+        },
+        {
+          "phase": "audio_video",
+          "from_seconds": 30,
+          "until_seconds": 45,
+          "matched": 15,
+          "unmatched": 0,
+          "first_unmatched_ordinals": [],
+          "median_ms": 60.19746570382267,
+          "p95_ms": 70.56287879822776,
+          "max_ms": 70.56287879822776,
+          "max_clock_interval_ms": [
+            57.79555352637544,
+            77.04848871799186
+          ]
+        },
+        {
+          "phase": "p2p_video_files",
+          "from_seconds": 45,
+          "until_seconds": 150,
+          "matched": 105,
+          "unmatched": 0,
+          "first_unmatched_ordinals": [],
+          "median_ms": 80.53737739101052,
+          "p95_ms": 120.0398953515105,
+          "max_ms": 120.80593087011948,
+          "max_clock_interval_ms": [
+            108.03860559826717,
+            127.29154078988358
+          ]
+        }
+      ],
+      "source_edges": 152,
+      "decoded_edges": 152,
+      "matching": "ordinal_from_actual_capture_start",
+      "pcm_block_ms": 10,
+      "rms_threshold": 500
+    },
+    "phone_to_mac": {
+      "phases": [
+        {
+          "phase": "audio_only",
+          "from_seconds": 5,
+          "until_seconds": 30,
+          "matched": 25,
+          "unmatched": 0,
+          "first_unmatched_ordinals": [],
+          "median_ms": 80.61918371822685,
+          "p95_ms": 130.9178922092542,
+          "max_ms": 140.84483397891745,
+          "max_clock_interval_ms": [
+            134.35922417556867,
+            153.61215913435444
+          ]
+        },
+        {
+          "phase": "audio_video",
+          "from_seconds": 30,
+          "until_seconds": 45,
+          "matched": 15,
+          "unmatched": 0,
+          "first_unmatched_ordinals": [],
+          "median_ms": 70.94303396297619,
+          "p95_ms": 71.02086133090779,
+          "max_ms": 71.02086133090779,
+          "max_clock_interval_ms": [
+            64.53525152755901,
+            83.78818648634478
+          ]
+        },
+        {
+          "phase": "p2p_video_files",
+          "from_seconds": 45,
+          "until_seconds": 150,
+          "matched": 105,
+          "unmatched": 0,
+          "first_unmatched_ordinals": [],
+          "median_ms": 80.90069965692237,
+          "p95_ms": 130.6406813673675,
+          "max_ms": 130.9613126795739,
+          "max_clock_interval_ms": [
+            124.47570287622511,
+            143.7286378350109
+          ]
+        }
+      ],
+      "source_edges": 152,
+      "decoded_edges": 152,
+      "matching": "ordinal_from_actual_capture_start",
+      "pcm_block_ms": 10,
+      "rms_threshold": 500
+    }
+  },
+  "driver_stats": {
+    "mac": {
+      "ticks": 15149,
+      "dropped_rows": 0,
+      "failures": [
+        0,
+        0
+      ],
+      "max_interval_ms": 15.04741667304188,
+      "max_wake_lateness_ms": 1.857375,
+      "max_callback_ms": 4.25466668093577,
+      "max_publication_ms": 0.010791700333356857,
+      "qos_supported": 1,
+      "qos_requested": 33,
+      "qos_result": 0,
+      "qos_actual": 33,
+      "timer_error": 0
+    },
+    "phone": {
+      "ticks": 15182,
+      "dropped_rows": 0,
+      "failures": [
+        0,
+        0
+      ],
+      "max_interval_ms": 26.47946123033762,
+      "max_wake_lateness_ms": 15.734603,
+      "max_callback_ms": 7.096230983734131,
+      "max_publication_ms": 0.5069999024271965,
+      "qos_supported": 0,
+      "qos_requested": 0,
+      "qos_result": 0,
+      "qos_actual": 0,
+      "timer_error": 0
+    }
+  },
+  "observed_clock_offset_envelopes": {
+    "mac": {
+      "initial_mid": -0.00013095844769850373,
+      "low": -0.00044649996561929584,
+      "high": 0.00018458307022228837,
+      "count": 6
+    },
+    "phone": {
+      "initial_mid": -3598663.9548445973,
+      "low": -3598663.967296381,
+      "high": -3598663.948674529,
+      "count": 6
+    }
+  },
+  "clock_limit": "Envelope across measured brackets; unsampled clock drift is not proven bounded",
+  "overall_quality_verdict": null
+}

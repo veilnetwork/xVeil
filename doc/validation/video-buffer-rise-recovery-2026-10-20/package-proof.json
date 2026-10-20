@@ -1,0 +1,35 @@
+{
+  "mac": {
+    "path": "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/video-rise-cycle/mac-stand/xveil.app",
+    "native_sha256": {
+      "libveil_media.dylib": "74d0bb849cb8797ffb91f50564fa64d31580704b10332add490c7696d669603c",
+      "libveilclient_ffi.dylib": "afde20ad4d35363909b4387eabe68a394d043ef844194c2bd8729e36b6752c5e",
+      "libhidden_volume_ffi.dylib": "a923c8ec596f3cd95a0c2967a1c713797fb60dd626dd53b08f689c7251dc1e4f",
+      "libxveil_pcm_driver.dylib": "d1e2f80572929b1a2bdad6aec3693a36ac9572deb159944ed7181aaa22b3c820"
+    },
+    "aot_sha256": "cdc990432854fd84e469e79ca363cbb481f8b47aed2e0ac1a5c22b955022cf14",
+    "version_code": 12625
+  },
+  "phone": {
+    "path": "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/video-rise-cycle/phone-pcm-12625.apk",
+    "sha256": "4297ae4ebc309c27f9a90ef3c785a95f5987683d101254c4efa176aa89b1c649",
+    "aot_sha256": "c889ef31c1f5a65d23eafe392eede119e5ba14cb189373427309deffc50aab25",
+    "all_non_app_native_libraries_pinned_to_baseline": {
+      "lib/arm64-v8a/libbarhopper_v3.so": "ec09597e9eb3aee0eb55ae3366da0d4ba416f5aa35a1af0b3811f50ff46743a1",
+      "lib/arm64-v8a/libdartjni.so": "749220702bf4707fad06c8d1f6777ea9efaa1b03a68d92b7e18419a8f497ca07",
+      "lib/arm64-v8a/libdatastore_shared_counter.so": "d3e48717c9aa147e0ab21063ba0e8e0211cabf8bf40b222640829519edbf58e1",
+      "lib/arm64-v8a/libflutter.so": "2f8907be6aadd2dd31a6a32fe30aae8b692c2e6676dfb8653faf8fe9f5d31a5e",
+      "lib/arm64-v8a/libhidden_volume_ffi.so": "ab4a0cf8b75f2be9e6d525c40f48c613aa13d881307e13464ef0e1a3af840156",
+      "lib/arm64-v8a/libimage_processing_util_jni.so": "0292b063fafccf734472cbb59588e756c2dbca907c72021ba6fbf126385508a2",
+      "lib/arm64-v8a/libjnidispatch.so": "fe9c603f2a7a5d19197b87f275d6e0afb975f997a57ff4f8ca801cb8c5e7b731",
+      "lib/arm64-v8a/libsurface_util_jni.so": "a5c9d1928ea92ec7a94dff8cf666e7739cd734198b9f0ae1d4e28ea3c86516ba",
+      "lib/arm64-v8a/libveil_media.so": "d39f0a2db9142609d6328567f5dd14a14248f7d71fc49872b5d6fb7209c40f2b",
+      "lib/arm64-v8a/libveil_whisper.so": "52c1860e68ea6828dc06ce7917b00d0a4b86338fe214356ea2a039ed10d880dc",
+      "lib/arm64-v8a/libvmservice_snapshot.so": "0746fec131370d7b1dccc105554e81b759a575fe12dbfd8089b757f28aa7a9b0",
+      "lib/arm64-v8a/libveilclient_ffi.so": "7ddc538ac60544085fdb82a5029563a6d471b08ef7044aa0687050857e6ea95b",
+      "lib/arm64-v8a/libxveil_pcm_driver.so": "f14012149f34fef6d578d58f0960734334a93ea84b4bbec9bf1b0b67677dcb02"
+    },
+    "same_signer": true,
+    "version_code": 12625
+  }
+}

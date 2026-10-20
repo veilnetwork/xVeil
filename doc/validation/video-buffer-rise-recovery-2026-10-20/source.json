@@ -1,0 +1,6 @@
+{
+  "root_commit": "2bb377c6f4c37311d7330842d43ba68742e12f62",
+  "sdk_commit": "70a99c1fd7ff10b893ae4007b129038f48b97203",
+  "adapter_sha256": "61f042b1eb748697185eb04efc1f530668156500beb6e4cdbaaac29b218c8d53",
+  "fixture": "QA synthetic PCM, no hardware capture/playout, real cameras"
+}
