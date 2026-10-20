@@ -218,8 +218,57 @@ the surrounding render callbacks. The existing hard catch-up checks storage
 against 160 ms and therefore cannot respond to that upstream contribution.
 
 The next candidate keeps the original target estimator and codec. It extends
-bounded catch-up to a high, authenticated decoded RTP age, with at least one
-complete packet plus 20 ms left locally. Unlike the earlier age prototype,
+bounded catch-up to a high, authenticated decoded RTP age, requiring at least
+one complete packet plus 30 ms before an extra 10-ms pull. Unlike the earlier age prototype,
 the alignment check carries the actual decoded-packet witness across its
 subsequent 10-ms blocks. A standalone replay retains all markers and does not
-increase concealed samples, but its new full workload remains required.
+increase concealed samples. Its full workload result follows below.
+
+## Decoded-age catch-up: audio passes, overall qualification remains false
+
+`age-valid-full-workload.json` records the new 360-second full capture with
+the same source SDK, production policy, 1024-kbit/s blind FIFO, six audio/video
+directions and three encrypted 512-KiB files. No bitrate, packet-duration or
+jitter-estimator setting was changed. All streams remain at 40 ms / 24 kbit/s
+after the ordinary startup retune.
+
+| Source → receiver | Maximum decoded marker delay |
+| --- | ---: |
+| 1 → 0 | 190.222 ms |
+| 2 → 0 | 190.348 ms |
+| 0 → 1 | 190.203 ms |
+| 2 → 1 | 190.174 ms |
+| 0 → 2 | 190.270 ms |
+| 1 → 2 | 190.228 ms |
+
+All 2112 measured voice transitions match, with none missing. All three files
+are authenticated and hash-verified, finishing in 351.897–352.256 seconds.
+All receiver interruption counters and durations in the last regular
+359-second snapshots are zero. These snapshots and concealment totals are
+retained with the result; the protected codec profile was not weakened. No clock failures, late callback intervals or dropped PCM rows
+occur. All eleven owned processes were independently verified absent.
+
+The new worst packet spends 10.513 ms before encoding, 83.504 ms in delivery,
+0.029 ms between ingress and WebRTC, and 96.301 ms before decoded PCM. The
+FIFO still has a 77.040-ms late release at 311.911 seconds; the packing change
+does not prove all scheduling stalls are eliminated. The audio result passes
+despite that observed stall.
+
+Four video tails pass with 14 changes. The two directions from source 2 have
+12 and 13 changes; their last-minute decoded rates are 1.305 and 1.390 fps.
+Raw `ok` and `contention_qualification` therefore remain false. This is a
+passing strict audio result, not completion of the overall quality gate.
+The remaining work is video continuity under the same load and an independent
+repeat with the final committed media source.
+
+The new decoder regression seeds accepted Opus RTP packets, obtains a genuine
+decoded-packet witness, and tests the next block without packet metadata.
+The original header fails: it does not shorten stale audio when the storage
+is below its old queue-only ceiling. The new header drops one old 10-ms block.
+It also verifies no age-based trim with an unknown/stale output origin,
+insufficient queued audio, a caller-directed operation or a receive gap.
+PLC, mute and decoder-error extra pulls preserve the last usable speech frame.
+The complete existing recovery/controller tests and real three-party mixed
+recovery test pass. The final source only relocates the private helper and
+clarifies comments relative to the evaluated candidate; its decisions are
+unchanged. No relay scheduling, application class or on-wire role was added.
