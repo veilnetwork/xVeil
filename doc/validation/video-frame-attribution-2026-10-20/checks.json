@@ -1,0 +1,20 @@
+{
+  "source_pressure_tests": 218,
+  "source_pressure_tests_passed": true,
+  "analysis_items": 2,
+  "analysis_passed": true,
+  "related_python_tests": 16,
+  "related_python_tests_passed": true,
+  "frame_trace_smoke_passed": true,
+  "frame_budget_trace_smoke_passed": true,
+  "fanout_copy_and_rejection_trace_passed": true,
+  "native_call_planes_passed": true,
+  "native_sdk_head": "bffc1343843941eb26c8b32af578708fdc8dd12b",
+  "pixel_cap_removal_enabled": false,
+  "source_pressure_sha256": "06bb512a16840aebf2776c0ac685251bd975468f47e6ecf08ce58997304aa237",
+  "full_goal_completed": false,
+  "speech_listening_proof": false,
+  "capture_precedes_final_stalled_worker_guard": true,
+  "all_1080_captured_worker_stalled_values_zero": true,
+  "final_stalled_worker_guard_tested": true
+}
