@@ -95,9 +95,10 @@ class CallBitrateAdapter {
   /// intermittent decoded trims must not restart a twelve-second camera hold.
   static const int probeResumeAfter = 3;
 
-  /// A new low-latency call can probe one rung after three measured healthy
-  /// video samples. Waiting twelve samples per rung kept healthy P2P video
-  /// sparse for nearly a minute. Any measured failure retires this shortcut.
+  /// A new low-latency call can probe one rung after three healthy local
+  /// video samples and a new peer report during that measured period. Peer
+  /// reports arrive less often than local stats; requiring three reports per
+  /// rung stalled healthy startup. Any measured failure retires this shortcut.
   static const int startupRecoverAfter = 3;
 
   /// A multi-second RTT means even the ordinary sparse floor can keep an
@@ -210,6 +211,8 @@ class CallBitrateAdapter {
       'level_after': _level,
       'bad_streak_after': _badStreak,
       'good_streak_after': _goodStreak,
+      'startup_recovery': _startupRecovery,
+      'startup_good_streak_after': _startupGoodStreak,
       'growth_pause_transient': _growthSampleTransient,
       'ramp_recovery_needed': _rampNeedsRecovery,
       'ramp_recovery_samples_after': _rampRecoverySamples,
@@ -1261,16 +1264,14 @@ class CallBitrateAdapter {
         requirePeerAudioPlayout &&
         currentPeerDelay != null &&
         currentPeerDelay < 100;
-    // Local polling is faster than peer playout reports. A cached healthy
-    // report can keep a measured rung, but cannot establish more headroom.
-    // Fast startup requires distinct samples. Ordinary recovery retains its
-    // healthy observation period below and needs a distinct current report
-    // during that period. Its arrival may coincide with a short growth hold;
-    // the first healthy poll after the hold can then confirm the upshift.
-    final freshGrowthEvidence = !requirePeerAudioPlayout || freshPeerSample;
+    // Local stats measure video progress and audio health every second. A
+    // peer report must additionally confirm that period, using the same
+    // per-rung baseline as ordinary recovery. Three local observations need
+    // not wait for three slower peer reports. A cached report alone cannot
+    // fund a rung, and an unapplied ramp resets both observation streaks.
     if (!startupGood) {
       _startupGoodStreak = 0;
-    } else if (freshGrowthEvidence) {
+    } else {
       _startupGoodStreak++;
     }
     // A healthy measured playout can earn the one-fps probe even on a route
@@ -1430,7 +1431,7 @@ class CallBitrateAdapter {
       return target;
     }
     if (((recoveryPeerConfirmed && _goodStreak >= recoverAfter) ||
-            (freshGrowthEvidence &&
+            (recoveryPeerConfirmed &&
                 _startupGoodStreak >= startupRecoverAfter)) &&
         _level > 0) {
       _goodStreak = 0;
