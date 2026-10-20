@@ -1,0 +1,2 @@
+Assertion failed: (failed_probe.snapshot().max_pixels < 160 * 120), function main, file video_frame_budget_smoke.cc, line 113.
+third_party/veil/flutter/veil_media/test/run_video_frame_budget_smoke.sh: line 8: 32965 Abort trap: 6              "$STAND_DIR/smoke"

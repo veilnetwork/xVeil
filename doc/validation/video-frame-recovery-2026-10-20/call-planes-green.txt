@@ -1,0 +1,21 @@
+Opus allocation feedback=0: 32000 -> 32000 -> 32000
+Opus allocation feedback=1: 32000 -> 24000 -> 32000
+audio probe budget room=0: audio=48000 video=900000 packets=33
+audio probe budget room=1: audio=48000 video=900000 packets=33
+direct/group: muted start/rebuild opens no capture; unmute encodes Opus
+blocked audio stats: 46.9 ms
+blocked audio stats: 45.2 ms
+group playout: real receive sample/unknown worker, target binding, replay and expiry verified
+unicast audio feedback: absent, video-only, fresh RR and expired RR verified
+video estimate enabled=0: 150000 -> 900000 after 900-kbit profile
+video estimate enabled=1: 150000 -> 150000 after 900-kbit profile
+actual encoded video frames: 2-fps=5/2.2s, recovered=14/1.2s, 1-fps=2/2.2s
+group actual encoded frames: 2-fps=5/2.2s, 12-fps=14/1.2s, 1-fps=2/2.2s
+low-rate unicast: encoder target=7840 bps, cadence=0.300 fps
+low-rate unicast: actual sparse encoding, fresh preview, accepted audio, recovery and legacy defaults verified
+low-rate room: encoder target=7840 bps, cadence=0.300 fps
+low-rate room: actual sparse encoding, fresh preview, accepted audio, recovery and legacy defaults verified
+group fanout: audio passed while video RTP/RTCP send was held; removed peer excluded
+group video: cold codec budget applied before first encoded frame; consumed once
+unicast: negotiated TWCC confirms separate audio/video SSRCs and counters; legacy mode sends none
+direct/group: Opus delivered with both video queues stalled; telemetry bounded; restart/teardown ok
