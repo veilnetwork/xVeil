@@ -2226,6 +2226,83 @@ void main() {
     },
   );
 
+  test('silent video recovers despite sparse-frame packet jitter', () {
+    final a = direct(level: 4);
+    // Recorded Mac/Android video-only RR values, with no RTP loss and low RTT.
+    const jitter = [58, 111, 34, 67, 64, 52, 103, 93, 51, 26, 81, 54];
+    for (final value in jitter) {
+      native(
+        a,
+        stats: {
+          ...healthy(),
+          'audio_feedback_reports': 0,
+          'video_feedback_rtt_ms': 11,
+          'video_feedback_jitter_ms': value,
+        },
+        send: false,
+        receive: false,
+      );
+    }
+    expect(a.level, 3);
+    expect(a.audioReserve, isFalse);
+  });
+
+  test('silent video packet jitter alone does not cut a working rung', () {
+    final a = direct();
+    for (var i = 0; i < 20; i++) {
+      native(
+        a,
+        stats: {...healthy(), 'video_feedback_jitter_ms': 111},
+        send: false,
+        receive: false,
+      );
+    }
+    expect(a.level, 0);
+  });
+
+  for (final failure in ['loss', 'RTT', 'missing report']) {
+    test('silent video still respects $failure with high packet jitter', () {
+      final a = direct(level: 4);
+      for (var i = 0; i < 30; i++) {
+        native(
+          a,
+          stats: {
+            ...healthy(),
+            'video_feedback_jitter_ms': 111,
+            if (failure == 'loss') 'video_feedback_loss_pct': 6,
+            if (failure == 'RTT') 'video_feedback_rtt_ms': 600,
+            if (failure == 'missing report') 'video_feedback_reports': 0,
+          },
+          send: false,
+          receive: false,
+        );
+      }
+      expect(a.level, 4);
+    });
+  }
+
+  for (final sending in [true, false]) {
+    test(
+      'one expected audio direction retains jitter recovery guard: $sending',
+      () {
+        final a = direct(level: 4);
+        for (var i = 0; i < 30; i++) {
+          native(
+            a,
+            stats: {
+              ...healthy(),
+              'tx_jitter_ms': 111,
+              'video_feedback_jitter_ms': 111,
+            },
+            send: sending,
+            receive: !sending,
+          );
+        }
+        expect(a.level, 4);
+      },
+    );
+  }
+
   test(
     'DTX, a muted peer and legacy receive telemetry do not prove outage',
     () {
