@@ -1,0 +1,4 @@
+Command: TMPDIR=/private/tmp/ bash third_party/veil/flutter/veil_media/test/run_video_frame_budget_smoke.sh
+Result: exit 0
+Compile flags: -std=c++20 -Wall -Wextra -Werror -pthread; assertions enabled
+Includes recorded low-cadence debt, fractional/unknown/nonfinite FPS, rate jitter, suspension, funded recovery, and existing sizing/audio/trace guards.
