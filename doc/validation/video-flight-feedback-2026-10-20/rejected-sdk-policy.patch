@@ -1,0 +1,228 @@
+--- a/crates/veil-session/src/local_source_flight.rs
++++ b/crates/veil-session/src/local_source_flight.rs
+@@ -35,0 +36,16 @@
++#[derive(Clone, Copy, Debug, Default)]
++struct DeliveryDiagnostics {
++    calls: u64,
++    stale: u64,
++    inactive: u64,
++    unhealthy: u64,
++    pressured: u64,
++    no_demand: u64,
++    funded_bytes: u64,
++    credit_wait: u64,
++    rtt_wait: u64,
++    feedback_wait: u64,
++    grows: u64,
++    blocked: u64,
++    drained: u64,
++}
+@@ -40,0 +57 @@
++    last_healthy_feedback: Option<Instant>,
+@@ -48,0 +66 @@
++    delivery_diagnostics: DeliveryDiagnostics,
+@@ -117,0 +136 @@
++                s.last_healthy_feedback = None;
+@@ -138,0 +158 @@
++                s.last_healthy_feedback = None;
+@@ -147 +167,6 @@
+-                s.healthy_until = Some(now + IDLE_GRACE);
++                s.healthy_until = Some(
++                    s.healthy_until
++                        .map_or(now + IDLE_GRACE, |at| at.max(now + IDLE_GRACE)),
++                );
++                s.last_healthy_feedback =
++                    Some(s.last_healthy_feedback.map_or(now, |at| at.max(now)));
+@@ -179,0 +205,4 @@
++                        state.healthy_until.is_some_and(|t| now < t),
++                        state.pressure_until.is_some_and(|t| now < t),
++                        state.delivered_credit,
++                        state.delivery_diagnostics,
+@@ -185 +214,3 @@
+-            if let Some((members, flight, window, reserve)) = snapshot {
++            if let Some((members, flight, window, reserve, healthy, pressured, credit, d)) =
++                snapshot
++            {
+@@ -187 +218,3 @@
+-                    "connection_trace_id={id} members={members} in_flight_bytes={flight} window_bytes={window} primary_control_reserve_bytes={reserve} scope=endpoint");
++                    "connection_trace_id={id} members={members} in_flight_bytes={flight} window_bytes={window} primary_control_reserve_bytes={reserve} scope=endpoint healthy={healthy} pressured={pressured} credit_bytes={credit} ack_calls={} ack_stale={} ack_inactive={} ack_unhealthy={} ack_pressured={} ack_no_demand={} ack_funded_bytes={} ack_credit_wait={} ack_rtt_wait={} ack_feedback_wait={} window_grows={} blocked_calls={} drained_witnesses={}",
++                    d.calls, d.stale, d.inactive, d.unhealthy, d.pressured, d.no_demand,
++                    d.funded_bytes, d.credit_wait, d.rtt_wait, d.feedback_wait, d.grows, d.blocked, d.drained);
+@@ -316 +349,5 @@
+-                row.blocked_window = None;
++                let cleared = row.blocked_window.take().is_some();
++                if cleared {
++                    s.delivery_diagnostics.drained =
++                        s.delivery_diagnostics.drained.saturating_add(1);
++                }
+@@ -332,0 +370 @@
++            s.delivery_diagnostics.blocked = s.delivery_diagnostics.blocked.saturating_add(1);
+@@ -345 +383,5 @@
+-                row.blocked_window = None;
++                let cleared = row.blocked_window.take().is_some();
++                if cleared {
++                    s.delivery_diagnostics.drained =
++                        s.delivery_diagnostics.drained.saturating_add(1);
++                }
+@@ -355,7 +397,17 @@
+-            if sent > now
+-                || now.saturating_duration_since(sent) >= IDLE_GRACE
+-                || rtt.is_zero()
+-                || !s.active(now)
+-                || !s.healthy_until.is_some_and(|t| now < t)
+-                || s.pressure_until.is_some_and(|t| now < t)
+-            {
++            s.delivery_diagnostics.calls = s.delivery_diagnostics.calls.saturating_add(1);
++            if sent > now || now.saturating_duration_since(sent) >= IDLE_GRACE || rtt.is_zero() {
++                s.delivery_diagnostics.stale = s.delivery_diagnostics.stale.saturating_add(1);
++                return;
++            }
++            if !s.active(now) {
++                s.delivery_diagnostics.inactive = s.delivery_diagnostics.inactive.saturating_add(1);
++                return;
++            }
++            if !s.healthy_until.is_some_and(|t| now < t) {
++                s.delivery_diagnostics.unhealthy =
++                    s.delivery_diagnostics.unhealthy.saturating_add(1);
++                return;
++            }
++            if s.pressure_until.is_some_and(|t| now < t) {
++                s.delivery_diagnostics.pressured =
++                    s.delivery_diagnostics.pressured.saturating_add(1);
+@@ -366,0 +419,2 @@
++                s.delivery_diagnostics.no_demand =
++                    s.delivery_diagnostics.no_demand.saturating_add(1);
+@@ -370,0 +425,2 @@
++            s.delivery_diagnostics.funded_bytes =
++                s.delivery_diagnostics.funded_bytes.saturating_add(bytes);
+@@ -375,3 +431,7 @@
+-            if s.delivered_credit < usable
+-                || s.last_growth
+-                    .is_some_and(|at| now <= at || now.saturating_duration_since(at) < rtt)
++            if s.delivered_credit < usable {
++                s.delivery_diagnostics.credit_wait =
++                    s.delivery_diagnostics.credit_wait.saturating_add(1);
++                return;
++            }
++            if s.last_growth
++                .is_some_and(|at| now <= at || now.saturating_duration_since(at) < rtt)
+@@ -378,0 +439,12 @@
++                s.delivery_diagnostics.rtt_wait = s.delivery_diagnostics.rtt_wait.saturating_add(1);
++                return;
++            }
++            // First-hop ACKs can arrive before the next playout assessment.
++            // Consume at most one growth per fresh healthy observation; reports
++            // received before a growth cannot bank future increases.
++            if s.last_growth.is_some_and(|growth| {
++                s.last_healthy_feedback
++                    .is_none_or(|observed| observed <= growth)
++            }) {
++                s.delivery_diagnostics.feedback_wait =
++                    s.delivery_diagnostics.feedback_wait.saturating_add(1);
+@@ -385,0 +458 @@
++            s.delivery_diagnostics.grows = s.delivery_diagnostics.grows.saturating_add(1);
+@@ -397,0 +471 @@
++            s.last_healthy_feedback = None;
+@@ -469,0 +544 @@
++        pool.feedback(false, later);
+@@ -503,0 +579,53 @@
++    fn each_growth_requires_a_new_healthy_feedback_not_only_first_hop_acks() {
++        let now = Instant::now();
++        let pool = Arc::new(SourceFlightPool::default());
++        let primary = pool.binding(1, Role::Primary, now).unwrap();
++        let video = pool.binding(2, Role::Secondary, now).unwrap();
++        pool.note_primary(now);
++        for step in 0..10 {
++            pool.feedback(false, now + Duration::from_millis(step));
++        }
++        let first = now + Duration::from_millis(100);
++        video.blocked(first);
++        primary.delivered(first, now, 2400, Duration::from_millis(50));
++        assert_eq!(video.window(first, 0, 1200), 3601);
++        video.blocked(first);
++        let later = first + Duration::from_millis(100);
++        primary.delivered(later, first, 6000, Duration::from_millis(50));
++        assert_eq!(
++            video.window(later, 0, 1200),
++            3601,
++            "first-hop ACKs cannot spend one audio observation repeatedly"
++        );
++        pool.feedback(false, later);
++        assert_eq!(
++            video.window(later, 0, 1200),
++            3601,
++            "feedback alone does not manufacture delivery progress"
++        );
++        let confirmed = later + Duration::from_millis(100);
++        primary.delivered(confirmed, later, 3600, Duration::from_millis(50));
++        assert_eq!(video.window(confirmed, 0, 1200), 4801);
++    }
++
++    #[test]
++    fn a_new_healthy_sample_cannot_bypass_the_normal_rtt_growth_spacing() {
++        let now = Instant::now();
++        let pool = Arc::new(SourceFlightPool::default());
++        let primary = pool.binding(1, Role::Primary, now).unwrap();
++        let video = pool.binding(2, Role::Secondary, now).unwrap();
++        pool.note_primary(now);
++        pool.feedback(false, now);
++        video.blocked(now);
++        primary.delivered(now, now, 2400, Duration::from_millis(120));
++        let early = now + Duration::from_millis(1);
++        pool.feedback(false, early);
++        video.blocked(early);
++        primary.delivered(early, now, 3600, Duration::from_millis(120));
++        assert_eq!(video.window(early, 0, 1200), 3601);
++        let later = now + Duration::from_millis(120);
++        primary.delivered(later, early, 3600, Duration::from_millis(120));
++        assert_eq!(video.window(later, 0, 1200), 4801);
++    }
++
++    #[test]
+@@ -512,0 +641 @@
++            pool.feedback(false, at);
+@@ -539,0 +669 @@
++        pool.feedback(false, later);
+--- a/crates/veil-session/src/local_source_activity.rs
++++ b/crates/veil-session/src/local_source_activity.rs
+@@ -273 +273,3 @@
+-        self.flight.feedback(true, now);
++        // DATA delay must not erase measured audio health or contract the
++        // shared video flight window. Actual primary congestion and endpoint
++        // audio pressure still use note_pressure / note_feedback.
+@@ -583,0 +586,35 @@
++    fn data_delay_preserves_video_flight_but_audio_pressure_still_contracts_it() {
++        use crate::local_source_flight::Role;
++        let source = LocalSourceActivity::default();
++        let now = Instant::now();
++        let primary = (source.flight.factory(Role::Primary))(1);
++        let video = (source.flight.factory(Role::Secondary))(2);
++        source.note(now);
++        source.note_feedback(false, now);
++        video.blocked(now);
++        let first_ack = now + Duration::from_millis(100);
++        primary.delivered(first_ack, now, 2400, Duration::from_millis(100));
++        let earned = video.window(first_ack, 0, 1200);
++        assert_eq!(earned, 3601);
++        source.note_reliable_transport_pressure(first_ack);
++        assert_eq!(
++            video.window(first_ack, 0, 1200),
++            earned,
++            "DATA-only delay must not contract video's paid flight window"
++        );
++        video.blocked(first_ack);
++        let next_ack = first_ack + Duration::from_millis(100);
++        source.note_feedback(false, next_ack);
++        primary.delivered(next_ack, first_ack, 3600, Duration::from_millis(100));
++        assert!(
++            video.window(next_ack, 0, 1200) > earned,
++            "DATA-only delay must not erase healthy media delivery feedback"
++        );
++        source.note_pressure(next_ack);
++        assert!(
++            video.window(next_ack, 0, 1200) < earned,
++            "genuine shared audio pressure retains its protection"
++        );
++    }
++
++    #[test]

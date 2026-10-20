@@ -1,0 +1,82 @@
+--- a/lib/state/call_audio_source_pressure.dart
++++ b/lib/state/call_audio_source_pressure.dart
+@@ -201,3 +200,0 @@
+-    _measuredAudioPressure = bad
+-        ? true
+-        : (measuredHealthy && (!transient || durationKnown) ? false : null);
+@@ -208,0 +206,5 @@
++    _measuredAudioPressure = bad
++        ? true
++        : (measuredHealthy && !shortHold && (!transient || durationKnown)
++              ? false
++              : null);
+@@ -232,4 +234,7 @@
+-    // Real pressure/recovery remains latched; unknown peer counters keep the
+-    // conservative legacy path. Video's independent transient tracker still
+-    // pauses growth without reducing its target.
+-    return _pressured ? true : (good || measuredSmallTransient ? false : null);
++    // It also cannot authorize transport/pixel growth while the short hold is
++    // active: withhold the healthy lease instead of reporting pressure. Real
++    // pressure/recovery remains latched; unknown peer counters keep the
++    // conservative legacy path. Recovery credit is preserved through the hold.
++    return _pressured
++        ? true
++        : (!shortHold && (good || measuredSmallTransient) ? false : null);
+--- a/test/call_audio_source_pressure_test.dart
++++ b/test/call_audio_source_pressure_test.dart
+@@ -76,0 +77,25 @@
++      expect(policy.measuredAudioPressure, isFalse);
++    },
++  );
++
++  test('small catch-up holds growth without contracting recovered sources', () {
++    final policy = CallAudioSourcePressure();
++    final stats = <String, Object>{
++      'worker_stalled': 0,
++      'audio_soft_loss_duration_supported': 1,
++      'audio_peer_soft_loss_duration_supported': 0,
++      'audio_local_soft_loss_report_us': 0,
++      'audio_peer_soft_loss_report_us': 0,
++    };
++    recover(policy);
++    expect(
++      sample(policy, recovered: true, nativeStats: stats),
++      isNull,
++      reason: 'a completed catch-up is a growth hold, not permission to grow',
++    );
++    expect(policy.measuredAudioPressure, isNull);
++    for (var i = 0; i < 2; i++) {
++      expect(sample(policy, nativeStats: stats), isNull);
++      expect(policy.measuredAudioPressure, isNull);
++    }
++    expect(sample(policy, nativeStats: stats), isFalse);
+@@ -78,2 +103,3 @@
+-    },
+-  );
++    expect(sample(policy, lossReportUs: 100, nativeStats: stats), isTrue);
++    expect(policy.measuredAudioPressure, isTrue);
++  });
+@@ -95 +121 @@
+-        isFalse,
++        isNull,
+@@ -99,4 +125,4 @@
+-        isFalse,
+-      );
+-      expect(sample(policy, nativeStats: stats()), isFalse);
+-      expect(sample(policy, nativeStats: stats()), isFalse);
++        isNull,
++      );
++      expect(sample(policy, nativeStats: stats()), isNull);
++      expect(sample(policy, nativeStats: stats()), isNull);
+@@ -135,3 +161,3 @@
+-      expect(sample(policy, recovered: true, nativeStats: stats), isFalse);
+-      expect(sample(policy, recovered: true, nativeStats: stats), isFalse);
+-      expect(sample(policy, nativeStats: stats), isFalse);
++      expect(sample(policy, recovered: true, nativeStats: stats), isNull);
++      expect(sample(policy, recovered: true, nativeStats: stats), isNull);
++      expect(sample(policy, nativeStats: stats), isNull);
+@@ -147,2 +173,2 @@
+-      expect(sample(policy, nativeStats: stats), isFalse);
+-      expect(sample(policy, nativeStats: stats), isFalse);
++      expect(sample(policy, nativeStats: stats), isNull);
++      expect(sample(policy, nativeStats: stats), isNull);
