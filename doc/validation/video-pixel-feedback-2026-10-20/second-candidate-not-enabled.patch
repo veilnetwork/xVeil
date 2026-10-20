@@ -1,0 +1,203 @@
+diff --git a/flutter/veil_media/src/veil_video_frame_budget.h b/flutter/veil_media/src/veil_video_frame_budget.h
+index af7152f4..61f87b33 100644
+--- a/flutter/veil_media/src/veil_video_frame_budget.h
++++ b/flutter/veil_media/src/veil_video_frame_budget.h
+@@ -15,7 +15,9 @@ namespace veil_media {
+ // The low-rate fallback controls average bits/s, but a VP8 keyframe may spend
+ // several frames' credit. Pacing that frame's fragments into a whole-frame SDK
+ // ingress can then exceed its 200 ms oldest-fragment lifetime. Request fewer
+-// source pixels after an actual encoded overshoot. Never discard an encoded
++// source pixels after sustained encoded overshoot, or a very large frame.
++// One moderately oversized keyframe is not proof of sustained pressure.
++// Never discard an encoded
+ // reference frame here, extend its lifetime, or alter audio/transport budgets.
+ class VideoFrameBudget {
+  public:
+@@ -54,7 +56,20 @@ class VideoFrameBudget {
+ 
+   void SetProfile(int selected_bps) {
+     std::lock_guard lock(mu_);
++    const int previous = selected_bps_;
+     selected_bps_ = selected_bps;
++    if (previous > 0 && selected_bps != previous)
++      host_backing_off_ = selected_bps < previous;
++    // The host grants a larger profile after its own audio recovery checks.
++    // Spend one small pixel step, without clearing the low-allocation byte
++    // guard. Native bitrate fluctuations and repeated polls grant no step.
++    if (previous > 0 && selected_bps > previous && max_pixels_ > 0 &&
++        largest_pixels_ > max_pixels_)
++      max_pixels_ = std::min(largest_pixels_, max_pixels_ + max_pixels_ / 4);
++    if (selected_bps != previous) {
++      oversize_since_us_ = 0;
++      oversize_samples_ = 0;
++    }
+     // Either the selected profile or an actual low encoder allocation needs
+     // bounded frames. A large requested profile is not proof that the video
+     // controller can fund its keyframes. The host still owns bitrate and fps.
+@@ -88,10 +103,11 @@ class VideoFrameBudget {
+     if (!bytes || !width || !height || width > 4096 || height > 4096) return;
+     std::lock_guard lock(mu_);
+     last_pixels_ = static_cast<int>(uint64_t(width) * height);
++    largest_pixels_ = std::max(largest_pixels_, last_pixels_);
+     last_bytes_ = bytes;
+     const int before = max_pixels_;
+-    if (enabled() && bytes > bytes_) {
+-      ++oversize_frames_;
++    if (enabled() && bytes > bytes_) ++oversize_frames_;
++    if (ShouldContract(bytes, at_us)) {
+       const uint64_t pixels = uint64_t(width) * height;
+       // Scale pixel area from the actual encoded result, retaining margin for
+       // the keyframe caused by resizing. In-flight frames at the old resolution
+@@ -121,6 +137,30 @@ class VideoFrameBudget {
+                         : static_cast<uint32_t>(selected_bps_);
+   }
+   bool enabled() const { return effective_rate() > 0 && effective_rate() <= 30000; }
++  bool ShouldContract(size_t bytes, int64_t at_us) {
++    if (!enabled() || bytes <= bytes_) {
++      oversize_since_us_ = 0;
++      oversize_samples_ = 0;
++      last_observed_us_ = std::max(last_observed_us_, at_us);
++      return false;
++    }
++    // An actual host backoff asks video to yield; do not defer its protection.
++    // A cold low starting profile alone does not prove audio is impaired.
++    // Many-packet bursts also retain immediate protection.
++    // Missing monotonic timestamps retain conservative legacy behavior.
++    if (host_backing_off_ || bytes >= bytes_ * 4 || at_us <= 0) return true;
++    if (at_us <= last_observed_us_) return false;
++    if (bytes_ != observed_budget_ ||
++        (last_observed_us_ && at_us - last_observed_us_ >= 6'000'000)) {
++      oversize_since_us_ = 0;
++      oversize_samples_ = 0;
++    }
++    observed_budget_ = bytes_;
++    last_observed_us_ = at_us;
++    if (!oversize_since_us_) oversize_since_us_ = at_us;
++    ++oversize_samples_;
++    return oversize_samples_ >= 3 && at_us - oversize_since_us_ >= 3'000'000;
++  }
+   void UpdateBytes() {
+     if (!enabled()) {
+       bytes_ = 0;
+@@ -145,7 +185,13 @@ class VideoFrameBudget {
+   int max_pixels_ = 0;
+   uint64_t oversize_frames_ = 0;
+   int last_pixels_ = 0;
++  int largest_pixels_ = 0;
+   size_t last_bytes_ = 0;
++  int64_t last_observed_us_ = 0;
++  int64_t oversize_since_us_ = 0;
++  size_t observed_budget_ = 0;
++  unsigned oversize_samples_ = 0;
++  bool host_backing_off_ = false;
+   struct Image {
+     uint32_t timestamp;
+     int64_t at_us;
+diff --git a/flutter/veil_media/test/call_planes_smoke.cc b/flutter/veil_media/test/call_planes_smoke.cc
+index beb78e71..99a00b46 100644
+--- a/flutter/veil_media/test/call_planes_smoke.cc
++++ b/flutter/veil_media/test/call_planes_smoke.cc
+@@ -426,9 +426,19 @@ int main(int argc, char** argv) {
+           : veil_media_engine_get_local_video_frame(one.get(), rgba.data(), rgba.size(), &w, &h);
+       assert(preview > 0 && w == width && h == height);
+       assert(budget(150, 6) == VEIL_MEDIA_OK);
+-      assert(metric("video_frame_pixel_cap") == 0);
+-      assert(metric("video_frame_budget_bytes") == 0);
+-      std::printf("%s low-rate VP8 frame sizing, packetization, preview and recovery OK\n",
++      assert(metric(room ? "video_kbps" : "target_bitrate_bps") == (room ? 150 : 150000));
++      // The group controller needs receiver feedback before a larger request
++      // becomes a larger allocation. This plaintext mock has no receiver.
++      // A still-low actual allocation must keep its frame-size protection;
++      // budget_smoke covers release after an actual allocation recovery.
++      if (room && metric("video_encoder_target_bps") > 0 &&
++          metric("video_encoder_target_bps") <= 30000) {
++        assert(metric("video_frame_budget_bytes") > 0);
++      } else if (!room) {
++        assert(metric("video_frame_pixel_cap") == 0);
++        assert(metric("video_frame_budget_bytes") == 0);
++      }
++      std::printf("%s low-rate VP8 frame sizing, packetization, preview and profile request OK\n",
+                   room ? "group" : "direct");
+     }
+     assert(callbacks.empty());
+diff --git a/flutter/veil_media/test/video_frame_budget_smoke.cc b/flutter/veil_media/test/video_frame_budget_smoke.cc
+index 08bb1fa5..984eff9a 100644
+--- a/flutter/veil_media/test/video_frame_budget_smoke.cc
++++ b/flutter/veil_media/test/video_frame_budget_smoke.cc
+@@ -56,17 +56,73 @@ int main(int argc, char** argv) {
+   const auto low = allocated.snapshot();
+   assert(low.max_pixels > 0 && low.max_pixels < 76800);
+   allocated.SetProfile(150000);
+-  assert(allocated.snapshot().max_pixels == low.max_pixels);
++  const int recovery_cap = low.max_pixels + low.max_pixels / 4;
++  assert(allocated.snapshot().max_pixels == recovery_cap);
+   allocated.SetRate(0);
+   assert(allocated.snapshot().bytes == 1200);
+-  assert(allocated.snapshot().max_pixels == low.max_pixels);
++  assert(allocated.snapshot().max_pixels == recovery_cap);
+   allocated.SetRate(40000);
+   assert(allocated.snapshot().bytes == 0);
+-  assert(allocated.snapshot().max_pixels == low.max_pixels);
++  assert(allocated.snapshot().max_pixels == recovery_cap);
+   allocated.SetRate(60000); // Actual recovery, even without a host profile change.
+   assert(allocated.snapshot().max_pixels == 0);
+   allocated.SetProfile(225000);
+   assert(allocated.snapshot().max_pixels == 0);
++  // An isolated resize/keyframe overshoot must not pin camera resolution
++  // for the rest of a low-bitrate call. Fresh sustained overshoot still cuts.
++  veil_media::VideoFrameBudget transient;
++  transient.SetPacketPayload(1440);
++  transient.SetProfile(45000);
++  transient.SetRate(12000);
++  transient.Observe(1513, 320, 240, 1, 1'000'000);
++  assert(transient.snapshot().oversize_frames == 1);
++  assert(transient.snapshot().max_pixels == 0);
++  transient.Observe(700, 320, 240, 2, 2'000'000);
++  transient.Observe(1513, 320, 240, 3, 3'000'000);
++  transient.Observe(1513, 320, 240, 4, 4'000'000);
++  // Duplicate timestamps and a callback gap cannot fund sustained pressure.
++  transient.Observe(1513, 320, 240, 4, 4'000'000);
++  assert(transient.snapshot().max_pixels == 0);
++  transient.Observe(1513, 320, 240, 5, 12'000'000);
++  assert(transient.snapshot().max_pixels == 0);
++  transient.Observe(1513, 320, 240, 6, 13'000'000);
++  transient.Observe(1513, 320, 240, 7, 14'000'000);
++  assert(transient.snapshot().max_pixels == 0);
++  transient.Observe(1513, 320, 240, 8, 15'000'000);
++  assert(transient.snapshot().max_pixels > 0);
++  // The application's cold low profile is a warm-up, not a measured audio
++  // failure. It must not restore the old single-keyframe contraction.
++  veil_media::VideoFrameBudget cold;
++  cold.SetPacketPayload(1440);
++  cold.SetProfile(8000);
++  cold.SetRate(8000);
++  cold.Observe(1513, 320, 240, 1, 1'000'000);
++  assert(cold.snapshot().max_pixels == 0);
++  // An explicit host budget reduction asks video to yield. A real timestamp
++  // cannot defer that protection even for a modest frame-size overshoot.
++  veil_media::VideoFrameBudget yielding;
++  yielding.SetPacketPayload(1440);
++  yielding.SetProfile(45000);
++  yielding.SetRate(12000);
++  yielding.SetProfile(15000);
++  yielding.Observe(1513, 320, 240, 1, 1'000'000);
++  const int yielding_cap = yielding.snapshot().max_pixels;
++  assert(yielding_cap > 0);
++  yielding.SetProfile(15000); // Repeated polls do not earn source growth.
++  assert(yielding.snapshot().max_pixels == yielding_cap);
++  yielding.SetProfile(38000); // One host-granted recovery step, not a reset.
++  assert(yielding.snapshot().max_pixels == yielding_cap + yielding_cap / 4);
++  assert(yielding.snapshot().bytes > 0); // Actual allocation is still low.
++  yielding.SetProfile(15000); // An audio-driven backoff can undo the trial.
++  yielding.Observe(1513, 320, 240, 2, 2'000'000);
++  assert(yielding.snapshot().max_pixels <= yielding_cap);
++  // A giant encode retains immediate protection; this is not a cap removal.
++  veil_media::VideoFrameBudget giant;
++  giant.SetPacketPayload(1440);
++  giant.SetProfile(45000);
++  giant.SetRate(12000);
++  giant.Observe(8000, 320, 240, 1, 1'000'000);
++  assert(giant.snapshot().max_pixels > 0);
+   // Packetizer setup, codec output and source requests have different queues.
+   std::thread encoder([&] {
+     for (int i = 0; i < 1000; ++i) {

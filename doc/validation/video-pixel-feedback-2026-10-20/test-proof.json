@@ -1,0 +1,80 @@
+{
+  "logs": {
+    "xveil-transient-frame-red.txt": {
+      "path": "/private/tmp/xveil-transient-frame-red.txt",
+      "sha256": "3541c43281c8f31d9469f21b61b64cba50408cbde65402cd377fc9dcb442f1bf",
+      "bytes": 274
+    },
+    "xveil-transient-frame-tests.txt": {
+      "path": "/private/tmp/xveil-transient-frame-tests.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "xveil-transient-frame-build.txt": {
+      "path": "/private/tmp/xveil-transient-frame-build.txt",
+      "sha256": "1842c66162c3ab393a2f917499ceecf26cb2ef89c6b4b34b2aa31b842830c9fd",
+      "bytes": 6353
+    },
+    "xveil-transient-frame-native-smoke.txt": {
+      "path": "/private/tmp/xveil-transient-frame-native-smoke.txt",
+      "sha256": "25210f84c9563423b33a5d36dd093702a3ded5bbe45d6851db2661d44908a0e5",
+      "bytes": 110
+    },
+    "xveil-transient-frame-sizing-debug.txt": {
+      "path": "/private/tmp/xveil-transient-frame-sizing-debug.txt",
+      "sha256": "12a8986619205731b5523b416d77a727bd138ce5b3c9369b9bc28aabb0c1481c",
+      "bytes": 287
+    },
+    "xveil-transient-frame-native-smoke-final.txt": {
+      "path": "/private/tmp/xveil-transient-frame-native-smoke-final.txt",
+      "sha256": "34d9ee76cd2f14eaa58471e66acbcbfac4d3fc4a6311ea0a1db876fbe906f18a",
+      "bytes": 159
+    },
+    "xveil-host-pixel-grant-red.txt": {
+      "path": "/private/tmp/xveil-host-pixel-grant-red.txt",
+      "sha256": "60be5a1031509e5c8bf2ca6bf789c76c56210d39bc503da40fbdcf434ae46c08",
+      "bytes": 255
+    },
+    "xveil-host-pixel-grant-tests-final.txt": {
+      "path": "/private/tmp/xveil-host-pixel-grant-tests-final.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "xveil-host-pixel-grant-build-final.txt": {
+      "path": "/private/tmp/xveil-host-pixel-grant-build-final.txt",
+      "sha256": "b9cc35540db2aca80e9d760b463f22dff4ce866f0ee461ef9d3e72fcce7c7dcc",
+      "bytes": 6354
+    },
+    "xveil-host-pixel-grant-native-smoke.txt": {
+      "path": "/private/tmp/xveil-host-pixel-grant-native-smoke.txt",
+      "sha256": "34d9ee76cd2f14eaa58471e66acbcbfac4d3fc4a6311ea0a1db876fbe906f18a",
+      "bytes": 159
+    },
+    "xveil-video-pixel-red-final.txt": {
+      "path": "/private/tmp/xveil-video-pixel-red-final.txt",
+      "sha256": "405a74c020b19561ed9b0ed1bf8961cf9a68c4a32f2730465efe508f7bdf1082",
+      "bytes": 113
+    },
+    "xveil-video-pixel-restored-budget.txt": {
+      "path": "/private/tmp/xveil-video-pixel-restored-budget.txt",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    }
+  },
+  "final_regression_red": {
+    "exit_code": 134,
+    "assertion": "Assertion failed: (allocated.snapshot().max_pixels == recovery_cap), function main, file regression.cc, line 60."
+  },
+  "prototype_budget_and_native_smokes": {
+    "exit_code": 0,
+    "native_output": "direct low-rate VP8 frame sizing, packetization, preview and profile request OK\ngroup low-rate VP8 frame sizing, packetization, preview and profile request OK"
+  },
+  "restored_original_budget_smoke": {
+    "exit_code": 0
+  },
+  "restored_sdk_head": "b7f84b864cc1f240a76c8ccc3d0cc32f44c949b6",
+  "foreign_diff_sha256": {
+    "root": "529f7718edea4b6775cc11607bc2ff663a922cc3521b680cf94efa39d7b26859",
+    "sdk": "1ceeb05d540078262f1480ba7210dfaa0f5895be9f0099f64bc18a56a4f6a363"
+  }
+}
