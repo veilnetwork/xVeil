@@ -188,3 +188,12 @@ uses the separately completed fresh baseline with the corrected fixture clock. T
 input over the actual screen transport slot, not real display capture.
 These do not establish live speech intelligibility, physical cellular behavior,
 headphone loudness, real screen presentation or completion of the full goal.
+
+## Follow-up: brief damage and recovery
+
+[The next validation](../video-soft-burst-recovery-2026-10-20/README.md) retains
+the moderate-versus-burst classifier and peer-report/hold recovery correction.
+It includes a failing-before regression, matched ordinary runs and a same-call
+capacity increase: all six video paths recover to about 14.4 FPS, with all
+1758 checked markers observed after adding a real PCM observation tail.
+The strict 200 ms acoustic requirement remains deferred and visible.

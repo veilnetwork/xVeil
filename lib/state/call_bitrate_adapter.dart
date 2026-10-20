@@ -180,6 +180,7 @@ class CallBitrateAdapter {
   int? _floorTrialLastFrames;
   int _floorTrialFrames = 0;
   int? _lastPeerSampleSequence;
+  int? _recoveryPeerBaseline;
   int? _floorPeerSampleSequence;
   int? _curWindowMin;
   int? _prevWindowMin;
@@ -421,6 +422,7 @@ class CallBitrateAdapter {
     // health may instead continue its call-wide sequence. Neither can inherit
     // the old engine's partially earned producer growth.
     _lastPeerSampleSequence = null;
+    _recoveryPeerBaseline = null;
     _goodStreak = 0;
     _startupGoodStreak = 0;
     _receiveBuffer.reset();
@@ -624,6 +626,13 @@ class CallBitrateAdapter {
     _growthSampleHealthy = false;
     _growthSampleTransient = false;
     _growthSampleAt = sampledAt;
+    // Require a distinct peer report during this earned recovery period,
+    // without requiring its arrival to coincide with the promotion poll.
+    // Short holds preserve this period; failures and unapplied ramps restart
+    // it through the same zero healthy streak as before.
+    if (_goodStreak == 0) {
+      _recoveryPeerBaseline = peerAudioSampleSequence;
+    }
     final routeRttUsable = _observeRttRoute(stats, sendAudioExpected);
     final networkLoss = _rtcpLoss.observe(
       audioReportUs: stats['audio_loss_report_us'],
@@ -906,6 +915,12 @@ class CallBitrateAdapter {
         _floorPeerSampleSequence ??= peerAudioSampleSequence;
       }
     }
+    final recoveryPeerConfirmed =
+        !requirePeerAudioPlayout ||
+        peerAudioSampleSequence == null ||
+        (_recoveryPeerBaseline != null &&
+            peerAudioSampleSequence > _recoveryPeerBaseline! &&
+            peerAudioSampleSequence == _lastPeerSampleSequence);
     final hasCurrentPeerDelay =
         peerAudioDelayMs != null &&
         peerAudioDelayMs >= 0 &&
@@ -975,6 +990,8 @@ class CallBitrateAdapter {
       'peer_target_ms': peerTarget,
       'peer_sequence': peerAudioSampleSequence,
       'peer_fresh': freshPeerSample,
+      'recovery_peer_baseline': _recoveryPeerBaseline,
+      'recovery_peer_confirmed': recoveryPeerConfirmed,
       'peer_growing': peerAudioBufferGrowing,
       'peer_window_ms': _peerBuffer.diagnosticSamples,
       'peer_pressure': peerBufferPressure,
@@ -1227,8 +1244,9 @@ class CallBitrateAdapter {
     // Local polling is faster than peer playout reports. A cached healthy
     // report can keep a measured rung, but cannot establish more headroom.
     // Fast startup requires distinct samples. Ordinary recovery retains its
-    // healthy observation period below and needs a new report to confirm the
-    // upshift, rather than stretching twelve polls into twelve report periods.
+    // healthy observation period below and needs a distinct current report
+    // during that period. Its arrival may coincide with a short growth hold;
+    // the first healthy poll after the hold can then confirm the upshift.
     final freshGrowthEvidence = !requirePeerAudioPlayout || freshPeerSample;
     if (!startupGood) {
       _startupGoodStreak = 0;
@@ -1391,9 +1409,9 @@ class CallBitrateAdapter {
       _goodStreak = 0;
       return target;
     }
-    if (freshGrowthEvidence &&
-        (_goodStreak >= recoverAfter ||
-            _startupGoodStreak >= startupRecoverAfter) &&
+    if (((recoveryPeerConfirmed && _goodStreak >= recoverAfter) ||
+            (freshGrowthEvidence &&
+                _startupGoodStreak >= startupRecoverAfter)) &&
         _level > 0) {
       _goodStreak = 0;
       _startupGoodStreak = 0;

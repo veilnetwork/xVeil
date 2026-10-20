@@ -1,0 +1,140 @@
+[
+  {
+    "receiver": 0,
+    "source": 1,
+    "missing": [
+      {
+        "ordinal": 297,
+        "source_at": 299.97000904165907,
+        "frequency": 1700,
+        "decoded_at": null,
+        "reason": "no_decoded_ordinal"
+      }
+    ],
+    "last_source_edge": [
+      299.97000904165907,
+      1700,
+      29997
+    ],
+    "last_decoded_edge": [
+      299.0401084583136,
+      1300.0
+    ],
+    "last_decode_sample": 300.0000721666729
+  },
+  {
+    "receiver": 0,
+    "source": 2,
+    "missing": [
+      {
+        "ordinal": 297,
+        "source_at": 299.9700061666663,
+        "frequency": 2500,
+        "decoded_at": null,
+        "reason": "no_decoded_ordinal"
+      }
+    ],
+    "last_source_edge": [
+      299.9700061666663,
+      2500,
+      29997
+    ],
+    "last_decoded_edge": [
+      299.0401084583136,
+      2100.0
+    ],
+    "last_decode_sample": 300.0000721666729
+  },
+  {
+    "receiver": 1,
+    "source": 0,
+    "missing": [
+      {
+        "ordinal": 297,
+        "source_at": 299.9700094999862,
+        "frequency": 900,
+        "decoded_at": null,
+        "reason": "no_decoded_ordinal"
+      }
+    ],
+    "last_source_edge": [
+      299.9700094999862,
+      900,
+      29997
+    ],
+    "last_decoded_edge": [
+      299.04010941664455,
+      600.0
+    ],
+    "last_decode_sample": 300.0000680416706
+  },
+  {
+    "receiver": 1,
+    "source": 2,
+    "missing": [
+      {
+        "ordinal": 297,
+        "source_at": 299.9700061666663,
+        "frequency": 2500,
+        "decoded_at": null,
+        "reason": "no_decoded_ordinal"
+      }
+    ],
+    "last_source_edge": [
+      299.9700061666663,
+      2500,
+      29997
+    ],
+    "last_decoded_edge": [
+      299.04010941664455,
+      2100.0
+    ],
+    "last_decode_sample": 300.0000680416706
+  },
+  {
+    "receiver": 2,
+    "source": 0,
+    "missing": [
+      {
+        "ordinal": 297,
+        "source_at": 299.9700094999862,
+        "frequency": 900,
+        "decoded_at": null,
+        "reason": "no_decoded_ordinal"
+      }
+    ],
+    "last_source_edge": [
+      299.9700094999862,
+      900,
+      29997
+    ],
+    "last_decoded_edge": [
+      299.04010837496025,
+      600.0
+    ],
+    "last_decode_sample": 300.00006820831914
+  },
+  {
+    "receiver": 2,
+    "source": 1,
+    "missing": [
+      {
+        "ordinal": 297,
+        "source_at": 299.97000904165907,
+        "frequency": 1700,
+        "decoded_at": null,
+        "reason": "no_decoded_ordinal"
+      }
+    ],
+    "last_source_edge": [
+      299.97000904165907,
+      1700,
+      29997
+    ],
+    "last_decoded_edge": [
+      299.0502429166809,
+      1300.0
+    ],
+    "last_decode_sample": 300.00006820831914
+  }
+]
