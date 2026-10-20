@@ -1,0 +1,654 @@
+{
+  "previous": {
+    "intervals": [
+      {
+        "requested": [
+          31,
+          45
+        ],
+        "actual": [
+          31.164087457989808,
+          44.996229249984026
+        ],
+        "counts": {
+          "mac": {
+            "video_tx_frames": {
+              "start": 0,
+              "end": 12,
+              "fps": 0.8675446059225169
+            },
+            "video_rx_deliver_frames": {
+              "start": 0,
+              "end": 14,
+              "fps": 1.0121353735762697
+            },
+            "remote_frames": {
+              "start": 0,
+              "end": 10,
+              "fps": 0.722953838268764
+            }
+          },
+          "phone": {
+            "video_tx_frames": {
+              "start": 1,
+              "end": 17,
+              "fps": 1.1567261412300225
+            },
+            "video_rx_deliver_frames": {
+              "start": 0,
+              "end": 9,
+              "fps": 0.6506584544418876
+            },
+            "remote_frames": {
+              "start": 0,
+              "end": 8,
+              "fps": 0.5783630706150112
+            }
+          }
+        }
+      },
+      {
+        "requested": [
+          45,
+          75
+        ],
+        "actual": [
+          44.996229249984026,
+          74.1662657079869
+        ],
+        "counts": {
+          "mac": {
+            "video_tx_frames": {
+              "start": 12,
+              "end": 28,
+              "fps": 0.5485080563075663
+            },
+            "video_rx_deliver_frames": {
+              "start": 14,
+              "end": 32,
+              "fps": 0.6170715633460121
+            },
+            "remote_frames": {
+              "start": 10,
+              "end": 28,
+              "fps": 0.6170715633460121
+            }
+          },
+          "phone": {
+            "video_tx_frames": {
+              "start": 17,
+              "end": 35,
+              "fps": 0.6170715633460121
+            },
+            "video_rx_deliver_frames": {
+              "start": 9,
+              "end": 22,
+              "fps": 0.44566279574989764
+            },
+            "remote_frames": {
+              "start": 8,
+              "end": 20,
+              "fps": 0.41138104223067473
+            }
+          }
+        }
+      },
+      {
+        "requested": [
+          75,
+          90
+        ],
+        "actual": [
+          74.1662657079869,
+          90.64463270799024
+        ],
+        "counts": {
+          "mac": {
+            "video_tx_frames": {
+              "start": 28,
+              "end": 44,
+              "fps": 0.9709699996362959
+            },
+            "video_rx_deliver_frames": {
+              "start": 32,
+              "end": 49,
+              "fps": 1.0316556246135644
+            },
+            "remote_frames": {
+              "start": 28,
+              "end": 44,
+              "fps": 0.9709699996362959
+            }
+          },
+          "phone": {
+            "video_tx_frames": {
+              "start": 35,
+              "end": 52,
+              "fps": 1.0316556246135644
+            },
+            "video_rx_deliver_frames": {
+              "start": 22,
+              "end": 38,
+              "fps": 0.9709699996362959
+            },
+            "remote_frames": {
+              "start": 20,
+              "end": 35,
+              "fps": 0.9102843746590275
+            }
+          }
+        }
+      },
+      {
+        "requested": [
+          90,
+          120
+        ],
+        "actual": [
+          90.64463270799024,
+          119.82161454099696
+        ],
+        "counts": {
+          "mac": {
+            "video_tx_frames": {
+              "start": 44,
+              "end": 110,
+              "fps": 2.2620571372922784
+            },
+            "video_rx_deliver_frames": {
+              "start": 49,
+              "end": 122,
+              "fps": 2.501972288217217
+            },
+            "remote_frames": {
+              "start": 44,
+              "end": 117,
+              "fps": 2.501972288217217
+            }
+          },
+          "phone": {
+            "video_tx_frames": {
+              "start": 52,
+              "end": 125,
+              "fps": 2.501972288217217
+            },
+            "video_rx_deliver_frames": {
+              "start": 38,
+              "end": 104,
+              "fps": 2.2620571372922784
+            },
+            "remote_frames": {
+              "start": 35,
+              "end": 96,
+              "fps": 2.090689172345894
+            }
+          }
+        }
+      },
+      {
+        "requested": [
+          120,
+          149
+        ],
+        "actual": [
+          119.82161454099696,
+          149.2781215410214
+        ],
+        "counts": {
+          "mac": {
+            "video_tx_frames": {
+              "start": 110,
+              "end": 304,
+              "fps": 6.585981155193965
+            },
+            "video_rx_deliver_frames": {
+              "start": 122,
+              "end": 322,
+              "fps": 6.789671294014396
+            },
+            "remote_frames": {
+              "start": 117,
+              "end": 317,
+              "fps": 6.789671294014396
+            }
+          },
+          "phone": {
+            "video_tx_frames": {
+              "start": 125,
+              "end": 326,
+              "fps": 6.823619650484468
+            },
+            "video_rx_deliver_frames": {
+              "start": 104,
+              "end": 299,
+              "fps": 6.619929511664036
+            },
+            "remote_frames": {
+              "start": 96,
+              "end": 292,
+              "fps": 6.653877868134108
+            }
+          }
+        }
+      }
+    ],
+    "logs": {
+      "phone-logcat.log": {
+        "violations": 0,
+        "bans": 0
+      },
+      "mac-runtime.log": {
+        "violations": 0,
+        "bans": 0
+      }
+    },
+    "policies": {
+      "mac": {
+        "eligible_pending_growth_observations": [],
+        "cuts": []
+      },
+      "phone": {
+        "eligible_pending_growth_observations": [],
+        "cuts": []
+      }
+    }
+  },
+  "current": {
+    "intervals": [
+      {
+        "requested": [
+          31,
+          45
+        ],
+        "actual": [
+          30.888135040993802,
+          45.124048791010864
+        ],
+        "counts": {
+          "mac": {
+            "video_tx_frames": {
+              "start": 0,
+              "end": 11,
+              "fps": 0.7726936390006449
+            },
+            "video_rx_deliver_frames": {
+              "start": 1,
+              "end": 16,
+              "fps": 1.0536731440917884
+            },
+            "remote_frames": {
+              "start": 0,
+              "end": 16,
+              "fps": 1.1239180203645744
+            }
+          },
+          "phone": {
+            "video_tx_frames": {
+              "start": 1,
+              "end": 16,
+              "fps": 1.0536731440917884
+            },
+            "video_rx_deliver_frames": {
+              "start": 0,
+              "end": 11,
+              "fps": 0.7726936390006449
+            },
+            "remote_frames": {
+              "start": 0,
+              "end": 11,
+              "fps": 0.7726936390006449
+            }
+          }
+        }
+      },
+      {
+        "requested": [
+          45,
+          75
+        ],
+        "actual": [
+          45.124048791010864,
+          74.65165512502426
+        ],
+        "counts": {
+          "mac": {
+            "video_tx_frames": {
+              "start": 11,
+              "end": 121,
+              "fps": 3.725327368418921
+            },
+            "video_rx_deliver_frames": {
+              "start": 16,
+              "end": 192,
+              "fps": 5.960523789470273
+            },
+            "remote_frames": {
+              "start": 16,
+              "end": 192,
+              "fps": 5.960523789470273
+            }
+          },
+          "phone": {
+            "video_tx_frames": {
+              "start": 16,
+              "end": 192,
+              "fps": 5.960523789470273
+            },
+            "video_rx_deliver_frames": {
+              "start": 11,
+              "end": 121,
+              "fps": 3.725327368418921
+            },
+            "remote_frames": {
+              "start": 11,
+              "end": 120,
+              "fps": 3.691460755978749
+            }
+          }
+        }
+      },
+      {
+        "requested": [
+          75,
+          90
+        ],
+        "actual": [
+          74.65165512502426,
+          89.48835158301517
+        ],
+        "counts": {
+          "mac": {
+            "video_tx_frames": {
+              "start": 121,
+              "end": 204,
+              "fps": 5.594237250523309
+            },
+            "video_rx_deliver_frames": {
+              "start": 192,
+              "end": 298,
+              "fps": 7.14444757295748
+            },
+            "remote_frames": {
+              "start": 192,
+              "end": 297,
+              "fps": 7.077047124155994
+            }
+          },
+          "phone": {
+            "video_tx_frames": {
+              "start": 192,
+              "end": 298,
+              "fps": 7.14444757295748
+            },
+            "video_rx_deliver_frames": {
+              "start": 121,
+              "end": 204,
+              "fps": 5.594237250523309
+            },
+            "remote_frames": {
+              "start": 120,
+              "end": 203,
+              "fps": 5.594237250523309
+            }
+          }
+        }
+      },
+      {
+        "requested": [
+          90,
+          120
+        ],
+        "actual": [
+          89.48835158301517,
+          119.03780412499327
+        ],
+        "counts": {
+          "mac": {
+            "video_tx_frames": {
+              "start": 204,
+              "end": 286,
+              "fps": 2.7750091100168572
+            },
+            "video_rx_deliver_frames": {
+              "start": 298,
+              "end": 373,
+              "fps": 2.538118088430052
+            },
+            "remote_frames": {
+              "start": 297,
+              "end": 372,
+              "fps": 2.538118088430052
+            }
+          },
+          "phone": {
+            "video_tx_frames": {
+              "start": 298,
+              "end": 374,
+              "fps": 2.571959662942453
+            },
+            "video_rx_deliver_frames": {
+              "start": 204,
+              "end": 276,
+              "fps": 2.4365933648928504
+            },
+            "remote_frames": {
+              "start": 203,
+              "end": 271,
+              "fps": 2.3012270668432473
+            }
+          }
+        }
+      },
+      {
+        "requested": [
+          120,
+          149
+        ],
+        "actual": [
+          119.03780412499327,
+          148.14855487499153
+        ],
+        "counts": {
+          "mac": {
+            "video_tx_frames": {
+              "start": 286,
+              "end": 361,
+              "fps": 2.576367770247371
+            },
+            "video_rx_deliver_frames": {
+              "start": 373,
+              "end": 474,
+              "fps": 3.4695085972664597
+            },
+            "remote_frames": {
+              "start": 372,
+              "end": 473,
+              "fps": 3.4695085972664597
+            }
+          },
+          "phone": {
+            "video_tx_frames": {
+              "start": 374,
+              "end": 475,
+              "fps": 3.4695085972664597
+            },
+            "video_rx_deliver_frames": {
+              "start": 276,
+              "end": 351,
+              "fps": 2.576367770247371
+            },
+            "remote_frames": {
+              "start": 271,
+              "end": 344,
+              "fps": 2.507664629707441
+            }
+          }
+        }
+      }
+    ],
+    "logs": {
+      "phone-logcat.log": {
+        "violations": 0,
+        "bans": 0
+      },
+      "mac-runtime.log": {
+        "violations": 0,
+        "bans": 0
+      }
+    },
+    "policies": {
+      "mac": {
+        "eligible_pending_growth_observations": [],
+        "cuts": [
+          {
+            "source_budget_pressured": true,
+            "observation": 68,
+            "level_before": 3,
+            "receive_required": true,
+            "receive_ms": 114,
+            "receive_target_ms": 100,
+            "receive_window_ms": [
+              114,
+              114,
+              114,
+              114,
+              114,
+              114
+            ],
+            "receive_pressure": false,
+            "peer_required": true,
+            "peer_peak_ms": 100,
+            "peer_current_ms": 100,
+            "peer_target_ms": 100,
+            "peer_sequence": 100,
+            "peer_fresh": false,
+            "recovery_peer_baseline": 80,
+            "recovery_peer_confirmed": true,
+            "peer_growing": false,
+            "peer_window_ms": [
+              46,
+              58,
+              45,
+              94,
+              97,
+              100
+            ],
+            "peer_pressure": false,
+            "pressure_can_advance": false,
+            "targets_recovered": true,
+            "feedback_available": true,
+            "rtt_ms": 11,
+            "tx_jitter_ms": 3,
+            "tx_loss_pct": 0,
+            "audio_rtp_drop": false,
+            "video_rtp_drop": false,
+            "audio_interruption": false,
+            "audio_network_loss": false,
+            "audio_peer_concealment": true,
+            "audio_local_concealment": false,
+            "video_network_loss": false,
+            "audio_latency_recovery": true,
+            "audio_receiver_latency_recovery": false,
+            "soft_audio_loss_repeated": true,
+            "soft_audio_send_significant": true,
+            "soft_audio_receive_significant": false,
+            "soft_audio_growth_held": true,
+            "soft_audio_cut_held": false,
+            "buffer_growth_pending": false,
+            "audio_within_recovery_limits": false,
+            "video_recovery_eligible": true,
+            "audio_receive_age_ms": 3,
+            "audio_receiver_feedback_missing": false,
+            "rtt_route_epoch": 0,
+            "rtt_baseline_ms_after": 9,
+            "level_after": 4,
+            "bad_streak_after": 0,
+            "good_streak_after": 0,
+            "growth_pause_transient": false,
+            "ramp_recovery_needed": false,
+            "ramp_recovery_samples_after": 0,
+            "audio_recovery_streak_after": 0,
+            "severe_streak_after": 0,
+            "paused_after": false
+          }
+        ]
+      },
+      "phone": {
+        "eligible_pending_growth_observations": [],
+        "cuts": [
+          {
+            "source_budget_pressured": false,
+            "observation": 65,
+            "level_before": 2,
+            "receive_required": true,
+            "receive_ms": 99,
+            "receive_target_ms": 100,
+            "receive_window_ms": [
+              88,
+              97,
+              89,
+              89,
+              99,
+              99
+            ],
+            "receive_pressure": false,
+            "peer_required": true,
+            "peer_peak_ms": 114,
+            "peer_current_ms": 114,
+            "peer_target_ms": 100,
+            "peer_sequence": 95,
+            "peer_fresh": false,
+            "recovery_peer_baseline": 95,
+            "recovery_peer_confirmed": false,
+            "peer_growing": false,
+            "peer_window_ms": [
+              54,
+              47,
+              47,
+              46,
+              97,
+              114
+            ],
+            "peer_pressure": false,
+            "pressure_can_advance": false,
+            "targets_recovered": true,
+            "feedback_available": true,
+            "rtt_ms": 22,
+            "tx_jitter_ms": 12,
+            "tx_loss_pct": 0,
+            "audio_rtp_drop": false,
+            "video_rtp_drop": false,
+            "audio_interruption": false,
+            "audio_network_loss": false,
+            "audio_peer_concealment": false,
+            "audio_local_concealment": false,
+            "video_network_loss": true,
+            "audio_latency_recovery": false,
+            "audio_receiver_latency_recovery": false,
+            "soft_audio_loss_repeated": false,
+            "soft_audio_send_significant": false,
+            "soft_audio_receive_significant": false,
+            "soft_audio_growth_held": true,
+            "soft_audio_cut_held": false,
+            "buffer_growth_pending": false,
+            "audio_within_recovery_limits": true,
+            "video_recovery_eligible": true,
+            "audio_receive_age_ms": 15,
+            "audio_receiver_feedback_missing": false,
+            "rtt_route_epoch": 0,
+            "rtt_baseline_ms_after": 9,
+            "level_after": 4,
+            "bad_streak_after": 0,
+            "good_streak_after": 0,
+            "growth_pause_transient": false,
+            "ramp_recovery_needed": false,
+            "ramp_recovery_samples_after": 0,
+            "audio_recovery_streak_after": 0,
+            "severe_streak_after": 0,
+            "paused_after": false
+          }
+        ]
+      }
+    }
+  }
+}
