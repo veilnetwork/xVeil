@@ -569,6 +569,11 @@ void main() {
           clock.elapse(const Duration(seconds: 15));
           expect(transport.pressureReports, hasLength(15));
           expect(transport.pressureReports.every((r) => r.pressured), isTrue);
+          expect(
+            engine.audioSourcePressure.last,
+            isNull,
+            reason: 'unknown measurements are not transport floor pressure',
+          );
           engine.stats = _sourceStats([peer]);
           clock.elapse(const Duration(seconds: 12));
           expect(transport.pressureReports.last.pressured, isFalse);
@@ -746,6 +751,12 @@ void main() {
         clock.flushMicrotasks();
         clock.elapse(const Duration(seconds: 5));
         expect(transport.pressureReports, hasLength(1));
+        expect(engine.audioSourcePressure.last, isFalse);
+        expect(
+          engine.audioSourcePressure.where((value) => value == false).length,
+          greaterThanOrEqualTo(5),
+          reason: 'native feedback must not wait for SDK admission ACK',
+        );
         expect(
           transport.pressureReports.single.at,
           origin.add(const Duration(seconds: 1)),
@@ -2629,6 +2640,13 @@ class _FakeEngine implements GroupAudioEngine {
   @override
   final bool supportsVideoSendPause;
   final List<bool> pauses = [];
+  final List<bool?> audioSourcePressure = [];
+  @override
+  bool setAudioSourcePressure(bool? pressured) {
+    audioSourcePressure.add(pressured);
+    return true;
+  }
+
   bool acceptPause = true;
   @override
   bool setVideoSendPaused(bool paused) {

@@ -128,6 +128,10 @@ def worker(pipe, sdk_path, media_path, root, clock, participant,
             start_video = mf('veil_media_group_engine_start_video', [P], C.c_int)
             pause_video = mf('veil_media_group_engine_set_video_send_paused', [P, C.c_int], C.c_int)
             video_budget = mf('veil_media_group_engine_set_video_budget', [P, C.c_int, C.c_double], C.c_int)
+            try:
+                audio_pixels = mf('veil_media_group_engine_set_audio_source_pressure', [P, C.c_int], C.c_int)
+            except AttributeError:
+                audio_pixels = None
             frame = mf('veil_media_group_engine_get_peer_video_frame', [P, P, P, C.c_int, P, P], C.c_int)
             source_report = fixture.fn('veil_app_report_local_source_pressure',
                                        [P, C.c_uint8, C.c_uint64, E], C.c_int)
@@ -316,6 +320,13 @@ def worker(pipe, sdk_path, media_path, root, clock, participant,
                     snapshot['audio_policy'] = decision
                     if full_load:
                         video_policy = decision['video_policy']
+                        measured_audio = video_policy['measuredAudioPressure']
+                        snapshot['native_audio_pixel_feedback_supported'] = audio_pixels is not None
+                        if audio_pixels is not None:
+                            hint = -1 if measured_audio is None else int(measured_audio)
+                            snapshot['native_audio_pixel_feedback_rc'] = audio_pixels(engine, hint)
+                            if snapshot['native_audio_pixel_feedback_rc'] != 0:
+                                raise RuntimeError('Native audio pixel feedback refused')
                         if video_policy['sourcePressured'] is not None:
                             snapshot['source_report_rc'] = fixture.checked(source_report, app,
                                 int(video_policy['sourcePressured']), sampled_at_unix_ms)

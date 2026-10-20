@@ -462,6 +462,10 @@ try:
     decoded_video_rows=[];decoded_video_failures=[0,0]
     startvideo=mf('veil_media_engine_start_video',[P,C.c_int,C.c_int,C.c_int,C.c_int],C.c_int)
     pause=mf('veil_media_engine_set_video_send_paused',[P,C.c_int],C.c_int)
+    try:
+        audio_pixels=mf('veil_media_engine_set_audio_source_pressure',[P,C.c_int],C.c_int)
+    except AttributeError:
+        audio_pixels=None
     budget=mf('veil_media_engine_set_video_budget',[P,C.c_int,C.c_double],C.c_int)
     batching=fn('veil_media_channel_set_batching',[C.c_uint64,C.c_int],C.c_int)
     keys=[os.urandom(32),os.urandom(32)]
@@ -765,6 +769,12 @@ try:
                 while inbox[i]:feedback.append(inbox[i].popleft())
                 sampled_at=int(time.time()*1000)
                 r=command({'index':i,'op':'stats','now':sampled_at,'stats':stats,'feedback':feedback,'prepare':prepare,'videoSendExpected':videostarted and not args.no_video,'sourceFeedbackQueued':source_feedback_queued[i]>0})
+                r['nativeAudioPixelFeedbackSupported']=audio_pixels is not None
+                if audio_pixels is not None:
+                    hint=-1 if r['measuredAudioPressure'] is None else int(r['measuredAudioPressure'])
+                    r['nativeAudioPixelFeedbackRc']=audio_pixels(e,hint)
+                    if r['nativeAudioPixelFeedbackRc']!=0:
+                        raise RuntimeError('Native audio pixel feedback refused')
                 if source_report is not None and r['sourcePressured'] is not None:
                     rc=checked(source_report,apps[i],int(r['sourcePressured']),sampled_at)
                     if rc==0:source_feedback_queued[i]+=1
