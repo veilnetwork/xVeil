@@ -1,0 +1,57 @@
+{
+  "source_locations": [
+    {
+      "role": "native budget",
+      "path": "third_party/veil/flutter/veil_media/src/veil_video_frame_budget.h",
+      "line_start": 87,
+      "line_end": 99,
+      "sha256": "bc1126e64745851fbfdfd83c44dbec02e44fff594a7feb9d24692c854fa15700"
+    },
+    {
+      "role": "native pacer field trial",
+      "path": "third_party/veil/flutter/veil_media/src/veil_media_engine.cc",
+      "line_start": 1296,
+      "line_end": 1312,
+      "sha256": "8ceafd868810881c3b8453b1ada537677efcf6eb90058929261a503f8089ed2b"
+    },
+    {
+      "role": "local frame deadline",
+      "path": "third_party/veil/crates/veilclient-ffi/src/media_ffi.rs",
+      "line_start": 463,
+      "line_end": 508,
+      "sha256": "8e477f94f481830a9ecec37a7130eb9348be97aee485d83c282d18d1a9b240eb"
+    },
+    {
+      "role": "frame birth timestamp",
+      "path": "third_party/veil/crates/veilclient-ffi/src/media_ffi.rs",
+      "line_start": 2076,
+      "line_end": 2085,
+      "sha256": "8e477f94f481830a9ecec37a7130eb9348be97aee485d83c282d18d1a9b240eb"
+    },
+    {
+      "role": "pacer queue drain",
+      "path": "/Users/vart/Projects/veilnetwork/webrtc-checkout/src/modules/pacing/pacing_controller.cc",
+      "line_start": 691,
+      "line_end": 712,
+      "sha256": "30c6ff92be5477549f6b332042b1dd071df771a62dcad63f2d2f88787d118ded"
+    },
+    {
+      "role": "pacer field parsing",
+      "path": "/Users/vart/Projects/veilnetwork/webrtc-checkout/src/video/video_send_stream_impl.cc",
+      "line_start": 432,
+      "line_end": 437,
+      "sha256": "7d346d559e78ff1ebd30b0f7626a1ae9ee491154fc9732a156382b2004d1ca6d"
+    }
+  ],
+  "completed_frame_queue_max_ms_by_worker": [
+    0,
+    0,
+    4
+  ],
+  "deadline_expiry_root_cause_proven": false,
+  "next_required_evidence": [
+    "first-to-marker timing on the same RTP timestamp",
+    "source frame admission and expiry",
+    "downstream decode progress"
+  ]
+}
