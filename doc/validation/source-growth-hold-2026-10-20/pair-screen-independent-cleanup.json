@@ -1,0 +1,14 @@
+{
+  "checked_at_utc": "2026-10-20T05:05:42.011829+00:00",
+  "processes_checked": 3,
+  "remaining": [],
+  "audio_thread_exited": true,
+  "file_threads_exited": true,
+  "policy_exited": true,
+  "node_stop_results": [
+    0,
+    0,
+    0
+  ],
+  "remaining_fixture_sockets": 0
+}

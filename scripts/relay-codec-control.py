@@ -234,6 +234,10 @@ feedback_sender = fn('veil_media_channel_set_feedback_sender', [C.c_uint64, P, E
 screen_sender = fn('veil_media_channel_set_screen_sender', [C.c_uint64, P, E], C.c_int) if args.screen_video else None
 screen_select = fn('veil_media_channel_set_screen_sharing', [C.c_uint64, C.c_int], C.c_int) if args.screen_video else None
 source_report = fn('veil_app_report_local_source_pressure', [P, C.c_uint8, C.c_uint64, E], C.c_int) if args.local_source_feedback else None
+try:
+    source_growth_hold=fn('veil_app_hold_local_source_growth',[P,C.c_uint64,C.c_uint64,E],C.c_int) if args.local_source_feedback else None
+except AttributeError:
+    source_growth_hold=None
 shaper = None
 startat = None
 
@@ -466,6 +470,10 @@ try:
         audio_pixels=mf('veil_media_engine_set_audio_source_pressure',[P,C.c_int],C.c_int)
     except AttributeError:
         audio_pixels=None
+    try:
+        audio_growth_hold=mf('veil_media_engine_hold_source_growth',[P,C.c_uint64,C.c_uint64],C.c_int)
+    except AttributeError:
+        audio_growth_hold=None
     budget=mf('veil_media_engine_set_video_budget',[P,C.c_int,C.c_double],C.c_int)
     batching=fn('veil_media_channel_set_batching',[C.c_uint64,C.c_int],C.c_int)
     keys=[os.urandom(32),os.urandom(32)]
@@ -770,15 +778,24 @@ try:
                 sampled_at=int(time.time()*1000)
                 r=command({'index':i,'op':'stats','now':sampled_at,'stats':stats,'feedback':feedback,'prepare':prepare,'videoSendExpected':videostarted and not args.no_video,'sourceFeedbackQueued':source_feedback_queued[i]>0})
                 r['nativeAudioPixelFeedbackSupported']=audio_pixels is not None
-                if audio_pixels is not None:
+                held_at=r.get('growthHoldStartedAt')
+                r['nativeAudioGrowthHoldRc']=None
+                if audio_growth_hold is not None and r['measuredAudioPressure'] is False and held_at is not None:
+                    r['nativeAudioGrowthHoldRc']=audio_growth_hold(e,sampled_at,held_at)
+                if r['nativeAudioGrowthHoldRc'] is not None:r['nativeAudioPixelFeedbackRc']=r['nativeAudioGrowthHoldRc']
+                if audio_pixels is not None and r['nativeAudioGrowthHoldRc'] is None:
                     hint=-1 if r['measuredAudioPressure'] is None else int(r['measuredAudioPressure'])
                     r['nativeAudioPixelFeedbackRc']=audio_pixels(e,hint)
                     if r['nativeAudioPixelFeedbackRc']!=0:
                         raise RuntimeError('Native audio pixel feedback refused')
                 if source_report is not None and r['sourcePressured'] is not None:
-                    rc=checked(source_report,apps[i],int(r['sourcePressured']),sampled_at)
+                    r['sourceGrowthHoldRc']=None
+                    if source_growth_hold is not None and r['sourcePressured'] is False and held_at is not None:
+                        r['sourceGrowthHoldRc']=checked(source_growth_hold,apps[i],sampled_at,held_at)
+                    rc=r['sourceGrowthHoldRc']
+                    if rc is None or rc==1:rc=checked(source_report,apps[i],int(r['sourcePressured']),sampled_at)
                     if rc==0:source_feedback_queued[i]+=1
-                    elif rc==1:source_feedback_skipped[i]+=1
+                    elif rc in (1,2):source_feedback_skipped[i]+=1
                     else:raise RuntimeError('Local source feedback refused')
                 latestfeedback[i]=r['feedback'];targets[i]=r['target']
                 urgent_feedback[i]=r['urgentFeedback']

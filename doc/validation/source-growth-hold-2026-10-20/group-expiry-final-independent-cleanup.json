@@ -1,0 +1,25 @@
+{
+  "checked_at_utc": "2026-10-20T05:45:43.571946+00:00",
+  "pids_checked": [
+    3487,
+    85731,
+    85732,
+    85733,
+    94109,
+    94112,
+    94113,
+    94114,
+    94141,
+    94142,
+    94143
+  ],
+  "remaining": {},
+  "workers_exited": true,
+  "remaining_sockets": 0,
+  "node_stop_results": [
+    0,
+    0,
+    0,
+    0
+  ]
+}
