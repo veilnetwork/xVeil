@@ -71,6 +71,10 @@ The candidate switches automatically: phone ~39.7 s, Mac ~41.8 s. The later
 explicit recovery request returns false because it is already on relay.
 The cause of that early automatic transition is not established here.
 
+Follow-up: [capture health timestamp validation](../capture-health-timestamp-2026-10-20/README.md)
+identifies and fixes the demonstrated mute-induced false fallback. The original
+capture and its limitations below are retained.
+
 ### Received frame progress
 
 Rates below are **counter differences divided by actual elapsed observation

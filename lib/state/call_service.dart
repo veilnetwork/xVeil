@@ -2160,6 +2160,10 @@ class CallService {
         signal.type == CallSignalType.health &&
         signal.onBehalfOf == null) {
       signal = signal.copyWith(
+        // Compact control bypasses MessagingService's timestamping. Stamp
+        // here so an immediate mute/feedback report is newer than the last
+        // periodic heartbeat on either carrier.
+        sentAtMs: signal.sentAtMs ?? _now().millisecondsSinceEpoch,
         compactHealthReady: _media?.canReceiveEphemeralHealth ?? false,
       );
       _audioFeedbackSchedule.recordAttempt(signal.audioPlayout, _now());
