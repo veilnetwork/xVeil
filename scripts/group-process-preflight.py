@@ -16,6 +16,7 @@ from pathlib import Path
 import re
 import selectors
 import subprocess
+import threading
 import time
 import traceback
 
@@ -416,6 +417,14 @@ def worker(pipe, sdk_path, media_path, root, clock, participant,
         if files:
             result['file_snapshot'] = files.freeze()
             result['file_snapshot_seconds'] = time.monotonic() - origin
+        # Keep the original measurement interval and frozen file/video
+        # results. A final source transition may be only 30 ms before its
+        # deadline; record one extra second of real playout so ordinary codec
+        # and network delay does not become an unobserved "missing" marker.
+        # analyze_voice_path still checks every source edge before duration.
+        tail_started = time.monotonic()
+        time.sleep(1)
+        result['audio_observation_tail_seconds'] = time.monotonic() - tail_started
         rows.extend(driver.stop())
         clock_stats = {k: getattr(driver.stats, k) for k, _ in driver.stats._fields_}
         clock_stats['failures'] = list(driver.stats.failures)
@@ -528,6 +537,10 @@ def main():
     parser.add_argument('--directory', type=Path, required=True)
     parser.add_argument('--duration', type=int, default=40)
     parser.add_argument('--rate-kbps', type=int, default=0)
+    parser.add_argument('--capacity-step-at-seconds', type=int,
+                        help='increase the neutral FIFO capacity during the same running call')
+    parser.add_argument('--capacity-step-kbps', type=int,
+                        help='new aggregate FIFO capacity after the requested step')
     parser.add_argument('--wire-trace-capacity', type=int, default=100000,
                         help='bounded FIFO timing metadata rows; never changes pacing or limits')
     parser.add_argument('--budget-smoke', action='store_true')
@@ -544,6 +557,12 @@ def main():
     args = parser.parse_args()
     if args.duration < 30 or args.rate_kbps < 0:
         parser.error('Duration must be at least 30 seconds and rate nonnegative')
+    if (args.capacity_step_at_seconds is None) != (args.capacity_step_kbps is None):
+        parser.error('Capacity step requires both time and new rate')
+    if args.capacity_step_at_seconds is not None and not (
+            args.rate_kbps > 0 and 0 < args.capacity_step_at_seconds < args.duration
+            and args.capacity_step_kbps > args.rate_kbps):
+        parser.error('Capacity step must increase a positive rate during the measurement')
     if not 1 <= args.wire_trace_capacity <= 1000000:
         parser.error('Wire trace capacity must be in 1..1000000')
     if args.budget_smoke and args.duration < 60:
@@ -567,6 +586,7 @@ def main():
     log = (root / 'native.log').open('w')
     os.dup2(log.fileno(), 2)
     children, pipes = [], []
+    capacity_timer = None
     result = {'ok': False, 'participants': 3, 'separate_sdk_processes': True,
               'video_file_load': args.full_load and args.load_kind == 'both',
               'speech_listening_proof': False,
@@ -664,6 +684,23 @@ def main():
         for pipe in pipes:
             pipe.send({'origin': origin, 'origin_unix_ms': result['origin_unix_ms'],
                        'duration': args.duration})
+        if args.capacity_step_at_seconds is not None:
+            def increase_capacity():
+                # The shaper sees only opaque datagrams, in its existing FIFO
+                # order. Change the whole link, never a media-specific class.
+                old_rate = fixture.shaper.rate_bps
+                fixture.shaper.rate_bps = args.capacity_step_kbps * 1000
+                result['capacity_step'] = {
+                    'requested_at_seconds': args.capacity_step_at_seconds,
+                    'applied_at_seconds': time.monotonic() - origin,
+                    'old_rate_bps': old_rate,
+                    'new_rate_bps': fixture.shaper.rate_bps,
+                }
+            capacity_timer = threading.Timer(
+                max(0, origin + args.capacity_step_at_seconds - time.monotonic()),
+                increase_capacity)
+            capacity_timer.name = 'xveil-neutral-capacity-step'
+            capacity_timer.start()
         receive_all(args.duration + 20)
         result['voice_paths'] = []
         all_rows = [json.loads((root / f'worker-{i}/pcm-samples.json').read_text())
@@ -717,6 +754,13 @@ def main():
         (root / 'failure.txt').write_text(traceback.format_exc())
         result['failure_saved_privately'] = True
     finally:
+        if capacity_timer is not None:
+            capacity_timer.cancel()
+            capacity_timer.join(2)
+            result['capacity_timer_exited'] = not capacity_timer.is_alive()
+            result['ok'] &= (result['capacity_timer_exited'] and
+                             result.get('capacity_step', {}).get('new_rate_bps') ==
+                             args.capacity_step_kbps * 1000)
         for process in children:
             process.join(5)
             if process.is_alive():

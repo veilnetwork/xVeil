@@ -1,0 +1,56 @@
+{
+  "flutter_passed": 232,
+  "regression_before": "One selected test failed: new current peer report arrived during hold, but recovery stayed at level 2 after the hold. Same test plus all 231 prior related tests pass after fix.",
+  "native_feedback": "real WebRTC framing: short captured burst, time/cached counters cannot confirm pressure; sustained moderate and large-burst protections pass",
+  "native_shim": "real authenticated compound feedback: combine duration, replay guard and sustained pressure pass",
+  "real_opus_call_planes": "direct/group audio passes stalled video worker/fanout queues; muted start/rebuild, budget, restart/teardown pass",
+  "analysis": "production and test Dart, frozen baseline policy pass",
+  "rust": "unchanged SDK binary reused from ab6d6c14 build proof; no new Rust test claim",
+  "logs": {
+    "xveil-recovery-overlap-before.txt": {
+      "path": "/private/tmp/xveil-recovery-overlap-before.txt",
+      "bytes": 767,
+      "sha256": "bb188a2e5002e494e6cdeb519cbecad4b934c9a01b686165c7fddc4214ee5153"
+    },
+    "xveil-soft-burst-feedback-test.txt": {
+      "path": "/private/tmp/xveil-soft-burst-feedback-test.txt",
+      "bytes": 754,
+      "sha256": "9f52b30af768653cbe48e9d7c3affe1578337768116b28361c4918366cf1c0b4"
+    },
+    "xveil-soft-burst-shim-test.txt": {
+      "path": "/private/tmp/xveil-soft-burst-shim-test.txt",
+      "bytes": 3887,
+      "sha256": "4497a0c38beaf6cc2ef88a31a88d4d8ac78bb316bbfb13b0e094068a7d002fc6"
+    },
+    "xveil-soft-burst-flutter-tests.txt": {
+      "path": "/private/tmp/xveil-soft-burst-flutter-tests.txt",
+      "bytes": 35315,
+      "sha256": "0ed22e8091f9b72f08fa169337bccb9d3b64824ab781e9b3a2eca693eff345e1"
+    },
+    "xveil-soft-burst-analysis.txt": {
+      "path": "/private/tmp/xveil-soft-burst-analysis.txt",
+      "bytes": 96,
+      "sha256": "590807ac9f73713a7cde89a364411090262b446c9cc58b4a936d6a94b7571fde"
+    },
+    "xveil-soft-burst-call-planes.txt": {
+      "path": "/private/tmp/xveil-soft-burst-call-planes.txt",
+      "bytes": 1512,
+      "sha256": "be6e7f6b2d1d79fe87d89602c75c61e19bb28797b5e53509c8c5b3c59ab55e3b"
+    },
+    "xveil-soft-burst-media-hooks-build.txt": {
+      "path": "/private/tmp/xveil-soft-burst-media-hooks-build.txt",
+      "bytes": 6357,
+      "sha256": "709481dcfe12c034eb596a86c586b28db27476279cf223ac7d8ad19380b4e8bd"
+    },
+    "xveil-soft-burst-media-production-build.txt": {
+      "path": "/private/tmp/xveil-soft-burst-media-production-build.txt",
+      "bytes": 5630,
+      "sha256": "037aec417d506d0e952e3eeb24ceb603bef5d03752a2a7715038f165ec92a806"
+    },
+    "xveil-soft-burst-baseline-policy-analysis.txt": {
+      "path": "/private/tmp/xveil-soft-burst-baseline-policy-analysis.txt",
+      "bytes": 54,
+      "sha256": "5a45c4f2704359dd824c5ae10b2520002454d5d2684b2b45729c7418117c469e"
+    }
+  }
+}
