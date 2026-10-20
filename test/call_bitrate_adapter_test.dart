@@ -1398,6 +1398,65 @@ void main() {
   }
 
   test(
+    'startup counts healthy local video samples and one new peer report per rung',
+    () {
+      final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 30);
+      var frames = 0;
+      void tick(int sequence) => native(
+        a,
+        peerSequence: sequence,
+        stats: {...healthy(), 'rtt_ms': 40, 'video_tx_frames': ++frames},
+      );
+
+      // Health is measured every second; peer reports arrive every five.
+      for (var second = 0; second < 5; second++) {
+        tick(10);
+        expect(a.level, 4, reason: 'a cached report cannot confirm startup');
+      }
+      tick(11);
+      expect(
+        a.level,
+        3,
+        reason: 'one new report confirms the already measured healthy period',
+      );
+      final firstRung = a.target;
+      for (var second = 0; second < 45; second++) {
+        tick(11);
+        expect(a.level, 3, reason: 'the same report cannot fund another rung');
+      }
+      expect(a.acknowledgedTarget, firstRung);
+      tick(12);
+      expect(
+        a.level,
+        2,
+        reason: 'a new report confirms the applied first rung',
+      );
+    },
+  );
+
+  test(
+    'a new peer report cannot skip the healthy startup observation period',
+    () {
+      final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 30);
+      var frames = 0;
+      void tick(int sequence) => native(
+        a,
+        peerSequence: sequence,
+        stats: {...healthy(), 'rtt_ms': 40, 'video_tx_frames': ++frames},
+      );
+      tick(10);
+      tick(11);
+      expect(
+        a.level,
+        4,
+        reason: 'a fresh report is not three healthy measurements',
+      );
+      tick(11);
+      expect(a.level, 3, reason: 'the new report confirms the measured period');
+    },
+  );
+
+  test(
     'healthy startup quickly leaves one fps and recovers through bounded steps',
     () {
       final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 30);
