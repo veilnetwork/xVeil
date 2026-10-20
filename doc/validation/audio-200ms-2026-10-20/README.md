@@ -325,3 +325,58 @@ hooks differ. The remaining gate is an independent run after committing these
 sources. Its fixture additionally snapshots final native receiver counters
 after all measured callbacks stop; the old periodic poll stops at 359 seconds
 and cannot alone prove those counters through the end of the capture.
+
+## Final repeat and completion audit
+
+The independent committed-source run is in `cadence-repeat-full-workload.json`.
+Raw `ok` and `contention_qualification` are true again. Both full captures use
+the same media and SDK binaries, 360-second duration, three separate codec/SDK
+workers, shared 1024-kbit/s FIFO in each direction, six media directions and
+three encrypted 512-KiB files. `repeat-comparability.json` verifies that the
+only fixture-source change is the additional statistics snapshot **after**
+capture stops. The timed source code, profiles, clocks and gates are identical.
+
+| Check | First passing capture | Independent repeat |
+| --- | ---: | ---: |
+| Maximum decoded audio delay | 190.256 ms | 190.304 ms |
+| Matched measured voice transitions | 2112 / 2112 | 2112 / 2112 |
+| Missing measured transitions | 0 | 0 |
+| Video tails meeting the unchanged 14-change gate | 6 / 6 | 6 / 6 |
+| Authenticated, hash-verified files | 3 / 3 | 3 / 3 |
+
+The final native receiver snapshots occur at 361.021 seconds, after every
+measured callback and its observation tail have stopped. All six receivers
+report zero interruptions and zero interruption duration, with fresh native
+receive ages of 3–60 ms and more than 360 seconds of emitted samples. The
+codec payload floor remains 24 kbit/s; its bitrate/packet-duration settings,
+ordinary FEC/PLC decisions and explicit caller-directed operations are intact.
+
+The repeat's worst marker decomposes into 10.493 ms before encoding, 53.251 ms
+in encoded-to-ingress delivery, 0.051 ms between ingress and WebRTC, and
+126.510 ms before decoded PCM. These are packet-specific observations;
+different stage maxima are not added together or described as physical
+acoustic latency. The original observed total was 280.080 ms.
+
+`final-qualification-audit.json` independently re-reads the source/decoded PCM
+rows and full-image video witnesses, verifies the six voice paths by ordinal,
+checks all files, final receiver counters, clocks and relay topology, and
+recomputes every retained FIFO byte deadline at 1024000 bit/s. All eleven
+checks pass. The source verifier is retained as `audit_capture.py`:
+
+```sh
+python3 doc/validation/audio-200ms-2026-10-20/audit_capture.py \
+  /path/to/cadence-repeat-360 /private/tmp/group-qualification.json
+```
+
+SDK commit `50eb39cb` contains the committed media changes. Its Rust source is
+unchanged from the reservation-fixed SDK binary at `9eef87b9`; the intervening
+commits change only media C++ headers and their tests. The QA media source tree
+matches production sources exactly, with test hooks enabled only by build flags.
+No relay scheduler, wire role, priority hint, protocol format or quality gate
+was changed. Pre-existing multi-device work remains untouched.
+
+All 22 owned processes across the two passing captures were independently
+verified absent. The requested software contention gate is achieved on this
+reproducible stand. These captures do not claim human speech evaluation,
+physical camera/display quality, acoustic delay or a universal bound on
+arbitrary network propagation time.
