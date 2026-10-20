@@ -1,0 +1,188 @@
+{
+  "scope": "First source generation only; aborted audio-only capture, not a complete quality verdict",
+  "duration_seconds": 9,
+  "paths": {
+    "mac_to_phone": {
+      "phases": [
+        {
+          "phase": "audio_only",
+          "from_seconds": 5,
+          "until_seconds": 9,
+          "matched": 0,
+          "unmatched": 4,
+          "first_unmatched_ordinals": [
+            5,
+            6,
+            7,
+            8
+          ],
+          "median_ms": null,
+          "p95_ms": null,
+          "max_ms": null,
+          "max_clock_interval_ms": null
+        }
+      ],
+      "source_edges": 12,
+      "decoded_edges": 0,
+      "matching": "ordinal_from_actual_capture_start",
+      "pcm_block_ms": 10,
+      "rms_threshold": 500
+    },
+    "phone_to_mac": {
+      "phases": [
+        {
+          "phase": "audio_only",
+          "from_seconds": 5,
+          "until_seconds": 9,
+          "matched": 4,
+          "unmatched": 0,
+          "first_unmatched_ordinals": [],
+          "median_ms": 153.10087907710113,
+          "p95_ms": 162.8001430653967,
+          "max_ms": 162.8001430653967,
+          "max_clock_interval_ms": [
+            156.09654417494312,
+            169.50374195585027
+          ]
+        }
+      ],
+      "source_edges": 15,
+      "decoded_edges": 12,
+      "matching": "ordinal_from_actual_capture_start",
+      "pcm_block_ms": 10,
+      "rms_threshold": 500
+    }
+  },
+  "clock_calibration": {
+    "mac": {
+      "name": "mac",
+      "at": 321333.493932041,
+      "low": -0.00038458360359072685,
+      "high": 0.00015324936248362064,
+      "mid": -0.0001156671205535531,
+      "samples": [
+        {
+          "host_before": 321333.486832333,
+          "host_after": 321333.488473458,
+          "native": 321333.48815374996,
+          "low": -0.001321416988503188,
+          "high": 0.0003197080222889781
+        },
+        {
+          "host_before": 321333.488482333,
+          "host_after": 321333.489583458,
+          "native": 321333.4893233333,
+          "low": -0.0008410002919845283,
+          "high": 0.0002601246815174818
+        },
+        {
+          "host_before": 321333.489586,
+          "host_after": 321333.490334958,
+          "native": 321333.4901279166,
+          "low": -0.0005419166409410536,
+          "high": 0.0002070413902401924
+        },
+        {
+          "host_before": 321333.490336125,
+          "host_after": 321333.491063625,
+          "native": 321333.4908137083,
+          "low": -0.0004775832640007138,
+          "high": 0.0002499167458154261
+        },
+        {
+          "host_before": 321333.491065208,
+          "host_after": 321333.491963083,
+          "native": 321333.491700625,
+          "low": -0.0006354170036502182,
+          "high": 0.00026245799381285906
+        },
+        {
+          "host_before": 321333.491964916,
+          "host_after": 321333.492743916,
+          "native": 321333.4925457083,
+          "low": -0.0005807923153042793,
+          "high": 0.00019820767920464277
+        },
+        {
+          "host_before": 321333.492745333,
+          "host_after": 321333.493295916,
+          "native": 321333.49314266664,
+          "low": -0.0003973336424678564,
+          "high": 0.00015324936248362064
+        },
+        {
+          "host_before": 321333.493296833,
+          "host_after": 321333.493901166,
+          "native": 321333.4936814166,
+          "low": -0.00038458360359072685,
+          "high": 0.00021974940318614244
+        }
+      ]
+    },
+    "phone": {
+      "name": "phone",
+      "at": 321333.716872,
+      "low": -3605945.0672239377,
+      "high": -3605945.054354573,
+      "mid": -3605945.0607892554,
+      "samples": [
+        {
+          "host_before": 321333.493936291,
+          "host_after": 321333.538521041,
+          "native": 3927278.592373929,
+          "low": -3605945.098437638,
+          "high": -3605945.053852888
+        },
+        {
+          "host_before": 321333.538523375,
+          "host_after": 321333.551729333,
+          "native": 3927278.605747313,
+          "low": -3605945.0672239377,
+          "high": -3605945.0540179797
+        },
+        {
+          "host_before": 321333.551731083,
+          "host_after": 321333.586604791,
+          "native": 3927278.640363083,
+          "low": -3605945.088632,
+          "high": -3605945.0537582925
+        },
+        {
+          "host_before": 321333.586607958,
+          "host_after": 321333.600154041,
+          "native": 3927278.654194159,
+          "low": -3605945.067586201,
+          "high": -3605945.054040118
+        },
+        {
+          "host_before": 321333.600156875,
+          "host_after": 321333.626059,
+          "native": 3927278.67992539,
+          "low": -3605945.079768515,
+          "high": -3605945.05386639
+        },
+        {
+          "host_before": 321333.626061375,
+          "host_after": 321333.641850125,
+          "native": 3927278.696204698,
+          "low": -3605945.0701433234,
+          "high": -3605945.054354573
+        },
+        {
+          "host_before": 321333.641852208,
+          "host_after": 321333.691902416,
+          "native": 3927278.745112467,
+          "low": -3605945.103260259,
+          "high": -3605945.0532100513
+        },
+        {
+          "host_before": 321333.691905375,
+          "host_after": 321333.716860208,
+          "native": 3927278.770460313,
+          "low": -3605945.078554938,
+          "high": -3605945.053600105
+        }
+      ]
+    }
+  }
+}
