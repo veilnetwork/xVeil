@@ -18,9 +18,12 @@ traffic, change route privacy budgets, or send call traffic through mailboxes.
   loss during the acknowledged three-second drain holds growth without another
   cut. Fresh audio failures and measured audio buffer pressure remain independent
   protection signals; a busy/unacknowledged setter earns no drain interval.
-- A receiver's decoder delay rising 80 ms above its baseline for three seconds,
-  or reaching 500 ms, is additional queue evidence. A short spike holds growth.
-  This is decoder queue delay, not propagation RTT.
+- Additional backlog evidence compares elapsed receiver sample time with the
+  decoded 90-kHz RTP timeline. Lag of at least 80 ms plus one frame, sustained
+  for three seconds, drains video; a short spike holds growth. The baseline
+  uses a ten-second window to limit clock-rate drift. WebRTC's adaptive playout
+  target alone cannot establish a growing queue. Its 500-ms hard ceiling remains
+  independent. None of these measurements treats propagation RTT as a queue.
 - Delivery-rate observations use receiver sampling intervals and are bounded
   by source production. A ten-second maximum retains application-limited low
   samples. This estimate is diagnostic; probing and queue/loss evidence govern
@@ -55,7 +58,7 @@ fields/reserved bytes, wrong target SSRC, regressions and replay.
 | 32 | 8 | Received RTP payload bytes |
 | 40 | 8 | Decoded frames |
 | 48 | 4 | Last decoded RTP timestamp |
-| 52 | 4 | Current decoder delay, milliseconds |
+| 52 | 4 | WebRTC current video playout delay, milliseconds |
 | 56 | 8 | Reserved, zero |
 
 The sender's local JSON adds the current source watermark/production and route
@@ -261,16 +264,72 @@ A validated hold now retains only that already-permitted shared byte limit
 through its original deadline. It cannot inflate it with a new MTU or replay,
 bank ACK growth, start from unknown health, survive a route change, or override
 actual pressure. These bounds pass 127 local session checks (one existing
-characterization ignored). Physical requalification of this budget fix is
-pending; no passing relay-video claim is made yet.
+characterization ignored).
+
+The 180-second held-trial run kept both engines and delivered all scored
+accepted audio RTP packets (approximately 47/55-ms medians, packet peaks below
+176 ms). Both directions reached a complete >=25-FPS window about 30 seconds
+after camera enable. The final cadence was 29.93 FPS Mac -> phone but only
+5.33 FPS phone -> Mac, so sustained relay video still did not qualify.
+
+In that run the new decoder-delay check repeatedly cut phone video despite
+zero original video admission failures. WebRTC `current_delay_ms` includes
+its adaptive jitter/playout target: it rose from 60 to about 250 ms even while
+decoded RTP advanced at the expected cadence. Comparing this value with the
+lifetime minimum mistook estimator adjustment for a growing queue. The source
+model now compares elapsed receiver sample time with decoded RTP media time,
+with one-frame quantization allowance, a bounded ten-second baseline and the
+existing three-second persistence. Clock offsets cancel; slow clock-rate drift
+cannot accumulate over the lifetime of a call. The independent 500-ms ceiling,
+receiver loss and audio protection are retained. A regression fails on the old
+model; 188 focused Dart checks pass, including actual sustained media lag,
+spike recovery, sparse frames, RTP wrap and 20-minute clock-rate drift.
+The decoder-clock candidate was then exercised on the same physical endpoints:
+
+| Measurement | Forced relay, 180 s | P2P, 100 s with camera restart |
+| --- | --- | --- |
+| First complete five-second >=25-FPS window after camera enable | 27.42 s Mac -> phone; 27.01 s phone -> Mac | 23.73 s Mac -> phone; 20.14 s phone -> Mac |
+| Final 15-second decoded cadence | 22.20 / 20.87 FPS | 30.00 / 29.47 FPS |
+| Final dimensions | Mac -> phone: 480x270 / 640x360; phone -> Mac: 134x240 / 180x320 | Mac -> phone: 640x360; phone -> Mac: 540x960 |
+| Engine restarts / route changes | None; relay throughout | None; P2P throughout |
+| Missing accepted audio RTP in scored intervals | Zero in each direction | Zero in each direction |
+
+In the relay run, both sources retained their full budget through the previous
+false-trigger interval and held roughly 28-30 decoded FPS beyond the first
+minute even as WebRTC's playout estimate reached 225-250 ms. The old repeated
+collapse to 1-5 FPS did not recur. There were still real decoder timeline stalls
+(up to 2.03 s), bounded cuts to 450 kbit/s, and periods at 21-22 FPS; this is not
+a claim of uninterrupted 30-FPS relay video. Audio packet delivery medians were
+about 43-60 ms, with measured packet maxima below 144 ms. These are endpoint
+packet-flight estimates, not acoustic mouth-to-ear latency.
+
+For P2P, after camera off at 40 s and on at 45 s, both receivers qualified in
+the first complete five-second window. That five seconds is the scoring window,
+not a five-second restart outage. Final decoder gaps remained below 72 ms.
+The 20-24-second initial windows in this run also show that fast probing does
+not bypass initial audio-health qualification; the earlier 15-second P2P result
+is not a deterministic startup guarantee. The initial phase did not yet reach
+360p before the deliberately scheduled camera restart. Synthetic PCM was used;
+no new live-speech/listening claim is made.
+
+The source-model false-trigger correction is verified, but the complete relay
+quality gate remains open: actual intermittent decoder stalls and the remaining
+low phone -> Mac resolution must be explained before claiming sustained high
+quality on relay routes. Zero original RTP admission failures at the native
+API do not establish successful downstream delivery. No relay-side cause has
+been established for these remaining stalls.
 
 Private raw captures remain outside the repository at
-`~/.cache/codex/xveil-video-bbr-20261021/`; the successful current P2P capture is
+`~/.cache/codex/xveil-video-bbr-20261021/`; the earlier qualified P2P capture is
 `capture-clock-valid-p2p-qualified`. Earlier failed/setup runs are kept
 separately. Follow-up captures include
 `capture-relay-ready-before-source-filter` and
 `capture-relay-source-filter-before-promotion`, followed by
-`capture-relay-promotion-before-held-trial`.
+`capture-relay-promotion-before-held-trial` and
+`capture-relay-held-trial-before-decoder-clock`. The latest candidate captures
+are `capture-relay-decoder-clock` and `capture-p2p-decoder-clock`.
 Completed owned app/logcat processes were closed and verified absent.
-The isolated QA APK is retained while relay verification is in progress; each
-completed relay run restores its temporary per-contact P2P override.
+Each completed relay run restored its temporary per-contact P2P override.
+After these checks, the published 0.13.88 phone APK was restored sequentially
+without uninstalling data; final installed version/UID and process-exit checks
+are recorded privately. The production Mac installation was not replaced.
