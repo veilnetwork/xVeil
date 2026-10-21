@@ -13,6 +13,8 @@ class CallAudioSourcePressure {
   static const int playoutRecoverMs = CallBitrateAdapter.playoutRecoverMs;
   bool _pressured = true;
   int _healthy = 0;
+  int _measuredHealthy = 0;
+  bool _hardRecoveryRequired = false;
   int _recoverySamples = CallBitrateAdapter.recoverAfter;
   int? _lastAudioDrops;
   bool? _measuredAudioPressure;
@@ -172,16 +174,22 @@ class CallAudioSourcePressure {
       localConcealed || (receiveExpected && recovered),
       sampledAt: sampledAt,
     );
-    final bad =
+    final hardBad =
         newDrop ||
         networkLoss ||
-        (soft.send ?? repeatedTransient) ||
-        (soft.receive ?? repeatedReceiveLoss) ||
         interrupted ||
         peerPressure ||
         receivePressure ||
         (peerTarget != null && peerTarget >= playoutDegradeMs) ||
         (receiveTarget != null && receiveTarget >= playoutDegradeMs);
+    final bad =
+        hardBad ||
+        (soft.send ?? repeatedTransient) ||
+        (soft.receive ?? repeatedReceiveLoss);
+    final fullyMeasured =
+        nativeStats?['worker_stalled'] == 0 &&
+        (!sendExpected || soft.send != null) &&
+        (!receiveExpected || soft.receive != null);
     final measuredHealthy =
         !bad &&
         nativeStats?['worker_stalled'] != 1 &&
@@ -223,9 +231,11 @@ class CallAudioSourcePressure {
       }
     }
     if (bad) {
+      _hardRecoveryRequired |= hardBad;
       _recoverySamples = CallBitrateAdapter.recoverAfter;
       _pressured = true;
       _healthy = 0;
+      _measuredHealthy = 0;
     } else if (transient && !durationKnown) {
       if (!_pressured) {
         // Catch-up already restored the queue. Briefly yield our producers,
@@ -234,11 +244,32 @@ class CallAudioSourcePressure {
         _healthy = 0;
       }
       _healthy = 0;
+      _measuredHealthy = 0;
       _pressured = true;
     } else if (good) {
-      if (++_healthy >= _recoverySamples && !shortHold) _pressured = false;
+      ++_healthy;
+      if (fullyMeasured) {
+        if (_measuredHealthy < CallBitrateAdapter.probeResumeAfter) {
+          ++_measuredHealthy;
+        }
+      } else {
+        _measuredHealthy = 0;
+      }
+      // Starting or recovering from a measured short soft impairment need
+      // not advertise another twelve seconds of congestion after audio is
+      // healthy. Earn a bounded source trial from three complete observations;
+      // packet loss, interruptions and real buffer pressure retain the full
+      // recovery. The node still owns its gradual DATA ramp and flight limits.
+      final measuredRecovery =
+          !_hardRecoveryRequired &&
+          _measuredHealthy >= CallBitrateAdapter.probeResumeAfter;
+      if ((_healthy >= _recoverySamples || measuredRecovery) && !shortHold) {
+        _pressured = false;
+        _hardRecoveryRequired = false;
+      }
     } else if (!measuredSmallTransient) {
       _healthy = 0;
+      _measuredHealthy = 0;
     }
     // Unknown/marginal measurements cannot authorize producer growth, but
     // must not renew a congestion lease after measured pressure has cleared.
@@ -258,6 +289,8 @@ class CallAudioSourcePressure {
     _growthHoldStartedAt = null;
     _pressured = true;
     _healthy = 0;
+    _measuredHealthy = 0;
+    _hardRecoveryRequired = false;
     _recoverySamples = CallBitrateAdapter.recoverAfter;
     _lastAudioDrops = null;
     _transientLoss.reset();
