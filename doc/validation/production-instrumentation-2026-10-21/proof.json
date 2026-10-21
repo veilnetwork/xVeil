@@ -1,0 +1,16 @@
+{
+  "product_probe_sha256": "4176ea1ba0c8269ec0f581352001af812edc9d81d8630c500393ded66dca8482",
+  "media_sha256": "148b3e80974f454539ebb465177a2a5cdf4115eee888d89d2915d55b1753f5ef",
+  "media_defined_api_exports": 105,
+  "media_test_exports": [],
+  "product_probe_with_stand_defines": "PASS: full native target; diagnostics=false; product=true",
+  "debug_probe": "PASS: full native target; diagnostics=true; product=false",
+  "adapter_suite_passed": 161,
+  "release_marker_strings_absent": [
+    "startup_ramp_sample_healthy",
+    "receive_window_ms",
+    "recovery_peer_baseline"
+  ],
+  "pcm_injection_in_app_source": false,
+  "soak_hook_release_surface": "Unconditionally excluded by kReleaseMode; profile requires both explicit defines."
+}
