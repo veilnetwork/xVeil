@@ -380,3 +380,10 @@ verified absent. The requested software contention gate is achieved on this
 reproducible stand. These captures do not claim human speech evaluation,
 physical camera/display quality, acoustic delay or a universal bound on
 arbitrary network propagation time.
+
+## Follow-up: strict 190-ms request
+
+The [2026-10-21 receiver investigation](../audio-190ms-2026-10-21/README.md)
+does not establish a further qualified improvement. Its private lower-budget
+candidate looked faster in arrival replay but failed the complete audio,
+video and interruption gates. The qualified implementation above is preserved.
