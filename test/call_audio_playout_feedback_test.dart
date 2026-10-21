@@ -69,7 +69,7 @@ void main() {
         'worker_stalled': 0,
         'audio_delay_ms': delay,
       }, start.add(Duration(seconds: second)));
-      final delays = [60, 60, 60, 80, 90, 100];
+      final delays = [60, 60, 60, 100, 110, 120];
       for (var i = 0; i < delays.length; i++) {
         sample(i, delays[i]);
         if (i < 5) {
@@ -90,7 +90,7 @@ void main() {
             'two heartbeat samples must carry six actual receiver measurements',
       );
       for (var i = 6; i <= 8; i++) {
-        sample(i, 100);
+        sample(i, 120);
       }
       expect(
         rx
@@ -98,7 +98,7 @@ void main() {
             .toJson()['g'],
         isFalse,
       );
-      sample(15, 100);
+      sample(15, 120);
       expect(
         rx
             .outgoingPlayoutFeedback(start.add(const Duration(seconds: 15)))
@@ -214,7 +214,7 @@ void main() {
       ]) {
         final rx = CallAudioReceiveActivity();
         for (var n = 0; n < 6; n++) {
-          rx.observe(stats(60 + n * 10), start.add(Duration(seconds: n)));
+          rx.observe(stats(60 + n * 20), start.add(Duration(seconds: n)));
         }
         expect(
           rx
@@ -249,7 +249,7 @@ void main() {
     },
   );
 
-  test('two five-second native-window reports can reduce outgoing video', () {
+  test('confirmed five-second native-window reports reduce outgoing video', () {
     final rx = CallAudioReceiveActivity();
     final peer = CallPeerAudioPlayout();
     final adapter = CallBitrateAdapter(
@@ -258,13 +258,13 @@ void main() {
       baseFps: 15,
       supportsLowRateVideo: true,
     );
-    for (var n = 0; n <= 10; n++) {
+    for (var n = 0; n <= 15; n++) {
       final now = start.add(Duration(seconds: n));
       rx.observe({
         'audio_rx_pkts': 100 + n,
         'audio_rx_native_age_ms': 0,
         'worker_stalled': 0,
-        'audio_delay_ms': 60 + n * 8,
+        'audio_delay_ms': 40 + n * 15,
       }, now);
       if (n % 5 == 0) {
         final wire = CallSignal(
@@ -284,13 +284,14 @@ void main() {
         peerAudioSampleSequence: peer.sampleSequence,
         peerAudioBufferGrowing: peer.bufferGrowing(now),
         requirePeerAudioPlayout: true,
+        sampledAt: now,
       );
       adapter.applyPendingTarget((_) => true);
-      if (n < 10) {
+      if (n < 15) {
         expect(
           adapter.level,
           0,
-          reason: 'cached report is not another failure',
+          reason: 'cached or not-yet-confirmed growth is not another failure',
         );
       }
     }
@@ -298,7 +299,7 @@ void main() {
       adapter.level,
       2,
       reason:
-          'two actual growing receiver windows, rather than six heartbeat values',
+          'growth confirmation followed by two fresh pressure reports below the ceiling',
     );
   });
 
