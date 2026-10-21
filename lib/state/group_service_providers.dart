@@ -301,8 +301,14 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     return bundle?.manifest.isSovereignDevice == true &&
         bundle!.manifest.owner == peer;
   };
-  // A revoked device stops owing state, so stop holding it for it.
-  service.onMemberRevoked = (device) => messaging.dropPendingFramesFor(device);
+  // A local revoke must replace the verifier's held document before another
+  // device can project new rows using an old delegation. Otherwise a rejected
+  // message can be laundered through this device's valid signature on replay.
+  late Future<void> Function() reloadOwnDocumentAfterRevoke;
+  service.onMemberRevoked = (device) async {
+    await reloadOwnDocumentAfterRevoke();
+    await messaging.dropPendingFramesFor(device);
+  };
   // The name a PEER knows this identity by. The messaging layer's own
   // `_selfHex()` is the DEVICE it runs on, and for a sovereign identity with
   // more than one device those are different strings — which is why a peer's
@@ -741,6 +747,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     }
   }
 
+  reloadOwnDocumentAfterRevoke = readOwnDocument;
   final ownDocumentReady = readOwnDocument();
   final peerDocumentsReady = service.loadPeerDocuments();
   final unregisterDocumentLookup = registerIdentityDocumentLookup((identity) {
