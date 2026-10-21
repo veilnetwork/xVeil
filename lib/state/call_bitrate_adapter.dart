@@ -4,6 +4,15 @@ import 'call_rtcp_loss.dart';
 import 'call_audio_transient_loss.dart';
 import 'call_audio_soft_loss.dart';
 
+// Decision histories are stand diagnostics, not part of a shipped call.
+// Match the debug hook's profile opt-in and exclude product builds even if
+// someone accidentally supplies the stand defines to a release build.
+const _captureAdaptationDiagnostics =
+    !bool.fromEnvironment('dart.vm.product') &&
+    (!bool.fromEnvironment('dart.vm.profile') ||
+        (bool.fromEnvironment('XVEIL_DEBUG_HOOK') &&
+            bool.fromEnvironment('XVEIL_DEBUG_HOOK_PROFILE')));
+
 /// Pure sender-side link-quality ladder for live call video.
 ///
 /// Uses current audio buffer trends and fresh media loss to cut video.
@@ -251,14 +260,17 @@ class CallBitrateAdapter {
     );
   }
 
-  Map<String, Object?> get bufferDiagnostics => {
-    'latest': _bufferHistory.isEmpty ? null : _bufferHistory.last,
-    'recent': List<Map<String, Object?>>.unmodifiable(_bufferHistory),
-    'applied_video_kbps': _appliedTarget?.maxBitrateKbps,
-    'applied_video_fps': _appliedTarget?.maxFps,
-  };
+  Map<String, Object?> get bufferDiagnostics => !_captureAdaptationDiagnostics
+      ? const {}
+      : {
+          'latest': _bufferHistory.isEmpty ? null : _bufferHistory.last,
+          'recent': List<Map<String, Object?>>.unmodifiable(_bufferHistory),
+          'applied_video_kbps': _appliedTarget?.maxBitrateKbps,
+          'applied_video_fps': _appliedTarget?.maxFps,
+        };
 
   void _recordBufferDecision() {
+    if (!_captureAdaptationDiagnostics) return;
     final snapshot = _bufferSnapshot();
     if (snapshot == null ||
         (_bufferHistory.isNotEmpty &&
@@ -1012,33 +1024,37 @@ class CallBitrateAdapter {
         (currentPeerDelay != null && currentPeerDelay >= playoutDegradeMs) ||
         freshPeerSample;
     _bufferPressure = bufferPressure;
-    _bufferInputs = {
-      'source_budget_pressured': sourceBudgetPressured,
-      'observation': ++_bufferObservationSequence,
-      'level_before': _level,
-      'receive_required': requireAudioReceivePlayout,
-      'receive_ms': audioReceiveDelayMs,
-      'receive_target_ms': receiveTarget,
-      'receive_window_ms': _receiveBuffer.diagnosticSamples,
-      'receive_pressure': receiveBufferPressure,
-      'peer_required': requirePeerAudioPlayout,
-      'peer_peak_ms': peerAudioDelayMs,
-      'peer_current_ms': currentPeerDelay,
-      'peer_target_ms': peerTarget,
-      'peer_sequence': peerAudioSampleSequence,
-      'peer_fresh': freshPeerSample,
-      'recovery_peer_baseline': _recoveryPeerBaseline,
-      'recovery_peer_confirmed': recoveryPeerConfirmed,
-      'peer_growing': peerAudioBufferGrowing,
-      'peer_window_ms': _peerBuffer.diagnosticSamples,
-      'peer_pressure': peerBufferPressure,
-      'pressure_can_advance': pressureSampleCanAdvance,
-      'targets_recovered': targetsRecovered,
-      'feedback_available': feedbackAvailable,
-      'rtt_ms': rttMs,
-      'tx_jitter_ms': txJitterMs,
-      'tx_loss_pct': txLossPct,
-    };
+    // The growth gate needs a distinct observation in every build mode.
+    _bufferObservationSequence++;
+    _bufferInputs = _captureAdaptationDiagnostics
+        ? {
+            'source_budget_pressured': sourceBudgetPressured,
+            'observation': _bufferObservationSequence,
+            'level_before': _level,
+            'receive_required': requireAudioReceivePlayout,
+            'receive_ms': audioReceiveDelayMs,
+            'receive_target_ms': receiveTarget,
+            'receive_window_ms': _receiveBuffer.diagnosticSamples,
+            'receive_pressure': receiveBufferPressure,
+            'peer_required': requirePeerAudioPlayout,
+            'peer_peak_ms': peerAudioDelayMs,
+            'peer_current_ms': currentPeerDelay,
+            'peer_target_ms': peerTarget,
+            'peer_sequence': peerAudioSampleSequence,
+            'peer_fresh': freshPeerSample,
+            'recovery_peer_baseline': _recoveryPeerBaseline,
+            'recovery_peer_confirmed': recoveryPeerConfirmed,
+            'peer_growing': peerAudioBufferGrowing,
+            'peer_window_ms': _peerBuffer.diagnosticSamples,
+            'peer_pressure': peerBufferPressure,
+            'pressure_can_advance': pressureSampleCanAdvance,
+            'targets_recovered': targetsRecovered,
+            'feedback_available': feedbackAvailable,
+            'rtt_ms': rttMs,
+            'tx_jitter_ms': txJitterMs,
+            'tx_loss_pct': txLossPct,
+          }
+        : null;
 
     final peerTrialMeasured =
         peerAudioSampleSequence == null ||
