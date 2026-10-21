@@ -14,7 +14,10 @@ traffic, change route privacy budgets, or send call traffic through mailboxes.
 - Existing audio loss, buffer trend, source admission and pause gates remain
   authoritative. A cut halves the **applied** video budget. Drain for at least
   three seconds; retry with 25% probes after six seconds, then every three
-  seconds while healthy decoder acknowledgements continue.
+  seconds while healthy decoder acknowledgements continue. Further video-only
+  loss during the acknowledged three-second drain holds growth without another
+  cut. Fresh audio failures and measured audio buffer pressure remain independent
+  protection signals; a busy/unacknowledged setter earns no drain interval.
 - A receiver's decoder delay rising 80 ms above its baseline for three seconds,
   or reaching 500 ms, is additional queue evidence. A short spike holds growth.
   This is decoder queue delay, not propagation RTT.
@@ -109,7 +112,15 @@ recovery; this faster path only releases a startup rate-derived sizing bound.
   watermark, RTP clock wrap and source restart.
 - macOS arm64 and Android arm64 native libraries compiled against pinned WebRTC.
 - 54 Rust local-source checks, including shared trial, primary/secondary debt,
-  pressure/hold and feedback-expiry cases.
+  pressure/hold and feedback-expiry cases. A subsequent 124-test local Rust
+  selection passed (one existing characterization test ignored), including
+  stable propagation RTT above 150 ms without loss/expiry/congestion. Absolute
+  RTT alone no longer renews source congestion indefinitely; actual loss,
+  expiry and blocked ACKs remain protected. The relative reliable-path delay
+  warning continues restraining ordered DATA; it no longer also contracts
+  healthy lossy flight. A production coupling regression checks that the
+  healthy two-MTU source trial survives that DATA warning, while actual
+  primary pressure stops it and cannot be erased by a healthy report.
 - Quinn initialization test: installing the budget before the handshake retires
   Initial/Handshake flight to zero after acknowledgement. No transport
   production change was needed for that accounting case.
@@ -143,13 +154,36 @@ steady video maxima were 70.7 and 89.9 ms. These include codec/network/playout,
 not microphone/speaker acoustics or subjective speech intelligibility. Raw
 clock uncertainty envelopes and complete sample counts remain with the capture.
 
-Relay qualification remains open. Two forced-relay runs established audio but
-had almost no decoded video; one later recreated the media engine. These are
-not successful startup measurements and do not establish that source probing
-caused the failure. Endpoint admission diagnostics now record why an individual
-secondary is blocked (real flight, health, pressure or growth hold). The next
-run uses the corrected clock-validity handling. No relay priority or media hint
-was introduced to work around this condition.
+Relay qualification remains open. With corrected source clocks and the
+absolute-RTT admission fix, a continuous forced-relay run reached its first
+complete >=25-FPS window 19.0 s after camera enable in both directions. By the
+last 15 s, decoded cadence had fallen to 0.67 FPS on Mac and 0.33 FPS on
+Blackview, with maximum decode gaps of 8.82 and 5.36 s. This run never stopped
+the cameras, ruling out camera restart as the sole cause. No route switch
+occurred in 90 sampled states. All accepted audio RTP packets in scored
+5-98-s intervals reached native ingress; isolated delivery peaks were 263/285 ms
+with medians near 50/57 ms. These are packet delivery times, not playout delay.
+
+Endpoint diagnostics recorded video admission blocked by a one-byte local
+flight window while the actual QUIC path had zero flight/loss and substantial
+congestion headroom. The run also exposed repeated video-only cuts within the
+intended drain period (900 -> 450 -> 225 kbit/s in consecutive polls). The
+three-second drain now governs repeated video cuts as well as growth. Its
+regression test also verifies immediate audio protection during that interval;
+183 adapter/growth/model tests passed.
+
+A further relay run with the drain fix retained moving frames in both
+directions but ended at 2.4/2.73 decoded FPS. Native images remained 540x960
+on Mac and 640x360 on Blackview. All accepted audio RTP in 5-98-s scored
+intervals arrived, with packet delivery peaks 187.5/192.8 ms. This is still
+not a passing video qualification. At 96.4-98.4 s, the ordered-DATA delay
+warning on one primary path also fed the lossy flight pool, canceling video
+admission despite healthy application audio measurements. Its implementation
+contradicted the separate DATA-only policy. The fixed handler preserves the
+DATA throttle and leaves lossy flight to actual pressure/loss and application
+health. This addresses one observed cause, without attributing every earlier
+video cut to that warning. Physical relay requalification follows this fix.
+No relay priority or media hint was introduced.
 
 Private raw captures remain outside the repository at
 `~/.cache/codex/xveil-video-bbr-20261021/`; the successful current P2P capture is

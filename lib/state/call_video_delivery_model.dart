@@ -22,6 +22,14 @@ class CallVideoDeliveryModel {
   int generation = 0;
   double deliveryKbps = 0;
 
+  /// Let the acknowledged reduction drain before reacting to another video
+  /// loss observation. Audio protection remains independent of this interval.
+  bool draining(DateTime now) =>
+      _drainUntil != null &&
+      _lastApply != null &&
+      !now.isBefore(_lastApply!) &&
+      now.isBefore(_drainUntil!);
+
   void reset() {
     generation++;
     _peers.clear();
