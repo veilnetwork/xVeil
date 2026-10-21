@@ -1,0 +1,63 @@
+{
+  "epoch": "e13f37733a039eb1",
+  "cell_sequence": 4220,
+  "opaque_sha256": "6c4451207dd3670acbfa63ccce822a560bc5adca869054b1b6117a66eb43b3de",
+  "source_input_seconds": 165.8800503339735,
+  "receiver_dispatch_enter_us": 363617610623,
+  "receiver_dispatch_return_us": 363617610637,
+  "sdk_authenticated_us": 363617626556,
+  "synchronous_dispatch_ms": 0.014,
+  "after_dispatch_to_sdk_ms": 15.919,
+  "dispatch_to_sdk_ms": 15.933,
+  "opaque_observations": [
+    {
+      "stage": "transport_selected",
+      "monotonic_us": "363617589183",
+      "node": "79f0a8c2",
+      "peer": "6fea3c88",
+      "opaque_bytes": "175",
+      "opaque_sha256": "6c4451207dd3670acbfa63ccce822a560bc5adca869054b1b6117a66eb43b3de"
+    },
+    {
+      "stage": "dispatch_enter",
+      "monotonic_us": "363617592041",
+      "node": "6fea3c88",
+      "peer": "79f0a8c2",
+      "opaque_bytes": "175",
+      "opaque_sha256": "6c4451207dd3670acbfa63ccce822a560bc5adca869054b1b6117a66eb43b3de"
+    },
+    {
+      "stage": "dispatch_return",
+      "monotonic_us": "363617592046",
+      "node": "6fea3c88",
+      "peer": "79f0a8c2",
+      "opaque_bytes": "175",
+      "opaque_sha256": "6c4451207dd3670acbfa63ccce822a560bc5adca869054b1b6117a66eb43b3de"
+    },
+    {
+      "stage": "transport_selected",
+      "monotonic_us": "363617592060",
+      "node": "6fea3c88",
+      "peer": "c1ff8e56",
+      "opaque_bytes": "175",
+      "opaque_sha256": "6c4451207dd3670acbfa63ccce822a560bc5adca869054b1b6117a66eb43b3de"
+    },
+    {
+      "stage": "dispatch_enter",
+      "monotonic_us": "363617610623",
+      "node": "c1ff8e56",
+      "peer": "6fea3c88",
+      "opaque_bytes": "175",
+      "opaque_sha256": "6c4451207dd3670acbfa63ccce822a560bc5adca869054b1b6117a66eb43b3de"
+    },
+    {
+      "stage": "dispatch_return",
+      "monotonic_us": "363617610637",
+      "node": "c1ff8e56",
+      "peer": "6fea3c88",
+      "opaque_bytes": "175",
+      "opaque_sha256": "6c4451207dd3670acbfa63ccce822a560bc5adca869054b1b6117a66eb43b3de"
+    }
+  ],
+  "status": "Unresolved local IPC/scheduling/SDK interval; no implementation cause established"
+}

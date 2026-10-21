@@ -1,0 +1,25 @@
+{
+  "epoch": "7c125db0358662cf",
+  "cell_sequence": 6915,
+  "connection_trace_id": 26,
+  "observations_us": {
+    "budget_admit": 361459167107,
+    "datagram_accepted": 361459167118
+  },
+  "encrypted_frame": {
+    "wire_bytes": "455",
+    "family": "3",
+    "msg_type": "3",
+    "body_len": "415",
+    "body_preview_sha256": "7a15e1bb2781b9921b29e1efea3d4a00bd917faaea9b527ffb9e00d3423cabc4"
+  },
+  "spans_ms": {
+    "handler_enter_to_budget_admit": 0.035,
+    "budget_admit_to_datagram_accepted": 0.011,
+    "budget_admit_to_authenticated_receiver": 132.969
+  },
+  "post_completion_offsets_ms": {
+    "relay_queued_to_budget_admit": 0.02,
+    "datagram_accepted_to_authenticated_receiver": 132.958
+  }
+}

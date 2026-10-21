@@ -1,0 +1,48 @@
+[
+  {
+    "capture": "opaque-current",
+    "summary_sha256": "7f3baf3f9e35e058151b20841918e3792e2d289a1487102926cf187677cadc46",
+    "final_receiver_totals": {
+      "audio_interruption_count": 0,
+      "audio_interruption_duration_ms": 0,
+      "audio_latency_discarded_ms": 1630,
+      "audio_concealed_samples": 67973
+    },
+    "clock_totals": {
+      "late_intervals": 0,
+      "dropped_rows": 0,
+      "deadline_misses": 0
+    },
+    "video_tail_changes": [
+      14,
+      14,
+      13,
+      14,
+      13,
+      14
+    ]
+  },
+  {
+    "capture": "capacity-step",
+    "summary_sha256": "666643d28930109069b6b20b994a38b7fb2bc3e0fbdf0f94e0528974d5c92b7b",
+    "final_receiver_totals": {
+      "audio_interruption_count": 0,
+      "audio_interruption_duration_ms": 0,
+      "audio_latency_discarded_ms": 480,
+      "audio_concealed_samples": 63520
+    },
+    "clock_totals": {
+      "late_intervals": 0,
+      "dropped_rows": 0,
+      "deadline_misses": 0
+    },
+    "video_tail_changes": [
+      14,
+      14,
+      14,
+      14,
+      14,
+      14
+    ]
+  }
+]

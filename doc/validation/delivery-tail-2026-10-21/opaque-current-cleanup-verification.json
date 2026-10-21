@@ -1,0 +1,22 @@
+{
+  "observed_owned_pids": [
+    5521,
+    5523,
+    5525,
+    5526,
+    5567,
+    5568,
+    5569,
+    16228,
+    98326,
+    98349,
+    98350
+  ],
+  "remaining": [],
+  "all_exited": true,
+  "cleanup": {
+    "fixture_absent": true,
+    "helper_absent": true,
+    "exit_code": 1
+  }
+}

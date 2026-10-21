@@ -1,0 +1,87 @@
+{
+  "sdk": {
+    "path": "/Users/vart/.cache/codex/xveil-audio-200-20261020/sdk-reserve/libveilclient_ffi.dylib",
+    "sha256": "a9b833a7c28221d50587806cead46bfc7da14d37196c4564bc678d6dbdbf13dd",
+    "exports": 203,
+    "export_set_matches_baseline": true,
+    "contract_hash": "07a6d433c34307e2089b9589cd1397a65e707e7d60e35db23160e8a9500a2638"
+  },
+  "media": {
+    "path": "/Users/vart/.cache/codex/xveil-audio-200-20261020/media-cadence/libveil_media.dylib",
+    "sha256": "c6ebea250cadacc9ecf8b502aeb6d5c2527d9ccbf5d1645cdef87d58fba2485c",
+    "exports": 139,
+    "export_set_matches_baseline": true
+  },
+  "source_parent_commit": "70a99c1f",
+  "source_change": "crates/veil-session/src/local_source_flight.rs",
+  "source_checks": {
+    "crates/veilclient-ffi/src/media_ffi.rs": "8e477f94f481830a9ecec37a7130eb9348be97aee485d83c282d18d1a9b240eb",
+    "crates/veilclient-ffi/src/media_ffi/media_priority_tests.rs": "4d36771c0c363fbc22f2a994d0d83b3a9f7837df98378043a3f6b1d71344763b",
+    "veilclient/src/handle.rs": "4315b5061a45b2142de9e1f0a62c368d92467f397fc58219cb6eb27d6c05f09e",
+    "crates/veil-session/src/priority_queue.rs": "da83472bc60111d941cea181ed1d4c05289fe19c435615380f957bf30e2afe48",
+    "crates/veil-session/src/local_source_flight.rs": "cd4319246a6c9733c2ca9a75e4378c32682f3b2cab825239ac56e6903f0d8c7a"
+  },
+  "root_parent": "1908194efff0d0a329fadb6bb3f72f0827444134",
+  "adapter_sha256": "97137caeb54c4a08972c5b9152fd540bc9c9c7465e8b023c5e59f512387f4fa3",
+  "tests": {
+    "session": {
+      "passed": 645,
+      "ignored": 8
+    },
+    "bootstrap": {
+      "passed": 141,
+      "ignored": 1
+    },
+    "new_negative_regressions": 3,
+    "source_flight_tests": 15,
+    "receiver_and_group_recovery": "All existing decoder/controller/recovery guards and real three-party mixed recovery passed"
+  },
+  "build_volume": {
+    "path": "/Volumes/cfb",
+    "mount_guard": true,
+    "target_dir": "/Volumes/cfb/target"
+  },
+  "sdk_source_commit": "9eef87b9e6d8d7949970bea9b0063256ed8b9d49",
+  "fixture_change": "Completed FIFO trace records retained as packed scalar metadata",
+  "gc_observer": "/Users/vart/.cache/codex/xveil-audio-200-20261020/observe-gc.py",
+  "media_source": {
+    "base": "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/pcm-sdk-src/flutter/veil_media",
+    "sources": {
+      "src/veil_playout_recovery.h": "c2cc75dd2871d46a069bbd830f67ff0708f01416cb6f7e188f4291f19b2b3a6a",
+      "src/veil_video_frame_budget.h": "b121f4243a6285824d209ab5bd52957a604c369bb07d43ee16adb44a45cacea8",
+      "src/veil_frame_sizing_vp8.h": "d45948d7cd637f0efdbd92ba5de7eac3ca6b72ee189fb79476c50e3f884a7635",
+      "test/playout_recovery_smoke.cc": "cab2bc9a2be69fbb8900d00ac22e435cb48f7bbcf67c860eb5713da182fcb995",
+      "test/video_frame_budget_smoke.cc": "c6b2941344ed690e846ac3f60a44bb8a61a8d3224ae88a56821f9b41b0d66957"
+    }
+  },
+  "gc_observer_sha256": "442a353b7bf476ff1880a9edf63fa245ea5dd79177d3a78361e9103b7e3cdc83",
+  "change": "Capacity-only control: same workload/binaries/diagnostics, 1024 to 8192 kbit/s at 120 seconds",
+  "production_media_commit": "50eb39cb48a0f7342d39cb71c8771c164bf4a12c",
+  "final_receiver_snapshot": true,
+  "diagnostics": {
+    "opaque_forward_trace": true,
+    "source_cells": true,
+    "rt_trace_sealed_every": 1,
+    "trace_rtp_limit": 32768,
+    "wire_trace_capacity": 250000
+  },
+  "capacity_step": {
+    "at_seconds": 120,
+    "rate_kbps": 8192
+  },
+  "planned_delivery_analysis_windows_seconds": {
+    "before": [
+      20,
+      120
+    ],
+    "transition": [
+      120,
+      125
+    ],
+    "after": [
+      125,
+      360
+    ]
+  },
+  "window_policy": "Fixed before inspecting the control result. All three windows and original full-capture verdict remain reported."
+}

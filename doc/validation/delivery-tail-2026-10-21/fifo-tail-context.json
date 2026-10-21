@@ -1,0 +1,60 @@
+{
+  "interval_context": [
+    {
+      "source": "bc5707ef",
+      "receiver": "c408ea28",
+      "direction": 0,
+      "events": 25,
+      "queue_min_ms": 45.98158225417137,
+      "queue_p50_ms": 62.171665369533,
+      "queue_max_ms": 76.0128948604688,
+      "release_lateness_max_ms": 1.617147121578455,
+      "observed_links": [
+        0
+      ]
+    },
+    {
+      "source": "bc5707ef",
+      "receiver": "c408ea28",
+      "direction": 1,
+      "events": 28,
+      "queue_min_ms": 0.24999998277053237,
+      "queue_p50_ms": 19.22262494917959,
+      "queue_max_ms": 38.624771288596094,
+      "release_lateness_max_ms": 0.9046251652762294,
+      "observed_links": [
+        0
+      ]
+    },
+    {
+      "source": "c408ea28",
+      "receiver": "7f974bff",
+      "direction": 0,
+      "events": 8,
+      "queue_min_ms": 24.848477623891085,
+      "queue_p50_ms": 43.686602730304,
+      "queue_max_ms": 60.113352607004344,
+      "release_lateness_max_ms": 0.30427228193730116,
+      "observed_links": [
+        0
+      ]
+    },
+    {
+      "source": "c408ea28",
+      "receiver": "7f974bff",
+      "direction": 1,
+      "events": 15,
+      "queue_min_ms": 31.956396182067692,
+      "queue_p50_ms": 37.304812227375805,
+      "queue_max_ms": 38.72210410190746,
+      "release_lateness_max_ms": 0.9054162073880434,
+      "observed_links": [
+        0
+      ]
+    }
+  ],
+  "limits": [
+    "All blind UDP events in each authenticated hop interval, not exact cell-to-UDP matches",
+    "No event is selected by length, order or adjacency; queue context cannot be subtracted from individual packet delay"
+  ]
+}
