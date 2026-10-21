@@ -61,6 +61,65 @@ void main() {
     expect(sample(policy, send: send, receive: receive), isFalse);
   }
 
+  const measured = <String, Object>{
+    'worker_stalled': 0,
+    'audio_soft_loss_duration_supported': 1,
+    'audio_peer_soft_loss_duration_supported': 1,
+    'audio_local_soft_loss_report_us': 0,
+    'audio_peer_soft_loss_report_us': 0,
+  };
+
+  test(
+    'fully measured healthy startup earns the bounded source trial in three samples',
+    () {
+      final policy = CallAudioSourcePressure();
+      expect(sample(policy, nativeStats: measured), isTrue);
+      expect(sample(policy, nativeStats: measured), isTrue);
+      expect(sample(policy, nativeStats: measured), isFalse);
+    },
+  );
+
+  test('partial measurements cannot contribute to fast source recovery', () {
+    for (final partial in [
+      {...measured, 'audio_peer_soft_loss_duration_supported': 0},
+      {...measured, 'audio_soft_loss_duration_supported': 0},
+      {...measured, 'worker_stalled': 1},
+    ]) {
+      final policy = CallAudioSourcePressure();
+      for (var n = 0; n < 3; n++) {
+        expect(sample(policy, nativeStats: partial), isTrue);
+      }
+      expect(sample(policy, nativeStats: measured), isTrue);
+      expect(sample(policy, nativeStats: measured), isTrue);
+      expect(sample(policy, nativeStats: measured), isFalse);
+    }
+  });
+
+  test(
+    'measured soft damage recovers promptly but cannot shorten hard failure recovery',
+    () {
+      final policy = CallAudioSourcePressure();
+      recover(policy);
+      final soft = {...measured, 'audio_peer_soft_loss_report_us': 1000};
+      expect(sample(policy, nativeStats: soft), isTrue);
+      expect(sample(policy, nativeStats: soft), isTrue);
+      expect(sample(policy, nativeStats: soft), isTrue);
+      expect(sample(policy, nativeStats: soft), isFalse);
+      expect(sample(policy, nativeStats: soft, interrupted: true), isTrue);
+      expect(
+        sample(
+          policy,
+          nativeStats: {...soft, 'audio_peer_soft_loss_report_us': 2000},
+        ),
+        isTrue,
+      );
+      for (var n = 0; n < 11; n++) {
+        expect(sample(policy, nativeStats: measured), isTrue);
+      }
+      expect(sample(policy, nativeStats: measured), isFalse);
+    },
+  );
+
   test(
     'pixel feedback distinguishes measured state from transport recovery',
     () {
@@ -121,7 +180,7 @@ void main() {
   });
 
   test(
-    'measured small damage does not contract transport and preserves recovery credit',
+    'measured small damage preserves sustained hard-failure recovery credit',
     () {
       final policy = CallAudioSourcePressure();
       Map<String, Object> stats([int pressure = 0]) => {
@@ -143,7 +202,10 @@ void main() {
       expect(sample(policy, nativeStats: stats()), isFalse);
       expect(sample(policy, nativeStats: stats()), isFalse);
       expect(sample(policy, nativeStats: stats()), isFalse);
-      expect(sample(policy, nativeStats: stats(1000)), isTrue);
+      expect(
+        sample(policy, nativeStats: stats(1000), interrupted: true),
+        isTrue,
+      );
       for (var n = 0; n < 8; n++) {
         expect(sample(policy, nativeStats: stats()), isTrue);
       }
