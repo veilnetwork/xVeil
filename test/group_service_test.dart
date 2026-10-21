@@ -408,6 +408,25 @@ class _GatedMailboxCrypto implements VeilMailboxCrypto {
   }) => _delegate.open(blob: blob, ourCertVersion: ourCertVersion);
 }
 
+/// Holds a read which already observed the pre-adoption empty group pointer.
+class _DeviceGroupReadGatedStorage extends HiddenVolumeStorage {
+  _DeviceGroupReadGatedStorage() : super(
+    ({required Uint8List password, required bool create}) => FakeKvLogStore());
+  final entered = Completer<void>();
+  final release = Completer<void>();
+  bool holdNextDeviceGroupRead = false;
+  @override
+  Future<String?> getSetting(String key) async {
+    final value = await super.getSetting(key);
+    if (key == 'devices.gid' && holdNextDeviceGroupRead) {
+      holdNextDeviceGroupRead = false;
+      entered.complete();
+      await release.future;
+    }
+    return value;
+  }
+}
+
 /// Pauses one group bundle write after it is durable but before the caller can
 /// run its post-save relationship guard.
 class _PostWriteGatedStorage extends HiddenVolumeStorage {
@@ -5408,6 +5427,36 @@ void main() {
       expect(DeviceSyncEvent.fromBody(a.toBody())!.payload, a.payload);
     },
   );
+
+  test('adoption survives a late empty pointer read and immediately asks for missing rows', () async {
+    final sent = <String>[];
+    final sourceStorage = FakeHvContainer().storage();
+    await sourceStorage.open(password: 'pw', createIfMissing: true);
+    final primary = GroupService(sourceStorage, _FakeSigner(owner),
+      send: (p, g, json) async => sent.add(json));
+    addTearDown(primary.dispose);
+    expect(await primary.linkDevice(bob, sovereign: sovereign), isTrue);
+    final gid = NodeId.fromHex((await primary.deviceGroupIdHex())!);
+    final storage = _DeviceGroupReadGatedStorage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final requests = <Map>[];
+    final secondary = GroupService(storage, _FakeSigner(bob),
+      send: (p, g, json) async => requests.add(jsonDecode(json) as Map));
+    addTearDown(secondary.dispose);
+    expect(await secondary.ingestSnapshot(sent.first), isTrue);
+    storage.holdNextDeviceGroupRead = true;
+    final staleRead = secondary.deviceGroupIdHex();
+    await storage.entered.future;
+    expect(await secondary.adoptDeviceGroup(gid), isTrue);
+    storage.release.complete();
+    expect(await staleRead, gid.hex);
+    expect(await secondary.deviceGroupIdHex(), gid.hex);
+    for (var i = 0; i < 50 && requests.isEmpty; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 2));
+    }
+    expect(requests.any((request) => request['sreq'] == 1 && request['gid'] == gid.hex), isTrue,
+      reason: 'an overtaken manifest delta must be recovered immediately after adoption');
+  });
 
   test('device group: link/adopt/revoke lifecycle, hidden + silent', () async {
     Future<void> drain() async {

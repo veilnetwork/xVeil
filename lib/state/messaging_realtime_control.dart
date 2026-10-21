@@ -279,7 +279,8 @@ class _MessagingRealtimeControl {
   /// id as the bearer secret, including a verified sibling's relayed ending.
   bool admitCallEnding(InboundMessage message, CallSignal signal) {
     if (signal.type != CallSignalType.cancel &&
-        signal.type != CallSignalType.end) {
+        signal.type != CallSignalType.end &&
+        signal.type != CallSignalType.answerSelected) {
       return true;
     }
     if (message.provenance.isAuthenticated) return true;
@@ -321,9 +322,7 @@ class _MessagingRealtimeControl {
         final replyDevice = routeCallPayload(peer, wire);
         // A different online sibling cannot receive the active dialog's
         // control. The call's pin alone does not establish an admitted route.
-        if (device != null &&
-            device != peer &&
-            replyDevice == device) {
+        if (device != null && device != peer && replyDevice == device) {
           return (transport as DeviceRealtimeTransport).sendRealtimeToDevice(
             peer,
             device,

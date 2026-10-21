@@ -804,6 +804,48 @@ void main() {
     expect(report.filesAdded, greaterThanOrEqualTo(2));
   });
 
+  test(
+    'malformed profile metadata does not abort remaining import records',
+    () async {
+      for (final meta in [
+        <String, Object?>{'displayName': 42},
+        <String, Object?>{
+          'username': <String>['bad'],
+        },
+      ]) {
+        final bytes = BytesBuilder();
+        final writer = await DataTransferWriter.open(
+          sink: (b) async => bytes.add(b),
+          header: TransferHeader(
+            createdMs: 1,
+            nodeIdHex: hexOf(1),
+            includesIdentity: false,
+            includesFiles: false,
+          ),
+        );
+        await writer.add(
+          TransferRecord(kind: TransferRecordKind.profile, meta: meta),
+        );
+        await writer.add(
+          const TransferRecord(
+            kind: TransferRecordKind.setting,
+            meta: {'key': 'nickname:claimed', 'v': 'after malformed profile'},
+          ),
+        );
+        await writer.close();
+        final target = _Space();
+        final report = await DataImporter(
+          storage: target,
+          appliers: _Collector().appliers,
+          selfNodeIdHex: hexOf(1),
+        ).run(bytes: Stream.value(bytes.toBytes()));
+        expect(report.profileFilled, isFalse);
+        expect(target.profile, isNull);
+        expect(target.settings['nickname:claimed'], 'after malformed profile');
+      }
+    },
+  );
+
   test('the profile is filled, never overwritten', () async {
     final archive = await _exportOf(_deviceWithHistory());
     final target = _Space()
