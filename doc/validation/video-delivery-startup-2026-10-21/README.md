@@ -81,8 +81,11 @@ bandwidth-delay product cannot consume or enlarge the fixed additional trial.
 Unselected prewarmed secondary channels retain a bounded control-handshake
 allowance. They cannot spend the source trial or
 earn growth; selecting one for actual local source traffic immediately charges
-its existing flight to the trial. Pressure, a growth hold, or stale healthy
-feedback removes it. The allowance is not banked as a paid window or multiplied
+its existing flight to the trial. Actual pressure or expired health removes
+it. A validated growth hold freezes an already-permitted trial through the
+original deadline; it cannot create/enlarge one, earn ACK credit, inherit one
+across a route change, or erase secondary debt. The allowance is not banked as
+a paid window or multiplied
 by the number of video/screen connections. Background control flight remains
 charged to the ordinary pool; every connection retains its transport
 congestion controller. This changes endpoint admission only.
@@ -243,15 +246,31 @@ A subsequent physical run with the new counter had poor audio delivery
 (about 191-ms median Mac -> phone packet delivery during an early phase),
 spent much of startup protecting audio, and did not qualify video. This
 cannot be presented as a passing controller measurement. Preferred-path
-preparation/promotion was added after that run; its physical qualification
-is still pending.
+preparation/promotion was added after that run. Its next 180-second run kept
+both engines and delivered all scored audio RTP, with approximately 48-55-ms
+median packet delivery and peaks below 185 ms. Sustained video still failed:
+final decoded cadence was 7.93 FPS Mac -> phone and 1.93 FPS phone -> Mac.
+Neither original video admission counter increased; rejected retries no longer
+appeared as original source loss.
+
+The next endpoint-budget regression exposed another inconsistency: a healthy
+growth hold removed the pre-existing two-MTU trial, reducing available video
+admission from 2400 bytes to a one-byte window behind unrelated control debt.
+The paid window was preserved, but the usable temporary allowance vanished.
+A validated hold now retains only that already-permitted shared byte limit
+through its original deadline. It cannot inflate it with a new MTU or replay,
+bank ACK growth, start from unknown health, survive a route change, or override
+actual pressure. These bounds pass 127 local session checks (one existing
+characterization ignored). Physical requalification of this budget fix is
+pending; no passing relay-video claim is made yet.
 
 Private raw captures remain outside the repository at
 `~/.cache/codex/xveil-video-bbr-20261021/`; the successful current P2P capture is
 `capture-clock-valid-p2p-qualified`. Earlier failed/setup runs are kept
 separately. Follow-up captures include
 `capture-relay-ready-before-source-filter` and
-`capture-relay-source-filter-before-promotion`.
+`capture-relay-source-filter-before-promotion`, followed by
+`capture-relay-promotion-before-held-trial`.
 Completed owned app/logcat processes were closed and verified absent.
 The isolated QA APK is retained while relay verification is in progress; each
 completed relay run restores its temporary per-contact P2P override.
