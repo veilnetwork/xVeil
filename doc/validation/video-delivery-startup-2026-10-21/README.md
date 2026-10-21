@@ -194,9 +194,64 @@ startup or sustained relay video, and does not establish that the DATA-only
 fix caused the receive failure. The missing relay ingress and the resulting
 repair remain a separate unresolved transport investigation.
 
+### Follow-up on 2026-10-22
+
+The interrupted receive was localized before the network: sampled sealed
+phone cells 2450-2650 were accepted into two first-hop queues, then discarded
+by both runners as `child_unavailable`. A previously working first hop was
+not selected. Negotiated datagram support had been treated as sufficient,
+although the specific local source child was still warming.
+
+Origin selection now takes a read-only, lane-specific readiness snapshot.
+Ready children precede warming candidates; old unsupported transports retain
+their compatibility fallback. The snapshot cannot open a connection and is
+bound to the current live runner generation. In addition, actual sending and
+explicit preparation keep warming only the existing preferred pair without
+clearing a ready child. Once they authenticate, preferred cached routes can
+replace the fallback. Cost snapshots stay read-only. This avoids both a gap
+while switching and an indefinite preference for a ready but worse old route.
+Fanout limits, ciphertext, replay identity and neutral relay headers remain
+unchanged. Relays were not modified.
+
+The actual IPC handler regression failed before selection was fixed (both
+copies used warming hops), then passed for primary, video and legacy source
+lane mapping. It also checks promotion after the preferred pair becomes ready.
+176 IPC tests passed (five existing ignored); 125 local session checks passed
+(one existing ignored), including owner/generation and closed-session bounds.
+
+The next 180-second ready-route run kept both engines and delivered every
+accepted audio RTP packet in the scored phases. First complete >=25-FPS
+windows were 19.19 s Mac -> phone and 22.78 s phone -> Mac after camera enable;
+>=360p appeared after 39.74/45.15 s. Final 15-s cadence was 7.27/27.27 FPS.
+That asymmetry remained a failure to qualify sustained video. All 104 Mac
+and four phone rejected video attempts were exact repeats of previously
+admitted RTP identities, rather than new original packets. Some repairs were
+more than two seconds old. Counting them as fresh admission loss caused
+additional source cuts for the same history.
+
+The native transport now retains total failures and additionally reports
+`video_tx_source_rtp_drops`, using WebRTC's local `PacketOptions::is_media`
+classification (original media, excluding retransmission/padding). One-to-one
+and group transports supply this field. Adaptation consumes original-source
+failures, with legacy counter fallback; raw receiver loss and all audio
+protection remain independent. The production shim test exercises real
+`SendRtp` with accepted originals, rejected repairs and rejected originals.
+185 Dart adapter/growth/model checks passed, including video-only/muted audio.
+Both native arm64 libraries compiled; focused native counter/shim checks pass.
+
+A subsequent physical run with the new counter had poor audio delivery
+(about 191-ms median Mac -> phone packet delivery during an early phase),
+spent much of startup protecting audio, and did not qualify video. This
+cannot be presented as a passing controller measurement. Preferred-path
+preparation/promotion was added after that run; its physical qualification
+is still pending.
+
 Private raw captures remain outside the repository at
 `~/.cache/codex/xveil-video-bbr-20261021/`; the successful current P2P capture is
 `capture-clock-valid-p2p-qualified`. Earlier failed/setup runs are kept
-separately. Completed owned app/logcat processes were closed and verified absent.
+separately. Follow-up captures include
+`capture-relay-ready-before-source-filter` and
+`capture-relay-source-filter-before-promotion`.
+Completed owned app/logcat processes were closed and verified absent.
 The isolated QA APK is retained while relay verification is in progress; each
 completed relay run restores its temporary per-contact P2P override.
