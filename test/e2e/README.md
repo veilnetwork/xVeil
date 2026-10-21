@@ -18,6 +18,9 @@ subtree is to be the suite that cannot.
 export XVEIL_E2E_VEIL_CLI="$PWD/third_party/veil/target/debug/veil-cli"
 export VEIL_FFI_DYLIB="$PWD/third_party/veil/target/debug/libveilclient_ffi.dylib"
 export HIDDEN_VOLUME_FFI_DYLIB="$PWD/third_party/hidden-volume/target/debug/libhidden_volume_ffi.dylib"
+export XVEIL_HV_DYLIB="$HIDDEN_VOLUME_FFI_DYLIB"
+# Required for connected calls; use a real engine built for this SDK.
+export VEIL_MEDIA_DYLIB="/absolute/path/to/libveil_media.dylib"
 export TMPDIR=/private/tmp/
 
 flutter test test/e2e/                          # everything
@@ -45,14 +48,15 @@ it is the recommended path rather than two `cargo build`s.
 | `XVEIL_E2E_VEIL_CLI` | absolute path to a prebuilt `veil-cli` |
 | `VEIL_FFI_DYLIB` | absolute path to `libveilclient_ffi` |
 | `HIDDEN_VOLUME_FFI_DYLIB` | absolute path to `libhidden_volume_ffi` |
+| `VEIL_MEDIA_DYLIB` | absolute path to the real media engine; connected-call cases skip without it |
 
-All three must be absolute and must exist; a path that is neither is treated as
+The three base gates must be absolute and must exist; a path that is neither is treated as
 unset, because an env override that turns out to be stale otherwise fails much
 later as "the node never came up", which is the one thing it does not mean.
 
-With any of them unset the whole suite **skips cleanly** with a message naming
-what is missing — an ordinary `flutter test` stays green. The one file that
-always runs is `convergence_oracle_test.dart`; see below for why.
+With any base gate unset the native cases **skip** with a message naming
+what is missing. A skipped test is not coverage. Connected calls additionally
+require the media gate. The oracle and deadline tests always run.
 
 It runs nightly anyway, in `.github/workflows/nightly.yml`, on a Linux runner with
 the libraries built from the same tree the way the section above says to build
@@ -84,6 +88,10 @@ Optional knobs:
 | `relay_cluster_test.dart` | smoke test for the island alone |
 | `device_fixture_test.dart` | smoke test for the app stacks and the link ceremony alone |
 | `multi_device_e2e_test.dart` | the checklist cases |
+| `multi_device_extended_e2e_test.dart` | concurrent writers, interrupted backlog, message state, media, call races, groups and revocation probes |
+| `device_process_fixture.dart` / `device_process_worker_test.dart` | a separate OS process and authenticated debug API per device |
+| `multi_device_process_e2e_test.dart` | independent history, B→C authentication, reconnect, stale-device revoke, call race and abrupt crash probes |
+| `e2e_env_test.dart` | unresponsive probes/diagnostics cannot disable the wait deadline |
 | `fixtures/*.toml` | test-only, committed node identities (see "Why identities are committed") |
 
 The two smoke files exist so that failures separate. "The relays never came up",
@@ -135,17 +143,35 @@ the sibling, and no row lands twice. "It arrived" and "it arrived once" are
 different claims and the second is the one this project has had to fix — a row
 keyed by `msgId ?? contentId` used to land twice under two keys.
 
-### case 10 — strict offline probe beyond the current guarantee
+### case 10 — no-source limit, followed by recovery
 
 B is down; A sends to C; then A **and** C go down and B comes up. The probe
 asks whether B can recover its own outgoing message without a live source.
-The accepted architecture does not promise that recovery, so a red result is
-recorded as a design limitation rather than a product defect.
+The accepted architecture does not promise that recovery. The test asserts
+absence throughout three minutes with B alone, then brings A back and requires
+the same outgoing message to arrive exactly once. This tests the agreed limit
+and eventual recovery without introducing a device mailbox.
 
 With A gone there is no live sibling to ask. The test first confirms that C
 received the message and A committed its device-group mirror, then takes A and
 C down. Current policy skips mailbox deposits to sibling device addresses, so
 the case measures whether any other recovery path can supply B.
+
+### Extended checklist
+
+`multi_device_extended_e2e_test.dart` exercises concurrent writers, a backlog
+of 100 messages, interrupted catch-up, read markers in both directions,
+reactions and their removal, edits/replies/pins, contact preferences/blocking,
+PNG and 4 MiB file persistence, call decline/reconnect/answer races, pre-link
+group history, offline revocation/relink refusal and a third device E of X.
+The 4/9 case in the core file includes five real minutes with B offline.
+
+These are app/provider and native-node tests on one host. The native document
+registry is process-global: shared-process results must not be cited as proof
+of cross-process revocation propagation or rejection of stolen keys. Long
+offline periods, real network partitions, OS crashes and host clock skew need
+separate runs. A failed or unexecuted subcase is not covered by another subcase
+sharing its checklist number.
 
 ### case 20 — an edit and a sibling deletion on one identity
 
@@ -308,33 +334,61 @@ than "the onion rendezvous is usable", which has no cheap probe from this side.
 
 ## Current results
 
-See [the dated campaign report](../../doc/MULTIDEVICE-VERIFICATION-2026-09-30.md)
-for the exact online/offline setup, observed result and open failures of each
-case. The report supersedes earlier runs of this harness; the oracle now
-recognizes separate signing chains for devices of one identity.
+See [the 2026-10-21 report](../../doc/validation/multi-device-2026-10-21/README.md)
+and its 63-row ledger for topology, results, partial coverage and open failures.
+Earlier campaign passes are not carried into that ledger without a fresh run.
 
 ---
 
 ## Known limits, and what comes next
 
-The current cases cover online text, offline catch-up with A available, initial
-history, one file, basic calls, and two failure probes. Remaining cases need:
+The core, extended, process and supplementary suites now include two linked
+identities, a 100-message interrupted catch-up, files up to 4 MiB, revoke,
+sender SIGKILL, and call answer races. Their existence does not imply they pass:
+the current report records failed and unstable cases as well as passing ones.
 
-* **cases 44–46 (two multi-device identities exchanging).** The fixture already
-  provisions four devices and two identities (A+B = X, C+D = Y), and
-  `E2eFleet.start(labels: [...])` takes all four. What is missing is only the
-  second link ceremony plus the four-way oracle sweep: link D into C, then
-  assert both pairs converge and the cross-identity conversation is identical on
-  all four. No new fixture machinery.
-* **cases 15/16 (hundreds of messages, interrupted sync).** Needs (a) a bulk
-  send helper that does not await each `sendText` round trip, and (b) a
-  convergence wait keyed on ROW COUNT rather than on one body — the oracle
-  already reports counts, gaps and duplicates, which is exactly the shape those
-  cases assert. It will also need a longer per-test timeout and probably a
-  `retentionCuts`-aware relaxation of the gap rule once compaction enters the
-  picture, since a compacted prefix is a legitimate hole.
-* **cases 33–36 (files).** The case 7 assertion reads B's actual bytes, but the
-  oracle does not yet include a content digest. Offline seeding, interrupted
-  transfers and large files remain open.
-* **Not covered here**: device revocation and tombstones, physical audio output,
-  and anything needing a phone. Basic call signaling runs in this fixture.
+Remaining coverage includes real network partitions with both sides operating,
+hours/days offline, independent OS clock skew, packet-level forced replays,
+5–10 devices, very large files and precise 50% transfer interruption, and
+crashes at receive/decrypt/DB/ACK or file/link/revoke boundaries. Physical audio
+output, speech quality and phone/Windows UI need separate device runs.
+
+`multi_device_supplementary_e2e_test.dart` adds authenticated anonymous-call
+compatibility (`E2eFleet.start(anonymous: true)`), mixed A/D availability,
+two-identity calls, local attachment-cache eviction, loss of the calling app,
+and offline group removal with an epoch/commitment change. The default fleet
+remains non-anonymous. Removed peers can retain stale membership metadata;
+the group-removal test records that separately from receiving new group data.
+
+
+### Independent-process qualification
+
+The ordinary fixture has isolated native nodes and stores, but its devices
+share the native identity registry and the mocked preferences singleton in one
+Flutter process. It cannot certify propagation of device authorization or the
+isolation of platform preferences. The process fixture gives A, B and C separate
+native caches and storage workers. It still substitutes the unlocked app
+controller and does not certify Android/Windows UI or live-speech quality.
+
+Run the process suite with the same binary environment as above:
+
+```bash
+TMPDIR=/private/tmp/ flutter test --no-pub \
+  test/e2e/multi_device_process_e2e_test.dart --reporter expanded
+```
+
+Only the worker is compiled with the authenticated debug hook. Its secret stays
+in its temporary runtime directory and is not printed or included in the report.
+Set `XVEIL_E2E_EVIDENCE_DIR` to preserve worker logs and owned process IDs before
+temporary containers are removed. Graceful shutdown joins the messaging ratchet
+flush before closing the native stack and encrypted store. Abrupt-crash cases
+instead kill only the worker's recorded process group. After the campaign,
+audit owned relay PIDs and worker process groups independently.
+
+The current report is in `doc/validation/multi-device-2026-10-21/`.
+Its per-case statuses distinguish passes, failures, accepted architecture
+limits, partial coverage and scenarios not executed. A failed earlier step prevents
+coverage claims for later assertions in the same test. In particular, passing
+one incoming message on three X devices does not certify every three-device
+scenario, and a timer-based eventual call settlement does not prove an immediate
+single-device answer election.
