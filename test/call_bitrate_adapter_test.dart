@@ -1578,6 +1578,136 @@ void main() {
     },
   );
 
+  for (final fps in [30, 60]) {
+    test(
+      'healthy $fps fps startup funds frames and reaches full output in 40s',
+      () {
+        final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: fps);
+        apply(a);
+        var before = a.acknowledgedTarget!;
+        for (var second = 1; second <= 40; second++) {
+          native(
+            a,
+            // The reference call exchanges peer reports every five seconds.
+            peerSequence: 10 + second ~/ 5,
+            stats: {...healthy(), 'rtt_ms': 10, 'video_tx_frames': second},
+          );
+          final output = a.acknowledgedTarget!;
+          expect(output.maxFps - before.maxFps, lessThanOrEqualTo(fps / 10));
+          expect(
+            output.maxBitrateKbps - before.maxBitrateKbps,
+            lessThanOrEqualTo(90),
+          );
+          expect(
+            output.maxBitrateKbps,
+            greaterThanOrEqualTo((900 * output.maxFps / fps).floor()),
+            reason: 'increasing cadence must fund the additional frames',
+          );
+          before = output;
+        }
+        expect(a.acknowledgedTarget, (
+          maxBitrateKbps: 900,
+          maxFps: fps.toDouble(),
+        ));
+      },
+    );
+  }
+
+  for (final hold in ['RTT', 'local playout', 'peer playout']) {
+    test('startup uses the ordinary ramp with higher $hold', () {
+      final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 60);
+      var second = 0;
+      void tick({bool held = false}) => native(
+        a,
+        peerSequence: ++second,
+        peerDelay: held && hold == 'peer playout' ? 120 : 60,
+        stats: {
+          ...healthy(),
+          'rtt_ms': held && hold == 'RTT' ? 80 : 10,
+          'audio_delay_ms': held && hold == 'local playout' ? 120 : 60,
+          'video_tx_frames': second,
+        },
+      );
+      for (var i = 0; i < 4; i++) {
+        tick();
+      }
+      final before = a.acknowledgedTarget!;
+      tick(held: true);
+      final after = a.acknowledgedTarget!;
+      expect(after.maxFps, lessThanOrEqualTo(before.maxFps + 1));
+      expect(
+        after.maxBitrateKbps,
+        lessThanOrEqualTo((before.maxBitrateKbps * 1.1).floor()),
+      );
+    });
+  }
+
+  test('legacy startup retains integer cadence and the ordinary byte ramp', () {
+    final a = CallBitrateAdapter(
+      baseBitrateKbps: 900,
+      baseFps: 60,
+      supportsLowRateVideo: false,
+    );
+    apply(a);
+    var before = a.acknowledgedTarget!;
+    for (var second = 1; second <= 40; second++) {
+      native(
+        a,
+        peerSequence: second,
+        stats: {...healthy(), 'rtt_ms': 10, 'video_tx_frames': second},
+      );
+      final after = a.acknowledgedTarget!;
+      expect(after.maxFps, after.maxFps.roundToDouble());
+      expect(after.maxFps, lessThanOrEqualTo(before.maxFps + 1));
+      expect(
+        after.maxBitrateKbps,
+        lessThanOrEqualTo((before.maxBitrateKbps * 1.1).floor()),
+      );
+      before = after;
+    }
+  });
+
+  test('busy startup and repeated application cannot spend extra growth', () {
+    final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 60);
+    for (var second = 1; second <= 3; second++) {
+      native(
+        a,
+        peerSequence: second,
+        stats: {...healthy(), 'rtt_ms': 10, 'video_tx_frames': second},
+      );
+    }
+    final before = a.acknowledgedTarget;
+    a.onNativeStats(
+      {...healthy(), 'rtt_ms': 10, 'video_tx_frames': 4},
+      sampledAt: nextTime(a),
+      receiveAudioExpected: true,
+      requireAudioReceivePlayout: true,
+      requirePeerAudioPlayout: true,
+      peerAudioDelayMs: 60,
+      peerAudioSampleSequence: 4,
+    );
+    ({int maxBitrateKbps, double maxFps})? rejected;
+    expect(
+      a.applyPendingTarget((v) {
+        rejected = v;
+        return false;
+      }),
+      isFalse,
+    );
+    expect(a.acknowledgedTarget, before);
+    expect(
+      a.applyPendingTarget((v) {
+        expect(v, rejected);
+        return true;
+      }),
+      isTrue,
+    );
+    final accepted = a.acknowledgedTarget;
+    expect(accepted, isNot(before));
+    expect(a.applyPendingTarget((_) => throw StateError('extra step')), isNull);
+    expect(a.acknowledgedTarget, accepted);
+  });
+
   for (final startup in [false, true]) {
     test(
       'cached peer audio cannot earn ${startup ? 'startup' : 'normal'} video growth',

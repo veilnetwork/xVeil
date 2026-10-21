@@ -1,0 +1,99 @@
+{
+  "camera_requested_at_seconds": 31.11775904102251,
+  "camera_api_finished_at_seconds": 32.927814750000834,
+  "endpoints": {
+    "mac": {
+      "routes": {
+        "p2p": 86
+      },
+      "nominal_full_after_camera_seconds": 43.7180273749982,
+      "native_full_after_camera_seconds": 47.86315254197689,
+      "first_decoded_frame_after_camera_seconds": 5.272858417243697,
+      "phases": [
+        {
+          "name": "first_video_minute",
+          "from_seconds": 31.11775904102251,
+          "until_seconds": 91.11775904102251,
+          "frames": 1232,
+          "mean_fps": 20.533333333333335,
+          "max_gap_ms": 1011.2709999666549,
+          "p95_gap_ms": 99.25500000827014,
+          "dimensions": {
+            "180x320": 125,
+            "270x480": 467,
+            "360x640": 59,
+            "540x960": 581
+          }
+        },
+        {
+          "name": "last_minute",
+          "from_seconds": 120,
+          "until_seconds": 180,
+          "frames": 1776,
+          "mean_fps": 29.6,
+          "max_gap_ms": 95.70100001292303,
+          "p95_gap_ms": 41.60500003490597,
+          "dimensions": {
+            "540x960": 1776
+          }
+        }
+      ],
+      "final": {
+        "audio_interruption_count": 0,
+        "audio_interruption_duration_ms": 0,
+        "audio_concealment_events": 4,
+        "audio_concealed_samples": 5646,
+        "audio_tx_rtp_drops": 0,
+        "video_tx_rtp_drops": 0,
+        "route_handovers": 0,
+        "video_audio_pixel_cuts": 0
+      }
+    },
+    "phone": {
+      "routes": {
+        "p2p": 86
+      },
+      "nominal_full_after_camera_seconds": 28.83145312499255,
+      "native_full_after_camera_seconds": 30.926966416998766,
+      "first_decoded_frame_after_camera_seconds": 3.881891399156302,
+      "phases": [
+        {
+          "name": "first_video_minute",
+          "from_seconds": 31.11775904102251,
+          "until_seconds": 91.11775904102251,
+          "frames": 968,
+          "mean_fps": 16.133333333333333,
+          "max_gap_ms": 1392.4290002323687,
+          "p95_gap_ms": 133.3230002783239,
+          "dimensions": {
+            "320x180": 111,
+            "480x270": 310,
+            "640x360": 547
+          }
+        },
+        {
+          "name": "last_minute",
+          "from_seconds": 120,
+          "until_seconds": 180,
+          "frames": 1800,
+          "mean_fps": 30.0,
+          "max_gap_ms": 49.95199991390109,
+          "p95_gap_ms": 36.47699998691678,
+          "dimensions": {
+            "640x360": 1800
+          }
+        }
+      ],
+      "final": {
+        "audio_interruption_count": 0,
+        "audio_interruption_duration_ms": 0,
+        "audio_concealment_events": 6,
+        "audio_concealed_samples": 7680,
+        "audio_tx_rtp_drops": 0,
+        "video_tx_rtp_drops": 0,
+        "route_handovers": 0,
+        "video_audio_pixel_cuts": 0
+      }
+    }
+  }
+}
