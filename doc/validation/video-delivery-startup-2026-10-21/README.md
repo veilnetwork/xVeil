@@ -56,37 +56,104 @@ fields/reserved bytes, wrong target SSRC, regressions and replay.
 | 56 | 8 | Reserved, zero |
 
 The sender's local JSON adds the current source watermark/production and route
-and encoder epochs. None of those local diagnostic fields is a relay hint.
+and encoder epochs. `sent_timestamp_valid` distinguishes a real zero RTP
+clock from a source which has not emitted payload in this epoch. An empty
+clock never creates a serial-number barrier against a random first timestamp
+above 2^31. None of these local diagnostic fields is a relay hint.
+
+## Endpoint flight admission
+
+Physical captures exposed a prerequisite below the source controller. The
+node-wide flight ledger contained 30–55 KB of background control traffic on
+other paths while the short direct media path had a 12-KB QUIC window, zero
+flight and no reported loss. The effective video window was one byte; queued
+video expired after 200 ms without leaving the endpoint. Growing the encoder
+cannot fix this condition.
+
+Fresh healthy primary feedback now permits a **shared two-MTU trial** for
+secondary work, even when live or recently closed control connections occupy
+the ordinary ledger. Actual coupled secondary flight, including abandoned
+secondary debt, debits the trial. Primary flight remains in the ordinary ledger; a healthy audio
+bandwidth-delay product cannot consume or enlarge the fixed additional trial.
+Unselected prewarmed secondary channels retain a bounded control-handshake
+allowance. They cannot spend the source trial or
+earn growth; selecting one for actual local source traffic immediately charges
+its existing flight to the trial. Pressure, a growth hold, or stale healthy
+feedback removes it. The allowance is not banked as a paid window or multiplied
+by the number of video/screen connections. Background control flight remains
+charged to the ordinary pool; every connection retains its transport
+congestion controller. This changes endpoint admission only.
+
+## Source resolution
+
+The low-rate startup sizing cap also follows a genuinely larger encoder
+allocation. With fresh healthy audio and no growth hold, one fresh audio
+observation permits at most a fourfold pixel-area probe, bounded by the
+original source size and actual rate growth. Raising only the requested
+profile earns nothing. Unknown/stale audio, paused video and holds do not
+bank allocation credit. Actual audio pixel cuts retain the existing gradual
+recovery; this faster path only releases a startup rate-derived sizing bound.
 
 ## Verification
 
-- 181 Dart tests: existing adapter/growth checks plus twelve delivery-model
+- 182 Dart tests: existing adapter/growth checks plus thirteen delivery-model
   scenarios. The model reaches the 900-kbit/s, 60-fps source ceiling in eight
   simulated one-second observations at both 10-ms and 120-ms RTT.
 - Production native shim compound send/parse test: video ACK, freshness,
   replay, wrong target, truncation, duplicates and reserved fields; existing
   audio feedback compatibility retained.
+- Native startup sizing checks: funded allocation versus requested profile;
+  one area probe per fresh observation; unknown/pressured/stale audio, pauses
+  and growth holds; existing audio-cut recovery retained.
 - Native RTP accounting test: payload/padding isolation, retransmitted frame
   watermark, RTP clock wrap and source restart.
 - macOS arm64 and Android arm64 native libraries compiled against pinned WebRTC.
+- 54 Rust local-source checks, including shared trial, primary/secondary debt,
+  pressure/hold and feedback-expiry cases.
+- Quinn initialization test: installing the budget before the handshake retires
+  Initial/Handshake flight to zero after acknowledgement. No transport
+  production change was needed for that accounting case.
 
 Physical results and cleanup evidence are recorded after the stand run below.
 The simulated timing is not a promise for an arbitrary real network.
 
 ### Physical qualification status
 
-Not yet qualified for the requested startup time. Two Mac/Blackview Wi-Fi
-runs preserved live P2P audio, but an independent outgoing source did not carry
-video in both directions. The second run, with bidirectional text delivery
-before the call and a 60-second route warmup, decoded Mac video on Android;
-Android's video source had no ready framing snapshot and repeatedly attempted
-channel setup. Decoder feedback was observed on the working direction, but
-zero decoded frames cannot earn a probe. Native target increases on the legacy
-fallback are **not** counted as successful video startup.
+The current Mac/Blackview Wi-Fi P2P run passed with real cameras and real
+codec/network traffic. The audio source was the isolated synthetic ADM driver.
+Both RTP clocks in this run started above 2^31; an earlier run exposed the
+empty-clock barrier defect fixed by the explicit local validity flag.
 
-These observations identify a prerequisite below the source controller; they
-do not establish its cause or prove a release regression. Source-channel
-qualification is being investigated. Private raw captures remain outside the
-repository at `~/.cache/codex/xveil-video-bbr-20261021/`. Setup-failure, no-video
-and one-direction captures are kept separately. Each completed run closed the
-owned Mac/phone instances and restored the exact published Android APK.
+| Direction | First decoded frame | Full source budget acknowledged | First 5-s window at >=25 decoded FPS | First >=360p decoded frame | Final 15-s decoded FPS |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Mac -> Blackview | 4.01 s | 13.29 s | 15.65 s | 25.65 s | 30.0 |
+| Blackview -> Mac | 4.91 s | 12.20 s | 14.42 s | 25.94 s | 29.5 |
+
+Times are after the camera-enable request, not just the encoder setter. The
+source ceiling is the existing 900-kbit/s, 60-fps budget; physical cameras
+produced about 30 fps. Final decoded sizes were 640x360 on Blackview and
+540x960 on Mac. No route switch occurred in 92 sampled call states. After a
+five-second camera stop, both directions qualified their first full five-second
+window at >=25 fps; that window length is not a five-second resume delay.
+
+All 95 measured audio tone transitions in each direction matched during the
+scored phases. Point estimates for maximum decoded PCM transition delay were
+81.2 ms Mac -> Blackview and 151.0 ms Blackview -> Mac over those phases;
+steady video maxima were 70.7 and 89.9 ms. These include codec/network/playout,
+not microphone/speaker acoustics or subjective speech intelligibility. Raw
+clock uncertainty envelopes and complete sample counts remain with the capture.
+
+Relay qualification remains open. Two forced-relay runs established audio but
+had almost no decoded video; one later recreated the media engine. These are
+not successful startup measurements and do not establish that source probing
+caused the failure. Endpoint admission diagnostics now record why an individual
+secondary is blocked (real flight, health, pressure or growth hold). The next
+run uses the corrected clock-validity handling. No relay priority or media hint
+was introduced to work around this condition.
+
+Private raw captures remain outside the repository at
+`~/.cache/codex/xveil-video-bbr-20261021/`; the successful current P2P capture is
+`capture-clock-valid-p2p-qualified`. Earlier failed/setup runs are kept
+separately. Completed owned app/logcat processes were closed and verified absent.
+The isolated QA APK is retained while relay verification is in progress; each
+completed relay run restores its temporary per-contact P2P override.
