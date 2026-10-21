@@ -1,0 +1,14 @@
+{
+  "libveilclient_ffi.so": {
+    "old_count": 197,
+    "new_count": 197,
+    "missing": [],
+    "added": []
+  },
+  "libveil_media.so": {
+    "old_count": 142,
+    "new_count": 142,
+    "missing": [],
+    "added": []
+  }
+}

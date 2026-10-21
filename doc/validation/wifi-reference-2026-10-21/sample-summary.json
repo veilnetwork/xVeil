@@ -1,0 +1,1300 @@
+{
+  "mac": {
+    "routes": {
+      "p2p": 115
+    },
+    "phases": [
+      {
+        "phase": "wifi_audio",
+        "samples": 27,
+        "metrics": {
+          "rtt_ms": {
+            "min": 8,
+            "median": 11,
+            "max": 21,
+            "last": 21
+          },
+          "jitter_ms": {
+            "min": 1,
+            "median": 1,
+            "max": 3,
+            "last": 2
+          },
+          "loss_pct": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "tx_loss_pct": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "audio_jb_ms": {
+            "min": 26,
+            "median": 46,
+            "max": 86,
+            "last": 36
+          },
+          "audio_jb_target_ms": {
+            "min": 20,
+            "median": 40,
+            "max": 40,
+            "last": 20
+          },
+          "audio_rx_age_ms": {
+            "min": 0,
+            "median": 8,
+            "max": 29,
+            "last": 14
+          },
+          "audio_rtp_lag_ms": {
+            "min": 34,
+            "median": 44,
+            "max": 62,
+            "last": 35
+          },
+          "audio_interruption_count": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "audio_interruption_duration_ms": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "audio_concealment_events": {
+            "min": 4,
+            "median": 4,
+            "max": 4,
+            "last": 4
+          },
+          "audio_concealed_samples": {
+            "min": 5647,
+            "median": 5647,
+            "max": 5647,
+            "last": 5647
+          },
+          "audio_tx_rtp_drops": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "video_tx_rtp_drops": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "video_frame_encoded_pixels": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "video_frame_pixel_cap": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "remote_frame_fps": {
+            "min": 0.0,
+            "median": 0.0,
+            "max": 0.0,
+            "last": 0.0
+          },
+          "remote_frame_max_gap_ms": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "video_tx_fps": {
+            "min": 0.0,
+            "median": 0.0,
+            "max": 0.0,
+            "last": 0.0
+          },
+          "video_tx_max_gap_ms": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "video_audio_pixel_cuts": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "video_audio_pixel_recoveries": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "audio_latency_recovery_count": {
+            "min": 1,
+            "median": 1,
+            "max": 1,
+            "last": 1
+          },
+          "audio_latency_discarded_ms": {
+            "min": 40,
+            "median": 40,
+            "max": 40,
+            "last": 40
+          },
+          "video_paused_for_audio": {
+            "min": false,
+            "median": false,
+            "max": false,
+            "last": false
+          }
+        }
+      },
+      {
+        "phase": "wifi_video",
+        "samples": 28,
+        "metrics": {
+          "rtt_ms": {
+            "min": 6,
+            "median": 9.0,
+            "max": 22,
+            "last": 12
+          },
+          "jitter_ms": {
+            "min": 1,
+            "median": 1.5,
+            "max": 3,
+            "last": 1
+          },
+          "loss_pct": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "tx_loss_pct": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "audio_jb_ms": {
+            "min": 26,
+            "median": 36.0,
+            "max": 46,
+            "last": 26
+          },
+          "audio_jb_target_ms": {
+            "min": 20,
+            "median": 20.0,
+            "max": 40,
+            "last": 20
+          },
+          "audio_rx_age_ms": {
+            "min": 0,
+            "median": 13.0,
+            "max": 21,
+            "last": 21
+          },
+          "audio_rtp_lag_ms": {
+            "min": 34,
+            "median": 35.0,
+            "max": 45,
+            "last": 35
+          },
+          "audio_interruption_count": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "audio_interruption_duration_ms": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "audio_concealment_events": {
+            "min": 4,
+            "median": 4.0,
+            "max": 4,
+            "last": 4
+          },
+          "audio_concealed_samples": {
+            "min": 5647,
+            "median": 5647.0,
+            "max": 5647,
+            "last": 5647
+          },
+          "audio_tx_rtp_drops": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "video_tx_rtp_drops": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "video_frame_encoded_pixels": {
+            "min": 0,
+            "median": 3520.0,
+            "max": 57600,
+            "last": 14400
+          },
+          "video_frame_pixel_cap": {
+            "min": 0,
+            "median": 6144.0,
+            "max": 15000,
+            "last": 15000
+          },
+          "remote_frame_fps": {
+            "min": 0.0,
+            "median": 4.35,
+            "max": 7.4,
+            "last": 7.4
+          },
+          "remote_frame_max_gap_ms": {
+            "min": 0,
+            "median": 1103.0,
+            "max": 1103,
+            "last": 1103
+          },
+          "video_tx_fps": {
+            "min": 0.0,
+            "median": 4.45,
+            "max": 7.6,
+            "last": 7.6
+          },
+          "video_tx_max_gap_ms": {
+            "min": 0,
+            "median": 1241.0,
+            "max": 1241,
+            "last": 1241
+          },
+          "video_audio_pixel_cuts": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "video_audio_pixel_recoveries": {
+            "min": 0,
+            "median": 0.0,
+            "max": 4,
+            "last": 4
+          },
+          "audio_latency_recovery_count": {
+            "min": 1,
+            "median": 1.0,
+            "max": 1,
+            "last": 1
+          },
+          "audio_latency_discarded_ms": {
+            "min": 40,
+            "median": 40.0,
+            "max": 40,
+            "last": 40
+          },
+          "video_paused_for_audio": {
+            "min": false,
+            "median": 0.0,
+            "max": false,
+            "last": false
+          },
+          "adaptLevel": {
+            "min": 1,
+            "median": 3.0,
+            "max": 4,
+            "last": 1
+          }
+        }
+      },
+      {
+        "phase": "wifi_video_file_attempt",
+        "samples": 28,
+        "metrics": {
+          "rtt_ms": {
+            "min": 8,
+            "median": 14.0,
+            "max": 28,
+            "last": 17
+          },
+          "jitter_ms": {
+            "min": 1,
+            "median": 2.0,
+            "max": 5,
+            "last": 2
+          },
+          "loss_pct": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "tx_loss_pct": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "audio_jb_ms": {
+            "min": 26,
+            "median": 45.0,
+            "max": 56,
+            "last": 45
+          },
+          "audio_jb_target_ms": {
+            "min": 20,
+            "median": 40.0,
+            "max": 40,
+            "last": 40
+          },
+          "audio_rx_age_ms": {
+            "min": 1,
+            "median": 8.5,
+            "max": 23,
+            "last": 16
+          },
+          "audio_rtp_lag_ms": {
+            "min": 35,
+            "median": 45.0,
+            "max": 46,
+            "last": 46
+          },
+          "audio_interruption_count": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "audio_interruption_duration_ms": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "audio_concealment_events": {
+            "min": 4,
+            "median": 5.0,
+            "max": 5,
+            "last": 5
+          },
+          "audio_concealed_samples": {
+            "min": 5647,
+            "median": 6090.0,
+            "max": 6090,
+            "last": 6090
+          },
+          "audio_tx_rtp_drops": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "video_tx_rtp_drops": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "video_frame_encoded_pixels": {
+            "min": 14400,
+            "median": 44640.0,
+            "max": 230400,
+            "last": 230400
+          },
+          "video_frame_pixel_cap": {
+            "min": 0,
+            "median": 7500.0,
+            "max": 57218,
+            "last": 0
+          },
+          "remote_frame_fps": {
+            "min": 7.9,
+            "median": 14.100000000000001,
+            "max": 18.0,
+            "last": 18.0
+          },
+          "remote_frame_max_gap_ms": {
+            "min": 1103,
+            "median": 1103.0,
+            "max": 1103,
+            "last": 1103
+          },
+          "video_tx_fps": {
+            "min": 8.1,
+            "median": 15.0,
+            "max": 18.7,
+            "last": 18.7
+          },
+          "video_tx_max_gap_ms": {
+            "min": 1241,
+            "median": 1241.0,
+            "max": 1241,
+            "last": 1241
+          },
+          "video_audio_pixel_cuts": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "video_audio_pixel_recoveries": {
+            "min": 4,
+            "median": 10.5,
+            "max": 11,
+            "last": 11
+          },
+          "audio_latency_recovery_count": {
+            "min": 1,
+            "median": 1.0,
+            "max": 1,
+            "last": 1
+          },
+          "audio_latency_discarded_ms": {
+            "min": 40,
+            "median": 40.0,
+            "max": 40,
+            "last": 40
+          },
+          "video_paused_for_audio": {
+            "min": false,
+            "median": 0.0,
+            "max": false,
+            "last": false
+          },
+          "adaptLevel": {
+            "min": 0,
+            "median": 0.0,
+            "max": 1,
+            "last": 0
+          }
+        }
+      },
+      {
+        "phase": "wifi_video_after_cancel_request",
+        "samples": 29,
+        "metrics": {
+          "rtt_ms": {
+            "min": 7,
+            "median": 10,
+            "max": 56,
+            "last": 7
+          },
+          "jitter_ms": {
+            "min": 1,
+            "median": 2,
+            "max": 3,
+            "last": 2
+          },
+          "loss_pct": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "tx_loss_pct": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "audio_jb_ms": {
+            "min": 24,
+            "median": 44,
+            "max": 64,
+            "last": 44
+          },
+          "audio_jb_target_ms": {
+            "min": 20,
+            "median": 40,
+            "max": 60,
+            "last": 40
+          },
+          "audio_rx_age_ms": {
+            "min": 2,
+            "median": 8,
+            "max": 26,
+            "last": 3
+          },
+          "audio_rtp_lag_ms": {
+            "min": 34,
+            "median": 44,
+            "max": 63,
+            "last": 44
+          },
+          "audio_interruption_count": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "audio_interruption_duration_ms": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "audio_concealment_events": {
+            "min": 5,
+            "median": 6,
+            "max": 6,
+            "last": 6
+          },
+          "audio_concealed_samples": {
+            "min": 6090,
+            "median": 6977,
+            "max": 6977,
+            "last": 6977
+          },
+          "audio_tx_rtp_drops": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "video_tx_rtp_drops": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "video_frame_encoded_pixels": {
+            "min": 230400,
+            "median": 230400,
+            "max": 230400,
+            "last": 230400
+          },
+          "video_frame_pixel_cap": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "remote_frame_fps": {
+            "min": 18.2,
+            "median": 20.5,
+            "max": 22.0,
+            "last": 22.0
+          },
+          "remote_frame_max_gap_ms": {
+            "min": 1103,
+            "median": 1103,
+            "max": 1103,
+            "last": 1103
+          },
+          "video_tx_fps": {
+            "min": 18.9,
+            "median": 21.2,
+            "max": 22.7,
+            "last": 22.7
+          },
+          "video_tx_max_gap_ms": {
+            "min": 1241,
+            "median": 1241,
+            "max": 1241,
+            "last": 1241
+          },
+          "video_audio_pixel_cuts": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "video_audio_pixel_recoveries": {
+            "min": 11,
+            "median": 11,
+            "max": 11,
+            "last": 11
+          },
+          "audio_latency_recovery_count": {
+            "min": 1,
+            "median": 1,
+            "max": 1,
+            "last": 1
+          },
+          "audio_latency_discarded_ms": {
+            "min": 40,
+            "median": 40,
+            "max": 40,
+            "last": 40
+          },
+          "video_paused_for_audio": {
+            "min": false,
+            "median": false,
+            "max": false,
+            "last": false
+          },
+          "adaptLevel": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          }
+        }
+      }
+    ]
+  },
+  "phone": {
+    "routes": {
+      "p2p": 115
+    },
+    "phases": [
+      {
+        "phase": "wifi_audio",
+        "samples": 27,
+        "metrics": {
+          "rtt_ms": {
+            "min": 7,
+            "median": 9,
+            "max": 26,
+            "last": 8
+          },
+          "jitter_ms": {
+            "min": 1,
+            "median": 1,
+            "max": 6,
+            "last": 1
+          },
+          "loss_pct": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "tx_loss_pct": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "audio_jb_ms": {
+            "min": 20,
+            "median": 45,
+            "max": 85,
+            "last": 35
+          },
+          "audio_jb_target_ms": {
+            "min": 20,
+            "median": 40,
+            "max": 60,
+            "last": 20
+          },
+          "audio_rx_age_ms": {
+            "min": 0,
+            "median": 10,
+            "max": 36,
+            "last": 9
+          },
+          "audio_rtp_lag_ms": {
+            "min": 26,
+            "median": 36,
+            "max": 58,
+            "last": 32
+          },
+          "audio_interruption_count": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "audio_interruption_duration_ms": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "audio_concealment_events": {
+            "min": 4,
+            "median": 5,
+            "max": 5,
+            "last": 5
+          },
+          "audio_concealed_samples": {
+            "min": 5760,
+            "median": 7200,
+            "max": 7200,
+            "last": 7200
+          },
+          "audio_tx_rtp_drops": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "video_tx_rtp_drops": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "video_frame_encoded_pixels": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "video_frame_pixel_cap": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "remote_frame_fps": {
+            "min": 0.0,
+            "median": 0.0,
+            "max": 0.0,
+            "last": 0.0
+          },
+          "remote_frame_max_gap_ms": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "video_tx_fps": {
+            "min": 0.0,
+            "median": 0.0,
+            "max": 0.0,
+            "last": 0.0
+          },
+          "video_tx_max_gap_ms": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "video_audio_pixel_cuts": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "video_audio_pixel_recoveries": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "audio_latency_recovery_count": {
+            "min": 1,
+            "median": 1,
+            "max": 1,
+            "last": 1
+          },
+          "audio_latency_discarded_ms": {
+            "min": 10,
+            "median": 10,
+            "max": 10,
+            "last": 10
+          },
+          "video_paused_for_audio": {
+            "min": false,
+            "median": false,
+            "max": false,
+            "last": false
+          }
+        }
+      },
+      {
+        "phase": "wifi_video",
+        "samples": 28,
+        "metrics": {
+          "rtt_ms": {
+            "min": 7,
+            "median": 8.0,
+            "max": 10,
+            "last": 8
+          },
+          "jitter_ms": {
+            "min": 1,
+            "median": 1.0,
+            "max": 3,
+            "last": 1
+          },
+          "loss_pct": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "tx_loss_pct": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "audio_jb_ms": {
+            "min": 25,
+            "median": 41.0,
+            "max": 56,
+            "last": 41
+          },
+          "audio_jb_target_ms": {
+            "min": 20,
+            "median": 40.0,
+            "max": 40,
+            "last": 40
+          },
+          "audio_rx_age_ms": {
+            "min": 1,
+            "median": 8.0,
+            "max": 24,
+            "last": 12
+          },
+          "audio_rtp_lag_ms": {
+            "min": 31,
+            "median": 39.0,
+            "max": 43,
+            "last": 37
+          },
+          "audio_interruption_count": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "audio_interruption_duration_ms": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "audio_concealment_events": {
+            "min": 5,
+            "median": 6.0,
+            "max": 6,
+            "last": 6
+          },
+          "audio_concealed_samples": {
+            "min": 7200,
+            "median": 7680.0,
+            "max": 7680,
+            "last": 7680
+          },
+          "audio_tx_rtp_drops": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "video_tx_rtp_drops": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "video_frame_encoded_pixels": {
+            "min": 0,
+            "median": 93600.0,
+            "max": 230400,
+            "last": 230400
+          },
+          "video_frame_pixel_cap": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "remote_frame_fps": {
+            "min": 0.0,
+            "median": 4.25,
+            "max": 7.5,
+            "last": 7.5
+          },
+          "remote_frame_max_gap_ms": {
+            "min": 0,
+            "median": 1234.0,
+            "max": 1234,
+            "last": 1234
+          },
+          "video_tx_fps": {
+            "min": 0.0,
+            "median": 4.45,
+            "max": 7.5,
+            "last": 7.5
+          },
+          "video_tx_max_gap_ms": {
+            "min": 0,
+            "median": 1148.0,
+            "max": 1148,
+            "last": 1148
+          },
+          "video_audio_pixel_cuts": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "video_audio_pixel_recoveries": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "audio_latency_recovery_count": {
+            "min": 1,
+            "median": 1.0,
+            "max": 1,
+            "last": 1
+          },
+          "audio_latency_discarded_ms": {
+            "min": 10,
+            "median": 10.0,
+            "max": 10,
+            "last": 10
+          },
+          "video_paused_for_audio": {
+            "min": false,
+            "median": 0.0,
+            "max": false,
+            "last": false
+          },
+          "adaptLevel": {
+            "min": 1,
+            "median": 3.0,
+            "max": 4,
+            "last": 1
+          }
+        }
+      },
+      {
+        "phase": "wifi_video_file_attempt",
+        "samples": 28,
+        "metrics": {
+          "rtt_ms": {
+            "min": 5,
+            "median": 10.0,
+            "max": 154,
+            "last": 11
+          },
+          "jitter_ms": {
+            "min": 1,
+            "median": 3.0,
+            "max": 5,
+            "last": 3
+          },
+          "loss_pct": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "tx_loss_pct": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "audio_jb_ms": {
+            "min": 21,
+            "median": 46.0,
+            "max": 91,
+            "last": 46
+          },
+          "audio_jb_target_ms": {
+            "min": 20,
+            "median": 40.0,
+            "max": 60,
+            "last": 40
+          },
+          "audio_rx_age_ms": {
+            "min": 0,
+            "median": 11.0,
+            "max": 34,
+            "last": 13
+          },
+          "audio_rtp_lag_ms": {
+            "min": 27,
+            "median": 48.5,
+            "max": 76,
+            "last": 51
+          },
+          "audio_interruption_count": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "audio_interruption_duration_ms": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "audio_concealment_events": {
+            "min": 6,
+            "median": 7.0,
+            "max": 7,
+            "last": 7
+          },
+          "audio_concealed_samples": {
+            "min": 7680,
+            "median": 8160.0,
+            "max": 8160,
+            "last": 8160
+          },
+          "audio_tx_rtp_drops": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "video_tx_rtp_drops": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "video_frame_encoded_pixels": {
+            "min": 230400,
+            "median": 518400.0,
+            "max": 518400,
+            "last": 518400
+          },
+          "video_frame_pixel_cap": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "remote_frame_fps": {
+            "min": 8.0,
+            "median": 14.899999999999999,
+            "max": 18.6,
+            "last": 18.6
+          },
+          "remote_frame_max_gap_ms": {
+            "min": 1234,
+            "median": 1234.0,
+            "max": 1234,
+            "last": 1234
+          },
+          "video_tx_fps": {
+            "min": 7.9,
+            "median": 14.3,
+            "max": 18.1,
+            "last": 18.1
+          },
+          "video_tx_max_gap_ms": {
+            "min": 1148,
+            "median": 1148.0,
+            "max": 1148,
+            "last": 1148
+          },
+          "video_audio_pixel_cuts": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "video_audio_pixel_recoveries": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0,
+            "last": 0
+          },
+          "audio_latency_recovery_count": {
+            "min": 1,
+            "median": 1.0,
+            "max": 1,
+            "last": 1
+          },
+          "audio_latency_discarded_ms": {
+            "min": 10,
+            "median": 10.0,
+            "max": 10,
+            "last": 10
+          },
+          "video_paused_for_audio": {
+            "min": false,
+            "median": 0.0,
+            "max": false,
+            "last": false
+          },
+          "adaptLevel": {
+            "min": 0,
+            "median": 0.0,
+            "max": 1,
+            "last": 0
+          }
+        }
+      },
+      {
+        "phase": "wifi_video_after_cancel_request",
+        "samples": 29,
+        "metrics": {
+          "rtt_ms": {
+            "min": 6,
+            "median": 10,
+            "max": 20,
+            "last": 20
+          },
+          "jitter_ms": {
+            "min": 1,
+            "median": 2,
+            "max": 3,
+            "last": 2
+          },
+          "loss_pct": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "tx_loss_pct": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "audio_jb_ms": {
+            "min": 41,
+            "median": 56,
+            "max": 81,
+            "last": 61
+          },
+          "audio_jb_target_ms": {
+            "min": 40,
+            "median": 40,
+            "max": 80,
+            "last": 40
+          },
+          "audio_rx_age_ms": {
+            "min": 0,
+            "median": 7,
+            "max": 20,
+            "last": 1
+          },
+          "audio_rtp_lag_ms": {
+            "min": 46,
+            "median": 47,
+            "max": 76,
+            "last": 47
+          },
+          "audio_interruption_count": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "audio_interruption_duration_ms": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "audio_concealment_events": {
+            "min": 7,
+            "median": 8,
+            "max": 8,
+            "last": 8
+          },
+          "audio_concealed_samples": {
+            "min": 8160,
+            "median": 8880,
+            "max": 8880,
+            "last": 8880
+          },
+          "audio_tx_rtp_drops": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "video_tx_rtp_drops": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "video_frame_encoded_pixels": {
+            "min": 518400,
+            "median": 518400,
+            "max": 518400,
+            "last": 518400
+          },
+          "video_frame_pixel_cap": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "remote_frame_fps": {
+            "min": 18.9,
+            "median": 21.1,
+            "max": 22.6,
+            "last": 22.6
+          },
+          "remote_frame_max_gap_ms": {
+            "min": 1234,
+            "median": 1234,
+            "max": 1234,
+            "last": 1234
+          },
+          "video_tx_fps": {
+            "min": 18.3,
+            "median": 20.6,
+            "max": 22.1,
+            "last": 22.1
+          },
+          "video_tx_max_gap_ms": {
+            "min": 1148,
+            "median": 1148,
+            "max": 1148,
+            "last": 1148
+          },
+          "video_audio_pixel_cuts": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "video_audio_pixel_recoveries": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          },
+          "audio_latency_recovery_count": {
+            "min": 1,
+            "median": 1,
+            "max": 1,
+            "last": 1
+          },
+          "audio_latency_discarded_ms": {
+            "min": 10,
+            "median": 10,
+            "max": 10,
+            "last": 10
+          },
+          "video_paused_for_audio": {
+            "min": false,
+            "median": false,
+            "max": false,
+            "last": false
+          },
+          "adaptLevel": {
+            "min": 0,
+            "median": 0,
+            "max": 0,
+            "last": 0
+          }
+        }
+      }
+    ]
+  }
+}

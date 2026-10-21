@@ -36,14 +36,17 @@ def decoded_edges(rows):
 
 
 def analyze_path(captures, received, duration, source_shift=0, receiver_shift=0,
-                 delay_correction_low=0, delay_correction_high=0):
+                 delay_correction_low=0, delay_correction_high=0,
+                 phase_ranges=None):
     edges = [(at + source_shift, freq, tick)
              for at, freq, tick in input_edges(captures)]
     decoded = [(at + receiver_shift, freq) for at, freq in decoded_edges(received)]
     phases = []
-    for lo, hi, name in [(5, 30, 'audio_only'), (30, 45, 'audio_video'),
-                         (45, 150, 'p2p_video_files'), (150, 180, 'handover'),
-                         (180, duration, 'relay_video_files')]:
+    if phase_ranges is None:
+        phase_ranges = [(5, 30, 'audio_only'), (30, 45, 'audio_video'),
+                        (45, 150, 'p2p_video_files'), (150, 180, 'handover'),
+                        (180, duration, 'relay_video_files')]
+    for lo, hi, name in phase_ranges:
         hi = min(hi, duration)
         if lo >= hi:
             continue
@@ -73,7 +76,7 @@ def analyze_path(captures, received, duration, source_shift=0, receiver_shift=0,
                 pcm_block_ms=10, rms_threshold=500)
 
 
-def analyze(directory, duration):
+def analyze(directory, duration, phase_ranges=None):
     result = json.loads((directory / 'result.json').read_text())
     captures, received, offsets, origins, stats = {}, {}, {}, {}, {}
     for name, participant in [('mac', 0), ('phone', 1)]:
@@ -110,7 +113,8 @@ def analyze(directory, duration):
             source_shift=origins[sender] - common,
             receiver_shift=origins[receiver] - common,
             delay_correction_low=b['low'] - b['initial_mid'] - a['high'] + a['initial_mid'],
-            delay_correction_high=b['high'] - b['initial_mid'] - a['low'] + a['initial_mid'])
+            delay_correction_high=b['high'] - b['initial_mid'] - a['low'] + a['initial_mid'],
+            phase_ranges=phase_ranges)
     return dict(scope='synthetic ADM, real codec/network, decoded PCM; not hardware acoustics',
                 duration_seconds=duration, paths=paths, driver_stats=stats,
                 observed_clock_offset_envelopes=offsets,
@@ -123,5 +127,8 @@ if __name__ == '__main__':
     parser.add_argument('directory', type=Path)
     parser.add_argument('--duration', type=float, default=300)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--phases', type=Path,
+                        help='JSON array of [start_seconds, end_seconds, name] intervals')
     args = parser.parse_args()
-    args.output.write_text(json.dumps(analyze(args.directory, args.duration), indent=2) + '\n')
+    phases = json.loads(args.phases.read_text()) if args.phases else None
+    args.output.write_text(json.dumps(analyze(args.directory, args.duration, phases), indent=2) + '\n')

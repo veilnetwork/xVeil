@@ -1,0 +1,36 @@
+{
+  "mac": {
+    "audio_interruption_count": 0,
+    "audio_interruption_duration_ms": 0,
+    "audio_concealment_events": 6,
+    "audio_concealed_samples": 6977,
+    "audio_rx_duplicate_packets": 0,
+    "audio_tx_rtp_drops": 0,
+    "video_tx_rtp_drops": 0,
+    "tx_drops": 0,
+    "rx_drops": 0,
+    "route_handovers": 0,
+    "audio_latency_recovery_count": 1,
+    "audio_latency_discarded_ms": 40,
+    "audio_output_duration_ms": 239439,
+    "video_audio_pixel_cuts": 0,
+    "video_audio_pixel_recoveries": 11
+  },
+  "phone": {
+    "audio_interruption_count": 0,
+    "audio_interruption_duration_ms": 0,
+    "audio_concealment_events": 8,
+    "audio_concealed_samples": 8880,
+    "audio_rx_duplicate_packets": 0,
+    "audio_tx_rtp_drops": 0,
+    "video_tx_rtp_drops": 0,
+    "tx_drops": 0,
+    "rx_drops": 0,
+    "route_handovers": 0,
+    "audio_latency_recovery_count": 1,
+    "audio_latency_discarded_ms": 10,
+    "audio_output_duration_ms": 239449,
+    "video_audio_pixel_cuts": 0,
+    "video_audio_pixel_recoveries": 0
+  }
+}

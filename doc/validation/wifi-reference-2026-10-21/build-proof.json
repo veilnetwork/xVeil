@@ -1,0 +1,31 @@
+{
+  "root_head": "5fb806a690c03818406f78a58709f03f5385fd91",
+  "sdk_head": "50eb39cb48a0f7342d39cb71c8771c164bf4a12c",
+  "dart_call_policy_matches": {
+    "lib/state/call_bitrate_adapter.dart": true,
+    "lib/state/call_service.dart": true
+  },
+  "media_source_files_match_current_sdk": true,
+  "media_source_files_compared": 69,
+  "rust_source_commit": "9eef87b9e6d8d7949970bea9b0063256ed8b9d49",
+  "rust_source_note": "Clean private export with QA helpers; 50eb39cb changes only native C++ media since this Rust fix. Concurrent worktree edits excluded.",
+  "mac_signed_native_sha256": {
+    "libveilclient_ffi.dylib": "62a84175ad6c87d703f6dd4699eb74c12868b9d5a1d10df6cb820ac61efe3c8e",
+    "libxveil_pcm_driver.dylib": "d1e2f80572929b1a2bdad6aec3693a36ac9572deb159944ed7181aaa22b3c820",
+    "libveil_media.dylib": "9710934472d46a0bd598ebc49f92284bb748373e7de644aa139735c701d51857",
+    "libhidden_volume_ffi.dylib": "a923c8ec596f3cd95a0c2967a1c713797fb60dd626dd53b08f689c7251dc1e4f"
+  },
+  "mac_codesign_verified": true,
+  "android": {
+    "sha256": "4b67f2418223ecf5f79e070adc641596521bb2d4751d83c609f24b5da347617e",
+    "signer_matches": true,
+    "replacement_sha256": {
+      "lib/arm64-v8a/libveilclient_ffi.so": "feba406df6732311819de34ec19ed1630dc9b94c06ad7b77a3bc1a48286f025f",
+      "lib/arm64-v8a/libveil_media.so": "5394085b0a1ea39880eb7283e9c8da059d6fb5426372cfe47f3adcf208e4769d"
+    },
+    "unchanged_aot_engine_pcm_driver": true
+  },
+  "phone_original_version_code": 12622,
+  "phone_probe_version_code": 12630,
+  "temporary_pcm_driver": "Synthetic capture and decoded PCM observation; physical camera retained."
+}
