@@ -192,6 +192,37 @@ void main() {
   });
 
   for (final realtime in [false, true]) {
+    for (final ownDevice in [false, true]) {
+      test('an unproven offer cannot ring or consume its proven copy '
+          '(realtime=$realtime, ownDevice=$ownDevice)', () async {
+        final messaging = MessagingService(transport, storage)..start();
+        addTearDown(messaging.dispose);
+        messaging.isOwnDevice = (p) async => ownDevice && p == peer;
+        final received = <CallSignal>[];
+        messaging.onCallSignal = (_, signal) => received.add(signal);
+        final wire = WireEnvelope.callSignal(
+          const CallSignal(
+            callId: 'unproven-offer',
+            type: CallSignalType.offer,
+          ).encode(),
+        ).withFrameId('unproven-offer-id').encode();
+        final stream = realtime ? transport.realtimeInbound : transport.inbound;
+        final before = transport.normalSends;
+        stream.add(InboundMessage(src: peer, payload: wire));
+        await pumpEventQueue();
+        expect(received, isEmpty, reason: 'a contact name is not sender proof');
+        expect(transport.normalSends, before, reason: 'a claim must not ACK');
+        stream.add(
+          InboundMessage(
+            src: peer,
+            payload: wire,
+            provenance: SenderProvenance.sessionPeer,
+          ),
+        );
+        await pumpEventQueue();
+        expect(received.map((s) => s.type), [CallSignalType.offer]);
+      });
+    }
     for (final type in [CallSignalType.cancel, CallSignalType.end]) {
       test('unproven early ${type.name} cannot suppress its proven copy '
           '(realtime=$realtime)', () async {
@@ -503,10 +534,17 @@ void main() {
     test('pinned call realtime uses its verified device and identity inbox '
         '(anonymous=$anonymous)', () async {
       final device = _id(3);
-      final messaging = MessagingService(transport, storage, anonymous: anonymous);
+      final messaging = MessagingService(
+        transport,
+        storage,
+        anonymous: anonymous,
+      );
       addTearDown(messaging.dispose);
       messaging.pinCallReplyDevice('pinned-health', peer, device);
-      const health = CallSignal(callId: 'pinned-health', type: CallSignalType.health);
+      const health = CallSignal(
+        callId: 'pinned-health',
+        type: CallSignalType.health,
+      );
 
       // A claim without an admitted route cannot redirect the frame.
       await messaging.sendCallSignal(peer, health);
@@ -524,7 +562,8 @@ void main() {
       expect(transport.normalSends, 0);
       expect(await storage.pendingOutboxFrames(), isEmpty);
       final delivered = CallSignal.tryDecode(
-        WireEnvelope.decode(transport.lastRealtimePayload!).body)!;
+        WireEnvelope.decode(transport.lastRealtimePayload!).body,
+      )!;
       expect(delivered.callId, 'pinned-health');
       expect(delivered.type, CallSignalType.health);
     });
