@@ -131,11 +131,35 @@ class CallVideoDeliveryModel {
           slowest = math.min(slowest, math.min(receiveRate, sendRate));
         }
       }
-      // A short spike only holds growth. A sustained decoder queue rise or
-      // the ceiling drains video; stable path propagation delay is not a queue.
-      if (same) {
-        final growing = next.delay >= old.minimumDelay + 80;
-        next.minimumDelay = math.min(old.minimumDelay, next.delay);
+      // WebRTC's current_delay_ms includes its adaptive playout target. A
+      // target rising while decoded RTP keeps pace is not a growing backlog.
+      // Compare elapsed receiver time with decoded RTP media time. Clock
+      // offsets cancel; a bounded ten-second window limits clock-rate drift.
+      // Allow one frame of quantization (important at the one-fps floor).
+      if (same && old.frames > 0 && next.frames >= old.frames) {
+        final ticks = (next.timestamp - old.timestamp) & 0xffffffff;
+        if (ticks < 0x80000000) {
+          final mediaUs = ticks * 1000 ~/ 90;
+          final frames = next.frames - old.frames;
+          next.mediaLagUs = old.mediaLagUs + next.sample - old.sample - mediaUs;
+          next.lagWindow = [
+            for (final point
+                in old.lagWindow.isEmpty
+                    ? [(old.sample, old.mediaLagUs)]
+                    : old.lagWindow)
+              if (next.sample - point.$1 <= 10000000) point,
+            (next.sample, next.mediaLagUs),
+          ];
+          next.framePeriodUs = frames > 0 && ticks > 0
+              ? mediaUs ~/ frames
+              : old.framePeriodUs;
+        }
+        final minimumLagUs = next.lagWindow.fold(
+          next.mediaLagUs,
+          (minimum, point) => math.min(minimum, point.$2),
+        );
+        final growing =
+            next.mediaLagUs - minimumLagUs >= 80000 + next.framePeriodUs;
         next.growingSince = growing ? old.growingSince ?? now : null;
         queuePressure |=
             next.delay >= 500 ||
@@ -213,7 +237,7 @@ class CallVideoDeliveryModel {
       _nextProbe = now.add(const Duration(seconds: 6));
       // Rebase the decoder queue only after draining, not on every report.
       for (final r in _peers.values) {
-        r.minimumDelay = r.delay;
+        r.lagWindow = [(r.sample, r.mediaLagUs)];
         r.growingSince = null;
       }
     } else if (phase != CallVideoDeliveryPhase.startup) {
@@ -249,7 +273,7 @@ class _DeliverySample {
     this.sentBytes,
     this.sentTimestampValid,
     this.at,
-  ) : minimumDelay = delay;
+  );
   final int origin,
       sample,
       arrival,
@@ -261,7 +285,8 @@ class _DeliverySample {
       sentBytes;
   final bool sentTimestampValid;
   final DateTime at;
-  int minimumDelay;
+  int mediaLagUs = 0, framePeriodUs = 0;
+  List<(int, int)> lagWindow = [];
   DateTime? growingSince;
   static _DeliverySample? parse(Object? raw, DateTime now) {
     if (raw is! Map) return null;
