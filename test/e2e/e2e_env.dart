@@ -25,6 +25,7 @@ class E2eGate {
     required this.veilCli,
     required this.veilDylib,
     required this.hiddenVolumeDylib,
+    required this.mediaDylib,
     required this.missing,
   });
 
@@ -38,6 +39,15 @@ class E2eGate {
   final String? veilCli;
   final String? veilDylib;
   final String? hiddenVolumeDylib;
+  final String? mediaDylib;
+
+  /// Signaling-only tests can use [skip]. Connected-call tests need the real
+  /// media engine too, otherwise accept immediately ends with missing symbols.
+  Object get mediaSkip => !enabled
+      ? skip
+      : mediaDylib == null
+      ? 'connected-call e2e needs VEIL_MEDIA_DYLIB (absolute path to libveil_media)'
+      : false;
 
   /// The variables that are unset — empty when the suite may run.
   final List<String> missing;
@@ -74,13 +84,17 @@ class E2eGate {
       veilCli: cli,
       veilDylib: dylib,
       hiddenVolumeDylib: hv,
+      mediaDylib: present('VEIL_MEDIA_DYLIB'),
       missing: [
-        if (cli == null) 'XVEIL_E2E_VEIL_CLI (absolute path to a veil-cli '
-            'built with --features allow-empty-seeds)',
-        if (dylib == null) 'VEIL_FFI_DYLIB (absolute path to '
-            'libveilclient_ffi)',
-        if (hv == null) 'HIDDEN_VOLUME_FFI_DYLIB (absolute path to '
-            'libhidden_volume_ffi)',
+        if (cli == null)
+          'XVEIL_E2E_VEIL_CLI (absolute path to a veil-cli '
+              'built with --features allow-empty-seeds)',
+        if (dylib == null)
+          'VEIL_FFI_DYLIB (absolute path to '
+              'libveilclient_ffi)',
+        if (hv == null)
+          'HIDDEN_VOLUME_FFI_DYLIB (absolute path to '
+              'libhidden_volume_ffi)',
       ],
     );
   }
@@ -98,8 +112,10 @@ class E2eTimeout implements Exception {
 
   @override
   String toString() {
-    final buffer = StringBuffer('timed out after ${elapsed.inSeconds}s '
-        'waiting for: $what');
+    final buffer = StringBuffer(
+      'timed out after ${elapsed.inSeconds}s '
+      'waiting for: $what',
+    );
     buffer.write('\n  last seen: ${lastSeen ?? "(no observation recorded)"}');
     if (lastError != null) buffer.write('\n  last error: $lastError');
     return buffer.toString();
@@ -121,48 +137,52 @@ Future<void> waitUntil(
   Duration interval = const Duration(milliseconds: 400),
   Duration progressEvery = const Duration(seconds: 15),
 }) async {
-  final started = DateTime.now();
-  final deadline = started.add(timeout);
+  final elapsed = Stopwatch()..start();
   String? lastSeen;
   Object? lastError;
-  var nextProgress = started.add(progressEvery);
+  var nextProgress = progressEvery;
+  Duration remaining() => timeout - elapsed.elapsed;
 
   Future<void> observe() async {
     if (describe == null) return;
+    // Diagnostics must never consume an unbounded part of the probe deadline.
+    final budget = remaining();
+    if (budget <= Duration.zero) return;
     try {
-      lastSeen = await describe();
+      lastSeen = await Future<String>.sync(describe).timeout(
+        budget < const Duration(seconds: 2)
+            ? budget
+            : const Duration(seconds: 2),
+      );
     } catch (error) {
       lastSeen = 'could not describe state: $error';
     }
   }
 
-  while (true) {
+  while (remaining() > Duration.zero) {
     try {
-      if (await condition()) return;
+      if (await Future<bool>.sync(condition).timeout(remaining())) return;
       lastError = null;
     } catch (error) {
-      // A condition that throws is not a pass and not a failure: a container
-      // mid-write, a node that has not opened its socket. Keep the error for
-      // the message and keep polling — but never let it masquerade as "not
-      // yet true" if it is the only thing that ever happens.
+      // Transient errors are retried within the same overall deadline.
       lastError = error;
     }
-    final now = DateTime.now();
-    if (!now.isBefore(deadline)) {
-      await observe();
-      throw E2eTimeout(what, now.difference(started), lastSeen, lastError);
-    }
-    if (!now.isBefore(nextProgress)) {
-      nextProgress = now.add(progressEvery);
+    if (remaining() <= Duration.zero) break;
+    if (elapsed.elapsed >= nextProgress) {
+      nextProgress = elapsed.elapsed + progressEvery;
       await observe();
       E2eLog.line(
-        '… still waiting (${now.difference(started).inSeconds}s) for $what '
+        '… still waiting (${elapsed.elapsed.inSeconds}s) for $what '
         '— last seen: ${lastSeen ?? "?"}'
         '${lastError == null ? "" : " — last error: $lastError"}',
       );
     }
-    await Future<void>.delayed(interval);
+    final budget = remaining();
+    if (budget > Duration.zero) {
+      await Future<void>.delayed(interval < budget ? interval : budget);
+    }
   }
+  throw E2eTimeout(what, elapsed.elapsed, lastSeen, lastError);
 }
 
 /// The same wait, but the condition RETURNS the thing being waited for. Saves
@@ -205,8 +225,10 @@ class E2eLog {
       line('✓ $what (${DateTime.now().difference(at).inMilliseconds}ms)');
       return out;
     } catch (error) {
-      line('✗ $what (${DateTime.now().difference(at).inMilliseconds}ms): '
-          '$error');
+      line(
+        '✗ $what (${DateTime.now().difference(at).inMilliseconds}ms): '
+        '$error',
+      );
       rethrow;
     }
   }
@@ -228,7 +250,10 @@ Future<int> freePort() async {
 }
 
 /// Whether something is listening on a loopback port.
-Future<bool> portAnswers(int port, {Duration timeout = const Duration(milliseconds: 500)}) async {
+Future<bool> portAnswers(
+  int port, {
+  Duration timeout = const Duration(milliseconds: 500),
+}) async {
   try {
     final socket = await Socket.connect(
       InternetAddress.loopbackIPv4,
@@ -249,7 +274,10 @@ Future<bool> portAnswers(int port, {Duration timeout = const Duration(millisecon
 /// running and a container lock held, and the NEXT run then fails for a reason
 /// that has nothing to do with its own code. Every leg runs; the first error
 /// is what the caller sees.
-Future<void> teardownLegs(String label, List<(String, Future<void> Function())> legs) async {
+Future<void> teardownLegs(
+  String label,
+  List<(String, Future<void> Function())> legs,
+) async {
   Object? first;
   StackTrace? firstTrace;
   for (final (name, leg) in legs) {

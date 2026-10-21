@@ -51,6 +51,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/core/log.dart';
 import 'package:xveil/data/node/embedded_node.dart';
 import 'package:xveil/data/node/identity_config_fields.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
@@ -65,6 +66,7 @@ import 'package:xveil/domain/device_link.dart';
 import 'package:xveil/domain/identity.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/call_service.dart';
+import 'package:xveil/state/call_log.dart';
 import 'package:xveil/state/device_sync_bridge.dart';
 import 'package:xveil/state/group_service_providers.dart';
 import 'package:xveil/state/messaging_core.dart';
@@ -116,9 +118,18 @@ class _E2eAppController extends AppController {
   _E2eAppController(this._identity);
 
   final Identity _identity;
+  bool rebootRequested = false;
 
   @override
   AppState build() => AppState(AppPhase.ready, identity: _identity);
+
+  // This controller does not own the nodes. A process worker observes this
+  // request, exits cleanly and is restarted by its parent on the same store.
+  @override
+  Future<bool> rebootHostedNodes() async {
+    rebootRequested = true;
+    return true;
+  }
 }
 
 /// One BOOT of a device, and the zone its asynchronous work runs in.
@@ -166,8 +177,9 @@ class E2eDevice {
     required this.password,
     required this.identityToml,
     required this.isMaster,
-    required this.cluster,
+    required this.bootstrapPeers,
     required this.dylibPath,
+    this.anonymous = false,
   });
 
   /// 'A', 'B', 'C', 'D'.
@@ -187,8 +199,47 @@ class E2eDevice {
   /// phrase). Exactly one device per identity does; the other is adopted.
   final bool isMaster;
 
-  final RelayCluster cluster;
+  final List<BootstrapPeerCfg> bootstrapPeers;
   final String dylibPath;
+  final bool anonymous;
+
+  bool get rebootRequested =>
+      (container.read(appControllerProvider.notifier) as _E2eAppController)
+          .rebootRequested;
+
+  /// A worker owns one device; its relays live in the parent process. This
+  /// keeps native document registries and preferences isolated per device.
+  static Future<E2eDevice> startWorker({
+    required E2eGate gate,
+    required String label,
+    required Directory dir,
+    required List<BootstrapPeerCfg> bootstrapPeers,
+  }) async {
+    if (!gate.enabled ||
+        !ensureHiddenVolumeLoaded(dylibPath: gate.hiddenVolumeDylib) ||
+        !ensureVeilClientLoaded(dylibPath: gate.veilDylib)) {
+      throw StateError('worker native libraries could not be loaded');
+    }
+    final spec = E2eFleet._spec(label);
+    final device = E2eDevice._(
+      label: label,
+      identity: spec.identity,
+      dir: dir,
+      password: 'e2e-$label-password',
+      identityToml: await E2eFleet._identityToml(spec, gate.veilDylib!),
+      isMaster: spec.isMaster,
+      bootstrapPeers: bootstrapPeers,
+      dylibPath: gate.veilDylib!,
+    );
+    await dir.create(recursive: true);
+    try {
+      await device.start();
+      return device;
+    } catch (_) {
+      await device.stop();
+      rethrow;
+    }
+  }
 
   _BootScope? _boot;
   ProviderContainer? _container;
@@ -284,8 +335,8 @@ class E2eDevice {
           runtimeDirBase: '${dir.path}/runtime',
           lib: DynamicLibrary.open(dylibPath),
           listenPort: await freePort(),
-          anonymous: false,
-          bootstrapPeers: cluster.bootstrapPeers,
+          anonymous: anonymous,
+          bootstrapPeers: bootstrapPeers,
           // Several embedded nodes in one process, each with its own metrics
           // port. A fixed one is why a second instance used to die on "Address
           // already in use" with no port in the message.
@@ -317,7 +368,7 @@ class E2eDevice {
             deniableBootProvider.overrideWithValue(
               DeniableBootConfig(
                 runtimeDir: '${dir.path}/runtime',
-                bootstrapPeers: cluster.bootstrapPeers,
+                bootstrapPeers: bootstrapPeers,
               ),
             ),
           ],
@@ -328,6 +379,7 @@ class E2eDevice {
         // starts listening in its constructor, and the group service attaches
         // every callback (mirror included) in its.
         container.read(messagingServiceProvider);
+        container.read(callLogRecorderProvider);
         await container.read(groupSignerProvider.future);
         if (container.read(groupServiceProvider) == null) {
           _fail(
@@ -377,6 +429,7 @@ class E2eDevice {
       _boot?.alive = false;
       _boot = null;
       final container = _container;
+      final messaging = container?.read(messagingServiceProvider);
       final bridgeSubscription = _bridgeSubscription;
       final stack = _stack;
       final storage = _storage;
@@ -387,6 +440,9 @@ class E2eDevice {
       await teardownLegs('device-$label-stop', [
         ('dispose app bridge watch', () async => bridgeSubscription?.close()),
         ('dispose providers', () async => container?.dispose()),
+        // ProviderContainer.dispose is synchronous; join the service's
+        // asynchronous ratchet save before freeing its FFI handle/storage.
+        ('join messaging shutdown', () async => messaging?.dispose()),
         ('dispose stack', () async => stack?.dispose()),
         ('close container', () async => storage?.close()),
       ]);
@@ -593,6 +649,7 @@ class E2eFleet {
   static Future<E2eFleet> start({
     required E2eGate gate,
     List<String> labels = const ['A', 'B', 'C', 'D'],
+    bool anonymous = false,
   }) async {
     // The app preloads both plugin libraries before opening its first storage
     // space. This fixture bypasses main(), so it must do that bootstrap itself.
@@ -623,8 +680,9 @@ class E2eFleet {
           password: 'e2e-$label-password',
           identityToml: await _identityToml(spec, gate.veilDylib!),
           isMaster: spec.isMaster,
-          cluster: cluster!,
+          bootstrapPeers: cluster!.bootstrapPeers,
           dylibPath: gate.veilDylib!,
+          anonymous: anonymous,
         );
         await device.dir.create(recursive: true);
         devices[label] = device;
@@ -869,9 +927,20 @@ class E2eFleet {
           await target.groups!.deviceGroupIdHex() ==
           await master.groups!.deviceGroupIdHex(),
       what: '${target.label} to adopt ${master.label}\'s device group',
-      describe: () async =>
-          '${master.label}=${await master.groups!.deviceGroupIdHex()} '
-          '${target.label}=${await target.groups!.deviceGroupIdHex()}',
+      describe: () async {
+        final pending = await target.groups!.pendingDeviceAdoption();
+        final outbox = await master.storage.pendingOutboxFrames();
+        final peers = await target.stack.transport.peers();
+        return '${master.label}=${await master.groups!.deviceGroupIdHex()} '
+            '${target.label}=${await target.groups!.deviceGroupIdHex()} '
+            'pending=${pending?.groupId.short} '
+            'source=${pending?.source.short} '
+            'sourceDevice=${pending?.sourceDevice?.short} '
+            'targetDevice=${target.deviceNodeId.short} '
+            'queuedForTarget=${outbox.where((f) => f.peerHex == target.deviceNodeId.hex).length} '
+            'activePeers=${peers.where((p) => p.isActive).map((p) => p.nodeId.short).toList()} '
+            'deviceLog=${devLogSnapshot(limit: 100).lines.where((l) => l.contains("[devices]")).toList()}';
+      },
       timeout: const Duration(minutes: 3),
     );
   }
@@ -938,6 +1007,7 @@ class E2eFleet {
     'B' => (identity: E2eIdentity.x, isMaster: false, fixture: 'x_sibling'),
     'C' => (identity: E2eIdentity.y, isMaster: true, fixture: 'y_master'),
     'D' => (identity: E2eIdentity.y, isMaster: false, fixture: 'y_sibling'),
+    'E' => (identity: E2eIdentity.x, isMaster: false, fixture: 'x_third'),
     _ => throw ArgumentError('unknown device label $label'),
   };
 
