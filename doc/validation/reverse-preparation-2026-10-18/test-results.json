@@ -4,7 +4,7 @@
   "environment": {
     "TMPDIR": "/private/tmp/",
     "CARGO_INCREMENTAL": "0",
-    "CARGO_TARGET_DIR": "/Users/vart/.cache/codex/veil-qos-target-20261016"
+    "CARGO_TARGET_DIR": "/Users/<user>/.cache/codex/veil-qos-target-20261016"
   },
   "manifest": "clean snapshot sdk-src/Cargo.toml",
   "common_command": [
@@ -23,7 +23,7 @@
     "failure": "relay preparation must warm the reverse relay, not the current direct sender",
     "observed_frame_family": 4,
     "expected_frame_family": 3,
-    "private_log": "/Users/vart/.cache/codex/xveil-quic-route-confirmation-20261018/reverse-preparation-red.log"
+    "private_log": "/Users/<user>/.cache/codex/xveil-quic-route-confirmation-20261018/reverse-preparation-red.log"
   },
   "green": {
     "filter": "path_probe",
@@ -50,7 +50,7 @@
       "test media_path_probe::tests::short_qualified_and_cancelled_attempts_never_retry ... ok"
     ],
     "summary": "test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 279 filtered out; finished in 0.77s",
-    "private_log": "/Users/vart/.cache/codex/xveil-quic-route-confirmation-20261018/preparation-tests-final.log"
+    "private_log": "/Users/<user>/.cache/codex/xveil-quic-route-confirmation-20261018/preparation-tests-final.log"
   },
   "limits": "Low PoW difficulty is a unit-fixture option only, not present in either installed production-feature library."
 }

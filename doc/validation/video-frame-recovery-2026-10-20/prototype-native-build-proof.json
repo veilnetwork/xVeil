@@ -1,12 +1,12 @@
 {
   "media-hooks": {
-    "path": "/Users/vart/.cache/codex/xveil-frame-recovery-20261020/media-hooks/libveil_media.dylib",
+    "path": "/Users/<user>/.cache/codex/xveil-frame-recovery-20261020/media-hooks/libveil_media.dylib",
     "sha256": "08a2d5206cbe40a318b003cd21fb98177300e4aa90e659dfedc48bad0932dc92",
     "exports": 135,
     "same_exports_as_previous": true
   },
   "media-production": {
-    "path": "/Users/vart/.cache/codex/xveil-frame-recovery-20261020/media-production/libveil_media.dylib",
+    "path": "/Users/<user>/.cache/codex/xveil-frame-recovery-20261020/media-production/libveil_media.dylib",
     "sha256": "0d1c3c34274851ffc706d21bc169eb61443b94f65379be92c526fc163483f744",
     "exports": 101,
     "same_exports_as_previous": true

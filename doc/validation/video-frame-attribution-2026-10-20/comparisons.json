@@ -1,6 +1,6 @@
 [
   {
-    "directory": "/Users/vart/.cache/codex/xveil-native-video-adaptation-20261020/group-final-360",
+    "directory": "/Users/<user>/.cache/codex/xveil-native-video-adaptation-20261020/group-final-360",
     "raw_ok": false,
     "audio_matched": 2112,
     "audio_missing": 0,
@@ -177,7 +177,7 @@
     ]
   },
   {
-    "directory": "/Users/vart/.cache/codex/xveil-source-pressure-qualified-20261020/group-final-360",
+    "directory": "/Users/<user>/.cache/codex/xveil-source-pressure-qualified-20261020/group-final-360",
     "raw_ok": false,
     "audio_matched": 2112,
     "audio_missing": 0,
@@ -354,7 +354,7 @@
     ]
   },
   {
-    "directory": "/Users/vart/.cache/codex/xveil-source-pressure-original-pixels-20261020/group-final-360",
+    "directory": "/Users/<user>/.cache/codex/xveil-source-pressure-original-pixels-20261020/group-final-360",
     "raw_ok": false,
     "audio_matched": 2112,
     "audio_missing": 0,

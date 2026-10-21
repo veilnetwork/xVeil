@@ -315,7 +315,7 @@
     "Preserve real source/ACK state through failed or canceled native video/audio operations,roster/source changes and reconnect. Requalify the original full workloads and all media planes after actual allocation changes.",
     "Whole interaction-channel audit,screen/fallback/physical phone/live speech/headset qualification remain open."
   ],
-  "private_artifacts": "/Users/vart/.cache/codex/xveil-group-framing-20261019",
+  "private_artifacts": "/Users/<user>/.cache/codex/xveil-group-framing-20261019",
   "sdk_commit": "d0e692662faba012fafa81a09e56b9da17ece8e6",
   "resource_trackers_independently_absent_at_final_check": true
 }

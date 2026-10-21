@@ -2,7 +2,7 @@
   "scope": "Receiver relative RTP lag and measured local video/DATA pressure; no new wire metadata or relay priority",
   "previous_goal_turn": "Progress: diagnostic timestamp attribution and stand teardown fix committed06326c1e",
   "result": "Production measurement/pressure path implemented and functionally verified; full audio-priority goal remains ACTIVE. Final group230.257ms and pair200.021/210.300ms still fail unchanged strict200ms gates.",
-  "private_artifacts": "/Users/vart/.cache/codex/xveil-rtp-lag-20261019",
+  "private_artifacts": "/Users/<user>/.cache/codex/xveil-rtp-lag-20261019",
   "final_candidate_is_provenance_guard_variant": true,
   "initial_variant": "Group460.094ms failed; decoded packet epoch guard added after this capture. Initial native source reconstructed and hash-verified privately.",
   "limits": [

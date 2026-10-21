@@ -1,7 +1,7 @@
 {
   "reason": "The policy clock was elapsed milliseconds since fixture start; the new hold event was incorrectly sent as a host epoch timestamp. SDK argument validation rejected it. No SDK guard was weakened.",
   "failed_script_sha256": "be8e819885c7fce537ed4f1f0222561f667c0b676d27ddb8118109540a929c53",
-  "first_error": "Traceback (most recent call last):\n  File \"/Users/vart/Projects/veilnetwork/xVeil/scripts/group-process-preflight.py\", line 348, in worker\n    snapshot['source_growth_hold_rc'] = fixture.checked(source_growth_hold, app, sampled_at_unix_ms, held_at)\n                                        ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/vart/Projects/veilnetwork/xVeil/scripts/group_codec_sdk.py\", line 230, in checked\n    raise RuntimeError(function.__name__ + ': ' + message)\nRuntimeError: veil_app_hold_local_source_growth: invalid local growth hold timestamps\n",
+  "first_error": "Traceback (most recent call last):\n  File \"/Users/<user>/Projects/veilnetwork/xVeil/scripts/group-process-preflight.py\", line 348, in worker\n    snapshot['source_growth_hold_rc'] = fixture.checked(source_growth_hold, app, sampled_at_unix_ms, held_at)\n                                        ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/<user>/Projects/veilnetwork/xVeil/scripts/group_codec_sdk.py\", line 230, in checked\n    raise RuntimeError(function.__name__ + ': ' + message)\nRuntimeError: veil_app_hold_local_source_growth: invalid local growth hold timestamps\n",
   "group_capture_completed": false,
   "cleanup": {
     "checked_at_utc": "2026-10-20T05:01:15.790253+00:00",

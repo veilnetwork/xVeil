@@ -2,19 +2,19 @@
   "root_base": "bff8bf0f86d04493de31429cb58e6a5762270ee7",
   "sdk_base": "ab6d6c14d83e41c4aff0685cab5aea82efc2f54c",
   "sdk": {
-    "path": "/Users/vart/.cache/codex/xveil-explicit-source-hold-20261020/sdk-final/libveilclient_ffi.dylib",
+    "path": "/Users/<user>/.cache/codex/xveil-explicit-source-hold-20261020/sdk-final/libveilclient_ffi.dylib",
     "sha256": "8062a0b3296a1f30b6cdb9530d5b3940b4971fa04ebc16b43f6381e78cb9099d"
   },
   "baseline_media": {
-    "path": "/Users/vart/.cache/codex/xveil-explicit-source-hold-20261020/media-hooks/libveil_media.dylib",
+    "path": "/Users/<user>/.cache/codex/xveil-explicit-source-hold-20261020/media-hooks/libveil_media.dylib",
     "sha256": "f90f40a6adecd4fb1155e6a298e0f655bfcf42311407f5d41c4c6c94ca7edc9f"
   },
   "media": {
-    "path": "/Users/vart/.cache/codex/xveil-soft-burst-recovery-20261020/media-hooks/libveil_media.dylib",
+    "path": "/Users/<user>/.cache/codex/xveil-soft-burst-recovery-20261020/media-hooks/libveil_media.dylib",
     "sha256": "12a618a2baab18401d8fedd19e79bd96d38a1e6d7308be0257a0bfeb62190dfe"
   },
   "media_production": {
-    "path": "/Users/vart/.cache/codex/xveil-soft-burst-recovery-20261020/media-production/libveil_media.dylib",
+    "path": "/Users/<user>/.cache/codex/xveil-soft-burst-recovery-20261020/media-production/libveil_media.dylib",
     "sha256": "8bfdaa2fc3cfa74b41e7104d46e900506e9f9e05c0bf9aebc266bef9e2d9a6ff"
   },
   "source_sha256": {

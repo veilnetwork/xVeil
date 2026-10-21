@@ -4,14 +4,14 @@
   "complete": false,
   "native_commit": "87b539e3dde31b84e0fa726fc752a29d244f7497",
   "scope": "Bounded opt-in endpoint video RTP and RR/SR metadata; no media contents, wire changes, relay roles, priority changes or codec/adaptation threshold changes.",
-  "private_directory": "/Users/vart/.cache/codex/xveil-video-loss-20261018/physical-build/physical-video-loss",
+  "private_directory": "/Users/<user>/.cache/codex/xveil-video-loss-20261018/physical-build/physical-video-loss",
   "build": {
     "native_commit": "87b539e3dde31b84e0fa726fc752a29d244f7497",
-    "base": "/Users/vart/.cache/codex/xveil-rtcp-kind-20261018/physical-build/build.json",
+    "base": "/Users/<user>/.cache/codex/xveil-rtcp-kind-20261018/physical-build/build.json",
     "scope": "Only production native media diagnostic recorder changes. Existing QA Dart AOT and Rust SDK unchanged. VersionCode 10613 retained; same QA signer; not a release.",
-    "mac_app": "/Users/vart/.cache/codex/xveil-video-loss-20261018/physical-build/mac-stand/xveil.app",
+    "mac_app": "/Users/<user>/.cache/codex/xveil-video-loss-20261018/physical-build/mac-stand/xveil.app",
     "mac_signed_media_sha256": "8f794c464ec20e59cf317e091b4b011dee384352466a448703ca63af6db37765",
-    "apk": "/Users/vart/.cache/codex/xveil-video-loss-20261018/physical-build/phone-video-loss.apk",
+    "apk": "/Users/<user>/.cache/codex/xveil-video-loss-20261018/physical-build/phone-video-loss.apk",
     "apk_sha256": "1552135d3bfd2771ceac4abb4b82a8f8a07205c0c894be56e9a7e30ddebdb2dc",
     "before_apk_sha256": "54b284a93aa862c2e4fffdf7e836315046660ba4ad71bb794b1338f3856674fa",
     "apk_changed_entries": [
@@ -375,8 +375,8 @@
     "independent-cleanup.json": "711d4a011310967573738e77b7ff6c3c442812e211e91c4f67e3ab1bb1aa7272"
   },
   "helper_sha256": {
-    "/Users/vart/.cache/codex/xveil-video-loss-20261018/package.py": "2396a224f6691bb6cd79488db8a6f8f58d1d90f59c03b5a5db514f76e226adf7",
-    "/Users/vart/.cache/codex/xveil-video-loss-20261018/physical-build/physical-video-loss.py": "a5019ffb2316c6364c5303c88f36513040961ac3bc61775c5f1c3bebcb907e36"
+    "/Users/<user>/.cache/codex/xveil-video-loss-20261018/package.py": "2396a224f6691bb6cd79488db8a6f8f58d1d90f59c03b5a5db514f76e226adf7",
+    "/Users/<user>/.cache/codex/xveil-video-loss-20261018/physical-build/physical-video-loss.py": "a5019ffb2316c6364c5303c88f36513040961ac3bc61775c5f1c3bebcb907e36"
   },
   "first_gap_source_timing": {
     "rtp_sequence": 17202,

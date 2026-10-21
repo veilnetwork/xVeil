@@ -1,7 +1,7 @@
 from pathlib import Path
 import subprocess,os,json,time
 r=Path(__file__).parent;clean=r/'sdk-src'
-env=dict(os.environ,TMPDIR='/private/tmp/',CARGO_TARGET_DIR='/Users/vart/.cache/codex/veil-qos-target-20261016')
+env=dict(os.environ,TMPDIR='/private/tmp/',CARGO_TARGET_DIR='/Users/<user>/.cache/codex/veil-qos-target-20261016')
 def run(label,args,expected=0):
  start=time.monotonic()
  with (r/(label+'.txt')).open('w') as log:p=subprocess.run(['cargo',*args],cwd=clean,env=env,stdout=log,stderr=subprocess.STDOUT,timeout=600)

@@ -69,7 +69,7 @@
       "deadline_misses": 0
     }
   },
-  "private_artifacts": "/Users/vart/.cache/codex/xveil-work-wire-cost-20261019",
+  "private_artifacts": "/Users/<user>/.cache/codex/xveil-work-wire-cost-20261019",
   "limits": [
     "Both original full audio gates FAIL, including the 200.088-ms direction; no rounding or threshold relaxation",
     "No shared numeric source capacity allocation or primary reserve implemented yet; preexisting independent quotas remain",

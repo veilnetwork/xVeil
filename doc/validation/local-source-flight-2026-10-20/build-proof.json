@@ -1,6 +1,6 @@
 {
   "sdk": {
-    "path": "/Users/vart/.cache/codex/xveil-flight-drain-20261020/sdk-fixed/libveilclient_ffi.dylib",
+    "path": "/Users/<user>/.cache/codex/xveil-flight-drain-20261020/sdk-fixed/libveilclient_ffi.dylib",
     "sha256": "6b23c5dd905a8ec67c2a849a68d2027a56f4f1baa74a9328ceace62cad0cf5f8",
     "exports": 202,
     "exports_unchanged": true,
@@ -12,7 +12,7 @@
     "owned_source_sha256": "628f714dc0dc76017e547c7fb4cc8dd813669b14c2b05c3e44a2c3c31f28a347"
   },
   "media": {
-    "path": "/Users/vart/.cache/codex/xveil-frame-attribution-20261020/media-hooks/libveil_media.dylib",
+    "path": "/Users/<user>/.cache/codex/xveil-frame-attribution-20261020/media-hooks/libveil_media.dylib",
     "sha256": "8840ef4fec65c745c2b67a2328513162b7657bfaeef84c70535b673878a7e1d6",
     "exports": 135,
     "same_exports_as_previous": true

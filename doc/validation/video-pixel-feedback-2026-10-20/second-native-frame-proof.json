@@ -1,5 +1,5 @@
 {
-  "path": "/Users/vart/.cache/codex/xveil-host-pixel-grant-20261020/native-frame-analysis.json",
+  "path": "/Users/<user>/.cache/codex/xveil-host-pixel-grant-20261020/native-frame-analysis.json",
   "sha256": "f274325cb6797bb7e130093d7e95113ae3572e31f235df1f2aa61043d98f8112",
   "sdk_admission_audited": false,
   "scope": "Same-host endpoint metadata; no live speech or display quality claim. Unknown SDK witnesses are not proof of drops. Final three seconds are censored.",

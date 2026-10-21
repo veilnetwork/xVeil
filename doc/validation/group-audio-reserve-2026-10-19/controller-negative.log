@@ -1,4 +1,4 @@
-00:00 +0: loading /Users/vart/.cache/codex/xveil-group-audio-reserve-20261019/old-controller-regression_test.dart
+00:00 +0: loading /Users/<user>/.cache/codex/xveil-group-audio-reserve-20261019/old-controller-regression_test.dart
 00:00 +0: degraded group audio retains the producer lease after buffers stabilize
 00:00 +0 -1: degraded group audio retains the producer lease after buffers stabilize [E]
   Expected: true
@@ -19,4 +19,4 @@
 00:00 +0 -1: Some tests failed.
 
 Failing tests:
-  /Users/vart/.cache/codex/xveil-group-audio-reserve-20261019/old-controller-regression_test.dart: degraded group audio retains the producer lease after buffers stabilize
+  /Users/<user>/.cache/codex/xveil-group-audio-reserve-20261019/old-controller-regression_test.dart: degraded group audio retains the producer lease after buffers stabilize

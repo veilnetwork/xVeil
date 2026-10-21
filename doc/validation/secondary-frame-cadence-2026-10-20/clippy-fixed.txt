@@ -65,7 +65,7 @@
     Checking getrandom v0.3.4
     Checking toml_parser v1.1.2+spec-1.1.0
     Checking rand_core v0.6.4
-    Checking veil-util v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-util)
+    Checking veil-util v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-util)
     Checking hybrid-array v0.4.12
     Checking parking_lot v0.12.5
     Checking tracing-core v0.1.36
@@ -93,7 +93,7 @@
     Checking poly1305 v0.8.0
     Checking aws-lc-sys v0.45.0
     Checking icu_collections v2.2.0
-    Checking veil-bufpool v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-bufpool)
+    Checking veil-bufpool v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-bufpool)
     Checking icu_normalizer_data v2.2.0
     Checking icu_properties_data v2.2.0
     Checking chacha20 v0.9.1
@@ -122,7 +122,7 @@
     Checking pqcrypto-falcon v0.4.1
     Checking form_urlencoded v1.2.2
     Checking chacha20 v0.10.2
-    Checking veil-types v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-types)
+    Checking veil-types v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-types)
     Checking icu_provider v2.2.0
     Checking ipnet v2.12.0
     Checking ed25519-dalek v2.2.0
@@ -148,7 +148,7 @@
     Checking time-core v0.1.8
     Checking deranged v0.5.8
     Checking futures-executor v0.3.32
-    Checking veil-error v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-error)
+    Checking veil-error v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-error)
     Checking num-conv v0.2.1
     Checking thiserror v1.0.69
     Checking system-configuration-sys v0.6.0
@@ -160,7 +160,7 @@
     Checking http-body-util v0.1.3
     Checking sha1 v0.10.6
     Checking pem v3.0.6
-    Checking veil-proto v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-proto)
+    Checking veil-proto v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-proto)
     Checking rand_pcg v0.10.2
     Checking futures v0.3.32
     Checking byteorder v1.5.0
@@ -171,7 +171,7 @@
     Checking rustc-hash v2.1.2
     Checking foreign-types v0.5.0
     Checking btls-sys v0.5.6
-    Checking quinn-udp v0.5.14 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/third_party/quinn-udp)
+    Checking quinn-udp v0.5.14 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/third_party/quinn-udp)
     Checking uuid v1.23.1
     Checking rustls-webpki v0.103.15
     Checking base64ct v1.8.3
@@ -192,7 +192,7 @@
     Checking toml_write v0.1.2
     Checking der v0.7.10
     Checking idna_adapter v1.2.2
-    Checking veil-adaptive v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-adaptive)
+    Checking veil-adaptive v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-adaptive)
     Checking bitcoin_hashes v0.14.1
     Checking rustix v1.1.4
     Checking moka v0.12.15
@@ -220,8 +220,8 @@
     Checking rand v0.9.4
     Checking rand v0.8.6
     Checking anstyle-query v1.1.5
-    Checking veil-crypto v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-crypto)
-    Checking veil-ratchet v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-ratchet)
+    Checking veil-crypto v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-crypto)
+    Checking veil-ratchet v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-ratchet)
     Checking is_terminal_polyfill v1.70.2
     Checking num-bigint v0.4.6
     Checking sec1 v0.7.3
@@ -232,7 +232,7 @@
     Checking aho-corasick v1.1.4
     Checking ryu v1.0.23
     Checking hickory-proto v0.26.1
-    Checking veil-udp-obfs v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-udp-obfs)
+    Checking veil-udp-obfs v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-udp-obfs)
     Checking ciborium-io v0.2.2
     Checking tungstenite v0.24.0
     Checking regex-syntax v0.8.10
@@ -245,41 +245,41 @@
     Checking redb v2.6.3
     Checking yasna v0.5.2
     Checking ciborium v0.2.2
-    Checking veil-bloom v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-bloom)
+    Checking veil-bloom v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-bloom)
     Checking rtoolbox v0.0.5
     Checking clap_builder v4.6.0
-    Checking veil-anonymity v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-anonymity)
+    Checking veil-anonymity v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-anonymity)
     Checking ecdsa v0.16.9
     Checking fastrand v2.4.1
     Checking qrcode v0.14.1
     Checking rpassword v7.5.2
-    Checking veil-memory v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-memory)
+    Checking veil-memory v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-memory)
     Checking tempfile v3.27.0
     Checking k256 v0.13.4
     Checking ahash v0.8.12
     Checking iana-time-zone v0.1.65
     Checking toml_edit v0.23.10+spec-1.0.0
-    Checking veil-abuse v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-abuse)
-    Checking veil-e2e v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-e2e)
+    Checking veil-abuse v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-abuse)
+    Checking veil-e2e v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-e2e)
     Checking rcgen v0.13.2
-    Checking veil-pending-ack v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-pending-ack)
+    Checking veil-pending-ack v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-pending-ack)
     Checking simple_asn1 v0.6.4
-    Checking veil-invite v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-invite)
+    Checking veil-invite v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-invite)
     Checking cidr v0.3.2
     Checking tokio-util v0.7.18
     Checking tokio-tungstenite v0.24.0
-    Checking veil-obfs4 v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-obfs4)
+    Checking veil-obfs4 v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-obfs4)
     Checking tokio-socks v0.5.2
-    Checking veil-dht v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-dht)
-    Checking veil-mesh v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-mesh)
-    Checking veil-local-transport v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-local-transport)
-    Checking veil-dispatcher-state v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-dispatcher-state)
-    Checking veil-proxy v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-proxy)
-    Checking veil-pex v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-pex)
+    Checking veil-dht v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-dht)
+    Checking veil-mesh v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-mesh)
+    Checking veil-local-transport v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-local-transport)
+    Checking veil-dispatcher-state v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-dispatcher-state)
+    Checking veil-proxy v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-proxy)
+    Checking veil-pex v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-pex)
     Checking tokio-btls v0.5.6
     Checking tower v0.5.3
     Checking jsonwebtoken v9.3.1
-    Checking veil-mainline v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-mainline)
+    Checking veil-mainline v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-mainline)
     Checking md-5 v0.10.6
     Checking etherparse v0.20.3
     Checking libloading v0.9.0
@@ -293,22 +293,22 @@
     Checking tun v0.8.13
     Checking hashlink v0.12.1
     Checking daemonize v0.5.0
-    Checking veil-routing v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-routing)
+    Checking veil-routing v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-routing)
     Checking regex-automata v0.4.14
     Checking tower-http v0.6.10
     Checking shlex v2.0.1
     Checking base64easy v0.1.7
     Checking unicase v2.9.0
     Checking dotenvy v0.15.7
-    Checking veil-onion-stream v0.1.0 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-onion-stream)
+    Checking veil-onion-stream v0.1.0 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-onion-stream)
     Checking clap v4.6.1
-    Checking veil-discovery v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-discovery)
-    Checking veil-anycast v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-anycast)
-    Checking veil-identity v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-identity)
-    Checking veil-app v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-app)
-    Checking veil-mailbox v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-mailbox)
+    Checking veil-discovery v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-discovery)
+    Checking veil-anycast v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-anycast)
+    Checking veil-identity v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-identity)
+    Checking veil-app v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-app)
+    Checking veil-mailbox v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-mailbox)
     Checking tokio-rustls v0.26.4
-    Checking quinn-proto v0.11.18 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/third_party/quinn-proto)
+    Checking quinn-proto v0.11.18 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/third_party/quinn-proto)
     Checking ipstack v1.0.1
     Checking regex v1.12.3
     Checking env_filter v1.0.1
@@ -316,29 +316,29 @@
     Checking hyper v1.9.0
     Checking hickory-net v0.26.1
     Checking env_logger v0.11.10
-    Checking tun2proxy v0.8.2 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/third_party/tun2proxy)
+    Checking tun2proxy v0.8.2 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/third_party/tun2proxy)
     Checking hyper-util v0.1.20
     Checking hickory-resolver v0.26.1
-    Checking quinn v0.11.9 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/third_party/quinn)
-    Checking veil-nat v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-nat)
-    Checking veil-webtunnel v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-webtunnel)
+    Checking quinn v0.11.9 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/third_party/quinn)
+    Checking veil-nat v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-nat)
+    Checking veil-webtunnel v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-webtunnel)
     Checking hyper-rustls v0.27.9
     Checking reqwest v0.12.28
-    Checking veil-transport v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-transport)
-    Checking veil-push v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-push)
-    Checking veil-bootstrap v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-bootstrap)
-    Checking veil-ipc v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-ipc)
-    Checking veil-nostr v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-nostr)
-    Checking veil-update v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-update)
-    Checking veil-observability v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-observability)
-    Checking veil-cfg v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-cfg)
-    Checking veil-reputation v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-reputation)
-    Checking veil-gateway v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-gateway)
-    Checking veil-congestion v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-congestion)
-    Checking veil-session v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-session)
-    Checking veil-dispatcher v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-dispatcher)
-    Checking veil-node-runtime v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-node-runtime)
-    Checking veilcore v0.8.3 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/veilcore)
-    Checking veilclient v0.8.3 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/veilclient)
-    Checking veilclient-ffi v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veilclient-ffi)
+    Checking veil-transport v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-transport)
+    Checking veil-push v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-push)
+    Checking veil-bootstrap v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-bootstrap)
+    Checking veil-ipc v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-ipc)
+    Checking veil-nostr v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-nostr)
+    Checking veil-update v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-update)
+    Checking veil-observability v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-observability)
+    Checking veil-cfg v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-cfg)
+    Checking veil-reputation v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-reputation)
+    Checking veil-gateway v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-gateway)
+    Checking veil-congestion v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-congestion)
+    Checking veil-session v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-session)
+    Checking veil-dispatcher v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-dispatcher)
+    Checking veil-node-runtime v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veil-node-runtime)
+    Checking veilcore v0.8.3 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/veilcore)
+    Checking veilclient v0.8.3 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/veilclient)
+    Checking veilclient-ffi v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veilclient-ffi)
     Finished `release` profile [optimized] target(s) in 16.79s

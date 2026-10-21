@@ -1,5 +1,5 @@
 {
-  "path": "/Users/vart/.cache/codex/xveil-audio-pixel-feedback-20261020/native-frame-analysis.json",
+  "path": "/Users/<user>/.cache/codex/xveil-audio-pixel-feedback-20261020/native-frame-analysis.json",
   "sha256": "e33da4186487e1489c1a941808f6eaf1c4333ee014192541ddbed01d2d33c221",
   "sdk_admission_audited": false,
   "scope": "Same-host endpoint metadata; no live speech or display quality claim. Unknown SDK witnesses are not proof of drops. Final three seconds are censored.",

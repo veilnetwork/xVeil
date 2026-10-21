@@ -11,12 +11,12 @@
   "source_proof": {
     "root_base": "b8937c05",
     "sdk_commit": "492da08f",
-    "sdk_path": "/Users/vart/.cache/codex/xveil-auxiliary-app-streams-20261019/sdk-final/libveilclient_ffi.dylib",
+    "sdk_path": "/Users/<user>/.cache/codex/xveil-auxiliary-app-streams-20261019/sdk-final/libveilclient_ffi.dylib",
     "sdk_sha256": "174ced336efae2359b2ceb758f192de4b68670d86e59ac761992b9915356cd80",
-    "sdk_build_proof": "/Users/vart/.cache/codex/xveil-auxiliary-app-streams-20261019/source-proof.json",
-    "media_path": "/Users/vart/.cache/codex/xveil-concealment-feedback-20261019/media-hooks/libveil_media.dylib",
+    "sdk_build_proof": "/Users/<user>/.cache/codex/xveil-auxiliary-app-streams-20261019/source-proof.json",
+    "media_path": "/Users/<user>/.cache/codex/xveil-concealment-feedback-20261019/media-hooks/libveil_media.dylib",
     "media_sha256": "fd67c0fb60ef3390fabf449fcd9ecdaa1d321f2d6738e7ece765145d80d93778",
-    "media_source_proof": "/Users/vart/.cache/codex/xveil-concealment-feedback-20261019/source-proof.json",
+    "media_source_proof": "/Users/<user>/.cache/codex/xveil-concealment-feedback-20261019/source-proof.json",
     "root_sources": {
       "lib/state/group_call_audio_adapter.dart": "6ae1ecfa3bbccb25282090720c3aac225a05990324c5ef983e952db3bb33804d",
       "lib/state/group_call_source_priority.dart": "0171d17c0b57384f2e97f61e539a185bd2f9112241964aa44554916f0dae5bcc",
@@ -96,7 +96,7 @@
   ],
   "deployment": "No application install, relay change, release or push in this media-policy cycle. Separate read-only fleet confirmation verified six already-enabled generic QUIC listeners.",
   "foreign_wip_preserved": true,
-  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-group-transient-yield-20261019",
+  "private_artifacts_root": "/Users/<user>/.cache/codex/xveil-group-transient-yield-20261019",
   "evidence_directory": "doc/validation/group-transient-yield-2026-10-19",
   "verifier_sources": {
     "scripts/decoded_video_progress.py": "95e877f2dd315f1e76abb15beffde60fcd89cc5ff7511e402a6be19c9320fd3c",

@@ -1,9 +1,9 @@
 {
   "source": "SDK 19004dc5, original aborted physical PCM repeat",
   "raw": {
-    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-repeat/phone-logcat.log": "10bd5bc2721309155bd8341a0666328b185b80e5721960c01d4f5bd82ede2647",
-    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-repeat/phone-devlog.json": "fb4d5304b794df748f6d38f32fd7ad1a30f2f9ece9fc911a684fe73c24894a58",
-    "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-repeat/mac-runtime.log": "750eef049c401d323465e37f0107a5e3dae9493899f8d16f9073c5c01893a7b4"
+    "/Users/<user>/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-repeat/phone-logcat.log": "10bd5bc2721309155bd8341a0666328b185b80e5721960c01d4f5bd82ede2647",
+    "/Users/<user>/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-repeat/phone-devlog.json": "fb4d5304b794df748f6d38f32fd7ad1a30f2f9ece9fc911a684fe73c24894a58",
+    "/Users/<user>/.cache/codex/xveil-physical-source-hold-20261020/physical-call-pcm-repeat/mac-runtime.log": "750eef049c401d323465e37f0107a5e3dae9493899f8d16f9073c5c01893a7b4"
   },
   "last_bans": [
     "10-20 14:20:44.933  5552  5635 I veilnode: veil_observability: [1792495244.933] WARN  abuse.auto_ban     peer_id=0b29ccb3 violation threshold exceeded \u2014 banned for 20s",

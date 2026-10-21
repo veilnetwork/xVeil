@@ -1,24 +1,24 @@
     Finished `test` profile [optimized + debuginfo] target(s) in 0.34s
-     Running unittests src/lib.rs (/Users/vart/.cache/codex/veil-auxiliary-neutral-target-20261019/debug/deps/veil_node_runtime-a59811f6de99046a)
+     Running unittests src/lib.rs (/Users/<user>/.cache/codex/veil-auxiliary-neutral-target-20261019/debug/deps/veil_node_runtime-a59811f6de99046a)
 
 running 0 tests
 
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 674 filtered out; finished in 0.00s
 
-     Running unittests src/lib.rs (/Users/vart/.cache/codex/veil-auxiliary-neutral-target-20261019/debug/deps/veil_proto-dc29803220c7fcc1)
+     Running unittests src/lib.rs (/Users/<user>/.cache/codex/veil-auxiliary-neutral-target-20261019/debug/deps/veil_proto-dc29803220c7fcc1)
 
 running 0 tests
 
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 837 filtered out; finished in 0.00s
 
-     Running unittests src/lib.rs (/Users/vart/.cache/codex/veil-auxiliary-neutral-target-20261019/debug/deps/veil_session-daefd1f432874cd0)
+     Running unittests src/lib.rs (/Users/<user>/.cache/codex/veil-auxiliary-neutral-target-20261019/debug/deps/veil_session-daefd1f432874cd0)
 
 running 1 test
 test runner::quic_backlog_tests::auxiliary_records_quic_tests::owned_source_warm_is_accounted_before_remote_tls_accept ... ok
 
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 631 filtered out; finished in 0.02s
 
-     Running unittests src/lib.rs (/Users/vart/.cache/codex/veil-auxiliary-neutral-target-20261019/debug/deps/veil_transport-f80ae02b908460f5)
+     Running unittests src/lib.rs (/Users/<user>/.cache/codex/veil-auxiliary-neutral-target-20261019/debug/deps/veil_transport-f80ae02b908460f5)
 
 running 0 tests
 

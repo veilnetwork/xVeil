@@ -75,7 +75,7 @@
   ],
   "limits": "One synthetic loopback capture; no physical speech, microphone loudness, screen presentation, subsecond freeze timing or cellular quality proof. Some unit checks overlapped the first minute of the stand; no claim of a controlled performance comparison.",
   "evidence_directory": "doc/validation/buffer-spike-tolerance-2026-10-20",
-  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-buffer-spike-tolerance-20261020",
+  "private_artifacts_root": "/Users/<user>/.cache/codex/xveil-buffer-spike-tolerance-20261020",
   "pushed": false,
   "released": false,
   "gui_or_phone_opened": false

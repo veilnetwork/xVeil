@@ -1,4 +1,4 @@
-   Compiling veilclient-ffi v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veilclient-ffi)
+   Compiling veilclient-ffi v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veilclient-ffi)
     Finished `release` profile [optimized] target(s) in 2m 40s
      Running unittests src/lib.rs (/Volumes/cfb/target/release/deps/veilclient_ffi-0859ec928623771f)
 

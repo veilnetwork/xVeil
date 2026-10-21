@@ -16,8 +16,8 @@
     ],
     "cargo_incremental": false,
     "macos_deployment_target": "12.0",
-    "build_cwd": "/Users/vart/Projects/veilnetwork/xVeil",
-    "native_media": "/Users/vart/.cache/codex/xveil-route-epoch-20261018/media/libveil_media.dylib",
+    "build_cwd": "/Users/<user>/Projects/veilnetwork/xVeil",
+    "native_media": "/Users/<user>/.cache/codex/xveil-route-epoch-20261018/media/libveil_media.dylib",
     "native_media_sha256": "f4f5f7a3ca029f10fd2943ca308ece3f23b78359e52197f76a9b0df089d9e90f",
     "scope": "Explicit generic opaque Forward receive/dispatch-return/transport-selection tracing; local endpoint opaque digest joins only after authenticated receipt. No RTP or role parsing at relays; unchanged admission/scheduling/wire/codecs/gates."
   },
@@ -29,7 +29,7 @@
     "release_sdk": "clean isolated worktree excluding four unrelated security edits: pass"
   },
   "capture": {
-    "private_directory": "/Users/vart/.cache/codex/xveil-opaque-hop-20261018/group-full-360",
+    "private_directory": "/Users/<user>/.cache/codex/xveil-opaque-hop-20261018/group-full-360",
     "original_ok": false,
     "original_contention_qualification": false,
     "duration_seconds": 360,
@@ -752,11 +752,11 @@
     "generic_forward_log_sha256": "4033deab04f75c84920910b35d79b5f12957b4ae7986e5e708054d227a29b73e"
   },
   "repro_helpers": {
-    "/Users/vart/.cache/codex/xveil-opaque-hop-20261018/launch-full.py": "966eff5f35b749f24fca38f45b2c323910c61a42209da86a828d458c25acd510",
-    "/Users/vart/.cache/codex/xveil-opaque-hop-20261018/worst-arrival-path.py": "d5e029ab7505c83446b72baf56ef979c9503a6e2b283b0197f5e2a6ff9b10a96",
-    "/Users/vart/.cache/codex/xveil-opaque-hop-20261018/scan-forward-hops.py": "9426d845e759153ef5d65b1e03b902a021b2eefe0803f87cb37c5a4ba767e44c",
-    "/Users/vart/.cache/codex/xveil-opaque-hop-20261018/scan-peer-udp.py": "2b77c2f33a595c81a92858da4b8ef4fe3ab62ae7952f8f3d88e997b2cd93ce4d",
-    "/Users/vart/.cache/codex/xveil-rtp-cell-20261018/all-packet-arrivals.py": "d007599cf21486965392c89756831b8babdba6712e8ac3c7f4c6104902908113"
+    "/Users/<user>/.cache/codex/xveil-opaque-hop-20261018/launch-full.py": "966eff5f35b749f24fca38f45b2c323910c61a42209da86a828d458c25acd510",
+    "/Users/<user>/.cache/codex/xveil-opaque-hop-20261018/worst-arrival-path.py": "d5e029ab7505c83446b72baf56ef979c9503a6e2b283b0197f5e2a6ff9b10a96",
+    "/Users/<user>/.cache/codex/xveil-opaque-hop-20261018/scan-forward-hops.py": "9426d845e759153ef5d65b1e03b902a021b2eefe0803f87cb37c5a4ba767e44c",
+    "/Users/<user>/.cache/codex/xveil-opaque-hop-20261018/scan-peer-udp.py": "2b77c2f33a595c81a92858da4b8ef4fe3ab62ae7952f8f3d88e997b2cd93ce4d",
+    "/Users/<user>/.cache/codex/xveil-rtp-cell-20261018/all-packet-arrivals.py": "d007599cf21486965392c89756831b8babdba6712e8ac3c7f4c6104902908113"
   },
   "remaining": "The 210-ms original gate failure remains valid alongside earlier 230-ms and 305-ms startup observations. Current evidence isolates dominant transport-hop delays, plus packetization/decoding/playout. Improve own-source aggregate burst/overhead behavior while preserving neutral relay service; do not attribute a particular audio packet to an unjoined generic UDP sample or add overlapping lifetime maxima. Human speech/headset listening remains deferred."
 }

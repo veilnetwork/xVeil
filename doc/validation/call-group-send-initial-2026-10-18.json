@@ -110,6 +110,6 @@
     "remaining": []
   },
   "diagnostic_failure": "Group recorder mistakenly used the one-to-one audio SSRC: all three group-send headers have zero records and do not match the encoded stream. Analyzer rejects Missing native trace. Corrected to group_audio_ssrc_of in 7f664470; no old capture records were rewritten.",
-  "private_capture_directory": "/Users/vart/.cache/codex/xveil-group-native-send-20261018/group-native-send-full-360",
+  "private_capture_directory": "/Users/<user>/.cache/codex/xveil-group-native-send-20261018/group-native-send-full-360",
   "summary_sha256": "1db1b0ef5844323fcb03f477f22c16da40a249b06d0aedcac52fd6d8e405ee5e"
 }

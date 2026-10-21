@@ -4,7 +4,7 @@
     "sdk_commit": "ff4d6995",
     "base_sdk": "323e8c39",
     "patch_sha256": "155ea76b60a18ece73b3379a0f5303ad686de64a9b01ae6e16ea96cd7c34ca90",
-    "clean_snapshot": "/Users/vart/.cache/codex/xveil-quic-route-confirmation-20261018/sdk-src",
+    "clean_snapshot": "/Users/<user>/.cache/codex/xveil-quic-route-confirmation-20261018/sdk-src",
     "excluded_foreign_wip": true,
     "test_low_difficulty_used_only_for_tests": true,
     "mac_default_features": true,

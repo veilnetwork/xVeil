@@ -1,4 +1,4 @@
-   Compiling veil-session v0.11.42 (/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/crates/veil-session)
+   Compiling veil-session v0.11.42 (/Users/<user>/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/crates/veil-session)
 warning: unused variable: `reserved`
   --> crates/veil-session/src/local_source_flight.rs:58:61
    |
@@ -15,7 +15,7 @@ warning: unused variable: `reserve`
 
 warning: `veil-session` (lib test) generated 2 warnings (run `cargo fix --lib -p veil-session --tests` to apply 2 suggestions)
     Finished `test` profile [optimized + debuginfo] target(s) in 14.43s
-     Running unittests src/lib.rs (/Users/vart/.cache/codex/veil-qos-target-20261016/debug/deps/veil_session-b7c7f4f3dd984dbb)
+     Running unittests src/lib.rs (/Users/<user>/.cache/codex/veil-qos-target-20261016/debug/deps/veil_session-b7c7f4f3dd984dbb)
 
 running 1 test
 test local_source_flight::tests::changing_primary_reserve_cannot_reprice_old_credit ... FAILED

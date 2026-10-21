@@ -28,8 +28,8 @@
   "build": {
     "sdk_commit": "4d13a6a3887b65899fa55c5281425c250880a373",
     "clean_sdk_worktree": true,
-    "source_worktree": "/Users/vart/.cache/codex/xveil-console-batch-20261018/sdk-src",
-    "sdk_path": "/Users/vart/.cache/codex/xveil-console-batch-20261018/sdk/libveilclient_ffi.dylib",
+    "source_worktree": "/Users/<user>/.cache/codex/xveil-console-batch-20261018/sdk-src",
+    "sdk_path": "/Users/<user>/.cache/codex/xveil-console-batch-20261018/sdk/libveilclient_ffi.dylib",
     "sdk_sha256": "0e5e76edf12a0d1fcccfc91ecf6fd16e85812fca30ce881e008da7bfd7f469a9",
     "features": [
       "default tls-boring",
@@ -50,7 +50,7 @@
     "added": []
   },
   "full_repeat": {
-    "private_directory": "/Users/vart/.cache/codex/xveil-console-batch-20261018/group-full-360",
+    "private_directory": "/Users/<user>/.cache/codex/xveil-console-batch-20261018/group-full-360",
     "ok": true,
     "contention_qualification": true,
     "duration_seconds": 360,
@@ -434,7 +434,7 @@
   },
   "preceding_capture": {
     "status": "UNQUALIFIED",
-    "private_directory": "/Users/vart/.cache/codex/xveil-frame-pacing-20261018/group-frame-sizing-360",
+    "private_directory": "/Users/<user>/.cache/codex/xveil-frame-pacing-20261018/group-frame-sizing-360",
     "parent_console_dropped_records": 21007,
     "max_pcm_marker_latency_ms": 190.05454165744595,
     "interpretation": "Keep the preceding failure. The new run uses the original unchanged workload and gates; timings are sequential measurements, not a randomized universal latency bound."

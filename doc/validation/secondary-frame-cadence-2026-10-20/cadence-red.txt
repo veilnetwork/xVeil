@@ -1,5 +1,5 @@
-   Compiling tun2proxy v0.8.2 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/third_party/tun2proxy)
-   Compiling veilclient-ffi v0.11.42 (/Users/vart/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veilclient-ffi)
+   Compiling tun2proxy v0.8.2 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/third_party/tun2proxy)
+   Compiling veilclient-ffi v0.11.42 (/Users/<user>/.cache/codex/xveil-padding-path-20261020/sdk-src/crates/veilclient-ffi)
     Finished `release` profile [optimized] target(s) in 2m 56s
      Running unittests src/lib.rs (/Volumes/cfb/target/release/deps/veilclient_ffi-0859ec928623771f)
 

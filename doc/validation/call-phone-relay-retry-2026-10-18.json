@@ -368,5 +368,5 @@
     "Original full 360-second congestion workload remains FAIL on its identical-binary repeat at 210.209458 ms; this physical call does not replace that gate.",
     "No new policy, relay priority, release, push or server deployment in this work cycle."
   ],
-  "private_capture_directory": "/Users/vart/.cache/codex/xveil-phone-return-20261018/physical-call-profile-retry"
+  "private_capture_directory": "/Users/<user>/.cache/codex/xveil-phone-return-20261018/physical-call-profile-retry"
 }

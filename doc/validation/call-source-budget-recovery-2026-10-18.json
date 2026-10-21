@@ -6,12 +6,12 @@
   "sdk_diagnostics_commit": "c89c77316f7b5fb21ba75a40a4bc0247e16a7274",
   "scope": "Coordinate video growth with the acknowledged endpoint source hold; no changes to audio rails, sparse probe, codecs, network budgets, wire roles or neutral relay treatment.",
   "negative_capture": {
-    "private_directory": "/Users/vart/.cache/codex/xveil-direct-source-20261018/physical-build/physical-direct-source",
+    "private_directory": "/Users/<user>/.cache/codex/xveil-direct-source-20261018/physical-build/physical-direct-source",
     "sdk_build": {
       "sdk_commit": "c89c77316f7b5fb21ba75a40a4bc0247e16a7274",
       "clean_sdk_worktree": true,
-      "source_worktree": "/Users/vart/.cache/codex/xveil-direct-source-20261018/sdk-src",
-      "sdk_path": "/Users/vart/.cache/codex/xveil-direct-source-20261018/sdk/libveilclient_ffi.dylib",
+      "source_worktree": "/Users/<user>/.cache/codex/xveil-direct-source-20261018/sdk-src",
+      "sdk_path": "/Users/<user>/.cache/codex/xveil-direct-source-20261018/sdk/libveilclient_ffi.dylib",
       "sdk_sha256": "70e267e3229c2efdb04bf2db7a7221e5bea4d27e64bbe1b0d10004ad459c9495",
       "features": [
         "default tls-boring",
@@ -26,9 +26,9 @@
       "scope": "Explicit direct-source cell tracing and a separate child-unavailable witness. Scheduler/budgets/wire/roles unchanged."
     },
     "physical_build": {
-      "build": "/Users/vart/.cache/codex/xveil-direct-source-20261018/build.json",
-      "base": "/Users/vart/.cache/codex/xveil-video-loss-20261018/physical-build/build.json",
-      "mac_app": "/Users/vart/.cache/codex/xveil-direct-source-20261018/physical-build/mac-stand/xveil.app",
+      "build": "/Users/<user>/.cache/codex/xveil-direct-source-20261018/build.json",
+      "base": "/Users/<user>/.cache/codex/xveil-video-loss-20261018/physical-build/build.json",
+      "mac_app": "/Users/<user>/.cache/codex/xveil-direct-source-20261018/physical-build/mac-stand/xveil.app",
       "sdk_signed_sha256": "b4326a2116a98ed0b123b28f5068ff484acf7295e87ffc069dd6a954fcdfde19",
       "sdk_previous_sha256": "3cb420adbb5bdde4239dc08f16e4aa46e71a937620f0f053e0d84eb518d239c2",
       "native_media_sha256": "8f794c464ec20e59cf317e091b4b011dee384352466a448703ca63af6db37765",
@@ -110,12 +110,12 @@
     "transport_fixtures": "Ordinary group ladder tests model unavailable optional source IPC. Explicit accepted/rejected ACK controller tests verify both the new hold and compatibility behavior.",
     "log_sha256": {
       "/private/tmp/xveil-direct-source-tests-20261018.log": "f97618052de3bc26451a06721fd210fe890d03c654b4e44b9b488b81e0195f2b",
-      "/Users/vart/.cache/codex/xveil-direct-source-20261018/clippy.log": "0354bb23c5f30ce62de110734bde3a2a8d957e8fbf91bc587b11f767c9c90162",
-      "/Users/vart/.cache/codex/xveil-direct-source-20261018/release.log": "91c2579e048f43ef069c93291b3be9148920f6b12e5220d45cac2ad0ac0d598c",
+      "/Users/<user>/.cache/codex/xveil-direct-source-20261018/clippy.log": "0354bb23c5f30ce62de110734bde3a2a8d957e8fbf91bc587b11f767c9c90162",
+      "/Users/<user>/.cache/codex/xveil-direct-source-20261018/release.log": "91c2579e048f43ef069c93291b3be9148920f6b12e5220d45cac2ad0ac0d598c",
       "/private/tmp/xveil-source-budget-red-20261018.log": "0f439ff253f772b6fce3028766da90a5ee2ad1ad19b0e15d7ce15c6ada6d364f",
       "/private/tmp/xveil-source-budget-green-20261018.log": "5462ec70fa35e7373d02990bb967c244acae4d74c183fcac58188e5e1ceef6e0",
       "/private/tmp/xveil-source-budget-analyze-20261018.log": "bdcbe40048efa62bc76c0b89b4aafe92f7b9cba5e5e7298fb785031e9bb4f1c7",
-      "/Users/vart/.cache/codex/xveil-direct-source-20261018/group-pause-baseline.log": "38a14425694e607689d6005c9959474e560c7dc76bfd5aaaa9785bd7919e4e9d"
+      "/Users/<user>/.cache/codex/xveil-direct-source-20261018/group-pause-baseline.log": "38a14425694e607689d6005c9959474e560c7dc76bfd5aaaa9785bd7919e4e9d"
     }
   },
   "fix_semantics": [
@@ -126,7 +126,7 @@
   ],
   "positive_capture": {
     "status": "Completed. Above-floor growth under the acknowledged source hold is eliminated in this capture; relay video remains unresolved.",
-    "private_directory": "/Users/vart/.cache/codex/xveil-direct-source-20261018/source-budget-apps/physical-source-budget",
+    "private_directory": "/Users/<user>/.cache/codex/xveil-direct-source-20261018/source-budget-apps/physical-source-budget",
     "build": {
       "root_commit": "b262249d6e6300dfd0e595baffa74b1728ab69d4",
       "sdk_commit": "c89c77316f7b5fb21ba75a40a4bc0247e16a7274",
@@ -651,7 +651,7 @@
       },
       "build_number": 10614,
       "scope": "Fresh Profile AOT with explicit QA hooks; existing unrelated group-provider WIP retained as recorded, Rust SDK built separately from clean committed tree. Not a release.",
-      "mac_app": "/Users/vart/.cache/codex/xveil-direct-source-20261018/source-budget-apps/mac-stand/xveil.app",
+      "mac_app": "/Users/<user>/.cache/codex/xveil-direct-source-20261018/source-budget-apps/mac-stand/xveil.app",
       "mac_libraries_sha256": {
         "libveilclient_ffi.dylib": "b4326a2116a98ed0b123b28f5068ff484acf7295e87ffc069dd6a954fcdfde19",
         "libveil_media.dylib": "8f794c464ec20e59cf317e091b4b011dee384352466a448703ca63af6db37765",
@@ -664,7 +664,7 @@
         "lib/arm64-v8a/libhidden_volume_ffi.so": "ab4a0cf8b75f2be9e6d525c40f48c613aa13d881307e13464ef0e1a3af840156",
         "lib/arm64-v8a/libapp.so": "84aa9255b33466afe9623feb2451de527cd8501b8d73fbe0b54e03486d133b42"
       },
-      "apk": "/Users/vart/.cache/codex/xveil-direct-source-20261018/source-budget-apps/phone-source-budget.apk",
+      "apk": "/Users/<user>/.cache/codex/xveil-direct-source-20261018/source-budget-apps/phone-source-budget.apk",
       "apk_sha256": "b746c5d785f4033f4f2ce13ce47886ea855cdfb33ee4bb2f9ffdf382522c9b83",
       "same_android_signer": true,
       "flutter_build_number": 10614,

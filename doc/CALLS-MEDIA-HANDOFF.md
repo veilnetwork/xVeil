@@ -255,7 +255,7 @@ Foreign WIP remains unchanged. No app install, relay mutation, push or release.
 No gate is relaxed/rounded, and one capture per scenario is not causal SDK
 performance evidence. Evidence: `call-separate-network-control-2026-10-19.json`,
 `separate-network-control-2026-10-19/`; private root
-`/Users/vart/.cache/codex/xveil-separate-network-control-20261019`.
+`/Users/<user>/.cache/codex/xveil-separate-network-control-20261019`.
 Goal **ACTIVE**. Native long-packet ordering and receive latency, group recovery,
 ordered/canonical interaction separation, full route/fanout accounting and
 physical voice/headset/screen/reconnect/mute qualification all remain required.
@@ -300,7 +300,7 @@ All14 long-lived processes and2 transient process recorders are gone;7 node
 stops returned0 and fixture sockets are absent. Foreign WIP is unchanged.
 No install, phone, relay mutation, release or push. Evidence:
 `call-group-transient-yield-2026-10-19.json`, `group-transient-yield-2026-10-19/`;
-private root `/Users/vart/.cache/codex/xveil-group-transient-yield-20261019`.
+private root `/Users/<user>/.cache/codex/xveil-group-transient-yield-20261019`.
 Goal remains ACTIVE. Next transport work: separate own network control from
 call signaling (both currently source6), preserving generic relay behavior,
 old-peer compatibility and the8-child limit. Keep ordered/canonical fallback,
@@ -365,7 +365,7 @@ All16 recorded process observations exited, all7 node stops returned0 and
 fixture sockets are gone. Foreign WIP is preserved. No installed app, phone,
 relay, public release or push change. Evidence:
 `call-auxiliary-app-streams-2026-10-19.json`, `auxiliary-app-streams-2026-10-19/`;
-private artifacts `/Users/vart/.cache/codex/xveil-auxiliary-app-streams-20261019`.
+private artifacts `/Users/<user>/.cache/codex/xveil-auxiliary-app-streams-20261019`.
 Goal **ACTIVE**. Keep the full interaction-separation, route/fanout accounting,
 original media gates and physical voice/headset/screen/reconnect/mute scope.
 
@@ -412,7 +412,7 @@ process observations exited (14 long-lived/2 transient), all7 node stops
 returned0 and fixture sockets are gone. No installed app, phone, relay, public
 release or push change. Evidence: `call-audio-concealment-2026-10-19.json`,
 `audio-concealment-2026-10-19/`; private artifacts:
-`/Users/vart/.cache/codex/xveil-concealment-feedback-20261019`.
+`/Users/<user>/.cache/codex/xveil-concealment-feedback-20261019`.
 
 Goal **ACTIVE**. Next investigate the remaining real queue/delivery peaks and
 complete streamful App/independent network control, ordered/canonical fallbacks
@@ -478,7 +478,7 @@ returned0 and fixture sockets are gone. Codec test/helper handles are reaped.
 ADB sees Blackview, installed0.13.87/code12616; only read-only queries occurred.
 No installed app, relay, public release or push change. Evidence:
 `call-conversation-playout-2026-10-19.json`, `conversation-playout-2026-10-19/`;
-raw artifacts `/Users/vart/.cache/codex/xveil-conversation-contiguous-20261019`.
+raw artifacts `/Users/<user>/.cache/codex/xveil-conversation-contiguous-20261019`.
 Goal **ACTIVE**; physical speech/headset/screen, streamful App/other outstanding
 interaction separation and the remaining original full-scope gates stay open.
 
@@ -530,7 +530,7 @@ observations across both captures exited (14 long-lived/2 transient); all7 node
 stops returned0 and fixture sockets are gone. No phone, installed app, relay,
 public release or push change. Evidence: `call-sibling-idle-2026-10-19.json`,
 `sibling-idle-2026-10-19/`; raw artifacts:
-`/Users/vart/.cache/codex/xveil-sibling-idle-20261019`.
+`/Users/<user>/.cache/codex/xveil-sibling-idle-20261019`.
 Goal **ACTIVE**. Preserve the full scope and original gates listed below.
 
 ## 2026-10-19: exact route attribution; audio-only also has a delivery peak
@@ -565,7 +565,7 @@ was filled and no gate was loosened. All11 recorded process observations exited,
 workers/policies stopped, four node stops returned0 and no fixture sockets remain.
 
 Evidence: `call-opaque-route-2026-10-19.json`, `opaque-route-2026-10-19/`.
-Private capture: `/Users/vart/.cache/codex/quic-all-confirm-20261019T150613Z`.
+Private capture: `/Users/<user>/.cache/codex/quic-all-confirm-20261019T150613Z`.
 Goal **ACTIVE**. This changes the next investigation: separate actual generic
 transport/warm/maintenance bytes from audio during the audio-only spike before
 blaming video or changing receiver targets. No first-hop ACK capacity inference,
@@ -654,7 +654,7 @@ all node stops return0 and fixture sockets are gone. No phone, installed app,
 relay, public release or push changes occurred. Evidence:
 `call-source-handshake-2026-10-19.json`, `source-handshake-2026-10-19/` and
 `auxiliary-records-2026-10-19/`. Retained raw artifacts:
-`/Users/vart/.cache/codex/xveil-source-handshake-20261019`.
+`/Users/<user>/.cache/codex/xveil-source-handshake-20261019`.
 
 Goal **ACTIVE**. During the failed group peak, multiple generic siblings warm
 concurrently and a proof takes626ms. Before bfbb2311, source flight attachment occurred

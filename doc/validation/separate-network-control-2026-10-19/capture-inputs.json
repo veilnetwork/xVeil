@@ -1,7 +1,7 @@
 {
   "sdk_commit": "19205a986a6833f1ae4b330819b99bef4ef7ddc8",
   "sdk": {
-    "path": "/Users/vart/.cache/codex/xveil-separate-network-control-20261019/sdk/libveilclient_ffi.dylib",
+    "path": "/Users/<user>/.cache/codex/xveil-separate-network-control-20261019/sdk/libveilclient_ffi.dylib",
     "sha256": "2816a30fba6804373521086f9d173b1ddee58a29ac8c860dee0150fc6f40b1ec",
     "exports": 202,
     "exports_unchanged": true,
@@ -10,7 +10,7 @@
     "foreign_wip_excluded": true
   },
   "root_commit": "99713cb4767f747fa52d5052b9b6df7a593cebe2",
-  "media_path": "/Users/vart/.cache/codex/xveil-concealment-feedback-20261019/media-hooks/libveil_media.dylib",
+  "media_path": "/Users/<user>/.cache/codex/xveil-concealment-feedback-20261019/media-hooks/libveil_media.dylib",
   "media_sha256": "fd67c0fb60ef3390fabf449fcd9ecdaa1d321f2d6738e7ece765145d80d93778",
   "root_sources": {
     "lib/state/group_call_audio_adapter.dart": "6ae1ecfa3bbccb25282090720c3aac225a05990324c5ef983e952db3bb33804d",

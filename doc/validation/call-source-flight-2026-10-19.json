@@ -76,8 +76,8 @@
       "deadline_misses": 0
     }
   },
-  "private_artifacts": "/Users/vart/.cache/codex/xveil-source-flight-demand-20261019",
-  "superseded_private_artifacts": "/Users/vart/.cache/codex/xveil-source-flight-20261019",
+  "private_artifacts": "/Users/<user>/.cache/codex/xveil-source-flight-demand-20261019",
+  "superseded_private_artifacts": "/Users/<user>/.cache/codex/xveil-source-flight-20261019",
   "limits": [
     "The full objective is NOT achieved; use the unrounded full-gate verdicts",
     "The reliable child can mix own and transit traffic and is not assigned this source budget",

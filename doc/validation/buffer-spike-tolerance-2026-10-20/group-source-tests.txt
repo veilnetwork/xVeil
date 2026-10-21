@@ -91,7 +91,7 @@ The following plugins do not support Swift Package Manager for macos:
   - veil_media
   - veil_flutter
 This will become an error in a future version of Flutter. Please contact the plugin maintainers to request Swift Package Manager adoption.
-00:00 +0: loading /Users/vart/Projects/veilnetwork/xVeil/test/group_call_source_priority_test.dart
+00:00 +0: loading /Users/<user>/Projects/veilnetwork/xVeil/test/group_call_source_priority_test.dart
 00:00 +0: a cached floor counter cannot justify pausing video
 00:00 +1: counter reset retires old floor evidence
 00:00 +2: completed impairment keeps video running at its sparse floor

@@ -1,6 +1,6 @@
 from pathlib import Path
 import re,json,collections,statistics
-base=Path('/Users/vart/.cache/codex/xveil-playout-budget-20261018/qa-v2/physical-playout-budget-video');out={}
+base=Path('/Users/<user>/.cache/codex/xveil-playout-budget-20261018/qa-v2/physical-playout-budget-video');out={}
 def parse(path,prefix):
  return [dict((k,int(v)) for k,v in re.findall(r'(\w+)=(-?\d+)',s)) for s in path.read_text().splitlines() if s.startswith(prefix)]
 for sender,receiver in [('mac','phone'),('phone','mac')]:

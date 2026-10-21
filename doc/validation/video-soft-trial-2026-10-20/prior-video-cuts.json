@@ -1,5 +1,5 @@
 {
-  "capture": "/Users/vart/.cache/codex/xveil-video-rtt-recovery-20261020/pair-rtp-lag-full/codec-samples.json",
+  "capture": "/Users/<user>/.cache/codex/xveil-video-rtt-recovery-20261020/pair-rtp-lag-full/codec-samples.json",
   "cut_rows": [
     {
       "side": 1,

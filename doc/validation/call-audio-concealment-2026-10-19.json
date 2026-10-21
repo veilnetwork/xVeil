@@ -80,7 +80,7 @@
     "Physical voice/headset and screen quality, reconnect/mute and all original full-scope gates remain unqualified."
   ],
   "evidence": "audio-concealment-2026-10-19/",
-  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-concealment-feedback-20261019",
+  "private_artifacts_root": "/Users/<user>/.cache/codex/xveil-concealment-feedback-20261019",
   "public_release": false,
   "foreign_wip_preserved": true,
   "sdk_commit": "3c91f9b0f7a287ce63f97ba048273959092b276f"

@@ -1,6 +1,6 @@
 {
   "baseline": {
-    "path": "/Users/vart/.cache/codex/xveil-audio-pixel-feedback-20261020/group-final-360",
+    "path": "/Users/<user>/.cache/codex/xveil-audio-pixel-feedback-20261020/group-final-360",
     "duration_seconds": 360,
     "audio_markers": 2112,
     "audio_missing": 0,
@@ -204,7 +204,7 @@
     ]
   },
   "candidate": {
-    "path": "/Users/vart/.cache/codex/xveil-feedback-paced-flight-20261020/group-final-360",
+    "path": "/Users/<user>/.cache/codex/xveil-feedback-paced-flight-20261020/group-final-360",
     "duration_seconds": 360,
     "audio_markers": 2112,
     "audio_missing": 0,
@@ -408,7 +408,7 @@
     ]
   },
   "rejected_data_only_fix": {
-    "path": "/Users/vart/.cache/codex/xveil-flight-reasons-20261020/group-final-360",
+    "path": "/Users/<user>/.cache/codex/xveil-flight-reasons-20261020/group-final-360",
     "duration_seconds": 360,
     "audio_markers": 2112,
     "audio_missing": 0,

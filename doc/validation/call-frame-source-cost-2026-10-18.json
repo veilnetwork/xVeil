@@ -4,7 +4,7 @@
   "complete": false,
   "sdk_commit": "b6b57599",
   "scope": "Whole-work cost attribution, captured-cost boundary tests, and explicit late frame diagnostics. Codec/source budgets and relay behavior are unchanged.",
-  "work_cost_capture": "/Users/vart/.cache/codex/xveil-direct-source-20261018/source-budget-apps/physical-source-budget",
+  "work_cost_capture": "/Users/<user>/.cache/codex/xveil-direct-source-20261018/source-budget-apps/physical-source-budget",
   "work_costs": [
     {
       "epoch": "50f846cca65c763e",
@@ -86,7 +86,7 @@
     "clean_sdk_test_worktree": true
   },
   "repeat": {
-    "private_directory": "/Users/vart/.cache/codex/xveil-direct-source-20261018/source-budget-apps/physical-frame-cost-repeat",
+    "private_directory": "/Users/<user>/.cache/codex/xveil-direct-source-20261018/source-budget-apps/physical-frame-cost-repeat",
     "root_dart_commit": "b262249d",
     "mac_rust_commit": "c89c77316f7b5fb21ba75a40a4bc0247e16a7274",
     "native_media_commit": "87b539e3",

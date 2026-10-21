@@ -26,7 +26,7 @@ Try `flutter pub outdated` for more information.
 Resolving dependencies in `./example`...
 Downloading packages...
 Got dependencies in `./example`.
-00:00 +0: loading /Users/vart/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_flutter/test/abi_contract_test.dart
+00:00 +0: loading /Users/<user>/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_flutter/test/abi_contract_test.dart
 00:00 +0: ABI contract hash the generated hash is a full lowercase SHA-256
 00:00 +1: ABI contract hash a matching library loads and reports the expected hash
 00:00 +2: ABI contract hash a mismatched contract is refused at load, before any other symbol

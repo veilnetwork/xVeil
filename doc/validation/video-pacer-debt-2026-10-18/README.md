@@ -26,7 +26,7 @@ original result with the local Mac bundle:
 ```sh
 pacer_repro_dir="$(mktemp -d /private/tmp/xveil-pacer.XXXXXX)"
 mkdir -p "$pacer_repro_dir/modules/pacing"
-cp /Users/vart/Projects/veilnetwork/webrtc-checkout/src/modules/pacing/pacing_controller.cc "$pacer_repro_dir/modules/pacing/"
+cp /Users/<user>/Projects/veilnetwork/webrtc-checkout/src/modules/pacing/pacing_controller.cc "$pacer_repro_dir/modules/pacing/"
 patch -d "$pacer_repro_dir" -p1 < doc/validation/video-pacer-debt-2026-10-18/candidate.patch
 TMPDIR=/private/tmp/ python3 doc/validation/video-pacer-debt-2026-10-18/run.py --pacing-source "$pacer_repro_dir/modules/pacing/pacing_controller.cc"
 ```

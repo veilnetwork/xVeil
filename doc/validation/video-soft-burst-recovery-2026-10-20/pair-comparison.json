@@ -1,6 +1,6 @@
 {
   "baseline": {
-    "path": "/Users/vart/.cache/codex/xveil-soft-burst-recovery-20261020/pair-baseline-180",
+    "path": "/Users/<user>/.cache/codex/xveil-soft-burst-recovery-20261020/pair-baseline-180",
     "raw_ok": false,
     "source_feedback_skipped": [
       5,
@@ -92,7 +92,7 @@
     }
   },
   "candidate": {
-    "path": "/Users/vart/.cache/codex/xveil-soft-burst-recovery-20261020/pair-candidate-180",
+    "path": "/Users/<user>/.cache/codex/xveil-soft-burst-recovery-20261020/pair-candidate-180",
     "raw_ok": false,
     "source_feedback_skipped": [
       2,

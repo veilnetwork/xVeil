@@ -239,7 +239,7 @@
     "trace_capacity": 250000,
     "trace_truncated": false
   },
-  "raw_artifact_root": "/Users/vart/.cache/codex/xveil-frame-recovery-qualified-20261020/group-final-360",
+  "raw_artifact_root": "/Users/<user>/.cache/codex/xveil-frame-recovery-qualified-20261020/group-final-360",
   "audio_markers_matched": 2112,
   "audio_markers_missing": 0,
   "audio_max_ms": 260.2012083516456,

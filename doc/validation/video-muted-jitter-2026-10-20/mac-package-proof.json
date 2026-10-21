@@ -7,11 +7,11 @@
   "sdk_rust_sources_identical_to_ab6": "19004 changes only three native media source/test files",
   "original_sdk_media": {
     "libveilclient_ffi.dylib": {
-      "path": "/Users/vart/.cache/codex/xveil-explicit-source-hold-20261020/sdk-final/libveilclient_ffi.dylib",
+      "path": "/Users/<user>/.cache/codex/xveil-explicit-source-hold-20261020/sdk-final/libveilclient_ffi.dylib",
       "sha256": "8062a0b3296a1f30b6cdb9530d5b3940b4971fa04ebc16b43f6381e78cb9099d"
     },
     "libveil_media.dylib": {
-      "path": "/Users/vart/.cache/codex/xveil-soft-burst-recovery-20261020/media-production/libveil_media.dylib",
+      "path": "/Users/<user>/.cache/codex/xveil-soft-burst-recovery-20261020/media-production/libveil_media.dylib",
       "sha256": "8bfdaa2fc3cfa74b41e7104d46e900506e9f9e05c0bf9aebc266bef9e2d9a6ff"
     }
   },

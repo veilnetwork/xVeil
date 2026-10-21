@@ -1,6 +1,6 @@
 {
   "sdk": {
-    "path": "/Users/vart/.cache/codex/xveil-explicit-source-hold-20261020/sdk-fixed/libveilclient_ffi.dylib",
+    "path": "/Users/<user>/.cache/codex/xveil-explicit-source-hold-20261020/sdk-fixed/libveilclient_ffi.dylib",
     "sha256": "2246df3aac8075fd311dd814bcc9a76ed7938274f536bf0fb25698acefbe7ff5",
     "exports": 203,
     "contract_hash": "e3102ab95bd9f6490f38d472f86d03f2fbf4976cf5e67379514a5c4f277cd646",
@@ -8,7 +8,7 @@
       "_veil_app_hold_local_source_growth"
     ],
     "clean_export": true,
-    "source_export_root": "/Users/vart/.cache/codex/xveil-flight-reasons-20261020/sdk-src",
+    "source_export_root": "/Users/<user>/.cache/codex/xveil-flight-reasons-20261020/sdk-src",
     "owned_source_sha256": {
       "crates/veil-ipc/src/handlers/source_feedback.rs": "bdaf3474fbc8c381362bb4b74f6ca1c6eeabdef35192f48630bc8a6a9dc2c58e",
       "crates/veil-ipc/src/server.rs": "caed31ab4caa7d664c5aa17aa19d10b48f4abc059ff0347901dcc737b04e7049",
@@ -41,17 +41,17 @@
     "foreign_wip_excluded": true
   },
   "media": {
-    "path": "/Users/vart/.cache/codex/xveil-explicit-source-hold-20261020/media-hooks/libveil_media.dylib",
+    "path": "/Users/<user>/.cache/codex/xveil-explicit-source-hold-20261020/media-hooks/libveil_media.dylib",
     "sha256": "f90f40a6adecd4fb1155e6a298e0f655bfcf42311407f5d41c4c6c94ca7edc9f",
     "exports": 139
   },
   "media_production": {
-    "path": "/Users/vart/.cache/codex/xveil-explicit-source-hold-20261020/media-production/libveil_media.dylib",
+    "path": "/Users/<user>/.cache/codex/xveil-explicit-source-hold-20261020/media-production/libveil_media.dylib",
     "sha256": "ec86c26d3b10c66ae8b6999873b86cba7371e60fe3d56a1d3e1c0305bf00e9bf",
     "exports": 105
   },
   "baseline_sdk": {
-    "path": "/Users/vart/.cache/codex/xveil-flight-drain-20261020/sdk-fixed/libveilclient_ffi.dylib",
+    "path": "/Users/<user>/.cache/codex/xveil-flight-drain-20261020/sdk-fixed/libveilclient_ffi.dylib",
     "sha256": "6b23c5dd905a8ec67c2a849a68d2027a56f4f1baa74a9328ceace62cad0cf5f8",
     "exports": 202
   },

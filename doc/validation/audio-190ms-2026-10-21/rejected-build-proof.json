@@ -1,13 +1,13 @@
 {
   "sdk": {
-    "path": "/Users/vart/.cache/codex/xveil-audio-200-20261020/sdk-reserve/libveilclient_ffi.dylib",
+    "path": "/Users/<user>/.cache/codex/xveil-audio-200-20261020/sdk-reserve/libveilclient_ffi.dylib",
     "sha256": "a9b833a7c28221d50587806cead46bfc7da14d37196c4564bc678d6dbdbf13dd",
     "exports": 203,
     "export_set_matches_baseline": true,
     "contract_hash": "07a6d433c34307e2089b9589cd1397a65e707e7d60e35db23160e8a9500a2638"
   },
   "media": {
-    "path": "/Users/vart/.cache/codex/xveil-audio-190-20261021/media-budget140/libveil_media.dylib",
+    "path": "/Users/<user>/.cache/codex/xveil-audio-190-20261021/media-budget140/libveil_media.dylib",
     "sha256": "56e5b354775b974efa6166a2de5700b99e8a29ae85091028d89de3a73895cfd3",
     "exports": 139,
     "export_set_matches_baseline": true
@@ -43,9 +43,9 @@
   },
   "sdk_source_commit": "9eef87b9e6d8d7949970bea9b0063256ed8b9d49",
   "fixture_change": "Completed FIFO trace records retained as packed scalar metadata",
-  "gc_observer": "/Users/vart/.cache/codex/xveil-audio-200-20261020/observe-gc.py",
+  "gc_observer": "/Users/<user>/.cache/codex/xveil-audio-200-20261020/observe-gc.py",
   "media_source": {
-    "path": "/Users/vart/.cache/codex/xveil-audio-190-20261021/budget140-media-src",
+    "path": "/Users/<user>/.cache/codex/xveil-audio-190-20261021/budget140-media-src",
     "differences_from_production": [
       "src/veil_playout_recovery.h"
     ],

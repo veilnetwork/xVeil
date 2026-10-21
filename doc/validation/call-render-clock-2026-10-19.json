@@ -8,7 +8,7 @@
     "Reproduced and fixed stand teardown corrupting a buffered trace via another engine live video logger",
     "Repeated the complete 360s workload, validated output records and independently verified all 8 owned test processes exited"
   ],
-  "private_artifacts": "/Users/vart/.cache/codex/xveil-render-clock-20261019",
+  "private_artifacts": "/Users/<user>/.cache/codex/xveil-render-clock-20261019",
   "artifacts": {
     "analyzer-tests.txt": "92b04e8f5b23f8839a8462698016f894e4eebf8a6fb46e696e0fbf43c7caed08",
     "capture-sources.json": "e6c7723268dd5fdbe768191da82c683569d32bee2686be03b4c4fc1759b4fde0",

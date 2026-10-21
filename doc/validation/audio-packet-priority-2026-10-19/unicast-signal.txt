@@ -1,6 +1,6 @@
-[unsafe-buffers] file '/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_media/src/veil_diag_log.h' bad test against path '../../'
-[unsafe-buffers] file '/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_media/test/unicast_opus_signal_smoke.cc' bad test against path '../../'
-ld: warning: ignoring -lto_library '/Users/vart/Projects/veilnetwork/webrtc-checkout/src/third_party/llvm-build/Release+Asserts/lib/libLTO.dylib', file does not exist
+[unsafe-buffers] file '/Users/<user>/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_media/src/veil_diag_log.h' bad test against path '../../'
+[unsafe-buffers] file '/Users/<user>/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_media/test/unicast_opus_signal_smoke.cc' bad test against path '../../'
+ld: warning: ignoring -lto_library '/Users/<user>/Projects/veilnetwork/webrtc-checkout/src/third_party/llvm-build/Release+Asserts/lib/libLTO.dylib', file does not exist
 unicast overhead=209 dtx=1 minimum_payload=24000 maximum_packet_ms=60 first_quiet_tick=-1 longest_quiet_blocks=0
 unicast overhead=209 dtx=0 minimum_payload=24000 maximum_packet_ms=60 first_quiet_tick=-1 longest_quiet_blocks=0
 unicast overhead=509 dtx=1 minimum_payload=24000 maximum_packet_ms=60 first_quiet_tick=-1 longest_quiet_blocks=0

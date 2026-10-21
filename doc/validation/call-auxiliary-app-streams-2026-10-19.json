@@ -75,7 +75,7 @@
   ],
   "cleanup": "All16 recorded process observations exited, all7 node stops returned0 and no fixture sockets remain. No installed app, phone, relay, push or public release change.",
   "evidence": "auxiliary-app-streams-2026-10-19/",
-  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-auxiliary-app-streams-20261019",
+  "private_artifacts_root": "/Users/<user>/.cache/codex/xveil-auxiliary-app-streams-20261019",
   "foreign_wip_preserved": true,
   "public_release": false
 }

@@ -17,7 +17,7 @@
   },
   "foreign_wip_diff_sha256": "1ceeb05d540078262f1480ba7210dfaa0f5895be9f0099f64bc18a56a4f6a363",
   "test_scope": "Current worktree crate library tests. Foreign dispatcher, ratchet and identity-publish edits are excluded from commits but present in the test build; no release binary has been built.",
-  "clean_sdk_source_export": "/Users/vart/.cache/codex/xveil-separate-network-control-20261019/sdk-src",
+  "clean_sdk_source_export": "/Users/<user>/.cache/codex/xveil-separate-network-control-20261019/sdk-src",
   "clean_export_foreign_wip_excluded": true,
   "sdk_commit": "19205a986a6833f1ae4b330819b99bef4ef7ddc8",
   "sdk_base_archive_sha256": "8895bce632da55a56fdc60cd8583bad29055a12ea06ca941195b326db4aac217"

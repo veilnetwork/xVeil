@@ -2,7 +2,7 @@
 +++ private-controlled-recovery.py
 @@ -1,3 +1,5 @@
 +import sys
-+sys.path.insert(0, '/Users/vart/Projects/veilnetwork/xVeil/scripts')
++sys.path.insert(0, '/Users/<user>/Projects/veilnetwork/xVeil/scripts')
  #!/usr/bin/env python3
  """Exercise real Opus/VP8 and the application's adapter over a neutral relay.
  
@@ -19,7 +19,7 @@
  sdk_path = args.sdk.resolve(strict=True)
  media_path = args.media.resolve(strict=True)
 -policy_path = Path(__file__).resolve().with_name('relay_codec_policy.dart')
-+policy_path = Path('/Users/vart/Projects/veilnetwork/xVeil/scripts/relay_codec_policy.dart')
++policy_path = Path('/Users/<user>/Projects/veilnetwork/xVeil/scripts/relay_codec_policy.dart')
  if args.directory is None:
      ROOT = Path(tempfile.mkdtemp(prefix='xveil-relay-control-', dir='/private/tmp'))
  else:

@@ -8,7 +8,7 @@
     "flutter/veil_media/test/audio_recovery_feedback_smoke.cc": "cba3b73dc57717cda5347b86ac2aef0a473df722fafdab7ce4629f4169556ab4",
     "flutter/veil_media/test/audio_recovery_shim_smoke.cc": "92c5e7bcae95fdbeb06619d49d6af41cc041122991c04673e18060495fea32ec"
   },
-  "sdk_library": "/Users/vart/.cache/codex/xveil-sibling-idle-20261019/sdk/libveilclient_ffi.dylib",
+  "sdk_library": "/Users/<user>/.cache/codex/xveil-sibling-idle-20261019/sdk/libveilclient_ffi.dylib",
   "sdk_library_sha256": "4bc908202196047911be8812d093469312ca11ee450c7b8f7fce70f1c0e154bf",
   "media-hooks": {
     "sha256": "fd67c0fb60ef3390fabf449fcd9ecdaa1d321f2d6738e7ece765145d80d93778",

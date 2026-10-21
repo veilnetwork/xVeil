@@ -1,6 +1,6 @@
 {
   "mac": {
-    "path": "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/video-rise-cycle/mac-stand/xveil.app",
+    "path": "/Users/<user>/.cache/codex/xveil-physical-source-hold-20261020/video-rise-cycle/mac-stand/xveil.app",
     "native_sha256": {
       "libveil_media.dylib": "74d0bb849cb8797ffb91f50564fa64d31580704b10332add490c7696d669603c",
       "libveilclient_ffi.dylib": "afde20ad4d35363909b4387eabe68a394d043ef844194c2bd8729e36b6752c5e",
@@ -11,7 +11,7 @@
     "version_code": 12625
   },
   "phone": {
-    "path": "/Users/vart/.cache/codex/xveil-physical-source-hold-20261020/video-rise-cycle/phone-pcm-12625.apk",
+    "path": "/Users/<user>/.cache/codex/xveil-physical-source-hold-20261020/video-rise-cycle/phone-pcm-12625.apk",
     "sha256": "4297ae4ebc309c27f9a90ef3c785a95f5987683d101254c4efa176aa89b1c649",
     "aot_sha256": "c889ef31c1f5a65d23eafe392eede119e5ba14cb189373427309deffc50aab25",
     "all_non_app_native_libraries_pinned_to_baseline": {

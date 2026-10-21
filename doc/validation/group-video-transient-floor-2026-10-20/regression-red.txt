@@ -1,4 +1,4 @@
-00:00 +0: loading /Users/vart/Projects/veilnetwork/xVeil/test/veil_group_call_media_test.dart
+00:00 +0: loading /Users/<user>/Projects/veilnetwork/xVeil/test/veil_group_call_media_test.dart
 00:00 +0: one group concealment cannot bypass video debouncing at the audio floor
 00:00 +0 -1: one group concealment cannot bypass video debouncing at the audio floor [E]
   Expected: ({int maxBitrateKbps, double maxFps}):<(maxBitrateKbps: 150, maxFps: 15.0)>
@@ -20,4 +20,4 @@
 00:00 +0 -1: Some tests failed.
 
 Failing tests:
-  /Users/vart/Projects/veilnetwork/xVeil/test/veil_group_call_media_test.dart: one group concealment cannot bypass video debouncing at the audio floor
+  /Users/<user>/Projects/veilnetwork/xVeil/test/veil_group_call_media_test.dart: one group concealment cannot bypass video debouncing at the audio floor

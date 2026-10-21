@@ -84,7 +84,7 @@
     "QUIC hot reload"
   ],
   "evidence": "source-framing-2026-10-19/",
-  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-source-cost-20261018",
+  "private_artifacts_root": "/Users/<user>/.cache/codex/xveil-source-cost-20261018",
   "foreign_wip_preserved": true,
   "public_release": false
 }

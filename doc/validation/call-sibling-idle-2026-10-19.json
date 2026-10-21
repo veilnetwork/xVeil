@@ -107,7 +107,7 @@
     }
   },
   "evidence": "doc/validation/sibling-idle-2026-10-19",
-  "private_artifacts": "/Users/vart/.cache/codex/xveil-sibling-idle-20261019",
+  "private_artifacts": "/Users/<user>/.cache/codex/xveil-sibling-idle-20261019",
   "phone_touched": false,
   "relay_touched": false,
   "installed_app_touched": false,

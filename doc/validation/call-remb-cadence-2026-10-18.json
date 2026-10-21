@@ -35,16 +35,16 @@
   },
   "builds": {
     "macos_instrumented": {
-      "path": "/Users/vart/.cache/codex/xveil-rtcp-kind-20261018/media-candidate/libveil_media.dylib",
+      "path": "/Users/<user>/.cache/codex/xveil-rtcp-kind-20261018/media-candidate/libveil_media.dylib",
       "sha256": "08cb1eadaf8059dde68d0b7d34d16bdd75f4e48d836683242f0b75cfa2ac7f1f"
     },
     "macos_production": {
-      "path": "/Users/vart/.cache/codex/xveil-rtcp-kind-20261018/media-production/libveil_media.dylib",
+      "path": "/Users/<user>/.cache/codex/xveil-rtcp-kind-20261018/media-production/libveil_media.dylib",
       "sha256": "39b30e8cee93a4b097c5cc92ab46708a4b0c98be1548dc18cfa149a6c8cae822",
       "exports": 100
     },
     "android_arm64_production": {
-      "path": "/Users/vart/.cache/codex/xveil-rtcp-kind-20261018/android-native/libveil_media.so",
+      "path": "/Users/<user>/.cache/codex/xveil-rtcp-kind-20261018/android-native/libveil_media.so",
       "sha256": "d8124a5bbcade66a007f13ae5ac68dcf6c8dab59a3b75eab2d72c6f549c27259",
       "exports": 100,
       "format": "ELF64 AArch64",
@@ -55,7 +55,7 @@
   },
   "captures": [
     {
-      "private_directory": "/Users/vart/.cache/codex/xveil-rtcp-kind-20261018/kind-diag-90",
+      "private_directory": "/Users/<user>/.cache/codex/xveil-rtcp-kind-20261018/kind-diag-90",
       "classification": "90-second type diagnostic; never a full qualification",
       "original_ok": false,
       "original_qualification": false,
@@ -103,8 +103,8 @@
         ],
         "cargo_incremental": false,
         "macos_deployment_target": "12.0",
-        "build_cwd": "/Users/vart/Projects/veilnetwork/xVeil",
-        "native_media": "/Users/vart/.cache/codex/xveil-rtcp-kind-20261018/media-diag/libveil_media.dylib",
+        "build_cwd": "/Users/<user>/Projects/veilnetwork/xVeil",
+        "native_media": "/Users/<user>/.cache/codex/xveil-rtcp-kind-20261018/media-diag/libveil_media.dylib",
         "native_media_sha256": "7bc05cd825b151dc62db127da1a4d3555eed37bd5cbe0a2dae726181e52607ac",
         "scope": "Same committed f19d827e Rust SDK; current native type counters only. 90-second diagnostic, not full qualification."
       },
@@ -387,7 +387,7 @@
       }
     },
     {
-      "private_directory": "/Users/vart/.cache/codex/xveil-rtcp-kind-20261018/remb-full-360",
+      "private_directory": "/Users/<user>/.cache/codex/xveil-rtcp-kind-20261018/remb-full-360",
       "classification": "Incomplete post-capture topology proof; original false-green preserved and corrected to unqualified",
       "original_ok": true,
       "original_qualification": true,
@@ -435,8 +435,8 @@
         ],
         "cargo_incremental": false,
         "macos_deployment_target": "12.0",
-        "build_cwd": "/Users/vart/Projects/veilnetwork/xVeil",
-        "native_media": "/Users/vart/.cache/codex/xveil-rtcp-kind-20261018/media-candidate/libveil_media.dylib",
+        "build_cwd": "/Users/<user>/Projects/veilnetwork/xVeil",
+        "native_media": "/Users/<user>/.cache/codex/xveil-rtcp-kind-20261018/media-candidate/libveil_media.dylib",
         "native_media_sha256": "08cb1eadaf8059dde68d0b7d34d16bdd75f4e48d836683242f0b75cfa2ac7f1f",
         "scope": "f19d827e Rust SDK; measured REMB cadence candidate on top of 1406b4c8 native type counters. Original full 360-second workload and quality gate.",
         "native_source_commit": "1406b4c8",
@@ -496,8 +496,8 @@
         },
         "native_source_candidate": true,
         "native_test_hook_sources_sha256": {
-          "/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_media/test/call_plane_hooks.inc": "4d858049da3974de6c31d68936e85dad8984fbb86e2148d4cbd0ddaf7454c3ae",
-          "/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_media/test/recording_adm.inc": "2d9b252153ead3c31333c86a8a5c44471ed8643cca72a221043d4ef0b92fc404"
+          "/Users/<user>/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_media/test/call_plane_hooks.inc": "4d858049da3974de6c31d68936e85dad8984fbb86e2148d4cbd0ddaf7454c3ae",
+          "/Users/<user>/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_media/test/recording_adm.inc": "2d9b252153ead3c31333c86a8a5c44471ed8643cca72a221043d4ef0b92fc404"
         }
       },
       "qualification_correction": {
@@ -506,7 +506,7 @@
         "corrected_qualification": false,
         "reason": "Post-measurement admin topology exception; original missing end-topology/files/video proofs and false-green summary retained."
       },
-      "failure": "Traceback (most recent call last):\n  File \"/Users/vart/Projects/veilnetwork/xVeil/scripts/group-process-preflight.py\", line 584, in main\n    result['end_topology'] = fixture.verify_topology()\n                             ~~~~~~~~~~~~~~~~~~~~~~~^^\n  File \"/Users/vart/Projects/veilnetwork/xVeil/scripts/group_codec_sdk.py\", line 287, in verify_topology\n    state = self.admin(index, 'sessions')\n  File \"/Users/vart/Projects/veilnetwork/xVeil/scripts/group_codec_sdk.py\", line 126, in admin\n    client.shutdown(socket.SHUT_WR)\n    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^\nOSError: [Errno 57] Socket is not connected\n",
+      "failure": "Traceback (most recent call last):\n  File \"/Users/<user>/Projects/veilnetwork/xVeil/scripts/group-process-preflight.py\", line 584, in main\n    result['end_topology'] = fixture.verify_topology()\n                             ~~~~~~~~~~~~~~~~~~~~~~~^^\n  File \"/Users/<user>/Projects/veilnetwork/xVeil/scripts/group_codec_sdk.py\", line 287, in verify_topology\n    state = self.admin(index, 'sessions')\n  File \"/Users/<user>/Projects/veilnetwork/xVeil/scripts/group_codec_sdk.py\", line 126, in admin\n    client.shutdown(socket.SHUT_WR)\n    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^\nOSError: [Errno 57] Socket is not connected\n",
       "usable_as_full_pass": false,
       "rtcp_types_early": {
         "scope": "Endpoint accepted RTCP copy counters and compound block types. No wire-bandwidth or acoustic claim. Explicit clock window from native sample times.",
@@ -956,7 +956,7 @@
       }
     },
     {
-      "private_directory": "/Users/vart/.cache/codex/xveil-rtcp-kind-20261018/remb-repeat-360",
+      "private_directory": "/Users/<user>/.cache/codex/xveil-rtcp-kind-20261018/remb-repeat-360",
       "classification": "Strict original 360-second complete workload with fail-closed post-capture verification",
       "original_ok": true,
       "original_qualification": true,
@@ -1004,8 +1004,8 @@
         ],
         "cargo_incremental": false,
         "macos_deployment_target": "12.0",
-        "build_cwd": "/Users/vart/Projects/veilnetwork/xVeil",
-        "native_media": "/Users/vart/.cache/codex/xveil-rtcp-kind-20261018/media-candidate/libveil_media.dylib",
+        "build_cwd": "/Users/<user>/Projects/veilnetwork/xVeil",
+        "native_media": "/Users/<user>/.cache/codex/xveil-rtcp-kind-20261018/media-candidate/libveil_media.dylib",
         "native_media_sha256": "08cb1eadaf8059dde68d0b7d34d16bdd75f4e48d836683242f0b75cfa2ac7f1f",
         "scope": "f19d827e Rust SDK; measured REMB cadence candidate on top of 1406b4c8 native type counters. Original full 360-second workload and quality gate.",
         "native_source_commit": "1406b4c8",
@@ -1065,8 +1065,8 @@
         },
         "native_source_candidate": true,
         "native_test_hook_sources_sha256": {
-          "/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_media/test/call_plane_hooks.inc": "4d858049da3974de6c31d68936e85dad8984fbb86e2148d4cbd0ddaf7454c3ae",
-          "/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_media/test/recording_adm.inc": "2d9b252153ead3c31333c86a8a5c44471ed8643cca72a221043d4ef0b92fc404"
+          "/Users/<user>/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_media/test/call_plane_hooks.inc": "4d858049da3974de6c31d68936e85dad8984fbb86e2148d4cbd0ddaf7454c3ae",
+          "/Users/<user>/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_media/test/recording_adm.inc": "2d9b252153ead3c31333c86a8a5c44471ed8643cca72a221043d4ef0b92fc404"
         }
       },
       "usable_as_full_pass": true,
@@ -1875,10 +1875,10 @@
   ],
   "verifier_fix": "A post-measurement topology exception could leave ok/qualification true. Any exception now fails ok; full qualification additionally requires topology/files/six-video-path proofs. The newline-framed admin client reads the reply without racy SHUT_WR. A regression reproduces actual false-green shape and strict rejection. No measured clock/QoS/load/deadline/codec or original 200-ms predicate was weakened.",
   "private_repro_helpers": {
-    "/Users/vart/.cache/codex/xveil-rtcp-kind-20261018/launch-diag.py": "5a7828a830227048e4d8a235c0cd541747caf868a72872ac38199c85ec8c65a9",
-    "/Users/vart/.cache/codex/xveil-rtcp-kind-20261018/launch-full.py": "f8e66f6fe1ed5d6321d4fe09703123ecebd63abeb8a2283dfface6f577cff4bc",
-    "/Users/vart/.cache/codex/xveil-rtcp-kind-20261018/launch-repeat.py": "77a5c2dc285d8823f14e0add01f9701e0aa28ab74d9baf1c8029a0e5e7456e84",
-    "/Users/vart/.cache/codex/xveil-rtcp-kind-20261018/analyze-types.py": "2d1d68815e5746ef47b003e6ce81b999fc040405dd07c8ebb90bce4c653ffa73"
+    "/Users/<user>/.cache/codex/xveil-rtcp-kind-20261018/launch-diag.py": "5a7828a830227048e4d8a235c0cd541747caf868a72872ac38199c85ec8c65a9",
+    "/Users/<user>/.cache/codex/xveil-rtcp-kind-20261018/launch-full.py": "f8e66f6fe1ed5d6321d4fe09703123ecebd63abeb8a2283dfface6f577cff4bc",
+    "/Users/<user>/.cache/codex/xveil-rtcp-kind-20261018/launch-repeat.py": "77a5c2dc285d8823f14e0add01f9701e0aa28ab74d9baf1c8029a0e5e7456e84",
+    "/Users/<user>/.cache/codex/xveil-rtcp-kind-20261018/analyze-types.py": "2d1d68815e5746ef47b003e6ce81b999fc040405dd07c8ebb90bce4c653ffa73"
   },
   "remaining": "One strict passing full capture proves this measured improvement, not a universal latency bound. Earlier 230-ms PCM/305-ms startup counterexamples and current >=200-ms startup pre-playout bounds remain. Human speech/headset qualification remains deferred. Physical follow-up is recorded in call-remb-phone-2026-10-18.json. These captures are headless. Physical follow-up is recorded separately; no release or push."
 }

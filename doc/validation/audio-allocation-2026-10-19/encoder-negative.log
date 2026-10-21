@@ -1,5 +1,5 @@
-[unsafe-buffers] file '/Users/vart/.cache/codex/xveil-audio-allocation-20261019/negative-src/flutter/veil_media/src/veil_diag_log.h' bad test against path '../../'
-ld: warning: ignoring -lto_library '/Users/vart/Projects/veilnetwork/webrtc-checkout/src/third_party/llvm-build/Release+Asserts/lib/libLTO.dylib', file does not exist
+[unsafe-buffers] file '/Users/<user>/.cache/codex/xveil-audio-allocation-20261019/negative-src/flutter/veil_media/src/veil_diag_log.h' bad test against path '../../'
+ld: warning: ignoring -lto_library '/Users/<user>/Projects/veilnetwork/webrtc-checkout/src/third_party/llvm-build/Release+Asserts/lib/libLTO.dylib', file does not exist
 framing=360 RTP=20 ceiling=131840 phase=0: Opus packet=60 expected=40 ms
 ok: real Opus/ANA maxptime=20, payload stays 24–32 kbit/s
 ok: real Opus/ANA maxptime=40, payload stays 24–32 kbit/s
@@ -9,7 +9,7 @@ ok: framing=360 RTP=20 ceiling=160000, actual Opus 40/60/40 ms
 ok: framing=509 RTP=20 ceiling=160000, actual Opus 60/60/60 ms
 ok: framing=509 RTP=20 ceiling=183736, actual Opus 40/60/40 ms
 Traceback (most recent call last):
-  File "/Users/vart/.cache/codex/xveil-audio-allocation-20261019/negative-src/flutter/veil_media/test/run_bounded_audio_encoder_smoke.py", line 44, in <module>
+  File "/Users/<user>/.cache/codex/xveil-audio-allocation-20261019/negative-src/flutter/veil_media/test/run_bounded_audio_encoder_smoke.py", line 44, in <module>
     subprocess.run([str(temp / 'smoke')], check=True)
     ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   File "/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/subprocess.py", line 578, in run

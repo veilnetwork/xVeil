@@ -80,7 +80,7 @@
       "deadline_misses": 0
     }
   },
-  "private_artifacts": "/Users/vart/.cache/codex/xveil-pacer-credit-20261019",
+  "private_artifacts": "/Users/<user>/.cache/codex/xveil-pacer-credit-20261019",
   "limits": [
     "Both original strict audio latency gates FAIL; no threshold, load or duration relaxation",
     "No shared primary-first source allocator or complete interaction-channel separation implemented",

@@ -1,6 +1,6 @@
 {
   "baseline": {
-    "path": "/Users/vart/.cache/codex/xveil-flight-drain-20261020/group-final-360",
+    "path": "/Users/<user>/.cache/codex/xveil-flight-drain-20261020/group-final-360",
     "duration_seconds": 360,
     "audio_markers": 2112,
     "audio_missing": 0,
@@ -216,7 +216,7 @@
     ]
   },
   "candidate": {
-    "path": "/Users/vart/.cache/codex/xveil-host-pixel-grant-20261020/group-final-360",
+    "path": "/Users/<user>/.cache/codex/xveil-host-pixel-grant-20261020/group-final-360",
     "duration_seconds": 360,
     "audio_markers": 2112,
     "audio_missing": 0,

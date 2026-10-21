@@ -4,7 +4,7 @@
   "complete": false,
   "sdk_commit": "1fef65ad13acd009ae77825e36e519243efd4b4f",
   "stage": "Confirmed delivery observation and route-epoch-aware relative RTT feedback; shared capacity allocator NOT implemented",
-  "private_artifacts": "/Users/vart/.cache/codex/xveil-source-credit-20261019",
+  "private_artifacts": "/Users/<user>/.cache/codex/xveil-source-credit-20261019",
   "relays": {
     "quic_enabled": 6,
     "quic_port": 8443,

@@ -1,13 +1,13 @@
 {
   "base_sdk": "3c91f9b0f7a287ce63f97ba048273959092b276f",
   "root_base": "ff460c9b",
-  "native_library": "/Users/vart/.cache/codex/xveil-concealment-feedback-20261019/media-hooks/libveil_media.dylib",
+  "native_library": "/Users/<user>/.cache/codex/xveil-concealment-feedback-20261019/media-hooks/libveil_media.dylib",
   "native_sha256": "fd67c0fb60ef3390fabf449fcd9ecdaa1d321f2d6738e7ece765145d80d93778",
-  "native_source_proof": "/Users/vart/.cache/codex/xveil-concealment-feedback-20261019/source-proof.json",
+  "native_source_proof": "/Users/<user>/.cache/codex/xveil-concealment-feedback-20261019/source-proof.json",
   "foreign_wip_excluded": true,
   "sdk_exports": 202,
   "timed_inputs": {
-    "sdk_path": "/Users/vart/.cache/codex/xveil-auxiliary-app-streams-20261019/sdk/libveilclient_ffi.dylib",
+    "sdk_path": "/Users/<user>/.cache/codex/xveil-auxiliary-app-streams-20261019/sdk/libveilclient_ffi.dylib",
     "sdk_sha256": "0a9359caa32086328ac16de7b817594a9b1dca0ec84ec387cff38a50c124cd75",
     "sources": {
       "crates/veil-node-runtime/src/runtime/peer_handshake.rs": "b79c6c90150c2b87bf5a7822a2ce3b1593fdd7b91bd259ed348f1e390edd970a",
@@ -24,7 +24,7 @@
       "crates/veil-session/src/reliable_streams_tests.rs": "eabac95613dd03775ab7bc1d139cca9da170c83f843ba904c97a2382c9f1d928",
       "crates/veil-session/src/auxiliary_records.rs": "0db8e82806759fbd5daf758ce3e1b9511f0aaac81b8a7167f093d9542c52502c"
     },
-    "archive": "/Users/vart/.cache/codex/xveil-auxiliary-app-streams-20261019/timed-input-sources",
+    "archive": "/Users/<user>/.cache/codex/xveil-auxiliary-app-streams-20261019/timed-input-sources",
     "note": "Before final reservation/commit Closed guard and formatting/lint cleanup. Both original quality gates fail. These captures do not qualify the final rebuilt binary."
   },
   "final_sources": {
@@ -43,7 +43,7 @@
     "crates/veil-session/src/auxiliary_records.rs": "f609dd3b915681fa52c40847f6fae6e1e616974edbaba3406a06139d045e6a6a",
     "crates/veil-session/src/local_source_flight.rs": "f8110f18c88be09e54153636ef3205ec1e07a8684f220833d0a354bf18dd749d"
   },
-  "final_sdk_path": "/Users/vart/.cache/codex/xveil-auxiliary-app-streams-20261019/sdk-final/libveilclient_ffi.dylib",
+  "final_sdk_path": "/Users/<user>/.cache/codex/xveil-auxiliary-app-streams-20261019/sdk-final/libveilclient_ffi.dylib",
   "final_sdk_sha256": "174ced336efae2359b2ceb758f192de4b68670d86e59ac761992b9915356cd80",
   "exports_unchanged": true,
   "final_media_gates_rerun": false,

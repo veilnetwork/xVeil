@@ -17,8 +17,8 @@
   "build": {
     "sdk_commit": "9860a5ea610206eb91b911c6568a34604ca94add",
     "clean_sdk_worktree": true,
-    "source_worktree": "/Users/vart/.cache/codex/xveil-queue-cancel-20261018/sdk-src",
-    "sdk_path": "/Users/vart/.cache/codex/xveil-queue-cancel-20261018/sdk/libveilclient_ffi.dylib",
+    "source_worktree": "/Users/<user>/.cache/codex/xveil-queue-cancel-20261018/sdk-src",
+    "sdk_path": "/Users/<user>/.cache/codex/xveil-queue-cancel-20261018/sdk/libveilclient_ffi.dylib",
     "sdk_sha256": "4236b51bcd3416d64d027fc6ce85629a252335a82f2a5e8713462d38087b62b6",
     "features": [
       "default tls-boring",
@@ -43,7 +43,7 @@
     }
   },
   "physical": {
-    "private_directory": "/Users/vart/.cache/codex/xveil-queue-cancel-20261018/physical-build/physical-queue-cancel",
+    "private_directory": "/Users/<user>/.cache/codex/xveil-queue-cancel-20261018/physical-build/physical-queue-cancel",
     "mac_sdk_updated": true,
     "phone_package_updated": false,
     "phone_version_code": 12614,
@@ -147,7 +147,7 @@
     "interpretation": "These new observations distinguish retry waits from rejection when the complete pacing span no longer fits the original lifetime. They do not retrospectively prove the exact cause of the older 5724-byte frame rejection."
   },
   "full_load": {
-    "private_directory": "/Users/vart/.cache/codex/xveil-queue-cancel-20261018/group-full-360",
+    "private_directory": "/Users/<user>/.cache/codex/xveil-queue-cancel-20261018/group-full-360",
     "ok": true,
     "contention_qualification": true,
     "duration_seconds": 360,
@@ -500,7 +500,7 @@
       "owned_forward_absent": true
     },
     "error": null,
-    "private_directory": "/Users/vart/.cache/codex/xveil-queue-cancel-20261018/physical-build/physical-recovery-360",
+    "private_directory": "/Users/<user>/.cache/codex/xveil-queue-cancel-20261018/physical-build/physical-recovery-360",
     "phone_package_updated": false,
     "speech_or_headset_listening": false,
     "interpretation": "Both source holds clear. Mac outbound repeatedly falls from 6 to 1 fps after fresh video-loss reports (observations 283, 298, 328); at 298 a local video RTP drop is also observed. This is not proof of a permanently held source flag. The exact producer/route reason for these video losses remains unresolved. No subjective speech or acoustic proof."

@@ -1,4 +1,4 @@
-   Compiling quinn v0.11.9 (/Users/vart/.cache/codex/xveil-source-handshake-20261019/sdk-src/third_party/quinn)
+   Compiling quinn v0.11.9 (/Users/<user>/.cache/codex/xveil-source-handshake-20261019/sdk-src/third_party/quinn)
 warning: unused variable: `budget`
   --> third_party/quinn/src/connection.rs:83:9
    |
@@ -7,41 +7,41 @@ warning: unused variable: `budget`
    |
    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
 
-   Compiling veil-transport v0.11.42 (/Users/vart/.cache/codex/xveil-source-handshake-20261019/sdk-src/crates/veil-transport)
-   Compiling veil-nat v0.11.42 (/Users/vart/.cache/codex/xveil-source-handshake-20261019/sdk-src/crates/veil-nat)
+   Compiling veil-transport v0.11.42 (/Users/<user>/.cache/codex/xveil-source-handshake-20261019/sdk-src/crates/veil-transport)
+   Compiling veil-nat v0.11.42 (/Users/<user>/.cache/codex/xveil-source-handshake-20261019/sdk-src/crates/veil-nat)
 warning: `quinn` (lib) generated 1 warning (run `cargo fix --lib -p quinn` to apply 1 suggestion)
-   Compiling veil-bootstrap v0.11.42 (/Users/vart/.cache/codex/xveil-source-handshake-20261019/sdk-src/crates/veil-bootstrap)
-   Compiling veil-ipc v0.11.42 (/Users/vart/.cache/codex/xveil-source-handshake-20261019/sdk-src/crates/veil-ipc)
-   Compiling veil-nostr v0.11.42 (/Users/vart/.cache/codex/xveil-source-handshake-20261019/sdk-src/crates/veil-nostr)
-   Compiling veil-update v0.11.42 (/Users/vart/.cache/codex/xveil-source-handshake-20261019/sdk-src/crates/veil-update)
-   Compiling veil-observability v0.11.42 (/Users/vart/.cache/codex/xveil-source-handshake-20261019/sdk-src/crates/veil-observability)
-   Compiling veil-cfg v0.11.42 (/Users/vart/.cache/codex/xveil-source-handshake-20261019/sdk-src/crates/veil-cfg)
-   Compiling veil-congestion v0.11.42 (/Users/vart/.cache/codex/xveil-source-handshake-20261019/sdk-src/crates/veil-congestion)
-   Compiling veil-gateway v0.11.42 (/Users/vart/.cache/codex/xveil-source-handshake-20261019/sdk-src/crates/veil-gateway)
-   Compiling veil-reputation v0.11.42 (/Users/vart/.cache/codex/xveil-source-handshake-20261019/sdk-src/crates/veil-reputation)
-   Compiling veil-session v0.11.42 (/Users/vart/.cache/codex/xveil-source-handshake-20261019/sdk-src/crates/veil-session)
-   Compiling veil-dispatcher v0.11.42 (/Users/vart/.cache/codex/xveil-source-handshake-20261019/sdk-src/crates/veil-dispatcher)
-   Compiling veil-node-runtime v0.11.42 (/Users/vart/.cache/codex/xveil-source-handshake-20261019/sdk-src/crates/veil-node-runtime)
+   Compiling veil-bootstrap v0.11.42 (/Users/<user>/.cache/codex/xveil-source-handshake-20261019/sdk-src/crates/veil-bootstrap)
+   Compiling veil-ipc v0.11.42 (/Users/<user>/.cache/codex/xveil-source-handshake-20261019/sdk-src/crates/veil-ipc)
+   Compiling veil-nostr v0.11.42 (/Users/<user>/.cache/codex/xveil-source-handshake-20261019/sdk-src/crates/veil-nostr)
+   Compiling veil-update v0.11.42 (/Users/<user>/.cache/codex/xveil-source-handshake-20261019/sdk-src/crates/veil-update)
+   Compiling veil-observability v0.11.42 (/Users/<user>/.cache/codex/xveil-source-handshake-20261019/sdk-src/crates/veil-observability)
+   Compiling veil-cfg v0.11.42 (/Users/<user>/.cache/codex/xveil-source-handshake-20261019/sdk-src/crates/veil-cfg)
+   Compiling veil-congestion v0.11.42 (/Users/<user>/.cache/codex/xveil-source-handshake-20261019/sdk-src/crates/veil-congestion)
+   Compiling veil-gateway v0.11.42 (/Users/<user>/.cache/codex/xveil-source-handshake-20261019/sdk-src/crates/veil-gateway)
+   Compiling veil-reputation v0.11.42 (/Users/<user>/.cache/codex/xveil-source-handshake-20261019/sdk-src/crates/veil-reputation)
+   Compiling veil-session v0.11.42 (/Users/<user>/.cache/codex/xveil-source-handshake-20261019/sdk-src/crates/veil-session)
+   Compiling veil-dispatcher v0.11.42 (/Users/<user>/.cache/codex/xveil-source-handshake-20261019/sdk-src/crates/veil-dispatcher)
+   Compiling veil-node-runtime v0.11.42 (/Users/<user>/.cache/codex/xveil-source-handshake-20261019/sdk-src/crates/veil-node-runtime)
     Finished `test` profile [optimized + debuginfo] target(s) in 38.66s
-     Running unittests src/lib.rs (/Users/vart/.cache/codex/veil-auxiliary-neutral-target-20261019/debug/deps/veil_node_runtime-a59811f6de99046a)
+     Running unittests src/lib.rs (/Users/<user>/.cache/codex/veil-auxiliary-neutral-target-20261019/debug/deps/veil_node_runtime-a59811f6de99046a)
 
 running 0 tests
 
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 674 filtered out; finished in 0.00s
 
-     Running unittests src/lib.rs (/Users/vart/.cache/codex/veil-auxiliary-neutral-target-20261019/debug/deps/veil_proto-dc29803220c7fcc1)
+     Running unittests src/lib.rs (/Users/<user>/.cache/codex/veil-auxiliary-neutral-target-20261019/debug/deps/veil_proto-dc29803220c7fcc1)
 
 running 0 tests
 
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 837 filtered out; finished in 0.00s
 
-     Running unittests src/lib.rs (/Users/vart/.cache/codex/veil-auxiliary-neutral-target-20261019/debug/deps/veil_session-daefd1f432874cd0)
+     Running unittests src/lib.rs (/Users/<user>/.cache/codex/veil-auxiliary-neutral-target-20261019/debug/deps/veil_session-daefd1f432874cd0)
 
 running 0 tests
 
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 632 filtered out; finished in 0.00s
 
-     Running unittests src/lib.rs (/Users/vart/.cache/codex/veil-auxiliary-neutral-target-20261019/debug/deps/veil_transport-f80ae02b908460f5)
+     Running unittests src/lib.rs (/Users/<user>/.cache/codex/veil-auxiliary-neutral-target-20261019/debug/deps/veil_transport-f80ae02b908460f5)
 
 running 1 test
 

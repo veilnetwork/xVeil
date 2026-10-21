@@ -1,4 +1,4 @@
-00:00 +0: loading /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart
+00:00 +0: loading /Users/<user>/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart
 00:00 +0: isolated short holds cannot starve acknowledged video recovery
 00:00 +0 -1: isolated short holds cannot starve acknowledged video recovery [E]
   Expected: <0>
@@ -12,4 +12,4 @@
 00:00 +0 -1: Some tests failed.
 
 Failing tests:
-  /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: isolated short holds cannot starve acknowledged video recovery
+  /Users/<user>/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: isolated short holds cannot starve acknowledged video recovery

@@ -5,14 +5,14 @@
   "goal_status": "ACTIVE",
   "complete": false,
   "classification": "Physical native-only QA follow-up; audio interruption counters stay zero, sparse Mac-to-phone video remains; no acoustic/headset qualification.",
-  "private_directory": "/Users/vart/.cache/codex/xveil-rtcp-kind-20261018/physical-build/physical-remb-cadence",
+  "private_directory": "/Users/<user>/.cache/codex/xveil-rtcp-kind-20261018/physical-build/physical-remb-cadence",
   "build": {
     "native_commit": "e2f55519cee14893849b4365da3cd0d5ee3c99c9",
-    "base": "/Users/vart/.cache/codex/xveil-route-epoch-20261018/physical-build.json",
+    "base": "/Users/<user>/.cache/codex/xveil-route-epoch-20261018/physical-build.json",
     "scope": "Only production native media changes. Existing QA Dart AOT and Rust SDK unchanged. VersionCode 10613 retained, signed by same existing QA signer; not a release.",
-    "mac_app": "/Users/vart/.cache/codex/xveil-rtcp-kind-20261018/physical-build/mac-stand/xveil.app",
+    "mac_app": "/Users/<user>/.cache/codex/xveil-rtcp-kind-20261018/physical-build/mac-stand/xveil.app",
     "mac_signed_media_sha256": "43a2c33ad1921f55a3a262b6f39f703bc10b116591717f6b5fd2ac7bece17dcf",
-    "apk": "/Users/vart/.cache/codex/xveil-rtcp-kind-20261018/physical-build/phone-remb.apk",
+    "apk": "/Users/<user>/.cache/codex/xveil-rtcp-kind-20261018/physical-build/phone-remb.apk",
     "apk_sha256": "54b284a93aa862c2e4fffdf7e836315046660ba4ad71bb794b1338f3856674fa",
     "before_apk_sha256": "e8bbb466fd61d2169b1fe7b778c28a7d7619c4a601cfcb324f8ce1f2171577df",
     "apk_changed_entries": [

@@ -16,9 +16,9 @@
     "crates/veil-session/src/reliable_streams_tests.rs": "eabac95613dd03775ab7bc1d139cca9da170c83f843ba904c97a2382c9f1d928",
     "crates/veil-session/src/auxiliary_records.rs": "0db8e82806759fbd5daf758ce3e1b9511f0aaac81b8a7167f093d9542c52502c"
   },
-  "native_library": "/Users/vart/.cache/codex/xveil-concealment-feedback-20261019/media-hooks/libveil_media.dylib",
+  "native_library": "/Users/<user>/.cache/codex/xveil-concealment-feedback-20261019/media-hooks/libveil_media.dylib",
   "native_sha256": "fd67c0fb60ef3390fabf449fcd9ecdaa1d321f2d6738e7ece765145d80d93778",
-  "native_source_proof": "/Users/vart/.cache/codex/xveil-concealment-feedback-20261019/source-proof.json",
+  "native_source_proof": "/Users/<user>/.cache/codex/xveil-concealment-feedback-20261019/source-proof.json",
   "foreign_wip_excluded": true,
   "sdk_sha256": "0a9359caa32086328ac16de7b817594a9b1dca0ec84ec387cff38a50c124cd75",
   "sdk_exports": 202

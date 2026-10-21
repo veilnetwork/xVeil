@@ -74,7 +74,7 @@
     "Typed-factory seamless transport migration and QUIC hot reload remain open."
   ],
   "evidence": "live-audio-framing-2026-10-18/",
-  "private_artifacts": "/Users/vart/.cache/codex/xveil-live-framing-20261018",
+  "private_artifacts": "/Users/<user>/.cache/codex/xveil-live-framing-20261018",
   "cleanup": "No GUI apps started. Owned native test/build processes exited; --rm Android build container removed.",
   "sdk_commit": "b1d83bcccf5b3072312179510a612ee91899ffc0"
 }

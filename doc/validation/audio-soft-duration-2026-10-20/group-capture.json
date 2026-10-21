@@ -461,7 +461,7 @@
   ],
   "workers_exited": true,
   "speech_listening_proof": false,
-  "raw_artifact_root": "/Users/vart/.cache/codex/xveil-soft-duration-20261020/group-final-360",
+  "raw_artifact_root": "/Users/<user>/.cache/codex/xveil-soft-duration-20261020/group-final-360",
   "audio_markers_matched": 2112,
   "audio_markers_missing": 0,
   "workers_analysis": [

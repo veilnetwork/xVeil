@@ -138,7 +138,7 @@
       "owned_forward_absent": true
     },
     "error": null,
-    "private_directory": "/Users/vart/.cache/codex/xveil-android-cc-20261018/qa/physical-android-cc"
+    "private_directory": "/Users/<user>/.cache/codex/xveil-android-cc-20261018/qa/physical-android-cc"
   },
   "video_call_tail_producer_pause_evidence": [
     {
@@ -256,7 +256,7 @@
       "owned_forward_absent": true
     },
     "error": null,
-    "private_directory": "/Users/vart/.cache/codex/xveil-android-cc-20261018/qa/physical-relay-audio-only"
+    "private_directory": "/Users/<user>/.cache/codex/xveil-android-cc-20261018/qa/physical-relay-audio-only"
   },
   "packet_interval_evidence": {
     "video_call": "android-cc-2026-10-18/video-call-audio-intervals.json",
@@ -335,7 +335,7 @@
     "Capture the earlier Android 3959-ms video queue with the new native clock/controller evidence; no quality policy change justified by this negative repro.",
     "Live speech/headset/loudness quality remains unqualified."
   ],
-  "private_artifact_directory": "/Users/vart/.cache/codex/xveil-android-cc-20261018",
+  "private_artifact_directory": "/Users/<user>/.cache/codex/xveil-android-cc-20261018",
   "release_push_or_relay_deployment": false,
   "retained_artifact_sha256": {
     "android-cc-2026-10-18/audio-only-intervals.json": "85db989efbd6a8c2bb650872d58b6cc9fc15b5f7d220cd077f34997d5e9cfe09",

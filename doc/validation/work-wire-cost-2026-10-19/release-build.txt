@@ -1,4 +1,4 @@
-   Compiling veilcore v0.8.3 (/Users/vart/.cache/codex/xveil-work-wire-cost-20261019/sdk-src/veilcore)
-   Compiling veilclient v0.8.3 (/Users/vart/.cache/codex/xveil-work-wire-cost-20261019/sdk-src/veilclient)
-   Compiling veilclient-ffi v0.11.42 (/Users/vart/.cache/codex/xveil-work-wire-cost-20261019/sdk-src/crates/veilclient-ffi)
+   Compiling veilcore v0.8.3 (/Users/<user>/.cache/codex/xveil-work-wire-cost-20261019/sdk-src/veilcore)
+   Compiling veilclient v0.8.3 (/Users/<user>/.cache/codex/xveil-work-wire-cost-20261019/sdk-src/veilclient)
+   Compiling veilclient-ffi v0.11.42 (/Users/<user>/.cache/codex/xveil-work-wire-cost-20261019/sdk-src/crates/veilclient-ffi)
     Finished `release` profile [optimized] target(s) in 1m 20s

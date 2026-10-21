@@ -1,4 +1,4 @@
-00:00 +0: loading /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart
+00:00 +0: loading /Users/<user>/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart
 00:00 +0: measured small damage does not contract transport and preserves recovery credit
 00:00 +0 -1: measured small damage does not contract transport and preserves recovery credit [E]
   Expected: false
@@ -11,4 +11,4 @@
 00:00 +0 -1: Some tests failed.
 
 Failing tests:
-  /Users/vart/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: measured small damage does not contract transport and preserves recovery credit
+  /Users/<user>/Projects/veilnetwork/xVeil/test/call_audio_source_pressure_test.dart: measured small damage does not contract transport and preserves recovery credit

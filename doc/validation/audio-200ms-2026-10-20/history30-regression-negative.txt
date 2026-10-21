@@ -1,14 +1,14 @@
-[unsafe-buffers] file '/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_media/src/veil_diag_log.h' bad test against path '../../'
-ld: warning: ignoring -lto_library '/Users/vart/Projects/veilnetwork/webrtc-checkout/src/third_party/llvm-build/Release+Asserts/lib/libLTO.dylib', file does not exist
+[unsafe-buffers] file '/Users/<user>/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_media/src/veil_diag_log.h' bad test against path '../../'
+ld: warning: ignoring -lto_library '/Users/<user>/Projects/veilnetwork/webrtc-checkout/src/third_party/llvm-build/Release+Asserts/lib/libLTO.dylib', file does not exist
 catch-up preserves usable speech on PLC/mute/error; work bounded to 16 pulls
 playout timing trace is opt-in, bounded, and writes only at teardown
-ld: warning: ignoring -lto_library '/Users/vart/Projects/veilnetwork/webrtc-checkout/src/third_party/llvm-build/Release+Asserts/lib/libLTO.dylib', file does not exist
+ld: warning: ignoring -lto_library '/Users/<user>/Projects/veilnetwork/webrtc-checkout/src/third_party/llvm-build/Release+Asserts/lib/libLTO.dylib', file does not exist
 RTP lag: constant high delay, wrap, reorder, upstream queue, floor expiry, silence, reset and fresh publication verified
-[unsafe-buffers] file '/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_media/src/veil_diag_log.h' bad test against path '../../'
-ld: warning: ignoring -lto_library '/Users/vart/Projects/veilnetwork/webrtc-checkout/src/third_party/llvm-build/Release+Asserts/lib/libLTO.dylib', file does not exist
+[unsafe-buffers] file '/Users/<user>/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_media/src/veil_diag_log.h' bad test against path '../../'
+ld: warning: ignoring -lto_library '/Users/<user>/Projects/veilnetwork/webrtc-checkout/src/third_party/llvm-build/Release+Asserts/lib/libLTO.dylib', file does not exist
 Assertion failed: (delay == 80), function ArrivalBaselineRegression, file conversation_neteq_controller_smoke.cc, line 62.
 Traceback (most recent call last):
-  File "/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_media/test/run_playout_recovery_smoke.py", line 42, in <module>
+  File "/Users/<user>/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_media/test/run_playout_recovery_smoke.py", line 42, in <module>
     subprocess.run([str(temp / 'smoke')], check=True)
     ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   File "/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/subprocess.py", line 578, in run

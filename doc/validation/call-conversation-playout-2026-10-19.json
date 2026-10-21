@@ -106,7 +106,7 @@
     }
   },
   "evidence": "doc/validation/conversation-playout-2026-10-19",
-  "private_artifacts": "/Users/vart/.cache/codex/xveil-conversation-contiguous-20261019",
+  "private_artifacts": "/Users/<user>/.cache/codex/xveil-conversation-contiguous-20261019",
   "adb_read_only_device": "Blackview BV6600Pro, installed0.13.87/code12616",
   "installed_app_changed": false,
   "relay_changed": false,

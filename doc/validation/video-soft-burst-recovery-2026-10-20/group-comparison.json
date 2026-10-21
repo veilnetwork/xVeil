@@ -1,6 +1,6 @@
 {
   "historical-baseline": {
-    "path": "/Users/vart/.cache/codex/xveil-explicit-source-hold-20261020/group-expiry-final-360",
+    "path": "/Users/<user>/.cache/codex/xveil-explicit-source-hold-20261020/group-expiry-final-360",
     "raw_ok": false,
     "measured_seconds": 360,
     "audio_markers": 2112,
@@ -205,7 +205,7 @@
     "maximum_single_pool_snapshot_held_acks": 8836
   },
   "candidate": {
-    "path": "/Users/vart/.cache/codex/xveil-soft-burst-recovery-20261020/group-candidate-360",
+    "path": "/Users/<user>/.cache/codex/xveil-soft-burst-recovery-20261020/group-candidate-360",
     "raw_ok": false,
     "measured_seconds": 360,
     "audio_markers": 2112,

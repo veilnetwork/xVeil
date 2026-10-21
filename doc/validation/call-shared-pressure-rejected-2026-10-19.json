@@ -54,12 +54,12 @@
     "candidate_source_snapshot_retained": "sdk-src",
     "candidate_library_retained": "sdk/libveilclient_ffi.dylib",
     "shared_target_generic_dylib_quarantined": true,
-    "quarantine_path": "/Users/vart/.cache/codex/xveil-shared-pressure-20261019/rejected-shared-target-output.dylib",
+    "quarantine_path": "/Users/<user>/.cache/codex/xveil-shared-pressure-20261019/rejected-shared-target-output.dylib",
     "pair_run": false,
     "pair_skip_reason": "Group prerequisite already fails; candidate is rejected without further optional qualification",
     "constants_retuned_after_failure": false
   },
-  "private_artifacts": "/Users/vart/.cache/codex/xveil-shared-pressure-20261019",
+  "private_artifacts": "/Users/<user>/.cache/codex/xveil-shared-pressure-20261019",
   "remaining": [
     "Measured source service/capacity and primary framing/fanout/control reservation before secondary work, with freshness/ownership/app-limited/probe safeguards",
     "Separate remaining interaction channels, including own network-control and ordered signaling",

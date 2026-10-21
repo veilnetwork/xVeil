@@ -173,7 +173,7 @@
     "Two fleet identities per endpoint use different ephemeral QUIC port URIs in the end snapshot. This is an observed address change, not a proved session outage."
   ],
   "evidence": "quic-fleet-2026-10-18/",
-  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-playout-followup-20261018",
+  "private_artifacts_root": "/Users/<user>/.cache/codex/xveil-playout-followup-20261018",
   "public_release": false,
   "foreign_wip_preserved": true
 }

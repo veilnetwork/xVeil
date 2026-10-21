@@ -302,5 +302,5 @@
     "mac-runtime.log": "3b9089868bb0f8123d335defb4b2b56791c0c45cbce2e131cddb50f69456f879",
     "independent-cleanup.json": "18683d4768003fc49c951e90cab06c2b96ad6539be58d1b6e1ab8a538130a2d7"
   },
-  "private_capture_directory": "/Users/vart/.cache/codex/xveil-phone-return-20261018/physical-call-both-traces"
+  "private_capture_directory": "/Users/<user>/.cache/codex/xveil-phone-return-20261018/physical-call-both-traces"
 }

@@ -86,5 +86,5 @@
   "public_release": false,
   "foreign_wip_preserved": true,
   "evidence": "bwe-handover-2026-10-19/",
-  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-bwe-handover-20261019"
+  "private_artifacts_root": "/Users/<user>/.cache/codex/xveil-bwe-handover-20261019"
 }

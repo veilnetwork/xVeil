@@ -1,4 +1,4 @@
-   Compiling quinn-proto v0.11.18 (/Users/vart/.cache/codex/xveil-pacer-credit-20261019/sdk-src/third_party/quinn-proto)
+   Compiling quinn-proto v0.11.18 (/Users/<user>/.cache/codex/xveil-pacer-credit-20261019/sdk-src/third_party/quinn-proto)
 warning: unused `streams::ShouldTransmit` that must be used
     --> src/tests/mod.rs:2655:5
      |
@@ -14,7 +14,7 @@ help: use `let _ = ...` to ignore the resulting value
 
 warning: `quinn-proto` (lib test) generated 1 warning
     Finished `test` profile [unoptimized + debuginfo] target(s) in 2.22s
-     Running unittests src/lib.rs (/Users/vart/.cache/codex/veil-qos-target-20261016/debug/deps/quinn_proto-05261a2d38292817)
+     Running unittests src/lib.rs (/Users/<user>/.cache/codex/veil-qos-target-20261016/debug/deps/quinn_proto-05261a2d38292817)
 
 running 324 tests
 test bloom_token_log::test::optimal_k_num_test ... ok

@@ -85,8 +85,8 @@
   ],
   "limits": "Synthetic same-host loopback. Ordinary sampling in fixed capture; diagnostic capture overlapped compilation and is for attribution only. No physical speech/cellular/screen/subsecond presentation proof.",
   "evidence_directory": "doc/validation/secondary-frame-cadence-2026-10-20",
-  "private_diagnostic_root": "/Users/vart/.cache/codex/xveil-padding-path-20261020",
-  "private_fixed_root": "/Users/vart/.cache/codex/xveil-cadence-fixed-20261020",
+  "private_diagnostic_root": "/Users/<user>/.cache/codex/xveil-padding-path-20261020",
+  "private_fixed_root": "/Users/<user>/.cache/codex/xveil-cadence-fixed-20261020",
   "pushed": false,
   "released": false
 }

@@ -18,8 +18,8 @@
       "veilclient-ffi"
     ],
     "profile": "release",
-    "build_cwd": "/Users/vart/Projects/veilnetwork/xVeil",
-    "manifest_path": "/Users/vart/.cache/codex/xveil-console-clean-sdk-20261018/Cargo.toml",
+    "build_cwd": "/Users/<user>/Projects/veilnetwork/xVeil",
+    "manifest_path": "/Users/<user>/.cache/codex/xveil-console-clean-sdk-20261018/Cargo.toml",
     "change": "Explicit client trace initializes existing console sink; no traffic/admission/role/wire change",
     "source_files": {
       "crates/veilclient-ffi/src/lib.rs": "fc0ed7c99676cd830dfd54cef91cbbb0995a3d858ef2ad3e0c346034df7a59f5",

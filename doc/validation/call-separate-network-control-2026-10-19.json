@@ -89,7 +89,7 @@
     },
     "initial_clippy_failure": "Target cache volume exhausted; freed only regenerable Veil incremental caches, then the same Clippy command passed. No source change for the retry.",
     "sdk_build": {
-      "path": "/Users/vart/.cache/codex/xveil-separate-network-control-20261019/sdk/libveilclient_ffi.dylib",
+      "path": "/Users/<user>/.cache/codex/xveil-separate-network-control-20261019/sdk/libveilclient_ffi.dylib",
       "sha256": "2816a30fba6804373521086f9d173b1ddee58a29ac8c860dee0150fc6f40b1ec",
       "exports": 202,
       "exports_unchanged": true,
@@ -215,5 +215,5 @@
   "public_release": false,
   "pushed": false,
   "evidence_directory": "doc/validation/separate-network-control-2026-10-19",
-  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-separate-network-control-20261019"
+  "private_artifacts_root": "/Users/<user>/.cache/codex/xveil-separate-network-control-20261019"
 }

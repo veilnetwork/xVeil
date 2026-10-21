@@ -431,6 +431,6 @@
     "All previous failed captures remain failed. Full contention still exceeds the strict original 200-ms PCM gate.",
     "Owned same-host PCM timing; no live speech/headset or physical acoustic claim."
   ],
-  "private_capture_directory": "/Users/vart/.cache/codex/xveil-route-epoch-20261018/group-native-send-fixed-full-360",
+  "private_capture_directory": "/Users/<user>/.cache/codex/xveil-route-epoch-20261018/group-native-send-fixed-full-360",
   "summary_sha256": "087f24ab31c37ef6b9f8958c39f3c949e3fc3461cabb8de46c72f7e5aa164ee6"
 }

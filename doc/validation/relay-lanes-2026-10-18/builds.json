@@ -7,15 +7,15 @@
       "production-seeds"
     ],
     "target": "x86_64-unknown-linux-musl",
-    "path": "/Users/vart/.cache/codex/xveil-current-android-sdk-20261018/server/veil-cli-v0.11.42-3f1b69ba-linux-x86_64-musl",
+    "path": "/Users/<user>/.cache/codex/xveil-current-android-sdk-20261018/server/veil-cli-v0.11.42-3f1b69ba-linux-x86_64-musl",
     "sha256": "079e1536eba177c28d62b565e6d58a57211802539e7a4690fa730cd54fb4ab5f",
     "bytes": 38150280,
-    "file": "/Users/vart/.cache/codex/xveil-current-android-sdk-20261018/server/veil-cli-v0.11.42-3f1b69ba-linux-x86_64-musl: ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), static-pie linked, BuildID[sha1]=bcf64ac13573ec59a28e8b0860bcb17dc0eeec1b, not stripped",
+    "file": "/Users/<user>/.cache/codex/xveil-current-android-sdk-20261018/server/veil-cli-v0.11.42-3f1b69ba-linux-x86_64-musl: ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), static-pie linked, BuildID[sha1]=bcf64ac13573ec59a28e8b0860bcb17dc0eeec1b, not stripped",
     "scope": "Current clean production CLI, built with existing cross-build-linux-musl.sh defaults. CARGO_TARGET_DIR overrides the wrapper printed path; actual output is verified/copied from that cache."
   },
   "android": {
     "sdk_commit": "3f1b69ba09e12dfb0d7e949e5633bca6f32375b1",
-    "clean_worktree": "/Users/vart/.cache/codex/xveil-current-android-sdk-20261018/sdk-src",
+    "clean_worktree": "/Users/<user>/.cache/codex/xveil-current-android-sdk-20261018/sdk-src",
     "rust_sources_identical_to_tested_db197": true,
     "features": [
       "production-seeds",
@@ -34,7 +34,7 @@
     "scope": "Only phone Rust SDK moves from 986 to current clean 3f1b, with Rust sources identical to tested db197. Mac, media, Dart AOT, hidden-volume, data, versionCode12614 and signer unchanged. Private QA, not release.",
     "source": {
       "sdk_commit": "3f1b69ba09e12dfb0d7e949e5633bca6f32375b1",
-      "clean_worktree": "/Users/vart/.cache/codex/xveil-current-android-sdk-20261018/sdk-src",
+      "clean_worktree": "/Users/<user>/.cache/codex/xveil-current-android-sdk-20261018/sdk-src",
       "rust_sources_identical_to_tested_db197": true,
       "features": [
         "production-seeds",

@@ -7,7 +7,7 @@
   "physical_build": {
     "sdk_source_head": "7f664470e564a643826d5bc121e528f5e23ed50a",
     "root_head_before_commit": "6405689558f6cc9377239907d03b50c627021fc4",
-    "mac_private_qa": "/Users/vart/.cache/codex/xveil-route-epoch-20261018/mac-stand/xveil.app",
+    "mac_private_qa": "/Users/<user>/.cache/codex/xveil-route-epoch-20261018/mac-stand/xveil.app",
     "mac_media_test_hooks": false,
     "same_android_signer": true,
     "mac_signed_native_sha256": {
@@ -551,5 +551,5 @@
     "Previous multi-second RTCP RTT spikes have not been attributed to an exact packet/stage.",
     "Latest full original group contention capture still FAIL 220.246125 ms. See call-group-send-fixed-2026-10-18.json for exact native-send attribution; no gate relaxed."
   ],
-  "private_capture_directory": "/Users/vart/.cache/codex/xveil-route-epoch-20261018/physical-route-epoch-installed"
+  "private_capture_directory": "/Users/<user>/.cache/codex/xveil-route-epoch-20261018/physical-route-epoch-installed"
 }

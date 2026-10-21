@@ -147,6 +147,6 @@
     "source.json": "062f49537e878ad6c5b26e47ad0a36e373a4868ea47c41d08a2b2f1b4030e3ff",
     "group-runtime-witness.json": "28fb160e1ed44a14d0448144a1af4f19e89cce773e297ba1a870f65b6e2f7fe3"
   },
-  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-video-framing-20261019",
+  "private_artifacts_root": "/Users/<user>/.cache/codex/xveil-video-framing-20261019",
   "sdk_commit": "80c4205e29b51173d17905713f4e9432c816bf73"
 }

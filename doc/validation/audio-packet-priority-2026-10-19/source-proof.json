@@ -1,7 +1,7 @@
 {
   "sdk_base": "19205a986a6833f1ae4b330819b99bef4ef7ddc8",
   "root_base": "e2cbb7bc45d46129967eba305fa2f91c36591688",
-  "sdk_path": "/Users/vart/.cache/codex/xveil-separate-network-control-20261019/sdk/libveilclient_ffi.dylib",
+  "sdk_path": "/Users/<user>/.cache/codex/xveil-separate-network-control-20261019/sdk/libveilclient_ffi.dylib",
   "sdk_sha256": "2816a30fba6804373521086f9d173b1ddee58a29ac8c860dee0150fc6f40b1ec",
   "source_files": {
     "flutter/veil_media/src/bounded_audio_encoder.h": "10d247b6a7313d12cf52e267a92a9dc2bea1560868c700ef44e05cf37bf3ade9",
@@ -17,13 +17,13 @@
   },
   "media": {
     "media-hooks": {
-      "path": "/Users/vart/.cache/codex/xveil-audio-packet-priority-20261019/media-hooks/libveil_media.dylib",
+      "path": "/Users/<user>/.cache/codex/xveil-audio-packet-priority-20261019/media-hooks/libveil_media.dylib",
       "sha256": "40d583d92326ebac76de4f68b5d447899d5fae7523758a205f586ffb51d24dda",
       "exports": 135,
       "dlopen": true
     },
     "media-production": {
-      "path": "/Users/vart/.cache/codex/xveil-audio-packet-priority-20261019/media-production/libveil_media.dylib",
+      "path": "/Users/<user>/.cache/codex/xveil-audio-packet-priority-20261019/media-production/libveil_media.dylib",
       "sha256": "aba966ce1ac73d229474326e22e5fd8dc005bbbcc684aabe0ff65720ff4ed25d",
       "exports": 101,
       "dlopen": true

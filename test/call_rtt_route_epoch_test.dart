@@ -54,7 +54,9 @@ void main() {
     final a = adapter();
     sample(a, 0, 8);
     for (var i = 0; i < 12; ++i) {
-      sample(a, 0, 110);
+      // Above the current 120-ms recovery margin, while still below the
+      // absolute guard: this phase must withhold growth on the old route.
+      sample(a, 0, 160);
     }
     expect(a.level, 4);
     expect(a.rttBaselineMs, 8);
@@ -65,9 +67,9 @@ void main() {
     expect(a.level, 4);
     expect(a.rttBaselineMs, isNull);
     for (var i = 0; i < 12; ++i) {
-      sample(a, 1, 110);
+      sample(a, 1, 160);
     }
-    expect(a.rttBaselineMs, 110);
+    expect(a.rttBaselineMs, 160);
     expect(a.level, 3);
   });
 

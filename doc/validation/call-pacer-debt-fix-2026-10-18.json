@@ -52,7 +52,7 @@
     ]
   },
   "full_original_qualification": {
-    "private_directory": "/Users/vart/.cache/codex/xveil-pacer-debt-qualification-20261018/group-full-360",
+    "private_directory": "/Users/<user>/.cache/codex/xveil-pacer-debt-qualification-20261018/group-full-360",
     "summary": {
       "ok": true,
       "qualified": true,
@@ -330,7 +330,7 @@
       "owned_forward_absent": true
     },
     "error": null,
-    "private_directory": "/Users/vart/.cache/codex/xveil-pacer-debt-qualification-20261018/production-apps/physical-production-debt-v2",
+    "private_directory": "/Users/<user>/.cache/codex/xveil-pacer-debt-qualification-20261018/production-apps/physical-production-debt-v2",
     "rust_sdk_kept_at": "9860a5ea (both endpoints); this trial changes only the native media library, not the later db197 capacity fix",
     "interpretation": "Component rate-cut correction passes, but this physical relay trial FAILS full audio/video quality: 8 phone interruptions, low video tail rates, sampled Mac pacer peak 929 ms. No controlled network A/B or proof that v2 caused or solved these remaining problems.",
     "phone_cumulative_interruption_duration_ms": 2286,
@@ -347,7 +347,7 @@
     "Human speech/headset/acoustic quality, including the quiet-call report, remains unqualified."
   ],
   "release_push_or_relay_deployment": false,
-  "private_artifact_directory": "/Users/vart/.cache/codex/xveil-pacer-debt-qualification-20261018",
+  "private_artifact_directory": "/Users/<user>/.cache/codex/xveil-pacer-debt-qualification-20261018",
   "sdk_native_commit": "280b6517c769214581984a654ca06b244f1f4946",
   "combined_mac_sdk_physical": {
     "ring_seconds": 0.18060758299543522,
@@ -437,13 +437,13 @@
       "owned_forward_absent": true
     },
     "error": null,
-    "private_directory": "/Users/vart/.cache/codex/xveil-pacer-debt-qualification-20261018/combined-mac-apps/physical-pacing-capacity",
+    "private_directory": "/Users/<user>/.cache/codex/xveil-pacer-debt-qualification-20261018/combined-mac-apps/physical-pacing-capacity",
     "build": {
       "mac_sdk": {
         "sdk_commit": "db19722ceb6cf7afc0f18424f3241c74e11e217c",
         "clean_sdk_worktree": true,
-        "source_worktree": "/Users/vart/.cache/codex/xveil-cancel-capacity-20261018/sdk-src",
-        "sdk_path": "/Users/vart/.cache/codex/xveil-cancel-capacity-20261018/sdk/libveilclient_ffi.dylib",
+        "source_worktree": "/Users/<user>/.cache/codex/xveil-cancel-capacity-20261018/sdk-src",
+        "sdk_path": "/Users/<user>/.cache/codex/xveil-cancel-capacity-20261018/sdk/libveilclient_ffi.dylib",
         "sdk_sha256": "4fefafb0fec67dee8a851f32b067dea0fec0206d75ab71a6924e42869bbb2bdc",
         "features": [
           "default tls-boring",

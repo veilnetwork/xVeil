@@ -1,10 +1,10 @@
 from pathlib import Path
 import subprocess,os,json,signal,time,hashlib
 os.umask(0o077)
-r=Path(__file__).parent;repo=Path('/Users/vart/Projects/veilnetwork/xVeil');d=r/'group-final-360';assert not d.exists()
+r=Path(__file__).parent;repo=Path('/Users/<user>/Projects/veilnetwork/xVeil');d=r/'group-final-360';assert not d.exists()
 assert not os.environ.get('VEIL_MEDIA_TEST_GROUP_PTIME')
 env=dict(os.environ,TMPDIR='/private/tmp/',VEIL_RT_TRACE_SEALED_EVERY='1',VEIL_DIAG_SOURCE_CELLS='1',VEIL_MEDIA_RTP_TRACE_LIMIT='32768')
-cmd=['python3',str(repo/'scripts/group-process-preflight.py'),'--sdk','/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/sdk/libveilclient_ffi.dylib','--media','/Users/vart/.cache/codex/xveil-rtp-lag-20261019/media-hooks/libveil_media.dylib','--directory',str(d),'--duration','360','--rate-kbps','1024','--adaptive','--full-load','--playout-trace','--opaque-forward-trace','--source-framing-trace','--wire-trace-capacity','250000']
+cmd=['python3',str(repo/'scripts/group-process-preflight.py'),'--sdk','/Users/<user>/.cache/codex/xveil-source-flight-demand-20261019/sdk/libveilclient_ffi.dylib','--media','/Users/<user>/.cache/codex/xveil-rtp-lag-20261019/media-hooks/libveil_media.dylib','--directory',str(d),'--duration','360','--rate-kbps','1024','--adaptive','--full-load','--playout-trace','--opaque-forward-trace','--source-framing-trace','--wire-trace-capacity','250000']
 fixture=helper=None
 try:
  with (r/'group-final-360.log').open('w') as log:
@@ -15,7 +15,7 @@ try:
   until=time.monotonic()+120
   while not (d/'capture-origin.json').exists() and fixture.poll() is None and time.monotonic()<until:time.sleep(.2)
   if d.is_dir():
-   (d/'native-build.json').write_bytes(Path('/Users/vart/.cache/codex/xveil-rtp-lag-20261019/native-source-proof.json').read_bytes())
+   (d/'native-build.json').write_bytes(Path('/Users/<user>/.cache/codex/xveil-rtp-lag-20261019/native-source-proof.json').read_bytes())
    for f in ['lib/state/veil_group_call_media.dart','lib/state/veil_call_media.dart','lib/domain/call_signal.dart']:
     (d/('supplemental-'+f.replace('/','-'))).write_bytes((repo/f).read_bytes())
   processes=[]

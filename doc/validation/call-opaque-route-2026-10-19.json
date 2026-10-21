@@ -362,7 +362,7 @@
     ],
     "remaining_sockets": 0
   },
-  "private_artifacts": "/Users/vart/.cache/codex/quic-all-confirm-20261019T150613Z",
+  "private_artifacts": "/Users/<user>/.cache/codex/quic-all-confirm-20261019T150613Z",
   "push": false,
   "release": false
 }

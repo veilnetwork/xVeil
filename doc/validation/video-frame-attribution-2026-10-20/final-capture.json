@@ -244,6 +244,6 @@
     "trace_capacity": 250000,
     "trace_truncated": false
   },
-  "raw_artifact_root": "/Users/vart/.cache/codex/xveil-source-pressure-original-pixels-20261020/group-final-360",
+  "raw_artifact_root": "/Users/<user>/.cache/codex/xveil-source-pressure-original-pixels-20261020/group-final-360",
   "scope": "360-second closed loop with original pixel guard and revised source-pressure policy. Source SDK trace hit its bound; native recorders are complete, SDK admission attribution is not claimed for this full capture."
 }

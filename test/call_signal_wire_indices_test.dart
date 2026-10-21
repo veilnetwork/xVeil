@@ -25,6 +25,7 @@ void main() {
       CallSignalType.transportInfo: 7,
       CallSignalType.health: 8,
       CallSignalType.askVideoOff: 9,
+      CallSignalType.answerSelected: 10,
     };
     pinned.forEach((type, index) {
       expect(type.index, index, reason: '${type.name} moved on the wire');

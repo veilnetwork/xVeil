@@ -3,7 +3,7 @@
     "command": "TMPDIR=/private/tmp/ flutter test --no-pub test/group_call_source_priority_test.dart test/group_call_audio_adapter_test.dart test/veil_group_call_media_test.dart test/call_bitrate_adapter_test.dart",
     "exit_code": 0,
     "last_lines": [
-      "00:01 +192: /Users/vart/Projects/veilnetwork/xVeil/test/veil_group_call_media_test.dart: room media is sealed per participant pair a room whose secret is unavailable opens no peer channel",
+      "00:01 +192: /Users/<user>/Projects/veilnetwork/xVeil/test/veil_group_call_media_test.dart: room media is sealed per participant pair a room whose secret is unavailable opens no peer channel",
       "00:01 +193: All tests passed!"
     ]
   },
@@ -23,8 +23,8 @@
       "  Expected: false",
       "    Actual: <true>",
       "Failing tests:",
-      "  /Users/vart/Projects/veilnetwork/xVeil/test/group_call_source_priority_test.dart: long audio alone cannot pause a late video source",
-      "  /Users/vart/Projects/veilnetwork/xVeil/test/group_call_source_priority_test.dart: video recovers without increasing the audio packet rate"
+      "  /Users/<user>/Projects/veilnetwork/xVeil/test/group_call_source_priority_test.dart: long audio alone cannot pause a late video source",
+      "  /Users/<user>/Projects/veilnetwork/xVeil/test/group_call_source_priority_test.dart: video recovers without increasing the audio packet rate"
     ]
   },
   "negative_committed_controller": {
@@ -34,7 +34,7 @@
       "  Expected: false",
       "    Actual: <true>",
       "Failing tests:",
-      "  /Users/vart/Projects/veilnetwork/xVeil/test/veil_group_call_media_test.dart: long audio packets wait for actual video yield when pause is refused"
+      "  /Users/<user>/Projects/veilnetwork/xVeil/test/veil_group_call_media_test.dart: long audio packets wait for actual video yield when pause is refused"
     ]
   },
   "python_unchanged_fixture_checks": {

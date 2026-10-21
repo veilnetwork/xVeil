@@ -1889,21 +1889,21 @@
           "at_seconds": 33.721256083008484,
           "duration_seconds": 2,
           "interval_ms": 10,
-          "output": "/Users/vart/.cache/codex/xveil-origin-data-20261018/group-all-reliable-profile-full-360/sdk-host-sample-1.txt"
+          "output": "/Users/<user>/.cache/codex/xveil-origin-data-20261018/group-all-reliable-profile-full-360/sdk-host-sample-1.txt"
         },
         {
           "pid": 85023,
           "at_seconds": 64.8294256250083,
           "duration_seconds": 2,
           "interval_ms": 10,
-          "output": "/Users/vart/.cache/codex/xveil-origin-data-20261018/group-all-reliable-profile-full-360/sdk-host-sample-2.txt"
+          "output": "/Users/<user>/.cache/codex/xveil-origin-data-20261018/group-all-reliable-profile-full-360/sdk-host-sample-2.txt"
         },
         {
           "pid": 94582,
           "at_seconds": 142.64850750000915,
           "duration_seconds": 2,
           "interval_ms": 10,
-          "output": "/Users/vart/.cache/codex/xveil-origin-data-20261018/group-all-reliable-profile-full-360/sdk-host-sample-3.txt"
+          "output": "/Users/<user>/.cache/codex/xveil-origin-data-20261018/group-all-reliable-profile-full-360/sdk-host-sample-3.txt"
         }
       ],
       "window-profile-ownership": {

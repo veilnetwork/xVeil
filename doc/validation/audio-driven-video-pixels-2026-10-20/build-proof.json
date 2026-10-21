@@ -1,6 +1,6 @@
 {
   "sdk": {
-    "path": "/Users/vart/.cache/codex/xveil-flight-drain-20261020/sdk-fixed/libveilclient_ffi.dylib",
+    "path": "/Users/<user>/.cache/codex/xveil-flight-drain-20261020/sdk-fixed/libveilclient_ffi.dylib",
     "sha256": "6b23c5dd905a8ec67c2a849a68d2027a56f4f1baa74a9328ceace62cad0cf5f8",
     "exports": 202,
     "exports_unchanged": true,
@@ -12,7 +12,7 @@
     "owned_source_sha256": "628f714dc0dc76017e547c7fb4cc8dd813669b14c2b05c3e44a2c3c31f28a347"
   },
   "media": {
-    "path": "/Users/vart/.cache/codex/xveil-audio-pixel-feedback-20261020/media-hooks/libveil_media.dylib",
+    "path": "/Users/<user>/.cache/codex/xveil-audio-pixel-feedback-20261020/media-hooks/libveil_media.dylib",
     "sha256": "e9199d567fdd56e7a0028e795b9e6f6e7a926c2821077901679b05c11fd28ff0",
     "exports": 137,
     "additive_exports": [
@@ -30,7 +30,7 @@
     "third_party/veil/flutter/veil_media/src/veil_media_engine.h": "88ea10d33cb4a45dd017cb14e19689945233e4a2bea99db8d66e5f976244500b"
   },
   "media_production": {
-    "path": "/Users/vart/.cache/codex/xveil-audio-pixel-feedback-20261020/media-production/libveil_media.dylib",
+    "path": "/Users/<user>/.cache/codex/xveil-audio-pixel-feedback-20261020/media-production/libveil_media.dylib",
     "sha256": "366da6a7d3d08d995d5fc85ce328eac4dae53bac33e8f9c7d43a2ff6b3f8c04b",
     "exports": 103,
     "additive_exports": [

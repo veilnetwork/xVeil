@@ -20,7 +20,7 @@
     "crates/veil-e2e/src/ratchet.rs",
     "crates/veil-node-runtime/src/runtime/identity_publish.rs"
   ],
-  "target": "/Users/vart/.cache/codex/veil-auxiliary-neutral-target-20261019",
+  "target": "/Users/<user>/.cache/codex/veil-auxiliary-neutral-target-20261019",
   "foreign_diff_sha256": "1ceeb05d540078262f1480ba7210dfaa0f5895be9f0099f64bc18a56a4f6a363",
   "sdk_sha256": "57843f770a0008bee2f47ee6a5fef06b705ac414139bba61b7b3c1f1832bcb2b",
   "sdk_commit": "bfbb23115749e5930b85f491dbda2d8d56190f0a",

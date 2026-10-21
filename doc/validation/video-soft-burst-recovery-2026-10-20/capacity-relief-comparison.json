@@ -1,6 +1,6 @@
 {
   "group-relief-300": {
-    "path": "/Users/vart/.cache/codex/xveil-soft-burst-recovery-20261020/group-relief-300",
+    "path": "/Users/<user>/.cache/codex/xveil-soft-burst-recovery-20261020/group-relief-300",
     "raw_ok": false,
     "measurement_seconds": 300,
     "capacity_step": {
@@ -180,7 +180,7 @@
     ]
   },
   "group-relief-tail-300": {
-    "path": "/Users/vart/.cache/codex/xveil-soft-burst-recovery-20261020/group-relief-tail-300",
+    "path": "/Users/<user>/.cache/codex/xveil-soft-burst-recovery-20261020/group-relief-tail-300",
     "raw_ok": false,
     "measurement_seconds": 300,
     "capacity_step": {

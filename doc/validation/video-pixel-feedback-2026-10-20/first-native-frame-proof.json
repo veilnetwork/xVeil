@@ -1,5 +1,5 @@
 {
-  "path": "/Users/vart/.cache/codex/xveil-transient-frame-20261020/native-frame-analysis.json",
+  "path": "/Users/<user>/.cache/codex/xveil-transient-frame-20261020/native-frame-analysis.json",
   "sha256": "cd7ec259adb261e4c22b88bd9781e0802e1a21105fb4065b875c7df2aaa0ed68",
   "sdk_admission_audited": false,
   "scope": "Same-host endpoint metadata; no live speech or display quality claim. Unknown SDK witnesses are not proof of drops. Final three seconds are censored.",

@@ -3,15 +3,15 @@ EE.
 ERROR: test_complete_reply_survives_peer_close_before_half_close (test_fixture_admin.FixtureAdminTest.test_complete_reply_survives_peer_close_before_half_close)
 ----------------------------------------------------------------------
 Traceback (most recent call last):
-  File "/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/admin-race-negative/test_fixture_admin.py", line 69, in test_complete_reply_survives_peer_close_before_half_close
+  File "/Users/<user>/.cache/codex/xveil-source-flight-demand-20261019/admin-race-negative/test_fixture_admin.py", line 69, in test_complete_reply_survives_peer_close_before_half_close
     self.assertEqual(self.exchange(reply, errno.ENOTCONN), reply)
                      ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/admin-race-negative/test_fixture_admin.py", line 60, in exchange
+  File "/Users/<user>/.cache/codex/xveil-source-flight-demand-20261019/admin-race-negative/test_fixture_admin.py", line 60, in exchange
     result = fixture_admin.request_admin(path, 'metrics')
-  File "/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/admin-race-negative/fixture_admin.py", line 16, in request_admin
+  File "/Users/<user>/.cache/codex/xveil-source-flight-demand-20261019/admin-race-negative/fixture_admin.py", line 16, in request_admin
     connection.shutdown(socket.SHUT_WR)
     ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
-  File "/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/admin-race-negative/test_fixture_admin.py", line 31, in shutdown
+  File "/Users/<user>/.cache/codex/xveil-source-flight-demand-20261019/admin-race-negative/test_fixture_admin.py", line 31, in shutdown
     raise OSError(self.error, 'simulated half-close race after real reply')
 OSError: [Errno 57] simulated half-close race after real reply
 
@@ -19,15 +19,15 @@ OSError: [Errno 57] simulated half-close race after real reply
 ERROR: test_empty_reply_is_still_an_error (test_fixture_admin.FixtureAdminTest.test_empty_reply_is_still_an_error)
 ----------------------------------------------------------------------
 Traceback (most recent call last):
-  File "/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/admin-race-negative/test_fixture_admin.py", line 73, in test_empty_reply_is_still_an_error
+  File "/Users/<user>/.cache/codex/xveil-source-flight-demand-20261019/admin-race-negative/test_fixture_admin.py", line 73, in test_empty_reply_is_still_an_error
     self.exchange(None, errno.ENOTCONN)
     ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
-  File "/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/admin-race-negative/test_fixture_admin.py", line 60, in exchange
+  File "/Users/<user>/.cache/codex/xveil-source-flight-demand-20261019/admin-race-negative/test_fixture_admin.py", line 60, in exchange
     result = fixture_admin.request_admin(path, 'metrics')
-  File "/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/admin-race-negative/fixture_admin.py", line 16, in request_admin
+  File "/Users/<user>/.cache/codex/xveil-source-flight-demand-20261019/admin-race-negative/fixture_admin.py", line 16, in request_admin
     connection.shutdown(socket.SHUT_WR)
     ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
-  File "/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/admin-race-negative/test_fixture_admin.py", line 31, in shutdown
+  File "/Users/<user>/.cache/codex/xveil-source-flight-demand-20261019/admin-race-negative/test_fixture_admin.py", line 31, in shutdown
     raise OSError(self.error, 'simulated half-close race after real reply')
 OSError: [Errno 57] simulated half-close race after real reply
 

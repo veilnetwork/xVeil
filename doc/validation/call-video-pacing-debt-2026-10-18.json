@@ -333,7 +333,7 @@
       "owned_forward_absent": true
     },
     "error": null,
-    "private_directory": "/Users/vart/.cache/codex/xveil-video-cc-20261018/physical-build/physical-video-cc",
+    "private_directory": "/Users/<user>/.cache/codex/xveil-video-cc-20261018/physical-build/physical-video-cc",
     "speech_or_headset_listening": false,
     "native_pacer_peak_ms": {
       "mac": 631,
@@ -374,7 +374,7 @@
     "interpretation": "The video backlog reproduces, but the real controller emits no finite congestion window. The native transport controller starts with an infinite window, so a finite controller window is not the blocking mechanism in this capture. Target/pacing rates transition after profile updates; API sample timestamps have acceptance/collection uncertainty, so rough cross-snapshot target/encoder mismatches alone do not prove a sustained mismatch. No subjective audio claim. Mac needs SIGKILL after the existing graceful timeout; independent cleanup passes."
   },
   "component_counterexample": {
-    "pinned_upstream_source": "/Users/vart/Projects/veilnetwork/webrtc-checkout/src/modules/pacing/pacing_controller.cc",
+    "pinned_upstream_source": "/Users/<user>/Projects/veilnetwork/webrtc-checkout/src/modules/pacing/pacing_controller.cc",
     "upstream_sha256": "30c6ff92be5477549f6b332042b1dd071df771a62dcad63f2d2f88787d118ded",
     "candidate_source_sha256": "71091117eae81665074e80310b0615d6c0c2ba5c7118959c1d7bfe92bd8aaf37",
     "patch_sha256": "fee3d1bec093bf0df77c9a590cbe52a692023e740f5cb1005f6f762f6bc36da1",

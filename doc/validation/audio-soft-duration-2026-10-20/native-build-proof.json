@@ -1,12 +1,12 @@
 {
   "media-hooks": {
-    "path": "/Users/vart/.cache/codex/xveil-soft-duration-20261020/media-hooks/libveil_media.dylib",
+    "path": "/Users/<user>/.cache/codex/xveil-soft-duration-20261020/media-hooks/libveil_media.dylib",
     "sha256": "795cb569cbf6bafb21e625287cd37a65a6c0d9c5975e89e3cceb79af27efcd33",
     "exports": 135,
     "same_exports_as_previous": true
   },
   "media-production": {
-    "path": "/Users/vart/.cache/codex/xveil-soft-duration-20261020/media-production/libveil_media.dylib",
+    "path": "/Users/<user>/.cache/codex/xveil-soft-duration-20261020/media-production/libveil_media.dylib",
     "sha256": "a6b57f404060371b64bcad6d445d71945dc3ad8ed96557e04cfb3474aae86854",
     "exports": 101,
     "same_exports_as_previous": true

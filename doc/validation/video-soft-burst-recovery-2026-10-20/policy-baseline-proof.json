@@ -2,7 +2,7 @@
   "root_base": "bff8bf0f86d04493de31429cb58e6a5762270ee7",
   "baseline_adapter_sha256": "eb3f0f8ca439bd68a35e9fc84dcf8f4c488d4f66b4915554ee76c6053ae9212c",
   "candidate_adapter_sha256": "9a9582af3e719932fced4aaa371e04243bff443db0e2cd9e1a096b7081689937",
-  "baseline_xveil_root": "/Users/vart/.cache/codex/xveil-soft-burst-recovery-20261020/baseline-root",
-  "dependency_packages_resolved_against": "/Users/vart/Projects/veilnetwork/xVeil/.dart_tool/package_config.json",
+  "baseline_xveil_root": "/Users/<user>/.cache/codex/xveil-soft-burst-recovery-20261020/baseline-root",
+  "dependency_packages_resolved_against": "/Users/<user>/Projects/veilnetwork/xVeil/.dart_tool/package_config.json",
   "unmodified_helpers": "symlinked to frozen current tree; code is not mutated during captures"
 }

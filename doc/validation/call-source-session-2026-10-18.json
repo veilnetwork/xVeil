@@ -6,7 +6,7 @@
   "scope": "Exact source-session and QUIC admission observations for an original PCM-peak packet; endpoint-only opt-in metadata. Relays retain opaque neutral forwarding. Scheduling, codecs, wire and quality gates are unchanged.",
   "captures": [
     {
-      "private_directory": "/Users/vart/.cache/codex/xveil-source-admission-20261018/group-source-admission-360",
+      "private_directory": "/Users/<user>/.cache/codex/xveil-source-admission-20261018/group-source-admission-360",
       "ok": true,
       "contention_qualification": true,
       "peak_ms": 190.11062500067055,
@@ -346,8 +346,8 @@
         ],
         "cargo_incremental": false,
         "macos_deployment_target": "12.0",
-        "build_cwd": "/Users/vart/Projects/veilnetwork/xVeil",
-        "native_media": "/Users/vart/.cache/codex/xveil-route-epoch-20261018/media/libveil_media.dylib",
+        "build_cwd": "/Users/<user>/Projects/veilnetwork/xVeil",
+        "native_media": "/Users/<user>/.cache/codex/xveil-route-epoch-20261018/media/libveil_media.dylib",
         "native_media_sha256": "f4f5f7a3ca029f10fd2943ca308ece3f23b78359e52197f76a9b0df089d9e90f",
         "scope": "Explicit local source tracing only: monotonic budget and complete DATAGRAM acceptance. No scheduling/wire/QoS changes."
       },
@@ -422,7 +422,7 @@
       "trace_limit_note": "The new acceptance observations shared the pre-existing 65536-row budget. Original full quality verdict remains valid, but the full source-session analyzer correctly rejects this capped diagnostic stream. Independent limits in 8e9cf099 address that instrumentation limit."
     },
     {
-      "private_directory": "/Users/vart/.cache/codex/xveil-source-admission-20261018/source-repeat-360",
+      "private_directory": "/Users/<user>/.cache/codex/xveil-source-admission-20261018/source-repeat-360",
       "ok": false,
       "contention_qualification": false,
       "peak_ms": 210.11591664864682,
@@ -780,7 +780,7 @@
         "original_remaining_sockets_at_stop": 1,
         "note": "Original stop-time snapshot preserved; this audit checks later authoritative OS process/file state.",
         "stale_socket_cleanup": {
-          "path": "/Users/vart/.cache/codex/xveil-source-admission-20261018/source-repeat-360/3/ipc.sock",
+          "path": "/Users/<user>/.cache/codex/xveil-source-admission-20261018/source-repeat-360/3/ipc.sock",
           "lsof_returncode": 1,
           "connect_errno": 61,
           "owned_by_uid": 501,
@@ -801,8 +801,8 @@
         ],
         "cargo_incremental": false,
         "macos_deployment_target": "12.0",
-        "build_cwd": "/Users/vart/Projects/veilnetwork/xVeil",
-        "native_media": "/Users/vart/.cache/codex/xveil-route-epoch-20261018/media/libveil_media.dylib",
+        "build_cwd": "/Users/<user>/Projects/veilnetwork/xVeil",
+        "native_media": "/Users/<user>/.cache/codex/xveil-route-epoch-20261018/media/libveil_media.dylib",
         "native_media_sha256": "f4f5f7a3ca029f10fd2943ca308ece3f23b78359e52197f76a9b0df089d9e90f",
         "scope": "Explicit local source tracing only: monotonic budget and complete DATAGRAM acceptance. No scheduling/wire/QoS changes. Additional observations have an independent 65536-row cap."
       },
@@ -929,18 +929,18 @@
     ],
     "cargo_incremental": false,
     "macos_deployment_target": "12.0",
-    "build_cwd": "/Users/vart/Projects/veilnetwork/xVeil",
-    "native_media": "/Users/vart/.cache/codex/xveil-route-epoch-20261018/media/libveil_media.dylib",
+    "build_cwd": "/Users/<user>/Projects/veilnetwork/xVeil",
+    "native_media": "/Users/<user>/.cache/codex/xveil-route-epoch-20261018/media/libveil_media.dylib",
     "native_media_sha256": "f4f5f7a3ca029f10fd2943ca308ece3f23b78359e52197f76a9b0df089d9e90f",
     "scope": "Explicit local source tracing only: monotonic budget and complete DATAGRAM acceptance. No scheduling/wire/QoS changes. Additional observations have an independent 65536-row cap. Connection ordinal lookup is lazy and does not acquire QUIC locks with disabled/non-primary diagnostics."
   },
   "late_guard_note": "Final SDK revision lazily reads the local connection ordinal after explicit opt-in and primary ownership. The recorded full captures use the same enabled metadata trace with eager lookup; off/invalid/transit paths are covered by callback-not-invoked assertions. Final clean release build passes; no additional physical-device or acoustic qualification is claimed.",
   "private_repro_helpers": {
-    "/Users/vart/.cache/codex/xveil-source-admission-20261018/launch-full.py": "636f893529bc6a84c9c96d66afb26aa3522d60f8ba0551ec3d48eec86bd432de",
-    "/Users/vart/.cache/codex/xveil-source-admission-20261018/launch-repeat2.py": "48b6790aa6593988cba2fd58e21b7e0bcab85321a78f17980895bbeb88a5556f",
-    "/Users/vart/.cache/codex/xveil-source-admission-20261018/transport-bounds.py": "d7a75c53063c046b260d427a6da718177f00223535e08bd946df41e369c3eb3d",
-    "/Users/vart/.cache/codex/xveil-source-admission-20261018/worst-arrival-session.py": "b12ba8fbfca9bde9f9644f04f61325b1505ca24a15384da42e731e65889ed62f",
-    "/Users/vart/.cache/codex/xveil-rtp-cell-20261018/all-packet-arrivals.py": "d007599cf21486965392c89756831b8babdba6712e8ac3c7f4c6104902908113"
+    "/Users/<user>/.cache/codex/xveil-source-admission-20261018/launch-full.py": "636f893529bc6a84c9c96d66afb26aa3522d60f8ba0551ec3d48eec86bd432de",
+    "/Users/<user>/.cache/codex/xveil-source-admission-20261018/launch-repeat2.py": "48b6790aa6593988cba2fd58e21b7e0bcab85321a78f17980895bbeb88a5556f",
+    "/Users/<user>/.cache/codex/xveil-source-admission-20261018/transport-bounds.py": "d7a75c53063c046b260d427a6da718177f00223535e08bd946df41e369c3eb3d",
+    "/Users/<user>/.cache/codex/xveil-source-admission-20261018/worst-arrival-session.py": "b12ba8fbfca9bde9f9644f04f61325b1505ca24a15384da42e731e65889ed62f",
+    "/Users/<user>/.cache/codex/xveil-rtp-cell-20261018/all-packet-arrivals.py": "d007599cf21486965392c89756831b8babdba6712e8ac3c7f4c6104902908113"
   },
   "remaining": "Preserve prior 230.302-ms failure and >=200-ms all-packet lower-bound captures. Trace the exact opaque payload through neutral relay and receiver delivery before changing queue admission or pacing. These passing samples do not establish a stable end-to-end latency bound."
 }

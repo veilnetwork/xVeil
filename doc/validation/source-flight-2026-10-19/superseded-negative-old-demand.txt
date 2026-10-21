@@ -1,6 +1,6 @@
-   Compiling veil-session v0.11.42 (/Users/vart/.cache/codex/xveil-source-flight-20261019/sdk-src/crates/veil-session)
+   Compiling veil-session v0.11.42 (/Users/<user>/.cache/codex/xveil-source-flight-20261019/sdk-src/crates/veil-session)
     Finished `test` profile [optimized + debuginfo] target(s) in 16.02s
-     Running unittests src/lib.rs (/Users/vart/.cache/codex/veil-qos-target-20261016/debug/deps/veil_session-b7c7f4f3dd984dbb)
+     Running unittests src/lib.rs (/Users/<user>/.cache/codex/veil-qos-target-20261016/debug/deps/veil_session-b7c7f4f3dd984dbb)
 
 running 1 test
 test local_source_flight::tests::a_new_window_requires_a_new_blocked_send_not_old_waiting_history ... FAILED

@@ -1,5 +1,5 @@
 {
-  "private_capture": "/Users/vart/.cache/codex/xveil-playout-budget-20261018/qa-v2/physical-playout-budget-video",
+  "private_capture": "/Users/<user>/.cache/codex/xveil-playout-budget-20261018/qa-v2/physical-playout-budget-video",
   "files_sha256": {
     "mac-native.log": "7d385255f936d55edc91ec7b2c044bd7ceca514a8d14095e4842f4ec41706d37",
     "phone-native.log": "b79a3ba70c10ea7ce491e811bbb90e9ba4d1a5dbcd94682291e8dd1fa5b0f70d",

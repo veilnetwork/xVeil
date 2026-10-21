@@ -1,12 +1,12 @@
-   Compiling quinn-proto v0.11.18 (/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/third_party/quinn-proto)
-   Compiling quinn v0.11.9 (/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/third_party/quinn)
-   Compiling veil-transport v0.11.42 (/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/crates/veil-transport)
-   Compiling veil-bootstrap v0.11.42 (/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/crates/veil-bootstrap)
-   Compiling veil-ipc v0.11.42 (/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/crates/veil-ipc)
-   Compiling veil-update v0.11.42 (/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/crates/veil-update)
-   Compiling veil-observability v0.11.42 (/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/crates/veil-observability)
-   Compiling veil-cfg v0.11.42 (/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/crates/veil-cfg)
-   Compiling veil-session v0.11.42 (/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/crates/veil-session)
+   Compiling quinn-proto v0.11.18 (/Users/<user>/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/third_party/quinn-proto)
+   Compiling quinn v0.11.9 (/Users/<user>/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/third_party/quinn)
+   Compiling veil-transport v0.11.42 (/Users/<user>/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/crates/veil-transport)
+   Compiling veil-bootstrap v0.11.42 (/Users/<user>/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/crates/veil-bootstrap)
+   Compiling veil-ipc v0.11.42 (/Users/<user>/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/crates/veil-ipc)
+   Compiling veil-update v0.11.42 (/Users/<user>/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/crates/veil-update)
+   Compiling veil-observability v0.11.42 (/Users/<user>/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/crates/veil-observability)
+   Compiling veil-cfg v0.11.42 (/Users/<user>/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/crates/veil-cfg)
+   Compiling veil-session v0.11.42 (/Users/<user>/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/crates/veil-session)
 warning: unused variable: `used`
   --> crates/veil-session/src/local_source_flight.rs:58:55
    |
@@ -23,7 +23,7 @@ warning: unused variable: `window`
 
 warning: `veil-session` (lib test) generated 2 warnings (run `cargo fix --lib -p veil-session --tests` to apply 2 suggestions)
     Finished `test` profile [optimized + debuginfo] target(s) in 23.82s
-     Running unittests src/lib.rs (/Users/vart/.cache/codex/veil-qos-target-20261016/debug/deps/veil_session-b7c7f4f3dd984dbb)
+     Running unittests src/lib.rs (/Users/<user>/.cache/codex/veil-qos-target-20261016/debug/deps/veil_session-b7c7f4f3dd984dbb)
 
 running 1 test
 test local_source_flight::tests::a_new_window_requires_a_new_blocked_send_not_old_waiting_history ... FAILED

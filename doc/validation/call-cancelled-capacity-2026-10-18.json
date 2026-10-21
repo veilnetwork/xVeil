@@ -10,15 +10,15 @@
     "final_priority_queue_tests_passed": 44,
     "class_and_aggregate_capacity_covered": true,
     "clippy_lib_and_tests_warnings_denied": true,
-    "baseline_log": "/Users/vart/.cache/codex/xveil-queue-cancel-20261018/capacity-baseline.log",
-    "positive_log": "/Users/vart/.cache/codex/xveil-queue-cancel-20261018/capacity-tests.log",
+    "baseline_log": "/Users/<user>/.cache/codex/xveil-queue-cancel-20261018/capacity-baseline.log",
+    "positive_log": "/Users/<user>/.cache/codex/xveil-queue-cancel-20261018/capacity-tests.log",
     "tested_queue_sha256_matches_clean_build_source": "da83472bc60111d941cea181ed1d4c05289fe19c435615380f957bf30e2afe48"
   },
   "build": {
     "sdk_commit": "db19722ceb6cf7afc0f18424f3241c74e11e217c",
     "clean_sdk_worktree": true,
-    "source_worktree": "/Users/vart/.cache/codex/xveil-cancel-capacity-20261018/sdk-src",
-    "sdk_path": "/Users/vart/.cache/codex/xveil-cancel-capacity-20261018/sdk/libveilclient_ffi.dylib",
+    "source_worktree": "/Users/<user>/.cache/codex/xveil-cancel-capacity-20261018/sdk-src",
+    "sdk_path": "/Users/<user>/.cache/codex/xveil-cancel-capacity-20261018/sdk/libveilclient_ffi.dylib",
     "sdk_sha256": "4fefafb0fec67dee8a851f32b067dea0fec0206d75ab71a6924e42869bbb2bdc",
     "features": [
       "default tls-boring",
@@ -41,7 +41,7 @@
     "added": []
   },
   "preceding_physical_attribution": {
-    "private_directory": "/Users/vart/.cache/codex/xveil-queue-cancel-20261018/physical-build/physical-recovery-360",
+    "private_directory": "/Users/<user>/.cache/codex/xveil-queue-cancel-20261018/physical-build/physical-recovery-360",
     "mac_unique_accepted_packets": 11886,
     "phone_unique_received_packets_from_mac": 11886,
     "permanent_end_to_end_unique_packet_loss_not_observed_in_that_direction": true,
@@ -379,7 +379,7 @@
       },
       "remaining_socket_files": []
     },
-    "private_directory": "/Users/vart/.cache/codex/xveil-cancel-capacity-20261018/group-full-360",
+    "private_directory": "/Users/<user>/.cache/codex/xveil-cancel-capacity-20261018/group-full-360",
     "sdk_commit": "db19722ceb6cf7afc0f18424f3241c74e11e217c",
     "sdk_sha256": "4fefafb0fec67dee8a851f32b067dea0fec0206d75ab71a6924e42869bbb2bdc",
     "native_media_sha256": "da67284afa5c2ced2938fd196c245bb933720af6bf510351eea034635d396a24",

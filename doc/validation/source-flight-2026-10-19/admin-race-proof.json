@@ -1,7 +1,7 @@
 {
   "failed_capture_quality": "unknown; not qualified; no PCM export was reached",
   "actual_failure": "Darwin ENOTCONN on shutdown(SHUT_WR) after sending a newline-delimited admin request",
-  "private_failed_root": "/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/pair-admin-failure",
+  "private_failed_root": "/Users/<user>/.cache/codex/xveil-source-flight-demand-20261019/pair-admin-failure",
   "sdk_sha256_unchanged_on_observation_retry": "8b4e9415cf4229a6ed6c73313fa4508b4ada2f99cb3d2f6950f4483073b6c2b6",
   "fix": "Accept only ENOTCONN at half-close, then read and validate the original reply without a retry",
   "real_unix_socket_tests_passed": 3,

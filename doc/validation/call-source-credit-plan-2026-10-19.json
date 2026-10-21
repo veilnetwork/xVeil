@@ -39,11 +39,11 @@
   "fixture_policy": "Reuse current original clocks, stimuli, shaper, file sizes and gates. No changed assertion to accept a candidate. Failed variants remain failed. No unrelated helper refactoring.",
   "baseline": {
     "group-final-360": {
-      "path": "/Users/vart/.cache/codex/xveil-rtp-lag-20261019/group-final-360",
+      "path": "/Users/<user>/.cache/codex/xveil-rtp-lag-20261019/group-final-360",
       "summary_sha256": "ca550109b219be7ea540d9bbb4592cdf40599e8d85ef55f0b28493ec07b96b48"
     },
     "pair-rtp-lag-full": {
-      "path": "/Users/vart/.cache/codex/xveil-rtp-lag-20261019/pair-rtp-lag-full",
+      "path": "/Users/<user>/.cache/codex/xveil-rtp-lag-20261019/pair-rtp-lag-full",
       "summary_sha256": "2701ccede6cfca67df460b139d6e8e1d09deed8f21fc03e807ddc05a0113d352"
     }
   }

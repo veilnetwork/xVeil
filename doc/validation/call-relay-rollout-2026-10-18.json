@@ -3,7 +3,7 @@
   "goal_status": "ACTIVE",
   "complete": false,
   "scope": "Current clean Android Rust SDK qualification; explicitly authorized production relay rollout to matching current clean CLI; physical P2P-to-relay audio/video verification.",
-  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-current-android-sdk-20261018",
+  "private_artifacts_root": "/Users/<user>/.cache/codex/xveil-current-android-sdk-20261018",
   "relay_update": "All six 0.11.37 -> 0.11.42; same verified static production binary SHA 079e1536...; configs/unit preserved, stopped-state snapshots, no rollback needed; health/ports/process digest/ticks/sessions verified before and after calls.",
   "policy": "No relay media-role or priority configuration. Generic authenticated children and negotiated compatibility; endpoint local-slot diagnostics stay local. Mailbox policy unchanged.",
   "qualification": {

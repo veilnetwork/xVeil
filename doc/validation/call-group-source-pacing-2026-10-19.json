@@ -371,7 +371,7 @@
     "Keep full screen/fallback/phone/live-speech/headset and interaction-channel audit open."
   ],
   "private_artifacts": [
-    "/Users/vart/.cache/codex/xveil-group-hop-20261019",
-    "/Users/vart/.cache/codex/xveil-source-pacing-20261019"
+    "/Users/<user>/.cache/codex/xveil-group-hop-20261019",
+    "/Users/<user>/.cache/codex/xveil-source-pacing-20261019"
   ]
 }

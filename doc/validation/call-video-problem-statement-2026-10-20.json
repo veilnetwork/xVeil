@@ -30,7 +30,7 @@
     "foreign_wip_preserved": true
   },
   "evidence_directory": "doc/validation/video-delivery-audit-2026-10-20",
-  "private_capture_root": "/Users/vart/.cache/codex/xveil-video-loss-path-20261019",
+  "private_capture_root": "/Users/<user>/.cache/codex/xveil-video-loss-path-20261019",
   "production_policy_changed": false,
   "pushed": false,
   "released": false

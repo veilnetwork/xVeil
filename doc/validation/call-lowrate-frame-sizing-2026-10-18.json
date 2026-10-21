@@ -79,14 +79,14 @@
     "python_attribution_tests": 13
   },
   "physical": {
-    "private_directory": "/Users/vart/.cache/codex/xveil-frame-pacing-20261018/physical-build/physical-frame-sizing",
+    "private_directory": "/Users/<user>/.cache/codex/xveil-frame-pacing-20261018/physical-build/physical-frame-sizing",
     "build": {
       "native_commit": "1956cfa4c7efee029310daa6460020662a1fba71",
-      "base": "/Users/vart/.cache/codex/xveil-direct-source-20261018/source-budget-apps/build.json",
+      "base": "/Users/<user>/.cache/codex/xveil-direct-source-20261018/source-budget-apps/build.json",
       "scope": "Only production native video frame sizing changes. Existing b262 Profile Dart AOT and clean Rust SDK unchanged. Actual versionCode 12614 retained; same QA signer; data preserved; not a release.",
-      "mac_app": "/Users/vart/.cache/codex/xveil-frame-pacing-20261018/physical-build/mac-stand/xveil.app",
+      "mac_app": "/Users/<user>/.cache/codex/xveil-frame-pacing-20261018/physical-build/mac-stand/xveil.app",
       "mac_signed_media_sha256": "9b035e856f8528f050bf0664e5d4db052f13d0d63000169c376ec16f0239ad90",
-      "apk": "/Users/vart/.cache/codex/xveil-frame-pacing-20261018/physical-build/phone-frame-sizing.apk",
+      "apk": "/Users/<user>/.cache/codex/xveil-frame-pacing-20261018/physical-build/phone-frame-sizing.apk",
       "apk_sha256": "bff6bb474ecfcb2932c615fab0ff55612307dc1a0835f90835baf6d3b5fa16e8",
       "before_apk_sha256": "b746c5d785f4033f4f2ce13ce47886ea855cdfb33ee4bb2f9ffdf382522c9b83",
       "apk_changed_entries": [
@@ -201,7 +201,7 @@
   },
   "full_contention": {
     "status": "UNQUALIFIED",
-    "private_directory": "/Users/vart/.cache/codex/xveil-frame-pacing-20261018/group-frame-sizing-360",
+    "private_directory": "/Users/<user>/.cache/codex/xveil-frame-pacing-20261018/group-frame-sizing-360",
     "scope": "Original 360 s, 1024 kbit/s neutral shared FIFO per direction, 3 real SDK/native participants, 6 PCM paths, changing video and 3 authenticated 512-KiB files. Original quality gates retained.",
     "ok": false,
     "contention_qualification": false,

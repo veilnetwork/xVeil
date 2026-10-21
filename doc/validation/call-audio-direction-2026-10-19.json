@@ -55,7 +55,7 @@
     "comparison_limit": "One capture per build; no causal or statistical improvement claim. Current unmodified SDK also reproduces the failure. Historical190ms captures do not prove current qualification."
   },
   "rejected_pacer": "Removed from source: both unicast/group qualification were not achieved; it was not a real joint capacity reservation. Its single group peak280ms is not a result of the retained version.",
-  "raw_private_artifacts": "/Users/vart/.cache/codex/xveil-group-packet-pacing-20261019",
+  "raw_private_artifacts": "/Users/<user>/.cache/codex/xveil-group-packet-pacing-20261019",
   "side_effects": {
     "physical_call_or_install": false,
     "server_mutation": false,

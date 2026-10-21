@@ -1,6 +1,6 @@
 {
   "baseline": {
-    "path": "/Users/vart/.cache/codex/xveil-explicit-source-hold-20261020/pair-baseline-180",
+    "path": "/Users/<user>/.cache/codex/xveil-explicit-source-hold-20261020/pair-baseline-180",
     "raw_ok": true,
     "source_feedback_skipped": [
       0,
@@ -91,7 +91,7 @@
     }
   },
   "candidate": {
-    "path": "/Users/vart/.cache/codex/xveil-explicit-source-hold-20261020/pair-candidate-180",
+    "path": "/Users/<user>/.cache/codex/xveil-explicit-source-hold-20261020/pair-candidate-180",
     "raw_ok": true,
     "source_feedback_skipped": [
       0,
@@ -182,7 +182,7 @@
     }
   },
   "screen": {
-    "path": "/Users/vart/.cache/codex/xveil-explicit-source-hold-20261020/pair-screen-180",
+    "path": "/Users/<user>/.cache/codex/xveil-explicit-source-hold-20261020/pair-screen-180",
     "raw_ok": true,
     "source_feedback_skipped": [
       0,
@@ -273,7 +273,7 @@
     }
   },
   "expiry-final": {
-    "path": "/Users/vart/.cache/codex/xveil-explicit-source-hold-20261020/pair-expiry-final-180",
+    "path": "/Users/<user>/.cache/codex/xveil-explicit-source-hold-20261020/pair-expiry-final-180",
     "raw_ok": false,
     "source_feedback_skipped": [
       3,

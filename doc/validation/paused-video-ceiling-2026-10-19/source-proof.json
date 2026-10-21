@@ -13,13 +13,13 @@
   "native_unchanged_from_prior_capture": true,
   "native": {
     "media-hooks": {
-      "path": "/Users/vart/.cache/codex/xveil-audio-packet-priority-20261019/media-hooks/libveil_media.dylib",
+      "path": "/Users/<user>/.cache/codex/xveil-audio-packet-priority-20261019/media-hooks/libveil_media.dylib",
       "sha256": "40d583d92326ebac76de4f68b5d447899d5fae7523758a205f586ffb51d24dda",
       "exports": 135,
       "dlopen": true
     },
     "media-production": {
-      "path": "/Users/vart/.cache/codex/xveil-audio-packet-priority-20261019/media-production/libveil_media.dylib",
+      "path": "/Users/<user>/.cache/codex/xveil-audio-packet-priority-20261019/media-production/libveil_media.dylib",
       "sha256": "aba966ce1ac73d229474326e22e5fd8dc005bbbcc684aabe0ff65720ff4ed25d",
       "exports": 101,
       "dlopen": true

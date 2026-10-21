@@ -13,9 +13,9 @@
     "feedback": {
       "log": "/private/tmp/xveil-soft-duration-feedback.txt",
       "tail": [
-        "[unsafe-buffers] file '/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_media/src/veil_audio_concealment_feedback.h' bad test against path '../../'",
-        "[unsafe-buffers] file '/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_media/test/audio_recovery_feedback_smoke.cc' bad test against path '../../'",
-        "ld: warning: ignoring -lto_library '/Users/vart/Projects/veilnetwork/webrtc-checkout/src/third_party/llvm-build/Release+Asserts/lib/libLTO.dylib', file does not exist",
+        "[unsafe-buffers] file '/Users/<user>/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_media/src/veil_audio_concealment_feedback.h' bad test against path '../../'",
+        "[unsafe-buffers] file '/Users/<user>/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_media/test/audio_recovery_feedback_smoke.cc' bad test against path '../../'",
+        "ld: warning: ignoring -lto_library '/Users/<user>/Projects/veilnetwork/webrtc-checkout/src/third_party/llvm-build/Release+Asserts/lib/libLTO.dylib', file does not exist",
         "ok real RTCP recovery framing, SSRC binding, replay, freshness, retirement and expiry"
       ]
     },
@@ -24,7 +24,7 @@
       "tail": [
         "      | \u001b[0;1;32m                   ^",
         "\u001b[0m1 warning generated.",
-        "ld: warning: ignoring -lto_library '/Users/vart/Projects/veilnetwork/webrtc-checkout/src/third_party/llvm-build/Release+Asserts/lib/libLTO.dylib', file does not exist",
+        "ld: warning: ignoring -lto_library '/Users/<user>/Projects/veilnetwork/webrtc-checkout/src/third_party/llvm-build/Release+Asserts/lib/libLTO.dylib', file does not exist",
         "ok production shim compound parsing, legacy feedback, freshness, replay and stopped/video sources"
       ]
     },

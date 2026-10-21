@@ -1,6 +1,6 @@
-[unsafe-buffers] file '/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_media/src/veil_diag_log.h' bad test against path '../../'
-[unsafe-buffers] file '/Users/vart/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_media/test/group_opus_signal_smoke.cc' bad test against path '../../'
-ld: warning: ignoring -lto_library '/Users/vart/Projects/veilnetwork/webrtc-checkout/src/third_party/llvm-build/Release+Asserts/lib/libLTO.dylib', file does not exist
+[unsafe-buffers] file '/Users/<user>/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_media/src/veil_diag_log.h' bad test against path '../../'
+[unsafe-buffers] file '/Users/<user>/Projects/veilnetwork/xVeil/third_party/veil/flutter/veil_media/test/group_opus_signal_smoke.cc' bad test against path '../../'
+ld: warning: ignoring -lto_library '/Users/<user>/Projects/veilnetwork/webrtc-checkout/src/third_party/llvm-build/Release+Asserts/lib/libLTO.dylib', file does not exist
 summary requested_bitrate=16000 actual_bitrate=16000 dtx=1 first_quiet_tick=2227 longest_quiet_blocks=69 transition_matched=357 transition_missing=0 transition_decoded=357 max_sample_lag_ms=430 max_emit_lag_ms=480
 summary requested_bitrate=16000 actual_bitrate=16000 dtx=0 first_quiet_tick=2227 longest_quiet_blocks=69 transition_matched=357 transition_missing=0 transition_decoded=357 max_sample_lag_ms=430 max_emit_lag_ms=480
 summary requested_bitrate=24000 actual_bitrate=24000 dtx=1 first_quiet_tick=-1 longest_quiet_blocks=0 transition_matched=357 transition_missing=0 transition_decoded=357 max_sample_lag_ms=10 max_emit_lag_ms=60

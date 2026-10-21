@@ -90,7 +90,7 @@ The following plugins do not support Swift Package Manager for macos:
   - veil_media
   - veil_flutter
 This will become an error in a future version of Flutter. Please contact the plugin maintainers to request Swift Package Manager adoption.
-00:00 +0: loading /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart
+00:00 +0: loading /Users/<user>/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart
 00:00 +0: video recovery with measured stable audio at120 ms RTT
 00:00 +0 -1: video recovery with measured stable audio at120 ms RTT [E]
   Expected: <0>
@@ -105,4 +105,4 @@ This will become an error in a future version of Flutter. Please contact the plu
 00:00 +1 -1: Some tests failed.
 
 Failing tests:
-  /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: video recovery with measured stable audio at120 ms RTT
+  /Users/<user>/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: video recovery with measured stable audio at120 ms RTT

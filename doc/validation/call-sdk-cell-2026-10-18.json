@@ -15,8 +15,8 @@
     ],
     "cargo_incremental": false,
     "macos_deployment_target": "12.0",
-    "build_cwd": "/Users/vart/Projects/veilnetwork/xVeil",
-    "native_media": "/Users/vart/.cache/codex/xveil-route-epoch-20261018/media/libveil_media.dylib",
+    "build_cwd": "/Users/<user>/Projects/veilnetwork/xVeil",
+    "native_media": "/Users/<user>/.cache/codex/xveil-route-epoch-20261018/media/libveil_media.dylib",
     "native_media_sha256": "f4f5f7a3ca029f10fd2943ca308ece3f23b78359e52197f76a9b0df089d9e90f",
     "scope": "Opt-in detailed endpoint and opaque IPC diagnostics. No scheduling, QoS, wire field, clocks, load or gate change."
   },
@@ -31,7 +31,7 @@
   },
   "captures": [
     {
-      "private_directory": "/Users/vart/.cache/codex/xveil-rtp-cell-20261018/group-rtp-cell-full-360",
+      "private_directory": "/Users/<user>/.cache/codex/xveil-rtp-cell-20261018/group-rtp-cell-full-360",
       "ok": true,
       "contention_qualification": true,
       "matched": 2112,
@@ -372,7 +372,7 @@
       "summary_sha256": "28ebc1dc1c0fc14fe651656ef12a6bda170c0f23d763f36e295187ad274dc458"
     },
     {
-      "private_directory": "/Users/vart/.cache/codex/xveil-rtp-cell-20261018/group-rtp-cell-repeat-360",
+      "private_directory": "/Users/<user>/.cache/codex/xveil-rtp-cell-20261018/group-rtp-cell-repeat-360",
       "ok": false,
       "contention_qualification": false,
       "matched": 2112,
@@ -718,7 +718,7 @@
     "change": "Decoded recovery / growing buffer could no longer increase 40-ms packets to 60 ms. True packet loss or source admission failure could still select 60 ms; >=24-kbit payload unchanged.",
     "test_control": "Three proposed tests fail on original policy; candidate passes all 137 focused Flutter tests and Dart analysis. Candidate test edits were removed with the candidate.",
     "source_patch_sha256": "532e997a5d50c300953c5e1c70b46dd34d0597af93856fb498384482e8225ea3",
-    "private_directory": "/Users/vart/.cache/codex/xveil-group-framing-20261018/group-framing-full-360",
+    "private_directory": "/Users/<user>/.cache/codex/xveil-group-framing-20261018/group-framing-full-360",
     "ok": false,
     "contention_qualification": false,
     "peak_ms": 270.1893333287444,
@@ -1064,7 +1064,7 @@
     "Cross-device/acoustic quality is not measured by these same-host fixtures."
   ],
   "supplemental_analysis_script": {
-    "private_path": "/Users/vart/.cache/codex/xveil-rtp-cell-20261018/all-packet-arrivals.py",
+    "private_path": "/Users/<user>/.cache/codex/xveil-rtp-cell-20261018/all-packet-arrivals.py",
     "sha256": "d007599cf21486965392c89756831b8babdba6712e8ac3c7f4c6104902908113",
     "method": "Match actual sender RTP timestamp origin and encoded payload size against complete native ingress traces for every source/receiver path. Reject duplicate anchors/receipts and negative clocks; ignore no missing packets. No packet contents retained."
   }

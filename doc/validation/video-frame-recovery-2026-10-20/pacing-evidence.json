@@ -30,14 +30,14 @@
     },
     {
       "role": "pacer queue drain",
-      "path": "/Users/vart/Projects/veilnetwork/webrtc-checkout/src/modules/pacing/pacing_controller.cc",
+      "path": "/Users/<user>/Projects/veilnetwork/webrtc-checkout/src/modules/pacing/pacing_controller.cc",
       "line_start": 691,
       "line_end": 712,
       "sha256": "30c6ff92be5477549f6b332042b1dd071df771a62dcad63f2d2f88787d118ded"
     },
     {
       "role": "pacer field parsing",
-      "path": "/Users/vart/Projects/veilnetwork/webrtc-checkout/src/video/video_send_stream_impl.cc",
+      "path": "/Users/<user>/Projects/veilnetwork/webrtc-checkout/src/video/video_send_stream_impl.cc",
       "line_start": 432,
       "line_end": 437,
       "sha256": "7d346d559e78ff1ebd30b0f7626a1ae9ee491154fc9732a156382b2004d1ca6d"

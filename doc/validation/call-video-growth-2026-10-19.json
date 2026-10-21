@@ -117,7 +117,7 @@
     "source-final.json": "2bfbdab6f4699b55c0b8729b3ef3e6d8fbfe8acfa9d4e3359c37ca14924efcc4",
     "source-pair.json": "c24ba18b87496875c50d3b6453d874af7ccf7f1a586634f892adfe682eca4a0d"
   },
-  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-video-growth-20261019",
+  "private_artifacts_root": "/Users/<user>/.cache/codex/xveil-video-growth-20261019",
   "foreign_wip_preserved": {
     "root_diff_sha256": "529f7718edea4b6775cc11607bc2ff663a922cc3521b680cf94efa39d7b26859",
     "sdk_diff_sha256": "1ceeb05d540078262f1480ba7210dfaa0f5895be9f0099f64bc18a56a4f6a363"

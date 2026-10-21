@@ -218,7 +218,7 @@
     "lib/state/call_audio_receive_activity.dart": "eaf5b94ea4214148f8752852940b932298369c1b6cb864e0cb98d8d5730783d1",
     "lib/state/call_rtcp_loss.dart": "f04713b986d339979d2c2d81d6d0163ccb2a77ac36c8f137db6f44a9e3d4b0fc"
   },
-  "raw_artifact_root": "/Users/vart/.cache/codex/xveil-frame-recovery-20261020/group-final-360",
+  "raw_artifact_root": "/Users/<user>/.cache/codex/xveil-frame-recovery-20261020/group-final-360",
   "audio_markers_matched": 2112,
   "audio_markers_missing": 0,
   "audio_max_ms": 260.13320829952136,

@@ -1,4 +1,4 @@
-   Compiling quinn-proto v0.11.18 (/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/third_party/quinn-proto)
+   Compiling quinn-proto v0.11.18 (/Users/<user>/.cache/codex/xveil-source-flight-demand-20261019/sdk-src/third_party/quinn-proto)
 warning: unused variable: `budget`
     --> src/connection/mod.rs:1075:25
      |
@@ -22,7 +22,7 @@ help: use `let _ = ...` to ignore the resulting value
 
 warning: `quinn-proto` (lib test) generated 2 warnings (run `cargo fix --lib -p quinn-proto --tests` to apply 1 suggestion)
     Finished `test` profile [unoptimized + debuginfo] target(s) in 2.12s
-     Running unittests src/lib.rs (/Users/vart/.cache/codex/veil-qos-target-20261016/debug/deps/quinn_proto-05261a2d38292817)
+     Running unittests src/lib.rs (/Users/<user>/.cache/codex/veil-qos-target-20261016/debug/deps/quinn_proto-05261a2d38292817)
 
 running 1 test
 test tests::local_send_budget::a_local_budget_limits_real_packets_and_survives_a_route_reset ... FAILED

@@ -1,8 +1,8 @@
 Traceback (most recent call last):
-  File "/Users/vart/Projects/veilnetwork/xVeil/scripts/relay-codec-control.py", line 856, in <module>
+  File "/Users/<user>/Projects/veilnetwork/xVeil/scripts/relay-codec-control.py", line 856, in <module>
     metrics_after = [admin(i, 'metrics')['result'] for i in range(3)]
                      ~~~~~^^^^^^^^^^^^^^
-  File "/Users/vart/Projects/veilnetwork/xVeil/scripts/relay-codec-control.py", line 255, in admin
+  File "/Users/<user>/Projects/veilnetwork/xVeil/scripts/relay-codec-control.py", line 255, in admin
     s.shutdown(socket.SHUT_WR)
     ~~~~~~~~~~^^^^^^^^^^^^^^^^
 OSError: [Errno 57] Socket is not connected

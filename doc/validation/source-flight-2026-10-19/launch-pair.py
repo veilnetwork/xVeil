@@ -2,12 +2,12 @@ from pathlib import Path
 import subprocess,os,json,signal,sys,time
 os.umask(0o077)
 b=Path(__file__).parent
-v=Path('/Users/vart/.cache/codex/xveil-video-framing-20261019')
-repo=Path('/Users/vart/Projects/veilnetwork/xVeil')
+v=Path('/Users/<user>/.cache/codex/xveil-video-framing-20261019')
+repo=Path('/Users/<user>/Projects/veilnetwork/xVeil')
 label='rtp-lag-full'
 d=b/('pair-'+label);assert not d.exists()
-media=Path('/Users/vart/.cache/codex/xveil-rtp-lag-20261019/media-hooks/libveil_media.dylib')
-cmd=['python3',str(repo/'scripts/relay-codec-control.py'),'--sdk','/Users/vart/.cache/codex/xveil-source-flight-demand-20261019/sdk/libveilclient_ffi.dylib','--media',str(media),'--directory',str(d),'--duration',('360' if label.endswith('-full') else '180'),'--rate-kbps','1024','--adaptive-audio','--audio-overhead-bytes','360','--max-rtp-packet-size','1000','--compact-media','--compact-call-health','--local-source-feedback','--compete-file','--tone-period-ms','1010','--native-pcm-priority','deadline','--native-timing-trace','--playout-trace','--native-trace-capacity','32768','--source-cell-trace','--shaper-trace']
+media=Path('/Users/<user>/.cache/codex/xveil-rtp-lag-20261019/media-hooks/libveil_media.dylib')
+cmd=['python3',str(repo/'scripts/relay-codec-control.py'),'--sdk','/Users/<user>/.cache/codex/xveil-source-flight-demand-20261019/sdk/libveilclient_ffi.dylib','--media',str(media),'--directory',str(d),'--duration',('360' if label.endswith('-full') else '180'),'--rate-kbps','1024','--adaptive-audio','--audio-overhead-bytes','360','--max-rtp-packet-size','1000','--compact-media','--compact-call-health','--local-source-feedback','--compete-file','--tone-period-ms','1010','--native-pcm-priority','deadline','--native-timing-trace','--playout-trace','--native-trace-capacity','32768','--source-cell-trace','--shaper-trace']
 if label.endswith('-full'):cmd+=['--live-video-framing']
 fixture=helper=None
 try:

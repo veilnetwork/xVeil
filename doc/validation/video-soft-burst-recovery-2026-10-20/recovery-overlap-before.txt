@@ -1,4 +1,4 @@
-00:00 +0: loading /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart
+00:00 +0: loading /Users/<user>/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart
 00:00 +0: a fresh peer report during a short hold confirms recovery after it drains
 00:00 +0 -1: a fresh peer report during a short hold confirms recovery after it drains [E]
   Expected: <1>
@@ -12,4 +12,4 @@
 00:00 +0 -1: Some tests failed.
 
 Failing tests:
-  /Users/vart/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: a fresh peer report during a short hold confirms recovery after it drains
+  /Users/<user>/Projects/veilnetwork/xVeil/test/call_bitrate_adapter_test.dart: a fresh peer report during a short hold confirms recovery after it drains

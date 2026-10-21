@@ -63,7 +63,7 @@
     "Qualify physical speech, headset loudness, screen, mute and reconnect."
   ],
   "evidence_directory": "doc/validation/audio-packet-priority-2026-10-19",
-  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-audio-packet-priority-20261019",
+  "private_artifacts_root": "/Users/<user>/.cache/codex/xveil-audio-packet-priority-20261019",
   "foreign_wip_preserved": true,
   "deployed": false,
   "pushed": false,

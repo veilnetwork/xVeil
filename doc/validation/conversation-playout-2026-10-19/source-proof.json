@@ -13,7 +13,7 @@
     "modules/audio_coding/neteq/delay_manager.cc": "9dc0c9dbb5e55cf281fdab4381d03f9b353f5e671ab60d25e9d80f849bbae833"
   },
   "codec_smoke_source_sha256": "4a80ed23003b54deba9b31789098adff3a340fac438d57a2e09601ee493d67cf",
-  "rejected_predecessor": "/Users/vart/.cache/codex/xveil-conversation-queued-20261019",
+  "rejected_predecessor": "/Users/<user>/.cache/codex/xveil-conversation-queued-20261019",
   "media-hooks": {
     "sha256": "9864a9fb72484fb26b3536a8450f39cec163b2b29919fcb3d142470ec422ca21",
     "exports": 135,

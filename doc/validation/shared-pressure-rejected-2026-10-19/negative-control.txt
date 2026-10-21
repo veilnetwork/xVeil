@@ -1,6 +1,6 @@
-   Compiling veil-session v0.11.42 (/Users/vart/.cache/codex/xveil-shared-pressure-20261019/sdk-src/crates/veil-session)
+   Compiling veil-session v0.11.42 (/Users/<user>/.cache/codex/xveil-shared-pressure-20261019/sdk-src/crates/veil-session)
     Finished `test` profile [optimized + debuginfo] target(s) in 14.24s
-     Running unittests src/lib.rs (/Users/vart/.cache/codex/veil-qos-target-20261016/debug/deps/veil_session-b7c7f4f3dd984dbb)
+     Running unittests src/lib.rs (/Users/<user>/.cache/codex/veil-qos-target-20261016/debug/deps/veil_session-b7c7f4f3dd984dbb)
 
 running 1 test
 test local_source_activity::tests::data_network_signaling_camera_and_screen_spend_one_pressure_window ... FAILED

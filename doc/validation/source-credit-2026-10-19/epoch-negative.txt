@@ -1,12 +1,12 @@
-   Compiling veil-session v0.11.42 (/Users/vart/.cache/codex/xveil-source-credit-20261019/sdk-src/crates/veil-session)
+   Compiling veil-session v0.11.42 (/Users/<user>/.cache/codex/xveil-source-credit-20261019/sdk-src/crates/veil-session)
     Finished `test` profile [optimized + debuginfo] target(s) in 13.70s
-     Running unittests src/lib.rs (/Users/vart/.cache/codex/veil-qos-target-20261016/debug/deps/veil_bootstrap-44d5b07ed5a69c07)
+     Running unittests src/lib.rs (/Users/<user>/.cache/codex/veil-qos-target-20261016/debug/deps/veil_bootstrap-44d5b07ed5a69c07)
 
 running 0 tests
 
 test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 142 filtered out; finished in 0.00s
 
-     Running unittests src/lib.rs (/Users/vart/.cache/codex/veil-qos-target-20261016/debug/deps/veil_session-547c93d4b55ef08e)
+     Running unittests src/lib.rs (/Users/<user>/.cache/codex/veil-qos-target-20261016/debug/deps/veil_session-547c93d4b55ef08e)
 
 running 1 test
 test runner::local_reliable_admission::feedback_tests::confirmed_delivery_epoch_rebases_a_rebound_connection_rtt ... FAILED

@@ -159,5 +159,5 @@
   "pushed": false,
   "released": false,
   "evidence_directory": "doc/validation/video-rtt-recovery-2026-10-20",
-  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-video-rtt-recovery-20261020"
+  "private_artifacts_root": "/Users/<user>/.cache/codex/xveil-video-rtt-recovery-20261020"
 }

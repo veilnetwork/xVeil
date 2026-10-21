@@ -1,6 +1,6 @@
 {
   "base": "d3098a77",
-  "snapshot": "/Users/vart/.cache/codex/xveil-canonical-swap-20261018/sdk-src",
+  "snapshot": "/Users/<user>/.cache/codex/xveil-canonical-swap-20261018/sdk-src",
   "excluded_foreign_wip": true,
   "test_low_difficulty_only_in_tests": true,
   "mac_default_features": true,

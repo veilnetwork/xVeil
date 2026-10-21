@@ -1,6 +1,6 @@
 {
   "baseline": {
-    "path": "/Users/vart/.cache/codex/xveil-explicit-source-hold-20261020/group-baseline-360",
+    "path": "/Users/<user>/.cache/codex/xveil-explicit-source-hold-20261020/group-baseline-360",
     "raw_ok": false,
     "measured_seconds": 360,
     "audio_markers": 2112,
@@ -205,7 +205,7 @@
     "maximum_single_pool_snapshot_held_acks": 0
   },
   "candidate": {
-    "path": "/Users/vart/.cache/codex/xveil-explicit-source-hold-20261020/group-final-360",
+    "path": "/Users/<user>/.cache/codex/xveil-explicit-source-hold-20261020/group-final-360",
     "raw_ok": false,
     "measured_seconds": 360,
     "audio_markers": 2112,
@@ -410,7 +410,7 @@
     "maximum_single_pool_snapshot_held_acks": 4200
   },
   "expiry-final": {
-    "path": "/Users/vart/.cache/codex/xveil-explicit-source-hold-20261020/group-expiry-final-360",
+    "path": "/Users/<user>/.cache/codex/xveil-explicit-source-hold-20261020/group-expiry-final-360",
     "raw_ok": false,
     "measured_seconds": 360,
     "audio_markers": 2112,

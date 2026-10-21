@@ -539,5 +539,5 @@
     "remaining_fixture_sockets": 0
   },
   "policy": "Superseded by the neutral-reply fix. FAILED quality gates, not for installation/release. No criterion changed.",
-  "raw_artifacts": "/Users/vart/.cache/codex/xveil-auxiliary-records-20261019"
+  "raw_artifacts": "/Users/<user>/.cache/codex/xveil-auxiliary-records-20261019"
 }

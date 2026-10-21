@@ -152,7 +152,7 @@
     "root_diff_sha256": "529f7718edea4b6775cc11607bc2ff663a922cc3521b680cf94efa39d7b26859",
     "sdk_diff_sha256": "1ceeb05d540078262f1480ba7210dfaa0f5895be9f0099f64bc18a56a4f6a363"
   },
-  "private_artifacts_root": "/Users/vart/.cache/codex/xveil-audio-allocation-20261019",
+  "private_artifacts_root": "/Users/<user>/.cache/codex/xveil-audio-allocation-20261019",
   "evidence_directory": "audio-allocation-2026-10-19/",
   "evidence_sha256": {
     "build-proof.json": "11b282f82f95056e7e97fa308031303b67d05e95e602a9a5f3197c3885f732e1",

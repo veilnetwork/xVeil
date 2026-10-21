@@ -875,5 +875,5 @@
   "push": false,
   "foreign_wip_preserved": true,
   "evidence_directory": "playout-packet-budget-2026-10-18",
-  "private_artifacts": "/Users/vart/.cache/codex/xveil-playout-budget-20261018"
+  "private_artifacts": "/Users/<user>/.cache/codex/xveil-playout-budget-20261018"
 }
