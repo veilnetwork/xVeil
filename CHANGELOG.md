@@ -10,6 +10,8 @@ bumps may change behaviour a user notices.
 
 ### Fixed
 
+- Update TLS certificate verification and root certificates for the October
+  rustls-webpki/webpki-roots security advisories.
 - Elect one answering endpoint when two devices of the same identity accept a
   call together; stop the other endpoint without sharing the media key.
 - Restore initial linked-device history despite concurrent adoption, delayed
