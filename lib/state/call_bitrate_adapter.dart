@@ -1,3 +1,4 @@
+import 'call_video_delivery_model.dart';
 import 'call_audio_receive_activity.dart';
 import 'call_audio_buffer_window.dart';
 import 'call_rtcp_loss.dart';
@@ -152,6 +153,40 @@ class CallBitrateAdapter {
   // small, sparse frame stream and climb only after sustained healthy audio.
   // initialLevel can restore an already measured policy; new calls omit it.
   int _level;
+  final _delivery = CallVideoDeliveryModel();
+  CallVideoBudget? _deliveryTarget;
+  bool _deliveryProbe = false;
+
+  void _cutVideo() {
+    if (!_delivery.supported || _appliedTarget == null) {
+      _level = (_level + 2).clamp(0, ladder.length - 1);
+      return;
+    }
+    final previous = _appliedTarget!;
+    final floorKbps = (baseBitrateKbps / baseFps).round().clamp(
+      1,
+      baseBitrateKbps,
+    );
+    _deliveryTarget = (
+      maxBitrateKbps: (previous.maxBitrateKbps / 2).floor().clamp(
+        floorKbps,
+        baseBitrateKbps,
+      ),
+      maxFps: (previous.maxFps / 2).clamp(1.0, baseFps.toDouble()),
+    );
+    _setDeliveryLevel();
+  }
+
+  void _setDeliveryLevel() {
+    final fps = _deliveryTarget?.maxFps;
+    if (fps == null) return;
+    _level = fps <= 1
+        ? ladder.length - 1
+        : cadenceLadder.indexWhere((fraction) => baseFps * fraction <= fps);
+    if (_level < 0) _level = ladder.length - 2;
+    if (fps > 1 && _level == ladder.length - 1) _level--;
+  }
+
   int _badStreak = 0;
   int _floorBadStreak = 0;
   CallVideoAdvice _advice = CallVideoAdvice.keep;
@@ -267,6 +302,7 @@ class CallBitrateAdapter {
           'recent': List<Map<String, Object?>>.unmodifiable(_bufferHistory),
           'applied_video_kbps': _appliedTarget?.maxBitrateKbps,
           'applied_video_fps': _appliedTarget?.maxFps,
+          'delivery_model': _delivery.diagnostics,
         };
 
   void _recordBufferDecision() {
@@ -366,6 +402,10 @@ class CallBitrateAdapter {
           );
         }
       }
+      if (_delivery.supported && _deliveryProbe) {
+        kbpsStep = desired.maxBitrateKbps;
+        fpsStep = desired.maxFps;
+      }
       final upKbps = floorProbe ? desired.maxBitrateKbps : kbpsStep;
       final upFps = floorProbe ? desired.maxFps : fpsStep;
       proposed = (
@@ -402,6 +442,16 @@ class CallBitrateAdapter {
       _floorReceiveBuffer.reset();
       _floorPeerBuffer.reset();
     }
+    if (_delivery.supported && proposed != previous) {
+      _delivery.applied(
+        _growthSampleAt ?? DateTime.now(),
+        reduced:
+            previous != null &&
+            (proposed.maxFps < previous.maxFps ||
+                proposed.maxBitrateKbps < previous.maxBitrateKbps),
+      );
+    }
+    _deliveryProbe = false;
     _appliedTarget = proposed;
     // Reaching the nominal top rung is not enough: its acknowledged cadence
     // and bitrate may still be several ramp steps behind it.
@@ -427,6 +477,9 @@ class CallBitrateAdapter {
 
   /// A diagnostic override changed native state outside this policy.
   void invalidateAppliedTarget() {
+    _delivery.reset();
+    _deliveryTarget = null;
+    _deliveryProbe = false;
     _appliedTarget = null;
     _restartTarget = null;
     _growthAllowed = false;
@@ -439,6 +492,9 @@ class CallBitrateAdapter {
   /// applied to its predecessor. Keep the policy, reapply both native controls.
   void invalidateAppliedState() {
     _restartTarget = targetForStart;
+    _delivery.reset();
+    _deliveryTarget = null;
+    _deliveryProbe = false;
     _appliedTarget = null;
     _growthAllowed = false;
     _growthSampleHealthy = false;
@@ -616,6 +672,12 @@ class CallBitrateAdapter {
     if (_audioReserve && _appliedPause != true) {
       return (maxBitrateKbps: 1, maxFps: 0.02);
     }
+    if (_delivery.supported &&
+        _deliveryTarget != null &&
+        !_audioReserve &&
+        !_sourceFloor) {
+      return _deliveryTarget!;
+    }
     var fps = supportsLowRateVideo
         ? (_level == ladder.length - 1 ? 1.0 : baseFps * cadenceLadder[_level])
               .clamp(1.0, baseFps.toDouble())
@@ -787,6 +849,19 @@ class CallBitrateAdapter {
     } else {
       _mutedRecoveryStreak = 0;
     }
+    _deliveryProbe = false;
+    if (supportsLowRateVideo) {
+      final generation = _delivery.generation;
+      _delivery.observe(
+        stats,
+        sampledAt ?? DateTime.now(),
+        expectedVideoFeedbackReports ?? 1,
+      );
+      if (generation != _delivery.generation) {
+        _deliveryTarget = _appliedTarget;
+        _setDeliveryLevel();
+      }
+    }
     final videoProgress = _videoCanEarnRecovery(stats, videoSendExpected);
     final floorTrialMeasured = _observeFloorTrial(stats, videoSendExpected);
     final videoFrames = stats['video_tx_frames'];
@@ -843,7 +918,7 @@ class CallBitrateAdapter {
       audioReceiveTargetDelayMs: receiveTarget,
       missingAudioReceiverFeedback: !feedbackAvailable,
       audioInterrupted: audioInterrupted,
-      videoLossObserved: videoLoss,
+      videoLossObserved: videoLoss || _delivery.queuePressure,
       audioNetworkLossObserved: networkLoss.audio,
       audioConcealmentObserved: concealed,
       audioReceiveConcealmentObserved: localConcealed,
@@ -857,6 +932,33 @@ class CallBitrateAdapter {
           _appliedPause != true &&
           floorTrialMeasured,
     );
+    if (_delivery.supported) {
+      final previous = _appliedTarget;
+      final next = previous == null
+          ? null
+          : _delivery.propose(
+              previous,
+              (maxBitrateKbps: baseBitrateKbps, maxFps: baseFps.toDouble()),
+              sampledAt ?? DateTime.now(),
+              healthy:
+                  _growthSampleHealthy &&
+                  !sourceBudgetPressured &&
+                  !_sourceFloor &&
+                  !_sourcePause &&
+                  !_audioReserve &&
+                  _appliedPause != true &&
+                  videoSendExpected &&
+                  !_delivery.queuePressure,
+            );
+      _growthAllowed = next != null;
+      if (next != null) {
+        _deliveryTarget = next;
+        _deliveryProbe = true;
+        _setDeliveryLevel();
+        _recordBufferDecision();
+        return target;
+      }
+    }
     _recordBufferDecision();
     return outcome;
   }
@@ -1435,7 +1537,7 @@ class CallBitrateAdapter {
       _goodStreak = 0;
       _badStreak = 0;
       _floorBadStreak = 0;
-      _level = (_level + 2).clamp(0, ladder.length - 1);
+      _cutVideo();
       _lastVideoCutAt = lossSampleAt;
       return target;
     }
@@ -1445,7 +1547,7 @@ class CallBitrateAdapter {
       _badStreak++;
       if (_badStreak >= degradeAfter && _level < ladder.length - 1) {
         _badStreak = 0;
-        _level = (_level + 2).clamp(0, ladder.length - 1);
+        _cutVideo();
         _lastVideoCutAt = lossSampleAt;
         // A rung was still available, so the floor streak restarts: the new
         // rung has not been given its chance yet.
@@ -1484,6 +1586,7 @@ class CallBitrateAdapter {
       return null;
     }
     _growthSampleHealthy = true;
+    if (_delivery.supported) return null;
     if (_rampNeedsRecovery) {
       if (_appliedTarget != null &&
           _appliedTarget != target &&
@@ -1527,6 +1630,8 @@ class CallBitrateAdapter {
 
   void _releaseAudioHold() {
     if (_audioReserve) {
+      _deliveryTarget = null;
+      _deliveryProbe = false;
       _level = ladder.length - 1;
       _startupRecovery = false;
     }
