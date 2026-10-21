@@ -1,0 +1,17 @@
+{
+  "root_base_commit": "1908194efff0d0a329fadb6bb3f72f0827444134",
+  "source_sha256": {
+    "scripts/analyze_group_delivery_tail.py": "0540c4f060cb5485d6fca2e8a92869615c0df257fa7a0a1f87c089c7077feca8",
+    "scripts/analyze_group_sdk_packet.py": "572803fd85b4e45a2d95745a974d508d7e63ad34099e27f78f15fa921b310e84",
+    "scripts/analyze_group_source_session.py": "fba3a6b8da062dbd6b7f1218c79d24d1b2855e0e40ed7d122edb527d11441ca0",
+    "scripts/opaque_packet_route.py": "30e4d5cc7b4879c9585704386401cad5c1b3038d96fac62819b92eedbdd174f5",
+    "scripts/test_analyze_group_delivery_tail.py": "70f4559d344c765b285461b3239e7879854d6edce883b7201ff4cc6c33ca478e",
+    "scripts/group_pcm_timing.py": "9783edc97b5f6ca75963f327ac7ab4bc0a30277b8d28f8339462ab855d4fcba2"
+  },
+  "tests": {
+    "command": "TMPDIR=/private/tmp/ PYTHONPATH=scripts python3 -m unittest test_analyze_group_delivery_tail test_analyze_group_sdk_packet test_analyze_group_source_session test_opaque_packet_route",
+    "passed": 32,
+    "exit_code": 0
+  },
+  "all_22_observed_stand_processes_exited": true
+}

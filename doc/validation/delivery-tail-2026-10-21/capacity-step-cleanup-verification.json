@@ -1,0 +1,22 @@
+{
+  "observed_owned_pids": [
+    80666,
+    80671,
+    80672,
+    86028,
+    86029,
+    86034,
+    86036,
+    86062,
+    86063,
+    86064,
+    97828
+  ],
+  "remaining": [],
+  "all_exited": true,
+  "cleanup": {
+    "fixture_absent": true,
+    "helper_absent": true,
+    "exit_code": 0
+  }
+}
