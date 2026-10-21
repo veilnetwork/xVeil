@@ -92,15 +92,17 @@ class CallVideoDeliveryModel {
       final same = old != null && next.origin == old.origin;
       final progress =
           same && next.frames > old.frames && next.bytes > old.bytes;
-      _barriers.putIfAbsent(
-        name,
-        () => (next.origin, next.sample, next.sentTimestamp),
-      );
+      if (next.sentTimestampValid) {
+        _barriers.putIfAbsent(
+          name,
+          () => (next.origin, next.sample, next.sentTimestamp),
+        );
+      }
       final barrier = _barriers[name];
       // RTP timestamps use serial arithmetic, including the 32-bit wrap. A
       // fresh report of frames predating the last probe earns nothing.
       final causal =
-          barrier == null ||
+          barrier != null &&
           (next.origin == barrier.$1 &&
               next.sample > barrier.$2 &&
               _newerTimestamp(next.timestamp, barrier.$3));
@@ -193,7 +195,9 @@ class CallVideoDeliveryModel {
     _qualified.clear();
     for (final entry in _peers.entries) {
       final r = entry.value;
-      _barriers[entry.key] = (r.origin, r.sample, r.sentTimestamp);
+      if (r.sentTimestampValid) {
+        _barriers[entry.key] = (r.origin, r.sample, r.sentTimestamp);
+      }
     }
     if (reduced) {
       phase = CallVideoDeliveryPhase.drain;
@@ -235,6 +239,7 @@ class _DeliverySample {
     this.delay,
     this.sentTimestamp,
     this.sentBytes,
+    this.sentTimestampValid,
     this.at,
   ) : minimumDelay = delay;
   final int origin,
@@ -246,6 +251,7 @@ class _DeliverySample {
       delay,
       sentTimestamp,
       sentBytes;
+  final bool sentTimestampValid;
   final DateTime at;
   int minimumDelay;
   DateTime? growingSince;
@@ -266,6 +272,8 @@ class _DeliverySample {
         raw[k],
     ];
     if (values.any((v) => v is! int || v < 0)) return null;
+    final validClock = raw['sent_timestamp_valid'];
+    if (validClock != null && validClock is! bool) return null;
     final v = values.cast<int>();
     if (v[0] == 0 ||
         v[1] < v[0] ||
@@ -285,6 +293,7 @@ class _DeliverySample {
       v[6],
       v[7],
       v[8],
+      validClock is bool ? validClock : v[8] > 0,
       now,
     );
   }
