@@ -402,8 +402,66 @@ Legacy, partial and stalled measurements cannot contribute to the fast path.
 Known small events retain their existing growth hold and the node's gradual
 DATA ramp / QUIC flight bounds remain authoritative. The startup regression
 fails before this change; 222 source/adapter/delivery/growth tests pass and
-focused Dart analysis is clean. Physical qualification of this faster source
-recovery is pending.
+focused Dart analysis is clean. In the next physical run, the source latch
+cleared at 5.4 / 7.5 seconds (Mac / phone). That run did not qualify video:
+the final 15 seconds fell to 0.33 / 1.93 FPS (phone -> Mac / Mac -> phone),
+despite complete accepted-audio RTP delivery and packet peaks below 146 ms.
+The node flight trace repeatedly showed transport pressure while frontend
+consumer feedback was healthy. One primary first-hop connection accumulated
+19 / 38 QUIC losses, while redundant paths delivered every scored audio packet.
+
+## Transport warnings versus consumer health
+
+SDK `40b3e920` distinguishes trusted first-hop transport warnings from measured
+consumer failure. Fresh positive consumer health (including an already-held
+allowance within its original sample TTL) prevents one path's loss, blocked
+ACK or stalled writer from repeatedly halving the node-wide lossy source
+window. Per-connection QUIC congestion control remains in force, and the same
+warning still restrains ordered DATA. Warnings cannot grant flight, create or
+refresh health, fund growth or erase a live pressure lease. Unknown/expired
+health keeps the conservative fallback. Actual negative consumer feedback
+clears the positive/held health immediately; source inactivity and route reset
+also revoke it. Neither wire priority nor relay behavior changes.
+
+The live-QUIC regression failed before the fix (one-byte sentinel instead of
+the existing 2401-byte trial), then passed. Paid-window retention, expiry,
+negative feedback, route reset, stalled writers and continued DATA restraint
+are covered. All 134 local session checks pass, with one existing ignored
+characterization. Both endpoint FFI libraries compiled and were installed in
+the disposable stand with the faster measured-source frontend.
+
+The clean 180-second relay run kept one engine per endpoint and relay routes
+throughout. The first complete five-second windows at >=25 decoded FPS ended
+12.94 seconds after camera enable for Mac -> phone and 17.27 seconds for
+phone -> Mac. First >=360p frames appeared at 23.87 / 35.12 seconds. Final
+cadence was 30.00 FPS at 640x360 and 29.13 FPS at 540x960 respectively. After
+second 60, mean decoded cadence was 29.99 / 29.26 FPS, maximum inter-frame gaps
+89 / 94 ms, and there were no gaps over 250 ms. The phone recorded two deferred
+first-hop warnings while its consumer was healthy; neither endpoint applied
+unknown-health transport fallback during this run.
+
+All scored accepted audio RTP packets arrived in both directions. Estimated
+packet-flight medians were 43 / 54 ms and maxima 162 / 158 ms (Mac -> phone /
+phone -> Mac). These are native packet joins with clock-calibration bounds,
+not acoustic mouth-to-ear delay or a subjective live-speech assessment. The
+stand used deterministic PCM and real cameras, with no source/bitrate pin.
+The earlier failed run and this successful run used a real changing network;
+the isolated before/after regression establishes the particular admission bug,
+while the physical run establishes this candidate's observed performance.
+
+The subsequent 100-second P2P regression kept direct routes throughout and
+restarted both cameras at seconds 40/45. Initial complete >=25-FPS windows
+ended 18.69 / 19.23 seconds after enable (phone -> Mac / Mac -> phone);
+after restart they ended at 15.89 / 16.74 seconds. Final cadence was
+29.27 / 30.00 FPS. Maximum post-restart inter-frame gaps were 105 / 104 ms;
+all scored accepted audio RTP arrived. Its original audio buffers performed
+duration-measured latency catch-up near second 38, and the source protection
+temporarily cut pixel count. This run therefore does not establish rapid
+high-resolution recovery during audio catch-up: Mac -> phone first reached
+360p at 21.07 seconds after initial enable, phone -> Mac at 69.35 seconds
+(including the deliberate five-second camera-off interval). The original
+audio-protection policy remains active; the path-warning fix does not suppress
+consumer failures or promise immediate resolution recovery under them.
 
 ## Production test-input boundary
 
@@ -424,10 +482,17 @@ separately. Follow-up captures include
 `capture-relay-source-filter-before-promotion`, followed by
 `capture-relay-promotion-before-held-trial` and
 `capture-relay-held-trial-before-decoder-clock`. The latest candidate captures
-are `capture-relay-decoder-clock` and `capture-p2p-decoder-clock`.
+include `capture-relay-decoder-clock` and `capture-p2p-decoder-clock`.
+The current SDK/frontend qualification captures are
+`capture-relay-transport-health` and `capture-p2p-transport-health`;
+the immediately preceding failure is preserved as
+`capture-relay-measured-source-transport-pressure`.
 Completed owned app/logcat processes were closed and verified absent.
 Each completed relay run restored its temporary per-contact P2P override.
-The published 0.13.88 phone APK was restored after the preceding cycle without
-uninstalling data. The latest isolated QA verification is still in progress;
-completed runs restore policies/log-buffer sizing and close their owned apps.
-The production Mac installation has not been replaced.
+The published 0.13.88 phone APK (code 2107) was restored after these checks
+without uninstalling data. Its installed APK hash matches the published file;
+the original UID is unchanged and the restored package is not debuggable.
+Both runs restored log-buffer sizing, and the relay run restored its temporary
+per-contact policy. All owned apps were closed and verified absent. The
+production Mac installation has not been replaced. Raw traces and restoration
+proofs remain in the private cache; no endpoint secrets are committed here.
