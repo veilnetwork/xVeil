@@ -782,7 +782,20 @@ class CallBitrateAdapter {
           (audioReceiveQuality?.expected ?? receiveAudioExpected) &&
           stats['worker_stalled'] == 0,
     );
-    final videoDrops = stats['video_tx_rtp_drops'];
+    // A repair rejected by local admission is not another failed original
+    // frame. Counting every NACK retry cuts the live source repeatedly for
+    // the same historical loss. Keep receiver loss evidence independent.
+    final sourceDrops = stats['video_tx_source_rtp_drops'];
+    final validSourceDrops = sourceDrops is int && sourceDrops >= 0;
+    final videoDrops = validSourceDrops
+        ? sourceDrops
+        : stats['video_tx_rtp_drops'];
+    final audioDrops = stats['audio_tx_rtp_drops'];
+    final effectiveDrops =
+        validSourceDrops &&
+            (!sendAudioExpected || (audioDrops is int && audioDrops >= 0))
+        ? sourceDrops + (sendAudioExpected ? audioDrops as int : 0)
+        : (stats['tx_drops'] as num?)?.toInt() ?? 0;
     final validVideoDrops = videoDrops is int && videoDrops >= 0;
     final videoLoss =
         validVideoDrops &&
@@ -831,7 +844,7 @@ class CallBitrateAdapter {
               receive.ageMs! < audioReceiveRecoverMs &&
               (!requireAudioReceivePlayout ||
                   (receiveDelay != null && receiveDelay < playoutRecoverMs)));
-      final drops = (stats['tx_drops'] as num?)?.toInt() ?? 0;
+      final drops = effectiveDrops;
       final newDrops = _lastTxDrops != null && drops > _lastTxDrops!;
       if (!networkLoss.video &&
           !videoLoss &&
@@ -895,7 +908,7 @@ class CallBitrateAdapter {
                     ?.toInt() ??
                 0
           : 0,
-      txDrops: (stats['tx_drops'] as num?)?.toInt() ?? 0,
+      txDrops: effectiveDrops,
       audioTxDrops:
           sendAudioExpected &&
               stats['audio_tx_rtp_drops'] is int &&
