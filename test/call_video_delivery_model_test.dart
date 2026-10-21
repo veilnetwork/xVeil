@@ -18,6 +18,7 @@ Map<String, dynamic> report(
   'timestamp': timestamp ?? n * 90000,
   'sent_timestamp': sent ?? n * 90000,
   'sent_bytes': n * 10000,
+  'sent_timestamp_valid': true,
   'delay_ms': delay,
 };
 final epoch = DateTime(2026, 10, 21);
@@ -52,6 +53,30 @@ void main() {
     observe(m, 5, {'p': report(4, timestamp: 360000)});
     expect(m.propose(probe, ceiling, at(5), healthy: true)!.maxFps, 4);
   });
+  test(
+    'empty source clock cannot pin random high RTP timestamps at the floor',
+    () {
+      final m = CallVideoDeliveryModel();
+      final empty = report(1, sent: 0, timestamp: 0, bytes: 0)
+        ..['frames'] = 0
+        ..['sent_bytes'] =
+            9000 // Lifetime counter can survive a source restart.
+        ..['sent_timestamp_valid'] = false;
+      observe(m, 1, {'p': empty});
+      m.applied(at(1), reduced: false);
+      const first = 0xfba80000;
+      observe(m, 2, {'p': report(2, sent: first, timestamp: first)});
+      expect(m.propose(floor, ceiling, at(2), healthy: true), isNull);
+      observe(m, 3, {
+        'p': report(3, sent: first + 90000, timestamp: first + 90000),
+      });
+      expect(m.propose(floor, ceiling, at(3), healthy: true)!.maxFps, 2);
+      final zero = CallVideoDeliveryModel();
+      observe(zero, 1, {'p': report(1, sent: 0, timestamp: 0)});
+      observe(zero, 2, {'p': report(2, sent: 90000, timestamp: 90000)});
+      expect(zero.propose(floor, ceiling, at(2), healthy: true), isNotNull);
+    },
+  );
   test('all group receivers acknowledge, including staggered reports', () {
     final m = CallVideoDeliveryModel();
     observe(m, 0, {'a': report(1), 'b': {}}, expected: 2);
