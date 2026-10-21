@@ -1,0 +1,16 @@
+{
+  "owned_worker_groups": 59,
+  "owned_relay_pids": 150,
+  "matching_active_processes": [],
+  "members_of_owned_worker_groups": [],
+  "reused_ids_with_unrelated_system_processes": [
+    {
+      "pid": 29654,
+      "pgid": 29654,
+      "command": "/System/Library/Frameworks/Contacts.framework/Support/contactsd"
+    }
+  ],
+  "passed": true,
+  "gui_apps_started": 0,
+  "physical_phone_changed": false
+}
