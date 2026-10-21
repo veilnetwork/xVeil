@@ -288,6 +288,53 @@ void main() {
       expect(a.acknowledgedTarget!.maxBitrateKbps, lessThan(225));
     },
   );
+  for (final audio in [true, false]) {
+    test('rejected repairs do not cut or stall source growth audio=$audio', () {
+      final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 60);
+      a.applyPendingTarget((_) => true);
+      a.applyPendingPause((_) => true);
+      void sample(int n, {int sourceDrops = 0, int repairDrops = 0}) {
+        a.onNativeStats(
+          {
+            'worker_stalled': 0,
+            'video_worker_stalled': 0,
+            'audio_feedback_reports': 1,
+            'video_feedback_reports': 1,
+            'rtt_ms': 110,
+            'video_feedback_rtt_ms': 110,
+            'tx_loss_pct': 0,
+            'tx_jitter_ms': 10,
+            'audio_rx_pkts': n * 100,
+            'audio_rx_native_age_ms': 10,
+            'audio_tx_rtp_drops': 0,
+            'video_tx_source_rtp_drops': sourceDrops,
+            'video_tx_rtp_drops': sourceDrops + repairDrops,
+            'tx_drops': sourceDrops + repairDrops,
+            'video_tx_frames': n * 30,
+            'video_delivery_peers': {'p': report(n)},
+          },
+          sampledAt: at(n),
+          sendAudioExpected: audio,
+          requireAudioReceivePlayout: audio,
+          requirePeerAudioPlayout: audio,
+          audioReceiveDelayMs: 60,
+          peerAudioDelayMs: 60,
+          peerAudioSampleSequence: n,
+          receiveAudioExpected: audio,
+        );
+        a.applyPendingTarget((_) => true);
+      }
+
+      for (var n = 1; n <= 8; n++) {
+        sample(n, repairDrops: n * 30);
+      }
+      expect(a.acknowledgedTarget, ceiling);
+      sample(9, repairDrops: 300);
+      expect(a.acknowledgedTarget, ceiling);
+      sample(10, sourceDrops: 1, repairDrops: 400);
+      expect(a.acknowledgedTarget!.maxBitrateKbps, 450);
+    });
+  }
   for (final rtt in [10, 120]) {
     test(
       'adapter reaches cap in 8s with measured delivery at ${rtt}ms RTT',
