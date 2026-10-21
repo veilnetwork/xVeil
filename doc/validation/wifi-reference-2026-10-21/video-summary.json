@@ -1,0 +1,109 @@
+{
+  "mac": {
+    "received_from": "phone",
+    "first_decode_at": 67.07065958320163,
+    "startup_recovered_level_zero_at": 138.65257345797727,
+    "phases": [
+      {
+        "phase": "wifi_audio",
+        "frames": 0,
+        "fps_over_phase": 0.0,
+        "gap_p95_ms": null,
+        "max_gap_ms": null,
+        "last10s_fps": 0.0,
+        "dimensions": {}
+      },
+      {
+        "phase": "wifi_video",
+        "frames": 399,
+        "fps_over_phase": 6.65,
+        "gap_p95_ms": 248.70500003453344,
+        "max_gap_ms": 1103.0639999662526,
+        "last10s_fps": 15.1,
+        "dimensions": {
+          "180x320": 111,
+          "270x480": 167,
+          "360x640": 121
+        }
+      },
+      {
+        "phase": "wifi_video_file_attempt",
+        "frames": 1661,
+        "fps_over_phase": 27.683333333333334,
+        "gap_p95_ms": 64.03399998089299,
+        "max_gap_ms": 140.48299996647984,
+        "last10s_fps": 29.2,
+        "dimensions": {
+          "360x640": 429,
+          "540x960": 1232
+        }
+      },
+      {
+        "phase": "wifi_video_after_cancel_request",
+        "frames": 1774,
+        "fps_over_phase": 29.566666666666666,
+        "gap_p95_ms": 41.69400001410395,
+        "max_gap_ms": 78.33600003505126,
+        "last10s_fps": 29.5,
+        "dimensions": {
+          "540x960": 1774
+        }
+      }
+    ]
+  },
+  "phone": {
+    "received_from": "mac",
+    "first_decode_at": 66.25189154827967,
+    "startup_recovered_level_zero_at": 149.32549858296989,
+    "phases": [
+      {
+        "phase": "wifi_audio",
+        "frames": 0,
+        "fps_over_phase": 0.0,
+        "gap_p95_ms": null,
+        "max_gap_ms": null,
+        "last10s_fps": 0.0,
+        "dimensions": {}
+      },
+      {
+        "phase": "wifi_video",
+        "frames": 412,
+        "fps_over_phase": 6.866666666666666,
+        "gap_p95_ms": 221.07800003141165,
+        "max_gap_ms": 1235.013000201434,
+        "last10s_fps": 15.7,
+        "dimensions": {
+          "320x180": 32,
+          "80x44": 224,
+          "120x66": 122,
+          "160x90": 34
+        }
+      },
+      {
+        "phase": "wifi_video_file_attempt",
+        "frames": 1730,
+        "fps_over_phase": 28.833333333333332,
+        "gap_p95_ms": 53.537999745458364,
+        "max_gap_ms": 143.20799987763166,
+        "last10s_fps": 30.0,
+        "dimensions": {
+          "160x90": 355,
+          "240x132": 510,
+          "320x180": 31,
+          "640x360": 834
+        }
+      },
+      {
+        "phase": "wifi_video_after_cancel_request",
+        "frames": 1800,
+        "fps_over_phase": 30.0,
+        "gap_p95_ms": 39.38900027424097,
+        "max_gap_ms": 91.28799987956882,
+        "last10s_fps": 30.0,
+        "dimensions": {
+          "640x360": 1800
+        }
+      }
+    ]
+  }
+}

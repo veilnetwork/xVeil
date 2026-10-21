@@ -35,6 +35,17 @@ class PhysicalPcmTest(unittest.TestCase):
         self.assertGreater(path['phases'][0]['max_ms'], 2000)
         self.assertEqual(path['matching'], 'ordinal_from_actual_capture_start')
 
+    def test_explicit_phases_do_not_invent_a_route_handover(self):
+        a, b = self.samples()
+        path = analyze_path(a, b, 9,
+                            phase_ranges=[(0, 3, 'wifi_audio'),
+                                          (3, 20, 'wifi_video')])
+        self.assertEqual([p['phase'] for p in path['phases']],
+                         ['wifi_audio', 'wifi_video'])
+        self.assertEqual([p['matched'] for p in path['phases']], [3, 6])
+        self.assertEqual(path['phases'][1]['until_seconds'], 9)
+        self.assertTrue(all(p['unmatched'] == 0 for p in path['phases']))
+
 
 if __name__ == '__main__':
     unittest.main()

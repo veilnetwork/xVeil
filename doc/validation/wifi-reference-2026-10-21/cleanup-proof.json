@@ -1,0 +1,8 @@
+{
+  "mac_owned_process_exited": true,
+  "measurement_launcher_exited": true,
+  "owned_logcat_exited": true,
+  "phone_original_apk_sha256_restored": "b2bedeab5cf7a2c62ac6a5b1843c14c04ba9ebdf1604c7175aa25259f55430ab",
+  "owned_forward_absent": true,
+  "phone_app_absent": true
+}
