@@ -182,8 +182,17 @@ admission despite healthy application audio measurements. Its implementation
 contradicted the separate DATA-only policy. The fixed handler preserves the
 DATA throttle and leaves lossy flight to actual pressure/loss and application
 health. This addresses one observed cause, without attributing every earlier
-video cut to that warning. Physical relay requalification follows this fix.
-No relay priority or media hint was introduced.
+video cut to that warning. No relay priority or media hint was introduced.
+
+Requalification after the DATA-only fix was **not a pass**. At about 53 s,
+Mac stopped receiving native audio RTP while the phone continued receiving
+Mac audio and exchanging call-health signaling. After about 12 s of silence,
+the existing relay repair recreated the media engine. The strict PCM runner
+detected the changed generation and ended the measurement. Both directions
+had delivered essentially no video in that attempt. This cannot qualify
+startup or sustained relay video, and does not establish that the DATA-only
+fix caused the receive failure. The missing relay ingress and the resulting
+repair remain a separate unresolved transport investigation.
 
 Private raw captures remain outside the repository at
 `~/.cache/codex/xveil-video-bbr-20261021/`; the successful current P2P capture is
