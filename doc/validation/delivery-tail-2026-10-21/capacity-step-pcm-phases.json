@@ -1,0 +1,272 @@
+[
+  {
+    "source": 1,
+    "receiver": 0,
+    "phases": [
+      {
+        "phase": "before",
+        "matched": 99,
+        "missing": 0,
+        "max_ms": 180.2212916663848,
+        "peak": {
+          "source_at_seconds": 23.23002025060123,
+          "decoded_at_seconds": 23.410241542267613,
+          "ordinal": 23,
+          "delay_ms": 180.2212916663848
+        }
+      },
+      {
+        "phase": "transition",
+        "matched": 5,
+        "missing": 0,
+        "max_ms": 110.22183333989233,
+        "peak": {
+          "source_at_seconds": 123.22001154226018,
+          "decoded_at_seconds": 123.33023337560007,
+          "ordinal": 122,
+          "delay_ms": 110.22183333989233
+        }
+      },
+      {
+        "phase": "after",
+        "matched": 233,
+        "missing": 0,
+        "max_ms": 110.21912499563769,
+        "peak": {
+          "source_at_seconds": 128.27000758395297,
+          "decoded_at_seconds": 128.3802267089486,
+          "ordinal": 127,
+          "delay_ms": 110.21912499563769
+        }
+      }
+    ],
+    "source_edges": 358,
+    "decoded_edges": 358,
+    "matching": "ordinal_from_capture_start"
+  },
+  {
+    "source": 2,
+    "receiver": 0,
+    "phases": [
+      {
+        "phase": "before",
+        "matched": 99,
+        "missing": 0,
+        "max_ms": 190.15937496442348,
+        "peak": {
+          "source_at_seconds": 64.6400185006205,
+          "decoded_at_seconds": 64.83017787558492,
+          "ordinal": 64,
+          "delay_ms": 190.15937496442348
+        }
+      },
+      {
+        "phase": "transition",
+        "matched": 5,
+        "missing": 0,
+        "max_ms": 120.08583336137235,
+        "peak": {
+          "source_at_seconds": 121.20000941725448,
+          "decoded_at_seconds": 121.32009525061585,
+          "ordinal": 120,
+          "delay_ms": 120.08583336137235
+        }
+      },
+      {
+        "phase": "after",
+        "matched": 233,
+        "missing": 0,
+        "max_ms": 110.22116668755189,
+        "peak": {
+          "source_at_seconds": 128.27000554226106,
+          "decoded_at_seconds": 128.3802267089486,
+          "ordinal": 127,
+          "delay_ms": 110.22116668755189
+        }
+      }
+    ],
+    "source_edges": 358,
+    "decoded_edges": 358,
+    "matching": "ordinal_from_capture_start"
+  },
+  {
+    "source": 0,
+    "receiver": 1,
+    "phases": [
+      {
+        "phase": "before",
+        "matched": 99,
+        "missing": 0,
+        "max_ms": 180.21762504940853,
+        "peak": {
+          "source_at_seconds": 23.230022083909716,
+          "decoded_at_seconds": 23.410239708959125,
+          "ordinal": 23,
+          "delay_ms": 180.21762504940853
+        }
+      },
+      {
+        "phase": "transition",
+        "matched": 5,
+        "missing": 0,
+        "max_ms": 130.19566668663174,
+        "peak": {
+          "source_at_seconds": 124.23000975057948,
+          "decoded_at_seconds": 124.36020541726612,
+          "ordinal": 123,
+          "delay_ms": 130.19566668663174
+        }
+      },
+      {
+        "phase": "after",
+        "matched": 233,
+        "missing": 0,
+        "max_ms": 130.10462501551956,
+        "peak": {
+          "source_at_seconds": 125.24001637561014,
+          "decoded_at_seconds": 125.37012100062566,
+          "ordinal": 124,
+          "delay_ms": 130.10462501551956
+        }
+      }
+    ],
+    "source_edges": 358,
+    "decoded_edges": 358,
+    "matching": "ordinal_from_capture_start"
+  },
+  {
+    "source": 2,
+    "receiver": 1,
+    "phases": [
+      {
+        "phase": "before",
+        "matched": 99,
+        "missing": 0,
+        "max_ms": 190.1184999733232,
+        "peak": {
+          "source_at_seconds": 86.8600057089352,
+          "decoded_at_seconds": 87.05012420890853,
+          "ordinal": 86,
+          "delay_ms": 190.1184999733232
+        }
+      },
+      {
+        "phase": "transition",
+        "matched": 5,
+        "missing": 0,
+        "max_ms": 130.09858335135505,
+        "peak": {
+          "source_at_seconds": 120.19000916724326,
+          "decoded_at_seconds": 120.32010775059462,
+          "ordinal": 119,
+          "delay_ms": 130.09858335135505
+        }
+      },
+      {
+        "phase": "after",
+        "matched": 233,
+        "missing": 0,
+        "max_ms": 110.2940000128001,
+        "peak": {
+          "source_at_seconds": 128.27000554226106,
+          "decoded_at_seconds": 128.38029954227386,
+          "ordinal": 127,
+          "delay_ms": 110.2940000128001
+        }
+      }
+    ],
+    "source_edges": 358,
+    "decoded_edges": 358,
+    "matching": "ordinal_from_capture_start"
+  },
+  {
+    "source": 0,
+    "receiver": 2,
+    "phases": [
+      {
+        "phase": "before",
+        "matched": 99,
+        "missing": 0,
+        "max_ms": 190.202625002712,
+        "peak": {
+          "source_at_seconds": 22.220010083925445,
+          "decoded_at_seconds": 22.410212708928157,
+          "ordinal": 22,
+          "delay_ms": 190.202625002712
+        }
+      },
+      {
+        "phase": "transition",
+        "matched": 5,
+        "missing": 0,
+        "max_ms": 120.21395831834525,
+        "peak": {
+          "source_at_seconds": 123.22001112560974,
+          "decoded_at_seconds": 123.34022508392809,
+          "ordinal": 122,
+          "delay_ms": 120.21395831834525
+        }
+      },
+      {
+        "phase": "after",
+        "matched": 233,
+        "missing": 0,
+        "max_ms": 120.22641667863354,
+        "peak": {
+          "source_at_seconds": 127.26000658393605,
+          "decoded_at_seconds": 127.38023300061468,
+          "ordinal": 126,
+          "delay_ms": 120.22641667863354
+        }
+      }
+    ],
+    "source_edges": 358,
+    "decoded_edges": 358,
+    "matching": "ordinal_from_capture_start"
+  },
+  {
+    "source": 1,
+    "receiver": 2,
+    "phases": [
+      {
+        "phase": "before",
+        "matched": 99,
+        "missing": 0,
+        "max_ms": 180.12237502261996,
+        "peak": {
+          "source_at_seconds": 64.64001187559916,
+          "decoded_at_seconds": 64.82013425062178,
+          "ordinal": 64,
+          "delay_ms": 180.12237502261996
+        }
+      },
+      {
+        "phase": "transition",
+        "matched": 5,
+        "missing": 0,
+        "max_ms": 130.2023750031367,
+        "peak": {
+          "source_at_seconds": 124.2300112505909,
+          "decoded_at_seconds": 124.36021362559404,
+          "ordinal": 123,
+          "delay_ms": 130.2023750031367
+        }
+      },
+      {
+        "phase": "after",
+        "matched": 233,
+        "missing": 0,
+        "max_ms": 110.29470834182575,
+        "peak": {
+          "source_at_seconds": 128.27000758395297,
+          "decoded_at_seconds": 128.3803022922948,
+          "ordinal": 127,
+          "delay_ms": 110.29470834182575
+        }
+      }
+    ],
+    "source_edges": 358,
+    "decoded_edges": 358,
+    "matching": "ordinal_from_capture_start"
+  }
+]

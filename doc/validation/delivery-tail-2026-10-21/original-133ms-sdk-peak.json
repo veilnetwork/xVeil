@@ -1,0 +1,167 @@
+{
+  "native": {
+    "source": 0,
+    "receiver": 2,
+    "phase": "audio-video-file",
+    "packet": {
+      "ssrc": 3809593482,
+      "rtp_origin": 490847200,
+      "rtp_timestamp": 503887840,
+      "rtp_sequence": 17639,
+      "source_at_seconds": 271.6900108336122,
+      "decoded_at_seconds": 271.8901980002993,
+      "packet_ms": 40,
+      "encoder_input_index": 27168,
+      "encoder_first_input_monotonic_us": 361459136629,
+      "encoded_monotonic_us": 361459166898,
+      "ingress": {
+        "seq": 17639,
+        "timestamp": 503887840,
+        "arrived_us": 361459300090,
+        "drained_us": 361459300116,
+        "payload_bytes": 119
+      },
+      "total_ms": 200.18716668710113,
+      "render_clock": {
+        "available": true,
+        "marker_rtp_timestamp": 503888320,
+        "packet_inserted_us": 361459300142,
+        "before": {
+          "entered_us": 361459336590,
+          "exited_us": 361459336607,
+          "before_ms": 32,
+          "after_ms": 22,
+          "target_ms": 100,
+          "skipped": 0,
+          "fallback": 0,
+          "frame_headroom_ms": 40,
+          "target_ceiling_ms": 100,
+          "rtp_timestamp": 503888212,
+          "speech_type": 0,
+          "muted": 0
+        },
+        "after": {
+          "entered_us": 361459346565,
+          "exited_us": 361459346578,
+          "before_ms": 62,
+          "after_ms": 52,
+          "target_ms": 100,
+          "skipped": 0,
+          "fallback": 0,
+          "frame_headroom_ms": 40,
+          "target_ceiling_ms": 100,
+          "rtp_timestamp": 503888692,
+          "speech_type": 0,
+          "muted": 0
+        },
+        "continuous_normal_speech": true,
+        "rtp_clock_step_ms": 10.0,
+        "relative_arrival_clock": {
+          "history_window_ms": 30000,
+          "packet_count": 747,
+          "floor_witness": {
+            "received_us": 361445828084,
+            "ssrc": 3809593482,
+            "sequence": 17305,
+            "rtp_timestamp": 503246560
+          },
+          "clock_age_ms": [
+            140.773,
+            140.744
+          ],
+          "absolute_one_way_latency": false
+        },
+        "source_to_clock_bracket_ms": [
+          190.12458337402344,
+          200.09558337402345
+        ],
+        "insertion_to_clock_bracket_ms": [
+          36.465,
+          46.436
+        ],
+        "clock_bracket_to_pcm_edge_ms": [
+          0.09158331298828125,
+          10.06258331298828
+        ],
+        "signal_output_proof": false
+      },
+      "spans_ms": {
+        "capture_to_encoded": 20.415583392605186,
+        "encoded_to_ingress": 133.1919999793172,
+        "ingress_to_webrtc": 0.02600002335384488,
+        "webrtc_to_pcm_edge": 46.55358329182491
+      },
+      "native_send": {
+        "channel": 2,
+        "seq": 17639,
+        "timestamp": 503887840,
+        "attempted_us": 361459166932,
+        "admitted_us": 361459166932,
+        "packet_bytes": 139,
+        "accepted": 1
+      },
+      "native_send_spans_ms": {
+        "encoded_to_native_send": 0.034,
+        "native_send_admission": 0.0,
+        "native_admission_to_ingress": 133.158
+      }
+    },
+    "input_sha256": {
+      "summary.json": "6796a6cdcdf138017babb17c6e6ce2167fd44ab27cccadf6dde71da56c8dd026",
+      "worker-0/summary.json": "bcb9ba59a0b8cc48b4f895e7784a971ce63400128f38438070632eb6eecb77e5",
+      "worker-2/summary.json": "f53c4918b84123b3eab779d024dd55518fe039e229f6438d0417a44c016a65a6",
+      "worker-0/pcm-samples.json": "120ea63aac1a6c211db9fe911da26c19deeb59c1b87595b6046bd1f6e3d673d3",
+      "worker-2/pcm-samples.json": "46f4631f881de8a3e84fb852cd196582c7a2ed1233a0a817ac413ce8f0ce0052",
+      "worker-0/codec-samples.json": "344c3d411b6d0674df57d5dd5d7ab9ad5fab71161abc253cb4338ce8d87e38cc",
+      "worker-0/playout-trace.log": "6bf922f9773e1b206d82f016f749615d8e4c59b81ec558b5fb59c9c068383fef",
+      "worker-2/playout-trace.log": "123aa6d176d6c9bf8e7e437e26f017b6ad213d0f8d576439bd3324cee8365c24"
+    },
+    "limits": [
+      "Owned same-host clocks only; no physical acoustic latency claim",
+      "Encoded-to-ingress includes all local and transport stages; no per-hop attribution",
+      "Ingress-to-PCM can include codec lookahead/FEC and following packets; not NetEq alone",
+      "This analysis does not change the capture verdict or its quality gates"
+    ]
+  },
+  "sdk": {
+    "epoch": "7c125db0358662cf",
+    "cell_sequence": 6915,
+    "rtp_index_in_cell": 0,
+    "source_sdk_peer": "a8159f40",
+    "receiver_sdk_peer": "6c8ea5e7",
+    "sealed_bytes": 175,
+    "observations_us": {
+      "native_attempt": 361459166932,
+      "sdk_seal": 361459167008,
+      "sdk_send_pump": 361459167011,
+      "daemon_read": 361459167065,
+      "handler_enter": 361459167072,
+      "relay_queued": 361459167087,
+      "sdk_authenticated": 361459300076,
+      "native_ingress": 361459300090
+    },
+    "socket_written_us": 361459167017,
+    "rtp_authenticated_metadata_us": 361459300086,
+    "native_enqueue_return_us": 361459166932,
+    "spans_ms": {
+      "native_attempt_to_sdk_seal": 0.076,
+      "sdk_seal_to_sdk_send_pump": 0.003,
+      "sdk_send_pump_to_daemon_read": 0.054,
+      "daemon_read_to_handler_enter": 0.007,
+      "handler_enter_to_relay_queued": 0.015,
+      "relay_queued_to_sdk_authenticated": 132.989,
+      "sdk_authenticated_to_native_ingress": 0.014
+    }
+  },
+  "sdk_log_sha256": {
+    "worker-0/native.log": "cc402443ceee73f762a37e67a4cf93ca2d8605815c66c828f2228c394cf890be",
+    "worker-2/native.log": "df97dabd2eddac0191b735c9033b405ae6deae80edb6b1c93767ef2a204e38cb",
+    "native.log": "e0247e9af2ff79c5c2656e07444ffbda7df466544debe7ed52b7c4e97464ed8c"
+  },
+  "limits": [
+    "Owned same-host clocks; no remote/acoustic latency inference",
+    "Relay-queued is source-node admission, not proof of wire send",
+    "Socket-written and native-enqueue-return are post-completion observations; concurrency can place them after downstream work",
+    "This join changes no original quality gate or capture verdict"
+  ]
+}
