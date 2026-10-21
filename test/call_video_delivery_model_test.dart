@@ -107,20 +107,59 @@ void main() {
     observe(m, 10, {'p': report(10)});
     expect(m.propose(probe, ceiling, at(10), healthy: true), isNotNull);
   });
-  test('decoder queue tolerates spike, drains sustained rise and ceiling', () {
+  test('adaptive playout target alone cannot masquerade as a backlog', () {
     final m = CallVideoDeliveryModel();
     observe(m, 1, {'p': report(1)});
-    observe(m, 2, {'p': report(2, delay: 160)});
+    // Physical relay trace: the decoder maintained its cadence while the
+    // jitter estimate slewed from 60 to 250 ms. The old lifetime-minimum
+    // comparison repeatedly halved an otherwise progressing source.
+    for (var n = 2; n <= 10; n++) {
+      observe(m, n, {'p': report(n, delay: 60 + n * 20)});
+      expect(m.queuePressure, isFalse);
+      expect(m.propose(floor, ceiling, at(n), healthy: true), isNotNull);
+    }
+    observe(m, 11, {'p': report(11, delay: 500)});
+    expect(m.queuePressure, isTrue); // Independent hard ceiling is retained.
+  });
+  test('decoder media backlog tolerates a spike and drains sustained lag', () {
+    final m = CallVideoDeliveryModel();
+    observe(m, 1, {'p': report(1)});
+    observe(m, 2, {'p': report(2, timestamp: 162000)}); // 200-ms lag
     expect(m.queuePressure, isFalse);
     expect(m.propose(floor, ceiling, at(2), healthy: true), isNull);
-    observe(m, 3, {'p': report(3)});
+    observe(m, 3, {'p': report(3)}); // Caught up without cutting.
     expect(m.queuePressure, isFalse);
     for (var n = 4; n <= 7; n++) {
-      observe(m, n, {'p': report(n, delay: 160)});
+      observe(m, n, {'p': report(n, timestamp: n * 90000 - 18000)});
     }
     expect(m.queuePressure, isTrue);
-    observe(m, 8, {'p': report(8, delay: 500)});
-    expect(m.queuePressure, isTrue);
+  });
+  test('sparse frames and RTP wrap do not invent decoder backlog', () {
+    final m = CallVideoDeliveryModel();
+    const originTimestamp = 0xffff0000;
+    for (var n = 1; n <= 10; n++) {
+      final r = report(n, timestamp: (originTimestamp + n * 90000) & 0xffffffff)
+        ..['frames'] = n;
+      observe(m, n, {'p': r});
+      expect(m.queuePressure, isFalse);
+    }
+    // Sample jitter by less than one source frame cannot justify a cut.
+    for (var n = 11; n <= 16; n++) {
+      final r = report(
+        n,
+        timestamp: (originTimestamp + n * 90000 - 45000) & 0xffffffff,
+      )..['frames'] = n;
+      observe(m, n, {'p': r});
+      expect(m.queuePressure, isFalse);
+    }
+  });
+  test('long-call media clock drift cannot become lifetime queue pressure', () {
+    final m = CallVideoDeliveryModel();
+    for (var n = 1; n <= 1200; n++) {
+      final r = report(n)..['sample_us'] = n * 1000200; // 200 ppm
+      observe(m, n, {'p': r});
+      expect(m.queuePressure, isFalse);
+    }
   });
   test('decoder restart, route and membership start a new measurement', () {
     final m = CallVideoDeliveryModel();
@@ -154,7 +193,7 @@ void main() {
       final m = CallVideoDeliveryModel();
       observe(m, 1, {'p': report(1, timestamp: 0xfffffff0, sent: 0xfffffff0)});
       m.applied(at(1), reduced: false);
-      observe(m, 2, {'p': report(2, timestamp: 50, sent: 50)});
+      observe(m, 2, {'p': report(2, timestamp: 89984, sent: 89984)});
       expect(m.propose(floor, ceiling, at(2), healthy: true), isNotNull);
       m.applied(at(2), reduced: false);
       observe(m, 3, {'p': report(3, timestamp: 0xfffffff0)});
