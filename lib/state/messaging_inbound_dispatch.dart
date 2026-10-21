@@ -24,10 +24,9 @@ part of 'messaging_core.dart';
 /// to ids the honest sender minted, and legitimately arrive over paths that are
 /// [SenderProvenance.claimed] BY CONSTRUCTION — the anonymous one-time reply
 /// circuit an ack rides is exactly such a path. Refusing them would cost the
-/// messenger far more than it would deny an attacker. Group, Space, cloud and
-/// call frames stay out too, and for a better reason: their authorization is a
-/// signature over the frame itself, checked against folded membership state, so
-/// they already survive a lie about `src`.
+/// messenger far more than it would deny an attacker. Group, Space and cloud
+/// frames have their own signed membership checks. Call offers are checked
+/// separately below; only follow-ups may rely on an existing call capability.
 const _contactPrivilegedKinds = <WireKind>{
   WireKind.message,
   WireKind.edit,
@@ -229,6 +228,13 @@ extension _MessagingInboundDispatch on MessagingService {
     final callSignal = env.kind == WireKind.callSignal
         ? CallSignal.tryDecode(env.body)
         : null;
+    // Match the realtime lane before acknowledging or remembering this ID.
+    // A contact row or an old device's readable ciphertext cannot prove a new
+    // call offer. Follow-ups retain the active call's bearer capability.
+    if (callSignal?.type == CallSignalType.offer &&
+        !_speaksForContact(m, env.kind)) {
+      return;
+    }
     final activeCallDevice =
         callSignal != null &&
         (acceptsCallDeviceSignal?.call(m.src, callSignal) ?? false);

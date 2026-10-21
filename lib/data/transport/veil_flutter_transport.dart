@@ -907,16 +907,20 @@ class VeilFlutterTransport
   }
 
   /// Redeem a peer's invite on the running node (adds the bootstrap peer + dials
-  /// it) over IPC — replaces the `veil-cli bootstrap join` shell-out.
+  /// it) over IPC — replaces the `veil-cli bootstrap join` shell-out. Joining
+  /// is idempotent: a failed link ceremony may already have registered the
+  /// physical peer before its recovery secret was rejected. A retry must
+  /// refresh/redial that peer and continue the separate authorization checks.
   Future<void> joinInvite(String uri) async {
     final r = await _client.joinBootstrapUri(uri: uri);
-    if (r.status != JoinBootstrapStatus.ok) {
+    if (r.status != JoinBootstrapStatus.ok &&
+        r.status != JoinBootstrapStatus.alreadyRegistered) {
       throw StateError('join failed: ${r.status.name} ${r.detail ?? ''}');
     }
   }
 
   /// Redeem a P2P direct-dial endpoint URI (LAN/observed address a contact
-  /// shared over the E2E channel). Unlike [joinInvite], `alreadyRegistered` is
+  /// shared over the E2E channel). Like [joinInvite], `alreadyRegistered` is
   /// SUCCESS here: the node refreshes the stored dial address and re-dials —
   /// that's the endpoint-exchange refresh semantic, not a conflict.
   Future<void> joinP2PEndpoint(String uri) async {
