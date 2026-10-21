@@ -1,0 +1,382 @@
+{
+  "mac_to_phone": {
+    "rtp_offset": 3542666506,
+    "matched_payload_packets": 8397,
+    "missing_payload_packets": 0,
+    "clock_correction_interval_ms": [
+      -12.085339316399768,
+      6.542796123540029
+    ],
+    "phases": [
+      {
+        "phase": "wifi_audio",
+        "missing": 0,
+        "delivery_ms": {
+          "count": 897,
+          "min_ms": -1.8330183029174805,
+          "median_ms": -0.07101821899414062,
+          "p95_ms": 1.8489818572998047,
+          "p99_ms": 4.8639817237854,
+          "max_ms": 42.24098205566406
+        },
+        "packetization_ms": {
+          "count": 897,
+          "min_ms": 9.079,
+          "median_ms": 10.24,
+          "p95_ms": 50.147,
+          "p99_ms": 50.804,
+          "max_ms": 51.218
+        },
+        "native_admission_ms": {
+          "count": 897,
+          "min_ms": 0.004,
+          "median_ms": 0.014,
+          "p95_ms": 0.026,
+          "p99_ms": 0.033,
+          "max_ms": 0.075
+        },
+        "encoded_to_attempt_ms": {
+          "count": 897,
+          "min_ms": 0.013,
+          "median_ms": 0.038,
+          "p95_ms": 0.064,
+          "p99_ms": 0.167,
+          "max_ms": 13.653
+        },
+        "ingress_drain_ms": {
+          "count": 897,
+          "min_ms": 0.041,
+          "median_ms": 0.152,
+          "p95_ms": 0.372,
+          "p99_ms": 0.59,
+          "max_ms": 0.912
+        },
+        "sender_after_admission_to_ingress_ms": {
+          "count": 897,
+          "min_ms": -1.8680183029174804,
+          "median_ms": -0.1320178985595703,
+          "p95_ms": 1.5429817848205567,
+          "p99_ms": 4.066982109069825,
+          "max_ms": 42.160982055664064
+        },
+        "delivery_peak_clock_interval_ms": [
+          30.155642739264295,
+          48.78377817920409
+        ]
+      },
+      {
+        "phase": "wifi_video_startup",
+        "missing": 0,
+        "delivery_ms": {
+          "count": 3000,
+          "min_ms": -2.4610180854797363,
+          "median_ms": -0.6850180625915527,
+          "p95_ms": 2.073981761932373,
+          "p99_ms": 5.513981819152832,
+          "max_ms": 15.3639817237854
+        },
+        "packetization_ms": {
+          "count": 3000,
+          "min_ms": 8.945,
+          "median_ms": 10.075,
+          "p95_ms": 10.872,
+          "p99_ms": 11.045,
+          "max_ms": 11.12
+        },
+        "native_admission_ms": {
+          "count": 3000,
+          "min_ms": 0.001,
+          "median_ms": 0.007,
+          "p95_ms": 0.011,
+          "p99_ms": 0.014,
+          "max_ms": 0.051
+        },
+        "encoded_to_attempt_ms": {
+          "count": 3000,
+          "min_ms": 0.007,
+          "median_ms": 0.018,
+          "p95_ms": 0.029,
+          "p99_ms": 4.16,
+          "max_ms": 15.012
+        },
+        "ingress_drain_ms": {
+          "count": 3000,
+          "min_ms": 0.033,
+          "median_ms": 0.13,
+          "p95_ms": 0.395,
+          "p99_ms": 1.008,
+          "max_ms": 3.982
+        },
+        "sender_after_admission_to_ingress_ms": {
+          "count": 3000,
+          "min_ms": -2.4850180854797363,
+          "median_ms": -0.7240180015563965,
+          "p95_ms": 1.691981887817383,
+          "p99_ms": 3.675982051849365,
+          "max_ms": 6.7849819984436035
+        },
+        "delivery_peak_clock_interval_ms": [
+          3.2786424073856324,
+          21.90677784732543
+        ]
+      },
+      {
+        "phase": "wifi_video_steady",
+        "missing": 0,
+        "delivery_ms": {
+          "count": 4500,
+          "min_ms": -2.296018123626709,
+          "median_ms": -0.21501827239990234,
+          "p95_ms": 3.396981716156006,
+          "p99_ms": 7.770981788635254,
+          "max_ms": 56.639981746673584
+        },
+        "packetization_ms": {
+          "count": 4500,
+          "min_ms": 8.033,
+          "median_ms": 10.053,
+          "p95_ms": 11.691,
+          "p99_ms": 11.999,
+          "max_ms": 12.131
+        },
+        "native_admission_ms": {
+          "count": 4500,
+          "min_ms": 0.0,
+          "median_ms": 0.006,
+          "p95_ms": 0.01,
+          "p99_ms": 0.013,
+          "max_ms": 0.053
+        },
+        "encoded_to_attempt_ms": {
+          "count": 4500,
+          "min_ms": 0.008,
+          "median_ms": 0.017,
+          "p95_ms": 0.024,
+          "p99_ms": 3.826,
+          "max_ms": 15.811
+        },
+        "ingress_drain_ms": {
+          "count": 4500,
+          "min_ms": 0.057,
+          "median_ms": 0.136,
+          "p95_ms": 0.606,
+          "p99_ms": 1.505,
+          "max_ms": 6.746
+        },
+        "sender_after_admission_to_ingress_ms": {
+          "count": 4500,
+          "min_ms": -2.315018123626709,
+          "median_ms": -0.2550179214477539,
+          "p95_ms": 3.0369820823669436,
+          "p99_ms": 5.467982055664063,
+          "max_ms": 56.61998174667358
+        },
+        "delivery_peak_clock_interval_ms": [
+          44.554642430273816,
+          63.18277787021361
+        ]
+      }
+    ],
+    "peak": {
+      "at": 151.822098458244,
+      "delivery_ms": 56.639981746673584,
+      "packetization_ms": 9.99,
+      "native_admission_ms": 0.005,
+      "encoded_to_attempt_ms": 0.015,
+      "ingress_drain_ms": 0.147,
+      "sender_after_admission_to_ingress_ms": 56.61998174667358,
+      "sequence": 32550,
+      "timestamp": 3549953866
+    }
+  },
+  "phone_to_mac": {
+    "rtp_offset": 3278190011,
+    "matched_payload_packets": 8453,
+    "missing_payload_packets": 0,
+    "clock_correction_interval_ms": [
+      -6.542796269059181,
+      12.085339520126581
+    ],
+    "phases": [
+      {
+        "phase": "wifi_audio",
+        "missing": 0,
+        "delivery_ms": {
+          "count": 974,
+          "min_ms": 7.500018119812012,
+          "median_ms": 9.277518272399902,
+          "p95_ms": 11.804018020629883,
+          "p99_ms": 14.681018352508545,
+          "max_ms": 25.33901834487915
+        },
+        "packetization_ms": {
+          "count": 974,
+          "min_ms": 8.912,
+          "median_ms": 13.019,
+          "p95_ms": 54.323,
+          "p99_ms": 61.602,
+          "max_ms": 64.211
+        },
+        "native_admission_ms": {
+          "count": 974,
+          "min_ms": 0.02,
+          "median_ms": 0.095,
+          "p95_ms": 0.198,
+          "p99_ms": 0.432,
+          "max_ms": 0.794
+        },
+        "encoded_to_attempt_ms": {
+          "count": 974,
+          "min_ms": 0.116,
+          "median_ms": 0.239,
+          "p95_ms": 0.544,
+          "p99_ms": 2.658,
+          "max_ms": 14.996
+        },
+        "ingress_drain_ms": {
+          "count": 974,
+          "min_ms": 0.009,
+          "median_ms": 0.028,
+          "p95_ms": 0.046,
+          "p99_ms": 0.065,
+          "max_ms": 0.103
+        },
+        "sender_after_admission_to_ingress_ms": {
+          "count": 974,
+          "min_ms": 7.1700182571411135,
+          "median_ms": 8.880017963409424,
+          "p95_ms": 11.21601789855957,
+          "p99_ms": 12.599017971038819,
+          "max_ms": 15.480017978668213
+        },
+        "delivery_peak_clock_interval_ms": [
+          18.79622207581997,
+          37.42435786500573
+        ]
+      },
+      {
+        "phase": "wifi_video_startup",
+        "missing": 0,
+        "delivery_ms": {
+          "count": 2979,
+          "min_ms": 6.857017993927002,
+          "median_ms": 8.8090181350708,
+          "p95_ms": 11.758018016815186,
+          "p99_ms": 16.01801824569702,
+          "max_ms": 25.794018268585205
+        },
+        "packetization_ms": {
+          "count": 2979,
+          "min_ms": 7.036,
+          "median_ms": 11.859,
+          "p95_ms": 13.295,
+          "p99_ms": 15.12,
+          "max_ms": 36.658
+        },
+        "native_admission_ms": {
+          "count": 2979,
+          "min_ms": 0.006,
+          "median_ms": 0.072,
+          "p95_ms": 0.118,
+          "p99_ms": 0.201,
+          "max_ms": 0.562
+        },
+        "encoded_to_attempt_ms": {
+          "count": 2979,
+          "min_ms": 0.07,
+          "median_ms": 0.217,
+          "p95_ms": 0.562,
+          "p99_ms": 5.079,
+          "max_ms": 14.789
+        },
+        "ingress_drain_ms": {
+          "count": 2979,
+          "min_ms": 0.002,
+          "median_ms": 0.012,
+          "p95_ms": 0.022,
+          "p99_ms": 0.038,
+          "max_ms": 1.204
+        },
+        "sender_after_admission_to_ingress_ms": {
+          "count": 2979,
+          "min_ms": 6.689017993927002,
+          "median_ms": 8.444018260955811,
+          "p95_ms": 11.063017978668213,
+          "p99_ms": 13.323018123626708,
+          "max_ms": 18.228018070220948
+        },
+        "delivery_peak_clock_interval_ms": [
+          19.251221999526024,
+          37.879357788711786
+        ]
+      },
+      {
+        "phase": "wifi_video_steady",
+        "missing": 0,
+        "delivery_ms": {
+          "count": 4500,
+          "min_ms": 6.675018310546875,
+          "median_ms": 8.791018009185791,
+          "p95_ms": 12.20701789855957,
+          "p99_ms": 16.020018100738525,
+          "max_ms": 26.674017906188965
+        },
+        "packetization_ms": {
+          "count": 4500,
+          "min_ms": 4.556,
+          "median_ms": 11.73,
+          "p95_ms": 13.219,
+          "p99_ms": 14.739,
+          "max_ms": 25.601
+        },
+        "native_admission_ms": {
+          "count": 4500,
+          "min_ms": 0.003,
+          "median_ms": 0.066,
+          "p95_ms": 0.113,
+          "p99_ms": 0.184,
+          "max_ms": 2.122
+        },
+        "encoded_to_attempt_ms": {
+          "count": 4500,
+          "min_ms": 0.078,
+          "median_ms": 0.212,
+          "p95_ms": 0.731,
+          "p99_ms": 4.157,
+          "max_ms": 14.962
+        },
+        "ingress_drain_ms": {
+          "count": 4500,
+          "min_ms": 0.002,
+          "median_ms": 0.011,
+          "p95_ms": 0.018,
+          "p99_ms": 0.031,
+          "max_ms": 0.306
+        },
+        "sender_after_admission_to_ingress_ms": {
+          "count": 4500,
+          "min_ms": 6.493018356323242,
+          "median_ms": 8.41751796913147,
+          "p95_ms": 11.361018302917481,
+          "p99_ms": 13.485018138885499,
+          "max_ms": 21.942017932891847
+        },
+        "delivery_peak_clock_interval_ms": [
+          20.131221637129784,
+          38.759357426315546
+        ]
+      }
+    ],
+    "peak": {
+      "at": 104.80071543995291,
+      "delivery_ms": 26.674017906188965,
+      "packetization_ms": 11.667,
+      "native_admission_ms": 0.059,
+      "encoded_to_attempt_ms": 14.925,
+      "ingress_drain_ms": 0.017,
+      "sender_after_admission_to_ingress_ms": 11.690017906188965,
+      "sequence": 14887,
+      "timestamp": 3283220411
+    }
+  }
+}
