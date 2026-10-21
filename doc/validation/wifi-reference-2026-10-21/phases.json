@@ -1,0 +1,22 @@
+[
+  [
+    5,
+    60,
+    "wifi_audio"
+  ],
+  [
+    60,
+    120,
+    "wifi_video"
+  ],
+  [
+    120,
+    180,
+    "wifi_video_file_attempt"
+  ],
+  [
+    180,
+    240,
+    "wifi_video_after_cancel_request"
+  ]
+]

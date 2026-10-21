@@ -1,0 +1,33 @@
+{
+  "date": "2026-10-21",
+  "duration_planned_seconds": 240,
+  "last_state_sample_seconds": 239.43209691700758,
+  "sample_count_per_endpoint": 115,
+  "ring_seconds": 0.17472870799247175,
+  "forced_route_changes": false,
+  "routes": {
+    "mac": {
+      "p2p": 115
+    },
+    "phone": {
+      "p2p": 115
+    }
+  },
+  "wifi": {
+    "band_ghz": 5,
+    "rssi_dbm_before": -63,
+    "link_rate_mbps_before": 390
+  },
+  "file_attempts": {
+    "each_bytes": 33554432,
+    "directions": 2,
+    "cancel_requested_seconds": 180.6661363329622,
+    "cancel_acknowledged_both": true,
+    "verified_completed": 0,
+    "waiters_ended_with": "RemoteDisconnected on owned app shutdown",
+    "qualification_passed": false
+  },
+  "capture_error": null,
+  "cleanup_automation_note": "Private runner shadowed its Path variable with CompletedProcess after collecting the capture. Restored the exact saved original APK manually and verified its SHA-256, package version and stopped state independently. Fixed the private runner before archiving its hash. Mac required owned SIGKILL after an 8-second SIGTERM timeout; absence was independently verified.",
+  "scope": "Synthetic ADM and real codec/network/video; physical microphone, speaker and hearing quality unmeasured."
+}
