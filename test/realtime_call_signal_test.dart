@@ -223,7 +223,11 @@ void main() {
         expect(received.map((s) => s.type), [CallSignalType.offer]);
       });
     }
-    for (final type in [CallSignalType.cancel, CallSignalType.end]) {
+    for (final type in [
+      CallSignalType.cancel,
+      CallSignalType.end,
+      CallSignalType.answerSelected,
+    ]) {
       test('unproven early ${type.name} cannot suppress its proven copy '
           '(realtime=$realtime)', () async {
         final messaging = MessagingService(transport, storage)..start();

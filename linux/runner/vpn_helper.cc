@@ -9,11 +9,11 @@
 
 namespace {
 
-using LinuxVpnHelperFn = int (*)(const char*);
+using LinuxVpnHelperFn = int (*)(const char*, const char*);
 
 }  // namespace
 
-int RunVpnHelper(const char* config_path) {
+int RunVpnHelper(const char* config_path, const char* config_sha256) {
   char executable[PATH_MAX];
   const ssize_t length = readlink("/proc/self/exe", executable,
                                   sizeof(executable) - 1);
@@ -36,13 +36,13 @@ int RunVpnHelper(const char* config_path) {
     return 1;
   }
   auto* helper = reinterpret_cast<LinuxVpnHelperFn>(
-      dlsym(handle, "veil_packet_tunnel_run_linux_helper"));
+      dlsym(handle, "veil_packet_tunnel_run_linux_helper_v2"));
   if (helper == nullptr) {
     std::cerr << "{\"phase\":\"error\",\"detail\":\"Linux VPN helper ABI is unavailable\"}\n";
     dlclose(handle);
     return 1;
   }
-  const int result = helper(config_path);
+  const int result = helper(config_path, config_sha256);
   // The helper may still have a stdin watcher blocked while the process is
   // exiting after a fatal tunnel error. Do not unload Rust code underneath
   // that thread; this hidden helper mode terminates immediately anyway.

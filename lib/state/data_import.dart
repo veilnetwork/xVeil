@@ -561,6 +561,12 @@ class DataImporter {
           credentialAdopted = true;
 
         case TransferRecordKind.profile:
+          final importedName = record.meta['displayName'];
+          final importedUser = record.meta['username'];
+          if ((importedName != null && importedName is! String) ||
+              (importedUser != null && importedUser is! String)) {
+            break;
+          }
           final existing = await _storage.loadProfile();
           final hasName = (existing?.displayName ?? '').isNotEmpty;
           final hasUser = (existing?.username ?? '').isNotEmpty;
@@ -569,10 +575,10 @@ class DataImporter {
             UserProfile(
               displayName: hasName
                   ? existing!.displayName
-                  : record.meta['displayName'] as String?,
+                  : importedName as String?,
               username: hasUser
                   ? existing!.username
-                  : record.meta['username'] as String?,
+                  : importedUser as String?,
             ),
           );
           profileFilled = true;

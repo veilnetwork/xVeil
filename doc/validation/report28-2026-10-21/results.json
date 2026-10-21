@@ -1,0 +1,60 @@
+{
+  "report28": {
+    "unique_findings": 31,
+    "code_docs_hardening": 27,
+    "local_cleanup": 1,
+    "not_confirmed_as_current_defects": [
+      "R28-16",
+      "R28-18",
+      "R28-22"
+    ]
+  },
+  "multi_device": {
+    "MD21-01": {
+      "status": "PASS",
+      "log": "notification-revoke.log",
+      "topology": "independent A/B/C OS processes, warm online C"
+    },
+    "MD21-02": {
+      "status": "PASS",
+      "log": "answer-race-final.log",
+      "topology": "independent A/B/C OS processes, simultaneous A/B answers"
+    },
+    "MD21-03": {
+      "status": "PASS",
+      "log": "convergence-group.log",
+      "cases": [
+        52,
+        53
+      ]
+    },
+    "MD21-04": {
+      "status": "PASS",
+      "log": "notification-families.log",
+      "cases": [
+        45
+      ]
+    },
+    "MD21-05": {
+      "status": "PASS",
+      "log": "notification-families.log",
+      "cases": [
+        46
+      ]
+    }
+  },
+  "native_stand": {
+    "ffi_abi": "57db2f7a39a07a8d6bfd1d0e7fbcb3d0a1d9cfeaf73dd847fe4483ede8fa1c8a",
+    "files": {
+      "veil-cli": "47d3800b1b10a2a897502373c6d34c3a0c84995a06db1402ef7b2fb97f849e4d",
+      "libveilclient_ffi.dylib": "879eba012f3da7864d49c1abd047ff38b99e8b0798e2fac1c1e4b252074a3b54"
+    }
+  },
+  "limits": [
+    "Not a full rerun/certification of all 63 scenarios",
+    "No subjective acoustic/headphone quality validation",
+    "No instantaneous revocation guarantee before a remote verifier receives the new signed document",
+    "Native ACK-tracked single-envelope SDK path unchanged",
+    "No own-device/call mailbox added"
+  ]
+}

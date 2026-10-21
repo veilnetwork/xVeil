@@ -1,0 +1,9 @@
+{
+  "checked_at_utc": "2026-10-21T10:47:06.932380+00:00",
+  "independent_os_process_check": true,
+  "recorded_worker_starts": 48,
+  "immutable_native_stages_checked": 6,
+  "remaining_worker_pids": [],
+  "remaining_staged_relay_pids": [],
+  "staged_library_open_pids": {}
+}

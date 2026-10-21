@@ -4,8 +4,9 @@
 #include <cstring>
 
 int main(int argc, char** argv) {
-  if (argc == 3 && std::strcmp(argv[1], "--xveil-vpn-helper") == 0) {
-    return RunVpnHelper(argv[2]);
+  if (argc >= 2 && std::strcmp(argv[1], "--xveil-vpn-helper") == 0) {
+    if (argc != 4) return 1;
+    return RunVpnHelper(argv[2], argv[3]);
   }
   g_autoptr(MyApplication) app = my_application_new();
   return g_application_run(G_APPLICATION(app), argc, argv);
