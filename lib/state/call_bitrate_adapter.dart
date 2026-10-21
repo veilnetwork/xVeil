@@ -1247,12 +1247,17 @@ class CallBitrateAdapter {
     final softCutReady =
         _lastVideoCutAt == null ||
         lossSampleAt.difference(_lastVideoCutAt!) >= softVideoTrial;
+    final hardAudioLoss =
+        newAudioDrops || audioInterrupted || audioNetworkLossObserved;
+    // Pending RTP and receiver reports can still describe the larger source
+    // while its acknowledged reduction drains. Those observations hold
+    // growth, but must not halve the source on every stats poll. Measured
+    // audio failure and buffer pressure retain their immediate protection.
+    final videoCutHeld =
+        _delivery.supported && _delivery.draining(lossSampleAt);
     final hardMediaLoss =
-        newAudioDrops ||
-        audioInterrupted ||
-        audioNetworkLossObserved ||
-        videoLossObserved ||
-        videoNetworkLossObserved;
+        hardAudioLoss ||
+        (!videoCutHeld && (videoLossObserved || videoNetworkLossObserved));
     final repeatedSoftLoss = qualifiedSendLoss || qualifiedReceiveLoss;
     final videoStepLoss = hardMediaLoss || (repeatedSoftLoss && softCutReady);
     _bufferInputs?.addAll({
@@ -1263,6 +1268,8 @@ class CallBitrateAdapter {
       'audio_peer_concealment': audioConcealmentObserved,
       'audio_local_concealment': audioReceiveConcealmentObserved,
       'video_network_loss': videoNetworkLossObserved,
+      'video_cut_held_for_drain':
+          videoCutHeld && (videoLossObserved || videoNetworkLossObserved),
       'audio_latency_recovery':
           audioRecoveryObserved || audioReceiveRecoveryObserved,
       'audio_receiver_latency_recovery': audioReceiveRecoveryObserved,

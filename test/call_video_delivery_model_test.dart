@@ -232,6 +232,62 @@ void main() {
     });
     expect(m.propose(floor, ceiling, at(4), healthy: true), isNotNull);
   });
+  test(
+    'video loss drains the applied cut; fresh audio damage cuts immediately',
+    () {
+      final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 60);
+      a.applyPendingTarget((_) => true);
+      a.applyPendingPause((_) => true);
+      void sample(
+        int n, {
+        int videoDrops = 0,
+        int audioDrops = 0,
+        int loss = 0,
+      }) {
+        a.onNativeStats(
+          {
+            'worker_stalled': 0,
+            'video_worker_stalled': 0,
+            'audio_feedback_reports': 1,
+            'video_feedback_reports': 1,
+            'rtt_ms': 110,
+            'tx_loss_pct': 0,
+            'tx_jitter_ms': 10,
+            'audio_rx_pkts': n * 100,
+            'audio_rx_native_age_ms': 10,
+            'audio_tx_rtp_drops': audioDrops,
+            'video_tx_rtp_drops': videoDrops,
+            'video_persistent_loss_report_us': loss,
+            'tx_drops': audioDrops + videoDrops,
+            'video_tx_frames': n * 30,
+            'video_delivery_peers': {'p': report(n)},
+          },
+          sampledAt: at(n),
+          requireAudioReceivePlayout: true,
+          requirePeerAudioPlayout: true,
+          audioReceiveDelayMs: 60,
+          peerAudioDelayMs: 60,
+          peerAudioSampleSequence: n,
+          receiveAudioExpected: true,
+        );
+        a.applyPendingTarget((_) => true);
+      }
+
+      for (var n = 1; n <= 8; n++) {
+        sample(n);
+      }
+      expect(a.acknowledgedTarget, ceiling);
+      sample(9, videoDrops: 1);
+      expect(a.acknowledgedTarget!.maxBitrateKbps, 450);
+      sample(10, videoDrops: 2);
+      sample(11, videoDrops: 3, loss: 100);
+      expect(a.acknowledgedTarget!.maxBitrateKbps, 450);
+      sample(12, videoDrops: 4, loss: 200);
+      expect(a.acknowledgedTarget!.maxBitrateKbps, 225);
+      sample(13, videoDrops: 5, audioDrops: 1, loss: 300);
+      expect(a.acknowledgedTarget!.maxBitrateKbps, lessThan(225));
+    },
+  );
   for (final rtt in [10, 120]) {
     test(
       'adapter reaches cap in 8s with measured delivery at ${rtt}ms RTT',
