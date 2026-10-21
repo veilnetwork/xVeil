@@ -717,8 +717,7 @@ class CallService {
     // source device, so the call id is the bearer secret for this one answer.
     // Once rebound, only that same device id may send follow-up controls.
     if (signal.type == CallSignalType.answer &&
-        call.direction == CallDirection.outgoing &&
-        call.status == CallStatus.dialing) {
+        call.direction == CallDirection.outgoing) {
       return true;
     }
     return call.peer == peer;
@@ -882,6 +881,11 @@ class CallService {
       unawaited(_peerReachableWithoutBlockingSignal(c.peer));
     }
     await sendAnswer;
+    if (_disposed ||
+        _current?.callId != c.callId ||
+        !(_current?.isLive ?? false)) {
+      return;
+    }
     // Device fan-out: the ring may still be sounding on this identity's other
     // devices. Tell THEM (never the caller) it was answered here, so their
     // ringing stops without a missed call. `onBehalfOf` carries the caller so
@@ -1174,7 +1178,14 @@ class CallService {
           _offerIsStale(sig, relayed: false)) {
         return;
       }
+      final before = _current;
+      final selectionForThisCall =
+          sig.type == CallSignalType.answerSelected &&
+          before?.callId == sig.callId &&
+          before?.peer == peer &&
+          before?.direction == CallDirection.incoming;
       _onSignal(peer, sig);
+      if (selectionForThisCall) _relaySelectionToSiblings(peer, sig);
       // THE CALLER GIVING UP IS NEWS FOR THE SIBLINGS TOO. The offer is fanned
       // out (see [_relayOfferToSiblings]) and nothing fanned out its ending, so
       // the devices that were rung by the fan-out heard only the ring. Measured
@@ -1273,6 +1284,8 @@ class CallService {
         _onOffer(peer, sig);
       case CallSignalType.answer:
         _onAnswer(peer, sig);
+      case CallSignalType.answerSelected:
+        _onAnswerSelected(peer, sig);
       case CallSignalType.reject:
         _onRemoteEnd(peer, sig, CallEndReason.declined);
       case CallSignalType.busy:
@@ -2028,12 +2041,70 @@ class CallService {
     _end(declined ? CallEndReason.declined : CallEndReason.answeredElsewhere);
   }
 
+  void _announceAnswerSelection(Call call) {
+    final selected = callAnswerEndpoint(call.callId, call.peerMediaKey);
+    if (selected == null) {
+      return; // legacy answers carried no media contribution
+    }
+    unawaited(
+      _sendCallSignal(
+        call.peer,
+        CallSignal(
+          callId: call.callId,
+          type: CallSignalType.answerSelected,
+          selectedEndpoint: selected,
+          protocolVersion: _signalProtocolVersion,
+        ),
+      ),
+    );
+  }
+
+  void _relaySelectionToSiblings(NodeId caller, CallSignal signal) {
+    unawaited(() async {
+      try {
+        final siblings = await ownSiblingDevices?.call() ?? <NodeId>[];
+        if (_disposed) return;
+        final relayed = signal.copyWith(onBehalfOf: caller.hex);
+        for (final device in siblings) {
+          unawaited(_sendCallSignal(device, relayed));
+        }
+      } catch (error) {
+        devLog(
+          () => 'xVeil[call-sig]: answer selection fan-out failed: $error',
+        );
+      }
+    }());
+  }
+
+  void _onAnswerSelected(NodeId peer, CallSignal signal) {
+    final selected = signal.selectedEndpoint;
+    if (selected == null || !RegExp(r'^[0-9a-f]{64}$').hasMatch(selected)) {
+      return;
+    }
+    final call = _current;
+    if (call == null || call.callId != signal.callId) {
+      _rememberFinished(peer, signal.callId);
+      return;
+    }
+    if (call.direction != CallDirection.incoming || call.peer != peer) return;
+    if (callAnswerEndpoint(call.callId, call.localMediaKey) == selected) return;
+    _rememberFinished(peer, signal.callId);
+    // Both devices can already be connecting/active when sibling hush arrives.
+    // Only the caller that accepted an answer elects the winner; local sibling
+    // timing cannot decide which media contribution the caller actually uses.
+    _end(CallEndReason.answeredElsewhere);
+  }
+
   void _onAnswer(NodeId peer, CallSignal sig) {
     final current = _current;
     if (current == null ||
         current.callId != sig.callId ||
         current.direction != CallDirection.outgoing ||
-        current.status != CallStatus.dialing) {
+        !current.isLive) {
+      return;
+    }
+    if (current.status != CallStatus.dialing) {
+      _announceAnswerSelection(current);
       return;
     }
     var c = current;
@@ -2122,6 +2193,7 @@ class CallService {
         peerMediaKey: peerMediaKey,
       ),
     );
+    _announceAnswerSelection(_current!);
     _startHeartbeat(peerAlreadyConfirmed: true);
     unawaited(_startMedia());
   }

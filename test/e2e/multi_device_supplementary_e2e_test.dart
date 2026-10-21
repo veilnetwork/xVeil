@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/core/log.dart';
 import 'package:xveil/domain/call.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/domain/chat.dart';
@@ -122,7 +123,16 @@ void main() {
     expect(f.c.calls.current!.callId, f.d.calls.current!.callId);
     expect(f.b.calls.current?.isLive ?? false, isFalse);
     await f.d.calls.accept();
-    await mediaBoth(f.a, f.d);
+    try {
+      await mediaBoth(f.a, f.d);
+    } catch (_) {
+      final callId = f.d.calls.current?.callId;
+      for (final line in devLogSnapshot(limit: 4000).lines.where((line) =>
+          line.contains('call-sig') || (callId != null && line.contains(callId)))) {
+        E2eLog.line(line);
+      }
+      rethrow;
+    }
     await waitUntil(
       () => !(f.c.calls.current?.isLive ?? false),
       what: 'C yields media to answering sibling D',
