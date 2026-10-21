@@ -1,0 +1,32 @@
+id,validation,decision,change_or_reason,evidence
+R28-01,Подтверждено,Исправлено,Некорректные displayName/username пропускаются; следующая запись архива импортируется.,pair-import-tests.log
+R28-02,"Хрупкость ABI, не текущая порча данных",Исправлено,Общий FLAGS_OFFSET/FLAGS_RANGE; тест проверяет оба relay-бита.,native-audit-tests-current.log
+R28-03,"Частично: multiline давал ложный отказ, а не обход",Исправлено,"Токенизация логических команд, проверка значений --version/--locked в одном вызове, отсутствие workflows — ошибка.",check-workflow-pins.py --self-test
+R28-04,Подтверждено,Исправлено,"quinn-proto 0.11.18 и quinn-udp 0.5.14, SHA-256 архивов; проверка соответствия Cargo.toml; уточнён перечень локальных патчей.",quinn-registry-comparison.json
+R28-05,Hardening; секрет pairing не обходился,Исправлено,"Слушаем явно перечисленные интерфейсы из QR; сохраняем поддержку нескольких интерфейсов, запрещаем wildcard.",device_pairing_test.dart
+R28-06,Подтверждено; локальный IPC,Исправлено,"До spawn ограничены ожидающие задания (128/соединение) и удерживаемые тела (64 MiB на процесс), при перегрузке NO_ROUTE.",notification-fanout-tests.log; ipc-final-tests.log
+R28-07,Подтверждено; ошибочная длина FFI,Исправлено,"AEAD проверяет размер до чтения: plaintext ≤ VEIL_MAX_DATA_LEN, ciphertext ≤ тот же лимит + 16 байт тега; выходные указатели сбрасываются. Невалидный указатель допустимой длины остаётся ошибкой вызывающего.",ffi-embedded-verified.log; ffi-boundary-verified.log
+R28-08,Подтверждено,Исправлено,insert/restore соблюдают resize; hard cap 1024 сохраняется. Рост сверх safety cap намеренно не включён.,native-audit-tests-current.log
+R28-09,Подтверждено; bootstrap install,Исправлено,Архивный rustup-init 1.28.2 и проверяемые SHA-256 для x86_64/aarch64; версия Rust берётся из rust-toolchain.toml. Инсталлятор от root не запускался.,install-bootstrap.sh; bash -n
+R28-10,Подтверждено; PURGE_DATA,Исправлено,"До системных действий проверяем нормализованный путь, критические каталоги, symlink-компоненты, имя/UID пользователя и признак каталога bootstrap.",check-bootstrap-paths.sh
+R28-11,Подтверждено; документация,Исправлено,Описан полный 24-байтный AAD; убрано неверное обещание compile-time отказа пустому срезу.,session_cipher.rs
+R28-12,Подтверждено; покрытие проверок,Исправлено,Реестр adversarial/proptest дополнен remote session payload decoders.,session-decoders-test.log
+R28-13,Подтверждено; временная копия ключа,Исправлено,RAII Zeroizing для ключа и nonce AEAD на всех выходах.,ffi-final-tests.log
+R28-14,Подтверждено; ошибочная длина FFI,Исправлено,Plaintext RTP/RTCP datagram ≤ 65535 байт до чтения/копирования; sealed direct ingress допускает ещё 36 байт header/tag. Сборка видеокадра ограничивается отдельно.,ffi-embedded-verified.log
+R28-15,Подтверждено; defensive FFI,Исправлено,Перед чтением переданного device public key нужна длина ровно 32; null сохраняет семантику собственного ключа.,lib.rs; ffi-final-tests.log
+R28-16,Внешний триггер не подтверждён,Не менять,expect защищает инварианты заполненного channel state под соответствующими блокировками. Молчаливый пропуск вместо него скрыл бы внутренний дефект.,feedback_ffi.rs; media_ffi.rs constructors/drains
+R28-17,Подтверждено,Исправлено,veil_free_string обнуляет принадлежащий библиотеке буфер CString вместе с завершающим NUL перед освобождением.,lib.rs; ffi-final-tests.log
+R28-18,Не влияет на текущий runtime,Не менять,recv_frame вызывается только тестами/примером документации; утверждение о production 80K packet/s не подтверждено.,rg recv_frame по всем Rust-файлам SDK
+R28-19,Подтверждено,Исправлено,MeshFrame требует точную длину; тест добавочного байта.,native-audit-tests-current.log
+R28-20,Подтверждено; пример,Исправлено,Пример больше не выводит содержимое скрытого username.,messenger_lifecycle.rs
+R28-21,Нарушение инварианта сегодня не воспроизведено,Hardening,При рассогласованном rank возвращается Error::Internal; частично выбранные sample slots восстанавливаются.,hv-tests.log
+R28-22,Ложная тревога для текущего кода,Не менять,last вызывается сразу после is_empty без изменения страницы. Предложенное else break может скрыть неполный repack.,container/mod.rs repack KV/log loops
+R28-23,Malformed argv уже отвергался clap,Hardening,Единый fallible parser Argon2Params вместо отдельного списка и unreachable.,"hv-tests.log, CLI tests"
+R28-24,Подтверждено; локальный мусор,Очищено локально,Удалены 2.5 GiB июльских debug artifacts после проверки открытых файлов; это не изменение безопасности продукта.,hv-old-debug-open-pids.txt
+R28-25,Подтверждено; Linux elevation,Исправлено,"SHA-256 точных JSON-байтов передаётся через argv; helper сверяет тот же прочитанный fd-буфер до парсинга. Старый неподписанный ABI отказывает, добавлен v2.",ffi-final-tests.log; linux-helper-check.log
+R28-26,Подтверждено,Исправлено,Три оставшихся actions закреплены существующими SHA; все три workflow gates проверяют uses.,check-workflow-pins.py
+R28-27,Подтверждено,Исправлено,"Параметры dispatch передаются через env и отдельные строковые аргументы git, не вставляются в код PowerShell.",translate-windows.yml
+R28-28,Подтверждено; переносимость/экспозиция,Исправлено,MONITORING_BIND с default 127.0.0.1 вместо адреса LAN оператора.,monitoring/docker-compose.yml
+R28-29,Подтверждено; воспроизводимость,Исправлено,Пример использует явно собираемый локальный image checked-out revision; registry-вариант требует осознанного выбора digest.,docker/.env.example; docker-compose.yml
+R28-30,Подтверждено,Исправлено,TARGET проверяется как один безопасный Rust target triple до build/rm.,invalid-release-target.log
+R28-31,"Это ручной инструмент, не production zombie",Документировано,"Scaffold локализации сохранён; назначение, запуск и проверка добавлены в README.",README.md Translation contributors

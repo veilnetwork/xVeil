@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter/foundation.dart';
 
 import 'geoip_country_routes.dart';
@@ -213,16 +214,16 @@ class LinuxManagedVpnBackend implements VpnBackend {
     );
     _requestDirectory = requestDirectory;
     final request = File('${requestDirectory.path}/request.json');
-    await request.writeAsString(
-      jsonEncode(
-        buildLinuxVpnHelperRequest(
-          hostPid: pid,
-          socks5Listen: socks5Listen,
-          expandedPolicy: expanded,
-        ),
+    final requestJson = jsonEncode(
+      buildLinuxVpnHelperRequest(
+        hostPid: pid,
+        socks5Listen: socks5Listen,
+        expandedPolicy: expanded,
       ),
-      flush: true,
     );
+    final requestBytes = utf8.encode(requestJson);
+    final digest = crypto.sha256.convert(requestBytes).toString();
+    await request.writeAsBytes(requestBytes, flush: true);
 
     final startup = Completer<VpnBackendState>();
     try {
@@ -249,7 +250,7 @@ class LinuxManagedVpnBackend implements VpnBackend {
       }
       final helper = await Process.start(
         pkexec,
-        <String>[_executablePath, '--xveil-vpn-helper', request.path],
+        <String>[_executablePath, '--xveil-vpn-helper', request.path, digest],
         mode: ProcessStartMode.normal,
         runInShell: false,
       );

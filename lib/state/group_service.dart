@@ -19031,7 +19031,11 @@ class GroupService implements ArchiveGroups {
 
   /// My device group's id (hex), or null before the first link/adopt.
   Future<String?> deviceGroupIdHex() async {
-    _deviceGidCache ??= await _storage.getSetting('devices.gid');
+    if (_deviceGidCache == null) {
+      final stored = await _storage.getSetting('devices.gid');
+      // A late empty read must not erase a link/adoption completed meanwhile.
+      _deviceGidCache ??= stored;
+    }
     return (_deviceGidCache?.isEmpty ?? true) ? null : _deviceGidCache;
   }
 
@@ -20069,6 +20073,37 @@ class GroupService implements ArchiveGroups {
   /// or any contact could plant a marker-named group and start receiving this
   /// device's sync events.
   Future<bool> adoptDeviceGroup(NodeId groupId) async {
+    // Ingest can save valid rows while the ceremony is still inert. Adopt
+    // under that same gate so every such row is either replayed here or
+    // streamed by a subsequent ingest, with no gap between the two.
+    final adopted = await _serialized(
+      groupId,
+      () => _adoptDeviceGroupLocked(groupId),
+    );
+    if (!adopted) return false;
+    try {
+      await onDeviceGroupAdopted?.call();
+    } catch (_) {
+      // The link is already complete; a settings catch-up failure must not
+      // turn it into a failed adoption.
+    }
+    // Row-only deltas may have overtaken the first full bundle. Ask with the
+    // now-durable vector immediately; the ordinary signed sync reply carries
+    // the manifest and missing rows. Waiting for the periodic pull stranded
+    // first-link history even though the source still held every message.
+    unawaited(() async {
+      try {
+        if (!_disposed) await nudgeGroupSync(groupId);
+      } catch (error) {
+        if (!_disposed) {
+          devLog(() => 'xVeil[devices]: post-adoption sync failed: $error');
+        }
+      }
+    }());
+    return true;
+  }
+
+  Future<bool> _adoptDeviceGroupLocked(NodeId groupId) async {
     final bundle = await load(groupId);
     if (bundle == null ||
         !bundle.manifest.isSovereignDevice ||
@@ -20101,12 +20136,6 @@ class GroupService implements ArchiveGroups {
       if (!mine) {
         _deviceIncomingCtl.add(message);
       }
-    }
-    try {
-      await onDeviceGroupAdopted?.call();
-    } catch (_) {
-      // The link is already complete; a settings catch-up failure must not
-      // turn it into a failed adoption.
     }
     return true;
   }

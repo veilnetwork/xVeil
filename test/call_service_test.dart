@@ -15,6 +15,108 @@ import 'package:xveil/state/veil_call_media.dart';
 
 void main() {
   test(
+    'caller selection settles two already-active sibling answers without disclosing media keys',
+    () async {
+      final caller = NodeId.fromHex('c' * 64);
+      final aId = NodeId.fromHex('a' * 64);
+      final bId = NodeId.fromHex('b' * 64);
+      final aWire = _FakeMessaging(), bWire = _FakeMessaging();
+      final a = CallService(aWire, media: _FakeMedia())..start();
+      final b = CallService(bWire, media: _FakeMedia())..start();
+      addTearDown(a.dispose);
+      addTearDown(b.dispose);
+      a.isOwnDevice = (peer) async => peer == bId;
+      b.ownSiblingDevices = () async => [aId];
+      final offer = CallSignal(
+        callId: 'two-answers',
+        type: CallSignalType.offer,
+        media: const CallMedia(audio: true),
+        posture: CallPosture.direct,
+        mediaKey: generateCallMediaKeyContribution(),
+      );
+      aWire.onCallSignal!(caller, offer);
+      bWire.onCallSignal!(caller, offer);
+      await pumpEventQueue();
+      await Future.wait([a.accept(), b.accept()]);
+      await pumpEventQueue();
+      expect(a.current?.status, CallStatus.active);
+      expect(b.current?.status, CallStatus.active);
+      final selected = callAnswerEndpoint(
+        offer.callId,
+        b.current!.localMediaKey,
+      );
+      final selection = CallSignal(
+        callId: offer.callId,
+        type: CallSignalType.answerSelected,
+        selectedEndpoint: selected,
+      );
+      expect(selection.encode(), isNot(contains(b.current!.localMediaKey!)));
+      bWire.onCallSignal!(caller, CallSignal.tryDecode(selection.encode())!);
+      await pumpEventQueue();
+      final forwarded = bWire.sentTo.singleWhere(
+        (entry) => entry.$2.type == CallSignalType.answerSelected,
+      );
+      expect(forwarded.$1, aId);
+      aWire.onCallSignal!(bId, forwarded.$2);
+      await pumpEventQueue();
+      expect(a.current, isNull);
+      expect(b.current?.status, CallStatus.active);
+      expect(aWire.sent.where((s) => s.type == CallSignalType.end), isEmpty);
+      aWire.onCallSignal!(caller, offer);
+      await pumpEventQueue();
+      expect(
+        a.current,
+        isNull,
+        reason: 'a late offer must not ring after caller election',
+      );
+    },
+  );
+
+  test(
+    'late competing answer cannot replace the caller selected endpoint',
+    () async {
+      final peer = NodeId.fromHex('a' * 64), other = NodeId.fromHex('b' * 64);
+      final wire = _FakeMessaging();
+      final service = CallService(wire, media: _FakeMedia())..start();
+      addTearDown(service.dispose);
+      await service.placeCall(peer, const CallMedia(audio: true));
+      final id = service.current!.callId;
+      final first = generateCallMediaKeyContribution();
+      wire.onCallSignal!(
+        peer,
+        CallSignal(
+          callId: id,
+          type: CallSignalType.answer,
+          posture: CallPosture.direct,
+          mediaKey: first,
+        ),
+      );
+      await pumpEventQueue();
+      final late = CallSignal(
+        callId: id,
+        type: CallSignalType.answer,
+        posture: CallPosture.direct,
+        mediaKey: generateCallMediaKeyContribution(),
+      );
+      expect(wire.acceptsCallDeviceSignal!(other, late), isTrue);
+      wire.onCallSignal!(other, late);
+      await pumpEventQueue();
+      expect(service.current!.peerMediaKey, first);
+      expect(service.current!.peer, peer);
+      final selections = wire.sent.where(
+        (s) => s.type == CallSignalType.answerSelected,
+      );
+      expect(selections, hasLength(2));
+      expect(
+        selections.every(
+          (s) => s.selectedEndpoint == callAnswerEndpoint(id, first),
+        ),
+        isTrue,
+      );
+    },
+  );
+
+  test(
     'native screen source kinds preserve windows as a local-only choice',
     () {
       expect(screenSourceDeviceKind('screen'), CallMediaDeviceKind.screen);

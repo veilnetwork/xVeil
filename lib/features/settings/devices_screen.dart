@@ -1495,6 +1495,7 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
       final server = await DevicePairingLanServer.start(
         provisional.ticket,
         _onLanRequest,
+        bindAddresses: hosts.map(InternetAddress.new).toList(),
       );
       if (!mounted) {
         await server.close();

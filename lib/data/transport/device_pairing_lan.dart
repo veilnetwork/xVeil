@@ -114,27 +114,61 @@ Future<void> _writePacket(Socket socket, Uint8List packet) async {
 /// A temporary encrypted local socket. It exists only while the desktop's
 /// pairing sheet is open. Each connection carries one request and one reply.
 class DevicePairingLanServer {
-  DevicePairingLanServer._(this._server, this._ticket, this._onRequest);
+  DevicePairingLanServer._(this._servers, this._ticket, this._onRequest);
 
-  final ServerSocket _server;
+  final List<ServerSocket> _servers;
   final String _ticket;
   final Future<String> Function(String) _onRequest;
   final _sockets = <Socket>{};
-  late final StreamSubscription<Socket> _subscription;
-  int get port => _server.port;
+  final _subscriptions = <StreamSubscription<Socket>>[];
+  int get port => _servers.first.port;
 
   static Future<DevicePairingLanServer> start(
     String ticket,
     Future<String> Function(String) onRequest, {
     InternetAddress? bindAddress,
+    List<InternetAddress>? bindAddresses,
   }) async {
-    final server = await ServerSocket.bind(
-      bindAddress ?? InternetAddress.anyIPv4,
-      0,
-    );
-    final session = DevicePairingLanServer._(server, ticket, onRequest);
-    session._subscription = server.listen(session._handle);
-    return session;
+    if (bindAddress != null && bindAddresses != null) {
+      throw ArgumentError('choose one bind address option');
+    }
+    final addresses =
+        bindAddresses ??
+        (bindAddress != null
+            ? [bindAddress]
+            : (await localPairingAddresses())
+                  .map(InternetAddress.new)
+                  .toList());
+    if (addresses.isEmpty ||
+        addresses.any(
+          (a) =>
+              a.isMulticast ||
+              a.address == InternetAddress.anyIPv4.address ||
+              a.address == InternetAddress.anyIPv6.address,
+        )) {
+      throw ArgumentError('pairing requires explicit local interfaces');
+    }
+    final servers = <ServerSocket>[];
+    try {
+      for (final address in addresses.toSet()) {
+        servers.add(
+          await ServerSocket.bind(
+            address,
+            servers.isEmpty ? 0 : servers.first.port,
+          ),
+        );
+      }
+      final session = DevicePairingLanServer._(servers, ticket, onRequest);
+      for (final server in servers) {
+        session._subscriptions.add(server.listen(session._handle));
+      }
+      return session;
+    } catch (_) {
+      for (final server in servers) {
+        await server.close();
+      }
+      rethrow;
+    }
   }
 
   void _handle(Socket socket) {
@@ -165,12 +199,16 @@ class DevicePairingLanServer {
   }
 
   Future<void> close() async {
-    await _subscription.cancel();
+    for (final subscription in _subscriptions) {
+      await subscription.cancel();
+    }
     for (final socket in _sockets.toList()) {
       socket.destroy();
     }
     _sockets.clear();
-    await _server.close();
+    for (final server in _servers) {
+      await server.close();
+    }
   }
 }
 

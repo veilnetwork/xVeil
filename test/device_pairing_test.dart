@@ -13,6 +13,15 @@ BootstrapInvite _invite(int seed) => BootstrapInvite(
 );
 
 void main() {
+  test('pairing refuses wildcard listeners', () async {
+    final code = DevicePairingCode.fresh(_invite(1), _invite(2),
+      hosts: ['127.0.0.1'], port: 1);
+    for (final address in [InternetAddress.anyIPv4, InternetAddress.anyIPv6]) {
+      await expectLater(DevicePairingLanServer.start(code.ticket,
+        (request) async => request, bindAddresses: [address]), throwsArgumentError);
+    }
+  });
+
   test('LAN ready waits for the joined identity to boot', () async {
     final booted = Completer<bool>();
     final events = <String>[];

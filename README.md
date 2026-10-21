@@ -121,3 +121,10 @@ MIT OR Apache-2.0, at your option — see [LICENSE-MIT](LICENSE-MIT) and
 xVeil is built on, [veil](third_party/veil) and
 [hidden-volume](third_party/hidden-volume), so a build of this application is
 permissively licensed end to end.
+
+### Translation contributors
+
+Use `python3 scripts/l10n_scaffold.py es --out artifacts/l10n-wip/app_es.arb`
+to refresh a translation against the English template while preserving translated
+strings. Add `--report` to list missing translations. Keep unfinished files outside
+`lib/l10n`; run `flutter test test/arb_translations_test.dart` before moving them in.

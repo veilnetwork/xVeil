@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart' as crypto;
+
 /// Control-plane message for a call, carried as the JSON body of a
 /// `WireKind.callSignal` envelope over the realtime call lane.
 ///
@@ -69,6 +71,11 @@ enum CallSignalType {
   /// this index as its own `unknown` and ignores it, so the call continues
   /// exactly as it does today rather than breaking.
   askVideoOff,
+
+  /// Caller → callee family: the endpoint selected by the first answer.
+  /// Carries only a call-bound hash of that answer's contribution, never its
+  /// media secret or a physical address. Older peers ignore this new type.
+  answerSelected,
 
   /// Decode-only sentinel for a type this build doesn't know. Never encoded.
   /// (Added enum values go ABOVE this one; an older peer decodes a newer type's
@@ -226,7 +233,7 @@ class CallTransportProposal {
 /// session after relay startup. Both announce readiness before either moves.
 // v7: optional call-key-sealed ephemeral health on an independent IPC sender.
 const int kCallCompactHealthMinVersion = 7;
-const int kCallSignalProtocolVersion = 7;
+const int kCallSignalProtocolVersion = 8;
 const int kCallLateP2PUpgradeMinVersion = 6;
 const int kCallIndependentTransportFeedbackMinVersion = 4;
 const int kCallAudioPlayoutFeedbackMinVersion = 5;
@@ -372,6 +379,22 @@ const int kCallRelayBatchingMinVersion = 2;
 /// reason as [kCallRelayBatchingMinVersion].
 const int kCallRelaySealedMediaMinVersion = 3;
 
+/// Opaque endpoint election token; revealing it does not disclose the media key.
+String? callAnswerEndpoint(String callId, String? contribution) {
+  final key = decodeCallMediaKeyContribution(contribution);
+  if (key == null) return null;
+  final input = Uint8List.fromList([
+    ...utf8.encode('xveil.call.answer.endpoint.v1\u0000$callId\u0000'),
+    ...key,
+  ]);
+  try {
+    return crypto.sha256.convert(input).toString();
+  } finally {
+    key.fillRange(0, key.length, 0);
+    input.fillRange(0, input.length, 0);
+  }
+}
+
 /// Generate one endpoint's E2E-authenticated call-media contribution.
 String generateCallMediaKeyContribution() {
   final random = Random.secure();
@@ -410,6 +433,7 @@ class CallSignal {
     this.posture,
     this.transport,
     this.mediaKey,
+    this.selectedEndpoint,
     this.reason,
     this.capture,
     this.mediaRepairRequested = false,
@@ -443,6 +467,10 @@ class CallSignal {
   /// after both offer and answer contributions are known and never leave the
   /// endpoint. Present on v3 offer/answer.
   final String? mediaKey;
+
+  /// Call-bound hash of the callee contribution chosen by the caller.
+  /// Only [CallSignalType.answerSelected] carries it.
+  final String? selectedEndpoint;
 
   /// Present on reject/end/cancel/busy.
   final CallEndReason? reason;
@@ -516,6 +544,7 @@ class CallSignal {
     CallPosture? posture,
     CallTransportProposal? transport,
     String? mediaKey,
+    String? selectedEndpoint,
     CallEndReason? reason,
     CallMedia? capture,
     bool? mediaRepairRequested,
@@ -532,6 +561,7 @@ class CallSignal {
     posture: posture ?? this.posture,
     transport: transport ?? this.transport,
     mediaKey: mediaKey ?? this.mediaKey,
+    selectedEndpoint: selectedEndpoint ?? this.selectedEndpoint,
     reason: reason ?? this.reason,
     capture: capture ?? this.capture,
     mediaRepairRequested: mediaRepairRequested ?? this.mediaRepairRequested,
@@ -551,6 +581,7 @@ class CallSignal {
     if (posture != null) 'p': posture!.index,
     if (transport != null) 't': transport!.toJson(),
     if (mediaKey != null) 'mk': mediaKey,
+    if (selectedEndpoint != null) 'se': selectedEndpoint,
     if (reason != null) 'r': reason!.index,
     // Emitted even when every flag is false — unlike `m`, an EMPTY capture is
     // the whole point (mic off, camera off). Dropping it because it encodes to
@@ -594,6 +625,7 @@ class CallSignal {
                 (j['t'] as Map).cast<String, dynamic>(),
               ),
         mediaKey: j['mk'] as String?,
+        selectedEndpoint: j['se'] as String?,
         reason: j['r'] == null
             ? null
             : _enumFromIndex(
