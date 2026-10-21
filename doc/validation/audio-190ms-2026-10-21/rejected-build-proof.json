@@ -1,0 +1,79 @@
+{
+  "sdk": {
+    "path": "/Users/vart/.cache/codex/xveil-audio-200-20261020/sdk-reserve/libveilclient_ffi.dylib",
+    "sha256": "a9b833a7c28221d50587806cead46bfc7da14d37196c4564bc678d6dbdbf13dd",
+    "exports": 203,
+    "export_set_matches_baseline": true,
+    "contract_hash": "07a6d433c34307e2089b9589cd1397a65e707e7d60e35db23160e8a9500a2638"
+  },
+  "media": {
+    "path": "/Users/vart/.cache/codex/xveil-audio-190-20261021/media-budget140/libveil_media.dylib",
+    "sha256": "56e5b354775b974efa6166a2de5700b99e8a29ae85091028d89de3a73895cfd3",
+    "exports": 139,
+    "export_set_matches_baseline": true
+  },
+  "source_parent_commit": "70a99c1f",
+  "source_change": "crates/veil-session/src/local_source_flight.rs",
+  "source_checks": {
+    "crates/veilclient-ffi/src/media_ffi.rs": "8e477f94f481830a9ecec37a7130eb9348be97aee485d83c282d18d1a9b240eb",
+    "crates/veilclient-ffi/src/media_ffi/media_priority_tests.rs": "4d36771c0c363fbc22f2a994d0d83b3a9f7837df98378043a3f6b1d71344763b",
+    "veilclient/src/handle.rs": "4315b5061a45b2142de9e1f0a62c368d92467f397fc58219cb6eb27d6c05f09e",
+    "crates/veil-session/src/priority_queue.rs": "da83472bc60111d941cea181ed1d4c05289fe19c435615380f957bf30e2afe48",
+    "crates/veil-session/src/local_source_flight.rs": "cd4319246a6c9733c2ca9a75e4378c32682f3b2cab825239ac56e6903f0d8c7a"
+  },
+  "root_parent": "5e2854263a7e7fefe45c773d9a36ddd86702901b",
+  "adapter_sha256": "97137caeb54c4a08972c5b9152fd540bc9c9c7465e8b023c5e59f512387f4fa3",
+  "tests": {
+    "session": {
+      "passed": 645,
+      "ignored": 8
+    },
+    "bootstrap": {
+      "passed": 141,
+      "ignored": 1
+    },
+    "new_negative_regressions": 3,
+    "source_flight_tests": 15,
+    "receiver_and_group_recovery": "Candidate private receiver/controller and real three-party recovery tests passed before workload; see archived logs"
+  },
+  "build_volume": {
+    "path": "/Volumes/cfb",
+    "mount_guard": true,
+    "target_dir": "/Volumes/cfb/target"
+  },
+  "sdk_source_commit": "9eef87b9e6d8d7949970bea9b0063256ed8b9d49",
+  "fixture_change": "Completed FIFO trace records retained as packed scalar metadata",
+  "gc_observer": "/Users/vart/.cache/codex/xveil-audio-200-20261020/observe-gc.py",
+  "media_source": {
+    "path": "/Users/vart/.cache/codex/xveil-audio-190-20261021/budget140-media-src",
+    "differences_from_production": [
+      "src/veil_playout_recovery.h"
+    ],
+    "header_sha256": "302ee7a62aea5ead3784f5d95198951539d53b38c5a61742f4083daf06d431c4"
+  },
+  "gc_observer_sha256": "442a353b7bf476ff1880a9edf63fa245ea5dd79177d3a78361e9103b7e3cdc83",
+  "change": "Private lower short-packet receiver budget; production unchanged until qualification",
+  "production_media_commit": "50eb39cb48a0f7342d39cb71c8771c164bf4a12c",
+  "final_receiver_snapshot": true,
+  "status": "Rejected private receiver prototype; production source unchanged",
+  "rejected_capture_exit_code": 1,
+  "strict_190ms_pass": false,
+  "audit_script": "doc/validation/audio-200ms-2026-10-20/audit_capture.py",
+  "audit_script_sha256": "f717807b42c1ce180d411530c1e0208617469cc6bf2dcd269aa3cd505121dbdc",
+  "unmodified_source_hashes_match_production": true,
+  "candidate_test_commands": [
+    {
+      "command": "TMPDIR=/private/tmp/ python3 PRIVATE_MEDIA_SOURCE/test/run_playout_recovery_smoke.py",
+      "exit_code": 0,
+      "cases": [
+        "playout_recovery_smoke.cc",
+        "audio_rtp_lag_smoke.cc",
+        "conversation_neteq_controller_smoke.cc"
+      ]
+    },
+    {
+      "command": "TMPDIR=/private/tmp/ bash PRIVATE_MEDIA_SOURCE/test/run_group_playout_recovery_smoke.sh STAGED_MEDIA_DYLIB",
+      "exit_code": 0
+    }
+  ]
+}
