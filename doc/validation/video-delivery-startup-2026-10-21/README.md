@@ -319,6 +319,103 @@ quality on relay routes. Zero original RTP admission failures at the native
 API do not establish successful downstream delivery. No relay-side cause has
 been established for these remaining stalls.
 
+## Paid source flight follow-up (2026-10-22)
+
+Late relay attribution in the earlier candidate was incomplete: the Android
+logcat process exited with `Unexpected EOF` about 36 seconds into the call.
+Native RTP/decoder files remained complete, but missing late transport logs
+cannot establish a downstream cause. The private runner now temporarily raises
+only Android's main log ring from its recorded size to 16 MiB, asserts logcat
+remains alive during sampling, and restores the original size during cleanup.
+The next 180-second capture retained 26.8 MB of continuous phone logs, with
+no EOF and successful buffer/policy/process cleanup. It was a diagnostic run,
+not a clean FPS comparison: a host SDK test build overlapped part of the call.
+An audio interruption around 80 seconds activated genuine audio protection.
+
+The complete log exposed source DATAGRAM expiry behind a one-byte effective
+window despite a roughly 245-309-kB QUIC congestion window on that connection.
+Source-pool records also showed healthy, unpressured video constrained to the
+shared two-MTU exception while unrelated control flight exceeded the ordinary
+node ledger. A deterministic regression then showed that an ACK-funded usable
+window of 3600 bytes still exposed only 2400 bytes to the live source behind
+100 kB of background control debt. This prevented earned growth from being
+spent even when local demand and real delivery had qualified it.
+
+SDK `a374b387` makes the healthy shared allowance use the already-funded usable
+source window, with its original two-MTU minimum. It subtracts the ordinary
+control reserve through the existing reserve-retirement calculation. This is
+not a new large constant or an exemption from per-connection QUIC congestion
+control. Actual coupled secondary flight, including closed-source debt, still
+debits the shared allowance. Unknown health, real pressure and route changes
+retain their gates; a growth hold freezes only its prior allowance and cannot
+bank ACKs, reprice its MTU or enlarge through replay. No priority or media role
+is exported to relays. The new regression fails before the fix (2401 versus
+3601 including the sentinel byte), then passes. All 129 local session checks
+pass, with one existing ignored characterization. Both endpoint FFI libraries
+built successfully. The subsequent clean 180-second relay capture retained
+29.67 FPS phone -> Mac and 30.07 FPS Mac -> phone at the tail, with 360x640 /
+640x360 frames. Audio RTP joins had no missing accepted packets and packet
+peaks below 150 ms. However, full traces still exposed isolated 1.2-1.6-second
+decoder stalls despite the improved average cadence.
+
+## Growth-hold boundary and measured source recovery
+
+The next stall was attributed to individual RTP/ciphertext work items. Phone
+RTP 30792-30800 formed one 8654-byte original frame, mapped unambiguously by
+packet count, byte size and time to sealed cells 8602-8610 in the private trace.
+Only its first two cells reached the DATAGRAM handle; the remaining seven
+expired in the local queue at 200 ms. No original native RTP admission failed.
+The same RTP identities were retransmitted about 1.65 seconds later, ending
+the decoder's wait. During the loss the source pool showed no measured
+pressure, an expired growth hold, and no positive-health lease; its ordinary
+paid window was still present. Current audio samples were healthy, but the
+last known-health hold report had cleared the positive lease. The original
+hold deadline expired between frontend polls, withdrawing all source allowance
+behind control debt until the next positive report.
+
+SDK `42abd620` retains the already-permitted allowance through the original
+validated health sample's three-second TTL, independently of the event's growth
+hold deadline. It never changes the original event deadline, grants fresh
+capacity from an unknown state, banks delivery credit, or rebases freshness at
+receipt. Real pressure, source inactivity and route changes still revoke it.
+The regression fails before the fix (one-byte sentinel instead of 2401 bytes).
+Delay, replay, future samples, sample expiry and lack of growth authorization
+are covered; 131 local session checks pass, one existing characterization
+ignored. Both endpoint FFI libraries compiled.
+
+Its 180-second clean relay run kept both engines and all sampled relay routes.
+After second 60, mean decoded cadence was 28.65 / 29.65 FPS (phone -> Mac /
+Mac -> phone), with maximum gaps 125 / 301 ms and no multi-second steady-state
+stall. Final cadence was 29.33 / 30.00 FPS at 360x640 / 640x360. All scored
+accepted audio RTP arrived; packet peaks were below 176 ms. Initial video still
+had a different problem: short duration-measured audio catch-up events latched
+source pressure for twelve more healthy samples. The video source was locally
+blocked for 15-18 seconds and subsequently recovered with bounded 25% probes;
+first complete >=25-FPS windows were 56-60 seconds after camera enable.
+
+The frontend source policy now permits its bounded initial/recovery trial after
+three complete healthy observations when both active directions supply native
+soft-loss duration evidence. Packet loss, native admission loss, interruption,
+growing/capped buffers and excessive requested buffers retain twelve-sample
+recovery; a later mild event cannot shorten pending hard-failure recovery.
+Legacy, partial and stalled measurements cannot contribute to the fast path.
+Known small events retain their existing growth hold and the node's gradual
+DATA ramp / QUIC flight bounds remain authoritative. The startup regression
+fails before this change; 222 source/adapter/delivery/growth tests pass and
+focused Dart analysis is clean. Physical qualification of this faster source
+recovery is pending.
+
+## Production test-input boundary
+
+SDK `ea3f857e` puts the legacy built-in synthetic video threads and the
+`VEIL_MEDIA_VIDEO_KBPS` pin behind `VEIL_MEDIA_TEST_HOOKS`, for both individual
+and group engines. Public API arguments and route ceilings remain available
+in ordinary builds. Both macOS and Android production libraries compiled with
+105 public exports and contain neither environment switch; both switches were
+present in the previously published libraries. Explicit stand builds compiled
+with their existing 139 / 138 exports, and the BWE route-handover smoke passed.
+No synthetic-source or bitrate-test pin is needed by the physical camera test.
+
 Private raw captures remain outside the repository at
 `~/.cache/codex/xveil-video-bbr-20261021/`; the earlier qualified P2P capture is
 `capture-clock-valid-p2p-qualified`. Earlier failed/setup runs are kept
@@ -330,6 +427,7 @@ separately. Follow-up captures include
 are `capture-relay-decoder-clock` and `capture-p2p-decoder-clock`.
 Completed owned app/logcat processes were closed and verified absent.
 Each completed relay run restored its temporary per-contact P2P override.
-After these checks, the published 0.13.88 phone APK was restored sequentially
-without uninstalling data; final installed version/UID and process-exit checks
-are recorded privately. The production Mac installation was not replaced.
+The published 0.13.88 phone APK was restored after the preceding cycle without
+uninstalling data. The latest isolated QA verification is still in progress;
+completed runs restore policies/log-buffer sizing and close their owned apps.
+The production Mac installation has not been replaced.
