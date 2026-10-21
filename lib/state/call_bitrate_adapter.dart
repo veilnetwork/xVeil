@@ -213,6 +213,7 @@ class CallBitrateAdapter {
       'bad_streak_after': _badStreak,
       'good_streak_after': _goodStreak,
       'startup_recovery': _startupRecovery,
+      'startup_ramp_sample_healthy': _startupRampSampleHealthy,
       'startup_good_streak_after': _startupGoodStreak,
       'growth_pause_transient': _growthSampleTransient,
       'ramp_recovery_needed': _rampNeedsRecovery,
@@ -227,6 +228,7 @@ class CallBitrateAdapter {
   ({int maxBitrateKbps, double maxFps})? _restartTarget;
   bool _growthAllowed = false;
   bool _growthSampleHealthy = false, _rampNeedsRecovery = false;
+  bool _startupRampSampleHealthy = false;
   bool _growthSampleTransient = false;
   int _rampRecoverySamples = 0;
   int _lastGrowthObservation = -1;
@@ -321,13 +323,37 @@ class CallBitrateAdapter {
               _lastGrowthObservation != _bufferObservationSequence);
       final cadenceFactor = (previous.maxFps + 1) / previous.maxFps;
       final factor = cadenceFactor < 1.1 ? cadenceFactor : 1.1;
-      final kbpsStep = previous.maxBitrateKbps >= baseBitrateKbps
+      var kbpsStep = previous.maxBitrateKbps >= baseBitrateKbps
           ? baseBitrateKbps
           : (previous.maxBitrateKbps * factor).floor().clamp(
               previous.maxBitrateKbps + 1,
               baseBitrateKbps,
             );
-      final fpsStep = (previous.maxFps + 1).clamp(1, baseFps).toDouble();
+      var fpsStep = (previous.maxFps + 1).clamp(1, baseFps).toDouble();
+      if (supportsLowRateVideo &&
+          _startupRecovery &&
+          _startupRampSampleHealthy) {
+        // A measured low-latency startup can fund cadence and bytes together.
+        // The ordinary 10% byte ramp from a 15-kbit/s floor took twenty polls
+        // to fund even six fps, despite already admitting those frames. Keep
+        // a profile-relative ceiling of 10% per observation and a native ACK
+        // for every step. Loss, unknown audio and subsequent recovery retain
+        // the ordinary ramp below the same negotiated route ceiling.
+        final maxCadenceStep = (baseFps / 10).clamp(1.0, double.infinity);
+        final cadenceStep = (previous.maxFps / 2).clamp(1.0, maxCadenceStep);
+        fpsStep = (previous.maxFps + cadenceStep).clamp(1, baseFps).toDouble();
+        if (previous.maxBitrateKbps < baseBitrateKbps) {
+          final byteCeiling =
+              (previous.maxBitrateKbps + (baseBitrateKbps / 10).ceil()).clamp(
+                1,
+                baseBitrateKbps,
+              );
+          kbpsStep = (baseBitrateKbps * fpsStep / baseFps).round().clamp(
+            previous.maxBitrateKbps + 1,
+            byteCeiling,
+          );
+        }
+      }
       final upKbps = floorProbe ? desired.maxBitrateKbps : kbpsStep;
       final upFps = floorProbe ? desired.maxFps : fpsStep;
       proposed = (
@@ -365,6 +391,9 @@ class CallBitrateAdapter {
       _floorPeerBuffer.reset();
     }
     _appliedTarget = proposed;
+    // Reaching the nominal top rung is not enough: its acknowledged cadence
+    // and bitrate may still be several ramp steps behind it.
+    if (_level == 0 && proposed == desired) _startupRecovery = false;
     _restartTarget = null;
     return true;
   }
@@ -390,6 +419,7 @@ class CallBitrateAdapter {
     _restartTarget = null;
     _growthAllowed = false;
     _growthSampleHealthy = false;
+    _startupRampSampleHealthy = false;
     _growthSampleTransient = false;
   }
 
@@ -400,6 +430,7 @@ class CallBitrateAdapter {
     _appliedTarget = null;
     _growthAllowed = false;
     _growthSampleHealthy = false;
+    _startupRampSampleHealthy = false;
     _growthSampleTransient = false;
     _rampRecoverySamples = 0;
     _lastGrowthObservation = -1;
@@ -628,6 +659,7 @@ class CallBitrateAdapter {
   }) {
     _growthAllowed = false;
     _growthSampleHealthy = false;
+    _startupRampSampleHealthy = false;
     _growthSampleTransient = false;
     _growthSampleAt = sampledAt;
     // Require a distinct peer report during this earned recovery period,
@@ -907,6 +939,7 @@ class CallBitrateAdapter {
   }) {
     _growthAllowed = false;
     _growthSampleHealthy = false;
+    _startupRampSampleHealthy = false;
     _growthSampleTransient = false;
     _growthSampleAt = sampledAt;
     final freshPeerSample =
@@ -1445,6 +1478,7 @@ class CallBitrateAdapter {
       _rampRecoverySamples = 0;
     }
     _growthAllowed = true;
+    _startupRampSampleHealthy = startupGood;
     // A recovery rung is earned by the traffic that actually ran, not by an
     // unapplied request. Continue its ramp before banking another promotion.
     if ((_appliedTarget != null || _restartTarget != null) &&
@@ -1467,7 +1501,6 @@ class CallBitrateAdapter {
       _goodStreak = 0;
       _startupGoodStreak = 0;
       _level--;
-      if (_level == 0) _startupRecovery = false;
       // Climbing off the floor is the only thing that withdraws the advice:
       // the link has demonstrably carried more than the floor asked of it.
       _advice = CallVideoAdvice.keep;

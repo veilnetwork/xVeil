@@ -1,0 +1,17 @@
+{
+  "base_root_commit": "0b4522a136366441baa341ed7d9e6fef93661f6a",
+  "sdk_pin": "50eb39cb48a0f7342d39cb71c8771c164bf4a12c",
+  "measured_policy_sha256": "4789b67762fe11961483c56772b26557e884782b7aa810d14b6c554cdd0679cc",
+  "final_policy_sha256": "4afe9789377aa4e111a1444764217ed3ae6d69934c3ad1efb189b68aac51e8e9",
+  "post_capture_change": "Explicitly restrict the accelerated ramp to supportsLowRateVideo engines. The physical engines have this capability (the measured floor is 15 kbit/s, below the legacy 30-kbit/s clamp). Legacy integer-cadence behavior is covered by the final regression suite. No other policy difference.",
+  "phone_probe_version_code": 12631,
+  "native_inputs": "Exact native-library bytes from Wi-Fi reference; no Rust or C++ source changes.",
+  "tests": {
+    "total_passed": 198,
+    "adapter_passed": 161,
+    "related_group_and_route_passed": 37,
+    "new_adapter_regressions": 7,
+    "dart_analyze": "No issues found",
+    "red_regression": "Both 30/60-fps startup funding cases failed on the previous policy before implementation."
+  }
+}

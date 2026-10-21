@@ -1,0 +1,26 @@
+{
+  "before": {
+    "mac": {
+      "camera_enable_seconds": 60,
+      "nominal_full_after_camera_seconds": 78.65257345797727,
+      "acknowledged_full_after_camera_seconds": 112.36842895799782
+    },
+    "phone": {
+      "camera_enable_seconds": 60,
+      "nominal_full_after_camera_seconds": 89.32549858296989,
+      "acknowledged_full_after_camera_seconds": 118.58014845801517
+    }
+  },
+  "after": {
+    "mac": {
+      "camera_enable_seconds": 31.11775904102251,
+      "nominal_full_after_camera_seconds": 43.7180273749982,
+      "acknowledged_full_after_camera_seconds": 47.86315254197689
+    },
+    "phone": {
+      "camera_enable_seconds": 31.11775904102251,
+      "nominal_full_after_camera_seconds": 28.83145312499255,
+      "acknowledged_full_after_camera_seconds": 30.926966416998766
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "libveil_media.dylib": {
+    "sha256": "9710934472d46a0bd598ebc49f92284bb748373e7de644aa139735c701d51857",
+    "identical_to_baseline": true
+  },
+  "libveilclient_ffi.dylib": {
+    "sha256": "62a84175ad6c87d703f6dd4699eb74c12868b9d5a1d10df6cb820ac61efe3c8e",
+    "identical_to_baseline": true
+  },
+  "libhidden_volume_ffi.dylib": {
+    "sha256": "a923c8ec596f3cd95a0c2967a1c713797fb60dd626dd53b08f689c7251dc1e4f",
+    "identical_to_baseline": true
+  },
+  "libxveil_pcm_driver.dylib": {
+    "sha256": "d1e2f80572929b1a2bdad6aec3693a36ac9572deb159944ed7181aaa22b3c820",
+    "identical_to_baseline": true
+  }
+}
