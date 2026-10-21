@@ -1,0 +1,46 @@
+[
+  {
+    "capture": "accepted-previous",
+    "summary_sha256": "4fa5d23ad8839dcaab286573f96ffc18cdf01c62947d9354a1563a59073c8679",
+    "max_voice_ms": 190.30408334219828,
+    "missing_transitions": 0,
+    "matched_transitions": 2112,
+    "video_tail_changes": [
+      14,
+      14,
+      14,
+      14,
+      14,
+      14
+    ],
+    "final_receiver_totals": {
+      "audio_latency_discarded_ms": 4000,
+      "audio_interruption_count": 0,
+      "audio_interruption_duration_ms": 0,
+      "audio_concealed_samples": 69878
+    },
+    "complete_files": 3
+  },
+  {
+    "capture": "rejected-budget140",
+    "summary_sha256": "6796a6cdcdf138017babb17c6e6ce2167fd44ab27cccadf6dde71da56c8dd026",
+    "max_voice_ms": 200.18716668710113,
+    "missing_transitions": 0,
+    "matched_transitions": 2112,
+    "video_tail_changes": [
+      14,
+      9,
+      14,
+      9,
+      14,
+      14
+    ],
+    "final_receiver_totals": {
+      "audio_latency_discarded_ms": 8990,
+      "audio_interruption_count": 1,
+      "audio_interruption_duration_ms": 150,
+      "audio_concealed_samples": 91950
+    },
+    "complete_files": 3
+  }
+]

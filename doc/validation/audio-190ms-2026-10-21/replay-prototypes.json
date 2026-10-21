@@ -1,0 +1,247 @@
+[
+  {
+    "source": 2,
+    "receiver": 0,
+    "max_ms": 190.0,
+    "source_at_seconds": 184.83,
+    "packets": 9000,
+    "edges": 357,
+    "expected_edges": 357,
+    "ordinal_mismatches": 0,
+    "sequence_complete": true,
+    "concealed_samples": 11151,
+    "silent_concealed_samples": 0,
+    "interruption_count": 0,
+    "inserted_samples": 18216,
+    "removed_samples": 24722,
+    "discarded_ms": 30,
+    "generator_version": 2,
+    "tone_hz": [
+      2100,
+      2500
+    ],
+    "arrivals_sha256": "19ef581b8c37bf166feaadca518414a5bb0f49441a8272d77596fea24dde5a08",
+    "replay_source_sha256": "681742414f9a1da87c8b7dd86e6906cf3459c6f64a4870f9d395b1c8b0fee62b",
+    "limits": [
+      "Regenerated mono 24-kbit Opus tones, not original encoded audio",
+      "Recorded ingress schedule quantized to 10-ms virtual render ticks",
+      "Standalone receiver; no new network, camera, speaker or microphone test",
+      "Preserves marker ordinals from capture start; does not alter raw gates"
+    ],
+    "variant": "baseline",
+    "changed_header_sha256": {
+      "src/veil_playout_recovery.h": "c2cc75dd2871d46a069bbd830f67ff0708f01416cb6f7e188f4291f19b2b3a6a",
+      "src/veil_conversation_neteq_controller.h": "1a60a10dc526aadead17acfb39998f27688a7a61ee4c4cb5f55aa20f0dc076f8"
+    }
+  },
+  {
+    "source": 2,
+    "receiver": 0,
+    "max_ms": 190.0,
+    "source_at_seconds": 184.83,
+    "packets": 9000,
+    "edges": 357,
+    "expected_edges": 357,
+    "ordinal_mismatches": 0,
+    "sequence_complete": true,
+    "concealed_samples": 11374,
+    "silent_concealed_samples": 0,
+    "interruption_count": 0,
+    "inserted_samples": 16932,
+    "removed_samples": 23664,
+    "discarded_ms": 30,
+    "generator_version": 2,
+    "tone_hz": [
+      2100,
+      2500
+    ],
+    "arrivals_sha256": "19ef581b8c37bf166feaadca518414a5bb0f49441a8272d77596fea24dde5a08",
+    "replay_source_sha256": "681742414f9a1da87c8b7dd86e6906cf3459c6f64a4870f9d395b1c8b0fee62b",
+    "limits": [
+      "Regenerated mono 24-kbit Opus tones, not original encoded audio",
+      "Recorded ingress schedule quantized to 10-ms virtual render ticks",
+      "Standalone receiver; no new network, camera, speaker or microphone test",
+      "Preserves marker ordinals from capture start; does not alter raw gates"
+    ],
+    "variant": "target110",
+    "changed_header_sha256": {
+      "src/veil_playout_recovery.h": "fc2e29c738da25f824c4d8870b687c27859178c3d9ae1458c0742f8c27b74e3b",
+      "src/veil_conversation_neteq_controller.h": "1a60a10dc526aadead17acfb39998f27688a7a61ee4c4cb5f55aa20f0dc076f8"
+    }
+  },
+  {
+    "source": 2,
+    "receiver": 0,
+    "max_ms": 190.0,
+    "source_at_seconds": 184.83,
+    "packets": 9000,
+    "edges": 357,
+    "expected_edges": 357,
+    "ordinal_mismatches": 0,
+    "sequence_complete": true,
+    "concealed_samples": 10587,
+    "silent_concealed_samples": 0,
+    "interruption_count": 0,
+    "inserted_samples": 16260,
+    "removed_samples": 22644,
+    "discarded_ms": 20,
+    "generator_version": 2,
+    "tone_hz": [
+      2100,
+      2500
+    ],
+    "arrivals_sha256": "19ef581b8c37bf166feaadca518414a5bb0f49441a8272d77596fea24dde5a08",
+    "replay_source_sha256": "681742414f9a1da87c8b7dd86e6906cf3459c6f64a4870f9d395b1c8b0fee62b",
+    "limits": [
+      "Regenerated mono 24-kbit Opus tones, not original encoded audio",
+      "Recorded ingress schedule quantized to 10-ms virtual render ticks",
+      "Standalone receiver; no new network, camera, speaker or microphone test",
+      "Preserves marker ordinals from capture start; does not alter raw gates"
+    ],
+    "variant": "target100",
+    "changed_header_sha256": {
+      "src/veil_playout_recovery.h": "edf74ce5f93d041356b502bc5c3b69d6df3d2cb8648ebc526e4073015d0de265",
+      "src/veil_conversation_neteq_controller.h": "1a60a10dc526aadead17acfb39998f27688a7a61ee4c4cb5f55aa20f0dc076f8"
+    }
+  },
+  {
+    "source": 2,
+    "receiver": 0,
+    "max_ms": 190.0,
+    "source_at_seconds": 185.84,
+    "packets": 9000,
+    "edges": 357,
+    "expected_edges": 357,
+    "ordinal_mismatches": 0,
+    "sequence_complete": true,
+    "concealed_samples": 11631,
+    "silent_concealed_samples": 0,
+    "interruption_count": 0,
+    "inserted_samples": 22404,
+    "removed_samples": 25106,
+    "discarded_ms": 120,
+    "generator_version": 2,
+    "tone_hz": [
+      2100,
+      2500
+    ],
+    "arrivals_sha256": "19ef581b8c37bf166feaadca518414a5bb0f49441a8272d77596fea24dde5a08",
+    "replay_source_sha256": "681742414f9a1da87c8b7dd86e6906cf3459c6f64a4870f9d395b1c8b0fee62b",
+    "limits": [
+      "Regenerated mono 24-kbit Opus tones, not original encoded audio",
+      "Recorded ingress schedule quantized to 10-ms virtual render ticks",
+      "Standalone receiver; no new network, camera, speaker or microphone test",
+      "Preserves marker ordinals from capture start; does not alter raw gates"
+    ],
+    "variant": "age130",
+    "changed_header_sha256": {
+      "src/veil_playout_recovery.h": "c4feffd9766be8bc1bd1f1143db0afa6472ab88911eba6920c3b0278d0aa8de2",
+      "src/veil_conversation_neteq_controller.h": "1a60a10dc526aadead17acfb39998f27688a7a61ee4c4cb5f55aa20f0dc076f8"
+    }
+  },
+  {
+    "source": 2,
+    "receiver": 0,
+    "max_ms": 190.0,
+    "source_at_seconds": 185.84,
+    "packets": 9000,
+    "edges": 357,
+    "expected_edges": 357,
+    "ordinal_mismatches": 0,
+    "sequence_complete": true,
+    "concealed_samples": 11950,
+    "silent_concealed_samples": 0,
+    "interruption_count": 0,
+    "inserted_samples": 21564,
+    "removed_samples": 22704,
+    "discarded_ms": 160,
+    "generator_version": 2,
+    "tone_hz": [
+      2100,
+      2500
+    ],
+    "arrivals_sha256": "19ef581b8c37bf166feaadca518414a5bb0f49441a8272d77596fea24dde5a08",
+    "replay_source_sha256": "681742414f9a1da87c8b7dd86e6906cf3459c6f64a4870f9d395b1c8b0fee62b",
+    "limits": [
+      "Regenerated mono 24-kbit Opus tones, not original encoded audio",
+      "Recorded ingress schedule quantized to 10-ms virtual render ticks",
+      "Standalone receiver; no new network, camera, speaker or microphone test",
+      "Preserves marker ordinals from capture start; does not alter raw gates"
+    ],
+    "variant": "budget150",
+    "changed_header_sha256": {
+      "src/veil_playout_recovery.h": "8c2c2a3fe71ccb6b6f1e1252661ca78121ded812b17001a2cb25cfbdba3ad2c1",
+      "src/veil_conversation_neteq_controller.h": "1a60a10dc526aadead17acfb39998f27688a7a61ee4c4cb5f55aa20f0dc076f8"
+    }
+  },
+  {
+    "source": 2,
+    "receiver": 0,
+    "max_ms": 190.0,
+    "source_at_seconds": 184.83,
+    "packets": 9000,
+    "edges": 357,
+    "expected_edges": 357,
+    "ordinal_mismatches": 0,
+    "sequence_complete": true,
+    "concealed_samples": 14738,
+    "silent_concealed_samples": 0,
+    "interruption_count": 0,
+    "inserted_samples": 25356,
+    "removed_samples": 35608,
+    "discarded_ms": 30,
+    "generator_version": 2,
+    "tone_hz": [
+      2100,
+      2500
+    ],
+    "arrivals_sha256": "19ef581b8c37bf166feaadca518414a5bb0f49441a8272d77596fea24dde5a08",
+    "replay_source_sha256": "681742414f9a1da87c8b7dd86e6906cf3459c6f64a4870f9d395b1c8b0fee62b",
+    "limits": [
+      "Regenerated mono 24-kbit Opus tones, not original encoded audio",
+      "Recorded ingress schedule quantized to 10-ms virtual render ticks",
+      "Standalone receiver; no new network, camera, speaker or microphone test",
+      "Preserves marker ordinals from capture start; does not alter raw gates"
+    ],
+    "variant": "smooth10",
+    "changed_header_sha256": {
+      "src/veil_playout_recovery.h": "c2cc75dd2871d46a069bbd830f67ff0708f01416cb6f7e188f4291f19b2b3a6a",
+      "src/veil_conversation_neteq_controller.h": "04380229fd60bd09a0ce54dd2cd495099151de2e289b698c9fd6c0ad783900b5"
+    }
+  },
+  {
+    "source": 2,
+    "receiver": 0,
+    "max_ms": 180.0,
+    "source_at_seconds": 183.82,
+    "packets": 9000,
+    "edges": 357,
+    "expected_edges": 357,
+    "ordinal_mismatches": 0,
+    "sequence_complete": true,
+    "concealed_samples": 11086,
+    "silent_concealed_samples": 0,
+    "interruption_count": 0,
+    "inserted_samples": 66122,
+    "removed_samples": 18996,
+    "discarded_ms": 1150,
+    "generator_version": 2,
+    "tone_hz": [
+      2100,
+      2500
+    ],
+    "arrivals_sha256": "19ef581b8c37bf166feaadca518414a5bb0f49441a8272d77596fea24dde5a08",
+    "replay_source_sha256": "681742414f9a1da87c8b7dd86e6906cf3459c6f64a4870f9d395b1c8b0fee62b",
+    "limits": [
+      "Regenerated mono 24-kbit Opus tones, not original encoded audio",
+      "Recorded ingress schedule quantized to 10-ms virtual render ticks",
+      "Standalone receiver; no new network, camera, speaker or microphone test",
+      "Preserves marker ordinals from capture start; does not alter raw gates"
+    ],
+    "variant": "budget140",
+    "changed_header_sha256": {
+      "src/veil_playout_recovery.h": "302ee7a62aea5ead3784f5d95198951539d53b38c5a61742f4083daf06d431c4",
+      "src/veil_conversation_neteq_controller.h": "1a60a10dc526aadead17acfb39998f27688a7a61ee4c4cb5f55aa20f0dc076f8"
+    }
+  }
+]

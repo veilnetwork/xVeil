@@ -1,0 +1,18 @@
+{
+  "capture_origin_monotonic": 361187.456471583,
+  "wire_trace_rows": 238294,
+  "timed_rows": 237507,
+  "global_max_release_lateness_ms": 16.05912495870143,
+  "peak_window_seconds": [
+    271.6,
+    272.0
+  ],
+  "peak_window_max_release_lateness_ms": 1.837083138525486,
+  "gc_events_during_capture": [],
+  "wire_sha256": "7c6525518c08c75289d92b3fc9907d599b90553b64027fa5e26a021764e65df9",
+  "gc_sha256": "7f0b37f04c6e6ae2507e591354286fc75bac723bf3235cd9472fb6ba77b811b2",
+  "limits": [
+    "Window checks do not identify an individual encrypted cell or downstream transport hop",
+    "No FIFO or GC timing is subtracted from the measured audio delay"
+  ]
+}
