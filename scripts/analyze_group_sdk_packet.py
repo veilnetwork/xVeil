@@ -112,8 +112,11 @@ def attribute(packet, source_rows, receiver_rows, ipc_rows, opaque_rows=None):
     return result
 
 
-def analyze(directory):
-    native = analyze_native(directory)
+def analyze(directory, *, native=None):
+    # A separate native selector may target delivered-packet delay instead of
+    # a decoded PCM edge. Both still require the same authenticated cell join.
+    if native is None:
+        native = analyze_native(directory)
     summary = json.loads((directory/'summary.json').read_text())
     consoles = [summary['console_log_before_read'], summary['console_log_after_stop']]
     for worker in range(3):

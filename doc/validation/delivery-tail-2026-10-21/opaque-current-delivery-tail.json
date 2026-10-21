@@ -1,0 +1,272 @@
+{
+  "native": {
+    "source": 0,
+    "receiver": 1,
+    "packet": {
+      "ssrc": 2269995589,
+      "rtp_origin": 1941665979,
+      "rtp_timestamp": 1957897659,
+      "rtp_sequence": 20092,
+      "encoder_first_input_seconds": 338.16008883400355,
+      "packet_ms": 40,
+      "encoded_monotonic_us": 363056815588,
+      "native_send": {
+        "channel": 1,
+        "seq": 20092,
+        "timestamp": 1957897659,
+        "attempted_us": 363056815633,
+        "admitted_us": 363056815644,
+        "packet_bytes": 139,
+        "accepted": 1
+      },
+      "ingress": {
+        "seq": 20092,
+        "timestamp": 1957897659,
+        "arrived_us": 363056932049,
+        "drained_us": 363056932087,
+        "payload_bytes": 119
+      },
+      "encoded_to_ingress_ms": 116.461
+    },
+    "selection_metric": "largest_observed_encoded_to_ingress",
+    "analysis_window_seconds": [
+      5,
+      360
+    ],
+    "paths": [
+      {
+        "source": 0,
+        "receiver": 1,
+        "delivered": 8875,
+        "missing": 0,
+        "max_ms": 116.461,
+        "p50_ms": 38.465,
+        "p99_ms": 92.857
+      },
+      {
+        "source": 0,
+        "receiver": 2,
+        "delivered": 8875,
+        "missing": 0,
+        "max_ms": 112.845,
+        "p50_ms": 32.17,
+        "p99_ms": 87.048
+      },
+      {
+        "source": 1,
+        "receiver": 0,
+        "delivered": 8875,
+        "missing": 0,
+        "max_ms": 110.673,
+        "p50_ms": 38.549,
+        "p99_ms": 93.05
+      },
+      {
+        "source": 1,
+        "receiver": 2,
+        "delivered": 8875,
+        "missing": 0,
+        "max_ms": 110.203,
+        "p50_ms": 32.251,
+        "p99_ms": 86.899
+      },
+      {
+        "source": 2,
+        "receiver": 0,
+        "delivered": 8875,
+        "missing": 0,
+        "max_ms": 106.854,
+        "p50_ms": 38.08,
+        "p99_ms": 93.157
+      },
+      {
+        "source": 2,
+        "receiver": 1,
+        "delivered": 8875,
+        "missing": 0,
+        "max_ms": 106.565,
+        "p50_ms": 31.485,
+        "p99_ms": 86.444
+      }
+    ],
+    "input_sha256": {
+      "summary.json": "7f3baf3f9e35e058151b20841918e3792e2d289a1487102926cf187677cadc46",
+      "worker-0/playout-trace.log": "b269a1411b6ab359897a6dfe97e81109d0c3cd19423f9b088f841e0d7b5218b6",
+      "worker-1/playout-trace.log": "12e30cf535c4469134e531c597471da4de8a9cd9fe0263c840bfa997b47d8df6",
+      "worker-2/playout-trace.log": "b979d8458e1a8c48bf68a37167240a172bb67615d00769a3ae854b8e71e7ecf3",
+      "worker-0/summary.json": "0a1fb9bf756f55d98577bcd04ca4073a2aa77d1dd6424aa8ba8d11291af2ba99",
+      "worker-0/codec-samples.json": "eaf1a528a15871bcb229f3aa5f6da7feceb1a0c65d0d6a8c33d70c1c4f813cd0",
+      "worker-1/summary.json": "d838ed72828bdc3e7952e30a4d6fda55d9c61fbae457b6c52efc6d8119e09b6d",
+      "worker-1/codec-samples.json": "f43756e0ddac760edbd4ec36996710e2c1a7b04d5e1394f32a94adf1e409f0e6",
+      "worker-2/summary.json": "cdeaaa586ed14f8799a82f48dcd7db3d30df8cac856c63b7a7df4e886cea4d07",
+      "worker-2/codec-samples.json": "3bc920c8ae4d9444903dd536af0f5c81e25acfc6d562a06d025fc45dc7217c53"
+    }
+  },
+  "sdk": {
+    "epoch": "6d97b7d47d6e65cd",
+    "cell_sequence": 8599,
+    "rtp_index_in_cell": 0,
+    "source_sdk_peer": "7f974bff",
+    "receiver_sdk_peer": "bc5707ef",
+    "sealed_bytes": 175,
+    "observations_us": {
+      "native_attempt": 363056815633,
+      "sdk_seal": 363056815679,
+      "sdk_send_pump": 363056815794,
+      "daemon_read": 363056816049,
+      "handler_enter": 363056816213,
+      "relay_queued": 363056816225,
+      "sdk_authenticated": 363056932026,
+      "native_ingress": 363056932049
+    },
+    "socket_written_us": 363056815813,
+    "rtp_authenticated_metadata_us": 363056932041,
+    "native_enqueue_return_us": 363056815644,
+    "spans_ms": {
+      "native_attempt_to_sdk_seal": 0.046,
+      "sdk_seal_to_sdk_send_pump": 0.115,
+      "sdk_send_pump_to_daemon_read": 0.255,
+      "daemon_read_to_handler_enter": 0.164,
+      "handler_enter_to_relay_queued": 0.012,
+      "relay_queued_to_sdk_authenticated": 115.801,
+      "sdk_authenticated_to_native_ingress": 0.023
+    },
+    "opaque_route": {
+      "hops": [
+        {
+          "source": "bc5707ef",
+          "receiver": "c408ea28",
+          "selected_us": 363056816249,
+          "dispatched_us": 363056894058,
+          "selection_to_dispatch_ms": 77.809
+        },
+        {
+          "source": "c408ea28",
+          "receiver": "7f974bff",
+          "selected_us": 363056894109,
+          "dispatched_us": 363056931913,
+          "selection_to_dispatch_ms": 37.804
+        }
+      ],
+      "relay_processing": [
+        {
+          "node": "c408ea28",
+          "ingress_to_selection_ms": 0.051
+        }
+      ],
+      "seal_to_first_selection_ms": 0.57,
+      "last_dispatch_to_authenticated_ms": 0.128,
+      "sealed_to_authenticated_ms": 116.362,
+      "limits": [
+        "Diagnostic node prefixes must be unique in this owned fixture",
+        "Selection-to-dispatch includes queues and network; it is not pure propagation time",
+        "This join does not identify an encrypted UDP datagram or its shaper queue"
+      ],
+      "unique_fixture_node_prefixes_verified": true
+    }
+  },
+  "sdk_log_sha256": {
+    "worker-0/native.log": "b0c97527cb43dc2900171f1908e466bc649ac4aa8ef4ed47129d47303714310f",
+    "worker-1/native.log": "3e170780207e1e1a09f3cafcd7e96370188bc90f2ef19ead0bc26a227e614e88",
+    "native.log": "d9282e0af797c722b5cd73b1d6c7700063f0dd85e048ddc0065b17ea6aa01ebf",
+    "sessions-0.json": "26625f07d8f08b47893f117dad4af8d773db9fb12b578ccca5a7288d7f95568c",
+    "sessions-1.json": "214e172214e2856748871c6aab6794ed4d824820115f2cefcdef5cb518ef5a32",
+    "sessions-2.json": "214e172214e2856748871c6aab6794ed4d824820115f2cefcdef5cb518ef5a32",
+    "sessions-3.json": "214e172214e2856748871c6aab6794ed4d824820115f2cefcdef5cb518ef5a32"
+  },
+  "limits": [
+    "Owned same-host clocks; no remote/acoustic latency inference",
+    "Relay-queued is source-node admission, not proof of wire send",
+    "Socket-written and native-enqueue-return are post-completion observations; concurrency can place them after downstream work",
+    "This join changes no original quality gate or capture verdict",
+    "First transport span starts after local DATAGRAM acceptance, not at NIC send",
+    "Transport-to-dispatch includes QUIC queues, service, network and receiver work",
+    "Relay dispatch-to-selection includes local forwarding and outbound admission",
+    "All stages are the same authenticated cell; no adjacent UDP packet is inferred",
+    "The original capture verdict is preserved; diagnostics do not qualify a failed run"
+  ],
+  "source_session": {
+    "epoch": "6d97b7d47d6e65cd",
+    "cell_sequence": 8599,
+    "connection_trace_id": 19,
+    "observations_us": {
+      "budget_admit": 363056816240,
+      "datagram_accepted": 363056816253
+    },
+    "encrypted_frame": {
+      "wire_bytes": "455",
+      "family": "3",
+      "msg_type": "3",
+      "body_len": "415",
+      "body_preview_sha256": "ae1c7904e9da3003a12c341f2549749c31f977b6b953b44ac5c1ed3c8a7732b9"
+    },
+    "spans_ms": {
+      "handler_enter_to_budget_admit": 0.027,
+      "budget_admit_to_datagram_accepted": 0.013,
+      "budget_admit_to_authenticated_receiver": 115.786
+    },
+    "post_completion_offsets_ms": {
+      "relay_queued_to_budget_admit": 0.015,
+      "datagram_accepted_to_authenticated_receiver": 115.773
+    }
+  },
+  "delivery_partition": {
+    "epoch": "6d97b7d47d6e65cd",
+    "cell_sequence": 8599,
+    "stages": [
+      {
+        "stage": "encoded_to_native_submission",
+        "start_us": 363056815588,
+        "end_us": 363056815633,
+        "duration_ms": 0.045
+      },
+      {
+        "stage": "sender_submission_to_transport_acceptance",
+        "start_us": 363056815633,
+        "end_us": 363056816253,
+        "duration_ms": 0.62
+      },
+      {
+        "stage": "transport_to_next_dispatch",
+        "start_us": 363056816253,
+        "end_us": 363056894058,
+        "duration_ms": 77.805,
+        "source": "bc5707ef",
+        "receiver": "c408ea28",
+        "start_observation": "datagram_accepted"
+      },
+      {
+        "stage": "relay_dispatch_to_transport_selection",
+        "start_us": 363056894058,
+        "end_us": 363056894109,
+        "duration_ms": 0.051,
+        "node": "c408ea28"
+      },
+      {
+        "stage": "transport_to_next_dispatch",
+        "start_us": 363056894109,
+        "end_us": 363056931913,
+        "duration_ms": 37.804,
+        "source": "c408ea28",
+        "receiver": "7f974bff",
+        "start_observation": "transport_selected"
+      },
+      {
+        "stage": "receiver_dispatch_to_authenticated_sdk",
+        "start_us": 363056931913,
+        "end_us": 363056932026,
+        "duration_ms": 0.113
+      },
+      {
+        "stage": "authenticated_sdk_to_native_ingress",
+        "start_us": 363056932026,
+        "end_us": 363056932049,
+        "duration_ms": 0.023
+      }
+    ],
+    "encoded_to_ingress_ms": 116.461,
+    "transport_and_link_ms": 115.60900000000001,
+    "relay_dispatch_to_selection_ms": 0.051
+  },
+  "summary_sha256": "7f3baf3f9e35e058151b20841918e3792e2d289a1487102926cf187677cadc46"
+}

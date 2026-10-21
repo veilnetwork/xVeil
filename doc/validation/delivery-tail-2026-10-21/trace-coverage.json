@@ -1,0 +1,34 @@
+{
+  "opaque-current": {
+    "trace_limit_markers": {},
+    "raw_verdicts": {
+      "ok": false,
+      "contention_qualification": false
+    },
+    "wire_trace": {
+      "trace_events": 240151,
+      "trace_rows": 240151,
+      "trace_capacity": 250000,
+      "trace_truncated": false
+    }
+  },
+  "capacity-step": {
+    "trace_limit_markers": {
+      "native.log": [
+        "[INFO veil_session::local_lossy_trace] media.source_trace_limit rows=65536",
+        "[INFO veil_session::local_lossy_trace] media.source_accepted_trace_limit rows=65536",
+        "[INFO veil_session::local_lossy_trace] media.source_work_trace_limit rows=16384"
+      ]
+    },
+    "raw_verdicts": {
+      "ok": true,
+      "contention_qualification": true
+    },
+    "wire_trace": {
+      "trace_events": 290920,
+      "trace_rows": 250000,
+      "trace_capacity": 250000,
+      "trace_truncated": true
+    }
+  }
+}
