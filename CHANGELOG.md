@@ -6,6 +6,44 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.88] — 2026-10-21
+
+### Fixed
+
+- Elect one answering endpoint when two devices of the same identity accept a
+  call together; stop the other endpoint without sharing the media key.
+- Restore initial linked-device history despite concurrent adoption, delayed
+  settings reads and early manifest-omitting deltas. Current identity documents
+  override sessions left open under a device's temporary identity.
+- Deliver messages and calls to online siblings when other devices are offline;
+  create groups before linking a second device and transfer their history later.
+- Authenticate durable call offers and make bootstrap retries idempotent.
+- Improve video startup and recovery from measured audio pressure, retain earned
+  quality through brief spikes and align cadence with actual frame funding.
+- Improve audio playout recovery and Android capture/voice-stream handling;
+  retain independent opaque transport sources without relay media priority.
+- Reject malformed imported profile fields, bind local pairing only to explicit
+  advertised interfaces and verify Linux VPN helper requests before elevation.
+- Keep stand video decision histories out of production builds and strengthen
+  workflow pin and dispatch-input handling.
+
+### Dependencies
+
+- Veil 0.11.43 and hidden-volume 2.6.3; refreshed native call engines.
+- No call or own-device mailbox fallback is added; container format stays compatible.
+
+### Verification and limitations
+
+- The five multi-device defects from the October 21 audit passed targeted
+  repeats, including independent-process revoke and simultaneous-answer tests.
+  See `doc/validation/report28-2026-10-21/README.md` for the report28 decisions.
+- These repeats do not certify every topology or all 63 multi-device scenarios.
+  A verifier disconnected from identity updates can retain the old device list
+  until it receives a newer signed document.
+- Automated native-media checks do not establish headphone loudness or live
+  speech intelligibility on every device; strict latency guarantees under all
+  network/combined-load conditions are not claimed.
+
 ## [0.13.87] — 2026-10-17
 
 ### Fixed
