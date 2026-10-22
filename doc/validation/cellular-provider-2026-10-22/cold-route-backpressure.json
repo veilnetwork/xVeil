@@ -1,0 +1,92 @@
+{
+  "scope": "Two sequential physical anonymous file downloads; unchanged frontends and cellular phone, variable network. Not a controlled speed comparison.",
+  "cases": {
+    "baseline": {
+      "bytes": 4194304,
+      "success": true,
+      "sha256_matches": true,
+      "download_seconds": 47.218,
+      "request_attempts": 3,
+      "manifest_timeouts": 2,
+      "first_request_to_validated_manifest_seconds": 17.957,
+      "anonymous_stream_opens": 3,
+      "direct_stream_opens": 0,
+      "qa_contact_policies_restored": true,
+      "driver_samples": {
+        "laptop": {
+          "sample_count": 35,
+          "syn_sent_samples": 2,
+          "maximum_sampled_syn_sent_age_ms": 6002,
+          "syn_sent_samples_with_local_backpressure": 0
+        },
+        "phone": {
+          "sample_count": 39,
+          "syn_sent_samples": 0,
+          "maximum_sampled_syn_sent_age_ms": null,
+          "syn_sent_samples_with_local_backpressure": 0
+        }
+      }
+    },
+    "after": {
+      "bytes": 4194304,
+      "success": true,
+      "sha256_matches": true,
+      "download_seconds": 66.827,
+      "request_attempts": 1,
+      "manifest_timeouts": 0,
+      "first_request_to_validated_manifest_seconds": 1.957,
+      "anonymous_stream_opens": 1,
+      "direct_stream_opens": 0,
+      "qa_contact_policies_restored": true,
+      "driver_samples": {
+        "laptop": {
+          "sample_count": 45,
+          "syn_sent_samples": 0,
+          "maximum_sampled_syn_sent_age_ms": null,
+          "syn_sent_samples_with_local_backpressure": 0
+        },
+        "phone": {
+          "sample_count": 58,
+          "syn_sent_samples": 0,
+          "maximum_sampled_syn_sent_age_ms": null,
+          "syn_sent_samples_with_local_backpressure": 0
+        }
+      }
+    }
+  },
+  "sdk_commit": "b27aa76611ebbebb30acc1201df710fed5620cf3",
+  "controlled_verification": {
+    "old_real_adapter_returned_success_and_drained_unsent_cells": true,
+    "old_real_driver_waited_for_six_second_syn_rto": true,
+    "fixed_adapter_preserves_control_and_distinct_data_cells": true,
+    "fixed_real_driver_request_reply_completes_within_two_seconds_after_warmup": true,
+    "onion_stream_tests_passed": 58,
+    "ffi_anon_stream_tests_passed": 29,
+    "clippy_all_targets_passed": true,
+    "rustfmt_passed": true,
+    "cold_route_retry_ms": 25,
+    "ordinary_would_block_retry_ms": 1,
+    "retry_hint_bounds_ms": [
+      1,
+      1000
+    ],
+    "handshake_network_rto_ms_unchanged": 6000
+  },
+  "tested_build": {
+    "native_test_hooks": false,
+    "pcm_probe": false,
+    "frontend_unchanged_from_baseline": true,
+    "installed_apk_hash_matches": true,
+    "owned_mac_loaded_staged_sdk": true,
+    "post_test_trait_documentation_only": true
+  },
+  "cleanup": {
+    "phone_stopped": true,
+    "mac_stopped": true,
+    "original_phone_apk_restored": true,
+    "original_phone_apk_hash_matches": true,
+    "phone_process_absent_after_restore": true,
+    "android_diagnostic_property_restored": true,
+    "owned_phone_source_files_removed": true
+  }
+}
