@@ -1,0 +1,349 @@
+{
+  "schema": "xveil-cellular-validation/1",
+  "source": {
+    "app_commit": "a6b7524b",
+    "veil_version": "0.11.44",
+    "hidden_volume_version": "2.6.3",
+    "phone_network": "cellular",
+    "phone_wifi": false,
+    "synthetic_media": false
+  },
+  "preflight": {
+    "ok": true,
+    "contact_request_seconds": 4.152813208987936,
+    "contact_accepted_seconds": 5.2871143340016715,
+    "message_tests": [
+      {
+        "sender": "mac",
+        "receiver": "phone",
+        "delivery_seconds": 0.56270145799499,
+        "copies": 1
+      },
+      {
+        "sender": "phone",
+        "receiver": "mac",
+        "delivery_seconds": 0.5635385420173407,
+        "copies": 1
+      }
+    ]
+  },
+  "calls": {
+    "mac": {
+      "sender": "mac",
+      "receiver": "phone",
+      "ring_seconds": 1.1030475829611532,
+      "connect_after_answer_seconds": 1.023422666999977,
+      "duration_seconds": 149.3299810839817,
+      "file_threads_exited": true,
+      "ok": true,
+      "endpoints": {
+        "mac": {
+          "routes": [
+            {
+              "t": 0.0,
+              "transport": "p2p"
+            },
+            {
+              "t": 35.42,
+              "transport": "relay"
+            }
+          ],
+          "video_tx_frames_across_epochs": 0,
+          "video_decoded_frames_across_epochs": 2,
+          "last_decoded_count_change_at_seconds": 36.442344666982535,
+          "stats_samples": 145,
+          "audio_delay_ms": {
+            "median": 10.0,
+            "max": 198
+          },
+          "rtt_ms": {
+            "median": 124.0,
+            "max": 791
+          },
+          "jitter_ms": {
+            "median": 46.0,
+            "max": 122
+          },
+          "loss_pct": {
+            "median": 0.0,
+            "max": 4
+          },
+          "audio_rx_native_age_ms": {
+            "median": 175.0,
+            "max": 13030
+          },
+          "audio_packetization_video_hold_samples": 112,
+          "video_send_paused_samples": 112
+        },
+        "phone": {
+          "routes": [
+            {
+              "t": 0.0,
+              "transport": "p2p"
+            },
+            {
+              "t": 35.42,
+              "transport": "relay"
+            }
+          ],
+          "video_tx_frames_across_epochs": 2,
+          "video_decoded_frames_across_epochs": 0,
+          "last_decoded_count_change_at_seconds": null,
+          "stats_samples": 145,
+          "audio_delay_ms": {
+            "median": 151,
+            "max": 1657
+          },
+          "rtt_ms": {
+            "median": 123,
+            "max": 870
+          },
+          "jitter_ms": {
+            "median": 20,
+            "max": 144
+          },
+          "loss_pct": {
+            "median": 0,
+            "max": 26
+          },
+          "audio_rx_native_age_ms": {
+            "median": 33,
+            "max": 941
+          },
+          "audio_packetization_video_hold_samples": 104,
+          "video_send_paused_samples": 107
+        }
+      }
+    },
+    "phone": {
+      "sender": "phone",
+      "receiver": "mac",
+      "ring_seconds": 1.7109341669711284,
+      "connect_after_answer_seconds": 4.718810707970988,
+      "duration_seconds": 179.29095437499927,
+      "file_threads_exited": false,
+      "ok": true,
+      "endpoints": {
+        "mac": {
+          "routes": [
+            {
+              "t": 0.0,
+              "transport": "relay"
+            },
+            {
+              "t": 16.33,
+              "transport": "p2p"
+            },
+            {
+              "t": 18.37,
+              "transport": "relay"
+            }
+          ],
+          "video_tx_frames_across_epochs": 13,
+          "video_decoded_frames_across_epochs": 0,
+          "last_decoded_count_change_at_seconds": null,
+          "stats_samples": 173,
+          "audio_delay_ms": {
+            "median": 32,
+            "max": 242
+          },
+          "rtt_ms": {
+            "median": 129,
+            "max": 1059
+          },
+          "jitter_ms": {
+            "median": 43,
+            "max": 139
+          },
+          "loss_pct": {
+            "median": 1,
+            "max": 36
+          },
+          "audio_rx_native_age_ms": {
+            "median": 158.5,
+            "max": 1437
+          },
+          "audio_packetization_video_hold_samples": 157,
+          "video_send_paused_samples": 159
+        },
+        "phone": {
+          "routes": [
+            {
+              "t": 0.0,
+              "transport": "relay"
+            },
+            {
+              "t": 6.12,
+              "transport": "p2p"
+            },
+            {
+              "t": 14.28,
+              "transport": "relay"
+            }
+          ],
+          "video_tx_frames_across_epochs": 0,
+          "video_decoded_frames_across_epochs": 11,
+          "last_decoded_count_change_at_seconds": 14.283651333011221,
+          "stats_samples": 173,
+          "audio_delay_ms": {
+            "median": 151,
+            "max": 303
+          },
+          "rtt_ms": {
+            "median": 135,
+            "max": 956
+          },
+          "jitter_ms": {
+            "median": 16,
+            "max": 173
+          },
+          "loss_pct": {
+            "median": 8,
+            "max": 23
+          },
+          "audio_rx_native_age_ms": {
+            "median": 37,
+            "max": 1122
+          },
+          "audio_packetization_video_hold_samples": 173,
+          "video_send_paused_samples": 173
+        }
+      }
+    },
+    "phone-small-recheck": {
+      "sender": "phone",
+      "receiver": "mac",
+      "ring_seconds": 0.09926449996419251,
+      "connect_after_answer_seconds": 0.7659303330001421,
+      "duration_seconds": 89.95614991697948,
+      "file_threads_exited": true,
+      "ok": true,
+      "endpoints": {
+        "mac": {
+          "routes": [
+            {
+              "t": 0.0,
+              "transport": "p2p"
+            }
+          ],
+          "video_tx_frames_across_epochs": 0,
+          "video_decoded_frames_across_epochs": 0,
+          "last_decoded_count_change_at_seconds": null,
+          "stats_samples": 89,
+          "audio_delay_ms": {
+            "median": 10,
+            "max": 140
+          },
+          "rtt_ms": {
+            "median": 66,
+            "max": 777
+          },
+          "jitter_ms": {
+            "median": 64,
+            "max": 131
+          },
+          "loss_pct": {
+            "median": 0,
+            "max": 0
+          },
+          "audio_rx_native_age_ms": {
+            "median": 204.0,
+            "max": 856
+          },
+          "audio_packetization_video_hold_samples": 0,
+          "video_send_paused_samples": 0
+        },
+        "phone": {
+          "routes": [
+            {
+              "t": 0.0,
+              "transport": "p2p"
+            }
+          ],
+          "video_tx_frames_across_epochs": 0,
+          "video_decoded_frames_across_epochs": 0,
+          "last_decoded_count_change_at_seconds": null,
+          "stats_samples": 89,
+          "audio_delay_ms": {
+            "median": 142,
+            "max": 201
+          },
+          "rtt_ms": {
+            "median": 168,
+            "max": 1109
+          },
+          "jitter_ms": {
+            "median": 15,
+            "max": 55
+          },
+          "loss_pct": {
+            "median": 2,
+            "max": 25
+          },
+          "audio_rx_native_age_ms": {
+            "median": 32.0,
+            "max": 695
+          },
+          "audio_packetization_video_hold_samples": 0,
+          "video_send_paused_samples": 0
+        }
+      }
+    }
+  },
+  "files": [
+    {
+      "phase": "during-call-phone-small-recheck",
+      "sender": "phone",
+      "receiver": "mac",
+      "bytes": 1048576,
+      "ok": true,
+      "elapsed_seconds": 106.00618495797971,
+      "download_seconds": 105.00548200000776,
+      "hash_matches": true
+    },
+    {
+      "phase": "idle",
+      "sender": "mac",
+      "receiver": "phone",
+      "bytes": 33554432,
+      "ok": true,
+      "elapsed_seconds": 104.50174795795465,
+      "download_seconds": 103.67641304200515,
+      "hash_matches": true
+    },
+    {
+      "phase": "during-call-phone-small-recheck",
+      "sender": "mac",
+      "receiver": "phone",
+      "bytes": 1048576,
+      "ok": true,
+      "elapsed_seconds": 105.72890449996339,
+      "download_seconds": 104.76729799999157,
+      "hash_matches": true
+    },
+    {
+      "phase": "idle",
+      "sender": "phone",
+      "receiver": "mac",
+      "bytes": 33554432,
+      "ok": false,
+      "elapsed_seconds": 181.91869362501893,
+      "http_status": 504,
+      "error_type": "HTTPError"
+    }
+  ],
+  "limitations": [
+    "No live speech or acoustic loudness assessment was supplied.",
+    "Packet/decoder stats do not certify microphone/speaker audibility.",
+    "The original 4 MiB simultaneous-file run was canceled by the harness before completion; it is not scored as a product failure.",
+    "One field network and one device pair do not isolate the carrier as the root cause."
+  ],
+  "large_upload_observed_partial_bytes": 3932160,
+  "cleanup": {
+    "phone_stopped": true,
+    "mac_stopped": true,
+    "original_phone_apk_restored": true,
+    "original_phone_apk_hash_matches": true,
+    "phone_process_absent_after_restore": true
+  }
+}
