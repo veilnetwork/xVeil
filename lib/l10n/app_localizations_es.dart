@@ -6922,6 +6922,23 @@ class AppL10nEs extends AppL10n {
   }
 
   @override
+  String get settingsCopyDiagnostics => 'Copiar informe de diagnóstico';
+
+  @override
+  String get settingsCopyDiagnosticsHint =>
+      'Compilación de diagnóstico. Guarda en memoria etapas de inicio y contadores de red y llamadas hasta cerrar la aplicación. Sin mensajes, claves, direcciones ni nombres de archivos. Solo se envía manualmente.';
+
+  @override
+  String get settingsSaveDiagnostics => 'Guardar informe de diagnóstico';
+
+  @override
+  String get settingsDiagnosticsSaved => 'Informe de diagnóstico guardado';
+
+  @override
+  String get settingsDiagnosticsSaveFailed =>
+      'No se pudo guardar el informe. Puede copiarlo.';
+
+  @override
   String get settingsCopyErrors => 'Copiar informe de errores';
 
   @override

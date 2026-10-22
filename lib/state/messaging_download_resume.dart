@@ -230,6 +230,7 @@ class _MessagingDownloadResume {
 
   Future<void> start() async {
     _failedSub ??= _owner.contentDownloadFailed.listen((contentId) async {
+      diagnosticJournal.record(DiagnosticEvent.downloadFailed);
       if ((await _pendingDownloads()).containsKey(contentId)) {
         _schedule(contentId, backoff: true);
       }
@@ -241,9 +242,10 @@ class _MessagingDownloadResume {
         _parked.remove(event.contentId);
       }
     });
-    _receivedSub ??= _owner.contentReceived.listen(
-      (event) => complete(event.contentId),
-    );
+    _receivedSub ??= _owner.contentReceived.listen((event) {
+      diagnosticJournal.record(DiagnosticEvent.downloadReceived);
+      complete(event.contentId);
+    });
     await resumeAll(initial: startDelay, stagger: const Duration(seconds: 2));
   }
 
@@ -355,6 +357,10 @@ class _MessagingDownloadResume {
       _attempts[contentId] = attempt;
       if (attempt >= _resumeParkAfterAttempts) {
         _parked.add(contentId);
+        diagnosticJournal.record(
+          DiagnosticEvent.downloadParked,
+          values: {DiagnosticMetric.attempt: attempt},
+        );
         _timers.remove(contentId)?.cancel();
         devLog(
           () =>
@@ -433,6 +439,10 @@ class _MessagingDownloadResume {
       // frame from a recorded holder — rather than for a clock.
       if (peers.isNotEmpty && !await _anyEligibleSource(peers, contentId)) {
         _parked.add(contentId);
+        diagnosticJournal.record(
+          DiagnosticEvent.downloadParked,
+          values: {DiagnosticMetric.sources: peers.length},
+        );
         _timers.remove(contentId)?.cancel();
         devLog(
           () =>
@@ -456,6 +466,13 @@ class _MessagingDownloadResume {
             '(mode=${intent.mode}, attempt=${_attempts[contentId] ?? 0},'
             ' peers=${peers.length}, manifest=${_owner._offered[contentId] != null})',
       );
+      diagnosticJournal.record(
+        DiagnosticEvent.downloadRetry,
+        values: {
+          DiagnosticMetric.attempt: _attempts[contentId] ?? 0,
+          DiagnosticMetric.sources: peers.length,
+        },
+      );
       if ((_attempts[contentId] ?? 0) >= 1) {
         for (final peer in peers) {
           unawaited(_owner.requestContentReoffer(peer, contentId));
@@ -471,7 +488,15 @@ class _MessagingDownloadResume {
           userInitiated: false,
         );
       }
-    } catch (error) {
+    } catch (error, stack) {
+      if (kDiagnosticReportEnabled) {
+        errorJournal.record(
+          kind: 'download-resume',
+          error: error,
+          stack: stack,
+          atMs: DateTime.now().millisecondsSinceEpoch,
+        );
+      }
       devLog(() => 'xVeil[content]: auto-resume $short failed: $error');
       _schedule(contentId, backoff: true);
     } finally {

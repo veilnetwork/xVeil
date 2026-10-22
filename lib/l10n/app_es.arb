@@ -2860,6 +2860,11 @@
       }
     }
   },
+  "settingsSaveDiagnostics": "Guardar informe de diagnóstico",
+  "settingsDiagnosticsSaved": "Informe de diagnóstico guardado",
+  "settingsDiagnosticsSaveFailed": "No se pudo guardar el informe. Puede copiarlo.",
+  "settingsCopyDiagnostics": "Copiar informe de diagnóstico",
+  "settingsCopyDiagnosticsHint": "Compilación de diagnóstico. Guarda en memoria etapas de inicio y contadores de red y llamadas hasta cerrar la aplicación. Sin mensajes, claves, direcciones ni nombres de archivos. Solo se envía manualmente.",
   "settingsCopyErrors": "Copiar informe de errores",
   "settingsCopyErrorsHint": "Un resumen JSON de los fallos recientes: solo tipos de error y ubicaciones en el código, sin texto de error, contactos ni identidad.",
   "settingsCopyErrorsDone": "Informe de errores copiado ({count, plural, =0{sin fallos registrados} =1{1 fallo} other{{count} fallos}})",

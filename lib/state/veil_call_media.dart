@@ -11,6 +11,7 @@ import 'package:veil_media/veil_media.dart';
 import 'package:veil_flutter/veil_ffi.dart' show MediaPacketSource;
 
 import '../core/log.dart';
+import '../core/diagnostic_journal.dart';
 import '../core/ids.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import '../domain/call.dart';
@@ -1587,6 +1588,7 @@ class VeilCallMediaController implements CallMediaController {
       if (_engine != engine) return;
       try {
         final stats = engine.getStats();
+        diagnosticJournal.recordMediaStats(stats);
         final channel = _chan;
         if (channel != null) {
           _refreshAudioFraming(engine, channel, stats: stats);
@@ -1860,6 +1862,10 @@ class VeilCallMediaController implements CallMediaController {
     // Select communication/headset routing before opening the physical streams.
     await callAudioRouter.useDefaultFor(call.media);
     final audioOk = engine.startAudio(send: true, recv: true);
+    diagnosticJournal.record(
+      DiagnosticEvent.audioStart,
+      values: {DiagnosticMetric.success: audioOk ? 1 : 0},
+    );
     devLog(() => 'xVeil[call-media]: startAudio=$audioOk');
     var videoOk = false;
     // VP8 video over the same veil channel when the call requests video/screen.

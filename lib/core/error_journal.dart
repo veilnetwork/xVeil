@@ -1,4 +1,7 @@
 import 'dart:convert';
+import 'dart:io' show FileSystemException;
+
+import 'diagnostic_journal.dart';
 
 /// A bounded record of what went wrong, shaped to be pasted somewhere.
 ///
@@ -94,6 +97,9 @@ class ErrorJournal {
       RecordedError(
         kind: kind,
         type: type,
+        numericCode: error is FileSystemException
+            ? error.osError?.errorCode
+            : null,
         message: message,
         frames: _topFrames(stack),
         atMs: atMs,
@@ -113,25 +119,34 @@ class ErrorJournal {
   /// no node id anywhere in here — and, since audit X-06, no exception text
   /// either: see [RecordedError.toJson].
   ///
-  /// The profile is reported as default-or-not rather than by NAME. Whether a
-  /// non-default profile was active explains a class of failure; which one it
-  /// was is a label the person chose, and in a deniable messenger the mere
-  /// existence of a second profile is the fact worth hiding. A pasted report
-  /// used to carry it verbatim.
+  /// Legacy callers can request a coarse profile flag. User-facing exports
+  /// omit it altogether and omit wall-clock timestamps, so the report does not
+  /// disclose secondary-profile presence or an absolute activity timeline.
   String toJson({
     required String platform,
     required String osVersion,
     required String appVersion,
-    required bool defaultProfile,
+    bool? defaultProfile,
+    bool includeTimestamps = true,
     required String phase,
+    String? veilVersion,
+    String? hiddenVolumeVersion,
+    DiagnosticJournal? diagnostics,
   }) => const JsonEncoder.withIndent('  ').convert({
     'schema': 'xveil-error-report/1',
     'app': appVersion,
+    'veil': ?veilVersion,
+    'hidden_volume': ?hiddenVolumeVersion,
+    if (diagnostics != null) 'diagnostics': diagnostics.toJson(),
     'platform': platform,
     'os': osVersion,
-    'profile': defaultProfile ? 'default' : 'custom',
+    if (defaultProfile != null)
+      'profile': defaultProfile ? 'default' : 'custom',
     'phase': phase,
-    'errors': [for (final entry in _entries) entry.toJson()],
+    'errors': [
+      for (final entry in _entries)
+        entry.toJson(includeTimestamps: includeTimestamps),
+    ],
   });
 
   /// The first frames of [stack], as `package:…` locations only.
@@ -213,7 +228,9 @@ class ErrorJournal {
   static final _winPath = RegExp(r'[A-Za-z]:\\[^\s"\)]+');
   static final _base64Blob = RegExp(r'\b[A-Za-z0-9+/_-]{20,}={0,2}');
   static final _ipv4 = RegExp(r'\b\d{1,3}(?:\.\d{1,3}){3}\b');
-  static final _ipv6 = RegExp(r'\b(?:[0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}\b');
+  static final _ipv6 = RegExp(
+    r'\b(?:[0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}\b',
+  );
   static final _email = RegExp(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\b');
   static final _url = RegExp(r'\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s"\)]+');
 }
@@ -223,6 +240,7 @@ class RecordedError {
     required this.kind,
     required this.type,
     required this.message,
+    this.numericCode,
     required this.frames,
     required this.atMs,
     this.count = 1,
@@ -238,6 +256,9 @@ class RecordedError {
   /// and not the data that tripped it. This is the diagnostic the report is
   /// built on now that [message] stays home.
   final String type;
+
+  /// An OS numeric error code, never its message or path.
+  final int? numericCode;
 
   /// The redacted exception text. Held for the screen a person can read on
   /// their OWN device, and to tell two failures apart when repeats collapse —
@@ -260,6 +281,7 @@ class RecordedError {
   RecordedError seenAgain(int atMs) => RecordedError(
     kind: kind,
     type: type,
+    numericCode: numericCode,
     message: message,
     frames: frames,
     atMs: atMs,
@@ -280,12 +302,13 @@ class RecordedError {
   /// it, which exception class it was, where in the code, how often, and over
   /// what span. That is enough to find `PathNotFoundException` in the unlock
   /// path — and it cannot carry a contact, a payload or a path.
-  Map<String, Object?> toJson() => {
+  Map<String, Object?> toJson({bool includeTimestamps = true}) => {
     'kind': kind,
     'type': type,
-    'at': atMs,
+    'code': ?numericCode,
+    if (includeTimestamps) 'at': atMs,
     if (count > 1) 'count': count,
-    if (count > 1) 'firstAt': firstAtMs,
+    if (includeTimestamps && count > 1) 'firstAt': firstAtMs,
     if (frames.isNotEmpty) 'frames': frames,
   };
 }

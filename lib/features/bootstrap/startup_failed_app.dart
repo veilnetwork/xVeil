@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../settings/error_report.dart';
 
 /// The whole app, when startup threw before it could put anything on screen.
 ///
@@ -65,6 +66,7 @@ class _StartupFailedScreen extends StatelessWidget {
                   style: Theme.of(context).textTheme.bodyLarge,
                 ),
                 const SizedBox(height: 16),
+                const CopyErrorReportTile(phase: 'startup-failed'),
                 Text(
                   l.startupFailedAction,
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(

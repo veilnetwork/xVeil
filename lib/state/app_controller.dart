@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import '../core/error_journal.dart';
+import '../core/diagnostic_journal.dart';
 import '../core/secret_wipe.dart';
 
 import 'package:flutter/foundation.dart';
@@ -299,6 +300,9 @@ class AppController extends Notifier<AppState> {
     // anything a person could act on.
     if (!ref.mounted) return;
     final onboarded = prefs.getBool(_onboardedKey()) ?? false;
+    diagnosticJournal.record(DiagnosticEvent.startup, values: {
+      DiagnosticMetric.enabled: onboarded ? 1 : 0,
+    });
     state = AppState(onboarded ? AppPhase.locked : AppPhase.onboarding);
   }
 
@@ -360,15 +364,18 @@ class AppController extends Notifier<AppState> {
     // to reach the network so an existing one can approve it, and the session
     // this opens should land on the device-link screen instead of chats.
     bool joinExisting = false,
+
     /// The ceremony already offered the recovery certificate, with the phrase
     /// on screen and nothing to retype. When it did, the end-of-onboarding
     /// push has nothing to add — asking a second time inside a minute is
     /// nagging, and the standing reminder on the devices screen is what keeps
     /// the matter open for someone who declined.
     bool recoveryCertificateOffered = false,
+
     /// ...and whether a copy actually reached a file. Read back after writing,
     /// so this means "a copy exists" rather than "a write returned".
     bool recoveryCertificateSaved = false,
+
     /// The sovereign credential the ceremony minted, to be stored as THIS
     /// install's.
     ///
@@ -381,6 +388,7 @@ class AppController extends Notifier<AppState> {
     /// believes restores them, and nothing would say so until the day it was
     /// needed.
     Uint8List? sovereignCredential,
+
     /// The node identity a transfer archive carried, to be adopted as this
     /// install's.
     ///
@@ -392,6 +400,7 @@ class AppController extends Notifier<AppState> {
     /// needs a signer, which needs this identity.
     String? nodeConfigToml,
   }) async {
+    diagnosticJournal.record(DiagnosticEvent.onboardingBegin);
     _pendingIdentityPhrase = identityPhrase;
     _pendingRestoringIdentity = restoringIdentity;
     // Set BEFORE the session opens: _enterSession flips the phase to ready, and
@@ -431,6 +440,10 @@ class AppController extends Notifier<AppState> {
     final opened = await storage.open(
       password: password,
       createIfMissing: true,
+    );
+    diagnosticJournal.record(
+      DiagnosticEvent.containerOpen,
+      values: {DiagnosticMetric.success: opened ? 1 : 0},
     );
     if (!opened) {
       await _abandonOnboarding();
@@ -513,7 +526,9 @@ class AppController extends Notifier<AppState> {
         );
       }
       await _enterSession(profile);
+      diagnosticJournal.record(DiagnosticEvent.onboardingSession);
     } catch (e, st) {
+      diagnosticJournal.record(DiagnosticEvent.onboardingFailed);
       devLog(() => 'xVeil[onboarding]: FAILED, rolling back: $e\n$st');
       errorJournal.record(
         kind: 'onboarding',
@@ -1103,8 +1118,7 @@ class AppController extends Notifier<AppState> {
   Future<({int before, int after})> _compactKeeping({
     required List<Uint8List> passwords,
     required String reopenWith,
-    List<({List<int> password, List<int> oldSpaceKeys})> credentials =
-        const [],
+    List<({List<int> password, List<int> oldSpaceKeys})> credentials = const [],
   }) async {
     final path = ref.read(deniableBootProvider)!.storePath!;
     final before = await File(path).length();
@@ -2845,10 +2859,8 @@ class AppController extends Notifier<AppState> {
   static bool lanListenAllowed({
     required String? storedPolicy,
     required bool readFailed,
-  }) => p2p.lanListenAllowed(
-    storedPolicy: storedPolicy,
-    readFailed: readFailed,
-  );
+  }) =>
+      p2p.lanListenAllowed(storedPolicy: storedPolicy, readFailed: readFailed);
 
   /// Build the in-process deniable stack post-unlock (storage is open) when the
   /// embedded boot is configured and not already running.

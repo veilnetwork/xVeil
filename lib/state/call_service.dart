@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/legacy.dart';
 import 'package:uuid/uuid.dart';
 
 import '../core/log.dart';
+import '../core/diagnostic_journal.dart';
 import '../core/ids.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import '../domain/call.dart';
@@ -2511,6 +2512,20 @@ class CallService {
     // the messaging outbox retains every frame and resumes on the next flush
     // after `_end` clears this gate.
     _messaging.backgroundStashPaused = call.status != CallStatus.ended;
+    if (_current?.status != call.status ||
+        _current?.transport != call.transport ||
+        _current?.endReason != call.endReason) {
+      diagnosticJournal.record(
+        DiagnosticEvent.callState,
+        values: {
+          DiagnosticMetric.state: call.status.index,
+          DiagnosticMetric.transport: call.transport?.index ?? -1,
+          DiagnosticMetric.direction: call.direction.index,
+          DiagnosticMetric.endReason: call.endReason?.index ?? -1,
+          DiagnosticMetric.video: call.media.video ? 1 : 0,
+        },
+      );
+    }
     _current = call;
     if (!_changes.isClosed) _changes.add(call);
   }

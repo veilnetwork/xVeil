@@ -493,6 +493,29 @@ jobs:
           path: build/app/outputs/flutter-apk/*-release.apk
           if-no-files-found: error
 
+      - name: Build the diagnostic APKs
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.path }}
+          NDK: ${{ steps.ndk.outputs.path }}
+          WHISPER_SRC: ${{ github.workspace }}/whisper.cpp
+          XVEIL_DIAGNOSTICS: '1'
+        run: python3 builder.py android --release
+
+      - name: Verify and name the diagnostic APKs
+        run: |
+          set -euo pipefail
+          mkdir diagnostic-apks
+          for apk in build/app/outputs/flutter-apk/*-release.apk; do
+            python3 scripts/verify-diagnostic-artifact.py "$apk"
+            cp "$apk" "diagnostic-apks/$(basename "$apk" .apk)-debug.apk"
+          done
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-debug
+          path: diagnostic-apks/*.apk
+          if-no-files-found: error
+
   linux:
     name: linux bundle (${{ matrix.arch }})
     needs: checks
@@ -765,34 +788,19 @@ jobs:
           path: xveil-linux-${{ matrix.arch }}.tar.gz
           if-no-files-found: error
 
-      # The DIAGNOSTIC twin, for the person who can reproduce a crash and has
-      # no way to send a log. Same release AOT, same production network, same
-      # timing — a `--debug` build is JIT and slower, and a race that only
-      # happens at release speed may not happen in one at all. The only
-      # difference is that `devLog` survives, and it writes to a file beside
-      # the binary, so the instruction is "send me what is next to xveil".
-      #
-      # Built in THIS job on purpose: the native staging above takes most of
-      # the wall clock and is already done.
+      # Release AOT with a bounded structured report. Raw developer traces and
+      # the stand control API stay disabled. Reuse the native staging above.
       - name: Build the diagnostic bundle
         env:
           WHISPER_SRC: ${{ github.workspace }}/whisper.cpp
           CARGO_BUILD_RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=/src
           CFLAGS: -ffile-prefix-map=${{ github.workspace }}=/src
           CXXFLAGS: -ffile-prefix-map=${{ github.workspace }}=/src
-          XVEIL_RELEASE_LOG: '1'
+          XVEIL_DIAGNOSTICS: '1'
         run: python3 builder.py linux --release
 
-      - name: The diagnostic bundle really carries the log
-        run: |
-          set -euo pipefail
-          root=build/linux/${{ matrix.arch }}/release/bundle
-          # A define that did not reach the compiler leaves a bundle that looks
-          # right and writes nothing — the exact failure this artifact exists
-          # to prevent, and it would only be found by shipping it.
-          grep -rql "xveil-debug.log" "$root" \
-            || { echo "::error::the diagnostic bundle has no log sink in it"; exit 1; }
-          echo "  ok the log sink is compiled in"
+      - name: Verify the diagnostic report and absence of a raw log sink
+        run: python3 scripts/verify-diagnostic-artifact.py build/linux/${{ matrix.arch }}/release/bundle/lib/libapp.so
 
       # Same question of the diagnostic twin: it is handed to the user whose
       # machine already refused the release one.
@@ -1221,34 +1229,23 @@ jobs:
           path: xveil-windows-${{ matrix.arch }}.zip
           if-no-files-found: error
 
-      # The DIAGNOSTIC twin — see the Linux leg for why it is a release build
-      # with the trace put back rather than a `--debug` one. It matters most
-      # here: a GUI process on Windows has no console at all, so stdout and
-      # stderr are not merely inconvenient, they go nowhere.
+      # Same structured report as Android/Linux; no raw disk log is enabled.
       - name: Build the diagnostic bundle
         shell: bash
         env:
           WHISPER_SRC: ${{ github.workspace }}/whisper.cpp
           CARGO_BUILD_RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=/src
           CMAKE_TOOLCHAIN_FILE_aarch64_pc_windows_msvc: ${{ matrix.cmake_toolchain && format('{0}/{1}', github.workspace, matrix.cmake_toolchain) || '' }}
-          XVEIL_RELEASE_LOG: '1'
+          XVEIL_DIAGNOSTICS: '1'
         run: |
           set -euo pipefail
           msvc_bin="$(dirname "$(command -v cl.exe)")"
           export PATH="$msvc_bin:$PATH"
           python3 builder.py windows --release
 
-      - name: The diagnostic bundle really carries the log
+      - name: Verify the diagnostic report and absence of a raw log sink
         shell: bash
-        run: |
-          set -euo pipefail
-          root="build/windows/${{ matrix.arch }}/runner/Release"
-          # A define that did not reach the compiler leaves a bundle that looks
-          # right and writes nothing — which would only be discovered by
-          # shipping it to the person who cannot send a log.
-          grep -rql "xveil-debug.log" "$root" \
-            || { echo "::error::the diagnostic bundle has no log sink in it"; exit 1; }
-          echo "  ok the log sink is compiled in"
+        run: python3 scripts/verify-diagnostic-artifact.py build/windows/${{ matrix.arch }}/runner/Release/data/app.so
 
       - name: Archive the diagnostic bundle
         shell: pwsh

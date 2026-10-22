@@ -12020,6 +12020,36 @@ abstract class AppL10n {
   /// **'{path} can be written by other accounts on this computer, so what is mirrored into it could be redirected somewhere else'**
   String folderSyncRefusedWritable(String path);
 
+  /// No description provided for @settingsCopyDiagnostics.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy diagnostic report'**
+  String get settingsCopyDiagnostics;
+
+  /// No description provided for @settingsCopyDiagnosticsHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Diagnostic build. Startup stages and network and call counters are kept until the app closes. No message text, keys, addresses or filenames. Send only if you choose to.'**
+  String get settingsCopyDiagnosticsHint;
+
+  /// No description provided for @settingsSaveDiagnostics.
+  ///
+  /// In en, this message translates to:
+  /// **'Save diagnostic report'**
+  String get settingsSaveDiagnostics;
+
+  /// No description provided for @settingsDiagnosticsSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'Diagnostic report saved'**
+  String get settingsDiagnosticsSaved;
+
+  /// No description provided for @settingsDiagnosticsSaveFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save the report. You can copy it instead.'**
+  String get settingsDiagnosticsSaveFailed;
+
   /// No description provided for @settingsCopyErrors.
   ///
   /// In en, this message translates to:

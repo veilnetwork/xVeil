@@ -8,6 +8,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/log.dart';
+import '../../core/diagnostic_journal.dart';
+import '../../core/error_journal.dart';
+import '../settings/error_report.dart';
 import '../../core/secure_screen.dart';
 import '../../data/identity/veil_identity.dart';
 import '../../data/node/bundled_seeds.dart';
@@ -487,7 +490,15 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
             nodeConfigToml: _restoreNodeConfig,
           );
       // Router redirect takes over once phase flips to ready.
-    } catch (e) {
+    } catch (e, stack) {
+      if (kDiagnosticReportEnabled) {
+        errorJournal.record(
+          kind: 'onboarding-ui',
+          error: e,
+          stack: stack,
+          atMs: DateTime.now().millisecondsSinceEpoch,
+        );
+      }
       // Creating the container runs Argon2 and touches the filesystem; a full
       // disk or a native fault threw straight through the old code and left
       // `_busy` true forever, so the Done button never came back and the only
@@ -514,6 +525,19 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        actions: [
+          if (kDiagnosticReportEnabled)
+            IconButton(
+              icon: const Icon(Icons.save_alt),
+              tooltip: AppL10n.of(context).settingsSaveDiagnostics,
+              onPressed: () => saveErrorReport(context, phase: 'onboarding'),
+            ),
+          IconButton(
+            icon: const Icon(Icons.bug_report_outlined),
+            tooltip: AppL10n.of(context).settingsCopyErrors,
+            onPressed: () => copyErrorReport(context, phase: 'onboarding'),
+          ),
+        ],
         leading: _step == 0
             ? null
             : IconButton(

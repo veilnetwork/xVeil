@@ -160,6 +160,18 @@ def _diagnostic_log_define() -> list[str]:
     return ["--dart-define=XVEIL_RELEASE_LOG=true"]
 
 
+def _diagnostic_report_define(release: bool) -> list[str]:
+    """A privacy-filtered in-memory report, independent of raw developer logs."""
+    if os.environ.get("XVEIL_DIAGNOSTICS", "").lower() not in ("1", "true", "yes"):
+        return []
+    if not release:
+        raise SystemExit("XVEIL_DIAGNOSTICS requires a release AOT build")
+    for unsafe in ("XVEIL_RELEASE_LOG", "XVEIL_DEBUG_HOOK", "VEIL_MEDIA_TEST_HOOKS"):
+        if os.environ.get(unsafe, "").lower() in ("1", "true", "yes"):
+            raise SystemExit(f"XVEIL_DIAGNOSTICS cannot be combined with {unsafe}")
+    return ["--dart-define=XVEIL_DIAGNOSTICS=true"]
+
+
 def _debug_hook_define() -> list[str]:
     """The stand hook, passed through from the environment. Empty unless asked.
 
@@ -755,6 +767,7 @@ def _android(release: bool) -> list[Step]:
                     # for the trace and the hook.
                     *_debug_hook_define(),
                     *_diagnostic_log_define(),
+                    *_diagnostic_report_define(release),
                 ],
                 env=_path_remap_env(),
             )
@@ -780,6 +793,7 @@ def _android(release: bool) -> list[Step]:
                     # that failed to bootstrap, which is where the search goes.
                     *_debug_hook_define(),
                     *_diagnostic_log_define(),
+                    *_diagnostic_report_define(release),
                 ],
                 env=_path_remap_env(),
             )
@@ -899,6 +913,7 @@ def _linux(release: bool) -> list[Step]:
                 # does is only reached on a machine with no Apple account.
                 *_debug_hook_define(),
                 *_diagnostic_log_define(),
+                *_diagnostic_report_define(release),
             ],
             env=_build_env(**_engine_policy_env(release)),
         )
@@ -982,6 +997,7 @@ def _check_macos_bundle(config: str) -> None:
 
 
 def _macos(release: bool) -> list[Step]:
+    _diagnostic_report_define(release)  # Validate the ad-hoc branch too.
     config = "release" if release else "debug"
     whisper = _whisper_script("macos")
     steps = [
@@ -1022,6 +1038,7 @@ def _macos(release: bool) -> list[Step]:
                     *_network_define(),
                     *_debug_hook_define(),
                     *_diagnostic_log_define(),
+                    *_diagnostic_report_define(release),
                 ],
                 # The Xcode build runs build-packet-tunnel-macos.sh, which is a
                 # cargo build several processes down. The environment is the
@@ -1145,6 +1162,7 @@ def _ios(release: bool) -> list[Step]:
                     # a whole platform's worth of stand missing.
                     *_debug_hook_define(),
                     *_diagnostic_log_define(),
+                    *_diagnostic_report_define(release),
                 ],
                 env=_build_env(),
             )
@@ -1161,6 +1179,7 @@ def _ios(release: bool) -> list[Step]:
                     *_network_define(),
                     *_debug_hook_define(),
                     *_diagnostic_log_define(),
+                    *_diagnostic_report_define(release),
                 ],
                 env=_build_env(),
             )
@@ -1323,6 +1342,7 @@ def _windows(release: bool) -> list[Step]:
                 # bootstrapped: no port answers and no runtime key is written.
                 *_debug_hook_define(),
                 *_diagnostic_log_define(),
+                *_diagnostic_report_define(release),
             ],
             env=_build_env(**_engine_policy_env(release)),
         ),

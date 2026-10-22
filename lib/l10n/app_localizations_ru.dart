@@ -6889,6 +6889,23 @@ class AppL10nRu extends AppL10n {
   }
 
   @override
+  String get settingsCopyDiagnostics => 'Скопировать диагностический отчёт';
+
+  @override
+  String get settingsCopyDiagnosticsHint =>
+      'Диагностическая сборка. Этапы запуска и счётчики сети и звонков хранятся до закрытия приложения. Без текста сообщений, ключей, адресов и имён файлов. Отправка только вручную.';
+
+  @override
+  String get settingsSaveDiagnostics => 'Сохранить диагностический отчёт';
+
+  @override
+  String get settingsDiagnosticsSaved => 'Диагностический отчёт сохранён';
+
+  @override
+  String get settingsDiagnosticsSaveFailed =>
+      'Не удалось сохранить отчёт. Его можно скопировать.';
+
+  @override
   String get settingsCopyErrors => 'Скопировать отчёт об ошибках';
 
   @override

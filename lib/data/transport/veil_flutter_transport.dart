@@ -12,6 +12,7 @@ import 'package:veil_flutter/veil_ffi.dart' hide SenderProvenance;
 
 import '../../core/ids.dart';
 import '../../core/log.dart';
+import '../../core/diagnostic_journal.dart';
 import '../../state/mailbox_orchestrator.dart';
 import '../../state/mailbox_service.dart';
 import 'relay_key_cache.dart';
@@ -1185,6 +1186,20 @@ class VeilFlutterTransport
     );
   }
 
+  Future<void> _diagnosticSend(Future<void> Function() send) async {
+    if (!kDiagnosticReportEnabled) return send();
+    try {
+      await send();
+    } on VeilException catch (error) {
+      diagnosticJournal.record(
+        DiagnosticEvent.nativeSendFailed,
+        values: {DiagnosticMetric.code: error.code},
+        minInterval: const Duration(seconds: 1),
+      );
+      rethrow;
+    }
+  }
+
   @override
   Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false}) {
     // ADDRESSED AT OUR OWN IDENTITY: a sync to our other devices, and NO live
@@ -1233,18 +1248,22 @@ class VeilFlutterTransport
       // IPC send is fire-and-forget, so a circuit that can't be built yet does
       // NOT throw here — the message stays un-acked and the outbox retries it.
       // Proven end to end by test/native/onion_roundtrip_live_test.dart.
-      return _app.sendAnonymousAuthenticated(
+      return _diagnosticSend(
+        () => _app.sendAnonymousAuthenticated(
+          dstNodeId: dst.bytes,
+          dstAppId: chatAppIdFor(dst),
+          dstEndpointId: veilChatEndpointId,
+          data: payload,
+        ),
+      );
+    }
+    return _diagnosticSend(
+      () => _app.send(
         dstNodeId: dst.bytes,
         dstAppId: chatAppIdFor(dst),
         dstEndpointId: veilChatEndpointId,
         data: payload,
-      );
-    }
-    return _app.send(
-      dstNodeId: dst.bytes,
-      dstAppId: chatAppIdFor(dst),
-      dstEndpointId: veilChatEndpointId,
-      data: payload,
+      ),
     );
   }
 
@@ -1267,13 +1286,15 @@ class VeilFlutterTransport
         SendRoute.deviceSync) {
       return Future<void>.value();
     }
-    return _app.sendOnLocalLane(
-      dstNodeId: dst.bytes,
-      dstAppId: chatAppIdFor(dst),
-      dstEndpointId: veilChatEndpointId,
-      data: payload,
-      localLane: localLane,
-      anonymous: anonymous,
+    return _diagnosticSend(
+      () => _app.sendOnLocalLane(
+        dstNodeId: dst.bytes,
+        dstAppId: chatAppIdFor(dst),
+        dstEndpointId: veilChatEndpointId,
+        data: payload,
+        localLane: localLane,
+        anonymous: anonymous,
+      ),
     );
   }
 
@@ -1284,11 +1305,13 @@ class VeilFlutterTransport
     bool anonymous = false,
   }) {
     if (anonymous) {
-      return _realtimeApp.sendAnonymousAuthenticated(
-        dstNodeId: dst.bytes,
-        dstAppId: chatAppIdFor(dst),
-        dstEndpointId: veilChatEndpointId,
-        data: payload,
+      return _diagnosticSend(
+        () => _realtimeApp.sendAnonymousAuthenticated(
+          dstNodeId: dst.bytes,
+          dstAppId: chatAppIdFor(dst),
+          dstEndpointId: veilChatEndpointId,
+          data: payload,
+        ),
       );
     }
     // APP_RT_SEND uses the signaling source channel, separate from audio.
@@ -1297,11 +1320,13 @@ class VeilFlutterTransport
     // so an accepted call answer could arrive minutes after the ring timeout.
     // A no-session error is intentional; call control retries through its
     // local outbox on the relay/P2P paths.
-    return _realtimeApp.sendRealtime(
-      dstNodeId: dst.bytes,
-      dstAppId: realtimeAppIdFor(dst),
-      dstEndpointId: veilRealtimeEndpointId,
-      data: payload,
+    return _diagnosticSend(
+      () => _realtimeApp.sendRealtime(
+        dstNodeId: dst.bytes,
+        dstAppId: realtimeAppIdFor(dst),
+        dstEndpointId: veilRealtimeEndpointId,
+        data: payload,
+      ),
     );
   }
 
@@ -1310,20 +1335,24 @@ class VeilFlutterTransport
     NodeId identity,
     NodeId device,
     Uint8List payload,
-  ) => _realtimeApp.sendRealtime(
-    dstNodeId: device.bytes,
-    dstAppId: realtimeAppIdFor(identity),
-    dstEndpointId: veilRealtimeEndpointId,
-    data: payload,
+  ) => _diagnosticSend(
+    () => _realtimeApp.sendRealtime(
+      dstNodeId: device.bytes,
+      dstAppId: realtimeAppIdFor(identity),
+      dstEndpointId: veilRealtimeEndpointId,
+      data: payload,
+    ),
   );
 
   @override
   Future<void> sendRelayRealtime(NodeId dst, Uint8List payload) {
-    return _realtimeApp.sendRelayRealtime(
-      dstNodeId: dst.bytes,
-      dstAppId: realtimeAppIdFor(dst),
-      dstEndpointId: veilRealtimeEndpointId,
-      data: payload,
+    return _diagnosticSend(
+      () => _realtimeApp.sendRelayRealtime(
+        dstNodeId: dst.bytes,
+        dstAppId: realtimeAppIdFor(dst),
+        dstEndpointId: veilRealtimeEndpointId,
+        data: payload,
+      ),
     );
   }
 
@@ -1334,18 +1363,20 @@ class VeilFlutterTransport
     // we already built, surfacing as a non-zero IncomingMessage.replyId, instead
     // of resolving + building a fresh circuit to us. No clearnet fallback (same
     // as the anonymous `send`); the reply block is one-shot, so unlinkable.
-    return _app.sendAnonymousAuthenticatedWithReply(
-      dstNodeId: dst.bytes,
-      dstAppId: chatAppIdFor(dst),
-      dstEndpointId: veilChatEndpointId,
-      replyEndpointId: veilChatEndpointId,
-      data: payload,
+    return _diagnosticSend(
+      () => _app.sendAnonymousAuthenticatedWithReply(
+        dstNodeId: dst.bytes,
+        dstAppId: chatAppIdFor(dst),
+        dstEndpointId: veilChatEndpointId,
+        replyEndpointId: veilChatEndpointId,
+        data: payload,
+      ),
     );
   }
 
   @override
   Future<void> sendReply(int replyId, Uint8List payload) =>
-      _app.sendReply(replyId: replyId, data: payload);
+      _diagnosticSend(() => _app.sendReply(replyId: replyId, data: payload));
 
   /// Open a reliable, flow-controlled byte-stream to [dst]'s chat endpoint — the
   /// transport for any-size file transfer (Stage 6). Same app_id/endpoint as a
