@@ -394,13 +394,20 @@ extension _MessagingContentPull on MessagingService {
   Future<ContentManifest?> _readManifestOnly(
     NodeId peer,
     String cid,
-    _ContentManifestRef ref,
-  ) async {
-    final stream = await _openInitialPullStream(peer, cid);
+    _ContentManifestRef ref, {
+    bool legacy = false,
+  }) async {
+    var stream = await _openInitialPullStream(peer, cid);
     if (stream == null) return null;
     var gracefulClose = false;
+    var retryLegacy = false;
     try {
-      final req = _streamRequest(cid, offset: ref.size);
+      final req = _streamRequest(
+        cid,
+        peer: peer,
+        offset: ref.size,
+        legacy: legacy,
+      );
       await Future<void>.delayed(_streamOpenWriteGrace);
       await stream.write(req).timeout(_streamRequestTimeout);
       final lenB = await MessagingService._readExactly(
@@ -408,7 +415,9 @@ extension _MessagingContentPull on MessagingService {
         4,
       ).timeout(MessagingService._streamManifestTimeout, onTimeout: () => null);
       if (lenB == null) throw StateError('no stream manifest');
-      final mfLen = MessagingService._readU32be(lenB);
+      final header = _contentStreamHeader(peer, stream, req, lenB);
+      stream = header.stream;
+      final mfLen = header.length;
       if (mfLen <= 0 || mfLen > (1 << 20)) {
         throw StateError('bad stream manifest len');
       }
@@ -435,21 +444,24 @@ extension _MessagingContentPull on MessagingService {
       gracefulClose = true;
       return m;
     } catch (e) {
-      devLog(
-        () =>
-            'xVeil[content]: manifest stream-resolve failed '
-            '${cid.substring(0, 12)} <- ${peer.short}: $e',
-      );
-      return null;
+      retryLegacy = e is _LegacyContentStream && !legacy;
+      if (!retryLegacy) {
+        devLog(
+          () =>
+              'xVeil[content]: manifest stream-resolve failed '
+              '${cid.substring(0, 12)} <- ${peer.short}: $e',
+        );
+      }
     } finally {
       try {
         if (gracefulClose) {
-          await stream.close();
+          await stream?.close();
         } else {
-          await stream.abort();
+          await stream?.abort();
         }
       } catch (_) {}
     }
+    return retryLegacy ? _readManifestOnly(peer, cid, ref, legacy: true) : null;
   }
 
   Future<ContentManifest?> _fetchManifestFromStream(
@@ -494,16 +506,21 @@ extension _MessagingContentPull on MessagingService {
   /// candidate — a dead first holder is the case this exists for, not a swarm.
   static const _manifestProbeFanout = 3;
 
-  Future<ContentManifest?> _readManifestHeader(NodeId peer, String cid) async {
-    final stream = await _openInitialPullStream(peer, cid);
+  Future<ContentManifest?> _readManifestHeader(
+    NodeId peer,
+    String cid, {
+    bool legacy = false,
+  }) async {
+    var stream = await _openInitialPullStream(peer, cid);
     if (stream == null) return null;
     var gracefulClose = false;
+    var retryLegacy = false;
     try {
       // Ask for the smallest possible payload after the manifest so the sender
       // can finish this probe cleanly. A length of 0 means "stream the whole
       // content" in the serve path; closing immediately after the manifest then
       // trips a noisy write-failure and can perturb the shared onion driver.
-      final req = _streamRequest(cid, length: 1);
+      final req = _streamRequest(cid, peer: peer, length: 1, legacy: legacy);
       await Future<void>.delayed(_streamOpenWriteGrace);
       await stream.write(req).timeout(_streamRequestTimeout);
       // First-byte stall: a source that never sends the length prefix is dead —
@@ -519,7 +536,9 @@ extension _MessagingContentPull on MessagingService {
         4,
       ).timeout(firstByteTimeout, onTimeout: () => null);
       if (lenB == null) throw StateError('no stream manifest');
-      final mfLen = MessagingService._readU32be(lenB);
+      final header = _contentStreamHeader(peer, stream, req, lenB);
+      stream = header.stream;
+      final mfLen = header.length;
       if (mfLen <= 0 || mfLen > (1 << 20)) {
         throw StateError('bad stream manifest len');
       }
@@ -563,21 +582,24 @@ extension _MessagingContentPull on MessagingService {
       gracefulClose = true;
       return m;
     } catch (e) {
-      devLog(
-        () =>
-            'xVeil[content]: manifest stream-probe failed '
-            '${cid.substring(0, 12)} <- ${peer.short}: $e',
-      );
-      return null;
+      retryLegacy = e is _LegacyContentStream && !legacy;
+      if (!retryLegacy) {
+        devLog(
+          () =>
+              'xVeil[content]: manifest stream-probe failed '
+              '${cid.substring(0, 12)} <- ${peer.short}: $e',
+        );
+      }
     } finally {
       try {
         if (gracefulClose) {
-          await stream.close();
+          await stream?.close();
         } else {
-          await stream.abort();
+          await stream?.abort();
         }
       } catch (_) {}
     }
+    return retryLegacy ? _readManifestHeader(peer, cid, legacy: true) : null;
   }
 
   void _rememberOfferedManifest(NodeId peer, ContentManifest manifest) {
@@ -1446,6 +1468,7 @@ extension _MessagingContentPull on MessagingService {
     ReliableStream? current = initialStream;
     var got = 0;
     Object? lastError;
+    var legacy = false;
     for (
       var attempt = 1;
       got < rangeLen &&
@@ -1470,6 +1493,8 @@ extension _MessagingContentPull on MessagingService {
         final resumeOffset = offset + got;
         final req = _streamRequest(
           cid,
+          peer: peer,
+          legacy: legacy,
           offset: resumeOffset,
           length: remaining,
         );
@@ -1484,7 +1509,9 @@ extension _MessagingContentPull on MessagingService {
           onTimeout: () => null,
         );
         if (lenB == null) throw StateError('no manifest (sender not serving)');
-        final mfLen = MessagingService._readU32be(lenB);
+        final header = _contentStreamHeader(peer, current, req, lenB);
+        current = header.stream;
+        final mfLen = header.length;
         if (mfLen <= 0 || mfLen > (1 << 20)) {
           throw StateError('bad manifest len');
         }
@@ -1550,6 +1577,18 @@ extension _MessagingContentPull on MessagingService {
           tickAtLastChunk = swarmTick?.call() ?? 0;
         }
       } catch (e) {
+        if (e is _LegacyContentStream &&
+            !legacy &&
+            !_disposed &&
+            !_cancelledDownloads.contains(cid)) {
+          legacy = true;
+          try {
+            await current?.abort();
+          } catch (_) {}
+          current = null;
+          attempt--;
+          continue;
+        }
         lastError = e;
         if (got > startGot || got > 0) {
           devLog(
@@ -1701,6 +1740,7 @@ extension _MessagingContentPull on MessagingService {
     final maxAttempts = _streamPullMaxAttempts < peers.length
         ? peers.length
         : _streamPullMaxAttempts;
+    final legacyPeers = <NodeId>{};
     ContentManifest? resumeManifest;
     var resumePiece = 0;
     _pullStarted(cid);
@@ -1758,7 +1798,12 @@ extension _MessagingContentPull on MessagingService {
           // Keep this first write to a single onion-stream cell: padding this
           // to several cells created a request burst before payload pacing had
           // a chance to smooth the transfer.
-          final req = _streamRequest(cid, offset: resumeOffset);
+          final req = _streamRequest(
+            cid,
+            peer: attemptPeer,
+            offset: resumeOffset,
+            legacy: legacyPeers.contains(attemptPeer),
+          );
           await Future<void>.delayed(_streamOpenWriteGrace);
           await current.write(req).timeout(_streamRequestTimeout);
           devLog(
@@ -1800,7 +1845,9 @@ extension _MessagingContentPull on MessagingService {
           if (lenB == null) {
             throw StateError('no manifest (sender not serving)');
           }
-          final mfLen = MessagingService._readU32be(lenB);
+          final header = _contentStreamHeader(attemptPeer, current, req, lenB);
+          current = header.stream;
+          final mfLen = header.length;
           if (mfLen <= 0 || mfLen > (1 << 20)) {
             throw StateError('bad manifest len');
           }
@@ -1928,6 +1975,13 @@ extension _MessagingContentPull on MessagingService {
           break;
         } catch (e) {
           attemptFailed = true;
+          if (e is _LegacyContentStream &&
+              legacyPeers.add(attemptPeer) &&
+              !_disposed &&
+              !_cancelledDownloads.contains(cid)) {
+            attempt--;
+            continue;
+          }
           lastError = e;
           if (payloadStarted && committedPieces > 0) {
             final completed = (resumePiece + committedPieces)
@@ -2502,4 +2556,9 @@ extension _MessagingContentPull on MessagingService {
           '(${size}B) <- ${peer.short}',
     );
   }
+}
+
+/// The peer answered the marked request with a legacy manifest-only response.
+class _LegacyContentStream implements Exception {
+  const _LegacyContentStream();
 }
