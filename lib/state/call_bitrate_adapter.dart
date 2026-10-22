@@ -869,6 +869,10 @@ class CallBitrateAdapter {
         stats,
         sampledAt ?? DateTime.now(),
         expectedVideoFeedbackReports ?? 1,
+        sourcePaused:
+            !videoSendExpected ||
+            _appliedPause == true ||
+            stats['video_send_paused'] == 1,
       );
       if (generation != _delivery.generation) {
         _deliveryTarget = _appliedTarget;

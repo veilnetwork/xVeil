@@ -38,6 +38,107 @@ void observe(
 );
 
 void main() {
+  test('decoded frames received during pause cannot fund resumed growth', () {
+    final m = CallVideoDeliveryModel();
+    observe(m, 1, {'p': report(1)});
+    observe(m, 2, {'p': report(2)});
+    expect(m.propose(floor, ceiling, at(2), healthy: true), isNotNull);
+    m.observe(
+      {
+        'video_delivery_peers': {'p': report(3)},
+      },
+      at(3),
+      1,
+      sourcePaused: true,
+    );
+    expect(m.propose(floor, ceiling, at(3), healthy: true), isNull);
+    m.observe(
+      {
+        'video_delivery_peers': {'p': report(3)},
+      },
+      at(4),
+      1,
+    );
+    expect(m.propose(floor, ceiling, at(4), healthy: true), isNull);
+    m.observe(
+      {
+        'video_delivery_peers': {'p': report(5)},
+      },
+      at(5),
+      1,
+    );
+    expect(m.propose(floor, ceiling, at(5), healthy: true), isNotNull);
+  });
+
+  test('intentional source pause cannot create permanent queue pressure', () {
+    final a = CallBitrateAdapter(
+      baseBitrateKbps: 900,
+      baseFps: 60,
+      initialLevel: 4,
+    );
+    void sample(int n, {required bool damaged, required bool frozen}) {
+      final video = frozen ? report(8, delay: 600) : report(n);
+      video['sample_us'] = n * 1000000;
+      video['arrival_us'] = n * 1000000 + 120000;
+      a.applyPendingTarget((_) => true);
+      a.applyPendingPause((_) => true);
+      a.onNativeStats(
+        {
+          'worker_stalled': 0,
+          'video_worker_stalled': 0,
+          'audio_feedback_reports': 1,
+          'video_feedback_reports': 1,
+          'rtt_ms': 110,
+          'tx_loss_pct': 0,
+          'tx_jitter_ms': 10,
+          'audio_rx_pkts': n * 100,
+          'audio_rx_native_age_ms': 10,
+          'audio_tx_rtp_drops': 0,
+          'video_tx_source_rtp_drops': 0,
+          'video_tx_rtp_drops': 0,
+          'tx_drops': 0,
+          'video_tx_frames': frozen ? 240 : n * 30,
+          'video_send_paused': a.acknowledgedPause == true ? 1 : 0,
+          'video_delivery_peers': {'p': video},
+        },
+        sampledAt: at(n),
+        audioInterrupted: damaged,
+        receiveAudioExpected: true,
+        requireAudioReceivePlayout: true,
+        requirePeerAudioPlayout: true,
+        audioReceiveDelayMs: 60,
+        peerAudioDelayMs: 60,
+        peerAudioSampleSequence: n,
+      );
+      a.applyPendingTarget((_) => true);
+      a.applyPendingPause((_) => true);
+    }
+
+    for (var n = 1; n <= 8; n++) {
+      sample(n, damaged: true, frozen: false);
+    }
+    expect(a.acknowledgedPause, isTrue);
+    // Receiver reports the same old frame with fresh report clocks. Its old
+    // 600-ms playout delay is not evidence of a queue filling during our pause.
+    for (var n = 9; n <= 18; n++) {
+      sample(n, damaged: true, frozen: true);
+    }
+    expect(a.acknowledgedPause, isTrue);
+    for (var n = 19; n <= 21; n++) {
+      sample(n, damaged: false, frozen: true);
+    }
+    expect(
+      a.acknowledgedPause,
+      isFalse,
+      reason: 'healthy audio must retry the sparse floor',
+    );
+    expect(
+      a.acknowledgedTarget,
+      floor,
+      reason: 'paused ACKs cannot fund a larger source',
+    );
+  });
+
   test('fresh causal decoder ACK doubles, cached and pre-probe ACK do not', () {
     final m = CallVideoDeliveryModel();
     observe(m, 1, {'p': report(1, sent: 90000)});
