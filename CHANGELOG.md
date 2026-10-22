@@ -10,6 +10,8 @@ bumps may change behaviour a user notices.
 
 ### Changed
 
+- Repair malformed native group statistics caused by binary peer keys; include
+  only numeric time-stretch counters in anonymous diagnostics.
 - Reopen Android AAudio capture/playout after speaker or headset route
   disconnects, avoiding silent streams and a subsequent false path recovery.
   Propagate failed initial device starts; preserve native ABI and relay policy.

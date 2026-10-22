@@ -1,0 +1,126 @@
+{
+  "date": "2026-10-22",
+  "status": "group_stats_json_fixed_video_freeze_unresolved",
+  "retained_changes": [
+    "Hex-encode binary group video-delivery peer ids in native JSON",
+    "Require complete parsed UTF-8 JSON and metric presence in real group recovery gate",
+    "Expose allow-listed numeric inserted/accelerated sample counters"
+  ],
+  "audio_policy_changed": false,
+  "experimental_funded_reserve_policy_retained": false,
+  "group_gate": {
+    "passed": true,
+    "json_parsed": true,
+    "peer_keys_are_hex": true,
+    "peer_count": 2,
+    "fresh_marker_age_ms": 170.56,
+    "warm_mixed_ticks": 50,
+    "recovered_mixed_ticks": 15,
+    "recoveries": 6,
+    "discarded_ms": 880,
+    "fallbacks": 0,
+    "prior_gate_exit_status": 5,
+    "prior_failure_cause": "Binary peer key truncated the native JSON; missing counters were read as zero.",
+    "quality_thresholds_relaxed": false
+  },
+  "calls": {
+    "experiment_not_retained": {
+      "duration_seconds": 179.74,
+      "lifetime_ok": true,
+      "camera_enable_seconds": 60.61,
+      "endpoints": {
+        "mac": {
+          "audio_inserted_samples_for_deceleration": 2484,
+          "audio_removed_samples_for_acceleration": 3477,
+          "audio_latency_discarded_ms": 4480,
+          "video_tx_frames": 0,
+          "video_rx_deliver_frames": 0,
+          "inserted_ms_at_48khz": 51.75,
+          "routes": [
+            {
+              "seconds": 0.0,
+              "transport": "relay"
+            }
+          ]
+        },
+        "phone": {
+          "audio_inserted_samples_for_deceleration": 3124,
+          "audio_removed_samples_for_acceleration": 15093,
+          "audio_latency_discarded_ms": 27760,
+          "video_tx_frames": 0,
+          "video_rx_deliver_frames": 0,
+          "inserted_ms_at_48khz": 65.08,
+          "routes": [
+            {
+              "seconds": 0.0,
+              "transport": "p2p"
+            }
+          ]
+        }
+      },
+      "phone_media_handoff_ms": {
+        "packets": 3028,
+        "median": 0.157,
+        "p95": 0.722,
+        "max": 3.718
+      }
+    },
+    "final_audio_policy_control": {
+      "duration_seconds": 119.41,
+      "lifetime_ok": true,
+      "camera_enable_seconds": 60.26,
+      "endpoints": {
+        "mac": {
+          "audio_inserted_samples_for_deceleration": 1629,
+          "audio_removed_samples_for_acceleration": 1704,
+          "audio_latency_discarded_ms": 2510,
+          "video_tx_frames": 0,
+          "video_rx_deliver_frames": 0,
+          "inserted_ms_at_48khz": 33.94,
+          "routes": [
+            {
+              "seconds": 0.0,
+              "transport": "relay"
+            }
+          ]
+        },
+        "phone": {
+          "audio_inserted_samples_for_deceleration": 3573,
+          "audio_removed_samples_for_acceleration": 9276,
+          "audio_latency_discarded_ms": 8680,
+          "video_tx_frames": 0,
+          "video_rx_deliver_frames": 0,
+          "inserted_ms_at_48khz": 74.44,
+          "routes": [
+            {
+              "seconds": 0.0,
+              "transport": "relay"
+            }
+          ]
+        }
+      },
+      "phone_media_handoff_ms": {
+        "packets": 1942,
+        "median": 0.114,
+        "p95": 0.579,
+        "max": 3.941
+      }
+    }
+  },
+  "verification": {
+    "final_decoder_controller_and_catchup_unit_gate_passed": true,
+    "final_group_real_pcm_and_json_gate_passed": true,
+    "anonymous_journal_tests_passed": 4,
+    "dart_analyzer_issues": 0,
+    "production_native_exports_per_platform": 105,
+    "production_source_matches_physical_control_build": true
+  },
+  "limitations": [
+    "No live speech or acoustic assessment.",
+    "Routes differ across field runs; their latency changes are not a controlled causal quality comparison.",
+    "Time-stretch sample counters do not measure acoustic delay.",
+    "The phone native handoff interval excludes SDK, source and network queues."
+  ],
+  "conclusion": "The control generated tens of milliseconds of preemptive expansion while forced catch-up discarded seconds. A large expansion/catch-up loop is not supported; the speculative policy was removed. Neither field call restored video.",
+  "fix_sdk_commit": "c60a9db1"
+}
