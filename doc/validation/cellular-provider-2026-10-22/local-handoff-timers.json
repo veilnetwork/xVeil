@@ -1,0 +1,65 @@
+{
+  "scope": "Local carrier handoff timing, controlled async driver regressions, and two physical anonymous file transfers. Not a call-quality or WAN-speed qualification.",
+  "controlled_regressions": {
+    "original_driver_network_rtos_with_zero_data_handoffs": 1,
+    "corrected_driver_network_rtos_with_zero_data_handoffs": 0,
+    "local_block_milliseconds": 250,
+    "initial_network_rto_milliseconds": 50,
+    "real_accepted_network_loss_still_detected": true,
+    "nonprefix_striped_acceptance_preserves_exact_bytes": true,
+    "rack_and_no_sack_rewind_matrix_combinations": 12,
+    "unhanded_ack_and_sack_rejected": true,
+    "sequence_wrap_covered": true,
+    "fin_handoff_and_network_timeout_covered": true,
+    "late_old_ack_after_rewind_preserved": true,
+    "stale_pacing_deadline_does_not_spin_behind_local_queue": true
+  },
+  "gates": {
+    "onion_stream_tests_passed": 65,
+    "ffi_anonymous_stream_tests_passed": 29,
+    "all_target_clippy_clean": true,
+    "rustfmt_clean": true,
+    "production_mac_and_android_sdk_builds_passed": true,
+    "ordinary_frontends_unchanged": true,
+    "native_test_hooks_enabled": false,
+    "physical_audio_devices_opened": false,
+    "tested_source_and_loaded_library_verified": true,
+    "post_qualification_source_changes": "Explanatory comments only; expanded test matrix passed separately."
+  },
+  "physical_transfers": [
+    {
+      "direction": "phone_to_laptop",
+      "bytes": 4194304,
+      "sha256_matches": true,
+      "download_seconds": 53.277,
+      "request_attempts": 3,
+      "manifest_timeouts": 2,
+      "first_request_to_validated_manifest_seconds": 18.814,
+      "direct_stream_opens": 0
+    },
+    {
+      "direction": "laptop_to_phone",
+      "bytes": 4194304,
+      "sha256_matches": true,
+      "download_seconds": 39.153,
+      "request_attempts": 1,
+      "manifest_timeouts": 0,
+      "first_request_to_validated_manifest_seconds": 0.676,
+      "direct_stream_opens": 0
+    }
+  ],
+  "limits": [
+    "Carrier acceptance is not proof of socket transmission or peer receipt.",
+    "The first-manifest timeout and general file throughput remain unresolved.",
+    "Other carrier branches that falsely declare acceptance are not qualified by these controlled WouldBlock tests.",
+    "Separate physical runs do not isolate network variation or establish a speed improvement.",
+    "No audio/video quality or long-file completion claim is made."
+  ],
+  "cleanup": {
+    "owned_mac_and_phone_processes_absent": true,
+    "original_phone_apk_restored_and_hash_verified": true,
+    "qa_contact_policies_restored_and_verified": true,
+    "android_diagnostic_property_restored": true,
+    "owned_phone_file_fixtures_removed": true
+  }
+}
