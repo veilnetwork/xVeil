@@ -2,6 +2,60 @@
 
 **Status: failures reproduced; production fixes pending.**
 
+## Latest follow-up: paused-source feedback and receive queues
+
+[follow-up.json](follow-up.json) contains only aggregate measurements.
+
+### Corrections verified
+
+- SDK `76820278` drains already queued receive fragments in bounded reads.
+  The regression failed on the old code (2,048 bytes returned for 65,536 bytes
+  already available) and passes after the correction. Short reads never wait
+  for a full buffer. Partial frames, empty DATA, EOF and credit accounting are
+  covered. All 51 SDK unit tests pass.
+- The video delivery model no longer interprets intentionally stopped source
+  media time, or a retained old frame's delay, as a growing decoder queue.
+  The adapter regression previously kept video paused after audio recovered;
+  it now releases only the one-fps floor. Frames acknowledged during a pause
+  cannot authorize growth afterward. The adaptation/privacy subset passes
+  186 tests; the changed Dart files analyze cleanly.
+- Anonymous reports now include explicitly allowed numeric frame counters,
+  native video pause/packetization flags, receive age and catch-up/discard
+  counts. They still exclude raw/native logs, identifiers and nested peer maps.
+
+### Physical results and unresolved defects
+
+The clean production media engines and SDK were tested with real microphones
+and cameras; temporary native probes were absent in the final call. No live
+speech or acoustic assessment was supplied.
+
+- Audio transmission from the Mac returned in subsequent runs, including a
+  35-second audio call and two approximately 140-second video calls. These
+  stayed connected. The earlier zero-transmission startup remains unexplained;
+  no capture-driver fix is claimed.
+- Before the paused-source correction, false video queue pressure appeared
+  in 117/135 laptop samples and 115/135 phone samples. Afterward it appeared
+  in **0/135** at either endpoint. Nevertheless, video still froze: only six
+  laptop frames and three phone frames were sent, and decoded counters stopped
+  progressing after the first approximately eleven seconds. Stale FPS values
+  are not evidence of resumed video.
+- Fresh audio damage continued to hold video. The final sampled receiver
+  catch-up counters recorded 2,670 ms discarded on the laptop and 10,870 ms on
+  the phone. The phone remained paused for 130/135 samples. The cause of this
+  frequent audio catch-up needs investigation; disabling this safeguard or
+  claiming fixed video is not justified by these measurements.
+- Two further phone → laptop 32-MiB files completed with exact SHA-256 matches:
+  102.61 s before receive coalescing and 126.49 s afterward, including offers.
+  **No speed improvement is established.** The coalesced run still reproduced
+  SDK receive-queue overflow, followed by thousands of close notifications and
+  successful resumption. Coalescing does not provide missing end-to-end
+  receive backpressure; file-stream closure remains an unresolved defect class.
+
+The stream-close probes were isolated in a temporary SDK worktree, which was
+removed. Apps and owned capture processes were stopped; the original phone APK
+was restored with an exact hash match and its process was verified absent.
+Test-file caches were removed without removing the user's profiles.
+
 ## Follow-up: automatic investigation
 
 Source correction: Veil `c5ca76b9` (unreleased).

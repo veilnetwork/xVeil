@@ -45,8 +45,14 @@ class CallVideoDeliveryModel {
     _membership = null;
   }
 
-  void observe(Map<String, dynamic> stats, DateTime now, int expectedPeers) {
+  void observe(
+    Map<String, dynamic> stats,
+    DateTime now,
+    int expectedPeers, {
+    bool sourcePaused = false,
+  }) {
     queuePressure = _credit = false;
+    if (sourcePaused) _qualified.clear();
     final raw = stats['video_delivery_peers'];
     if (raw is! Map) return;
     final names = raw.keys.whereType<String>().toList()..sort();
@@ -120,6 +126,21 @@ class CallVideoDeliveryModel {
         all = false;
         continue;
       }
+      if (sourcePaused) {
+        // No new source media time is expected during an acknowledged pause.
+        // Fresh report clocks around the same old decoded frame (including its
+        // retained playout delay) cannot prove a growing network queue. That
+        // false witness otherwise prevents the audio controller from ever
+        // releasing its pause. Resume only the sparse floor; growth still
+        // requires a causal decoder ACK of media sent after this barrier.
+        if (next.sentTimestampValid) {
+          _barriers[name] = (next.origin, next.sample, next.sentTimestamp);
+        }
+        _qualified.remove(name);
+        _peers[name] = next;
+        all = false;
+        continue;
+      }
       if (progress) {
         final remoteUs = next.sample - old.sample;
         final localUs = now.difference(old.at).inMicroseconds;
@@ -176,7 +197,7 @@ class CallVideoDeliveryModel {
     if (all && slowest.isFinite && slowest > 0) _rates.add((now, slowest));
     deliveryKbps = _rates.fold(0, (value, r) => math.max(value, r.$2));
     final queueGrowing = _peers.values.any((p) => p.growingSince != null);
-    _credit = all && !queuePressure && !queueGrowing;
+    _credit = !sourcePaused && all && !queuePressure && !queueGrowing;
   }
 
   CallVideoBudget? propose(
