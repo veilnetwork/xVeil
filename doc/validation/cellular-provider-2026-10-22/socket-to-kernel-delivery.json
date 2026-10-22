@@ -1,0 +1,107 @@
+{
+  "scope": "Opaque direct UDP on owned primary-source connections; not audio-only.",
+  "local_acceptance_is_not_socket_transmission": true,
+  "unmatched_samples_are_not_packet_loss_proof": true,
+  "wall_offset_envelope_width_ms": 47.188,
+  "clock_assumption": "No unobserved wall-clock step outside start/end brackets.",
+  "endpoints": [
+    {
+      "owned_primary_connections": 1,
+      "ambiguous_local_cells_skipped": 0,
+      "budget_to_quic_acceptance_ms": {
+        "count": 3551,
+        "median_ms": 0.014,
+        "p95_ms": 0.031,
+        "max_ms": 0.274
+      },
+      "connection_lifetime_maxima_ms": {
+        "outbox_to_transport_max_ms": 0.365,
+        "datagram_queue_max_ms": 199.138,
+        "datagram_cwnd_blocked_max_age_ms": 199.112,
+        "datagram_pacing_blocked_max_age_ms": 0.0,
+        "event_queue_max_ms": 0.395,
+        "timer_late_max_ms": 3.484,
+        "udp_send_wait_max_ms": 0.482
+      }
+    },
+    {
+      "owned_primary_connections": 1,
+      "ambiguous_local_cells_skipped": 0,
+      "budget_to_quic_acceptance_ms": {
+        "count": 4435,
+        "median_ms": 0.199,
+        "p95_ms": 0.617,
+        "max_ms": 3.58
+      },
+      "connection_lifetime_maxima_ms": {
+        "outbox_to_transport_max_ms": 5.994,
+        "datagram_queue_max_ms": 11.355,
+        "datagram_cwnd_blocked_max_age_ms": 0.077,
+        "datagram_pacing_blocked_max_age_ms": 0.0,
+        "event_queue_max_ms": 3.772,
+        "timer_late_max_ms": 1.496,
+        "udp_send_wait_max_ms": 4.8
+      }
+    }
+  ],
+  "directions": [
+    {
+      "source_endpoint": 0,
+      "matched_datagrams": 234,
+      "unmatched_send_samples": 12,
+      "ambiguous_samples_skipped": 0,
+      "kernel_timestamp_unavailable": 0,
+      "grouped_samples_skipped": 2,
+      "outside_calibrated_interval_skipped": 2,
+      "socket_to_peer_kernel_lower_bounds_ms": {
+        "count": 230,
+        "median_ms": 22.681,
+        "p95_ms": 252.396,
+        "max_ms": 1085.51
+      },
+      "socket_to_peer_kernel_upper_bounds_ms": {
+        "count": 230,
+        "median_ms": 70.869,
+        "p95_ms": 300.584,
+        "max_ms": 1133.698
+      },
+      "peer_kernel_to_poll_upper_bounds_ms": {
+        "count": 230,
+        "median_ms": 1.101,
+        "p95_ms": 3.056,
+        "max_ms": 4.886
+      }
+    },
+    {
+      "source_endpoint": 1,
+      "matched_datagrams": 278,
+      "unmatched_send_samples": 0,
+      "ambiguous_samples_skipped": 0,
+      "kernel_timestamp_unavailable": 0,
+      "grouped_samples_skipped": 0,
+      "outside_calibrated_interval_skipped": 2,
+      "socket_to_peer_kernel_lower_bounds_ms": {
+        "count": 276,
+        "median_ms": 20.878,
+        "p95_ms": 584.509,
+        "max_ms": 1134.048
+      },
+      "socket_to_peer_kernel_upper_bounds_ms": {
+        "count": 276,
+        "median_ms": 69.066,
+        "p95_ms": 632.697,
+        "max_ms": 1182.236
+      },
+      "peer_kernel_to_poll_upper_bounds_ms": {
+        "count": 276,
+        "median_ms": 0.582,
+        "p95_ms": 1.037,
+        "max_ms": 1.693
+      }
+    }
+  ],
+  "endpoint_order": [
+    "laptop",
+    "phone"
+  ]
+}

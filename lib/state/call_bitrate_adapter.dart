@@ -1488,16 +1488,25 @@ class CallBitrateAdapter {
     // Larger budgets still require !bufferPressure through audioGood.
     // Without actual playout measurements retain the older network-based
     // recovery, including freshness/report checks.
+    // Native duration windows distinguish a short repaired impairment from
+    // significant speech damage. Use the same qualification on resume as on
+    // cuts; otherwise tiny fresh events can latch an already paused source
+    // indefinitely. Unknown/legacy duration measurements retain event-based
+    // protection. Raw events still hold all growth above the sparse trial.
+    final sendRepairAllowsProbe =
+        audioSendSoftLossSignificant == false ||
+        (!audioConcealmentObserved && !audioRecoveryObserved);
+    final receiveRepairAllowsProbe =
+        audioReceiveSoftLossSignificant == false ||
+        (!audioReceiveConcealmentObserved && !audioReceiveRecoveryObserved);
     final measuredPlayoutHealthy =
         (requirePeerAudioPlayout || requireAudioReceivePlayout) &&
         feedbackAvailable &&
         !audioUnproven &&
         !audioInterrupted &&
         !freshAudioLoss &&
-        !audioConcealmentObserved &&
-        !audioReceiveConcealmentObserved &&
-        !audioReceiveRecoveryObserved &&
-        !audioRecoveryObserved &&
+        sendRepairAllowsProbe &&
+        receiveRepairAllowsProbe &&
         (!requirePeerAudioPlayout ||
             (currentPeerDelay != null &&
                 currentPeerDelay < playoutRecoverMs)) &&
