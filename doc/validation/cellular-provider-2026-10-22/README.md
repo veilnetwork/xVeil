@@ -2,7 +2,55 @@
 
 **Status: file backpressure corrected on the tested path; call/video failures remain.**
 
-## Latest follow-up — 23 October: retain cells while a stream route is cold
+## Latest follow-up — 23 October: start network timers at local carrier handoff
+
+[local-handoff-timers.json](local-handoff-timers.json) contains aggregate proof.
+The async stream driver reserved DATA/FIN as network flight before the local
+carrier accepted them. A controlled **250-ms** local block triggered a network
+RTO despite **zero DATA handoffs**. This manufactured loss and could collapse
+the sending window while the data was still waiting locally.
+
+The driver now confirms accepted DATA/FIN using a bounded, reusable multiset
+of sequence/span/type tokens, without copying their payloads. This handles
+non-prefix acceptance by striped routes. The engine reserves window space at
+poll time, but starts network timing on carrier acceptance. Locally pending
+attempts cannot independently trigger RTO/RACK or accept impossible ACK/SACKs;
+an earlier handed-off copy can still be acknowledged. Segment matching uses
+one linear pass per handoff. Standalone sans-IO callers preserve their existing
+poll-as-send convention; the async driver opts into tracking internally.
+
+Selective repair preserves the local queue during no-SACK recovery. Tests
+cover late valid ACKs after rewind, sequence wrap, FIN, and real accepted
+network loss while another segment is locally blocked. A separate fix excludes
+only the pacing wake-up while a committed outbound queue prevents further
+polling: the old due pacing deadline could spin instead of waiting for the
+carrier retry. Actual protocol deadlines remain active. Wire formats, C ABI,
+network timeout constants, relay policy and window ceilings are unchanged.
+
+All **65 stream tests** and **29 FFI anonymous-stream tests** pass, with clean
+all-target Clippy and rustfmt. Three real-driver local-queue scenarios cover
+**12 combinations** of RACK and no-SACK rewind. Real network loss still triggers
+recovery and all recovered bytes match exactly. Production Mac/Android SDK
+builds pass. Physical apps used unchanged ordinary frontends, verified frozen
+SDKs and no native media test hooks. Only explanatory comments changed after
+physical qualification; the expanded test matrix also passed.
+
+### Physical result and remaining defect
+
+Both directions used anonymous streams; the phone was on cellular with Wi-Fi
+off. Each **4-MiB** file passed SHA-256. Phone → laptop took **53.277 s**, with
+**3 manifest requests / 2 timeouts** and **18.814 s** to the validated manifest.
+Laptop → phone took **39.153 s**, with one request, no manifest timeout and
+**0.676 s** to the validated manifest. **The cold-start failure is still open.**
+These runs do not establish a speed improvement. Carrier acceptance also
+precedes possible SDK/OS queues and peer receipt; it is not a wire timestamp.
+Other adapter branches that declare success after discarding a cell need
+separate investigation. No call/audio-quality or large-file-completion claim
+is made. Owned apps exited; the exact original phone APK, QA policies and
+Android diagnostic property were restored and verified. Public evidence
+contains no raw identifiers, addresses, file paths, keys or packet sequences.
+
+## Previous follow-up — 23 October: retain cells while a stream route is cold
 
 [cold-route-backpressure.json](cold-route-backpressure.json) contains only
 aggregate evidence. SDK `b27aa766` corrects another first-manifest failure
