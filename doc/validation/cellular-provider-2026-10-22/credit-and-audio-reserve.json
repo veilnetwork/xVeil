@@ -1,0 +1,227 @@
+{
+  "date": "2026-10-22",
+  "status": "file_backpressure_fixed_in_tested_path_calls_still_fail_video",
+  "setup": {
+    "endpoints": [
+      "laptop",
+      "phone"
+    ],
+    "phone_network": "cellular",
+    "phone_wifi": false,
+    "synthetic_media": false,
+    "temporary_sdk_probe_in_file_test_only": true,
+    "call_engines_have_test_hooks": false
+  },
+  "changes": {
+    "content_window_bytes": 262144,
+    "content_ack_step_bytes": 65536,
+    "credit_is_application_read_not_durable_delivery": true,
+    "audio_reserve_fix_sdk_commit": "ab4b7f28",
+    "hard_audio_buffer_budget_changed": false,
+    "relay_classification_or_priority_added": false
+  },
+  "files": [
+    {
+      "sender": "phone",
+      "receiver": "mac",
+      "bytes": 33554432,
+      "ok": true,
+      "download_seconds": 142.09,
+      "elapsed_seconds": 143.99,
+      "hash_matches": true,
+      "request_sends": 2,
+      "manifest_timeouts_before_payload": 1,
+      "payload_restart_observed": false,
+      "receiver_stop_seconds": 5,
+      "receiver_stop_and_resume_verified": true,
+      "sdk_receive_full_markers": 0
+    },
+    {
+      "sender": "mac",
+      "receiver": "phone",
+      "bytes": 33554432,
+      "ok": true,
+      "download_seconds": 52.3,
+      "elapsed_seconds": 53.11,
+      "hash_matches": true,
+      "request_sends": 1,
+      "manifest_timeouts_before_payload": 0,
+      "payload_restart_observed": false
+    }
+  ],
+  "calls": {
+    "mac-credit-audio-reserve": {
+      "sender": "mac",
+      "receiver": "phone",
+      "ring_seconds": 1.1,
+      "connect_after_answer_seconds": 2.55,
+      "duration_seconds": 139.25,
+      "endpoints": {
+        "mac": {
+          "samples": 135,
+          "routes": [
+            {
+              "seconds": 0.0,
+              "transport": "p2p"
+            }
+          ],
+          "frames_sent": 9,
+          "frames_decoded": 0,
+          "audio_trimmed_ms_across_epochs": 3450,
+          "audio_delay_ms": {
+            "median": 62,
+            "max": 210
+          },
+          "audio_rx_native_age_ms": {
+            "median": 150,
+            "max": 1460
+          },
+          "rtt_ms": {
+            "median": 65,
+            "max": 1224
+          },
+          "loss_pct": {
+            "median": 14,
+            "max": 30
+          }
+        },
+        "phone": {
+          "samples": 135,
+          "routes": [
+            {
+              "seconds": 0.0,
+              "transport": "p2p"
+            }
+          ],
+          "frames_sent": 0,
+          "frames_decoded": 8,
+          "audio_trimmed_ms_across_epochs": 19740,
+          "audio_delay_ms": {
+            "median": 134,
+            "max": 749
+          },
+          "audio_rx_native_age_ms": {
+            "median": 31,
+            "max": 1073
+          },
+          "rtt_ms": {
+            "median": 70,
+            "max": 1076
+          },
+          "loss_pct": {
+            "median": 0,
+            "max": 0
+          }
+        }
+      },
+      "lifetime_ok": true
+    },
+    "phone-credit-reserve-phased": {
+      "sender": "phone",
+      "receiver": "mac",
+      "ring_seconds": 1.12,
+      "connect_after_answer_seconds": 4.6,
+      "duration_seconds": 179.45,
+      "endpoints": {
+        "mac": {
+          "samples": 174,
+          "routes": [
+            {
+              "seconds": 0.0,
+              "transport": "p2p"
+            },
+            {
+              "seconds": 65.28,
+              "transport": "relay"
+            }
+          ],
+          "frames_sent": 5,
+          "frames_decoded": 2,
+          "audio_trimmed_ms_across_epochs": 1390,
+          "audio_delay_ms": {
+            "median": 10,
+            "max": 180
+          },
+          "audio_rx_native_age_ms": {
+            "median": 186,
+            "max": 14041
+          },
+          "rtt_ms": {
+            "median": 123,
+            "max": 904
+          },
+          "loss_pct": {
+            "median": 0,
+            "max": 11
+          }
+        },
+        "phone": {
+          "samples": 174,
+          "routes": [
+            {
+              "seconds": 0.0,
+              "transport": "p2p"
+            },
+            {
+              "seconds": 66.3,
+              "transport": "relay"
+            }
+          ],
+          "frames_sent": 2,
+          "frames_decoded": 4,
+          "audio_trimmed_ms_across_epochs": 14090,
+          "audio_delay_ms": {
+            "median": 140.5,
+            "max": 1704
+          },
+          "audio_rx_native_age_ms": {
+            "median": 26,
+            "max": 878
+          },
+          "rtt_ms": {
+            "median": 145.0,
+            "max": 454
+          },
+          "loss_pct": {
+            "median": 0.0,
+            "max": 0
+          }
+        }
+      },
+      "camera_enable_seconds": 60.31,
+      "audio_only_phase": {
+        "mac": {
+          "trimmed_ms_max": 340,
+          "receive_age_ms_max": 844
+        },
+        "phone": {
+          "trimmed_ms_max": 4970,
+          "receive_age_ms_max": 693
+        }
+      },
+      "lifetime_ok": true
+    }
+  },
+  "verification": {
+    "flutter_full_suite": {
+      "passed": 5777,
+      "skipped": 154,
+      "note": "Full sliding-window suite before changing only the window constant from 128 to 256 KiB; final content/credit/idle subset below."
+    },
+    "final_content_credit_idle_subset_passed": 70,
+    "analyzer_issues": 0,
+    "native_guards": [
+      "playout/lag/controller smoke passed; new reserve regression fails on old code",
+      "long-Opus real PCM jitter passed",
+      "recurring-jitter real PCM passed after RTP-clock scheduling correction; assertions unchanged",
+      "group real-Opus mixer passed"
+    ]
+  },
+  "limitations": [
+    "No live speech, headphones, acoustic loudness or intelligibility assessment.",
+    "Local reported buffer delay is not end-to-end acoustic latency.",
+    "One field network and endpoint pair do not isolate the carrier as the cause.",
+    "The physical credited file payload used the direct stream path; legacy and anonymous-stream negotiation were additionally exercised in transport simulations.",
+    "Older peers retain the uncredited protocol and its previous queue behaviour."
+  ]
+}
