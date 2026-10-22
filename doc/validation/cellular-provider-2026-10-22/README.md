@@ -2,7 +2,73 @@
 
 **Status: file backpressure corrected on the tested path; call/video failures remain.**
 
-## Latest follow-up — 23 October: start network timers at local carrier handoff
+## Latest follow-up — 23 October: retain cells rejected by stale or failed circuits
+
+[local-enqueue-retention.json](local-enqueue-retention.json) records aggregate
+evidence for SDK `a84f3223`. The preceding local-handoff correction could not
+help when the carrier falsely declared acceptance. Further actual adapter
+branches did that: a stale scalar route returned success, a stale DATA run
+drained its queue, and a non-queue enqueue rejection discarded unaccepted
+scalar cells or the rest of a run. None had reached the local transport.
+
+Those branches retain the exact cells and report local backpressure. Missing
+routes use the existing 25-ms retry hint; full queues retain the ordinary
+1-ms retry. An oversized envelope fails permanently instead of retrying or
+quarantining a healthy route. An ACK actually accepted on an alternate can
+still release the pending ACK. Accepted prefixes are accounted for even when
+the next cell encounters a full queue.
+
+Striped sends now preserve the concrete enqueue error and the relative order
+of all unaccepted cells, ahead of unrelated queued suffixes. Previously a
+missing route was reported to health tracking as queue-full, and a later full
+queue could move earlier rejected cells behind its unsent tail. Healthy
+stripes still make progress, and only actual handoffs update send activity.
+The lossy media-datagram path, relay scheduling, wire format, C ABI, network
+timeouts and queue/window ceilings are unchanged.
+
+### Verification
+
+The real pre-correction scalar function and rejection behavior were restored
+temporarily: both stale-route and enqueue-rejection regressions failed.
+Exact corrected source was restored afterward. Fixtures create real circuits,
+signed directory entries and local session outboxes, without public network
+connections. Each has a distinct identity and verifies its service binding.
+
+All **37 FFI anonymous-stream tests** pass, including eight new controls for
+healthy sends, retained controls/DATA, partial admission, actual queue-full,
+non-prefix stripes, mixed missing/full routes, fatal oversize, and an ACK
+accepted by an alternate. All-target Clippy and rustfmt pass. Production Mac
+and Android SDK builds pass. Frozen inputs, the installed APK and the Mac
+process's loaded SDK were verified before and after physical qualification.
+The ordinary stand frontends and native media engines were unchanged; no
+synthetic media or new production test hooks were enabled.
+
+### Physical result and limits
+
+The phone used cellular data with Wi-Fi off. QA-contact P2P was denied for
+these anonymous-stream transfers, then restored and checked. All three files
+passed final SHA-256 verification within the unchanged 180-second test window.
+
+| Direction / size | Download | Requests | No-manifest timeouts | First request → validated manifest | Payload idle timeouts |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Phone → laptop, 4 MiB | 64.152 s | 7 | 6 | 54.655 s | 0 |
+| Laptop → phone, 4 MiB | 35.573 s | 1 | 0 | 0.740 s | 0 |
+| Phone → laptop, 32 MiB | 126.166 s | 2 | 0 | 0.928 s | 1 |
+
+The large transfer resumed automatically after **20 seconds** without payload
+progress at **25,367,940 bytes**, and the final file matched exactly. This is
+successful recovery, not elimination of the stall. **Cold startup and general
+stream stalls remain open.** Separate runs cannot isolate network variation,
+establish a speed improvement or rule out a performance regression. This does
+not certify every former large-transfer failure or any audio/video quality.
+
+Both owned applications and the capture exited, independently checked after
+cleanup. The exact original phone APK was restored and hash-verified; owned
+phone file fixtures were removed. The Android diagnostic property was not
+changed. No call or physical audio device was opened. Public evidence omits
+identifiers, addresses, raw paths, keys, packet sequences and file hashes.
+
+## Previous follow-up — 23 October: start network timers at local carrier handoff
 
 [local-handoff-timers.json](local-handoff-timers.json) contains aggregate proof.
 The async stream driver reserved DATA/FIN as network flight before the local
