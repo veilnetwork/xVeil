@@ -33,6 +33,9 @@ bumps may change behaviour a user notices.
 - Network-dependent stand measurements are not universal latency or acoustic
   quality guarantees. Relay media classification and priority remain disabled;
   no call/own-device mailbox fallback or container-format change is added.
+- The pre-existing native public Space discovery test still can return an
+  older authority generation or miss holder quorum after an ownership transfer.
+  This limitation predates 0.13.88; the video changes do not establish its fix.
 
 ## [0.13.88] — 2026-10-21
 
