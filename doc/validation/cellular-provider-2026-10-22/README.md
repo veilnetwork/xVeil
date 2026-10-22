@@ -2,6 +2,53 @@
 
 **Status: failures reproduced; production fixes pending.**
 
+## Follow-up: automatic investigation
+
+Source correction: Veil `c5ca76b9` (unreleased).
+
+The audio Call had a fixed 96,000-bit/s estimator ceiling. With the observed
+509-byte route overhead plus a 20-byte RTP header, a 40-ms packet costs
+129,800 bit/s including the existing minimum speech payload. With the encoder's
+20% reserve and strict integer comparison it needs at least 162,255 bit/s of
+gross allocation. Consequently, the old ceiling could never fund the short
+packet required to release video's packetization hold after a yield.
+
+The source correction derives the ceiling from framing, retaining 96,000 bit/s
+on lower-overhead paths. It changes the base WebRTC constraint: client
+preferences alone can only tighten the original ceiling. No minimum allocation,
+new bandwidth estimate, relay priority or override of measured audio pauses is
+introduced. This removes a necessary recovery obstacle; it does not prove that
+the network will supply enough allocation or that all video failures are fixed.
+
+Automated regression evidence:
+
+- Real Opus, including DTX: reproduce the 60-ms hold at the old relay ceiling;
+  decode 40-ms packets and admit video after a funded recovery on 209-, 360-
+  and 509-byte routes. A requested duration alone cannot release the hold.
+- Observe the actual GoogCC constraints during live overhead changes: the
+  larger ceiling reaches the controller and returns to 96,000 bit/s when
+  framing shrinks. Independent audio/video routes remain separate. The BWE
+  handover regression also passes: only genuine committed path changes reset
+  their controllers; framing corrections preserve the current path estimate.
+- Four SDK stream regressions pass. A closed stream's credit now reports
+  `veil stream already closed`, preserving the FFI's existing closed-stream
+  classification. A second stream still writes through the same IPC writer;
+  a genuinely exited writer retains its distinct failure text. The earlier
+  `veil IPC writer task closed` line alone cannot diagnose an IPC-task crash.
+
+Additional physical calls could not validate recovery: the Mac emitted no audio
+packets despite authorized microphone access and successful capture-start
+status, and calls ended after approximately 21–35 seconds. Repeating with the
+exact previous Mac media binary (verified against the saved build hash) also
+produced zero outgoing audio. This is an additional unresolved capture/liveness
+failure; it is not evidence that the corrected ceiling restored moving video.
+The final base-constraint correction is validated by native tests, not a passing
+physical call. The failing 32-MiB upload also remains unresolved.
+
+Both endpoints were closed after these checks. The original phone APK was
+restored again with an exact hash match; its process and the owned Mac process
+were verified absent. No live speech was requested or assessed.
+
 Two physical endpoints: a Mac laptop and an Android phone on cellular data,
 with Wi-Fi disabled on the phone. The phone was awake and unlocked. Test profiles
 were isolated from existing conversations. The stand frontend used xVeil
