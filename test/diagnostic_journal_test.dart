@@ -24,6 +24,8 @@ void main() {
       'audio_latency_recovery_count': 13,
       'audio_latency_discarded_ms': 280,
       'audio_latency_fallback_frames': 2,
+      'audio_inserted_samples_for_deceleration': 960,
+      'audio_removed_samples_for_acceleration': 480,
       'rtt_ms': -1,
       'audio_delay_ms': 'my private message',
       'jitter_ms': _PrivateValue(),
@@ -35,6 +37,12 @@ void main() {
       'device': _PrivateValue(),
       'unknown_numeric_id': 12345678,
       'groups': {
+        'private identity': {'audio_rx_pkts': 999},
+      },
+      'video_delivery_peers': {
+        'private identity': {'frames': 99},
+      },
+      'audio_receivers': {
         'private identity': {'audio_rx_pkts': 999},
       },
     };
@@ -55,6 +63,8 @@ void main() {
       'audioRecoveryCount': 13,
       'audioDiscardedMs': 280,
       'audioRecoveryFallbackFrames': 2,
+      'audioInsertedSamples': 960,
+      'audioAcceleratedSamples': 480,
       'rttMs': -1,
     });
     final json = jsonEncode(report);
