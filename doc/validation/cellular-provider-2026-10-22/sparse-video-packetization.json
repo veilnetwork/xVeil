@@ -1,0 +1,397 @@
+{
+  "date": "2026-10-23",
+  "status": "native_sparse_video_latch_fixed_application_audio_pause_unresolved",
+  "sdk_commit": "bc5239a9",
+  "native_policy": {
+    "sparse_cadence_max_fps": 1,
+    "explicit_audio_pause_preserved": true,
+    "larger_cadence_requires_existing_short_packet_permission": true,
+    "audio_payload_floor_changed": false,
+    "relay_classification_or_priority_added": false
+  },
+  "regression": {
+    "production_apis_real_opus_and_vp8": true,
+    "audio_transport_budget_bps": 48000,
+    "actual_opus_packet_ms": 60,
+    "old_video_frames_in_three_seconds": 0,
+    "fixed_video_frames_in_three_seconds": 3,
+    "receiver_decoded_frames_minimum": 2,
+    "explicit_pause_stops_source": true,
+    "resume_restarts_source": true,
+    "unfunded_three_fps_remains_blocked": true,
+    "return_to_one_fps_restarts_source": true
+  },
+  "verification": {
+    "packet_priority_unit_and_real_opus_gate_passed": true,
+    "real_opus_packets_decoded": 991,
+    "native_sparse_source_gate_passed": true,
+    "direct_and_group_frame_sizing_gate_passed": true,
+    "frame_budget_unit_gate_passed": true,
+    "production_media_exports": {
+      "mac": 105,
+      "android": 105
+    },
+    "production_test_hooks_present": false,
+    "frame_sizing_fixture_correction": "The old/new libraries both failed the immediate post-retune assertion. Retuning is asynchronous, and the receiver-free group fixture had no feedback to fund its larger profile. Retain the original zero-cap recovery assertions, await actual encoder update, and provide the group fixture a real allocator budget through test-only hooks."
+  },
+  "physical_call": {
+    "ok": true,
+    "duration_seconds": 179.64,
+    "pcm_driver_restarts": 0,
+    "camera_enable_seconds": 60.17,
+    "endpoints": {
+      "mac": {
+        "routes": [
+          "p2p"
+        ],
+        "final": {
+          "audio_tx_pkts": 3767,
+          "audio_rx_pkts": 4221,
+          "audio_latency_discarded_ms": 21950,
+          "audio_concealed_samples": 1054300,
+          "audio_silent_concealed_samples": 347949,
+          "audio_inserted_samples_for_deceleration": 5702,
+          "audio_removed_samples_for_acceleration": 480,
+          "video_tx_frames": 5,
+          "video_rx_deliver_frames": 1,
+          "video_send_paused": 1,
+          "audio_packetization_video_hold": 1,
+          "audio_tx_packet_duration_ms": 60,
+          "audio_send_bandwidth_bps": 85416
+        },
+        "phases": {
+          "audio_only": {
+            "decoded_blocks": 5000,
+            "nonquiet_block_fraction": 0.9804,
+            "render_interval_ms": {
+              "median": 9.999,
+              "p95": 10.726,
+              "max": 11.041
+            },
+            "queue_signals_ms": {
+              "audio_delay_ms": {
+                "median": 133.0,
+                "p95": 176.0,
+                "max": 196.0
+              },
+              "audio_rtp_lag_ms": {
+                "median": 150.0,
+                "p95": 192.0,
+                "max": 202.0
+              },
+              "audio_pressure_delay_ms": {
+                "median": 151.0,
+                "p95": 196.0,
+                "max": 202.0
+              },
+              "audio_jb_target_ms": {
+                "median": 120.0,
+                "p95": 140.0,
+                "max": 140.0
+              }
+            }
+          },
+          "video": {
+            "decoded_blocks": 11000,
+            "nonquiet_block_fraction": 0.91364,
+            "render_interval_ms": {
+              "median": 9.999,
+              "p95": 10.68,
+              "max": 11.043
+            },
+            "queue_signals_ms": {
+              "audio_delay_ms": {
+                "median": 125.0,
+                "p95": 164.0,
+                "max": 574.0
+              },
+              "audio_rtp_lag_ms": {
+                "median": 130.0,
+                "p95": 179.0,
+                "max": 192.0
+              },
+              "audio_pressure_delay_ms": {
+                "median": 134.0,
+                "p95": 182.0,
+                "max": 574.0
+              },
+              "audio_jb_target_ms": {
+                "median": 120.0,
+                "p95": 140.0,
+                "max": 140.0
+              }
+            }
+          }
+        },
+        "last_video_tx_frames_advance_seconds": 66.27,
+        "last_video_rx_deliver_frames_advance_seconds": 65.23
+      },
+      "phone": {
+        "routes": [
+          "p2p"
+        ],
+        "final": {
+          "audio_tx_pkts": 4222,
+          "audio_rx_pkts": 3642,
+          "audio_latency_discarded_ms": 16110,
+          "audio_concealed_samples": 1058178,
+          "audio_silent_concealed_samples": 288159,
+          "audio_inserted_samples_for_deceleration": 6480,
+          "audio_removed_samples_for_acceleration": 1440,
+          "video_tx_frames": 2,
+          "video_rx_deliver_frames": 4,
+          "video_send_paused": 1,
+          "audio_packetization_video_hold": 0,
+          "audio_tx_packet_duration_ms": 40,
+          "audio_send_bandwidth_bps": 96000
+        },
+        "phases": {
+          "audio_only": {
+            "decoded_blocks": 5000,
+            "nonquiet_block_fraction": 0.9836,
+            "render_interval_ms": {
+              "median": 9.987,
+              "p95": 10.574,
+              "max": 13.218
+            },
+            "queue_signals_ms": {
+              "audio_delay_ms": {
+                "median": 123.0,
+                "p95": 178.0,
+                "max": 193.0
+              },
+              "audio_rtp_lag_ms": {
+                "median": 165.0,
+                "p95": 210.0,
+                "max": 213.0
+              },
+              "audio_pressure_delay_ms": {
+                "median": 165.0,
+                "p95": 210.0,
+                "max": 213.0
+              },
+              "audio_jb_target_ms": {
+                "median": 120.0,
+                "p95": 140.0,
+                "max": 140.0
+              }
+            }
+          },
+          "video": {
+            "decoded_blocks": 11000,
+            "nonquiet_block_fraction": 0.92445,
+            "render_interval_ms": {
+              "median": 9.978,
+              "p95": 11.067,
+              "max": 18.318
+            },
+            "queue_signals_ms": {
+              "audio_delay_ms": {
+                "median": 134.0,
+                "p95": 187.0,
+                "max": 403.0
+              },
+              "audio_rtp_lag_ms": {
+                "median": 173.0,
+                "p95": 217.0,
+                "max": 257.0
+              },
+              "audio_pressure_delay_ms": {
+                "median": 174.0,
+                "p95": 218.0,
+                "max": 403.0
+              },
+              "audio_jb_target_ms": {
+                "median": 140.0,
+                "p95": 140.0,
+                "max": 140.0
+              }
+            }
+          }
+        },
+        "last_video_tx_frames_advance_seconds": 66.27,
+        "last_video_rx_deliver_frames_advance_seconds": 67.3
+      }
+    }
+  },
+  "arrival_and_render": {
+    "mac": {
+      "received_packets": 4176,
+      "arrival_interval_ms": {
+        "median": 39.441,
+        "p95": 71.586,
+        "max": 1188.675
+      },
+      "out_of_order_or_duplicate_steps": 0,
+      "positive_sequence_gap_steps": 71,
+      "renders": 18071,
+      "queue_before_render_ms": {
+        "median": 135,
+        "p95": 183,
+        "max": 1164
+      },
+      "catchup_renders": 302,
+      "discarded_ms": 21950,
+      "fallback_renders": 0
+    },
+    "phone": {
+      "received_packets": 3599,
+      "arrival_interval_ms": {
+        "median": 42.953,
+        "p95": 81.362,
+        "max": 1147.171
+      },
+      "out_of_order_or_duplicate_steps": 0,
+      "positive_sequence_gap_steps": 85,
+      "renders": 18085,
+      "queue_before_render_ms": {
+        "median": 136,
+        "p95": 190,
+        "max": 1037
+      },
+      "catchup_renders": 325,
+      "discarded_ms": 16150,
+      "fallback_renders": 0
+    }
+  },
+  "audio_stages": {
+    "mac_to_phone": {
+      "accepted_sends": 3792,
+      "rejected_sends": 0,
+      "matched_receiver_packets": 3668,
+      "sender_rtp_attempt_interval_ms": {
+        "count": 3791,
+        "median": 40.291,
+        "p95": 60.352,
+        "max": 65.771
+      },
+      "sender_admission_ms": {
+        "count": 3792,
+        "median": 0.008,
+        "p95": 0.022,
+        "max": 0.066
+      },
+      "sender_native_admission_to_receiver_native_ms": {
+        "count": 3668,
+        "median": 64.111,
+        "p95": 280.37,
+        "max": 1171.963
+      },
+      "receiver_native_handoff_ms": {
+        "count": 3668,
+        "median": 0.171,
+        "p95": 0.784,
+        "max": 4.994
+      },
+      "encode_completion_interval_ms": {
+        "count": 3721,
+        "median": 40.399,
+        "p95": 60.385,
+        "max": 65.742
+      },
+      "encoder_packet_assembly_ms": {
+        "count": 3722,
+        "median": 30.64,
+        "p95": 50.851,
+        "max": 55.783
+      },
+      "initial_clock_bracket_width_ms": 5.094
+    },
+    "phone_to_mac": {
+      "accepted_sends": 4252,
+      "rejected_sends": 0,
+      "matched_receiver_packets": 4096,
+      "sender_rtp_attempt_interval_ms": {
+        "count": 4251,
+        "median": 40.36,
+        "p95": 61.624,
+        "max": 77.936
+      },
+      "sender_admission_ms": {
+        "count": 4252,
+        "median": 0.097,
+        "p95": 0.273,
+        "max": 2.213
+      },
+      "sender_native_admission_to_receiver_native_ms": {
+        "count": 4096,
+        "median": 28.691,
+        "p95": 504.005,
+        "max": 1166.88
+      },
+      "receiver_native_handoff_ms": {
+        "count": 4096,
+        "median": 0.014,
+        "p95": 0.032,
+        "max": 0.094
+      },
+      "encode_completion_interval_ms": {
+        "count": 4178,
+        "median": 40.471,
+        "p95": 61.727,
+        "max": 77.969
+      },
+      "encoder_packet_assembly_ms": {
+        "count": 4179,
+        "median": 34.493,
+        "p95": 57.958,
+        "max": 69.328
+      },
+      "initial_clock_bracket_width_ms": 5.094
+    }
+  },
+  "driver_timing": {
+    "mac": {
+      "ticks": 18071,
+      "dropped_rows": 0,
+      "failures": [
+        0,
+        0
+      ],
+      "max_interval_ms": 11.042750033084303,
+      "max_wake_lateness_ms": 1.174355,
+      "max_callback_ms": 0.8117916295304894,
+      "max_publication_ms": 0.007583352271467447,
+      "qos_supported": 1,
+      "qos_requested": 33,
+      "qos_result": 0,
+      "qos_actual": 33,
+      "timer_error": 0
+    },
+    "phone": {
+      "ticks": 18085,
+      "dropped_rows": 0,
+      "failures": [
+        0,
+        0
+      ],
+      "max_interval_ms": 18.317916023079306,
+      "max_wake_lateness_ms": 4.251766,
+      "max_callback_ms": 8.803957985946909,
+      "max_publication_ms": 1.5365110011771321,
+      "qos_supported": 0,
+      "qos_requested": 0,
+      "qos_result": 0,
+      "qos_actual": 0,
+      "timer_error": 0
+    }
+  },
+  "cleanup": {
+    "mac_api_cleanup_error": "URLError",
+    "phone_api_cleanup_error": "RemoteDisconnected",
+    "phone_stopped": true,
+    "mac_stopped": true,
+    "original_phone_apk_restored": true,
+    "original_phone_apk_hash_matches": true,
+    "phone_process_absent_after_restore": true
+  },
+  "limitations": [
+    "Physical video still stopped; the application audio pause did not release.",
+    "Synthetic continuous PCM does not certify microphone, headphone loudness or speech intelligibility.",
+    "Native sender admission means local acceptance/queueing, not physical wire transmission. The measured delivery interval includes both Veil SDKs and the network.",
+    "Cross-device delivery intervals use initial clock brackets only; clock-rate drift was not bounded.",
+    "Unmatched trace records alone do not establish network packet loss.",
+    "This field run followed the relay fleet update, and network conditions varied; cross-run latency differences are not a controlled causal effect.",
+    "The final diagnostic flag distinguishes explicit audio pause from packet-duration hold. The field build preceded that diagnostic-only adjustment and the additional test-only group allocator helper; its video policy is unchanged."
+  ]
+}
