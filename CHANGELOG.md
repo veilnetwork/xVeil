@@ -10,6 +10,8 @@ bumps may change behaviour a user notices.
 
 ### Changed
 
+- Stop counting intentionally paused video as a growing decoder queue. Recovered
+  audio can retry the sparse floor; larger probes still need new decoder ACKs.
 - Probe video bitrate and frame rate using fresh remote decoder progress,
   accelerating startup without treating static scenes as link capacity.
 - Derive growing video backlog from decoder RTP progress instead of WebRTC's
@@ -31,6 +33,8 @@ bumps may change behaviour a user notices.
 - Export startup stages, native send error codes, message ACK/retry counters,
   call transitions, numeric media stats, download retries and foreground-service
   outcomes. Include dependency versions and remove free-text OS descriptions.
+- Include numeric frame counters, video pause/packetization holds, audio receive
+  age and local catch-up/discard counts to distinguish frozen video from stale FPS.
 - Offer clipboard and user-chosen file export in Settings and on onboarding.
   Reports omit exception text, peer identifiers/addresses, keys, message content,
   device labels and paths; instrumentation is off in normal releases. The journal
