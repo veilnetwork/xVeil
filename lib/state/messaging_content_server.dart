@@ -454,9 +454,11 @@ extension _MessagingContentServer on MessagingService {
       }
       final cidBytes = Uint8List.sublistView(reqBytes, 0, 32);
       final cid = MessagingService._hexEncode(cidBytes);
-      final requestedOffset = reqBytes.length >= 40
+      final rawOffset = reqBytes.length >= 40
           ? MessagingService._readU64be(Uint8List.sublistView(reqBytes, 32, 40))
           : 0;
+      final creditRequested = ContentStreamCredit.requested(rawOffset);
+      final requestedOffset = ContentStreamCredit.offset(rawOffset);
       final requestedLength = reqBytes.length >= 48
           ? MessagingService._readU64be(Uint8List.sublistView(reqBytes, 40, 48))
           : 0;
@@ -597,9 +599,17 @@ extension _MessagingContentServer on MessagingService {
       );
       if (_disposed) throw StateError('messaging service disposed');
       final mf = Uint8List.fromList(utf8.encode(jsonEncode(m.toJson())));
+      if (creditRequested) {
+        stream = ContentStreamCreditSender(
+          stream,
+          ackTimeout: MessagingService._streamPayloadWriteTimeout,
+        );
+      }
       await writeStreamWithIdleTimeout(
         stream,
-        MessagingService._u32be(mf.length),
+        MessagingService._u32be(
+          mf.length | (creditRequested ? ContentStreamCredit.manifestFlag : 0),
+        ),
         idle: MessagingService._streamPayloadWriteTimeout,
         timeoutLabel: 'manifest length write idle',
       );

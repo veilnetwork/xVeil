@@ -1,8 +1,80 @@
 # Cellular call and file validation — 2026-10-22
 
-**Status: failures reproduced; production fixes pending.**
+**Status: file backpressure corrected on the tested path; call/video failures remain.**
 
-## Latest follow-up: paused-source feedback and receive queues
+## Latest follow-up: content credit and audio reserve
+
+[credit-and-audio-reserve.json](credit-and-audio-reserve.json) contains only
+allow-listed aggregate results. Raw traces, endpoint identities, addresses,
+profile names, file names, device labels and keys remain outside the repository.
+
+### Corrections and verification
+
+- Reliable content streams negotiate a 256 KiB application-read window with
+  cumulative credit every 64 KiB. The first 128 KiB implementations prevented
+  queue-full markers but were too slow to finish 32 MiB within 180 seconds;
+  they were not accepted as the final fix. The final sliding window retains
+  bounded reads and compatibility with old clients/servers. Credit is not
+  durable delivery; existing piece and final hash verification remain required.
+- The native RTP-age catch-up path no longer drains below the adaptive decoder
+  reserve merely because audio spent time upstream. The new regression fails
+  on the old code. The independent hard local-storage budget is unchanged.
+  The long-Opus, recurring-jitter and group real-PCM gates pass. Recurring-jitter
+  arrivals now follow source RTP time to avoid unrelated callback-boundary
+  variation between controls; no acceptance threshold was relaxed.
+- The complete Flutter suite passes **5,777 tests, 154 skipped** for the sliding
+  protocol. After changing only its window size, the final content, credit and
+  idle-write subset passes **70 tests**; all six changed Dart files analyze
+  cleanly. Slow sinks, cancellation, partial/invalid ACKs, final-close races,
+  FIFO writes, range resume and both legacy compatibility directions are covered.
+
+### Physical file results
+
+| Direction | Size | Download time | Verification |
+|---|---:|---:|---|
+| Phone → laptop | 32 MiB | 142.09 s | Exact SHA-256 match |
+| Laptop → phone | 32 MiB | 52.30 s | Exact SHA-256 match |
+
+The phone used cellular data with Wi-Fi disabled. During the upload the owned
+laptop receiver process was stopped for five seconds after at least 4 MiB and
+then resumed. No queue-full marker or payload restart was observed. The first
+upload attempt timed out **before its manifest**; a warmed direct-stream retry
+then carried the complete payload. The reverse transfer needed one request.
+The physical payload used direct streams; anonymous transport and compatibility
+were also checked in the simulated transport tests. Older peers retain their
+uncredited behaviour. These measurements do not establish a universal speed.
+
+### Calls remain unresolved
+
+Clean production native engines, real microphones/cameras and the normal SDK
+were used for both calls; the temporary file-test SDK probe was removed first.
+
+- Laptop → phone: incoming signaling took **1.10 s**, connection after answer
+  **2.55 s**. The call remained connected for **139 s**, but only nine laptop
+  frames and zero phone frames were sent; decoding froze. Sampled local audio
+  delay peaked at **210/749 ms** (laptop/phone). The reserve correction did not
+  establish recovery of video or elimination of catch-up events on this path.
+- Phone → laptop: **179 s**, with cameras enabled at **60 s**. Audio trouble
+  existed before video: native receive age reached **844/693 ms** and sampled
+  forced catch-up totals reached **340/4,970 ms** in the first 55 seconds.
+  After camera enable, the call switched from P2P to relay at about **65–66 s**.
+  Sampled native receive age on the laptop peaked at **14,041 ms** around
+  recovery; phone local audio delay peaked at **1,704 ms**. Only five/two sent
+  video frames were counted across media epochs. The call survived, video did
+  not recover. Nonzero retained FPS was not treated as decoder progress.
+
+Audio packet counters progressed in both directions. This does not certify
+speaker audibility or speech quality: the user could not listen or speak during
+these tests. Local buffer delay is not acoustic end-to-end latency. A single
+field network does not identify the carrier, a relay or the endpoint as the
+cause. Call quality and the P2P-to-relay stall remain release risks.
+
+All owned apps and log captures were stopped afterward; original phone APK
+restoration and its hash were verified, and owned phone file fixtures removed.
+No relay classification, relay priority, mailbox fallback or container change
+was introduced. Commits for this cycle are local and unsigned.
+
+## Previous follow-up: paused-source feedback and receive queues
 
 [follow-up.json](follow-up.json) contains only aggregate measurements.
 

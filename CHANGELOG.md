@@ -10,6 +10,11 @@ bumps may change behaviour a user notices.
 
 ### Changed
 
+- Bound reliable content responses to a negotiated 256 KiB application-read
+  window to prevent receive-queue overflow with a slow sink. Retain hash checks,
+  resumable ranges and compatibility with older senders and receivers.
+- Preserve the audio decoder's adaptive local reserve during RTP-age catch-up;
+  retain the independent hard buffer budget and route/relay policies.
 - Stop counting intentionally paused video as a growing decoder queue. Recovered
   audio can retry the sparse floor; larger probes still need new decoder ACKs.
 - Probe video bitrate and frame rate using fresh remote decoder progress,

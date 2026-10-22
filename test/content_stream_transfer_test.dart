@@ -12,6 +12,7 @@ import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/storage/multi_space_store.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
+import 'package:xveil/data/transport/content_stream_credit.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/call_signal.dart';
@@ -63,14 +64,21 @@ bool _containsSlice(Uint8List haystack, Uint8List needle) {
 /// In-memory byte channel (one direction of a pipe): writes append, reads drain
 /// (await on empty), EOF when the writer closes.
 class _Chan {
+  _Chan({this.limit, this.onQueueBytes});
+  final int? limit;
+  final void Function(int)? onQueueBytes;
   final _buf = BytesBuilder(copy: false);
   int _len = 0;
   bool _closed = false;
   Completer<void>? _waiter;
 
   void add(Uint8List d) {
+    if (limit != null && _len + d.length > limit!) {
+      throw StateError('bounded receive queue overflow');
+    }
     _buf.add(d);
     _len += d.length;
+    onQueueBytes?.call(_len);
     _wake();
   }
 
@@ -114,6 +122,38 @@ class _PipeEnd implements ReliableStream {
     _w.close();
     _r.close();
   }
+}
+
+/// Model the old offset parser without sharing the new credit implementation:
+/// any marked offset is an ordinary huge positive offset, clamped to EOF.
+/// Replace it with another unmarked huge offset for the current test server.
+class _LegacyOffsetParser implements ReliableStream {
+  _LegacyOffsetParser(this.inner, this.onMarkedRequest);
+  final ReliableStream inner;
+  final void Function() onMarkedRequest;
+  int readBytes = 0;
+  bool marked = false;
+  @override
+  Future<Uint8List> read({int maxBytes = 65536}) async {
+    final data = Uint8List.fromList(await inner.read(maxBytes: maxBytes));
+    for (var i = 0; i < data.length; i++) {
+      final at = readBytes + i;
+      if (at == 32 && data[i] & 0x40 != 0) {
+        marked = true;
+        onMarkedRequest();
+      }
+      if (marked && at >= 32 && at < 40) data[i] = at == 32 ? 0x3f : 0xff;
+    }
+    readBytes += data.length;
+    return data;
+  }
+
+  @override
+  Future<void> write(Uint8List data) => inner.write(data);
+  @override
+  Future<void> close() => inner.close();
+  @override
+  Future<void> abort() => inner.abort();
 }
 
 /// Test fault: after [passBytes] bytes written by this endpoint, the write side
@@ -340,6 +380,8 @@ class _StreamLink
   /// The device this node's frames prove they came from, as the node reports
   /// it on inbound messages (`InboundMessage.srcDevice`).
   NodeId? srcDevice;
+  int? receiveQueueLimit;
+  int receiveQueuePeak = 0;
   int localStreamCloses = 0;
   int activeAnonymousAccepts = 0;
   int maxConcurrentAnonymousAccepts = 0;
@@ -401,7 +443,14 @@ class _StreamLink
     final p = routes[dst.hex] ?? peer;
     if (p == null) return null;
     openedStreamCount++;
-    final aToB = _Chan(), bToA = _Chan();
+    final aToB = _Chan(
+      limit: p.receiveQueueLimit,
+      onQueueBytes: (n) => p.receiveQueuePeak = max(n, p.receiveQueuePeak),
+    );
+    final bToA = _Chan(
+      limit: receiveQueueLimit,
+      onQueueBytes: (n) => receiveQueuePeak = max(n, receiveQueuePeak),
+    );
     ReliableStream peerStream = _PipeEnd(bToA, aToB);
     if (p.acceptStreamWrappers.isNotEmpty) {
       peerStream = p.acceptStreamWrappers.removeAt(0)(peerStream);
@@ -428,7 +477,14 @@ class _StreamLink
     final p = routes[dst.hex] ?? peer;
     if (p == null) return null;
     p2pOpenedStreamCount++;
-    final aToB = _Chan(), bToA = _Chan();
+    final aToB = _Chan(
+      limit: p.receiveQueueLimit,
+      onQueueBytes: (n) => p.receiveQueuePeak = max(n, p.receiveQueuePeak),
+    );
+    final bToA = _Chan(
+      limit: receiveQueueLimit,
+      onQueueBytes: (n) => receiveQueuePeak = max(n, receiveQueuePeak),
+    );
     ReliableStream peerStream = _PipeEnd(bToA, aToB);
     if (p.acceptStreamWrappers.isNotEmpty) {
       peerStream = p.acceptStreamWrappers.removeAt(0)(peerStream);
@@ -566,6 +622,118 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 80));
     return cid;
   }
+
+  for (final ranged in [false, true]) {
+    test(
+      'credit negotiation falls back to a legacy sender ranged=$ranged',
+      () async {
+        if (ranged) {
+          await mB.dispose();
+          mB = MessagingService(
+            tB,
+            sB,
+            contentPacing: Duration.zero,
+            plainFileStream: true,
+            streamRangeParallelism: 1,
+          )..start();
+        }
+        var markedRequests = 0;
+        for (var i = 0; i < 32; i++) {
+          tA.acceptStreamWrappers.add(
+            (stream) => _LegacyOffsetParser(stream, () => markedRequests++),
+          );
+        }
+        for (var pass = 0; pass < 2; pass++) {
+          final data = _rnd(900000 + pass, 722 + pass);
+          final cid = await advertiseFromA(data, name: 'legacy-$pass.bin');
+          final received = mB.contentReceived.firstWhere(
+            (e) => e.contentId == cid,
+          );
+          expect(
+            await mB.downloadContent(a, cid),
+            ContentDownloadResult.started,
+          );
+          await received.timeout(const Duration(seconds: 8));
+          expect(await sB.loadFile(cid), data);
+          expect(
+            markedRequests,
+            1,
+            reason: 'a known old peer must not be reprobed for each range/file',
+          );
+        }
+      },
+    );
+  }
+
+  test(
+    'legacy unmarked client receives unchanged manifest and bulk bytes',
+    () async {
+      final data = _rnd(900000, 910);
+      final cid = await advertiseFromA(data);
+      final stream = await tB.openStream(a);
+      expect(stream, isNotNull);
+      final request = Uint8List(48);
+      for (var i = 0; i < 32; i++) {
+        request[i] = int.parse(cid.substring(i * 2, i * 2 + 2), radix: 16);
+      }
+      await stream!.write(request);
+      Future<Uint8List> readExactly(int count) async {
+        final result = BytesBuilder(copy: false);
+        while (result.length < count) {
+          final bytes = await stream.read(maxBytes: count - result.length);
+          expect(bytes, isNotEmpty);
+          result.add(bytes);
+        }
+        return result.takeBytes();
+      }
+
+      final prefix = await readExactly(4).timeout(const Duration(seconds: 3));
+      final length = prefix.buffer.asByteData().getUint32(0);
+      expect(length & ContentStreamCredit.manifestFlag, 0);
+      final manifest = ContentManifest.fromJson(
+        jsonDecode(utf8.decode(await readExactly(length)))
+            as Map<String, dynamic>,
+      );
+      expect(manifest!.contentId, cid);
+      expect(await readExactly(data.length), data);
+      await stream.close();
+    },
+  );
+
+  test('slow file sink never overflows a bounded receive queue', () async {
+    tB.receiveQueueLimit = ContentStreamCredit.windowBytes;
+    final data = _rnd(4 * 1024 * 1024 + 19, 911);
+    final cid = await advertiseFromA(data);
+    final actual = Uint8List(data.length);
+    const path = '/virtual/slow-credit.bin';
+    final received = mB.contentReceived.firstWhere(
+      (e) => e.contentId == cid && e.savedToPath == path,
+    );
+    expect(
+      await mB.downloadContentToFile(
+        a,
+        cid,
+        path,
+        write: (offset, bytes) async {
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+          actual.setRange(offset, offset + bytes.length, bytes);
+        },
+        close: () async {},
+      ),
+      ContentDownloadResult.started,
+    );
+    await received.timeout(const Duration(seconds: 8));
+    expect(actual, data);
+    expect(
+      tB.receiveQueuePeak,
+      lessThanOrEqualTo(ContentStreamCredit.windowBytes),
+    );
+    expect(
+      tB.openedStreamCount,
+      1,
+      reason: 'backpressure must avoid stream resets and retry opens',
+    );
+  });
 
   for (final fromAny in [false, true]) {
     test(
