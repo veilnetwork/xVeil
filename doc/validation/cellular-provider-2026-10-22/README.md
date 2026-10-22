@@ -2,7 +2,44 @@
 
 **Status: file backpressure corrected on the tested path; call/video failures remain.**
 
-## Latest follow-up: valid group JSON and direct audio counters
+## Latest follow-up: packet waiting time follows actual renders
+
+[packet-wait-render-clock.json](packet-wait-render-clock.json) contains aggregate
+results only. **The video freeze remains unresolved.**
+
+A regression using the production factory and real NetEq/PCMU proved that
+catch-up aged queued packets by **170 ms within one 10-ms render callback**.
+The controller's arrival history already used a separate render clock, but
+NetEq's default packet-buffer stopwatches still followed the decoder clock,
+which advances for every discarded block. This false waiting time also feeds
+NetEq's future-packet and post-concealment decode decisions.
+
+The packet buffer now shares the existing render clock with arrival history.
+The decoder's internal clock and recovery/quality thresholds are unchanged.
+The regression now reads **10, 20, 30 ms** after three successive renders;
+the first render still discards the same 160 ms of queued stale audio.
+
+The unit gates, 120-second real Opus speech/DTX/resumption scenario, recurring
+jitter at both buffer capacities, and real three-party mixing/JSON gate passed.
+Fresh mixed group audio measured **171.97 ms** against the unchanged 200-ms gate.
+Mac and Android native builds succeeded.
+
+An independent **179.61-second** phone/laptop P2P call used continuous synthetic
+PCM through the real Opus engines/network and actual cameras, without opening
+physical audio devices. Neither PCM driver restarted. Nonquiet decoded blocks
+were 98.16%/99.46% in the audio-only interval and 98.77%/99.33% with cameras
+(Mac/phone); the preceding field control had lower fractions. These are signal
+presence observations, not a listening or acoustic-delay assessment, and network
+variability prevents attributing their entire difference to the clock fix.
+Video still failed: Mac/phone sent **3/0** frames and decoded **0/1**. Application
+and native packetization holds persisted, so the clock correction does not
+establish that video adaptation is fixed.
+
+Owned apps exited after collection. The original phone APK was restored and
+its hash verified; the ordinary private stand artifacts were restored too.
+No synthetic hook or test override was added to production code.
+
+## Previous follow-up: valid group JSON and direct audio counters
 
 [group-stats-and-audio-counters.json](group-stats-and-audio-counters.json) contains
 only aggregate results. **Video remains unresolved.**
