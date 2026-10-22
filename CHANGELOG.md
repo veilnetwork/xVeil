@@ -6,6 +6,34 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.89] — 2026-10-22
+
+### Changed
+
+- Probe video bitrate and frame rate using fresh remote decoder progress,
+  accelerating startup without treating static scenes as link capacity.
+- Derive growing video backlog from decoder RTP progress instead of WebRTC's
+  adaptive playout target; retain the drain interval after acknowledged cuts.
+- Resume bounded source trials after three fully measured healthy observations
+  following cold startup or short soft impairment. Actual audio loss, buffer
+  pressure and interruptions keep their stricter recovery requirements.
+- Preserve paid source allowance across growth-hold boundaries and keep ready
+  relay source paths available while preferred paths warm up.
+- Avoid repeated video cuts for rejected retransmissions or an individual
+  first-hop warning while authenticated consumer health remains fresh.
+- Retain conservative overload protection for callers without consumer health
+  feedback, and exclude synthetic video/bitrate test inputs from production.
+
+### Dependencies and verification
+
+- Veil 0.11.44, hidden-volume 2.6.3 and rebuilt native call engines.
+- P2P and relay camera tests reached sustained 29–30 FPS; decoder-backed
+  startup reached >=25 FPS in complete windows within 13–19 seconds on the
+  retained stand. Resolution can recover more slowly after audio catch-up.
+- Network-dependent stand measurements are not universal latency or acoustic
+  quality guarantees. Relay media classification and priority remain disabled;
+  no call/own-device mailbox fallback or container-format change is added.
+
 ## [0.13.88] — 2026-10-21
 
 ### Fixed

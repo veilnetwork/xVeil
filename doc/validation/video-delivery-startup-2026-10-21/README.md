@@ -465,6 +465,17 @@ consumer failures or promise immediate resolution recovery under them.
 
 ## Production test-input boundary
 
+Release-wide regression checks subsequently exposed a separate compatibility
+case: the exporter-bound load test intentionally supplies no consumer-health
+reports. It received only 423 of 500 primary source attempts in an isolated
+run, below its unchanged 450-attempt gate. SDK `86f1560c` retains the legacy
+150-ms conservative path-delay guard only while trusted consumer health is
+unavailable. Fresh positive/held health bypasses this fallback without
+renewing health or resetting DATA; measured failures and expired health keep
+protection. The isolated load case then received 480 of 500 attempts with no
+duplicates, p95 286 ms and a 151-ms maximum gap, passing the existing limits.
+This does not restore an unconditional RTT-based video-quality cut.
+
 SDK `ea3f857e` puts the legacy built-in synthetic video threads and the
 `VEIL_MEDIA_VIDEO_KBPS` pin behind `VEIL_MEDIA_TEST_HOOKS`, for both individual
 and group engines. Public API arguments and route ceilings remain available
