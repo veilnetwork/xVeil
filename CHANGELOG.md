@@ -10,6 +10,9 @@ bumps may change behaviour a user notices.
 
 ### Changed
 
+- Reopen Android AAudio capture/playout after speaker or headset route
+  disconnects, avoiding silent streams and a subsequent false path recovery.
+  Propagate failed initial device starts; preserve native ABI and relay policy.
 - Bound reliable content responses to a negotiated 256 KiB application-read
   window to prevent receive-queue overflow with a slow sink. Retain hash checks,
   resumable ranges and compatibility with older senders and receivers.
