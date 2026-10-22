@@ -23,9 +23,21 @@ checkout, not from anyone's laptop.
 
 Take the `arm64-v8a` APK unless you know your phone is one of the exceptions.
 
-Each desktop platform also gets a `-debug` archive. It is the same app with the
-diagnostics left in — larger and slower, and only worth taking if someone has
-asked you for a log.
+Starting with 0.13.89, Windows/Linux `-debug` archives and Android `-debug.apk`
+files are release AOT builds with a bounded structured diagnostic report.
+Reproduce the problem, then open **Settings → Copy diagnostic report**, or use
+its save icon to save `xveil-diagnostics.json` and send that file. The bug/save
+buttons on the welcome screen work before identity setup too. The version in
+About includes `(diagnostic)`.
+
+The report contains versions, startup stages, native error codes, delivery/ACK
+counts, call state and numeric audio/video counters. It excludes exception text,
+messages, contacts, keys, peer identifiers/addresses, device names and paths.
+Raw developer logging and the stand control API are disabled. Reports are only
+exported on request; the bounded journal is lost when the process closes or
+crashes. Copy/save it **before restarting**. This is diagnostic evidence, not
+proof that every reported fault has the same cause. Older `-debug` archives used
+raw logs; do not share those logs as anonymous reports.
 
 All three Android ABIs are published again. They were dropped after v0.9.1
 because the call media engine was built for arm64 alone, so the other APKs
@@ -160,9 +172,21 @@ by hand from a `veil:bootstrap?…` link: **Network → Peers → Add peer**.
 Берите APK под `arm64-v8a`, если только точно не знаете, что ваш телефон —
 исключение.
 
-У каждой настольной платформы есть ещё архив `-debug`. Это то же приложение с
-оставленной диагностикой — больше и медленнее; брать его стоит, только если у
-вас попросили журнал.
+Начиная с 0.13.89, архивы Windows/Linux `-debug` и Android-файлы `-debug.apk`
+содержат диагностический вариант релизной AOT-сборки. Воспроизведите сбой,
+затем откройте **Настройки → Скопировать диагностический отчёт**. Кнопка сохранения
+рядом позволяет записать `xveil-diagnostics.json` и прислать файл. Кнопки с жуком
+и сохранением есть и на приветственном экране, до создания личности. В разделе
+«О приложении» версия помечена `(diagnostic)`.
+
+В отчёте — версии, этапы запуска, числовые коды нативных ошибок, счётчики
+отправки и подтверждений, состояние звонка и числовая статистика аудио/видео.
+Тексты ошибок и сообщений, контакты, ключи, идентификаторы и адреса узлов,
+имена устройств и пути не экспортируются. Сырая трассировка и API стенда
+выключены. Отправка только вручную; журнал ограничен по размеру и пропадает
+при закрытии или падении процесса. Скопируйте/сохраните его **до перезапуска**.
+В старых `-debug` архивах использовались сырые журналы — их нельзя считать
+анонимизированными отчётами.
 
 Все три Android-ABI снова публикуются. Их перестали выкладывать после v0.9.1,
 потому что движок звонков собирался лишь под arm64 и те APK запускались, но не

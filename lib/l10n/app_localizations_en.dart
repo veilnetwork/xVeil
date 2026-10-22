@@ -6834,6 +6834,23 @@ class AppL10nEn extends AppL10n {
   }
 
   @override
+  String get settingsCopyDiagnostics => 'Copy diagnostic report';
+
+  @override
+  String get settingsCopyDiagnosticsHint =>
+      'Diagnostic build. Startup stages and network and call counters are kept until the app closes. No message text, keys, addresses or filenames. Send only if you choose to.';
+
+  @override
+  String get settingsSaveDiagnostics => 'Save diagnostic report';
+
+  @override
+  String get settingsDiagnosticsSaved => 'Diagnostic report saved';
+
+  @override
+  String get settingsDiagnosticsSaveFailed =>
+      'Could not save the report. You can copy it instead.';
+
+  @override
   String get settingsCopyErrors => 'Copy error report';
 
   @override

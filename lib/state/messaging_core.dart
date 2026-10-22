@@ -7,6 +7,8 @@ import 'package:crypto/crypto.dart' as crypto;
 import 'package:uuid/uuid.dart';
 
 import '../core/ids.dart';
+import '../core/diagnostic_journal.dart';
+import '../core/error_journal.dart';
 import '../crypto/blake3.dart';
 import '../data/node/embedded_node.dart' show BootstrapPeerCfg, EmbeddedNode;
 import '../data/storage/file_store.dart' show kMaxStoredFileBytes;
@@ -397,7 +399,9 @@ class MessagingService {
     _deviceMirror.onMessageStatusChanged = callback;
   }
 
-  set onMessageStored(FutureOr<void> Function(NodeId peer, Message stored)? callback) {
+  set onMessageStored(
+    FutureOr<void> Function(NodeId peer, Message stored)? callback,
+  ) {
     _deviceMirror.onMessageStored = callback;
   }
 
@@ -862,6 +866,60 @@ class MessagingService {
   /// delivery-ACK round-trip is ~halved. Anonymity is unchanged (one-shot block,
   /// not a reused circuit).
   Future<void> _send(
+    NodeId dst,
+    Uint8List payload, {
+    bool wantReply = false,
+    bool deferRatchetWrite = false,
+    bool requireIdentityAddress = false,
+    bool background = false,
+  }) async {
+    if (!kDiagnosticReportEnabled) {
+      return _sendImpl(
+        dst,
+        payload,
+        wantReply: wantReply,
+        deferRatchetWrite: deferRatchetWrite,
+        requireIdentityAddress: requireIdentityAddress,
+        background: background,
+      );
+    }
+    final clock = Stopwatch()..start();
+    var success = false;
+    try {
+      await _sendImpl(
+        dst,
+        payload,
+        wantReply: wantReply,
+        deferRatchetWrite: deferRatchetWrite,
+        requireIdentityAddress: requireIdentityAddress,
+        background: background,
+      );
+      success = true;
+    } catch (error, stack) {
+      errorJournal.record(
+        kind: 'transport-send',
+        error: error,
+        stack: stack,
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      rethrow;
+    } finally {
+      diagnosticJournal.record(
+        success
+            ? DiagnosticEvent.transportSent
+            : DiagnosticEvent.transportFailed,
+        values: {
+          DiagnosticMetric.durationMs: clock.elapsedMilliseconds,
+          DiagnosticMetric.anonymous: _anonymous ? 1 : 0,
+          DiagnosticMetric.background: background ? 1 : 0,
+          DiagnosticMetric.wantReply: wantReply ? 1 : 0,
+        },
+        minInterval: const Duration(seconds: 1),
+      );
+    }
+  }
+
+  Future<void> _sendImpl(
     NodeId dst,
     Uint8List payload, {
     bool wantReply = false,
@@ -1914,6 +1972,10 @@ class MessagingService {
       m.provenance.isAuthenticated || _realtimeControl.isAccepted(m.src);
 
   Future<void> _onInbound(InboundMessage m) {
+    diagnosticJournal.record(
+      DiagnosticEvent.transportReceived,
+      minInterval: const Duration(seconds: 1),
+    );
     final next = _inboundChain.then((_) => _handleInbound(m));
     _inboundChain = next;
     return next;

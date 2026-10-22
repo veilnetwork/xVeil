@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 
 import 'providers.dart';
+import '../core/diagnostic_journal.dart';
 
 const _kBackgroundNodeKey = 'keep_node_background';
 
@@ -84,9 +85,9 @@ class BackgroundNodeController extends Notifier<bool> {
         ref.read(sessionProvider) != null;
     final service = ref.read(backgroundServiceProvider);
     if (value && nodeUp) {
-      await service.start();
+      await _applyService(service, true, nodeUp);
     } else if (!value) {
-      await service.stop();
+      await _applyService(service, false, nodeUp);
     }
   }
 
@@ -95,9 +96,34 @@ class BackgroundNodeController extends Notifier<bool> {
   Future<void> applyIfNodeUp({required bool nodeUp}) async {
     final service = ref.read(backgroundServiceProvider);
     if (state && nodeUp) {
-      await service.start();
+      await _applyService(service, true, nodeUp);
     } else {
-      await service.stop();
+      await _applyService(service, false, nodeUp);
+    }
+  }
+
+  Future<void> _applyService(
+    BackgroundServiceActions service,
+    bool start,
+    bool nodeUp,
+  ) async {
+    var success = false;
+    try {
+      if (start) {
+        await service.start();
+      } else {
+        await service.stop();
+      }
+      success = true;
+    } finally {
+      diagnosticJournal.record(
+        DiagnosticEvent.backgroundService,
+        values: {
+          DiagnosticMetric.success: success ? 1 : 0,
+          DiagnosticMetric.enabled: start ? 1 : 0,
+          DiagnosticMetric.nodeUp: nodeUp ? 1 : 0,
+        },
+      );
     }
   }
 }
