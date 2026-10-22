@@ -1,0 +1,99 @@
+{
+  "date": "2026-10-22",
+  "status": "android_route_disconnect_recovery_verified_video_freeze_unresolved",
+  "cause": {
+    "trigger": "camera_enable_switches_to_speaker",
+    "os_error": "AAUDIO_ERROR_DISCONNECTED",
+    "previous_behaviour": "AAudio callbacks stopped; capture and playout were not reopened until call engine rebuild",
+    "network_failure_proven_by_old_silent_audio": false
+  },
+  "call": {
+    "direction": "phone_to_laptop",
+    "duration_seconds": 179.12,
+    "camera_enable_seconds": 60.25,
+    "lifetime_ok": true,
+    "endpoints": {
+      "mac": {
+        "routes": [
+          {
+            "seconds": 0.0,
+            "transport": "p2p"
+          }
+        ],
+        "video_frames_sent": 3,
+        "video_frames_decoded": 4,
+        "last_decoder_count_advance_seconds": 68.44,
+        "audio_trimmed_ms_sampled": 14180,
+        "audio_delay_ms": {
+          "median": 90,
+          "max": 197
+        },
+        "audio_rx_native_age_ms": {
+          "median": 64.5,
+          "max": 1352
+        },
+        "audio_tx_rtp_queue_age_ms": {
+          "median": 25.5,
+          "max": 354
+        }
+      },
+      "phone": {
+        "routes": [
+          {
+            "seconds": 0.0,
+            "transport": "p2p"
+          }
+        ],
+        "video_frames_sent": 5,
+        "video_frames_decoded": 3,
+        "last_decoder_count_advance_seconds": 65.36,
+        "audio_trimmed_ms_sampled": 20230,
+        "audio_delay_ms": {
+          "median": 138,
+          "max": 501
+        },
+        "audio_rx_native_age_ms": {
+          "median": 33.5,
+          "max": 1093
+        },
+        "audio_tx_rtp_queue_age_ms": {
+          "median": 45,
+          "max": 354
+        }
+      }
+    }
+  },
+  "device_recovery": {
+    "recording": {
+      "error_callbacks_observed": 1,
+      "successful_reopens": 1,
+      "reopen_ms": [
+        520.0
+      ]
+    },
+    "playout": {
+      "error_callbacks_observed": 1,
+      "successful_reopens": 1,
+      "reopen_ms": [
+        245.0
+      ]
+    },
+    "before_max_source_encoded_gap_ms": 15939.85,
+    "after_max_source_encoded_gap_ms": 1009.24
+  },
+  "verification": {
+    "old_adm_fails_missing_error_callback_regression": true,
+    "old_adm_fails_start_failure_regression": true,
+    "production_adm_host_smoke_passed": true,
+    "android_production_build_passed": true,
+    "native_test_hooks": false,
+    "synthetic_media": false
+  },
+  "limitations": [
+    "No live speech or acoustic assessment.",
+    "A successful input/output stream restart does not certify audible loudness.",
+    "Video remained frozen after its initial frames; retained FPS was ignored.",
+    "No carrier-specific root cause is claimed."
+  ],
+  "fix_sdk_commit": "e68b4c19"
+}

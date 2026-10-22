@@ -2,7 +2,63 @@
 
 **Status: file backpressure corrected on the tested path; call/video failures remain.**
 
-## Latest follow-up: content credit and audio reserve
+## Latest follow-up: Android device disconnect
+
+[aaudio-disconnect.json](aaudio-disconnect.json) contains only aggregate results.
+The previous apparent P2P path stall had an endpoint cause in this reproduction:
+turning on the camera selected the speaker, Android disconnected **both AAudio
+streams**, and the ADM had no error callbacks to reopen them. The phone's audio
+RTP attempts stopped for about 15 seconds while incoming audio still advanced.
+A receiver-side silence timeout then initiated relay recovery. That timeout did
+not establish a broken network route.
+
+The ADM now registers error callbacks and recreates the affected stream on one
+owned worker, serialized with ordinary stop/device/start operations. Generation
+checks reject retired work. Stop/destruction close callbacks and join the worker;
+no detached recovery thread survives the ADM. Temporary open/start failures retry
+with a delay. A failed initial `requestStart` now returns failure and closes the
+stream, instead of reporting successful recording/playout. FineAudioBuffer is
+rebuilt after the reopened device's actual format is known. WebRTC's control
+sequence remains responsible for starting/stopping AudioDeviceBuffer.
+
+This follows the [AAudio disconnect contract](https://developer.android.com/ndk/guides/audio/aaudio/aaudio):
+stop/close/reopen must happen outside its error callback thread.
+
+### Verification
+
+- A host smoke test compiles the **production ADM**, real WebRTC buffer and a
+  controllable AAudio backend. The old source fails both the missing callback
+  and false-success startup regressions. The corrected source passes capture
+  and playout recovery, temporary open failures, failed recovery starts,
+  a callback racing close, explicit stop and destruction with recovery pending.
+  Command: `TMPDIR=/private/tmp/ python3 flutter/veil_media/test/run_aaudio_disconnect_smoke.py`
+  from the Veil repository with the normal WebRTC build available.
+- The production Android library builds with the usual **105 C ABI exports**.
+  No synthetic capture or test hooks were enabled in the physical app.
+- During a new **179-second** phone → laptop call, camera enable again caused
+  Android's disconnect error. Capture reopened in **520 ms**, playout in
+  **245 ms**. Both counters reflect one successful reopen, not an engine rebuild.
+- The maximum gap between encoded phone audio packets changed from **15,939.85
+  ms** in the prior run to **1,009.24 ms** in this run. This measures source
+  production, including DTX/capture scheduling; it is not acoustic latency.
+  Both endpoints stayed on **P2P for the complete call** and audio counters
+  continued after the route change. Network variability prevents a general
+  latency or sound-quality guarantee from this comparison.
+
+### Still unresolved
+
+Video again stopped after its first frames: laptop/phone sent **3/5** frames
+and decoded **4/3**; the last decode advances were at **68.44/65.36 s**, after
+camera enable at **60.25 s**. Reported nonzero FPS then remained stale. Native
+packetization and application audio-protection holds still need work; repeated
+forced catch-up remains present. Fixing device recovery does not prove that
+video adaptation or end-to-end audio quality is fixed. No live speech or
+listening assessment was supplied.
+
+Both owned apps and log captures exited afterward. The original phone APK was
+restored and its hash verified. No relay behavior or transport priority changed.
+
+## Previous follow-up: content credit and audio reserve
 
 [credit-and-audio-reserve.json](credit-and-audio-reserve.json) contains only
 allow-listed aggregate results. Raw traces, endpoint identities, addresses,
