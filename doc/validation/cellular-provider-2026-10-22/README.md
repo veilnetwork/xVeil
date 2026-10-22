@@ -2,7 +2,72 @@
 
 **Status: file backpressure corrected on the tested path; call/video failures remain.**
 
-## Latest follow-up — 23 October: stream rendezvous ordering and anonymous files
+## Latest follow-up — 23 October: retain cells while a stream route is cold
+
+[cold-route-backpressure.json](cold-route-backpressure.json) contains only
+aggregate evidence. SDK `b27aa766` corrects another first-manifest failure
+mechanism. **General transfer throughput and audio/video quality remain open.**
+
+### Confirmed mechanism and correction
+
+The real circuit-backed `CellSender` returned success when route construction
+had produced no usable circuit. Its scalar path discarded the cell; its DATA
+batch path drained the entire unsent run. The stream engine had already
+committed those cells to flight, so the driver could only recover through
+network retransmission. A locally unsent SYN therefore paid the unchanged
+**six-second handshake RTO**, even after the route became available.
+
+Both no-ready-route paths now retain the exact cells and report local
+backpressure. A typed local retry hint gives cold routes a **25-ms** cadence;
+ordinary queue-full errors keep their **1-ms** retry. Hints are bounded to
+1–1000 ms. The delay starts after the asynchronous send attempt returns and
+uses the driver's timer selection, preserving cancellation/read processing.
+Network RTOs and the wire format are unchanged. An ACK copy that was actually
+accepted on an alternate path can release the pending ACK; it need not be
+duplicated again on every local retry of an unavailable primary.
+
+Two new regressions fail against the old production behavior: the actual
+offline SDK adapter acknowledges/drains unsent controls and DATA; the actual
+mux/driver then fails to deliver a request/reply within two seconds after a
+controlled route becomes ready. With the correction, the same tests preserve
+the exact distinct cells and complete the exchange. The ready wire in that
+second test is controlled in memory; it is not a WAN latency qualification.
+
+All **58 onion-stream tests** and **29 FFI anonymous-stream tests** pass.
+Virtual-time tests cover the slower retry after an asynchronous send and
+cancellation during backoff. Clippy for both packages with all targets and
+rustfmt pass. Production Mac and Android SDK builds pass. The field apps use
+unchanged frontends, ordinary native engines and verified current SDK binaries;
+only the trait's explanatory documentation was clarified after qualification.
+
+### Physical comparison
+
+The phone remained on cellular with Wi-Fi off. Both downloads used anonymous
+streams with QA-contact P2P temporarily denied; no direct stream was opened.
+
+| SDK | File | Manifest attempts / timeouts | First request → validated manifest | Complete download | Verification |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Prior `9bfa7190` | 4 MiB | 3 / 2 | 17.957 s | 47.218 s | Exact SHA-256 match |
+| Corrected functions | 4 MiB | 1 / 0 | 1.957 s | 66.827 s | Exact SHA-256 match |
+
+The prior driver snapshots include SYN_SENT at age **6002 ms** with no local
+backpressure reported. The new run has no sampled SYN_SENT interval, which
+does not prove an instantaneous handshake. The controlled regressions establish
+the local discard defect; these separate field runs are consistent with the
+startup correction but cannot isolate every network effect. **The complete
+new download was slower.** These observations do not establish a throughput
+improvement or rule out a performance regression. Long local queue waits and
+their interaction with data retransmission timers still need controlled
+qualification.
+
+Both QA-contact policies were restored and checked. Owned applications and
+capture processes exited; owned phone source fixtures were removed. The exact
+original phone APK was restored and hash-verified, and the Android diagnostic
+property returned to its pre-test value. No call or physical audio device was
+opened. No raw stream id/sequence, identity, address, cookie, file path/name or
+credential was exported.
+
+## Previous follow-up — 23 October: stream rendezvous ordering and anonymous files
 
 [stream-rendezvous-ordering.json](stream-rendezvous-ordering.json) records
 aggregate proof only. SDK `9bfa7190` removes a compiled preference for one
