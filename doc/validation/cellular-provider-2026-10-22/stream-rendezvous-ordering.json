@@ -1,0 +1,58 @@
+{
+  "scope": "Endpoint stream rendezvous ordering; physical files on updated relays. Not a causal A/B.",
+  "sdk_commit": "9bfa7190183070a001521ad2cffb75f257f359c4",
+  "source_sha256": "ae239e002941cf15b85b4fb386afef33086807e48cd568bbe69aaea095af6036",
+  "old_comparator_failed_current_registration_regression": true,
+  "final_anon_stream_tests_passed": 27,
+  "rustfmt_passed": true,
+  "mac_production_sdk_build_passed": true,
+  "android_production_sdk_build_passed": true,
+  "tested_binaries": {
+    "installed_android_apk_matches_staged": true,
+    "owned_mac_loaded_staged_sdk": true,
+    "frozen_hashes_unchanged": true
+  },
+  "prior_capture": {
+    "first_stream_was_anonymous": true,
+    "first_manifest_wait_timed_out_seconds": 8,
+    "second_attempt_used_direct_session": true,
+    "old_ranking_promoted_former_stand_relay": true,
+    "observed_ad_generation_spread_seconds": 0,
+    "stale_generation_not_proven_cause_of_observed_timeout": true
+  },
+  "transfers": [
+    {
+      "direction": "phone_to_laptop",
+      "size_bytes": 4194304,
+      "success": true,
+      "sha256_matches": true,
+      "download_seconds": 87.781,
+      "request_to_validated_manifest_seconds": 7.293,
+      "request_attempts": 1,
+      "anonymous_stream_open": true,
+      "direct_stream_open": false,
+      "manifest_timeouts": 0
+    },
+    {
+      "direction": "laptop_to_phone",
+      "size_bytes": 4194304,
+      "success": true,
+      "sha256_matches": true,
+      "download_seconds": 64.412,
+      "request_to_validated_manifest_seconds": 0.356,
+      "request_attempts": 1,
+      "anonymous_stream_open": true,
+      "direct_stream_open": false,
+      "manifest_timeouts": 0
+    }
+  ],
+  "qa_contact_policies_restored": true,
+  "physical_audio_devices_opened": false,
+  "cleanup": {
+    "mac_stopped": true,
+    "original_phone_apk_restored": true,
+    "original_phone_apk_hash_matches": true,
+    "phone_process_absent_after_restore": true,
+    "private_tunnel_script_restored": true
+  }
+}

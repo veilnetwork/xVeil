@@ -2,7 +2,64 @@
 
 **Status: file backpressure corrected on the tested path; call/video failures remain.**
 
-## Latest follow-up — 23 October: delivery stages and subthreshold probe recovery
+## Latest follow-up — 23 October: stream rendezvous ordering and anonymous files
+
+[stream-rendezvous-ordering.json](stream-rendezvous-ordering.json) records
+aggregate proof only. SDK `9bfa7190` removes a compiled preference for one
+relay from a historical public stand. Outbound stream construction also used
+relay-id ordering after resolution, discarding the resolver's newest-first
+criterion. When a partial refresh retains older valid fallback registrations,
+that can promote an earlier process's receive circuit over a fresh one.
+
+The endpoint now ranks by an explicit operator preference, then registration
+freshness, then relay id. Equal entries retain resolver order. Per-relay
+deduplication therefore keeps the newer cookie; normal signed-ad validation,
+fallback retention and the existing circuit cooldown filters still apply.
+The relay preference has no built-in default. The local operator override
+remains available.
+
+The current-registration regression fails with the **actual old comparator**
+temporarily restored in the real FFI module; it passes with the correction.
+The original source is restored unconditionally after that control. The final
+anonymous-stream suite passes **27 tests**, including real circuit-feed ARQ,
+local producer isolation and authenticated media ingress. Equal-generation
+ordering, duplicate-relay cookies and an explicit operator preference are
+covered. Rustfmt and production SDK builds for Mac/Android pass.
+
+### Physical verification
+
+Both owned QA applications used ordinary production native engines and the
+freshly built SDK. The exact installed Android APK and the Mac process's
+loaded SDK path were checked; frozen build-input hashes stayed unchanged.
+An obsolete disposable PacketTunnel build was stopped before it could supply
+the stand's SDK. The frontend build then consumed frozen current libraries.
+This was a stand construction correction, not a product-source change.
+
+The phone used cellular data with Wi-Fi off. P2P was temporarily denied only
+for the two QA contacts. Receiver logs confirm an **anonymous stream** in both
+directions, with one request, no direct-stream open and no manifest timeout:
+
+| Direction | Size | Request → validated manifest | Complete download | Verification |
+| --- | ---: | ---: | ---: | --- |
+| Phone → laptop | 4 MiB | 7.293 s | 87.781 s | Exact SHA-256 match |
+| Laptop → phone | 4 MiB | 0.356 s | 64.412 s | Exact SHA-256 match |
+
+These are successful first attempts on the corrected clients and updated
+relay fleet, **not a controlled before/after attribution** to the ranking
+change. The earlier failing capture proves the historical stand preference
+was active, but its candidate ads had the same generation: stale generation
+is not established as the cause of that timeout. The new cold header still
+approaches the existing eight-second first-byte bound, and anonymous transfer
+throughput remains low. Cold-start latency and the remaining audio/video
+failures require further work; two successful downloads do not close them.
+
+No call or physical audio device was opened in this cycle. Both QA-contact
+policies were restored and checked, owned phone file fixtures removed, owned
+apps exited, and the exact original phone APK was restored and hash-verified.
+The disposable tunnel-build script was restored. Public evidence contains no
+identity, relay address, file name/path, request id, cookie or credential.
+
+## Previous follow-up — 23 October: delivery stages and subthreshold probe recovery
 
 [socket-to-kernel-delivery.json](socket-to-kernel-delivery.json) and
 [direct-relay-follow-up.json](direct-relay-follow-up.json) contain aggregate
