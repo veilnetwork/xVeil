@@ -2,7 +2,90 @@
 
 **Status: file backpressure corrected on the tested path; call/video failures remain.**
 
-## Latest follow-up — 23 October: retain cells rejected by stale or failed circuits
+## Latest follow-up — 23 October: handshake timing and actual stream route recovery
+
+[stream-route-recovery.json](stream-route-recovery.json) records SDK
+`62d6b15d`. **Cold startup, long payload stalls and audio/video quality remain
+open.** The controlled fixes below do not establish that the field stalls have
+been eliminated; an unsuccessful large transfer is included in the evidence.
+
+### Confirmed mechanisms and corrections
+
+Tracked SYN/SYN_ACK timers started before the local carrier accepted them.
+A **250-ms** local wait triggered a handshake network retry against a **50-ms**
+test RTO, with no handoff. The async driver now tracks handshake handoffs as
+well as DATA/FIN. Only a handed-off, unconfirmed handshake can report its network
+timeout. A continuously rejected local handshake still closes after the
+configured handshake retry budget, without manufacturing a network-loss event.
+Real network retry caps remain active. A duplicate SYN after confirmation does
+not rearm handshake recovery. Standalone sans-IO timing conventions are retained.
+
+Handshake timeouts were also absent from the driver → mux → hub → circuit
+recovery path. The notification now reaches the carrier. A controlled exchange
+using the real driver, mux and SDK adapter loses its first locally accepted SYN,
+then delivers the exact request/reply over an available alternate. Disabling
+hub forwarding makes this same exchange fail; exact source is restored after
+the control. This ready wire is controlled in memory, not a WAN latency test.
+
+The existing non-quarantining DATA recovery removed a sticky route cache pin,
+but the pool's handshake-membership index immediately selected **the same old
+circuit**. A real-runtime regression reproduced this despite an available
+alternate. Recovery now updates both indices atomically, using pool → route
+lock order to prevent concurrent refill from retiring the selected target.
+The affected Bulk pin and an ACK pin using the same old circuit move together;
+other streams, their active counts and the shared pool are preserved. Missing,
+closed, cooled or admission-full alternatives leave the current path in place.
+
+The new recovery path also preserves the exact receiver cookie and protected
+receiver key: a valid ad for another device or key generation does not own
+this stream's reassembly state. An unguarded candidate failed this regression.
+Both handshake and DATA recovery now reject those changes, while matching
+protected receivers remap successfully. Membership retains its existing bound.
+No relay media classification, transit priority, mailbox policy, wire format,
+network RTO constant or queue/window ceiling changed.
+
+### Gates
+
+All **70 stream tests** and **42 FFI anonymous-stream tests** pass, including
+both handshake roles, accepted network loss, local backpressure/cancellation,
+the local retry budget, duplicate SYN, real mux forwarding, both route indices,
+other-stream preservation and receiver binding. All-target Clippy and rustfmt
+pass. Production Mac and Android SDK builds pass; the **198 SDK export names**
+match the prior library. Ordinary stand frontends and native media engines are
+unchanged. No synthetic media, new production test hooks or calls were enabled.
+
+### Physical qualification and unresolved failure
+
+The phone used cellular data with Wi-Fi off. All opens below were anonymous,
+with no direct stream. Source hashes, frozen SDKs, installed APKs and the Mac
+process's loaded library were verified for each build.
+
+| Build / direction | Size | Download | First request → validated manifest | Result |
+| --- | ---: | ---: | ---: | --- |
+| Before receiver-binding guard, phone → laptop | 4 MiB | 104.367 s | 26.402 s | SHA-256 matches; four no-manifest timeouts and one other failed attempt |
+| Before receiver-binding guard, laptop → phone | 4 MiB | 9.748 s | 0.760 s | SHA-256 matches |
+| Before receiver-binding guard, phone → laptop | 32 MiB | **Timed out at 180 s** | 7.162 s | Not completed; final hash unverified |
+| Final guarded SDK, phone → laptop | 4 MiB | 54.630 s | 3.177 s | SHA-256 matches after automatic resume |
+| Final guarded SDK, laptop → phone | 4 MiB | 28.789 s | 1.158 s | SHA-256 matches |
+
+The failed 32-MiB run had a **20-second payload idle timeout** after
+**12,644,300 received bytes**, plus another failed attempt. The final guarded
+phone upload also had one 20-second payload idle timeout before successful
+resume. The final SDK was retested with the two 4-MiB files, not another
+32-MiB upload. **General stream stalls and large-file completion are therefore
+not qualified as fixed.** These separate runs cannot isolate network changes,
+prove a speed improvement or rule out a performance regression. The controlled
+handshake fixes are not established as the cause of the field cold-start delay.
+
+QA policies were restored and verified after both runs. Both owned applications
+and log captures exited; process absence was checked independently. The exact
+original phone APK was restored and hash-verified, owned phone fixtures removed,
+and the Android diagnostic property left unchanged. Public evidence contains
+only aggregate values, with no raw identifiers, keys, addresses, paths, packet
+sequences or file hashes. No subjective sound, video or multi-device partition
+qualification is claimed by these file tests.
+
+## Previous follow-up — 23 October: retain cells rejected by stale or failed circuits
 
 [local-enqueue-retention.json](local-enqueue-retention.json) records aggregate
 evidence for SDK `a84f3223`. The preceding local-handoff correction could not
