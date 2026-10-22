@@ -1,0 +1,99 @@
+{
+  "scope": "Local stream rejection semantics, actual offline runtime/outbox tests, and three physical cellular anonymous file transfers. No call-quality or controlled speed claim.",
+  "sdk_commit": "a84f3223",
+  "confirmed_defects": [
+    "A stale scalar route declared success without a local handoff.",
+    "A stale DATA run discarded its unaccepted cells.",
+    "A local non-queue enqueue rejection discarded scalar cells or the unaccepted DATA tail.",
+    "Striped sends mislabeled missing routes as queue-full and reordered retained cells before an unsent tail.",
+    "A queue-full chunk lost the accepted-prefix count used for local activity bookkeeping."
+  ],
+  "regressions": {
+    "old_behavior_fails_both_stale_and_enqueue_rejection_tests": true,
+    "controlled_old_behavior_source_restored_exactly": true,
+    "real_runtime_circuit_and_session_outbox_used": true,
+    "public_network_used_by_unit_fixtures": false,
+    "independent_fixture_identities_and_service_binding_checked": true,
+    "controls_and_single_or_batched_data_retained_exactly": true,
+    "healthy_enqueue_accepts_each_cell_once": true,
+    "accepted_prefix_and_full_queue_tail_preserved": true,
+    "working_route_not_cooled_for_queue_full": true,
+    "nonprefix_striped_acceptance_and_unrelated_suffix_preserved": true,
+    "missing_route_then_full_queue_preserves_retained_order": true,
+    "oversized_cell_fails_without_cooling_or_retry_loop": true,
+    "ack_accepted_by_alternate_releases_pending_ack": true
+  },
+  "gates": {
+    "ffi_anonymous_stream_tests_passed": 37,
+    "new_local_enqueue_tests_passed": 8,
+    "all_target_clippy_clean": true,
+    "rustfmt_clean": true,
+    "mac_and_android_production_sdk_builds_passed": true,
+    "source_frozen_sdk_installed_apk_and_loaded_library_verified": true,
+    "native_media_test_hooks_enabled": false,
+    "synthetic_media_enabled": false,
+    "calls_started": 0
+  },
+  "physical_transfers": [
+    {
+      "direction": "phone_to_laptop",
+      "bytes": 4194304,
+      "download_seconds": 64.152,
+      "sha256_matches": true,
+      "stream_request_attempts": 7,
+      "no_manifest_timeouts": 6,
+      "payload_idle_timeouts": 0,
+      "payload_idle_received_bytes": [],
+      "other_failed_attempts": 0,
+      "first_request_to_validated_manifest_seconds": 54.655
+    },
+    {
+      "direction": "laptop_to_phone",
+      "bytes": 4194304,
+      "download_seconds": 35.573,
+      "sha256_matches": true,
+      "stream_request_attempts": 1,
+      "no_manifest_timeouts": 0,
+      "payload_idle_timeouts": 0,
+      "payload_idle_received_bytes": [],
+      "other_failed_attempts": 0,
+      "first_request_to_validated_manifest_seconds": 0.74
+    },
+    {
+      "direction": "phone_to_laptop",
+      "bytes": 33554432,
+      "download_seconds": 126.166,
+      "sha256_matches": true,
+      "stream_request_attempts": 2,
+      "no_manifest_timeouts": 0,
+      "payload_idle_timeouts": 1,
+      "payload_idle_received_bytes": [
+        25367940
+      ],
+      "other_failed_attempts": 0,
+      "first_request_to_validated_manifest_seconds": 0.928
+    }
+  ],
+  "unchanged": {
+    "wire_format_and_c_abi": true,
+    "network_timeout_constants": true,
+    "window_and_queue_ceilings": true,
+    "relay_media_blindness_and_scheduling": true,
+    "media_datagram_drop_policy": true
+  },
+  "limits": [
+    "A carrier handoff is not proof of socket transmission or peer receipt.",
+    "The cold 4-MiB phone upload required seven requests and six no-manifest timeouts; cold start remains unresolved.",
+    "The 32-MiB transfer completed after a 20-second payload idle timeout and automatic resume; general stream stalls remain unresolved.",
+    "Separate network runs do not isolate speed effects or rule out a performance regression.",
+    "The original failed large-transfer case is not universally closed by one successful resumed transfer.",
+    "No audio/video recovery or subjective sound-quality qualification was performed."
+  ],
+  "cleanup": {
+    "owned_mac_and_phone_processes_absent": true,
+    "original_phone_apk_restored_and_hash_verified": true,
+    "qa_contact_policies_restored_and_verified": true,
+    "android_diagnostic_property_unchanged": true,
+    "owned_phone_file_fixtures_removed": true
+  }
+}
