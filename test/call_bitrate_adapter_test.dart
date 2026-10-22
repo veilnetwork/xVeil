@@ -993,6 +993,103 @@ void main() {
     expect(a.audioReserve, isFalse);
   });
 
+  test('subthreshold measured audio damage releases only the sparse trial', () {
+    final a = direct(level: 4);
+    native(a, peerDelay: 300);
+    native(a, peerDelay: 300);
+    expect(a.audioReserve, isTrue);
+    for (var i = 1; i <= CallBitrateAdapter.probeResumeAfter; i++) {
+      native(
+        a,
+        recovered: true,
+        stats: {
+          ...healthy(),
+          'audio_soft_loss_duration_supported': 1,
+          'audio_peer_soft_loss_duration_supported': 1,
+          'audio_local_soft_loss_report_us': 0,
+          'audio_peer_soft_loss_report_us': 0,
+          'audio_local_concealment_report_us': i,
+          'audio_peer_concealment_report_us': i,
+        },
+      );
+      expect(a.audioReserve, i < CallBitrateAdapter.probeResumeAfter);
+    }
+    expect(a.acknowledgedPause, isFalse);
+    expect(a.acknowledgedTarget, (maxBitrateKbps: 15, maxFps: 1.0));
+    for (var i = 4; i <= 30; i++) {
+      native(
+        a,
+        recovered: true,
+        stats: {
+          ...healthy(),
+          'audio_soft_loss_duration_supported': 1,
+          'audio_peer_soft_loss_duration_supported': 1,
+          'audio_local_soft_loss_report_us': 0,
+          'audio_peer_soft_loss_report_us': 0,
+          'audio_local_concealment_report_us': i,
+          'audio_peer_concealment_report_us': i,
+          'video_tx_frames': i,
+        },
+      );
+      expect(a.audioReserve, isFalse);
+      expect(
+        a.acknowledgedTarget!.maxFps,
+        1,
+        reason: 'small damage still holds growth',
+      );
+    }
+  });
+
+  test('partial duration support cannot clear opposite audio damage', () {
+    for (final supported in ['local', 'peer']) {
+      final a = direct(level: 4);
+      native(a, peerDelay: 300);
+      native(a, peerDelay: 300);
+      for (var i = 1; i <= 10; i++) {
+        native(
+          a,
+          recovered: true,
+          stats: {
+            ...healthy(),
+            'audio_soft_loss_duration_supported': supported == 'local' ? 1 : 0,
+            'audio_peer_soft_loss_duration_supported': supported == 'peer'
+                ? 1
+                : 0,
+            'audio_local_soft_loss_report_us': 0,
+            'audio_peer_soft_loss_report_us': 0,
+            'audio_local_concealment_report_us': i,
+            'audio_peer_concealment_report_us': i,
+          },
+        );
+        expect(a.audioReserve, isTrue, reason: supported);
+      }
+    }
+  });
+
+  test(
+    'qualified damage cannot clear a sparse pause with duration support',
+    () {
+      for (final incoming in [false, true]) {
+        final a = direct(level: 4);
+        native(a, peerDelay: 300);
+        native(a, peerDelay: 300);
+        for (var i = 1; i <= 10; i++) {
+          native(
+            a,
+            stats: {
+              ...healthy(),
+              'audio_soft_loss_duration_supported': 1,
+              'audio_peer_soft_loss_duration_supported': 1,
+              'audio_local_soft_loss_report_us': incoming ? i : 0,
+              'audio_peer_soft_loss_report_us': incoming ? 0 : i,
+            },
+          );
+          expect(a.audioReserve, isTrue, reason: 'incoming=$incoming');
+        }
+      }
+    },
+  );
+
   test(
     'a burst of soft audio recovery gives each reduced video rung a trial',
     () {
