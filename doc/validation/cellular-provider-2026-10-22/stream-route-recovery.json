@@ -1,0 +1,161 @@
+{
+  "scope": "Handshake local handoff and actual per-stream route failover. Offline controlled runtime tests and physical cellular anonymous file transfers; no audio/video or controlled speed qualification.",
+  "sdk_commit": "62d6b15d",
+  "confirmed_mechanisms": [
+    "A locally unaccepted SYN or SYN_ACK consumed network handshake retries.",
+    "Unconfirmed handshake timeout was not forwarded from the engine through driver and mux/hub to circuit route recovery.",
+    "Data no-progress removed a sticky cache pin, but handshake membership immediately selected the same circuit again."
+  ],
+  "corrections": [
+    "Tracked handshake network timers start at local carrier handoff. Standalone sans-IO timing convention is preserved.",
+    "Continuous local handshake rejection remains bounded by the configured handshake retry budget and closes without a false network-loss event.",
+    "Handshake timeout notification is forwarded through the real driver, mux and hub.",
+    "Recovery atomically updates the affected Bulk route, a matching ACK route and bounded handshake membership under pool-to-route lock order.",
+    "Eligible alternative circuits keep the same receiver cookie and protected receiver key, respect live sessions, close generations, cooldowns and active-stream admission.",
+    "Unrelated streams and the shared circuit pool are retained; no usable alternative leaves the current route in place."
+  ],
+  "controls": {
+    "original_local_handshake_wait_falsely_generated_network_retry": true,
+    "original_handshake_route_recovery_kept_the_silent_pin": true,
+    "original_data_no_progress_reselected_old_handshake_membership": true,
+    "real_mux_exchange_fails_without_hub_callback_forwarding": true,
+    "temporary_control_source_restored_exactly": true,
+    "unguarded_candidate_fails_receiver_binding_regression": true,
+    "both_handshake_roles_local_wait_and_real_network_loss_covered": true,
+    "network_retry_cap_and_local_stall_bound_covered": true,
+    "confirmed_duplicate_syn_does_not_rearm_recovery": true,
+    "matching_protected_receiver_remaps_successfully": true,
+    "other_cookie_or_key_rejected_in_handshake_and_data_recovery": true,
+    "other_stream_bulk_and_ack_pins_and_active_counts_preserved": true,
+    "absent_closed_cooled_or_full_alternative_keeps_current_route": true,
+    "unit_fixture_uses_real_runtime_circuit_and_outboxes": true,
+    "unit_ready_wire_is_controlled_not_a_wan_measurement": true
+  },
+  "gates": {
+    "stream_tests_passed": 70,
+    "ffi_anonymous_stream_tests_passed": 42,
+    "all_target_clippy_clean": true,
+    "rustfmt_clean": true,
+    "production_mac_and_android_sdk_builds_passed": true,
+    "unchanged_sdk_export_names": true,
+    "sdk_export_count": 198,
+    "ordinary_frontends_unchanged": true,
+    "native_media_test_hooks_enabled": false,
+    "synthetic_media_enabled": false,
+    "calls_started": 0,
+    "final_source_frozen_sdk_installed_apk_and_loaded_library_verified": true
+  },
+  "preliminary_physical_run": {
+    "candidate_precedes_receiver_binding_guard": true,
+    "transfers": [
+      {
+        "direction": "phone_to_laptop",
+        "bytes": 4194304,
+        "success": true,
+        "sha256_matches": true,
+        "download_seconds": 104.367,
+        "download_test_window_seconds": 180,
+        "stream_request_attempts": 6,
+        "no_manifest_timeouts": 4,
+        "payload_idle_timeouts": 0,
+        "payload_idle_received_bytes": [],
+        "other_failed_attempts": 1,
+        "first_request_to_validated_manifest_seconds": 26.402,
+        "anonymous_stream_opens": 6,
+        "direct_stream_opens": 0
+      },
+      {
+        "direction": "laptop_to_phone",
+        "bytes": 4194304,
+        "success": true,
+        "sha256_matches": true,
+        "download_seconds": 9.748,
+        "download_test_window_seconds": 180,
+        "stream_request_attempts": 1,
+        "no_manifest_timeouts": 0,
+        "payload_idle_timeouts": 0,
+        "payload_idle_received_bytes": [],
+        "other_failed_attempts": 0,
+        "first_request_to_validated_manifest_seconds": 0.76,
+        "anonymous_stream_opens": 1,
+        "direct_stream_opens": 0
+      },
+      {
+        "direction": "phone_to_laptop",
+        "bytes": 33554432,
+        "success": false,
+        "sha256_matches": null,
+        "download_seconds": null,
+        "download_test_window_seconds": 180,
+        "stream_request_attempts": 2,
+        "no_manifest_timeouts": 0,
+        "payload_idle_timeouts": 1,
+        "payload_idle_received_bytes": [
+          12644300
+        ],
+        "other_failed_attempts": 1,
+        "first_request_to_validated_manifest_seconds": 7.162,
+        "anonymous_stream_opens": 2,
+        "direct_stream_opens": 0
+      }
+    ],
+    "policies_restored_and_verified": true
+  },
+  "final_physical_run": {
+    "final_receiver_binding_guard": true,
+    "transfers": [
+      {
+        "direction": "phone_to_laptop",
+        "bytes": 4194304,
+        "success": true,
+        "sha256_matches": true,
+        "download_seconds": 54.63,
+        "download_test_window_seconds": 180,
+        "stream_request_attempts": 2,
+        "no_manifest_timeouts": 0,
+        "payload_idle_timeouts": 1,
+        "other_failed_attempts": 0,
+        "first_request_to_validated_manifest_seconds": 3.177,
+        "anonymous_stream_opens": 2,
+        "direct_stream_opens": 0
+      },
+      {
+        "direction": "laptop_to_phone",
+        "bytes": 4194304,
+        "success": true,
+        "sha256_matches": true,
+        "download_seconds": 28.789,
+        "download_test_window_seconds": 180,
+        "stream_request_attempts": 1,
+        "no_manifest_timeouts": 0,
+        "payload_idle_timeouts": 0,
+        "other_failed_attempts": 0,
+        "first_request_to_validated_manifest_seconds": 1.158,
+        "anonymous_stream_opens": 1,
+        "direct_stream_opens": 0
+      }
+    ],
+    "policies_restored_and_verified": true
+  },
+  "unchanged": {
+    "network_rto_constants": true,
+    "window_and_queue_ceilings": true,
+    "wire_format_and_c_abi": true,
+    "relay_media_blindness_and_scheduling": true,
+    "call_mailbox_policy": true
+  },
+  "remaining": [
+    "The preliminary 32-MiB phone upload did not complete within 180 seconds; it had a payload idle timeout after 12,644,300 received bytes.",
+    "The final guarded SDK was physically retested with two 4-MiB files, not another 32-MiB upload.",
+    "The final phone upload still required automatic resume after one 20-second payload idle timeout.",
+    "Cold first-manifest delay, long payload stalls and general throughput remain unresolved. Separate runs cannot isolate network variation or rule out a performance regression.",
+    "Field success does not establish acoustic quality, video recovery, or full multi-device partition/revoke convergence."
+  ],
+  "cleanup": {
+    "owned_mac_and_phone_processes_absent": true,
+    "original_phone_apk_restored_and_hash_verified": true,
+    "qa_contact_policies_restored_and_verified": true,
+    "android_diagnostic_property_unchanged": true,
+    "owned_phone_file_fixtures_removed": true
+  }
+}
