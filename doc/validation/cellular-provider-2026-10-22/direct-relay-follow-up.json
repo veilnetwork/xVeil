@@ -1,0 +1,79 @@
+{
+  "scope": "Separate physical calls before the subthreshold probe-resume correction; not a causal comparison.",
+  "no_acoustic_assessment": true,
+  "captures": [
+    {
+      "route": "p2p",
+      "completed": true,
+      "duration_seconds": 179.877,
+      "synthetic_pcm_input": true,
+      "physical_cameras": true,
+      "physical_audio_devices_opened": false,
+      "endpoints": {
+        "laptop": {
+          "audio_tx_pkts": 3524,
+          "audio_rx_pkts": 4393,
+          "video_tx_frames": 5,
+          "video_rx_deliver_frames": 2,
+          "video_send_paused": 1,
+          "audio_latency_discarded_ms": 25910,
+          "audio_latency_recovery_count": 320,
+          "ordered_paths": 0,
+          "quic_paths": 1
+        },
+        "phone": {
+          "audio_tx_pkts": 4394,
+          "audio_rx_pkts": 3266,
+          "video_tx_frames": 3,
+          "video_rx_deliver_frames": 4,
+          "video_send_paused": 1,
+          "audio_latency_discarded_ms": 14500,
+          "audio_latency_recovery_count": 321,
+          "ordered_paths": 0,
+          "quic_paths": 1
+        }
+      }
+    },
+    {
+      "route": "relay",
+      "completed": true,
+      "duration_seconds": 179.967,
+      "synthetic_pcm_input": true,
+      "physical_cameras": true,
+      "physical_audio_devices_opened": false,
+      "endpoints": {
+        "laptop": {
+          "audio_tx_pkts": 3116,
+          "audio_rx_pkts": 3314,
+          "video_tx_frames": 3,
+          "video_rx_deliver_frames": 3,
+          "video_send_paused": 1,
+          "audio_latency_discarded_ms": 31680,
+          "audio_latency_recovery_count": 373,
+          "ordered_paths": 2,
+          "quic_paths": 0
+        },
+        "phone": {
+          "audio_tx_pkts": 3324,
+          "audio_rx_pkts": 3105,
+          "video_tx_frames": 3,
+          "video_rx_deliver_frames": 3,
+          "video_send_paused": 1,
+          "audio_latency_discarded_ms": 30830,
+          "audio_latency_recovery_count": 424,
+          "ordered_paths": 2,
+          "quic_paths": 0
+        }
+      },
+      "qa_contact_policies_restored": true
+    }
+  ],
+  "cleanup": {
+    "phone_stopped": true,
+    "mac_stopped": true,
+    "original_phone_apk_restored": true,
+    "original_phone_apk_hash_matches": true,
+    "phone_process_absent_after_restore": true,
+    "ordinary_private_stand_restored": true
+  }
+}
