@@ -1,0 +1,115 @@
+{
+  "schema": "xveil-cellular-follow-up/1",
+  "source_changes": [
+    "c5ca76b9",
+    "76820278",
+    "frontend intentional-pause correction"
+  ],
+  "network": "cellular phone; Wi-Fi disabled",
+  "synthetic_media": false,
+  "live_speech_assessed": false,
+  "calls": {
+    "phone-ceiling-final": {
+      "ring_seconds": 0.10275258304318413,
+      "connect_after_answer_seconds": 1.6618648340227082,
+      "duration_seconds": 139.50654783297796,
+      "endpoints": {
+        "mac": {
+          "video_tx_frames": 7,
+          "video_decoded_frames": 2,
+          "samples": 135,
+          "video_paused_samples": 129,
+          "packetization_hold_samples": 52,
+          "video_queue_pressure_samples": 117,
+          "local_audio_delay_ms": {
+            "median": 40,
+            "max": 182
+          },
+          "audio_latency_recovery_count": 146,
+          "audio_latency_discarded_ms": 4560,
+          "audio_latency_fallback_frames": 12
+        },
+        "phone": {
+          "video_tx_frames": 3,
+          "video_decoded_frames": 5,
+          "samples": 135,
+          "video_paused_samples": 129,
+          "packetization_hold_samples": 63,
+          "video_queue_pressure_samples": 115,
+          "local_audio_delay_ms": {
+            "median": 140,
+            "max": 204
+          },
+          "audio_latency_recovery_count": 181,
+          "audio_latency_discarded_ms": 15380,
+          "audio_latency_fallback_frames": 0
+        }
+      }
+    },
+    "phone-video-pause-fix": {
+      "ring_seconds": 0.6038883750443347,
+      "connect_after_answer_seconds": 2.556437499995809,
+      "duration_seconds": 139.38461074995575,
+      "endpoints": {
+        "mac": {
+          "video_tx_frames": 6,
+          "video_decoded_frames": 3,
+          "samples": 135,
+          "video_paused_samples": 128,
+          "packetization_hold_samples": 30,
+          "video_queue_pressure_samples": 0,
+          "local_audio_delay_ms": {
+            "median": 20,
+            "max": 170
+          },
+          "audio_latency_recovery_count": 132,
+          "audio_latency_discarded_ms": 2670,
+          "audio_latency_fallback_frames": 8
+        },
+        "phone": {
+          "video_tx_frames": 3,
+          "video_decoded_frames": 6,
+          "samples": 135,
+          "video_paused_samples": 130,
+          "packetization_hold_samples": 24,
+          "video_queue_pressure_samples": 0,
+          "local_audio_delay_ms": {
+            "median": 140,
+            "max": 200
+          },
+          "audio_latency_recovery_count": 169,
+          "audio_latency_discarded_ms": 10870,
+          "audio_latency_fallback_frames": 0
+        }
+      }
+    }
+  },
+  "files": [
+    {
+      "phase": "stream-probe-before",
+      "sender": "phone",
+      "receiver": "mac",
+      "bytes": 33554432,
+      "ok": true,
+      "elapsed_seconds": 102.61470858298708,
+      "download_seconds": 93.82132258295314,
+      "hash_matches": true
+    },
+    {
+      "phase": "stream-probe-coalesced",
+      "sender": "phone",
+      "receiver": "mac",
+      "bytes": 33554432,
+      "ok": true,
+      "elapsed_seconds": 126.4911575000151,
+      "download_seconds": 124.5982105419971,
+      "hash_matches": true
+    }
+  ],
+  "stream_probe_observations": {
+    "coalesced_receiver_queue_overflow": 1,
+    "coalesced_received_close_events": 3409,
+    "transfer_resumed_and_completed": true,
+    "temporary_probe_source_removed": true
+  }
+}
