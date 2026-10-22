@@ -16,6 +16,7 @@ import '../data/storage/storage.dart';
 import '../data/transport/veil_mailbox.dart' show MailboxPeerUnresolved;
 import '../data/transport/veil_transport.dart';
 import '../data/transport/stream_write_idle.dart';
+import '../data/transport/content_stream_credit.dart';
 import '../data/transport/wire_envelope.dart';
 import '../domain/device_history_ask.dart' show kHeavyHistoryMediaUntilKey;
 import '../domain/call_signal.dart';
@@ -3918,11 +3919,62 @@ class MessagingService {
     return value;
   }
 
-  Uint8List _streamRequest(String cid, {int offset = 0, int length = 0}) =>
-      Uint8List(_streamRequestBytes)
-        ..setAll(0, _hexDecode(cid))
-        ..setAll(32, _u64be(offset))
-        ..setAll(40, _u64be(length));
+  final _legacyContentStreams = <NodeId, DateTime>{};
+
+  Uint8List _streamRequest(
+    String cid, {
+    required NodeId peer,
+    int offset = 0,
+    int length = 0,
+    bool legacy = false,
+  }) {
+    final seen = _legacyContentStreams[peer];
+    final age = seen == null ? null : _now().difference(seen);
+    final oldPeer =
+        age != null && age >= Duration.zero && age < const Duration(minutes: 5);
+    return Uint8List(_streamRequestBytes)
+      ..setAll(0, _hexDecode(cid))
+      ..setAll(
+        32,
+        _u64be(
+          offset | (legacy || oldPeer ? 0 : ContentStreamCredit.offsetFlag),
+        ),
+      )
+      ..setAll(40, _u64be(length));
+  }
+
+  ({int length, ReliableStream stream}) _contentStreamHeader(
+    NodeId peer,
+    ReliableStream stream,
+    Uint8List request,
+    Uint8List prefix,
+  ) {
+    final offered = ContentStreamCredit.requested(
+      _readU64be(Uint8List.sublistView(request, 32, 40)),
+    );
+    final rawLength = _readU32be(prefix);
+    final accepted = rawLength & ContentStreamCredit.manifestFlag != 0;
+    if (offered && !accepted) {
+      _legacyContentStreams.remove(peer);
+      _legacyContentStreams[peer] = _now();
+      if (_legacyContentStreams.length > 256) {
+        _legacyContentStreams.remove(_legacyContentStreams.keys.first);
+      }
+      throw const _LegacyContentStream();
+    }
+    if (accepted && !offered) {
+      throw StateError('unrequested content stream credit');
+    }
+    return (
+      length: rawLength & ~ContentStreamCredit.manifestFlag,
+      stream: accepted
+          ? ContentStreamCreditReceiver(
+              stream,
+              ackTimeout: _streamPayloadWriteTimeout,
+            )
+          : stream,
+    );
+  }
 
   static Future<Uint8List> _awaitPayloadChunk(
     Future<Uint8List> read, {

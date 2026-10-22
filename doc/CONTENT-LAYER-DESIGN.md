@@ -7,6 +7,31 @@ phone↔desktop; see doc/ANYSIZE-FILE-TRANSFER-PLAN.md). Later anonymous onion
 content streams did gain NAT traversal and now accelerate the same verified
 receiver-pull protocol; they are not the abandoned `WireKind.fileStream` push.
 
+## Endpoint credit for reliable content streams (2026-10-22)
+
+The reliable content response can negotiate a 256 KiB read window. This bounds
+bytes admitted beyond the receiver's application reads, including the manifest,
+so a fast producer cannot overflow the SDK receive queue while a sink is slow.
+The receiver returns an eight-byte big-endian cumulative byte count before its
+next read after each 64 KiB, allowing acknowledgements to return while the
+remaining window is in flight. The sender validates cumulative increments
+and waits with a bounded idle timeout. It retains the stream until final credit
+or peer close/abort, so an early sender close cannot race late credits. The
+known-length receiver returns final consumed credit when closing. Credits acknowledge application reads;
+piece hashes, verified writes and final content verification remain separate.
+
+Negotiation preserves the existing 48-byte request layout. Bit 62 of the offset
+requests credit; a supporting sender removes it and sets bit 31 of the manifest
+length prefix. An older sender treats the marked offset as beyond EOF and sends
+only its ordinary manifest. A new receiver aborts that metadata-only attempt and
+reopens the original range without the marker. A bounded five-minute peer cache
+avoids repeating this probe. Old receivers continue to receive the original
+uncredited response. Compatibility fallback does not consume payload retries.
+
+This operates between endpoints inside the existing reliable stream. Relays
+remain unaware of content type and receive no traffic priority. It introduces
+no mailbox delivery, relay storage or change to content identity and hashes.
+
 ## Transport decision (proven on-device)
 - legacy veil **streams** (App family) + real-time data (`AppRtData`) are **direct-
   session-only** — no relay/onion egress, so they DON'T cross NAT. Verified:
