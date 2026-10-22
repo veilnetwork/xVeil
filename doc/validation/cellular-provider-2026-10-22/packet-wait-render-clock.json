@@ -1,0 +1,402 @@
+{
+  "date": "2026-10-22",
+  "status": "packet_wait_clock_fixed_video_freeze_unresolved",
+  "confirmed_defect": {
+    "description": "Catch-up pulls advanced packet-buffer stopwatches faster than render/arrival history.",
+    "regression": "Production RecoveringNetEqFactory, real NetEq and queued 20-ms PCMU packets.",
+    "before_one_render_ms": 170,
+    "after_one_render_ms": 10,
+    "discarded_within_first_render_ms": 160,
+    "successive_render_wait_ms": [
+      10,
+      20,
+      30
+    ]
+  },
+  "verification": {
+    "decoder_controller_rtp_lag_unit_gate": true,
+    "long_packet_jitter_speech_dtx_resume_120_seconds": true,
+    "recurring_jitter_both_buffer_capacities": true,
+    "three_party_group_real_opus_and_json": true,
+    "group_fresh_marker_age_ms": 171.972,
+    "quality_thresholds_relaxed": false
+  },
+  "continuous_source_baseline": {
+    "ok": true,
+    "duration_seconds": 179.01,
+    "pcm_driver_restarts": 0,
+    "camera_enable_seconds": 60.96,
+    "endpoints": {
+      "mac": {
+        "routes": [
+          "p2p"
+        ],
+        "final": {
+          "audio_tx_pkts": 4060,
+          "audio_rx_pkts": 3386,
+          "audio_latency_discarded_ms": 23030,
+          "audio_concealed_samples": 1506449,
+          "audio_silent_concealed_samples": 487819,
+          "audio_inserted_samples_for_deceleration": 4061,
+          "audio_removed_samples_for_acceleration": 3216,
+          "video_tx_frames": 3,
+          "video_rx_deliver_frames": 6,
+          "video_send_paused": 1,
+          "audio_packetization_video_hold": 0,
+          "audio_tx_packet_duration_ms": 40,
+          "audio_send_bandwidth_bps": 96000
+        },
+        "phases": {
+          "audio_only": {
+            "decoded_blocks": 5000,
+            "nonquiet_block_fraction": 0.879,
+            "render_interval_ms": {
+              "median": 9.999,
+              "p95": 10.762,
+              "max": 11.031
+            },
+            "queue_signals_ms": {
+              "audio_delay_ms": {
+                "median": 141.0,
+                "p95": 172.0,
+                "max": 190.0
+              },
+              "audio_rtp_lag_ms": {
+                "median": 134.0,
+                "p95": 199.0,
+                "max": 199.0
+              },
+              "audio_pressure_delay_ms": {
+                "median": 151.0,
+                "p95": 199.0,
+                "max": 199.0
+              },
+              "audio_jb_target_ms": {
+                "median": 140.0,
+                "p95": 140.0,
+                "max": 140.0
+              }
+            }
+          },
+          "video": {
+            "decoded_blocks": 11000,
+            "nonquiet_block_fraction": 0.941,
+            "render_interval_ms": {
+              "median": 9.999,
+              "p95": 10.698,
+              "max": 11.039
+            },
+            "queue_signals_ms": {
+              "audio_delay_ms": {
+                "median": 145.0,
+                "p95": 192.0,
+                "max": 220.0
+              },
+              "audio_rtp_lag_ms": {
+                "median": 154.0,
+                "p95": 178.0,
+                "max": 188.0
+              },
+              "audio_pressure_delay_ms": {
+                "median": 167.0,
+                "p95": 192.0,
+                "max": 220.0
+              },
+              "audio_jb_target_ms": {
+                "median": 140.0,
+                "p95": 140.0,
+                "max": 140.0
+              }
+            }
+          }
+        },
+        "last_video_tx_frames_advance_seconds": 81.24,
+        "last_video_rx_deliver_frames_advance_seconds": 139.86
+      },
+      "phone": {
+        "routes": [
+          "p2p"
+        ],
+        "final": {
+          "audio_tx_pkts": 3632,
+          "audio_rx_pkts": 4060,
+          "audio_latency_discarded_ms": 26090,
+          "audio_concealed_samples": 1256235,
+          "audio_silent_concealed_samples": 444079,
+          "audio_inserted_samples_for_deceleration": 4560,
+          "audio_removed_samples_for_acceleration": 2160,
+          "video_tx_frames": 7,
+          "video_rx_deliver_frames": 3,
+          "video_send_paused": 1,
+          "audio_packetization_video_hold": 0,
+          "audio_tx_packet_duration_ms": 40,
+          "audio_send_bandwidth_bps": 89825
+        },
+        "phases": {
+          "audio_only": {
+            "decoded_blocks": 5000,
+            "nonquiet_block_fraction": 0.8844,
+            "render_interval_ms": {
+              "median": 9.998,
+              "p95": 10.286,
+              "max": 13.686
+            },
+            "queue_signals_ms": {
+              "audio_delay_ms": {
+                "median": 130.0,
+                "p95": 172.0,
+                "max": 640.0
+              },
+              "audio_rtp_lag_ms": {
+                "median": 134.0,
+                "p95": 173.0,
+                "max": 182.0
+              },
+              "audio_pressure_delay_ms": {
+                "median": 141.0,
+                "p95": 182.0,
+                "max": 640.0
+              },
+              "audio_jb_target_ms": {
+                "median": 120.0,
+                "p95": 140.0,
+                "max": 140.0
+              }
+            }
+          },
+          "video": {
+            "decoded_blocks": 11000,
+            "nonquiet_block_fraction": 0.94682,
+            "render_interval_ms": {
+              "median": 9.99,
+              "p95": 10.736,
+              "max": 15.542
+            },
+            "queue_signals_ms": {
+              "audio_delay_ms": {
+                "median": 141.0,
+                "p95": 192.0,
+                "max": 201.0
+              },
+              "audio_rtp_lag_ms": {
+                "median": 126.0,
+                "p95": 165.0,
+                "max": 166.0
+              },
+              "audio_pressure_delay_ms": {
+                "median": 141.0,
+                "p95": 192.0,
+                "max": 201.0
+              },
+              "audio_jb_target_ms": {
+                "median": 120.0,
+                "p95": 140.0,
+                "max": 140.0
+              }
+            }
+          }
+        },
+        "last_video_tx_frames_advance_seconds": 139.86,
+        "last_video_rx_deliver_frames_advance_seconds": 81.24
+      }
+    }
+  },
+  "continuous_source_with_clock_fix": {
+    "ok": true,
+    "duration_seconds": 179.61,
+    "pcm_driver_restarts": 0,
+    "camera_enable_seconds": 60.22,
+    "endpoints": {
+      "mac": {
+        "routes": [
+          "p2p"
+        ],
+        "final": {
+          "audio_tx_pkts": 4185,
+          "audio_rx_pkts": 2926,
+          "audio_latency_discarded_ms": 15160,
+          "audio_concealed_samples": 1031237,
+          "audio_silent_concealed_samples": 30554,
+          "audio_inserted_samples_for_deceleration": 6637,
+          "audio_removed_samples_for_acceleration": 2844,
+          "video_tx_frames": 3,
+          "video_rx_deliver_frames": 0,
+          "video_send_paused": 1,
+          "audio_packetization_video_hold": 0,
+          "audio_tx_packet_duration_ms": 40,
+          "audio_send_bandwidth_bps": 96000
+        },
+        "phases": {
+          "audio_only": {
+            "decoded_blocks": 5000,
+            "nonquiet_block_fraction": 0.9816,
+            "render_interval_ms": {
+              "median": 9.999,
+              "p95": 10.672,
+              "max": 11.038
+            },
+            "queue_signals_ms": {
+              "audio_delay_ms": {
+                "median": 159.0,
+                "p95": 197.0,
+                "max": 230.0
+              },
+              "audio_rtp_lag_ms": {
+                "median": 179.0,
+                "p95": 227.0,
+                "max": 339.0
+              },
+              "audio_pressure_delay_ms": {
+                "median": 185.0,
+                "p95": 227.0,
+                "max": 339.0
+              },
+              "audio_jb_target_ms": {
+                "median": 140.0,
+                "p95": 140.0,
+                "max": 140.0
+              }
+            }
+          },
+          "video": {
+            "decoded_blocks": 11000,
+            "nonquiet_block_fraction": 0.98773,
+            "render_interval_ms": {
+              "median": 9.999,
+              "p95": 10.679,
+              "max": 11.055
+            },
+            "queue_signals_ms": {
+              "audio_delay_ms": {
+                "median": 146.0,
+                "p95": 195.0,
+                "max": 242.0
+              },
+              "audio_rtp_lag_ms": {
+                "median": 158.0,
+                "p95": 187.0,
+                "max": 461.0
+              },
+              "audio_pressure_delay_ms": {
+                "median": 161.0,
+                "p95": 200.0,
+                "max": 461.0
+              },
+              "audio_jb_target_ms": {
+                "median": 140.0,
+                "p95": 140.0,
+                "max": 140.0
+              }
+            }
+          }
+        },
+        "last_video_tx_frames_advance_seconds": 73.33,
+        "last_video_rx_deliver_frames_advance_seconds": null
+      },
+      "phone": {
+        "routes": [
+          "p2p"
+        ],
+        "final": {
+          "audio_tx_pkts": 3191,
+          "audio_rx_pkts": 4156,
+          "audio_latency_discarded_ms": 12230,
+          "audio_concealed_samples": 655252,
+          "audio_silent_concealed_samples": 2400,
+          "audio_inserted_samples_for_deceleration": 1680,
+          "audio_removed_samples_for_acceleration": 1067,
+          "video_tx_frames": 0,
+          "video_rx_deliver_frames": 1,
+          "video_send_paused": 1,
+          "audio_packetization_video_hold": 1,
+          "audio_tx_packet_duration_ms": 60,
+          "audio_send_bandwidth_bps": 46000
+        },
+        "phases": {
+          "audio_only": {
+            "decoded_blocks": 5000,
+            "nonquiet_block_fraction": 0.9946,
+            "render_interval_ms": {
+              "median": 9.993,
+              "p95": 10.524,
+              "max": 12.409
+            },
+            "queue_signals_ms": {
+              "audio_delay_ms": {
+                "median": 135.5,
+                "p95": 185.0,
+                "max": 192.0
+              },
+              "audio_rtp_lag_ms": {
+                "median": 126.5,
+                "p95": 167.0,
+                "max": 177.0
+              },
+              "audio_pressure_delay_ms": {
+                "median": 137.0,
+                "p95": 185.0,
+                "max": 192.0
+              },
+              "audio_jb_target_ms": {
+                "median": 120.0,
+                "p95": 140.0,
+                "max": 140.0
+              }
+            }
+          },
+          "video": {
+            "decoded_blocks": 11000,
+            "nonquiet_block_fraction": 0.99327,
+            "render_interval_ms": {
+              "median": 9.983,
+              "p95": 10.829,
+              "max": 18.245
+            },
+            "queue_signals_ms": {
+              "audio_delay_ms": {
+                "median": 141.0,
+                "p95": 183.0,
+                "max": 367.0
+              },
+              "audio_rtp_lag_ms": {
+                "median": 125.0,
+                "p95": 170.0,
+                "max": 175.0
+              },
+              "audio_pressure_delay_ms": {
+                "median": 142.0,
+                "p95": 183.0,
+                "max": 367.0
+              },
+              "audio_jb_target_ms": {
+                "median": 120.0,
+                "p95": 140.0,
+                "max": 140.0
+              }
+            }
+          }
+        },
+        "last_video_tx_frames_advance_seconds": null,
+        "last_video_rx_deliver_frames_advance_seconds": 72.29
+      }
+    }
+  },
+  "limitations": [
+    "Decoded nonquiet block fraction is a synthetic signal metric, not speech intelligibility or acoustic latency.",
+    "Field runs had variable route/network conditions; their difference does not prove the causal magnitude of this fix.",
+    "Both field runs failed to sustain video; native packetization and application holds remain.",
+    "No relay traffic classification or priority was introduced."
+  ],
+  "cleanup": {
+    "mac_api_cleanup_error": "URLError",
+    "phone_api_cleanup_error": "RemoteDisconnected",
+    "phone_stopped": true,
+    "mac_stopped": true,
+    "original_phone_apk_restored": true,
+    "original_phone_apk_hash_matches": true,
+    "phone_process_absent_after_restore": true,
+    "disposable_source_overlay_reset": true,
+    "owned_mac_pcm_caches_removed": true
+  },
+  "fix_sdk_commit": "caf8559d"
+}
