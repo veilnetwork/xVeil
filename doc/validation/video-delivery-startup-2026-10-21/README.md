@@ -476,6 +476,17 @@ protection. The isolated load case then received 480 of 500 attempts with no
 duplicates, p95 286 ms and a 151-ms maximum gap, passing the existing limits.
 This does not restore an unconditional RTT-based video-quality cut.
 
+Pre-release CI passed for SDK `c67cfe30` (including Windows native tests, devnet
+and the benchmark gate) and application `eaef3de5`. The scheduled native nightly
+still failed the unchanged public Space discovery test: authority generation
+0 was returned after transfer instead of 1. The same test already failed before
+0.13.88 while forming holder quorum, and both stale-generation and quorum
+failures are documented in the 0.13.87 changelog. The current nightly's
+multi-device harness passed. This existing discovery limitation is retained in
+the 0.13.89 release notes, not represented as a new video regression or a fix.
+Evidence: [current nightly](https://github.com/veilnetwork/xVeil/actions/runs/39749275327)
+and [baseline before 0.13.88](https://github.com/veilnetwork/xVeil/actions/runs/39570520090).
+
 SDK `ea3f857e` puts the legacy built-in synthetic video threads and the
 `VEIL_MEDIA_VIDEO_KBPS` pin behind `VEIL_MEDIA_TEST_HOOKS`, for both individual
 and group engines. Public API arguments and route ceilings remain available
