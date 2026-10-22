@@ -2,7 +2,70 @@
 
 **Status: file backpressure corrected on the tested path; call/video failures remain.**
 
-## Latest follow-up: Android device disconnect
+## Latest follow-up: valid group JSON and direct audio counters
+
+[group-stats-and-audio-counters.json](group-stats-and-audio-counters.json) contains
+only aggregate results. **Video remains unresolved.**
+
+### Confirmed production fix
+
+Group delivery statistics used a binary 32-byte participant id directly as a
+JSON object key. NUL bytes truncated the C string; quotes, backslashes and
+non-UTF-8 bytes could invalidate it. The native getter now emits hex keys. This
+restores complete group statistics for application parsing and adaptation.
+Anonymous diagnostic export still omits both participant-keyed maps.
+
+The real group test now uses ids containing NUL, quote, backslash and `0xff`,
+parses the complete output as UTF-8 JSON, checks both expected hex keys and
+requires numeric recovery fields to exist. **Its original PCM and timing gates
+were retained.** Final result: fresh mixed output from both sources at **170.56
+ms**, 50 warm mixed ticks, 15 recovered mixed ticks, six catch-up events, 880 ms
+trimmed, no fallback. The gate exited successfully.
+
+This also corrects earlier validation wording: the old group probe printed good
+PCM timings but exited with status **5**. Its missing JSON counters had silently
+been interpreted as zero. That run was not a passing gate. The cause was the
+malformed native JSON; no quality threshold was relaxed to make it pass.
+
+### Experiment removed after checking the evidence
+
+A new local-reserve condition for preemptive expansion passed a targeted unit
+case, the long-Opus and recurring-jitter experiments, but did not restore video
+on the phone. It was **removed from the final code**. Final production audio
+policy is unchanged from the preceding SDK commit.
+
+Direct native `inserted_samples_for_deceleration` and
+`removed_samples_for_acceleration` counters now appear in the native snapshot
+and the explicit anonymous-journal numeric allow-list. The control with the old
+audio policy measured only **33.94/74.44 ms** of inserted audio on laptop/phone,
+while forced catch-up discarded **2,510/8,680 ms** over approximately 119 seconds.
+A large expansion/discard loop is therefore not supported by these counters.
+Earlier inference from rendered RTP timestamp differences was not an
+authoritative measurement of added samples.
+
+Both the 179-second experiment and 119-second control stayed connected but sent
+**zero video frames**. Their routes differed (mixed P2P/relay versus relay), so
+latency changes cannot be attributed solely to the experiment. Native receive
+callback-to-worker handoff on the phone had p95 below **0.73 ms**, maximum below
+**4 ms** in these runs. This bounds that local handoff only, not SDK, sender or
+network queues. The remaining audio damage and source holds need investigation
+with sustained audio input; live microphone tests were mostly quiet.
+
+### Final verification and cleanup
+
+- Final decoder/catch-up unit gate and real group PCM/JSON gate passed.
+- Four anonymous-journal tests passed, including rejection of both real
+  participant-map field names; the two changed Dart files analyze cleanly.
+- Both production native builds retain **105 C ABI exports**, with test hooks
+  and synthetic media disabled. Final native source matches the physical
+  control build, including the retained Android disconnect recovery.
+- Owned applications, native test processes and log captures exited. Owned
+  phone traces/cache were removed, the original phone APK restored and its
+  hash verified. No raw/native trace, identity, address or key was exported.
+- Speech intelligibility and acoustic loudness remain unassessed; no relay
+  classification, priority or mailbox fallback was added.
+
+## Previous follow-up: Android device disconnect
 
 [aaudio-disconnect.json](aaudio-disconnect.json) contains only aggregate results.
 The previous apparent P2P path stall had an endpoint cause in this reproduction:
@@ -75,7 +138,8 @@ profile names, file names, device labels and keys remain outside the repository.
 - The native RTP-age catch-up path no longer drains below the adaptive decoder
   reserve merely because audio spent time upstream. The new regression fails
   on the old code. The independent hard local-storage budget is unchanged.
-  The long-Opus, recurring-jitter and group real-PCM gates pass. Recurring-jitter
+  The long-Opus and recurring-jitter gates pass; the earlier group
+  probe did not pass its exit-status gate (corrected in the latest follow-up). Recurring-jitter
   arrivals now follow source RTP time to avoid unrelated callback-boundary
   variation between controls; no acceptance threshold was relaxed.
 - The complete Flutter suite passes **5,777 tests, 154 skipped** for the sliding

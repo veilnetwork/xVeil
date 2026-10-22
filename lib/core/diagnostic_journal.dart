@@ -61,6 +61,8 @@ enum DiagnosticMetric {
   audioRecoveryCount,
   audioDiscardedMs,
   audioRecoveryFallbackFrames,
+  audioInsertedSamples,
+  audioAcceleratedSamples,
   jitterMs,
   lossPercent,
   rttMs,
@@ -152,6 +154,10 @@ class DiagnosticJournal {
     'audio_latency_discarded_ms': DiagnosticMetric.audioDiscardedMs,
     'audio_latency_fallback_frames':
         DiagnosticMetric.audioRecoveryFallbackFrames,
+    'audio_inserted_samples_for_deceleration':
+        DiagnosticMetric.audioInsertedSamples,
+    'audio_removed_samples_for_acceleration':
+        DiagnosticMetric.audioAcceleratedSamples,
     'jitter_ms': DiagnosticMetric.jitterMs,
     'loss_pct': DiagnosticMetric.lossPercent,
     'rtt_ms': DiagnosticMetric.rttMs,
