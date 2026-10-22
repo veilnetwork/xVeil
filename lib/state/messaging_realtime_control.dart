@@ -96,6 +96,10 @@ class _MessagingRealtimeControl {
   /// Serialize APP_RT frames independently from the durable inbox. A transient
   /// failure drops only one datagram and cannot poison later answer/end frames.
   Future<void> deliverInbound(InboundMessage message) {
+    diagnosticJournal.record(
+      DiagnosticEvent.callSignalReceived,
+      minInterval: const Duration(seconds: 1),
+    );
     // Start at Dart admission, before the serialized consent/dispatch lane.
     // This distinguishes local queue/handler waits from the age of a remote
     // signal. It cannot measure daemon/FFI waits or correct remote clock skew.
@@ -464,7 +468,23 @@ class _MessagingRealtimeControl {
   ) async {
     try {
       await send();
-    } catch (error) {
+      diagnosticJournal.record(
+        DiagnosticEvent.callSignalSent,
+        minInterval: const Duration(seconds: 1),
+      );
+    } catch (error, stack) {
+      if (kDiagnosticReportEnabled) {
+        errorJournal.record(
+          kind: 'call-signal-send',
+          error: error,
+          stack: stack,
+          atMs: DateTime.now().millisecondsSinceEpoch,
+        );
+      }
+      diagnosticJournal.record(
+        DiagnosticEvent.callSignalFailed,
+        minInterval: const Duration(seconds: 1),
+      );
       devLog(
         () =>
             'xVeil[$scope]: $lane live leg failed '
