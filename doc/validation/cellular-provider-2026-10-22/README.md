@@ -2,7 +2,59 @@
 
 **Status: file backpressure corrected on the tested path; call/video failures remain.**
 
-## Latest follow-up: packet waiting time follows actual renders
+## Latest follow-up — 23 October: sparse video and long Opus packets
+
+[sparse-video-packetization.json](sparse-video-packetization.json) contains only
+aggregate evidence. **Physical video freezing remains unresolved.**
+
+The native packet-duration gate required an emitted <=40-ms Opus packet before
+releasing video, even when the application had already selected its one-fps
+recovery trial. On a narrow audio allocation this could prevent the trial from
+starting. A source actually capped at **<=1 fps** can now coexist with 60-ms Opus.
+The explicit audio pause still stops that source; larger cadences retain the
+existing short-packet gate. The source cap is applied before sparse permission
+opens, and permission closes before raising cadence. No audio payload floor,
+route ceiling, relay role, priority or mailbox policy changed.
+
+A new regression uses the public video APIs, two real Opus/VP8 engines and a
+lossless mocked Veil boundary at a fixed 48-kbit audio allocation. With actual
+60-ms packets, the old library sends **zero** video frames in three seconds;
+the corrected library sends **three**, and the receiver decodes at least two.
+Explicit pause, resume, blocked unfunded 3-fps mode and return to 1 fps pass.
+The existing packet-policy/real-Opus gate decodes **991** valid packets. Both
+production libraries build with **105** public exports and no test hooks.
+
+The frame-sizing integration gate also exposed a pre-existing fixture defect:
+both libraries failed its immediate zero-cap assertion after profile retune.
+The test now waits for the asynchronous encoder update and funds the group
+fixture through the real allocator, because that source-only fixture has no
+receivers providing transport feedback. The original zero-cap recovery
+requirements remain. Direct/group integration and frame-budget unit gates pass.
+The additional allocator helper exists only in test builds.
+
+The **179.64-second P2P phone/laptop call** with continuous synthetic PCM and
+real cameras again stopped video: Mac/phone sent **5/2** frames and decoded
+**1/4**. The application audio pause persisted. This field failure is retained,
+not represented as a successful video recovery. Both source/render drivers
+kept ticking: their maximum intervals were **11.04/18.32 ms**, with no failed
+ticks or driver restarts.
+
+Packet joins narrow the remaining delay to the interval between sender native
+admission and receiver native arrival, which includes **SDK queues and the
+network**. Estimated maxima were **1171.96/1166.88 ms** (Mac-to-phone/reverse),
+with a combined initial clock-bracket width of 5.09 ms; clock-rate drift was not
+bounded. Sender admission maxima were **0.066/2.213 ms**, and receiver-native
+handoff maxima **4.994/0.094 ms**. Source RTP attempt gaps stayed below
+**65.77/77.94 ms**. These measurements do not identify the wire or provider as
+the sole cause, and local acceptance is not actual wire transmission. They also
+do not assess acoustic latency or intelligibility. The next investigation must
+separate SDK queueing from network delivery on this interval.
+
+Owned apps exited, original phone APK/hash and ordinary private stand artifacts
+were restored. No raw trace, identifier, address, payload or credential was
+exported.
+
+## Previous follow-up: packet waiting time follows actual renders
 
 [packet-wait-render-clock.json](packet-wait-render-clock.json) contains aggregate
 results only. **The video freeze remains unresolved.**
