@@ -69,6 +69,54 @@ void main() {
           includeParentEnvironment: true,
         );
 
+    test('shareable diagnostics never enable raw logs or the stand API', () {
+      for (final target in ['android', 'linux', 'windows']) {
+        final plan = run(
+          ['builder.py', target, '--release', '--dry-run'],
+          env: {
+            'XVEIL_DIAGNOSTICS': '1',
+            'XVEIL_RELEASE_LOG': '',
+            'XVEIL_DEBUG_HOOK': '',
+            'VEIL_MEDIA_TEST_HOOKS': '',
+          },
+        );
+        expect(plan.exitCode, 0, reason: '$target: ${plan.stderr}');
+        expect(
+          plan.stdout.toString(),
+          contains('--dart-define=XVEIL_DIAGNOSTICS=true'),
+        );
+        expect(
+          plan.stdout.toString(),
+          isNot(contains('--dart-define=XVEIL_RELEASE_LOG=true')),
+        );
+        expect(
+          plan.stdout.toString(),
+          isNot(contains('--dart-define=XVEIL_DEBUG_HOOK=true')),
+        );
+      }
+      final jit = run(
+        ['builder.py', 'android', '--debug', '--dry-run'],
+        env: {'XVEIL_DIAGNOSTICS': '1'},
+      );
+      expect(jit.exitCode, isNot(0));
+      expect(
+        '${jit.stderr}${jit.stdout}',
+        contains('requires a release AOT build'),
+      );
+      for (final unsafe in [
+        'XVEIL_RELEASE_LOG',
+        'XVEIL_DEBUG_HOOK',
+        'VEIL_MEDIA_TEST_HOOKS',
+      ]) {
+        final plan = run(
+          ['builder.py', 'android', '--release', '--dry-run'],
+          env: {'XVEIL_DIAGNOSTICS': '1', unsafe: '1'},
+        );
+        expect(plan.exitCode, isNot(0));
+        expect('${plan.stderr}${plan.stdout}', contains('cannot be combined'));
+      }
+    });
+
     /// EVERY platform arms the stand's control plane when asked.
     ///
     /// The hook is compile-time: a build made without the define has none and

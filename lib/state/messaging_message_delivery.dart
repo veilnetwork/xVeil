@@ -45,7 +45,9 @@ class _MessagingMessageDelivery {
   bool noteAck(String peerHex, String messageId) {
     _retryBackoff.remove(messageId);
     _lastReconnectAt.remove(peerHex);
-    return _delivered.add(messageId);
+    final first = _delivered.add(messageId);
+    if (first) diagnosticJournal.record(DiagnosticEvent.messageAcknowledged);
+    return first;
   }
 
   /// Any authenticated inbound proves the peer's path is healthy now. Rewind
@@ -137,6 +139,11 @@ class _MessagingMessageDelivery {
         //
         // Preserve the original timestamp and author sequence so retry and
         // gap-fill fold into the same convergent event on the recipient.
+        diagnosticJournal.record(
+          DiagnosticEvent.messageRetry,
+          values: {DiagnosticMetric.attempt: count},
+          minInterval: const Duration(seconds: 1),
+        );
         final Uint8List wire;
         if (message.isFile) {
           final offer = await _owner._fileOfferRetryFrame(message);

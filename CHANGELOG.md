@@ -24,6 +24,18 @@ bumps may change behaviour a user notices.
 - Retain conservative overload protection for callers without consumer health
   feedback, and exclude synthetic video/bitrate test inputs from production.
 
+### Diagnostics
+
+- Extend the existing `-debug` builds with an explicit allow-listed JSON report
+  instead of raw developer traces; add matching signed diagnostic Android APKs.
+- Export startup stages, native send error codes, message ACK/retry counters,
+  call transitions, numeric media stats, download retries and foreground-service
+  outcomes. Include dependency versions and remove free-text OS descriptions.
+- Offer clipboard and user-chosen file export in Settings and on onboarding.
+  Reports omit exception text, peer identifiers/addresses, keys, message content,
+  device labels and paths; instrumentation is off in normal releases. The journal
+  is memory-only and must be exported before closing or restarting the app.
+
 ### Dependencies and verification
 
 - Veil 0.11.44, hidden-volume 2.6.3 and rebuilt native call engines.

@@ -79,11 +79,24 @@ case "${XVEIL_DEBUG_HOOK:-}" in
     ;;
 esac
 
+REPORT_DEFINE=()
+case "${XVEIL_DIAGNOSTICS:-}" in
+  1|true|yes)
+    [[ "$CONFIG" == release ]] || { echo "Diagnostics require release AOT" >&2; exit 1; }
+    for unsafe in XVEIL_RELEASE_LOG XVEIL_DEBUG_HOOK VEIL_MEDIA_TEST_HOOKS; do
+      case "${!unsafe:-}" in
+        1|true|yes) echo "Diagnostics cannot be combined with $unsafe" >&2; exit 1 ;;
+      esac
+    done
+    REPORT_DEFINE=(--dart-define=XVEIL_DIAGNOSTICS=true)
+    ;;
+esac
+
 echo "==> flutter config ($CONFIG, version=$VERSION)"
 flutter build macos "--$CONFIG" --config-only \
   --dart-define=XVEIL_VERSION="$VERSION" \
   --dart-define=XVEIL_VEIL_VERSION="$VEIL_BUILD_VERSION" \
-  --dart-define=XVEIL_HV_VERSION="$HV_BUILD_VERSION" "${HOOK_DEFINE[@]}"
+  --dart-define=XVEIL_HV_VERSION="$HV_BUILD_VERSION" "${HOOK_DEFINE[@]}" "${REPORT_DEFINE[@]}"
 
 echo "==> xcodebuild (ad-hoc, no VPN entitlement)"
 # -derivedDataPath is NOT optional. Without it xcodebuild writes the app into
