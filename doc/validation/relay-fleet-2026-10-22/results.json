@@ -1,0 +1,72 @@
+{
+  "date": "2026-10-22",
+  "status": "all_nine_services_updated_and_verified",
+  "previous_version": "0.11.43",
+  "latest_published_release": "v0.11.44",
+  "release_url": "https://github.com/veilnetwork/veil/releases/tag/v0.11.44",
+  "production_artifact_signature_valid": true,
+  "production_checksum_matches_signed_manifest": true,
+  "release_ci": [
+    {
+      "workflow": "release",
+      "conclusion": "success"
+    },
+    {
+      "workflow": "mobile-cross-compile",
+      "conclusion": "success"
+    },
+    {
+      "workflow": "mobile-cross-compile",
+      "conclusion": "success"
+    },
+    {
+      "workflow": "CI",
+      "conclusion": "success"
+    }
+  ],
+  "testnet_build": {
+    "release": "v0.11.44",
+    "source_commit": "c67cfe3079f2f6fbaa6beb45b165f3fbc8254a89",
+    "source_export_matches_tag": true,
+    "verified_source_files": 1446,
+    "features": "rocksdb-cold,tls-boring,testnet-seeds,veil-node-runtime/testnet-seeds",
+    "target": "x86_64-unknown-linux-musl",
+    "source_epoch_is_numeric": true,
+    "build_passed": true
+  },
+  "services": [
+    {
+      "network": "production",
+      "service_count": 6,
+      "installed_version": "0.11.44",
+      "running_version": "0.11.44",
+      "healthy_services": 6,
+      "configurations_unchanged": true,
+      "binary_hashes_verified": true,
+      "state_and_binary_backups_created": true,
+      "same_process_since_planned_restart": true,
+      "unexpected_restarts": 0,
+      "listeners_verified": [
+        "quic/8443",
+        "obfs4/5556"
+      ]
+    },
+    {
+      "network": "testnet",
+      "service_count": 3,
+      "installed_version": "0.11.44",
+      "running_version": "0.11.44",
+      "healthy_services": 3,
+      "configurations_unchanged": true,
+      "binary_hashes_verified": true,
+      "state_and_binary_backups_created": true,
+      "same_process_since_planned_restart": true,
+      "unexpected_restarts": 0,
+      "listeners_verified": [
+        "obfs4/5557"
+      ]
+    }
+  ],
+  "sensitive_data_exported": false,
+  "correction": "Earlier mention of 0.11.37 was historical and did not describe the current fleet. Direct inspection found 0.11.43 before this rollout."
+}
