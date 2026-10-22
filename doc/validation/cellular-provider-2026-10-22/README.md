@@ -2,7 +2,82 @@
 
 **Status: file backpressure corrected on the tested path; call/video failures remain.**
 
-## Latest follow-up — 23 October: sparse video and long Opus packets
+## Latest follow-up — 23 October: delivery stages and subthreshold probe recovery
+
+[socket-to-kernel-delivery.json](socket-to-kernel-delivery.json) and
+[direct-relay-follow-up.json](direct-relay-follow-up.json) contain aggregate
+evidence only. **The physical video freeze and long delivery tail remain open.**
+
+### Separating local queues from delivery
+
+The 179.88-second direct call enabled endpoint UDP tracing on both sides.
+Encrypted datagrams are joined only by a unique matching digest and size,
+on local connections accepting the owned primary source. Grouped receive
+timestamps, ambiguous matches and packets outside the calibrated interval
+cannot supply a one-packet delay. These are opaque datagrams on those
+connections, not an audio-only measurement or a packet-loss census.
+
+Start/end phone-wall-clock brackets form a conservative 47.19-ms offset
+envelope. Assuming no unobserved clock step outside that envelope, the
+matched socket-send-to-peer-kernel maxima are:
+
+| Direction | Eligible matches | Lower bound on maximum | Upper bound on maximum | Peer kernel-to-poll maximum upper bound |
+| --- | ---: | ---: | ---: | ---: |
+| Laptop → phone | 230 | 1085.51 ms | 1133.70 ms | 4.89 ms |
+| Phone → laptop | 276 | 1134.05 ms | 1182.24 ms | 1.69 ms |
+
+Socket send is recorded after successful OS handoff. This span includes
+sender OS transmit queues and the external network, and does not identify
+the provider or NIC as the cause. QUIC acceptance is an earlier stage:
+budget admission to acceptance peaked at 0.274/3.580 ms. The laptop QUIC
+connection also recorded a **199.14-ms lifetime datagram queue maximum**,
+mostly congestion-window blocking. Lifetime maxima are not packet latency
+percentiles and cannot be added to unrelated maxima to reconstruct one packet.
+
+The separate 179.97-second relay comparison used only temporary QA-contact
+P2P overrides, which were restored and checked. Ordinary ordered relay paths
+were active; no direct QUIC media path was reported. Video froze there too:
+laptop/phone sent 3/3 frames and decoded 3/3, versus 5/3 sent and 2/4 decoded
+in the direct capture. Both calls used continuous synthetic PCM through the
+real codecs/network, real cameras, and no physical audio device. They were
+separate network observations, not a controlled causal quality comparison.
+Matching ciphertext across endpoint sockets cannot measure a relay path whose
+hop encryption changes, so no relay one-way UDP latency is claimed.
+
+`scripts/analyze_physical_udp_delivery.py` reproduces the direct timing
+summary without exporting digests, connections, cells, wall offsets, payloads
+or addresses. Its **10 tests** cover both clock directions, uncertainty,
+capture boundaries, ambiguous/replayed samples, other connections, missing
+kernel/GRO timestamps, clock/size contradictions and lifetime maxima.
+
+### Confirmed recovery-policy correction
+
+Native duration windows already distinguish small repairs from significant
+speech damage when deciding video cuts. The sparse-resume gate nevertheless
+rejected every fresh concealment/catch-up event, even when the same duration
+measurement explicitly said the damage was below its threshold. A sequence
+of small repairs could therefore keep video paused indefinitely.
+
+Measured subthreshold repairs now allow the existing three-sample recovery
+to release **only the one-fps trial**. Raw repair events still hold growth.
+Significant damage, interruptions, admission/network loss, unsafe or missing
+playout measurements, and unknown/partial duration support retain their
+protection. Buffer and duration thresholds are unchanged.
+
+The new public-adapter regression failed on the old code (the trial stayed
+paused), then passed with the correction. Partial support in either direction
+and significant-damage controls also pass. **270 tests** across the adapter,
+source pressure/recovery, transient loss, buffer windows, video delivery and
+group adapter pass; the two changed Dart files analyze cleanly.
+
+These physical captures preceded the policy correction. They contain frequent
+significant audio damage, so the correction is not represented as resolving
+their freeze or as a new physical quality qualification. No live speech,
+headphone loudness or acoustic latency assessment was performed. Owned apps
+exited, QA policies and the exact original phone APK were restored; the
+ordinary private stand artifact was restored as well.
+
+## Previous follow-up — 23 October: sparse video and long Opus packets
 
 [sparse-video-packetization.json](sparse-video-packetization.json) contains only
 aggregate evidence. **Physical video freezing remains unresolved.**
