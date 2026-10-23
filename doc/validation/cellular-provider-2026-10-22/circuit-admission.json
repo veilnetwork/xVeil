@@ -1,0 +1,136 @@
+{
+  "transfers": [
+    {
+      "direction": "phone->mac",
+      "bytes": 33554432,
+      "success": true,
+      "download_seconds": 354.45,
+      "elapsed_seconds": 385.752,
+      "integrity_matches": true,
+      "diagnostic_limit_seconds": 600,
+      "original_180_second_completion_gate_passed": false,
+      "pull_requests": 3,
+      "failed_attempts_including_final_harness_cancellation": 2,
+      "source_payload_write_idle_timeouts": 0,
+      "application_reset_failures_including_final_harness_cancellation": 0,
+      "harness_cancellation_requested": false,
+      "manifest_phase_failures": 2,
+      "resume_request_offsets": [],
+      "anonymous_opens": 6,
+      "direct_opens": 0,
+      "at_180_seconds": {
+        "download_elapsed_seconds": 180.351,
+        "sink_file_length_highwater_bytes": 14680064,
+        "complete": false,
+        "diagnostic_continues": true
+      }
+    },
+    {
+      "direction": "phone->mac",
+      "bytes": 4194304,
+      "success": true,
+      "download_seconds": 29.845,
+      "elapsed_seconds": 31.056,
+      "integrity_matches": true,
+      "diagnostic_limit_seconds": 180,
+      "original_180_second_completion_gate_passed": true,
+      "pull_requests": 1,
+      "failed_attempts_including_final_harness_cancellation": 0,
+      "source_payload_write_idle_timeouts": 0,
+      "application_reset_failures_including_final_harness_cancellation": 0,
+      "harness_cancellation_requested": false,
+      "manifest_phase_failures": 0,
+      "resume_request_offsets": [],
+      "anonymous_opens": 1,
+      "direct_opens": 0
+    }
+  ],
+  "driver_samples": {
+    "mac": {
+      "samples": 296,
+      "max_sampled_local_handoff_wait_ms": 7106
+    },
+    "phone": {
+      "samples": 310,
+      "max_sampled_local_handoff_wait_ms": 8039
+    }
+  },
+  "policies_restored": {
+    "mac": true,
+    "phone": true
+  },
+  "network": {
+    "wifi_disabled": true,
+    "mobile_data_enabled": true,
+    "default_transport_is_cellular": true
+  },
+  "parent_sdk": "3ba02e37",
+  "fixed_sdk": "1300de5f",
+  "verification": {
+    "parent_actual_assertion_failures": 4,
+    "runtime_regression_tests_added": 5,
+    "session_regression_tests_added": 5,
+    "counts": {
+      "session-tests": {
+        "passed": 666,
+        "failed": 0,
+        "ignored": 8
+      },
+      "runtime-circuit-tests": {
+        "passed": 20,
+        "failed": 0,
+        "ignored": 0
+      },
+      "stream-full": {
+        "passed": 116,
+        "failed": 0,
+        "ignored": 0
+      },
+      "ffi-embedded-regressions": {
+        "passed": 58,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    "clippy_all_targets_warnings_denied": true,
+    "rustfmt": true,
+    "production_sdk_builds": [
+      "macos",
+      "android"
+    ],
+    "ffi_exports": {
+      "libveilclient_ffi.dylib": {
+        "export_names_match_parent": true,
+        "veil_export_count": 198
+      },
+      "libveilclient_ffi.so": {
+        "export_names_match_parent": true,
+        "veil_export_count": 198
+      }
+    }
+  },
+  "cleanup": {
+    "phone_stopped": true,
+    "mac_stopped": true,
+    "original_phone_apk_restored": true,
+    "original_phone_apk_hash_matches": true,
+    "phone_process_absent_after_restore": true,
+    "final_tested_build_verified": true,
+    "android_diagnostic_property_restored": true,
+    "owned_phone_file_fixtures_removed": true,
+    "owned_mac_process_absent_independent_check": true,
+    "owned_mac_pid_absent": true,
+    "phone_package_process_absent": true,
+    "stand_log_capture_absent": true
+  },
+  "interpretation": {
+    "local_rejection_replay_loss_proved_under_controlled_reordering": true,
+    "actual_duplicates_remain_rejected": true,
+    "counter_exhaustion_is_permanent_under_concurrent_calls": true,
+    "sequence_exhaustion_not_claimed_as_cause_of_32_mib_transfer_failure": true,
+    "physical_speed_gain_not_established": true,
+    "original_180_second_gate_preserved": true,
+    "separate_600_second_diagnostic_for_large_transfer": true,
+    "overall_goal_remains_open": true
+  }
+}

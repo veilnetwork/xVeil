@@ -2,7 +2,66 @@
 
 **Status: partial stream fixes verified; long-transfer stability and call/video failures remain open.**
 
-## Latest follow-up — 23 October: nonblocking cold-pool admission
+## Latest follow-up — 23 October: reserve admission before sealing
+
+SDK **`1300de5f`** fixes a controlled local-rejection/replay failure. Previously,
+the origin allocated a circuit sequence and sealed a cell before checking its
+session queue. Repeated QueueFull attempts could therefore move the circuit
+sequence far ahead without handing those cells to the network. In the real
+outbox/ReplayWindow regression, a later accepted cell arriving before two
+earlier accepted cells made those still-fresh cells appear too old. This is a
+synthetic reordering reproduction, not proof of the physical upload's cause.
+
+Recoverable source cells now reserve their existing queue slot and byte credits
+before sealing. Full, closed or missing admission skips construction; build and
+length failures release reservations. Accepted envelopes retain their credits
+through the scheduler, including a restored send. Activity and full-rejection
+accounting remain in the registry. The frame uses the existing wire encoder and
+ordinary header; this adds no relay role, priority, queue allowance or wire
+field. Actual duplicate cells remain rejected by the unchanged replay window.
+Deadline-bound media paths retain their existing admission behavior.
+
+The same cycle fixes circuit sequence exhaustion: fetch-add previously wrapped
+the atomic even when the caller received None. A later concurrent call could
+reuse low sequence values. Allocation now stays exhausted permanently and asks
+for rotation, including when recoverable ingress is full. Sequential and
+eight-thread boundary tests verify uniqueness. Reaching the 32-bit boundary is
+**not claimed as the cause of a 32-MiB transfer failure**.
+
+Four regressions fail with actual assertions on parent SDK `3ba02e37`. The fix
+adds five runtime and five session regressions. Verification passes: **666
+session tests** (8 ignored), **20 circuit-filtered runtime tests**, **116 stream
+tests**, **58 targeted embedded FFI tests**, all-target Clippy with warnings
+denied and rustfmt. Production macOS and Android SDKs build with the same **198
+C export names** each. This is scoped local verification, not a full CI claim.
+
+### Physical upload after admission correction
+
+The unchanged frontends used the new frozen SDK on the same owned cellular
+phone/Mac stand. Wi-Fi was disabled; own-contact P2P was denied and all opens
+were anonymous. No call, camera or physical audio device was opened.
+
+| Direction | Size | Download result | Attempts / integrity |
+| --- | ---: | --- | --- |
+| Phone → Mac | 32 MiB | **354.450 s**; failed original **180-s** gate, completed within separate 600-s diagnostic | Three pull requests, two manifest-phase failures; integrity matches |
+| Phone → Mac | 4 MiB | **29.845 s**; passed original 180-s gate | One pull request, no failed attempt; integrity matches |
+
+At 180.351 s the observed sink file length was **14,680,064 bytes**. No positive
+resume request or source payload-write-idle event was observed in this run.
+Successful completion does not erase the two manifest failures or prove stable
+throughput. Route selection and network load were not controlled against the
+preceding run; no physical speed gain or complete long-file fix is claimed.
+The next investigation remains the manifest retries and slow delivery through
+the stream path. [circuit-admission.json](circuit-admission.json) contains only
+aggregate results and the scoped verification gates.
+
+Final source/frozen SDK/installed APK/loaded Mac library checks passed. The
+original phone APK was restored with matching hash, diagnostics and own-contact
+policies were restored, owned fixtures were removed, and independent process
+checks found no owned Mac app, phone app or log capture. Live speech, Windows,
+call/video recovery and full multi-device qualification remain open.
+
+## Previous follow-up — 23 October: nonblocking cold-pool admission
 
 SDK **`3ba02e37`** corrects a confirmed carrier-blocking defect.
 `open_outbound_for_handshake`
