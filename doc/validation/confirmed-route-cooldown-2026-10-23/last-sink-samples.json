@@ -1,0 +1,12 @@
+{
+  "large": {
+    "last_download_elapsed_seconds": 599.141,
+    "last_sink_length_bytes": 19922944,
+    "maximum_observed_sink_length_bytes": 19922944
+  },
+  "phone": {
+    "last_download_elapsed_seconds": 179.948,
+    "last_sink_length_bytes": 1048576,
+    "maximum_observed_sink_length_bytes": 1048576
+  }
+}

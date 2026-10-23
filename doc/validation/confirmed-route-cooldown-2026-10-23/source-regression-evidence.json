@@ -1,0 +1,15 @@
+{
+  "sdk_parent": "a67a003c",
+  "sdk_fix": "e9d3bd3d",
+  "parent_failed_confirmed_recovery_regression": true,
+  "fixed_regression_passed": true,
+  "real_services_and_local_data_admission": true,
+  "regression_cases": 7,
+  "stream_tests_passed": 124,
+  "anonymous_stream_tests_passed": 65,
+  "stream_all_target_clippy_warnings_denied_passed": true,
+  "client_all_target_clippy_warnings_denied_passed": true,
+  "rustfmt_check_passed": true,
+  "new_media_test_hook": false,
+  "frontend_changed": false
+}
