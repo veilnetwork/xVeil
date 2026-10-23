@@ -208,6 +208,13 @@ class RelayCluster {
   /// Every relay's log tail, for a failure message.
   String diagnostics() => nodes.map((n) => n.logTail()).join('\n');
 
+  /// Local admin operations on this throwaway island only, e.g. a controlled
+  /// network partition. They never change the host firewall or public relays.
+  Future<String> admin(RelayNode node, List<String> command) {
+    if (!nodes.contains(node)) throw ArgumentError('not an owned relay');
+    return _run(['-c', node.configPath, ...command]);
+  }
+
   /// Fail loudly if any node in this island could reach a real seed.
   ///
   /// The check is on the FILE, not on our intent to have written it: this is
