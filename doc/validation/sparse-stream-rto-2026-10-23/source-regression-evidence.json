@@ -1,0 +1,17 @@
+{
+  "sdk_fix": "8998746a",
+  "sdk_parent": "15c2a408",
+  "old_policy_with_demand_plumbing_failed_sparse_case": true,
+  "fixed_eight_case_matrix_passed": true,
+  "real_engine_timeouts_and_real_local_outbox_admission": true,
+  "driver_and_mux_context_propagation_test_passed": true,
+  "local_pending_and_hidden_rewind_stay_conservative": true,
+  "stream_tests_passed": 126,
+  "anonymous_stream_tests_passed": 66,
+  "stream_clippy_warnings_denied_passed": true,
+  "client_clippy_warnings_denied_passed": true,
+  "rustfmt_check_passed": true,
+  "cellular_physical_test_completed": false,
+  "new_wire_field": false,
+  "relay_priority_changed": false
+}

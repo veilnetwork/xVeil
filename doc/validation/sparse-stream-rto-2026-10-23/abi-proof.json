@@ -1,0 +1,10 @@
+{
+  "libveilclient_ffi.dylib": {
+    "export_names_unchanged": true,
+    "veil_export_count": 199
+  },
+  "libveilclient_ffi.so": {
+    "export_names_unchanged": true,
+    "veil_export_count": 199
+  }
+}

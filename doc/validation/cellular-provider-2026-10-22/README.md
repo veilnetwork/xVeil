@@ -1,8 +1,28 @@
 # Cellular call and file validation — 2026-10-22
 
-**Status: confirmed recovery no longer retains its observed stale rendezvous cooldown. The latest cellular file pair still failed: setup/manifest-first-byte timeouts, payload stalls and reconstruction remain open, alongside call/video qualification.**
+**Status: stale cooldown recovery and false route repair for progressing sparse writes are fixed in source and covered by regressions. The latest physical cellular file pair still failed. Local reply admission, setup/manifest-first-byte timeouts, payload stalls, call/video and multi-device qualification remain open.**
 
-## Latest follow-up — 23 October: confirmed rendezvous cooldown recovery
+## Latest source follow-up — 23 October: sparse-stream RTO health
+
+SDK **`8998746a`** prevents separate, successfully ACKed small writes from
+accumulating a false backlogged-crawl streak. The engine reports actual local
+demand; the driver excludes queued commands/unhanded cells, and the carrier
+resets the streak only for an isolated small-flight timeout with ACK progress.
+Backlog, blackhole, rewind and legacy behavior remain conservative. An old-policy
+regression fails, eight real-engine/outbox cases pass, and driver/mux propagation
+is covered. All **126 stream / 66 client tests**, Clippy, rustfmt and production
+native/199-export checks pass. See the [dedicated report](../sparse-stream-rto-2026-10-23/README.md).
+
+This is **not physically qualified on the cellular stand yet**: Poco disappeared
+before installation, leaving Blackview on Wi-Fi. No replacement-phone data,
+settings or application was changed. Independently, one prior failed manifest
+reply was matched to **7743 ms local wait / 3487 rejections**, with its first
+four bytes still unhanded and zero DATA RTOs. Opt-in diagnostics in `15c2a408`
+distinguish child availability, capacity and local source budget for the next
+measurement. That local admission blockage remains unresolved; no speed or
+file-completion improvement is claimed for this source correction.
+
+## Previous follow-up — 23 October: confirmed rendezvous cooldown recovery
 
 SDK **`e9d3bd3d`**, following opt-in diagnostics in **`a67a003c`**, fixes a
 reproduced error where fresh confirmed candidates remained excluded by a
