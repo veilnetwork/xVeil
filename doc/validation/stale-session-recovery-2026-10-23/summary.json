@@ -48,7 +48,6 @@
       "failed_attempts_including_final_harness_cancellation": 1,
       "source_request_phase_observed_in_retained_log": true,
       "source_log_at_retained_line_limit": false,
-      "source_payload_write_idle_timeouts": 0,
       "application_reset_failures_including_final_harness_cancellation": 1,
       "harness_cancellation_requested": true,
       "manifest_phase_failures": 0,
@@ -59,7 +58,8 @@
       "resume_request_offsets": [],
       "anonymous_opens": 1,
       "direct_opens": 0,
-      "last_sampled_sink_bytes": 4194304
+      "last_sampled_sink_bytes": 4194304,
+      "source_payload_write_idle_failures_after_request_not_content_correlated": 0
     },
     {
       "direction": "phone->mac",
@@ -74,7 +74,6 @@
       "failed_attempts_including_final_harness_cancellation": 0,
       "source_request_phase_observed_in_retained_log": true,
       "source_log_at_retained_line_limit": false,
-      "source_payload_write_idle_timeouts": 0,
       "application_reset_failures_including_final_harness_cancellation": 0,
       "harness_cancellation_requested": false,
       "manifest_phase_failures": 0,
@@ -85,7 +84,8 @@
       "resume_request_offsets": [],
       "anonymous_opens": 1,
       "direct_opens": 0,
-      "last_sampled_sink_bytes": 3932160
+      "last_sampled_sink_bytes": 3932160,
+      "source_payload_write_idle_failures_after_request_not_content_correlated": 0
     }
   ],
   "driver_retry_episodes": {
