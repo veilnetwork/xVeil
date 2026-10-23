@@ -1,6 +1,8 @@
 @Timeout(Duration(minutes: 30))
 library;
 
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/transport/bootstrap_invite.dart';
 import 'package:xveil/data/transport/device_link_invite.dart';
@@ -307,6 +309,119 @@ void main() {
       skip: gate.skip,
     );
   }
+
+  test(
+    'isolated A/B/C: offline C sends before post-revoke master message',
+    () async {
+      final f = await ProcessFleet.start(gate);
+      addTearDown(f.dispose);
+      final a = f.a, b = f.b, c = f.c;
+      await introduceProcesses(a, c);
+      await linkProcesses(a, b);
+      final ai = (await deviceInfo(a))['identity'] as String;
+      final ci = (await deviceInfo(c))['identity'] as String;
+      final oldDevice = (await deviceInfo(b))['nodeId'] as String;
+      // Preserve the contact and its P2P policy through restart. Do not
+      // manually refresh it with a post-revoke A/C join or message from A.
+      await c.checked('/contact_set', query: {'peer': ai, 'p2p': 'deny'});
+      await b.checked(
+        '/send_message',
+        query: {'peer': ci, 'text': 'stale-C-before-revoke'},
+      );
+      await hasBody(c, ai, 'stale-C-before-revoke');
+      await c.checked(
+        '/send_message',
+        query: {'peer': ai, 'text': 'stale-C-family-before-revoke'},
+      );
+      await hasBody(a, ci, 'stale-C-family-before-revoke');
+      await hasBody(b, ci, 'stale-C-family-before-revoke');
+      await b.stop();
+      await c.stop();
+      final revoked = await a.checked(
+        '/device_revoke',
+        query: {'peer': oldDevice},
+        body: E2eIdentity.x.phrase,
+      );
+      expect(revoked['docRevoked'], isTrue);
+      await b.start();
+      await c.start();
+      expect((await deviceInfo(b))['nodeId'], oldDevice);
+      expect((await deviceInfo(b))['identity'], ai);
+      expect(
+        (await c.checked('/contact_info', query: {'peer': ai}))['p2pOverride'],
+        'deny',
+      );
+
+      const first = 'stale-C-first-post-revoke-send';
+      const attack = 'stale-C-revoked-B-attempt';
+      final violations = <String, int>{};
+      final observed = Stopwatch()..start();
+      final watching = Completer<void>();
+      var stop = false;
+      Object? observationError;
+      Future<void> observe() async {
+        try {
+          while (!stop) {
+            for (final (device, peer, body, violation) in [
+              (b, ci, first, 'old B received the first post-revoke send'),
+              (c, ai, attack, 'C accepted a message signed by revoked B'),
+            ]) {
+              final result = await device.call(
+                '/messages',
+                query: {'peer': peer, 'limit': '1000'},
+                timeout: const Duration(seconds: 5),
+              );
+              expect(result['ok'], isTrue);
+              final messages = result['messages'] as List;
+              if (messages.any((m) => m['body'] == body)) {
+                violations.putIfAbsent(
+                  violation,
+                  () => observed.elapsedMilliseconds,
+                );
+              }
+            }
+            if (!watching.isCompleted) watching.complete();
+            await Future<void>.delayed(const Duration(milliseconds: 500));
+          }
+        } catch (error) {
+          observationError = error;
+          if (!watching.isCompleted) watching.completeError(error);
+        }
+      }
+
+      final observer = observe();
+      try {
+        await watching.future.timeout(const Duration(seconds: 10));
+        // No post-revoke A/C join or A application message precedes this.
+        await c.checked('/send_message', query: {'peer': ai, 'text': first});
+        await hasBody(a, ci, first);
+        await join(b, c);
+        await b.checked('/send_message', query: {'peer': ci, 'text': attack});
+        final afterAttack = Stopwatch()..start();
+        while (afterAttack.elapsed < const Duration(seconds: 60)) {
+          if (observationError != null) throw observationError!;
+          await Future<void>.delayed(const Duration(milliseconds: 500));
+        }
+      } finally {
+        stop = true;
+        await observer;
+      }
+      expect(observationError, isNull);
+      expect(
+        violations,
+        isEmpty,
+        reason: 'post-revoke delivery before master application traffic',
+      );
+      await a.checked(
+        '/send_message',
+        query: {'peer': ci, 'text': 'stale-C-later-master-control'},
+      );
+      await hasBody(c, ai, 'stale-C-later-master-control');
+      expect((await rows(b, ci)).any((m) => m['body'] == first), isFalse);
+      E2eLog.line('PROCESS_STALE_C_FIRST_SEND_REVOKE_PASS');
+    },
+    skip: gate.skip,
+  );
 
   test(
     'isolated A/B/C: simultaneous call answers have one media endpoint',

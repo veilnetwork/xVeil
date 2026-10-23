@@ -182,6 +182,28 @@ test checks the shared log and the visible conversation, including a restart of
 A so the folded journal replay is exercised. A delete-for-everyone conflict and
 a truly simultaneous network partition require separate tests.
 
+### case 29 variant — cold C sends before a new application message from A
+
+The process suite also runs `offline C sends before post-revoke master message`.
+It primes B→C and C→A/B, stops B and C, and revokes B on A. After both processes
+restart, C sends to X without a manual post-revoke A/C join or application
+message from A. The message must reach A and remain absent on old B. A watcher
+starts before that send and checks old B and C with 500-ms pauses between
+rounds, including 60 seconds after old B attempts a new message. C must reject
+that attempt. An A→C positive
+control follows the observation window.
+
+```bash
+TMPDIR=/private/tmp/ flutter test --no-pub \
+  test/e2e/multi_device_process_e2e_test.dart \
+  --plain-name 'offline C sends before post-revoke master message'
+```
+
+This is a process-restart case with C's saved contact and P2P policy. Normal
+native document propagation/resolution is allowed. It does not freeze a running
+node's certificate cache during a network partition, inspect every ciphertext
+recipient, or qualify calls from revoked B.
+
 ### case 37 — B answers without a B-C session
 
 C calls identity X and both A and B ring. The fixture verifies that B has no
