@@ -1,0 +1,37 @@
+{
+  "parent_sdk": "4a53b1c3",
+  "red_cases_on_parent": 3,
+  "regression_cases_after_fix": 4,
+  "full_stream_tests_passed": 112,
+  "targeted_embedded_ffi_tests_passed": 56,
+  "clippy_all_targets_warnings_denied": true,
+  "rustfmt_check": true,
+  "production_sdk_builds": {
+    "macos": true,
+    "android": true
+  },
+  "ffi_exports": {
+    "libveilclient_ffi.dylib": {
+      "export_names_match_parent": true,
+      "veil_export_count": 198
+    },
+    "libveilclient_ffi.so": {
+      "export_names_match_parent": true,
+      "veil_export_count": 198
+    }
+  },
+  "case_coverage": [
+    "reset above 4-MiB unsent high-water",
+    "split reset with eight command slots full",
+    "reader-only local abort preserves wire behavior",
+    "FFI-shaped locked writer wakes through reset handle; first of 101 reset requests wins"
+  ],
+  "limits": {
+    "reset_waits_for_current_carrier_operation_to_return": true,
+    "wire_reset_is_best_effort": true,
+    "independent_from_physical_file_failure": true,
+    "no_new_physical_transfer_on_fixed_sdk": true
+  },
+  "stand_apps_closed_and_stock_phone_restored": true,
+  "fixed_sdk": "be4c2737"
+}
