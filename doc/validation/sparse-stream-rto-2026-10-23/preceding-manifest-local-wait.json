@@ -1,0 +1,15 @@
+{
+  "source_samples": 8,
+  "last_stream_age_ms": 8004,
+  "last_local_blocked_ms": 7743,
+  "reserved_not_acknowledged_bytes": 4,
+  "application_pending_bytes": 262140,
+  "local_rejections": 3487,
+  "successful_local_recoveries": 0,
+  "consecutive_data_rtos": 0,
+  "data_rto_deadline_absent": true,
+  "source_established": true,
+  "source_request_observed": true,
+  "manifest_local_stream_write_observed": true,
+  "remote_receipt_claimed": false
+}
