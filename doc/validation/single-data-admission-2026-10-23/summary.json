@@ -1,0 +1,175 @@
+{
+  "sdk_commit": "66167052",
+  "parent_sdk_commit": "ada6eed6",
+  "stream_tests_passed": 124,
+  "ffi_tests_passed": 64,
+  "rustfmt_passed": true,
+  "all_target_clippy_passed": true,
+  "parent_single_request_with_healthy_alternate_passed": false,
+  "fixed_single_data_cases": 4,
+  "direct_and_batched_entrypoints_checked": true,
+  "wrong_receiver_key_skipped": true,
+  "all_full_preserves_rejection_and_batched_cell": true,
+  "accepted_once": true,
+  "primary_pin_preserved": true,
+  "queue_limits_raised": false,
+  "first_byte_deadline_changed": false,
+  "local_queue_full_logs_ambiguous_with_credit_exhaustion": true,
+  "all_paths_full_handoff_deadline_separation_completed": false,
+  "abi": {
+    "libveilclient_ffi.dylib": {
+      "export_names_unchanged": true,
+      "veil_export_count": 199
+    },
+    "libveilclient_ffi.so": {
+      "export_names_unchanged": true,
+      "veil_export_count": 199
+    }
+  },
+  "physical": {
+    "transfers": [
+      {
+        "direction": "phone->mac",
+        "bytes": 33554432,
+        "success": false,
+        "download_seconds": null,
+        "elapsed_seconds": 612.178,
+        "integrity_matches": null,
+        "diagnostic_limit_seconds": 600,
+        "original_180_second_completion_gate_passed": false,
+        "pull_requests": 4,
+        "failed_attempts_including_final_harness_cancellation": 4,
+        "source_request_phase_observed_in_retained_log": true,
+        "source_log_at_retained_line_limit": false,
+        "source_payload_write_idle_timeouts": 1,
+        "application_reset_failures_including_final_harness_cancellation": 0,
+        "harness_cancellation_requested": true,
+        "manifest_phase_failures": 0,
+        "payload_read_idle_failures": 2,
+        "connection_setup_timeout_failures": 1,
+        "manifest_first_byte_timeout_failures": 0,
+        "manifest_eof_failures": 0,
+        "resume_request_offsets": [
+          17825792
+        ],
+        "anonymous_opens": 5,
+        "direct_opens": 0,
+        "last_observed_sink_sample": {
+          "download_elapsed_seconds": 599.205,
+          "sink_file_length_highwater_bytes": 26476544
+        },
+        "original_gate_checkpoint": {
+          "download_elapsed_seconds": 180.91,
+          "sink_file_length_highwater_bytes": 9175040,
+          "complete": false,
+          "diagnostic_continues": true
+        }
+      },
+      {
+        "direction": "phone->mac",
+        "bytes": 4194304,
+        "success": false,
+        "download_seconds": null,
+        "elapsed_seconds": 180.717,
+        "integrity_matches": null,
+        "diagnostic_limit_seconds": 180,
+        "original_180_second_completion_gate_passed": false,
+        "pull_requests": 3,
+        "failed_attempts_including_final_harness_cancellation": 3,
+        "source_request_phase_observed_in_retained_log": true,
+        "source_log_at_retained_line_limit": false,
+        "source_payload_write_idle_timeouts": 0,
+        "application_reset_failures_including_final_harness_cancellation": 1,
+        "harness_cancellation_requested": true,
+        "manifest_phase_failures": 0,
+        "payload_read_idle_failures": 2,
+        "connection_setup_timeout_failures": 0,
+        "manifest_first_byte_timeout_failures": 0,
+        "manifest_eof_failures": 0,
+        "resume_request_offsets": [
+          262144
+        ],
+        "anonymous_opens": 3,
+        "direct_opens": 0,
+        "last_observed_sink_sample": {
+          "download_elapsed_seconds": 179.884,
+          "sink_file_length_highwater_bytes": 2359296
+        }
+      }
+    ],
+    "driver_samples": {
+      "mac": {
+        "samples": 446,
+        "max_sampled_local_handoff_wait_ms": 0,
+        "no_relays_log_occurrences": 0,
+        "completed_failed_pool_opens_no_relays": 0,
+        "candidate_open_failures_no_relays": 0,
+        "completed_failed_pool_opens_all_reasons": 0,
+        "successful_pool_builds": 21,
+        "successful_pool_builds_by_intent": {
+          "Expand": 0,
+          "Warm": 1,
+          "Refresh": 20
+        }
+      },
+      "phone": {
+        "samples": 608,
+        "max_sampled_local_handoff_wait_ms": 21089,
+        "no_relays_log_occurrences": 0,
+        "completed_failed_pool_opens_no_relays": 0,
+        "candidate_open_failures_no_relays": 0,
+        "completed_failed_pool_opens_all_reasons": 4,
+        "successful_pool_builds": 87,
+        "successful_pool_builds_by_intent": {
+          "Expand": 2,
+          "Warm": 2,
+          "Refresh": 83
+        }
+      }
+    },
+    "policies_restored": {
+      "mac": true,
+      "phone": true
+    },
+    "network": {
+      "wifi_disabled": true,
+      "mobile_data_enabled": true,
+      "default_transport_is_cellular": true
+    },
+    "stand_cleanup": {
+      "phone_stopped": true,
+      "mac_stopped": true,
+      "original_phone_apk_restored": true,
+      "original_phone_apk_hash_matches": true,
+      "phone_process_absent_after_restore": true,
+      "final_tested_build_verified": true,
+      "android_diagnostic_property_restored": true,
+      "owned_phone_file_fixtures_removed": true,
+      "owned_mac_process_absent_independent_check": true
+    },
+    "independent_cleanup": {
+      "owned_mac_process_absent": true,
+      "owned_log_capture_absent": true,
+      "phone_process_absent": true,
+      "original_apk_hash_matches": true,
+      "diagnostic_property_matches_saved": true,
+      "wifi_still_disabled": true,
+      "mobile_data_still_enabled": true
+    },
+    "source_request_peer_prefix_matches": {
+      "prefix_count": 1,
+      "matching_pool_completions": 85,
+      "scope": "native diagnostic prefix matching served request peers, both file phases"
+    }
+  },
+  "qualification_limits": {
+    "controlled_physical_ab_comparison": false,
+    "file_integrity_verified": false,
+    "long_transfer_stability_proven": false,
+    "call_video_requalified": false,
+    "windows_requalified": false,
+    "full_multi_device_matrix_completed": false,
+    "released_or_pushed": false
+  },
+  "oversized_data_returns_invalid_input": true
+}

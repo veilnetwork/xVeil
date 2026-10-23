@@ -1,8 +1,28 @@
 # Cellular call and file validation — 2026-10-22
 
-**Status: repeated-RTO ACK/FIN recovery fixed; the latest cellular file pair completed with matching hashes. The 32 MiB 180-second target, long-transfer stability and call/video qualification remain open.**
+**Status: single-DATA local admission recovery fixed; the latest cellular file pair failed its completion limits. Requester-side long local waits and manifest-first-byte timeouts did not recur in retained samples; payload stalls, reconstruction and call/video qualification remain open.**
 
-## Latest follow-up — 23 October: retain late ACK/FIN evidence across RTOs
+## Latest follow-up — 23 October: single-DATA alternate-path admission
+
+SDK **`66167052`** closes a reproduced gap: a one-cell request waited on a full
+pinned queue while multi-cell runs could already try ready receiver-bound
+alternatives. Direct and batched DATA now share that existing admission path;
+queue limits and deadlines were not raised. The real-services parent regression
+fails with a healthy alternate; four positive/negative entrypoint cases and an
+oversized-input check pass after correction. All **124 stream / 64 client tests**,
+Clippy, rustfmt and native build/ABI checks pass. See the
+[dedicated report](../single-data-admission-2026-10-23/README.md).
+
+Both cellular file gates failed: **32 MiB timed out at 600 seconds**, last sink
+**25.25 MiB**; **4 MiB timed out at 180 seconds**, last sink **2.25 MiB**. Integrity
+is unverified. No manifest-first-byte timeout was observed, and no long local
+wait appeared in the Mac's retained driver samples, but payload stalls and
+reconstruction remain. No physical A/B speedup is claimed. Exact APK/policy
+restoration and independent process-absence checks passed; no push/release.
+The first-byte deadline can still include local wait when all paths are full;
+explicit request-handoff deadline separation remains open.
+
+## Previous follow-up — 23 October: retain late ACK/FIN evidence across RTOs
 
 SDK **`ada6eed6`** fixes a reproduced repeated-rewind error: a smaller replay
 replaced the valid ACK ceiling of the original larger handed-off flight, and
