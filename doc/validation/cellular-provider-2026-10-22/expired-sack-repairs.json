@@ -1,0 +1,122 @@
+{
+  "sdk_commit": "92b83e48",
+  "production_parent_sdk_commit": "b691e21d",
+  "status": "lost-retransmission recovery and late-SACK cancellation fixed; one physical file run passes, broader reliability and call quality remain unqualified",
+  "corrections": [
+    {
+      "defect": "Several lost retransmissions beneath a SACKed tail were repaired one per exponentially backed-off RTO because the permanent retransmitted marker excluded the remaining holes.",
+      "fix": "At circuit-mode SACK RTO, mark all already-retransmitted proven holes whose own last actual handoff is at least the expired RTO old. Preserve the retransmitted marker for Karn, exclude locally pending/unhanded/recent repairs, and retain normal pacing and congestion policy.",
+      "parent_production_regressions_failed": [
+        "core expired-hole regression in ordinary handoff mode",
+        "real async driver with SACK-count recovery",
+        "real async driver with RACK recovery"
+      ],
+      "driver_evidence": "Three head originals and their first repairs are lost after real local acceptance, while five tail segments arrive and are SACKed. All three holes now complete in one RTO window; each is sent exactly three times and each SACKed tail once. Tests also cover sequence wrap.",
+      "controls": [
+        "Fresh repair remains unmarked.",
+        "Locally pending or unhanded repair remains unmarked.",
+        "Tail without enough higher SACKs remains unmarked.",
+        "Classic non-circuit RTO policy remains unchanged.",
+        "Karn marker is preserved."
+      ]
+    },
+    {
+      "defect": "A late SACK did not cancel a marked repair that pacing had not emitted yet.",
+      "fix": "SACK admission clears that segment's needs_resend marker.",
+      "regression_provenance": "Regression failed in the intermediate expired-repair implementation before the one-line cancellation correction; the affected ACK admission was still unchanged from the parent.",
+      "scope": "Cancels an un-emitted repair decision. A duplicate already admitted to the carrier cannot be recalled."
+    }
+  ],
+  "verification": {
+    "stream_module_tests_passed": 86,
+    "ffi_anonymous_stream_tests_passed": 56,
+    "all_target_stream_and_ffi_clippy_passed": true,
+    "rustfmt_and_diff_checks_passed": true,
+    "production_mac_and_android_sdk_builds_passed": true,
+    "unchanged_sdk_export_names": 198,
+    "frontends_and_production_media_engines_unchanged": true,
+    "production_test_hooks_added": false
+  },
+  "physical": {
+    "transfers": [
+      {
+        "direction": "phone->mac",
+        "bytes": 4194304,
+        "success": true,
+        "download_seconds": 15.473,
+        "integrity_matches": true,
+        "window_seconds": 180,
+        "pull_requests": 1,
+        "failed_attempts_including_final_harness_cancellation": 0,
+        "source_payload_write_idle_timeouts": 0,
+        "application_reset_failures": 0,
+        "resume_offsets": [],
+        "anonymous_opens": 1,
+        "direct_opens": 0
+      },
+      {
+        "direction": "mac->phone",
+        "bytes": 4194304,
+        "success": true,
+        "download_seconds": 22.212,
+        "integrity_matches": true,
+        "window_seconds": 180,
+        "pull_requests": 1,
+        "failed_attempts_including_final_harness_cancellation": 0,
+        "source_payload_write_idle_timeouts": 0,
+        "application_reset_failures": 0,
+        "resume_offsets": [],
+        "anonymous_opens": 1,
+        "direct_opens": 0
+      },
+      {
+        "direction": "mac->phone",
+        "bytes": 33554432,
+        "success": true,
+        "download_seconds": 149.145,
+        "integrity_matches": true,
+        "window_seconds": 180,
+        "pull_requests": 1,
+        "failed_attempts_including_final_harness_cancellation": 0,
+        "source_payload_write_idle_timeouts": 0,
+        "application_reset_failures": 0,
+        "resume_offsets": [],
+        "anonymous_opens": 1,
+        "direct_opens": 0
+      }
+    ],
+    "driver_samples": {
+      "mac": {
+        "samples": 169,
+        "max_sampled_local_handoff_wait_ms": 18
+      },
+      "phone": {
+        "samples": 164,
+        "max_sampled_local_handoff_wait_ms": 176
+      }
+    },
+    "policies_restored": {
+      "mac": true,
+      "phone": true
+    }
+  },
+  "limits": [
+    "The controlled tests prove a real recovery mechanism; they do not reconstruct the exact previous WAN packet schedule.",
+    "One successful 32-MiB reverse run does not prove long-transfer stability or a universal throughput gain; WAN variation is not isolated.",
+    "Only already expired repairs with sufficient higher SACK evidence receive the new batch marking. Staggered repair ages and other loss schedules need further qualification.",
+    "No new 32-MiB phone-to-laptop case, full multi-device matrix, Windows run or audio/video call this cycle.",
+    "Driver waits are event-driven samples, not absolute maxima or network RTT."
+  ],
+  "cleanup": {
+    "phone_stopped": true,
+    "mac_stopped": true,
+    "original_phone_apk_restored": true,
+    "original_phone_apk_hash_matches": true,
+    "phone_process_absent_after_restore": true,
+    "final_tested_build_verified": true,
+    "android_diagnostic_property_restored": true,
+    "owned_phone_file_fixtures_removed": true,
+    "owned_mac_process_absent_independent_check": true
+  },
+  "privacy": "Aggregate values only, without endpoint identifiers, addresses, paths, keys, packet sequences, raw captures or file hashes."
+}
