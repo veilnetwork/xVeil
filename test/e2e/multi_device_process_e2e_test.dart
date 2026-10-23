@@ -424,6 +424,182 @@ void main() {
   );
 
   test(
+    'isolated A/B/C: warm C survives a transport partition during revoke',
+    () async {
+      final f = await ProcessFleet.start(gate);
+      addTearDown(f.dispose);
+      final a = f.a, b = f.b, c = f.c;
+      await introduceProcesses(a, c);
+      await linkProcesses(a, b);
+      final ai = (await deviceInfo(a))['identity'] as String;
+      final ci = (await deviceInfo(c))['identity'] as String;
+      final oldDevice = (await deviceInfo(b))['nodeId'] as String;
+      final cNode = (await deviceInfo(c))['nodeId'] as String;
+      final aNode = (await deviceInfo(a))['nodeId'] as String;
+      await c.checked('/contact_set', query: {'peer': ai, 'p2p': 'deny'});
+      await b.checked(
+        '/send_message',
+        query: {'peer': ci, 'text': 'warm-C-prime-from-B'},
+      );
+      await hasBody(c, ai, 'warm-C-prime-from-B');
+      await c.checked(
+        '/send_message',
+        query: {'peer': ai, 'text': 'warm-C-prime-family'},
+      );
+      await hasBody(a, ci, 'warm-C-prime-family');
+      await hasBody(b, ci, 'warm-C-prime-family');
+      final documentKey = (await c.admin(gate.veilCli!, [
+        'identity',
+        'dht-key',
+        ai,
+      ])).trim();
+      expect(documentKey, matches(RegExp(r'^[0-9a-f]{64}$')));
+      Future<String?> document(ProcessDevice device) async {
+        final result = await device.admin(gate.veilCli!, [
+          'node',
+          'dht',
+          'get',
+          documentKey,
+        ]);
+        return RegExp(
+          r'^value: ([0-9a-f]+)$',
+          multiLine: true,
+        ).firstMatch(result)?.group(1);
+      }
+
+      Future<List<String>> cSessions() async =>
+          (await c.admin(gate.veilCli!, ['sessions', 'list', '--verbose']))
+              .split('\n')
+              .where((line) => line.split('\t').length == 7)
+              .where((line) => !line.startsWith('link_id\t'))
+              .toList();
+      expect(await cSessions(), isNotEmpty);
+      final cPids = List<int>.of(c.ownedPids);
+      final otherNodes = [
+        aNode,
+        oldDevice,
+        for (final relay in f.cluster.nodes) relay.nodeIdHex!,
+      ];
+      // Ban both directions, including manually joined A/C and learned B/C
+      // links. Banning relays alone would leave a false partition via QUIC.
+      for (final node in otherNodes) {
+        await c.admin(gate.veilCli!, ['peers', 'ban', node]);
+      }
+      for (final relay in f.cluster.nodes) {
+        await f.cluster.admin(relay, ['peers', 'ban', cNode]);
+      }
+      await a.admin(gate.veilCli!, ['peers', 'ban', cNode]);
+      await b.admin(gate.veilCli!, ['peers', 'ban', cNode]);
+      await waitUntil(
+        () async => (await cSessions()).isEmpty,
+        what: 'warm C has zero native sessions while its process stays alive',
+      );
+      expect((await c.checked('/health'))['realStack'], isTrue);
+      await b.stop();
+      final revoked = await a.checked(
+        '/device_revoke',
+        query: {'peer': oldDevice},
+        body: E2eIdentity.x.phrase,
+      );
+      expect(revoked['docRevoked'], isTrue);
+      final currentDocument = await document(a);
+      expect(currentDocument, isNotNull);
+      await Future<void>.delayed(const Duration(seconds: 2));
+      expect(await cSessions(), isEmpty);
+      expect(await document(c), isNot(currentDocument));
+      expect(
+        c.ownedPids,
+        cPids,
+        reason: 'C caches must survive in one process',
+      );
+      E2eLog.line('PROCESS_WARM_C_ZERO_SESSION_PARTITION_PASS');
+
+      for (final node in otherNodes) {
+        await c.admin(gate.veilCli!, ['peers', 'unban', node]);
+      }
+      for (final relay in f.cluster.nodes) {
+        await f.cluster.admin(relay, ['peers', 'unban', cNode]);
+      }
+      await a.admin(gate.veilCli!, ['peers', 'unban', cNode]);
+      await b.start();
+      expect((await deviceInfo(b))['nodeId'], oldDevice);
+      // First application traffic after reconnection comes from stale C.
+      // Native current-document propagation is allowed, as in production.
+      const first = 'warm-C-first-after-revoke';
+      const attack = 'warm-C-revoked-B-attempt';
+      await c.checked('/send_message', query: {'peer': ai, 'text': first});
+      await hasBody(a, ci, first);
+      final freshBeforeAttack = await document(c) == currentDocument;
+      await join(b, c);
+      await b.checked('/send_message', query: {'peer': ci, 'text': attack});
+      // A disconnected peer cannot reject a revocation it has not learned.
+      // Distinguish that propagation window from a warm-cache bypass AFTER
+      // the fresh signed document is locally available. This observer performs
+      // local DHT reads only: no forced fetch, cache flush or document injection.
+      final earlyAttackAccepted = (await rows(
+        c,
+        ai,
+      )).any((m) => m['body'] == attack);
+      E2eLog.line(
+        'PROCESS_WARM_C_RECONNECT_OBSERVATION '
+        'freshBeforeAttack=$freshBeforeAttack '
+        'earlyAttackAccepted=$earlyAttackAccepted',
+      );
+      if (freshBeforeAttack) expect(earlyAttackAccepted, isFalse);
+      final reconnectWatch = Stopwatch()..start();
+      var lastAttempt = Duration.zero;
+      await waitUntil(
+        () async {
+          if (await document(c) == currentDocument) return true;
+          if (reconnectWatch.elapsed - lastAttempt >=
+              const Duration(seconds: 5)) {
+            lastAttempt = reconnectWatch.elapsed;
+            await b.checked(
+              '/send_message',
+              query: {'peer': ci, 'text': attack},
+            );
+          }
+          return false;
+        },
+        what: 'warm C refreshes the document while old B keeps sending',
+        timeout: const Duration(minutes: 2),
+      );
+      E2eLog.line(
+        'PROCESS_WARM_C_CURRENT_DOCUMENT_BARRIER_PASS '
+        'observedAfterMs=${reconnectWatch.elapsedMilliseconds}',
+      );
+      const afterFresh = 'warm-C-after-current-document';
+      const attackFresh = 'warm-C-revoked-B-after-current-document';
+      await c.checked('/send_message', query: {'peer': ai, 'text': afterFresh});
+      await hasBody(a, ci, afterFresh);
+      await b.checked(
+        '/send_message',
+        query: {'peer': ci, 'text': attackFresh},
+      );
+      final observing = Stopwatch()..start();
+      do {
+        expect(
+          (await rows(b, ci)).any((m) => m['body'] == afterFresh),
+          isFalse,
+        );
+        expect(
+          (await rows(c, ai)).any((m) => m['body'] == attackFresh),
+          isFalse,
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 500));
+      } while (observing.elapsed < const Duration(seconds: 60));
+      await a.checked(
+        '/send_message',
+        query: {'peer': ci, 'text': 'warm-C-master-control'},
+      );
+      await hasBody(c, ai, 'warm-C-master-control');
+      expect(c.ownedPids, cPids);
+      E2eLog.line('PROCESS_WARM_C_PARTITION_REVOKE_PASS');
+    },
+    skip: gate.skip,
+  );
+
+  test(
     'isolated A/B/C: simultaneous call answers have one media endpoint',
     () async {
       final f = await ProcessFleet.start(gate);

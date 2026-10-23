@@ -1,0 +1,67 @@
+{
+  "sdk_commit": "cc52c17bfea8fa6abbc52a9e272769701f8851a7",
+  "sdk_parent_commit": "50fa7a2f55a2116657405b6cc8435612d2e5cf4d",
+  "case": "independent_process_warm_recipient_protocol_isolation_during_revoke",
+  "initial_no_repeated_traffic_run": {
+    "sdk": "50fa7a2f",
+    "current_document_barrier_reached_within_120_seconds": false
+  },
+  "old_sdk_active_attempts": {
+    "passed": true,
+    "elapsed_seconds": 202.858,
+    "fresh_document_before_first_attack": false,
+    "first_attack_observed_accepted": true,
+    "subsequent_document_barrier_wait_ms": 44872
+  },
+  "fixed_sdk_active_attempts": {
+    "passed": true,
+    "elapsed_seconds": 163.33,
+    "fresh_document_before_first_attack": true,
+    "first_attack_observed_accepted": false,
+    "subsequent_document_barrier_wait_ms": 30
+  },
+  "checks": {
+    "three_independent_device_processes": true,
+    "sealed_three_relay_loopback_island": true,
+    "B_to_C_and_C_to_A_B_positive_controls": true,
+    "C_native_sessions_zero_while_A_revokes_B": true,
+    "C_document_stale_during_isolation": true,
+    "C_worker_not_restarted": true,
+    "document_barrier_observed_via_local_DHT_reads": true,
+    "no_forced_document_fetch_or_injection_by_fixture": true,
+    "no_observed_post_barrier_new_message_on_B": true,
+    "no_observed_post_barrier_B_message_on_C": true,
+    "post_barrier_negative_observation_minimum_seconds": 60,
+    "later_A_C_positive_control": true
+  },
+  "work_limits": {
+    "minimum_interval_per_known_sender_seconds": 30,
+    "maximum_document_jobs_in_flight": 4,
+    "maximum_document_jobs_started_per_second": 4,
+    "maximum_recent_sender_entries": 128,
+    "document_job_timeout_seconds": 10
+  },
+  "validation": {
+    "resolver_tests_passed": 35,
+    "lookup_budget_tests_passed": 2,
+    "clippy_warnings_denied_passed": true,
+    "Dart_analyzer_passed": true,
+    "ffi_export_count": 199,
+    "ffi_exports_unchanged": true
+  },
+  "test_source_sha256": "6095b6c56e29b9cb75b04541219d2a4a81b905c804e0150b0f331fae1c78dd8a",
+  "cleanup": {
+    "observed_owned_process_count": 25,
+    "owned_processes_absent": true,
+    "observed_fleet_root_count": 1,
+    "temporary_fleet_containers_removed": true
+  },
+  "limits": {
+    "instantaneous_global_revocation": false,
+    "ciphertext_recipient_audit_completed": false,
+    "physical_network_fault_injection_qualified": false,
+    "revoked_call_qualification_added": false,
+    "full_checklist_29_qualified": false,
+    "phone_or_windows_on_new_sdk_qualified": false
+  }
+}
