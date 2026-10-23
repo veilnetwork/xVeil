@@ -1,0 +1,61 @@
+{
+  "mac": {
+    "refresh_admissions_by_cause": {
+      "handshake_cold": 2,
+      "handshake_rto": 33,
+      "data_no_progress": 22
+    },
+    "sampled_selection_failures_by_reason": {},
+    "last_selection_failure_samples": []
+  },
+  "phone": {
+    "refresh_admissions_by_cause": {
+      "handshake_cold": 2,
+      "data_no_progress": 14,
+      "pool_cold_or_quiet": 1,
+      "route_unavailable": 20,
+      "handshake_rto": 4
+    },
+    "sampled_selection_failures_by_reason": {
+      "route_health": 10
+    },
+    "last_selection_failure_samples": [
+      {
+        "class": "Bulk",
+        "reason": "route_health",
+        "pool": "2",
+        "compatible": "2",
+        "usable": "0",
+        "active_limit": "2",
+        "misses": "64"
+      },
+      {
+        "class": "Bulk",
+        "reason": "route_health",
+        "pool": "2",
+        "compatible": "2",
+        "usable": "0",
+        "active_limit": "2",
+        "misses": "128"
+      },
+      {
+        "class": "Bulk",
+        "reason": "route_health",
+        "pool": "2",
+        "compatible": "2",
+        "usable": "0",
+        "active_limit": "2",
+        "misses": "256"
+      },
+      {
+        "class": "Bulk",
+        "reason": "route_health",
+        "pool": "6",
+        "compatible": "6",
+        "usable": "0",
+        "active_limit": "2",
+        "misses": "512"
+      }
+    ]
+  }
+}
