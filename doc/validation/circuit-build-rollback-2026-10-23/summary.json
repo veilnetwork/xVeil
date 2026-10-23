@@ -1,0 +1,216 @@
+{
+  "sdk_source_commit": "471618ef",
+  "parent_sdk_source_commit": "7e15b372",
+  "application_base_commit": "85591c94",
+  "scope": "rollback of origin and return-sink allocations when CircuitBuild is rejected before local first-hop handoff",
+  "verification": {
+    "parent_reproductions": [
+      {
+        "build_kind": "data",
+        "local_rejection": "full",
+        "failed_attempts": 257,
+        "origin_count_before": 1,
+        "origin_count_after_rejections": 256,
+        "origin_count_after_recovery_attempt": 256,
+        "sink_count_before": 1,
+        "sink_count_after_rejections": 1,
+        "sink_count_after_recovery_attempt": 1,
+        "recovery_admitted": false,
+        "accepted_build_frames_after_recovery": 0
+      },
+      {
+        "build_kind": "reply",
+        "local_rejection": "full",
+        "failed_attempts": 257,
+        "origin_count_before": 1,
+        "origin_count_after_rejections": 256,
+        "origin_count_after_recovery_attempt": 256,
+        "sink_count_before": 1,
+        "sink_count_after_rejections": 1,
+        "sink_count_after_recovery_attempt": 1,
+        "recovery_admitted": true,
+        "accepted_build_frames_after_recovery": 1
+      },
+      {
+        "build_kind": "service",
+        "local_rejection": "full",
+        "failed_attempts": 257,
+        "origin_count_before": 1,
+        "origin_count_after_rejections": 256,
+        "origin_count_after_recovery_attempt": 256,
+        "sink_count_before": 1,
+        "sink_count_after_rejections": 1,
+        "sink_count_after_recovery_attempt": 1,
+        "recovery_admitted": false,
+        "accepted_build_frames_after_recovery": 0
+      }
+    ],
+    "fixed_cases": [
+      {
+        "build_kind": "data",
+        "local_rejection": "full",
+        "failed_attempts": 257,
+        "origin_count_before": 1,
+        "origin_count_after_rejections": 1,
+        "origin_count_after_recovery_attempt": 2,
+        "sink_count_before": 1,
+        "sink_count_after_rejections": 1,
+        "sink_count_after_recovery_attempt": 2,
+        "recovery_admitted": true,
+        "accepted_build_frames_after_recovery": 1
+      },
+      {
+        "build_kind": "reply",
+        "local_rejection": "full",
+        "failed_attempts": 257,
+        "origin_count_before": 1,
+        "origin_count_after_rejections": 1,
+        "origin_count_after_recovery_attempt": 2,
+        "sink_count_before": 1,
+        "sink_count_after_rejections": 1,
+        "sink_count_after_recovery_attempt": 1,
+        "recovery_admitted": true,
+        "accepted_build_frames_after_recovery": 1
+      },
+      {
+        "build_kind": "service",
+        "local_rejection": "full",
+        "failed_attempts": 257,
+        "origin_count_before": 1,
+        "origin_count_after_rejections": 1,
+        "origin_count_after_recovery_attempt": 2,
+        "sink_count_before": 1,
+        "sink_count_after_rejections": 1,
+        "sink_count_after_recovery_attempt": 1,
+        "recovery_admitted": true,
+        "accepted_build_frames_after_recovery": 1
+      },
+      {
+        "build_kind": "data",
+        "local_rejection": "closed",
+        "failed_attempts": 257,
+        "origin_count_before": 1,
+        "origin_count_after_rejections": 1,
+        "origin_count_after_recovery_attempt": 2,
+        "sink_count_before": 1,
+        "sink_count_after_rejections": 1,
+        "sink_count_after_recovery_attempt": 2,
+        "recovery_admitted": true,
+        "accepted_build_frames_after_recovery": 1
+      },
+      {
+        "build_kind": "reply",
+        "local_rejection": "closed",
+        "failed_attempts": 257,
+        "origin_count_before": 1,
+        "origin_count_after_rejections": 1,
+        "origin_count_after_recovery_attempt": 2,
+        "sink_count_before": 1,
+        "sink_count_after_rejections": 1,
+        "sink_count_after_recovery_attempt": 1,
+        "recovery_admitted": true,
+        "accepted_build_frames_after_recovery": 1
+      },
+      {
+        "build_kind": "service",
+        "local_rejection": "closed",
+        "failed_attempts": 257,
+        "origin_count_before": 1,
+        "origin_count_after_rejections": 1,
+        "origin_count_after_recovery_attempt": 2,
+        "sink_count_before": 1,
+        "sink_count_after_rejections": 1,
+        "sink_count_after_recovery_attempt": 1,
+        "recovery_admitted": true,
+        "accepted_build_frames_after_recovery": 1
+      },
+      {
+        "build_kind": "data",
+        "local_rejection": "missing",
+        "failed_attempts": 257,
+        "origin_count_before": 1,
+        "origin_count_after_rejections": 1,
+        "origin_count_after_recovery_attempt": 2,
+        "sink_count_before": 1,
+        "sink_count_after_rejections": 1,
+        "sink_count_after_recovery_attempt": 2,
+        "recovery_admitted": true,
+        "accepted_build_frames_after_recovery": 1
+      },
+      {
+        "build_kind": "reply",
+        "local_rejection": "missing",
+        "failed_attempts": 257,
+        "origin_count_before": 1,
+        "origin_count_after_rejections": 1,
+        "origin_count_after_recovery_attempt": 2,
+        "sink_count_before": 1,
+        "sink_count_after_rejections": 1,
+        "sink_count_after_recovery_attempt": 1,
+        "recovery_admitted": true,
+        "accepted_build_frames_after_recovery": 1
+      },
+      {
+        "build_kind": "service",
+        "local_rejection": "missing",
+        "failed_attempts": 257,
+        "origin_count_before": 1,
+        "origin_count_after_rejections": 1,
+        "origin_count_after_recovery_attempt": 2,
+        "sink_count_before": 1,
+        "sink_count_after_rejections": 1,
+        "sink_count_after_recovery_attempt": 1,
+        "recovery_admitted": true,
+        "accepted_build_frames_after_recovery": 1
+      }
+    ],
+    "test_results": {
+      "runtime-circuit-tests.log": {
+        "passed": 23,
+        "ignored": 0
+      },
+      "origin-table-tests.log": {
+        "passed": 5,
+        "ignored": 0
+      },
+      "ffi-tests.log": {
+        "passed": 61,
+        "ignored": 0
+      }
+    },
+    "all_target_runtime_clippy_warnings_denied_passed": true,
+    "rustfmt_check_passed": true,
+    "production_mac_and_android_sdk_builds_passed": true,
+    "frozen_libraries_match_current_source_hashes": true
+  },
+  "abi": {
+    "libveilclient_ffi.dylib": {
+      "export_names_unchanged": true,
+      "veil_export_count": 199
+    },
+    "libveilclient_ffi.so": {
+      "export_names_unchanged": true,
+      "veil_export_count": 199
+    }
+  },
+  "behavior": {
+    "origin_capacity_unchanged": 256,
+    "failed_build_state_released_before_ttl": true,
+    "previously_admitted_origin_and_return_sink_preserved": true,
+    "full_closed_and_missing_real_admission_errors_exercised": true,
+    "successful_new_build_origin_retained": true,
+    "relay_teardown_not_sent_for_unadmitted_build": true,
+    "local_rejection_diagnostic_has_only_constant_reason_enum": true,
+    "new_capacity_diagnostic_has_only_counts": true
+  },
+  "limitations": {
+    "cause_of_previous_physical_no_relays_proven": false,
+    "all_route_reconstruction_causes_fixed": false,
+    "physical_file_or_call_retested_in_this_cycle": false,
+    "windows_runtime_retested_in_this_cycle": false,
+    "full_project_ci_claimed": false,
+    "installed_or_released": false,
+    "stand_apps_launched_in_this_cycle": false,
+    "phone_or_relay_changed_in_this_cycle": false
+  }
+}

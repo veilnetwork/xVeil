@@ -2,6 +2,14 @@
 
 **Status: warm-only reuse fixed; the latest physical file pair completed with matching hashes. Long-transfer stability and call/video qualification remain open.**
 
+## Separate source follow-up — rejected-build resource rollback
+
+SDK **`471618ef`** corrects a reproduced origin-state leak after local
+`CircuitBuild` admission fails. The [dedicated report](../circuit-build-rollback-2026-10-23/README.md)
+records parent failures, nine passing recovery cases and native build checks.
+It does not establish the cause of this stand's `NoRelays` events; no new
+physical file/call run was performed for that source correction.
+
 ## Latest follow-up — 23 October: reuse ready paths during warm-up
 
 SDK **`7e15b372`** separates best-effort warm-up from explicit circuit repair.
