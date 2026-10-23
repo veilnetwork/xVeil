@@ -2,7 +2,92 @@
 
 **Status: partial stream fixes verified; long anonymous transfers and call/video failures remain.**
 
-## Latest follow-up — 23 October: several lost retransmissions
+## Latest follow-up — 23 October: staggered repairs; open RACK accounting defect
+
+[staggered-sack-repairs.json](staggered-sack-repairs.json) records SDK
+`6875a88a`. **Separate repair deadlines are fixed and the physical file gate
+passes this run. A newly validated RACK accounting defect remains open; its
+attempted timing correction failed an existing reordering gate.**
+
+### Completed correction
+
+The previous repair scan correctly excluded a retry whose own handoff had not
+yet expired. If retries were handed off in different pacing ticks, however,
+their expiry could trail the oldest hole by only a few milliseconds and still
+inherit another exponentially backed-off RTO. Two real-driver regressions fail
+on parent `92b83e48`: one for RACK and one for SACK-count recovery. An
+acknowledged prefix warms pacing, and three originals plus their first repairs
+are lost in separate one-cell ticks. Both normal and wrapping sequences pass
+after correction, without replaying the SACKed tail.
+
+A circuit RTO now retains individual deadlines for the already-proven holes.
+Their expiry continues the existing repair decision without another network
+RTO event, congestion cut or premature repetition of fresh cells. SACK,
+cumulative ACK, a new emitted/handed-off retry and a no-SACK rewind clear stale
+state. Per-segment metadata remains bounded by the existing flight. A cached
+minimum avoids scanning that flight during ordinary send/timer polls when no
+deferred repair exists. No protocol format, RTO bound, retry cap, relay priority
+or mailbox policy changed.
+
+### Gates and physical observations
+
+All **91 stream tests** and **56 FFI anonymous-stream tests** pass, along with
+all-target stream/FFI Clippy, rustfmt and diff checks. Production Mac and Android
+builds retain the same **198 SDK export names**. Sources, frozen SDKs, installed
+phone APK and loaded Mac library were verified. After the rejected experiment
+below, every authoritative source fingerprint again matches that exact
+physically verified SDK, and the final 91-test stream gate passes again.
+Frontends and production media engines were unchanged.
+
+| Direction | Size | Download | Pull requests | Result |
+| --- | ---: | ---: | ---: | --- |
+| Phone → laptop | 4 MiB | 25.557 s | 1 | Integrity matches |
+| Laptop → phone | 4 MiB | 14.962 s | 1 | Integrity matches |
+| Laptop → phone | 32 MiB | **155.773 s** | 1 | Integrity matches |
+
+The phone used cellular with Wi-Fi off and own QA-contact P2P denied. All
+recorded opens were anonymous. All three transfers completed inside the
+unchanged **180-second window**, with no failed pulls, source write-idle
+timeouts, application resets or resumes. This does not isolate a speed gain
+from WAN variation or certify long-transfer stability. The large reverse file
+passed; the 32-MiB phone-to-laptop case was not rerun on this SDK.
+
+Largest sampled local driver waits were **61 ms on the laptop** (179 samples)
+and **13 ms on the phone** (173 samples), not absolute maxima or RTT. No calls,
+camera, audio playout, Windows run or full multi-device qualification occurred.
+QA policies and the diagnostic property were restored, own apps/captures
+exited, and app process absence was verified. The exact original phone APK was
+restored and hash-checked; owned phone fixtures were removed. The installed
+Mac app was unchanged.
+
+### Open finding: previously SACKed originals counted again by RACK
+
+A source-copy regression confirms that the cumulative-ACK loop calls the RACK
+delivery recorder for an original that was already reported by SACK. After a
+newer original establishes a later frontier, replaying that old report creates
+a **90-ms reordering sample without a new late delivery**. The reviewable
+[expected-failing reproducer](pending-rack-delivery.rs) uses real local-handoff
+metadata transitions and synthetic bytes. It is not counted as a passing or
+ignored production test. RACK's delivery processing concerns newly reported
+segments; see [RFC 8985, section 6.2](https://www.rfc-editor.org/rfc/rfc8985.html#section-6.2).
+
+An experimental correction separated newly reported deliveries, ACK field
+order and first-SACK RTT sampling. It completed the existing zero-loss
+100/500-ms two-path simulation with intact bytes, but used **502 cells for
+300 payload cells**, violating the unchanged strict limit of **383**. A control
+retaining the original cumulative-ACK RTT policy and changing only RACK still
+used **432 cells**. These findings suggest the existing adaptation needs work
+beyond removing duplicate accounting. The experiments were not retained; the
+passing SDK above contains only the completed deadline correction. Changing
+RTT sampling policy is not presented as a separately resolved defect.
+
+This RACK finding remains open. Its correction must preserve adaptation to
+real reordering, without depending on manufactured samples or weakening the
+existing gate. Public evidence contains aggregate observations and a synthetic
+fixture, without observed identifiers, keys, addresses, paths, packet sequences,
+raw captures or file hashes.
+
+## Previous follow-up — 23 October: several lost retransmissions
 
 [expired-sack-repairs.json](expired-sack-repairs.json) records SDK `92b83e48`.
 **Two recovery defects are corrected. The reverse 32-MiB file completes this
