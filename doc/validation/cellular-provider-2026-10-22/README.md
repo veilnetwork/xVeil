@@ -2,7 +2,84 @@
 
 **Status: partial stream fixes verified; long anonymous transfers and call/video failures remain.**
 
-## Latest follow-up — 23 October: mailbox-only discovery cache
+## Latest follow-up — 23 October: several lost retransmissions
+
+[expired-sack-repairs.json](expired-sack-repairs.json) records SDK `92b83e48`.
+**Two recovery defects are corrected. The reverse 32-MiB file completes this
+run; long-transfer stability and call quality remain unqualified.**
+
+### Controlled defects and corrections
+
+With several head gaps and a received/SACKed tail, the sender initially repairs
+the gaps together. If those repairs are lost again, their permanent
+`retransmitted` marker excludes them from the SACK-count loss scanner. Circuit
+RTO recovery then marks only the oldest gap. The others wait for another
+exponentially backed-off RTO, even though enough higher data is already known
+to have arrived. One core regression and real-driver regressions for both RACK
+and SACK-count recovery fail on parent production source `b691e21d`.
+
+At a circuit SACK RTO, recovery now also marks already-retransmitted holes whose
+last actual handoff is at least the **expired, pre-backoff RTO** old, and which
+have at least three higher SACKed segments. This preserves Karn's permanent
+marker while separating it from a decision to repair again. Recent, unhanded
+and locally pending cells remain excluded. The normal pacer, congestion-window
+policy, RTO bounds and retry cap remain unchanged. No-SACK rewinds and classic
+non-circuit RTO handling retain their existing behavior.
+
+The driver fixture loses three head originals and their first repairs after
+real local handoff. Five tail segments arrive and are SACKed. With the fix,
+all three heads complete within one 100-ms RTO plus paced delivery, before an
+additional 200-ms backed-off wait could fire. Each head is sent exactly three
+times; each tail once. Both recovery modes and modular sequence wrap pass.
+Controls check fresh/pending/unhanded repairs, a tail without sufficient SACK
+evidence, the Karn marker and the classic-mode behavior. Staggered repair ages
+and additional loss schedules still require qualification; the predicate does
+not claim every outstanding segment has expired when only the oldest has.
+
+A separate late-SACK regression failed in the intermediate implementation:
+ACK admission, still unchanged from the parent, left a `needs_resend` decision
+set after a late original was reported received. SACK admission now cancels
+that marked but **not yet emitted** repair. It does not recall a duplicate
+already admitted to the carrier. No relay media classification, transit
+priority, mailbox policy, protocol format or production test hook was added.
+
+### Gates and physical evidence
+
+All **86 stream-module tests** and **56 FFI anonymous-stream tests** pass, along
+with all-target stream/FFI Clippy, rustfmt and diff checks. Production Mac and
+Android SDK builds retain the same **198 SDK export names**. Sources, frozen
+SDKs, installed phone APK and loaded Mac library were verified before and after
+the ordinary stand. Frontends and production media engines were unchanged.
+
+| Direction | Size | Download | Pull requests | Result |
+| --- | ---: | ---: | ---: | --- |
+| Phone → laptop | 4 MiB | 15.473 s | 1 | Integrity matches |
+| Laptop → phone | 4 MiB | 22.212 s | 1 | Integrity matches |
+| Laptop → phone | 32 MiB | **149.145 s** | 1 | Integrity matches |
+
+The phone used cellular data with Wi-Fi off; own QA-contact P2P was denied.
+All recorded opens were anonymous, with no direct stream. All three transfers
+completed inside the unchanged **180-second window**, without failed pull
+attempts, application resets, source payload-write-idle timeouts or resume
+offsets. This is one successful reverse large-file run after the prior failure,
+not proof of stable large-file completion or an isolated throughput gain from
+this correction. The exact previous WAN loss schedule was not replayed. The
+32-MiB phone-to-laptop direction was not rerun on this SDK.
+
+Largest sampled local driver waits were **18 ms on the laptop** (169 samples)
+and **176 ms on the phone** (164 samples). They are event-driven observations,
+not absolute delay maxima or RTT measurements. No calls, camera, audio playout
+or speech tests ran; the full multi-device and Windows reports remain outside
+this cycle's qualification.
+
+QA policies and the temporary Android diagnostic property were restored. Own
+apps and captures exited, with process absence checked independently. The exact
+original phone APK was restored and hash-verified, owned phone fixtures were
+removed, and the installed Mac app was unchanged. Public evidence contains
+aggregate values only, without identifiers, keys, addresses, paths, packet
+sequences, raw captures or file hashes.
+
+## Previous follow-up — 23 October: mailbox-only discovery cache
 
 [stream-discovery-cache.json](stream-discovery-cache.json) records SDK
 `b691e21d`. **A controlled cold-discovery delay is fixed. Established-stream
