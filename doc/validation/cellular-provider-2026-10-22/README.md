@@ -2,7 +2,75 @@
 
 **Status: partial stream fixes verified; long-transfer stability and call/video failures remain open.**
 
-## Latest follow-up — 23 October: distinguish handshake from response silence
+## Latest follow-up — 23 October: bound completed circuit-open failures
+
+SDK **`7fa3c1ec`** fixes a fast retry storm after circuit construction fails.
+The existing guard suppressed concurrent openers but removed its entry as soon
+as an opener finished. A synchronous `NoRelays` failure could therefore start
+another whole construction on every local carrier retry.
+
+The preceding phone capture contains **1,315 completed failed pool opens** in
+two minutes, with **3,945 candidate failures**: each pool tried three relays.
+These produce approximately 5,260 error lines, not 5,260 independent pool opens.
+The previously reported line count must not be used as a construction count.
+
+Completed failures now leave a **one-second per-destination retry deadline**.
+The first attempt remains immediate; the next caller may try after the
+deadline. There is no sleeping retry worker or automatic network retry.
+Independent media producers keep separate failure state. Existing ready
+circuits can still send during the pause. Expired deadlines are pruned, and
+an old opener cannot overwrite a newer opener's state. Successful pool builds,
+relay quotas, anonymity hop counts, framing and relay scheduling are unchanged.
+After an error, construction can consequently wait up to one additional second;
+this does not gate sending on an already usable route.
+
+The new subprocess regression uses real offline node services and a valid
+signed receiver advertisement, with insufficient relays for a full path. On
+the parent, 16 carrier retries create **16 actual completed `NoRelays`
+failures**; the correction creates **one**. Five child cases cover the burst,
+retry after the deadline, another destination, another local producer and
+actual outbox delivery through a healthy route published during the pause.
+All **61 targeted embedded FFI tests**, all-target Clippy with warnings denied
+and rustfmt pass. Production macOS/Android SDKs build and retain the same
+**199 C export names**. The compatible frontends from the preceding correction
+are reused; source, frozen-library and installed/loaded build checks pass.
+
+### Physical failures and next investigation
+
+The same owned cellular phone/Mac stand used anonymous file streams, phone
+Wi-Fi off and own-contact P2P denied. No call or physical audio device opened.
+
+| Direction | Size | Result | Retained observations |
+| --- | ---: | --- | --- |
+| Phone → Mac | 32 MiB | Timed out at **600 s**; last sink **21,233,664 bytes (20.25 MiB)**; original **180-s gate failed** | Three failed pull attempts including harness cancellation, one setup timeout, one source payload-write-idle event; resume requested at **4,456,448 bytes** |
+| Phone → Mac, afterward | 4 MiB | Timed out at **180 s**, with **zero useful file bytes observed** | Seven failed pull attempts including cancellation; six setup timeouts; no serving request observed in the retained source log |
+
+Neither completed, so **integrity remains unverified**. The retained source
+log for the small transfer is below its line limit, but absence of that serving
+request still does not prove remote refusal. No manifest-prefix timeout or EOF
+was observed. This run contains **zero `NoRelays` occurrences**, so it cannot
+establish that the physical failure storm was cured or explain the first path
+loss. Route selection and network load were not controlled; no speed gain or
+causal comparison is claimed.
+
+There is still substantial successful reconstruction: **146 completed pool
+builds on the Mac and 29 on the phone**. During the large-file observation,
+the receiver requested only one content id; old file downloads were not seen.
+The next controlled investigation is the warm/top-up path: Dart forwards warm
+requests without a throttle, while native warming can reconstruct an already
+usable pool. A failed-construction pause does not fix this successful churn.
+Any correction must preserve stale-path repair, receiver-key binding, early
+confirmed-prefix use and existing resource limits.
+
+[circuit-open-backoff.json](circuit-open-backoff.json) retains aggregate counts,
+failed gates, verification scope and cleanup evidence. Exact original phone APK
+restoration and hash matching passed; policies and diagnostics were restored,
+owned fixtures removed, and independent checks found no owned Mac app, phone
+app or log capture. Long-file reliability, call/video recovery, live-speech
+loudness, Windows, Android background availability and full multi-device
+qualification remain open.
+
+## Previous follow-up — 23 October: distinguish handshake from response silence
 
 SDK **`2179c1e5`** exposes validated anonymous-stream handshake state. An
 optimistic local write, or handing a SYN to a carrier, does not establish peer
