@@ -2,6 +2,14 @@
 
 SDK correction: **`1064bc18`**. Parent and measured Wi-Fi SDK: **`8998746a`**.
 
+Follow-up: a subsequent Wi-Fi run did load `1064bc18`. The 32 MiB file still
+missed 180 seconds (last sink 2.5 MiB); the following 4 MiB completed in
+108.717 seconds with matching SHA-256, after one payload-idle failure/retry.
+The previous 7.7-second cellular incident did not reproduce. Source-rate
+evidence led to separately reproduced BBR defects; see the
+[BBR follow-up](../bbr-delivery-2026-10-23/README.md). No controlled physical
+performance comparison or cellular qualification is claimed.
+
 ## Wi-Fi handset baseline, before this correction
 
 The available Blackview used Wi-Fi; Poco was absent. This is a separate
