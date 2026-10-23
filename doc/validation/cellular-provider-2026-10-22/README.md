@@ -2,7 +2,70 @@
 
 **Status: partial stream fixes verified; long anonymous transfers and call/video failures remain.**
 
-## Latest follow-up — 23 October: ready inbound traffic between send bursts
+## Latest follow-up — 23 October: cancellation outside the DATA queue
+
+SDK **`be4c2737`** fixes a controlled cancellation defect in the stream driver
+and FFI abort path. A 6-MiB application write leaves more than the 4-MiB unsent high-water
+behind a carrier rejecting DATA with local backpressure. The driver then stops
+receiving ordinary app commands, including the old reset command. If the eight
+command slots are also full, even the public reset call itself waits for space.
+The FFI abort task additionally waited for the writer mutex held by such a write.
+
+Cancellation now uses a separate single-value watch signal. The first reset
+reason wins; repeated requests cannot accumulate control work. The driver
+processes it independently of DATA's high-water guard, discards retained DATA
+and makes its existing best-effort final RST attempt. FFI abort signals it
+directly without taking the writer lock. The reader-only local-abort operation
+retains its existing behavior. This does not cancel an unsafe in-flight carrier
+future: driver teardown still waits for that operation to return, and RST
+network delivery remains best effort.
+
+Three regression cases fail on parent SDK `4a53b1c3`. Four cases pass after the
+fix, including a blocked write holding the same mutex shape as FFI, release of
+that write and reader, preservation of the first reason across 100 repeated
+requests, and exactly one RST in the accepting test carrier. The complete stream
+suite passes **112 tests**, and the targeted embedded FFI suite passes **56**.
+All-target Clippy with warnings denied and rustfmt pass. Production macOS and
+Android SDKs build and retain the same **198 C export names** each. Evidence is
+recorded in [reset-control.json](reset-control.json). No wire format, timer ceiling, relay scheduling or mailbox policy changed.
+
+### Failed-transfer diagnostic capture, before this cancellation fix
+
+[failed-admission-trace.json](failed-admission-trace.json) records another
+physical run using unchanged SDK `4a53b1c3` and frontends. Own-contact P2P was
+denied, phone default routing was cellular, and all recorded opens were
+anonymous. No call, camera or physical audio device was opened.
+
+- Phone → Mac **32 MiB remained incomplete in the unchanged 180-s download
+  window**. Its one pull request had no manifest-phase failure. The 209.051-s
+  total also includes offering/waiting; it is not a longer download gate.
+- The following phone → Mac **4 MiB passed in 75.417 s**, with matching integrity,
+  one pull request and no manifest-phase failure.
+- Across this whole capture, phone recoverable-DATA admission (local slot 4)
+  reported maxima of **493.396 ms** outbox-to-transport, **182.656 ms** in the
+  ordered record queue and **182.516 ms** in the record write. They belong to
+  different observations and must not be added. Neither endpoint's sampled
+  slot-4 reports recorded buffer/bandwidth drops or capacity deferrals. Buffer
+  drop reports in this capture belonged to the separate local signaling slot 6;
+  they do not establish loss of file DATA or quantify network packet loss.
+- Maximum sampled unsent DATA was **253,706 bytes** on the phone, below the
+  4-MiB high-water. Thus the cancellation regression is an independently proven
+  resource-release defect, **not an established cause of this physical stall**.
+
+The old receiver-generation theory was not promoted to a fix: current clients
+persist the introduction key and deterministically derive their registration
+cookie across restarts. No established stream was allowed to switch its receiver
+binding. The remaining failure needs further transport/congestion investigation;
+this capture does not establish a ping, packet-loss or provider root cause.
+
+Before source edits, the tested SDK/APK/loaded library were verified again.
+After the stand, own apps and captures exited, contact policies and diagnostics
+were restored, phone fixtures were removed, and the exact original phone APK
+was restored and hash-checked. The installed Mac app was unchanged. No physical
+transfer using the new cancellation fix is claimed by this capture. Long-file,
+call/video, Windows and complete multi-device qualification remain open.
+
+## Previous follow-up — 23 October: ready inbound traffic between send bursts
 
 SDK **`4a53b1c3`** fixes a confirmed managed delay in the reliable-stream driver.
 [driver-fairness.json](driver-fairness.json) records the red/green controls and
