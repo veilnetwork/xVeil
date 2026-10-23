@@ -1,0 +1,353 @@
+{
+  "sdk_commit": "2b1ab108",
+  "production_parent_sdk_commit": "6875a88a",
+  "status": "RACK duplicate delivery accounting corrected; long-transfer stability and call/video qualification remain open",
+  "correction": {
+    "original_defect": "A previously SACKed original was counted as a new late delivery again at cumulative ACK.",
+    "parent_reproducer_failed": true,
+    "parent_false_reordering_sample_ms": 90,
+    "expected_reordering_sample_ms": 0,
+    "production_regression": "engine::tests::rack_delivery_counted_once",
+    "simultaneous_ack_fields_use_prior_frontier": true,
+    "duplicate_feedback": {
+      "encoding": "Optional first duplicate SACK range, below cumulative ACK or enclosed by the second normal SACK. Existing version-1 frame layout and range capacity retained.",
+      "requires_matching_actual_retransmission_handoff": true,
+      "history_limit_records": 128,
+      "sample_window_ms": 30000,
+      "allowance": "Matched duplicate-feedback span above recent original-only minimum RTT, capped at the existing RTO when learned. This is a reordering allowance, not a path RTT measurement.",
+      "updates_per_send_round_max": 1,
+      "forget_after_dsack_free_recovery_exits": 16,
+      "report_consumes_matching_history": true,
+      "local_queued_candidates_cannot_substantiate_feedback": true,
+      "payload_copies_in_history": false
+    },
+    "rto_estimator_policy_and_timer_limits_unchanged": true,
+    "relay_priority_and_mailbox_policy_unchanged": true
+  },
+  "verification": {
+    "stream_tests_passed": 102,
+    "new_stream_regression_tests": 11,
+    "ffi_anonymous_stream_tests_test_low_difficulty_passed": 56,
+    "ffi_anonymous_stream_tests_production_features_passed": 29,
+    "all_target_stream_and_ffi_clippy_passed": true,
+    "rustfmt_and_diff_checks_passed": true,
+    "production_mac_and_android_sdk_builds_passed": true,
+    "unchanged_sdk_export_names": 198,
+    "sources_frozen_sdks_installed_apk_and_loaded_dylib_verified": true,
+    "production_test_hooks_added": false,
+    "two_path_lossless_simulation": {
+      "payload_cells": 300,
+      "transmitted_cells": 335,
+      "required_transmitted_cells_strictly_below": 383,
+      "data_rto_events": 0,
+      "bytes_match": true,
+      "elapsed_virtual_ms": 15048
+    },
+    "controls": [
+      "Already-SACKed originals do not re-enter delivery timing.",
+      "ACK field order cannot invent reordering; a genuinely late original still learns.",
+      "Fresh DATA preserves pending duplicate evidence until ACK encoding.",
+      "Duplicate prefix and above-ACK enclosing-block layout respect range capacity and sequence wrap.",
+      "Unmatched, queued-only, invalid, expired and replayed feedback cannot grow the allowance.",
+      "Recovery expiry and RTO cap bound learned duplicate tolerance.",
+      "Local handoff, cumulative segment removal and bounded history retain correct evidence."
+    ]
+  },
+  "mixed_version_source_copy_controls": {
+    "parent_reference_sdk_commit": "6875a88a",
+    "transfer_payload_cells": 300,
+    "zero_floor_two_path": [
+      {
+        "sender": "current",
+        "receiver": "parent",
+        "bytes_match": true,
+        "transmitted_cells": 432,
+        "data_rto_events": 0,
+        "meets_new_new_overhead_gate": false
+      },
+      {
+        "sender": "parent",
+        "receiver": "current",
+        "bytes_match": true,
+        "transmitted_cells": 347,
+        "data_rto_events": 0,
+        "meets_new_new_overhead_gate": true
+      }
+    ],
+    "existing_floor_1000ms_control": {
+      "both_mixed_directions_bytes_match": true,
+      "transmitted_cells_each": 303,
+      "data_rto_events_each": 0
+    },
+    "single_path_20_percent_loss": {
+      "current_sender_parent_receiver_cells": 411,
+      "parent_sender_current_receiver_cells": 424,
+      "both_bytes_match": true,
+      "required_cells_strictly_below": 600
+    },
+    "limitation": "A legacy receiver emits no duplicate feedback. With zero carrier reorder floor the corrected sender still exceeds the new/new overhead gate. Wire compatibility does not certify equal adaptation quality."
+  },
+  "physical": {
+    "initial_current_sdk": {
+      "transfers": [
+        {
+          "direction": "phone->mac",
+          "bytes": 4194304,
+          "success": true,
+          "download_seconds": 47.901,
+          "elapsed_seconds": 48.641,
+          "integrity_matches": true,
+          "window_seconds": 180,
+          "pull_requests": 3,
+          "failed_attempts_including_final_harness_cancellation": 2,
+          "source_payload_write_idle_timeouts": 0,
+          "application_reset_failures_including_final_harness_cancellation": 0,
+          "harness_cancellation_requested": false,
+          "manifest_phase_failures": 2,
+          "resume_offsets": [],
+          "anonymous_opens": 3,
+          "direct_opens": 0
+        },
+        {
+          "direction": "mac->phone",
+          "bytes": 4194304,
+          "success": true,
+          "download_seconds": 19.416,
+          "elapsed_seconds": 19.905,
+          "integrity_matches": true,
+          "window_seconds": 180,
+          "pull_requests": 1,
+          "failed_attempts_including_final_harness_cancellation": 0,
+          "source_payload_write_idle_timeouts": 0,
+          "application_reset_failures_including_final_harness_cancellation": 0,
+          "harness_cancellation_requested": false,
+          "manifest_phase_failures": 0,
+          "resume_offsets": [],
+          "anonymous_opens": 1,
+          "direct_opens": 0
+        },
+        {
+          "direction": "mac->phone",
+          "bytes": 33554432,
+          "success": false,
+          "download_seconds": null,
+          "elapsed_seconds": 181.712,
+          "integrity_matches": null,
+          "window_seconds": 180,
+          "pull_requests": 1,
+          "failed_attempts_including_final_harness_cancellation": 1,
+          "source_payload_write_idle_timeouts": 0,
+          "application_reset_failures_including_final_harness_cancellation": 1,
+          "harness_cancellation_requested": true,
+          "manifest_phase_failures": 0,
+          "resume_offsets": [],
+          "anonymous_opens": 1,
+          "direct_opens": 0
+        },
+        {
+          "direction": "phone->mac",
+          "bytes": 33554432,
+          "success": true,
+          "download_seconds": 173.77,
+          "elapsed_seconds": 176.065,
+          "integrity_matches": true,
+          "window_seconds": 180,
+          "pull_requests": 1,
+          "failed_attempts_including_final_harness_cancellation": 0,
+          "source_payload_write_idle_timeouts": 0,
+          "application_reset_failures_including_final_harness_cancellation": 0,
+          "harness_cancellation_requested": false,
+          "manifest_phase_failures": 0,
+          "resume_offsets": [],
+          "anonymous_opens": 1,
+          "direct_opens": 0
+        }
+      ],
+      "driver_samples": {
+        "mac": {
+          "samples": 345,
+          "max_sampled_local_handoff_wait_ms": 3503
+        },
+        "phone": {
+          "samples": 345,
+          "max_sampled_local_handoff_wait_ms": 855
+        }
+      },
+      "policies_restored": {
+        "mac": true,
+        "phone": true
+      },
+      "network": {
+        "wifi_disabled": true,
+        "mobile_data_enabled": true,
+        "default_route_is_cellular_interface": true
+      }
+    },
+    "preceding_sdk_control": {
+      "transfers": [
+        {
+          "direction": "phone->mac",
+          "bytes": 4194304,
+          "success": true,
+          "download_seconds": 27.273,
+          "elapsed_seconds": 47.44,
+          "integrity_matches": true,
+          "window_seconds": 180,
+          "pull_requests": 1,
+          "failed_attempts_including_final_harness_cancellation": 0,
+          "source_payload_write_idle_timeouts": 0,
+          "application_reset_failures_including_final_harness_cancellation": 0,
+          "harness_cancellation_requested": false,
+          "manifest_phase_failures": 0,
+          "resume_offsets": [],
+          "anonymous_opens": 3,
+          "direct_opens": 0
+        },
+        {
+          "direction": "mac->phone",
+          "bytes": 4194304,
+          "success": true,
+          "download_seconds": 27.224,
+          "elapsed_seconds": 28.205,
+          "integrity_matches": true,
+          "window_seconds": 180,
+          "pull_requests": 1,
+          "failed_attempts_including_final_harness_cancellation": 0,
+          "source_payload_write_idle_timeouts": 0,
+          "application_reset_failures_including_final_harness_cancellation": 0,
+          "harness_cancellation_requested": false,
+          "manifest_phase_failures": 0,
+          "resume_offsets": [],
+          "anonymous_opens": 1,
+          "direct_opens": 0
+        },
+        {
+          "direction": "mac->phone",
+          "bytes": 33554432,
+          "success": true,
+          "download_seconds": 97.442,
+          "elapsed_seconds": 99.225,
+          "integrity_matches": true,
+          "window_seconds": 180,
+          "pull_requests": 1,
+          "failed_attempts_including_final_harness_cancellation": 0,
+          "source_payload_write_idle_timeouts": 0,
+          "application_reset_failures_including_final_harness_cancellation": 0,
+          "harness_cancellation_requested": false,
+          "manifest_phase_failures": 0,
+          "resume_offsets": [],
+          "anonymous_opens": 1,
+          "direct_opens": 0
+        }
+      ],
+      "driver_samples": {
+        "mac": {
+          "samples": 146,
+          "max_sampled_local_handoff_wait_ms": 54
+        },
+        "phone": {
+          "samples": 129,
+          "max_sampled_local_handoff_wait_ms": 0
+        }
+      },
+      "policies_restored": {
+        "mac": true,
+        "phone": true
+      },
+      "network": {}
+    },
+    "current_sdk_repeat": {
+      "transfers": [
+        {
+          "direction": "phone->mac",
+          "bytes": 4194304,
+          "success": true,
+          "download_seconds": 57.429,
+          "elapsed_seconds": 67.713,
+          "integrity_matches": true,
+          "window_seconds": 180,
+          "pull_requests": 1,
+          "failed_attempts_including_final_harness_cancellation": 0,
+          "source_payload_write_idle_timeouts": 0,
+          "application_reset_failures_including_final_harness_cancellation": 0,
+          "harness_cancellation_requested": false,
+          "manifest_phase_failures": 0,
+          "resume_offsets": [],
+          "anonymous_opens": 2,
+          "direct_opens": 0
+        },
+        {
+          "direction": "mac->phone",
+          "bytes": 4194304,
+          "success": true,
+          "download_seconds": 14.211,
+          "elapsed_seconds": 15.096,
+          "integrity_matches": true,
+          "window_seconds": 180,
+          "pull_requests": 1,
+          "failed_attempts_including_final_harness_cancellation": 0,
+          "source_payload_write_idle_timeouts": 0,
+          "application_reset_failures_including_final_harness_cancellation": 0,
+          "harness_cancellation_requested": false,
+          "manifest_phase_failures": 0,
+          "resume_offsets": [],
+          "anonymous_opens": 1,
+          "direct_opens": 0
+        },
+        {
+          "direction": "mac->phone",
+          "bytes": 33554432,
+          "success": true,
+          "download_seconds": 100.725,
+          "elapsed_seconds": 102.55,
+          "integrity_matches": true,
+          "window_seconds": 180,
+          "pull_requests": 1,
+          "failed_attempts_including_final_harness_cancellation": 0,
+          "source_payload_write_idle_timeouts": 0,
+          "application_reset_failures_including_final_harness_cancellation": 0,
+          "harness_cancellation_requested": false,
+          "manifest_phase_failures": 0,
+          "resume_offsets": [],
+          "anonymous_opens": 1,
+          "direct_opens": 0
+        }
+      ],
+      "driver_samples": {
+        "mac": {
+          "samples": 141,
+          "max_sampled_local_handoff_wait_ms": 28
+        },
+        "phone": {
+          "samples": 138,
+          "max_sampled_local_handoff_wait_ms": 697
+        }
+      },
+      "policies_restored": {
+        "mac": true,
+        "phone": true
+      },
+      "network": {
+        "wifi_disabled": true,
+        "mobile_data_enabled": true,
+        "default_route_is_cellular_interface": true
+      }
+    }
+  },
+  "cleanup": {
+    "all_three_owned_stands_exited": true,
+    "original_phone_apk_restored_and_hash_verified_each_time": true,
+    "diagnostic_property_and_qa_policies_restored": true,
+    "owned_phone_file_fixtures_removed": true,
+    "installed_mac_app_unchanged": true
+  },
+  "limitations": [
+    "The first current-SDK laptop-to-phone 32-MiB run failed the unchanged 180-second window. The repeat completed in 100.725 seconds; this does not erase the failed run or establish sustained stability.",
+    "The initial phone-to-laptop 4-MiB run needed three pull attempts, with two manifest-phase failures. The later repeat had one pull request.",
+    "The preceding SDK completed the large reverse control in 97.442 seconds. Sequential WAN runs do not isolate a speed benefit or prove universal absence of performance regression.",
+    "Sampled local file-driver waits are not absolute queue maxima, RTT, audio-buffer delay or call latency.",
+    "No calls, camera or live speech evaluation, Windows execution or full multi-device campaign ran in this cycle.",
+    "No published release or public relay update was performed."
+  ],
+  "privacy": "Whitelist aggregate metrics and synthetic regression fixtures only; no observed identifiers, addresses, payloads, keys, raw logs, file hashes or private paths."
+}

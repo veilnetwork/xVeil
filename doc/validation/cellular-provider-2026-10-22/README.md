@@ -2,7 +2,107 @@
 
 **Status: partial stream fixes verified; long anonymous transfers and call/video failures remain.**
 
-## Latest follow-up — 23 October: staggered repairs; open RACK accounting defect
+## Latest follow-up — 23 October: RACK delivery accounting and duplicate feedback
+
+SDK **`2b1ab108`** corrects the previously open RACK accounting defect.
+[rack-duplicate-feedback.json](rack-duplicate-feedback.json) records the
+regressions, mixed-version controls and every physical run, including a failed
+large transfer. **The accounting correction is verified; long-transfer
+stability and call/video quality remain open.**
+
+### Correction and controls
+
+The source-copy reproducer fails on parent `6875a88a`: a previously SACKed
+original is reported again at cumulative ACK and manufactures a 90-ms late
+delivery sample. The regression now runs in the normal production-source test
+module as `rack_delivery_counted_once`. Already-SACKed originals no longer
+re-enter RACK timing. New cumulative/SACK deliveries compare against the
+frontier from before the ACK, so field iteration order does not create an
+arrival chronology. The [original fixture](pending-rack-delivery.rs) is retained
+as historical evidence.
+
+Removing manufactured samples alone failed the existing multipath gate.
+The receiver now optionally reports duplicate bytes in the first SACK range,
+using the [RFC 2883 layout](https://www.rfc-editor.org/rfc/rfc2883.html#section-3).
+A report only influences adaptation when it matches a recent, actually
+handed-off retransmission. Queued-only, unmatched, stale and consumed reports
+cannot inflate the allowance. No payload copies are retained: history is
+bounded to 128 records, with 30-second timing evidence. New DATA does not erase
+a pending duplicate report before ACK encoding.
+
+As discussed in [RFC 8985](https://www.rfc-editor.org/rfc/rfc8985.html#section-6.2),
+retransmission ambiguity can otherwise prevent learning real reordering.
+This implementation uses matched duplicate-feedback span above recent
+original-only minimum RTT, capped at the existing RTO when learned, with one
+update per send round and expiry after 16 DSACK-free recovery exits. It is a
+RACK-like multipath adaptation, **not a claim of full TCP RACK compliance**:
+the measured feedback span is an allowance, not an exact route RTT, and is not
+the RFC's linear multiplier capped by SRTT. The existing RTO estimator policy,
+timer limits, carrier floors, wire version/range capacity, mailbox policy and
+relay scheduling are unchanged.
+
+All **102 stream tests** (11 new regressions), **56 FFI anonymous-stream tests**
+in the low-difficulty test feature set, and **29** in production features pass.
+All-target stream/FFI Clippy, rustfmt and diff checks pass. Production Mac and
+Android SDKs build with the same **198 exported SDK names**. The existing
+zero-loss 100/500-ms two-path gate passes at **335 wire cells for 300 payload
+cells**, below the unchanged strict limit of **383**, with intact bytes and no
+DATA RTO. Existing real-loss and staggered-repair gates also pass.
+
+### Mixed-version boundary
+
+A source-copy control uses the exact parent engine through real encoded cells.
+Both mixed directions complete intact, including a 20% loss control. With the
+existing 1000-ms carrier floor, both mixed directions use 303 cells for 300
+payload cells and have no DATA RTO. With **zero** floor, however, a current
+sender talking to a legacy receiver uses **432** cells, above the new/new
+limit; the receiver supplies no duplicate feedback. Parent sender/current
+receiver uses 347. This is verified wire compatibility, **not equal adaptive
+quality with legacy receivers**. Production's existing striped-route floor
+is 1500 ms and was not increased.
+
+### Physical files: current → parent control → current repeat
+
+The same QA identities and unchanged production frontends/media engines were
+used. Phone Wi-Fi was disabled, mobile data and a cellular default interface
+were verified, and own-contact P2P was denied for each transfer. All recorded
+opens were anonymous, with no direct stream.
+
+| SDK/run | Direction | Size | Download | Pull requests | Result |
+| --- | --- | ---: | ---: | ---: | --- |
+| Current, initial | Phone → laptop | 4 MiB | 47.901 s | 3 | Integrity matches; two manifest-phase attempts failed |
+| Current, initial | Laptop → phone | 4 MiB | 19.416 s | 1 | Integrity matches |
+| Current, initial | Laptop → phone | 32 MiB | **Incomplete in 180 s** | 1 | Final integrity unverified |
+| Current, initial | Phone → laptop | 32 MiB | **173.770 s** | 1 | Integrity matches |
+| Parent control | Phone → laptop | 4 MiB | 27.273 s | 1 | Integrity matches |
+| Parent control | Laptop → phone | 4 MiB | 27.224 s | 1 | Integrity matches |
+| Parent control | Laptop → phone | 32 MiB | **97.442 s** | 1 | Integrity matches |
+| Current, repeat | Phone → laptop | 4 MiB | 57.429 s | 1 | Integrity matches |
+| Current, repeat | Laptop → phone | 4 MiB | 14.211 s | 1 | Integrity matches |
+| Current, repeat | Laptop → phone | 32 MiB | **100.725 s** | 1 | Integrity matches |
+
+No source payload-write-idle timeout was observed in these runs. The failed
+large transfer's final reset accompanies harness cancellation and is retained
+in inclusive attempt counts; it is not separately counted as a new product
+failure. There was no positive-offset restart in the recorded pull requests.
+The 180-second window was not extended. Neither the repeat nor the parent
+control erases the failed initial gate. Sequential WAN observations do not
+prove a speed gain or universal absence of performance regression.
+
+Largest sampled local file-driver waits were **3503/855 ms** (laptop/phone) in
+the first current run, **54/0 ms** in the parent control, and **28/697 ms** in
+the current repeat. These are sampled handoff waits, not absolute queue maxima,
+RTT or audio playout delay. They show that the run conditions differed; they
+do not isolate the cause of the stalled transfer.
+
+Sources, frozen libraries, installed APK and loaded Mac dylib were verified.
+After each of the three stands, own app/capture processes exited, QA policies
+and the diagnostic property were restored, and the exact original phone APK
+was restored and hash-checked. The installed Mac application was unchanged.
+No calls, camera, live speech, Windows or full multi-device qualification ran.
+Public evidence contains aggregate metrics and synthetic fixtures only.
+
+## Previous follow-up — 23 October: staggered repairs; open RACK accounting defect
 
 [staggered-sack-repairs.json](staggered-sack-repairs.json) records SDK
 `6875a88a`. **Separate repair deadlines are fixed and the physical file gate

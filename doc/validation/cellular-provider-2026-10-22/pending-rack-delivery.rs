@@ -1,8 +1,8 @@
-// Pending regression for the OPEN RACK delivery-accounting issue.
-// Insert into engine.rs's #[cfg(test)] mod tests, beside repeated_sack_holes.
-// Run: cargo test -p veil-onion-stream --lib pending_rack_delivery_counted_once
-// Expected on SDK 6875a88a: assertion fails, reordering gap 90 instead of 0.
-// This is documentation evidence, not an ignored/passing production test.
+// Historical source-copy regression for the RACK delivery-accounting issue.
+// On parent SDK 6875a88a the assertion fails: reordering gap 90 instead of 0.
+// The corrected regression is now maintained in engine.rs's regular test module:
+// cargo test -p veil-onion-stream --lib rack_delivery_counted_once
+// Keep this original fixture as evidence of the previously open finding.
 #[test]
 fn pending_rack_delivery_counted_once() {
     let mut e = repeated_sack_holes(true);
