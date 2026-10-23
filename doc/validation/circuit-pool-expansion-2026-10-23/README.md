@@ -88,3 +88,13 @@ not a qualification of this correction. Reduction of the observed reconstruction
 count or cellular delivery time is **unproven**. The manifest-first-byte timeout,
 other route-repair causes, call/video/live-speech checks and the complete
 multi-device matrix remain open. No release or push was performed.
+
+## Later combined SDK run
+
+After ADB authorization, SDK **`89e7678f`** (including this correction and a
+separate local repair-order fix) was tested on the cellular phone/Mac stand.
+The 32 MiB transfer timed out at 600 seconds, last sink sample 5.5 MiB; the
+4 MiB transfer completed in 44.804 seconds with matching SHA-256. See the
+[later report](../stream-local-repair-2026-10-23/README.md). This does not isolate
+expansion behavior or establish a physical speed improvement; long-file recovery
+remains open. The original cycle's absence of a physical run is historical.
