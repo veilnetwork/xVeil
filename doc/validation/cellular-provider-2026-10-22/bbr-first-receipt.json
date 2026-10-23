@@ -1,0 +1,143 @@
+{
+  "transfers": [
+    {
+      "direction": "phone->mac",
+      "bytes": 33554432,
+      "success": false,
+      "download_seconds": null,
+      "elapsed_seconds": 191.558,
+      "integrity_matches": null,
+      "window_seconds": 180,
+      "pull_requests": 2,
+      "failed_attempts_including_final_harness_cancellation": 2,
+      "source_payload_write_idle_timeouts": 0,
+      "application_reset_failures_including_final_harness_cancellation": 1,
+      "harness_cancellation_requested": true,
+      "manifest_phase_failures": 1,
+      "resume_request_offsets": [],
+      "anonymous_opens": 3,
+      "direct_opens": 0
+    },
+    {
+      "direction": "phone->mac",
+      "bytes": 4194304,
+      "success": true,
+      "download_seconds": 29.28,
+      "elapsed_seconds": 30.438,
+      "integrity_matches": true,
+      "window_seconds": 180,
+      "pull_requests": 1,
+      "failed_attempts_including_final_harness_cancellation": 0,
+      "source_payload_write_idle_timeouts": 0,
+      "application_reset_failures_including_final_harness_cancellation": 0,
+      "harness_cancellation_requested": false,
+      "manifest_phase_failures": 0,
+      "resume_request_offsets": [],
+      "anonymous_opens": 1,
+      "direct_opens": 0
+    }
+  ],
+  "driver_samples": {
+    "mac": {
+      "samples": 172,
+      "max_sampled_local_handoff_wait_ms": 1022,
+      "minimum_sampled_bbr_min_rtt_ms": 123,
+      "maximum_sampled_bbr_min_rtt_ms": 1000,
+      "minimum_sampled_unsent_bytes": 0,
+      "maximum_sampled_unsent_bytes": 48
+    },
+    "phone": {
+      "samples": 176,
+      "max_sampled_local_handoff_wait_ms": 1157,
+      "minimum_sampled_bbr_min_rtt_ms": 110,
+      "maximum_sampled_bbr_min_rtt_ms": 251,
+      "minimum_sampled_unsent_bytes": 0,
+      "maximum_sampled_unsent_bytes": 233577
+    }
+  },
+  "policies_restored": {
+    "mac": true,
+    "phone": true
+  },
+  "network": {
+    "wifi_disabled": true,
+    "mobile_data_enabled": true,
+    "default_transport_is_cellular": true
+  },
+  "parent_sdk": "be4c2737",
+  "admission_reports": {
+    "mac": {
+      "6": {
+        "reports": 5,
+        "max_sampled_outbox_to_transport_max_us": 182,
+        "max_sampled_record_queue_max_us": 0,
+        "max_sampled_record_write_max_us": 0,
+        "max_sampled_buffer_drops": 3,
+        "max_sampled_bandwidth_drops": 0,
+        "max_sampled_capacity_deferrals": 0
+      },
+      "4": {
+        "reports": 119,
+        "max_sampled_outbox_to_transport_max_us": 6984,
+        "max_sampled_record_queue_max_us": 231,
+        "max_sampled_record_write_max_us": 213,
+        "max_sampled_buffer_drops": 0,
+        "max_sampled_bandwidth_drops": 0,
+        "max_sampled_capacity_deferrals": 0
+      }
+    },
+    "phone": {
+      "4": {
+        "reports": 366,
+        "max_sampled_outbox_to_transport_max_us": 493661,
+        "max_sampled_record_queue_max_us": 196018,
+        "max_sampled_record_write_max_us": 198720,
+        "max_sampled_buffer_drops": 0,
+        "max_sampled_bandwidth_drops": 0,
+        "max_sampled_capacity_deferrals": 0
+      }
+    }
+  },
+  "cleanup": {
+    "phone_stopped": true,
+    "mac_stopped": true,
+    "original_phone_apk_restored": true,
+    "original_phone_apk_hash_matches": true,
+    "phone_process_absent_after_restore": true,
+    "final_tested_build_verified": true,
+    "android_diagnostic_property_restored": true,
+    "owned_phone_file_fixtures_removed": true,
+    "owned_mac_process_absent_independent_check": true
+  },
+  "verification": {
+    "new_regression_cases": 4,
+    "parent_failures": 3,
+    "parent_control_passes": 1,
+    "stream_tests_passed": 116,
+    "embedded_ffi_tests_passed": 56,
+    "clippy_all_targets_warnings_denied": true,
+    "rustfmt": true,
+    "macos_and_android_production_sdks_built": true,
+    "ffi_exports": {
+      "libveilclient_ffi.dylib": {
+        "export_names_match_parent": true,
+        "veil_export_count": 198
+      },
+      "libveilclient_ffi.so": {
+        "export_names_match_parent": true,
+        "veil_export_count": 198
+      }
+    },
+    "two_path_reorder_gate_covers_bbr_on_and_off": true
+  },
+  "interpretation": {
+    "rejected_sack_based_rto_shortening_variant_discarded": true,
+    "cumulative_rto_estimator_and_timer_limits_preserved": true,
+    "no_proven_physical_speed_improvement": true,
+    "long_transfer_stability_remains_open": true,
+    "whole_capture_includes_both_transfers": true,
+    "admission_maxima_are_not_additive": true,
+    "raw_ids_addresses_sequences_and_user_data_omitted": true
+  },
+  "fixed_sdk": "51f71c3d"
+}
