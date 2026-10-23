@@ -80,11 +80,7 @@ class _InboundContentStreamBroker {
               await _abort(accepted.stream);
             } else {
               try {
-                lease.onP2P(
-                  accepted.src,
-                  accepted.provenance,
-                  accepted.stream,
-                );
+                lease.onP2P(accepted.src, accepted.provenance, accepted.stream);
               } catch (_) {
                 await _abort(accepted.stream);
               }
@@ -108,11 +104,7 @@ class _InboundContentStreamBroker {
           continue;
         }
         try {
-          lease.onAnonymous(
-            accepted.src,
-            accepted.provenance,
-            accepted.stream,
-          );
+          lease.onAnonymous(accepted.src, accepted.provenance, accepted.stream);
         } catch (_) {
           await _abort(accepted.stream);
         }
@@ -347,12 +339,19 @@ class _StreamOpenOutcome {
 /// Registers a receive-side stream until it closes or aborts. This gives a
 /// user cancellation a concrete native handle to interrupt even while Dart is
 /// blocked in [ReliableStream.read].
-class _TrackedPullStream implements ReliableStream {
+class _TrackedPullStream implements ConnectionAwareReliableStream {
   _TrackedPullStream(this._inner, this._onDone);
 
   final ReliableStream _inner;
   final void Function() _onDone;
   bool _done = false;
+
+  @override
+  bool get isConnected {
+    if (_done) throw StateError('content stream already closed');
+    final inner = _inner;
+    return inner is ConnectionAwareReliableStream ? inner.isConnected : true;
+  }
 
   @override
   Future<void> write(Uint8List data) => _inner.write(data);
