@@ -24,6 +24,36 @@ class ProcessDevice {
   final ownedPids = <int>[];
   String get logPath => '${dir.path}/worker.log';
 
+  /// Drive the existing native admin socket of this owned worker. This stays
+  /// in the fixture: partition tests need no extra application debug endpoint.
+  Future<String> admin(String cli, List<String> command) async {
+    final sockets = await Directory('${dir.path}/runtime')
+        .list(recursive: true, followLinks: false)
+        .where((entry) => entry.path.endsWith('/admin.sock'))
+        .toList();
+    if (sockets.length != 1) {
+      throw StateError('$label must have exactly one live admin socket');
+    }
+    // The CLI loads a config to locate the socket, but never starts this
+    // config. Use a public test identity, not material from the container.
+    final fixture = await File(
+      'test/e2e/fixtures/device_identity_x_master.toml',
+    ).readAsString();
+    final identity = RegExp(
+      r'\[Identity\][\s\S]*?(?=\n\[|$)',
+    ).firstMatch(fixture)!.group(0)!;
+    final config = File('${dir.path}/admin-client.toml');
+    await config.writeAsString(
+      '[global]\nbuiltin_seed_policy = "never"\n'
+      'admin_socket = ${jsonEncode('unix://${sockets.single.path}')}\n$identity\n',
+    );
+    final result = await Process.run(cli, ['-c', config.path, ...command]);
+    if (result.exitCode != 0) {
+      throw StateError('$label admin failed: ${result.stderr}');
+    }
+    return result.stdout as String;
+  }
+
   Future<void> start() async {
     await dir.create(recursive: true);
     final stopMarker = File('${dir.path}/stop-worker');

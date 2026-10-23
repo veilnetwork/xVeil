@@ -1,0 +1,54 @@
+{
+  "sdk_commit": "50fa7a2f",
+  "test_kind": "physical_bidirectional_4MiB_anonymous_relay_files",
+  "passed": true,
+  "transfers": [
+    {
+      "sender": "mac",
+      "receiver": "phone",
+      "bytes": 4194304,
+      "ok": true,
+      "download_seconds": 28.654,
+      "elapsed_seconds": 29.457,
+      "hash_matches": true,
+      "original_180_second_completion_gate_passed": true
+    },
+    {
+      "sender": "phone",
+      "receiver": "mac",
+      "bytes": 4194304,
+      "ok": true,
+      "download_seconds": 16.903,
+      "elapsed_seconds": 17.58,
+      "hash_matches": true,
+      "original_180_second_completion_gate_passed": true
+    }
+  ],
+  "network": {
+    "wifi_enabled": false,
+    "mobile_data_enabled": true,
+    "default_transport_is_cellular": true
+  },
+  "sdk_sources_match_frozen_build": true,
+  "owned_mac_loaded_staged_sdk": true,
+  "installed_qa_apk_hash_matches": true,
+  "policies_restored": {
+    "mac": true,
+    "phone": true
+  },
+  "original_phone_apk_hash_matches_after_restore": true,
+  "independent_cleanup": {
+    "owned_mac_process_absent": true,
+    "phone_process_absent": true,
+    "owned_forward_removed": true,
+    "debug_property_restored": true,
+    "owned_logcat_absent": true,
+    "profile_pointer_unchanged": true
+  },
+  "limits": {
+    "32MiB_gate_requalified": false,
+    "cellular_stall_eliminated": false,
+    "audio_or_video_qualified": false,
+    "windows_qualified": false
+  }
+}
