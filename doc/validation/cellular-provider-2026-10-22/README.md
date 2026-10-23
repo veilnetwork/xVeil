@@ -2,7 +2,88 @@
 
 **Status: partial stream fixes verified; long anonymous transfers and call/video failures remain.**
 
-## Latest follow-up — 23 October: graceful close and final local ACK handoff
+## Latest follow-up — 23 October: byte duplication after a late partial ACK
+
+[partial-ack-rewind.json](partial-ack-rewind.json) records SDK `c56e1aee`.
+**A reliable-stream byte-duplication mechanism is corrected. Long waits,
+repeated opens and the 180-second file gate remain unresolved.**
+
+### Reproduction and source correction
+
+The earlier `invalid content stream credit` line did not distinguish malformed,
+duplicate or unexpectedly advancing credit. A temporary phone-only diagnostic
+frontend, built outside the repository, classified two rejections as **duplicate
+credit**, with **262,144 outstanding bytes** and `finishing=false`. This was an
+ordinary application credit wait, rather than only final close. Its measurement
+contained numeric credit state for isolated QA transfers, not message contents,
+keys or user recordings. No validation check was relaxed.
+
+A controlled transport exchange reproduces that exact failure shape. An
+original eight-byte credit arrives but its ACK is delayed. No-SACK RTO recovery
+coalesces it with new bytes into a larger retransmission. The old ACK then
+covers only the beginning of that larger segment. On the next no-SACK RTO,
+recovery copied the whole segment back to the pending queue at the advanced
+send offset, **renumbering already acknowledged bytes as new application data**.
+The peer consequently receives the same credit twice. Forward application
+payload can be affected by the same generic mechanism; this is a byte-stream
+correction, not a special case that ignores duplicate credits.
+
+Recovery now excludes each segment's prefix below the cumulative acknowledged
+offset when rebuilding pending bytes. Existing segment boundaries remain valid
+for ordinary retransmission. Modular sequence arithmetic handles wraparound.
+No protocol, window, network-RTO constant, relay scheduling or application credit
+validation changed. The field packet schedule was not reconstructed; the
+controlled reproduction proves this mechanism produces the observed rejection,
+not that it explains every field failure.
+
+Both new regressions fail with the exact previous engine source and pass with
+the correction restored. One covers both RACK modes and modular sequence wrap.
+The other drives the real async driver/local-handoff path with delayed original
+ACK, lost coalesced retransmission and pending new tail. It asserts that the
+larger retransmission was actually formed, and checks the complete received byte
+sequence through clean closure, so a fixture missing the failure conditions
+cannot silently pass.
+
+### Gates and ordinary physical stand
+
+All **77 stream tests** and **44 FFI anonymous-stream tests** pass. Stream
+all-target Clippy and rustfmt are clean. Production Mac and Android SDK builds
+pass with the same **198 SDK export names**. Current sources, frozen libraries,
+installed APK and the Mac process's loaded SDK were checked before and after
+physical verification. The final stand uses ordinary frontends and native media
+engines. Its phone application has no diagnostic-probe marker; the disposable
+Dart source was restored and the owned probe APKs removed. No calls, synthetic
+media or PCM overlays were used.
+
+The phone used cellular data with Wi-Fi off. P2P was denied for the own QA
+contacts during these cases and restored afterward. All recorded opens were
+anonymous, including probes/reopens; no direct stream was used.
+
+| Direction | Size | Observation window | Download | Result |
+| --- | ---: | ---: | ---: | --- |
+| Phone → laptop | 4 MiB | 180 s | 65.920 s | SHA-256 match after a payload-idle resume at 1,572,864 bytes |
+| Laptop → phone | 4 MiB | 180 s | 13.520 s | SHA-256 match, one pull request |
+| Phone → laptop | 32 MiB | 180 s | **Incomplete** | 31,457,280-byte committed prefix at harness cancellation; final hash unverified |
+| Separate phone → laptop run | 32 MiB | 600 s | **262.745 s** | SHA-256 match after recovery |
+
+The extended observation verifies eventual completion in that separate run. It
+**does not pass the 180-second gate or establish a speed improvement**. It still
+needed **15 pull requests**, including **13 no-manifest failures** and one
+payload-idle resume at **14,417,920 bytes**. The ordinary stand recorded zero
+`invalid content stream credit` lines in its retained endpoint snapshots, but
+cold-open failures, long queue waits and recovery remain present. The largest
+sampled local carrier waits across the ordinary runs were **3,024 ms on the
+laptop** (329 samples) and **35,288 ms on the phone** (450 samples). These are
+sampled local waits, not absolute maxima or end-to-end latency.
+
+Policies and the temporary Android diagnostic property were restored and
+verified. Both apps and owned captures exited; process absence was checked
+independently. The exact original phone APK was restored and hash-verified,
+owned phone fixtures removed, and the installed Mac app left intact. Only
+allow-listed aggregates are published here. Raw captures, endpoint identifiers,
+addresses, paths, keys, packet sequences and file hashes remain private.
+
+## Previous follow-up — 23 October: graceful close and final local ACK handoff
 
 [stream-close-handoff.json](stream-close-handoff.json) records SDK `097e373b`.
 **The 32-MiB anonymous upload is still incomplete at the 180-second observation
