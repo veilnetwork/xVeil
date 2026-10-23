@@ -1,8 +1,26 @@
 # Cellular call and file validation — 2026-10-22
 
-**Status: local repair delay fixed; the latest cellular run failed the 32 MiB completion gate and passed 4 MiB integrity. Long-transfer recovery and call/video qualification remain open.**
+**Status: repeated-RTO ACK/FIN recovery fixed; the latest cellular file pair completed with matching hashes. The 32 MiB 180-second target, long-transfer stability and call/video qualification remain open.**
 
-## Latest follow-up — 23 October: repair ahead of a blocked local DATA tail
+## Latest follow-up — 23 October: retain late ACK/FIN evidence across RTOs
+
+SDK **`ada6eed6`** fixes a reproduced repeated-rewind error: a smaller replay
+replaced the valid ACK ceiling of the original larger handed-off flight, and
+lost its pending FIN evidence. Legitimate late confirmation could be rejected.
+Eight cases cover data/FIN, RACK off/on, sequence wrapping and rejection of an
+ACK for unsent bytes. All **124 stream / 62 client tests**, Clippy, rustfmt and
+native build/ABI checks pass. See the
+[dedicated report](../repeated-rto-2026-10-23/README.md).
+
+The current cellular phone/Mac pair completed **32 MiB in 347.642 seconds** and
+**4 MiB in 18.797 seconds**, both SHA-256 matched. The large file resumed after
+interruptions through 2.25, 4.75 and 9.75 MiB, but still missed the original
+180-second target. Three manifest-first-byte timeouts and payload-idle/reset
+failures remain. This is verified completion in one run, not a controlled
+physical A/B comparison or proof of long-transfer stability. Exact APK/policy
+restoration and independent process-absence checks passed. No push/release.
+
+## Previous follow-up — 23 October: repair ahead of a blocked local DATA tail
 
 SDK **`89e7678f`** fixes a reproduced driver delay: already-due retransmissions
 and reverse ACKs waited behind a whole locally unaccepted fresh-DATA tail.
