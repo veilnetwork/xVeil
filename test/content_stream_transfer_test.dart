@@ -124,6 +124,54 @@ class _PipeEnd implements ReliableStream {
   }
 }
 
+/// Native open/write may resolve while the transport handshake is pending.
+/// No request bytes reach the server until that handshake completes.
+class _ConnectionGateStream implements ConnectionAwareReliableStream {
+  _ConnectionGateStream(this.inner, Duration? delay) {
+    if (delay != null) {
+      timer = Timer(delay, () async {
+        connected = true;
+        for (final bytes in pending) {
+          await inner.write(bytes);
+        }
+        pending.clear();
+      });
+    }
+  }
+  final ReliableStream inner;
+  final pending = <Uint8List>[];
+  Timer? timer;
+  bool connected = false, ended = false;
+  @override
+  bool get isConnected {
+    if (ended) throw StateError('stream ended');
+    return connected;
+  }
+
+  @override
+  Future<void> write(Uint8List data) async {
+    if (ended) throw StateError('stream ended');
+    if (connected) {
+      await inner.write(data);
+    } else {
+      pending.add(Uint8List.fromList(data));
+    }
+  }
+
+  @override
+  Future<Uint8List> read({int maxBytes = 65536}) =>
+      inner.read(maxBytes: maxBytes);
+  @override
+  Future<void> close() => abort();
+  @override
+  Future<void> abort() async {
+    ended = true;
+    timer?.cancel();
+    pending.clear();
+    await inner.abort();
+  }
+}
+
 /// Model the old offset parser without sharing the new credit implementation:
 /// any marked offset is an ordinary huge positive offset, clamped to EOF.
 /// Replace it with another unmarked huge offset for the current test server.
@@ -357,6 +405,7 @@ class _StreamLink
       <({ReliableStream stream, NodeId src, SenderProvenance provenance})>[];
   final acceptStreamWrappers =
       <ReliableStream Function(ReliableStream stream)>[];
+  final openStreamWrappers = <ReliableStream Function(ReliableStream stream)>[];
   final openStreamDelays = <String, Duration>{};
   final openStreamAttemptsByPeer = <String, int>{};
   int openStreamFailures = 0;
@@ -465,10 +514,13 @@ class _StreamLink
     final w = p._acceptWaiter;
     p._acceptWaiter = null;
     w?.complete();
-    return _OnCloseStream(
+    final local = _OnCloseStream(
       _PipeEnd(aToB, bToA),
       onClose: () => localStreamCloses++,
     );
+    return openStreamWrappers.isEmpty
+        ? local
+        : openStreamWrappers.removeAt(0)(local);
   }
 
   @override
@@ -621,6 +673,94 @@ void main() {
     );
     await Future<void>.delayed(const Duration(milliseconds: 80));
     return cid;
+  }
+
+  for (final mode in ['cold', 'never', 'silent', 'cancel']) {
+    test(
+      'stream readiness separates connection from manifest timeout: $mode',
+      () async {
+        await mB.dispose();
+        mB = MessagingService(
+          tB,
+          sB,
+          contentPacing: Duration.zero,
+          plainFileStream: true,
+          streamPullMaxAttempts: 1,
+          streamOpenWriteGrace: Duration.zero,
+          streamRequestTimeout: Duration(
+            milliseconds: mode == 'never' ? 160 : 1000,
+          ),
+        )..streamManifestFirstByteTimeout = const Duration(milliseconds: 60);
+        mB.start();
+        final data = _rnd(60000, 1041);
+        final cid = await advertiseFromA(data, name: 'readiness.bin');
+        late _ConnectionGateStream gate;
+        tB.openStreamWrappers.add(
+          (stream) => gate = _ConnectionGateStream(
+            stream,
+            (mode == 'never' || mode == 'cancel')
+                ? null
+                : Duration(milliseconds: mode == 'cold' ? 300 : 0),
+          ),
+        );
+        if (mode == 'silent') {
+          tA.acceptStreamWrappers.add(
+            (stream) => _BlackholeWriteStream(stream, passBytes: 0),
+          );
+        }
+        final outcome = Completer<bool>();
+        final received = mB.contentReceived
+            .where((e) => e.contentId == cid)
+            .listen((_) {
+              if (!outcome.isCompleted) outcome.complete(true);
+            });
+        final failed = mB.contentDownloadFailed.where((c) => c == cid).listen((
+          _,
+        ) {
+          if (!outcome.isCompleted) outcome.complete(false);
+        });
+        addTearDown(received.cancel);
+        addTearDown(failed.cancel);
+        final dir = await Directory.systemTemp.createTemp('xveil-ready');
+        addTearDown(() => dir.delete(recursive: true));
+        final path = '${dir.path}/received.bin';
+        final raf = await File(path).open(mode: FileMode.write);
+        final elapsed = Stopwatch()..start();
+        expect(
+          await mB.downloadContentToFile(
+            a,
+            cid,
+            path,
+            write: (offset, bytes) async {
+              await raf.setPosition(offset);
+              await raf.writeFrom(bytes);
+            },
+            close: raf.close,
+          ),
+          ContentDownloadResult.started,
+        );
+        if (mode == 'cancel') {
+          await mB.cancelContentDownload(cid);
+          expect(gate.ended, isTrue);
+          expect(mB.fetchingCount, 0);
+          return;
+        }
+        expect(
+          await outcome.future.timeout(const Duration(seconds: 4)),
+          mode == 'cold',
+        );
+        expect(tB.openStreamAttemptCount, 1);
+        if (mode == 'cold') {
+          expect(await File(path).readAsBytes(), data);
+        } else {
+          expect(gate.ended, isTrue);
+          expect(elapsed.elapsedMilliseconds, lessThan(900));
+          if (mode == 'never') {
+            expect(elapsed.elapsedMilliseconds, greaterThanOrEqualTo(120));
+          }
+        }
+      },
+    );
   }
 
   for (final ranged in [false, true]) {

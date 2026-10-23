@@ -2,7 +2,71 @@
 
 **Status: partial stream fixes verified; long-transfer stability and call/video failures remain open.**
 
-## Latest follow-up — 23 October: isolate file setup registrations
+## Latest follow-up — 23 October: distinguish handshake from response silence
+
+SDK **`2179c1e5`** exposes validated anonymous-stream handshake state. An
+optimistic local write, or handing a SYN to a carrier, does not establish peer
+readiness. The driver now retains its existing engine `Connected` event; reset
+remains an error. The new nonblocking C query uses the existing typed handle
+table and does not wait for network I/O or claim application-data delivery.
+
+All four file-request paths now distinguish connection setup from waiting for
+the manifest prefix. Setup uses the remaining original 60-s request budget,
+capped at 25 s after the local write. The existing short first-response timeout
+starts after handshake completion. **This adds a separate bounded setup stage;
+it does not leave total attempt timing unchanged.** A connected but silent
+source still hits the short response bound. Cancellation closes the tracked
+stream, and implementations without this optional capability retain their
+existing behavior. Manifest-prefix timeout and actual EOF now have distinct
+errors; neither is labeled proof that the sender refused service.
+
+Two application regressions fail with actual assertions before the correction:
+a request queued behind a 300-ms handshake loses to a 60-ms response timeout,
+and a never-connected stream fails before its setup budget. Four readiness
+cases pass after the correction, including established-source silence and
+cancellation. The selected application subset passes **76 tests**, the full
+stream crate **118**, and targeted embedded FFI **60**. All-target Clippy with
+warnings denied, rustfmt and changed-file Dart analysis pass. Production SDKs
+and fresh client frontends build for macOS and Android. The C ABI deliberately
+adds **one export**, `veil_anon_stream_is_connected` (**198 → 199**); the header
+and both ABI contracts are regenerated. Older frontends must not be paired
+with these new native libraries. This is local verification, not a full CI or
+Windows runtime result.
+
+### Physical failures remain
+
+The owned phone/Mac stand again used cellular data with phone Wi-Fi off and
+own-contact P2P denied. No call, camera or physical audio device was opened.
+
+| Direction | Size | Result | Observed failures |
+| --- | ---: | --- | --- |
+| Phone → Mac | 32 MiB | Timed out at the **600-s diagnostic limit**; last observed sink **32,243,712 bytes (30.75 MiB)**. Original **180-s gate failed**. | Nine failed pull attempts including final harness cancellation; five connection-setup timeouts, one source payload-write-idle event. |
+| Phone → Mac, after the large transfer | 4 MiB | Timed out at **180 s**; last observed sink **1,572,864 bytes (1.5 MiB)**. | Five failed pull attempts including final harness cancellation; three connection-setup timeouts, one source payload-write-idle event. |
+
+Neither completed, so **file integrity was not verified**. Actual large-file
+resume requests used offsets **1,048,576** and **30,146,560 bytes**. At 180.960 s,
+the observed large-file sink was **9,437,184 bytes**. No manifest-prefix timeout
+or pre-manifest EOF was recorded, but connection and payload failures persist;
+the changed error classification must not be counted as a complete fix.
+
+Native samples include a pending initiator handshake lasting beyond the old
+8-s first-response bound. The phone also reports repeated `NoRelays`, and a
+sampled local handoff wait reaches **35,263 ms**. These observations do not
+identify the first cause of route loss. Repeated completed pool builds and
+refill requests without an alternative warrant a controlled construction-count
+regression before changing repair cadence. Route selection and network load
+were not held constant, so this worse run does not establish a causal speed
+comparison with the preceding correction. Long-file stability remains open.
+[connection-readiness.json](connection-readiness.json) contains aggregate
+measurements, verification scope and cleanup evidence only.
+
+The exact original phone APK was restored and hash-checked. Policies,
+diagnostic properties and owned fixtures were restored or removed. Independent
+checks found no owned Mac app, phone app or log capture. Call/video recovery,
+live-speech loudness, Windows reports, Android background availability and full
+multi-device qualification remain open.
+
+## Previous follow-up — 23 October: isolate file setup registrations
 
 SDK **`14964dec`** fixes an inbound-registration displacement defect. File
 outbound circuit construction reused the advertised receive key/cookie and its

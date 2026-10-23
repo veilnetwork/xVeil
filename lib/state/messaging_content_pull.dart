@@ -7,6 +7,49 @@ part of 'messaging_core.dart';
 /// configuration remain owned by [MessagingService]; this extension only
 /// isolates the pull state machine without changing its wire or storage API.
 extension _MessagingContentPull on MessagingService {
+  Future<void> _writeContentStreamRequest(
+    ReliableStream stream,
+    Uint8List request,
+    String contentId,
+  ) async {
+    await Future<void>.delayed(_streamOpenWriteGrace);
+    final setup = Stopwatch()..start();
+    await stream.write(request).timeout(_streamRequestTimeout);
+    if (stream is! ConnectionAwareReliableStream) return;
+    // The write may only queue bytes behind a pending SYN. Keep transport
+    // setup separate from the server's first-byte deadline, within the original
+    // request budget and at most the existing 25-second manifest setup cap.
+    final remaining = _streamRequestTimeout - setup.elapsed;
+    final budget = remaining < MessagingService._streamManifestTimeout
+        ? remaining
+        : MessagingService._streamManifestTimeout;
+    final connection = Stopwatch()..start();
+    while (!stream.isConnected) {
+      if (_disposed || _cancelledDownloads.contains(contentId)) {
+        throw StateError('content stream cancelled during connection');
+      }
+      final left = budget - connection.elapsed;
+      if (left <= Duration.zero) {
+        throw TimeoutException('content stream connection timeout', budget);
+      }
+      const poll = Duration(milliseconds: 50);
+      await Future<void>.delayed(left < poll ? left : poll);
+    }
+  }
+
+  Future<Uint8List> _readContentManifestPrefix(
+    ReliableStream stream,
+    Duration timeout,
+  ) async {
+    final bytes = await MessagingService._readExactly(stream, 4).timeout(
+      timeout,
+      onTimeout: () =>
+          throw TimeoutException('manifest first-byte timeout', timeout),
+    );
+    if (bytes == null) throw StateError('stream EOF before manifest');
+    return bytes;
+  }
+
   List<NodeId> _uniquePeers(Iterable<NodeId> peers) {
     final out = <String, NodeId>{};
     for (final peer in peers) {
@@ -408,13 +451,11 @@ extension _MessagingContentPull on MessagingService {
         offset: ref.size,
         legacy: legacy,
       );
-      await Future<void>.delayed(_streamOpenWriteGrace);
-      await stream.write(req).timeout(_streamRequestTimeout);
-      final lenB = await MessagingService._readExactly(
+      await _writeContentStreamRequest(stream, req, cid);
+      final lenB = await _readContentManifestPrefix(
         stream,
-        4,
-      ).timeout(MessagingService._streamManifestTimeout, onTimeout: () => null);
-      if (lenB == null) throw StateError('no stream manifest');
+        MessagingService._streamManifestTimeout,
+      );
       final header = _contentStreamHeader(peer, stream, req, lenB);
       stream = header.stream;
       final mfLen = header.length;
@@ -521,21 +562,15 @@ extension _MessagingContentPull on MessagingService {
       // content" in the serve path; closing immediately after the manifest then
       // trips a noisy write-failure and can perturb the shared onion driver.
       final req = _streamRequest(cid, peer: peer, length: 1, legacy: legacy);
-      await Future<void>.delayed(_streamOpenWriteGrace);
-      await stream.write(req).timeout(_streamRequestTimeout);
-      // First-byte stall: a source that never sends the length prefix is dead —
-      // abandon it fast (the shorter of the two bounds) so the caller tries the
-      // next holder rather than eating the full 25s cap on one silent peer.
+      await _writeContentStreamRequest(stream, req, cid);
+      // Bound a connected source's silence independently of route/handshake
+      // setup. A timeout does not establish that the source refused service.
       final firstByteTimeout =
           streamManifestFirstByteTimeout <
               MessagingService._streamManifestTimeout
           ? streamManifestFirstByteTimeout
           : MessagingService._streamManifestTimeout;
-      final lenB = await MessagingService._readExactly(
-        stream,
-        4,
-      ).timeout(firstByteTimeout, onTimeout: () => null);
-      if (lenB == null) throw StateError('no stream manifest');
+      final lenB = await _readContentManifestPrefix(stream, firstByteTimeout);
       final header = _contentStreamHeader(peer, stream, req, lenB);
       stream = header.stream;
       final mfLen = header.length;
@@ -1498,17 +1533,11 @@ extension _MessagingContentPull on MessagingService {
           offset: resumeOffset,
           length: remaining,
         );
-        // veil_anon_stream_open returns once the local stream FSM exists; on the
-        // datagram-backed anonymous stream the peer accept can trail by a few
-        // milliseconds. A tiny grace before the first DATA frame avoids the
-        // observed open/accept/no-request race without affecting bulk throughput.
-        await Future<void>.delayed(_streamOpenWriteGrace);
-        await current.write(req).timeout(_streamRequestTimeout);
-        final lenB = await MessagingService._readExactly(current, 4).timeout(
+        await _writeContentStreamRequest(current, req, cid);
+        final lenB = await _readContentManifestPrefix(
+          current,
           MessagingService._streamManifestTimeout,
-          onTimeout: () => null,
         );
-        if (lenB == null) throw StateError('no manifest (sender not serving)');
         final header = _contentStreamHeader(peer, current, req, lenB);
         current = header.stream;
         final mfLen = header.length;
@@ -1804,8 +1833,7 @@ extension _MessagingContentPull on MessagingService {
             offset: resumeOffset,
             legacy: legacyPeers.contains(attemptPeer),
           );
-          await Future<void>.delayed(_streamOpenWriteGrace);
-          await current.write(req).timeout(_streamRequestTimeout);
+          await _writeContentStreamRequest(current, req, cid);
           devLog(
             () =>
                 'xVeil[content]: stream-pull request sent '
@@ -1822,29 +1850,20 @@ extension _MessagingContentPull on MessagingService {
                   '(attempt $attempt)',
             );
           });
-          // First-byte stall (length prefix): a sender that never emits the
-          // 4-byte manifest length is not serving on this stream — the request
-          // never landed (flaky/stale first circuit) or the serve source is
-          // absent. Abandon it on the SHORTER bound so we retry-open (a fresh
-          // circuit, often a different route) fast instead of eating the full
-          // 25s cap on a silent first attempt — device-observed as ~25s "долго
-          // перед скачиванием" before attempt 2 succeeds. Once the length
-          // prefix arrives the manifest BODY keeps the full timeout (patient
-          // once bytes actually flow). Mirrors the probe path (_readManifestHeader).
+          // The request's transport handshake is complete. The existing short
+          // first-byte bound now measures server/response silence, and the
+          // manifest body retains its existing full timeout.
           final firstByteTimeout =
               streamManifestFirstByteTimeout <
                   MessagingService._streamManifestTimeout
               ? streamManifestFirstByteTimeout
               : MessagingService._streamManifestTimeout;
-          final lenB = await MessagingService._readExactly(
+          final lenB = await _readContentManifestPrefix(
             current,
-            4,
-          ).timeout(firstByteTimeout, onTimeout: () => null);
+            firstByteTimeout,
+          );
           manifestWait.cancel();
           manifestWait = null;
-          if (lenB == null) {
-            throw StateError('no manifest (sender not serving)');
-          }
           final header = _contentStreamHeader(attemptPeer, current, req, lenB);
           current = header.stream;
           final mfLen = header.length;
