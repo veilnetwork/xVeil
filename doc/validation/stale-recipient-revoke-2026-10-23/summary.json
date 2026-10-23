@@ -1,0 +1,51 @@
+{
+  "sdk_commit": "50fa7a2f55a2116657405b6cc8435612d2e5cf4d",
+  "hidden_volume_commit": "c4ba1fa8e0dc388fb590dbc382ce98138c90cfeb",
+  "case": "cold_recipient_first_send_before_master_application_control",
+  "passed": true,
+  "elapsed_seconds": 156.601,
+  "topology": {
+    "identities": 2,
+    "logical_devices": 3,
+    "independent_processes": true,
+    "local_relays": 3,
+    "sealed_loopback_island": true
+  },
+  "checks": {
+    "pre_revoke_B_to_C_delivered_once": true,
+    "pre_revoke_C_to_A_and_B_delivered_once": true,
+    "B_and_C_offline_at_revoke": true,
+    "master_signed_revoke_reported": true,
+    "same_B_device_and_identity_after_restart": true,
+    "C_contact_p2p_override_retained": true,
+    "C_first_marked_message_delivered_to_A_once": true,
+    "no_manual_post_revoke_A_C_join_before_first_send": true,
+    "no_A_application_control_before_negative_observation": true,
+    "no_observed_first_message_copy_on_old_B": true,
+    "no_observed_old_B_attack_message_on_C": true,
+    "later_A_to_C_positive_control_delivered_once": true
+  },
+  "observation": {
+    "minimum_seconds_after_old_B_attempt": 60,
+    "pause_between_rounds_ms": 500,
+    "api_read_timeout_seconds": 5
+  },
+  "limits": {
+    "warm_cache_network_partition_qualified": false,
+    "ciphertext_recipient_audit_completed": false,
+    "revoked_call_qualification_added": false,
+    "entire_checklist_item_29_qualified": false,
+    "physical_phone_or_windows_qualified": false
+  },
+  "formatting_passed": true,
+  "analyzer_passed": true,
+  "test_source_sha256": "fd9db2175f1f77ed8f5a6015c21b940bd45d80e9a1e68956f97056eee1df9b2e",
+  "cleanup": {
+    "observed_owned_process_count": 27,
+    "owned_processes_absent": true,
+    "owned_cli_processes_absent": true,
+    "observed_fleet_root_count": 1,
+    "temporary_fleet_containers_removed": true,
+    "frozen_native_artifacts_unchanged": true
+  }
+}
