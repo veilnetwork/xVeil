@@ -1,0 +1,89 @@
+{
+  "transfers": [
+    {
+      "direction": "phone_to_laptop",
+      "bytes": 4194304,
+      "success": true,
+      "sha256_matches": true,
+      "download_seconds": 12.772,
+      "download_test_window_seconds": 180,
+      "stream_request_attempts": 1,
+      "no_manifest_timeouts": 0,
+      "payload_idle_timeouts": 0,
+      "payload_idle_received_bytes": [],
+      "other_failed_attempts": 0,
+      "first_request_to_validated_manifest_seconds": 2.432,
+      "anonymous_stream_opens": 1,
+      "direct_stream_opens": 0
+    },
+    {
+      "direction": "laptop_to_phone",
+      "bytes": 4194304,
+      "success": true,
+      "sha256_matches": true,
+      "download_seconds": 15.005,
+      "download_test_window_seconds": 180,
+      "stream_request_attempts": 1,
+      "no_manifest_timeouts": 0,
+      "payload_idle_timeouts": 0,
+      "payload_idle_received_bytes": [],
+      "other_failed_attempts": 0,
+      "first_request_to_validated_manifest_seconds": 0.591,
+      "anonymous_stream_opens": 1,
+      "direct_stream_opens": 0
+    },
+    {
+      "direction": "phone_to_laptop",
+      "bytes": 33554432,
+      "success": false,
+      "sha256_matches": null,
+      "download_seconds": null,
+      "download_test_window_seconds": 180,
+      "stream_request_attempts": 2,
+      "no_manifest_timeouts": 0,
+      "payload_idle_timeouts": 0,
+      "payload_idle_received_bytes": [],
+      "other_failed_attempts": 2,
+      "first_request_to_validated_manifest_seconds": 2.372,
+      "anonymous_stream_opens": 2,
+      "direct_stream_opens": 0
+    }
+  ],
+  "numeric_driver_sampling": {
+    "laptop": {
+      "driver_samples": 163,
+      "largest_sampled_local_wait_ms": 4
+    },
+    "phone": {
+      "driver_samples": 190,
+      "largest_sampled_local_wait_ms": 5052
+    }
+  },
+  "qa_policies_restored_and_verified": true,
+  "sdk_commit": "99d0fa17",
+  "status": "ack_local_fallback_corrected_large_transfer_still_fails",
+  "gates": {
+    "ffi_anonymous_stream_tests_passed": 44,
+    "clippy_all_targets_passed": true,
+    "production_macos_sdk_build_passed": true,
+    "production_android_sdk_build_passed": true,
+    "sdk_export_count": 198,
+    "unchanged_sdk_export_names": true
+  },
+  "cleanup": {
+    "phone_stopped": true,
+    "mac_stopped": true,
+    "original_phone_apk_restored": true,
+    "original_phone_apk_hash_matches": true,
+    "phone_process_absent_after_restore": true,
+    "owned_mac_process_absent_independent_check": true,
+    "android_diagnostic_property_restored": true,
+    "owned_phone_file_fixtures_removed": true
+  },
+  "limits": [
+    "Driver waits are sampled, not end-to-end delay or guaranteed absolute maxima.",
+    "A healthy third field route was not independently demonstrated.",
+    "No calls or subjective audio/video assessment in this run.",
+    "Large-file completion remains unresolved; failed upload has no final hash verification."
+  ]
+}

@@ -2,7 +2,57 @@
 
 **Status: file backpressure corrected on the tested path; call/video failures remain.**
 
-## Latest follow-up — 23 October: handshake timing and actual stream route recovery
+## Latest follow-up — 23 October: ACK fallback after local queue rejection
+
+[ack-copy-fallback.json](ack-copy-fallback.json) records SDK `99d0fa17`.
+**Large-file stalls and physical audio/video failures remain unresolved.**
+
+ACK redundancy selected its limited candidate set before trying local enqueue.
+When the primary and first alternate shared a full first-hop outbox, a healthy
+third path was never tried. A controlled regression using real runtime circuits,
+signed directory entries and genuinely saturated ordinary outboxes fails with
+the old implementation and passes with the correction. Candidates now consume
+the copy budget only after an actual enqueue. An all-full control preserves
+the pending ACK and reports backpressure; it does not manufacture acceptance.
+
+Alternates must retain the primary's receiver cookie and protected receiver
+key. Without an ACK route, the stream's existing Bulk binding supplies these
+constraints; missing binding does not authorize a guessed destination. Tests
+cover both binding sources, wrong cookies/keys, and the successful-copy limit.
+The existing remapping predicate is shared without changing its semantics.
+The ordinary local and wire priority remains INTERACTIVE. No relay media
+classification, new transit priority, mailbox policy, RTO or window change is
+introduced. The controlled test proves the mechanism, not a healthy third path
+in the physical run.
+
+All **44 FFI anonymous-stream tests** pass; all-target Clippy and formatting
+checks pass. Production Mac and Android SDK builds pass, with the same **198
+SDK export names**. Frozen libraries, current sources, installed APK and the
+Mac process's loaded SDK were checked before and after the transfers. Ordinary
+frontends and media engines were unchanged; no calls or synthetic media ran.
+
+| Direction | Size | Download | Attempts | Result |
+| --- | ---: | ---: | ---: | --- |
+| Phone → laptop | 4 MiB | 12.772 s | 1 | Exact SHA-256 match |
+| Laptop → phone | 4 MiB | 15.005 s | 1 | Exact SHA-256 match |
+| Phone → laptop | 32 MiB | **Timed out at 180 s** | 2 | Incomplete; final hash unverified |
+
+The phone used cellular data with Wi-Fi off; all opens were anonymous, with no
+direct stream. First request to validated manifest took 2.432, 0.591 and 2.372 s
+respectively. Neither small transfer needed a payload-idle retry. The failed
+large upload still had two failed attempts. The largest sampled local enqueue
+waits were **4 ms on the laptop** (163 samples) and **5,052 ms on the phone**
+(190 samples). These are approximately one-second driver samples, not absolute
+maxima or end-to-end delays. Separate runs and different attempted payload
+volumes do not establish a general speed improvement or a unique stall cause.
+
+QA policies and the temporary Android diagnostic property were restored and
+verified. Both owned app processes and captures exited. The original phone APK
+was restored with an exact hash match, preserving data; owned file fixtures
+were removed. The installed Mac app was unchanged. Public evidence contains
+only aggregate values, not identifiers, keys, addresses or file hashes.
+
+## Previous follow-up — 23 October: handshake timing and actual stream route recovery
 
 [stream-route-recovery.json](stream-route-recovery.json) records SDK
 `62d6b15d`. **Cold startup, long payload stalls and audio/video quality remain
