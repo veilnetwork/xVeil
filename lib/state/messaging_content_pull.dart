@@ -2086,6 +2086,25 @@ extension _MessagingContentPull on MessagingService {
     final t = _transport;
     if (t is! StreamTransport) return null;
     final streamTransport = t as StreamTransport;
+    if (attempt > 1) {
+      // A restarted source retains the accepted identity, but forgets which
+      // physical device proved it belongs to that identity. Anonymous stream
+      // opens cannot restore that proof. Reuse the authenticated reoffer
+      // request before retrying; the source learns ownership through its
+      // ordinary verified-message path, without trusting the stream claim.
+      try {
+        await _contentAvailability
+            .requestContentReoffer(peer, cid)
+            .timeout(timeout ?? _streamRequestTimeout);
+      } catch (error) {
+        devLog(
+          () =>
+              'xVeil[content]: retry reoffer unavailable '
+              '${cid.substring(0, 12)} -> ${peer.short}: $error',
+        );
+      }
+      if (_disposed || _cancelledDownloads.contains(cid)) return null;
+    }
     final ownDevice = await isOwnDevice?.call(peer) ?? false;
     final useP2P =
         t is P2PStreamTransport &&
