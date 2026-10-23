@@ -2,6 +2,16 @@
 
 **Status: warm-only reuse fixed; the latest physical file pair completed with matching hashes. Long-transfer stability and call/video qualification remain open.**
 
+## Separate source follow-up — distinct-rendezvous expansion
+
+SDK **`1654a9be`** separates throughput-driven pool expansion from explicit
+repair, avoiding new construction through already represented rendezvous relays.
+Test assertions were strengthened in **`2a3b4999`**. The
+[dedicated report](../circuit-pool-expansion-2026-10-23/README.md) records the parent
+failure, ten child cases, bounded discovery/re-probe checks and native builds.
+Physical requalification is pending: the phone was ADB unauthorized; no new
+file/call run or speedup claim belongs to this source correction.
+
 ## Separate source follow-up — rejected-build resource rollback
 
 SDK **`471618ef`** corrects a reproduced origin-state leak after local
