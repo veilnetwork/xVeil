@@ -1,0 +1,33 @@
+{
+  "sdk_source_commit": "ff1e68fb",
+  "installed_cli_version_during_server_check": "0.11.44",
+  "live_linux_observations": {
+    "service_account_differs_from_root": true,
+    "root_dht_list_exit_status": 1,
+    "root_dht_list_broken_pipe": true,
+    "service_account_dht_list_exit_status": 0,
+    "service_account_dht_list_output_nonempty": true,
+    "service_account_health_exit_status": 0,
+    "unsigned_warning_also_present_with_success": true,
+    "service_still_active": true,
+    "service_pid_unchanged": true
+  },
+  "local_verification": {
+    "admin_transport_tests_passed": 9,
+    "admin_protocol_tests_passed": 27,
+    "admin_protocol_tests_ignored": 6,
+    "cli_node_command_tests_passed": 29,
+    "all_target_clippy_runtime_and_cli_passed": true,
+    "rustfmt_check_passed": true,
+    "wrong_user_diagnostic_checks_actual_kernel_listener_credentials": true,
+    "different_client_uid_supplied_by_test_without_privileged_ci": true,
+    "wrong_user_request_bytes_rejected_before_write": true,
+    "same_user_bidirectional_socket_exchange_passed": true
+  },
+  "scope": {
+    "source_diagnostic_fixed": true,
+    "updated_linux_cli_deployed": false,
+    "full_project_ci_claimed": false,
+    "file_transfer_reliability_fixed": false
+  }
+}
