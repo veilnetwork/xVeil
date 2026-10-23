@@ -2,7 +2,68 @@
 
 **Status: partial stream fixes verified; long anonymous transfers and call/video failures remain.**
 
-## Latest follow-up — 23 October: cancellation outside the DATA queue
+## Latest follow-up — 23 October: BBR RTT from first original receipt
+
+SDK **`51f71c3d`** corrects the stream's BBR RTT sampling. The model previously
+reused cumulative-ACK age as its minimum-RTT
+sample even for originals already acknowledged by SACK. A repaired earlier hole
+could hold the cumulative ACK for seconds after those originals were received.
+Once the 30-s minimum window expired, that recovery wait could replace the
+clean path estimate. SACK-only progress supplied no BBR RTT sample at all.
+
+BBR now takes one sample from the latest actually handed-off, newly received
+original in the whole ACK, including its SACK fields. Repeated SACKs and a later
+cumulative ACK of those same bytes do not resample them. Retransmitted and
+unhanded cells remain excluded, and disabling BBR keeps the model disabled.
+The existing cumulative-ACK RTO estimator, timer limits, RACK repair policy,
+wire layout, relay scheduling and mailbox policy are preserved. RACK's adaptive
+base can use the corrected BBR minimum when BBR is enabled; its two-path
+reordering gate now explicitly checks BBR on as well as off.
+
+Three cases fail on parent SDK `be4c2737`; four cases pass after correction,
+with ordinary and wrapping sequences, RACK on/off, differing local handoff
+instants, reversed SACK field order, repeated ACKs and Karn/disabled controls.
+The isolated repaired-head case held a clean **10-ms** minimum before a
+40,010-ms cumulative-ACK age: the parent replaced it with **40,010 ms**, while
+the fix retains the original first-receipt sample. The conservative RTO still
+responds to that cumulative-ACK age. An earlier variant that shortened RTO from
+fast SACK timing failed the zero-loss two-path test and was discarded.
+
+All **116 stream tests**, **56 targeted embedded FFI tests**, all-target Clippy
+with warnings denied and rustfmt pass. Both production macOS/Android SDKs build
+with the same **198 C export names** each. [bbr-first-receipt.json](bbr-first-receipt.json)
+records aggregate verification and every physical outcome.
+
+### Cellular file results with the corrected model
+
+The same own QA identities and unchanged frontends were used, Wi-Fi was off,
+cellular default routing was verified, and own-contact P2P was denied. All opens
+were anonymous. No call, camera or physical audio device was opened.
+
+| Direction | Size | Download window/result | Requests | Manifest-phase failures | Integrity |
+| --- | ---: | --- | ---: | ---: | --- |
+| Phone → Mac | 32 MiB | **Incomplete in 180 s** | 2 | 1 | Unverified |
+| Phone → Mac | 4 MiB | **29.280 s**, within 180 s | 1 | 0 | Matches |
+
+The 32-MiB total elapsed time was 191.558 s including offer/wait; the download
+gate was not extended. Its final harness cancellation is not a second
+independently observed product timeout. There were no positive-offset resume
+requests or source payload-write-idle events in these two recorded cases.
+
+Across the whole capture, sampled phone BBR minimum RTT stayed at **110–251 ms**;
+the preceding failed diagnostic capture had a 10,404-ms model minimum. This is
+consistent with the controlled model fix, **not proof of a stable speed gain or
+of the physical stall's root cause**. The 32-MiB gate still fails, and the cold
+manifest failure also remains. Outbox/ordered-writer maxima are separate
+observations and must not be added; the JSON reports them by local source slot.
+
+Sources, frozen SDKs, installed APK and loaded Mac library were verified before
+and after the stand. Own apps/captures exited, contact policies and diagnostics
+were restored, owned phone fixtures were removed, and the exact original phone
+APK was restored and hash-checked. The installed Mac app was unchanged. No
+Windows, live-speech or full multi-device qualification ran in this cycle.
+
+## Previous follow-up — 23 October: cancellation outside the DATA queue
 
 SDK **`be4c2737`** fixes a controlled cancellation defect in the stream driver
 and FFI abort path. A 6-MiB application write leaves more than the 4-MiB unsent high-water
