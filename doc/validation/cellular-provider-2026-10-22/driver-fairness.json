@@ -1,0 +1,282 @@
+{
+  "sdk_commit": "4a53b1c3",
+  "production_parent_sdk_commit": "2d34f65f",
+  "status": "Confirmed local inbound starvation fixed; cellular phone-to-laptop file completion remains unqualified",
+  "defect": "After a successful paced send, the driver immediately polled and sent another burst. Awaited local pacing made the next engine tick ready, so ready inbound ACKs and reverse DATA could wait behind a whole outgoing window.",
+  "correction": "After accepting a complete bounded burst, service inbound cells, app commands and protocol timers before refilling outgoing DATA. Partial retained cells, WouldBlock handling and local-handoff accounting remain intact.",
+  "parent_regressions": {
+    "failed_tests": 2,
+    "nominal_local_admission_ms": 2,
+    "ready_ack_queue_wait_ms": 320,
+    "ready_reverse_data_queue_wait_ms": 128,
+    "network_loss_in_fixture": false,
+    "network_propagation_delay_added": false
+  },
+  "verification": {
+    "stream_tests_passed": 108,
+    "ffi_anonymous_stream_tests_passed": 56,
+    "new_real_async_driver_tests": 2,
+    "positive_subcases": 8,
+    "modes": [
+      "SACK-count",
+      "RACK"
+    ],
+    "sequence_cases": [
+      "ordinary",
+      "u32 wrap"
+    ],
+    "reverse_data_and_payload_integrity_checked": true,
+    "post_fix_ready_inbound_wait_within_one_observed_local_admission": true,
+    "all_target_stream_and_ffi_clippy_passed": true,
+    "rustfmt_and_diff_checks_passed": true,
+    "production_mac_and_android_sdk_builds_passed": true,
+    "unchanged_sdk_export_names": 198,
+    "sources_frozen_sdks_installed_apks_and_loaded_dylibs_verified": true,
+    "production_test_hooks_added": false
+  },
+  "unchanged": [
+    "burst sizes",
+    "pacing rates",
+    "RTO/retry limits",
+    "carrier queue budgets",
+    "wire layout",
+    "relay scheduling",
+    "mailbox policy"
+  ],
+  "physical": {
+    "current_sdk": {
+      "transfers": [
+        {
+          "direction": "phone->mac",
+          "bytes": 4194304,
+          "success": false,
+          "download_seconds": null,
+          "elapsed_seconds": 190.523,
+          "integrity_matches": null,
+          "window_seconds": 180,
+          "pull_requests": 3,
+          "failed_attempts_including_final_harness_cancellation": 3,
+          "source_payload_write_idle_timeouts": 0,
+          "application_reset_failures_including_final_harness_cancellation": 1,
+          "harness_cancellation_requested": true,
+          "manifest_phase_failures": 2,
+          "resume_request_offsets": [],
+          "anonymous_opens": 4,
+          "direct_opens": 0
+        },
+        {
+          "direction": "mac->phone",
+          "bytes": 4194304,
+          "success": true,
+          "download_seconds": 14.963,
+          "elapsed_seconds": 16.018,
+          "integrity_matches": true,
+          "window_seconds": 180,
+          "pull_requests": 1,
+          "failed_attempts_including_final_harness_cancellation": 0,
+          "source_payload_write_idle_timeouts": 0,
+          "application_reset_failures_including_final_harness_cancellation": 0,
+          "harness_cancellation_requested": false,
+          "manifest_phase_failures": 0,
+          "resume_request_offsets": [],
+          "anonymous_opens": 1,
+          "direct_opens": 0
+        },
+        {
+          "direction": "mac->phone",
+          "bytes": 33554432,
+          "success": true,
+          "download_seconds": 124.497,
+          "elapsed_seconds": 125.306,
+          "integrity_matches": true,
+          "window_seconds": 180,
+          "pull_requests": 1,
+          "failed_attempts_including_final_harness_cancellation": 0,
+          "source_payload_write_idle_timeouts": 0,
+          "application_reset_failures_including_final_harness_cancellation": 0,
+          "harness_cancellation_requested": false,
+          "manifest_phase_failures": 0,
+          "resume_request_offsets": [],
+          "anonymous_opens": 1,
+          "direct_opens": 0
+        },
+        {
+          "direction": "phone->mac",
+          "bytes": 33554432,
+          "success": false,
+          "download_seconds": null,
+          "elapsed_seconds": 182.429,
+          "integrity_matches": null,
+          "window_seconds": 180,
+          "pull_requests": 1,
+          "failed_attempts_including_final_harness_cancellation": 1,
+          "source_payload_write_idle_timeouts": 0,
+          "application_reset_failures_including_final_harness_cancellation": 1,
+          "harness_cancellation_requested": true,
+          "manifest_phase_failures": 0,
+          "resume_request_offsets": [],
+          "anonymous_opens": 1,
+          "direct_opens": 0
+        }
+      ],
+      "driver_samples": {
+        "mac": {
+          "samples": 384,
+          "max_sampled_local_handoff_wait_ms": 10681
+        },
+        "phone": {
+          "samples": 398,
+          "max_sampled_local_handoff_wait_ms": 820
+        }
+      },
+      "policies_restored": {
+        "mac": true,
+        "phone": true
+      },
+      "network": {
+        "wifi_disabled": true,
+        "mobile_data_enabled": true,
+        "default_route_is_cellular_interface": true
+      }
+    },
+    "parent_sdk_control": {
+      "transfers": [
+        {
+          "direction": "phone->mac",
+          "bytes": 4194304,
+          "success": false,
+          "download_seconds": null,
+          "elapsed_seconds": 190.25,
+          "integrity_matches": null,
+          "window_seconds": 180,
+          "pull_requests": 3,
+          "failed_attempts_including_final_harness_cancellation": 3,
+          "source_payload_write_idle_timeouts": 1,
+          "application_reset_failures_including_final_harness_cancellation": 2,
+          "harness_cancellation_requested": true,
+          "manifest_phase_failures": 1,
+          "resume_request_offsets": [
+            524288
+          ],
+          "anonymous_opens": 4,
+          "direct_opens": 0
+        },
+        {
+          "direction": "phone->mac",
+          "bytes": 33554432,
+          "success": false,
+          "download_seconds": null,
+          "elapsed_seconds": 182.471,
+          "integrity_matches": null,
+          "window_seconds": 180,
+          "pull_requests": 2,
+          "failed_attempts_including_final_harness_cancellation": 2,
+          "source_payload_write_idle_timeouts": 0,
+          "application_reset_failures_including_final_harness_cancellation": 1,
+          "harness_cancellation_requested": true,
+          "manifest_phase_failures": 0,
+          "resume_request_offsets": [
+            9175040
+          ],
+          "anonymous_opens": 2,
+          "direct_opens": 0
+        }
+      ],
+      "driver_samples": {
+        "mac": {
+          "samples": 226,
+          "max_sampled_local_handoff_wait_ms": 7847
+        },
+        "phone": {
+          "samples": 249,
+          "max_sampled_local_handoff_wait_ms": 3733
+        }
+      },
+      "policies_restored": {
+        "mac": true,
+        "phone": true
+      },
+      "network": {
+        "wifi_disabled": true,
+        "mobile_data_enabled": true,
+        "default_route_is_cellular_interface": true
+      }
+    },
+    "current_sdk_diagnostic_only": {
+      "transfers": [
+        {
+          "direction": "phone->mac",
+          "bytes": 4194304,
+          "success": true,
+          "download_seconds": 48.414,
+          "elapsed_seconds": 58.689,
+          "integrity_matches": true,
+          "window_seconds": 60,
+          "pull_requests": 2,
+          "failed_attempts_including_final_harness_cancellation": 1,
+          "source_payload_write_idle_timeouts": 0,
+          "application_reset_failures_including_final_harness_cancellation": 0,
+          "harness_cancellation_requested": false,
+          "manifest_phase_failures": 1,
+          "resume_request_offsets": [],
+          "anonymous_opens": 3,
+          "direct_opens": 0
+        }
+      ],
+      "driver_samples": {
+        "mac": {
+          "samples": 35,
+          "max_sampled_local_handoff_wait_ms": 0
+        },
+        "phone": {
+          "samples": 42,
+          "max_sampled_local_handoff_wait_ms": 5314
+        }
+      },
+      "policies_restored": {
+        "mac": true,
+        "phone": true
+      },
+      "network": {
+        "wifi_disabled": true,
+        "mobile_data_enabled": true,
+        "default_route_is_cellular_interface": true
+      }
+    }
+  },
+  "diagnostic_only_stage_observations": {
+    "admission_reports": 42,
+    "ordered_transport_reports": 42,
+    "independent_transport_reports": 42,
+    "max_outbox_to_transport_us": 363296,
+    "max_record_queue_us": 178343,
+    "max_record_write_us": 186626,
+    "reported_buffer_drops": 0,
+    "reported_bandwidth_drops": 0,
+    "reported_capacity_deferrals": 0,
+    "source_admission_reports": 10,
+    "source_admission_primary_active_true": 0,
+    "maxima_are_not_additive": true,
+    "capture_was_a_successful_transfer_not_the_prior_failed_transfer": true
+  },
+  "cleanup": {
+    "all_three_owned_stands_exited": true,
+    "original_phone_apk_restored_and_hash_checked_each_time": true,
+    "diagnostic_flags_and_property_restored": true,
+    "qa_policies_restored": true,
+    "owned_phone_fixtures_removed": true,
+    "installed_mac_app_unchanged": true
+  },
+  "limitations": [
+    "Current and parent SDK both failed the phone-to-laptop 4-MiB and 32-MiB 180-second observation window. The managed starvation fix is not sufficient to close cellular completion failures.",
+    "Current SDK completed laptop-to-phone 4 MiB in 14.963 s and 32 MiB in 124.497 s. These sequential WAN runs do not isolate a speed benefit.",
+    "The separately labeled 60-second trace capture completed 4 MiB phone-to-laptop in 48.414 s after a manifest-phase retry. It does not erase the two failed 180-second gates.",
+    "Inclusive reset/attempt counts retain final harness cancellation. Parent small-file control also records a source payload-write-idle timeout.",
+    "Resume request offsets are extracted from request-sent resume= logs, not from a resume point recorded only after final cancellation. A queued resume request does not certify server receipt or final integrity.",
+    "The ordered-transport samples do not identify the underlying IP transport or prove packet loss/high ping. Local stage maxima concern different observations and must not be summed.",
+    "Sampled driver blocked_age measures pending outbound handoff, including cold route opens; it is distinct from the ready-inbound queue delay fixed by this patch.",
+    "No calls, audio playout, live speech, Windows execution or full multi-device campaign ran. Reliable-stream ACKs here are not a measurement of audio RTCP behavior."
+  ],
+  "next_investigation": "Capture the failing direction with session diagnostics. Determine what holds authored DATA before ordered transport; validate pre-handshake endpoint binding recovery as a separate hypothesis before changing queue budgets.",
+  "privacy": "Whitelist aggregate counters and synthetic fixtures only; no observed stream ids, peer ids, addresses, file identifiers, payloads, raw logs, file hashes or private paths."
+}
