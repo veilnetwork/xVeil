@@ -1,0 +1,141 @@
+{
+  "transfers": [
+    {
+      "direction": "phone_to_laptop",
+      "bytes": 4194304,
+      "success": true,
+      "sha256_matches": true,
+      "download_seconds": 65.92,
+      "download_test_window_seconds": 180,
+      "stream_request_attempts": 2,
+      "failed_attempt_log_entries_including_harness_cancel": 1,
+      "no_manifest_failures": 0,
+      "payload_idle_failures": 1,
+      "committed_resume_offsets_bytes": [
+        1572864
+      ],
+      "first_request_to_validated_manifest_seconds": 5.018,
+      "anonymous_stream_opens": 2,
+      "direct_stream_opens": 0
+    },
+    {
+      "direction": "laptop_to_phone",
+      "bytes": 4194304,
+      "success": true,
+      "sha256_matches": true,
+      "download_seconds": 13.52,
+      "download_test_window_seconds": 180,
+      "stream_request_attempts": 1,
+      "failed_attempt_log_entries_including_harness_cancel": 0,
+      "no_manifest_failures": 0,
+      "payload_idle_failures": 0,
+      "committed_resume_offsets_bytes": [],
+      "first_request_to_validated_manifest_seconds": 0.536,
+      "anonymous_stream_opens": 1,
+      "direct_stream_opens": 0
+    },
+    {
+      "direction": "phone_to_laptop",
+      "bytes": 33554432,
+      "success": false,
+      "sha256_matches": null,
+      "download_seconds": null,
+      "download_test_window_seconds": 180,
+      "stream_request_attempts": 1,
+      "failed_attempt_log_entries_including_harness_cancel": 1,
+      "no_manifest_failures": 0,
+      "payload_idle_failures": 0,
+      "committed_resume_offsets_bytes": [
+        31457280
+      ],
+      "first_request_to_validated_manifest_seconds": 1.216,
+      "anonymous_stream_opens": 1,
+      "direct_stream_opens": 0
+    },
+    {
+      "direction": "phone_to_laptop",
+      "bytes": 33554432,
+      "success": true,
+      "sha256_matches": true,
+      "download_seconds": 262.745,
+      "download_test_window_seconds": 600,
+      "stream_request_attempts": 15,
+      "failed_attempt_log_entries_including_harness_cancel": 14,
+      "no_manifest_failures": 13,
+      "payload_idle_failures": 1,
+      "committed_resume_offsets_bytes": [
+        14417920
+      ],
+      "first_request_to_validated_manifest_seconds": 1.66,
+      "anonymous_stream_opens": 15,
+      "direct_stream_opens": 0
+    }
+  ],
+  "numeric_driver_sampling": {
+    "laptop": {
+      "driver_samples": 329,
+      "largest_sampled_local_wait_ms": 3024
+    },
+    "phone": {
+      "driver_samples": 450,
+      "largest_sampled_local_wait_ms": 35288
+    }
+  },
+  "observed_invalid_credit_failures": {
+    "laptop": 0,
+    "phone": 0
+  },
+  "qa_policies_restored_and_verified": true,
+  "sdk_commit": "c56e1aee",
+  "status": "partial_ack_rewind_byte_duplication_corrected_slow_transfers_remain",
+  "old_source_regressions_failed": 2,
+  "gates": {
+    "stream_tests_passed": 77,
+    "ffi_anonymous_stream_tests_passed": 44,
+    "stream_clippy_all_targets_passed": true,
+    "rustfmt_passed": true,
+    "production_macos_sdk_build_passed": true,
+    "production_android_sdk_build_passed": true,
+    "sdk_export_count": 198,
+    "unchanged_sdk_export_names": true,
+    "final_phone_frontend_probe_absent": true
+  },
+  "diagnostic_probe_before_fix": {
+    "observations": [
+      {
+        "reason": "not_advancing",
+        "repeated_credit": true,
+        "outstanding_window_bytes": 262144,
+        "finishing": false
+      },
+      {
+        "reason": "not_advancing",
+        "repeated_credit": true,
+        "outstanding_window_bytes": 262144,
+        "finishing": false
+      }
+    ]
+  },
+  "cleanup": {
+    "phone_stopped": true,
+    "mac_stopped": true,
+    "original_phone_apk_restored": true,
+    "original_phone_apk_hash_matches": true,
+    "phone_process_absent_after_restore": true,
+    "final_tested_build_verified": true,
+    "android_diagnostic_property_restored": true,
+    "owned_phone_file_fixtures_removed": true,
+    "owned_mac_process_absent_independent_check": true
+  },
+  "diagnostic_artifact_cleanup": {
+    "owned_probe_apks_removed": 4,
+    "disposable_credit_source_restored": true
+  },
+  "limits": [
+    "A controlled regression reproduces the observed duplicate-credit failure shape; it does not identify the full field packet schedule.",
+    "The 180-second file remains incomplete. A separate 600-second observation is not a pass of the 180-second gate.",
+    "The successful extended transfer still required many reopen attempts and an idle-timeout resume.",
+    "Local enqueue waits are sampled, not absolute maxima or end-to-end delay.",
+    "No calls, subjective sound assessment, or Windows reproduction were performed."
+  ]
+}
