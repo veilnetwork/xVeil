@@ -1,0 +1,139 @@
+{
+  "sdk_commit": "6875a88a",
+  "production_parent_sdk_commit": "92b83e48",
+  "status": "staggered repair scheduling fixed; separate RACK duplicate delivery-accounting defect remains open",
+  "correction": {
+    "defect": "Repairs handed off in different pacing ticks reached their own expiry shortly after the oldest hole. The global exponential backoff could postpone their recovery for another RTO.",
+    "parent_driver_regressions_failed": 2,
+    "modes": [
+      "RACK",
+      "SACK-count"
+    ],
+    "driver_fixture": "An acknowledged prefix warms pacing. Three head originals and their first repairs are lost, each in a separate one-cell tick. Tail data is SACKed. Tests cover sequence wrap.",
+    "fix": "Record individual deadlines for the proven holes at the existing RTO, wake at each remaining expiry and keep normal pacing. Continued repairs do not increment the network RTO count or repeat the congestion cut.",
+    "controls": [
+      "No early repetition of fresh repairs.",
+      "SACK and cumulative ACK cancel deferred deadlines.",
+      "A new repair attempt or actual handoff cancels its stale deadline.",
+      "No-SACK rewind clears deferred state.",
+      "Cached earliest deadline avoids whole-flight scans on ordinary timer/send polls.",
+      "Per-segment metadata stays bounded by the existing flight."
+    ]
+  },
+  "verification": {
+    "stream_tests_passed": 91,
+    "ffi_anonymous_stream_tests_passed": 56,
+    "all_target_stream_and_ffi_clippy_passed": true,
+    "rustfmt_and_diff_checks_passed": true,
+    "production_mac_and_android_sdk_builds_passed": true,
+    "unchanged_sdk_export_names": 198,
+    "all_authoritative_source_fingerprints_match_verified_physical_sdk": true,
+    "frontends_and_production_media_engines_unchanged": true,
+    "production_test_hooks_added": false
+  },
+  "physical": {
+    "transfers": [
+      {
+        "direction": "phone->mac",
+        "bytes": 4194304,
+        "success": true,
+        "download_seconds": 25.557,
+        "integrity_matches": true,
+        "window_seconds": 180,
+        "pull_requests": 1,
+        "failed_attempts_including_final_harness_cancellation": 0,
+        "source_payload_write_idle_timeouts": 0,
+        "application_reset_failures": 0,
+        "resume_offsets": [],
+        "anonymous_opens": 1,
+        "direct_opens": 0
+      },
+      {
+        "direction": "mac->phone",
+        "bytes": 4194304,
+        "success": true,
+        "download_seconds": 14.962,
+        "integrity_matches": true,
+        "window_seconds": 180,
+        "pull_requests": 1,
+        "failed_attempts_including_final_harness_cancellation": 0,
+        "source_payload_write_idle_timeouts": 0,
+        "application_reset_failures": 0,
+        "resume_offsets": [],
+        "anonymous_opens": 1,
+        "direct_opens": 0
+      },
+      {
+        "direction": "mac->phone",
+        "bytes": 33554432,
+        "success": true,
+        "download_seconds": 155.773,
+        "integrity_matches": true,
+        "window_seconds": 180,
+        "pull_requests": 1,
+        "failed_attempts_including_final_harness_cancellation": 0,
+        "source_payload_write_idle_timeouts": 0,
+        "application_reset_failures": 0,
+        "resume_offsets": [],
+        "anonymous_opens": 1,
+        "direct_opens": 0
+      }
+    ],
+    "driver_samples": {
+      "mac": {
+        "samples": 179,
+        "max_sampled_local_handoff_wait_ms": 61
+      },
+      "phone": {
+        "samples": 173,
+        "max_sampled_local_handoff_wait_ms": 13
+      }
+    },
+    "policies_restored": {
+      "mac": true,
+      "phone": true
+    }
+  },
+  "open_rack_finding": {
+    "description": "An original already reported by SACK is accounted again as a newly late original when a later cumulative ACK passes it. This can manufacture a larger reordering allowance.",
+    "status": "confirmed in a source-copy regression, not fixed",
+    "reviewable_reproducer": "pending-rack-delivery.rs",
+    "copy_uses_authoritative_production_source": true,
+    "reproducer_expected_reordering_gap_ms": 0,
+    "reproducer_observed_reordering_gap_ms": 90,
+    "reference": "https://www.rfc-editor.org/rfc/rfc8985.html#section-6.2",
+    "note": "Cumulative-ACK RTT sampling is an existing estimator policy; changing it to first-SACK RTT sampling was evaluated as an experiment, not declared a separate fixed defect.",
+    "rejected_experiments": {
+      "full_timing_proposal": {
+        "payload_cells": 300,
+        "transmitted_cells": 502,
+        "required_transmitted_cells_strictly_below": 383,
+        "transfer_completed_and_bytes_matched": true
+      },
+      "only_rack_changes_preserving_rto_policy": {
+        "payload_cells": 300,
+        "transmitted_cells": 432,
+        "required_transmitted_cells_strictly_below": 383
+      }
+    },
+    "outcome": "Experiments violated the existing lossless two-path reordering gate and were not retained. A reordering-adaptation correction is still required; no gate was relaxed."
+  },
+  "limits": [
+    "One physical reverse 32-MiB success is not proof of long-transfer stability or isolated speed improvement.",
+    "No current 32-MiB phone-to-laptop run, calls/audio/video assessment, Windows run or full multi-device qualification.",
+    "Driver waits are event-driven observations, not absolute maxima or RTT.",
+    "The expected-failing pending RACK reproducer is documented outside the passing production test suite and is not counted as a passing or ignored test."
+  ],
+  "cleanup": {
+    "phone_stopped": true,
+    "mac_stopped": true,
+    "original_phone_apk_restored": true,
+    "original_phone_apk_hash_matches": true,
+    "phone_process_absent_after_restore": true,
+    "final_tested_build_verified": true,
+    "android_diagnostic_property_restored": true,
+    "owned_phone_file_fixtures_removed": true,
+    "owned_mac_process_absent_independent_check": true
+  },
+  "privacy": "Aggregate observations and a synthetic fixture only; no observed endpoint identifiers, addresses, private paths, keys, packet sequences, captures or file hashes."
+}
