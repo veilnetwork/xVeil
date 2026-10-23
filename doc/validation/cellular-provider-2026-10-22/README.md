@@ -2,7 +2,33 @@
 
 **Status: stale cooldown recovery and false route repair for progressing sparse writes are fixed in source and covered by regressions. The latest physical cellular file pair still failed. Local reply admission, setup/manifest-first-byte timeouts, payload stalls, call/video and multi-device qualification remain open.**
 
-## Latest source follow-up — 23 October: sparse-stream RTO health
+## Latest follow-up — 23 October: Wi-Fi baseline and ordered ready spare
+
+The available Blackview was tested on Wi-Fi using SDK **`8998746a`**. Both test
+messages arrived once; the following 4 MiB file completed in **69.850 seconds**,
+SHA-256 matched. The 32 MiB file remained incomplete at its **180-second** limit
+(last sink **14.5 MiB**, integrity unverified), with one pull request and no
+setup/first-byte/payload-idle failures before deliberate harness cancellation.
+This is a different phone/network from the cellular runs; no comparative speed
+or stability gain is claimed. See the [dedicated report](../ordered-ready-spare-2026-10-23/README.md).
+
+The 7.7-second zero-handoff incident did not reproduce. Recorded phone
+session-queue waits peaked at 402 ms for capacity and 204 ms for a child; the
+separate driver retry-episode age peaked at 4030 ms and must not be conflated
+with those metrics. Long-file throughput remains open.
+
+A separate parent-failing authenticated-channel regression exposed an ignored
+ready spare: SDK **`1064bc18`** now relocates an unavailable assignment only to a
+live unowned child, equally for sources and neutral transit. Healthy/occupied
+assignments and connection limits remain in force. All **669 session / 66 client
+tests**, Clippy, rustfmt and production native/199-export checks pass. This
+correction was made **after** the Wi-Fi baseline and is not yet physically
+qualified; responsibility for the old cellular incident is unproven.
+
+Original APK/property/policies/profile state were retained or restored, and
+independent checks verified owned app/capture exit. No push/release/relay update.
+
+## Previous source follow-up — 23 October: sparse-stream RTO health
 
 SDK **`8998746a`** prevents separate, successfully ACKed small writes from
 accumulating a false backlogged-crawl streak. The engine reports actual local

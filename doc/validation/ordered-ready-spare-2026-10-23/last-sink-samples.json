@@ -1,0 +1,10 @@
+{
+  "large": {
+    "last_elapsed_seconds": 179.262,
+    "last_sink_length_bytes": 15204352
+  },
+  "small": {
+    "last_elapsed_seconds": 69.506,
+    "last_sink_length_bytes": 3932160
+  }
+}

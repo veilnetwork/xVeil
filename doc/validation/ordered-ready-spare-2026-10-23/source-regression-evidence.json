@@ -1,0 +1,18 @@
+{
+  "sdk_fix": "1064bc18",
+  "sdk_parent": "8998746a",
+  "parent_authentication_spare_regression_failed": true,
+  "source_slots_checked": 4,
+  "source_spare_positive_cases": 4,
+  "occupied_spare_negative_cases": 4,
+  "authenticated_neutral_transit_roundtrip_passed": true,
+  "source_and_transit_allocation_guards_passed": true,
+  "session_tests_passed": 669,
+  "existing_ignored_session_tests": 8,
+  "anonymous_stream_client_tests_passed": 66,
+  "session_all_target_clippy_warnings_denied_passed": true,
+  "rustfmt_check_passed": true,
+  "current_fix_installed_on_phone": false,
+  "same_connection_cap": true,
+  "same_wire_priority": true
+}

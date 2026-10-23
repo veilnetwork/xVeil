@@ -1,0 +1,22 @@
+{
+  "ok": true,
+  "contact_request_seconds": 4.532344416948035,
+  "contact_accepted_seconds": 4.813321374938823,
+  "message_tests": [
+    {
+      "sender": "mac",
+      "receiver": "phone",
+      "delivery_seconds": 0.6295853749616072,
+      "copies": 1
+    },
+    {
+      "sender": "phone",
+      "receiver": "mac",
+      "delivery_seconds": 0.5966883749933913,
+      "copies": 1
+    }
+  ],
+  "distinct_receive_identities": true,
+  "new_contact_request_delivery_qualified": false,
+  "preexisting_contact_state_not_excluded": true
+}
