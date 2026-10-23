@@ -1,0 +1,64 @@
+{
+  "sdk_commit": "2d34f65f",
+  "production_parent_sdk_commit": "2b1ab108",
+  "status": "Receive reassembly and ordinary SACK range ordering corrected across u32 sequence wrap",
+  "defect": "The receive gap map sorted raw u32 keys. A numerically small future block after zero could hide a ready pre-wrap block. Already-SACKed bytes could remain buffered indefinitely instead of advancing the cumulative prefix.",
+  "parent_regressions_failed": 4,
+  "regressions": [
+    {
+      "test": "sequence_wrap_reassembly_drains_ready_blocks",
+      "parent_delivered_bytes": 8,
+      "expected_delivered_bytes": 24
+    },
+    {
+      "test": "sequence_wrap_reassembly_drains_partial_overlap_and_duplicates",
+      "parent_delivered_bytes_before_duplicate": 12,
+      "expected_delivered_bytes": 32
+    },
+    {
+      "test": "sequence_wrap_reassembly_keeps_real_gaps",
+      "parent_ready_prefix_bytes": 8,
+      "expected_ready_prefix_bytes": 16,
+      "expected_final_bytes_after_gap_filled": 32
+    },
+    {
+      "test": "sequence_wrap_sack_blocks_are_serially_ordered_and_coalesced",
+      "parent_sack_blocks": 2,
+      "expected_sack_blocks": 1
+    }
+  ],
+  "correction": {
+    "receive_queue": "Find the first block in modular sequence order using a half-space rotation and at most two BTreeMap range lookups. Drain only ready/overlapping blocks and keep real gaps.",
+    "ordinary_sacks": "Iterate ahead of the receive frontier through wrap and coalesce adjacent intervals across zero.",
+    "whole_flight_scan_added": false,
+    "ordinary_nonwrapping_and_wrapping_byte_order_controls": true,
+    "partial_overlap_and_duplicate_byte_controls": true,
+    "wire_encoding_roundtrip_control": true,
+    "window_assumption": "Existing sequence arithmetic contract: active sequence window smaller than 2^31 bytes.",
+    "timer_limits_wire_layout_and_mailbox_policy_unchanged": true
+  },
+  "verification": {
+    "stream_tests_passed": 106,
+    "ffi_anonymous_stream_tests_passed": 56,
+    "all_target_stream_and_ffi_clippy_passed": true,
+    "rustfmt_and_diff_checks_passed": true,
+    "production_mac_and_android_sdk_builds_passed": true,
+    "unchanged_sdk_export_names": 198,
+    "build_source_fingerprints_verified": true,
+    "test_hooks_added_to_product": false
+  },
+  "scope": {
+    "large_allocation_needed_for_reproducer": false,
+    "short_streams_can_wrap_due_to_spread_initial_sequence": true,
+    "last_physical_file_stand_sdk_commit": "2b1ab108",
+    "physical_stand_repeated_after_this_core_correction": false,
+    "sampled_initial_sequences_from_failed_file_stand": {
+      "sampled_stream_count": 6,
+      "any_sampled_stream_initial_sequence_would_wrap_within_32MiB_plus_one_cell": false
+    },
+    "failed_32MiB_transfer_explained_by_this_fix": false,
+    "audio_video_windows_and_full_multi_device_qualification_performed": false,
+    "apps_launched_this_followup": false
+  },
+  "privacy": "Synthetic byte patterns and aggregate counters only; no observed stream ids, packet sequences, keys, addresses, file hashes or raw logs."
+}
