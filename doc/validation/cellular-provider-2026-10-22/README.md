@@ -1,8 +1,38 @@
 # Cellular call and file validation — 2026-10-22
 
-**Status: stale cooldown recovery and false route repair for progressing sparse writes are fixed in source and covered by regressions. The latest physical cellular file pair still failed. Local reply admission, setup/manifest-first-byte timeouts, payload stalls, call/video and multi-device qualification remain open.**
+**Status: cooldown recovery, sparse-write route health, ready-spare selection and BBR delivery/probing defects are fixed in source and covered by regressions. The latest physical cellular file pair still failed. Local reply admission, setup/manifest-first-byte timeouts, payload stalls, call/video and multi-device qualification remain open.**
 
-## Latest follow-up — 23 October: Wi-Fi baseline and ordered ready spare
+## Latest source follow-up — 23 October: BBR low-rate recovery and SACK delivery
+
+The subsequent Wi-Fi run on **`1064bc18`** still failed the 32 MiB/180-second
+gate (last sink **2.5 MiB**); the following 4 MiB completed in **108.717 seconds**
+with SHA-256 matching, after one payload-idle failure and automatic retry.
+A source estimate remained at **12,440 B/s for 60.836 seconds**, despite
+1,189,200 bytes of cumulative ACK progress and persistent application backlog.
+This uncontrolled run does not establish a regression or improvement against
+the older Wi-Fi baseline, nor identify a particular relay as the cause.
+
+SDK **`b7745be2`** corrects parent-reproduced low-rate sample starvation and
+missing first-SACK delivery credit. It also makes small pacing batches use an
+appropriate interval without increasing their configured budget. Real-engine
+virtual-link tests reach 256,000 B/s from three low seeds at three batch limits,
+while a genuinely slow link stays bounded. All **130 stream / 66 client tests**,
+Clippy, rustfmt, production native builds and 199-export checks pass. See the
+[dedicated report](../bbr-delivery-2026-10-23/README.md).
+
+Poco returned and loaded the corrected SDK on its cellular default connection,
+with Wi-Fi off. **Both physical file gates still failed**: 32 MiB at 180 seconds
+(last sink **4.75 MiB**, one payload-idle failure and resume from 1.75 MiB), then
+4 MiB at 180 seconds (last sink **3.75 MiB**). Integrity is unverified. No setup
+or manifest-first-byte timeout was retained. The source rate model varied up to
+276,635 B/s, but driver retry episodes still reached 19.167 seconds; those
+episodes can include partial progress and are not per-frame/network latency.
+The prolonged local retry and feedback stalls remain open. No controlled
+physical gain is claimed. Original APK/property/policies/profile selection were
+retained/restored, and owned apps/capture were independently verified absent.
+No push, release or relay update.
+
+## Previous follow-up — 23 October: Wi-Fi baseline and ordered ready spare
 
 The available Blackview was tested on Wi-Fi using SDK **`8998746a`**. Both test
 messages arrived once; the following 4 MiB file completed in **69.850 seconds**,
@@ -22,8 +52,9 @@ ready spare: SDK **`1064bc18`** now relocates an unavailable assignment only to 
 live unowned child, equally for sources and neutral transit. Healthy/occupied
 assignments and connection limits remain in force. All **669 session / 66 client
 tests**, Clippy, rustfmt and production native/199-export checks pass. This
-correction was made **after** the Wi-Fi baseline and is not yet physically
-qualified; responsibility for the old cellular incident is unproven.
+correction was made **after** that Wi-Fi baseline. The subsequent Wi-Fi run
+above loaded it and still missed the large-file gate; the old cellular incident
+did not reproduce there. Responsibility for that incident remains unproven.
 
 Original APK/property/policies/profile state were retained or restored, and
 independent checks verified owned app/capture exit. No push/release/relay update.
