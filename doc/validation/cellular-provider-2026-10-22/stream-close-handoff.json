@@ -1,0 +1,115 @@
+{
+  "transfers": [
+    {
+      "direction": "phone_to_laptop",
+      "bytes": 4194304,
+      "success": true,
+      "sha256_matches": true,
+      "download_seconds": 34.209,
+      "download_test_window_seconds": 180,
+      "stream_request_attempts": 2,
+      "no_manifest_timeouts": 0,
+      "payload_idle_timeouts": 0,
+      "payload_idle_received_bytes": [],
+      "other_failed_attempts": 1,
+      "first_request_to_validated_manifest_seconds": 0.626,
+      "anonymous_stream_opens": 3,
+      "direct_stream_opens": 0,
+      "committed_resume_offsets_bytes": [
+        786432
+      ],
+      "manifest_probe_failures": 1
+    },
+    {
+      "direction": "laptop_to_phone",
+      "bytes": 4194304,
+      "success": true,
+      "sha256_matches": true,
+      "download_seconds": 73.16,
+      "download_test_window_seconds": 180,
+      "stream_request_attempts": 3,
+      "no_manifest_timeouts": 1,
+      "payload_idle_timeouts": 0,
+      "payload_idle_received_bytes": [],
+      "other_failed_attempts": 1,
+      "first_request_to_validated_manifest_seconds": 15.709,
+      "anonymous_stream_opens": 4,
+      "direct_stream_opens": 0,
+      "committed_resume_offsets_bytes": [
+        3932160
+      ],
+      "manifest_probe_failures": 0
+    },
+    {
+      "direction": "phone_to_laptop",
+      "bytes": 33554432,
+      "success": false,
+      "sha256_matches": null,
+      "download_seconds": null,
+      "download_test_window_seconds": 180,
+      "stream_request_attempts": 3,
+      "no_manifest_timeouts": 1,
+      "payload_idle_timeouts": 0,
+      "payload_idle_received_bytes": [],
+      "other_failed_attempts": 2,
+      "first_request_to_validated_manifest_seconds": 0.887,
+      "anonymous_stream_opens": 3,
+      "direct_stream_opens": 0,
+      "committed_resume_offsets_bytes": [
+        29884416,
+        30932992
+      ],
+      "manifest_probe_failures": 0
+    }
+  ],
+  "numeric_driver_sampling": {
+    "laptop": {
+      "driver_samples": 207,
+      "largest_sampled_local_wait_ms": 335
+    },
+    "phone": {
+      "driver_samples": 264,
+      "largest_sampled_local_wait_ms": 14750
+    }
+  },
+  "qa_policies_restored_and_verified": true,
+  "sdk_commit": "097e373b",
+  "status": "two_local_close_defects_corrected_large_transfer_still_incomplete",
+  "controlled_old_source": {
+    "whole_handle_close_reset_late_credit": true,
+    "driver_retired_before_locally_rejected_final_ack_handoff": true,
+    "reader_only_drop_control_passed": true
+  },
+  "gates": {
+    "stream_tests_passed": 75,
+    "ffi_anonymous_stream_tests_passed": 44,
+    "clippy_all_targets_passed": true,
+    "rustfmt_passed": true,
+    "production_macos_sdk_build_passed": true,
+    "production_android_sdk_build_passed": true,
+    "sdk_export_count": 198,
+    "unchanged_sdk_export_names": true
+  },
+  "serving_phone_sequence": {
+    "invalid_content_stream_credit_failures": 2
+  },
+  "cleanup": {
+    "phone_stopped": true,
+    "mac_stopped": true,
+    "original_phone_apk_restored": true,
+    "original_phone_apk_hash_matches": true,
+    "phone_process_absent_after_restore": true,
+    "final_tested_build_verified": true,
+    "android_diagnostic_property_restored": true,
+    "owned_phone_file_fixtures_removed": true,
+    "owned_mac_process_absent_independent_check": true
+  },
+  "limits": [
+    "The 180-second window is the harness observation deadline; the final failed attempt includes harness cancellation.",
+    "Committed resume offsets are verified piece boundaries, not final file integrity verification.",
+    "Stream opens include manifest probes and retry opens.",
+    "Queue wait maxima are sampled local waits, not absolute maxima or end-to-end latency.",
+    "The source credit validation failure needs independent root-cause investigation; no validation was relaxed.",
+    "No calls or subjective audio/video qualification were performed."
+  ]
+}

@@ -1,8 +1,81 @@
 # Cellular call and file validation — 2026-10-22
 
-**Status: file backpressure corrected on the tested path; call/video failures remain.**
+**Status: partial stream fixes verified; long anonymous transfers and call/video failures remain.**
 
-## Latest follow-up — 23 October: ACK fallback after local queue rejection
+## Latest follow-up — 23 October: graceful close and final local ACK handoff
+
+[stream-close-handoff.json](stream-close-handoff.json) records SDK `097e373b`.
+**The 32-MiB anonymous upload is still incomplete at the 180-second observation
+deadline. General file reliability and physical audio/video quality are open.**
+
+### Two reproduced local defects
+
+The FFI's ordinary stream close releases both application halves gracefully.
+However, the driver reset the stream when late reverse-direction bytes arrived
+without a reader. A controlled peer's final eight-byte credit reproduced this:
+queued payload was delivered, followed by an unwanted APP reset. The driver now
+drains/discards late received bytes only when both application halves are gone,
+while completing queued writes and transport acknowledgements. Dropping only
+the reader while keeping a writer retains its previous abort behavior.
+
+The driver also retired after both byte directions completed even when its last
+ACK remained locally rejected by the carrier. The peer then had no confirmation
+of its final credit/FIN. Retirement now waits for that local ACK handoff. A
+permanently unavailable carrier is bounded by the existing retry-policy ceiling
+(maximum RTO times retry count plus one), rather than leaking a detached task.
+Local waiting does not generate a network-RTO event; explicit reset remains
+responsive. This does not guarantee delivery after a carrier accepts an ACK and
+it is subsequently lost in the network.
+
+Both regression cases fail on the previous source. The reader-only-drop
+control passes before and after the correction. The new five-test suite also
+checks exact queued payload, received credit, clean EOF, cancellation and the
+permanent-backpressure bound. These are controlled async driver exchanges,
+not a claim that a particular WAN stall has been eliminated.
+
+### Gates and physical qualification
+
+All **75 stream tests** and **44 FFI anonymous-stream tests** pass, with
+all-target Clippy and rustfmt clean. Production Mac and Android SDK builds pass;
+the same **198 SDK export names** are retained. Current sources, frozen SDKs,
+installed APK and the Mac process's loaded library were verified before and
+after physical testing. Ordinary frontends/media engines were unchanged; no
+synthetic media, PCM probes or calls were enabled. No wire format, relay media
+classification, transit priority, mailbox policy or network-RTO constant changed.
+
+The phone used cellular data with Wi-Fi off. QA-contact P2P was denied for these
+transfers and restored afterward. All recorded opens were anonymous; counts in
+the JSON include manifest probes and retry opens.
+
+| Direction | Size | Download | Pull requests | Result |
+| --- | ---: | ---: | ---: | --- |
+| Phone → laptop | 4 MiB | 34.209 s | 2 | Exact SHA-256 match after resume |
+| Laptop → phone | 4 MiB | 73.160 s | 3 | Exact SHA-256 match after resume |
+| Phone → laptop | 32 MiB | **Incomplete at 180 s** | 3 | Final hash unverified; harness cancels the remaining attempt |
+
+The large transfer recorded committed resume offsets of **29,884,416** and
+**30,932,992 bytes**, not a verified complete file. One pull attempt failed
+before obtaining its manifest; failure-log counts also include final harness
+cancellation. The small reverse transfer likewise had one no-manifest failure.
+No general speed improvement is established; these runs were slower than the
+preceding small-file run and do not isolate network variation or rule out a
+performance regression. The largest sampled local carrier waits were **335 ms
+on the laptop** (207 driver samples) and **14,750 ms on the phone** (264 samples).
+These are sampled local waits, not end-to-end latency or absolute maxima.
+
+During this sequence the phone's serving log recorded **two `invalid content
+stream credit` failures**. The exact cause of those rejected application credits
+is not yet established. Their validation was not weakened, and correcting local
+stream close is not claimed to have resolved them. This is a concrete next
+investigation alongside the remaining local queue stalls and network ACK loss.
+
+Both owned app processes and captures exited. Policies, the temporary Android
+diagnostic property and exact original phone APK were restored and checked;
+owned phone file fixtures were removed. The installed Mac app was unchanged.
+Only aggregate evidence is published here; raw captures, identifiers, keys,
+addresses, packet sequences and file hashes remain outside the repository.
+
+## Previous follow-up — 23 October: ACK fallback after local queue rejection
 
 [ack-copy-fallback.json](ack-copy-fallback.json) records SDK `99d0fa17`.
 **Large-file stalls and physical audio/video failures remain unresolved.**
