@@ -1,0 +1,8 @@
+{
+  "owned_mac_apps_absent": true,
+  "installation_not_started_after_preflight_failure": true,
+  "blackview_network_inspection_read_only": true,
+  "blackview_default_network_was_wifi": true,
+  "new_test_calls_started": false,
+  "phone_data_or_settings_changed": false
+}

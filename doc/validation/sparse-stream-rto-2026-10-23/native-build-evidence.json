@@ -1,0 +1,11 @@
+{
+  "sdk_commit": "8998746a",
+  "sdk_source_matches_committed_revision": true,
+  "frozen_native_library_hashes_verified": true,
+  "frontend_sources_unchanged": true,
+  "production_macos_native_build_passed": true,
+  "production_android_native_build_passed": true,
+  "new_media_test_hooks": false,
+  "new_pcm_probe": false,
+  "physical_installation_or_loaded_binary_claimed": false
+}
