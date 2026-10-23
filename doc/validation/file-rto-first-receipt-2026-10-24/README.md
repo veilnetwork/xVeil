@@ -1,5 +1,8 @@
 # First-receipt timing for selectively acknowledged file data — 24 October 2026
 
+Follow-up: [saturated SACK correction and a completed reverse transfer](../file-sack-freshness-2026-10-24/README.md).
+The results below retain this earlier cycle's measurements.
+
 SDK `27757b35`, based on `cc52c17b`; unchanged Dart frontends from
 xVeil `c9e2d58f`.
 
