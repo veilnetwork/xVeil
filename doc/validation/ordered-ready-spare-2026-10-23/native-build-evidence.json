@@ -1,0 +1,11 @@
+{
+  "sdk_commit": "1064bc18",
+  "production_macos_sdk_build_passed": true,
+  "production_android_sdk_build_passed": true,
+  "frozen_sdk_sources_match_commit": true,
+  "frozen_library_hashes_verified": true,
+  "compatible_frontend_sources_unchanged": true,
+  "new_native_media_test_hook": false,
+  "new_pcm_probe": false,
+  "current_fix_installed_on_phone": false
+}
