@@ -2,7 +2,85 @@
 
 **Status: partial stream fixes verified; long anonymous transfers and call/video failures remain.**
 
-## Latest follow-up — 23 October: receiver binding survives path recovery
+## Latest follow-up — 23 October: stream IDs across unilateral hub restart
+
+[stream-restart-collision.json](stream-restart-collision.json) records SDK
+`198258ae`. **A controlled restart failure is corrected, and the previously
+failing reverse 32-MiB file passes this run. Cold local path waiting and broader
+file/call reliability remain open.**
+
+### Controlled reproduction and corrections
+
+Every hub previously began allocating stream IDs from the same value. If only
+one endpoint restarted while its peer retained the old stream, the fresh SYN
+reused that peer's old demux route. No new application accept occurred, even on
+a perfect network. Two real async mux/driver regressions reproduce this for
+both node-order/parity cases against the parent production source. The old
+source generation is blackholed before dropping it so graceful FIN/RST cannot
+clean up the still-live remote stream. After correction, a fresh accepted
+stream exchanges the exact new request/reply bytes and the old application
+stream receives none of them.
+
+All hubs now share a process-wide allocator, so hub recreation does not restart
+the sequence. Its initial value comes from OS randomness when the process
+starts. Direction parity and the existing wire format remain unchanged. The
+31-bit counter namespace is finite: random seeding removes deterministic
+process-restart reuse, **not all possible collisions with remote retained
+state**. The controlled restart test covers hub recreation within one process;
+it is not an exhaustive cross-process namespace test.
+
+Two related controlled defects are also corrected. Opening a stream after 64
+occupied ID probes previously overwrote a live route. Allocation now installs
+only into a vacant entry. A test retaining 65 route owners across counter wrap
+fails before the fix and preserves every owner afterward. An opening engine
+also accepted a SYN_ACK that did not acknowledge its own SYN and disabled
+handshake recovery. It now requires the exact SYN ACK, including sequence wrap;
+invalid older/future values leave it waiting with recovery still enabled.
+That regression also fails on the parent production source. No relay priority,
+media classification, mailbox policy, pacing limit or timeout was changed.
+
+### Gates and physical evidence
+
+All **81 stream-module tests** and **55 FFI anonymous-stream tests** pass. The
+FFI gate includes `node-embedded,packet-tunnel,test-low-difficulty`, exercising
+real circuit/outbox fixtures. All-target stream/FFI Clippy passes with those
+features, as do formatting and diff checks. Production Mac and Android SDK
+builds retain the same **198 exported SDK function names**. Sources, frozen
+libraries, installed phone APK and loaded Mac library were verified before and
+after the stand. Frontends and production media engines were unchanged, and no
+production test hooks were added.
+
+| Direction | Size | Download | Pull requests | Result |
+| --- | ---: | ---: | ---: | --- |
+| Phone → laptop | 4 MiB | 17.204 s | 1 | Integrity matches |
+| Laptop → phone | 4 MiB | 16.910 s | 1 | Integrity matches |
+| Laptop → phone | 32 MiB | **122.474 s** | 1 | Integrity matches |
+
+These transfers used cellular data with Wi-Fi off and own QA-contact P2P
+denied. Every recorded open was anonymous, with no direct stream. All three
+completed within the unchanged **180-second window**, with no no-manifest or
+payload-idle failure. There were no resumption offsets or failed attempts.
+This is one successful reverse large-file run, not proof of stable large-file
+completion or a performance gain caused by this specific correction. The WAN
+run does not reproduce the controlled source-restart packet schedule. The
+32-MiB phone-to-laptop case was not rerun on this SDK.
+
+The largest sampled local driver carrier wait was **7,584 ms on the laptop**
+(144 samples), versus **178 ms on the phone** (134 samples). The large laptop
+samples were in `SynSent`, with one retained initial cell, growing local
+WouldBlock retries and no network handshake RTO. They show an unresolved cold
+local path availability wait, **not a 7.6-second RTT** or a proven DATA outbox
+stall. No new correction for this wait is claimed. No calls, camera, audio
+playout or subjective speech checks ran in this cycle.
+
+QA policies and the temporary Android diagnostic property were restored. Own
+apps and captures exited; app process absence was checked independently. The
+exact original phone APK was restored and hash-verified, owned phone fixtures
+were removed, and the installed Mac app was unchanged. Public evidence contains
+aggregate values without identifiers, keys, addresses, paths, packet sequences,
+raw captures or file hashes.
+
+## Previous follow-up — 23 October: receiver binding survives path recovery
 
 [stream-receiver-lifetime.json](stream-receiver-lifetime.json) records SDK
 `f46e6ae5`. Two controlled regressions fail with the exact parent source:

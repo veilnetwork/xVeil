@@ -1,0 +1,125 @@
+{
+  "sdk_commit": "198258ae",
+  "production_parent_sdk_commit": "f46e6ae5",
+  "status": "restart collision mechanism fixed; cold path waiting and broader file/call reliability remain open",
+  "controlled_defects": [
+    {
+      "defect": "New hub reset its stream ID counter while the remote application retained a live stream. A fresh SYN reused that route without a fresh accept.",
+      "proof": "Both node-order/parity cases fail on parent production source and pass after correction, using the real async mux and driver, a healthy in-memory network, a blackholed old source generation and a still-open remote application stream. Fresh request/reply bytes reach only the fresh accepted stream.",
+      "correction": "One process-wide allocator survives hub recreation; OS randomness seeds its starting point for a new process. Existing direction parity and wire format remain unchanged."
+    },
+    {
+      "defect": "After 64 occupied probes, open replaced a live local stream route.",
+      "proof": "A fixture retaining 65 channels across counter wrap fails on parent source and passes after correction. Every retained channel remains the route owner.",
+      "correction": "Only a vacant route entry may be installed; occupied entries are skipped."
+    },
+    {
+      "defect": "An unrelated or malformed SYN_ACK established an opening stream despite not acknowledging its SYN.",
+      "proof": "The parent enters Established on the invalid answer. Correction checks older/future ACK values at normal and wrapping initial sequences, retaining the pending handshake and recovery timer until an exact ACK arrives.",
+      "correction": "The opening SYN_ACK must acknowledge exactly the initial SYN byte."
+    }
+  ],
+  "limits": [
+    "Stream ID namespace remains finite (31 counter bits plus parity). A random process seed avoids deterministic restart reuse but cannot guarantee that a random ID never collides with a retained remote route.",
+    "The controlled test restarts a hub within a process. A cross-process remote-state collision probability is reduced by OS-random seeding, not eliminated or exhaustively tested.",
+    "Physical file observations do not replay the exact controlled source-restart schedule or isolate the effect of the allocator from WAN variation.",
+    "Only one new reverse 32-MiB run passed. Long-transfer stability, cold startup, call media, Windows reports and the full multi-device matrix remain unqualified."
+  ],
+  "verification": {
+    "stream_tests_passed": 81,
+    "ffi_anonymous_stream_tests_passed": 55,
+    "failures": 0,
+    "ffi_features": [
+      "node-embedded",
+      "packet-tunnel",
+      "test-low-difficulty"
+    ],
+    "all_target_clippy_stream_and_ffi_passed": true,
+    "rustfmt_and_diff_checks_passed": true,
+    "production_mac_and_android_sdk_builds_passed": true,
+    "unchanged_sdk_export_names": 198,
+    "frontends_and_production_media_engines_unchanged": true,
+    "production_test_hooks_added": false
+  },
+  "physical": {
+    "transfers": [
+      {
+        "direction": "phone->mac",
+        "bytes": 4194304,
+        "success": true,
+        "download_seconds": 17.204,
+        "integrity_matches": true,
+        "window_seconds": 180,
+        "pull_requests": 1,
+        "failed_attempts_including_final_harness_cancellation": 0,
+        "no_manifest_failures": 0,
+        "payload_idle_failures": 0,
+        "resume_offsets": [],
+        "anonymous_opens": 2,
+        "direct_opens": 0
+      },
+      {
+        "direction": "mac->phone",
+        "bytes": 4194304,
+        "success": true,
+        "download_seconds": 16.91,
+        "integrity_matches": true,
+        "window_seconds": 180,
+        "pull_requests": 1,
+        "failed_attempts_including_final_harness_cancellation": 0,
+        "no_manifest_failures": 0,
+        "payload_idle_failures": 0,
+        "resume_offsets": [],
+        "anonymous_opens": 1,
+        "direct_opens": 0
+      },
+      {
+        "direction": "mac->phone",
+        "bytes": 33554432,
+        "success": true,
+        "download_seconds": 122.474,
+        "integrity_matches": true,
+        "window_seconds": 180,
+        "pull_requests": 1,
+        "failed_attempts_including_final_harness_cancellation": 0,
+        "no_manifest_failures": 0,
+        "payload_idle_failures": 0,
+        "resume_offsets": [],
+        "anonymous_opens": 1,
+        "direct_opens": 0
+      }
+    ],
+    "driver_samples": {
+      "mac": {
+        "samples": 144,
+        "max_sampled_local_handoff_wait_ms": 7584
+      },
+      "phone": {
+        "samples": 134,
+        "max_sampled_local_handoff_wait_ms": 178
+      }
+    },
+    "policies_restored": {
+      "mac": true,
+      "phone": true
+    }
+  },
+  "remaining_cold_wait": {
+    "endpoint": "mac",
+    "max_sampled_local_handoff_wait_ms": 7584,
+    "driver_phase": "SynSent",
+    "description": "One initial retained cell and growing local WouldBlock retries, before network handshake RTO. This is an observed local path availability wait, not a measured network RTT. Its cause remains under investigation."
+  },
+  "cleanup": {
+    "phone_stopped": true,
+    "mac_stopped": true,
+    "original_phone_apk_restored": true,
+    "original_phone_apk_hash_matches": true,
+    "phone_process_absent_after_restore": true,
+    "final_tested_build_verified": true,
+    "android_diagnostic_property_restored": true,
+    "owned_phone_file_fixtures_removed": true,
+    "owned_mac_process_absent_independent_check": true
+  },
+  "privacy": "Public evidence is limited to aggregate values: no endpoint identifiers, addresses, paths, keys, packet sequences, raw captures or file hashes."
+}
