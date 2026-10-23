@@ -307,6 +307,14 @@ abstract interface class ReliableStream {
   Future<void> abort();
 }
 
+/// Optional handshake state for transports whose open/write is optimistic.
+/// False means the peer handshake is still pending, not a silent content server.
+/// Throws on reset/closed handles. Queries must not block on network I/O.
+abstract interface class ConnectionAwareReliableStream
+    implements ReliableStream {
+  bool get isConnected;
+}
+
 /// Optional local admission progress. Counts belong to this write and do not
 /// imply peer receipt. Transport adapters keep the write's bytes contiguous.
 abstract interface class ProgressiveReliableStream implements ReliableStream {
