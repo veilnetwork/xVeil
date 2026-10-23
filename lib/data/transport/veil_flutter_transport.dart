@@ -1714,9 +1714,12 @@ class _VeilReliableStream implements ProgressiveReliableStream {
   Future<void> abort() => _s.close();
 }
 
-class _VeilAnonReliableStream implements ProgressiveReliableStream {
+class _VeilAnonReliableStream
+    implements ProgressiveReliableStream, ConnectionAwareReliableStream {
   _VeilAnonReliableStream(this._s);
   final VeilAnonStream _s;
+  @override
+  bool get isConnected => _s.isConnected;
   @override
   Future<void> write(Uint8List data) => _s.write(data);
   @override
