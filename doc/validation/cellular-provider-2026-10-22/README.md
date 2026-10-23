@@ -1,8 +1,103 @@
 # Cellular call and file validation — 2026-10-22
 
-**Status: partial stream fixes verified; long anonymous transfers and call/video failures remain.**
+**Status: partial stream fixes verified; long-transfer stability and call/video failures remain open.**
 
-## Latest follow-up — 23 October: BBR RTT from first original receipt
+## Latest follow-up — 23 October: nonblocking cold-pool admission
+
+SDK **`3ba02e37`** corrects a confirmed carrier-blocking defect.
+`open_outbound_for_handshake`
+previously awaited the whole pool build, or polled another opener for up to
+10 seconds inside the carrier call. The stream driver could not service receive,
+reset or protocol timers until that call returned. In the controlled registered-
+opener case, parent SDK `51f71c3d` still has not returned when the **50-ms** test
+deadline expires; this is a failed responsiveness gate, not a measured 10-s wait.
+
+The send path now starts/reuses the debounced background builder and returns
+local WouldBlock while no route is ready. The exact unsent SYN remains owned by
+the driver. Each confirmed candidate is published before the builder starts
+waiting on the next relay. Refills keep the live prefix's current handshake
+markers, activity timestamps and shared stream accounting rather than restoring
+the builder's earlier snapshot. Existing pool bounds, prior live-route handling,
+receiver binding and retirement grace are preserved. A finishing older opener
+also cannot erase a newer task's debounce timestamp.
+
+The new registered-opener regression passes, and a synthetic ready-prefix test
+locally admits one SYN before a later candidate is available, then checks that
+publishing the second candidate preserves the first route's live metadata and
+order. This does not certify an end-to-end remote handshake latency. All **58
+FFI anonymous-stream tests**, **116 stream tests**, all-target Clippy with warnings
+denied and rustfmt pass. Production macOS/Android SDKs build with the same **198
+C exports** each. [cold-pool-progress.json](cold-pool-progress.json) records the
+scoped gates and the physical results. No RACK default, RTO limit, wire field,
+relay priority or mailbox policy changed in the retained correction.
+
+### Diagnostic completion beyond the original gate
+
+The earlier 180-s records intentionally said **incomplete**, with integrity
+unverified after harness cancellation. A separate diagnostic now samples the
+owned temporary output's file length every second and permits up to 600 s. This
+distinguishes insufficient speed from a permanent stall; it **does not turn a
+failed 180-s completion gate into a pass**.
+
+On SDK `51f71c3d`, before this carrier correction, 32 MiB phone → Mac eventually
+completed in **329.668 s** with matching integrity. At the original 180-s point,
+the sink file length was **17,563,648 bytes**. The largest observed interval
+between file-length increases was about **11.1 s**. File length is an observation
+of the verified-piece sink, not a transport-byte or independently inferred
+contiguous-prefix counter. See [file-progress.json](file-progress.json).
+
+### Rejected default-floor experiment
+
+Queue-pressure DATA recovery can use an alternate first hop even when scheduled
+striping is off. A controlled split-enqueue test exposed a mismatch with the
+zero initial RACK reordering floor. However, changing the default for the
+multi-route pool to the existing 1,500-ms striped floor did **not** establish a
+production improvement:
+
+| Diagnostic case | 32-MiB phone → Mac result | 180-s gate |
+| --- | --- | --- |
+| Candidate default floor 1,500 ms | Application failed before the 600-s limit; 22 manifest-phase failures and two payload-idle failures, with actual resume requests | Failed |
+| Same compiled candidate SDK/frontends, explicit former floor 0 ms | **294.475 s**, matching integrity | Failed |
+
+Relay selection and network load were not held constant, so this pair alone does
+not prove that the changed floor caused the failure. The default-floor change
+was nevertheless **reverted and is not included in the retained SDK changes**.
+The candidate patch stays private for further diagnosis; all temporary phone
+properties were restored. [rejected-reordering-floor.json](rejected-reordering-floor.json)
+keeps the negative result and its control.
+
+### Physical results with nonblocking/progressive publication
+
+The retained code uses the original RACK defaults and the same QA identities,
+frontends, cellular default routing and own-contact P2P deny policy. All opens
+were anonymous. No call, camera or physical audio device was opened.
+
+| Direction | Size | Result | Requests | Recovery / integrity |
+| --- | ---: | --- | ---: | --- |
+| Phone → Mac | 32 MiB | **385.314 s**, within the separate 600-s diagnostic; **failed the original 180-s gate** | 3 | Resumed at **18,350,080 bytes** after source payload-write idle; final integrity matches |
+| Phone → Mac | 4 MiB | **19.836 s**, within the original 180-s gate | 1 | No failed attempt; final integrity matches |
+
+The long run still had one manifest-phase failure and a source payload-write-idle
+event. It proves successful integrity-checked recovery in this run, **not a
+stable speed gain or elimination of the long-file defect**. Its positive resume
+offset comes from an actual request sent, not a final cancellation checkpoint.
+Native pending-handoff maxima include route construction/retries and are not
+individual carrier-call latency measurements.
+
+Existing file logs and CLI snapshots were read on six relays without changing
+remote services/configuration. All six were active with zero service restarts;
+opaque global events and single cumulative snapshots do not identify losses of
+specific owned cells. No media classification or prioritization was added.
+A phone power snapshot was taken only after cleanup and cannot rule out sleep
+during transfer.
+
+After every physical run, tested sources/frozen SDKs/installed APK/loaded Mac
+library were checked, own apps and captures exited, policies and diagnostics
+were restored, and the exact original phone APK was restored and hash-checked.
+The installed Mac app was unchanged. Live-speech, Windows and complete
+multi-device qualification remain outside this cycle.
+
+## Previous follow-up — 23 October: BBR RTT from first original receipt
 
 SDK **`51f71c3d`** corrects the stream's BBR RTT sampling. The model previously
 reused cumulative-ACK age as its minimum-RTT
