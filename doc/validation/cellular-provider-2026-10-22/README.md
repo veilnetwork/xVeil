@@ -2,7 +2,51 @@
 
 **Status: partial stream fixes verified; long anonymous transfers and call/video failures remain.**
 
-## Latest follow-up — 23 October: bound DATA paths and full local outboxes
+## Latest follow-up — 23 October: receiver binding survives path recovery
+
+[stream-receiver-lifetime.json](stream-receiver-lifetime.json) records SDK
+`f46e6ae5`. Two controlled regressions fail with the exact parent source:
+first ACK selection can choose another receiver, and stale path eviction can
+forget the original receiver. Receiver cookie and protected public key now
+remain bound for the stream lifetime, including independent ACK selection,
+cache pressure, ACK copy recovery and slow-path replacement. A protected
+binding cannot downgrade; legacy cookie-only matching remains compatible.
+Unknown ACKs do not guess a receiver. Close releases the binding for a new
+stream lifetime without disturbing other streams.
+
+The route cache and separate public receiver metadata each retain a 4096-entry
+bound. Cache pressure evicts optional ACK pins, preserving live Bulk pins and
+accounting; a bound ACK can operate uncached. New-stream admission waits when
+capacity is exhausted. Concurrent same-class selections now reuse the pin
+committed while they waited and count only one active stream. That accounting
+regression failed before the final cache recheck in this cycle; unlike the two
+receiver regressions, its recorded failing run used an intermediate source.
+
+All **55 FFI anonymous-stream tests** pass, together with all-target FFI Clippy,
+formatting and diff checks. Production Mac and Android SDK builds pass with the
+same **198 export names**. The earlier 77 engine tests were not rerun this cycle.
+Sources, frozen libraries, installed phone APK and loaded Mac library were
+verified. Frontends and production media engines were unchanged.
+
+| Direction | Size | Download | Result |
+| --- | ---: | ---: | --- |
+| Phone → laptop | 4 MiB | 29.153 s | Integrity matches |
+| Laptop → phone | 4 MiB | 27.794 s | Integrity matches |
+| Phone → laptop | 32 MiB | 123.385 s | Integrity matches |
+
+These anonymous-stream transfers used cellular data with Wi-Fi off and own
+QA-contact P2P denied. All completed within the unchanged 180-second window.
+**The previously failing reverse 32-MiB transfer was not rerun and remains
+open.** These observations do not establish a general speed improvement or
+qualify the mixed-receiver A/B/C matrix. No calls or audio/camera tests ran.
+
+QA policies and the Android diagnostic property were restored. Own apps and
+capture processes exited; app process absence was verified. The exact original
+phone APK was restored and hash-checked, owned phone fixtures were removed,
+and the installed Mac app was unchanged. Public evidence contains aggregate
+values only.
+
+## Previous follow-up — 23 October: bound DATA paths and full local outboxes
 
 [bound-data-fallback.json](bound-data-fallback.json) records SDK `4f27eba6`.
 **Three DATA routing/admission defects are corrected. The reverse 32-MiB file
