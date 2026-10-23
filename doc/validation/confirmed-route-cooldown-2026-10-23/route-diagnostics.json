@@ -1,0 +1,53 @@
+{
+  "mac": {
+    "refresh_admissions_by_cause": {
+      "handshake_cold": 3,
+      "handshake_rto": 20,
+      "data_no_progress": 11
+    },
+    "sampled_selection_failures_by_reason": {},
+    "last_selection_failure_samples": []
+  },
+  "phone": {
+    "refresh_admissions_by_cause": {
+      "handshake_cold": 1,
+      "data_no_progress": 23,
+      "pool_cold_or_quiet": 1,
+      "route_unavailable": 1,
+      "stale_session": 2,
+      "handshake_rto": 7
+    },
+    "sampled_selection_failures_by_reason": {
+      "active_limit": 3
+    },
+    "last_selection_failure_samples": [
+      {
+        "class": "Bulk",
+        "reason": "active_limit",
+        "pool": "1",
+        "compatible": "1",
+        "usable": "1",
+        "active_limit": "2",
+        "misses": "1"
+      },
+      {
+        "class": "Bulk",
+        "reason": "active_limit",
+        "pool": "1",
+        "compatible": "1",
+        "usable": "1",
+        "active_limit": "2",
+        "misses": "2"
+      },
+      {
+        "class": "Bulk",
+        "reason": "active_limit",
+        "pool": "1",
+        "compatible": "1",
+        "usable": "1",
+        "active_limit": "2",
+        "misses": "4"
+      }
+    ]
+  }
+}

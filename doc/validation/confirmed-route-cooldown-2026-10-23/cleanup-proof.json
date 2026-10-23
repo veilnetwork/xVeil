@@ -1,0 +1,11 @@
+{
+  "phone_stopped": true,
+  "mac_stopped": true,
+  "original_phone_apk_restored": true,
+  "original_phone_apk_hash_matches": true,
+  "phone_process_absent_after_restore": true,
+  "final_tested_build_verified": true,
+  "android_diagnostic_property_restored": true,
+  "owned_phone_file_fixtures_removed": true,
+  "owned_mac_process_absent_independent_check": true
+}
