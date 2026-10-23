@@ -1,0 +1,128 @@
+{
+  "sdk_commit": "27757b35",
+  "baseline_sdk_commit": "cc52c17b",
+  "root_frontend_commit": "c9e2d58f",
+  "gates": {
+    "stream-final": {
+      "passed": 137,
+      "failed": 0
+    },
+    "client-final": {
+      "passed": 30,
+      "failed": 0
+    }
+  },
+  "formatting_passed": true,
+  "all_target_stream_clippy_warnings_denied_passed": true,
+  "exported_veil_functions_unchanged": {
+    "same_veil_exports": true,
+    "exports_count": 199
+  },
+  "topology": {
+    "physical_devices": 2,
+    "identities": 2,
+    "cellular_phone": true,
+    "phone_wifi_off": true,
+    "contact_p2p_overrides_denied": true,
+    "no_call_or_audio_devices_started": true
+  },
+  "source_restart_run": {
+    "bytes": 33554432,
+    "ok": true,
+    "download_seconds": 149.5693357080454,
+    "hash_matches": true,
+    "original_180_second_completion_gate_passed": true,
+    "diagnostic_download_limit_seconds": 600,
+    "mac": {
+      "retained_denials_for_content": 0,
+      "retained_manifest_eof_for_content": 0,
+      "resume_offsets_bytes": [
+        4456448
+      ],
+      "all_retained_pull_failures": 1,
+      "all_retained_payload_idle_messages": 1
+    },
+    "phone": {
+      "retained_denials_for_content": 0,
+      "retained_manifest_eof_for_content": 0,
+      "resume_offsets_bytes": [],
+      "all_retained_pull_failures": 0,
+      "all_retained_payload_idle_messages": 0
+    },
+    "source_post_restart_discarded_raw_sack_age_counter_max": 9206,
+    "source_restart": {
+      "trigger_receiver_bytes": 4194304,
+      "trigger_download_elapsed_seconds": 40.513,
+      "original_source_process_stopped": true,
+      "new_source_process": true,
+      "same_qa_identity": true,
+      "source_ready_after_seconds": 15.051097082905471,
+      "ok": true,
+      "elapsed_seconds": 15.051102082943544
+    },
+    "cleanup": {
+      "owned_mac_process_absent": true,
+      "phone_process_absent": true,
+      "owned_forward_removed": true,
+      "debug_property_restored": true,
+      "profile_pointer_unchanged": true,
+      "owned_logcat_captures_absent": true,
+      "original_apk_hash_restored": true
+    },
+    "receiver_offer_count": 1
+  },
+  "source_sha256": {
+    "crates/veil-onion-stream/src/engine.rs": "ea94cfa1b59723411843bbdfe5cebcba6a9bbcf7d4a0af94e17b704766d985ea",
+    "crates/veil-onion-stream/src/mux.rs": "33f4d5f5a70bc502c92704441da99b0e91043addea8537eb7fa04533d8211756"
+  },
+  "limits": {
+    "intermittent_stalls_eliminated": false,
+    "Windows_qualified": false,
+    "audio_video_qualified": false,
+    "full_multidevice_matrix_qualified": false,
+    "source_restart_single_32MiB_hash_qualified": true,
+    "reverse_180_second_gate_qualified": false,
+    "consistent_180_second_gate_qualified": false
+  },
+  "reverse_run": {
+    "bytes": 33554432,
+    "ok": false,
+    "download_seconds": null,
+    "hash_matches": null,
+    "original_180_second_completion_gate_passed": false,
+    "diagnostic_download_limit_seconds": 180,
+    "http_status": 504,
+    "last_observed_sink_bytes": 24379392,
+    "last_observed_download_elapsed_seconds": 179.96,
+    "retained_logs": {
+      "mac": {
+        "denials_for_content": 0,
+        "manifest_eof_for_content": 0,
+        "resume_offsets_bytes": [],
+        "all_retained_pull_failures": 0,
+        "all_retained_payload_idle_messages": 0
+      },
+      "phone": {
+        "denials_for_content": 0,
+        "manifest_eof_for_content": 0,
+        "resume_offsets_bytes": [
+          1835008,
+          24379392
+        ],
+        "all_retained_pull_failures": 2,
+        "all_retained_payload_idle_messages": 1
+      }
+    }
+  },
+  "reverse_cleanup": {
+    "owned_mac_process_absent": true,
+    "phone_process_absent": true,
+    "owned_forward_removed": true,
+    "debug_property_restored": true,
+    "profile_pointer_unchanged": true,
+    "owned_logcat_captures_absent": true,
+    "original_apk_hash_restored": true
+  },
+  "source_admission_wait_samples_max_queue_age_ms": 2,
+  "all_contact_p2p_overrides_restored": true
+}

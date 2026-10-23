@@ -1,5 +1,8 @@
 # File source restart and requester ownership — 24 October 2026
 
+Follow-up: [first-receipt RTO correction and a completed interrupted transfer](../file-rto-first-receipt-2026-10-24/README.md).
+The comparison below retains the results of these earlier runs.
+
 **Requester-proof recovery is corrected; physical file performance remains open.**
 Native SDK `cc52c17b` is unchanged across the comparison runs. This correction
 is in the common Dart messaging layer.
