@@ -6,6 +6,10 @@ was observed. The source fixes already present in the
 this cycle adds an independent-process regression for a previously unqualified
 ordering. It does not mark all revocation or multi-device scenarios complete.
 
+The subsequent [warm-cache isolation run](../warm-recipient-revoke-2026-10-24/README.md)
+preserves C's process and adds a bounded native document refresh. Its evidence
+is separate from the cold restart measurements below.
+
 ## Current-source audit
 
 The untracked 17 October matrix is an older record, not current defect status.

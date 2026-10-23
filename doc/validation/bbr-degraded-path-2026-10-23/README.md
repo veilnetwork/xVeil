@@ -2,6 +2,11 @@
 
 SDK correction: **`50fa7a2f`**, parent **`10b56236`**.
 
+The [24 October bidirectional 4 MiB run](../poco-relay-bidirectional-2026-10-24/README.md)
+passed on the returned cellular phone with this SDK. It adds the reverse
+Mac → Android direction and does not replace the failing measurements below
+or requalify the 32 MiB gate.
+
 ## Reproduced defect
 
 An overestimated warm rate could never expire on a sufficiently slow,

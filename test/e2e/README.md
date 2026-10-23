@@ -204,6 +204,35 @@ native document propagation/resolution is allowed. It does not freeze a running
 node's certificate cache during a network partition, inspect every ciphertext
 recipient, or qualify calls from revoked B.
 
+### case 29 variant — C remains alive with warm caches during isolation
+
+`warm C survives a transport partition during revoke` primes B→C and C→A/B,
+then uses the existing native `peers ban` administration commands on the owned
+workers and all three local relays. Both directions are blocked, including
+previous direct A/C and B/C links. C must report zero native sessions before
+and after A revokes offline B, while its worker PID remains unchanged and its
+local document is still stale. No host firewall or public relay is modified.
+
+After unbanning the island, C sends first and old B attempts messages. Local
+admin DHT reads observe when C learns A's current signed document; they do not
+force a lookup or inject it. The test distinguishes traffic accepted before
+that knowledge from a cache bypass afterwards. If needed, B keeps attempting
+every five seconds for up to two minutes. After the current-document barrier,
+C sends another marked message to A and B attempts another to C. For at least
+60 seconds the former must remain absent from B and the latter absent from C.
+A→C is a final positive control.
+
+```bash
+TMPDIR=/private/tmp/ flutter test --no-pub \
+  test/e2e/multi_device_process_e2e_test.dart \
+  --plain-name 'warm C survives a transport partition during revoke'
+```
+
+This is a protocol-level isolation test using the existing Unix admin sockets,
+with independent native processes and retained in-memory caches. It does not
+assert instantaneous global revocation, audit ciphertext recipients, simulate
+every physical network failure, or qualify revoked calls.
+
 ### case 37 — B answers without a B-C session
 
 C calls identity X and both A and B ring. The fixture verifies that B has no
