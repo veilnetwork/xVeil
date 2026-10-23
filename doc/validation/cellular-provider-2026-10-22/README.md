@@ -1,8 +1,34 @@
 # Cellular call and file validation — 2026-10-22
 
-**Status: cooldown recovery, sparse-write route health, ready-spare selection and BBR delivery/probing defects are fixed in source and covered by regressions. The latest physical cellular file pair still failed. Local reply admission, setup/manifest-first-byte timeouts, payload stalls, call/video and multi-device qualification remain open.**
+**Status: cooldown recovery, stale-session recovery, sparse-write route health, ready-spare selection and BBR delivery/probing defects are fixed in source and covered by regressions. The latest cellular 32 MiB transfer still missed 180 seconds; the following 4 MiB completed intact. Local reply admission, setup/manifest-first-byte timeouts, payload stalls, call/video and multi-device qualification remain open.**
 
-## Latest source follow-up — 23 October: BBR low-rate recovery and SACK delivery
+## Latest source follow-up — 23 October: stale-session recovery
+
+The preceding run's 19.167-second retry episode included **722 additional local
+WouldBlock results**, no cumulative ACK/reserved-sequence progress, and three
+open refusals because a first hop had been cooled. The stale handle had an old
+generation while the first hop already had a live session. This invalidated
+handle incorrectly created a new 60-second peer/rendezvous quarantine.
+
+SDK **`10b56236`** retires obsolete handles and preserves valid replacements at
+the same rendezvous, without creating a cooldown from stale-generation evidence.
+Real failure cooldowns, dead-session checks, generation checks and receiver
+binding remain enforced. A parent-failing regression delivers retained DATA on
+the ready replacement after correction; three negative cases stay blocked.
+All **68 anonymous-stream client tests**, Clippy, rustfmt, production native
+builds and 199-export checks pass. See the
+[dedicated report](../stale-session-recovery-2026-10-23/README.md).
+
+On Poco's cellular connection the corrected SDK completed the following **4 MiB
+in 40.282 seconds**, SHA-256 matched. **32 MiB still failed at 180 seconds**
+(last sink **4 MiB**, integrity unverified). Each file used one pull with no
+retained setup/first-byte/payload-idle failure before the large-file cancellation.
+The particular stale event with a live replacement did not recur, so its physical
+recovery and a comparative performance gain remain unqualified. Original
+APK/property/policies/profile selection were retained/restored; owned apps and
+capture were independently verified absent. No push, release or relay update.
+
+## Previous source follow-up — 23 October: BBR low-rate recovery and SACK delivery
 
 The subsequent Wi-Fi run on **`1064bc18`** still failed the 32 MiB/180-second
 gate (last sink **2.5 MiB**); the following 4 MiB completed in **108.717 seconds**
