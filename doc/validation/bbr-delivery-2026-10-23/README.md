@@ -22,6 +22,10 @@ one payload-write idle timeout. Automatic recovery therefore remains relevant
 even though that file eventually completed. Durations including fixture/offer
 setup were **184.182 / 109.816 seconds**.
 
+Source write-idle failure lines omit the content identifier. Their count is
+retained after the matching source request, but it cannot be attributed uniquely
+to that file rather than an older serve still timing out.
+
 Messages arrived once in **0.591 / 0.731 seconds** (Mac → phone / phone → Mac).
 Contact state already existed, so contact helper timings do not qualify a fresh
 invitation exchange. This Wi-Fi run does not qualify the original cellular or

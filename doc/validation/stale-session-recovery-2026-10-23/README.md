@@ -2,6 +2,13 @@
 
 SDK correction: **`10b56236`**, parent **`b7745be2`**.
 
+Later follow-up: the phone capture on descendant `50fa7a2f` recorded two stale
+events using the corrected retirement handler, including one with a live
+session. No old cooldown message or cooled-hop completed-open failure appeared.
+This confirms branch execution; the ready same-R replacement race remains
+deterministically qualified, and both file gates still failed in that later
+run. See the [capacity-drop follow-up](../bbr-degraded-path-2026-10-23/README.md).
+
 ## Evidence that led to the correction
 
 The parent Poco/Mac cellular run failed both 180-second file gates, as recorded

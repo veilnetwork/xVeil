@@ -1,8 +1,34 @@
 # Cellular call and file validation — 2026-10-22
 
-**Status: cooldown recovery, stale-session recovery, sparse-write route health, ready-spare selection and BBR delivery/probing defects are fixed in source and covered by regressions. The latest cellular 32 MiB transfer still missed 180 seconds; the following 4 MiB completed intact. Local reply admission, setup/manifest-first-byte timeouts, payload stalls, call/video and multi-device qualification remain open.**
+**Status: cooldown recovery, stale-session recovery, sparse-write route health, ready-spare selection and BBR delivery/probing defects are fixed in source and covered by regressions. Both latest cellular file gates failed at 180 seconds. Local reply admission, setup/manifest-first-byte timeouts, payload stalls, call/video and multi-device qualification remain open.**
 
-## Latest source follow-up — 23 October: stale-session recovery
+## Latest source follow-up — 23 October: BBR after a capacity drop
+
+SDK **`50fa7a2f`** corrects another parent-reproduced estimator freeze: a warm
+131,072-B/s model remained unchanged on an 8192-B/s virtual link because its
+own byte floor prevented a qualifying lower sample. Fully backlogged windows
+now use a model-independent segment floor with the existing minimum time span;
+known application-limited observations keep thin quiet spans out of that rule.
+High/low seeds converge to 8062 B/s on that link; a disrupted capacity-step
+test confirms 174,080 bytes delivered after the transition. All **132 stream /
+68 client tests**, Clippy, rustfmt, production native and 199-export checks pass.
+See the [dedicated report](../bbr-degraded-path-2026-10-23/README.md).
+
+**Both physical file gates still failed** on Poco's cellular connection: 32 MiB
+and then 4 MiB each reached only **2.25 MiB at 180 seconds**. Integrity is
+unverified. The large file had one payload-idle failure and one manifest-first-
+byte timeout; the small file had one payload-idle failure. Recovery/resume did
+not complete either file. This supplies no evidence of a physical gain, and the
+uncontrolled network/routes do not isolate a regression cause.
+
+The phone capture did record one stale-session event with a live session using
+the corrected retirement handler, without the old cooldown message or a
+cooled-hop completed-open failure. That qualifies branch execution, not the
+replacement race or overall file recovery. Original APK/property/policies/profile
+selection were retained/restored; owned apps and capture were independently
+verified absent. No push, release or relay update.
+
+## Previous source follow-up — 23 October: stale-session recovery
 
 The preceding run's 19.167-second retry episode included **722 additional local
 WouldBlock results**, no cumulative ACK/reserved-sequence progress, and three
