@@ -1391,6 +1391,57 @@ void main() {
     },
   );
 
+  test(
+    'retry relearns an accepted requester device after source restart',
+    () async {
+      await mB.dispose();
+      mB = MessagingService(
+        tB,
+        sB,
+        contentPacing: Duration.zero,
+        plainFileStream: true,
+        streamPullMaxAttempts: 2,
+      )..start();
+      final device = _id(0x6D);
+      tB.srcDevice = device;
+      tB.anonStreamSrc = device;
+      await mB.sendText(a, 'pre-restart authenticated device evidence');
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      expect(mA.identityOfDevice(device), b);
+
+      final data = _rnd(600000, 2804);
+      final cid = await advertiseFromA(data, name: 'restart-requester.bin');
+      final manifest = ContentManifest.fromBytes('restart-requester.bin', data);
+      await sA.storeFile(cid, data, name: manifest.name);
+      await sA.storeFile(
+        'mf:$cid',
+        Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
+      );
+      await mA.dispose();
+      mA = MessagingService(
+        tA,
+        sA,
+        contentPacing: Duration.zero,
+        plainFileStream: true,
+      )..start();
+      expect(mA.identityOfDevice(device), isNull);
+
+      final got = mB.contentReceived.firstWhere((e) => e.contentId == cid);
+      expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+      await got.timeout(const Duration(seconds: 5));
+      expect(mA.identityOfDevice(device), b);
+      expect(await sB.loadFile(cid), data);
+      expect(tB.openStreamAttemptCount, 2);
+      expect(tB.p2pOpenStreamAttemptCount, 0);
+      expect(
+        tB.sentPayloads.any(
+          (bytes) => WireEnvelope.decode(bytes).kind == WireKind.contentReoffer,
+        ),
+        isTrue,
+      );
+    },
+  );
+
   test('P2P policy allowed: bulk download opens direct stream first', () async {
     await mA.dispose();
     await mB.dispose();

@@ -4,6 +4,11 @@
 Mac → Android direction on native SDK `50fa7a2f`. It does not supersede the
 earlier failing cellular runs or qualify the outstanding 32 MiB transfer gate.
 
+The subsequent [32 MiB and source-restart investigation](../file-source-restart-2026-10-24/README.md)
+adds successful ordinary transfers in both directions and a requester-proof
+recovery correction. Interrupted 32 MiB completion and variable throughput
+remain unqualified; those results are separate from this 4 MiB run.
+
 The returned Poco used mobile data with Wi-Fi off; the Mac used its existing
 connection. Both owned QA contacts had P2P explicitly denied for the transfer,
 so the files used anonymous relay streams. Installed APK, loaded Mac library
