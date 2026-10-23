@@ -2,7 +2,88 @@
 
 **Status: partial stream fixes verified; long anonymous transfers and call/video failures remain.**
 
-## Latest follow-up — 23 October: stream IDs across unilateral hub restart
+## Latest follow-up — 23 October: mailbox-only discovery cache
+
+[stream-discovery-cache.json](stream-discovery-cache.json) records SDK
+`b691e21d`. **A controlled cold-discovery delay is fixed. Established-stream
+stalls remain, and the reverse 32-MiB file again fails the 180-second gate.**
+
+### Controlled defect and correction
+
+The previous physical wait was in `SynSent`: the related logs repeatedly
+reported nine valid ads, all using mailbox cookies, without any stream ad.
+The general positive rendezvous cache could preserve that unusable-for-streams
+answer for 15 seconds. A real SDK API regression confirms the mechanism: an
+initial lookup caches a valid signed mailbox ad; a new independently signed
+stream slot is then available in the DHT, but another lookup after 1.1 seconds
+still returns only the mailbox ad. The regression fails against parent
+production source `198258ae` and passes after correction.
+
+Resolution now distinguishes ordinary callers, stream callers and background
+refresh-ahead. For a stream caller, a mailbox-only result is reused for only
+one second before comparing the DHT replicas again. A usable stream result and
+ordinary callers retain the existing cache TTL. Classification excludes both
+the device-derived mailbox cookie and the known identity mailbox cookie at a
+device address. No mailbox registration is used as a stream route. Signature,
+delegation, validity and expiry checks remain unchanged.
+
+Per-recipient locking is rechecked using the caller's cache policy. A real
+recursive-query/outbox fixture confirms that eight immediate retries add no
+network walks and eight concurrent waiters after the miss expires share one
+full-slot refresh batch, all discovering the new stream ad. Cache controls
+verify that a stream miss neither deletes valid mailbox routes nor breaks the
+last-known-valid deposit fallback; an expired stream ad cannot make the
+remaining mailbox set usable for streams. Empty lookup results retain their
+existing behavior; this fix specifically concerns positive mailbox-only sets.
+
+### Gates and physical observations
+
+The runtime rendezvous test filter passes **31 tests**, and the anonymity-state
+filter passes **15 tests** (one test overlaps the filters). All **56 FFI
+anonymous-stream tests** pass. After tightening the regression fixture's
+shutdown assertion, its final API regression also passes. Runtime/FFI all-target
+Clippy, rustfmt and diff checks pass. Production Mac and Android SDK builds
+retain the same **198 exported SDK function names**. Sources, frozen SDKs,
+installed phone APK and loaded Mac library were verified before and after the
+stand. Frontends and production media engines were unchanged; no production
+test hooks were added.
+
+| Direction | Size | Download | Pull requests | Result |
+| --- | ---: | ---: | ---: | --- |
+| Phone → laptop | 4 MiB | 54.430 s | 2 | Integrity matches after one source application-progress timeout/reset |
+| Laptop → phone | 4 MiB | 19.049 s | 1 | Integrity matches |
+| Laptop → phone | 32 MiB | **Incomplete at 180 s** | 2 | Last reported committed prefix 17,039,360 bytes (16.25 MiB); final integrity unverified |
+
+All recorded opens were anonymous, with no direct stream; the phone used
+cellular data with Wi-Fi off and own QA-contact P2P denied. The first source
+stopped at 262,144 queued payload bytes after a 30-second write-progress wait;
+its application reset caused a fresh pull, which completed. The large-file
+source likewise stopped at 15,990,784 queued payload bytes. Its receiver
+recorded a 15-MiB resume point, retried, and reached the final 16.25-MiB prefix.
+The second large-file failure entry is final harness cancellation; it is not
+another independently observed product timeout. No no-manifest or receiver
+payload-idle failure was logged in these cases. The source-side progress
+timeouts and the receiver's application-reset errors are recorded separately.
+
+The largest sampled local driver handoff waits were **18 ms on the laptop**
+(169 samples) and **469 ms on the phone** (163 samples). No mailbox-only
+stream-discovery miss was logged in this run. These event-driven samples do
+not establish absolute wait maxima, network RTT or a universal speed gain;
+path variation is not isolated. In particular, the previous SDK's successful
+122.474-second reverse file does not qualify this failed run or rule out a
+regression. The remaining stall is after stream establishment, with outstanding
+bytes and out-of-order receive data; it still requires controlled diagnosis.
+The cache correction does not claim to repair it.
+
+QA policies and the Android diagnostic property were restored. Own apps and
+captures exited, with process absence checked independently. The exact original
+phone APK was restored and hash-verified, owned phone fixtures were removed,
+and the installed Mac app was unchanged. No calls, camera, audio playout or
+subjective speech tests ran. Public evidence is aggregate only, without
+identifiers, keys, addresses, paths, packet sequences, raw captures or file
+hashes.
+
+## Previous follow-up — 23 October: stream IDs across unilateral hub restart
 
 [stream-restart-collision.json](stream-restart-collision.json) records SDK
 `198258ae`. **A controlled restart failure is corrected, and the previously

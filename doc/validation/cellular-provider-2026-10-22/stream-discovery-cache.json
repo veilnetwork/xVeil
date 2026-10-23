@@ -1,0 +1,132 @@
+{
+  "sdk_commit": "b691e21d",
+  "production_parent_sdk_commit": "198258ae",
+  "status": "mailbox-only cache delay fixed; established-stream stalls and 180-second large-file failure remain open",
+  "controlled_defect": {
+    "description": "A positive general rendezvous cache containing only mailbox ads hid a newly available signed stream ad until its ordinary 15-second TTL expired.",
+    "exact_parent_sdk_api_regression_failed": true,
+    "corrected_sdk_api_regression_passed": true,
+    "fixture": "Real NodeRuntime/NodeServices, independently signed ads in separate DHT slots, new stream slot introduced after the initial mailbox-only lookup. Rechecked after 1.1 seconds, inside the ordinary TTL.",
+    "correction": "Stream resolution treats a mailbox-only set as a one-second cached miss. A usable stream set and ordinary callers retain the existing TTL. Known identity mailbox cookie at a device address is excluded as well as the device-derived mailbox cookie.",
+    "concurrency_evidence": "Eight same-recipient waiters share one refreshed full-slot query batch. Eight immediate retries before the miss expires add no network walks. Signed ad validation, expiry filtering and per-recipient locking remain in force.",
+    "other_use_controls": [
+      "Mailbox routes are not removed on stream miss.",
+      "Last-known valid deposit fallback remains available until expiry or explicit eviction.",
+      "Expired stream ads cannot make a mailbox-only set stream-ready.",
+      "Ordinary send/deposit and refresh-ahead callers retain their prior cache modes."
+    ]
+  },
+  "verification": {
+    "runtime_rendezvous_filter_tests_passed": 31,
+    "runtime_anonymity_state_tests_passed": 15,
+    "runtime_gate_overlap_tests": 1,
+    "ffi_anonymous_stream_tests_passed": 56,
+    "final_sdk_api_regression_after_cleanup_assertion_passed": true,
+    "all_target_runtime_and_ffi_clippy_passed": true,
+    "rustfmt_and_diff_checks_passed": true,
+    "production_mac_and_android_sdk_builds_passed": true,
+    "unchanged_sdk_export_names": 198,
+    "frontends_and_production_media_engines_unchanged": true,
+    "production_test_hooks_added": false
+  },
+  "physical": {
+    "transfers": [
+      {
+        "direction": "phone->mac",
+        "bytes": 4194304,
+        "success": true,
+        "download_seconds": 54.43,
+        "integrity_matches": true,
+        "window_seconds": 180,
+        "pull_requests": 2,
+        "failed_attempts_including_final_harness_cancellation": 1,
+        "no_manifest_failures": 0,
+        "payload_idle_failures": 0,
+        "application_reset_failures": 1,
+        "resume_offsets": [],
+        "anonymous_opens": 2,
+        "direct_opens": 0,
+        "source_payload_write_idle_timeouts": 1
+      },
+      {
+        "direction": "mac->phone",
+        "bytes": 4194304,
+        "success": true,
+        "download_seconds": 19.049,
+        "integrity_matches": true,
+        "window_seconds": 180,
+        "pull_requests": 1,
+        "failed_attempts_including_final_harness_cancellation": 0,
+        "no_manifest_failures": 0,
+        "payload_idle_failures": 0,
+        "application_reset_failures": 0,
+        "resume_offsets": [],
+        "anonymous_opens": 1,
+        "direct_opens": 0
+      },
+      {
+        "direction": "mac->phone",
+        "bytes": 33554432,
+        "success": false,
+        "download_seconds": null,
+        "integrity_matches": null,
+        "window_seconds": 180,
+        "pull_requests": 2,
+        "failed_attempts_including_final_harness_cancellation": 2,
+        "no_manifest_failures": 0,
+        "payload_idle_failures": 0,
+        "application_reset_failures": 2,
+        "resume_offsets": [
+          15728640,
+          17039360
+        ],
+        "anonymous_opens": 2,
+        "direct_opens": 0,
+        "source_payload_write_idle_timeouts": 1,
+        "source_payload_write_idle_positions": [
+          {
+            "queued_payload_bytes": 15990784,
+            "file_bytes": 33554432
+          }
+        ],
+        "final_failure_is_harness_cancellation": true,
+        "last_reported_committed_prefix_bytes": 17039360
+      }
+    ],
+    "driver_samples": {
+      "mac": {
+        "samples": 169,
+        "max_sampled_local_handoff_wait_ms": 18,
+        "mailbox_only_discovery_misses": 0
+      },
+      "phone": {
+        "samples": 163,
+        "max_sampled_local_handoff_wait_ms": 469,
+        "mailbox_only_discovery_misses": 0
+      }
+    },
+    "policies_restored": {
+      "mac": true,
+      "phone": true
+    }
+  },
+  "limits": [
+    "The lower sampled local wait and lack of discovery misses in this WAN run do not establish a universal speed improvement or isolate the cache correction from path variation.",
+    "The reverse 32-MiB transfer failed the unchanged 180-second gate. A prior successful run on the previous SDK does not qualify this run, and a regression is not ruled out by unit tests.",
+    "The first 4-MiB upload retried after a source application-progress timeout; the transfer passed final integrity only after retry.",
+    "Driver summaries are event-driven samples, not absolute maxima or RTT measurements.",
+    "No calls, camera, audio playout, Windows reproduction or full multi-device qualification in this cycle."
+  ],
+  "cleanup": {
+    "phone_stopped": true,
+    "mac_stopped": true,
+    "original_phone_apk_restored": true,
+    "original_phone_apk_hash_matches": true,
+    "phone_process_absent_after_restore": true,
+    "final_tested_build_verified": true,
+    "android_diagnostic_property_restored": true,
+    "owned_phone_file_fixtures_removed": true,
+    "owned_mac_process_absent_independent_check": true
+  },
+  "privacy": "Aggregate values only: no endpoint identifiers, addresses, paths, keys, packet sequences, raw captures or file hashes."
+}
