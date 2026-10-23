@@ -1,0 +1,83 @@
+{
+  "sdk_source_commit": "2a3b4999",
+  "production_correction_commit": "1654a9be",
+  "parent_sdk_source_commit": "471618ef",
+  "application_base_commit": "45809612",
+  "scope": "distinct-rendezvous pool expansion for throughput shedding; full repair and warm-up remain separate intents",
+  "verification": {
+    "parent_same_rendezvous_unnecessary_constructions": 1,
+    "fixed_same_rendezvous_unnecessary_constructions": 0,
+    "real_services_child_cases": 10,
+    "expected_actual_no_relays_candidate_counts_in_passing_child_cases": {
+      "same-relay": 0,
+      "later-same": 0,
+      "pinned-only": 0,
+      "ready-alternative": 0,
+      "new-relay": 1,
+      "cooled-new-relay": 0,
+      "repair": 1,
+      "warm": 1,
+      "overlap-warm": 1,
+      "overlap-repair": 1
+    },
+    "anonymous_stream_tests_passed": 62,
+    "all_target_ffi_clippy_warnings_denied_passed": true,
+    "rustfmt_check_passed": true,
+    "actual_discovery_pass_counts_in_strengthened_passing_child_cases": {
+      "same-relay": 1,
+      "later-same": 2,
+      "pinned-only": 1,
+      "ready-alternative": 1,
+      "new-relay": 1,
+      "cooled-new-relay": 2,
+      "repair": 2,
+      "warm": 2,
+      "overlap-warm": 1,
+      "overlap-repair": 1
+    },
+    "strengthened_discovery_cadence_regression_passed": true,
+    "production_mac_and_android_sdk_builds_passed": true,
+    "frozen_production_source_hashes_match": true,
+    "additional_commit_changes_only_test_assertions": true
+  },
+  "abi": {
+    "libveilclient_ffi.dylib": {
+      "export_names_unchanged": true,
+      "veil_export_count": 199
+    },
+    "libveilclient_ffi.so": {
+      "export_names_unchanged": true,
+      "veil_export_count": 199
+    }
+  },
+  "behavior": {
+    "expansion_interval_seconds": 1,
+    "expansion_cadence_is_per_peer_and_per_local_producer": true,
+    "explicit_warm_and_repair_bypass_expansion_cadence": true,
+    "pool_and_pinned_stream_rendezvous_both_excluded_from_expansion": true,
+    "new_unrepresented_signed_ad_requests_construction": true,
+    "cooled_new_rendezvous_not_constructed_by_expansion": true,
+    "ready_matching_alternative_can_be_selected_immediately": true,
+    "existing_receiver_binding_and_active_counts_preserved": true,
+    "stronger_coalesced_requests_retained": true,
+    "limits_anonymity_hops_framing_and_relay_scheduling_unchanged": true
+  },
+  "hardware_validation": {
+    "physical_run_started": false,
+    "reason": "adb_unauthorized",
+    "stand_app_started": false,
+    "phone_app_installed": false,
+    "relay_changed": false
+  },
+  "limitations": {
+    "physical_reconstruction_count_reduction_proven": false,
+    "physical_cellular_speedup_proven": false,
+    "successful_two_hop_delivery_proven_by_new_ad_offline_case": false,
+    "all_reconstruction_causes_fixed": false,
+    "manifest_first_byte_timeout_fixed": false,
+    "call_video_or_live_speech_retested": false,
+    "full_multi_device_matrix_retested": false,
+    "full_project_ci_claimed": false,
+    "released_or_pushed": false
+  }
+}
