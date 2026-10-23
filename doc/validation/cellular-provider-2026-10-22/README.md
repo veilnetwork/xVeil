@@ -1,6 +1,24 @@
 # Cellular call and file validation — 2026-10-22
 
-**Status: warm-only reuse fixed; the latest physical file pair completed with matching hashes. Long-transfer stability and call/video qualification remain open.**
+**Status: local repair delay fixed; the latest cellular run failed the 32 MiB completion gate and passed 4 MiB integrity. Long-transfer recovery and call/video qualification remain open.**
+
+## Latest follow-up — 23 October: repair ahead of a blocked local DATA tail
+
+SDK **`89e7678f`** fixes a reproduced driver delay: already-due retransmissions
+and reverse ACKs waited behind a whole locally unaccepted fresh-DATA tail.
+The deterministic first-byte regression improves from **3200 ms to 100–150 ms**
+at the same DATA admission budget; these are virtual-clock measurements.
+The [dedicated report](../stream-local-repair-2026-10-23/README.md) records the
+122 stream tests, 62 client tests, native build/ABI checks and exact scope.
+
+The combined current SDK was then tested on the cellular phone/Mac stand:
+**32 MiB timed out at 600 seconds**, with the last sink sample at **5.5 MiB**;
+**4 MiB completed in 44.804 seconds**, SHA-256 matched. The original 180-second
+large-file gate failed. Resume requests reached 768 KiB and 5.5 MiB, but did not
+recover the large transfer. Setup and payload-idle failures remain; no manifest
+first-byte timeout was observed. This is not a controlled physical A/B speed
+comparison or proof of reliable long transfers. Exact APK/policy restoration
+and independent absence checks passed; no release or push occurred.
 
 ## Separate source follow-up — distinct-rendezvous expansion
 
@@ -9,18 +27,20 @@ repair, avoiding new construction through already represented rendezvous relays.
 Test assertions were strengthened in **`2a3b4999`**. The
 [dedicated report](../circuit-pool-expansion-2026-10-23/README.md) records the parent
 failure, ten child cases, bounded discovery/re-probe checks and native builds.
-Physical requalification is pending: the phone was ADB unauthorized; no new
-file/call run or speedup claim belongs to this source correction.
+The original source cycle could not requalify physically because ADB was
+unauthorized. The later combined SDK run is recorded above; it does not isolate
+this correction or demonstrate a speedup.
 
 ## Separate source follow-up — rejected-build resource rollback
 
 SDK **`471618ef`** corrects a reproduced origin-state leak after local
 `CircuitBuild` admission fails. The [dedicated report](../circuit-build-rollback-2026-10-23/README.md)
 records parent failures, nine passing recovery cases and native build checks.
-It does not establish the cause of this stand's `NoRelays` events; no new
-physical file/call run was performed for that source correction.
+It does not establish the cause of this stand's `NoRelays` events. The original
+source cycle had no physical run; the later combined SDK run above does not
+isolate that correction.
 
-## Latest follow-up — 23 October: reuse ready paths during warm-up
+## Previous follow-up — 23 October: reuse ready paths during warm-up
 
 SDK **`7e15b372`** separates best-effort warm-up from explicit circuit repair.
 Previously every completed warm-up allowed the next warm request to construct
