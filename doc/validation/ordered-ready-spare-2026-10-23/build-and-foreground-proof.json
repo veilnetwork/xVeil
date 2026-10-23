@@ -1,0 +1,10 @@
+{
+  "sdk_commit": "8998746a",
+  "sdk_sources_match_frozen_build": true,
+  "installed_qa_apk_hash_matches": true,
+  "owned_mac_loaded_staged_sdk": true,
+  "phone_qa_activity_resumed": true,
+  "phone_awake": true,
+  "no_media_test_hooks": true,
+  "no_test_call_started": true
+}

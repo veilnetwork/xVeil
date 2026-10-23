@@ -1,0 +1,10 @@
+{
+  "owned_mac_process_absent": true,
+  "owned_logcat_absent": true,
+  "phone_process_absent": true,
+  "original_phone_apk_hash_matches": true,
+  "diagnostic_property_restored": true,
+  "wifi_on_retained": true,
+  "mobile_data_on_retained": true,
+  "profile_pointer_unchanged_before_apk_restore": true
+}

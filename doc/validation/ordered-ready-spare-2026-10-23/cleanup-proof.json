@@ -1,0 +1,8 @@
+{
+  "phone_stopped": true,
+  "mac_stopped": true,
+  "original_phone_apk_restored": true,
+  "original_phone_apk_hash_matches": true,
+  "phone_process_absent_after_restore": true,
+  "initial_mac_exit_check": false
+}
