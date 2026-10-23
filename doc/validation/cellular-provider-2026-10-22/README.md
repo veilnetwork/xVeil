@@ -1,8 +1,73 @@
 # Cellular call and file validation — 2026-10-22
 
-**Status: partial stream fixes verified; long-transfer stability and call/video failures remain open.**
+**Status: warm-only reuse fixed; the latest physical file pair completed with matching hashes. Long-transfer stability and call/video qualification remain open.**
 
-## Latest follow-up — 23 October: bound completed circuit-open failures
+## Latest follow-up — 23 October: reuse ready paths during warm-up
+
+SDK **`7e15b372`** separates best-effort warm-up from explicit circuit repair.
+Previously every completed warm-up allowed the next warm request to construct
+a fresh pool, even when a usable path already existed. Warm-up now resolves the
+current signed receiver ads and reuses a route only when rendezvous, receiver
+cookie and receiver X25519 key match, confirmation is present, the first-hop
+session and its close generation are current, and neither hop nor rendezvous is
+cooled. Slow-marked routes and old quiet routes without active streams are rebuilt.
+Reused circuits retain their live statistics, handshake index and traffic metadata.
+Missing paths are still constructed and confirmed prefixes remain available
+before the rest of the pool finishes.
+
+Explicit repair still requests fresh paths. A repair joining a warm pass that
+has reused a path triggers one fresh pass before the shared running slot is
+cleared. A cold pass that has already built fresh routes needs no duplicate
+pass; a failed cold attempt retains the existing one-second failure backoff.
+No network wait was added to the stream driver's warm request. Relay quotas,
+framing, anonymity hop count and scheduling are unchanged.
+
+The real-services subprocess regression failed on the parent: a ready-path warm
+performed **one unnecessary failed construction**, versus **zero** after the
+correction. A second regression caught **two** failed cold construction passes
+for an overlapping request in the initial implementation; the final version
+performs **one**. All **16 child cases** pass, covering ready/busy/recent-data
+reuse, empty/unconfirmed/quiet/cooled/slow/dead/generation-mismatched paths,
+changed cookie/key, explicit repair and both overlap cases. All **61 anonymous
+stream tests**, all-target Clippy with warnings denied and rustfmt pass.
+Production macOS/Android builds retain the same **199 C export names**;
+compatible frontends, frozen-library/source hashes and loaded/installed build
+checks pass. No synthetic media was enabled.
+
+### Physical result and remaining failures
+
+The owned cellular phone/Mac stand used anonymous streams with phone Wi-Fi off
+and own-contact P2P denied. No call or physical audio device was opened.
+
+| Direction | Size | Download time | Integrity and original gate |
+| --- | ---: | ---: | --- |
+| Phone → Mac | 32 MiB | **136.093 s** | SHA-256 matches; **180-s gate passed** |
+| Phone → Mac, afterward | 4 MiB | **11.417 s** | SHA-256 matches; **180-s gate passed** |
+
+These are download timers. Full diagnostic durations, including fixture setup,
+file offer and its delivery, were **164.346 s** and **12.046 s** respectively.
+The large transfer needed two pull requests after **one manifest-first-byte
+timeout**; the small transfer needed one request. Neither had a connection-setup
+or source payload-write-idle timeout, and neither required harness cancellation.
+This pair's completion is verified; it is **not** a controlled physical A/B
+speedup or proof that all long transfers are stable.
+
+Native process logs still contain **11 / 84 successful pool completions** and
+**17 / 98 newly confirmed outbound circuits** on Mac / phone. Each process
+addressed two destinations; these are process-wide counters, not attribution
+to one file. On the phone, 75 completions had a 1/3 pool. Mac recorded **five
+completed `NoRelays` failures** and ten associated candidate failures; phone
+recorded none. Sampled local handoff waits reached **12,225 / 4,950 ms**.
+Further reconstruction and the manifest timeout remain investigation targets;
+the absence of an origin-table-full diagnostic is not proof of spare capacity.
+
+The original phone APK was restored with an independently checked SHA-256 match;
+contact policies and the diagnostic property were restored. Owned Mac/phone app
+processes and log capture were independently verified absent. Evidence is in
+[warm-ready-pool.json](warm-ready-pool.json). Call/video, live speech and the full
+multi-device matrix were not requalified in this cycle. No release or push occurred.
+
+## Previous follow-up — 23 October: bound completed circuit-open failures
 
 SDK **`7fa3c1ec`** fixes a fast retry storm after circuit construction fails.
 The existing guard suppressed concurrent openers but removed its entry as soon
