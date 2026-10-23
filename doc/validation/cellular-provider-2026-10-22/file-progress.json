@@ -1,0 +1,111 @@
+{
+  "transfers": [
+    {
+      "direction": "phone->mac",
+      "bytes": 33554432,
+      "success": true,
+      "download_seconds": 329.668,
+      "elapsed_seconds": 341.289,
+      "integrity_matches": true,
+      "diagnostic_limit_seconds": 600,
+      "original_180_second_completion_gate_passed": false,
+      "pull_requests": 2,
+      "failed_attempts_including_final_harness_cancellation": 1,
+      "source_payload_write_idle_timeouts": 0,
+      "application_reset_failures_including_final_harness_cancellation": 0,
+      "harness_cancellation_requested": false,
+      "manifest_phase_failures": 1,
+      "resume_request_offsets": [],
+      "anonymous_opens": 3,
+      "direct_opens": 0
+    }
+  ],
+  "driver_samples": {
+    "mac": {
+      "samples": 257,
+      "max_sampled_local_handoff_wait_ms": 0
+    },
+    "phone": {
+      "samples": 284,
+      "max_sampled_local_handoff_wait_ms": 1095
+    }
+  },
+  "policies_restored": {
+    "mac": true,
+    "phone": true
+  },
+  "network": {
+    "wifi_disabled": true,
+    "mobile_data_enabled": true,
+    "default_transport_is_cellular": true
+  },
+  "sdk": "51f71c3d",
+  "diagnostic_observation_cap_seconds": 600,
+  "original_completion_gate_seconds": 180,
+  "at_180_seconds": {
+    "download_elapsed_seconds": 180.45,
+    "sink_file_length_highwater_bytes": 17563648,
+    "complete": false,
+    "diagnostic_continues": true
+  },
+  "sink_file_length_checkpoints": [
+    {
+      "download_elapsed_seconds": 30.259,
+      "sink_file_length_highwater_bytes": 2883584
+    },
+    {
+      "download_elapsed_seconds": 60.51,
+      "sink_file_length_highwater_bytes": 4194304
+    },
+    {
+      "download_elapsed_seconds": 90.765,
+      "sink_file_length_highwater_bytes": 5767168
+    },
+    {
+      "download_elapsed_seconds": 120.986,
+      "sink_file_length_highwater_bytes": 9961472
+    },
+    {
+      "download_elapsed_seconds": 150.215,
+      "sink_file_length_highwater_bytes": 15204352
+    },
+    {
+      "download_elapsed_seconds": 180.45,
+      "sink_file_length_highwater_bytes": 17563648
+    },
+    {
+      "download_elapsed_seconds": 210.708,
+      "sink_file_length_highwater_bytes": 22806528
+    },
+    {
+      "download_elapsed_seconds": 240.932,
+      "sink_file_length_highwater_bytes": 24641536
+    },
+    {
+      "download_elapsed_seconds": 270.197,
+      "sink_file_length_highwater_bytes": 26738688
+    },
+    {
+      "download_elapsed_seconds": 300.461,
+      "sink_file_length_highwater_bytes": 28311552
+    }
+  ],
+  "longest_observed_gap_between_sink_file_length_increases_seconds": 12.104,
+  "sink_observation_is_file_length_not_transport_byte_count": true,
+  "cleanup": {
+    "phone_stopped": true,
+    "mac_stopped": true,
+    "original_phone_apk_restored": true,
+    "original_phone_apk_hash_matches": true,
+    "phone_process_absent_after_restore": true,
+    "final_tested_build_verified": true,
+    "android_diagnostic_property_restored": true,
+    "owned_phone_file_fixtures_removed": true,
+    "owned_mac_process_absent_independent_check": true
+  },
+  "interpretation": {
+    "original_180_second_gate_still_failed": true,
+    "eventual_integrity_verified_in_separate_long_diagnostic": true,
+    "one_run_does_not_establish_general_stability_or_root_cause": true
+  }
+}
