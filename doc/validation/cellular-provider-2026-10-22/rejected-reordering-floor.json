@@ -1,0 +1,145 @@
+{
+  "candidate_default_floor_change_committed": false,
+  "candidate_rejected": true,
+  "same_compiled_sdk_and_frontends": true,
+  "network_path_and_load_not_held_constant": true,
+  "diagnostic_cap_seconds": 600,
+  "original_completion_gate_seconds": 180,
+  "cases": [
+    {
+      "transfers": [
+        {
+          "direction": "phone->mac",
+          "bytes": 33554432,
+          "success": false,
+          "download_seconds": null,
+          "elapsed_seconds": 365.375,
+          "integrity_matches": null,
+          "diagnostic_limit_seconds": 600,
+          "original_180_second_completion_gate_passed": false,
+          "pull_requests": 24,
+          "failed_attempts_including_final_harness_cancellation": 24,
+          "source_payload_write_idle_timeouts": 0,
+          "application_reset_failures_including_final_harness_cancellation": 0,
+          "harness_cancellation_requested": true,
+          "manifest_phase_failures": 22,
+          "resume_request_offsets": [
+            15990784,
+            17039360
+          ],
+          "anonymous_opens": 25,
+          "direct_opens": 0
+        }
+      ],
+      "driver_samples": {
+        "mac": {
+          "samples": 107,
+          "max_sampled_local_handoff_wait_ms": 0
+        },
+        "phone": {
+          "samples": 368,
+          "max_sampled_local_handoff_wait_ms": 51393
+        }
+      },
+      "policies_restored": {
+        "mac": true,
+        "phone": true
+      },
+      "network": {
+        "wifi_disabled": true,
+        "mobile_data_enabled": true,
+        "default_transport_is_cellular": true
+      },
+      "rack_reordering_floor_ms": 1500,
+      "cleanup": {
+        "phone_stopped": true,
+        "mac_stopped": true,
+        "original_phone_apk_restored": true,
+        "original_phone_apk_hash_matches": true,
+        "phone_process_absent_after_restore": true,
+        "final_tested_build_verified": true,
+        "android_diagnostic_property_restored": true,
+        "owned_phone_file_fixtures_removed": true,
+        "owned_mac_process_absent_independent_check": true
+      },
+      "at_180_seconds": {
+        "download_elapsed_seconds": 180.836,
+        "sink_file_length_highwater_bytes": 15990784,
+        "complete": false,
+        "diagnostic_continues": true
+      },
+      "application_failure_before_diagnostic_limit": true
+    },
+    {
+      "transfers": [
+        {
+          "direction": "phone->mac",
+          "bytes": 33554432,
+          "success": true,
+          "download_seconds": 294.475,
+          "elapsed_seconds": 306.06,
+          "integrity_matches": true,
+          "diagnostic_limit_seconds": 600,
+          "original_180_second_completion_gate_passed": false,
+          "pull_requests": 3,
+          "failed_attempts_including_final_harness_cancellation": 2,
+          "source_payload_write_idle_timeouts": 1,
+          "application_reset_failures_including_final_harness_cancellation": 1,
+          "harness_cancellation_requested": false,
+          "manifest_phase_failures": 1,
+          "resume_request_offsets": [],
+          "anonymous_opens": 4,
+          "direct_opens": 0
+        }
+      ],
+      "driver_samples": {
+        "mac": {
+          "samples": 222,
+          "max_sampled_local_handoff_wait_ms": 4079
+        },
+        "phone": {
+          "samples": 223,
+          "max_sampled_local_handoff_wait_ms": 13524
+        }
+      },
+      "policies_restored": {
+        "mac": true,
+        "phone": true
+      },
+      "network": {
+        "wifi_disabled": true,
+        "mobile_data_enabled": true,
+        "default_transport_is_cellular": true
+      },
+      "rack_reordering_floor_ms": 0,
+      "cleanup": {
+        "phone_stopped": true,
+        "mac_stopped": true,
+        "original_phone_apk_restored": true,
+        "original_phone_apk_hash_matches": true,
+        "phone_process_absent_after_restore": true,
+        "final_tested_build_verified": true,
+        "android_diagnostic_property_restored": true,
+        "owned_phone_file_fixtures_removed": true,
+        "owned_mac_process_absent_independent_check": true
+      },
+      "at_180_seconds": {
+        "download_elapsed_seconds": 180.865,
+        "sink_file_length_highwater_bytes": 25952256,
+        "complete": false,
+        "diagnostic_continues": true
+      },
+      "application_failure_before_diagnostic_limit": false
+    }
+  ],
+  "decision": "Restore the original default; controlled route/config inconsistency does not establish this timing change as a production improvement.",
+  "read_only_relay_inspection": {
+    "relays_read": 6,
+    "active": 6,
+    "without_service_restarts": 6,
+    "regular_file_log_tails_read": 6,
+    "changed_remote_state": false,
+    "root_cause_established": false,
+    "opaque_circuit_logs_do_not_identify_media_or_prove_owned_cell_loss": true
+  }
+}
