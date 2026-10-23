@@ -1,0 +1,18 @@
+{
+  "mac": {
+    "refresh_admissions_by_cause": {
+      "handshake_cold": 1
+    },
+    "sampled_selection_failures_by_reason": {},
+    "last_selection_failure_samples": []
+  },
+  "phone": {
+    "refresh_admissions_by_cause": {
+      "handshake_cold": 1,
+      "stale_session": 1,
+      "data_no_progress": 3
+    },
+    "sampled_selection_failures_by_reason": {},
+    "last_selection_failure_samples": []
+  }
+}

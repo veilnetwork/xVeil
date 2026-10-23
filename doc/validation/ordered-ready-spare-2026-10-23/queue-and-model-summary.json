@@ -1,0 +1,72 @@
+{
+  "mac": {
+    "bulk_backlog_driver_samples": 0,
+    "recoverable_admission_trace_samples": 111,
+    "recoverable_ordered_admission_samples": 111,
+    "recoverable_quic_admission_samples": 0,
+    "recoverable_independent_samples": 111,
+    "wait_gates": {
+      "transport_capacity": {
+        "samples": 2,
+        "max_sampled_queued_ms": 0,
+        "min_needed_bytes": 2206,
+        "max_needed_bytes": 2206,
+        "min_available_bytes": 63330,
+        "max_available_bytes": 63330
+      },
+      "child_unavailable": {
+        "samples": 1,
+        "max_sampled_queued_ms": 0,
+        "min_needed_bytes": 0,
+        "max_needed_bytes": 0,
+        "min_available_bytes": 0,
+        "max_available_bytes": 0
+      }
+    }
+  },
+  "phone": {
+    "bulk_backlog_driver_samples": 245,
+    "srtt_ms": {
+      "min": 236,
+      "median": 1470,
+      "max": 9881
+    },
+    "bbr_bw_bytes_per_sec": {
+      "min": 0,
+      "median": 197960,
+      "max": 363531
+    },
+    "cwnd_bytes": {
+      "min": 9471,
+      "median": 112861,
+      "max": 238983
+    },
+    "consecutive_rto": {
+      "min": 0,
+      "median": 0,
+      "max": 4
+    },
+    "recoverable_admission_trace_samples": 380,
+    "recoverable_ordered_admission_samples": 276,
+    "recoverable_quic_admission_samples": 104,
+    "recoverable_independent_samples": 380,
+    "wait_gates": {
+      "transport_capacity": {
+        "samples": 336,
+        "max_sampled_queued_ms": 402,
+        "min_needed_bytes": 2206,
+        "max_needed_bytes": 2330,
+        "min_available_bytes": 63206,
+        "max_available_bytes": 63330
+      },
+      "child_unavailable": {
+        "samples": 2,
+        "max_sampled_queued_ms": 204,
+        "min_needed_bytes": 0,
+        "max_needed_bytes": 0,
+        "min_available_bytes": 0,
+        "max_available_bytes": 0
+      }
+    }
+  }
+}
