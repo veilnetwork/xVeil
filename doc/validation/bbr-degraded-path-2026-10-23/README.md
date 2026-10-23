@@ -7,6 +7,11 @@ passed on the returned cellular phone with this SDK. It adds the reverse
 Mac → Android direction and does not replace the failing measurements below
 or requalify the 32 MiB gate.
 
+The [later 32 MiB/source-restart run](../file-source-restart-2026-10-24/README.md)
+on SDK `cc52c17b` completed ordinary transfers in both directions and found an
+independent Dart requester-proof recovery defect. The interrupted corrected
+file still missed its diagnostic deadline; performance work remains open.
+
 ## Reproduced defect
 
 An overestimated warm rate could never expire on a sufficiently slow,
