@@ -2,7 +2,42 @@
 
 **Status: partial stream fixes verified; long anonymous transfers and call/video failures remain.**
 
-## Latest follow-up — 23 October: RACK delivery accounting and duplicate feedback
+## Latest follow-up — 23 October: receive reassembly across sequence wrap
+
+SDK **`2d34f65f`**, after `2b1ab108`, fixes another confirmed receive-side defect.
+[sequence-wrap-reassembly.json](sequence-wrap-reassembly.json) records four
+parent failures and the corrected gates.
+
+The gap queue used numeric `u32` key order. A future block just after zero
+could sort before a ready block just below the maximum sequence, preventing
+the latter from draining. A 24-byte synthetic transfer exposed it: the
+application received only **8 bytes**, although the remaining 16 were already
+buffered and could be SACKed. This is not restricted to transferring 4 GiB:
+the mux spreads initial byte sequences across the `u32` space.
+
+Receive draining now uses modular order, with at most two BTreeMap lookups
+per block rather than a scan of the entire gap queue. Actual missing bytes
+still stop delivery; partial overlap and duplicate copies do not append bytes
+twice. Ordinary SACK blocks are also iterated in serial order and coalesced
+across zero. Four regressions fail on parent `2b1ab108` and pass after correction,
+covering intact bytes, overlaps/duplicates, a real middle gap, and encoded SACK
+ranges. Each includes an ordinary nonwrapping control.
+
+All **106 stream tests** and **56 FFI anonymous-stream tests** pass, as do
+all-target stream/FFI Clippy, rustfmt and diff checks. Production Mac and
+Android SDKs build with the same **198 SDK export names**, and their source
+fingerprints were checked. Timer limits, wire layout, relay scheduling and
+mailbox policy are unchanged.
+
+**The physical file runs below used SDK `2b1ab108`, before this correction.**
+No app or call was launched for this follow-up. All six sampled stream initial
+sequences from the failed file stand stay below the zero crossing for 32 MiB
+plus one cell, so this defect does **not** explain that failed transfer.
+Long-transfer stability, call/video quality, Windows and complete multi-device
+qualification remain open. This core correction is supported by deterministic
+state-machine/byte-order evidence, not a new physical-phone qualification.
+
+## Previous follow-up — 23 October: RACK delivery accounting and duplicate feedback
 
 SDK **`2b1ab108`** corrects the previously open RACK accounting defect.
 [rack-duplicate-feedback.json](rack-duplicate-feedback.json) records the
