@@ -2,7 +2,72 @@
 
 **Status: partial stream fixes verified; long-transfer stability and call/video failures remain open.**
 
-## Latest follow-up — 23 October: reserve admission before sealing
+## Latest follow-up — 23 October: isolate file setup registrations
+
+SDK **`14964dec`** fixes an inbound-registration displacement defect. File
+outbound circuit construction reused the advertised receive key/cookie and its
+epoch counter. At a rendezvous shared by receive and outbound paths, a newer
+outbound setup could therefore replace the published receive binding. The
+existing private-registration path already avoided this for media producers.
+
+The new regression takes the file hub's actual configured registration policy
+and submits signed registrations through the real `CircuitRendezvousRegistry`:
+one advertised inbound circuit followed by three outbound candidates. On parent
+SDK `1300de5f`, lookup of the advertised cookie changes from circuit **1** to
+circuit **4**. With independent outbound candidate keys it stays at **1**, all
+four bindings remain distinct, and outbound setup leaves the receive epoch
+counter unchanged. The same isolation prevents concurrent candidate probes
+from sharing one registration cookie. Exclusive setup keys use the existing
+zeroization path. Advertised receive keys, identity keys, envelope format,
+relay policy, quotas and scheduling remain unchanged.
+
+All **59 targeted embedded FFI tests** pass, including the new parent-red
+regression and existing stream/media isolation controls. All-target Clippy with
+warnings denied and rustfmt pass. Production macOS and Android SDKs build with
+the same **198 C export names** each; the frontends and media libraries are
+unchanged. No manifest timeout was increased.
+
+### Physical results and remaining failure
+
+The same owned cellular phone/Mac stand used anonymous streams, with phone
+Wi-Fi off and own-contact P2P denied. No call, camera or physical audio device
+was opened.
+
+| Direction | Size | Download result | Attempts / integrity |
+| --- | ---: | --- | --- |
+| Phone → Mac | 32 MiB | **314.430 s**; failed original **180-s** gate, completed within separate 600-s diagnostic | Eight pull requests, five manifest-phase failures, one source payload-write-idle event; integrity matches |
+| Phone → Mac | 4 MiB | **28.997 s**; passed original 180-s gate | One pull request, no failed attempt; integrity matches |
+
+The large transfer actually requested resume at **5,242,880 bytes**. At
+180.914 s, the observed sink file length was **6,291,456 bytes**. Completion and
+integrity do not close the manifest or payload-idle failures. The lower final
+duration than the preceding run is not proof of a speed gain: route selection
+and network load were not held constant, and this run had more retries.
+[private-file-registration.json](private-file-registration.json) retains the
+aggregate results, negative/positive regression gates and cleanup checks.
+
+Investigation of the preceding run also distinguished application timeout from
+remote refusal: both initial pull attempts ended approximately **8 s** after
+their locally queued request. The source accepted streams but had not received
+their content requests before reset; native summaries still showed an
+uncompleted handshake. The existing `no manifest (sender not serving)` error
+also labels a first-byte timeout, so that text alone does not prove the sender
+refused service. The next investigation must distinguish transport readiness
+from a silent established stream, preserving bounded cancellation and dead-
+source handling. The current 8-s first-byte timer remains unchanged.
+
+A power snapshot taken **during** this transfer found the phone awake, screen
+on, charging and outside Android idle mode. This single snapshot does not rule
+out transitions before or after it, nor certify background availability.
+
+Final source/frozen SDK/installed APK/loaded Mac library verification passed.
+Own-contact policies and diagnostics were restored, owned fixtures removed,
+and the exact original phone APK restored and hash-checked. Independent process
+checks found no owned Mac app, phone app or log capture. Long-file stability,
+call/video recovery, live-speech loudness, Windows and full multi-device
+qualification remain open.
+
+## Previous follow-up — 23 October: reserve admission before sealing
 
 SDK **`1300de5f`** fixes a controlled local-rejection/replay failure. Previously,
 the origin allocated a circuit sequence and sealed a cell before checking its
