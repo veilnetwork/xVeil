@@ -1,0 +1,8 @@
+{
+  "mac": {
+    "confirmed_cooldown_recoveries": 0
+  },
+  "phone": {
+    "confirmed_cooldown_recoveries": 5
+  }
+}

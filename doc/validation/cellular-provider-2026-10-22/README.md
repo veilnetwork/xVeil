@@ -1,8 +1,28 @@
 # Cellular call and file validation — 2026-10-22
 
-**Status: single-DATA local admission recovery fixed; the latest cellular file pair failed its completion limits. Requester-side long local waits and manifest-first-byte timeouts did not recur in retained samples; payload stalls, reconstruction and call/video qualification remain open.**
+**Status: confirmed recovery no longer retains its observed stale rendezvous cooldown. The latest cellular file pair still failed: setup/manifest-first-byte timeouts, payload stalls and reconstruction remain open, alongside call/video qualification.**
 
-## Latest follow-up — 23 October: single-DATA alternate-path admission
+## Latest follow-up — 23 October: confirmed rendezvous cooldown recovery
+
+SDK **`e9d3bd3d`**, following opt-in diagnostics in **`a67a003c`**, fixes a
+reproduced error where fresh confirmed candidates remained excluded by a
+cooldown observed before their construction. Seven real-services regression
+cases preserve newer failures, first-hop quarantines and session validity.
+All **124 stream / 65 anonymous-stream client tests**, Clippy, rustfmt and native
+build/ABI checks pass. See the [dedicated report](../confirmed-route-cooldown-2026-10-23/README.md).
+
+The corrected recovery branch fired five times on the cellular phone. No
+`route_health` miss sample was recorded, but three active-limit miss samples
+were recorded at the unchanged limit. Both file gates still failed: **32 MiB
+at 600 seconds, last sink 19 MiB; 4 MiB at 180 seconds, last sink 1 MiB**.
+Integrity is unverified. The large file had 13 attempts including final harness
+cancellation, with seven manifest-first-byte timeouts and five payload-read idle
+failures. The earlier intermediate native-log progress counter omitted Dart
+application retries; final retained application logs supply these counts.
+No physical A/B speedup is claimed. Exact APK/policy restoration and independent
+process-absence checks passed. No push/release or relay update.
+
+## Previous follow-up — 23 October: single-DATA alternate-path admission
 
 SDK **`66167052`** closes a reproduced gap: a one-cell request waited on a full
 pinned queue while multi-cell runs could already try ready receiver-bound
