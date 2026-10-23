@@ -1,0 +1,100 @@
+{
+  "sdk_commit": "e81ae21b",
+  "baseline_sdk_commit": "27757b35",
+  "root_frontend_commit": "c9e2d58f",
+  "regressions": {
+    "parent_omits_newest_range_when_full": true,
+    "parent_first_receipt_bytes": 128,
+    "actual_first_receipt_bytes": 256,
+    "fixed_first_receipt_bytes": 256,
+    "byte_exact_repair_passed": true,
+    "sequence_wrap_tested": true,
+    "pending_dsack_with_fresh_data_tested": true
+  },
+  "gates": {
+    "fmt-fixed": {
+      "exit": 0
+    },
+    "stream-fixed": {
+      "exit": 0,
+      "passed": 140
+    },
+    "clippy-fixed": {
+      "exit": 0
+    },
+    "client-fixed": {
+      "exit": 0,
+      "passed": 30
+    }
+  },
+  "physical": {
+    "bytes": 33554432,
+    "ok": true,
+    "download_seconds": 133.3722637500614,
+    "hash_matches": true,
+    "original_180_second_completion_gate_passed": true,
+    "diagnostic_download_limit_seconds": 180,
+    "last_observed_sink_bytes": 33554432,
+    "retained_logs": {
+      "mac": {
+        "denials_for_content": 0,
+        "manifest_eof_for_content": 0,
+        "all_retained_pull_failures": 0,
+        "all_retained_payload_idle_messages": 0
+      },
+      "phone": {
+        "denials_for_content": 0,
+        "manifest_eof_for_content": 0,
+        "all_retained_pull_failures": 0,
+        "all_retained_payload_idle_messages": 0
+      }
+    },
+    "receiver_promotions_max": 1093,
+    "receiver_native_streams_observed": 1,
+    "sender_native_streams_observed": 1,
+    "low_throughput_sheds": 6,
+    "network_failure_remaps": 1,
+    "receiver_offer_count": 1
+  },
+  "abi": {
+    "same_veil_exports": true,
+    "veil_exports_count": 199
+  },
+  "cleanup": {
+    "owned_mac_process_absent": true,
+    "phone_process_absent": true,
+    "owned_forward_removed": true,
+    "debug_property_restored": true,
+    "profile_pointer_unchanged": true,
+    "owned_logcat_captures_absent": true,
+    "original_apk_hash_restored": true
+  },
+  "no_shed_experiment": {
+    "release_qualified": false,
+    "source_restored_exactly": true,
+    "sdk_baseline": "27757b35",
+    "mac_only_throughput_sheds_disabled": true,
+    "original_180_second_gate_passed": false,
+    "last_observed_sink_bytes": 18087936,
+    "cleanup": {
+      "owned_mac_process_absent": true,
+      "phone_process_absent": true,
+      "owned_forward_removed": true,
+      "debug_property_restored": true,
+      "profile_pointer_unchanged": true,
+      "owned_logcat_captures_absent": true,
+      "original_apk_hash_restored": true
+    }
+  },
+  "source_sha256": {
+    "engine.rs": "c8edf1b2359c0bb446a02a0b7e6dacb0736eb35228a9843d56f7c7b1869fe9f7"
+  },
+  "limits": {
+    "single_32MiB_reverse_hash_qualified": true,
+    "consistent_180_second_gate_qualified": false,
+    "all_stalls_eliminated": false,
+    "Windows_qualified": false,
+    "audio_video_qualified": false,
+    "entire_multidevice_matrix_qualified": false
+  }
+}
