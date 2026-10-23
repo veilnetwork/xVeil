@@ -1,0 +1,67 @@
+{
+  "sdk_commit": "f46e6ae5",
+  "status": "partial fixes verified; file stalls and call/video failures remain open",
+  "confirmed_corrections": [
+    "Receiver cookie and protected key remain fixed for the stream lifetime across ACK selection, stale path eviction, cache pressure and recovery.",
+    "Route cache pressure preserves live Bulk accounting, while ACK can use a bound uncached path.",
+    "Concurrent same-class selection commits and accounts for only one pin."
+  ],
+  "regression_evidence": {
+    "exact_parent_receiver_tests_failed": 2,
+    "accounting_race_failed_before_final_cache_recheck": true,
+    "ffi_tests_passed": 55,
+    "ffi_tests_failed": 0,
+    "all_target_clippy_passed": true,
+    "formatting_and_diff_checks_passed": true,
+    "production_mac_and_android_sdk_builds_passed": true,
+    "unchanged_export_names": 198
+  },
+  "physical_transfers": [
+    {
+      "direction": "phone->mac",
+      "bytes": 4194304,
+      "success": true,
+      "download_seconds": 29.153,
+      "integrity_matches": true,
+      "window_seconds": 180
+    },
+    {
+      "direction": "mac->phone",
+      "bytes": 4194304,
+      "success": true,
+      "download_seconds": 27.794,
+      "integrity_matches": true,
+      "window_seconds": 180
+    },
+    {
+      "direction": "phone->mac",
+      "bytes": 33554432,
+      "success": true,
+      "download_seconds": 123.385,
+      "integrity_matches": true,
+      "window_seconds": 180
+    }
+  ],
+  "policies_restored": {
+    "mac": true,
+    "phone": true
+  },
+  "cleanup": {
+    "phone_stopped": true,
+    "mac_stopped": true,
+    "original_phone_apk_restored": true,
+    "original_phone_apk_hash_matches": true,
+    "phone_process_absent_after_restore": true,
+    "final_tested_build_verified": true,
+    "android_diagnostic_property_restored": true,
+    "owned_phone_file_fixtures_removed": true,
+    "owned_mac_process_absent_independent_check": true
+  },
+  "limits": [
+    "No new reverse 32-MiB test: previous 180-second failure remains open.",
+    "Separate physical endpoints do not certify mixed-receiver A/B/C or the full multi-device matrix.",
+    "No calls, audio, camera or subjective quality assessment in this cycle.",
+    "No generalized throughput improvement established."
+  ],
+  "privacy": "Aggregate evidence only; no identifiers, addresses, paths, keys or file hashes."
+}
