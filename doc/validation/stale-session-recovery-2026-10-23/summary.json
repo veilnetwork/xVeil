@@ -1,0 +1,134 @@
+{
+  "sdk_commit": "10b56236",
+  "parent_commit": "b7745be2",
+  "parent_episode": {
+    "driver_retry_episode_ms": 19167,
+    "driver_would_block_increase": 722,
+    "cumulative_ack_advance_bytes": 0,
+    "reserved_sequence_advance_bytes": 0,
+    "complete_retry_recoveries_increase": 0,
+    "first_hop_cooled_open_failures_during_episode": 3,
+    "confirmation_timeouts_during_episode": 1,
+    "stale_route_live_session_events_total": 2
+  },
+  "parent_regression_failed": true,
+  "client_tests_passed": 68,
+  "clippy_warnings_denied_passed": true,
+  "rustfmt_passed": true,
+  "native_production_builds": {
+    "macos": true,
+    "android": true
+  },
+  "abi": {
+    "libveilclient_ffi.dylib": {
+      "export_names_unchanged": true,
+      "veil_export_count": 199
+    },
+    "libveilclient_ffi.so": {
+      "export_names_unchanged": true,
+      "veil_export_count": 199
+    }
+  },
+  "network": {
+    "wifi_enabled": false,
+    "mobile_data_enabled": true,
+    "default_transport_is_cellular": true
+  },
+  "transfers": [
+    {
+      "direction": "phone->mac",
+      "bytes": 33554432,
+      "success": false,
+      "download_seconds": null,
+      "elapsed_seconds": 182.002,
+      "integrity_matches": null,
+      "diagnostic_limit_seconds": 180,
+      "original_180_second_completion_gate_passed": false,
+      "pull_requests": 1,
+      "failed_attempts_including_final_harness_cancellation": 1,
+      "source_request_phase_observed_in_retained_log": true,
+      "source_log_at_retained_line_limit": false,
+      "source_payload_write_idle_timeouts": 0,
+      "application_reset_failures_including_final_harness_cancellation": 1,
+      "harness_cancellation_requested": true,
+      "manifest_phase_failures": 0,
+      "payload_read_idle_failures": 0,
+      "connection_setup_timeout_failures": 0,
+      "manifest_first_byte_timeout_failures": 0,
+      "manifest_eof_failures": 0,
+      "resume_request_offsets": [],
+      "anonymous_opens": 1,
+      "direct_opens": 0,
+      "last_sampled_sink_bytes": 4194304
+    },
+    {
+      "direction": "phone->mac",
+      "bytes": 4194304,
+      "success": true,
+      "download_seconds": 40.282,
+      "elapsed_seconds": 40.997,
+      "integrity_matches": true,
+      "diagnostic_limit_seconds": 180,
+      "original_180_second_completion_gate_passed": true,
+      "pull_requests": 1,
+      "failed_attempts_including_final_harness_cancellation": 0,
+      "source_request_phase_observed_in_retained_log": true,
+      "source_log_at_retained_line_limit": false,
+      "source_payload_write_idle_timeouts": 0,
+      "application_reset_failures_including_final_harness_cancellation": 0,
+      "harness_cancellation_requested": false,
+      "manifest_phase_failures": 0,
+      "payload_read_idle_failures": 0,
+      "connection_setup_timeout_failures": 0,
+      "manifest_first_byte_timeout_failures": 0,
+      "manifest_eof_failures": 0,
+      "resume_request_offsets": [],
+      "anonymous_opens": 1,
+      "direct_opens": 0,
+      "last_sampled_sink_bytes": 3932160
+    }
+  ],
+  "driver_retry_episodes": {
+    "mac": {
+      "samples": 172,
+      "max_sampled_retry_episode_ms": 4077
+    },
+    "phone": {
+      "samples": 173,
+      "max_sampled_retry_episode_ms": 1100
+    }
+  },
+  "whole_runtime_stale_events": {
+    "mac": {
+      "stale_session_events": 1,
+      "stale_events_while_session_live": 0,
+      "stale_events_retired_without_quarantine": 1,
+      "stale_events_with_old_cooldown_message": 0,
+      "first_hop_cooled_completed_open_failures": 0,
+      "confirmation_timeout_completed_open_failures": 0
+    },
+    "phone": {
+      "stale_session_events": 0,
+      "stale_events_while_session_live": 0,
+      "stale_events_retired_without_quarantine": 0,
+      "stale_events_with_old_cooldown_message": 0,
+      "first_hop_cooled_completed_open_failures": 0,
+      "confirmation_timeout_completed_open_failures": 0
+    }
+  },
+  "physical_live_replacement_recovery_qualified": false,
+  "policies_restored": {
+    "mac": true,
+    "phone": true
+  },
+  "independent_cleanup": {
+    "owned_mac_process_absent": true,
+    "owned_logcat_absent": true,
+    "phone_process_absent": true,
+    "original_phone_apk_hash_matches": true,
+    "diagnostic_property_restored": true,
+    "wifi_off_retained": true,
+    "mobile_data_on_retained": true,
+    "profile_pointer_unchanged_before_apk_restore": true
+  }
+}
