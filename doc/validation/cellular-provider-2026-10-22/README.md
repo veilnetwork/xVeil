@@ -2,7 +2,89 @@
 
 **Status: partial stream fixes verified; long anonymous transfers and call/video failures remain.**
 
-## Latest follow-up — 23 October: byte duplication after a late partial ACK
+## Latest follow-up — 23 October: bound DATA paths and full local outboxes
+
+[bound-data-fallback.json](bound-data-fallback.json) records SDK `4f27eba6`.
+**Three DATA routing/admission defects are corrected. The reverse 32-MiB file
+still does not complete in 180 seconds; general file and call quality remain
+unqualified.**
+
+### Controlled defects and corrections
+
+Normal stripe candidate selection checked path/session health but did not check
+that the candidate served the stream's exact receiver. A pool containing a
+different receiver cookie or protected receiver key could select that entry
+before a matching one. Candidate selection now applies the existing receiver
+binding predicate before consuming its candidate limit. This covers DATA
+stripes and their new local-capacity fallback; it is not certification of all
+other ACK selection, cache eviction or stream recovery paths.
+
+A full primary outbox was also treated as a terminal error for the entire
+striped burst. Consequently a healthy alternate later in that burst was never
+tried. Queue-full now stops only that stripe, preserving its exact unsent cells
+in order while other stripes make progress. Other streams' queued suffixes
+remain untouched. Local fullness does not quarantine a network route.
+
+Finally, retained DATA below the normal striping quantum retried only the
+sticky primary. When that outbox stayed full, a ready independent path could
+remain unused indefinitely. On actual primary queue-full, the short/unstriped
+send path now tries the bounded pool of already-open, live, non-stale,
+non-cooled routes to the same receiver with distinct first hops. A failed
+candidate does not stop the search for a later ready path. This is local
+recovery even when ordinary striping is disabled, without changing that setting.
+Only actual local admissions consume queued cells and update send activity.
+When all eligible queues are full, every unaccepted cell remains queued; an
+already accepted prefix is counted exactly once. Missing-session health and
+fatal oversized-cell handling remain distinct.
+
+All three new regressions fail with the previous implementation. Their fixtures
+use real runtime circuits, signed relay-directory entries and genuinely full
+bounded local outboxes, without public network connections. Controls cover
+wrong cookie/key, a full first alternate followed by a ready third path,
+accepted prefixes, unrelated suffixes and the all-full case. The existing
+private DATA recovery lane and **INTERACTIVE wire priority** are checked; no
+relay media classification, transit priority, mailbox policy, protocol format,
+network-RTO constant, pacing budget or queue ceiling was added or relaxed.
+
+### Gates and physical observations
+
+All **47 FFI anonymous-stream tests** pass. FFI all-target Clippy and rustfmt
+are clean. Production Mac and Android SDK builds pass, retaining the same
+**198 SDK export names**. Sources, frozen SDKs, installed APK and loaded Mac
+library were verified before and after the ordinary physical stand. Frontends
+and production media engines were unchanged; the phone contains no earlier
+credit-rejection probe. No calls or synthetic media were used.
+
+The phone used cellular data with Wi-Fi off. Own QA-contact P2P was denied for
+these transfers and restored afterward. Every recorded open was anonymous,
+with no direct stream. The observation window remains **180 seconds**.
+
+| Direction | Size | Download | Pull requests | Result |
+| --- | ---: | ---: | ---: | --- |
+| Phone → laptop | 4 MiB | 24.786 s | 2 | SHA-256 match; one initial no-manifest failure |
+| Laptop → phone | 4 MiB | 15.438 s | 1 | SHA-256 match |
+| Phone → laptop | 32 MiB | **109.504 s** | 1 | SHA-256 match, no payload-idle retry |
+| Laptop → phone, additional large-file check | 32 MiB | **Incomplete at 180 s** | 2 | 25,165,824-byte committed prefix at harness cancellation; final hash unverified |
+
+The failed reverse run had one initial no-manifest failure. Its second
+failure-log entry is final harness cancellation, not an additional independent
+product timeout. No payload-idle failure was observed in these four cases.
+The largest sampled driver carrier waits were **21 ms on the laptop** (295
+samples) and **368 ms on the phone** (273 samples). These measure waiting until
+some path accepts pending cells; they are not absolute per-first-hop queue ages
+or end-to-end delay. Different WAN runs do not isolate network variation,
+establish a universal speed improvement, or rule out a performance regression.
+The successful phone upload does not qualify large-file completion in both
+directions, cold startup or the full A/B/C multi-device matrix.
+
+QA policies and the temporary Android diagnostic property were restored and
+verified. Both apps and captures exited, with process absence checked
+independently. The exact original phone APK was restored and hash-verified;
+owned phone fixtures were removed. The installed Mac app was unchanged. Public
+evidence contains only aggregate values, without endpoint identifiers, keys,
+addresses, paths, packet sequences, raw captures or file hashes.
+
+## Previous follow-up — 23 October: byte duplication after a late partial ACK
 
 [partial-ack-rewind.json](partial-ack-rewind.json) records SDK `c56e1aee`.
 **A reliable-stream byte-duplication mechanism is corrected. Long waits,
