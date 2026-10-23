@@ -1,0 +1,229 @@
+{
+  "sdk_commit": "b7745be2",
+  "parent_commit": "1064bc18",
+  "virtual_fast_link_wire_bytes_per_sec": 262144,
+  "virtual_duration_ms": 20000,
+  "fast_link": [
+    {
+      "seed_bytes_per_sec": 8192,
+      "max_pacing_batch": 1,
+      "final_rate_bytes_per_sec": 256000,
+      "delivered_bytes": 4888576,
+      "remaining_backlog_bytes": 11823104
+    },
+    {
+      "seed_bytes_per_sec": 8192,
+      "max_pacing_batch": 4,
+      "final_rate_bytes_per_sec": 256000,
+      "delivered_bytes": 4849664,
+      "remaining_backlog_bytes": 11862016
+    },
+    {
+      "seed_bytes_per_sec": 8192,
+      "max_pacing_batch": 256,
+      "final_rate_bytes_per_sec": 256000,
+      "delivered_bytes": 4887552,
+      "remaining_backlog_bytes": 11824128
+    },
+    {
+      "seed_bytes_per_sec": 12440,
+      "max_pacing_batch": 1,
+      "final_rate_bytes_per_sec": 256000,
+      "delivered_bytes": 4963328,
+      "remaining_backlog_bytes": 11748352
+    },
+    {
+      "seed_bytes_per_sec": 12440,
+      "max_pacing_batch": 4,
+      "final_rate_bytes_per_sec": 256000,
+      "delivered_bytes": 4923392,
+      "remaining_backlog_bytes": 11788288
+    },
+    {
+      "seed_bytes_per_sec": 12440,
+      "max_pacing_batch": 256,
+      "final_rate_bytes_per_sec": 256000,
+      "delivered_bytes": 4937728,
+      "remaining_backlog_bytes": 11773952
+    },
+    {
+      "seed_bytes_per_sec": 24576,
+      "max_pacing_batch": 1,
+      "final_rate_bytes_per_sec": 256000,
+      "delivered_bytes": 5027840,
+      "remaining_backlog_bytes": 11683840
+    },
+    {
+      "seed_bytes_per_sec": 24576,
+      "max_pacing_batch": 4,
+      "final_rate_bytes_per_sec": 256000,
+      "delivered_bytes": 4982784,
+      "remaining_backlog_bytes": 11728896
+    },
+    {
+      "seed_bytes_per_sec": 24576,
+      "max_pacing_batch": 256,
+      "final_rate_bytes_per_sec": 256000,
+      "delivered_bytes": 4993024,
+      "remaining_backlog_bytes": 11718656
+    }
+  ],
+  "virtual_slow_link_wire_bytes_per_sec": 8192,
+  "slow_link": {
+    "final_rate_bytes_per_sec": 8062,
+    "delivered_bytes": 160768,
+    "remaining_backlog_bytes": 16550912
+  },
+  "stream_tests_passed": 130,
+  "anonymous_stream_client_tests_passed": 66,
+  "clippy_warnings_denied_passed": true,
+  "rustfmt_passed": true,
+  "native_production_builds": {
+    "macos": true,
+    "android": true
+  },
+  "abi": {
+    "libveilclient_ffi.dylib": {
+      "export_names_unchanged": true,
+      "veil_export_count": 199
+    },
+    "libveilclient_ffi.so": {
+      "export_names_unchanged": true,
+      "veil_export_count": 199
+    }
+  },
+  "post_correction_handset_test_completed": true,
+  "corrected_build_installed_on_blackview": false,
+  "prior_stand_cleanup": {
+    "owned_mac_process_absent": true,
+    "owned_logcat_absent": true,
+    "phone_process_absent": true,
+    "original_phone_apk_hash_matches": true,
+    "diagnostic_property_restored": true,
+    "wifi_on_retained": true,
+    "mobile_data_on_retained": true,
+    "profile_pointer_unchanged_before_apk_restore": true
+  },
+  "post_correction_handset_file_gates_passed": false,
+  "corrected_build_installed_on_poco": true,
+  "poco_network": {
+    "wifi_enabled": false,
+    "mobile_data_enabled": true,
+    "default_transport_is_cellular": true
+  },
+  "poco_transfers": [
+    {
+      "direction": "phone->mac",
+      "bytes": 33554432,
+      "success": false,
+      "download_seconds": null,
+      "elapsed_seconds": 181.855,
+      "integrity_matches": null,
+      "diagnostic_limit_seconds": 180,
+      "original_180_second_completion_gate_passed": false,
+      "pull_requests": 2,
+      "failed_attempts_including_final_harness_cancellation": 2,
+      "source_request_phase_observed_in_retained_log": true,
+      "source_log_at_retained_line_limit": false,
+      "source_payload_write_idle_timeouts": 0,
+      "application_reset_failures_including_final_harness_cancellation": 1,
+      "harness_cancellation_requested": true,
+      "manifest_phase_failures": 0,
+      "payload_read_idle_failures": 1,
+      "connection_setup_timeout_failures": 0,
+      "manifest_first_byte_timeout_failures": 0,
+      "manifest_eof_failures": 0,
+      "resume_request_offsets": [
+        1835008
+      ],
+      "anonymous_opens": 2,
+      "direct_opens": 0,
+      "last_sampled_sink_bytes": 4980736
+    },
+    {
+      "direction": "phone->mac",
+      "bytes": 4194304,
+      "success": false,
+      "download_seconds": null,
+      "elapsed_seconds": 180.714,
+      "integrity_matches": null,
+      "diagnostic_limit_seconds": 180,
+      "original_180_second_completion_gate_passed": false,
+      "pull_requests": 1,
+      "failed_attempts_including_final_harness_cancellation": 1,
+      "source_request_phase_observed_in_retained_log": true,
+      "source_log_at_retained_line_limit": false,
+      "source_payload_write_idle_timeouts": 0,
+      "application_reset_failures_including_final_harness_cancellation": 1,
+      "harness_cancellation_requested": true,
+      "manifest_phase_failures": 0,
+      "payload_read_idle_failures": 0,
+      "connection_setup_timeout_failures": 0,
+      "manifest_first_byte_timeout_failures": 0,
+      "manifest_eof_failures": 0,
+      "resume_request_offsets": [],
+      "anonymous_opens": 1,
+      "direct_opens": 0,
+      "last_sampled_sink_bytes": 3932160
+    }
+  ],
+  "poco_model_samples": {
+    "mac": {
+      "nonzero_backlogged_samples": 0
+    },
+    "phone": {
+      "nonzero_backlogged_samples": 219,
+      "rate_min_median_max_bytes_per_second": [
+        4739,
+        61937,
+        276635
+      ],
+      "max_sampled_consecutive_rto": 4,
+      "longest_sampled_unchanged_backlogged_model": {
+        "duration_ms": 19173,
+        "samples": 20,
+        "rate_bytes_per_second": 61937,
+        "min_backlog_bytes": 39344,
+        "cumulative_ack_advance_bytes": 0
+      }
+    }
+  },
+  "poco_driver_retry_episodes": {
+    "mac": {
+      "samples": 220,
+      "max_sampled_retry_episode_ms": 3058
+    },
+    "phone": {
+      "samples": 271,
+      "max_sampled_retry_episode_ms": 19167
+    }
+  },
+  "poco_policies_restored": {
+    "mac": true,
+    "phone": true
+  },
+  "poco_independent_cleanup": {
+    "owned_mac_process_absent": true,
+    "owned_logcat_absent": true,
+    "phone_process_absent": true,
+    "original_phone_apk_hash_matches": true,
+    "diagnostic_property_restored": true,
+    "wifi_off_retained": true,
+    "mobile_data_on_retained": true,
+    "profile_pointer_unchanged_before_apk_restore": true
+  },
+  "poco_message_delivery": [
+    {
+      "sender": "mac",
+      "receiver": "phone",
+      "delivery_seconds": 1.6067882089409977,
+      "copies": 1
+    },
+    {
+      "sender": "phone",
+      "receiver": "mac",
+      "delivery_seconds": 0.5462589170783758,
+      "copies": 1
+    }
+  ]
+}
