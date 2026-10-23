@@ -2,7 +2,83 @@
 
 **Status: partial stream fixes verified; long anonymous transfers and call/video failures remain.**
 
-## Latest follow-up — 23 October: receive reassembly across sequence wrap
+## Latest follow-up — 23 October: ready inbound traffic between send bursts
+
+SDK **`4a53b1c3`** fixes a confirmed managed delay in the reliable-stream driver.
+[driver-fairness.json](driver-fairness.json) records the red/green controls and
+all physical outcomes. **This correction does not close phone-to-laptop
+cellular file completion failures.**
+
+A successful carrier send could await local pacing long enough for the next
+engine tick to become ready. The driver then refilled outgoing DATA immediately,
+repeating until a whole send window drained before reading already-ready ACKs
+or reverse DATA. A real async driver fixture with a 2-ms local admission delay,
+no network loss and no added propagation delay exposes **320 ms** of ACK queue
+wait and **128 ms** of reverse-DATA queue wait on parent `2d34f65f`.
+
+After each completely accepted bounded burst, the driver now returns to its
+input/command/timer selection before refilling. Retained partial sends and
+WouldBlock handling are preserved. Two tests fail on the exact parent source;
+after correction all eight SACK-count/RACK, ordinary/wrapping-sequence and
+reverse-data subcases deliver exact bytes, with ready inbound queue wait bounded
+by one observed local admission. These are reliable-stream transport ACKs;
+this test does not measure audio RTCP or acoustic latency.
+
+All **108 stream tests**, **56 FFI anonymous-stream tests**, all-target
+stream/FFI Clippy, rustfmt and diff checks pass. Production Mac and Android
+SDKs retain the same **198 SDK export names**. No burst size, rate, timer bound,
+queue budget, wire field, relay priority or mailbox policy changed.
+
+### Cellular file checks and preceding-SDK control
+
+The same QA identities and unchanged frontends/media engines were used. Phone
+Wi-Fi was off, cellular routing was verified and own-contact P2P was denied.
+All recorded opens were anonymous.
+
+| SDK/run | Direction | Size | Download | Pull requests | Result |
+| --- | --- | ---: | ---: | ---: | --- |
+| Current | Phone → laptop | 4 MiB | **Incomplete in 180 s** | 3 | Two manifest-phase failures; final integrity unverified |
+| Current | Laptop → phone | 4 MiB | 14.963 s | 1 | Integrity matches |
+| Current | Laptop → phone | 32 MiB | **124.497 s** | 1 | Integrity matches |
+| Current | Phone → laptop | 32 MiB | **Incomplete in 180 s** | 1 | Final integrity unverified |
+| Parent `2d34f65f` | Phone → laptop | 4 MiB | **Incomplete in 180 s** | 3 | Manifest failure, payload-idle event and a queued 512-KiB resume request; final integrity unverified |
+| Parent `2d34f65f` | Phone → laptop | 32 MiB | **Incomplete in 180 s** | 2 | Queued 8.75-MiB resume request; final integrity unverified |
+| Current, diagnostic only | Phone → laptop | 4 MiB | 48.414 s | 2 | Integrity matches after one manifest-phase retry; separate 60-s capture window |
+
+The parent also fails in the affected direction, so the new fairness correction
+is not necessary to reproduce it. That is not proof of universal performance
+parity. The successful shorter diagnostic capture does not replace either
+failed 180-second gate. Final harness cancellation/reset is kept in inclusive
+attempt counts and is not independently counted as a product timeout. Resume
+requests are read from actual `request sent ... resume=` log entries; a final
+resume-point checkpoint alone does not prove another request was sent.
+
+### Where the diagnostic capture locates remaining local wait
+
+The phone's existing session trace was enabled through its API for the separate
+short capture, then disabled at cleanup. No scheduling setting was changed.
+Its **42** sampled DATA admission reports used an independent **ordered record
+transport**. The observed outbox-to-transport maximum was **363.296 ms**, the
+record-queue maximum **178.343 ms**, and the record-write maximum **186.626 ms**.
+They concern different observations and **must not be added**. The capture alone
+does not identify the underlying IP transport or prove high ping/packet loss.
+
+Those reports had zero reported buffer/bandwidth-drop and capacity-deferral
+counters. Ten source admission samples reported `primary_active=false`;
+the capture gives no basis to blame protection for active audio. This was a
+**successful** capture, not the prior failed transfer: a failing capture is
+still needed to identify what holds authored DATA before the ordered writer.
+No queue budget was increased on the strength of this observation.
+
+The driver's sampled pending-outbound waits can still include a cold circuit
+open and are distinct from the ready-inbound starvation fixed here. Sources,
+frozen SDKs, installed APKs and loaded Mac libraries were verified. After each
+of the three stands, own apps/captures exited, policies and diagnostics were
+restored, and the exact original phone APK was restored and hash-checked. The
+installed Mac app was unchanged. No call, live speech, Windows or complete
+multi-device qualification ran.
+
+## Previous follow-up — 23 October: receive reassembly across sequence wrap
 
 SDK **`2d34f65f`**, after `2b1ab108`, fixes another confirmed receive-side defect.
 [sequence-wrap-reassembly.json](sequence-wrap-reassembly.json) records four
