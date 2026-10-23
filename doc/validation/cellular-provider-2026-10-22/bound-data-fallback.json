@@ -1,0 +1,121 @@
+{
+  "transfers": [
+    {
+      "direction": "phone_to_laptop",
+      "bytes": 4194304,
+      "success": true,
+      "sha256_matches": true,
+      "download_seconds": 24.786,
+      "download_test_window_seconds": 180,
+      "stream_request_attempts": 2,
+      "failed_attempt_log_entries_including_harness_cancel": 1,
+      "no_manifest_failures": 1,
+      "payload_idle_failures": 0,
+      "committed_resume_offsets_bytes": [],
+      "first_request_to_validated_manifest_seconds": 11.581,
+      "anonymous_stream_opens": 2,
+      "direct_stream_opens": 0
+    },
+    {
+      "direction": "laptop_to_phone",
+      "bytes": 4194304,
+      "success": true,
+      "sha256_matches": true,
+      "download_seconds": 15.438,
+      "download_test_window_seconds": 180,
+      "stream_request_attempts": 1,
+      "failed_attempt_log_entries_including_harness_cancel": 0,
+      "no_manifest_failures": 0,
+      "payload_idle_failures": 0,
+      "committed_resume_offsets_bytes": [],
+      "first_request_to_validated_manifest_seconds": 0.445,
+      "anonymous_stream_opens": 1,
+      "direct_stream_opens": 0
+    },
+    {
+      "direction": "phone_to_laptop",
+      "bytes": 33554432,
+      "success": true,
+      "sha256_matches": true,
+      "download_seconds": 109.504,
+      "download_test_window_seconds": 180,
+      "stream_request_attempts": 1,
+      "failed_attempt_log_entries_including_harness_cancel": 0,
+      "no_manifest_failures": 0,
+      "payload_idle_failures": 0,
+      "committed_resume_offsets_bytes": [],
+      "first_request_to_validated_manifest_seconds": 1.049,
+      "anonymous_stream_opens": 1,
+      "direct_stream_opens": 0
+    },
+    {
+      "direction": "laptop_to_phone",
+      "bytes": 33554432,
+      "success": false,
+      "sha256_matches": null,
+      "download_seconds": null,
+      "download_test_window_seconds": 180,
+      "stream_request_attempts": 2,
+      "failed_attempt_log_entries_including_harness_cancel": 2,
+      "no_manifest_failures": 1,
+      "payload_idle_failures": 0,
+      "committed_resume_offsets_bytes": [
+        25165824
+      ],
+      "first_request_to_validated_manifest_seconds": 13.192,
+      "anonymous_stream_opens": 2,
+      "direct_stream_opens": 0
+    }
+  ],
+  "numeric_driver_sampling": {
+    "laptop": {
+      "driver_samples": 295,
+      "largest_sampled_local_wait_ms": 21
+    },
+    "phone": {
+      "driver_samples": 273,
+      "largest_sampled_local_wait_ms": 368
+    }
+  },
+  "qa_policies_restored_and_verified": true,
+  "sdk_commit": "4f27eba6",
+  "status": "data_path_binding_and_local_capacity_fallback_corrected_reverse_large_file_unqualified",
+  "old_source_regressions_failed": 3,
+  "gates": {
+    "ffi_anonymous_stream_tests_passed": 47,
+    "ffi_clippy_all_targets_passed": true,
+    "rustfmt_passed": true,
+    "production_macos_sdk_build_passed": true,
+    "production_android_sdk_build_passed": true,
+    "sdk_export_count": 198,
+    "unchanged_sdk_export_names": true,
+    "phone_rejection_probe_absent": true
+  },
+  "controlled_cases": [
+    "Normal stripe candidates reject a different receiver cookie or protected receiver key before applying the candidate limit.",
+    "A full primary queue does not prevent another stripe from accepting cells; retained cells and unrelated suffix keep their order.",
+    "Short DATA tails try a bound healthy third path after full first hops, including when normal striping is disabled.",
+    "Actual accepted primary prefix is retained in statistics and removed only once.",
+    "All eligible outboxes full preserves every unaccepted cell without quarantining network routes.",
+    "Fallback DATA retains the existing private local recovery lane and ordinary INTERACTIVE wire priority."
+  ],
+  "cleanup": {
+    "phone_stopped": true,
+    "mac_stopped": true,
+    "original_phone_apk_restored": true,
+    "original_phone_apk_hash_matches": true,
+    "phone_process_absent_after_restore": true,
+    "final_tested_build_verified": true,
+    "android_diagnostic_property_restored": true,
+    "owned_phone_file_fixtures_removed": true,
+    "owned_mac_process_absent_independent_check": true
+  },
+  "limits": [
+    "Controlled fixtures exercise real local runtime circuits, signed relay entries and bounded outboxes, not a WAN relay test or complete multi-device qualification.",
+    "Receiver binding in this change applies to stripe candidates and DATA local-capacity fallback; it does not certify every other route-selection and cache-eviction path.",
+    "Different WAN runs do not isolate network variation or establish a general speed improvement.",
+    "Large reverse transfer remains incomplete in the 180-second observation; its hash is unverified, not mismatched.",
+    "Driver waits are sampled intervals until some carrier accepts the pending cell, not absolute per-first-hop queue ages or end-to-end latency.",
+    "No calls, subjective sound assessment, or physical Windows test were performed."
+  ]
+}
