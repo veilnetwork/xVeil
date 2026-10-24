@@ -9,6 +9,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/node/embedded_node.dart';
 import 'package:xveil/debug/soak_hook.dart';
+import 'package:xveil/core/ids.dart';
+import 'package:xveil/domain/peer_authorization.dart';
 
 import 'device_fixture.dart';
 import 'e2e_env.dart';
@@ -42,6 +44,11 @@ void main() {
             label: label!,
             dir: dir,
             bootstrapPeers: peers,
+            anonymous: env['XVEIL_E2E_ANONYMOUS'] == '1',
+          );
+          expect(
+            device!.messaging.isAnonymousIdentity,
+            env['XVEIL_E2E_ANONYMOUS'] == '1',
           );
           await tester.pumpWidget(
             UncontrolledProviderScope(
@@ -68,13 +75,44 @@ void main() {
               }
               final peer = request['peer'] as String;
               final prefix = request['prefix'] as String;
-              final messages = (await device!.storage.loadMessages(
-                peer,
-              )).where((message) => message.id.startsWith(prefix)).toList();
+              final messages = request['authorizationOnly'] == true
+                  ? []
+                  : (await device!.storage.loadMessages(peer))
+                        .where((message) => message.id.startsWith(prefix))
+                        .toList();
+              final Object? authority = device!.stack.ratchetState;
+              final authorization = <String, Object?>{};
+              if (request['authorizationOnly'] == true) {
+                authorization['storedPeers'] = [
+                  for (final entry
+                      in await device!.storage.loadPeerAuthorization())
+                    entry.peer,
+                ];
+                if (authority is PeerAuthorizationStateHandle) {
+                  authorization['nativePeers'] = [
+                    for (final entry
+                        in authority.exportPeerAuthorization().entries)
+                      entry.peer,
+                  ];
+                }
+                if (authority is PeerDeviceAuthorizationHandle) {
+                  final identity = NodeId.fromHex(
+                    request['identity'] as String,
+                  );
+                  final physical = NodeId.fromHex(
+                    request['physical'] as String,
+                  );
+                  authorization['identityDeviceAllowed'] = authority
+                      .peerDeviceProofAllowed(identity.bytes, physical.bytes);
+                  authorization['physicalSelfAllowed'] = authority
+                      .peerDeviceProofAllowed(physical.bytes, physical.bytes);
+                }
+              }
               final response = File('${dir.path}/storage-inspected.new');
               await response.writeAsString(
                 jsonEncode({
                   'nonce': request['nonce'],
+                  if (authorization.isNotEmpty) 'authorization': authorization,
                   'count': messages.length,
                   'reflectedEdits': messages
                       .where((message) => message.reflectedEdit)
