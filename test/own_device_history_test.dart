@@ -273,6 +273,20 @@ void main() {
     },
   );
 
+  test('equal-revision offline edits converge between own devices', () async {
+    await seed(1);
+    await sb.appendMessage((await sa.loadMessages(peer.hex)).single);
+    await sa.editMessage(peer.hex, 'm0000', 'left', seq: 7);
+    await sb.editMessage(peer.hex, 'm0000', 'right', seq: 7);
+    ma.start();
+    mb.start();
+    await until(
+      () async =>
+          (await sa.loadMessages(peer.hex)).single.body ==
+          (await sb.loadMessages(peer.hex)).single.body,
+    );
+  });
+
   test(
     'history repairs a held original after the edit left the device journal',
     () async {

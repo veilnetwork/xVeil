@@ -11,6 +11,7 @@ import '../../domain/clear_policy.dart';
 import '../../domain/event.dart';
 import '../../domain/identity.dart';
 import '../../domain/inline_custom_emoji.dart';
+import '../../domain/message_edit.dart';
 import '../../domain/p2p_policy.dart';
 import '../../domain/peer_authorization.dart';
 import '../../domain/roster.dart';
@@ -2350,6 +2351,28 @@ class HiddenVolumeStorage
     String newBody, {
     int? seq,
     List<InlineCustomEmoji> customEmoji = const [],
+  }) {
+    final write = _editGate.then(
+      (_) => _editMessageCritical(
+        conversationId,
+        messageId,
+        newBody,
+        seq: seq,
+        customEmoji: customEmoji,
+      ),
+    );
+    _editGate = write.then<void>((_) {}, onError: (_) {});
+    return write;
+  }
+
+  Future<void> _editGate = Future<void>.value();
+
+  Future<int?> _editMessageCritical(
+    String conversationId,
+    String messageId,
+    String newBody, {
+    int? seq,
+    List<InlineCustomEmoji> customEmoji = const [],
   }) async {
     final hit = await _liveEntryFor(conversationId, messageId);
     if (hit == null) return null;
@@ -2390,7 +2413,9 @@ class HiddenVolumeStorage
     // A WIRE edit is idempotent on its (author, seq) slot, like applyRemoteVoid /
     // applyRemoteClear: the durable pipeline re-drives frames across restarts, and
     // without this each re-drive would append a duplicate k:edit row — log bloat
-    // plus a duplicated version in loadMessageHistory. Slot occupied ⇒ applied.
+    // plus a duplicated version in loadMessageHistory. Concurrent devices can
+    // occupy this same revision with DIFFERENT text: retain a larger value,
+    // rather than treating another writer's edit as this frame's replay.
     // (A LOCAL edit allocates a fresh seq above, so it can never collide.)
     //
     // THIS edit in the slot, not merely something. Every device of an identity
@@ -2404,8 +2429,18 @@ class HiddenVolumeStorage
       final thisEdit = '$messageId~e$seq';
       for (final e in entries) {
         final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
-        if (m['c'] == conversationId && m['id'] == thisEdit) {
-          return editSeq; // this very edit — already applied
+        if (m['c'] == conversationId &&
+            m['id'] == thisEdit &&
+            m['k'] == EventKind.edit.index &&
+            m['tg'] == messageId) {
+          final heldBody = m['b'] as String? ?? '';
+          if (messageEditContentHash(
+                heldBody,
+                parseInlineCustomEmoji(heldBody, m['ce']),
+              ).compareTo(messageEditContentHash(newBody, customEmoji)) >=
+              0) {
+            return editSeq;
+          }
         }
       }
     }
@@ -5007,14 +5042,23 @@ class HiddenVolumeStorage
               editAuthor == null ||
               post.author == editAuthor;
           final win = _scanEditWinSeq[tk];
-          final newer = editSeq == null || win == null || editSeq > win;
+          final body = m['b'] as String? ?? post.body;
+          final emoji = parseInlineCustomEmoji(body, m['ce']);
+          final newer =
+              editSeq == null ||
+              messageEditWins(
+                revision: editSeq,
+                contentHash: messageEditContentHash(body, emoji),
+                heldRevision: win,
+                heldContentHash: messageEditContentHash(
+                  post.body,
+                  post.customEmoji,
+                ),
+              );
           if (authorOk && newer) {
             _scanById[tk] = post.copyWith(
-              body: m['b'] as String? ?? post.body,
-              customEmoji: parseInlineCustomEmoji(
-                m['b'] as String? ?? post.body,
-                m['ce'],
-              ),
+              body: body,
+              customEmoji: emoji,
               edited: true,
             );
             if (editSeq != null) _scanEditWinSeq[tk] = editSeq;
@@ -5103,6 +5147,7 @@ class HiddenVolumeStorage
 
   @override
   Future<void> close() async {
+    await _editGate;
     final s = _store;
     // Clear the handle FIRST: a throwing native close must never leave a stale
     // _store behind — that would wedge every later open of the same container

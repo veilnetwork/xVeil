@@ -348,13 +348,10 @@ class _MessagingDeviceMirror {
 
   /// Replace a message's text because one of my other devices replaced it.
   ///
-  /// The seq is NOT carried across. A sibling's copy arrived as a mirror, and
-  /// storage allocated its (author, seq) locally on append — measured — so the
-  /// two devices do not agree on those numbers for the same message, and
-  /// folding a sibling's edit under the sender's slot would either miss or
-  /// land on somebody else's. Idempotence comes from the text instead: the
-  /// folded device-sync state is replayed into the appliers on every app start,
-  /// and an edit to the text already shown is nothing to do.
+  /// A current sender carries the edit revision separately from the post's
+  /// position. Keep that revision even if the body is unchanged, and resolve
+  /// equal revisions by the common content hash. Only a legacy edit without a
+  /// revision needs a locally allocated number.
   Future<void> applyEdit({
     required NodeId peer,
     required String msgId,
@@ -374,11 +371,22 @@ class _MessagingDeviceMirror {
         _owner._mutations.bufferPending(
           peer,
           msgId,
-          _PendingOp.edit(body, customEmoji),
+          _PendingOp.edit(body, customEmoji, seq: seq),
         );
         return;
       }
-      if (target.body == body) return;
+      final hash = messageEditContentHash(body, customEmoji);
+      final heldHash = messageEditContentHash(target.body, target.customEmoji);
+      if (seq == null) {
+        if (hash == heldHash) return;
+      } else if (!messageEditWins(
+        revision: seq,
+        contentHash: hash,
+        heldRevision: (await _owner._storage.editSeqs(peer.hex))[msgId],
+        heldContentHash: heldHash,
+      )) {
+        return;
+      }
       await _owner._storage.editMessage(
         peer.hex,
         msgId,
@@ -603,6 +611,7 @@ class _MessagingDeviceMirror {
         peer.hex,
         msgId,
         pending.body!,
+        seq: pending.seq,
         customEmoji: pending.customEmoji,
       );
     }

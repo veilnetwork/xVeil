@@ -414,40 +414,35 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     if (peer == service.selfId) return;
     tasks.start(() async {
       if (await service.isMyDevice(peer)) return;
-      // The edit's place in the author's stream, as the counterpart holds it.
-      // A sibling that later edits the same message must number its edit past
-      // this one, or the counterpart keeps whichever edit has the higher seq —
-      // and every device numbers its own stream.
-      int? editSeq;
-      try {
-        final versions = await service.storage.loadMessageHistory(
-          peer.hex,
-          msgId,
-        );
-        if (versions.isNotEmpty && !versions.last.isOriginal) {
-          editSeq = versions.last.seq;
+      if (await service.deviceGroupIdHex() == null) return;
+      // Read the current winning value with its own revision. A delayed
+      // callback must not attach a later revision to the earlier argument's
+      // text, or publish a losing concurrent edit as the current state.
+      for (var attempt = 0; attempt < 3; attempt++) {
+        final before = (await service.storage.editSeqs(peer.hex))[msgId];
+        final current = await service.storage.loadMessageById(peer.hex, msgId);
+        final after = (await service.storage.editSeqs(peer.hex))[msgId];
+        if (before != after) continue;
+        if (current == null || after == null) return;
+        if (!await service.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.msgEdit,
+            key: msgId,
+            tsMs: DateTime.now().millisecondsSinceEpoch,
+            payload: {
+              'peer': peer.hex,
+              'body': current.body,
+              if (current.customEmoji.isNotEmpty)
+                'ce': encodeInlineCustomEmoji(current.customEmoji),
+              'sq': after,
+            },
+          ),
+        )) {
+          throw StateError('Could not persist the current message edit');
         }
-      } catch (_) {
-        // Without it the sibling numbers its next edit from its own stream,
-        // exactly as before.
+        return;
       }
-      await service.postDeviceEvent(
-        DeviceSyncEvent(
-          kind: DeviceSyncKind.msgEdit,
-          key: msgId,
-          // The EDIT's time. The mirror's stamp is the message's own and
-          // decides where the chat puts it; this one only has to be newer than
-          // the last edit of the same message.
-          tsMs: DateTime.now().millisecondsSinceEpoch,
-          payload: {
-            'peer': peer.hex,
-            'body': body,
-            if (customEmoji.isNotEmpty)
-              'ce': encodeInlineCustomEmoji(customEmoji),
-            'sq': ?editSeq,
-          },
-        ),
-      );
+      throw StateError('Message edit changed during publication');
     });
   };
 

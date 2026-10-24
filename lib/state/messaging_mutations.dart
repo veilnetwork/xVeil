@@ -174,26 +174,38 @@ class _MessagingMutations {
     final candidates = [
       ?_pending.remove(_key(peer, id, false)),
       ?_pending.remove(_key(peer, id, true)),
-    ];
+    ]..sort((a, b) => a.order.compareTo(b.order));
     _PendingOp? winner;
-    var order = -1;
     for (final candidate in candidates) {
       if (candidate.op.incomingOnly && direction != MessageDirection.incoming) {
         continue;
       }
-      if (winner?.isDelete == true) continue;
-      if (candidate.op.isDelete || candidate.order > order) {
+      if (winner == null || _pendingEditWins(candidate.op, winner)) {
         winner = candidate.op;
-        order = candidate.order;
       }
     }
     return winner;
   }
 
+  bool _pendingEditWins(_PendingOp candidate, _PendingOp held) {
+    if (held.isDelete) return false;
+    if (candidate.isDelete) return true;
+    if (candidate.seq == null) return held.seq == null;
+    return messageEditWins(
+      revision: candidate.seq!,
+      contentHash: messageEditContentHash(
+        candidate.body!,
+        candidate.customEmoji,
+      ),
+      heldRevision: held.seq,
+      heldContentHash: messageEditContentHash(held.body!, held.customEmoji),
+    );
+  }
+
   void bufferPending(NodeId peer, String id, _PendingOp operation) {
     final key = _key(peer, id, operation.incomingOnly);
     final existing = _pending[key];
-    if (existing != null && existing.op.isDelete) return;
+    if (existing != null && !_pendingEditWins(operation, existing.op)) return;
     if (!_pending.containsKey(key) && _pending.length >= kMaxPendingOps) {
       _pending.remove(_pending.keys.first);
     }
@@ -246,6 +258,7 @@ class _MessagingMutations {
           envelope.body,
           envelope.customEmoji,
           incomingOnly: true,
+          seq: envelope.seq,
         ),
       );
       return false;
@@ -434,11 +447,23 @@ class _MessagingMutations {
     );
     _owner._signal();
     final destination = NodeId.fromHex(message.conversationId);
-    // Include the edit seq in the durable id: every edit is distinct, while a
-    // re-drive of the same edit remains idempotent and cannot regress the fold.
+    // A compact value-specific ID distinguishes concurrent revisions without
+    // adding the body or a long target ID to the delivery envelope.
+    final operation = crypto.sha256
+        .convert(
+          utf8.encode(
+            jsonEncode([
+              messageId,
+              editSeq ?? _uuid.v4(),
+              messageEditContentHash(trimmed, customEmoji),
+            ]),
+          ),
+        )
+        .toString()
+        .substring(0, 32);
     await _owner.sendDurable(
       destination,
-      'edit:$messageId:${editSeq ?? _uuid.v4()}',
+      'edit:$operation',
       WireEnvelope.edit(
         messageId,
         trimmed,
