@@ -253,6 +253,7 @@ extension _MessagingInboundDispatch on MessagingService {
         env.kind == WireKind.spaceModerationAppealDecision ||
         env.kind == WireKind.spaceAbuseReport ||
         env.kind == WireKind.spaceAbuseReportDecision ||
+        env.kind == WireKind.reaction ||
         env.kind == WireKind.disappearingSet;
     final deferredGroupCallAck = env.kind == WireKind.groupCallSignal;
     final liveOnlyNoAck =
@@ -1091,11 +1092,22 @@ extension _MessagingInboundDispatch on MessagingService {
         return;
       case WireKind.reaction:
         // The peer reacted to a message in THIS conversation. A side annotation
-        // (not an event-log event); the durable frame was already acked+deduped
-        // by the generic gate above. Reactor = the authenticated sender.
+        // (not an event-log event). Reactor = the authenticated sender.
+        // Retire the sender's frame only after publishing the value AND its
+        // ordering floor. A failed write must leave this same ID eligible for
+        // retry; remembering/ACKing it at the generic gate lost the reaction.
         if (existing?.status != ContactStatus.accepted) return;
+        Future<void> settleReaction() async {
+          if (fid == null) return;
+          _outbox.remember(m.src.hex, fid);
+          await _ackFrame(m, fid);
+        }
         final targetId = env.id;
-        if (targetId == null) return;
+        if (targetId == null) {
+          // A malformed target is a permanent refusal, not a container error.
+          await settleReaction();
+          return;
+        }
         await _applyReaction(
           m.src.hex,
           targetId,
@@ -1110,6 +1122,7 @@ extension _MessagingInboundDispatch on MessagingService {
           env.body,
           env.sentAtMs ?? _now().millisecondsSinceEpoch,
         );
+        await settleReaction();
         return;
       case WireKind.groupEntry:
         // A group snapshot from a member (groups epic); the durable frame was
