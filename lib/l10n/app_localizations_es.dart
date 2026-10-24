@@ -7625,6 +7625,10 @@ class AppL10nEs extends AppL10n {
   String get transferWorking => 'Trabajando…';
 
   @override
+  String get transferExportFailed =>
+      'No se pudo guardar el archivo. Comprueba el destino e inténtalo de nuevo.';
+
+  @override
   String get transferIdentitySwitched =>
       'Cambiaste de identidad, así que no se realizó: pertenece a la identidad desde la que se inició.';
 

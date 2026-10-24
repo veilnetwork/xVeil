@@ -57,9 +57,12 @@ class MainActivity : FlutterActivity() {
     private var pipAutoWanted = false
     private var pipAspect = Rational(16, 9)
     private var previousCallVolumeStream: Int? = null
+    private var documentExport: DocumentExport? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        documentExport?.dispose()
+        documentExport = DocumentExport(this, flutterEngine.dartExecutor.binaryMessenger)
         nativeCallCamera = NativeCallCamera(this, flutterEngine.renderer)
         nativeCallVideoRenderer = NativeCallVideoRenderer(flutterEngine.renderer)
         // FLAG_SECURE, driven PER ROUTE from Dart (core/secure_screen.dart).
@@ -415,6 +418,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        documentExport?.dispose()
         setCallNetworkActive(false)
         releaseCallAudioRoute()
         super.onDestroy()
@@ -777,6 +781,8 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        documentExport?.dispose()
+        documentExport = null
         nativeCallCamera?.stop()
         nativeCallCamera = null
         nativeCallVideoRenderer?.stop()
@@ -788,6 +794,11 @@ class MainActivity : FlutterActivity() {
         screenCaptureChannel?.let(ScreenCaptureBridge::detach)
         screenCaptureChannel = null
         super.cleanUpFlutterEngine(flutterEngine)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (documentExport?.onActivityResult(requestCode, resultCode, data) == true) return
+        super.onActivityResult(requestCode, resultCode, data)
     }
 
     private fun stopScreenCapture() {
