@@ -1,0 +1,52 @@
+{
+  "sdk_revision": "3c1b91d9",
+  "frontend_scope": "previously frozen production-native stand; four file-path Dart source hashes unchanged",
+  "file": {
+    "bytes": 33554432,
+    "download_seconds": 134.6694735410856,
+    "hash_matches": true,
+    "original_180_second_completion_gate_passed": true,
+    "ok": true
+  },
+  "message_tests": [
+    {
+      "sender": "mac",
+      "receiver": "phone",
+      "delivery_seconds": 5.837408083956689,
+      "copies": 1
+    },
+    {
+      "sender": "phone",
+      "receiver": "mac",
+      "delivery_seconds": 0.5943769580917433,
+      "copies": 1
+    }
+  ],
+  "contact_request_seconds": 6.719858666067012,
+  "contact_accepted_seconds": 7.352645208011381,
+  "network": {
+    "wifi_enabled": false,
+    "mobile_data_enabled": true,
+    "default_transport_is_cellular": true
+  },
+  "cleanup": {
+    "owned_mac_process_absent": true,
+    "phone_process_absent": true,
+    "owned_forward_removed": true,
+    "debug_property_restored": true,
+    "profile_pointer_unchanged": true,
+    "owned_logcat_captures_absent": true,
+    "original_apk_hash_restored": true
+  },
+  "outgoing_history": {
+    "sender_offer_rows_after_app_restart": 1,
+    "sender_offer_is_outgoing": true,
+    "no_test_call_started": true,
+    "owned_history_app_process_absent": true,
+    "owned_history_api_listener_absent": true
+  },
+  "receiver_offer_rows": 1,
+  "no_test_call_started": true,
+  "native_symbols_unchanged": true,
+  "embedded_floor_restart_persistence_complete": false
+}
