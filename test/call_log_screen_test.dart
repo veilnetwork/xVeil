@@ -81,4 +81,48 @@ void main() {
     expect(find.byIcon(Icons.call_made), findsOneWidget);
     expect(find.byIcon(Icons.videocam_outlined), findsOneWidget);
   });
+  testWidgets(
+    'an open journal replaces the sibling placeholder with final duration',
+    (tester) async {
+      final storage = HiddenVolumeStorage(_mem());
+      await storage.open(password: 'p', createIfMissing: true);
+      final peer = _id(2);
+      await tester.pumpWidget(_app(storage));
+      await tester.pumpAndSettle();
+      final store = ProviderScope.containerOf(
+        tester.element(find.byType(CallLogScreen)),
+      ).read(callLogStoreProvider);
+      await store.add(
+        CallLogEntry(
+          id: 'shared-call',
+          peerHex: peer.hex,
+          outgoing: false,
+          video: false,
+          outcome: CallLogOutcome.completed,
+          atMs: 2000,
+          provisional: true,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Answered on another device'), findsOneWidget);
+      expect(find.text('0:00'), findsNothing);
+      await store.addMirrored(
+        CallLogEntry(
+          id: 'shared-call',
+          peerHex: peer.hex,
+          outgoing: false,
+          video: false,
+          outcome: CallLogOutcome.completed,
+          atMs: 1000,
+          durationSec: 75,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Answered on another device'), findsNothing);
+      expect(find.text('1:15'), findsOneWidget);
+      expect(find.byType(ListTile), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await storage.close();
+    },
+  );
 }
