@@ -254,3 +254,16 @@ pointer unchanged, and the prior debug property restored. No calls/audio or
 server changes occurred. `android-host-authorization-summary.json` contains
 only approved numeric/boolean/software-revision fields; encrypted container
 copies, keys and raw logs remain private.
+
+
+## Follow-up: recent stream reordering evidence (SDK `fa7123f5`)
+
+The independently reproduced sticky original-packet reordering maximum is now
+aged through a bounded recent history. All 148 stream tests, a failing negative
+control, Clippy and formatting passed. With the same rebuilt Flutter frontends
+and matching fresh native libraries, the repeated **32 MiB** cellular download
+completed in **112.960 s**, full SHA-256 match, passing the unchanged **180 s**
+gate. The earlier failed gate remains recorded above. Live counters demonstrate
+expiry; the runs do not isolate a causal speedup. Android encrypted checkpoints
+again passed native validation after abrupt restart, and cleanup/restoration
+was independently verified. See [details](../stream-reordering-2026-10-24/README.md).
