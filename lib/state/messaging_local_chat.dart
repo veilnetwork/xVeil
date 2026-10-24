@@ -1,5 +1,11 @@
 part of 'messaging_core.dart';
 
+class _ReactionState {
+  _ReactionState(this.values, this.stamps);
+  final Map<String, Map<String, String>> values;
+  final Map<String, Map<String, int>> stamps;
+}
+
 /// Local conversation features that deliberately do not own transport or the
 /// canonical event-log write path. The parent remains the boundary for wire
 /// sends and [_MessagingLocalChat] calls [MessagingService._store] for every
@@ -8,6 +14,39 @@ class _MessagingLocalChat {
   _MessagingLocalChat(this._owner);
 
   final MessagingService _owner;
+  final Map<String, Future<void>> _reactionWrites = {};
+  final Set<Future<void>> _reactionSends = {};
+  bool _reactionsClosed = false;
+
+  Future<T> _serializeReactions<T>(String convId, Future<T> Function() action) {
+    if (_reactionsClosed) return Future.error(StateError('reactions closed'));
+    final result = (_reactionWrites[convId] ?? Future<void>.value()).then(
+      (_) => action(),
+    );
+    final tail = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    _reactionWrites[convId] = tail;
+    unawaited(
+      tail.then((_) {
+        if (identical(_reactionWrites[convId], tail)) {
+          _reactionWrites.remove(convId);
+        }
+      }),
+    );
+    return result;
+  }
+
+  Future<void> closeReactions() async {
+    // The owner first drains admitted inbound lanes. Those handlers must
+    // still be able to publish their reactions after disposal has begun.
+    // A local action admitted before close also owns its callback/outbox
+    // publication, not merely the first write of its visible reaction.
+    await Future.wait(_reactionSends.toList());
+    _reactionsClosed = true;
+    await Future.wait(_reactionWrites.values.toList());
+  }
 
   /// Reactions and their stamps live in the FILE store, not a setting.
   ///
@@ -15,29 +54,82 @@ class _MessagingLocalChat {
   /// and was never pruned; past a few dozen reactions it no longer fitted a
   /// record, every write threw `PayloadTooLarge`, and reacting in that chat
   /// stopped working for good (measured on the stand under a mixed load). The
-  /// file store chunks a large value. The old setting is still READ, so what
-  /// was stored there moves over on the next write.
+  /// file store chunks a large value. Legacy settings/files remain readable
+  /// until the first successful publication of the combined state.
   Future<String?> _readReactionBlob(String key) async {
     final blob = await _owner._storage.loadFile(key);
     if (blob != null) return utf8.decode(blob);
     return _owner._storage.getSetting(key);
   }
 
-  Future<void> _writeReactionBlob(String key, String json) async {
-    await _owner._storage.storeFile(
-      key,
-      Uint8List.fromList(utf8.encode(json)),
-      name: 'reactions',
-    );
-    // Retire the old record so a later read cannot fall back to stale data
-    // and the settings index stops carrying it.
-    if (await _owner._storage.getSetting(key) != null) {
-      await _owner._storage.putSetting(key, '');
+  /// Load all reactions for a conversation: msgId → (reactorHex → emoji).
+  Future<Map<String, Map<String, String>>> loadReactions(String convId) async {
+    try {
+      return (await _readReactionState(convId)).values;
+    } catch (_) {
+      return {};
     }
   }
 
-  /// Load all reactions for a conversation: msgId → (reactorHex → emoji).
-  Future<Map<String, Map<String, String>>> loadReactions(String convId) async {
+  // Publish values and their ordering floors together. FileStore's final
+  // metadata commit retains the old complete blob until the replacement is
+  // durable. A failed mutation must not advance a stamp without its value.
+  Future<_ReactionState> _readReactionState(String convId) async {
+    final raw = await _owner._storage.loadFile('rx2:$convId');
+    if (raw == null) {
+      return _ReactionState(
+        await _loadLegacyReactions(convId),
+        await _loadReactionStamps(convId),
+      );
+    }
+    final decoded = jsonDecode(utf8.decode(raw));
+    if (decoded is! Map || decoded['v'] != 1) {
+      throw const FormatException('unsupported reaction state');
+    }
+    // Mutations deliberately propagate corruption instead of replacing an
+    // unreadable authoritative snapshot with an empty reaction map.
+    return _ReactionState(
+      {
+        for (final e in (decoded['r'] as Map).entries)
+          e.key as String: Map<String, String>.from(e.value as Map),
+      },
+      {
+        for (final e in (decoded['t'] as Map).entries)
+          e.key as String: Map<String, int>.from(e.value as Map),
+      },
+    );
+  }
+
+  Future<void> _writeReactionState(String convId, _ReactionState state) async {
+    await _owner._storage.storeFile(
+      'rx2:$convId',
+      Uint8List.fromList(
+        utf8.encode(jsonEncode({'v': 1, 'r': state.values, 't': state.stamps})),
+      ),
+      name: 'reactions',
+    );
+    // Retire migrated copies only AFTER publishing the complete replacement.
+    // A cleanup failure cannot undo that commit or skip its peer outbox write;
+    // retry on the next mutation while rx2 remains authoritative.
+    for (final key in ['rx:$convId', 'rxat:$convId']) {
+      try {
+        await _owner._storage.deleteStoredFile(key);
+        final legacy = await _owner._storage.getSetting(key);
+        if (legacy != null && legacy.isNotEmpty) {
+          await _owner._storage.putSetting(key, '');
+        }
+      } catch (error) {
+        devLog(
+          () =>
+              'xVeil[reactions]: legacy cleanup incomplete (${error.runtimeType})',
+        );
+      }
+    }
+  }
+
+  Future<Map<String, Map<String, String>>> _loadLegacyReactions(
+    String convId,
+  ) async {
     try {
       final raw = await _readReactionBlob('rx:$convId');
       if (raw == null || raw.isEmpty) return {};
@@ -56,9 +148,8 @@ class _MessagingLocalChat {
     }
   }
 
-  /// Per-reactor ordering stamps, kept BESIDE the reactions themselves
-  /// (`rxat:` vs `rx:`) so the on-disk reaction format is unchanged and data
-  /// written before this existed simply carries no floor.
+  /// Legacy separate ordering floors. Read once when migrating to rx2;
+  /// records written before floors existed carry no floor.
   Future<Map<String, Map<String, int>>> _loadReactionStamps(
     String convId,
   ) async {
@@ -91,15 +182,38 @@ class _MessagingLocalChat {
     String reactorHex,
     String emoji, {
     int? atMs,
-  }) async {
-    final stamps = await _loadReactionStamps(convId);
-    if (atMs != null) {
-      final seen = stamps[msgId]?[reactorHex];
-      if (seen != null && atMs < seen) return;
-      (stamps[msgId] ??= <String, int>{})[reactorHex] = atMs;
-      await _writeReactionBlob('rxat:$convId', jsonEncode(stamps));
+  }) => _serializeReactions(convId, () async {
+    final state = await _readReactionState(convId);
+    if (!_applyReactionState(state, msgId, reactorHex, emoji, atMs: atMs)) {
+      return;
     }
-    final all = await loadReactions(convId);
+    await _writeReactionState(convId, state);
+  });
+
+  bool _applyReactionState(
+    _ReactionState state,
+    String msgId,
+    String reactorHex,
+    String emoji, {
+    int? atMs,
+  }) {
+    if (atMs != null) {
+      final seen = state.stamps[msgId]?[reactorHex];
+      final current = state.values[msgId]?[reactorHex] ?? '';
+      // Exactly the payload ordering of foldDeviceSync for reaction and
+      // peerReaction, including an empty-emoji removal at an equal stamp.
+      if (seen != null &&
+          (atMs < seen ||
+              (atMs == seen &&
+                  jsonEncode({
+                        'e': emoji,
+                      }).compareTo(jsonEncode({'e': current})) <=
+                      0))) {
+        return false;
+      }
+      (state.stamps[msgId] ??= <String, int>{})[reactorHex] = atMs;
+    }
+    final all = state.values;
     final forMsg = all[msgId] ?? <String, String>{};
     if (emoji.isEmpty) {
       forMsg.remove(reactorHex);
@@ -111,26 +225,46 @@ class _MessagingLocalChat {
     } else {
       all[msgId] = forMsg;
     }
-    await _writeReactionBlob('rx:$convId', jsonEncode(all));
+    return true;
   }
 
   /// Apply a reaction locally and persist its durable wire frame for a peer.
-  Future<void> sendReaction(NodeId peer, String msgId, String emoji) async {
+  Future<void> sendReaction(NodeId peer, String msgId, String emoji) {
+    if (_owner._disposed) return Future.error(StateError('messaging disposed'));
+    final result = _sendReaction(peer, msgId, emoji);
+    final settled = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    _reactionSends.add(settled);
+    unawaited(settled.then((_) => _reactionSends.remove(settled)));
+    return result;
+  }
+
+  Future<void> _sendReaction(NodeId peer, String msgId, String emoji) async {
     final selfHex = await _owner._selfHex();
-    final atMs = DateTime.now().millisecondsSinceEpoch;
-    await applyReaction(peer.hex, msgId, selfHex, emoji, atMs: atMs);
+    final atMs = await _serializeReactions(peer.hex, () async {
+      final state = await _readReactionState(peer.hex);
+      final seen = state.stamps[msgId]?[selfHex];
+      if (seen == 0x7fffffffffffffff) {
+        throw StateError('reaction version exhausted');
+      }
+      final now = _owner._now().millisecondsSinceEpoch;
+      final at = seen != null && seen >= now ? seen + 1 : now;
+      _applyReactionState(state, msgId, selfHex, emoji, atMs: at);
+      await _writeReactionState(peer.hex, state);
+      return at;
+    });
     _owner._signal();
     // Saved Messages is local-only: never address a reaction to ourselves.
     if (peer.hex == selfHex) return;
     _owner.onReactionSent?.call(peer, msgId, emoji, atMs);
-    // The frame id must carry the VERSION, not just the message: every
-    // reaction to one message used to share `rx:<msgId>`, so the receiver's
-    // generic dedup gate ACKED the change/removal and then dropped it. The
-    // sender retired the frame on that ack and believed it delivered, leaving
-    // the two sides showing different emoji until the receiver restarted.
+    // Millisecond stamps can collide across devices. Give every user mutation
+    // its own durable ID; retransmission retains that same stored ID. Otherwise
+    // dedup can discard a different emoji before the ordering rule sees it.
     await _owner.sendDurable(
       peer,
-      'rx:$msgId:$atMs',
+      'rx:$msgId:${_uuid.v4()}',
       WireEnvelope.reaction(msgId, emoji, sentAtMs: atMs),
     );
   }
