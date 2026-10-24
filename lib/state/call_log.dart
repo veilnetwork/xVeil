@@ -46,7 +46,7 @@ class CallLogStore {
   /// Record a LOCAL revision: converges by [CallLogEntry.id], capped, then fires
   /// [onAdded]. Returns whether a new row was written.
   Future<bool> add(CallLogEntry e) async {
-    final wrote = await _insert(e);
+    final wrote = await _insert(e, queueForSync: true);
     if (wrote) onAdded?.call(e);
     return wrote;
   }
@@ -121,9 +121,13 @@ class CallLogStore {
     return done;
   }
 
-  Future<bool> _insert(CallLogEntry e) {
+  Future<bool> _insert(CallLogEntry e, {bool queueForSync = false}) {
     final done = _chain.then((_) async {
-      final wrote = await _storage.appendCallLogEntry(e, cap: kCallLogCap);
+      final wrote = await _storage.appendCallLogEntry(
+        e,
+        cap: kCallLogCap,
+        queueForSync: queueForSync,
+      );
       if (wrote) changes.value++;
       return wrote;
     });

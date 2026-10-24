@@ -21,6 +21,14 @@ export '../../domain/message_deletion.dart';
 /// it never leaves the deniable container.
 const kIdentityOriginSetting = 'identity.origin';
 
+/// One durable local publication obligation. The opaque token identifies the
+/// exact stored revision, so acknowledging it cannot remove a newer result.
+class PendingCallLogSync {
+  const PendingCallLogSync({required this.entry, required this.token});
+  final CallLogEntry entry;
+  final String token;
+}
+
 /// Domain-oriented persistence port.
 ///
 /// The production adapter is backed by `hidden-volume`: a [open] call unlocks
@@ -279,10 +287,30 @@ abstract interface class Storage {
   /// interrupted cleanup must not expose duplicate logical calls.
   /// A previously unknown call older than a full journal returns true but is
   /// immediately aged out, as for ordinary journal retention.
-  Future<bool> appendCallLogEntry(CallLogEntry entry, {required int cap});
+  /// [queueForSync] records a LOCAL publication obligation atomically with the
+  /// accepted revision, even if retention ages that revision out immediately.
+  /// Mirrored projections must leave it false to avoid publication echoes.
+  Future<bool> appendCallLogEntry(
+    CallLogEntry entry, {
+    required int cap,
+    bool queueForSync = false,
+  });
 
   /// Every call-journal row, newest-first (by [CallLogEntry.atMs]).
   Future<List<CallLogEntry>> callLogEntries();
+
+  /// Stage a retained legacy result for publication, without changing history.
+  Future<void> queueCallLogSync(CallLogEntry entry);
+
+  /// Pending results in stable key order. [afterCallId] is an exclusive cursor
+  /// into that order; failed records must not starve subsequent pages.
+  Future<List<PendingCallLogSync>> pendingCallLogSync({
+    int limit = 64,
+    String? afterCallId,
+  });
+
+  /// Clear only the exact revision handed off to the durable device journal.
+  Future<bool> acknowledgeCallLogSync(PendingCallLogSync record);
 
   // ── Durable frame outbox ───────────────────────────────────────────────────
   // Persist a control frame that MUST reach a peer so a flush re-drives it (live

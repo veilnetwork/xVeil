@@ -15,6 +15,7 @@ import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/transport/bootstrap_invite.dart';
 import 'package:xveil/data/transport/veil_mailbox.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/call_log.dart';
 import 'package:xveil/domain/clear_policy.dart';
 import 'package:xveil/domain/clear_request.dart';
 import 'package:xveil/domain/cloud.dart';
@@ -474,6 +475,7 @@ class _ControlledGroupWriteStorage extends HiddenVolumeStorage {
 
   int groupWriteAttempts = 0;
   bool failNextGroupWrite = false;
+  Completer<void>? callWriteEntered, callWriteRelease;
 
   void resetGroupWriteAttempts() {
     groupWriteAttempts = 0;
@@ -483,6 +485,12 @@ class _ControlledGroupWriteStorage extends HiddenVolumeStorage {
   Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) async {
     if (fileId.startsWith('group:')) {
       groupWriteAttempts++;
+      final release = callWriteRelease;
+      if (release != null) {
+        callWriteRelease = null;
+        callWriteEntered!.complete();
+        await release.future;
+      }
       if (failNextGroupWrite) {
         failNextGroupWrite = false;
         throw StateError('injected group bundle write failure');
@@ -5471,6 +5479,63 @@ void main() {
     expect(requests.any((request) => request['sreq'] == 1 && request['gid'] == gid.hex), isTrue,
       reason: 'an overtaken manifest delta must be recovered immediately after adoption');
   });
+
+  for (final rejectWrite in [false, true]) {
+    test(
+      'call publication dedupe waits for a committed batch reject=$rejectWrite',
+      () async {
+        final storage = _ControlledGroupWriteStorage();
+        await storage.open(password: 'pw', createIfMissing: true);
+        final service = GroupService(storage, _FakeSigner(owner));
+        addTearDown(service.dispose);
+        expect(await service.linkDevice(bob, sovereign: sovereign), true);
+        await service.committedDeviceCallLog();
+        final release = Completer<void>();
+        addTearDown(() {
+          if (!release.isCompleted) release.complete();
+        });
+        storage.callWriteEntered = Completer<void>();
+        storage.callWriteRelease = release;
+        storage.failNextGroupWrite = rejectWrite;
+        final futureTime = DateTime.now().millisecondsSinceEpoch + 10000000;
+        final entry = CallLogEntry(
+          id: 'commit-boundary',
+          peerHex: bob.hex,
+          outgoing: true,
+          video: false,
+          outcome: CallLogOutcome.completed,
+          atMs: futureTime,
+          durationSec: 75,
+        );
+        final post = service.postDeviceEvent(DeviceSyncEvent(
+          kind: DeviceSyncKind.callLog,
+          key: entry.id,
+          tsMs: futureTime,
+          payload: entry.toJson(),
+        ));
+        await storage.callWriteEntered!.future;
+        var readDone = false;
+        final read = service.committedDeviceCallLog().then((rows) {
+          readDone = true;
+          return rows;
+        });
+        await Future<void>.delayed(Duration.zero);
+        expect(readDone, false);
+        release.complete();
+        expect(await post, !rejectWrite);
+        final rows = await read;
+        expect(rows.length, rejectWrite ? 0 : 1);
+        if (!rejectWrite) expect(rows.single.durationSec, 75);
+        expect(
+          (await service.deviceSyncState()).containsKey(
+            (DeviceSyncKind.callLog, entry.id),
+          ),
+          false,
+          reason: 'dedupe must not remove the effective-state clock fence',
+        );
+      },
+    );
+  }
 
   test('device group: link/adopt/revoke lifecycle, hidden + silent', () async {
     Future<void> drain() async {
