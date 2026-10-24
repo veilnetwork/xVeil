@@ -19,6 +19,7 @@ import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/domain/content_manifest.dart';
 import 'package:xveil/domain/group_content.dart';
 import 'package:xveil/domain/p2p_policy.dart';
+import 'package:xveil/domain/peer_authorization.dart';
 import 'package:xveil/domain/roster.dart';
 import 'package:xveil/domain/space_public_feed_transport.dart';
 import 'package:xveil/state/messaging.dart';
@@ -389,8 +390,19 @@ class _GateWriteStream implements ReliableStream {
 
 /// Datagram + reliable-stream loopback link between two peers.
 class _StreamLink
-    implements VeilTransport, StreamTransport, P2PStreamTransport {
+    implements
+        VeilTransport,
+        StreamTransport,
+        P2PStreamTransport,
+        PeerDeviceAuthorizationHandle {
   _StreamLink(this._me);
+  bool deviceProofActive = true;
+  bool refuseDeviceProofCheck = false;
+  @override
+  bool peerDeviceProofAllowed(Uint8List identity, Uint8List device) {
+    if (refuseDeviceProofCheck) throw StateError('fixture verifier unavailable');
+    return deviceProofActive;
+  }
   final NodeId _me;
   NodeId get nodeIdSync => _me;
   final _in = StreamController<InboundMessage>.broadcast();
@@ -1531,6 +1543,122 @@ void main() {
     },
   );
 
+  for (final refusal in ['revoked', 'verifier-error', 'queued-old-proof']) {
+    test(
+      'a $refusal device proof cannot spend accepted or stale own grants',
+      () async {
+        final device = _id(0x2d);
+        tB.srcDevice = device;
+        tB.anonStreamSrc = device;
+        await mB.sendText(a, 'authenticated device before revocation');
+        await Future<void>.delayed(Duration.zero);
+        expect(mA.identityOfDevice(device), b);
+        expect(mA.deviceProofAllowed(b, device), isTrue);
+        final data = _rnd(90000, 4100);
+        final cid = await advertiseFromA(data, name: 'device-proof.bin');
+        await sA.upsertContact(
+          Contact(nodeId: device, status: ContactStatus.accepted),
+        );
+        mA.isOwnDevice = (peer) async =>
+            peer == device; // a stale secondary grant
+        tA.deviceProofActive = false;
+        tA.refuseDeviceProofCheck = refusal == 'verifier-error';
+        if (refusal == 'queued-old-proof') {
+          await mB.sendText(
+            a,
+            'previously verified frame drained after revocation',
+          );
+          await Future<void>.delayed(Duration.zero);
+        }
+        expect(
+          mA.identityOfDevice(device),
+          b,
+          reason: 'historical evidence remains',
+        );
+        expect(mA.deviceProofAllowed(b, device), isFalse);
+        final stream = (await tB.openStream(a))!;
+        try {
+          await stream.write(
+            Uint8List(48)..setAll(0, [
+              for (var i = 0; i < cid.length; i += 2)
+                int.parse(cid.substring(i, i + 2), radix: 16),
+            ]),
+          );
+          expect(
+            await stream.read(maxBytes: 4).timeout(const Duration(seconds: 2)),
+            isEmpty,
+          );
+        } finally {
+          await stream.close();
+        }
+        tA.deviceProofActive = true;
+        tA.refuseDeviceProofCheck = false;
+        final got = mB.contentReceived.firstWhere(
+          (event) => event.contentId == cid,
+        );
+        expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+        await got.timeout(const Duration(seconds: 5));
+        expect(await sB.loadFile(cid), data);
+      },
+    );
+  }
+
+  test(
+    'revocation during a source read stops the next plaintext block',
+    () async {
+      final device = _id(0x2d);
+      tB.srcDevice = device;
+      tB.anonStreamSrc = device;
+      await mB.sendText(a, 'authenticated device before blocked read');
+      await Future<void>.delayed(Duration.zero);
+      expect(mA.deviceProofAllowed(b, device), isTrue);
+      await mB.setFileDownloadPolicy(
+        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
+      final data = _rnd(600000, 4101);
+      var revokeOnRead = false;
+      final cid = (await mA.sendFileStreaming(
+        b,
+        'revoked-read.bin',
+        data.length,
+        (offset, length) async {
+          if (revokeOnRead) tA.deviceProofActive = false;
+          return Uint8List.sublistView(
+            data,
+            offset,
+            min(offset + length, data.length),
+          );
+        },
+        close: () async {},
+      ))!;
+      revokeOnRead = true;
+      final stream = (await tB.openStream(a))!;
+      final received = BytesBuilder(copy: false);
+      try {
+        await stream.write(
+          Uint8List(48)..setAll(0, [
+            for (var i = 0; i < cid.length; i += 2)
+              int.parse(cid.substring(i, i + 2), radix: 16),
+          ]),
+        );
+        while (true) {
+          final bytes = await stream
+              .read(maxBytes: 256 * 1024)
+              .timeout(const Duration(seconds: 2));
+          if (bytes.isEmpty) break;
+          received.add(bytes);
+        }
+      } finally {
+        await stream.close();
+      }
+      expect(
+        tA.deviceProofActive,
+        isFalse,
+        reason: 'the revoke must happen during the serve read',
+      );
+      expect(_containsSlice(received.takeBytes(), data), isFalse);
+    },
+  );
   test('a contact\'s DEVICE is served the file its identity was offered', () async {
     // Veil answers every anonymous stream at the opener's device address, so
     // the serving side sees B's device, not B. Measured on the stand as

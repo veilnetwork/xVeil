@@ -474,10 +474,19 @@ extension _MessagingContentServer on MessagingService {
       // stream at the opener's device address — so a contact's device asks
       // under an id that is not the contact's. Its owner is the contact, when
       // one of its frames has proven the pair (see [identityOfDevice]).
+      void recheckDeviceProof() {
+        final knownOwner = identityOfDevice(peer);
+        if (knownOwner != null && !deviceProofAllowed(knownOwner, peer)) {
+          throw StateError('device delegation is no longer active');
+        }
+      }
+
+      recheckDeviceProof();
       final contact = await policyContactFor(
         peer,
         getContact: _storage.getContact,
         identityOfDevice: identityOfDevice,
+        deviceProofAllowed: deviceProofAllowed,
       );
       // Serve accepted 1:1 contacts as always; a NON-contact group member is
       // served iff it holds a live membership grant for THIS cid (groups
@@ -599,6 +608,9 @@ extension _MessagingContentServer on MessagingService {
       );
       if (_disposed) throw StateError('messaging service disposed');
       final mf = Uint8List.fromList(utf8.encode(jsonEncode(m.toJson())));
+      // Source reopening/hashing and contact storage can await. Do not let a
+      // revocation learned during those awaits publish even a fresh manifest.
+      recheckDeviceProof();
       if (creditRequested) {
         stream = ContentStreamCreditSender(
           stream,
@@ -641,6 +653,7 @@ extension _MessagingContentServer on MessagingService {
       var lastServeLogMs = 0;
       while (off < end) {
         if (_disposed) throw StateError('messaging service disposed');
+        recheckDeviceProof();
         final n =
             ((end - off) < MessagingService._streamReadChunk
                     ? (end - off)
@@ -669,6 +682,7 @@ extension _MessagingContentServer on MessagingService {
           throw StateError('source truncated at $off/$size');
         }
         if (_disposed) throw StateError('messaging service disposed');
+        recheckDeviceProof();
         await writeStreamWithIdleTimeout(
           stream,
           data,

@@ -385,6 +385,22 @@ typedef _PeerAuthorizationAckNative =
     Int32 Function(Pointer<Void>, Uint64, Pointer<Pointer<Utf8>>);
 typedef _PeerAuthorizationAckDart =
     int Function(Pointer<Void>, int, Pointer<Pointer<Utf8>>);
+typedef _PeerDeviceProofNative =
+    Int32 Function(
+      Pointer<Void>,
+      Pointer<Uint8>,
+      Pointer<Uint8>,
+      Pointer<Uint8>,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _PeerDeviceProofDart =
+    int Function(
+      Pointer<Void>,
+      Pointer<Uint8>,
+      Pointer<Uint8>,
+      Pointer<Uint8>,
+      Pointer<Pointer<Utf8>>,
+    );
 
 /// Read `veil_ratchet_peek_dirty`'s answer out of the buffer it filled.
 ///
@@ -483,10 +499,15 @@ bool ratchetStateAvailable({
   assertRatchetAbiContract(dl, expectedAbiHash: expectedAbiHash);
   try {
     dl.lookup<NativeFunction<_VersionNative>>('veil_ratchet_state_version');
-    return true;
   } catch (_) {
     return false;
   }
+  // A ratcheted native build must also fence remembered device bindings. Do
+  // not silently run with old authorization just because the ABI layouts fit.
+  if (!dl.providesSymbol('veil_peer_device_proof_allowed')) {
+    throw StateError('Native peer device authorization is unavailable');
+  }
+  return true;
 }
 
 /// [RatchetStateHandle] over a `VeilHandle` — an IPC CLIENT connection to the
@@ -504,7 +525,10 @@ bool ratchetStateAvailable({
 /// lock, and the alternative — doing this off-isolate — would put the write
 /// that must land BEFORE a send completes on the far side of a message queue.
 class FfiRatchetStateHandle
-    implements RatchetStateHandle, PeerAuthorizationStateHandle {
+    implements
+        RatchetStateHandle,
+        PeerAuthorizationStateHandle,
+        PeerDeviceAuthorizationHandle {
   FfiRatchetStateHandle(this._handle, this._dl);
 
   /// Open a connection to the node's IPC socket and take the ratchet door on
@@ -590,6 +614,37 @@ class FfiRatchetStateHandle
     } finally {
       calloc.free(version);
       calloc.free(err);
+    }
+  }
+
+  @override
+  bool peerDeviceProofAllowed(Uint8List identity, Uint8List device) {
+    if (_closed) throw StateError('Native authorization handle is closed');
+    if (identity.length != 32 || device.length != 32) {
+      throw ArgumentError('Identity and device ids must be 32 bytes');
+    }
+    final fn = _dl.lookupFunction<_PeerDeviceProofNative, _PeerDeviceProofDart>(
+      'veil_peer_device_proof_allowed',
+    );
+    final peer = calloc<Uint8>(32), dev = calloc<Uint8>(32);
+    final allowed = calloc<Uint8>();
+    final error = calloc<Pointer<Utf8>>();
+    try {
+      peer.asTypedList(32).setAll(0, identity);
+      dev.asTypedList(32).setAll(0, device);
+      if (fn(_handle, peer, dev, allowed, error) != 0) {
+        _takeErr(error);
+        throw StateError('Native device authorization check failed');
+      }
+      if (allowed.value > 1) {
+        throw StateError('Invalid device authorization result');
+      }
+      return allowed.value == 1;
+    } finally {
+      calloc.free(peer);
+      calloc.free(dev);
+      calloc.free(allowed);
+      calloc.free(error);
     }
   }
 

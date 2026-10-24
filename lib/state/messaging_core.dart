@@ -24,6 +24,7 @@ import '../domain/group_call.dart';
 import '../domain/group_content.dart';
 import '../domain/chat.dart';
 import '../domain/profile_avatar.dart';
+import '../domain/peer_authorization.dart';
 import '../domain/clear_policy.dart';
 import '../domain/clear_request.dart';
 import '../domain/chat_folder.dart';
@@ -142,6 +143,7 @@ class MessagingService {
     this._transport,
     this._storage, {
     this._anonymous = false,
+    PeerDeviceAuthorizationHandle? deviceAuthorization,
     DateTime Function()? now,
     Duration? contentReRequestInterval,
     Duration? contentPacing,
@@ -159,7 +161,13 @@ class MessagingService {
     Future<bool> Function(NodeId peer)? p2pStreamAllowed,
     Future<String?> Function(String path)? videoThumbMaker,
     Future<String?> Function(Uint8List bytes)? imageThumbMaker,
-  }) : _now = now ?? DateTime.now,
+  }) : _deviceAuthorization =
+           deviceAuthorization ??
+           switch (_transport) {
+             final PeerDeviceAuthorizationHandle verifier => verifier,
+             _ => null,
+           },
+       _now = now ?? DateTime.now,
        _contentReRequestInterval =
            contentReRequestInterval ?? const Duration(seconds: 20),
        _contentPacing = contentPacing ?? _configuredContentPacing(),
@@ -201,6 +209,7 @@ class MessagingService {
 
   final VeilTransport _transport;
   final Storage _storage;
+  final PeerDeviceAuthorizationHandle? _deviceAuthorization;
   final bool _p2pStreamsEnabled;
   final Future<bool> Function(NodeId peer) _p2pStreamAllowed;
   final Future<String?> Function(String path) _videoThumbMaker;
@@ -2260,7 +2269,24 @@ class MessagingService {
   /// to one of its devices never got one to the other (a stand: A->E 1.2 s
   /// over the relay, E->A 0.2 s direct). Null when not seen; nothing is
   /// guessed from a frame that did not prove its device.
-  NodeId? identityOfDevice(NodeId device) => _identityOfDevice[device.hex];
+  NodeId? identityOfDevice(NodeId device) {
+    return _identityOfDevice[device.hex];
+  }
+
+  /// Historical proof alone is not current authority. A missing/broken native
+  /// verifier must not turn a learned revocation back into accepted consent.
+  bool deviceProofAllowed(NodeId identity, NodeId device) {
+    if (_disposed || _identityOfDevice[device.hex] != identity) return false;
+    try {
+      return _deviceAuthorization?.peerDeviceProofAllowed(
+            identity.bytes,
+            device.bytes,
+          ) ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
 
   /// Preserve the node's verified device/identity relation on either inbound
   /// lane. A claimed source/device pair supplies no proof. Realtime callers
