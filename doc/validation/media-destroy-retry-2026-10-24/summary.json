@@ -1,0 +1,73 @@
+{
+  "sdk_revision": "de769239927908e2f6929b416f101f6641d7baef",
+  "baseline_revision": "858d84d9a3f50687a21030b7aa8b2beaaae90bf4",
+  "controlled_queue_release_ms": 12500,
+  "control_scheduling_timeout_seconds": 10,
+  "cases": {
+    "direct-audio": {
+      "baseline_signal_abrt": true,
+      "baseline_fatal_live_stream_check": true,
+      "fixed_exit_code": 0,
+      "fixed_destroy_elapsed_ms": 12511,
+      "fixed_safe_return": true,
+      "process_reaped": true
+    },
+    "direct-video": {
+      "baseline_signal_abrt": true,
+      "baseline_fatal_live_stream_check": true,
+      "fixed_exit_code": 0,
+      "fixed_destroy_elapsed_ms": 12511,
+      "fixed_safe_return": true,
+      "process_reaped": true
+    },
+    "group-audio": {
+      "baseline_signal_abrt": true,
+      "baseline_fatal_live_stream_check": true,
+      "fixed_exit_code": 0,
+      "fixed_destroy_elapsed_ms": 12511,
+      "fixed_safe_return": true,
+      "process_reaped": true
+    },
+    "group-video": {
+      "baseline_signal_abrt": true,
+      "baseline_fatal_live_stream_check": true,
+      "fixed_exit_code": 0,
+      "fixed_destroy_elapsed_ms": 12511,
+      "fixed_safe_return": true,
+      "process_reaped": true
+    }
+  },
+  "audio_stop_retry_regression_passed": true,
+  "muted_and_sparse_video_regression_passed": true,
+  "bounded_test_runner_checked": true,
+  "real_call_audio_and_video_streams": true,
+  "synthetic_adm_only": true,
+  "physical_capture_or_playout_used": false,
+  "phone_profile_installed_app_or_server_changed": false,
+  "production_api_changed": false,
+  "permanently_stalled_worker_bounded_destruction_guaranteed": false,
+  "owned_test_processes_exited": true,
+  "production_builds": {
+    "macos": {
+      "production_exports": 105,
+      "same_exports_as_previous_production": true,
+      "test_exports_absent": true,
+      "synthetic_video_marker_absent": true,
+      "sha256": "5ed10ef2fb698d603af96e0272ad9d8b8f99ebf0e7eca353c53e228ac9bf982e"
+    },
+    "android_arm64": {
+      "production_exports": 105,
+      "same_exports_as_previous_production": true,
+      "test_exports_absent": true,
+      "synthetic_video_marker_absent": true,
+      "sha256": "b35442608d99252e336d227859bc0f65b27db3245851acd30e527fec80850d44"
+    }
+  },
+  "source_sha256": {
+    "flutter/veil_media/src/veil_media_engine.cc": "411c2251f14164ce8c135186300311917064ebe8a77dd26c74cc8b2cf1273397",
+    "flutter/veil_media/src/veil_media_engine.h": "6722e00b996af322b19d22cb6c65f0e62f9d8a6dbdc92030d1b1926408d37c49",
+    "flutter/veil_media/test/call_plane_hooks.inc": "8ea63093292f86a435915a80c63218dbab21212b69eba30f39626bd8f6c551d7",
+    "flutter/veil_media/test/media_destroy_retry_smoke.cc": "7d62abe9a04e1801e588e587e31fa02d5ab8e6ee613d8c979d9cbd56ba2f9680",
+    "flutter/veil_media/test/run_media_destroy_retry_smoke.sh": "387c7cffa8a7da9f2aea388b47abc66d8c3a69acf76b9da6de58c522bcb1dfc5"
+  }
+}
