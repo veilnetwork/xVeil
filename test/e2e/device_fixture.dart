@@ -158,6 +158,9 @@ class _BootScope {
             'device $label: late async error from a boot that is already '
             'down (ignored): $error',
           );
+          if (Platform.environment['XVEIL_E2E_LATE_ERROR_STACKS'] == '1') {
+            E2eLog.line('late async stack for $label: $stackTrace');
+          }
         },
       ),
     );

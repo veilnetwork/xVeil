@@ -1,0 +1,32 @@
+{
+  "attempt1": {
+    "owned_worker_and_relay_pids_absent": true,
+    "owned_root_removed": true,
+    "relay_boots": 3,
+    "late_async_errors": 0
+  },
+  "baseline": {
+    "owned_worker_and_relay_pids_absent": true,
+    "owned_root_removed": true,
+    "relay_boots": 3,
+    "late_async_errors": 0
+  },
+  "corrected": {
+    "owned_worker_and_relay_pids_absent": true,
+    "owned_root_removed": true,
+    "relay_boots": 3,
+    "late_async_errors": 3
+  },
+  "traced": {
+    "owned_worker_and_relay_pids_absent": true,
+    "owned_root_removed": true,
+    "relay_boots": 3,
+    "late_async_errors": 3
+  },
+  "final": {
+    "owned_worker_and_relay_pids_absent": true,
+    "owned_root_removed": true,
+    "relay_boots": 3,
+    "late_async_errors": 3
+  }
+}

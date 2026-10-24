@@ -86,6 +86,14 @@ pending map is an optimization, not a durable delivery receipt. A receiver
 restart or pending eviction must not cause the sender to discard the operation.
 Legacy frames without durable IDs still have their older best-effort contract.
 
+An applied pending peer delete now also publishes `msgGone` to this identity's
+device log, whether its target arrived directly or through a sibling mirror.
+`onMessageDeleted` may return a Future; completion/ACK joins its local durable
+journal write. Local erasure and UI notification still happen even if that
+publication fails. A retransmitted post over an existing tombstone retries an
+unfinished publication before ACKing. Own-device erasures do not echo.
+See [native convergence and remaining teardown issue](validation/pending-delete-convergence-2026-10-24/README.md).
+
 Pending operations retain authorization scope: a contact may edit/delete only
 its incoming messages, even if its frame wins the race with an outgoing mirror
 from this identity's own device. Device and contact pending slots are separate
