@@ -164,7 +164,7 @@ void main() {
       expect(show, greaterThan(-1), reason: 'the repliable alert moved');
       final body = source.substring(show);
 
-      expectBefore(body, 'notificationOwnersProvider', '.show(');
+      expectBefore(body, 'notificationOwnersProvider', '.showIfCurrent(');
       expect(
         body,
         contains('owners.remember(convHex,'),
@@ -186,13 +186,13 @@ void main() {
       final show = source.indexOf('Future<void> _show({');
       expect(show, greaterThan(-1), reason: 'the repliable alert moved');
       final body = source.substring(show);
-      expectBefore(body, '.show(', 'owners.remember(convHex,');
+      expectBefore(body, '.showIfCurrent(', 'owners.remember(convHex,');
       // The shape moved when the post gained an identity check (XV-N1): a
       // failed post now returns early rather than guarding one statement.
       // What must hold is the same either way — nothing between the post and
       // the record may run when the post did not happen.
       final at = body.indexOf('owners.remember(convHex,');
-      final between = body.substring(body.indexOf('.show(', 0), at);
+      final between = body.substring(body.indexOf('.showIfCurrent(', 0), at);
       expect(
         RegExp(
           r'if \(!posted\) return;|if \(posted\) owners\.remember\(',

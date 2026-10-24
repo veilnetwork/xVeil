@@ -277,12 +277,15 @@ void main() {
           'and the post itself need the ticket compared',
     );
     expect(
-      show.contains('.cancel(id)'),
+      show.contains('.showIfCurrent(') &&
+          RegExp(
+            r'isCurrent: \(\) =>\s+mounted &&\s+generation == _notificationGeneration &&',
+          ).hasMatch(show) &&
+          show.contains('identity?.nodeId.hex == owner'),
       isTrue,
       reason:
-          'an alert posted for the previous identity has to come back DOWN '
-          "by its exact id, not merely go unrecorded — otherwise A's sender "
-          'and preview stay on screen under B with a live inline reply',
+          'the OS post must use the service queue with the original ticket; '
+          'a late take-down there finishes before any newer post of that id',
     );
   });
 
