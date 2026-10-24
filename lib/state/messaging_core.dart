@@ -1771,9 +1771,11 @@ class MessagingService {
     String emoji,
     int atMs,
   ) async {
+    if (_disposed) return;
     if (await _isSiblingDevice(peer)) return;
     final contact = await _storage.getContact(peer);
     if (contact?.status != ContactStatus.accepted) return;
+    if (_disposed) return;
     await _applyReaction(peer.hex, msgId, peer.hex, emoji, atMs: atMs);
     _signal();
   }
@@ -1786,7 +1788,9 @@ class MessagingService {
     String emoji,
     int atMs,
   ) async {
+    if (_disposed) return;
     if (await _isSiblingDevice(peer)) return;
+    if (_disposed) return;
     await _applyReaction(peer.hex, msgId, await _selfHex(), emoji, atMs: atMs);
     _signal();
   }
@@ -4122,6 +4126,7 @@ class MessagingService {
     await _realtimeSub?.cancel();
     _realtimeSub = null;
     await _quiesceInboundLanes();
+    await _localChatController?.closeReactions();
     // A serve may still be finishing its last chunk and ratchet flush. Join
     // those jobs before the final snapshot, while the container is open.
     await contentStreamsDisposed;

@@ -1,0 +1,77 @@
+{
+  "base_root_revision": "e195a2c4",
+  "sdk_revision": "de769239927908e2f6929b416f101f6641d7baef",
+  "baseline_equal_stamp_reaction_test_failed": true,
+  "baseline_parallel_reactions_submitted": 12,
+  "baseline_parallel_reactions_retained": 1,
+  "fixed_parallel_reactions_retained": 12,
+  "selected_tests_passed": 116,
+  "new_targeted_tests_passed": 13,
+  "analysis_passed": true,
+  "device_journal_equal_stamp_order_preserved": true,
+  "per_conversation_read_modify_write_serialized": true,
+  "reaction_value_and_order_floor_published_together": true,
+  "publication_commit_failure_reopen_cases_passed": 2,
+  "legacy_settings_migration_passed": true,
+  "legacy_file_migration_passed": true,
+  "migrated_legacy_records_retired_after_successful_publication": true,
+  "cleanup_failure_does_not_skip_outbox_and_retries": true,
+  "malformed_authoritative_state_not_overwritten": true,
+  "same_clock_distinct_durable_frame_ids": true,
+  "known_local_version_survives_clock_rollback": true,
+  "admitted_inbound_reaction_completes_during_close": true,
+  "admitted_local_reaction_outbox_published_during_close": true,
+  "late_local_mutations_refused": true,
+  "negative_controls": {
+    "timestamp-only-durable-id": {
+      "failed_as_expected": true,
+      "specific_semantic_assertion_failed": true
+    },
+    "separate-value-and-floor-publication": {
+      "failed_as_expected": true,
+      "specific_semantic_assertion_failed": true
+    },
+    "production_source_restored_exactly": true
+  },
+  "native_observation": {
+    "native_gate_passed": false,
+    "native_gate_timed_out_on_history_convergence": true,
+    "reaction_state_agreed_on_four_devices_in_live_snapshot": true,
+    "read_markers_agreed_within_both_identities_in_live_snapshot": true,
+    "new_messages_present_once_per_device_in_live_snapshot": true,
+    "sibling_sequence_disagreements": 4,
+    "sibling_id_text_direction_timestamp_edit_fields_equal": true,
+    "remaining_history_order_disagrees": true
+  },
+  "native_observation_precedes_final_legacy_retirement_addition": true,
+  "final_source_native_gate_passed": false,
+  "full_multi_device_checklist_complete": false,
+  "remaining_open_defect": "MD24-01: sibling sequence metadata and visible history order disagree",
+  "cleanup": {
+    "owned_native_libraries_not_open": true,
+    "owned_relay_executables_absent": true,
+    "owned_application_process_groups_absent": true,
+    "temporary_fleet_root_removed": true,
+    "worker_successful_exits": 6,
+    "late_async_errors_in_worker_logs": 0,
+    "unrelated_temp_directories_preserved": true
+  },
+  "phone_user_profile_installed_app_or_public_relay_changed": false,
+  "release_or_mixed_version_qualification_performed": false,
+  "native_artifact_sha256": {
+    "veil-cli": "4bec94ee6f20ac08da5366b0cd6356aa058d7ae689d7e79d0b3dbbfd40699dd6",
+    "libveilclient_ffi.dylib": "07328ac13c8222083e6236e7a751b32d6f3d2b6c3211423200c7b1b113e584e0",
+    "libhidden_volume_ffi.dylib": "a92a4ecdc62d4f82ae3403d584f65c0eea7e3904b78372d2ab7959957acdb169"
+  },
+  "native_observed_source_sha256": {
+    "lib/state/messaging_core.dart": "dd3898590824dff2f0ca2361b78f3b3d344ad14e927ebecc3af96f9c9d0ff617",
+    "lib/state/messaging_local_chat.dart": "7f7ec21588873712941710f40b22743060049f7ea1690353c3ae5a3c81829156",
+    "test/reaction_convergence_test.dart": "48c0c7e8ad22cfdac65f29bca25aeef019740e204a824aa1ae486c648eb28494",
+    "test/e2e/multi_device_partition_e2e_test.dart": "3d1f6397d55582d3807d008cf4c1f76000270f5f07693573bbada3a7c48239ce"
+  },
+  "final_source_sha256": {
+    "lib/state/messaging_core.dart": "dd3898590824dff2f0ca2361b78f3b3d344ad14e927ebecc3af96f9c9d0ff617",
+    "lib/state/messaging_local_chat.dart": "9600ab4ad493271ca10c8a2e54a830f5f390bdacbc87a80e1d3e580c9ee86c34",
+    "test/reaction_convergence_test.dart": "e70d2e81beb5eab37fbb5e24d4caa8f84135b9f81f02444acbff24f37bccc46e"
+  }
+}
