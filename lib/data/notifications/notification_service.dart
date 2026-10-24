@@ -13,6 +13,49 @@ import '../../core/log.dart';
 /// lives in the controller above it — keep this layer dumb so the privacy policy
 /// has exactly one home.
 class NotificationService {
+  final Map<int, Future<void>> _posts = {};
+
+  /// Post only while the originating session/ticket is current. Operations for
+  /// one OS id are ordered through late completion and any required take-down;
+  /// an obsolete post must never cancel a newer alert reusing that id.
+  Future<bool> showIfCurrent({
+    required bool Function() isCurrent,
+    required int id,
+    required String title,
+    required String body,
+    String? payload,
+    String? replyLabel,
+    String? replyHint,
+  }) {
+    final result = (_posts[id] ?? Future<void>.value()).then((_) async {
+      if (!isCurrent()) return false;
+      final posted = await show(
+        id: id,
+        title: title,
+        body: body,
+        payload: payload,
+        replyLabel: replyLabel,
+        replyHint: replyHint,
+      );
+      if (posted && !isCurrent()) {
+        await cancel(id);
+        return false;
+      }
+      return posted;
+    });
+    late final Future<void> tail;
+    void release() {
+      if (identical(_posts[id], tail)) _posts.remove(id);
+    }
+
+    tail = result.then<void>(
+      (_) => release(),
+      onError: (Object error, StackTrace trace) => release(),
+    );
+    _posts[id] = tail;
+    return result;
+  }
+
   NotificationService({FlutterLocalNotificationsPlugin? plugin})
     : _plugin = plugin ?? FlutterLocalNotificationsPlugin();
 
