@@ -1325,10 +1325,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       if (mounted) _snack(l.chatFileSaveFailed);
       return;
     }
-    // saveFile REQUIRES `bytes` on Android/iOS (it writes the file itself there
-    // and returns the path); passing it without bytes threw "bytes parameter is
-    // required" and the save did nothing. On desktop `bytes` is accepted too but
-    // the plugin only returns a chosen path, so we still write it ourselves.
+    // file_picker 11 writes the supplied bytes on every platform. Android/iOS
+    // require bytes even to open the dialog; their returned document-provider
+    // location is not necessarily a filesystem path dart:io can reopen.
     final path = await FilePicker.saveFile(
       fileName: _safeDownloadName(m.fileName),
       bytes: bytes,
