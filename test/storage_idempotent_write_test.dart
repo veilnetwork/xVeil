@@ -387,6 +387,13 @@ void main() {
             timestamp: DateTime(2026, 7, 1),
           ),
         );
+        final beforeStatus = counting.commits;
+        await storage.markMessageStatus('conv', msg.id, MessageStatus.failed);
+        expect(counting.commits, beforeStatus + 1);
+        expect(
+          (await storage.loadMessages('conv')).single.status,
+          MessageStatus.failed,
+        );
         await storage.markMessageStatus(
           'conv',
           msg.id,
@@ -403,11 +410,11 @@ void main() {
           );
         }
         expect(counting.commits, after);
-        // A genuinely different status still lands.
+        // A stale failure cannot undo an ACK or create another disk write.
         await storage.markMessageStatus('conv', msg.id, MessageStatus.failed);
-        expect(counting.commits, after + 1);
+        expect(counting.commits, after);
         final loaded = await storage.loadMessages('conv');
-        expect(loaded.single.status, MessageStatus.failed);
+        expect(loaded.single.status, MessageStatus.delivered);
       },
     );
   });

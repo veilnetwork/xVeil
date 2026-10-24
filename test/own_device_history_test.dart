@@ -12,6 +12,7 @@ import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/device_sync.dart';
+import 'package:xveil/domain/inline_custom_emoji.dart';
 import 'package:xveil/state/device_history_backfill.dart' show deviceMirrorOf;
 import 'package:xveil/state/messaging.dart';
 
@@ -92,9 +93,22 @@ class _Endpoint implements VeilTransport {
 class _RefusingCursorStore extends FakeKvLogStore {
   bool refusePageCursor = false;
   bool refused = false;
+  bool refuseDelivery = false;
+  bool deliveryRefused = false;
 
   @override
   int commit(List<KvLogOp> ops) {
+    if (refuseDelivery &&
+        ops.whereType<AppendLogOp>().any((op) {
+          final value = jsonDecode(utf8.decode(op.payload));
+          return value is Map &&
+              value['op'] == 'status' &&
+              value['s'] == MessageStatus.delivered.index;
+        })) {
+      refuseDelivery = false;
+      deliveryRefused = true;
+      throw StateError('fixture delivery write failure');
+    }
     if (refusePageCursor &&
         ops.whereType<PutOp>().any(
           (op) =>
@@ -109,11 +123,26 @@ class _RefusingCursorStore extends FakeKvLogStore {
   }
 }
 
-Future<HiddenVolumeStorage> storage({FakeKvLogStore? backing}) async {
+class _SnapshotStorage extends HiddenVolumeStorage {
+  _SnapshotStorage(super.opener);
+  Future<void> Function()? afterMessagesRead;
+
+  @override
+  Future<List<Message>> loadMessages(
+    String conversationId, {
+    int? limit,
+  }) async {
+    final rows = await super.loadMessages(conversationId, limit: limit);
+    final hook = afterMessagesRead;
+    afterMessagesRead = null;
+    await hook?.call();
+    return rows;
+  }
+}
+
+Future<_SnapshotStorage> _storage({FakeKvLogStore? backing}) async {
   final kv = backing ?? FakeKvLogStore();
-  final s = HiddenVolumeStorage(
-    ({required password, required bool create}) => kv,
-  );
+  final s = _SnapshotStorage(({required password, required bool create}) => kv);
   await s.open(password: 'fixture', createIfMissing: true);
   await s.upsertContact(Contact(nodeId: peer, status: ContactStatus.accepted));
   return s;
@@ -131,7 +160,7 @@ Future<void> until(Future<bool> Function() check) async {
 
 void main() {
   late _Network net;
-  late HiddenVolumeStorage sa, sb;
+  late _SnapshotStorage sa, sb;
   late _Endpoint ta, tb;
   late MessagingService ma, mb;
   late List<NodeId> bSiblings;
@@ -171,9 +200,9 @@ void main() {
 
   setUp(() async {
     net = _Network();
-    sa = await storage();
+    sa = await _storage();
     bStore = _RefusingCursorStore();
-    sb = await storage(backing: bStore);
+    sb = await _storage(backing: bStore);
     ta = _Endpoint(net, a);
     tb = _Endpoint(net, b);
     bSiblings = [a];
@@ -194,7 +223,12 @@ void main() {
     errorJournal.clear();
   });
 
-  Future<void> seed(int count, {int bodyBytes = 30, DateTime? at}) async {
+  Future<void> seed(
+    int count, {
+    int bodyBytes = 30,
+    DateTime? at,
+    MessageStatus status = MessageStatus.delivered,
+  }) async {
     for (var i = 0; i < count; i++) {
       await sa.appendMessage(
         Message(
@@ -203,7 +237,7 @@ void main() {
           direction: MessageDirection.outgoing,
           body: List.filled(bodyBytes, '${i % 10}').join(),
           timestamp: (at ?? DateTime.utc(2020)).add(Duration(seconds: i)),
-          status: MessageStatus.delivered,
+          status: status,
           author: a.hex,
           seq: i + 1,
           positionVerified: true,
@@ -235,6 +269,189 @@ void main() {
       expect(
         net.history.where((e) => e.body['q']?['op'] == 'page'),
         isNotEmpty,
+      );
+    },
+  );
+
+  test(
+    'history repairs a held original after the edit left the device journal',
+    () async {
+      await seed(1);
+      await sb.appendMessage((await sa.loadMessages(peer.hex)).single);
+      await sa.editMessage(peer.hex, 'm0000', 'offline edit', seq: 7);
+      ma.start();
+      mb.start();
+      await until(
+        () async =>
+            (await sb.loadMessages(peer.hex)).single.body == 'offline edit',
+      );
+      expect((await sb.editSeqs(peer.hex))['m0000'], 7);
+    },
+  );
+
+  test(
+    'history repairs a held outgoing row after the delivered event expired',
+    () async {
+      await seed(1);
+      await sb.appendMessage(
+        (await sa.loadMessages(
+          peer.hex,
+        )).single.copyWith(status: MessageStatus.sent),
+      );
+      ma.start();
+      mb.start();
+      await until(
+        () async =>
+            (await sb.loadMessages(peer.hex)).single.status ==
+            MessageStatus.delivered,
+      );
+      expect(await sb.pendingOutboxFrames(), isEmpty);
+    },
+  );
+
+  test(
+    'a stale source cannot replace a newer held edit or undo delivery',
+    () async {
+      await seed(1, status: MessageStatus.failed);
+      final original = (await sa.loadMessages(peer.hex)).single;
+      await sb.appendMessage(
+        original.copyWith(status: MessageStatus.delivered),
+      );
+      await sa.editMessage(peer.hex, 'm0000', 'older', seq: 7);
+      await sb.editMessage(peer.hex, 'm0000', 'newer', seq: 9);
+      // Keep A stale on purpose. B may request A's pages; A cannot learn B's
+      // newer snapshot and hide a temporary rollback by sending it back later.
+      net.drop = (from, to, frame) => from == b && frame['i'] != null;
+      ma.start();
+      mb.start();
+      await until(
+        () async =>
+            await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+      );
+      final held = (await sb.loadMessages(peer.hex)).single;
+      expect(held.body, 'newer');
+      expect(held.status, MessageStatus.delivered);
+      expect((await sb.editSeqs(peer.hex))['m0000'], 9);
+    },
+  );
+
+  test(
+    'an edit during snapshot cannot pair the old body with the new frontier',
+    () async {
+      await seed(1);
+      await sb.appendMessage((await sa.loadMessages(peer.hex)).single);
+      await sa.editMessage(peer.hex, 'm0000', 'version seven', seq: 7);
+      sa.afterMessagesRead = () =>
+          sa.editMessage(peer.hex, 'm0000', 'version eight', seq: 8);
+      ma.start();
+      mb.start();
+      await until(
+        () async =>
+            (await sb.loadMessages(peer.hex)).single.body == 'version eight',
+      );
+      expect((await sb.editSeqs(peer.hex))['m0000'], 8);
+    },
+  );
+
+  test(
+    'a recovered edited message keeps its edited marker and revision',
+    () async {
+      await seed(1);
+      await sa.editMessage(peer.hex, 'm0000', 'edited before recovery', seq: 7);
+      ma.start();
+      mb.start();
+      await until(() async => (await sb.editSeqs(peer.hex))['m0000'] == 7);
+      final held = (await sb.loadMessages(peer.hex)).single;
+      expect(held.body, 'edited before recovery');
+      expect(held.edited, isTrue);
+      expect(held.status, MessageStatus.delivered);
+    },
+  );
+
+  test(
+    'a recovery page cannot resurrect a deleted held message via its edit',
+    () async {
+      await seed(1);
+      await sb.appendMessage((await sa.loadMessages(peer.hex)).single);
+      await sb.deleteMessage(peer.hex, 'm0000');
+      await sa.editMessage(peer.hex, 'm0000', 'must remain deleted', seq: 7);
+      ma.start();
+      mb.start();
+      await until(
+        () async =>
+            await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+      );
+      expect(await sb.isMessageDeleted(peer.hex, 'm0000'), isTrue);
+      expect(await sb.loadMessages(peer.hex), isEmpty);
+      expect(await sb.loadMessageHistory(peer.hex, 'm0000'), isEmpty);
+    },
+  );
+
+  test(
+    'same-text inline emoji edits retain their metadata and edit frontier',
+    () async {
+      final message = Message(
+        id: 'emoji-edit',
+        conversationId: peer.hex,
+        direction: MessageDirection.outgoing,
+        body: kInlineCustomEmojiFallback,
+        timestamp: DateTime.utc(2020),
+        status: MessageStatus.delivered,
+        author: a.hex,
+        seq: 1,
+        positionVerified: true,
+        customEmoji: const [InlineCustomEmoji(offset: 0, dataB64: 'AQ==')],
+      );
+      await sa.appendMessage(message);
+      await sb.appendMessage(message);
+      await sa.editMessage(
+        peer.hex,
+        message.id,
+        message.body,
+        seq: 7,
+        customEmoji: const [InlineCustomEmoji(offset: 0, dataB64: 'Ag==')],
+      );
+      ma.start();
+      mb.start();
+      await until(() async => (await sb.editSeqs(peer.hex))[message.id] == 7);
+      expect(
+        (await sb.loadMessages(peer.hex)).single.customEmoji.single.dataB64,
+        'Ag==',
+      );
+    },
+  );
+
+  test(
+    'failed delivery-state persistence leaves the page for restart',
+    () async {
+      await seed(1);
+      await sb.appendMessage(
+        (await sa.loadMessages(
+          peer.hex,
+        )).single.copyWith(status: MessageStatus.sent),
+      );
+      bStore.refuseDelivery = true;
+      ma.start();
+      mb.start();
+      await until(
+        () async => bStore.deliveryRefused && errorJournal.entries.isNotEmpty,
+      );
+      expect(
+        (await sb.loadMessages(peer.hex)).single.status,
+        MessageStatus.sent,
+      );
+      final progress =
+          jsonDecode(
+                (await sb.getSetting('device.history.cursor.v2:${a.hex}'))!,
+              )
+              as Map;
+      expect(progress['peer'], peer.hex);
+      expect(progress['cursor'], isNull);
+      await restartB();
+      await until(
+        () async =>
+            (await sb.loadMessages(peer.hex)).single.status ==
+            MessageStatus.delivered,
       );
     },
   );
