@@ -1,5 +1,5 @@
 {
-  "sdk_revision": "858d84d9a3f50687a21030b7aa8b2beaaae90bf4",
+  "sdk_revision": "de769239927908e2f6929b416f101f6641d7baef",
   "certificate_commit": "97bdec79",
   "sdk_commits": {
     "ipc": "950141e5",
@@ -8,7 +8,8 @@
     "embedded_host_authorization": "d4b403def8b01e2fe8d2e0e9131893d751c206f2",
     "recent_reordering_evidence": "fa7123f5e32b0a05e669551b7dbfbba18236df44",
     "muted_video_audio_activity": "19171c10a90b15da9c0c5e6b112d0bc08e698b72",
-    "audio_stop_retry": "858d84d9a3f50687a21030b7aa8b2beaaae90bf4"
+    "audio_stop_retry": "858d84d9a3f50687a21030b7aa8b2beaaae90bf4",
+    "safe_media_destroy": "de769239927908e2f6929b416f101f6641d7baef"
   },
   "automated_verification": {
     "rust_passed": 1096,
@@ -90,6 +91,7 @@
     "latest_physical_file_hash_matches": true,
     "muted_video_native_regression_passed": true,
     "macos_certificate_dialog_open_cancel_qualified": true,
-    "direct_and_group_audio_stop_retry_regression_passed": true
+    "direct_and_group_audio_stop_retry_regression_passed": true,
+    "native_media_destruction_after_worker_timeout_qualified": true
   }
 }

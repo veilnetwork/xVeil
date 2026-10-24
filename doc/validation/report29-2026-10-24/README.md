@@ -306,3 +306,13 @@ so subsequent stops falsely reported success with two streams still live.
 Direct/group regressions now verify repeated failure while blocked, real
 cleanup on retry, restart and healthy idempotence. Existing muted-video tests
 pass on the same library. See [details](../audio-stop-retry-2026-10-24/README.md).
+
+## Follow-up: media destruction after cancelled cleanup
+
+SDK `de769239` fixes a related direct/group teardown crash outside the original
+R29 findings. Four isolated native baseline processes aborted when audio or
+video stream cleanup timed out; all four corrected cases safely destroy their
+Calls after worker recovery. Synchronous cleanup still waits if a worker never
+recovers. Existing audio-stop and muted-video regressions pass; production
+macOS/Android exports remain unchanged. See
+[details](../media-destroy-retry-2026-10-24/README.md).
