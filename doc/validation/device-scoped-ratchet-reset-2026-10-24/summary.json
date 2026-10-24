@@ -1,0 +1,116 @@
+{
+  "schema": 1,
+  "date": "2026-10-24",
+  "base_commit": "cc4410196ffa05ee60771c47d9f9473be7caa2be",
+  "sdk_commit": "1440d89ee076834fcd9d8c054a60b732d0e96831",
+  "confirmed_defects_fixed": 1,
+  "baseline": {
+    "B_to_C_positive_ring_control_passed": false,
+    "wait_seconds": 40,
+    "revocation_phase_reached": false,
+    "rust_sibling_chains_test_passed": false,
+    "chains_dropped": 3,
+    "expected_chains_dropped": 2
+  },
+  "corrected": {
+    "devices": 3,
+    "same_identity_devices_before_revoke": 2,
+    "pre_revoke_both_siblings_ring": true,
+    "pre_revoke_B_can_ring_C": true,
+    "current_document_barrier_observed": true,
+    "revoked_device_key_preserved": true,
+    "recipient_process_not_restarted": true,
+    "unrevoked_sibling_receives_fresh_offer": true,
+    "revoked_device_received_fresh_offer": false,
+    "revoked_device_offer_accepted": false,
+    "revoked_device_message_accepted": false,
+    "outgoing_denial_observation_ms": 60213,
+    "revoked_device_has_fresh_call_record": false,
+    "revoked_offer_in_recipient_call_journal": false,
+    "observation_rounds": 150,
+    "final_message_control": true,
+    "final_call_control": true,
+    "media_started": false
+  },
+  "timing": {
+    "pre_revoke_B_offer_matched_at_C": true,
+    "pre_revoke_B_offer_dispatch_to_C_dispatch_ms": 58.159
+  },
+  "verification": {
+    "runtime_tests_passed": 89,
+    "dispatcher_tests_passed": 5,
+    "dart_tests_passed": 254,
+    "dart_tests_skipped": 0,
+    "native_process_fleet_tests_passed": 1,
+    "analysis_issues": 0,
+    "clippy_warnings_denied_passed": true,
+    "rust_format_passed": true,
+    "header_regeneration_unchanged": true
+  },
+  "native": {
+    "software_sha256": {
+      "veil-cli": "fc2053432b4c6867ce8416ada4af34942c649e0b3d00ac5c8932f59f16e8538a",
+      "libveilclient_ffi.dylib": "35d1f0a501131616ab96eb8b96d91dee77c3715ac31608c07339c2d2d858471a"
+    },
+    "header_abi_hash": "665a027a4cbde50ca169a75673d6e7ca9118e237e446021f8ee7c1051e386a9a",
+    "same_build_cli_and_ffi": true,
+    "source_sha256": {
+      "crates/veil-dispatcher/src/app.rs": "ab5b8b69ebfe93f782f7531afc471dfd3cc804a06db23483d7805d6096c0bf5f",
+      "crates/veil-e2e/src/ratchet.rs": "210d69cd2a16e1a737db3ccde240241656e52fe258349f1dea3b923a99da74b1",
+      "crates/veil-node-runtime/src/runtime/service_tasks.rs": "99372098f723b04dead8e355f2aa368516124797104acac23913013e668c5ec7",
+      "crates/veil-node-runtime/src/runtime/service_tasks/tests.rs": "9c642721b24478fec28c04ca6bb9a1b7336dfd03fad457579a53da9d020d873e"
+    }
+  },
+  "android_native": {
+    "sdk_sha256": "c7483d068a818dce2819556e8f854a494e04c4693519ac0b74e85d5e99dfa444",
+    "header_abi_hash": "665a027a4cbde50ca169a75673d6e7ca9118e237e446021f8ee7c1051e386a9a",
+    "header_regeneration_unchanged": true,
+    "production_seeds": true,
+    "test_low_difficulty": false,
+    "external_mount_lost": false
+  },
+  "android_main_apk": {
+    "apk_sha256": "7e4f0647c012d6a1942287c0aade29835fc44d19afa900f8dec4dc57cf283ca1",
+    "build": "debug",
+    "target": "lib/main.dart",
+    "main_application_id_verified": true,
+    "probe_entrypoint_absent": true,
+    "abi_contract_present_in_dart": true,
+    "packaged_native_sha256": {
+      "libveilclient_ffi.so": "c6ed179a52f74633f57ff52c78aa2db9e9a265a3cec21aad23bc523269003d7b",
+      "libhidden_volume_ffi.so": "6229bae4ded5db35636ef724b8fca2ca3f7fdb3b71a722c48d69291fbbb7d891",
+      "libveil_media.so": "3546a0141ba9ad7533a081287c3af36916f5b4a457c42d212930e0e10ec049cb"
+    },
+    "packaged_native_matches_strip_unneeded_of_current_sources": true,
+    "media_and_hidden_volume_unchanged": true,
+    "packaged_abis": [
+      "arm64-v8a"
+    ],
+    "installed": false,
+    "external_mount_lost": false
+  },
+  "cleanup": {
+    "baseline": {
+      "workers_exited": true,
+      "remaining_owned_relays": 0,
+      "fleet_root_removed": true
+    },
+    "corrected": {
+      "all_recorded_workers_exited": true,
+      "recorded_workers": 5,
+      "remaining_owned_relays": 0,
+      "fleet_root_removed": true
+    }
+  },
+  "root_source_sha256": {
+    "test/e2e/revoked_call_signaling_e2e_test.dart": "4637af15107bee6585d9f0b55bb5ff0973a9c85841e226c861f50ac74a71e0ec",
+    "test/e2e/device_process_fixture.dart": "3f6e9759eae06c3fb7068bdfb913079d9287f0c21fb05aaa66f5e6f9f607f68d",
+    "test/e2e/device_fixture.dart": "c7c8975b6e93418fc900f67fe44ee94693349913452b9120ec0dec941b7ac397",
+    "test/e2e/device_process_worker_test.dart": "3dcc28f5a3ad825b16cd0020a2f81bb690b739484dad913482b473919624c1b8",
+    "lib/state/call_service.dart": "803af4924e2a273a32f818c4f1e16ba5fbc7181ff6d5670c520d9aef15724185",
+    "lib/state/messaging_realtime_control.dart": "f4ce7b4287ca6c206ca2ce2144e1b4bbc9034fec7697fafebc323ddea5832046"
+  },
+  "phone_and_installed_applications_untouched": true,
+  "connected_media_tested": false,
+  "full_multi_device_matrix_qualified": false
+}
