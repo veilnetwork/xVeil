@@ -219,7 +219,10 @@ class ProcessFleet {
   ProcessDevice get b => devices['B']!;
   ProcessDevice get c => devices['C']!;
 
-  static Future<ProcessFleet> start(E2eGate gate) async {
+  static Future<ProcessFleet> start(
+    E2eGate gate, {
+    List<String> labels = const ['A', 'B', 'C'],
+  }) async {
     final root = await e2eTempRoot('xveil-process-');
     final cluster = await RelayCluster.start(
       veilCliPath: gate.veilCli!,
@@ -228,7 +231,7 @@ class ProcessFleet {
     final devices = <String, ProcessDevice>{};
     final fleet = ProcessFleet._(root, cluster, devices);
     try {
-      for (final label in ['A', 'B', 'C']) {
+      for (final label in labels) {
         final d = ProcessDevice(
           label: label,
           dir: Directory('${root.path}/$label'),
@@ -260,6 +263,12 @@ class ProcessFleet {
       for (final d in devices.values) {
         final file = File(d.logPath);
         if (await file.exists()) await file.copy('${dest.path}/${d.label}.log');
+      }
+      for (final relay in cluster.nodes) {
+        final file = File(relay.logPath);
+        if (await file.exists()) {
+          await file.copy('${dest.path}/relay-${relay.label}.log');
+        }
       }
       await File('${dest.path}/owned-pids.json').writeAsString(
         jsonEncode({for (final d in devices.values) d.label: d.ownedPids}),

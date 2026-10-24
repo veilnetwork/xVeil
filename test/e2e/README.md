@@ -91,6 +91,7 @@ Optional knobs:
 | `multi_device_extended_e2e_test.dart` | concurrent writers, interrupted backlog, message state, media, call races, groups and revocation probes |
 | `device_process_fixture.dart` / `device_process_worker_test.dart` | a separate OS process and authenticated debug API per device |
 | `multi_device_process_e2e_test.dart` | independent history, B→C authentication, reconnect, stale-device revoke, call race and abrupt crash probes |
+| `multi_device_partition_e2e_test.dart` | four independent live devices, two transport partitions, concurrent messages/edit/delete/reactions/read state, then ordered convergence without a restart |
 | `e2e_env_test.dart` | unresponsive probes/diagnostics cannot disable the wait deadline |
 | `fixtures/*.toml` | test-only, committed node identities (see "Why identities are committed") |
 
