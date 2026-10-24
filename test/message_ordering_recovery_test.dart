@@ -10,6 +10,7 @@ import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/transport/loopback_transport.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/device_sync.dart';
 import 'package:xveil/state/device_history_backfill.dart';
 import 'package:xveil/state/messaging_core.dart';
 
@@ -162,6 +163,30 @@ void main() {
   );
 
   test(
+    'journal fold keeps a repaired position over an older provisional backfill',
+    () async {
+      await echo('backfilled', 1000);
+      final provisional = (await storage.loadMessageById(
+        peer.hex,
+        'backfilled',
+      ))!;
+      expect(await original('backfilled', 7, 1000), isTrue);
+      final repaired = (await storage.loadMessageById(peer.hex, 'backfilled'))!;
+      final events = [
+        deviceMirrorOf(peer.hex, provisional).event,
+        deviceMirrorOf(peer.hex, repaired).event,
+      ];
+      for (final order in [events, events.reversed]) {
+        final selected = foldDeviceSync(
+          order,
+        )[(DeviceSyncKind.msgMirror, 'backfilled')]!;
+        expect(selected.payload['au'], sibling.hex);
+        expect(selected.payload['sq'], 7);
+      }
+    },
+  );
+
+  test(
     'only an original physical own-device position repairs a provisional echo',
     () async {
       await echo('held', 1000);
@@ -191,6 +216,97 @@ void main() {
         author: me.hex,
         seq: 3,
       ));
+    },
+  );
+
+  test(
+    'provisional provenance survives storage and cannot assert a verified position',
+    () async {
+      expect(
+        await messaging.applyMirroredMessage(
+          peer: peer,
+          msgId: 'provisional',
+          direction: MessageDirection.outgoing,
+          body: 'recovered',
+          tsMs: 1000,
+          author: identity.hex,
+          seq: 1,
+          positionVerified: false,
+        ),
+        isTrue,
+      );
+      storage = HiddenVolumeStorage.fromStore(backing);
+      final held = (await storage.loadMessageById(peer.hex, 'provisional'))!;
+      expect(held.positionVerified, isFalse);
+      expect(deviceMirrorOf(peer.hex, held).event.payload['pv'], isFalse);
+      expect(
+        await messaging.applyMirroredMessage(
+          peer: peer,
+          msgId: held.id,
+          direction: MessageDirection.outgoing,
+          body: held.body,
+          tsMs: 1000,
+          author: sibling.hex,
+          seq: 99,
+          positionVerified: false,
+        ),
+        isFalse,
+      );
+      expect(await original(held.id, 7, 1000), isTrue);
+      final corrected = (await HiddenVolumeStorage.fromStore(
+        backing,
+      ).loadMessageById(peer.hex, held.id))!;
+      expect(deviceMirrorOf(peer.hex, corrected).event.payload['pv'], isTrue);
+      expect(
+        corrected.positionVerified,
+        isFalse,
+        reason: 'repair does not authenticate the peer-recovered body',
+      );
+    },
+  );
+
+  test(
+    'legacy raw author does not prove a verified original position',
+    () async {
+      for (final author in [me.hex, sibling.hex, identity.hex, peer.hex]) {
+        await echo('legacy-$author', 1000, author: author);
+        final row = (await storage.loadMessageById(
+          peer.hex,
+          'legacy-$author',
+        ))!;
+        expect(row.positionVerified, isNull);
+        expect(deviceMirrorOf(peer.hex, row).event.payload['pv'], isNull);
+      }
+    },
+  );
+
+  test(
+    'local allocation cannot legitimise a verified marker without source fields',
+    () async {
+      var i = 0;
+      for (final fields in <({String? author, int? seq})>[
+        (author: null, seq: null),
+        (author: null, seq: 7),
+        (author: sibling.hex, seq: null),
+        (author: me.hex, seq: null),
+        (author: 'invalid', seq: 7),
+      ]) {
+        final id = 'unproven-${i++}';
+        expect(
+          await messaging.applyMirroredMessage(
+            peer: peer,
+            msgId: id,
+            direction: MessageDirection.outgoing,
+            body: 'legacy payload',
+            tsMs: 1000,
+            author: fields.author,
+            seq: fields.seq,
+            positionVerified: true,
+          ),
+          isFalse,
+        );
+        expect(await storage.loadMessageById(peer.hex, id), isNull);
+      }
     },
   );
 

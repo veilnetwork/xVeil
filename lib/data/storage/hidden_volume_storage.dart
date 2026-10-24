@@ -1710,6 +1710,7 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
             forwardedFrom: message.forwardedFrom,
             author: author,
             seq: seq,
+            positionVerified: message.positionVerified,
           );
     await _commitAtNextMessageLogId(
       (namespace, logId) => [
@@ -2080,6 +2081,7 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
     // when present so legacy rows + the in-memory fake stay readable.
     if (m.author != null) 'au': m.author,
     if (m.seq != null) 'sq': m.seq,
+    if (m.positionVerified != null) 'pv': m.positionVerified,
     // A file message is a filePost event (its body is the descriptor, the blob
     // travels out-of-band); a text message is a post. The fold treats both as a
     // post-class row, but loadEventsSince surfaces the right kind so the gap-fill
@@ -4679,6 +4681,7 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
         customEmoji: parseInlineCustomEmoji(m['b'] as String, m['ce']),
         author: m['au'] as String?,
         seq: m['sq'] as int?,
+        positionVerified: m['pv'] is bool ? m['pv'] as bool : null,
         replyToId: m['rt'] as String?,
         forwardedFrom: m['fw'] as String?,
         signature: _sigFromIndex(m['sig']),

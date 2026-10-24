@@ -1216,6 +1216,10 @@ void main() {
       await mA.reconcileOnConnect();
       await _settle();
       final recovered = (await sA.loadMessageById(b.hex, 'late-origin'))!;
+      expect(recovered.positionVerified, isFalse);
+      final source = (await sA.loadMessages(b.hex))
+          .singleWhere((m) => m.body == 'shared');
+      expect(source.positionVerified, isTrue);
       expect(recovered.author, identity);
       expect(recovered.seq, isNot(73));
       expect(recovered.ordering, isNull);

@@ -47,6 +47,7 @@ import 'package:xveil/domain/space_recommendation.dart';
 import 'package:xveil/domain/space_retention.dart';
 import 'package:xveil/domain/inline_custom_emoji.dart';
 import 'package:xveil/state/group_crypto.dart';
+import 'package:xveil/state/device_history_backfill.dart' show deviceMirrorOf;
 import 'package:xveil/state/group_epoch_service.dart';
 import 'package:xveil/state/group_service_providers.dart';
 import 'package:xveil/state/space_observability.dart';
@@ -7388,6 +7389,47 @@ void main() {
       hasLength(1),
       reason: 'only the last theme row is not superseded',
     );
+  });
+
+  test('device compaction preserves a repaired message position for a fresh reader', () async {
+    for (final reversed in [false, true]) {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final svc = GroupService(storage, _FakeSigner(owner));
+      addTearDown(svc.dispose);
+      await svc.linkDevice(bob, sovereign: sovereign);
+      final gid = NodeId.fromHex((await svc.deviceGroupIdHex())!);
+      final row = Message(
+        id: 'position-item', conversationId: bob.hex,
+        direction: MessageDirection.outgoing, body: 'same content',
+        timestamp: DateTime.now(), author: _id(0xff).hex, seq: 1,
+      );
+      final echo = deviceMirrorOf(bob.hex, row).event;
+      final original = deviceMirrorOf(bob.hex,
+          row.copyWith(ordering: (author: owner.hex, seq: 7))).event;
+      for (final event in reversed ? [echo, original] : [original, echo]) {
+        expect(await svc.postDeviceEvent(event), isTrue);
+      }
+      // Neither competing row is the author's indispensable chain head.
+      expect(await svc.postDeviceEvent(DeviceSyncEvent(
+          kind: DeviceSyncKind.settingSet, key: 'after-position',
+          tsMs: row.timestamp.millisecondsSinceEpoch,
+          payload: const {'v': 'head'})), isTrue);
+      await svc.compactStateLogs(gid);
+      final retained = (await svc.load(gid))!.messages
+          .map((m) => DeviceSyncEvent.fromBody(m.body))
+          .whereType<DeviceSyncEvent>()
+          .where((e) => e.kind == DeviceSyncKind.msgMirror).toList();
+      expect(retained, hasLength(1), reason: 'actually prune the losing copy');
+      expect(retained.single.payload['au'], owner.hex);
+      expect(retained.single.payload['sq'], 7);
+      final fresh = GroupService(storage, _FakeSigner(owner));
+      addTearDown(fresh.dispose);
+      final restored = (await fresh.deviceSyncState())[
+          (DeviceSyncKind.msgMirror, row.id)]!;
+      expect(restored.payload['au'], owner.hex);
+      expect(restored.payload['sq'], 7);
+    }
   });
 
   test('device-group compaction keeps LWW winners, unknown future events and '

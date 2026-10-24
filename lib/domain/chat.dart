@@ -315,6 +315,7 @@ class Message {
     this.author,
     this.seq,
     this.ordering,
+    this.positionVerified,
     this.replyToId,
     this.forwardedFrom,
     this.signature = MessageSignature.none,
@@ -378,6 +379,12 @@ class Message {
   String? get orderAuthor => ordering?.author ?? author;
   int? get orderSeq => ordering?.seq ?? seq;
 
+  /// Whether the stored position came from the original send/device journal
+  /// (true) or was allocated for an own-message echo from the contact (false).
+  /// Null means legacy/unknown provenance. This describes ordering metadata,
+  /// not a signature over the current body, which may have been edited.
+  final bool? positionVerified;
+
   /// The id of the message this one replies to, or null for a plain message.
   /// Message ids travel on the wire (dedup/ack already rely on that), so both
   /// sides hold the SAME id for the quoted message — the reference resolves
@@ -414,6 +421,7 @@ class Message {
     MessageSignature? signature,
     List<InlineCustomEmoji>? customEmoji,
     ({String author, int seq})? ordering,
+    bool? positionVerified,
   }) => Message(
     id: id,
     conversationId: conversationId,
@@ -431,6 +439,7 @@ class Message {
     author: author,
     seq: seq,
     ordering: ordering ?? this.ordering,
+    positionVerified: positionVerified ?? this.positionVerified,
     replyToId: replyToId,
     forwardedFrom: forwardedFrom,
     signature: signature ?? this.signature,

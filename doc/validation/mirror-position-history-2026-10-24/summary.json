@@ -1,0 +1,84 @@
+{
+  "finding": "MD24-01 follow-up: compacted device mirrors could lose a repaired original position",
+  "fixed": true,
+  "provenance": {
+    "verified_position_preferred_to_legacy_and_provisional": true,
+    "legacy_raw_self_author_not_automatically_promoted": true,
+    "malformed_verified_marker_refused_before_local_allocation": true,
+    "same_comparator_for_fold_live_gate_and_compaction": true,
+    "clock_deferral_preserved": true,
+    "body_not_claimed_signed_by_position_marker": true
+  },
+  "selected_flutter_tests_before_final_guards": {
+    "passed": 505,
+    "skipped_ffi_recovery_cases": 3
+  },
+  "final_ingestion_and_gapfill_tests_passed": 68,
+  "final_archive_tests_passed": 58,
+  "test_counts_overlap": true,
+  "negative_control": {
+    "exit_nonzero": true,
+    "two_semantic_tests_failed": true,
+    "not_compilation_failure": true,
+    "production_restored_exactly": true
+  },
+  "analyzer_clean": true,
+  "final_native_tests_passed": 2,
+  "final_history": {
+    "independent_application_processes": 4,
+    "linked_devices_same_identity": [
+      "A",
+      "B",
+      "E"
+    ],
+    "other_identity": "C",
+    "canonical_and_competing_copies": 2,
+    "legacy_and_provisional_competitors_timestamp_newer_than_original": true,
+    "real_compaction": true,
+    "source_available_when_linking_E": "A",
+    "B_and_C_offline_when_linking_E": true,
+    "exact_message_ids_text_direction_timestamp_seq_order_matched": true,
+    "selected_journal_positions_and_timestamps_matched": true,
+    "E_restart_verified": true
+  },
+  "final_partition": {
+    "independent_application_processes": 4,
+    "local_relays": 3,
+    "partition_messages": 16,
+    "history_mutation_reaction_read_convergence_passed": true,
+    "first_converged_ms": 20142,
+    "stable_ms": 10377,
+    "total_recovery_ms": 30520,
+    "convergence_timeout_ms": 240000,
+    "stable_window_ms": 10000
+  },
+  "final_source_native_gate_passed": true,
+  "full_63_case_matrix_qualified": false,
+  "all_basic_cases_with_three_own_devices_qualified": false,
+  "release_and_mixed_versions_qualified": false,
+  "sdk_revision": "de769239927908e2f6929b416f101f6641d7baef",
+  "hidden_volume_revision": "c4ba1fa8e0dc388fb590dbc382ce98138c90cfeb",
+  "native_artifact_sha256": {
+    "veil-cli": "4bec94ee6f20ac08da5366b0cd6356aa058d7ae689d7e79d0b3dbbfd40699dd6",
+    "libveilclient_ffi.dylib": "07328ac13c8222083e6236e7a751b32d6f3d2b6c3211423200c7b1b113e584e0",
+    "libhidden_volume_ffi.dylib": "a92a4ecdc62d4f82ae3403d584f65c0eea7e3904b78372d2ab7959957acdb169"
+  },
+  "final_source_sha256": {
+    "lib/data/storage/hidden_volume_storage.dart": "6f551b54a393794ac89444dafb82aada891e4001d26e072389c492f432291fda",
+    "lib/domain/chat.dart": "bd744699fa6fd27e1b5b1ac93214a090f19ac0a253b6b6f6646e6b6707e660fa",
+    "lib/domain/device_sync.dart": "b0a2273f1aab2d959ba21119db893dae34a4d98ce3afeae1d07f0d5c44a8bae7",
+    "lib/state/data_export.dart": "cbf5587f390e5ea9127925f329cfa074dd831bfac7f09dd4ad9541b24f1379ec",
+    "lib/state/device_history_backfill.dart": "6e49cdd3a21c8c90ac740d65060e5b545bfa52f7795669e4d92e8a6238dcc634",
+    "lib/state/device_sync_bridge.dart": "0bb29900371487d1a6c5a0a964dee6c7a6cf391e5e4f526eec44057359314413",
+    "lib/state/group_service_providers.dart": "a01a6b77edad1ecc7f3c4eadd4c21fd2a378dffd5ad601548391952ec4546aa1",
+    "lib/state/messaging_core.dart": "72b155697a0c8613d18527da9b878cde9d249f2a766feef9c72fc29db824b095",
+    "lib/state/messaging_device_mirror.dart": "8c402d2ac7b29427dc6073175d57b9be945ee33d2b7a86942b33f7f5d4a2c4b4",
+    "lib/state/messaging_peer_sync.dart": "6b580fe2a9e6f0461bd55b511412c6a56a068596dbb13fee24823c28854fbefd",
+    "test/group_service_test.dart": "e025bb1266b2d345a83df4ab5f8b2d52f55b1ac25ae010337deae28fc4f86fb3",
+    "test/message_ordering_recovery_test.dart": "e49c238725cfc39f5054573bc1620369fc2e4d7ba69e0eba6ca661bdfcbbdff8",
+    "test/messaging_gapfill_test.dart": "4acfcb690c1b09b87d65843b5ea9c650ef6f291e3938fa157d7861bfd855af7a",
+    "test/mirror_position_precedence_test.dart": "4c877880e7ea100dc5aee94a9854f5a1c395501dec57594d914c305a01715580",
+    "test/e2e/mirror_position_history_e2e_test.dart": "247d524f666c7b6881cae6d4e869f776646dde39715bfaee9ee623e465cabc68",
+    "test/e2e/multi_device_partition_e2e_test.dart": "3d1f6397d55582d3807d008cf4c1f76000270f5f07693573bbada3a7c48239ce"
+  }
+}

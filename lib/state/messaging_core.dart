@@ -514,6 +514,7 @@ class MessagingService {
   Future<bool> applyMirroredMessage({
     String? author,
     int? seq,
+    bool? positionVerified,
     String? replyToId,
     String? forwardedFrom,
     required NodeId peer,
@@ -529,6 +530,7 @@ class MessagingService {
   }) => _deviceMirror.applyMessage(
     author: author,
     seq: seq,
+    positionVerified: positionVerified,
     replyToId: replyToId,
     forwardedFrom: forwardedFrom,
     peer: peer,
@@ -1887,6 +1889,9 @@ class MessagingService {
         // the log convergent, R4); null for our own outgoing message → storage
         // allocates the next gap-free value, which the caller puts on the wire.
         seq: seq,
+        positionVerified: selfAuthored || dir == MessageDirection.outgoing
+            ? true
+            : null,
       ),
     );
     // Multi-device mirror tap: after the single write path persists a 1:1 row,
