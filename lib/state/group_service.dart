@@ -25,6 +25,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:veil_flutter/veil_ffi.dart' as veil;
 
+import '../core/async_tasks.dart';
 import '../core/ids.dart';
 import '../core/log.dart';
 import '../domain/clear_policy.dart';
@@ -6471,7 +6472,9 @@ class GroupService implements ArchiveGroups {
     // or arrived in a snapshot — so this is the one place that sees them all.
     // Not awaited: the write is what the caller was promised, and a sibling
     // that is slow to reach must not hold up a local save.
-    unawaited(_shareNewEpochKeysWithMyDevices(b));
+    if (!_disposed) {
+      _backgroundTasks.start(() => _shareNewEpochKeysWithMyDevices(b));
+    }
     // The device journal is where the master names its device; a write to it
     // may have changed that name, so the admission cache must not outlive it.
     if (b.manifest.isSovereignDevice) {
@@ -20590,7 +20593,10 @@ class GroupService implements ArchiveGroups {
     _deviceOutgoingCtl.add(e);
     final done = Completer<bool>();
     _devicePostQueue.add((event: e, attachment: attachment, done: done));
-    if (!_devicePostDraining) unawaited(_drainDevicePosts());
+    if (!_devicePostDraining) {
+      _devicePostDrain = _drainDevicePosts();
+      unawaited(_devicePostDrain);
+    }
     return done.future;
   }
 
@@ -20600,6 +20606,7 @@ class GroupService implements ArchiveGroups {
   >
   _devicePostQueue = [];
   bool _devicePostDraining = false;
+  Future<void>? _devicePostDrain;
 
   /// At most this many queued events go into one load-and-save.
   static const int kDevicePostBatch = 64;
@@ -20682,7 +20689,11 @@ class GroupService implements ArchiveGroups {
     ];
     if (fresh.isEmpty) return results;
     await _save(working);
-    unawaited(broadcastDelta(gid, messages: fresh));
+    if (!_disposed) {
+      _backgroundTasks.start(() async {
+        await broadcastDelta(gid, messages: fresh);
+      });
+    }
     return results;
   }
 
@@ -21389,7 +21400,14 @@ class GroupService implements ArchiveGroups {
   /// Releases the pure-Dart event surfaces owned by this identity instance.
   /// Hosts must call this before replacing/closing the active identity so a
   /// stale group feed cannot survive an identity switch.
-  Future<void> dispose() async {
+  final _backgroundTasks = AsyncTasks();
+  Future<void>? _disposal;
+  Future<void> dispose() => _disposal ??= _dispose();
+
+  /// Refuse new activity and release maintenance waits without closing the
+  /// event surfaces that already-admitted work may still use.
+  void beginShutdown() {
+    if (_disposed) return;
     _disposed = true;
     _spaceDeletionMaintenanceTimer?.cancel();
     _spaceDeletionMaintenanceTimer = null;
@@ -21425,6 +21443,23 @@ class GroupService implements ArchiveGroups {
     _pendingContentReceipts.clear();
     _outboundContentRequests.clear();
     _contentHolderProofs.clear();
+  }
+
+  Future<void> _dispose() async {
+    beginShutdown();
+    Object? failure;
+    StackTrace? failureStack;
+    try {
+      await Future.wait<void>([
+        ?_devicePostDrain,
+        ..._mutationTails.values,
+        ..._bundleWrites.values,
+        _backgroundTasks.close(),
+      ]);
+    } catch (error, stack) {
+      failure = error;
+      failureStack = stack;
+    }
     changes.dispose();
     feedAccessChanges.dispose();
     await _groupCallIncomingCtl.close();
@@ -21435,6 +21470,7 @@ class GroupService implements ArchiveGroups {
     await _incomingPostCtl.close();
     await _incomingPublicPostCtl.close();
     await _incomingPublicCommentCtl.close();
+    if (failure != null) Error.throwWithStackTrace(failure, failureStack!);
   }
 }
 

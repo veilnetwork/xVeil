@@ -382,7 +382,7 @@ bool deviceSyncOwnEventRidesGate(DeviceSyncKind kind) => switch (kind) {
   _ => false,
 };
 
-/// The event is valid, but an attachment it needs has not arrived yet.
+/// The event is valid, but an attachment is missing or its owner is closing.
 /// A later retry may offer the same event without counting this as a failed
 /// local write or letting it outrank a newer event admitted in the meantime.
 class DeviceSyncApplyDeferred implements Exception {
@@ -396,6 +396,13 @@ class DeviceSyncApplyGate {
     : _now = nowMs ?? (() => DateTime.now().millisecondsSinceEpoch);
 
   final int Function() _now;
+  bool _closed = false;
+
+  /// Stop new offers and queued plans; already-running work is joined.
+  Future<void> close() {
+    _closed = true;
+    return settle();
+  }
 
   /// Slot -> the newest event actually applied to it.
   final Map<String, DeviceSyncEvent> _applied = {};
@@ -445,6 +452,7 @@ class DeviceSyncApplyGate {
   ///
   /// Returns whether the work was accepted.
   bool offer(DeviceSyncEvent event, Future<void> Function()? Function() plan) {
+    if (_closed) return false;
     if (!deviceSyncEffectiveAt(event, _now())) return false;
     final slot = slotOf(event);
     final applied = _applied[slot];
@@ -453,7 +461,10 @@ class DeviceSyncApplyGate {
     if (run == null) return false;
     _applied[slot] = event;
     final queued = (_chains[slot] ?? Future<void>.value())
-        .then((_) => run())
+        .then((_) {
+          if (_closed) throw const DeviceSyncApplyDeferred();
+          return run();
+        })
         // A failed apply must not poison the slot for everything behind it —
         // and must not be REMEMBERED as applied either. The watermark is moved
         // above, before the work runs, because admission has to be decided in

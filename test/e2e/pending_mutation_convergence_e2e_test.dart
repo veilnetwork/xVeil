@@ -22,7 +22,16 @@ void main() {
         gate: gate,
         labels: const ['A', 'B', 'C'],
       );
-      addTearDown(fleet.dispose);
+      addTearDown(() async {
+        await fleet.dispose();
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          fleet.devices.values.fold<int>(0, (n, d) => n + d.lateAsyncErrors),
+          0,
+          reason:
+              'a finished native case must not hide read-after-close errors',
+        );
+      });
       final evidence = Platform.environment['XVEIL_PENDING_MUTATION_EVIDENCE'];
       if (evidence != null) {
         await File('$evidence/fleet-private.json').writeAsString(
