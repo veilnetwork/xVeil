@@ -1,0 +1,77 @@
+{
+  "status": "PARTIAL",
+  "base_revision": "decdaabf0133d7ad8c72069a29e95301d8cb2dc3",
+  "sdk_revision": "de769239927908e2f6929b416f101f6641d7baef",
+  "hidden_volume_revision": "c4ba1fa8e0dc388fb590dbc382ce98138c90cfeb",
+  "baseline_native_own_journal_barrier_failed": true,
+  "new_unit_tests_passed": 7,
+  "selected_regression_tests_passed": 250,
+  "final_mirror_subset_tests_passed": 58,
+  "dart_analysis_no_issues": true,
+  "final_native_state": {
+    "native_peer_delete_receipts": 1,
+    "peer_offline_during_sibling_recovery": true,
+    "source_deleted": true,
+    "own_journal_tombstone": true,
+    "sibling_deleted": true,
+    "sibling_restart_retained_delete": true
+  },
+  "native_teardown_error_free": false,
+  "late_read_after_close_defect_fixed": false,
+  "source_sha256": {
+    "lib/state/group_service_providers.dart": "f3c71a1a88b783e0e9a8c37a451c34fdf1d819584d1290eb81d33bd8497095ad",
+    "lib/state/messaging_core.dart": "5d5991678ec8f8ad816bf9fe7df732dd53c4cffc616d4dde6add33e4dd1d9051",
+    "lib/state/messaging_device_mirror.dart": "49b7545f8b4df9ed4be6f114161a7a0ea10dbb1b87d1238591d1a187cad6c013",
+    "lib/state/messaging_inbound_dispatch.dart": "2ce8e9066f0a55055d252a77d751f5009c96a25b22c72402e50cb67b9cc9e5c6",
+    "lib/state/messaging_mutations.dart": "c075819a97cfcc8b2af9f7ff4e6c988001d8c52893df645da793ee570941ad75",
+    "test/delete_mirror_commit_test.dart": "db758a547d384f951ed79ef1253eca5d650de494576c3719f83f288b07087ca7",
+    "test/e2e/device_fixture.dart": "806f20264535ad667c88d77f2efa4bce2e674e387aa9dd0d0e9c56fa48f58f8f",
+    "test/e2e/pending_mutation_convergence_e2e_test.dart": "83ffaa6befa244d1bbd36bfce58c885c8185ff71faa517fd0035ab709c644245"
+  },
+  "native_sha256": {
+    "veil-cli": "4bec94ee6f20ac08da5366b0cd6356aa058d7ae689d7e79d0b3dbbfd40699dd6",
+    "libveilclient_ffi.dylib": "07328ac13c8222083e6236e7a751b32d6f3d2b6c3211423200c7b1b113e584e0",
+    "libhidden_volume_ffi.dylib": "a92a4ecdc62d4f82ae3403d584f65c0eea7e3904b78372d2ab7959957acdb169"
+  },
+  "native_build_provenance": {
+    "built_together": true,
+    "compiled_public_seeds_disabled": true,
+    "final_source_tree_unchanged_during_run": true
+  },
+  "runs": {
+    "attempt1": {
+      "device_boots": 4,
+      "relay_boots": 3,
+      "test_runner_passed": false,
+      "late_async_errors": 0
+    },
+    "baseline": {
+      "device_boots": 4,
+      "relay_boots": 3,
+      "test_runner_passed": false,
+      "late_async_errors": 0
+    },
+    "corrected": {
+      "device_boots": 6,
+      "relay_boots": 3,
+      "test_runner_passed": true,
+      "late_async_errors": 3
+    },
+    "traced": {
+      "device_boots": 6,
+      "relay_boots": 3,
+      "test_runner_passed": true,
+      "late_async_errors": 3
+    },
+    "final": {
+      "device_boots": 6,
+      "relay_boots": 3,
+      "test_runner_passed": true,
+      "late_async_errors": 3
+    }
+  },
+  "production_test_hooks_added": false,
+  "gui_or_phone_apps_started": false,
+  "microphone_used": false,
+  "servers_changed": false
+}

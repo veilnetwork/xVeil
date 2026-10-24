@@ -191,7 +191,7 @@ class _MessagingDeviceMirror {
 
   /// Fires when a message is erased HERE — by this person, or by the peer who
   /// sent it unsending it. Never fired for an erase applied FROM a sibling.
-  void Function(NodeId peer, String msgId)? onMessageDeleted;
+  FutureOr<void> Function(NodeId peer, String msgId)? onMessageDeleted;
 
   /// Fires when a message's TEXT is replaced HERE — by this person editing
   /// their own, or by the peer editing theirs. Never fired for an edit applied
@@ -290,6 +290,7 @@ class _MessagingDeviceMirror {
       }
       await _owner._storage.deleteMessage(peer.hex, msgId);
       await _owner._storage.scrubDeleted();
+      _owner._mutations.rememberDeleteCompleted(peer, msgId);
       _owner._signal();
     } catch (e) {
       devLog(() => 'xVeil[devices]: mirrored delete of $msgId failed: $e');
@@ -537,8 +538,11 @@ class _MessagingDeviceMirror {
       direction: direction,
     );
     if (pending != null && pending.isDelete) {
-      await _owner._storage.deleteMessage(peer.hex, msgId);
-      await _owner._storage.scrubDeleted();
+      await _owner._mutations.completeDelete(
+        peer,
+        msgId,
+        notifyDevices: pending.incomingOnly,
+      );
     } else if (pending != null && pending.body != null) {
       await _owner._storage.editMessage(
         peer.hex,
