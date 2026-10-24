@@ -360,6 +360,14 @@ abstract interface class RollbackAnchorReader {
   Future<bool> advanceRollbackAnchor();
 }
 
+/// Opening maintenance can publish enough eras to age out the external
+/// anchor. Judge the state captured BEFORE that work, then anchor its current
+/// descendant only after that judgment succeeds. Keep suspicious evidence.
+abstract interface class PreMaintenanceAnchorSource {
+  AnchorReading? get anchorBeforeMaintenance;
+  void acceptMaintenanceAnchorAudit();
+}
+
 /// Judge a freshly-opened space against its anchor, and record where it now
 /// stands.
 ///
@@ -381,7 +389,11 @@ Future<AnchorCheck> checkContainerAgainstAnchor({
   if (storage == null || anchor == null) {
     return const AnchorCheck(verdict: AnchorVerdict.firstRun);
   }
-  final reading = await storage.readCommitAnchor();
+  final maintenance = storage is PreMaintenanceAnchorSource
+      ? storage as PreMaintenanceAnchorSource
+      : null;
+  final before = maintenance?.anchorBeforeMaintenance;
+  final reading = before ?? await storage.readCommitAnchor();
   if (reading == null) {
     return const AnchorCheck(verdict: AnchorVerdict.firstRun);
   }
@@ -400,18 +412,23 @@ Future<AnchorCheck> checkContainerAgainstAnchor({
           reserveAhead: reserveAhead,
         );
   if (!check.isSuspicious) {
+    final current = before == null ? reading : await storage.readCommitAnchor();
+    if (current == null || current.generation != reading.generation) {
+      return check.withAnchorNotRecorded();
+    }
     final recorded = await anchor.write(
       AnchorRecord(
-        generation: reading.generation,
-        seq: reading.seq,
+        generation: current.generation,
+        seq: current.seq,
         // The era, not just the number. A container that cannot identify its
         // own newest era anchors without one, and the next check falls back to
         // the seq — which is where this started, and is still better than
         // anchoring a root that is not this era's.
-        root: reading.roots[reading.seq],
+        root: current.roots[current.seq],
       ),
     );
     if (!recorded) return check.withAnchorNotRecorded();
+    maintenance?.acceptMaintenanceAnchorAudit();
   }
   return check;
 }

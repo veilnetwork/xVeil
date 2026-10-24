@@ -84,7 +84,8 @@ Future<AsyncKvLogStore?> _noOpener({
 /// `get`/`commit`/`iterLogRange` runs OFF the UI isolate (no freeze / Android
 /// ANR). The public API is unchanged: it was already `Future`-returning and
 /// callers already `await`.
-class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
+class HiddenVolumeStorage
+    implements Storage, RollbackAnchorReader, PreMaintenanceAnchorSource {
   /// Default (SYNC opener) — the in-memory fake, tests, and any path not yet
   /// given its own worker. The sync opener is lifted to async (run INLINE on
   /// the calling isolate) internally, so behaviour is unchanged; only the
@@ -132,9 +133,18 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
   // reclaimed. Keep that obligation across crashes without replaying a vacuum
   // for every historical deletion. No message/device identifiers live here.
   static const _pendingDeleteScrubKey = 'storage.message_delete_scrub.v1';
+  static const _legacyDeleteScrubKey = 'storage.message_delete_scrub.legacy.v1';
   bool? _deleteScrubPending;
+  bool? _legacyDeleteScrubReady;
   bool _deleteScrubRecoveryNeeded = false;
   Future<void> _deleteScrubGate = Future<void>.value();
+  AnchorReading? _anchorBeforeDeletionRecovery;
+
+  @override
+  AnchorReading? get anchorBeforeMaintenance => _anchorBeforeDeletionRecovery;
+
+  @override
+  void acceptMaintenanceAnchorAudit() => _anchorBeforeDeletionRecovery = null;
 
   Future<T> _serializeDeleteScrub<T>(Future<T> Function() action) {
     final result = _deleteScrubGate.then((_) => action());
@@ -155,29 +165,85 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
         _deleteScrubPending = true;
       });
 
+  // Legacy point deletes retained their tombstone, but not a pending-scrub
+  // flag. Probe bounded namespace metadata, including retired namespaces;
+  // never infer "no history" from a possibly stale next-id counter alone.
+  Future<bool> _hasLegacyMessageRows() async {
+    if (await _as.count(Ns.messageLog) > 0) return true;
+    for (
+      var ns = Ns.messageLogShardFirst;
+      ns <= Ns.messageLogShardRetiredLast;
+      ns++
+    ) {
+      if (await _as.count(ns) > 0) return true;
+    }
+    return false;
+  }
+
+  // Called under the scrub gate, only after a successful space-wide vacuum.
+  Future<void> _finishMessageDeletionScrub() async {
+    _deleteScrubPending ??=
+        await _as.get(Ns.settings, _sk(_pendingDeleteScrubKey)) != null;
+    _legacyDeleteScrubReady ??=
+        await _as.get(Ns.settings, _sk(_legacyDeleteScrubKey)) != null;
+    final ops = <KvLogOp>[
+      if (_deleteScrubPending!)
+        DeleteOp(Ns.settings, _sk(_pendingDeleteScrubKey)),
+      if (!_legacyDeleteScrubReady!)
+        PutOp(Ns.settings, _sk(_legacyDeleteScrubKey), Uint8List.fromList([1])),
+    ];
+    if (ops.isNotEmpty) await _as.commit(ops);
+    _deleteScrubPending = false;
+    _legacyDeleteScrubReady = true;
+    _deleteScrubRecoveryNeeded = false;
+  }
+
   // Called either before exposing an opened space or under the scan gate for
   // an already-open multi-space view. Never acquire the scan gate from inside
   // the scrub gate: a concurrent history read may already be waiting for us.
-  Future<bool> _recoverMessageDeletion() => _serializeDeleteScrub(() async {
+  Future<bool> _recoverMessageDeletion({
+    bool opening = false,
+  }) => _serializeDeleteScrub(() async {
+    _deleteScrubRecoveryNeeded = true;
     _deleteScrubPending ??=
         await _as.get(Ns.settings, _sk(_pendingDeleteScrubKey)) != null;
+    _legacyDeleteScrubReady ??=
+        await _as.get(Ns.settings, _sk(_legacyDeleteScrubKey)) != null;
+    if (!_deleteScrubPending! && !_legacyDeleteScrubReady!) {
+      if (await _hasLegacyMessageRows()) {
+        // Missing completion marker is the durable obligation across a crash
+        // during migration. Treat all old message-bearing spaces conservatively.
+        _deleteScrubPending = true;
+      } else {
+        await _as.commit([
+          PutOp(
+            Ns.settings,
+            _sk(_legacyDeleteScrubKey),
+            Uint8List.fromList([1]),
+          ),
+        ]);
+        _legacyDeleteScrubReady = true;
+      }
+    }
     if (!_deleteScrubPending!) {
       _deleteScrubRecoveryNeeded = false;
       return false;
     }
-    _deleteScrubRecoveryNeeded = true;
+    if (opening) {
+      _anchorBeforeDeletionRecovery ??= await readCommitAnchor();
+    }
     await _as.scrub();
-    await _as.commit([DeleteOp(Ns.settings, _sk(_pendingDeleteScrubKey))]);
-    _deleteScrubPending = false;
-    _deleteScrubRecoveryNeeded = false;
+    await _finishMessageDeletionScrub();
     return true;
   });
 
   Future<void> _prepareOpenedStore() async {
+    _anchorBeforeDeletionRecovery = null;
     _deleteScrubPending = null;
+    _legacyDeleteScrubReady = null;
     _deleteScrubRecoveryNeeded = false;
     try {
-      await _recoverMessageDeletion();
+      await _recoverMessageDeletion(opening: true);
     } catch (_) {
       // A failed recovery must not leak the exclusive handle and wedge retry.
       await close();
@@ -213,6 +279,7 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
     final stale = _store;
     if (stale == null) return;
     _store = null;
+    _anchorBeforeDeletionRecovery = null;
     devLog(
       () =>
           'xVeil[storage]: $who called while a space is still open — '
@@ -3099,15 +3166,7 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
     await _serializeDeleteScrub(() async {
       try {
         await _as.scrub();
-        _deleteScrubPending ??=
-            await _as.get(Ns.settings, _sk(_pendingDeleteScrubKey)) != null;
-        if (_deleteScrubPending!) {
-          await _as.commit([
-            DeleteOp(Ns.settings, _sk(_pendingDeleteScrubKey)),
-          ]);
-        }
-        _deleteScrubPending = false;
-        _deleteScrubRecoveryNeeded = false;
+        await _finishMessageDeletionScrub();
       } catch (_) {
         _deleteScrubRecoveryNeeded = true;
         rethrow;
@@ -4796,7 +4855,9 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
     // logged and swallowed (callers close best-effort on teardown paths).
     _store = null;
     _deleteScrubPending = null;
+    _legacyDeleteScrubReady = null;
     _deleteScrubRecoveryNeeded = false;
+    _anchorBeforeDeletionRecovery = null;
     try {
       await s?.close();
     } catch (e) {
