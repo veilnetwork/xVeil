@@ -31,7 +31,8 @@
     "lib/data/veil_stack.dart": "66dede7091602c7382e374c890f9737309fd7022e408725a5fabe5bb0fb2e7eb"
   },
   "native_ffi_sha256": "86bf5178787fb7366ac0d2e777b0c60b9c7a5d2cedacb3b5795b800595ab657e",
-  "new_sdk_physical_android_tested": false,
+  "new_sdk_physical_android_tested": true,
   "release_packaging_tested": false,
-  "operator_container_backup_rollback_protection_qualified": false
+  "operator_container_backup_rollback_protection_qualified": false,
+  "physical_android_detail": "android-host-authorization-summary.json"
 }

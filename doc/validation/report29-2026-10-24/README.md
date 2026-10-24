@@ -212,9 +212,45 @@ Verification of this follow-up:
 The new four-function native API changes the generated ABI contract: app
 bindings and native library must be rebuilt together. These tests qualify the
 Mac native/container path. The physical Android/file results above belong to
-SDK `3c1b91d9`; this newer host integration has not yet had a physical Android
-run or release-packaging qualification. Replacing the entire encrypted container
+SDK `3c1b91d9`; the physical Android host qualification is recorded below; release-packaging
+qualification remains outstanding. Replacing the entire encrypted container
 with an older backup is not covered by these ordinary-restart guarantees.
 
 `peer-authorization-summary.json` contains only approved booleans/counts and
 software hashes. Raw native logs and generated identities were not committed.
+
+
+## Follow-up: rebuilt host on cellular Android (SDK `d4b403de`)
+
+Both Flutter stand frontends were rebuilt from root `b88ea12c`, using matching
+fresh production-native SDK libraries and no media/PCM test drivers. The four
+new authorization exports and the generated ABI contract match on both targets.
+The existing owned QA profiles were used; no user identity was reset.
+
+* Before startup, Android's encrypted container held **0** peer authorization
+  documents. After foreground messaging and abrupt force-stop it held **3**;
+  after restarting Android and further network activity it held **6**.
+* Copied encrypted checkpoints opened through the real hidden-volume library.
+  Every document passed the real SDK's signature/binding restore; all peers
+  retained before restart were still represented afterwards. Test nodes stopped
+  and their temporary runtime directories were removed.
+* Before restart, text arrived once in each direction: **0.549 s** Mac → phone,
+  **0.556 s** phone → Mac. After restart, the Mac's new text also arrived exactly
+  once. These existing-contact checks do not qualify a new Windows invitation.
+* The unchanged **180 s** file gate **failed**: a 32 MiB Mac → cellular Android
+  download had reached **16 MiB** before the API returned 504. No complete-file
+  hash match can be claimed. Power samples showed the receiver awake. Native
+  traces show retransmission/reordering waits; this run does not isolate the
+  network's contribution or prove that host persistence caused the slowdown.
+* Investigation found an independent sticky maximum in RACK: observed
+  reordering gaps never aged out, unlike its other 30-second timing evidence.
+  The measured allowance grew from milliseconds to **7.185 s** during this
+  run. Its correction/qualification is tracked separately; this failed gate
+  must not be silently replaced with a longer completion limit.
+
+The original APK was restored and independently pulled/hash-checked. The phone
+and owned Mac processes/captures were absent, forwarding removed, profile
+pointer unchanged, and the prior debug property restored. No calls/audio or
+server changes occurred. `android-host-authorization-summary.json` contains
+only approved numeric/boolean/software-revision fields; encrypted container
+copies, keys and raw logs remain private.
