@@ -1,0 +1,59 @@
+{
+  "sdk_revision": "9414f5329b735cda1ae04e72dcff2dc9ad54db46",
+  "certificate_commit": "97bdec79",
+  "sdk_commits": {
+    "ipc": "950141e5",
+    "identity": "d459f72a",
+    "stream": "9414f532"
+  },
+  "automated_verification": {
+    "rust_passed": 1096,
+    "rust_failed": 0,
+    "rust_ignored": 20,
+    "certificate_flutter_passed": 23,
+    "diagnostics_flutter_passed_normal": 11,
+    "diagnostics_flutter_passed_enabled": 11,
+    "clippy_deny_warnings": true,
+    "focused_dart_analysis": true,
+    "workflow_pin_self_tests": true,
+    "repository_workflow_pins": true,
+    "aot_schema_present_in_both_modes": true,
+    "aot_flag_gate_rejects_normal": true,
+    "aot_flag_gate_accepts_enabled": true
+  },
+  "negative_controls": {
+    "full_accept_backlog_parent_failed": true,
+    "out_of_order_entry_cap_parent_failed": true,
+    "revoked_certificate_after_restart_parent_failed": true,
+    "acknowledged_repair_filter_disabled_attempts": 10,
+    "acknowledged_repair_filter_enabled_attempts": 1,
+    "temporary_production_changes_restored": true
+  },
+  "limits": {
+    "real_certificate_dialog_tested": false,
+    "new_sdk_physical_file_tested": false,
+    "release_packaging_tested": false,
+    "server_updates": false,
+    "application_installs": false,
+    "stand_calls": false
+  },
+  "disposition": {
+    "R29-01": "fixed",
+    "R29-02": "fixed",
+    "R29-03": "rejected_pinned_plugin_already_writes_bytes",
+    "R29-04": "busy_code_and_request_echo_fixed_lossy_batch_contract_retained",
+    "R29-05": "matched_dsack_rto_bound_retained_local_duplicate_source_fixed_in_06",
+    "R29-06": "fixed",
+    "R29-07": "fixed",
+    "R29-08": "fixed",
+    "R29-09": "fixed",
+    "R29-10": "rejected_numeric_sudo_uid_is_correct",
+    "PC-1": "entry_count_capped",
+    "PC-2": "fixed",
+    "PC-3": "serial_half_range_hardened",
+    "R28-16": "no_current_reachable_constructor_invariant_failure_established",
+    "R28-18": "runtime_loop_already_reuses_buffer",
+    "R28-22": "guarded_no_present_defect_established",
+    "R28-31": "already_documented"
+  }
+}
