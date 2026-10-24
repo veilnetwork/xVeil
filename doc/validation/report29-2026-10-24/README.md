@@ -286,6 +286,13 @@ inferred without it. Android's byte-exact native save proof remains above.
 The owned process/port exited and the private runner overlay was restored;
 `certificate-macos-summary.json` records only bounded approved evidence.
 
+The same mobile path-only save defect was independently confirmed and fixed
+in the archive export screen. It now streams directly into the selected native
+document, without a plaintext app-private staging file. Android system save,
+8 MiB byte-exact readback, partial abort and picker cancellation/reopen passed
+in an isolated app with exact production writer sources. See
+[streamed document export](../streamed-document-export-2026-10-24/README.md).
+
 
 ## Follow-up: video while the microphone is muted
 

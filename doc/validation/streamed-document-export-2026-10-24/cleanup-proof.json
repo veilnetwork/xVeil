@@ -1,0 +1,9 @@
+{
+  "owned_fixture_process_absent": true,
+  "owned_fixture_uninstalled": true,
+  "owned_provider_target_absent": true,
+  "owned_phone_ui_dump_removed": true,
+  "production_app_or_profile_modified": false,
+  "mac_app_launched": false,
+  "calls_or_microphone_used": false
+}
