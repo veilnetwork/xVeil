@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import '../../domain/peer_authorization.dart';
 
 import 'kv_log_store.dart' show SlotUtilization;
 import '../../core/ids.dart';
@@ -631,6 +632,15 @@ abstract interface class Storage {
   /// Each conversation lands atomically: a torn write would restore a session
   /// whose halves came from different points in the chain.
   Future<void> saveRatchetStates(List<RatchetStateEntry> entries);
+
+  /// Signed peer revocation floors in this identity's protected storage.
+  /// Corrupt or partial records throw; they must never become an empty cache.
+  Future<List<PeerAuthorizationEntry>> loadPeerAuthorization();
+
+  /// Reconcile one bounded native snapshot. Each document update is atomic.
+  /// The native store never evicts revocations; absent ordinary cache rows may
+  /// be removed first to keep the number of stored peers bounded on a crash.
+  Future<void> replacePeerAuthorization(List<PeerAuthorizationEntry> entries);
 
   /// Drop the stored state of [conversationKeys]. Returns how many were held.
   ///

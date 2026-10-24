@@ -12,13 +12,18 @@ import 'package:ffi/ffi.dart';
 // catch, reintroduced by the check itself.
 // ignore: implementation_imports
 import 'package:veil_flutter/src/abi_contract.dart'
-    show veilAbiContractHash, veilRatchetMaxSendPositions;
+    show
+        veilAbiContractHash,
+        veilRatchetMaxSendPositions,
+        veilPeerAuthorizationMaxStateLen,
+        veilErrPeerAuthorizationBufferTooSmall;
 // ignore: implementation_imports
 import 'package:veil_flutter/src/native.dart'
     show VeilAbiContractMismatch, readAbiContractHash;
 
 import '../../core/log.dart';
 import '../../core/secret_wipe.dart';
+import '../../domain/peer_authorization.dart';
 import '../native_libs.dart' show processLibFor;
 import '../storage/storage.dart'
     show kRatchetKeyLen, kRatchetMaxStateLen, RatchetStateEntry, Storage;
@@ -354,6 +359,33 @@ typedef _ConnectDart =
 typedef _CloseNative = Void Function(Pointer<Void>);
 typedef _CloseDart = void Function(Pointer<Void>);
 
+typedef _PeerAuthorizationExportNative =
+    Int32 Function(
+      Pointer<Void>,
+      Pointer<Uint8>,
+      Size,
+      Pointer<Size>,
+      Pointer<Uint64>,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _PeerAuthorizationExportDart =
+    int Function(
+      Pointer<Void>,
+      Pointer<Uint8>,
+      int,
+      Pointer<Size>,
+      Pointer<Uint64>,
+      Pointer<Pointer<Utf8>>,
+    );
+typedef _PeerAuthorizationRestoreNative =
+    Int32 Function(Pointer<Void>, Pointer<Uint8>, Size, Pointer<Pointer<Utf8>>);
+typedef _PeerAuthorizationRestoreDart =
+    int Function(Pointer<Void>, Pointer<Uint8>, int, Pointer<Pointer<Utf8>>);
+typedef _PeerAuthorizationAckNative =
+    Int32 Function(Pointer<Void>, Uint64, Pointer<Pointer<Utf8>>);
+typedef _PeerAuthorizationAckDart =
+    int Function(Pointer<Void>, int, Pointer<Pointer<Utf8>>);
+
 /// Read `veil_ratchet_peek_dirty`'s answer out of the buffer it filled.
 ///
 /// [writtenKeys] is a COUNT OF KEYS. The C contract says so — "`*out_written`
@@ -471,7 +503,8 @@ bool ratchetStateAvailable({
 /// Every call is synchronous and short: the store is an in-memory map behind a
 /// lock, and the alternative — doing this off-isolate — would put the write
 /// that must land BEFORE a send completes on the far side of a message queue.
-class FfiRatchetStateHandle implements RatchetStateHandle {
+class FfiRatchetStateHandle
+    implements RatchetStateHandle, PeerAuthorizationStateHandle {
   FfiRatchetStateHandle(this._handle, this._dl);
 
   /// Open a connection to the node's IPC socket and take the ratchet door on
@@ -539,6 +572,114 @@ class FfiRatchetStateHandle implements RatchetStateHandle {
     final msg = err.toDartString();
     _dl.lookupFunction<_FreeStrNative, _FreeStrDart>('veil_free_string')(err);
     return msg;
+  }
+
+  @override
+  int peerAuthorizationVersion() {
+    final fn = _dl.lookupFunction<_VersionNative, _VersionDart>(
+      'veil_peer_authorization_version',
+    );
+    final version = calloc<Uint64>();
+    final err = calloc<Pointer<Utf8>>();
+    try {
+      if (fn(_handle, version, err) != 0) {
+        _takeErr(err);
+        throw StateError('Peer authorization state unavailable');
+      }
+      return version.value;
+    } finally {
+      calloc.free(version);
+      calloc.free(err);
+    }
+  }
+
+  @override
+  PeerAuthorizationSnapshot exportPeerAuthorization() {
+    final fn = _dl
+        .lookupFunction<
+          _PeerAuthorizationExportNative,
+          _PeerAuthorizationExportDart
+        >('veil_peer_authorization_export');
+    var capacity = 64 * 1024;
+    for (var attempt = 0; attempt < 4; attempt++) {
+      final buffer = calloc<Uint8>(capacity);
+      final length = calloc<Size>();
+      final revision = calloc<Uint64>();
+      final err = calloc<Pointer<Utf8>>();
+      try {
+        final rc = fn(_handle, buffer, capacity, length, revision, err);
+        if (rc == veilErrPeerAuthorizationBufferTooSmall) {
+          final needed = length.value;
+          if (needed <= capacity || needed > veilPeerAuthorizationMaxStateLen) {
+            throw StateError('Peer authorization snapshot exceeds budget');
+          }
+          capacity = needed;
+          continue;
+        }
+        if (rc != 0) {
+          _takeErr(err);
+          throw StateError('Peer authorization export failed');
+        }
+        if (length.value > capacity) {
+          throw StateError('Invalid peer authorization snapshot length');
+        }
+        return PeerAuthorizationSnapshot.decode(
+          revision.value,
+          Uint8List.fromList(buffer.asTypedList(length.value)),
+        );
+      } finally {
+        calloc.free(buffer);
+        calloc.free(length);
+        calloc.free(revision);
+        calloc.free(err);
+      }
+    }
+    throw StateError('Peer authorization snapshot kept changing');
+  }
+
+  @override
+  void restorePeerAuthorization(PeerAuthorizationSnapshot snapshot) {
+    final bytes = snapshot.encode();
+    if (bytes.length > veilPeerAuthorizationMaxStateLen) {
+      throw const CorruptPeerAuthorizationState();
+    }
+    final fn = _dl
+        .lookupFunction<
+          _PeerAuthorizationRestoreNative,
+          _PeerAuthorizationRestoreDart
+        >('veil_peer_authorization_restore');
+    final buffer = calloc<Uint8>(bytes.length);
+    final err = calloc<Pointer<Utf8>>();
+    try {
+      buffer.asTypedList(bytes.length).setAll(0, bytes);
+      if (fn(_handle, buffer, bytes.length, err) != 0) {
+        _takeErr(err);
+        throw const CorruptPeerAuthorizationState();
+      }
+    } finally {
+      calloc.free(buffer);
+      calloc.free(err);
+    }
+  }
+
+  @override
+  void acknowledgePeerAuthorization(int revision) {
+    if (revision < 0) throw ArgumentError.value(revision, 'revision');
+    final fn = _dl
+        .lookupFunction<_PeerAuthorizationAckNative, _PeerAuthorizationAckDart>(
+          'veil_peer_authorization_ack',
+        );
+    final err = calloc<Pointer<Utf8>>();
+    try {
+      if (fn(_handle, revision, err) != 0) {
+        _takeErr(err);
+        throw StateError(
+          'Peer authorization checkpoint acknowledgement failed',
+        );
+      }
+    } finally {
+      calloc.free(err);
+    }
   }
 
   @override
