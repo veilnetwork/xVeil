@@ -376,10 +376,12 @@ class _PendingOp {
     String this.body,
     this.customEmoji, {
     this.incomingOnly = false,
+    this.seq,
   }) : isDelete = false;
   _PendingOp.delete({this.incomingOnly = false})
     : isDelete = true,
       body = null,
+      seq = null,
       customEmoji = const [];
   final bool isDelete;
   // An authenticated contact can mutate only its own incoming posts. A device
@@ -389,6 +391,7 @@ class _PendingOp {
 
   /// The replacement text for an edit; null for a delete.
   final String? body;
+  final int? seq;
   final List<InlineCustomEmoji> customEmoji;
 }
 

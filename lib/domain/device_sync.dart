@@ -8,6 +8,8 @@ import 'dart:convert';
 
 import '../core/ids.dart';
 import 'chat.dart' show isAcceptableWireSeq;
+import 'inline_custom_emoji.dart';
+import 'message_edit.dart';
 import 'call_log.dart';
 
 /// What a sync event describes. Serialized BY NAME (like ControlOp) so the
@@ -257,7 +259,8 @@ typedef DeviceSyncRecord = ({DeviceSyncEvent event, NodeId author});
 
 /// Deterministic fold per (kind, key). For outgoing message positions,
 /// verified > legacy/unknown > explicitly provisional; within one rank, and
-/// call records prefer final evidence; other kinds use newest wins with
+/// call records prefer final evidence; edits use revision then content hash;
+/// other kinds use newest wins with
 /// jsonEncode(payload) as the tie break.
 /// The comparator is a total order, including malformed/colliding slots.
 Map<(DeviceSyncKind, String), DeviceSyncEvent> foldDeviceSync(
@@ -273,6 +276,39 @@ Map<(DeviceSyncKind, String), DeviceSyncEvent> foldDeviceSync(
 }
 
 bool _newer(DeviceSyncEvent a, DeviceSyncEvent b) {
+  if (a.kind == DeviceSyncKind.msgEdit && b.kind == a.kind) {
+    ({String peer, int revision, String hash})? version(DeviceSyncEvent e) {
+      final peer = e.payload['peer'],
+          seq = e.payload['sq'],
+          body = e.payload['body'];
+      if (peer is! String ||
+          !RegExp(r'^[0-9a-f]{64}$').hasMatch(peer) ||
+          seq is! int ||
+          !isAcceptableWireSeq(seq) ||
+          body is! String) {
+        return null;
+      }
+      return (
+        peer: peer,
+        revision: seq,
+        hash: messageEditContentHash(
+          body,
+          parseInlineCustomEmoji(body, e.payload['ce']),
+        ),
+      );
+    }
+
+    final first = version(a), second = version(b);
+    if ((first == null) != (second == null)) return first != null;
+    if (first != null && second != null) {
+      final peer = first.peer.compareTo(second.peer);
+      if (peer != 0) return peer > 0;
+      final revision = first.revision.compareTo(second.revision);
+      if (revision != 0) return revision > 0;
+      final content = first.hash.compareTo(second.hash);
+      if (content != 0) return content > 0;
+    }
+  }
   if (a.kind == DeviceSyncKind.callLog && b.kind == a.kind) {
     CallLogEntry? entry(DeviceSyncEvent e) {
       final row = CallLogEntry.fromJson(e.payload);
