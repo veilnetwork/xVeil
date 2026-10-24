@@ -446,6 +446,9 @@ extension _MessagingInboundDispatch on MessagingService {
         // Deniability: if we DELETED this message, a re-delivery must NOT
         // resurrect it. Re-ack so the sender stops re-sending, then drop.
         if (id != null && await _storage.isMessageDeleted(m.src.hex, id)) {
+          // A previous delivery may have committed the tombstone but failed
+          // its scrub or own-device journal write. Finish before re-ACKing.
+          await _mutations.applyIncomingDelete(m.src, id);
           // Both of these answer the sender and keep nothing, which is exactly
           // what "delivered, but the chat stayed empty" looks like from the
           // outside. Reported by the user after clearing history: everything
@@ -484,9 +487,13 @@ extension _MessagingInboundDispatch on MessagingService {
             id: id,
             timestamp: _wireSentAt(env),
             customEmoji: env.customEmoji,
+            seq: env.seq,
           );
-          await _storage.deleteMessage(m.src.hex, id!);
-          await _storage.scrubDeleted();
+          await _mutations.completeDelete(
+            m.src,
+            id!,
+            notifyDevices: pending.incomingOnly,
+          );
           await _ackTo(m, id, direct: true);
           return;
         }

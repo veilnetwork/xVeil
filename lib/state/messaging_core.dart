@@ -407,10 +407,12 @@ class MessagingService {
   }
 
   /// Receives an erase performed HERE, for projection to the other devices.
-  void Function(NodeId peer, String msgId)? get onMessageDeleted =>
+  FutureOr<void> Function(NodeId peer, String msgId)? get onMessageDeleted =>
       _deviceMirror.onMessageDeleted;
 
-  set onMessageDeleted(void Function(NodeId peer, String msgId)? callback) {
+  set onMessageDeleted(
+    FutureOr<void> Function(NodeId peer, String msgId)? callback,
+  ) {
     _deviceMirror.onMessageDeleted = callback;
   }
 

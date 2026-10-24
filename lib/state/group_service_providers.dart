@@ -380,20 +380,21 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
 
   // The message taken back. Tiny, and keyed by the message id so a second
   // erase of the same id is the same row rather than another one.
-  messaging.onMessageDeleted = (peer, msgId) {
+  messaging.onMessageDeleted = (peer, msgId) async {
     if (peer == service.selfId) return;
-    unawaited(() async {
-      if (await service.isMyDevice(peer)) return;
-      await service.postDeviceEvent(
-        DeviceSyncEvent(
-          kind: DeviceSyncKind.msgGone,
-          key: msgId,
-          // The DELETION's time, not the message's: the erase is the event.
-          tsMs: DateTime.now().millisecondsSinceEpoch,
-          payload: {'peer': peer.hex},
-        ),
-      );
-    }());
+    if (await service.isMyDevice(peer)) return;
+    if (await service.deviceGroupIdHex() == null) return;
+    if (!await service.postDeviceEvent(
+      DeviceSyncEvent(
+        kind: DeviceSyncKind.msgGone,
+        key: msgId,
+        // The DELETION's time, not the message's: the erase is the event.
+        tsMs: DateTime.now().millisecondsSinceEpoch,
+        payload: {'peer': peer.hex},
+      ),
+    )) {
+      throw StateError('Could not persist the own-device message deletion');
+    }
   };
 
   // The same message, different words. Keyed by the message so the fold holds

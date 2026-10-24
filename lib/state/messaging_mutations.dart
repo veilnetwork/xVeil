@@ -124,29 +124,45 @@ class _MessagingMutations {
   /// False leaves recovery with the sender's durable outbox.
   Future<bool> applyIncomingDelete(NodeId peer, String id) async {
     final deleted = await _owner._storage.isMessageDeleted(peer.hex, id);
-    final completedKey = _key(peer, id, true);
-    if (deleted && _completedDeletes.contains(completedKey)) return true;
+    if (deleted && isDeleteCompleted(peer, id)) return true;
     if (deleted || await isIncomingFrom(peer, id)) {
       // A preceding attempt can have committed its tombstone but failed the
       // forensic scrub. A retry must finish that work even with no live row.
-      await _owner._storage.deleteMessage(peer.hex, id);
-      await _owner._storage.scrubDeleted();
-      // My other devices hold their own copy of this message and heard no
-      // unsend — only the device the peer reached did. Without this they keep
-      // showing what the sender took back.
-      _owner._deviceMirror.onMessageDeleted?.call(peer, id);
-      // A fresh frame ID for a terminal delete need not repeat an expensive
-      // scrub we already completed. Bounded and only an optimization: after a
-      // restart/eviction the tombstone still requires one recovery scrub.
-      _completedDeletes.add(completedKey);
-      if (_completedDeletes.length > kMaxPendingOps) {
-        _completedDeletes.remove(_completedDeletes.first);
-      }
+      await completeDelete(peer, id, notifyDevices: true);
     } else if (!await hasMessage(peer, id)) {
       bufferPending(peer, id, _PendingOp.delete(incomingOnly: true));
       return false;
     }
     return true;
+  }
+
+  bool isDeleteCompleted(NodeId peer, String id) =>
+      _completedDeletes.contains(_key(peer, id, true));
+
+  void rememberDeleteCompleted(NodeId peer, String id) {
+    _completedDeletes.add(_key(peer, id, true));
+    if (_completedDeletes.length > kMaxPendingOps) {
+      _completedDeletes.remove(_completedDeletes.first);
+    }
+  }
+
+  /// The caller has authorized the now-known target's direction. A peer
+  /// mutation must enter our durable device log; a deletion FROM that log
+  /// must not echo back. Cache completion only after scrub AND publication.
+  Future<void> completeDelete(
+    NodeId peer,
+    String id, {
+    required bool notifyDevices,
+  }) async {
+    await _owner._storage.deleteMessage(peer.hex, id);
+    await _owner._storage.scrubDeleted();
+    // The local erasure already happened even if publishing to our own
+    // devices fails. Do not leave the deleted body visible until another event.
+    _owner._signal();
+    if (notifyDevices) {
+      await _owner._deviceMirror.onMessageDeleted?.call(peer, id);
+    }
+    rememberDeleteCompleted(peer, id);
   }
 
   /// Delete a message from this device and immediately scrub its plaintext.
@@ -165,11 +181,12 @@ class _MessagingMutations {
     await _owner._storage.scrubDeleted();
     // A deleted file post must stop advertising and serving its bytes too.
     await _releaseServeStateFor(message);
-    _owner._deviceMirror.onMessageDeleted?.call(
+    _owner._signal();
+    await _owner._deviceMirror.onMessageDeleted?.call(
       NodeId.fromHex(message.conversationId),
       messageId,
     );
-    _owner._signal();
+    rememberDeleteCompleted(NodeId.fromHex(message.conversationId), messageId);
   }
 
   /// Drop live and durable serve state unless another message references it.
