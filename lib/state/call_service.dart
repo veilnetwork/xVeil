@@ -2489,6 +2489,9 @@ class CallService {
     // an offer arriving through the relayed lane, a media start finishing —
     // would put `_current` back and undo the boundary above.
     if (_disposed) return;
+    if (call.status == CallStatus.active && call.mediaStartedAt == null) {
+      call = call.copyWith(mediaStartedAt: _now());
+    }
     if (_current?.callId != call.callId) {
       _resetLateP2P();
       _peerAudioExpectedSince = null;

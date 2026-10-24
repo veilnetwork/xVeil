@@ -3892,7 +3892,7 @@ class HiddenVolumeStorage
   }
 
   // ── Call journal (Ns.callLog append-log) ────────────────────────────────────
-  // One immutable record per finished call, folded on read like the outbox.
+  // One immutable record per call revision, folded on read like the outbox.
   // The journal's previous home — ONE settings KV value rewritten per call —
   // hit the at-rest store's ~4KB DataBatch bound through the hot key's
   // accumulated versions: putSetting threw PayloadTooLarge after ~11 rows and
@@ -3905,31 +3905,34 @@ class HiddenVolumeStorage
     CallLogEntry entry, {
     required int cap,
   }) async {
-    final cur = await _callLogRecords();
-    if (cur.any((r) => r.entry.id == entry.id)) return false;
-    // Same bound semantics as the old single-blob store: of (existing + new),
-    // keep the newest [cap] by ring time; the overflow is deleted in the SAME
-    // commit, freeing its bounded log-index slots. A row older than a full
-    // journal is accepted-then-aged-out (never an error to the recorder).
+    final raw = await _readCallLogNamespace();
+    final cur = _foldCallLogRecords(raw);
+    final previous = cur.where((row) => row.entry.id == entry.id).firstOrNull;
+    final changed =
+        previous == null || compareCallLogEntries(entry, previous.entry) > 0;
+    // One winner per call. Replacing a provisional/shorter row uses a fresh
+    // log id, so corrections never rewrite the hot KV value that used to hit
+    // DataBatch limits. Selection and cap ties are independent of arrival order.
     final all =
         <({int? logId, CallLogEntry entry})>[
-          (logId: null, entry: entry),
-          for (final r in cur) (logId: r.logId, entry: r.entry),
+          if (changed) (logId: null, entry: entry),
+          for (final row in cur)
+            if (!changed || row.entry.id != entry.id)
+              (logId: row.logId, entry: row.entry),
         ]..sort((a, b) {
-          final c = b.entry.atMs.compareTo(a.entry.atMs);
-          if (c != 0) return c;
-          // Same ring time: the incoming row sorts newer; stored rows by
-          // descending log id (later write = newer).
-          if (a.logId == null) return -1;
-          if (b.logId == null) return 1;
-          return b.logId!.compareTo(a.logId!);
+          final time = b.entry.atMs.compareTo(a.entry.atMs);
+          return time != 0 ? time : b.entry.id.compareTo(a.entry.id);
         });
-    final evicted = all.skip(cap).toList(growable: false);
+    final kept = all.take(cap).toList(growable: false);
+    final keptIds = {
+      for (final row in kept)
+        if (row.logId != null) row.logId!,
+    };
     final doomed = [
-      for (final r in evicted)
-        if (r.logId != null) DeleteLogOp(Ns.callLog, r.logId!),
+      for (final row in raw)
+        if (!keptIds.contains(row.logId)) DeleteLogOp(Ns.callLog, row.logId),
     ];
-    final keepNew = !evicted.any((r) => r.logId == null);
+    final keepNew = kept.any((row) => row.logId == null);
     // TWO commits, appends first. hidden-volume refuses a transaction that both
     // appends to and deletes from ONE Log namespace (`Tx::delete_log` ->
     // WrongNamespaceKind "delete_log cannot be mixed with append_log in one
@@ -3959,7 +3962,7 @@ class HiddenVolumeStorage
         devLog(() => 'xVeil[call-log]: eviction deferred: $e');
       }
     }
-    return true;
+    return changed;
   }
 
   @override
@@ -3967,14 +3970,31 @@ class HiddenVolumeStorage
     final cur = await _callLogRecords();
     cur.sort((a, b) {
       final c = b.entry.atMs.compareTo(a.entry.atMs);
-      return c != 0 ? c : b.logId.compareTo(a.logId);
+      return c != 0 ? c : b.entry.id.compareTo(a.entry.id);
     });
     return [for (final r in cur) r.entry];
   }
 
-  Future<List<({int logId, CallLogEntry entry})>> _callLogRecords() =>
-      _readCallLogNamespace();
+  Future<List<({int logId, CallLogEntry entry})>> _callLogRecords() async =>
+      _foldCallLogRecords(await _readCallLogNamespace());
 
+  List<({int logId, CallLogEntry entry})> _foldCallLogRecords(
+    List<({int logId, CallLogEntry entry})> raw,
+  ) {
+    final winners = <String, ({int logId, CallLogEntry entry})>{};
+    for (final row in raw) {
+      final old = winners[row.entry.id];
+      final rank = old == null
+          ? 1
+          : compareCallLogEntries(row.entry, old.entry);
+      if (old == null || rank > 0 || (rank == 0 && row.logId > old.logId)) {
+        winners[row.entry.id] = row;
+      }
+    }
+    // An interrupted append-then-delete can leave several physical versions.
+    // They are one logical call even before a later append retries cleanup.
+    return winners.values.toList();
+  }
   Future<List<({int logId, CallLogEntry entry})>>
   _readCallLogNamespace() async {
     final out = <({int logId, CallLogEntry entry})>[];

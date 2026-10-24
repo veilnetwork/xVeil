@@ -369,6 +369,9 @@ class AppL10nEn extends AppL10n {
   String get callOutcomeCompleted => 'Call,';
 
   @override
+  String get callOutcomeAnsweredElsewhere => 'Answered on another device';
+
+  @override
   String get callOutcomeDeclined => 'Declined';
 
   @override

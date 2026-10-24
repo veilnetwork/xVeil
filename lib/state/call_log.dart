@@ -1,6 +1,6 @@
 // Call-journal store + recorder (multi-device epic, brick 4). The store keeps
-// a capped, newest-first journal of [CallLogEntry] rows — one immutable
-// encrypted record per call (Storage.appendCallLogEntry; the journal must
+// a capped, newest-first journal of [CallLogEntry] rows — immutable
+// encrypted records per call revision (Storage.appendCallLogEntry; the journal must
 // never be a single rewritten settings value, see the PayloadTooLarge note on
 // the port). The recorder folds the call FSM's terminal snapshots into it.
 // The device-sync bridge taps [CallLogStore.onAdded] to mirror local rows to
@@ -43,7 +43,7 @@ class CallLogStore {
   /// Newest-first journal.
   Future<List<CallLogEntry>> list() => _storage.callLogEntries();
 
-  /// Record a LOCAL row: idempotent by [CallLogEntry.id], capped, then fires
+  /// Record a LOCAL revision: converges by [CallLogEntry.id], capped, then fires
   /// [onAdded]. Returns whether a new row was written.
   Future<bool> add(CallLogEntry e) async {
     final wrote = await _insert(e);
@@ -54,6 +54,72 @@ class CallLogStore {
   /// Record a row mirrored from ANOTHER of my devices — same dedupe/cap, but
   /// never fires [onAdded], so it cannot echo back into the device group.
   Future<bool> addMirrored(CallLogEntry e) => _insert(e);
+
+  /// Repair the retained window from the effective device journal. A final
+  /// endpoint can supply an earlier ring time than its provisional sibling;
+  /// that can make a previously evicted call belong in the window again.
+  /// This is a local projection, never an outgoing event or an echo.
+  Future<void> reconcileMirrored(Iterable<CallLogEntry> entries) {
+    final incoming = entries.toList();
+    final done = _chain.then((_) async {
+      var changed = false;
+      var attemptedAppend = false;
+      try {
+        final current = await _storage.callLogEntries();
+        final best = {for (final row in current) row.id: row};
+        for (final row in incoming) {
+          final old = best[row.id];
+          if (old == null || compareCallLogEntries(row, old) > 0) {
+            best[row.id] = row;
+          }
+        }
+        // First replace every stored provisional winner, even when the final
+        // row belongs OUTSIDE the retained window. Otherwise its old future
+        // timestamp would continue evicting the missing historical call.
+        for (final row in current) {
+          final finalRow = best[row.id]!;
+          if (compareCallLogEntries(finalRow, row) > 0) {
+            attemptedAppend = true;
+            changed =
+                await _storage.appendCallLogEntry(finalRow, cap: kCallLogCap) ||
+                changed;
+          }
+        }
+        final target = best.values.toList()
+          ..sort((a, b) {
+            final time = b.atMs.compareTo(a.atMs);
+            return time != 0 ? time : b.id.compareTo(a.id);
+          });
+        final present = {
+          for (final row in await _storage.callLogEntries()) row.id: row,
+        };
+        for (final row in target.take(kCallLogCap).toList().reversed) {
+          final old = present[row.id];
+          if (old == null || compareCallLogEntries(row, old) > 0) {
+            attemptedAppend = true;
+            changed =
+                await _storage.appendCallLogEntry(row, cap: kCallLogCap) ||
+                changed;
+          }
+        }
+        // A prior cleanup can have failed even when the logical winner is
+        // already correct. One identical replay lets storage prune leftover
+        // physical revisions without appending another version.
+        if (!attemptedAppend && target.isNotEmpty) {
+          changed =
+              await _storage.appendCallLogEntry(
+                target.first,
+                cap: kCallLogCap,
+              ) ||
+              changed;
+        }
+      } finally {
+        if (changed) changes.value++;
+      }
+    });
+    _chain = done.then((_) {}, onError: (_) {});
+    return done;
+  }
 
   Future<bool> _insert(CallLogEntry e) {
     final done = _chain.then((_) async {
@@ -100,8 +166,11 @@ final callLogRecorderProvider = Provider<void>((ref) {
   final store = ref.read(callLogStoreProvider);
   final sub = svc.changes.listen((c) {
     if (c == null || c.status != CallStatus.ended) return;
-    final connected = c.connectedAt != null;
+    final connected = c.mediaStartedAt != null;
     final endedAt = c.endedAt ?? DateTime.now();
+    final seconds = connected
+        ? endedAt.difference(c.mediaStartedAt!).inSeconds
+        : 0;
     // Fire-and-forget, but never SILENT: a journal row that fails to persist
     // is exactly the bug class that hid the PayloadTooLarge loss for weeks.
     unawaited(
@@ -118,9 +187,8 @@ final callLogRecorderProvider = Provider<void>((ref) {
                 reason: c.endReason ?? CallEndReason.unknown,
               ),
               atMs: c.startedAt.millisecondsSinceEpoch,
-              durationSec: connected
-                  ? endedAt.difference(c.connectedAt!).inSeconds
-                  : 0,
+              durationSec: seconds < 0 ? 0 : seconds,
+              provisional: c.endReason == CallEndReason.answeredElsewhere,
             ),
           )
           .catchError((Object e) {
