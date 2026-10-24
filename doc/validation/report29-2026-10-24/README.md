@@ -22,7 +22,7 @@ Verification: 23 focused Flutter tests passed, including the default onboarding
 save path through the real file_picker Dart method channel (mock native dialog):
 Android/iOS success, cancellation and error; certificate-only UTF-8 payload;
 non-filesystem provider return value; desktop actual-file readback and corruption
-rejection. A real device save dialog has not yet been qualified in this cycle.
+rejection. The Android system save dialog was subsequently qualified; see the follow-up below.
 
 ## Audit corrections
 
@@ -46,7 +46,7 @@ SDK commits: IPC `950141e5`, revocation floors `d459f72a`, stream admission/repa
 | Finding | Result |
 | --- | --- |
 | R29-01 | Fixed: 32 MiB retained-body budget per IPC connection, in addition to the 64 MiB process budget. Failed admission releases all partial charges. This does not promise isolation against a local actor opening several connections. |
-| R29-02 | Fixed: a shared, bounded store persists signed peer documents as timestamp/revocation floors. Revocation entries survive ordinary cache pressure and process restart. Incoming documents cannot drop previously observed tombstones. Cached certificates are checked against the shared floor too. |
+| R29-02 | Cache-pressure protection fixed in all runtime modes. With persistence enabled, a shared bounded store also restores signed timestamp/revocation floors after restart. Incoming documents cannot drop previously observed tombstones; cached certificates are checked against the shared floor. **xVeil uses a memory-only node: encrypted host persistence of these floors still needs implementation.** |
 | R29-03 | Rejected for file_picker 11.0.2; diagnostics already supplies the bytes. |
 | R29-04 | Fixed local refusal semantics: additive SERVER_BUSY (12), request ID echoed, inaccurate client payload comment corrected. Loss-tolerant batches remain fire-and-forget; per-cell delivery receipts would change their contract. |
 | R29-05 | Matched D-SACK observations intentionally remain bounded by RTO, not SRTT. A malicious receiver can withhold all ACKs anyway. Existing matching of actual repair handoff, fresh minimum RTT, one observation per repair and recovery-round decay remain. R29-06 removes the confirmed local source of unnecessary duplicate repairs. No claim that an uncooperative receiver can be forced to maintain its own throughput. |
@@ -65,7 +65,8 @@ SDK commits: IPC `950141e5`, revocation floors `d459f72a`, stream admission/repa
 
 ### Security-state limits
 
-`peer_identity_floors.json` lives beside the node config, with a maximum of 512
+With runtime persistence enabled, `peer_identity_floors.json` lives beside the
+node config, with a maximum of 512
 verified documents. Ordinary entries use LRU eviction; tombstone-bearing entries
 are not evicted. If all entries contain revocations, new identities are refused
 rather than forgetting revocations. Corrupt/unreadable snapshots fail closed.
@@ -93,8 +94,45 @@ file. The operations documentation records these limits.
   outbound cancellation disabled, the real async carrier was offered the
   already-ACKed repair 10 times rather than once. Corrected paths pass.
 
-No server updates, application installs, or stand calls were performed for this
-report cycle. The preceding physical file qualification belongs to SDK
+No server updates or stand calls were performed for the initial report cycle.
+The Android follow-up below temporarily installed an inert test entrypoint and
+restored the original APK. The preceding physical file qualification belongs to SDK
 `e81ae21b`; the new SDK changes above have automated qualification in this cycle.
 A real certificate save dialog on each platform and release packaging remain
 separate qualifications. Existing untracked multi-device evidence is untouched.
+
+
+## Follow-up: Android certificate dialog and ephemeral runtime
+
+The current production `RecoveryCertificateStep` and shared exporter were built
+into an inert standalone entrypoint outside the repository. The fixture contains
+no actual identity or recovery capability and opens no container or node. On the
+connected Android device:
+
+* The Save button opened the real Google DocumentsUI save panel with the expected
+  suggested filename.
+* Cancelling returned to the ceremony; trying Continue kept the unsaved gate.
+* Saving wrote the exact fixture bytes to a file. The separate recovery code was
+  absent. Continue then reported `saved=true`.
+* The fixture file and owned UI dumps were removed. The original APK was
+  restored and independently pulled/hash-checked; the test process was absent.
+
+No user identity was created/reset. The test APK preserved the installed app's
+manifest/version for Android's update compatibility, was signed with the existing
+application key, and was used only for this temporary physical qualification.
+This tests Android's actual picker/provider path; it does not qualify macOS,
+iOS or Windows UI.
+
+Reviewing the embedded boot revealed a missing boundary in the initial SDK fix:
+xVeil uses `persist_enabled=false` and recreates its runtime directory. SDK
+`3c1b91d9` now makes both peer certificate and identity-floor stores memory-only
+in that mode, without reading stale snapshot files or writing plaintext copies.
+Persistent daemons retain on-disk floors. Two new regression tests cover both
+modes; all 684 runtime tests passed (11 explicitly ignored), as did Clippy with
+warnings denied.
+
+**Still required:** save/restore peer authorization floors through xVeil's
+identity-specific encrypted container. The persistent-daemon restart test does
+not prove the embedded application's restart behavior. A follow-up native/host
+interface must restore that state before application traffic, keep it current,
+and retain fail-closed handling of corrupt/rolled-back security state.
