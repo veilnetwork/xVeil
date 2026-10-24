@@ -1,5 +1,5 @@
 {
-  "sdk_revision": "9414f5329b735cda1ae04e72dcff2dc9ad54db46",
+  "sdk_revision": "3c1b91d9",
   "certificate_commit": "97bdec79",
   "sdk_commits": {
     "ipc": "950141e5",
@@ -30,16 +30,21 @@
     "temporary_production_changes_restored": true
   },
   "limits": {
-    "real_certificate_dialog_tested": false,
+    "real_certificate_dialog_tested": true,
     "new_sdk_physical_file_tested": false,
     "release_packaging_tested": false,
     "server_updates": false,
-    "application_installs": false,
-    "stand_calls": false
+    "application_installs": true,
+    "stand_calls": false,
+    "certificate_platforms_qualified": [
+      "android"
+    ],
+    "original_apk_restored_and_independently_hash_verified": true,
+    "embedded_floor_restart_persistence_complete": false
   },
   "disposition": {
     "R29-01": "fixed",
-    "R29-02": "fixed",
+    "R29-02": "cache_pressure_fixed_persistent_daemon_restart_fixed_embedded_encrypted_host_restore_pending",
     "R29-03": "rejected_pinned_plugin_already_writes_bytes",
     "R29-04": "busy_code_and_request_echo_fixed_lossy_batch_contract_retained",
     "R29-05": "matched_dsack_rto_bound_retained_local_duplicate_source_fixed_in_06",
@@ -55,5 +60,17 @@
     "R28-18": "runtime_loop_already_reuses_buffer",
     "R28-22": "guarded_no_present_defect_established",
     "R28-31": "already_documented"
+  },
+  "follow_up": {
+    "runtime_passed": 684,
+    "runtime_ignored": 11,
+    "memory_only_peer_store_regression_passed": true,
+    "persistent_peer_store_regression_passed": true,
+    "android_certificate_file_bytes_match": true,
+    "android_recovery_code_not_exported": true,
+    "android_cancel_preserves_gate": true,
+    "android_saved_reports_true": true,
+    "test_file_removed": true,
+    "test_process_exited": true
   }
 }
