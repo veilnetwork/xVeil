@@ -1,3 +1,4 @@
+import 'startup_quick_unlock.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -65,7 +66,15 @@ class _LockScreenState extends ConsumerState<LockScreen> {
     if (!mounted) return;
     switch (choice) {
       case _StartOverChoice.keep:
-        await ref.read(appControllerProvider.notifier).startOver();
+        try {
+          await ref.read(appControllerProvider.notifier).startOver();
+        } catch (_) {
+          if (mounted) {
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text(l.quickUnlockSaveFailed)));
+          }
+        }
       case _StartOverChoice.delete:
         await _wipe(); // phrase-gated irreversible delete
       case _StartOverChoice.cancel:
@@ -166,6 +175,7 @@ class _LockScreenState extends ConsumerState<LockScreen> {
                             )
                           : Text(l.lockUnlock),
                     ),
+                    const StartupQuickUnlock(),
                     const SizedBox(height: 8),
                     TextButton(
                       onPressed: _busy ? null : _startOver,
@@ -384,6 +394,7 @@ class _WipeLeftoverDialog extends StatelessWidget {
         l.lockWipeLeftContainer
       else if (files)
         l.lockWipeLeftFiles,
+      if (remaining.contains('quick-unlock')) l.wipeLeftQuickUnlock,
       if (remaining.contains('speech-model')) l.lockWipeLeftSpeechModel,
       if (remaining.contains('translations')) l.lockWipeLeftTranslations,
       // Could-not-check is its own line, not silence. Folding it into the

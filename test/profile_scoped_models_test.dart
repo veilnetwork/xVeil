@@ -1,3 +1,4 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 // The speech and translation models belong to a PROFILE, not to the install.
 //
 // They did not, and it cost data. Both stores resolved from the bare
@@ -47,6 +48,7 @@ Future<void> _settle(ProviderContainer c) async {
 }
 
 void main() {
+  setUp(() => FlutterSecureStorage.setMockInitialValues({}));
   late Directory support;
   late String originalProfile;
 

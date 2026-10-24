@@ -1,3 +1,4 @@
+import '../identity/profile_avatar.dart';
 import 'dart:async';
 import 'dart:convert' show base64Decode;
 import 'dart:io';
@@ -255,7 +256,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final encoded = encodePinned(m.id, body);
     setState(() => _pinned = decodePinned(encoded));
     try {
-      await _messaging.setPinnedMessage(NodeId.fromHex(widget.peerHex), encoded);
+      await _messaging.setPinnedMessage(
+        NodeId.fromHex(widget.peerHex),
+        encoded,
+      );
     } catch (_) {}
   }
 
@@ -2205,9 +2209,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           AppBar(
             title: Row(
               children: [
-                CircleAvatar(
+                IdentityAvatar(
+                  peerHex: _saved ? '' : widget.peerHex,
                   radius: 16,
-                  child: _saved
+                  fallback: _saved
                       ? const Icon(Icons.bookmark_outline, size: 18)
                       : Text(title.characters.first.toUpperCase()),
                 ),

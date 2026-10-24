@@ -4,7 +4,9 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   connectivity_plus
+  flutter_secure_storage_windows
   hidden_volume
+  local_auth_windows
   screen_retriever_windows
   share_plus
   tray_manager

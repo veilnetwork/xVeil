@@ -22,6 +22,7 @@ const String kSyncShowReactions = 'show_reactions';
 const String kSyncLocale = 'locale';
 const String kSyncSignaturePolicy = 'signature_policy';
 const String kSyncNicknameClaim = 'nickname:claimed';
+const String kSyncProfileAvatar = 'profile:avatar';
 
 /// Choices made before a device group existed cannot have been emitted into
 /// it. Absence means the default, not a choice to publish over a sibling's

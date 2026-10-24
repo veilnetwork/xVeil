@@ -1,3 +1,4 @@
+import '../domain/profile_avatar.dart';
 // Multi-device bridge, brick 4 (doc/MULTIDEVICE-DESIGN.md): contacts, app
 // settings and the call journal ride the device group the same way brick 3
 // mirrors 1:1 messages. EMIT taps fire only on LOCAL changes (each apply path
@@ -134,6 +135,8 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
     (v) => ref.read(nicknameControllerProvider.notifier).applyMirroredClaim(v),
   );
 
+  hub.register(kSyncProfileAvatar, (v) => messaging.applySelfAvatar(v));
+
   // ── EMIT: local change → device-group event ───────────────────────────────
   // Monotonic emit stamps: two edits inside the same wall-clock millisecond
   // (e.g. a hook or a settings screen flipping two fields back-to-back) must
@@ -216,6 +219,24 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   // exists if the group has no valid claim yet. This applies to either device:
   // a sibling may have been the one that claimed the name on the old build.
   // A folded claim takes precedence over a stale local copy.
+  Future<void> announceStoredAvatar() async {
+    if (await svc.deviceGroupIdHex() == null) return;
+    final raw = await messaging.loadAvatar();
+    if (raw == null || ProfileAvatar.decode(raw) == null) return;
+    final folded = await svc.deviceSyncState();
+    if (folded.containsKey((DeviceSyncKind.settingSet, kSyncProfileAvatar))) {
+      return;
+    }
+    await svc.postDeviceEvent(
+      DeviceSyncEvent(
+        kind: DeviceSyncKind.settingSet,
+        key: kSyncProfileAvatar,
+        tsMs: nextTs(),
+        payload: {'v': raw},
+      ),
+    );
+  }
+
   Future<void> announceStoredNickname() async {
     try {
       final raw = await svc.storage.getSetting(kSyncNicknameClaim);
@@ -316,6 +337,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       // snapshot and history replay are sent.
       await announceIdentityDocument();
       await announceStoredNickname();
+      await announceStoredAvatar();
       await announceStoredDevicePreferences();
       final conversations = await ref.read(storageProvider).loadConversations();
       var replayed = 0;
@@ -369,6 +391,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   // while. Let the link ceremony finish; the catch-up continues in the app.
   svc.onDeviceGroupAdopted = () async {
     tasks.start(() => announceStoredDevicePreferences());
+    tasks.start(() => announceStoredAvatar());
   };
 
   messaging.onContactStatusChanged = (peer, status) {
@@ -409,6 +432,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
     );
   };
   tasks.start(() => announceStoredNickname());
+  tasks.start(() => announceStoredAvatar());
   tasks.start(() => announceStoredDevicePreferences());
   callLog.onAdded = (e) {
     tasks.start(

@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/storage/storage.dart';
 
 import '../core/log.dart';
+import '../core/local_authentication.dart';
 import '../domain/screen_lock.dart';
 import 'providers.dart';
 
@@ -42,6 +43,23 @@ class ScreenLockVerifier {
   static List<int> _digestOf(List<int> key, String password) =>
       Hmac(sha256, key).convert(utf8.encode(password)).bytes;
 
+  Map<String, Object> toJson() => {
+    'k': base64Encode(_key),
+    'h': base64Encode(_digest),
+  };
+
+  static ScreenLockVerifier? fromJson(Object? raw) {
+    try {
+      if (raw is! Map) return null;
+      final key = base64Decode(raw['k'] as String);
+      final digest = base64Decode(raw['h'] as String);
+      if (key.length != 32 || digest.length != 32) return null;
+      return ScreenLockVerifier._(key, digest);
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Constant-time: an early return on the first differing byte would time the
   /// comparison, and a lock screen is exactly where somebody gets to try over
   /// and over.
@@ -62,9 +80,13 @@ class ScreenLockState {
     this.timeout = ScreenLockTimeout.off,
     this.locked = false,
     this.wrongPassword = false,
+    this.patternGrid,
+    this.systemAuthentication = false,
   });
 
   final ScreenLockTimeout timeout;
+  final int? patternGrid;
+  final bool systemAuthentication;
 
   /// Whether the password prompt is over the app right now. Nothing behind it
   /// is torn down — see [ScreenLockController].
@@ -82,8 +104,13 @@ class ScreenLockState {
     ScreenLockTimeout? timeout,
     bool? locked,
     bool? wrongPassword,
+    int? patternGrid,
+    bool clearPattern = false,
+    bool? systemAuthentication,
   }) => ScreenLockState(
     timeout: timeout ?? this.timeout,
+    patternGrid: clearPattern ? null : patternGrid ?? this.patternGrid,
+    systemAuthentication: systemAuthentication ?? this.systemAuthentication,
     locked: locked ?? this.locked,
     wrongPassword: wrongPassword ?? this.wrongPassword,
   );
@@ -112,6 +139,12 @@ class ScreenLockController extends Notifier<ScreenLockState> {
   bool _userSet = false;
 
   ScreenLockVerifier? _verifier;
+  ScreenLockVerifier? _patternVerifier;
+  Object _session = Object();
+  bool _authInFlight = false;
+  bool _configurationInFlight = false;
+  bool get systemPromptActive => _authInFlight;
+  static const _quickKey = 'screen_lock_quick.v1';
   DateTime? _leftForegroundAt;
 
   /// The storage THIS build belongs to.
@@ -138,6 +171,9 @@ class ScreenLockController extends Notifier<ScreenLockState> {
     // identity's persisted choice never lands — it reads as `off` while the
     // user believes it is set. Caught by the reload test below.
     _userSet = false;
+    _session = Object();
+    _verifier = null;
+    _patternVerifier = null;
     final storage = ref.watch(storageProvider);
     _storage = storage;
     _load(storage);
@@ -149,6 +185,11 @@ class ScreenLockController extends Notifier<ScreenLockState> {
     final mine = ++_loadGeneration;
     try {
       final raw = await storage.getSetting(kScreenLockTimeoutSettingKey);
+      final quickRaw = await storage.getSetting(_quickKey);
+      Map? quick;
+      try {
+        quick = quickRaw == null ? null : jsonDecode(quickRaw) as Map;
+      } catch (_) {}
       // Only the newest load may speak.
       //
       // That covers the identity switch as well, and deliberately so: a switch
@@ -158,7 +199,17 @@ class ScreenLockController extends Notifier<ScreenLockState> {
       // here first and removed — nothing could redden it, and a guard that
       // cannot fail is a guard nobody can trust.
       if (mine != _loadGeneration || _userSet) return;
-      state = state.copyWith(timeout: screenLockTimeoutFromName(raw));
+      final grid = quick?['grid'];
+      final verifier = ScreenLockVerifier.fromJson(quick?['pattern']);
+      _patternVerifier = (grid == 3 || grid == 4 || grid == 5)
+          ? verifier
+          : null;
+      state = state.copyWith(
+        timeout: screenLockTimeoutFromName(raw),
+        patternGrid: _patternVerifier == null ? null : grid as int,
+        clearPattern: _patternVerifier == null,
+        systemAuthentication: quick?['system'] == true,
+      );
     } catch (_) {
       // Closed storage (the lock screen, tests) — keep the default. Which is
       // why [reloadTimeout] exists: this is the NORMAL outcome at build time,
@@ -205,15 +256,24 @@ class ScreenLockController extends Notifier<ScreenLockState> {
   /// only moment the password is in hand, and it is not kept — only something
   /// that can recognise it again.
   void rememberPassword(String password) {
+    _session = Object();
     _verifier = ScreenLockVerifier.forPassword(password);
   }
 
   /// Called from [AppController.lock]: the session is over, so the screen lock
   /// has nothing left to guard and must not carry a verifier into the next one.
   void forgetSession() {
+    _session = Object();
+    _loadGeneration++;
+    _patternVerifier = null;
     _verifier = null;
     _leftForegroundAt = null;
-    state = state.copyWith(locked: false, wrongPassword: false);
+    state = state.copyWith(
+      locked: false,
+      wrongPassword: false,
+      clearPattern: true,
+      systemAuthentication: false,
+    );
   }
 
   /// The app stopped being frontmost. Records WHEN rather than locking here:
@@ -313,8 +373,11 @@ class ScreenLockController extends Notifier<ScreenLockState> {
       state = state.copyWith(wrongPassword: false);
       return false;
     }
-    final verifier = _verifier;
-    if (verifier == null || !verifier.matches(password)) {
+    return _tryVerifier(_verifier, password);
+  }
+
+  bool _tryVerifier(ScreenLockVerifier? verifier, String candidate) {
+    if (verifier == null || !verifier.matches(candidate)) {
       _failures++;
       // MONOTONIC, not wall time. A deadline compared against DateTime.now()
       // is skipped by putting the device clock back, which is a setting, not
@@ -327,6 +390,146 @@ class ScreenLockController extends Notifier<ScreenLockState> {
     _blockedUntil = Duration.zero;
     state = state.copyWith(locked: false, wrongPassword: false);
     return true;
+  }
+
+  static bool validPattern(int grid, List<int> nodes) =>
+      (grid == 3 || grid == 4 || grid == 5) &&
+      nodes.length >= 4 &&
+      nodes.length <= grid * grid &&
+      nodes.toSet().length == nodes.length &&
+      nodes.every((n) => n >= 0 && n < grid * grid);
+
+  static String _patternText(int grid, List<int> nodes) =>
+      '$grid:${nodes.join(',')}';
+
+  bool tryUnlockPattern(List<int> nodes) {
+    final grid = state.patternGrid;
+    if (throttleRemaining > Duration.zero) {
+      state = state.copyWith(wrongPassword: false);
+      return false;
+    }
+    return _tryVerifier(
+      _patternVerifier,
+      grid != null && validPattern(grid, nodes)
+          ? _patternText(grid, nodes)
+          : 'invalid',
+    );
+  }
+
+  /// Changes require the session password; persisted only inside this identity's
+  /// encrypted space. No low-entropy pattern is used to derive container keys.
+  Future<bool> configureQuickUnlock({
+    required String password,
+    int? grid,
+    List<int>? nodes,
+    bool clearPattern = false,
+    required bool system,
+    required String reason,
+  }) async {
+    if (_configurationInFlight ||
+        state.locked ||
+        throttleRemaining > Duration.zero) {
+      return false;
+    }
+    _configurationInFlight = true;
+    try {
+      if (_verifier?.matches(password) != true) {
+        _failures++;
+        _blockedUntil = _clock.elapsed + throttleAfter(_failures);
+        return false;
+      }
+      final keepPattern =
+          !clearPattern &&
+          grid == state.patternGrid &&
+          (nodes == null || nodes.isEmpty) &&
+          _patternVerifier != null;
+      if (grid != null &&
+          !keepPattern &&
+          (nodes == null || !validPattern(grid, nodes))) {
+        return false;
+      }
+      final session = _session;
+      final storage = _storage;
+      if (system && !state.systemAuthentication) {
+        _authInFlight = true;
+        try {
+          if (!await ref
+              .read(localScreenAuthenticationProvider)
+              .authenticate(reason)) {
+            return false;
+          }
+        } finally {
+          _authInFlight = false;
+        }
+      }
+      if (session != _session || state.locked) return false;
+      final pattern = keepPattern
+          ? _patternVerifier
+          : grid == null
+          ? null
+          : ScreenLockVerifier.forPassword(_patternText(grid, nodes!));
+      ++_loadGeneration; // an older settings read must not undo this choice
+      await storage.putSetting(
+        _quickKey,
+        jsonEncode({
+          'grid': grid,
+          'pattern': pattern?.toJson(),
+          'system': system,
+        }),
+      );
+      if (session != _session) return false;
+      _patternVerifier = pattern;
+      _failures = 0;
+      _blockedUntil = Duration.zero;
+      state = state.copyWith(
+        patternGrid: grid,
+        clearPattern: grid == null,
+        systemAuthentication: system,
+        wrongPassword: false,
+      );
+      return true;
+    } finally {
+      _configurationInFlight = false;
+    }
+  }
+
+  Future<T> duringSystemPrompt<T>(Future<T> Function() action) async {
+    if (_authInFlight) throw StateError('Authentication already in progress');
+    _authInFlight = true;
+    try {
+      return await action();
+    } finally {
+      _authInFlight = false;
+    }
+  }
+
+  Future<bool> tryUnlockSystem(String reason) async {
+    if (!state.locked ||
+        !state.systemAuthentication ||
+        _verifier == null ||
+        _authInFlight ||
+        throttleRemaining > Duration.zero) {
+      return false;
+    }
+    final session = _session;
+    _authInFlight = true;
+    try {
+      final ok = await ref
+          .read(localScreenAuthenticationProvider)
+          .authenticate(reason);
+      if (!ok ||
+          session != _session ||
+          !state.locked ||
+          !state.systemAuthentication) {
+        return false;
+      }
+      _failures = 0;
+      _blockedUntil = Duration.zero;
+      state = state.copyWith(locked: false, wrongPassword: false);
+      return true;
+    } finally {
+      _authInFlight = false;
+    }
   }
 
   /// Counts from process start and cannot be moved. A `Stopwatch` rather than

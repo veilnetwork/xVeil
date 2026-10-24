@@ -16,7 +16,7 @@ import android.util.Rational
 import android.view.WindowManager
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import com.veil.veil_flutter.CallActionCapability
 import io.flutter.plugin.common.MethodChannel
@@ -27,7 +27,7 @@ import io.flutter.plugin.common.MethodChannel
  * RECORD_AUDIO runtime grant before the veil audio engine opens an AAudio
  * capture stream. Camera maps to CAMERA for the video path.
  */
-class MainActivity : FlutterActivity() {
+class MainActivity : FlutterFragmentActivity() {
     private val channelName = "xveil/media_permissions"
     private val pipChannelName = "xveil/pip"
     private val pipEventsChannelName = "xveil/pip_events"

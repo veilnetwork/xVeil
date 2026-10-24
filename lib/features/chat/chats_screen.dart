@@ -1,3 +1,5 @@
+import '../identity/profile_avatar.dart';
+import '../../state/self_presentation.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -529,10 +531,9 @@ class HomeNavigationDrawer extends ConsumerWidget {
     final scheme = Theme.of(context).colorScheme;
     final convos =
         ref.watch(conversationsProvider).value ?? const <Conversation>[];
-    final app = ref.watch(appControllerProvider);
     final anon = ref.read(appControllerProvider.notifier).activeIsAnonymous;
-    final label =
-        app.activeIdentity ?? app.identity?.nodeId.short ?? l.navChats;
+    final presentation = ref.watch(selfPresentationProvider);
+    final label = presentation.label;
     void select(String? id) {
       ref.read(selectedFolderProvider.notifier).state = id;
       Navigator.of(context).pop(); // close the drawer
@@ -558,19 +559,36 @@ class HomeNavigationDrawer extends ConsumerWidget {
               padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
               child: Row(
                 children: [
-                  CircleAvatar(
+                  IdentityAvatar(
                     radius: 24,
-                    child: Text(
+                    fallback: Text(
                       label.characters.first.toUpperCase(),
                       style: const TextStyle(fontSize: 20),
                     ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: Text(
-                      label,
-                      style: Theme.of(context).textTheme.titleMedium,
-                      overflow: TextOverflow.ellipsis,
+                    child: InkWell(
+                      onTap: () => go('/settings/account'),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            label,
+                            key: const ValueKey('self-menu-name'),
+                            style: Theme.of(context).textTheme.titleMedium,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          if (presentation.nodeId != null)
+                            Text(
+                              presentation.nodeId!,
+                              key: const ValueKey('self-menu-node-id'),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                   if (anon)
@@ -968,8 +986,9 @@ class _ConversationTile extends ConsumerWidget {
       child: Semantics(
         onLongPressHint: AppL10n.of(context).chatMoreActions,
         child: ListTile(
-          leading: CircleAvatar(
-            child: isSaved
+          leading: IdentityAvatar(
+            peerHex: isSaved ? '' : conversation.peer.nodeId.hex,
+            fallback: isSaved
                 ? const Icon(Icons.bookmark_outline, size: 20)
                 : Text(label.characters.first.toUpperCase()),
           ),
