@@ -1,0 +1,21 @@
+{
+  "result": {
+    "native_save_dialog_opened": true,
+    "cancel_returned_to_ceremony": true,
+    "cancel_did_not_unlock_continue": true,
+    "actual_file_bytes_match": true,
+    "recovery_code_absent": true,
+    "ceremony_reports_saved_true": true,
+    "fixture_file_removed": true
+  },
+  "cleanup": {
+    "test_process_exited": true,
+    "original_apk_restored": true,
+    "original_apk_hash_matches": true,
+    "phone_process_absent": true
+  },
+  "independent_cleanup": {
+    "original_apk_hash_restored": true,
+    "test_app_process_absent": true
+  }
+}

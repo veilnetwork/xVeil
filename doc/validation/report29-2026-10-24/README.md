@@ -97,7 +97,8 @@ file. The operations documentation records these limits.
 No server updates or stand calls were performed for the initial report cycle.
 The Android follow-up below temporarily installed an inert test entrypoint and
 restored the original APK. The preceding physical file qualification belongs to SDK
-`e81ae21b`; the new SDK changes above have automated qualification in this cycle.
+`e81ae21b`; the initial SDK changes above had automated qualification, followed by the
+physical SDK qualification below.
 A real certificate save dialog on each platform and release packaging remain
 separate qualifications. Existing untracked multi-device evidence is untouched.
 
@@ -136,3 +137,32 @@ identity-specific encrypted container. The persistent-daemon restart test does
 not prove the embedded application's restart behavior. A follow-up native/host
 interface must restore that state before application traffic, keep it current,
 and retain fail-closed handling of corrupt/rolled-back security state.
+
+
+## Follow-up: SDK 3c1b91d9 on Mac and cellular Android
+
+Fresh release-native libraries were built for macOS arm64 and Android arm64 and
+staged into the previously frozen production-native stand frontends. The four
+file-transfer Dart source hashes tracked by that frozen build are unchanged.
+This is a qualification of the new SDK with that stand, not of newly packaged
+current Flutter release artifacts. All 199 exported Veil symbols are unchanged;
+no media test hooks or PCM drivers were added.
+
+* Both QA identities were ready. Contact request: 6.720 s; acceptance: 7.353 s.
+* Mac → phone text: 5.837 s, one copy. Phone → Mac: 0.594 s, one copy.
+* Wi-Fi off, cellular default route verified. P2P denied on both test contacts.
+* Mac → phone **32 MiB**: **134.669 s** download, full SHA-256 match, original
+  180-second completion gate passed. Receiver has one matching offer.
+* The outgoing offer was also verified after restarting only the owned Mac
+  stand: one outgoing row persisted. The earlier `/messages` counter omitted
+  outgoing `fileId` fields; `/conv_messages` supplies that field and confirms
+  the row. That initial zero was a measurement error, not missing chat history.
+* Contact P2P overrides, phone debug property and profile pointer restored;
+  owned forwarding/captures removed. Original phone APK pulled again and
+  hash-verified after restoration. Both stand processes and the separate Mac
+  history-check process were independently verified absent.
+
+No audio/video call was started. No server configuration was changed. This run
+has no controlled throughput comparison and does not claim a speedup over the
+prior SDK or qualify source restart, every offline case, or the encrypted host
+floor persistence still required above.
