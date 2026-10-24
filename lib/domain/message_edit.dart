@@ -22,12 +22,18 @@ String messageEditContentHash(String body, List<InlineCustomEmoji> emoji) =>
 /// Edits of one logical message share its revision stream across devices.
 /// Concurrent writers can allocate the same revision; the larger content hash
 /// breaks that tie identically in storage, device sync and history recovery.
+/// Genuine evidence can upgrade the provenance of the identical value; a
+/// reflected replay cannot downgrade it.
 bool messageEditWins({
   required int revision,
   required String contentHash,
   required int? heldRevision,
   required String heldContentHash,
+  bool reflected = false,
+  bool heldReflected = false,
 }) =>
     heldRevision == null ||
     revision > heldRevision ||
-    (revision == heldRevision && contentHash.compareTo(heldContentHash) > 0);
+    (revision == heldRevision &&
+        (contentHash.compareTo(heldContentHash) > 0 ||
+            (contentHash == heldContentHash && heldReflected && !reflected)));

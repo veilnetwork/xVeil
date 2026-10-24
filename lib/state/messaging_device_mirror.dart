@@ -358,12 +358,14 @@ class _MessagingDeviceMirror {
     required String body,
     int? seq,
     List<InlineCustomEmoji> customEmoji = const [],
+    bool reflected = false,
   }) async {
     if (_owner._disposed) return;
     try {
       if (await _owner._storage.isMessageDeleted(peer.hex, msgId)) return;
       final target = await _owner._storage.loadMessageById(peer.hex, msgId);
       if (target == null) {
+        if (reflected) return;
         // The edit outran the mirror that carries its message: both ride the
         // same log, but an oversized mirror waits for a later fetch window.
         // Parked in the buffer the wire path uses for the same race, and spent
@@ -384,6 +386,8 @@ class _MessagingDeviceMirror {
         contentHash: hash,
         heldRevision: (await _owner._storage.editSeqs(peer.hex))[msgId],
         heldContentHash: heldHash,
+        reflected: reflected,
+        heldReflected: target.reflectedEdit,
       )) {
         return;
       }
@@ -393,6 +397,7 @@ class _MessagingDeviceMirror {
         body,
         seq: seq,
         customEmoji: customEmoji,
+        reflected: reflected,
       );
       _owner._signal();
     } catch (e) {
@@ -454,6 +459,7 @@ class _MessagingDeviceMirror {
     String? author,
     int? seq,
     bool? positionVerified,
+    bool reflectedEdit = false,
     String? replyToId,
     String? forwardedFrom,
     required NodeId peer,
@@ -576,7 +582,7 @@ class _MessagingDeviceMirror {
         ),
         status:
             status ??
-            (direction == MessageDirection.outgoing
+            (direction == MessageDirection.outgoing && !reflectedEdit
                 ? MessageStatus.sent
                 : MessageStatus.delivered),
         fileContentId: fileContentId,
@@ -589,6 +595,8 @@ class _MessagingDeviceMirror {
         author: author,
         seq: seq,
         positionVerified: positionVerified,
+        edited: reflectedEdit,
+        reflectedEdit: reflectedEdit,
       ),
     );
     // An erase or an edit that got here FIRST is spent now, exactly as the wire

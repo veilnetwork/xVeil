@@ -192,6 +192,7 @@ void main() {
         author: p['au'] as String?,
         seq: p['sq'] as int?,
         positionVerified: p['pv'] as bool?,
+        reflectedEdit: p['er'] == true,
       );
       if (t.me == b) applied++;
     };
@@ -253,6 +254,95 @@ void main() {
     tb = _Endpoint(net, b);
     mb = service(tb, sb, a)..start();
   }
+
+  test('reflected edit provenance survives an own-device history page', () async {
+    await seed(1);
+    await sa.editMessage(
+      peer.hex,
+      'm0000',
+      'reflected text',
+      seq: 99,
+      reflected: true,
+    );
+    ma.start();
+    mb.start();
+    await until(() async => (await sb.editSeqs(peer.hex))['m0000'] == 99);
+    final message = (await sb.loadMessages(peer.hex)).single;
+    expect(message.body, 'reflected text');
+    expect(message.reflectedEdit, isTrue);
+    expect(message.positionVerified, isTrue);
+    expect(
+      await sb.loadEventsSince(peer.hex, a.hex, 0),
+      isEmpty,
+      reason:
+          'a history page must not turn reflected text into an authored post/edit',
+    );
+    await restartB();
+    expect((await sb.loadMessages(peer.hex)).single.reflectedEdit, isTrue);
+  });
+
+  test(
+    'authenticated same-value edit repairs reflected history provenance',
+    () async {
+      await seed(1);
+      await sb.appendMessage((await sa.loadMessages(peer.hex)).single);
+      await sa.editMessage(
+        peer.hex,
+        'm0000',
+        'same text',
+        seq: 99,
+        reflected: true,
+      );
+      ma.start();
+      mb.start();
+      await until(() async => (await sb.editSeqs(peer.hex))['m0000'] == 99);
+      expect((await sb.loadMessages(peer.hex)).single.reflectedEdit, isTrue);
+      await until(
+        () async =>
+            await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+      );
+      // Genuine evidence now reaches A. The body and revision do not change:
+      // provenance itself must change the inventory digest and reach B.
+      await sa.editMessage(peer.hex, 'm0000', 'same text', seq: 99);
+      expect((await sa.loadMessages(peer.hex)).single.reflectedEdit, isFalse);
+      await restartB();
+      await until(
+        () async => !(await sb.loadMessages(peer.hex)).single.reflectedEdit,
+      );
+      expect(
+        (await sb.loadEventsSince(
+          peer.hex,
+          a.hex,
+          0,
+        )).where((event) => event.body == 'same text'),
+        hasLength(1),
+      );
+    },
+  );
+
+  test(
+    'a reflected history page cannot demote authentic same-value evidence',
+    () async {
+      await seed(1);
+      await sb.appendMessage((await sa.loadMessages(peer.hex)).single);
+      await sa.editMessage(
+        peer.hex,
+        'm0000',
+        'same text',
+        seq: 99,
+        reflected: true,
+      );
+      await sb.editMessage(peer.hex, 'm0000', 'same text', seq: 99);
+      net.drop = (from, to, frame) => from == b && frame['i'] != null;
+      ma.start();
+      mb.start();
+      await until(
+        () async =>
+            await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+      );
+      expect((await sb.loadMessages(peer.hex)).single.reflectedEdit, isFalse);
+    },
+  );
 
   test(
     'old originals recover without counterpart or device-log events',
