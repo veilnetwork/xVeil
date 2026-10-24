@@ -12,6 +12,28 @@ import shlex
 import sys
 
 
+def logical_lines(text):
+    """Join continuations while keeping each command's physical start line."""
+    parts = []
+    start = 1
+    for number, line in enumerate(text.splitlines(keepends=True), 1):
+        if not parts:
+            start = number
+        else:
+            line = line.lstrip()
+            if not line:
+                continue
+        continuation = re.search(r'(?:\\|`)\r?\n$', line)
+        if continuation:
+            parts.append(line[:continuation.start()] + ' ')
+        else:
+            parts.append(line.rstrip('\r\n'))
+            yield start, ''.join(parts)
+            parts.clear()
+    if parts:
+        yield start, ''.join(parts)
+
+
 def check(text):
     errors = []
     for number, line in enumerate(text.splitlines(), 1):
@@ -21,8 +43,7 @@ def check(text):
             if not ref.startswith('./') and not re.fullmatch(r'[^@]+@[0-9a-fA-F]{40}', ref):
                 if not re.fullmatch(r'docker://[^@]+@sha256:[0-9a-fA-F]{64}', ref):
                     errors.append((number, 'action must use a full commit SHA (or image digest)'))
-    logical = re.sub(r'(?:\\|`)\r?\n\s*', ' ', text)
-    for number, line in enumerate(logical.splitlines(), 1):
+    for number, line in logical_lines(text):
         if 'cargo' not in line or line.lstrip().startswith('#'):
             continue
         try:
@@ -59,6 +80,17 @@ def self_test():
     assert check('- uses: actions/checkout@v4')
     assert not check('- uses: actions/checkout@' + 'a'*40)
     assert not check('- uses: ./local')
+    for newline, slash in [('\n', '\\'), ('\r\n', '`')]:
+        source = newline.join([
+            'run: |',
+            f'  cargo install valid {slash}',
+            '    --version 1.2 --locked',
+            '  echo next',
+            f'  cargo install missing {slash}',
+            '    --locked',
+            '  cargo install also-missing',
+        ])
+        assert [number for number, _ in check(source)] == [5, 7]
     print('workflow pin self-tests passed')
 
 
