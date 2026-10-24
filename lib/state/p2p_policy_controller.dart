@@ -113,6 +113,9 @@ class P2PPolicyController extends Notifier<P2PGlobalPolicy> {
         peer,
         getContact: ref.read(storageProvider).getContact,
         identityOfDevice: ref.read(messagingServiceProvider).identityOfDevice,
+        deviceProofAllowed: ref
+            .read(messagingServiceProvider)
+            .deviceProofAllowed,
       );
       final override = contact?.p2pOverride ?? kDefaultContactP2POverride;
       final allowed = p2pMessagingAllows(
@@ -156,6 +159,9 @@ class P2PPolicyController extends Notifier<P2PGlobalPolicy> {
         peer,
         getContact: ref.read(storageProvider).getContact,
         identityOfDevice: ref.read(messagingServiceProvider).identityOfDevice,
+        deviceProofAllowed: ref
+            .read(messagingServiceProvider)
+            .deviceProofAllowed,
       );
       final override = contact?.p2pOverride ?? kDefaultContactP2POverride;
       final accepted = contact?.status == ContactStatus.accepted;

@@ -7,6 +7,8 @@ import 'package:ffi/ffi.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'package:xveil/data/node/embedded_node.dart';
+import 'package:xveil/data/node/identity_config_fields.dart';
+import 'package:xveil/crypto/blake3.dart';
 import 'package:xveil/data/node/ratchet_ffi.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/hv_kv_log_store.dart';
@@ -268,6 +270,137 @@ void main() {
           await composed.close();
         }
       } finally {
+        await dir.delete(recursive: true);
+      }
+    },
+    skip: skip,
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+  test(
+    'device authorization is scoped to its node when two nodes stay online',
+    () async {
+      final lib = DynamicLibrary.open(path!);
+      final dir = await Directory.systemTemp.createTemp('xveil-auth-scope-');
+      final controllers = <EmbeddedNodeController>[];
+      final handles = <FfiRatchetStateHandle>[];
+      try {
+        final configs = await Future.wait([
+          for (var i = 0; i < 2; i++)
+            File(
+              'test/native/fixtures/ratchet_state_identity_$i.toml',
+            ).readAsString(),
+        ]);
+        final deviceKey = identityConfigFields(configs[1])!.publicKey;
+        final device = blake3Hash(deviceKey);
+        final minted = mintSovereignIdentity();
+        final source = await Directory('${dir.path}/source').create();
+        EmbeddedNode.provisionIdentityFromCertificate(
+          minted.credential,
+          minted.code,
+          veilDir: source.path,
+          instanceLabel: 'per-node-proof',
+          nodeConfigToml: configs[0],
+          lib: lib,
+        );
+        EmbeddedNode.delegateDevice(
+          secret: minted.code,
+          credential: minted.credential,
+          veilDir: source.path,
+          devicePubkey: deviceKey,
+          lib: lib,
+        );
+        final active = await File(
+          '${source.path}/identity_document.bin',
+        ).readAsBytes();
+        expect(
+          EmbeddedNode.revokeIdentityDevice(
+            secret: minted.code,
+            credential: minted.credential,
+            veilDir: source.path,
+            deviceId: device,
+            lib: lib,
+          ),
+          isTrue,
+        );
+        final revoked = await File(
+          '${source.path}/identity_document.bin',
+        ).readAsBytes();
+        await source.delete(recursive: true);
+        for (var i = 0; i < 2; i++) {
+          final runtime = await Directory('${dir.path}/runtime-$i').create();
+          final ipc = '${runtime.path}/app.sock';
+          final admin = '${runtime.path}/admin.sock';
+          final config = EmbeddedNode.composeConfig(
+            identityToml: configs[i],
+            listenTransport: 'quic://127.0.0.1:0',
+            ipcSocket: ipc,
+            adminSocket: admin,
+            useBundledSeeds: false,
+            meetingPoints: const [],
+            lib: lib,
+          );
+          final controller = EmbeddedNodeController(
+            appSocketPath: ipc,
+            lib: lib,
+            starter: () {
+              final node = EmbeddedNode.startDeferred(admin, lib: lib);
+              try {
+                node.applyConfig(config);
+                return node;
+              } catch (_) {
+                node.stop();
+                rethrow;
+              }
+            },
+          );
+          controllers.add(controller);
+          await controller.start();
+          final handle = FfiRatchetStateHandle.connect(ipc, lib: lib)!;
+          handles.add(handle);
+          handle.restorePeerAuthorization(
+            PeerAuthorizationSnapshot(0, [
+              PeerAuthorizationEntry(
+                minted.nodeId.hex,
+                i == 0 ? active : revoked,
+              ),
+            ]),
+          );
+          handle.acknowledgePeerAuthorization(
+            handle.peerAuthorizationVersion(),
+          );
+        }
+        // The newest registered runtime must not supply the first handle's
+        // verdict. Conversely the first runtime must not authorize the second.
+        for (var i = 0; i < 3; i++) {
+          expect(
+            handles[0].peerDeviceProofAllowed(minted.nodeId.bytes, device),
+            isTrue,
+          );
+          expect(
+            handles[1].peerDeviceProofAllowed(minted.nodeId.bytes, device),
+            isFalse,
+          );
+        }
+        expect(
+          handles[0].peerDeviceProofAllowed(Uint8List(32), device),
+          isFalse,
+        );
+        expect(
+          () => handles[0].peerDeviceProofAllowed(Uint8List(31), device),
+          throwsArgumentError,
+        );
+        handles[0].close();
+        expect(
+          () => handles[0].peerDeviceProofAllowed(minted.nodeId.bytes, device),
+          throwsStateError,
+        );
+      } finally {
+        for (final handle in handles.reversed) {
+          handle.close();
+        }
+        for (final controller in controllers.reversed) {
+          await controller.stop();
+        }
         await dir.delete(recursive: true);
       }
     },
