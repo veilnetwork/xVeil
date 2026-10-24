@@ -1,0 +1,9 @@
+{
+  "recorded_fleet_roots_removed": 3,
+  "owned_relay_executables_absent": true,
+  "owned_native_libraries_not_open": true,
+  "owned_application_process_groups_absent": true,
+  "final_worker_test_successes": 6,
+  "final_relay_logs_preserved_privately": 3,
+  "unrelated_preexisting_temp_directories_preserved": true
+}
