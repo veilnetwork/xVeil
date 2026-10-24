@@ -267,3 +267,33 @@ gate. The earlier failed gate remains recorded above. Live counters demonstrate
 expiry; the runs do not isolate a causal speedup. Android encrypted checkpoints
 again passed native validation after abrupt restart, and cleanup/restoration
 was independently verified. See [details](../stream-reordering-2026-10-24/README.md).
+
+
+## Follow-up: macOS certificate system dialog
+
+The current production `RecoveryCertificateStep` and unchanged pinned native
+`file_picker` were exercised in an isolated app carrying the product's sandbox
+and user-selected read/write entitlements, with an inert fixture certificate.
+The actual `NSSavePanel` appeared with a populated filename. Cancel returned to
+the widget; Continue retained its unsaved-certificate gate. No identity,
+container, microphone, phone or installed application was used/changed.
+
+Saving through the dialog is **not yet qualified on Mac**: in-process automated
+confirmation did not complete the system UI, and external accessibility control
+is unavailable here. The failed fixture automation is not a demonstrated
+product crash. A manual Save click was requested separately; no success is
+inferred without it. Android's byte-exact native save proof remains above.
+The owned process/port exited and the private runner overlay was restored;
+`certificate-macos-summary.json` records only bounded approved evidence.
+
+
+## Follow-up: video while the microphone is muted
+
+SDK `1893a286` fixes an independently reproduced local source gate: muted,
+stopped or receive-only audio cannot emit the short packet the video policy
+was waiting for. A real-codec no-device regression changed from zero video
+frames on the parent to 16 encoded/decoded frames while audio still emitted
+nothing. Unmute, explicit pause, long-Opus protection and sparse recovery remain
+verified. Ordinary macOS/Android libraries compile with the same 105 exports and
+no test hooks. See [details](../muted-video-2026-10-24/README.md). This does not
+close the separate Windows audio or physical speech-quality requirements.
