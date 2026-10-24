@@ -1,11 +1,12 @@
 {
-  "sdk_revision": "d4b403def8b01e2fe8d2e0e9131893d751c206f2",
+  "sdk_revision": "fa7123f5e32b0a05e669551b7dbfbba18236df44",
   "certificate_commit": "97bdec79",
   "sdk_commits": {
     "ipc": "950141e5",
     "identity": "d459f72a",
     "stream": "9414f532",
-    "embedded_host_authorization": "d4b403def8b01e2fe8d2e0e9131893d751c206f2"
+    "embedded_host_authorization": "d4b403def8b01e2fe8d2e0e9131893d751c206f2",
+    "recent_reordering_evidence": "fa7123f5e32b0a05e669551b7dbfbba18236df44"
   },
   "automated_verification": {
     "rust_passed": 1096,
@@ -81,6 +82,9 @@
     "physical_cleanup_independently_verified": true,
     "embedded_host_native_tests_passed": 8,
     "physical_android_host_authorization_restart_qualified": true,
-    "latest_physical_file_180_second_gate_passed": false
+    "latest_physical_file_180_second_gate_passed": true,
+    "baseline_physical_file_180_second_gate_passed": false,
+    "latest_physical_file_download_seconds": 112.96046283293981,
+    "latest_physical_file_hash_matches": true
   }
 }
