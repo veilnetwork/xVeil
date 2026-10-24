@@ -166,6 +166,19 @@ abstract interface class Storage {
   /// sender reads the returned seq to put it on the wire.
   Future<Message> appendMessage(Message message);
 
+  /// Adopt authenticated device-journal ordering for a provisional outgoing
+  /// echo, only while its raw (author, seq) still matches the supplied pair.
+  /// Metadata only: never inserts a post or replaces body/status/attachments,
+  /// and never turns the peer's echo into an exportable own wire event.
+  Future<bool> adoptMessageOrdering(
+    String conversationId,
+    String messageId, {
+    required String provisionalAuthor,
+    required int provisionalSeq,
+    required String author,
+    required int seq,
+  });
+
   /// The event-log sync state of [conversationId] (§15, RULE HW / RULE NH): per
   /// author seen in the local log, the contiguous high-water and the named holes
   /// (see [ConversationSync]). Derived from the durable (author, seq) the records

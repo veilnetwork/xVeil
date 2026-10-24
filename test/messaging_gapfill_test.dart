@@ -1206,6 +1206,32 @@ void main() {
           reason: "my own message moved the peer's stream");
     });
 
+    test('a late own-device mirror repairs the position of a real peer echo',
+        () async {
+      final identity = _id(9).hex;
+      mA.selfIdentityHex = () async => identity;
+      mA.myOtherDevices = () async => [sibling];
+      mA.isOwnDevice = (id) async => id == sibling;
+      await theSiblingWrote('late-origin', 'from my other device');
+      await mA.reconcileOnConnect();
+      await _settle();
+      final recovered = (await sA.loadMessageById(b.hex, 'late-origin'))!;
+      expect(recovered.author, identity);
+      expect(recovered.seq, isNot(73));
+      expect(recovered.ordering, isNull);
+      expect(await mA.applyMirroredMessage(
+        author: sibling.hex, seq: 73, peer: b, msgId: recovered.id,
+        direction: MessageDirection.outgoing, body: recovered.body,
+        tsMs: recovered.timestamp.millisecondsSinceEpoch,
+      ), isTrue);
+      final repaired = (await sA.loadMessageById(b.hex, recovered.id))!;
+      expect(repaired.ordering, (author: sibling.hex, seq: 73));
+      expect(repaired.body, recovered.body);
+      expect(repaired.seq, recovered.seq,
+          reason: 'the echoed row must remain off my authentic send stream');
+      expect(await sA.loadEventsSince(b.hex, sibling.hex, 0), isEmpty);
+    });
+
     test('an edit my sibling made while this device was away is handed back',
         () async {
       await mB.dispose();
