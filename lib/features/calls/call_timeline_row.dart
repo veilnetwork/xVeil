@@ -25,14 +25,16 @@ class CallTimelineRow extends StatelessWidget {
       (true, _) => (Icons.call_made, scheme.onSurfaceVariant),
       (false, _) => (Icons.call_received, scheme.onSurfaceVariant),
     };
-    final what = switch (entry.outcome) {
-      CallLogOutcome.completed => _duration(l, entry.durationSec),
-      CallLogOutcome.missed => l.callOutcomeMissed,
-      CallLogOutcome.declined => l.callOutcomeDeclined,
-      CallLogOutcome.cancelled => l.callOutcomeCancelled,
-      CallLogOutcome.busy => l.callOutcomeBusy,
-      CallLogOutcome.failed => l.callOutcomeFailed,
-    };
+    final what = entry.provisional
+        ? l.callOutcomeAnsweredElsewhere
+        : switch (entry.outcome) {
+            CallLogOutcome.completed => _duration(l, entry.durationSec),
+            CallLogOutcome.missed => l.callOutcomeMissed,
+            CallLogOutcome.declined => l.callOutcomeDeclined,
+            CallLogOutcome.cancelled => l.callOutcomeCancelled,
+            CallLogOutcome.busy => l.callOutcomeBusy,
+            CallLogOutcome.failed => l.callOutcomeFailed,
+          };
     final kind = entry.video ? l.callKindVideo : l.callKindVoice;
     final when = formatDateTime(
       DateTime.fromMillisecondsSinceEpoch(entry.atMs),

@@ -103,6 +103,7 @@
   "callKindVoice": "Голосовой звонок",
   "callKindVideo": "Видеозвонок",
   "callOutcomeCompleted": "Звонок,",
+  "callOutcomeAnsweredElsewhere": "Принят на другом устройстве",
   "callOutcomeDeclined": "Отклонён",
   "callOutcomeCancelled": "Отменён",
   "callOutcomeBusy": "Занято",

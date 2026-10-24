@@ -8,6 +8,7 @@ import 'dart:convert';
 
 import '../core/ids.dart';
 import 'chat.dart' show isAcceptableWireSeq;
+import 'call_log.dart';
 
 /// What a sync event describes. Serialized BY NAME (like ControlOp) so the
 /// enum can grow without renumbering.
@@ -193,7 +194,8 @@ enum DeviceSyncKind {
 /// One sync event. [key] is the event's CONVERGENCE identity within its kind
 /// (msgId for mirrors, peer hex for read-marks, setting key, …): the fold
 /// keeps one event per (kind, key). Outgoing message positions rank provenance
-/// first; other state and ties within a provenance rank use last-write-wins.
+/// first; call records rank final evidence first. Other state and ties within
+/// a provenance rank use last-write-wins.
 class DeviceSyncEvent {
   const DeviceSyncEvent({
     required this.kind,
@@ -255,7 +257,8 @@ typedef DeviceSyncRecord = ({DeviceSyncEvent event, NodeId author});
 
 /// Deterministic fold per (kind, key). For outgoing message positions,
 /// verified > legacy/unknown > explicitly provisional; within one rank, and
-/// for other kinds, newest wins with jsonEncode(payload) as the tie break.
+/// call records prefer final evidence; other kinds use newest wins with
+/// jsonEncode(payload) as the tie break.
 /// The comparator is a total order, including malformed/colliding slots.
 Map<(DeviceSyncKind, String), DeviceSyncEvent> foldDeviceSync(
   Iterable<DeviceSyncEvent> events,
@@ -270,6 +273,20 @@ Map<(DeviceSyncKind, String), DeviceSyncEvent> foldDeviceSync(
 }
 
 bool _newer(DeviceSyncEvent a, DeviceSyncEvent b) {
+  if (a.kind == DeviceSyncKind.callLog && b.kind == a.kind) {
+    CallLogEntry? entry(DeviceSyncEvent e) {
+      final row = CallLogEntry.fromJson(e.payload);
+      return row?.id == e.key ? row : null;
+    }
+
+    final first = entry(a), second = entry(b);
+    // An invalid later event must not compact away a valid call record.
+    if ((first == null) != (second == null)) return first != null;
+    if (first != null && second != null) {
+      final quality = compareCallLogEntries(first, second);
+      if (quality != 0) return quality > 0;
+    }
+  }
   // A replay of a peer's own-message echo can have the same message time and
   // a lexically larger payload than the original device position. Keeping it
   // as LWW winner then deletes the authentic metadata during compaction.

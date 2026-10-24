@@ -77,15 +77,18 @@ void main() {
     expect(rows.last.id, 'c0');
   });
 
-  test('idempotent by id', () async {
+  test('identical revisions are idempotent; a newer revision keeps one call', () async {
     final (storage, _) = await _open();
     expect(await storage.appendCallLogEntry(_entry('c1', 1000), cap: 5), isTrue);
     expect(
-      await storage.appendCallLogEntry(_entry('c1', 9999), cap: 5),
+      await storage.appendCallLogEntry(_entry('c1', 1000), cap: 5),
       isFalse,
-      reason: 'same call id must not journal twice',
+      reason: 'an identical revision must not journal twice',
     );
     expect((await storage.callLogEntries()).length, 1);
+    expect(await storage.appendCallLogEntry(_entry('c1', 9999), cap: 5), isTrue);
+    expect((await storage.callLogEntries()).single.atMs, 9999);
+    expect((await storage.namespaceCounts())['callLog'], 1);
   });
 
   test('cap evicts the oldest rows AND frees their log slots', () async {

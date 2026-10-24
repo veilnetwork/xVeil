@@ -96,14 +96,16 @@ class CallLogScreen extends ConsumerWidget {
       (true, _) => (Icons.call_made, null),
       (false, _) => (Icons.call_received, null),
     };
-    final subtitle = switch (e.outcome) {
-      CallLogOutcome.completed => _dur(e.durationSec),
-      CallLogOutcome.missed => l.callOutcomeMissed,
-      CallLogOutcome.declined => l.callOutcomeDeclined,
-      CallLogOutcome.cancelled => l.callOutcomeCancelled,
-      CallLogOutcome.busy => l.callOutcomeBusy,
-      CallLogOutcome.failed => l.callOutcomeFailed,
-    };
+    final subtitle = e.provisional
+        ? l.callOutcomeAnsweredElsewhere
+        : switch (e.outcome) {
+            CallLogOutcome.completed => _dur(e.durationSec),
+            CallLogOutcome.missed => l.callOutcomeMissed,
+            CallLogOutcome.declined => l.callOutcomeDeclined,
+            CallLogOutcome.cancelled => l.callOutcomeCancelled,
+            CallLogOutcome.busy => l.callOutcomeBusy,
+            CallLogOutcome.failed => l.callOutcomeFailed,
+          };
     return ListTile(
       leading: Icon(icon, color: tint),
       title: Text(r.label, maxLines: 1, overflow: TextOverflow.ellipsis),

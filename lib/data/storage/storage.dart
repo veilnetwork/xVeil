@@ -272,12 +272,13 @@ abstract interface class Storage {
   // made whole-journal rewrites throw PayloadTooLarge after ~11 rows, silently
   // losing calls from the journal.
 
-  /// Append one call-journal row. Idempotent by [CallLogEntry.id]. Keeps the
-  /// newest [cap] rows by ring time ([CallLogEntry.atMs]) — the overflow is
-  /// deleted in the same commit so the bounded per-namespace log index never
-  /// accumulates dead journal slots. Returns false when [entry]'s id is
-  /// already journaled (a mirrored duplicate), true otherwise — including the
-  /// rare row older than a full journal, which is accepted then aged out.
+  /// Append a call revision when it outranks the current record under
+  /// [compareCallLogEntries]. Identical/older observations return false.
+  /// Keep the newest [cap] logical calls by ring time, with call id as the
+  /// deterministic tie break. Appending precedes a separate cleanup commit;
+  /// interrupted cleanup must not expose duplicate logical calls.
+  /// A previously unknown call older than a full journal returns true but is
+  /// immediately aged out, as for ordinary journal retention.
   Future<bool> appendCallLogEntry(CallLogEntry entry, {required int cap});
 
   /// Every call-journal row, newest-first (by [CallLogEntry.atMs]).

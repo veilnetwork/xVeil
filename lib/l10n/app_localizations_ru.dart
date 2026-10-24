@@ -368,6 +368,9 @@ class AppL10nRu extends AppL10n {
   String get callOutcomeCompleted => 'Звонок,';
 
   @override
+  String get callOutcomeAnsweredElsewhere => 'Принят на другом устройстве';
+
+  @override
   String get callOutcomeDeclined => 'Отклонён';
 
   @override
