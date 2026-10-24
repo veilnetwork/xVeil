@@ -1,0 +1,53 @@
+{
+  "sdk_revision": "d4b403def8b01e2fe8d2e0e9131893d751c206f2",
+  "root_revision": "b88ea12cbc388511d1c2ff19edf7854fe0d57c85",
+  "frontend_rebuilt_from_current_source": true,
+  "native_abi_matches_rebuilt_flutter": true,
+  "native_test_hooks": false,
+  "pcm_probe": false,
+  "physical_android_encrypted_authorization_restart_qualified": true,
+  "document_counts": {
+    "before": 0,
+    "after-crash": 3,
+    "after-restart": 6
+  },
+  "signed_snapshot_validation_passed": true,
+  "message_after_restart_single_copy": true,
+  "pre_restart_messages": [
+    {
+      "sender": "mac",
+      "receiver": "phone",
+      "delivery_seconds": 0.5486654579872265,
+      "copies": 1
+    },
+    {
+      "sender": "phone",
+      "receiver": "mac",
+      "delivery_seconds": 0.5557392089394853,
+      "copies": 1
+    }
+  ],
+  "wifi_off_and_cellular_default": true,
+  "file_check": {
+    "bytes": 33554432,
+    "completion_limit_seconds": 180,
+    "completed": false,
+    "http_status": 504,
+    "received_highwater_bytes": 16777216,
+    "integrity_verified": false,
+    "receiver_awake_during_samples": true
+  },
+  "original_profile_pointer_unchanged": true,
+  "independent_cleanup": {
+    "owned_mac_process_absent": true,
+    "phone_process_absent": true,
+    "owned_forward_absent": true,
+    "debug_property_restored": true,
+    "native_probe_temp_directories_removed": true,
+    "original_apk_hash_restored": true,
+    "owned_logcat_capture_absent": true
+  },
+  "release_packaging_qualified": false,
+  "audio_video_tested": false,
+  "server_changes": false
+}
