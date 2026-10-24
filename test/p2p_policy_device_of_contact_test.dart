@@ -21,6 +21,7 @@ void main() {
       await policyContactFor(
         identity,
         getContact: getContact,
+        deviceProofAllowed: (_, _) => true,
         identityOfDevice: (_) => null,
       ),
       contact,
@@ -32,6 +33,7 @@ void main() {
       await policyContactFor(
         device,
         getContact: getContact,
+        deviceProofAllowed: (_, _) => true,
         identityOfDevice: (d) => d == device ? identity : null,
       ),
       contact,
@@ -46,11 +48,28 @@ void main() {
       await policyContactFor(
         stranger,
         getContact: getContact,
+        deviceProofAllowed: (_, _) => true,
         identityOfDevice: (_) => null,
       ),
       isNull,
     );
   });
+
+  test(
+    'a revoked device cannot fall back to its old accepted contact row',
+    () async {
+      expect(
+        await policyContactFor(
+          device,
+          getContact: (id) async =>
+              Contact(nodeId: id, status: ContactStatus.accepted),
+          identityOfDevice: (_) => identity,
+          deviceProofAllowed: (_, _) => false,
+        ),
+        isNull,
+      );
+    },
+  );
 
   for (final status in ContactStatus.values) {
     test(
@@ -61,6 +80,7 @@ void main() {
           device,
           getContact: (id) async => id == device ? deviceContact : contact,
           identityOfDevice: (_) => identity,
+          deviceProofAllowed: (_, _) => true,
         );
         expect(
           found,
@@ -78,6 +98,7 @@ void main() {
               ? ownerContact
               : Contact(nodeId: device, status: ContactStatus.accepted),
           identityOfDevice: (_) => identity,
+          deviceProofAllowed: (_, _) => true,
         );
         expect(found, ownerContact);
       },
@@ -94,6 +115,7 @@ void main() {
               ? Contact(nodeId: device, status: ContactStatus.accepted)
               : null,
           identityOfDevice: (_) => identity,
+          deviceProofAllowed: (_, _) => true,
         ),
         isNull,
       );

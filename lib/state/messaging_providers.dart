@@ -13,6 +13,7 @@ import '../data/transport/veil_flutter_transport.dart';
 import '../data/transport/veil_transport.dart' show PeerInfo;
 import '../data/transport/wire_envelope.dart' show isServiceEchoBody;
 import '../domain/chat.dart';
+import '../domain/peer_authorization.dart';
 import '../domain/clear_request.dart';
 import '../domain/chat_folder.dart';
 import 'app_controller.dart';
@@ -50,6 +51,7 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
   final anonymous = ref.read(appControllerProvider.notifier).activeIsAnonymous;
   final transport = ref.watch(veilTransportProvider);
   final storage = ref.watch(storageProvider);
+  final Object? deviceAuthority = ref.watch(realStackProvider)?.ratchetState;
   devLog(
     () =>
         'xVeil[messaging]: fallback service (no session pipeline) '
@@ -61,6 +63,9 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
   final service = MessagingService(
     transport,
     storage,
+    deviceAuthorization: deviceAuthority is PeerDeviceAuthorizationHandle
+        ? deviceAuthority
+        : null,
     anonymous: anonymous,
     streamRangeParallelism: xveilConfiguredStreamRangeParallelism(),
     streamRangeTargetBytes: xveilConfiguredStreamRangeTargetBytes(),

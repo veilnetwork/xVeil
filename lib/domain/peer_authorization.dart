@@ -101,3 +101,8 @@ abstract interface class PeerAuthorizationStateHandle {
   void restorePeerAuthorization(PeerAuthorizationSnapshot snapshot);
   void acknowledgePeerAuthorization(int revision);
 }
+
+/// A current-document fence, not a way to establish ownership from a claim.
+abstract interface class PeerDeviceAuthorizationHandle {
+  bool peerDeviceProofAllowed(Uint8List identity, Uint8List device);
+}

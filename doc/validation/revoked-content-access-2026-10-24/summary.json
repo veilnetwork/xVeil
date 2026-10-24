@@ -1,0 +1,117 @@
+{
+  "schema": 1,
+  "date": "2026-10-24",
+  "base_commit": "1fc5b08d08a51ca15b5f65e1551a470d7dd12c4c",
+  "sdk_commit": "eab1602b81350c3ba7ac77fad114da4e69e7abb2",
+  "confirmed_defects": 1,
+  "baseline": {
+    "devices": 3,
+    "same_identity_devices_before_revoke": 2,
+    "pre_revoke_download_byte_exact": true,
+    "current_document_barrier_observed": true,
+    "unrevoked_post_revoke_download_byte_exact": true,
+    "new_offer_absent_on_revoked_device": true,
+    "old_device_key_preserved": true,
+    "source_process_not_restarted": true,
+    "revoked_device_download_reported_success": true,
+    "revoked_device_received_bytes": 98304,
+    "revoked_device_received_exact_new_payload": true
+  },
+  "corrected": {
+    "devices": 3,
+    "same_identity_devices_before_revoke": 2,
+    "pre_revoke_download_byte_exact": true,
+    "current_document_barrier_observed": true,
+    "unrevoked_post_revoke_download_byte_exact": true,
+    "new_offer_absent_on_revoked_device": true,
+    "old_device_key_preserved": true,
+    "source_process_not_restarted": true,
+    "revoked_device_download_reported_success": false,
+    "revoked_device_received_bytes": 0,
+    "revoked_device_received_exact_new_payload": false
+  },
+  "verification": {
+    "selected_dart_tests_passed": 111,
+    "selected_dart_tests_skipped": 1,
+    "separate_native_abi_tests_passed": 4,
+    "native_ffi_tests_passed": 2,
+    "native_process_fleet_tests_passed": 1,
+    "rust_authorization_floor_tests_passed": 14,
+    "rust_ffi_tests_passed": 1,
+    "clippy_warnings_denied_passed": true,
+    "analysis_issues": 0,
+    "regeneration_idempotent": true,
+    "rust_format_passed": true,
+    "frozen_sdk_sources_unchanged": true
+  },
+  "mac_native": {
+    "software_sha256": {
+      "veil-cli": "1fd1e64067100b68a3af2c472795b26c698f27a9de3f56bb2695a24be39a0813",
+      "libveilclient_ffi.dylib": "c16297bfc8be0f81c2f4cde72b73be08bf53304540bb70444d473c844a866b98"
+    },
+    "header_abi_hash": "665a027a4cbde50ca169a75673d6e7ca9118e237e446021f8ee7c1051e386a9a",
+    "new_query_exported": true,
+    "same_build_cli_and_ffi": true,
+    "source_sha256": {
+      "crates/veil-node-runtime/src/identity_document_floor.rs": "428d7ce367a24a84a6615b592ea45c51ee944ee10f03b625abf7c907b3c7c6ff",
+      "crates/veil-node-runtime/src/runtime/node_services.rs": "4b15d47b56ce4e8b5b578b53d74b541efe4a5208012837cd2c83f6d78bce3bcc",
+      "crates/veilclient-ffi/include/veil_ffi.h": "665a027a4cbde50ca169a75673d6e7ca9118e237e446021f8ee7c1051e386a9a",
+      "crates/veilclient-ffi/src/abi_contract.rs": "17ce3417510e18558a7962bd252a7ff83cfad1a7af94dac44c0d43ea37028a17",
+      "crates/veilclient-ffi/src/peer_authorization.rs": "0f0a05c746a8969d8fcf6d0dc1693bc754ac558208b1d35742d891cd2766750c",
+      "flutter/veil_flutter/lib/src/abi_contract.dart": "43c8bc0fac51813f08640656a29dda666ea26f134201ec04d7d0a9efe9606610"
+    }
+  },
+  "android_native": {
+    "sdk_sha256": "6226745906eef16dea7903f597b4e1759bdcc735abae6a5b30d1adbd3857821d",
+    "header_abi_hash": "665a027a4cbde50ca169a75673d6e7ca9118e237e446021f8ee7c1051e386a9a",
+    "new_query_exported": true,
+    "production_seeds": true,
+    "test_low_difficulty": false,
+    "arm64_only": true,
+    "external_mount_lost": false
+  },
+  "android_main_apk": {
+    "apk_sha256": "92b7648625f6b672252b0b0fc95fd5f430c82c1cbe2381d59e8c59e882aca8a9",
+    "build": "debug",
+    "target": "lib/main.dart",
+    "main_application_id_verified": true,
+    "probe_entrypoint_absent": true,
+    "abi_contract_present_in_dart": true,
+    "packaged_native_sha256": {
+      "libveilclient_ffi.so": "013c4aa4e62b322c38cfdf8a39987b8fd38c166ba019065740774f65ec47427e",
+      "libhidden_volume_ffi.so": "6229bae4ded5db35636ef724b8fca2ca3f7fdb3b71a722c48d69291fbbb7d891",
+      "libveil_media.so": "3546a0141ba9ad7533a081287c3af36916f5b4a457c42d212930e0e10ec049cb"
+    },
+    "packaged_native_matches_strip_unneeded_of_current_sources": true,
+    "packaged_media_and_hidden_volume_unchanged": true,
+    "packaged_abis": [
+      "arm64-v8a"
+    ],
+    "installed": false,
+    "external_mount_lost": false
+  },
+  "cleanup": {
+    "parent_runner_exited": true,
+    "recorded_workers": 5,
+    "all_recorded_workers_exited": true,
+    "remaining_owned_relays": 0,
+    "fleet_root_removed": true
+  },
+  "phone_and_installed_application_untouched": true,
+  "calls_tested": false,
+  "full_multi_device_matrix_qualified": false,
+  "root_source_sha256": {
+    "lib/data/node/ratchet_ffi.dart": "3bd41296e7d99226880bcf0f5a93a198187add6db126401e6c077e02ed3d5d15",
+    "lib/domain/peer_authorization.dart": "5ca2d7ac17a27b7262ac3e476610e46891dca6797f21e086694276de4d36970e",
+    "lib/domain/verified_device_contact.dart": "d5f3eea054a42422a94dc4d98961bf6d3b29f310aa781f8c75f2598a08205127",
+    "lib/state/messaging_content_server.dart": "0c4b7d5e1ec861db2c0636c0ecc6c28ba57301389a192a25ddfa510f6ce8490c",
+    "lib/state/messaging_core.dart": "30c8e9be3efa7a4dafb76efae2bf4d7373de72bfcff0c6f16be816b1f6229781",
+    "lib/state/messaging_providers.dart": "be7fc70d6234b9e7f656343040e39a50949bed17b8b4d604681196a421e8bd10",
+    "lib/state/multi_identity_session.dart": "410b66ba2d51b66bbdb3cc07f6306b9880048cca5e418c3d487a8c370f0b8888",
+    "lib/state/p2p_policy_controller.dart": "d5bbe0e015d4c0e12ef638b518eccc90bf23660867eff5d9c74398a95710d8d7",
+    "test/native/peer_authorization_live_test.dart": "2eb598a2db9a8f20749508075a9ac661f5e49cb2d479ff3a921315d9db802b20",
+    "test/e2e/revoked_content_access_e2e_test.dart": "e249e56d4267ca4c342822a1cb7b3598029ea679033fe5aab5d0e02f11def01f",
+    "test/e2e/device_process_worker_test.dart": "3dcc28f5a3ad825b16cd0020a2f81bb690b739484dad913482b473919624c1b8",
+    "test/e2e/device_process_fixture.dart": "3f6e9759eae06c3fb7068bdfb913079d9287f0c21fb05aaa66f5e6f9f607f68d"
+  }
+}

@@ -12,10 +12,12 @@ Future<Contact?> policyContactFor(
   NodeId peer, {
   required Future<Contact?> Function(NodeId) getContact,
   required NodeId? Function(NodeId) identityOfDevice,
+  required bool Function(NodeId identity, NodeId device) deviceProofAllowed,
 }) async {
   final direct = await getContact(peer);
   if (direct?.status == ContactStatus.blocked) return direct;
   final owner = identityOfDevice(peer);
   if (owner == null || owner == peer) return direct;
+  if (!deviceProofAllowed(owner, peer)) return null;
   return getContact(owner);
 }

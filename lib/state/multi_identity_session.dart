@@ -18,6 +18,7 @@ import '../data/transport/veil_transport.dart';
 import '../data/veil_stack.dart';
 import '../domain/chat.dart';
 import '../domain/p2p_policy.dart';
+import '../domain/peer_authorization.dart';
 import '../domain/roster.dart';
 import 'messaging.dart';
 import '../domain/verified_device_contact.dart' show policyContactFor;
@@ -417,9 +418,13 @@ class MultiIdentitySession {
         }
         _nodes[spec.label] = node;
         late final MessagingService messaging;
+        final Object? authority = node.stack?.ratchetState;
         messaging = MessagingService(
           node.transport,
           storage,
+          deviceAuthorization: authority is PeerDeviceAuthorizationHandle
+              ? authority
+              : null,
           anonymous: spec.anonymous,
           streamRangeParallelism: xveilConfiguredStreamRangeParallelism(),
           streamRangeEnabled: xveilConfiguredStreamRangeEnabled(),
@@ -431,6 +436,7 @@ class MultiIdentitySession {
               peer,
               getContact: storage.getContact,
               identityOfDevice: messaging.identityOfDevice,
+              deviceProofAllowed: messaging.deviceProofAllowed,
             );
             final global = p2pGlobalPolicyFromName(
               await storage.getSetting(kP2PGlobalPolicySettingKey),
