@@ -8,6 +8,16 @@ import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/space_recommendation.dart';
 
 void main() {
+  test('own-device history is appended after the existing avatar frame', () {
+    expect(WireKind.profileAvatar.index, 51);
+    expect(WireKind.deviceHistory.index, 52);
+    const frame = WireEnvelope.deviceHistory('{"v":1,"q":{"op":"list"}}');
+    final wire = jsonDecode(utf8.decode(frame.encode())) as Map;
+    expect(wire['v'], 2);
+    expect(WireEnvelope.decode(frame.encode()).kind, WireKind.deviceHistory);
+    expect(WireEnvelope.decode(frame.encode()).body, frame.body);
+  });
+
   test('each kind round-trips through encode/decode', () {
     for (final env in [
       const WireEnvelope.request('hi, can we connect?'),
@@ -86,7 +96,7 @@ void main() {
     // sentinel doing its job: every append shifts it, and this line is where a
     // build says out loud how many kinds it knows.
     // And from 49 when `presence` was, and from 50 for `deviceGone`.
-    expect(WireKind.unknown.index, 52);
+    expect(WireKind.unknown.index, 53);
 
     final report = WireEnvelope.decode(
       const WireEnvelope.spaceAbuseReport('{"kind":"report"}').encode(),

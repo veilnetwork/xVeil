@@ -1,0 +1,62 @@
+{
+  "base_commit": "fcb6aaa7ddc21090acb4d1d8d1913e03ef834d76",
+  "sdk_commit": "1440d89ee076834fcd9d8c054a60b732d0e96831",
+  "hidden_volume_commit": "47c28bc411abe9cc68f8f506c914891330f70121",
+  "native_scenario": {
+    "devices": 3,
+    "same_identity_devices": 2,
+    "requested_messages": 1000,
+    "separate_processes": true,
+    "local_network_only": true,
+    "production_fault_switch_added": false,
+    "baseline_rows": 1,
+    "acknowledged_send_requests": 1000,
+    "send_seconds": 491.326,
+    "c_rows_before_offline": 1000,
+    "c_offline_during_catchup": true,
+    "rows_at_interrupt": 250,
+    "partial_catchup_observed": true,
+    "catchup_seconds_including_restart": 267.618,
+    "b_rows_after_recovery": 1000,
+    "same_order": true,
+    "duplicate_ids": 0,
+    "retained_after_restart_without_other_devices": true,
+    "passed": true
+  },
+  "cleanup": {
+    "all_owned_native_processes_exited": true,
+    "owned_process_groups_checked": 8,
+    "owned_pids_checked": 11,
+    "remaining_owned_processes": 0,
+    "native_containers_removed": true
+  },
+  "physical_stand": {
+    "connected_at_cleanup": false,
+    "qa_install_rejected": true,
+    "physical_transfer_started": false,
+    "calls_started": false,
+    "owned_qa_app_started": false,
+    "owned_adb_forward_created": false,
+    "power_setting_changed": false
+  },
+  "focused_tests_passed": 72,
+  "related_regressions_passed": 170,
+  "dart_analyze_issues": 0,
+  "native_sources_unchanged_during_run": true,
+  "source_sha256": {
+    "lib/state/messaging_own_history.dart": "2e63baa77124f379e4ecae96193ddbef3d46564134ca508dc96e8001f9d941d2",
+    "lib/state/messaging_core.dart": "a6f68f7798ed928175366cc5ea8268a95b51c790168e7c3677f81b35502a977d",
+    "lib/state/messaging_inbound_dispatch.dart": "882385a2332321a7abc5c24362b0ec77fbf2692b64ccadb096075ddb272ffd38",
+    "lib/state/group_service_providers.dart": "ed2de845a83e241ca00e6eeac372df2c9e681eb4cb0ffd96dd85bff10e5e3f9b",
+    "lib/data/transport/wire_envelope.dart": "a0338d323a1b56c4150f701a42faca348cf7ef65cfd38a96442e8997ccba21e7",
+    "test/own_device_history_test.dart": "6246b4828f91cfb7e84d1b1a363aa18dd31f7960f44ca6627dd67a17bdcc3ee1",
+    "test/wire_envelope_test.dart": "51e67baa359b7d801dcdeefad678ef0eb3a28e0ec14bda5c2612ba9a229bc031",
+    "test/e2e/offline_backlog_process_e2e_test.dart": "45a154890dde14a9d97493b47306487efb5d517b8e71932dd4c579be08b2b147",
+    "test/e2e/device_process_worker_test.dart": "de2e841c101d9b64bace45dc1a4a09c8a235b7b34b040891aa24b258dcbd7ab0"
+  },
+  "native_software_sha256": {
+    "veil-cli": "fc2053432b4c6867ce8416ada4af34942c649e0b3d00ac5c8932f59f16e8538a",
+    "libveilclient_ffi.dylib": "35d1f0a501131616ab96eb8b96d91dee77c3715ac31608c07339c2d2d858471a",
+    "libhidden_volume_ffi.dylib": "c9f6f9742bb2d95bf312067a4c4bc745ae124bb40576d8ce1f9d4b02f6373ff5"
+  }
+}

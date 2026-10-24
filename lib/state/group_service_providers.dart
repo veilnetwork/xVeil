@@ -537,6 +537,24 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     );
   });
 
+  // The bounded journal is a fast lane, not the history source. A reconnect
+  // may need originals already compacted out of it. These authenticated pages
+  // use exactly the live mirror codec/applier, and never re-append old history
+  // to the device log or call the ordinary local publication hooks.
+  messaging.ownHistoryEncode = (peer, message) => tasks.runRequired(() async {
+    final mirror = await prepareDeviceMirror(
+      peer.hex,
+      message,
+      storage: service.storage,
+      registerContent: messaging.registerGroupContent,
+    );
+    return mirror.event;
+  });
+  messaging.ownHistoryApply = (event) => tasks.runRequired(() async {
+    await applyMirrorEvent(event);
+    if (tasks.isClosed) throw StateError('Device history session closed');
+  });
+
   /// One tick later on the message the mirror already delivered.
   ///
   /// Idempotent by construction: it writes a status onto a message id, and
@@ -761,7 +779,9 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     // read must never finish later and restore the pre-link authorization.
     final read = documentReadTail.then((_) async {
       try {
-        final doc = await RealVeilStack.storedSovereignDocument(service.storage);
+        final doc = await RealVeilStack.storedSovereignDocument(
+          service.storage,
+        );
         if (tasks.isClosed || service.isDisposed) return;
         if (doc != null) {
           ownDocument = doc;
@@ -904,6 +924,8 @@ void _detachGroupBindings(MessagingService messaging, GroupService service) {
   messaging.isOwnDevice = null;
   messaging.isSovereignAuthority = null;
   messaging.onMessageStored = null;
+  messaging.ownHistoryEncode = null;
+  messaging.ownHistoryApply = null;
   messaging.onMessageStatusChanged = null;
   messaging.onMessageDeleted = null;
   messaging.onMessageEdited = null;

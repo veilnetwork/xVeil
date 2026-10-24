@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart' as crypto;
 import 'package:uuid/uuid.dart';
 
 import '../core/ids.dart';
+import '../core/async_tasks.dart';
 import '../core/diagnostic_journal.dart';
 import '../core/error_journal.dart';
 import '../crypto/blake3.dart';
@@ -19,6 +20,7 @@ import '../data/transport/stream_write_idle.dart';
 import '../data/transport/content_stream_credit.dart';
 import '../data/transport/wire_envelope.dart';
 import '../domain/device_history_ask.dart' show kHeavyHistoryMediaUntilKey;
+import '../domain/device_sync.dart';
 import '../domain/call_signal.dart';
 import '../domain/group_call.dart';
 import '../domain/group_content.dart';
@@ -62,6 +64,7 @@ part 'messaging_contacts.dart';
 part 'messaging_peer_sync.dart';
 part 'messaging_mutations.dart';
 part 'messaging_device_mirror.dart';
+part 'messaging_own_history.dart';
 part 'messaging_outbox.dart';
 part 'messaging_realtime_control.dart';
 part 'messaging_mailbox_delivery.dart';
@@ -228,6 +231,13 @@ class MessagingService {
   late final _MessagingDeviceMirror _deviceMirror = _MessagingDeviceMirror(
     this,
   );
+  late final _MessagingOwnHistory _ownHistory = _MessagingOwnHistory(this);
+
+  /// Installed with the active device-group bindings. Pages use the same
+  /// builders/appliers as live mirrors, without republishing them to the log.
+  Future<DeviceSyncEvent> Function(NodeId peer, Message message)?
+  ownHistoryEncode;
+  Future<void> Function(DeviceSyncEvent event)? ownHistoryApply;
   late final _MessagingOutbox _outbox = _MessagingOutbox(this);
   late final _MessagingRealtimeControl _realtimeControl =
       _MessagingRealtimeControl(this);
@@ -1480,7 +1490,9 @@ class MessagingService {
   Future<void> deliverInbound(InboundMessage m) {
     try {
       final kind = WireEnvelope.decode(m.payload).kind;
-      if (kind == WireKind.callSignal || kind == WireKind.groupCallSignal) {
+      if (kind == WireKind.callSignal ||
+          kind == WireKind.groupCallSignal ||
+          kind == WireKind.deviceHistory) {
         return Future<void>.value();
       }
     } catch (_) {
@@ -1498,6 +1510,7 @@ class MessagingService {
   Stream<IncomingNotice> get incoming => _incoming.stream;
 
   void start() {
+    _ownHistory.start();
     // LIVE transport frames only (the mailbox drain feeds [deliverInbound]
     // directly, not this). A frame from a peer proves it is reachable NOW, so
     // nudge the mailbox to drain promptly: on the desktop→phone path the live
@@ -4227,6 +4240,7 @@ class MessagingService {
 
   Future<void> _dispose() async {
     _disposed = true; // stops transfer retry/serve work
+    final historyClosed = _ownHistory.close();
     _outbox.dispose();
     // Starts synchronously: the transport-scoped broker lease is detached
     // before Riverpod can construct a replacement service, while native
@@ -4244,6 +4258,7 @@ class MessagingService {
     await _realtimeSub?.cancel();
     _realtimeSub = null;
     await _quiesceInboundLanes();
+    await historyClosed;
     await _mutations.quiesce();
     Object? shutdownError;
     StackTrace? shutdownTrace;

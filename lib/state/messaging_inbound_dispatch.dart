@@ -286,6 +286,7 @@ extension _MessagingInboundDispatch on MessagingService {
         env.kind == WireKind.chatDeleted;
     final liveOnlyNoAck =
         env.kind == WireKind.profileAvatar ||
+        env.kind == WireKind.deviceHistory ||
         env.kind == WireKind.groupContentReceipt ||
         env.kind == WireKind.groupContentManifest ||
         env.kind == WireKind.spacePublicFeedRequest ||
@@ -1261,6 +1262,9 @@ extension _MessagingInboundDispatch on MessagingService {
         }
         await _deviceMirror.handleErasureFrame(m, env.body);
         return;
+      case WireKind.deviceHistory:
+        await _ownHistory.handle(m, env.body);
+        return;
       case WireKind.presence:
         // One of MY devices is online: it is heard, its queue rewinds, and —
         // unless this is already the answer — it is answered once.
@@ -1282,6 +1286,7 @@ extension _MessagingInboundDispatch on MessagingService {
         }
         final mine = await myOtherDevices?.call() ?? const <NodeId>[];
         if (!mine.contains(device)) return;
+        _ownHistory.wake(device);
         if (_outbox.noteHeard(device.hex)) unawaited(_retryFlush());
         // A sibling that is back may have erased what this device still
         // shows, or the other way round: compare while both are here.
