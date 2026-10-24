@@ -88,6 +88,9 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
   >
   _pendingSpaceComments = {};
   int _notificationGeneration = 0;
+  // Clear requests have a separate OS id. An ordinary message supersedes the
+  // message preview, but must not invalidate a pending destructive question.
+  int _clearRequestGeneration = 0;
 
   bool get _foreground =>
       WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed ||
@@ -121,8 +124,8 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       // alert it is only found by opening settings, and a question nobody is
       // shown is the same as one declined for them — which is exactly what the
       // "ask me" policy exists to avoid.
-      _clearRequestListener =
-          ref.listenManual<AsyncValue<List<PendingClearRequest>>>(
+      _clearRequestListener = ref
+          .listenManual<AsyncValue<List<PendingClearRequest>>>(
             pendingClearRequestsProvider,
             (_, next) => unawaited(_onClearRequests(next.value ?? const [])),
             fireImmediately: true,
@@ -136,6 +139,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     // a notice that arrived under A and was still resolving mentions kept its
     // ticket and finished under B.
     _notificationGeneration++;
+    _clearRequestGeneration++;
     // The requests belong to the identity that was on screen, and the list is
     // rebuilt for the new one — so the memory of what has been announced goes
     // with the old identity rather than suppressing the new one's questions.
@@ -146,6 +150,8 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
 
   void _subscribeGroups(GroupService? service) {
     _notificationGeneration++;
+    // Group service initialization does not replace the messaging service's
+    // request list. Its alerts retain their own identity/lifecycle fence.
     _groupSub?.cancel();
     _spaceCommentSub?.cancel();
     _spacePostSub?.cancel();
@@ -578,6 +584,7 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
       // Invalidate contact/group lookups that began while backgrounded so they
       // cannot re-post an alert after cancelAll completes.
       _notificationGeneration++;
+      _clearRequestGeneration++;
       // Back in the app — the unread is visible in-app; clear posted alerts.
       unawaited(ref.read(notificationServiceProvider).cancelAll());
       // And drain the mailbox promptly: after a background stint the idle
@@ -894,24 +901,24 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
         if (!_announcedClearRequests.contains(request.key)) request,
     ];
     if (fresh.isEmpty) return;
-    final generation = _notificationGeneration;
+    final generation = _clearRequestGeneration;
+    final identity = ref.read(appControllerProvider).identity?.nodeId;
     if (!ref.read(notificationSettingsProvider).enabled) return;
     final l = AppL10n.of(context);
     final posted = await ref
         .read(notificationServiceProvider)
-        .show(
+        .showIfCurrent(
+          isCurrent: () =>
+              mounted &&
+              generation == _clearRequestGeneration &&
+              ref.read(appControllerProvider).identity?.nodeId == identity,
           id: kNotificationIdClearRequests,
           title: l.clearRequestsNotificationTitle,
           body: l.clearRequestsNotificationBody(live.length),
           payload: kNotificationPayloadClearRequests,
         );
     if (!posted) return;
-    if (generation != _notificationGeneration) {
-      unawaited(
-        ref.read(notificationServiceProvider).cancel(kNotificationIdClearRequests),
-      );
-      return;
-    }
+    if (!mounted || generation != _clearRequestGeneration) return;
     _announcedClearRequests.addAll(fresh.map((request) => request.key));
   }
 
@@ -967,7 +974,11 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
     final id = notificationIdForIncomingMessage(convHex);
     final posted = await ref
         .read(notificationServiceProvider)
-        .show(
+        .showIfCurrent(
+          isCurrent: () =>
+              mounted &&
+              generation == _notificationGeneration &&
+              ref.read(appControllerProvider).identity?.nodeId.hex == owner,
           id: id,
           title: content.title,
           body: content.body,
@@ -987,11 +998,11 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
           replyHint: full && allowReply ? l.notificationReplyHint : null,
         );
     if (!posted) return;
-    // Posted, and the identity moved while the OS was answering. Take it back
-    // down by its exact id rather than leaving A's sender and preview on
-    // screen under B — and do not record an owner for an alert that is gone.
-    if (generation != _notificationGeneration) {
-      unawaited(ref.read(notificationServiceProvider).cancel(id));
+    // The service orders a stale post's take-down BEFORE a newer post using
+    // this id. Never cancel here: the id may already belong to a later alert.
+    if (!mounted ||
+        generation != _notificationGeneration ||
+        ref.read(appControllerProvider).identity?.nodeId.hex != owner) {
       return;
     }
     owners.remember(convHex, owner);
@@ -999,6 +1010,8 @@ class _NotificationBinderState extends ConsumerState<NotificationBinder>
 
   @override
   void dispose() {
+    _notificationGeneration++;
+    _clearRequestGeneration++;
     WidgetsBinding.instance.removeObserver(this);
     _serviceListener?.close();
     _groupServiceListener?.close();
