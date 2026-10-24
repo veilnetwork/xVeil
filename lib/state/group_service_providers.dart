@@ -733,9 +733,9 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   // invisible and unsent at once.
   //
   // Held as a cached value because the lookup is synchronous and reading the
-  // container is not. Re-read whenever this provider rebuilds, which is what a
-  // linking or an identity switch already causes — so a document that gained a
-  // device is picked up without anything else being told.
+  // container is not. Linking also refreshes this cache explicitly BEFORE the
+  // first snapshot: a held pre-link document otherwise refused the sibling's
+  // first signed delta, whose transport frame had already been acknowledged.
   //
   // Only OUR identity is answered here. A peer's document travels with its
   // snapshot and is a separate wiring; until it exists their device subkeys
@@ -754,32 +754,41 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   // document proving them.
   NodeId? documentIdentity;
   var lastDocumentRead = DateTime.fromMillisecondsSinceEpoch(0);
-  Future<void> readOwnDocument() async {
+  Future<void> documentReadTail = Future<void>.value();
+  Future<void> readOwnDocument() {
     lastDocumentRead = DateTime.now();
-    try {
-      final doc = await RealVeilStack.storedSovereignDocument(service.storage);
-      if (doc != null) {
-        ownDocument = doc;
-        try {
-          documentIdentity = NodeId(EmbeddedNode.identityDocumentNodeId(doc));
-        } catch (_) {
-          documentIdentity = null; // an undecodable doc answers as before
+    // An explicit post-link refresh must wait for older reads, and an older
+    // read must never finish later and restore the pre-link authorization.
+    final read = documentReadTail.then((_) async {
+      try {
+        final doc = await RealVeilStack.storedSovereignDocument(service.storage);
+        if (tasks.isClosed || service.isDisposed) return;
+        if (doc != null) {
+          ownDocument = doc;
+          try {
+            documentIdentity = NodeId(EmbeddedNode.identityDocumentNodeId(doc));
+          } catch (_) {
+            documentIdentity = null; // an undecodable doc answers as before
+          }
+          tasks.start(
+            () => _warnIfDocumentDisownsThisDevice(
+              service.storage,
+              ownIdentity,
+              doc,
+            ),
+          );
         }
-        tasks.start(
-          () => _warnIfDocumentDisownsThisDevice(
-            service.storage,
-            ownIdentity,
-            doc,
-          ),
-        );
+      } catch (_) {
+        // A locked container is not an error worth surfacing: the lookup
+        // keeps its prior answer until the next canonical read succeeds.
       }
-    } catch (_) {
-      // A locked container is not an error worth surfacing: the lookup
-      // simply keeps answering null until something reads it again.
-    }
+    });
+    documentReadTail = read;
+    return read;
   }
 
   reloadOwnDocumentAfterRevoke = readOwnDocument;
+  service.refreshOwnIdentityDocument = () => tasks.runRequired(readOwnDocument);
   final ownDocumentReady = tasks.run(readOwnDocument);
   final peerDocumentsReady = tasks.run(service.loadPeerDocuments);
   final unregisterDocumentLookup = registerIdentityDocumentLookup((identity) {
