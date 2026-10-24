@@ -149,7 +149,7 @@ class _MessagingFileTransfer {
     );
     _inFlight.remove(transferId);
     // Re-ack completed/deleted messages so a lost ACK cannot pin sender state.
-    if (await _owner._hasMessage(message.src, transferId) ||
+    if (await _owner._mirrorStoredMessageIfPresent(message.src, transferId) ||
         await _owner._storage.isMessageDeleted(message.src.hex, transferId)) {
       await _owner._ackTo(message, transferId, direct: true, repeat: true);
       return;
@@ -197,7 +197,7 @@ class _MessagingFileTransfer {
   Future<void> handleQuery(InboundMessage message, FileMetaFrame meta) async {
     if (!isAcceptableWireSeq(meta.seq)) return;
     final transferId = meta.transferId;
-    if (await _owner._hasMessage(message.src, transferId) ||
+    if (await _owner._mirrorStoredMessageIfPresent(message.src, transferId) ||
         await _owner._storage.isMessageDeleted(message.src.hex, transferId)) {
       await _owner._ackTo(message, transferId, direct: true, repeat: true);
       return;
