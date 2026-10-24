@@ -11,9 +11,13 @@ class _MessagingDownloadResume {
   final MessagingService _owner;
 
   static const String _pendingDownloadsKey = 'pending_downloads';
+  static const String _pendingDownloadsFile = 'download-resume.registry.v1';
+  static const String _fileLayout = 'file:v1';
   static const int _resumeParkAfterAttempts = 8;
 
   Map<String, _PendingDownload>? _pendingCache;
+  Future<Map<String, _PendingDownload>>? _pendingLoad;
+  bool _pendingReadFailed = false, _layoutMarked = false;
   Future<void> _writeChain = Future.value();
   final Map<String, Timer> _timers = {};
   final Map<String, int> _attempts = {};
@@ -45,15 +49,11 @@ class _MessagingDownloadResume {
     _owner._cancelledDownloads.add(contentId);
     _owner._clearGroupPullSources(contentId);
     final savedPath = _owner._fetchSavePath.remove(contentId);
-    complete(contentId);
     final parkedSink = _owner._contentAvailability.takePending(contentId);
     final fetch = _owner._contentFetching.take(contentId);
 
     final sinks = <_FetchSink>{?parkedSink, ?fetch?.sink};
     await _owner._contentStreams.abortPulls(contentId);
-    if (!_owner._contentCancelled.isClosed) {
-      _owner._contentCancelled.add(contentId);
-    }
 
     // Wait briefly for native reads to observe the cancellation latch before
     // an immediate re-tap is allowed to start a new transfer.
@@ -68,13 +68,19 @@ class _MessagingDownloadResume {
         await sink.close();
       } catch (_) {}
     }
-    await _writeChain;
+    await _removePending(contentId);
+    if (!_owner._contentCancelled.isClosed) {
+      _owner._contentCancelled.add(contentId);
+    }
     _owner._signal();
     return savedPath;
   }
 
   Future<int> clearPending() async {
     final pending = await _pendingDownloads();
+    if (_pendingReadFailed) {
+      throw StateError('Download resume state unavailable');
+    }
     final count = pending.length;
     for (final timer in _timers.values) {
       timer.cancel();
@@ -84,56 +90,105 @@ class _MessagingDownloadResume {
     _progressAt.clear();
     _parked.clear();
     _persistedManifests.clear();
-    _mutatePending((map) => map.clear());
+    await _mutatePending((map) => map.clear());
     return count;
   }
 
   Future<List<String>> pendingContentIds() async =>
       (await _pendingDownloads()).keys.toList(growable: false);
 
-  Future<Map<String, _PendingDownload>> _pendingDownloads() async {
+  Future<Map<String, _PendingDownload>> _pendingDownloads() {
     final cached = _pendingCache;
-    if (cached != null) return cached;
-    final map = <String, _PendingDownload>{};
-    try {
-      final raw = await _owner._storage.getSetting(_pendingDownloadsKey);
-      if (raw != null && raw.isNotEmpty) {
-        final decoded = jsonDecode(raw);
-        if (decoded is List) {
-          for (final entry in decoded) {
-            final pending = entry is Map<String, dynamic>
-                ? _PendingDownload.fromJson(entry)
-                : null;
-            if (pending == null) continue;
-            if (DateTime.now().difference(pending.requestedAt) >
-                const Duration(days: 14)) {
-              continue;
-            }
-            map[pending.contentId] = pending;
-          }
-        }
-      }
-    } catch (_) {
-      // A corrupt registry starts empty; new explicit requests repopulate it.
-    }
-    return _pendingCache = map;
+    if (cached != null) return Future.value(cached);
+    return _pendingLoad ??= _loadPending().whenComplete(
+      () => _pendingLoad = null,
+    );
   }
 
-  void _mutatePending(void Function(Map<String, _PendingDownload> map) mutate) {
-    _writeChain = _writeChain.then((_) async {
-      final map = await _pendingDownloads();
+  void _report(String kind) => errorJournal.record(
+    kind: kind,
+    error: StateError('Download resume state could not be saved or read'),
+    atMs: DateTime.now().millisecondsSinceEpoch,
+  );
+
+  Future<Map<String, _PendingDownload>> _loadPending() async {
+    final map = <String, _PendingDownload>{};
+    try {
+      final stored = await _owner._storage.loadFile(_pendingDownloadsFile);
+      final legacy = await _owner._storage.getSetting(_pendingDownloadsKey);
+      _layoutMarked = legacy == _fileLayout;
+      if (stored == null &&
+          (_layoutMarked ||
+              await _owner._storage.hasFile(_pendingDownloadsFile))) {
+        throw StateError('Pending download registry is incomplete');
+      }
+      final raw = stored == null ? legacy : utf8.decode(stored);
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = jsonDecode(raw);
+        if (decoded is! List) {
+          throw StateError('Invalid pending download registry');
+        }
+        for (final entry in decoded) {
+          final pending = entry is Map<String, dynamic>
+              ? _PendingDownload.fromJson(entry)
+              : null;
+          if (pending == null) throw StateError('Invalid pending download');
+          if (DateTime.now().difference(pending.requestedAt) >
+              const Duration(days: 14)) {
+            continue;
+          }
+          map[pending.contentId] = pending;
+        }
+      }
+      _pendingReadFailed = false;
+      return _pendingCache = map;
+    } catch (_) {
+      // Leave the durable bytes intact. Background readers can stay idle, but
+      // a new request must not overwrite an unreadable registry with an empty
+      // one. Do not cache this failure: the next request may recover the read.
+      _pendingReadFailed = true;
+      _report('download-resume-read');
+      return {};
+    }
+  }
+
+  Future<void> _mutatePending(
+    void Function(Map<String, _PendingDownload> map) mutate,
+  ) {
+    final write = _writeChain.then((_) async {
+      final current = await _pendingDownloads();
+      if (_pendingReadFailed) {
+        throw StateError('Download resume state unavailable');
+      }
+      final map = Map<String, _PendingDownload>.of(current);
       mutate(map);
-      try {
-        await _owner._storage.putSetting(
-          _pendingDownloadsKey,
-          jsonEncode([for (final pending in map.values) pending.toJson()]),
-        );
-      } catch (_) {
-        // The in-memory registry still drives this session. A later mutation
-        // retries persistence with the merged state.
+      final encoded = jsonEncode([
+        for (final pending in map.values) pending.toJson(),
+      ]);
+      // One KV value stopped fitting at about ten requests on the real store.
+      // FileStore publishes its replacement metadata only after every chunk
+      // is durable, preserving the old registry if an intermediate write fails.
+      await _owner._storage.storeFile(
+        _pendingDownloadsFile,
+        Uint8List.fromList(utf8.encode(encoded)),
+      );
+      _pendingCache = map;
+      if (!_layoutMarked) {
+        try {
+          // Publish the layout only AFTER the file. This also retires the old
+          // JSON value; cancellation must not resurrect it as a fallback.
+          await _owner._storage.putSetting(_pendingDownloadsKey, _fileLayout);
+          _layoutMarked = true;
+        } catch (_) {
+          // The authoritative file is already committed. Retry marker cleanup
+          // on the next mutation without misreporting that commit as lost.
+          _report('download-resume-layout');
+        }
       }
       _emitResuming(map.keys.toSet());
     });
+    _writeChain = write.then<void>((_) {}, onError: (_) {});
+    return write;
   }
 
   void _emitResuming(Set<String> pending) {
@@ -146,17 +201,17 @@ class _MessagingDownloadResume {
     _resuming.add(pending);
   }
 
-  void record(
+  Future<void> record(
     String contentId, {
     required String mode,
     String? savedPath,
     required Iterable<NodeId> peers,
-  }) {
+  }) async {
     if (_owner._disposed || _owner._cancelledDownloads.contains(contentId)) {
       return;
     }
     final peerHexes = [for (final peer in peers) peer.hex];
-    _mutatePending((map) {
+    await _mutatePending((map) {
       // Preparation can yield on storage/source discovery before recording.
       // Cancellation must win over that suspended attempt, including a write
       // already queued on the persistence chain. A fresh user tap clears the
@@ -218,14 +273,22 @@ class _MessagingDownloadResume {
   }
 
   void complete(String contentId) {
+    unawaited(
+      _removePending(contentId).catchError((Object _) {
+        _report('download-resume-write');
+      }),
+    );
+  }
+
+  Future<void> _removePending(String contentId) async {
     _timers.remove(contentId)?.cancel();
     _attempts.remove(contentId);
     _progressAt.remove(contentId);
     _parked.remove(contentId);
     _persistedManifests.remove(contentId);
-    if (_pendingCache?.containsKey(contentId) ?? true) {
-      _mutatePending((map) => map.remove(contentId));
-    }
+    // Decide after older queued writes, not from a cache sampled while an
+    // insertion is still committing. A cancelled insertion must not resurrect.
+    await _mutatePending((map) => map.remove(contentId));
   }
 
   Future<void> start() async {

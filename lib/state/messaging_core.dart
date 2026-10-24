@@ -3076,6 +3076,13 @@ class MessagingService {
     }
     _cancelledDownloads.remove(contentId);
     devLog(() => 'xVeil[content]: user download ${contentId.substring(0, 12)}');
+    if (!await _recordPendingDownload(
+      contentId,
+      mode: _PendingDownload.modeStore,
+      peers: [peer],
+    )) {
+      return ContentDownloadResult.noOffer;
+    }
     // Multi-device: in parallel, ask my OTHER devices for the bytes over the
     // membership pull (no-op unless this cid is a mirrored attachment). The
     // conversation peer may be unreachable — or, for a mirrored OUTGOING
@@ -3086,11 +3093,6 @@ class MessagingService {
     // are still gone everywhere, the next reoffer round re-marks it.
     unawaited(_clearContentGone(contentId));
     _markContentDownloadStarted(contentId);
-    _recordPendingDownload(
-      contentId,
-      mode: _PendingDownload.modeStore,
-      peers: [peer],
-    );
     final retryPeers = await _contentSourcePeers(
       preferred: peer,
       contentId: contentId,
@@ -3205,11 +3207,13 @@ class MessagingService {
     final seen = <String>{};
     var attempted = 0;
     _markContentDownloadStarted(contentId);
-    _recordPendingDownload(
+    if (!await _recordPendingDownload(
       contentId,
       mode: _PendingDownload.modeStore,
       peers: sources,
-    );
+    )) {
+      return ContentDownloadResult.noOffer;
+    }
     if (offered != null) {
       // A fresh advertisement identifies peers that actually answered with
       // this content. Start the range swarm from those holders only; mixing
@@ -3317,12 +3321,15 @@ class MessagingService {
           ? ContentDownloadResult.started
           : ContentDownloadResult.noOffer;
     }
-    _recordPendingDownload(
+    if (!await _recordPendingDownload(
       contentId,
       mode: _PendingDownload.modeFile,
       savedPath: savedPath,
       peers: [peer],
-    );
+      failedClose: close,
+    )) {
+      return ContentDownloadResult.noOffer;
+    }
     final retryPeers = await _contentSourcePeers(
       preferred: peer,
       contentId: contentId,
@@ -3431,12 +3438,15 @@ class MessagingService {
         ]),
       ),
     );
-    _recordPendingDownload(
+    if (!await _recordPendingDownload(
       contentId,
       mode: _PendingDownload.modeFile,
       savedPath: savedPath,
       peers: sources,
-    );
+      failedClose: close,
+    )) {
+      return ContentDownloadResult.noOffer;
+    }
     final activeFetch = _contentFetching.active(contentId);
     if (activeFetch != null && activeFetch.sink == null) {
       await _beginFetch(activeFetch.peer, activeFetch.manifest, sink: sink);
@@ -3568,17 +3578,50 @@ class MessagingService {
   /// The UI shows "resuming…" when a cid is here but has no live progress.
   Stream<Set<String>> get contentResuming => _downloadResume.resuming;
 
-  void _recordPendingDownload(
+  Future<bool> _recordPendingDownload(
     String contentId, {
     required String mode,
     String? savedPath,
     required Iterable<NodeId> peers,
-  }) => _downloadResume.record(
-    contentId,
-    mode: mode,
-    savedPath: savedPath,
-    peers: peers,
-  );
+    Future<void> Function()? failedClose,
+  }) async {
+    try {
+      await _downloadResume.record(
+        contentId,
+        mode: mode,
+        savedPath: savedPath,
+        peers: peers,
+      );
+      if (_disposed || _cancelledDownloads.contains(contentId)) {
+        if (failedClose != null) {
+          if (_fetchSavePath[contentId] == savedPath) {
+            _fetchSavePath.remove(contentId);
+          }
+          try {
+            await failedClose();
+          } catch (_) {}
+        }
+        return false;
+      }
+      return true;
+    } catch (_) {
+      errorJournal.record(
+        kind: 'download-resume-write',
+        error: StateError('Download request could not be saved'),
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      if (failedClose != null) {
+        if (_fetchSavePath[contentId] == savedPath) {
+          _fetchSavePath.remove(contentId);
+        }
+        try {
+          await failedClose();
+        } catch (_) {}
+      }
+      if (!_contentFailed.isClosed) _contentFailed.add(contentId);
+      throw StateError('Download request could not be saved');
+    }
+  }
 
   /// Per-content count of pull executions currently in flight (sequential
   /// [_runPull] / the range swarm). The auto-resume driver consults it so it
@@ -4239,7 +4282,7 @@ class MessagingService {
 
 /// A durable record of an explicitly-requested download that has not
 /// completed yet — the unit of the torrent-like auto-resume registry
-/// (settings KV, one JSON list under `pending_downloads`).
+/// (a chunked registry inside the encrypted container).
 class _PendingDownload {
   const _PendingDownload({
     required this.contentId,
