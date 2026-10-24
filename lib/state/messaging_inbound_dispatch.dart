@@ -47,6 +47,18 @@ const _contactPrivilegedKinds = <WireKind>{
 /// [MessagingService]. Keeping every [WireKind] branch in one module makes the
 /// inbound protocol surface auditable without mixing it with send APIs.
 extension _MessagingInboundDispatch on MessagingService {
+  /// Chat rows dedup on their durable message id, including after a restart.
+  /// A separate transport frame id must not retire before that effect either.
+  Future<void> _settleStoredPost(
+    InboundMessage message,
+    String? id,
+    String? fid, {
+    bool direct = false,
+  }) async {
+    if (id != null) await _ackTo(message, id, direct: direct);
+    if (fid != null && fid != id) await _ackFrame(message, fid);
+  }
+
   /// Remember only a completed durable effect (or a permanent policy refusal).
   /// A storage exception or a missing target leaves the sender's frame live.
   Future<void> _settleMutationFrame(InboundMessage message, String? fid) async {
@@ -267,6 +279,10 @@ extension _MessagingInboundDispatch on MessagingService {
         env.kind == WireKind.reaction ||
         env.kind == WireKind.disappearingSet;
     final deferredGroupCallAck = env.kind == WireKind.groupCallSignal;
+    final deferredChatAck =
+        env.kind == WireKind.message ||
+        env.kind == WireKind.spaceRecommendation ||
+        env.kind == WireKind.chatDeleted;
     final liveOnlyNoAck =
         env.kind == WireKind.groupContentReceipt ||
         env.kind == WireKind.groupContentManifest ||
@@ -292,7 +308,10 @@ extension _MessagingInboundDispatch on MessagingService {
         (existing?.status == ContactStatus.accepted ||
             ownDeviceSender ||
             activeCallDevice)) {
-      if (deferredGroupCallAck) {
+      if (deferredChatAck) {
+        // These branches ACK only after storage AND own-device publication.
+        // Retry uses the stored row, so no RAM frame-seen gate is needed.
+      } else if (deferredGroupCallAck) {
         // Authorization is the group frame itself, not ContactStatus. The
         // groupCallSignal switch arm ACKs only after the group layer accepts.
       } else if (deferredPersistenceAck) {
@@ -412,16 +431,16 @@ extension _MessagingInboundDispatch on MessagingService {
           );
           return;
         }
-        final id = env.id;
+        final id = env.id ?? fid;
         if (isServiceEchoBody(env.body)) {
-          if (id != null) await _ackTo(m, id, direct: true);
+          if (id != null) await _settleStoredPost(m, id, fid, direct: true);
           return;
         }
         // The durable recommendation marker is reserved for the typed wire
         // kind. Refuse it on the ordinary text path so callers cannot bypass
         // campaign consent, rate limits and capability validation via sendText.
         if (isSpaceRecommendationMessageBody(env.body)) {
-          if (id != null) await _ackTo(m, id, direct: true);
+          if (id != null) await _settleStoredPost(m, id, fid, direct: true);
           return;
         }
         // [timeline] inbound receipt: id + whether it carried a reply path. id +
@@ -433,14 +452,14 @@ extension _MessagingInboundDispatch on MessagingService {
               't=${DateTime.now().millisecondsSinceEpoch}',
         );
         // Dedup re-sent messages (the sender's local outbox re-sends un-acked
-        // ones): if we already have this id, just re-ack so they stop.
-        if (id != null && await _hasMessage(m.src, id)) {
+        // ones): finish any failed own-device publication before re-ACKing.
+        if (id != null && await _mirrorStoredMessageIfPresent(m.src, id)) {
           devLog(
             () =>
                 'xVeil[recv]: message $id from ${m.src.short} DROPPED — already '
                 'stored (re-send); acked so the sender stops',
           );
-          await _ackTo(m, id, direct: true);
+          await _settleStoredPost(m, id, fid, direct: true);
           return;
         }
         // Deniability: if we DELETED this message, a re-delivery must NOT
@@ -458,7 +477,7 @@ extension _MessagingInboundDispatch on MessagingService {
                 'xVeil[recv]: message $id from ${m.src.short} DROPPED — marked '
                 'deleted here; acked so the sender stops',
           );
-          await _ackTo(m, id, direct: true);
+          await _settleStoredPost(m, id, fid, direct: true);
           return;
         }
         if (id != null &&
@@ -468,7 +487,7 @@ extension _MessagingInboundDispatch on MessagingService {
           // A sender can retry after unblock because its earlier ack was lost.
           // That retry is not the person's choice to Show, even if the held
           // copy was later discarded or the 200-message cap dropped it.
-          await _ackTo(m, id, direct: true);
+          await _settleStoredPost(m, id, fid, direct: true);
           return;
         }
         // The peer's edit/delete of this message may have DRAINED FIRST (mailbox
@@ -494,7 +513,7 @@ extension _MessagingInboundDispatch on MessagingService {
             id!,
             notifyDevices: pending.incomingOnly,
           );
-          await _ackTo(m, id, direct: true);
+          await _settleStoredPost(m, id, fid, direct: true);
           return;
         }
         // Apply a buffered edit by storing the edited body directly, so the
@@ -518,7 +537,7 @@ extension _MessagingInboundDispatch on MessagingService {
         );
         _emitIncoming(m.src, body, isFile: false, messageId: id);
         if (id != null) {
-          await _ackTo(m, id);
+          await _settleStoredPost(m, id, fid);
         }
       case WireKind.ack:
         // Consent gate, like every other inbound arm: only an accepted contact
@@ -1068,43 +1087,51 @@ extension _MessagingInboundDispatch on MessagingService {
         // message-id dedup, deletion tombstones and ACK semantics all apply.
         if (existing?.status != ContactStatus.accepted) return;
         final id = env.id;
-        if (id == null) return;
-        if (await _hasMessage(m.src, id)) {
-          await _ackTo(m, id, direct: true);
+        if (id == null) {
+          await _settleStoredPost(m, null, fid);
+          return;
+        }
+        if (await _mirrorStoredMessageIfPresent(m.src, id)) {
+          await _settleStoredPost(m, id, fid, direct: true);
           return;
         }
         if (await _storage.isMessageDeleted(m.src.hex, id)) {
-          await _ackTo(m, id, direct: true);
+          await _mutations.applyIncomingDelete(m.src, id);
+          await _settleStoredPost(m, id, fid, direct: true);
           return;
         }
         final SpaceRecommendationCard? card;
         try {
           card = SpaceRecommendationCard.fromJson(jsonDecode(env.body));
         } catch (_) {
+          await _settleStoredPost(m, null, fid);
           return;
         }
-        if (card == null) return;
+        if (card == null) {
+          await _settleStoredPost(m, null, fid);
+          return;
+        }
         try {
           final ticket = SpaceJoinCode.parse(card.joinCode);
           if (ticket.spaceId != card.spaceId ||
               ticket.isExpiredAt(_now().millisecondsSinceEpoch)) {
-            await _ackTo(m, id, direct: true);
+            await _settleStoredPost(m, id, fid, direct: true);
             return;
           }
         } catch (_) {
-          await _ackTo(m, id, direct: true);
+          await _settleStoredPost(m, id, fid, direct: true);
           return;
         }
         if (!await spaceRecommendationsEnabled()) {
           // Receiver opt-out is intentionally silent: ACK and discard so the
           // sender gets no preference oracle and retries cannot create spam.
-          await _ackTo(m, id, direct: true);
+          await _settleStoredPost(m, id, fid, direct: true);
           return;
         }
         final recommendationGate = onSpaceRecommendation;
         if (recommendationGate != null &&
             !await recommendationGate(m.src, card)) {
-          await _ackTo(m, id, direct: true);
+          await _settleStoredPost(m, id, fid, direct: true);
           return;
         }
         await _store(
@@ -1117,7 +1144,7 @@ extension _MessagingInboundDispatch on MessagingService {
           seq: env.seq,
         );
         _emitIncoming(m.src, 'Community: ${card.name}', isFile: false);
-        await _ackTo(m, id);
+        await _settleStoredPost(m, id, fid);
         return;
       case WireKind.reaction:
         // The peer reacted to a message in THIS conversation. A side annotation
@@ -1321,8 +1348,7 @@ extension _MessagingInboundDispatch on MessagingService {
       case WireKind.chatDeleted:
         // The peer deleted this conversation on their device and explicitly
         // opted into telling us. Accepted contacts only (a stranger/pending
-        // peer gets the usual silent drop — no oracle); the durable frame was
-        // already acked+deduped by the generic gate above. Leave a LOCAL
+        // peer gets the usual silent drop — no oracle). Leave a LOCAL
         // system-notice marker in the chat via the normal store path, so
         // unread/notification behave like any incoming event.
         if (existing?.status != ContactStatus.accepted) return;
@@ -1335,8 +1361,15 @@ extension _MessagingInboundDispatch on MessagingService {
         // notification. Every sibling branch that writes a row (message,
         // spaceRecommendation, file offers) already dedups on content.
         final markerId = 'sys:chatdel:${fid ?? m.src.hex}';
-        if (await _hasMessage(m.src, markerId)) return;
-        if (await _storage.isMessageDeleted(m.src.hex, markerId)) return;
+        if (await _mirrorStoredMessageIfPresent(m.src, markerId)) {
+          await _settleStoredPost(m, null, fid);
+          return;
+        }
+        if (await _storage.isMessageDeleted(m.src.hex, markerId)) {
+          await _mutations.applyIncomingDelete(m.src, markerId);
+          await _settleStoredPost(m, null, fid);
+          return;
+        }
         await _store(
           m.src,
           MessageDirection.incoming,
@@ -1351,6 +1384,7 @@ extension _MessagingInboundDispatch on MessagingService {
           selfAuthored: true,
         );
         _emitIncoming(m.src, '🗑️', isFile: false);
+        await _settleStoredPost(m, null, fid);
         return;
       case WireKind.cloudDocument:
         if (existing?.status != ContactStatus.accepted) return;

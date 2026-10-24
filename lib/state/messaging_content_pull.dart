@@ -2544,7 +2544,7 @@ extension _MessagingContentPull on MessagingService {
       );
       return;
     }
-    if (await _hasMessage(peer, msgIdOrContent)) {
+    if (await _mirrorStoredMessageIfPresent(peer, msgIdOrContent)) {
       devLog(
         () =>
             'xVeil[content]: offer skip ${contentId.substring(0, 12)} '

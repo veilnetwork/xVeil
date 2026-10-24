@@ -177,7 +177,56 @@ class _MessagingDeviceMirror {
   }
 
   /// Fires after an ordinary 1:1 messaging write, never after [applyMessage].
-  FutureOr<void> Function(NodeId peer, Message stored)? onMessageStored;
+  FutureOr<void> Function(NodeId peer, Message stored)? _storedPublisher;
+  final Set<(String, String)> _storedPublished = {};
+
+  FutureOr<void> Function(NodeId peer, Message stored)? get onMessageStored =>
+      _storedPublisher;
+
+  set onMessageStored(
+    FutureOr<void> Function(NodeId peer, Message stored)? value,
+  ) {
+    if (!identical(value, _storedPublisher)) _storedPublished.clear();
+    _storedPublisher = value;
+  }
+
+  /// Complete the local journal side of a chat write. Failed publications are
+  /// never cached; a duplicate after a restart also retries once from storage.
+  Future<bool> publishStored(
+    NodeId peer,
+    Message stored, {
+    required FutureOr<void> Function(NodeId peer, Message stored)? publisher,
+  }) async {
+    if (publisher == null) return false;
+    final key = (peer.hex, stored.id);
+    if (identical(publisher, _storedPublisher) &&
+        _storedPublished.contains(key)) {
+      return false;
+    }
+    await publisher(peer, stored);
+    if (identical(publisher, _storedPublisher)) {
+      _storedPublished.add(key);
+      if (_storedPublished.length > kMaxPendingOps) {
+        _storedPublished.remove(_storedPublished.first);
+      }
+    }
+    return true;
+  }
+
+  Future<bool> mirrorStoredIfPresent(NodeId peer, String id) async {
+    final publisher = onMessageStored;
+    final stored = await _owner._storage.loadMessageById(peer.hex, id);
+    if (stored == null) return false;
+    final repaired = await publishStored(
+      peer,
+      stored,
+      publisher: publisher ?? onMessageStored,
+    );
+    // The first dispatch can fail before its normal UI signal, even though
+    // the row is durable. Refresh it after recovery without a duplicate notice.
+    if (repaired) _owner._signal();
+    return true;
+  }
 
   /// Fires when one of OUR OWN outgoing messages moves on — the peer's
   /// acknowledgement landed, or the send failed. Only this device hears that,

@@ -1,0 +1,88 @@
+{
+  "status": "PASS_FOR_STORED_MESSAGE_MIRROR_RETRY",
+  "base_revision": "3c19a5fedbabe93fd79a9f3d87eefb7b3a4a1255",
+  "sdk_revision": "de769239927908e2f6929b416f101f6641d7baef",
+  "hidden_volume_revision": "47c28bc411abe9cc68f8f506c914891330f70121",
+  "baseline_unit_failures": 10,
+  "intermediate_ui_refresh_regression_reproduced": true,
+  "new_unit_cases": 11,
+  "selected_regression_passed": 186,
+  "selected_regression_skipped": 0,
+  "dart_analysis_no_issues": true,
+  "native_baseline_gate_failed": true,
+  "native_baseline_gate_expected_two_actual_one": true,
+  "native_final_passed": true,
+  "native_final_state": {
+    "publication_retry_observed": true,
+    "early_ack_withheld": true,
+    "own_journal_present_at_ack": true,
+    "successful_publications": 1,
+    "peer_offline_during_sibling_recovery": true,
+    "sibling_restart_retained_message": true,
+    "sibling_message_copies": 1,
+    "original_position_preserved": true
+  },
+  "native_final_late_errors": 0,
+  "prototype_runner_had_extraneous_source_targets": true,
+  "native_runs_cleanup": {
+    "prototype": {
+      "owned_processes_absent": true,
+      "owned_root_removed": true,
+      "relay_boots": 3,
+      "late_async_errors": 0,
+      "case_result_written": true,
+      "loader_errors": 3
+    },
+    "negative": {
+      "owned_processes_absent": true,
+      "owned_root_removed": true,
+      "relay_boots": 3,
+      "late_async_errors": 0,
+      "native_test_failed": true,
+      "retry_gate_expected_two_actual_one": true
+    },
+    "final": {
+      "owned_processes_absent": true,
+      "owned_root_removed": true,
+      "relay_boots": 3,
+      "late_async_errors": 0,
+      "native_test_passed": true
+    },
+    "final2": {
+      "owned_processes_absent": true,
+      "owned_root_removed": true,
+      "relay_boots": 3,
+      "late_async_errors": 0,
+      "native_test_passed": true
+    }
+  },
+  "source_sha256": {
+    "lib/data/storage/hidden_volume_storage.dart": "513181522ff8d409588553a84cdf8cd5c5c9ccfbaf06b24c9b843e1e12ddfe3d",
+    "lib/data/storage/rollback_anchor.dart": "f9ad191e9cb6d644e74fb64548caccf780089a701c5cf4875b1db4526593a986",
+    "lib/state/messaging_core.dart": "f4325a1121d1e2bd76b6de31c04116f7b1fb24918999cd62a1e08b93ccd79309",
+    "lib/state/group_service.dart": "3f16f5c87d614b102545e8a376d2f14fa6eacd5c92385f4152c51a2f8b2bc54b",
+    "lib/state/group_service_providers.dart": "fd5a83a52d901bdabe96c09e122127941d6adcae0bd5255b2fd0eafd22f26892",
+    "lib/state/device_sync_bridge.dart": "515202015fe53e99f537839d50a3577b436cae3ddfb9b154ff31a85121d9ef28",
+    "lib/state/messaging_device_mirror.dart": "165e3a2d34a7d84c7ff2f3eac4a76bd98d1497a6902b418cf9fbd7789dbc9132",
+    "test/e2e/device_fixture.dart": "c7c8975b6e93418fc900f67fe44ee94693349913452b9120ec0dec941b7ac397",
+    "test/e2e/message_mirror_ack_recovery_e2e_test.dart": "081d5bd9fb671cc01b4bfca6c9797a8c0ba7ac90dd5fffc13a6d742e505cec41",
+    "lib/state/messaging_inbound_dispatch.dart": "90ecdfa932bf7e34c747b1061cb945c295a780ce375171c5ed90220afe249907",
+    "lib/state/messaging_file_transfer.dart": "3941b9597341b125c2539c6afa083d973d8bef00c7a085f2bbbb0d7d055c5a14",
+    "lib/state/messaging_content_pull.dart": "9c9fe7330a510cdc129a37a45790e0dbd1afac09d3f30537f1410413b8d3dc77",
+    "test/message_mirror_ack_recovery_test.dart": "b4365c22bde224ab5e78ad50d9c56af41abf45933a3c8b1b1bf26e7e8ea21f1f"
+  },
+  "native_sha256": {
+    "libhidden_volume_ffi.dylib": "c9f6f9742bb2d95bf312067a4c4bc745ae124bb40576d8ce1f9d4b02f6373ff5",
+    "libveilclient_ffi.dylib": "07328ac13c8222083e6236e7a751b32d6f3d2b6c3211423200c7b1b113e584e0",
+    "veil-cli": "4bec94ee6f20ac08da5366b0cd6356aa058d7ae689d7e79d0b3dbbfd40699dd6"
+  },
+  "sdk_rebuilt": false,
+  "hidden_volume_rebuilt": false,
+  "native_build_provenance": "reuse verified prior-cycle artifacts; same CLI/FFI for negative and corrected stands",
+  "native_a_crash_fault_matrix_qualified": false,
+  "boot_before_first_group_binding_qualified": false,
+  "production_test_hooks_added": false,
+  "gui_or_phone_apps_started": false,
+  "microphone_used": false,
+  "servers_changed": false
+}
