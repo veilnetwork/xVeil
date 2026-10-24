@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
+import 'package:xveil/data/storage/storage.dart' show MessageDeletionIntent;
 import 'package:xveil/data/transport/loopback_transport.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
@@ -67,9 +68,13 @@ class _Storage extends HiddenVolumeStorage {
   }
 
   @override
-  Future<void> deleteMessage(String conversationId, String id) async {
+  Future<void> deleteMessage(
+    String conversationId,
+    String id, {
+    MessageDeletionIntent? intent,
+  }) async {
     await before('delete');
-    await super.deleteMessage(conversationId, id);
+    await super.deleteMessage(conversationId, id, intent: intent);
   }
 
   @override
