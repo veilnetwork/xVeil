@@ -32,6 +32,7 @@ import '../domain/clear_request.dart';
 import '../domain/chat_folder.dart';
 import '../domain/disappearing_messages.dart';
 import '../domain/inline_custom_emoji.dart';
+import '../domain/message_edit.dart';
 import '../domain/content_manifest.dart';
 import '../domain/content_transfer.dart';
 import '../data/serve_source.dart';

@@ -613,7 +613,22 @@ class _MessagingOwnHistory {
         final target = await _owner._storage.loadMessageById(peer, event.key);
         if (target != null) {
           var changed = false;
-          if (editSeq is int && editSeq > (heldEdits[event.key] ?? -1)) {
+          if (editSeq is int &&
+              messageEditWins(
+                revision: editSeq,
+                contentHash: messageEditContentHash(
+                  event.payload['body'] as String,
+                  parseInlineCustomEmoji(
+                    event.payload['body'] as String,
+                    event.payload['ce'],
+                  ),
+                ),
+                heldRevision: heldEdits[event.key],
+                heldContentHash: messageEditContentHash(
+                  target.body,
+                  target.customEmoji,
+                ),
+              )) {
             final body = event.payload['body'] as String;
             await _owner._storage.editMessage(
               peer,
