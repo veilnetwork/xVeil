@@ -52,6 +52,9 @@ class Ns {
   /// prefix filtering, and the settings namespace is the one the content
   /// collector already walks key-by-key — hundreds of conversation rows would
   /// be paid for on every sweep that has nothing to do with them.
+  /// Also holds signed peer authorization documents: 35-byte prefixed keys
+  /// and a one-byte layout marker, disjoint from 66-byte ratchet chunk keys.
+  /// They are security state, retained across file/cache purges and restarts.
   static const int ratchet = 9;
 
   /// Message-log shards occupy an otherwise-unused namespace range.
