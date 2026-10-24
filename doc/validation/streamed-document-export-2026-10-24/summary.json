@@ -1,0 +1,41 @@
+{
+  "base_revision": "4df6fce9",
+  "sdk_revision": "de769239927908e2f6929b416f101f6641d7baef",
+  "hidden_volume_revision": "c4ba1fa8e0dc388fb590dbc382ce98138c90cfeb",
+  "flutter_selected_tests_passed": 91,
+  "flutter_export_tests_included": 17,
+  "flutter_widget_tests_repeated_after_progress_change": 3,
+  "old_screen_handler_negative_control_failed": true,
+  "swift_foundation_cases_passed": 7,
+  "swift_ios13_appdelegate_typecheck_passed": true,
+  "ios_system_picker_qualified": false,
+  "full_application_release_packaging_qualified": false,
+  "android": {
+    "bytes": 8388608,
+    "exact_hash_match": true,
+    "native_chunk_bytes": 262144,
+    "chunk_count": 32,
+    "success_only_after_finish": true,
+    "partial_target_absent": true,
+    "written_before_abort_bytes": 524288,
+    "picker_cancelled": true,
+    "picker_reopened_after_cancel": true,
+    "production_source_copied_exactly_into_isolated_fixture": true,
+    "app_private_archive_or_staging_paths_found": 0
+  },
+  "source_sha256": {
+    "lib/core/document_export.dart": "517e535c9bb186e496bc31ac8253e74a83bf9e1758b0ed051f4b2a26f542012c",
+    "lib/state/data_export_destination.dart": "123d84bd203a93a3d9910b5edb294677f1fd55673f88fe68795214ec9ce96a2d",
+    "lib/features/settings/data_transfer_screen.dart": "7a4a661e9dfdeb78fd3fc0a098a277484191fe8d10b6487de9ba859a749cc845",
+    "android/app/src/main/kotlin/network/veil/xveil/DocumentExport.kt": "06a936aacdf1f427e31022463ef8d76de998e9a07ba6487e72bfa464b1aebc09",
+    "android/app/src/main/kotlin/network/veil/xveil/MainActivity.kt": "3c7f9f7cdb0ce2eb5e2c9027d971b9026627f7291dbf53ba1e092f7e66d81555",
+    "ios/Runner/CoordinatedExportSession.swift": "d49a305fb6fd8834f4336c8bad4827095ab95e71784d448076beabebf5af5aad",
+    "ios/Runner/DocumentExport.swift": "12577b9bda2fcc1c2783a8e6218191a490194725ab668fcc5b63a2db038d6336",
+    "ios/Runner/AppDelegate.swift": "f575943c499477ecfd5ee801a3de4ef5ff36bbda4535dfb7a02336d857324420",
+    "ios/Runner.xcodeproj/project.pbxproj": "0e0ac546f15823fb04efbfb11afe286970abeca95b557100e845d71b96eae130",
+    "test/document_export_test.dart": "2ade711de72551dbf9ebb01367a94672e3022c10a709e83595e543375d3faa78",
+    "test/data_export_screen_test.dart": "67eed7a4e35117d7bc86de1479a630fa0d0ac93ceb754350a911639a1329cb20",
+    "test/native/document_export_core.swift": "57274827267a14bb42a57c2a72a6976843945c596e87d5561779b2014a2a9804"
+  },
+  "android_fixture_apk_sha256": "5677e20dd286a1c5d6f572058317355d45eed873614ac2c80f9cbf724c30ba7f"
+}

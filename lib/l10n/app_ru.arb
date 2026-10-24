@@ -3077,6 +3077,7 @@
   "transferExportPasswordTitle": "Пароль для архива",
   "transferPasswordLabel": "Пароль",
   "transferWorking": "Выполняется…",
+  "transferExportFailed": "Не удалось сохранить архив. Выберите другое место сохранения и попробуйте ещё раз.",
   "transferIdentitySwitched": "Вы сменили личность, поэтому действие не выполнено — оно относится к той личности, из которой было начато.",
   "transferProgress": "{done} из {total}",
   "transferExportDone": "Записано: записей {records}, файлов {files}, {mb} МБ.",
