@@ -1,0 +1,81 @@
+{
+  "base_commit": "e3a64bc21583d007d5d57d32515f459d7a7237d2",
+  "devices": 2,
+  "physical_devices": true,
+  "separate_qa_package_and_mac_profile": true,
+  "public_network": true,
+  "production_pow": true,
+  "phone_network": {
+    "default_transport": [
+      "VPN",
+      "WIFI"
+    ]
+  },
+  "result": {
+    "bytes": 8388608,
+    "source_offline_seconds": 10,
+    "completion_gate_seconds": 180,
+    "p2p_allowed": false,
+    "trigger_bytes": 4194304,
+    "fault": {
+      "trigger_elapsed_seconds": 62.786,
+      "old_process_exited": true,
+      "same_identity": true,
+      "ok": true,
+      "elapsed_seconds": 75.739
+    },
+    "download_seconds": 95.581,
+    "hash_matches": true,
+    "interruption_observed": true,
+    "ok": true,
+    "completed_after_source_restart": true,
+    "total_seconds": 95.67
+  },
+  "log_checks": {
+    "post_restart_manifest_rebuilt": true,
+    "post_restart_reoffer": true,
+    "anonymous_stream_confirmed": true,
+    "resume_offset_4194304": true,
+    "download_completed_in_log": true,
+    "partial_bytes_constant_during_offline": true
+  },
+  "cleanup": {
+    "qa_phone_process_exited": true,
+    "qa_phone_package_removed": true,
+    "main_android_apk_unchanged": true,
+    "phone_power_setting_restored": true,
+    "owned_adb_forward_removed": true,
+    "mac_owned_process_groups_checked": 3,
+    "remaining_owned_mac_processes": 0,
+    "mac_qa_profile_removed_from_user_catalog": true,
+    "owned_encrypted_qa_profiles_retained_privately": true
+  },
+  "sources_match_current_commit": true,
+  "scratch_difference": "certificate-save callback restricted to the disposable QA profile",
+  "source_sha256": {
+    "lib/state/messaging_content_receive.dart": "31a6e5ad5ff2ba6f44f361273626a135b0d3bf00ec5d17a0a236eb2f27d0b221",
+    "lib/state/messaging_content_publish.dart": "d4914986d0d036a496646ca8d87f6ad0e0c0850063d9641fb9f864ea75d08da4",
+    "lib/state/messaging_download_resume.dart": "32526d6905329dc61718618dde923f07cd5cd8af3d5e1788f2dc3c20669915e3",
+    "lib/state/messaging_content_stream_lifecycle.dart": "18a066bb9cf987a70cdc90712f2b694c27744b6a6b44ec0b660ab24c84f419d5"
+  },
+  "private_driver_sha256": "23a1092b683c916d890f46a61a3b258a6a9211d4e2e00c354e89b5fafb4f4f95",
+  "qa_apk_sha256": "154d0b7f62c8c99cab897400d1cc8cd2c105872ab79f9e7683fd82daa6b58a49",
+  "android_native_sha256": {
+    "libhidden_volume_ffi.so": "6229bae4ded5db35636ef724b8fca2ca3f7fdb3b71a722c48d69291fbbb7d891",
+    "libveil_media.so": "3546a0141ba9ad7533a081287c3af36916f5b4a457c42d212930e0e10ec049cb",
+    "libveilclient_ffi.so": "c6ed179a52f74633f57ff52c78aa2db9e9a265a3cec21aad23bc523269003d7b"
+  },
+  "mac_native_proof": {
+    "native_sha256": {
+      "libveilclient_ffi.dylib": "1a779ed78b0bdbb4f1179f6664ad2b95803756b0cf5957516dd2a282aed3575d",
+      "libhidden_volume_ffi.dylib": "89be5e6f29cff73ba7761f25b2ff9bd27b6c2de270e3961b5fb78cfc39e972a4"
+    },
+    "source_sdk_sha256": "0b66c3dff2786cce24a4abc7cc9564caeda2db07b9f53832164a28aea41d3d74",
+    "source_hv_sha256": "c9f6f9742bb2d95bf312067a4c4bc745ae124bb40576d8ce1f9d4b02f6373ff5",
+    "ad_hoc_signature_verified": true,
+    "root_dart_commit": "e3a64bc21583d007d5d57d32515f459d7a7237d2",
+    "qa_router_differs_for_certificate_setup": true
+  },
+  "preliminary_32_mib_sigterm_run_passed": false,
+  "whole_file_defect_matrix_closed": false
+}
