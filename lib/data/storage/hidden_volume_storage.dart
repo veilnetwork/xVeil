@@ -127,6 +127,64 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
   final AsyncKeysSpaceOpener? keysOpener;
   AsyncKvLogStore? _store;
 
+  // One encrypted flag, committed WITH a message tombstone. A tombstone makes
+  // the body logically absent; it does not prove its orphaned chunks were
+  // reclaimed. Keep that obligation across crashes without replaying a vacuum
+  // for every historical deletion. No message/device identifiers live here.
+  static const _pendingDeleteScrubKey = 'storage.message_delete_scrub.v1';
+  bool? _deleteScrubPending;
+  bool _deleteScrubRecoveryNeeded = false;
+  Future<void> _deleteScrubGate = Future<void>.value();
+
+  Future<T> _serializeDeleteScrub<T>(Future<T> Function() action) {
+    final result = _deleteScrubGate.then((_) => action());
+    _deleteScrubGate = result.then((_) {}, onError: (_) {});
+    return result;
+  }
+
+  Future<void> _commitMessageDeletion(List<KvLogOp> ops) =>
+      _serializeDeleteScrub(() async {
+        await _as.commit([
+          ...ops,
+          PutOp(
+            Ns.settings,
+            _sk(_pendingDeleteScrubKey),
+            Uint8List.fromList([1]),
+          ),
+        ]);
+        _deleteScrubPending = true;
+      });
+
+  // Called either before exposing an opened space or under the scan gate for
+  // an already-open multi-space view. Never acquire the scan gate from inside
+  // the scrub gate: a concurrent history read may already be waiting for us.
+  Future<bool> _recoverMessageDeletion() => _serializeDeleteScrub(() async {
+    _deleteScrubPending ??=
+        await _as.get(Ns.settings, _sk(_pendingDeleteScrubKey)) != null;
+    if (!_deleteScrubPending!) {
+      _deleteScrubRecoveryNeeded = false;
+      return false;
+    }
+    _deleteScrubRecoveryNeeded = true;
+    await _as.scrub();
+    await _as.commit([DeleteOp(Ns.settings, _sk(_pendingDeleteScrubKey))]);
+    _deleteScrubPending = false;
+    _deleteScrubRecoveryNeeded = false;
+    return true;
+  });
+
+  Future<void> _prepareOpenedStore() async {
+    _deleteScrubPending = null;
+    _deleteScrubRecoveryNeeded = false;
+    try {
+      await _recoverMessageDeletion();
+    } catch (_) {
+      // A failed recovery must not leak the exclusive handle and wedge retry.
+      await close();
+      rethrow;
+    }
+  }
+
   AsyncKvLogStore get _as {
     final s = _store;
     if (s == null) {
@@ -181,6 +239,7 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
     _store = store;
     await _invalidateScanCache(); // adopting a different space — drop the old fold
     await _invalidateOutboxCache();
+    await _prepareOpenedStore();
     return true;
   }
 
@@ -196,6 +255,7 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
     _store = store;
     await _invalidateScanCache(); // adopting a different space — drop the old fold
     await _invalidateOutboxCache();
+    await _prepareOpenedStore();
     return true;
   }
 
@@ -2428,7 +2488,7 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
       deadMessageIds: {messageId},
       deadContentIds: purgeBlobIds,
     );
-    await _as.commit([
+    await _commitMessageDeletion([
       AppendLogOp(hit.namespace, hit.logId, _sk(tomb)),
       ...blobOps,
       ...editVoids,
@@ -3036,7 +3096,23 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
     // Reclaim chunks orphaned by edit/delete so the prior plaintext is no
     // longer recoverable from the container. Backed by hidden-volume's
     // vacuum/compact when the store exposes it; a no-op on the in-memory fake.
-    await _as.scrub();
+    await _serializeDeleteScrub(() async {
+      try {
+        await _as.scrub();
+        _deleteScrubPending ??=
+            await _as.get(Ns.settings, _sk(_pendingDeleteScrubKey)) != null;
+        if (_deleteScrubPending!) {
+          await _as.commit([
+            DeleteOp(Ns.settings, _sk(_pendingDeleteScrubKey)),
+          ]);
+        }
+        _deleteScrubPending = false;
+        _deleteScrubRecoveryNeeded = false;
+      } catch (_) {
+        _deleteScrubRecoveryNeeded = true;
+        rethrow;
+      }
+    });
     // Defensive: if the vacuum ever compacts/renumbers the log, the fold's
     // log-id watermark would be stale — force a clean rebuild next read.
     await _invalidateScanCache();
@@ -4420,6 +4496,10 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
   Future<List<Message>> _scanLog() => _serialized(_scanLogCritical);
 
   Future<List<Message>> _scanLogCritical() async {
+    if ((_deleteScrubPending == null || _deleteScrubRecoveryNeeded) &&
+        await _recoverMessageDeletion()) {
+      _clearScanState();
+    }
     final nextId = await _nextLogId();
     final cached = _scanResult;
     if (cached != null && _scanFoldedUpTo == nextId) return cached;
@@ -4450,6 +4530,10 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
   /// and could stall delivery for every conversation. Caller MUST hold
   /// [_serialized].
   Future<void> _foldCritical() async {
+    if ((_deleteScrubPending == null || _deleteScrubRecoveryNeeded) &&
+        await _recoverMessageDeletion()) {
+      _clearScanState();
+    }
     final nextId = await _nextLogId();
     if (_scanFoldedUpTo == nextId) return; // fold state already current
     // The fold state is about to change, so the materialised list is now stale.
@@ -4711,6 +4795,8 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
     // behind its exclusive flock until an app restart. The error itself is
     // logged and swallowed (callers close best-effort on teardown paths).
     _store = null;
+    _deleteScrubPending = null;
+    _deleteScrubRecoveryNeeded = false;
     try {
       await s?.close();
     } catch (e) {
