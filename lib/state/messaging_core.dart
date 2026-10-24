@@ -85,6 +85,7 @@ part 'messaging_inbound_dispatch.dart';
 class MessagingService {
   final _avatarRequestedAt = <String, DateTime>{};
   final _avatarRepliedAt = <String, DateTime>{};
+
   /// The live-resend delay one frame actually waits, for the test that pins
   /// the SPREAD.
   ///
@@ -436,7 +437,14 @@ class MessagingService {
     FutureOr<void> Function(NodeId peer, String msgId)? callback,
   ) {
     _deviceMirror.onMessageDeleted = callback;
+    if (callback != null && !_disposed) {
+      unawaited(retryPendingMessageDeletions());
+    }
   }
+
+  /// Retry durable local deletion effects after a commit fault or reconnect.
+  Future<int> retryPendingMessageDeletions() =>
+      _mutations.retryPendingDeletions();
 
   /// Erase a message because one of this identity's other devices erased it.
   Future<void> applyMirroredDelete({
@@ -1503,6 +1511,7 @@ class MessagingService {
       if (admitted != null) unawaited(admitted);
     }
 
+    unawaited(retryPendingMessageDeletions());
     _sub ??= _transport.messages().listen(receive);
     final transport = _transport;
     if (_realtimeSub == null && transport is RealtimeInboundTransport) {
@@ -1574,6 +1583,7 @@ class MessagingService {
   Future<void> _retryFlush() async {
     if (_flushing) return; // don't stack overlapping flushes
     _flushing = true;
+    unawaited(retryPendingMessageDeletions());
     try {
       await flushOutbox();
     } catch (_) {
@@ -4165,6 +4175,7 @@ class MessagingService {
     await _realtimeSub?.cancel();
     _realtimeSub = null;
     await _quiesceInboundLanes();
+    await _mutations.quiesce();
     Object? shutdownError;
     StackTrace? shutdownTrace;
     try {

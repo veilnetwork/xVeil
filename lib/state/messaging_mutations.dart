@@ -6,6 +6,139 @@ class _MessagingMutations {
 
   final MessagingService _owner;
 
+  Future<void> _deletionTail = Future<void>.value();
+  Future<int>? _repair;
+  String? _repairCursor;
+
+  Future<T> _sequenceDeletion<T>(Future<T> Function() action) {
+    final result = _deletionTail.then((_) {
+      if (_owner._disposed) throw StateError('messaging is disposing');
+      return action();
+    });
+    _deletionTail = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace trace) {},
+    );
+    return result;
+  }
+
+  Future<void> quiesce() => _deletionTail;
+
+  /// Coalesce background retries. A failed first page must not starve later
+  /// decisions, and repeated retry ticks must not build an unbounded queue.
+  Future<int> retryPendingDeletions() {
+    final active = _repair;
+    if (active != null) return active;
+    if (_owner._disposed) return Future<int>.value(0);
+    late final Future<int> run;
+    run =
+        _sequenceDeletion(() async {
+          final publisher = _owner.onMessageDeleted;
+          final rows = await _owner._storage.pendingMessageDeletions(
+            afterKey: _repairCursor,
+            includeMirrorOnly: publisher != null,
+          );
+          if (rows.isEmpty) {
+            _repairCursor = null;
+            return 0;
+          }
+          var complete = 0;
+          for (final row in rows) {
+            if (_owner._disposed) break;
+            _repairCursor = pendingMessageDeletionKey(row);
+            try {
+              if (await _finishDeletion(row, publisher: publisher)) complete++;
+            } catch (_) {
+              /* the tombstone retains every unfinished effect */
+            }
+          }
+          return complete;
+        }).catchError((Object _) => 0).whenComplete(() {
+          if (identical(_repair, run)) _repair = null;
+        });
+    _repair = run;
+    return run;
+  }
+
+  Future<bool> _finishDeletion(
+    PendingMessageDeletion pending, {
+    FutureOr<void> Function(NodeId, String)? publisher,
+  }) async {
+    // The pending-intent read has already completed committed physical scrubs.
+    final peer = NodeId.fromHex(pending.conversationId);
+    final id = pending.messageId;
+    Object? failure;
+    StackTrace? failureTrace;
+    Future<void> attempt(Future<void> Function() operation) async {
+      try {
+        await operation();
+      } catch (error, trace) {
+        failure ??= error;
+        failureTrace ??= trace;
+      }
+    }
+
+    var peerDone = !pending.peerPending;
+    var mirrorDone = !pending.mirrorPending;
+    var servingDone = pending.contentId == null;
+    // Peer handoff is independent of the device journal. The existing durable
+    // send persists first and attempts live delivery without waiting for a
+    // general outbox flush. DEL never goes through mailbox.
+    if (pending.peerPending) {
+      await attempt(() async {
+        final frameId = 'del:$id';
+        await _owner.sendDurable(peer, frameId, WireEnvelope.del(id));
+        await _owner._storage.completeMessageDeletion(peer.hex, id, peer: true);
+        peerDone = true;
+      });
+    }
+    if (pending.contentId != null) {
+      await attempt(() async {
+        await _releaseServeStateForContent(pending.contentId!);
+        await _owner._storage.completeMessageDeletion(
+          peer.hex,
+          id,
+          serving: true,
+        );
+        await _owner._storage.scrubDeleted();
+        servingDone = true;
+      });
+    }
+    final publish = publisher ?? _owner.onMessageDeleted;
+    if (pending.mirrorPending && publish != null) {
+      await attempt(() async {
+        await publish(peer, id);
+        // A binding replacement may represent a new device-group owner. Keep
+        // the obligation until the currently bound publisher has committed it.
+        if (identical(publish, _owner.onMessageDeleted)) {
+          await _owner._storage.completeMessageDeletion(
+            peer.hex,
+            id,
+            mirror: true,
+          );
+          mirrorDone = true;
+        }
+      });
+    }
+    if (failure != null) Error.throwWithStackTrace(failure!, failureTrace!);
+    final complete = peerDone && mirrorDone && servingDone;
+    if (complete) rememberDeleteCompleted(peer, id);
+    return complete;
+  }
+
+  Future<void> _retryDeletedId(
+    String id, {
+    FutureOr<void> Function(NodeId, String)? publisher,
+  }) async {
+    // Only already-authorized intents can be recovered without a live row.
+    for (final row in await _owner._storage.pendingMessageDeletions(
+      messageId: id,
+      limit: 256,
+    )) {
+      await _finishDeletion(row, publisher: publisher);
+    }
+  }
+
   /// Edit/delete operations that drained before their target message.
   ///
   /// In-memory, insertion-ordered, and bounded. A peer frame waiting here is
@@ -174,39 +307,56 @@ class _MessagingMutations {
   /// from (doc/MESSAGE-EDIT-DELETE-DESIGN.md) is built for a container opened
   /// under coercion — a surviving sibling copy is precisely the outcome it
   /// exists to prevent, so a delete is now told to the device group.
-  Future<void> deleteLocally(String messageId) async {
-    final message = await _find(messageId);
-    if (message == null) return;
-    await _owner._storage.deleteMessage(message.conversationId, messageId);
-    await _owner._storage.scrubDeleted();
-    // A deleted file post must stop advertising and serving its bytes too.
-    await _releaseServeStateFor(message);
-    _owner._signal();
-    await _owner._deviceMirror.onMessageDeleted?.call(
-      NodeId.fromHex(message.conversationId),
-      messageId,
+  Future<void> deleteLocally(String messageId) {
+    final publisher = _owner.onMessageDeleted;
+    return _sequenceDeletion(
+      () => _deleteLocalDecision(
+        messageId,
+        intent: MessageDeletionIntent.devices,
+        publisher: publisher,
+      ),
     );
-    rememberDeleteCompleted(NodeId.fromHex(message.conversationId), messageId);
   }
 
-  /// Drop live and durable serve state unless another message references it.
-  Future<void> _releaseServeStateFor(Message message) async {
-    final contentId = message.fileContentId ?? message.fileId;
-    if (contentId == null) return;
-    try {
-      if (await _contentReferencedByAnyMessage(contentId)) return;
-      final live = _owner._serving.remove(contentId);
-      if (live?.source != null) unawaited(live!.source!.close());
-      // Storage has no removeSetting; an empty value is the durable tombstone.
-      await _owner._storage.putSetting('served:$contentId', '');
-      devLog(
-        () =>
-            'xVeil[content]: released serve state for '
-            '${contentId.substring(0, 12)} (message deleted)',
-      );
-    } catch (error) {
-      devLog(() => 'xVeil[content]: release serve state failed: $error');
+  Future<void> _deleteLocalDecision(
+    String messageId, {
+    required MessageDeletionIntent intent,
+    FutureOr<void> Function(NodeId, String)? publisher,
+  }) async {
+    final message = await _find(messageId);
+    if (message == null) {
+      await _retryDeletedId(messageId, publisher: publisher);
+      return;
     }
+    if (intent == MessageDeletionIntent.everyone &&
+        message.direction != MessageDirection.outgoing) {
+      return;
+    }
+    try {
+      await _owner._storage.deleteMessage(
+        message.conversationId,
+        messageId,
+        intent: intent,
+      );
+    } finally {
+      // Eager blob cleanup can fail AFTER its atomic tombstone commit.
+      _owner._signal();
+    }
+    await _owner._storage.scrubDeleted();
+    await _retryDeletedId(messageId, publisher: publisher);
+  }
+
+  /// Drop live and durable serve state unless another post references it.
+  /// Failure is retried from the body-less tombstone, not silently forgotten.
+  Future<void> _releaseServeStateForContent(String contentId) async {
+    if (await _contentReferencedByAnyMessage(contentId)) return;
+    final live = _owner._serving[contentId];
+    if (live?.source != null) await live!.source!.close();
+    if (identical(_owner._serving[contentId], live)) {
+      _owner._serving.remove(contentId);
+    }
+    await _owner._storage.putSetting('served:$contentId', '');
+    devLog(() => 'xVeil[content]: released deleted message serve state');
   }
 
   Future<bool> _contentReferencedByAnyMessage(String contentId) async {
@@ -223,17 +373,14 @@ class _MessagingMutations {
   }
 
   /// Delete one of our sent messages locally and durably unsend it at the peer.
-  Future<void> deleteForEveryone(String messageId) async {
-    final message = await _find(messageId);
-    if (message == null || message.direction != MessageDirection.outgoing) {
-      return;
-    }
-    final destination = NodeId.fromHex(message.conversationId);
-    await deleteLocally(messageId);
-    await _owner.sendDurable(
-      destination,
-      'del:$messageId',
-      WireEnvelope.del(messageId),
+  Future<void> deleteForEveryone(String messageId) {
+    final publisher = _owner.onMessageDeleted;
+    return _sequenceDeletion(
+      () => _deleteLocalDecision(
+        messageId,
+        intent: MessageDeletionIntent.everyone,
+        publisher: publisher,
+      ),
     );
   }
 
