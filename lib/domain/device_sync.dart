@@ -7,6 +7,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import '../core/ids.dart';
+import 'chat.dart' show isAcceptableWireSeq;
 
 /// What a sync event describes. Serialized BY NAME (like ControlOp) so the
 /// enum can grow without renumbering.
@@ -191,7 +192,8 @@ enum DeviceSyncKind {
 
 /// One sync event. [key] is the event's CONVERGENCE identity within its kind
 /// (msgId for mirrors, peer hex for read-marks, setting key, …): the fold
-/// keeps the newest event per (kind, key) — deterministic last-write-wins.
+/// keeps one event per (kind, key). Outgoing message positions rank provenance
+/// first; other state and ties within a provenance rank use last-write-wins.
 class DeviceSyncEvent {
   const DeviceSyncEvent({
     required this.kind,
@@ -251,9 +253,10 @@ bool identityDocumentAnnouncementNeeded(
 /// must be bound to the device that actually signed the group message.
 typedef DeviceSyncRecord = ({DeviceSyncEvent event, NodeId author});
 
-/// Deterministic fold: the NEWEST event per (kind, key) wins; ties break on
-/// the jsonEncode of the payload (any stable total order works — devices just
-/// have to agree). Order-independent by construction.
+/// Deterministic fold per (kind, key). For outgoing message positions,
+/// verified > legacy/unknown > explicitly provisional; within one rank, and
+/// for other kinds, newest wins with jsonEncode(payload) as the tie break.
+/// The comparator is a total order, including malformed/colliding slots.
 Map<(DeviceSyncKind, String), DeviceSyncEvent> foldDeviceSync(
   Iterable<DeviceSyncEvent> events,
 ) {
@@ -267,8 +270,31 @@ Map<(DeviceSyncKind, String), DeviceSyncEvent> foldDeviceSync(
 }
 
 bool _newer(DeviceSyncEvent a, DeviceSyncEvent b) {
+  // A replay of a peer's own-message echo can have the same message time and
+  // a lexically larger payload than the original device position. Keeping it
+  // as LWW winner then deletes the authentic metadata during compaction.
+  // Compare provenance before time for copies in this message's journal slot.
+  // Legacy provenance remains between verified and explicitly provisional.
+  if (a.kind == DeviceSyncKind.msgMirror && b.kind == a.kind) {
+    final rank = _mirrorPositionRank(a).compareTo(_mirrorPositionRank(b));
+    if (rank != 0) return rank > 0;
+  }
   if (a.tsMs != b.tsMs) return a.tsMs > b.tsMs;
   return jsonEncode(a.payload).compareTo(jsonEncode(b.payload)) > 0;
+}
+
+int _mirrorPositionRank(DeviceSyncEvent event) {
+  if (event.payload['dir'] != 'outgoing') return 1;
+  final value = event.payload['pv'];
+  final author = event.payload['au'], seq = event.payload['sq'];
+  if (value is! bool) return 1;
+  if (author is! String ||
+      !RegExp(r'^[0-9a-f]{64}$').hasMatch(author) ||
+      seq is! int ||
+      !isAcceptableWireSeq(seq)) {
+    return 0;
+  }
+  return value ? 2 : 0;
 }
 
 /// The fold's ordering, exposed for LIVE appliers: would [a] beat [b] in

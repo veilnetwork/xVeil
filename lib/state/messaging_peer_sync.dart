@@ -1177,6 +1177,7 @@ class _MessagingPeerSync {
     final selfHex = await _owner._selfHex();
     final stored = await _owner._deviceMirror.applyMessage(
       author: identity != null && identity != selfHex ? identity : null,
+      positionVerified: false,
       peer: peer,
       msgId: id,
       direction: MessageDirection.outgoing,

@@ -341,9 +341,12 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     if (await service.deviceGroupIdHex() == null) return;
     final hasFile = (message.fileContentId ?? message.fileId) != null;
     if (!hasFile && message.body.isEmpty) return;
-    final mirror = await prepareDeviceMirror(peer.hex, message,
-        storage: service.storage,
-        registerContent: messaging.registerGroupContent);
+    final mirror = await prepareDeviceMirror(
+      peer.hex,
+      message,
+      storage: service.storage,
+      registerContent: messaging.registerGroupContent,
+    );
     // postDeviceEvent completes after its local durable batch save; network
     // broadcast is independent. Sending must not outrun this recovery record.
     if (!await service.postDeviceEvent(
@@ -499,6 +502,9 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     await messaging.applyMirroredMessage(
       author: author is String && author.isNotEmpty ? author : null,
       seq: seq is int && isAcceptableWireSeq(seq) ? seq : null,
+      positionVerified: event.payload['pv'] is bool
+          ? event.payload['pv'] as bool
+          : null,
       replyToId: replyTo is String ? replyTo : null,
       forwardedFrom: forwardedFrom is String ? forwardedFrom : null,
       peer: NodeId.fromHex(peerHex),

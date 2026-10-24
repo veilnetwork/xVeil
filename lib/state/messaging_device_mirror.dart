@@ -395,6 +395,7 @@ class _MessagingDeviceMirror {
   Future<bool> applyMessage({
     String? author,
     int? seq,
+    bool? positionVerified,
     String? replyToId,
     String? forwardedFrom,
     required NodeId peer,
@@ -419,6 +420,16 @@ class _MessagingDeviceMirror {
     // carried the chat back, and the device ended up with an unanswerable
     // "pending" contact that was ITSELF.
     if (await _owner._isSiblingDevice(peer)) return false;
+    // A new-format verified marker promises an original position. Reject an
+    // inconsistent record before storage can fill missing fields with local
+    // counters and make a later backfill misidentify them as original.
+    if (positionVerified == true &&
+        (author == null ||
+            !RegExp(r'^[0-9a-f]{64}$').hasMatch(author) ||
+            seq == null ||
+            !isAcceptableWireSeq(seq))) {
+      return false;
+    }
     if (await _owner._hasMessage(peer, msgId)) {
       // An own echo from the contact may win the race with this authenticated
       // device mirror. Its locally allocated position is provisional. Accept
@@ -426,6 +437,7 @@ class _MessagingDeviceMirror {
       // making the echoed body an authentic outgoing event. Neither the peer's
       // echo (no seq) nor a backfill of its identity-alias position can do this.
       if (direction != MessageDirection.outgoing ||
+          positionVerified == false ||
           author == null ||
           seq == null ||
           !isAcceptableWireSeq(seq) ||
@@ -512,6 +524,7 @@ class _MessagingDeviceMirror {
         forwardedFrom: forwardedFrom,
         author: author,
         seq: seq,
+        positionVerified: positionVerified,
       ),
     );
     // An erase or an edit that got here FIRST is spent now, exactly as the wire

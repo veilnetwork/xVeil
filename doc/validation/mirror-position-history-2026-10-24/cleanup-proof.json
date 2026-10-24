@@ -1,0 +1,40 @@
+{
+  "stages": [
+    {
+      "fleets": 1,
+      "worker_boots": 7,
+      "relay_boots": 3,
+      "owned_pids_absent": true,
+      "owned_worker_groups_absent": true,
+      "worker_successful_exits": 7,
+      "late_async_error_markers": 0,
+      "owned_roots_removed": true
+    },
+    {
+      "fleets": 2,
+      "worker_boots": 13,
+      "relay_boots": 6,
+      "owned_pids_absent": true,
+      "owned_worker_groups_absent": true,
+      "worker_successful_exits": 13,
+      "late_async_error_markers": 0,
+      "owned_roots_removed": true
+    },
+    {
+      "fleets": 2,
+      "worker_boots": 13,
+      "relay_boots": 6,
+      "owned_pids_absent": true,
+      "owned_worker_groups_absent": true,
+      "worker_successful_exits": 13,
+      "late_async_error_markers": 0,
+      "owned_roots_removed": true
+    }
+  ],
+  "total_worker_boots": 33,
+  "total_relay_boots": 15,
+  "owned_native_libraries_not_open": true,
+  "unrelated_temp_directories_preserved": true,
+  "protected_untracked_report_preserved": true,
+  "phone_profiles_installed_apps_public_relays_changed": false
+}
