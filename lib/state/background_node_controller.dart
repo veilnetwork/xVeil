@@ -39,10 +39,13 @@ final backgroundServiceProvider = Provider<BackgroundServiceActions>(
 /// has no equivalent always-on mechanism here).
 class BackgroundNodeController extends Notifier<bool> {
   bool _userSet = false;
+  late Future<void> _loaded;
+  int _applyGeneration = 0;
+  Future<void> _serviceTail = Future<void>.value();
 
   @override
   bool build() {
-    _load();
+    _loaded = _load();
     return false;
   }
 
@@ -56,6 +59,7 @@ class BackgroundNodeController extends Notifier<bool> {
   }
 
   Future<void> set(bool value) async {
+    final generation = ++_applyGeneration;
     _userSet = true;
     state = value;
 
@@ -78,6 +82,8 @@ class BackgroundNodeController extends Notifier<bool> {
       // Persist best-effort.
     }
 
+    if (!ref.mounted || generation != _applyGeneration) return;
+
     // Apply immediately if a node is already up; otherwise it takes effect when
     // the node next boots (app_controller calls [applyIfNodeUp]).
     final nodeUp =
@@ -85,21 +91,37 @@ class BackgroundNodeController extends Notifier<bool> {
         ref.read(sessionProvider) != null;
     final service = ref.read(backgroundServiceProvider);
     if (value && nodeUp) {
-      await _applyService(service, true, nodeUp);
+      await _scheduleService(service, true, nodeUp, generation);
     } else if (!value) {
-      await _applyService(service, false, nodeUp);
+      await _scheduleService(service, false, nodeUp, generation);
     }
   }
 
   /// Start/stop the foreground service to match the current setting — called by
   /// app_controller after the node boots and on teardown.
   Future<void> applyIfNodeUp({required bool nodeUp}) async {
+    final generation = ++_applyGeneration;
     final service = ref.read(backgroundServiceProvider);
-    if (state && nodeUp) {
-      await _applyService(service, true, nodeUp);
-    } else {
-      await _applyService(service, false, nodeUp);
-    }
+    // An unread preference is not OFF. Teardown need not wait for a read.
+    if (nodeUp) await _loaded;
+    if (!ref.mounted || generation != _applyGeneration) return;
+    await _scheduleService(service, state && nodeUp, nodeUp, generation);
+  }
+
+  Future<void> _scheduleService(
+    BackgroundServiceActions service,
+    bool start,
+    bool nodeUp,
+    int generation,
+  ) {
+    final next = _serviceTail.then((_) async {
+      if (generation != _applyGeneration || (start && !ref.mounted)) return;
+      await _applyService(service, start, nodeUp);
+    });
+    // A refused platform call stays visible to its caller without poisoning
+    // the tail: a later stop/start still has to run, in order.
+    _serviceTail = next.catchError((Object _) {});
+    return next;
   }
 
   Future<void> _applyService(
