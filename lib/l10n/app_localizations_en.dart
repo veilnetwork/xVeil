@@ -7529,6 +7529,10 @@ class AppL10nEn extends AppL10n {
   String get transferWorking => 'Working…';
 
   @override
+  String get transferExportFailed =>
+      'Could not save the archive. Check the destination and try again.';
+
+  @override
   String get transferIdentitySwitched =>
       'You switched identity, so this was not carried out — it belongs to the identity it was started from.';
 

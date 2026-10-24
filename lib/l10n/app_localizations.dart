@@ -13118,6 +13118,12 @@ abstract class AppL10n {
   /// **'Working…'**
   String get transferWorking;
 
+  /// No description provided for @transferExportFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save the archive. Check the destination and try again.'**
+  String get transferExportFailed;
+
   /// No description provided for @transferIdentitySwitched.
   ///
   /// In en, this message translates to:

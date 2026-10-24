@@ -21,6 +21,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/log.dart';
+import '../../core/document_export.dart';
+import '../../state/data_export_destination.dart';
 import '../../data/storage/storage.dart';
 import '../../domain/data_transfer.dart';
 import '../../l10n/app_localizations.dart';
@@ -37,6 +39,10 @@ import '../../state/messaging.dart';
 import '../../state/app_controller.dart' show IdentityLease;
 import '../../state/identity_guard.dart';
 import '../../state/providers.dart';
+
+final exportDocumentPickerProvider = Provider<ExportDocumentPicker>(
+  (ref) => openExportDocument,
+);
 
 class DataTransferScreen extends ConsumerStatefulWidget {
   const DataTransferScreen({super.key});
@@ -60,6 +66,25 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
   String? _busy;
   String? _result;
   String? _error;
+  DataExportCancellation? _exportCancellation;
+  bool _exporting = false;
+
+  void _announce(String text) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  @override
+  void dispose() {
+    unawaited(
+      _exportCancellation?.cancel().catchError((Object error) {
+        devLog(() => 'transfer: export cleanup failed (${error.runtimeType})');
+      }),
+    );
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -90,12 +115,14 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
   /// Whether the identity the operation belongs to is still the active one.
   /// Shows the refusal itself, so every caller reads the same way.
   bool _stillOurs(IdentityLease lease, AppL10n l) {
+    if (!mounted) return false;
     if (ref.holdsIdentity(lease)) return true;
     if (mounted) {
       setState(() {
         _busy = null;
         _error = l.transferIdentitySwitched;
       });
+      _announce(l.transferIdentitySwitched);
     }
     return false;
   }
@@ -131,8 +158,10 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
       final plan = await DataExporter(
         storage: _storage,
         nodeIdHex: await _selfHex(),
-        syncedSettingKeys:
-            ref.read(deviceSettingsSyncHubProvider).syncedKeys.toSet(),
+        syncedSettingKeys: ref
+            .read(deviceSettingsSyncHubProvider)
+            .syncedKeys
+            .toSet(),
       ).plan();
       if (mounted) setState(() => _plan = plan);
     } catch (e) {
@@ -141,70 +170,87 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
   }
 
   Future<void> _export({required bool sealed}) async {
+    if (_busy != null) return;
     final l = AppL10n.of(context);
-    final owner = await _operationOwner();
-    String? password;
-    if (sealed) {
-      password = await _askPassword(title: l.transferExportPasswordTitle);
-      if (password == null || password.isEmpty) return;
-    }
-    if (!_stillOurs(owner.lease, l)) return;
-    final name =
-        'xveil-${DateTime.now().toIso8601String().split('T').first}.xveilbk';
-    final dest = await FilePicker.saveFile(fileName: name);
-    if (dest == null) return;
-    if (!_stillOurs(owner.lease, l)) return;
-
     setState(() {
+      _exporting = true;
       _busy = l.transferWorking;
       _result = null;
       _error = null;
     });
-    final handle = File(dest).openWrite();
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    IdentityLease? lease;
+    final cancellation = DataExportCancellation();
+    _exportCancellation = cancellation;
     try {
-      final report = await DataExporter(
+      final owner = await _operationOwner();
+      lease = owner.lease;
+      if (!mounted || !_stillOurs(owner.lease, l)) return;
+      // Capture every source before a password dialog or native picker can
+      // outlive this identity. The sink checks the lease around awaited I/O.
+      final exporter = DataExporter(
         storage: owner.storage,
         nodeIdHex: owner.selfHex,
-        syncedSettingKeys:
-            ref.read(deviceSettingsSyncHubProvider).syncedKeys.toSet(),
-        // Read inside the operation, like the appliers beside it: the group
-        // layer belongs to the identity this export was asked for, and
-        // `stillOurs` is what stops a switch halfway through (report27 X02).
+        syncedSettingKeys: ref
+            .read(deviceSettingsSyncHubProvider)
+            .syncedKeys
+            .toSet(),
         groups: ref.read(groupServiceProvider),
         cloud: _cloudLayers(),
-      ).run(
-        sink: (bytes) async => handle.add(bytes),
+      );
+      final pick = ref.read(exportDocumentPickerProvider);
+      final includeIdentity = _includeIdentity, includeFiles = _includeFiles;
+      String? password;
+      if (sealed) {
+        password = await _askPassword(title: l.transferExportPasswordTitle);
+        if (password == null || password.isEmpty) return;
+      }
+      if (!mounted || !_stillOurs(owner.lease, l)) return;
+      final report = await exportDataArchive(
+        exporter: exporter,
+        name:
+            'xveil-${DateTime.now().toIso8601String().split('T').first}.xveilbk',
+        pick: pick,
+        stillOurs: () => mounted && ref.holdsIdentity(owner.lease),
+        includeIdentity: includeIdentity,
+        includeFiles: includeFiles,
         password: password,
-        includeIdentity: _includeIdentity,
-        includeFiles: _includeFiles,
+        cancellation: cancellation,
         onProgress: (done, total) {
-          if (!mounted) return;
-          setState(() => _busy = l.transferProgress(done, total));
+          if (mounted) setState(() => _busy = l.transferProgress(done, total));
         },
       );
-      await handle.flush();
-      if (!mounted) return;
-      setState(() {
-        _busy = null;
-        _result = l.transferExportDone(
+      if (!mounted || !_stillOurs(owner.lease, l) || report == null) return;
+      setState(
+        () => _result = l.transferExportDone(
           report.records,
           report.files,
           _mb(report.bytes),
-        );
-      });
+        ),
+      );
+      _announce(_result!);
     } catch (e) {
-      devLog(() => 'transfer: export failed: $e');
+      // Platform document errors may contain account-bearing provider URIs.
+      devLog(() => 'transfer: export failed (${e.runtimeType})');
+      if (!mounted) return;
+      if (lease != null && !_stillOurs(lease, l)) return;
+      final cause = shownCause(e, kind: 'transfer');
+      setState(
+        () => _error = e is DataExportCancelled
+            ? l.transferIdentitySwitched
+            : e is DocumentExportException
+            ? l.transferExportFailed
+            : cause,
+      );
+      _announce(_error!);
+    } finally {
+      _exportCancellation = null;
       if (mounted) {
         setState(() {
           _busy = null;
-          _error = shownCause(e, kind: 'transfer');
+          _exporting = false;
         });
       }
-    } finally {
-      // The handle is closed on every road out, including the one where the
-      // export threw halfway: an open sink holds the file and leaves a
-      // half-written archive looking like a whole one.
-      await handle.close();
     }
   }
 
@@ -272,23 +318,24 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
       _error = null;
     });
     try {
-      final report = await DataImporter(
-        storage: owner.storage,
-        appliers: ref.read(deviceSyncAppliersProvider),
-        selfNodeIdHex: owner.selfHex,
-        groups: ref.read(groupServiceProvider),
-        cloud: _cloudLayers(),
-      ).run(
-        bytes: file.openRead(),
-        password: password,
-        // Asked before every record: a switch halfway through must not send
-        // the rest of this archive into another identity (report27 X02).
-        stillOurs: () => ref.holdsIdentity(owner.lease),
-        onProgress: (records) {
-          if (!mounted) return;
-          setState(() => _busy = l.transferProgress(records, 0));
-        },
-      );
+      final report =
+          await DataImporter(
+            storage: owner.storage,
+            appliers: ref.read(deviceSyncAppliersProvider),
+            selfNodeIdHex: owner.selfHex,
+            groups: ref.read(groupServiceProvider),
+            cloud: _cloudLayers(),
+          ).run(
+            bytes: file.openRead(),
+            password: password,
+            // Asked before every record: a switch halfway through must not send
+            // the rest of this archive into another identity (report27 X02).
+            stillOurs: () => ref.holdsIdentity(owner.lease),
+            onProgress: (records) {
+              if (!mounted) return;
+              setState(() => _busy = l.transferProgress(records, 0));
+            },
+          );
       if (!mounted) return;
       setState(() {
         _busy = null;
@@ -328,7 +375,8 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
       final why = switch (e.cause) {
         TransferException(failure: TransferFailure.truncated) =>
           l.transferTruncated,
-        TransferException(failure: TransferFailure.corrupt) => l.transferCorrupt,
+        TransferException(failure: TransferFailure.corrupt) =>
+          l.transferCorrupt,
         TransferException(failure: TransferFailure.badPassword) =>
           l.transferBadPassword,
         _ => l.transferNotAnArchive,
@@ -422,7 +470,9 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               value: _includeFiles,
-              onChanged: (v) => setState(() => _includeFiles = v),
+              onChanged: _busy == null
+                  ? (v) => setState(() => _includeFiles = v)
+                  : null,
               title: Text(l.transferIncludeFiles),
               // The two sizes, side by side: this is the question being asked.
               subtitle: Text(
@@ -443,7 +493,9 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               value: _includeIdentity,
-              onChanged: (v) => setState(() => _includeIdentity = v),
+              onChanged: _busy == null
+                  ? (v) => setState(() => _includeIdentity = v)
+                  : null,
               title: Text(l.transferIncludeIdentity),
               subtitle: Text(l.transferIncludeIdentityHint),
             ),
@@ -492,12 +544,20 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
                 ),
               ),
             const SizedBox(height: 12),
+            if (_exporting && _busy != null) ...[
+              const LinearProgressIndicator(),
+              const SizedBox(height: 8),
+              Text(_busy!),
+              const SizedBox(height: 8),
+            ],
             Wrap(
               spacing: 12,
               runSpacing: 8,
               children: [
                 OutlinedButton.icon(
-                  onPressed: _busy != null ? null : () => _export(sealed: false),
+                  onPressed: _busy != null
+                      ? null
+                      : () => _export(sealed: false),
                   icon: const Icon(Icons.lock_open_outlined),
                   label: Text(l.transferExportOpen),
                 ),
@@ -521,7 +581,7 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
             label: Text(l.transferImportPick),
           ),
 
-          if (_busy != null) ...[
+          if (_busy != null && !_exporting) ...[
             const SizedBox(height: 24),
             const LinearProgressIndicator(),
             const SizedBox(height: 8),

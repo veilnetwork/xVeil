@@ -3095,6 +3095,7 @@
   "transferExportPasswordTitle": "Contraseña del archivo",
   "transferPasswordLabel": "Contraseña",
   "transferWorking": "Trabajando…",
+  "transferExportFailed": "No se pudo guardar el archivo. Comprueba el destino e inténtalo de nuevo.",
   "transferIdentitySwitched": "Cambiaste de identidad, así que no se realizó: pertenece a la identidad desde la que se inició.",
   "transferProgress": "{done} de {total}",
   "transferExportDone": "Escrito: {records} registros, {files} archivos, {mb} MB.",

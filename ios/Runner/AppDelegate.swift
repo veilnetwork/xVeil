@@ -170,6 +170,7 @@ final class ScreenPrivacyGuard {
   private var callAudioRouteChannel: FlutterMethodChannel?
   private var secureScreenChannel: FlutterMethodChannel?
   private var backupExclusionChannel: FlutterMethodChannel?
+  private var documentExport: DocumentExport?
 
   /// Why the container is NOT excluded from iCloud/iTunes backups, or nil when
   /// it is. Static because it is settled in `didFinishLaunching`, before the
@@ -192,6 +193,10 @@ final class ScreenPrivacyGuard {
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    if let exportRegistrar = engineBridge.pluginRegistry.registrar(forPlugin: "XVeilDocumentExport") {
+      documentExport?.dispose()
+      documentExport = DocumentExport(messenger: exportRegistrar.messenger())
+    }
 
     // Ask for mic/camera consent before the FFI media engine reaches
     // AVAudioEngine/AVCaptureSession. This mirrors macOS and ensures denial is
