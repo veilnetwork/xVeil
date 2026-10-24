@@ -1,0 +1,51 @@
+{
+  "sdk_revision": "858d84d9a3f50687a21030b7aa8b2beaaae90bf4",
+  "baseline_revision": "19171c10a90b15da9c0c5e6b112d0bc08e698b72",
+  "controlled_worker_scheduling_timeout_seconds": 10,
+  "direct": {
+    "baseline_repeated_stop_falsely_succeeded": true,
+    "baseline_streams_after_retry": 2,
+    "fixed_repeated_stop_reports_worker_failure": true,
+    "fixed_streams_retained_until_successful_retry": 2,
+    "fixed_streams_after_retry": 0,
+    "restart_verified": true,
+    "healthy_repeated_stop_verified": true
+  },
+  "group": {
+    "baseline_repeated_stop_falsely_succeeded": true,
+    "baseline_streams_after_retry": 2,
+    "fixed_repeated_stop_reports_worker_failure": true,
+    "fixed_streams_retained_until_successful_retry": 2,
+    "fixed_streams_after_retry": 0,
+    "restart_verified": true,
+    "healthy_repeated_stop_verified": true
+  },
+  "real_call_and_opus_streams": true,
+  "synthetic_adm_only": true,
+  "muted_sparse_video_regression_passed": true,
+  "physical_capture_or_playout_used": false,
+  "phone_profile_or_server_changed": false,
+  "owned_test_processes_exited": true,
+  "production_builds": {
+    "macos": {
+      "production_exports": 105,
+      "same_exports_as_previous_production": true,
+      "test_exports_absent": true,
+      "synthetic_video_marker_absent": true,
+      "sha256": "a3dc2fe4127ab3e3956afd393099bb4cd6fcf9d2f9ad851c8ae494b2b76dae09"
+    },
+    "android_arm64": {
+      "production_exports": 105,
+      "same_exports_as_previous_production": true,
+      "test_exports_absent": true,
+      "synthetic_video_marker_absent": true,
+      "sha256": "fc47e67dd33f1d76bff777fdd70db4eff0a7e88c7f2f4b341fdcba4f921b6df8"
+    }
+  },
+  "source_sha256": {
+    "flutter/veil_media/src/veil_media_engine.cc": "f1545989c35a06ff9b6956cc5a974d0aa4cf304bb2b8630d285e78e5e4f6610a",
+    "flutter/veil_media/test/call_plane_hooks.inc": "6f006565885c152dd4a2849c6686252a100e9eae6fc92de0223b9e33080eb798",
+    "flutter/veil_media/test/audio_stop_retry_smoke.cc": "068b649d7d7283c44d94335e40219ca0d719881a2f36feddf5a7db348ff26594",
+    "flutter/veil_media/test/run_audio_stop_retry_smoke.sh": "6856ccbd16c7fb1488277169355415e7ade7d35f43f3ae6a63ecfcef8dce87fe"
+  }
+}
