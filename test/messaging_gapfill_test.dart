@@ -10,6 +10,8 @@ import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/inline_custom_emoji.dart';
+import 'package:xveil/domain/message_edit.dart';
 import 'package:xveil/state/messaging.dart';
 
 NodeId _id(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
@@ -1149,6 +1151,368 @@ void main() {
       await _settle();
       at = DateTime.now();
     });
+
+    Future<Future<int> Function()> editRounds() async {
+      await mB.dispose();
+      var clock = DateTime.now();
+      mB = MessagingService(tB, sB, now: () => clock)..start();
+      mA.myOtherDevices = () async => [sibling];
+      return () async {
+        clock = clock.add(const Duration(seconds: 6));
+        tB.sentSyncBodies.clear();
+        await mA.reconcileOnConnect();
+        await _settle();
+        return tB.sentSyncBodies.where((body) => body.contains('"e":')).length;
+      };
+    }
+
+    test(
+      'a higher-revision peer echo is not replayed as an authored edit',
+      () async {
+        final round = await editRounds();
+        final shared = (await sA.loadMessages(
+          b.hex,
+        )).singleWhere((m) => m.body == 'shared');
+        await sB.editMessage(a.hex, shared.id, 'handed-back edit', seq: 99);
+        expect(await round(), 1);
+        expect(
+          (await sA.loadMessageById(b.hex, shared.id))!.body,
+          'handed-back edit',
+        );
+        expect(
+          (await sA.loadEventsSince(b.hex, shared.author!, 0))
+              .where((event) => event.kind.name == 'edit')
+              .map((event) => event.body),
+          isNot(contains('handed-back edit')),
+        );
+      },
+    );
+
+    test(
+      'an old outgoing row keeps its reflected revision outside the peer stream',
+      () async {
+        final round = await editRounds();
+        for (final entry in [
+          (sA, b, MessageDirection.outgoing, b),
+          (sB, a, MessageDirection.incoming, a),
+        ]) {
+          await entry.$1.appendMessage(
+            Message(
+              id: 'old-own-row',
+              conversationId: entry.$2.hex,
+              direction: entry.$3,
+              body: 'old text',
+              timestamp: DateTime.now(),
+              author: entry.$4.hex,
+              seq: 7,
+              status: MessageStatus.delivered,
+            ),
+          );
+        }
+        final before = (await sA.conversationSync(b.hex)).highWater[b.hex];
+        await sB.editMessage(
+          a.hex,
+          'old-own-row',
+          'recovered old row edit',
+          seq: 99,
+        );
+        expect(await round(), 1);
+        expect(
+          (await sA.loadMessageById(b.hex, 'old-own-row'))!.body,
+          'recovered old row edit',
+        );
+        expect((await sA.editSeqs(b.hex))['old-own-row'], 99);
+        expect((await sA.conversationSync(b.hex)).highWater[b.hex], before);
+        expect(await round(), 0);
+      },
+    );
+
+    test('an own echo cannot edit a received message', () async {
+      final round = await editRounds();
+      await sA.appendMessage(
+        Message(
+          id: 'received-row',
+          conversationId: b.hex,
+          direction: MessageDirection.incoming,
+          body: 'received text',
+          timestamp: DateTime.now(),
+          author: b.hex,
+          seq: 5,
+        ),
+      );
+      await round();
+      tA.inject(
+        b,
+        WireEnvelope.sync(
+          jsonEncode({
+            'echo': {
+              'id': 'received-row',
+              'b': 'forged replacement',
+              'ts': 1,
+              'e': 99,
+            },
+          }),
+        ).encode(),
+      );
+      await _settle();
+      expect(
+        (await sA.loadMessageById(b.hex, 'received-row'))!.body,
+        'received text',
+      );
+      expect((await sA.editSeqs(b.hex))['received-row'], isNull);
+    });
+
+    test(
+      'a reflected pending row is never automatically sent as an authored post',
+      () async {
+        await sA.appendMessage(
+          Message(
+            id: 'reflected-pending',
+            conversationId: b.hex,
+            direction: MessageDirection.outgoing,
+            body: 'reflected only',
+            timestamp: DateTime.now(),
+            author: a.hex,
+            seq: 8,
+            positionVerified: true,
+            edited: true,
+            reflectedEdit: true,
+          ),
+        );
+        await mA.flushOutbox();
+        await _settle();
+        expect(await sB.loadMessageById(a.hex, 'reflected-pending'), isNull);
+      },
+    );
+
+    test(
+      'a full 100-edit beacon carries hashes and recovers every equal revision',
+      () async {
+        final round = await editRounds();
+        final original = (await sA.loadMessages(
+          b.hex,
+        )).singleWhere((m) => m.body == 'shared');
+        await sA.deleteMessage(b.hex, original.id);
+        await sB.deleteMessage(a.hex, original.id);
+        final winners = <String, String>{};
+        for (var i = 0; i < 100; i++) {
+          final id = 'window-$i';
+          final values = ['left-$i', 'right-$i']
+            ..sort(
+              (x, y) => messageEditContentHash(
+                x,
+                const [],
+              ).compareTo(messageEditContentHash(y, const [])),
+            );
+          winners[id] = values.last;
+          for (final entry in [
+            (sA, b, MessageDirection.outgoing),
+            (sB, a, MessageDirection.incoming),
+          ]) {
+            await entry.$1.appendMessage(
+              Message(
+                id: id,
+                conversationId: entry.$2.hex,
+                direction: entry.$3,
+                body: 'original-$i',
+                timestamp: DateTime.utc(2020).add(Duration(seconds: i)),
+                author: a.hex,
+                seq: 100 + i,
+                status: MessageStatus.delivered,
+              ),
+            );
+            await entry.$1.editMessage(
+              entry.$2.hex,
+              id,
+              entry.$1 == sA ? values.first : values.last,
+              seq: kMaxWireSeq,
+            );
+          }
+        }
+        tA.sentSyncBodies.clear();
+        expect(await round(), kOwnEchoCap);
+        final request = tA.sentSyncBodies
+            .map((body) => jsonDecode(body) as Map)
+            .firstWhere((body) => body['oh'] != null);
+        expect(request['ow'], hasLength(100));
+        expect(request['oe'], hasLength(100));
+        expect(request['oh'], hasLength(100));
+        expect(utf8.encode(jsonEncode(request)).length, lessThan(12 * 1024));
+        expect(await round(), kOwnEchoCap);
+        expect(await round(), 0);
+        for (final message in await sA.loadMessages(b.hex)) {
+          expect(message.body, winners[message.id]);
+          expect(message.reflectedEdit, isTrue);
+        }
+      },
+    );
+
+    test('equal-revision own edit converges through the counterpart', () async {
+      final round = await editRounds();
+      final shared = (await sA.loadMessages(
+        b.hex,
+      )).singleWhere((m) => m.body == 'shared');
+      final values = ['concurrent-left', 'concurrent-right']
+        ..sort(
+          (x, y) => messageEditContentHash(
+            x,
+            const [],
+          ).compareTo(messageEditContentHash(y, const [])),
+        );
+      await sA.editMessage(b.hex, shared.id, values.first, seq: 99);
+      await sB.editMessage(a.hex, shared.id, values.last, seq: 99);
+      tA.sentKinds.clear();
+
+      expect(await round(), 1);
+      expect((await sA.loadMessageById(b.hex, shared.id))!.body, values.last);
+      expect((await sA.editSeqs(b.hex))[shared.id], 99);
+      expect(
+        (await sA.loadEventsSince(b.hex, shared.author!, 0))
+            .where((event) => event.kind.name == 'edit')
+            .map((event) => event.body),
+        isNot(contains(values.last)),
+        reason: 'a reflected value must not become a new authored edit',
+      );
+      expect(
+        await round(),
+        0,
+        reason: 'the same edit must not be handed back forever',
+      );
+    });
+
+    test(
+      'equal-revision same-text emoji converges through the counterpart',
+      () async {
+        final round = await editRounds();
+        final shared = (await sA.loadMessages(
+          b.hex,
+        )).singleWhere((m) => m.body == 'shared');
+        final emoji =
+            [
+              [InlineCustomEmoji(offset: 0, dataB64: 'AQ==')],
+              [InlineCustomEmoji(offset: 0, dataB64: 'Ag==')],
+            ]..sort(
+              (x, y) => messageEditContentHash(kInlineCustomEmojiFallback, x)
+                  .compareTo(
+                    messageEditContentHash(kInlineCustomEmojiFallback, y),
+                  ),
+            );
+        await sA.editMessage(
+          b.hex,
+          shared.id,
+          kInlineCustomEmojiFallback,
+          seq: 99,
+          customEmoji: emoji.first,
+        );
+        await sB.editMessage(
+          a.hex,
+          shared.id,
+          kInlineCustomEmojiFallback,
+          seq: 99,
+          customEmoji: emoji.last,
+        );
+
+        expect(await round(), 1);
+        expect(
+          encodeInlineCustomEmoji(
+            (await sA.loadMessageById(b.hex, shared.id))!.customEmoji,
+          ),
+          encodeInlineCustomEmoji(emoji.last),
+        );
+        expect(await round(), 0);
+      },
+    );
+
+    test(
+      'same-text own echo persists the later edit revision across reopen',
+      () async {
+        final round = await editRounds();
+        final shared = (await sA.loadMessages(
+          b.hex,
+        )).singleWhere((m) => m.body == 'shared');
+        await sA.editMessage(b.hex, shared.id, 'same text', seq: 7);
+        await sB.editMessage(a.hex, shared.id, 'same text', seq: 99);
+
+        expect(await round(), 1);
+        expect(
+          (await sA.editSeqs(b.hex))[shared.id],
+          99,
+          reason:
+              'the revision must reach storage, not just a volatile suppression map',
+        );
+        await mA.dispose();
+        await sA.close();
+        expect(await sA.open(password: 'a'), isTrue);
+        mA = MessagingService(tA, sA)..start();
+        expect((await sA.editSeqs(b.hex))[shared.id], 99);
+        expect((await sA.loadMessageById(b.hex, shared.id))!.body, 'same text');
+      },
+    );
+
+    test('higher-revision same-text own echo updates inline emoji', () async {
+      final round = await editRounds();
+      final shared = (await sA.loadMessages(
+        b.hex,
+      )).singleWhere((m) => m.body == 'shared');
+      await sA.editMessage(
+        b.hex,
+        shared.id,
+        kInlineCustomEmojiFallback,
+        seq: 7,
+        customEmoji: [InlineCustomEmoji(offset: 0, dataB64: 'AQ==')],
+      );
+      final edited = [InlineCustomEmoji(offset: 0, dataB64: 'Ag==')];
+      await sB.editMessage(
+        a.hex,
+        shared.id,
+        kInlineCustomEmojiFallback,
+        seq: 99,
+        customEmoji: edited,
+      );
+
+      expect(await round(), 1);
+      expect(
+        encodeInlineCustomEmoji(
+          (await sA.loadMessageById(b.hex, shared.id))!.customEmoji,
+        ),
+        encodeInlineCustomEmoji(edited),
+      );
+      expect((await sA.editSeqs(b.hex))[shared.id], 99);
+    });
+
+    test(
+      'invalid own echo revision cannot suppress a later real edit',
+      () async {
+        final round = await editRounds();
+        final shared = (await sA.loadMessages(
+          b.hex,
+        )).singleWhere((m) => m.body == 'shared');
+        await sA.editMessage(b.hex, shared.id, 'shared', seq: 7);
+        await sB.editMessage(a.hex, shared.id, 'shared', seq: 7);
+        expect(await round(), 0);
+        tA.inject(
+          b,
+          WireEnvelope.sync(
+            jsonEncode({
+              'echo': {
+                'id': shared.id,
+                'b': 'shared',
+                'ts': 1,
+                'e': kMaxWireSeq + 1,
+              },
+            }),
+          ).encode(),
+        );
+        await _settle();
+        await sB.editMessage(a.hex, shared.id, 'real later text', seq: 99);
+
+        expect(await round(), 1);
+        expect(
+          (await sA.loadMessageById(b.hex, shared.id))!.body,
+          'real later text',
+        );
+      },
+    );
 
     test('what my sibling sent while this device was away is handed back',
         () async {

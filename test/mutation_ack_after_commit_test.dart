@@ -56,6 +56,7 @@ class _Storage extends HiddenVolumeStorage {
     String body, {
     int? seq,
     List<InlineCustomEmoji> customEmoji = const [],
+    bool reflected = false,
   }) async {
     await before('edit');
     return super.editMessage(
@@ -64,6 +65,7 @@ class _Storage extends HiddenVolumeStorage {
       body,
       seq: seq,
       customEmoji: customEmoji,
+      reflected: reflected,
     );
   }
 
