@@ -377,7 +377,9 @@ class _MessagingDeviceMirror {
       await _owner._contacts.discardHeldThrough(peer, atMs);
       _owner._signal();
     } catch (e) {
-      devLog(() => 'xVeil[devices]: mirrored clear of ${peer.short} failed: $e');
+      devLog(
+        () => 'xVeil[devices]: mirrored clear of ${peer.short} failed: $e',
+      );
     }
   }
 
@@ -387,8 +389,7 @@ class _MessagingDeviceMirror {
     final until = int.tryParse(
       await _owner._storage.getSetting(kHeavyHistoryMediaUntilKey) ?? '',
     );
-    return until != null &&
-        until > _owner._now().millisecondsSinceEpoch;
+    return until != null && until > _owner._now().millisecondsSinceEpoch;
   }
 
   Future<bool> applyMessage({
@@ -418,7 +419,47 @@ class _MessagingDeviceMirror {
     // carried the chat back, and the device ended up with an unanswerable
     // "pending" contact that was ITSELF.
     if (await _owner._isSiblingDevice(peer)) return false;
-    if (await _owner._hasMessage(peer, msgId)) return false;
+    if (await _owner._hasMessage(peer, msgId)) {
+      // An own echo from the contact may win the race with this authenticated
+      // device mirror. Its locally allocated position is provisional. Accept
+      // the original physical-device position, WITHOUT replacing content or
+      // making the echoed body an authentic outgoing event. Neither the peer's
+      // echo (no seq) nor a backfill of its identity-alias position can do this.
+      if (direction != MessageDirection.outgoing ||
+          author == null ||
+          seq == null ||
+          !isAcceptableWireSeq(seq) ||
+          !RegExp(r'^[0-9a-f]{64}$').hasMatch(author)) {
+        return false;
+      }
+      final self = await _owner._selfHex();
+      if (author != self &&
+          !await _owner._isSiblingDevice(NodeId.fromHex(author))) {
+        return false;
+      }
+      final held = await _owner._storage.loadMessageById(peer.hex, msgId);
+      final identity = await _owner.selfIdentityHex?.call();
+      if (held == null ||
+          held.direction != MessageDirection.outgoing ||
+          held.author == null ||
+          held.seq == null ||
+          !(held.author == peer.hex ||
+              (identity != null &&
+                  identity != self &&
+                  held.author == identity))) {
+        return false;
+      }
+      final changed = await _owner._storage.adoptMessageOrdering(
+        peer.hex,
+        msgId,
+        provisionalAuthor: held.author!,
+        provisionalSeq: held.seq!,
+        author: author,
+        seq: seq,
+      );
+      if (changed) _owner._signal();
+      return changed;
+    }
     if (await _owner._storage.isMessageDeleted(peer.hex, msgId)) return false;
     // A BLOCK IS A DECISION, and a sibling does not get to overrule it.
     //
