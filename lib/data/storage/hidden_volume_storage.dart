@@ -997,7 +997,9 @@ class HiddenVolumeStorage
     // pre-status copy of it.
     final s = _scanStatusOps[k] ?? _scanStatusLegacy[msg.id];
     final sig = _scanSigOps[k];
-    var out = s != null ? msg.copyWith(status: s) : msg;
+    var out = s != null && msg.status != MessageStatus.delivered
+        ? msg.copyWith(status: s)
+        : msg;
     if (sig != null) out = out.copyWith(signature: sig);
     return out;
   });
@@ -3839,7 +3841,13 @@ class HiddenVolumeStorage
       // orphan status op for an arbitrary ACK id.
       return false;
     }
-    if (target == null || target.status == status) return false;
+    // A late retry failure or an old own-device journal row cannot undo an
+    // authenticated delivery ACK, including one recovered from history.
+    if (target == null ||
+        target.status == status ||
+        target.status == MessageStatus.delivered) {
+      return false;
+    }
     // Append-only log can't mutate a row, so record a status OP that [_scanLog]
     // folds onto the message (latest wins). Drives the outbox: an ack flips a
     // message to `delivered` so it is no longer re-sent. The op carries the
@@ -4809,7 +4817,9 @@ class HiddenVolumeStorage
           // by-id op for messages whose status predates conversation scoping.
           final s = _scanStatusOps[k] ?? _scanStatusLegacy[msg.id];
           final sig = _scanSigOps[k];
-          var out = s != null ? msg.copyWith(status: s) : msg;
+          var out = s != null && msg.status != MessageStatus.delivered
+              ? msg.copyWith(status: s)
+              : msg;
           if (sig != null) out = out.copyWith(signature: sig);
           return out;
         })
@@ -4854,9 +4864,14 @@ class HiddenVolumeStorage
         final c = m['c'] as String?;
         final s = MessageStatus.values[m['s'] as int];
         if (c != null) {
-          _scanStatusOps[_msgKey(c, id)] = s;
+          final key = _msgKey(c, id);
+          if (_scanStatusOps[key] != MessageStatus.delivered) {
+            _scanStatusOps[key] = s;
+          }
         } else {
-          _scanStatusLegacy[id] = s; // pre-scoping op — applied by bare id
+          if (_scanStatusLegacy[id] != MessageStatus.delivered) {
+            _scanStatusLegacy[id] = s; // pre-scoping op — applied by bare id
+          }
         }
         continue;
       }

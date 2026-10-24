@@ -1,0 +1,55 @@
+{
+  "base_commit": "dda9de1e7a895dd8c1a1711061ccf3f78870e5da",
+  "sdk_commit": "1440d89ee076834fcd9d8c054a60b732d0e96831",
+  "hidden_volume_commit": "47c28bc411abe9cc68f8f506c914891330f70121",
+  "reproduced_before_fix": {
+    "held_edit_test_failed": true,
+    "held_delivery_test_failed": true
+  },
+  "focused_tests_passed": 88,
+  "related_regressions_passed": 354,
+  "dart_analyze_issues": 0,
+  "native_scenario": {
+    "devices": 3,
+    "separate_processes": true,
+    "same_identity_devices": 2,
+    "local_network_only": true,
+    "source_state_seeded_while_stopped": true,
+    "delivery_ack_is_controlled_fixture": true,
+    "production_fault_switch_added": false,
+    "journal_lacks_recovered_edit_and_ack": true,
+    "c_offline_during_recovery": true,
+    "recovery_seconds": 10.148,
+    "same_logical_ids": true,
+    "edited_marker_restored": true,
+    "delivered_restored": true,
+    "logical_duplicates": 0,
+    "retained_after_restart_without_other_devices": true,
+    "edit_frontier_restored_in_reopened_container": true,
+    "passed": true
+  },
+  "native_exact_id_order_asserted": true,
+  "native_sources_unchanged_during_run": true,
+  "final_sources_match_native_run": true,
+  "cleanup": {
+    "all_owned_native_processes_exited": true,
+    "owned_process_groups_checked": 8,
+    "owned_pids_checked": 11,
+    "remaining_owned_processes": 0,
+    "native_containers_removed": true
+  },
+  "source_sha256": {
+    "lib/state/messaging_own_history.dart": "abfb107f7c347800ca82cbbfad535c8943b8c70698b08c3786e4f6bd6e959b4f",
+    "lib/data/storage/hidden_volume_storage.dart": "314449cb1c9d73b77b01452ebd3d83568d6ec13f893e75c2ac9741c82f4243c2",
+    "test/own_device_history_test.dart": "67cd88bf5840d9c499f53cf12a1bb436efd298c00654ecb7f48fd590a9664a64",
+    "test/delivery_status_monotonic_test.dart": "ab6b67c897c865b42e8e49dce15acf24c7ecb2c8906c66ff58a1a5bd31af97dc",
+    "test/storage_idempotent_write_test.dart": "2744367555fb6e6c8846a26671f0799e9e4d10f90c92ed183eea7f18299163d4",
+    "test/e2e/offline_state_recovery_process_e2e_test.dart": "0ea5ac7775b18c61aa8a01f2498eb4811efc1f5c287de715af3ee78191fc25f7",
+    "test/e2e/device_process_worker_test.dart": "de2e841c101d9b64bace45dc1a4a09c8a235b7b34b040891aa24b258dcbd7ab0"
+  },
+  "native_software_sha256": {
+    "veil-cli": "fc2053432b4c6867ce8416ada4af34942c649e0b3d00ac5c8932f59f16e8538a",
+    "libveilclient_ffi.dylib": "35d1f0a501131616ab96eb8b96d91dee77c3715ac31608c07339c2d2d858471a",
+    "libhidden_volume_ffi.dylib": "c9f6f9742bb2d95bf312067a4c4bc745ae124bb40576d8ce1f9d4b02f6373ff5"
+  }
+}

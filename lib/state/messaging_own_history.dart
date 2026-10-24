@@ -278,11 +278,42 @@ class _MessagingOwnHistory {
         !(hidden > 0 && sent.millisecondsSinceEpoch <= hidden);
   }
 
-  // Missing-message inventory, independent of arrival order and device-local
-  // delivery attempts. Existing edit/status reconciliation remains separate.
-  String _digest(List<Message> messages) {
-    final ids = messages.map((m) => m.id).toList()..sort();
-    return crypto.sha256.convert(utf8.encode(jsonEncode(ids))).toString();
+  // Pair a body with the revision it actually represents. An edit committed
+  // between reading the rows and the revision map must not label an older body
+  // as the newer edit. Both reads are warm folds; retry a changing snapshot,
+  // rather than rescanning raw history separately for every message.
+  Future<({List<Message> rows, Map<String, int> edits})> _snapshot(
+    String peer,
+  ) async {
+    for (var attempt = 0; attempt < 3; attempt++) {
+      final before = await _owner._storage.editSeqs(peer);
+      final rows = await _messages(peer);
+      final after = await _owner._storage.editSeqs(peer);
+      if (before.length == after.length &&
+          before.entries.every((entry) => after[entry.key] == entry.value)) {
+        return (rows: rows, edits: after);
+      }
+    }
+    throw StateError('History changed during snapshot');
+  }
+
+  // Device-local send attempts are not shared state. A positive delivery ACK
+  // is, and so are current text, inline emoji and its edit frontier. Comparing
+  // only IDs left held-but-stale rows invisible to recovery after compaction.
+  String _digest(({List<Message> rows, Map<String, int> edits}) snapshot) {
+    final sorted = snapshot.rows.toList()..sort((a, b) => a.id.compareTo(b.id));
+    final state = [
+      for (final message in sorted)
+        [
+          message.id,
+          message.body,
+          encodeInlineCustomEmoji(message.customEmoji),
+          snapshot.edits[message.id],
+          message.direction == MessageDirection.outgoing &&
+              message.status == MessageStatus.delivered,
+        ],
+    ];
+    return crypto.sha256.convert(utf8.encode(jsonEncode(state))).toString();
   }
 
   int _compare(Message message, List<dynamic> cursor) {
@@ -327,11 +358,11 @@ class _MessagingOwnHistory {
         peers.sort();
         final rows = <Map<String, dynamic>>[];
         for (final peer in peers.take(_page)) {
-          final messages = await _messages(peer);
+          final snapshot = await _snapshot(peer);
           rows.add({
             'peer': peer,
-            'count': messages.length,
-            'hash': _digest(messages),
+            'count': snapshot.rows.length,
+            'hash': _digest(snapshot),
           });
         }
         result = {'op': 'list', 'rows': rows};
@@ -343,7 +374,8 @@ class _MessagingOwnHistory {
             await _owner._isSiblingDevice(node)) {
           return;
         }
-        final window = (await _messages(peer))
+        final snapshot = await _snapshot(peer);
+        final window = snapshot.rows
             .where((m) => cursor == null || _compare(m, cursor as List) > 0)
             .take(_page + 1)
             .toList();
@@ -355,6 +387,18 @@ class _MessagingOwnHistory {
         for (final message in page) {
           if (!await _allowed(device, binding)) return;
           var event = await _owner.ownHistoryEncode!(node, message);
+          event = DeviceSyncEvent(
+            kind: event.kind,
+            key: event.key,
+            tsMs: event.tsMs,
+            payload: {
+              ...event.payload,
+              'historyEditSeq': ?snapshot.edits[message.id],
+              if (message.direction == MessageDirection.outgoing &&
+                  message.status == MessageStatus.delivered)
+                'historyDelivered': true,
+            },
+          );
           if (ttl != null && ttl > 0) {
             event = DeviceSyncEvent(
               kind: event.kind,
@@ -498,8 +542,9 @@ class _MessagingOwnHistory {
           throw StateError('Invalid inventory row');
         }
         final peer = entry['peer'] as String;
-        final held = await _messages(peer);
-        if (held.length != entry['count'] || _digest(held) != entry['hash']) {
+        final held = await _snapshot(peer);
+        if (held.rows.length != entry['count'] ||
+            _digest(held) != entry['hash']) {
           await _checkpoint(pull, {'after': after, 'peer': peer});
           _request(pull);
           return;
@@ -525,6 +570,7 @@ class _MessagingOwnHistory {
       throw StateError('Invalid history page');
     }
     final visible = await _visible(peer as String);
+    final heldEdits = await _owner._storage.editSeqs(peer);
     List<dynamic>? position = pull.progress['cursor'] as List<dynamic>?;
     final seen = <String>{};
     for (final body in events) {
@@ -532,6 +578,7 @@ class _MessagingOwnHistory {
       if (event == null ||
           event.kind != DeviceSyncKind.msgMirror ||
           event.payload['peer'] != peer ||
+          event.payload['body'] is! String ||
           !deviceSyncEffectiveAt(event, _owner._now().millisecondsSinceEpoch) ||
           !seen.add(event.key) ||
           !await _allowed(pull.device, pull.binding)) {
@@ -544,6 +591,13 @@ class _MessagingOwnHistory {
         throw StateError('History page did not advance');
       }
       final expiry = event.payload['historyExpiryMs'];
+      final editSeq = event.payload['historyEditSeq'];
+      final delivered = event.payload['historyDelivered'];
+      if ((editSeq != null &&
+              (editSeq is! int || !isAcceptableWireSeq(editSeq))) ||
+          (delivered != null && delivered is! bool)) {
+        throw StateError('Invalid history state');
+      }
       if (expiry != null &&
           (expiry is! int ||
               expiry < event.tsMs ||
@@ -553,6 +607,43 @@ class _MessagingOwnHistory {
       if ((expiry == null || _owner._now().millisecondsSinceEpoch < expiry) &&
           visible(DateTime.fromMillisecondsSinceEpoch(event.tsMs))) {
         await _owner.ownHistoryApply!(event);
+        if (!await _allowed(pull.device, pull.binding)) {
+          throw StateError('History session ended');
+        }
+        final target = await _owner._storage.loadMessageById(peer, event.key);
+        if (target != null) {
+          var changed = false;
+          if (editSeq is int && editSeq > (heldEdits[event.key] ?? -1)) {
+            final body = event.payload['body'] as String;
+            await _owner._storage.editMessage(
+              peer,
+              event.key,
+              body,
+              seq: editSeq,
+              customEmoji: parseInlineCustomEmoji(body, event.payload['ce']),
+            );
+            heldEdits[event.key] = editSeq;
+            changed = true;
+          }
+          if (delivered == true &&
+              target.direction == MessageDirection.outgoing &&
+              target.status != MessageStatus.delivered) {
+            await _owner._storage.markMessageStatus(
+              peer,
+              event.key,
+              MessageStatus.delivered,
+            );
+            final stored = await _owner._storage.loadMessageById(
+              peer,
+              event.key,
+            );
+            if (stored != null && stored.status != MessageStatus.delivered) {
+              throw StateError('History delivery state was not saved');
+            }
+            changed = true;
+          }
+          if (changed) _owner._signal();
+        }
       }
       position = [event.tsMs, event.key];
     }
