@@ -1,0 +1,23 @@
+{
+  "product_widget_source_sha256": {
+    "lib/domain/recovery_certificate_export.dart": "dd5899d9a7a364b2657e7be0a1e5c12cc374a926ad47f293c162162c3bad30e1",
+    "lib/features/onboarding/recovery_certificate_step.dart": "6afc1ac5ed1151d8b88fb8c69ede3e0c1fcce8daac69a0ba3d322194864b4d2c"
+  },
+  "actual_pinned_native_file_picker": true,
+  "isolated_inert_fixture": true,
+  "product_sandbox_and_file_selection_entitlements": true,
+  "native_system_save_dialog_visible": true,
+  "suggested_filename_present": true,
+  "cancel_preserves_unsaved_gate": true,
+  "native_save_completion_qualified": false,
+  "requires_manual_save_confirmation": true,
+  "own_process_and_fixture_cleanup": {
+    "owned_process_absent": true,
+    "fixture_file_absent": true,
+    "private_mirror_runner_restored": true,
+    "loopback_fixture_port_closed": true
+  },
+  "user_identity_created_or_read": false,
+  "installed_app_modified": false,
+  "phone_used": false
+}

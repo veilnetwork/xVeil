@@ -1,0 +1,51 @@
+{
+  "sdk_revision": "19171c10a90b15da9c0c5e6b112d0bc08e698b72",
+  "fix_commit": "1893a286",
+  "baseline_revision": "fa7123f5",
+  "baseline_initially_muted_encoded_frames": 0,
+  "baseline_initially_muted_decoded_frames": 0,
+  "baseline_audio_packet_duration_ms": 0,
+  "baseline_packetization_hold": true,
+  "fixed_initially_muted_encoded_frames": 16,
+  "fixed_initially_muted_decoded_frames": 16,
+  "fixed_initially_muted_audio_packet_duration_ms": 0,
+  "fixed_initially_muted_packetization_hold": false,
+  "fixed_muted_after_long_opus_additional_frames": 5,
+  "muted_long_opus_packetization_hold": false,
+  "stopped_audio_video_continues": true,
+  "receive_only_audio_video_continues": true,
+  "unmute_requires_fresh_audio": true,
+  "unmuted_long_packet_source_stays_held": true,
+  "explicit_video_pause_retained": true,
+  "one_fps_sparse_resume_retained": true,
+  "policy_and_real_opus_test_passed": true,
+  "real_opus_packets_decoded": 991,
+  "native_vp8_decode_test_passed": true,
+  "physical_capture_or_playout_used": false,
+  "phone_or_user_profile_modified": false,
+  "physical_audio_video_qualified": false,
+  "windows_silent_audio_qualified": false,
+  "relays_or_network_priority_changed": false,
+  "production_builds": {
+    "macos": {
+      "production_exports": 105,
+      "same_exports_as_previous_production": true,
+      "test_exports_absent": true,
+      "synthetic_video_marker_absent": true,
+      "sha256": "6602fa4f931409b32caa05cde099c0044f31c359ad1726677d961026874362ba"
+    },
+    "android_arm64": {
+      "production_exports": 105,
+      "same_exports_as_previous_production": true,
+      "test_exports_absent": true,
+      "synthetic_video_marker_absent": true,
+      "sha256": "5b98e35d3d96bdf4175d4904845b641fc35834ef7e4fa2cccfb7d8cf8e000b36"
+    }
+  },
+  "source_sha256": {
+    "flutter/veil_media/src/veil_audio_packet_priority.h": "8d4b4803780322efbfd4255412d5db846e2bb73c9250172cb593f548023500dc",
+    "flutter/veil_media/src/veil_media_engine.cc": "bb9617255444f54aec4b2dee6b8f9288057dd611bfc11154cd043ba1044b7bfb",
+    "flutter/veil_media/test/audio_packet_priority_smoke.cc": "fae61d04ed970f768ebd948645b4bd1753258b8500f7e4243b703bf9ade6f838",
+    "flutter/veil_media/test/sparse_video_packetization_smoke.cc": "31797a8f417963c572aeea13fa3aba96eeac56a3adc7c5186404ee343dd5b43f"
+  }
+}
