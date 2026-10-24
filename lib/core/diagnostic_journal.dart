@@ -176,6 +176,9 @@ class DiagnosticJournal {
 
   Map<String, Object> toJson() => {
     'schema': 'xveil-diagnostics/1',
+    // Unlike the schema (also used by ordinary error reports), this constant
+    // exists in AOT only when the release instrumentation was compiled in.
+    if (kDiagnosticReportEnabled) 'build_mode': 'xveil-diagnostics-enabled/1',
     'enabled': enabled,
     'retention': 'memory-until-process-exit',
     'dropped_events': _dropped,
