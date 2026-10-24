@@ -41,7 +41,10 @@ import 'device_sync_bridge.dart' show contactPrefsPayload;
 /// cannot tell them apart and must not have to: a field added here reaches both
 /// paths, and a field added to only one of two copies is how a mirror comes to
 /// carry less than the message it mirrors.
-typedef DeviceMessageMirror = ({DeviceSyncEvent event, MediaObject? attachment});
+typedef DeviceMessageMirror = ({
+  DeviceSyncEvent event,
+  MediaObject? attachment,
+});
 
 /// Inline files have a local opaque blob id (often a UUID), not a network
 /// content address. Publish a manifest for their actual bytes before handing
@@ -51,18 +54,25 @@ Future<DeviceMessageMirror> prepareDeviceMirror(
   Message message, {
   required Storage storage,
   required Future<String> Function(Uint8List bytes, {required String name})
-      registerContent,
+  registerContent,
   bool withFileBytes = true,
 }) async {
   String? contentId;
   if (message.fileContentId == null && message.fileId != null) {
     final bytes = await storage.loadFile(message.fileId!);
     if (bytes != null) {
-      contentId = await registerContent(bytes, name: message.fileName ?? 'file');
+      contentId = await registerContent(
+        bytes,
+        name: message.fileName ?? 'file',
+      );
     }
   }
-  return deviceMirrorOf(peerHex, message,
-      withFileBytes: withFileBytes, fileContentId: contentId);
+  return deviceMirrorOf(
+    peerHex,
+    message,
+    withFileBytes: withFileBytes,
+    fileContentId: contentId,
+  );
 }
 
 DeviceMessageMirror deviceMirrorOf(
@@ -71,6 +81,12 @@ DeviceMessageMirror deviceMirrorOf(
   bool withFileBytes = true,
   String? fileContentId,
 }) {
+  // Keep unknown legacy provenance unknown. A raw author matching this
+  // device can also have come from an older mirror/backfill; that match alone
+  // must not promote a locally allocated position into an original one.
+  final positionVerified = message.ordering != null
+      ? true
+      : message.positionVerified;
   final contentId = fileContentId ?? message.fileContentId ?? message.fileId;
   if (contentId == null) {
     return (
@@ -92,6 +108,7 @@ DeviceMessageMirror deviceMirrorOf(
           // missed its messages.
           if (message.orderAuthor != null) 'au': message.orderAuthor,
           if (message.orderSeq != null) 'sq': message.orderSeq,
+          'pv': ?positionVerified,
           if (message.customEmoji.isNotEmpty)
             'ce': encodeInlineCustomEmoji(message.customEmoji),
         },
@@ -112,6 +129,7 @@ DeviceMessageMirror deviceMirrorOf(
         if (message.forwardedFrom != null) 'fw': message.forwardedFrom,
         if (message.orderAuthor != null) 'au': message.orderAuthor,
         if (message.orderSeq != null) 'sq': message.orderSeq,
+        'pv': ?positionVerified,
         // The bytes stay where they are: the mirror carries the CONTENT ID and
         // the reference below is what lets the other device pull them.
         'cid': contentId,
@@ -218,8 +236,12 @@ Future<DeviceHistoryReplay> replayHistoryForAsk({
   // A conversation with one of my own devices is not history to hand over:
   // on the receiver it would describe a chat with a sibling (or with itself).
   Future<bool> Function(NodeId peer)? isOwnDevice,
-  Future<DeviceMessageMirror> Function(String peerHex, Message message,
-      bool withFileBytes)? mirrorMessage,
+  Future<DeviceMessageMirror> Function(
+    String peerHex,
+    Message message,
+    bool withFileBytes,
+  )?
+  mirrorMessage,
 }) async {
   var conversations = 0, messages = 0, contacts = 0, calls = 0, readMarks = 0;
   var sent = 0;
