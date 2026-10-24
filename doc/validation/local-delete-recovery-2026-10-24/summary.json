@@ -1,0 +1,65 @@
+{
+  "date": "2026-10-24",
+  "negative_control": {
+    "behavioral_failures_on_baseline": 3
+  },
+  "verification": {
+    "selected_dart_flutter_tests": 193,
+    "new_recovery_tests": 14,
+    "skipped": 0,
+    "analysis_issues": 0,
+    "native_abc_scenarios": 1,
+    "result": {
+      "devices": 3,
+      "same_identity_devices": 2,
+      "initial_message_present_on_all": true,
+      "publication_refusal_observed": true,
+      "peer_unsend_independent_of_journal": true,
+      "source_restart_recovered_without_message_row": true,
+      "peer_offline_during_sibling_recovery": true,
+      "sibling_restart_retained_deletion": true,
+      "pending_deletion_intents_after_recovery": 0,
+      "mirror_echoes": 0
+    }
+  },
+  "cleanup": {
+    "runner_exited": true,
+    "flutter_test_worker_exited": true,
+    "remaining_owned_daemons": 0,
+    "fixture_root_removed": true
+  },
+  "software_sha256": {
+    "veil_cli": "4bec94ee6f20ac08da5366b0cd6356aa058d7ae689d7e79d0b3dbbfd40699dd6",
+    "veil_ffi": "07328ac13c8222083e6236e7a751b32d6f3d2b6c3211423200c7b1b113e584e0",
+    "hidden_volume_ffi": "c9f6f9742bb2d95bf312067a4c4bc745ae124bb40576d8ce1f9d4b02f6373ff5"
+  },
+  "source_sha256": {
+    "lib/data/storage/storage.dart": "c7769f50b12d2c277040dbc912d2df767f724e64dc73de1874ed25d3ead9b3b6",
+    "lib/domain/message_deletion.dart": "36d5710d85eb1d7a26cd8b258a0dd9515e068d03370b647470165e33460d9c2d",
+    "lib/state/messaging_mutations.dart": "073c4375e9fcfdadafe88a4b6542007efc90d1ecf1cf392cf883ecd63ec28453",
+    "lib/data/storage/hidden_volume_storage.dart": "85a1b368c244fd51c2ea1c187683b9a34e75197fc0b2899c002b604ccd48b3ef",
+    "lib/data/storage/rollback_anchor.dart": "f9ad191e9cb6d644e74fb64548caccf780089a701c5cf4875b1db4526593a986",
+    "lib/state/messaging_core.dart": "33772d94361b958f9fab0e47d373adab6cda2fb3f853ef093753e0801315f5c9",
+    "lib/state/group_service.dart": "3f16f5c87d614b102545e8a376d2f14fa6eacd5c92385f4152c51a2f8b2bc54b",
+    "lib/state/group_service_providers.dart": "fd5a83a52d901bdabe96c09e122127941d6adcae0bd5255b2fd0eafd22f26892",
+    "lib/state/device_sync_bridge.dart": "180697afdb2981e8bb701153c7d72d6346ab33290dc0ca7d26064156e25c6e77",
+    "lib/state/messaging_device_mirror.dart": "165e3a2d34a7d84c7ff2f3eac4a76bd98d1497a6902b418cf9fbd7789dbc9132",
+    "test/e2e/device_fixture.dart": "c7c8975b6e93418fc900f67fe44ee94693349913452b9120ec0dec941b7ac397",
+    "test/e2e/local_delete_recovery_e2e_test.dart": "61785000ff3161d5e2ec0823bf7088396ccd01390603eacf120e9f08608cdc5c",
+    "lib/state/messaging_inbound_dispatch.dart": "d41f04ec4ed98895895bf6911e9dd2411da4eef6689e43edbfa1ecfe718c6cb5",
+    "lib/state/messaging_file_transfer.dart": "3941b9597341b125c2539c6afa083d973d8bef00c7a085f2bbbb0d7d055c5a14",
+    "lib/state/messaging_content_pull.dart": "9c9fe7330a510cdc129a37a45790e0dbd1afac09d3f30537f1410413b8d3dc77"
+  },
+  "limits": {
+    "retroactive_pre_fix_intent_recovery": false,
+    "full_63_scenario_matrix": false,
+    "windows_runtime": false,
+    "physical_android_in_this_cycle": false,
+    "hardware_biometrics_in_this_cycle": false
+  },
+  "privacy": {
+    "raw_logs_committed": false,
+    "runtime_identifiers_committed": false,
+    "fixture_credentials_committed": false
+  }
+}

@@ -6,9 +6,12 @@ import '../../core/ids.dart';
 import '../../domain/call_log.dart';
 import '../../domain/chat.dart';
 import '../../domain/event.dart';
+import '../../domain/message_deletion.dart';
 import '../../domain/identity.dart';
 import '../../domain/inline_custom_emoji.dart';
 import '../../domain/roster.dart';
+
+export '../../domain/message_deletion.dart';
 
 /// Settings key recording HOW this space's node identity came to be:
 /// `'phrase'` — derived from the onboarding recovery phrase (P2), so the
@@ -360,7 +363,32 @@ abstract interface class Storage {
   /// shared 64-hex content ids are quarantined for the global chat/cloud/group
   /// reachability collector. No-op if the id is unknown IN THAT CONVERSATION
   /// (scoped for the same reason as [editMessage]).
-  Future<void> deleteMessage(String conversationId, String messageId);
+  /// When [intent] is supplied, persist its recovery obligations in the SAME
+  /// commit as the tombstone. A peer or mirrored erase leaves it null.
+  Future<void> deleteMessage(
+    String conversationId,
+    String messageId, {
+    MessageDeletionIntent? intent,
+  });
+
+  /// Local deletion obligations survive loss of the source row and restart.
+  /// Completes committed deletion scrubs before yielding recovery work.
+  /// The cursor is an opaque [pendingMessageDeletionKey], not a new log seq.
+  Future<List<PendingMessageDeletion>> pendingMessageDeletions({
+    String? messageId,
+    String? afterKey,
+    int limit = 64,
+    bool includeMirrorOnly = true,
+  });
+
+  /// Clear only the effects whose durable handoff/cleanup succeeded.
+  Future<void> completeMessageDeletion(
+    String conversationId,
+    String messageId, {
+    bool mirror = false,
+    bool peer = false,
+    bool serving = false,
+  });
 
   /// Whether [messageId] in conversation [conversationId] was deleted (a
   /// tombstone exists for it). Lets the messaging layer refuse to RESURRECT a

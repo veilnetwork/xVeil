@@ -2495,9 +2495,17 @@ class HiddenVolumeStorage
   }
 
   @override
-  Future<void> deleteMessage(String conversationId, String messageId) async {
+  Future<void> deleteMessage(
+    String conversationId,
+    String messageId, {
+    MessageDeletionIntent? intent,
+  }) async {
     final hit = await _liveEntryFor(conversationId, messageId);
     if (hit == null) return;
+    if (intent == MessageDeletionIntent.everyone &&
+        hit.message.direction != MessageDirection.outgoing) {
+      throw StateError('Cannot unsend a message authored by the peer');
+    }
     // Legacy attachment ids can be purged only when this is their LAST live
     // chat/cloud reference. Hash-CIDs are also shared by groups and Spaces, so
     // [_unreferencedBlobIds] always defers them to the global collector.
@@ -2517,6 +2525,11 @@ class HiddenVolumeStorage
       'op': 'del',
       'id': messageId,
       'c': conversationId,
+      if (intent != null) 'dm': true,
+      if (intent == MessageDeletionIntent.everyone) 'dp': true,
+      if (intent != null &&
+          (hit.message.fileContentId ?? hit.message.fileId) != null)
+        'dc': hit.message.fileContentId ?? hit.message.fileId,
       // Carry the deleted post's (author, seq) into the tombstone so the
       // per-(conv, author) seq stream stays GAP-FREE (event-log R4): this row
       // rewrites the post's own log_id, so without this its seq would vanish and
@@ -2577,8 +2590,101 @@ class HiddenVolumeStorage
       _scanOrder.remove(k);
       _scanLogIds.remove(k);
       _scanDeletedKeys.add(k);
+      _foldPendingDeletion(
+        jsonDecode(tomb) as Map<String, dynamic>,
+        hit.namespace,
+        hit.logId,
+      );
     });
   }
+
+  void _foldPendingDeletion(
+    Map<String, dynamic> tomb,
+    int namespace,
+    int logId,
+  ) {
+    final conversation = tomb['c'], id = tomb['id'];
+    if (conversation is! String || id is! String) return;
+    final key = _msgKey(conversation, id);
+    final content = tomb['dc'] is String ? tomb['dc'] as String : null;
+    if (tomb['dm'] != true && tomb['dp'] != true && content == null) {
+      _scanPendingDeletions.remove(key);
+      return;
+    }
+    _scanPendingDeletions[key] = (
+      pending: (
+        conversationId: conversation,
+        messageId: id,
+        mirrorPending: tomb['dm'] == true,
+        peerPending: tomb['dp'] == true,
+        contentId: content,
+      ),
+      namespace: namespace,
+      logId: logId,
+      tomb: tomb,
+    );
+  }
+
+  @override
+  Future<List<PendingMessageDeletion>> pendingMessageDeletions({
+    String? messageId,
+    String? afterKey,
+    int limit = 64,
+    bool includeMirrorOnly = true,
+  }) => _serialized(() async {
+    if (await _recoverMessageDeletion()) _clearScanState();
+    await _foldCritical();
+    final result = <PendingMessageDeletion>[];
+    var pastCursor =
+        afterKey == null || !_scanPendingDeletions.containsKey(afterKey);
+    if (limit <= 0) return result;
+    for (final entry in _scanPendingDeletions.entries) {
+      if (!pastCursor) {
+        if (entry.key == afterKey) pastCursor = true;
+        continue;
+      }
+      final pending = entry.value.pending;
+      if (messageId != null && pending.messageId != messageId) continue;
+      if (!includeMirrorOnly &&
+          !pending.peerPending &&
+          pending.contentId == null) {
+        continue;
+      }
+      result.add(pending);
+      if (result.length >= limit.clamp(1, 256)) break;
+    }
+    return result;
+  });
+
+  @override
+  Future<void> completeMessageDeletion(
+    String conversationId,
+    String messageId, {
+    bool mirror = false,
+    bool peer = false,
+    bool serving = false,
+  }) => _serialized(() async {
+    await _foldCritical();
+    final hit = _scanPendingDeletions[_msgKey(conversationId, messageId)];
+    if (hit == null) return;
+    final tomb = Map<String, dynamic>.from(hit.tomb);
+    var changed = false;
+    for (final field in [if (mirror) 'dm', if (peer) 'dp', if (serving) 'dc']) {
+      if (tomb.containsKey(field)) {
+        tomb.remove(field);
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    final ops = [AppendLogOp(hit.namespace, hit.logId, _sk(jsonEncode(tomb)))];
+    if (serving && hit.pending.contentId != null) {
+      // This last metadata copy identifies the erased attachment too.
+      await _commitMessageDeletion(ops);
+    } else {
+      await _as.commit(ops);
+    }
+    _foldPendingDeletion(tomb, hit.namespace, hit.logId);
+  });
 
   @override
   Future<bool> isMessageDeleted(String conversationId, String messageId) =>
@@ -4322,6 +4428,16 @@ class HiddenVolumeStorage
   // Composite keys (and legacy bare ids) that have been tombstoned — lets
   // isMessageDeleted answer in O(1) off the warm fold instead of re-scanning.
   final Set<String> _scanDeletedKeys = {};
+  final Map<
+    String,
+    ({
+      PendingMessageDeletion pending,
+      int namespace,
+      int logId,
+      Map<String, dynamic> tomb,
+    })
+  >
+  _scanPendingDeletions = {};
   final Set<String> _scanDeletedLegacyIds = {};
   final Set<String> _scanBlockedKeys = {};
   // Composite key -> latest delivery status (status ops carry their conversation).
@@ -4517,6 +4633,7 @@ class HiddenVolumeStorage
     _scanById.clear();
     _scanLogIds.clear();
     _scanDeletedKeys.clear();
+    _scanPendingDeletions.clear();
     _scanDeletedLegacyIds.clear();
     _scanBlockedKeys.clear();
     _scanStatusOps.clear();
@@ -4642,6 +4759,7 @@ class HiddenVolumeStorage
           _scanOrder.remove(k);
           _scanLogIds.remove(k);
           _scanDeletedKeys.add(k);
+          _foldPendingDeletion(m, e.namespace, e.logId);
         } else {
           // Legacy tombstone (no conversation) — drop every message with this id
           // (the old delete-by-id behavior), so a pre-fix delete still applies.
@@ -4834,6 +4952,7 @@ class HiddenVolumeStorage
       _scanDeletedKeys.remove(
         k,
       ); // a live record supersedes an earlier tombstone
+      _scanPendingDeletions.remove(k);
     }
     _scanFoldedUpTo = nextId;
     final ms = DateTime.now().difference(scanT0).inMilliseconds;
