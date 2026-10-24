@@ -1,0 +1,70 @@
+{
+  "finding": "MD24-01",
+  "visible_order_divergence_fixed": true,
+  "raw_peer_recovery_bookkeeping_intentionally_distinct": true,
+  "ordering_from_authenticated_own_journal_only": true,
+  "peer_echo_not_promoted_to_authentic_wire_stream": true,
+  "selected_flutter_tests_passed_before_final_brace_only_cleanup": 152,
+  "final_focused_tests_passed": 8,
+  "new_transport_recovery_regression_passed": true,
+  "semantic_negative_control": {
+    "old_duplicate_gate_exit_nonzero": true,
+    "semantic_expected_true_actual_false": true,
+    "production_restored_exact": true
+  },
+  "analyzer_clean": true,
+  "native_repeats": [
+    {
+      "passed": true,
+      "independent_application_processes": 4,
+      "local_relay_processes": 3,
+      "messages_sent_during_partition": 16,
+      "every_message_once_per_device": true,
+      "history_reactions_deletion_reads_converged": true,
+      "first_converged_ms": 14862,
+      "stable_ms": 10407,
+      "total_recovery_ms": 25270,
+      "convergence_timeout_ms": 240000,
+      "stable_window_ms": 10000,
+      "application_restart_after_heal": false,
+      "manual_application_sync_after_heal": false
+    },
+    {
+      "passed": true,
+      "independent_application_processes": 4,
+      "local_relay_processes": 3,
+      "messages_sent_during_partition": 16,
+      "every_message_once_per_device": true,
+      "history_reactions_deletion_reads_converged": true,
+      "first_converged_ms": 15187,
+      "stable_ms": 10397,
+      "total_recovery_ms": 25584,
+      "convergence_timeout_ms": 240000,
+      "stable_window_ms": 10000,
+      "application_restart_after_heal": false,
+      "manual_application_sync_after_heal": false
+    }
+  ],
+  "final_source_native_gate_passed": true,
+  "sdk_revision": "de769239927908e2f6929b416f101f6641d7baef",
+  "hidden_volume_revision": "c4ba1fa8e0dc388fb590dbc382ce98138c90cfeb",
+  "native_artifact_sha256": {
+    "veil-cli": "4bec94ee6f20ac08da5366b0cd6356aa058d7ae689d7e79d0b3dbbfd40699dd6",
+    "libveilclient_ffi.dylib": "07328ac13c8222083e6236e7a751b32d6f3d2b6c3211423200c7b1b113e584e0",
+    "libhidden_volume_ffi.dylib": "a92a4ecdc62d4f82ae3403d584f65c0eea7e3904b78372d2ab7959957acdb169"
+  },
+  "final_source_sha256": {
+    "lib/domain/chat.dart": "5cbdaa8861cc4954601b460869064f700494a1d47ae29148b099fa4cd070d9d4",
+    "lib/data/storage/storage.dart": "e11e0e4de0745cfe159bc8ca70b255001f5d0bf39564146ac74481c4578e8ce3",
+    "lib/data/storage/hidden_volume_storage.dart": "a4c9e5145a4acd979d408f041ffec4271c4e2927df46b0be736cc12fafec0c63",
+    "lib/state/messaging_core.dart": "dd3898590824dff2f0ca2361b78f3b3d344ad14e927ebecc3af96f9c9d0ff617",
+    "lib/state/messaging_device_mirror.dart": "7a291fd0402a5cce5d43281e2e1a84b1045603f09aff9b797467338750d4da34",
+    "lib/state/device_history_backfill.dart": "316cfd35e1348a7e79e5ca3b0142f7ab7ee935029e57265ad1c482024d71ebc0",
+    "lib/state/messaging_peer_sync.dart": "2d10dd6fdd8ee74b1d6a2d99d2ea140b36ecb29b79bc6febd4c724fd9a4ab920",
+    "lib/state/messaging_local_chat.dart": "9600ab4ad493271ca10c8a2e54a830f5f390bdacbc87a80e1d3e580c9ee86c34",
+    "test/e2e/multi_device_partition_e2e_test.dart": "3d1f6397d55582d3807d008cf4c1f76000270f5f07693573bbada3a7c48239ce"
+  },
+  "all_63_cases_qualified": false,
+  "release_or_mixed_versions_qualified": false,
+  "physical_phone_installed_apps_public_relays_changed": false
+}

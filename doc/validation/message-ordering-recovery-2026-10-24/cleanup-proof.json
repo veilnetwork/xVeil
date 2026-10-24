@@ -1,0 +1,26 @@
+{
+  "runs": [
+    {
+      "worker_boots": 6,
+      "relay_boots": 3,
+      "owned_pids_absent": true,
+      "owned_worker_process_groups_absent": true,
+      "worker_successful_exits": 6,
+      "late_async_error_markers": 0,
+      "owned_temporary_root_removed": true
+    },
+    {
+      "worker_boots": 6,
+      "relay_boots": 3,
+      "owned_pids_absent": true,
+      "owned_worker_process_groups_absent": true,
+      "worker_successful_exits": 6,
+      "late_async_error_markers": 0,
+      "owned_temporary_root_removed": true
+    }
+  ],
+  "owned_native_libraries_not_open": true,
+  "unrelated_temp_directories_preserved": true,
+  "protected_untracked_report_preserved": true,
+  "physical_phone_user_profiles_installed_apps_public_relays_changed": false
+}

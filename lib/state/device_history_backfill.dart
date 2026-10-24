@@ -90,8 +90,8 @@ DeviceMessageMirror deviceMirrorOf(
           // the peer ran ahead of what it held (192 against the peer's real 115
           // on the stand), and the peer re-shipped nothing to a device that had
           // missed its messages.
-          if (message.author != null) 'au': message.author,
-          if (message.seq != null) 'sq': message.seq,
+          if (message.orderAuthor != null) 'au': message.orderAuthor,
+          if (message.orderSeq != null) 'sq': message.orderSeq,
           if (message.customEmoji.isNotEmpty)
             'ce': encodeInlineCustomEmoji(message.customEmoji),
         },
@@ -110,8 +110,8 @@ DeviceMessageMirror deviceMirrorOf(
         'body': message.body,
         if (message.replyToId != null) 'r': message.replyToId,
         if (message.forwardedFrom != null) 'fw': message.forwardedFrom,
-        if (message.author != null) 'au': message.author,
-        if (message.seq != null) 'sq': message.seq,
+        if (message.orderAuthor != null) 'au': message.orderAuthor,
+        if (message.orderSeq != null) 'sq': message.orderSeq,
         // The bytes stay where they are: the mirror carries the CONTENT ID and
         // the reference below is what lets the other device pull them.
         'cid': contentId,
