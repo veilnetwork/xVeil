@@ -115,13 +115,17 @@ class E2eIdentity {
 /// The AppController seam. See the library doc: it stands in for the user
 /// having unlocked this identity, and for nothing else.
 class _E2eAppController extends AppController {
-  _E2eAppController(this._identity);
+  _E2eAppController(this._identity, {this.anonymous = false});
 
   final Identity _identity;
+  final bool anonymous;
   bool rebootRequested = false;
 
   @override
   AppState build() => AppState(AppPhase.ready, identity: _identity);
+
+  @override
+  bool get activeIsAnonymous => anonymous;
 
   // This controller does not own the nodes. A process worker observes this
   // request, exits cleanly and is restarted by its parent on the same store.
@@ -220,6 +224,7 @@ class E2eDevice {
     required String label,
     required Directory dir,
     required List<BootstrapPeerCfg> bootstrapPeers,
+    bool anonymous = false,
   }) async {
     if (!gate.enabled ||
         !ensureHiddenVolumeLoaded(dylibPath: gate.hiddenVolumeDylib) ||
@@ -236,6 +241,7 @@ class E2eDevice {
       isMaster: spec.isMaster,
       bootstrapPeers: bootstrapPeers,
       dylibPath: gate.veilDylib!,
+      anonymous: anonymous,
     );
     await dir.create(recursive: true);
     try {
@@ -366,7 +372,10 @@ class E2eDevice {
           overrides: [
             singleSpaceStorageProvider.overrideWithValue(storage),
             appControllerProvider.overrideWith(
-              () => _E2eAppController(Identity(nodeId: _identityId!)),
+              () => _E2eAppController(
+                Identity(nodeId: _identityId!),
+                anonymous: anonymous,
+              ),
             ),
             // The mailbox relay candidates come from here — without it a device
             // has live delivery only, and every offline case in this suite is

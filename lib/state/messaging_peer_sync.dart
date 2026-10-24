@@ -186,8 +186,11 @@ List<T> ownEchoesEdited<T>({
     for (final m in theirs)
       if (editSeqOf(m) case final seq?)
         if (isAcceptableWireSeq(seq) &&
-            tsOf(m) > sinceMs &&
-            (untilMs == null || tsOf(m) < untilMs) &&
+            // These IDs are explicitly held, including the page anchors.
+            // A strict bound strands the first row of every noninitial page;
+            // equal millisecond stamps can also touch both page boundaries.
+            tsOf(m) >= sinceMs &&
+            (untilMs == null || tsOf(m) <= untilMs) &&
             held.contains(keyOf(m)) &&
             newer(m, seq))
           m,
