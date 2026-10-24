@@ -4,9 +4,11 @@ import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/ids.dart';
+import '../core/async_tasks.dart';
 import '../core/log.dart';
 import '../data/node/embedded_node.dart';
 import '../data/node/identity_config_fields.dart';
+import '../data/storage/storage.dart';
 import '../data/node/space_discovery_transport.dart';
 import '../data/transport/bootstrap_invite.dart';
 import '../data/veil_stack.dart';
@@ -147,13 +149,13 @@ final groupSignerProvider = FutureProvider<GroupSigner?>((ref) async {
 /// and would republish an identity from a boot path — too much authority for
 /// a diagnostic to take on its own.
 Future<void> _warnIfDocumentDisownsThisDevice(
-  Ref ref,
+  Storage storage,
   NodeId identity,
   Uint8List? document,
 ) async {
   if (document == null || document.isEmpty) return;
   try {
-    final toml = await ref.read(storageProvider).loadNodeConfig();
+    final toml = await storage.loadNodeConfig();
     final fields = toml == null ? null : identityConfigFields(toml);
     if (fields == null) return;
     if (EmbeddedNode.identityDocumentAuthorizes(
@@ -188,6 +190,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   final signer = ref.watch(groupSignerProvider).value;
   if (signer == null) return null;
   final messaging = ref.read(messagingServiceProvider);
+  final tasks = AsyncTasks();
   final transport = ref.watch(veilTransportProvider);
   final epochCrypto = transport is VeilFlutterTransport
       ? transport.mailboxCrypto()
@@ -254,39 +257,47 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   service.startScheduledSpacePostMaintenance();
   service.startPublicSpaceDiscoveryMaintenance();
 
-  messaging.onGroupEntry = (peer, bundleJson) async {
+  messaging.onGroupEntry = (peer, bundleJson) => tasks.runRequired(() async {
     await service.ingestGroupEntry(peer, bundleJson);
-  };
-  messaging.onSpaceInvite = (peer, inviteJson) async {
+  });
+  messaging.onSpaceInvite = (peer, inviteJson) => tasks.runRequired(() async {
     await service.receiveSpaceInvite(peer, inviteJson);
-  };
-  messaging.onSpaceInviteDecision = (peer, decisionJson) async {
-    await service.receiveSpaceInviteDecision(peer, decisionJson);
-  };
-  messaging.onSpaceJoinRequest = service.receiveSpaceJoinRequest;
-  messaging.onSpaceJoinDecision = service.receiveSpaceJoinDecision;
-  messaging.onSpaceModerationAppeal = service.receiveSpaceModerationAppeal;
-  messaging.onSpaceModerationAppealDecision =
-      service.receiveSpaceModerationAppealDecision;
-  messaging.onSpaceAbuseReport = service.receiveSpaceAbuseReport;
-  messaging.onSpaceAbuseReportDecision =
-      service.receiveSpaceAbuseReportDecision;
+  });
+  messaging.onSpaceInviteDecision = (peer, decisionJson) =>
+      tasks.runRequired(() async {
+        await service.receiveSpaceInviteDecision(peer, decisionJson);
+      });
+  messaging.onSpaceJoinRequest = (a, b) =>
+      tasks.runRequired(() => service.receiveSpaceJoinRequest(a, b));
+  messaging.onSpaceJoinDecision = (a, b) =>
+      tasks.runRequired(() => service.receiveSpaceJoinDecision(a, b));
+  messaging.onSpaceModerationAppeal = (a, b) =>
+      tasks.runRequired(() => service.receiveSpaceModerationAppeal(a, b));
+  messaging.onSpaceModerationAppealDecision = (a, b) => tasks.runRequired(
+    () => service.receiveSpaceModerationAppealDecision(a, b),
+  );
+  messaging.onSpaceAbuseReport = (a, b) =>
+      tasks.runRequired(() => service.receiveSpaceAbuseReport(a, b));
+  messaging.onSpaceAbuseReportDecision = (a, b) =>
+      tasks.runRequired(() => service.receiveSpaceAbuseReportDecision(a, b));
   messaging.onSpaceRecommendation = service.acceptsSpaceRecommendationCard;
   messaging.onGroupContentRequest = (peer, requestJson) {
-    unawaited(service.handleContentRequest(requestJson));
+    tasks.start(() => service.handleContentRequest(requestJson));
   };
   messaging.onGroupContentReceipt = (peer, receiptJson) {
-    unawaited(service.handleContentReceipt(peer, receiptJson));
+    tasks.start(() => service.handleContentReceipt(peer, receiptJson));
   };
-  messaging.onSpacePublicFeedRequest = service.handlePublicFeedObjectRequest;
+  messaging.onSpacePublicFeedRequest = (a, b) =>
+      tasks.runRequired(() => service.handlePublicFeedObjectRequest(a, b));
   messaging.onSpacePublicFeedChunk = service.handlePublicFeedObjectChunk;
-  messaging.onSpacePublicMediaGrantRequest =
-      service.handlePublicMediaGrantRequest;
-  messaging.onGroupContentVerifiedSources =
-      service.handleVerifiedContentSources;
-  messaging.onGroupCallSignal = service.ingestGroupCallFrame;
+  messaging.onSpacePublicMediaGrantRequest = (a, b) =>
+      tasks.runRequired(() => service.handlePublicMediaGrantRequest(a, b));
+  messaging.onGroupContentVerifiedSources = (a, b) =>
+      tasks.runRequired(() => service.handleVerifiedContentSources(a, b));
+  messaging.onGroupCallSignal = (a, b) =>
+      tasks.runRequired(() => service.ingestGroupCallFrame(a, b));
   messaging.onGroupEntryFromStranger = (peer, bundleJson) {
-    unawaited(service.ingestGroupEntryFromStranger(peer, bundleJson));
+    tasks.start(() => service.ingestGroupEntryFromStranger(peer, bundleJson));
   };
   messaging.allowStrangerGroupSync = service.allowStrangerGroupSync;
   // isMyDeviceOrMaster: a LINKED device's master is not a member of the device
@@ -316,7 +327,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   messaging.selfIdentityHex = () async => service.selfId.hex;
   messaging.myOtherDevices = service.addressableOwnDevices;
   // The node may have connected before this was known: say it now as well.
-  unawaited(messaging.announcePresence());
+  tasks.start(() => messaging.announcePresence());
   messaging.groupBindingsOwner = service;
   // THE PULL on a clock (owner's push/pull scheme, 2026-09-23): whatever a
   // push lost between my own devices is asked for again, at most this long
@@ -324,7 +335,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   // and a resume run the same pull between ticks.
   final ownDevicePull = Timer.periodic(
     kOwnDevicePullInterval,
-    (_) => unawaited(service.pullFromMyDevices()),
+    (_) => tasks.start(service.pullFromMyDevices),
   );
   ref.onDispose(ownDevicePull.cancel);
 
@@ -336,7 +347,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   // field added to one copy of this payload and not the others is how a mirror
   // comes to carry less than the message it mirrors (the archive's copy was
   // already dropping inline custom emoji that way).
-  messaging.onMessageStored = (peer, message) async {
+  messaging.onMessageStored = (peer, message) => tasks.runRequired(() async {
     if (peer == service.selfId || await service.isMyDevice(peer)) return;
     if (await service.deviceGroupIdHex() == null) return;
     final hasFile = (message.fileContentId ?? message.fileId) != null;
@@ -355,7 +366,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     )) {
       throw StateError('Could not persist the own-device message mirror');
     }
-  };
+  });
 
   // The same message, one tick later. Tiny by design: the mirror already
   // carried the message, this carries only how far it has got, and it is keyed
@@ -363,7 +374,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   // it collects.
   messaging.onMessageStatusChanged = (peer, msgId, status) {
     if (peer == service.selfId) return;
-    unawaited(() async {
+    tasks.start(() async {
       if (await service.isMyDevice(peer)) return;
       await service.postDeviceEvent(
         DeviceSyncEvent(
@@ -375,12 +386,12 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
           payload: {'peer': peer.hex, 'st': status.name},
         ),
       );
-    }());
+    });
   };
 
   // The message taken back. Tiny, and keyed by the message id so a second
   // erase of the same id is the same row rather than another one.
-  messaging.onMessageDeleted = (peer, msgId) async {
+  messaging.onMessageDeleted = (peer, msgId) => tasks.runRequired(() async {
     if (peer == service.selfId) return;
     if (await service.isMyDevice(peer)) return;
     if (await service.deviceGroupIdHex() == null) return;
@@ -395,13 +406,13 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     )) {
       throw StateError('Could not persist the own-device message deletion');
     }
-  };
+  });
 
   // The same message, different words. Keyed by the message so the fold holds
   // the latest text rather than one row per change of mind.
   messaging.onMessageEdited = (peer, msgId, body, customEmoji) {
     if (peer == service.selfId) return;
-    unawaited(() async {
+    tasks.start(() async {
       if (await service.isMyDevice(peer)) return;
       // The edit's place in the author's stream, as the counterpart holds it.
       // A sibling that later edits the same message must number its edit past
@@ -409,9 +420,10 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
       // and every device numbers its own stream.
       int? editSeq;
       try {
-        final versions = await ref
-            .read(storageProvider)
-            .loadMessageHistory(peer.hex, msgId);
+        final versions = await service.storage.loadMessageHistory(
+          peer.hex,
+          msgId,
+        );
         if (versions.isNotEmpty && !versions.last.isOriginal) {
           editSeq = versions.last.seq;
         }
@@ -436,7 +448,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
           },
         ),
       );
-    }());
+    });
   };
 
   // The whole conversation emptied. One row per conversation, not per message:
@@ -450,7 +462,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
 
   messaging.onConversationCleared = (peer, author, seq, watermark, atMs) {
     if (peer == service.selfId) return;
-    unawaited(() async {
+    tasks.start(() async {
       if (await service.isMyDevice(peer)) return;
       await service.postDeviceEvent(
         DeviceSyncEvent(
@@ -462,7 +474,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
           payload: {'au': author, 'sq': seq, 'wm': watermark},
         ),
       );
-    }());
+    });
   };
 
   // Multi-device mirror apply: idempotent, content bytes remain opt-in.
@@ -480,7 +492,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   Future<void> applyMirrorEvent(
     DeviceSyncEvent event, {
     String? attachmentThumb,
-  }) async {
+  }) => tasks.run(() async {
     if (event.kind != DeviceSyncKind.msgMirror) return;
     final peerHex = event.payload['peer'];
     final body = event.payload['body'];
@@ -523,7 +535,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
           : null,
       customEmoji: customEmoji,
     );
-  }
+  });
 
   /// One tick later on the message the mirror already delivered.
   ///
@@ -532,7 +544,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   /// arrived yet is simply not there to update — the mirror carrying it and
   /// this event travel the same log, so the next fold replay applies it once
   /// the message exists.
-  Future<void> applyStatusEvent(DeviceSyncEvent event) async {
+  Future<void> applyStatusEvent(DeviceSyncEvent event) => tasks.run(() async {
     if (event.kind != DeviceSyncKind.msgStatus) return;
     final peerHex = event.payload['peer'];
     final raw = event.payload['st'];
@@ -547,7 +559,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
       msgId: event.key,
       status: status,
     );
-  }
+  });
 
   /// A sibling erased this message, so erase it here.
   ///
@@ -555,7 +567,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   /// and an id that has not arrived yet is parked until it does — so the fold
   /// replay this runs on every app start converges whatever order the mirror
   /// and the tombstone are in.
-  Future<void> applyGoneEvent(DeviceSyncEvent event) async {
+  Future<void> applyGoneEvent(DeviceSyncEvent event) => tasks.run(() async {
     if (event.kind != DeviceSyncKind.msgGone) return;
     final peerHex = event.payload['peer'];
     if (peerHex is! String ||
@@ -567,7 +579,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
       peer: NodeId.fromHex(peerHex),
       msgId: event.key,
     );
-  }
+  });
 
   ref.onDispose(
     ref.read(deviceSyncAppliersProvider).register(applyStatusEvent),
@@ -578,7 +590,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   /// The payload is refused rather than guessed at when a field is missing or
   /// of the wrong shape: the guess would be "clear everything", and a clear is
   /// not reversible.
-  Future<void> applyClearEvent(DeviceSyncEvent event) async {
+  Future<void> applyClearEvent(DeviceSyncEvent event) => tasks.run(() async {
     if (event.kind != DeviceSyncKind.convClear) return;
     final author = event.payload['au'];
     final seq = event.payload['sq'];
@@ -602,10 +614,10 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
       watermark: watermark,
       atMs: event.tsMs,
     );
-  }
+  });
 
   /// A sibling replaced this message's text, so replace it here.
-  Future<void> applyEditEvent(DeviceSyncEvent event) async {
+  Future<void> applyEditEvent(DeviceSyncEvent event) => tasks.run(() async {
     if (event.kind != DeviceSyncKind.msgEdit) return;
     final peerHex = event.payload['peer'];
     final body = event.payload['body'];
@@ -623,7 +635,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
       body: body,
       customEmoji: parseInlineCustomEmoji(body, event.payload['ce']),
     );
-  }
+  });
 
   ref.onDispose(ref.read(deviceSyncAppliersProvider).register(applyGoneEvent));
   ref.onDispose(ref.read(deviceSyncAppliersProvider).register(applyEditEvent));
@@ -648,7 +660,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     unawaited(applyEditEvent(event));
     unawaited(applyClearEvent(event));
   });
-  unawaited(() async {
+  tasks.start(() async {
     final folded = await service.deviceSyncState();
     for (final event in folded.values) {
       await applyMirrorEvent(event);
@@ -674,7 +686,18 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     for (final event in folded.values) {
       await applyClearEvent(event);
     }
-  }());
+  });
+  final closeBindings = messaging.registerShutdownTask(() async {
+    _detachGroupBindings(messaging, service);
+    ownDevicePull.cancel();
+    service.beginShutdown();
+    final pending = tasks.close();
+    try {
+      await Future.wait([pending, deviceMirror.cancel()]);
+    } finally {
+      await service.dispose();
+    }
+  });
   ref.onDispose(() {
     // Detach before disposing, and only what is still ours.
     //
@@ -690,9 +713,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     // on: if a newer build has already installed its own callbacks on this same
     // service, clearing them here would break the identity that just became
     // active. `_detachGroupBindings` is a no-op in that case.
-    _detachGroupBindings(messaging, service);
-    unawaited(deviceMirror.cancel());
-    unawaited(service.dispose());
+    unawaited(closeBindings());
   });
   // THIS DEVICE's own transport key, from the NODE CONFIG — the copy that is
   // rewritten when a deniably-booted node is promoted to its real identity.
@@ -736,9 +757,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   Future<void> readOwnDocument() async {
     lastDocumentRead = DateTime.now();
     try {
-      final doc = await RealVeilStack.storedSovereignDocument(
-        ref.read(storageProvider),
-      );
+      final doc = await RealVeilStack.storedSovereignDocument(service.storage);
       if (doc != null) {
         ownDocument = doc;
         try {
@@ -746,7 +765,13 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
         } catch (_) {
           documentIdentity = null; // an undecodable doc answers as before
         }
-        unawaited(_warnIfDocumentDisownsThisDevice(ref, ownIdentity, doc));
+        tasks.start(
+          () => _warnIfDocumentDisownsThisDevice(
+            service.storage,
+            ownIdentity,
+            doc,
+          ),
+        );
       }
     } catch (_) {
       // A locked container is not an error worth surfacing: the lookup
@@ -755,8 +780,8 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   }
 
   reloadOwnDocumentAfterRevoke = readOwnDocument;
-  final ownDocumentReady = readOwnDocument();
-  final peerDocumentsReady = service.loadPeerDocuments();
+  final ownDocumentReady = tasks.run(readOwnDocument);
+  final peerDocumentsReady = tasks.run(service.loadPeerDocuments);
   final unregisterDocumentLookup = registerIdentityDocumentLookup((identity) {
     if (identity != ownIdentity && identity != documentIdentity) {
       // ANOTHER identity: the document a group snapshot carried for it, if
@@ -768,7 +793,9 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
       if (peer != null) return peer;
       // Not read yet — on a cold start the first read runs while the
       // container is still locked. Ask again; the next row will find it.
-      if (!service.peerDocumentsLoaded) unawaited(service.loadPeerDocuments());
+      if (!service.peerDocumentsLoaded) {
+        tasks.start(() => service.loadPeerDocuments());
+      }
       // documentIdentity == null means UNRESOLVED, not foreign: a document
       // adopted mid-session (the production linking path) sets it only via
       // readOwnDocument, and the re-read below used to be unreachable from
@@ -781,7 +808,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
       if (documentIdentity == null &&
           DateTime.now().difference(lastDocumentRead) >
               const Duration(seconds: 3)) {
-        unawaited(readOwnDocument());
+        tasks.start(() => readOwnDocument());
       }
       return null;
     }
@@ -799,7 +826,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
         sinceRead > const Duration(minutes: 1)) {
       // The second arm covers a HELD document going stale the same way: a
       // device linked later must become verifiable without a restart.
-      unawaited(readOwnDocument());
+      tasks.start(() => readOwnDocument());
     }
     return ownDocument;
   });
@@ -810,7 +837,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   // the session — invisible on the master-key device, and on a restored one the
   // reason its own posts went nowhere.
   service.myDeviceReader = () async {
-    final toml = await ref.read(storageProvider).loadNodeConfig();
+    final toml = await service.storage.loadNodeConfig();
     final fields = toml == null ? null : identityConfigFields(toml);
     if (fields == null) return null;
     return BootstrapInvite(
@@ -823,11 +850,13 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   // verifier lookup above is installed. A linked device otherwise describes
   // its stored, device-signed history as empty and asks its siblings to send
   // the entire group again at every restart.
-  unawaited(() async {
+  tasks.start(() async {
     await ownDocumentReady;
     await peerDocumentsReady;
-    if (!service.isDisposed) await service.nudgeGroupSyncAll();
-  }());
+    if (!tasks.isClosed && !service.isDisposed) {
+      await service.nudgeGroupSyncAll();
+    }
+  });
   return service;
 });
 

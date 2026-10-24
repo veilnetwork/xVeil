@@ -146,7 +146,7 @@ class _E2eAppController extends AppController {
 /// is alive every error is forwarded untouched, because an error from a
 /// running device is exactly what a case must fail on.
 class _BootScope {
-  _BootScope(this.label) {
+  _BootScope(this.label, this.onLateError) {
     zone = Zone.current.fork(
       specification: ZoneSpecification(
         handleUncaughtError: (self, parent, zone, error, stackTrace) {
@@ -154,6 +154,7 @@ class _BootScope {
             parent.handleUncaughtError(zone, error, stackTrace);
             return;
           }
+          onLateError();
           E2eLog.line(
             'device $label: late async error from a boot that is already '
             'down (ignored): $error',
@@ -167,12 +168,14 @@ class _BootScope {
   }
 
   final String label;
+  final void Function() onLateError;
   late final Zone zone;
   bool alive = true;
 }
 
 /// One app-level device.
 class E2eDevice {
+  int lateAsyncErrors = 0;
   E2eDevice._({
     required this.label,
     required this.identity,
@@ -309,7 +312,7 @@ class E2eDevice {
   /// container is new, start the real stack, build the real providers.
   Future<void> start() async {
     if (_container != null) return;
-    final boot = _BootScope(label);
+    final boot = _BootScope(label, () => lateAsyncErrors++);
     _boot = boot;
     await E2eLog.step(
       'device $label: boot',

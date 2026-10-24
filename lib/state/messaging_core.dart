@@ -319,6 +319,24 @@ class MessagingService {
   /// since installed on this same service.
   Object? groupBindingsOwner;
 
+  final Set<Future<void> Function()> _shutdownTasks = {};
+
+  /// Riverpod disposal cannot await. A provider registers its asynchronous
+  /// cleanup here so the session owner can join it before closing storage.
+  /// The returned closer is idempotent and removes itself only after settling.
+  Future<void> Function() registerShutdownTask(
+    Future<void> Function() cleanup,
+  ) {
+    if (_disposed) throw StateError('messaging is disposing');
+    Future<void>? closing;
+    late Future<void> Function() close;
+    close = () => closing ??= Future<void>.sync(cleanup).whenComplete(() {
+      _shutdownTasks.remove(close);
+    });
+    _shutdownTasks.add(close);
+    return close;
+  }
+
   /// Attached by the group layer: an inbound group snapshot ([bundleJson]) from
   /// an accepted [peer], to ingest idempotently. Dropped when unset.
   void Function(NodeId peer, String bundleJson)? onGroupEntry;
@@ -4133,6 +4151,15 @@ class MessagingService {
     await _realtimeSub?.cancel();
     _realtimeSub = null;
     await _quiesceInboundLanes();
+    Object? shutdownError;
+    StackTrace? shutdownTrace;
+    try {
+      await Future.wait([for (final close in _shutdownTasks.toList()) close()]);
+    } catch (error, trace) {
+      // Finish ratchet/resource cleanup even when an owned task failed.
+      shutdownError = error;
+      shutdownTrace = trace;
+    }
     await _localChatController?.closeReactions();
     // A serve may still be finishing its last chunk and ratchet flush. Join
     // those jobs before the final snapshot, while the container is open.
@@ -4153,6 +4180,9 @@ class MessagingService {
     await _contentProgress.close();
     await _contentFailed.close();
     await _contentCancelled.close();
+    if (shutdownError != null) {
+      Error.throwWithStackTrace(shutdownError, shutdownTrace!);
+    }
   }
 }
 

@@ -420,7 +420,13 @@ class _MessagingDeviceMirror {
     // the sibling surfaced as an offer in a chat with that sibling, the replay
     // carried the chat back, and the device ended up with an unanswerable
     // "pending" contact that was ITSELF.
-    if (await _owner._isSiblingDevice(peer)) return false;
+    if (_owner._disposed) return false;
+    final binding = _owner.groupBindingsOwner;
+    if (await _owner._isSiblingDevice(peer) ||
+        _owner._disposed ||
+        !identical(binding, _owner.groupBindingsOwner)) {
+      return false;
+    }
     // A new-format verified marker promises an original position. Reject an
     // inconsistent record before storage can fill missing fields with local
     // counters and make a later backfill misidentify them as original.
