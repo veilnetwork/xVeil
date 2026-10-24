@@ -2,7 +2,7 @@
   "base_commit": "89b16de09a8b3dfdf31e512cb76c826da720334f",
   "red_baseline_source_commit": "e3a64bc21583d007d5d57d32515f459d7a7237d2",
   "red_reproductions": 6,
-  "sdk_commit": "1440d89ee076834fcd9d8c054a60b732d0e96831",
+  "sdk_commit": "8cb2f13b99d6fe1f4727633700ab378f6c566d38",
   "hidden_volume_commit": "47c28bc411abe9cc68f8f506c914891330f70121",
   "component_regressions": {
     "exit_code": 0,
@@ -11,35 +11,9 @@
   },
   "dart_analyze_issues": 0,
   "native_passed": false,
-  "native_failure_stage": "B cannot decrypt C own-echo replies after restart",
   "native_recovery_gate_seconds": 180,
   "native_seeded_messages": 100,
-  "native_observations": {
-    "B": {
-      "ratchet_authentication_failure_observed": true,
-      "ratchet_no_session_observed": false,
-      "own_echo_ask_sizes_observed": [],
-      "edit_reply_batch_sizes_observed": []
-    },
-    "C": {
-      "ratchet_authentication_failure_observed": false,
-      "ratchet_no_session_observed": true,
-      "own_echo_ask_sizes_observed": [
-        1,
-        100
-      ],
-      "edit_reply_batch_sizes_observed": [
-        50
-      ]
-    }
-  },
   "native_source_proof_matches_current_core_and_fixture": true,
-  "native_cleanup": {
-    "owned_groups_checked": 7,
-    "owned_pids_checked": 11,
-    "remaining_processes": 0,
-    "stand_directory_removed": true
-  },
   "source_sha256": {
     "lib/data/storage/hidden_volume_storage.dart": "d111aab6ca4d698e869b93b6bd60bddd5d67c65fb5e589edbb4b8e503be00595",
     "lib/data/storage/storage.dart": "fd99943790a744562bd980f5904d3e519633f214872bbe7ca558d7c8a93058b0",
@@ -51,19 +25,158 @@
     "lib/state/messaging_device_mirror.dart": "e50682bebefd7630ca2426629be8334f8cd27838fb85fc51da73f92f4ac6a766",
     "lib/state/messaging_message_delivery.dart": "334392958d8964e49a41ad88eea119d43909b6c62191aa1a538f5613708cfcba",
     "lib/state/messaging_own_history.dart": "a8697c76fd6e33928ac5055601b1c26d0e46d577b77f8a8e04c869d84ab36c7e",
-    "lib/state/messaging_peer_sync.dart": "057ddc247f19f22a77ec15e7628e97499df108bb800e633ebf9ef508801ef8e8",
+    "lib/state/messaging_peer_sync.dart": "6fed672857edea38d24b4bd257868b89d524e5268b3ede71fcf7148ade8150a1",
     "test/concurrent_message_edits_test.dart": "2e05b4545994ff3ddf1209f42b49e13e48427e6421b0feaad50a810bfd106ae0",
-    "test/e2e/device_process_worker_test.dart": "1bc5198216eb1b62ec61ceaeea96b237d05d0b39e0496902342976d267f4c3d7",
-    "test/messaging_gapfill_test.dart": "777c4d48813b85c0ff3fc0b72888cd4b242f90f1b4acf26cb08c753f7dea13d1",
+    "test/e2e/device_fixture.dart": "449da042742bc03cac5edf8c9582a2a5554e024e5546b14d4f7939e7b7125490",
+    "test/e2e/device_process_fixture.dart": "3f6e9759eae06c3fb7068bdfb913079d9287f0c21fb05aaa66f5e6f9f607f68d",
+    "test/e2e/device_process_worker_test.dart": "ebcff716b4d969bc1cf84ffdc7062cd4c9832f2818ea867f47350c52cf6f9672",
+    "test/e2e/peer_echo_edits_process_e2e_test.dart": "e667ee0377f05c36a4177012d7e02df90ad7591d246eaf6cef8c13f9b3c54979",
+    "test/messaging_gapfill_test.dart": "eeb24d8f5cae038c5623c123015cf84f9dc5f775b15495ead64fff89a00adf67",
     "test/mutation_ack_after_commit_test.dart": "2ecfd8d3893384874439a43b245e9e9a72eba2b5d2c8257b4b13e1d8d97a924e",
-    "test/own_device_history_test.dart": "0f369f8831c0cc57e71dcaad0e7ff77f3a29cdeda14afea69b21a51637aaaa1b",
-    "test/e2e/peer_echo_edits_process_e2e_test.dart": "e41cae40ba8f79f669d2b4dffa4e8e49b7004d730e605ca6e6226525db32ee14"
+    "test/own_device_history_test.dart": "0f369f8831c0cc57e71dcaad0e7ff77f3a29cdeda14afea69b21a51637aaaa1b"
   },
   "native_software_sha256": {
-    "veil-cli": "fc2053432b4c6867ce8416ada4af34942c649e0b3d00ac5c8932f59f16e8538a",
-    "libveilclient_ffi.dylib": "35d1f0a501131616ab96eb8b96d91dee77c3715ac31608c07339c2d2d858471a",
+    "libveilclient_ffi.dylib": "7598d50309e7d61e8bc50c1b00aa9fc2a796fc1cab5d164e54e4c4014ecbc4ce",
+    "veil-cli": "fe0490981a862ae2b8c5a1dc671bc010d29afa536ccca77bfb467f97da0b7c76",
     "libhidden_volume_ffi.dylib": "c9f6f9742bb2d95bf312067a4c4bc745ae124bb40576d8ce1f9d4b02f6373ff5"
   },
   "whole_user_scenario_fixed": false,
-  "whole_multi_device_matrix_closed": false
+  "whole_multi_device_matrix_closed": false,
+  "previous_native_failure": {
+    "sdk_commit": "1440d89ee076834fcd9d8c054a60b732d0e96831",
+    "stage": "B cannot decrypt C own-echo replies after restart",
+    "observations": {
+      "B": {
+        "ratchet_authentication_failure_observed": true,
+        "ratchet_no_session_observed": false,
+        "own_echo_ask_sizes_observed": [],
+        "edit_reply_batch_sizes_observed": []
+      },
+      "C": {
+        "ratchet_authentication_failure_observed": false,
+        "ratchet_no_session_observed": true,
+        "own_echo_ask_sizes_observed": [
+          1,
+          100
+        ],
+        "edit_reply_batch_sizes_observed": [
+          50
+        ]
+      }
+    }
+  },
+  "work_cycle_base_commit": "d32231e1c95e72f9512d9f23f654cc4f9aa73a55",
+  "sdk_base_commit": "1440d89ee076834fcd9d8c054a60b732d0e96831",
+  "held_edit_boundary_red_tests": 3,
+  "held_edit_boundary_red_baseline_commit": "d32231e1",
+  "current_component_regressions": {
+    "exit_code": 0,
+    "files": 4,
+    "passed_count": 116
+  },
+  "rust_regressions": {
+    "passed_count": 1019,
+    "failed_count": 0,
+    "ignored_count": 16,
+    "crates": [
+      "veil-e2e",
+      "veil-ipc",
+      "veil-node-runtime"
+    ]
+  },
+  "clippy_warnings": 0,
+  "native_ordinary_passed": true,
+  "native_onion_passed": false,
+  "native_runs": {
+    "ordinary": {
+      "exit_code": 0,
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "separate_processes": true,
+        "local_network_only": true,
+        "controlled_container_seed_while_stopped": true,
+        "production_fault_switch_added": false,
+        "anonymous": false,
+        "messages": 100,
+        "recovery_seconds": 12.541,
+        "a_offline_during_peer_recovery": true,
+        "full_hash_window_recovered": true,
+        "reply_ratchets_keep_identity_name": true,
+        "cold_reopen_preserves_reflected_revisions": true,
+        "reflected_values_not_in_authored_replay": true,
+        "b_decrypted_distinct_c_echoes_while_a_online": 100,
+        "b_converged_100_edits_while_a_online": true,
+        "new_online_wave_ids_exclude_late_packets": true,
+        "genuine_same_value_provenance_restored_without_c": true,
+        "logical_duplicates": 0,
+        "passed": true
+      },
+      "cleanup": {
+        "owned_groups_checked": 12,
+        "owned_pids_checked": 16,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      },
+      "source_proof_matches": true,
+      "crypto_failures": {
+        "A": {
+          "authentication_failures": 0,
+          "no_session": 0
+        },
+        "B": {
+          "authentication_failures": 0,
+          "no_session": 0
+        },
+        "C": {
+          "authentication_failures": 0,
+          "no_session": 0
+        }
+      }
+    },
+    "onion": {
+      "exit_code": 1,
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "separate_processes": true,
+        "local_network_only": true,
+        "controlled_container_seed_while_stopped": true,
+        "production_fault_switch_added": false,
+        "anonymous": true,
+        "messages": 100
+      },
+      "cleanup": {
+        "owned_groups_checked": 5,
+        "owned_pids_checked": 9,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      },
+      "source_proof_matches": true,
+      "passed": false,
+      "failure_stage": "initial device-group adoption after linking",
+      "failure_gate_seconds": 180,
+      "peer_edit_recovery_started": false
+    }
+  },
+  "peer_echo_recovery_ordinary_qualified": true,
+  "peer_echo_recovery_onion_qualified": false,
+  "all_owned_stands_stopped": true,
+  "production_test_api_added": false,
+  "sdk_source_files_checked": 884,
+  "native_build_features": [
+    "allow-empty-seeds",
+    "test-low-difficulty",
+    "node-embedded",
+    "packet-tunnel"
+  ],
+  "sdk_source_sha256": {
+    "crates/veil-e2e/src/ratchet.rs": "3b5df16aba30e3af6cd3e563ebb165515eae038386819a36b0762cd0ad945884",
+    "crates/veil-ipc/src/handlers/send.rs": "a295b40eed60447527b3166c39dc1a3a6b35665230c2540176235a632e21ad1e",
+    "crates/veil-node-runtime/src/identity_document_floor.rs": "d754211651c75b3d3a02a0aa7e48d59410a54290730987d2d5dd1a7334ccd910",
+    "crates/veil-node-runtime/src/mlkem_resolver.rs": "0aa0a2057696859cee36aac9ec2a0f530b85e7f9fd18d706f3a79dc5a54be911",
+    "crates/veil-types/src/lib.rs": "e32cbda5f31e2dbef666b070e6f7eb852efea11f6c3e0c9a84953177905a6583"
+  },
+  "native_message_waves": 2,
+  "native_messages_per_wave": 100
 }

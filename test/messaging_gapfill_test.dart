@@ -1929,6 +1929,44 @@ void main() {
       test('not held: that is the missing-message echo, not this one', () {
         expect(pick([('a', 5, 126)], {'x'}, {}), isEmpty);
       });
+
+      test('held edits at newest-page lower bound remain repairable', () {
+        final edited = ownEchoesEdited(
+          theirs: [('anchor', 10, 126), ('inside', 11, 126)],
+          keyOf: (m) => m.$1,
+          tsOf: (m) => m.$2,
+          editSeqOf: (m) => m.$3,
+          held: {'anchor', 'inside'},
+          heldEdits: const {},
+          sinceMs: 10,
+        );
+        expect(edited.map((m) => m.$1).toSet(), {'anchor', 'inside'});
+      });
+
+      for (final bounds in [(10, 20), (20, 20)]) {
+        test('held edits at timestamp bounds $bounds remain repairable', () {
+          // A page of 100 known rows uses its first row as the lower anchor.
+          // Other pages can share the same millisecond at either boundary.
+          final rows = [
+            ('first', bounds.$1, 126),
+            ('last', bounds.$2, 126),
+            ('neighbor', bounds.$2, 126),
+            ('before', bounds.$1 - 1, 126),
+            ('after', bounds.$2 + 1, 126),
+          ];
+          final edited = ownEchoesEdited(
+            theirs: rows,
+            keyOf: (m) => m.$1,
+            tsOf: (m) => m.$2,
+            editSeqOf: (m) => m.$3,
+            held: {'first', 'last', 'before', 'after'},
+            heldEdits: const {},
+            sinceMs: bounds.$1,
+            untilMs: bounds.$2,
+          );
+          expect(edited.map((m) => m.$1).toSet(), {'first', 'last'});
+        });
+      }
     });
 
     test('most asks name the newest page; every 4th walks the older ones', () {
