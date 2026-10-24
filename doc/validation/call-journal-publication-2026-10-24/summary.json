@@ -1,0 +1,103 @@
+{
+  "schema": "xveil-call-journal-publication/1",
+  "baseline_source": "541851ea",
+  "post_commit_crash_baseline": {
+    "devices": 3,
+    "same_identity_devices": 2,
+    "preexisting_shared_entry": true,
+    "writer_killed_after_store_commit": true,
+    "local_final_duration_seconds": 75,
+    "sibling_final_duration_seconds": 0,
+    "recovered_publication": false,
+    "duplicate_call_rows_observed": false,
+    "production_fault_switch_added": false,
+    "media_started": false
+  },
+  "fresh_link_before_cache_fix": {
+    "source_group_entry_present": true,
+    "recipient_group_entry_present": false,
+    "recipient_visible_entry_present": false,
+    "observation_ms": 120000,
+    "signature_rejection_observed": true
+  },
+  "qualified_native": {
+    "devices": 3,
+    "same_identity_devices": 2,
+    "preexisting_shared_entry": true,
+    "online_sibling_publication": true,
+    "writer_killed_after_store_commit": true,
+    "local_final_duration_seconds": 75,
+    "sibling_final_duration_seconds": 75,
+    "recovered_publication": true,
+    "duplicate_call_rows_observed": false,
+    "production_fault_switch_added": false,
+    "media_started": false,
+    "test_exit_code": 0,
+    "ordinary_restart_assertions_passed": true,
+    "source_hashes_unchanged_during_and_after_run": true,
+    "invalid_row_diagnostics": 0,
+    "late_async_errors": 0
+  },
+  "checks": {
+    "regression-final": {
+      "exit_code": 0,
+      "tests_passed": 300
+    },
+    "group-document-final": {
+      "exit_code": 0,
+      "tests_passed": 31
+    },
+    "analyze-final": {
+      "exit_code": 0
+    }
+  },
+  "android_apk": {
+    "apk_sha256": "95deec1801bf25bc99fa1c884e71004803ca18b53079d4ada9c27100be72032c",
+    "build": "debug",
+    "target": "lib/main.dart",
+    "main_application_id_verified": true,
+    "publication_and_document_refresh_code_present": true,
+    "checked_test_entrypoints_absent": true,
+    "packaged_abis": [
+      "arm64-v8a"
+    ],
+    "packaged_native_matches_strip_unneeded_of_current_sources": true,
+    "packaged_native_sha256": {
+      "libveilclient_ffi.so": "c6ed179a52f74633f57ff52c78aa2db9e9a265a3cec21aad23bc523269003d7b",
+      "libhidden_volume_ffi.so": "6229bae4ded5db35636ef724b8fca2ca3f7fdb3b71a722c48d69291fbbb7d891",
+      "libveil_media.so": "3546a0141ba9ad7533a081287c3af36916f5b4a457c42d212930e0e10ec049cb"
+    },
+    "installed": false,
+    "external_mount_lost": false
+  },
+  "cleanup": {
+    "native_phases_checked": 7,
+    "owned_stand_processes_remaining": 0,
+    "temporary_containers_remaining": 0
+  },
+  "software_sha256": {
+    "veil-cli": "fc2053432b4c6867ce8416ada4af34942c649e0b3d00ac5c8932f59f16e8538a",
+    "libveilclient_ffi.dylib": "35d1f0a501131616ab96eb8b96d91dee77c3715ac31608c07339c2d2d858471a"
+  },
+  "native_hidden_volume_sha256": "c9f6f9742bb2d95bf312067a4c4bc745ae124bb40576d8ce1f9d4b02f6373ff5",
+  "source_sha256": {
+    "lib/data/storage/hidden_volume_storage.dart": "f34b62086e5b231cef819a43be63ba5577bca2365d4d93b93ba81cd3f5f9beef",
+    "lib/data/storage/storage.dart": "1cef5a6b07d6880872e4b39aae1956534079118748015806db1c86b4f65d173f",
+    "lib/state/call_log.dart": "246f6607669b87846ae7920da34153727321cd34f5a5425482ab20964cf42a9a",
+    "lib/state/call_log_sync.dart": "987b60d8fdbdf84d266e7c3dc876fc1b9aeaae8827f232bf2d4603f06b360e19",
+    "lib/state/device_sync_bridge.dart": "ad006e8efb5e23f1d84a8d6665ca7fa180bb075d4c7a2751010311bdd6ed82cc",
+    "lib/state/group_service.dart": "7e5b8f7ceebd9b7a16c1a087d7c3265d807282d1e940017d565e1eb85128e2fe",
+    "lib/state/group_service_providers.dart": "450580d67c980205bfc4d21bc2ebe656a48d5c91366027acba8b94a217f393e8",
+    "test/call_log_sync_test.dart": "5d67599f0fc9ab2c74c77a005459f5f7290571a805ee4dbf36ae3c891e45a46b",
+    "test/group_service_test.dart": "5689b4760e5dfc00d3571a0a671dea60812b55573defdb71a7178221130a45e1",
+    "test/e2e/call_journal_crash_writer_test.dart": "0e4f7d19f01d391c61a2056514d8014f1deeb6dd50f0b7652db3f20fab21f1a5",
+    "test/e2e/call_journal_publication_e2e_test.dart": "7a73f4eab07beb1b6af23afe27c8e808361125c368b1836bbae2a1577b12d9d4"
+  },
+  "limits": {
+    "media_started": false,
+    "physical_phone_qualified": false,
+    "windows_runtime_qualified": false,
+    "full_63_case_matrix_qualified": false,
+    "release_published": false
+  }
+}

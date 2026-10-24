@@ -3900,10 +3900,104 @@ class HiddenVolumeStorage
   // fresh id each, so nothing here ever rewrites a hot key, and the namespace
   // stays tiny (≤ the caller's cap, rows of ~150 B).
 
+  // Use the existing encrypted settings namespace: the container already
+  // reserves all 95 namespace roots. This prefix is not a shared preference.
+  static const _callSyncPrefix = 'call.sync.pending.v1:';
+  Future<void> _callJournalGate = Future<void>.value();
+
+  Future<T> _serializeCallJournal<T>(Future<T> Function() body) {
+    final result = _callJournalGate.then((_) => body());
+    _callJournalGate = result.then((_) {}, onError: (_) {});
+    return result;
+  }
+
+  static String _callSyncKey(String id) =>
+      '$_callSyncPrefix${crypto.sha256.convert(utf8.encode(id))}';
+
+  PendingCallLogSync _decodeCallSync(String key, Uint8List raw) {
+    try {
+      final json = jsonDecode(utf8.decode(raw));
+      final entry = json is Map<String, dynamic>
+          ? CallLogEntry.fromJson(json)
+          : null;
+      if (entry != null && _callSyncKey(entry.id) == key) {
+        return PendingCallLogSync(
+          entry: entry,
+          token: crypto.sha256.convert(raw).toString(),
+        );
+      }
+    } catch (_) {
+      // Neither the key nor the payload belongs in diagnostics.
+    }
+    throw StateError('Unreadable pending call history');
+  }
+
+  Future<PutOp?> _callSyncPut(CallLogEntry entry) async {
+    final key = _callSyncKey(entry.id);
+    final raw = await _as.get(Ns.settings, _sk(key));
+    if (raw != null &&
+        compareCallLogEntries(entry, _decodeCallSync(key, raw).entry) <= 0) {
+      return null;
+    }
+    return PutOp(Ns.settings, _sk(key), _sk(jsonEncode(entry.toJson())));
+  }
+
+  @override
+  Future<void> queueCallLogSync(CallLogEntry entry) =>
+      _serializeCallJournal(() async {
+        final op = await _callSyncPut(entry);
+        if (op != null) await _as.commit([op]);
+      });
+
+  @override
+  Future<List<PendingCallLogSync>> pendingCallLogSync({
+    int limit = 64,
+    String? afterCallId,
+  }) async {
+    if (limit <= 0) throw ArgumentError.value(limit, 'limit');
+    final cursor = afterCallId == null ? null : _callSyncKey(afterCallId);
+    final keys = [
+      for (final key in await _as.kvKeys(Ns.settings))
+        if (utf8.decode(key, allowMalformed: true) case final name)
+          if (name.startsWith(_callSyncPrefix) &&
+              (cursor == null || name.compareTo(cursor) > 0))
+            name,
+    ]..sort();
+    final records = <PendingCallLogSync>[];
+    for (final key in keys) {
+      final raw = await _as.get(Ns.settings, _sk(key));
+      if (raw != null) records.add(_decodeCallSync(key, raw));
+      if (records.length >= limit) break;
+    }
+    return records;
+  }
+
+  @override
+  Future<bool> acknowledgeCallLogSync(PendingCallLogSync record) =>
+      _serializeCallJournal(() async {
+        final key = _sk(_callSyncKey(record.entry.id));
+        final raw = await _as.get(Ns.settings, key);
+        if (raw == null ||
+            crypto.sha256.convert(raw).toString() != record.token) {
+          return false;
+        }
+        await _as.commit([DeleteOp(Ns.settings, key)]);
+        return true;
+      });
+
   @override
   Future<bool> appendCallLogEntry(
     CallLogEntry entry, {
     required int cap,
+    bool queueForSync = false,
+  }) => _serializeCallJournal(
+    () => _appendCallLogEntry(entry, cap: cap, queueForSync: queueForSync),
+  );
+
+  Future<bool> _appendCallLogEntry(
+    CallLogEntry entry, {
+    required int cap,
+    required bool queueForSync,
   }) async {
     final raw = await _readCallLogNamespace();
     final cur = _foldCallLogRecords(raw);
@@ -3933,6 +4027,7 @@ class HiddenVolumeStorage
         if (!keptIds.contains(row.logId)) DeleteLogOp(Ns.callLog, row.logId),
     ];
     final keepNew = kept.any((row) => row.logId == null);
+    final pending = changed && queueForSync ? await _callSyncPut(entry) : null;
     // TWO commits, appends first. hidden-volume refuses a transaction that both
     // appends to and deletes from ONE Log namespace (`Tx::delete_log` ->
     // WrongNamespaceKind "delete_log cannot be mixed with append_log in one
@@ -3949,8 +4044,13 @@ class HiddenVolumeStorage
       await _commitAtNextLogId(
         (logId) => [
           AppendLogOp(Ns.callLog, logId, _sk(jsonEncode(entry.toJson()))),
+          ?pending,
         ],
       );
+    } else if (pending != null) {
+      // A final ring time can put the result outside the visible window. Its
+      // siblings still need the correction; persist it BEFORE any eviction.
+      await _as.commit([pending]);
     }
     if (doomed.isNotEmpty) {
       try {
@@ -3995,6 +4095,7 @@ class HiddenVolumeStorage
     // They are one logical call even before a later append retries cleanup.
     return winners.values.toList();
   }
+
   Future<List<({int logId, CallLogEntry entry})>>
   _readCallLogNamespace() async {
     final out = <({int logId, CallLogEntry entry})>[];

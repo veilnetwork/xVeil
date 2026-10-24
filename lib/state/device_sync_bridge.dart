@@ -32,6 +32,7 @@ import '../domain/device_sync.dart';
 import '../domain/clear_policy.dart';
 import '../domain/disappearing_messages.dart' show DisappearingSetting;
 import 'call_log.dart';
+import 'call_log_sync.dart';
 import 'device_history_backfill.dart'
     show
         historyAskToServe,
@@ -468,19 +469,23 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   tasks.start(() => announceStoredNickname());
   tasks.start(() => announceStoredAvatar());
   tasks.start(() => announceStoredDevicePreferences());
-  callLog.onAdded = (e) {
-    tasks.start(() async {
-      final posted = await svc.postDeviceEvent(
-        DeviceSyncEvent(
-          kind: DeviceSyncKind.callLog,
-          key: e.id,
-          tsMs: e.atMs,
-          payload: e.toJson(),
-        ),
-      );
-      if (posted) await reconcileCallJournal(e);
-    });
-  };
+  final callPublisher = CallLogPublisher(
+    storage: ref.read(storageProvider),
+    isLinked: () async => await svc.deviceGroupIdHex() != null,
+    loadPublished: svc.committedDeviceCallLog,
+    post: (e) => svc.postDeviceEvent(
+      DeviceSyncEvent(
+        kind: DeviceSyncKind.callLog,
+        key: e.id,
+        tsMs: e.atMs,
+        payload: e.toJson(),
+      ),
+    ),
+    reconcile: reconcileCallJournal,
+  );
+  callLog.onAdded = (_) => callPublisher.nudge();
+  ref.onDispose(() => unawaited(callPublisher.close()));
+  callPublisher.start();
   // Read marks (brick 4c): reading here clears the badge on my other devices.
   // The event's tsMs IS the watermark (not a monotonic emit stamp) — two
   // devices reading independently converge on the newest read time, which is
@@ -807,7 +812,12 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   final closeBridge = messaging.registerShutdownTask(() async {
     bridgeGone = true;
     final queued = gate.close();
-    await Future.wait([tasks.close(), queued, serveChain]);
+    await Future.wait([
+      tasks.close(),
+      queued,
+      serveChain,
+      callPublisher.close(),
+    ]);
   });
   ref.onDispose(() => unawaited(closeBridge()));
 
@@ -1127,6 +1137,11 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
               // in the platform temp directory on every deferred boot.
               stagingBase: Directory.systemTemp.path,
             );
+            if (changed == SovereignDocumentAdoption.adopted ||
+                changed == SovereignDocumentAdoption.alreadyHeld) {
+              if (!identical(ref.read(groupServiceProvider), svc)) return;
+              await svc.refreshOwnIdentityDocument?.call();
+            }
             // Answer ONLY when something changed. The other device then holds
             // a document naming us both, receives ours, finds nothing new in
             // it, and the exchange stops — otherwise two devices would trade
