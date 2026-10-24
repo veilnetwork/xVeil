@@ -807,8 +807,8 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
     // seq stream (legacy / files) fall back to their raw ts and sort by id.
     final byAuthor = <String, List<Message>>{};
     for (final m in sorted) {
-      if (m.author != null && m.seq != null) {
-        (byAuthor[m.author!] ??= <Message>[]).add(m);
+      if (m.orderAuthor != null && m.orderSeq != null) {
+        (byAuthor[m.orderAuthor!] ??= <Message>[]).add(m);
       }
     }
     final effTs = <String, int>{}; // message id -> effective ts (ms)
@@ -823,8 +823,8 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
       // Two distinct messages at one seq are the mark of it (one device never
       // writes two), so such a stream keeps its honest timestamps.
       final seen = <int>{};
-      if (stream.any((m) => !seen.add(m.seq!))) continue;
-      stream.sort((a, b) => a.seq!.compareTo(b.seq!));
+      if (stream.any((m) => !seen.add(m.orderSeq!))) continue;
+      stream.sort((a, b) => a.orderSeq!.compareTo(b.orderSeq!));
       var runningMax = 0;
       for (final m in stream) {
         final raw = m.timestamp.millisecondsSinceEpoch;
@@ -837,9 +837,9 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
     sorted.sort((a, b) {
       final t = effOf(a).compareTo(effOf(b));
       if (t != 0) return t;
-      final au = (a.author ?? '').compareTo(b.author ?? '');
+      final au = (a.orderAuthor ?? '').compareTo(b.orderAuthor ?? '');
       if (au != 0) return au;
-      final s = (a.seq ?? 0).compareTo(b.seq ?? 0);
+      final s = (a.orderSeq ?? 0).compareTo(b.orderSeq ?? 0);
       return s != 0 ? s : a.id.compareTo(b.id);
     });
     // Pagination tail: return only the most-recent [limit]. NOTE: the underlying
@@ -1735,6 +1735,53 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
     final raw = await _as.get(Ns.settings, _sk('conv_seq:$convHex:$authorHex'));
     return raw == null ? 1 : (int.tryParse(utf8.decode(raw)) ?? 1);
   }
+
+  @override
+  Future<bool> adoptMessageOrdering(
+    String conversationId,
+    String messageId, {
+    required String provisionalAuthor,
+    required int provisionalSeq,
+    required String author,
+    required int seq,
+  }) => _serialized(() async {
+    await _foldCritical();
+    final held = _scanById[_msgKey(conversationId, messageId)];
+    if (held == null ||
+        held.direction != MessageDirection.outgoing ||
+        held.author != provisionalAuthor ||
+        held.seq != provisionalSeq ||
+        held.ordering != null) {
+      return false;
+    }
+    // A body-less local metadata record. Older folds see an inert void with no
+    // sequence slot; exporters see no au/sq. In particular this cannot re-ship
+    // the contact's unverified echo as a new send from our physical device.
+    // Appending, rather than rewriting the post, also makes a concurrent local
+    // delete/clear authoritative: the correction cannot resurrect its body.
+    await _commitAtNextMessageLogId(
+      (namespace, logId) => [
+        AppendLogOp(
+          namespace,
+          logId,
+          _sk(
+            jsonEncode({
+              'op': 'ordering',
+              'k': EventKind.void_.index,
+              'c': conversationId,
+              'id': messageId,
+              'fromAu': provisionalAuthor,
+              'fromSq': provisionalSeq,
+              'orderAu': author,
+              'orderSq': seq,
+            }),
+          ),
+        ),
+      ],
+    );
+    await _foldCritical();
+    return true;
+  });
 
   @override
   Future<ConversationSync> conversationSync(String conversationId) =>
@@ -4462,6 +4509,23 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
             return hit;
           });
           _scanDeletedLegacyIds.add(id);
+        }
+        continue;
+      }
+      if (m['op'] == 'ordering') {
+        final c = m['c'], id = m['id'];
+        if (c is! String || id is! String) continue;
+        final key = _msgKey(c, id);
+        final post = _scanById[key];
+        final author = m['orderAu'], seq = m['orderSq'];
+        if (post != null &&
+            post.direction == MessageDirection.outgoing &&
+            post.author == m['fromAu'] &&
+            post.seq == m['fromSq'] &&
+            post.ordering == null &&
+            author is String &&
+            seq is int) {
+          _scanById[key] = post.copyWith(ordering: (author: author, seq: seq));
         }
         continue;
       }

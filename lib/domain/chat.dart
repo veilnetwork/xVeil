@@ -314,6 +314,7 @@ class Message {
     this.edited = false,
     this.author,
     this.seq,
+    this.ordering,
     this.replyToId,
     this.forwardedFrom,
     this.signature = MessageSignature.none,
@@ -369,6 +370,14 @@ class Message {
   final String? author;
   final int? seq;
 
+  /// Original position authenticated by my device journal after a provisional
+  /// own-message echo arrived from the contact first. Keep the echo's local
+  /// [author]/[seq] for wire bookkeeping: its body must never be promoted into
+  /// this device's authentic outgoing event stream just by repairing ordering.
+  final ({String author, int seq})? ordering;
+  String? get orderAuthor => ordering?.author ?? author;
+  int? get orderSeq => ordering?.seq ?? seq;
+
   /// The id of the message this one replies to, or null for a plain message.
   /// Message ids travel on the wire (dedup/ack already rely on that), so both
   /// sides hold the SAME id for the quoted message — the reference resolves
@@ -404,6 +413,7 @@ class Message {
     String? fileId,
     MessageSignature? signature,
     List<InlineCustomEmoji>? customEmoji,
+    ({String author, int seq})? ordering,
   }) => Message(
     id: id,
     conversationId: conversationId,
@@ -420,6 +430,7 @@ class Message {
     edited: edited ?? this.edited,
     author: author,
     seq: seq,
+    ordering: ordering ?? this.ordering,
     replyToId: replyToId,
     forwardedFrom: forwardedFrom,
     signature: signature ?? this.signature,
