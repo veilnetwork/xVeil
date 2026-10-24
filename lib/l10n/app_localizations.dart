@@ -13541,6 +13541,156 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Erase this group\'s messages?'**
   String get clearRequestsGroupAllConfirmTitle;
+
+  /// No description provided for @quickUnlockTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Quick unlock'**
+  String get quickUnlockTitle;
+
+  /// No description provided for @quickUnlockMenuHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Pattern and device authentication'**
+  String get quickUnlockMenuHint;
+
+  /// No description provided for @quickUnlockHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose methods for screen unlock. To also open the container after restart, enable the option below. Your normal password remains available. These choices stay on this device.'**
+  String get quickUnlockHint;
+
+  /// No description provided for @quickUnlockPattern.
+  ///
+  /// In en, this message translates to:
+  /// **'Pattern'**
+  String get quickUnlockPattern;
+
+  /// No description provided for @quickUnlockDraw.
+  ///
+  /// In en, this message translates to:
+  /// **'Select at least 4 distinct dots, in order. Draw or tap. Leave both grids empty to keep the existing pattern.'**
+  String get quickUnlockDraw;
+
+  /// No description provided for @quickUnlockRepeat.
+  ///
+  /// In en, this message translates to:
+  /// **'Repeat the sequence'**
+  String get quickUnlockRepeat;
+
+  /// No description provided for @quickUnlockReset.
+  ///
+  /// In en, this message translates to:
+  /// **'Clear both grids'**
+  String get quickUnlockReset;
+
+  /// No description provided for @quickUnlockMismatch.
+  ///
+  /// In en, this message translates to:
+  /// **'The sequences do not match.'**
+  String get quickUnlockMismatch;
+
+  /// No description provided for @quickUnlockSystem.
+  ///
+  /// In en, this message translates to:
+  /// **'Device authentication'**
+  String get quickUnlockSystem;
+
+  /// No description provided for @quickUnlockSystemHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Fingerprint or face recognition supported by your OS. Windows Hello may also offer a device PIN. No biometric data is stored in xVeil.'**
+  String get quickUnlockSystemHint;
+
+  /// No description provided for @quickUnlockUnavailable.
+  ///
+  /// In en, this message translates to:
+  /// **'Device authentication is unavailable or no biometrics are enrolled.'**
+  String get quickUnlockUnavailable;
+
+  /// No description provided for @quickUnlockReason.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock the xVeil screen'**
+  String get quickUnlockReason;
+
+  /// No description provided for @quickUnlockSaveFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save. Check the password, matching patterns (at least 4 dots), or system authentication; try again after any attempt delay.'**
+  String get quickUnlockSaveFailed;
+
+  /// No description provided for @quickUnlockWithPattern.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock with pattern'**
+  String get quickUnlockWithPattern;
+
+  /// No description provided for @nicknameUsageHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Share @name with a contact: they can enter it in Add contact. The name belongs to your identity; the node ID remains unchanged.'**
+  String get nicknameUsageHint;
+
+  /// No description provided for @avatarChoose.
+  ///
+  /// In en, this message translates to:
+  /// **'Choose photo'**
+  String get avatarChoose;
+
+  /// No description provided for @avatarRemove.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove photo'**
+  String get avatarRemove;
+
+  /// No description provided for @avatarSharingHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Your photo is shared with accepted contacts and linked devices. The original filename and photo metadata are removed.'**
+  String get avatarSharingHint;
+
+  /// No description provided for @avatarFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not save the photo. Choose an image up to 8 MiB and try again.'**
+  String get avatarFailed;
+
+  /// No description provided for @startupUnlockTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Also unlock after restart'**
+  String get startupUnlockTitle;
+
+  /// No description provided for @startupUnlockHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Saves this sign-in in the OS secure store on this device. This leaves evidence that quick sign-in is configured, even while the hidden container is locked. It replaces the previously saved sign-in for this app profile. Keep your password: OS reset or biometric changes can make quick sign-in unavailable.'**
+  String get startupUnlockHint;
+
+  /// No description provided for @startupUnlockBlocked.
+  ///
+  /// In en, this message translates to:
+  /// **'Pattern sign-in is blocked after repeated attempts. Enter the password and configure quick unlock again in Settings.'**
+  String get startupUnlockBlocked;
+
+  /// No description provided for @startupUnlockFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not unlock. Check the pattern or system confirmation; wait before retrying after repeated failures. You can always enter the container password.'**
+  String get startupUnlockFailed;
+
+  /// No description provided for @wipeLeftQuickUnlock.
+  ///
+  /// In en, this message translates to:
+  /// **'saved quick sign-in in the OS secure store'**
+  String get wipeLeftQuickUnlock;
+
+  /// No description provided for @startupUnlockSaveFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Screen lock settings were saved, but OS quick sign-in could not be configured. Your container password still works.'**
+  String get startupUnlockSaveFailed;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

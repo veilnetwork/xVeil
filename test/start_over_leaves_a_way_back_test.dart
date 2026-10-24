@@ -1,3 +1,4 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 // "Start over" is not allowed to be a one-way door.
 //
 // Reported from the field, by someone who pressed it to see what it did:
@@ -71,6 +72,7 @@ class _NoopNode implements NodeController {
 }
 
 void main() {
+  setUp(() => FlutterSecureStorage.setMockInitialValues({}));
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   test('the container that start-over forgot can be opened again', () async {

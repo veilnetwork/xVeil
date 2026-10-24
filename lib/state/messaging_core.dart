@@ -23,6 +23,7 @@ import '../domain/call_signal.dart';
 import '../domain/group_call.dart';
 import '../domain/group_content.dart';
 import '../domain/chat.dart';
+import '../domain/profile_avatar.dart';
 import '../domain/clear_policy.dart';
 import '../domain/clear_request.dart';
 import '../domain/chat_folder.dart';
@@ -50,6 +51,7 @@ import 'package:xveil/core/log.dart';
 import 'mailbox_deposit_gate.dart';
 
 part 'messaging_support.dart';
+part 'messaging_profile.dart';
 part 'messaging_local_chat.dart';
 part 'messaging_conversation_admin.dart';
 part 'messaging_attestation.dart';
@@ -81,6 +83,8 @@ part 'messaging_inbound_dispatch.dart';
 /// stream, which keeps it testable and avoids invalidating providers from
 /// async stream callbacks.
 class MessagingService {
+  final _avatarRequestedAt = <String, DateTime>{};
+  final _avatarRepliedAt = <String, DateTime>{};
   /// The live-resend delay one frame actually waits, for the test that pins
   /// the SPREAD.
   ///

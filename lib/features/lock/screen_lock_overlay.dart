@@ -1,3 +1,4 @@
+import 'pattern_pad.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -49,6 +50,7 @@ class _ScreenLockHostState extends ConsumerState<ScreenLockHost>
       // `paused` would mean an "immediately" setting did not lock until the
       // app was fully backgrounded.
       case AppLifecycleState.inactive:
+        if (!controller.systemPromptActive) controller.onLeftForeground();
       case AppLifecycleState.paused:
       case AppLifecycleState.hidden:
         controller.onLeftForeground();
@@ -130,6 +132,9 @@ class _ScreenLockCoverState extends ConsumerState<ScreenLockCover> {
   /// [ValueListenableBuilder] below is rebuilt per tick.
   final _owed = ValueNotifier<Duration>(Duration.zero);
   Timer? _ticker;
+  List<int> _pattern = [];
+  int _patternEpoch = 0;
+  bool _authBusy = false;
 
   @override
   void initState() {
@@ -182,6 +187,7 @@ class _ScreenLockCoverState extends ConsumerState<ScreenLockCover> {
     final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
     final wrong = ref.watch(screenLockProvider.select((s) => s.wrongPassword));
+    final quick = ref.watch(screenLockProvider);
     // The prompt is a screen with a password field on it; the same reasoning
     // that guards the recovery phrase applies to the moment it is typed.
     return SecureScreenGuard(
@@ -252,6 +258,52 @@ class _ScreenLockCoverState extends ConsumerState<ScreenLockCover> {
                                     : (wrong ? l.lockWrong : null),
                               ),
                             ),
+                            if (quick.patternGrid != null) ...[
+                              const SizedBox(height: 12),
+                              Text(l.quickUnlockPattern),
+                              Center(
+                                child: PatternPad(
+                                  key: ValueKey(
+                                    'unlock-pattern-$_patternEpoch',
+                                  ),
+                                  grid: quick.patternGrid!,
+                                  onChanged: (v) => _pattern = v,
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: waiting
+                                    ? null
+                                    : () {
+                                        ref
+                                            .read(screenLockProvider.notifier)
+                                            .tryUnlockPattern(_pattern);
+                                        setState(() {
+                                          _pattern = [];
+                                          _patternEpoch++;
+                                        });
+                                        _syncOwed();
+                                      },
+                                child: Text(l.quickUnlockWithPattern),
+                              ),
+                            ],
+                            if (quick.systemAuthentication)
+                              OutlinedButton.icon(
+                                icon: const Icon(Icons.fingerprint),
+                                label: Text(l.quickUnlockSystem),
+                                onPressed: waiting || _authBusy
+                                    ? null
+                                    : () async {
+                                        setState(() => _authBusy = true);
+                                        await ref
+                                            .read(screenLockProvider.notifier)
+                                            .tryUnlockSystem(
+                                              l.quickUnlockReason,
+                                            );
+                                        if (mounted) {
+                                          setState(() => _authBusy = false);
+                                        }
+                                      },
+                              ),
                             const SizedBox(height: 16),
                             FilledButton(
                               key: const ValueKey('screen-lock-submit'),

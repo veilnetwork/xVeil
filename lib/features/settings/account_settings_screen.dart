@@ -1,3 +1,4 @@
+import '../identity/profile_avatar.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -140,6 +141,10 @@ class AccountSettingsScreen extends ConsumerWidget {
       ),
       body: ListView(
         children: [
+          if (ref.watch(appControllerProvider.select((s) => s.identity)) != null) ...[
+            const EditIdentityAvatar(),
+            const Divider(),
+          ],
           // Explain the recovery credential and what the local export marker
           // knows. A missing marker does not prove that no backup exists.
           // Export remains available on the Devices screen.

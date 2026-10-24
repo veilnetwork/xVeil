@@ -1,3 +1,4 @@
+import 'startup_unlock.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -300,9 +301,10 @@ class AppController extends Notifier<AppState> {
     // anything a person could act on.
     if (!ref.mounted) return;
     final onboarded = prefs.getBool(_onboardedKey()) ?? false;
-    diagnosticJournal.record(DiagnosticEvent.startup, values: {
-      DiagnosticMetric.enabled: onboarded ? 1 : 0,
-    });
+    diagnosticJournal.record(
+      DiagnosticEvent.startup,
+      values: {DiagnosticMetric.enabled: onboarded ? 1 : 0},
+    );
     state = AppState(onboarded ? AppPhase.locked : AppPhase.onboarding);
   }
 
@@ -3406,6 +3408,15 @@ class AppController extends Notifier<AppState> {
     }
   }
 
+  Future<void> _forgetStartupUnlock() async {
+    final prefs = await ref.read(prefsProvider.future);
+    if (prefs.getBool(kStartupUnlockOptIn) == true) {
+      await ref.read(quickUnlockVaultProvider).forget().timeout(const Duration(seconds: 15));
+      if (!await prefs.remove(kStartupUnlockOptIn)) throw StateError('Saved sign-in removal not recorded');
+    }
+    ref.invalidate(startupUnlockOptionsProvider);
+  }
+
   /// Escape hatch from the lock screen: forget the onboarded flag and return to
   /// onboarding (e.g. forgotten password, or a moved/missing container). The
   /// existing container file is left untouched on disk — deniability means we
@@ -3414,6 +3425,12 @@ class AppController extends Notifier<AppState> {
     _endLifecycle(); // same window as [lock] — see [_lifecycle]
     _stopMediaCapture();
     _incomplete.clear();
+    try {
+      await _forgetStartupUnlock();
+    } catch (_) {
+      await lock();
+      rethrow;
+    }
     await _stopVpnTunnelRecorded();
     await _teardownSession();
     await _teardownRealStack();
@@ -3494,9 +3511,16 @@ class AppController extends Notifier<AppState> {
   /// The returned list names what is still there, checked by looking rather
   /// than by trusting the delete call. Empty means empty.
   Future<List<String>> wipeContainers() async {
-    _endLifecycle(); // same window as [lock] — see [_lifecycle]
+    _endLifecycle(); // invalidate pending unlocks before the first await
     _stopMediaCapture();
     _incomplete.clear();
+    var quickUnlockRemoved = false;
+    try {
+      await _forgetStartupUnlock();
+      quickUnlockRemoved = true;
+    } catch (_) {
+      /* reported as a remaining OS credential below */
+    }
     await _stopVpnTunnelRecorded();
     await _teardownSession();
     await _teardownRealStack();
@@ -3621,6 +3645,7 @@ class AppController extends Notifier<AppState> {
     // same as the file being gone: a partial recursive delete leaves children,
     // and a platform can report success on a handle it has only unlinked.
     final remaining = <String>[];
+    if (!quickUnlockRemoved) remaining.add('quick-unlock');
     if (path != null && File(path).existsSync()) remaining.add('container');
     if (path != null && blobRootFor(path).existsSync()) {
       remaining.add('files');
