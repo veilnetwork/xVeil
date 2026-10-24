@@ -1,0 +1,70 @@
+{
+  "sdk_revision": "fa7123f5e32b0a05e669551b7dbfbba18236df44",
+  "native_build_sdk_revision": "fa7123f5e32b0a05e669551b7dbfbba18236df44",
+  "frozen_flutter_source_revision": "b88ea12c",
+  "flutter_and_media_frontends_unchanged": true,
+  "c_abi_unchanged_from_d4b403de": true,
+  "rust_stream_tests_passed": 148,
+  "rust_stream_tests_failed": 0,
+  "rust_stream_tests_ignored": 0,
+  "clippy_deny_warnings": true,
+  "workspace_format_check": true,
+  "negative_control": {
+    "disabled_expiry_test_failed": true,
+    "production_source_restored": true
+  },
+  "recent_reorder_window_ms": 30000,
+  "bucket_ms": 1000,
+  "max_buckets": 31,
+  "configured_multipath_floor_retained": true,
+  "matched_dsack_rto_bound_retained": true,
+  "live_observed_max_decreased": true,
+  "live_max_observed_reordering_ms": 1878,
+  "file_check": {
+    "bytes": 33554432,
+    "completion_limit_seconds": 180,
+    "download_seconds": 112.96046283293981,
+    "hash_matches": true,
+    "completion_gate_passed": true,
+    "p2p_denied": true,
+    "wifi_off_and_cellular_default": true
+  },
+  "pre_restart_messages": [
+    {
+      "sender": "mac",
+      "receiver": "phone",
+      "delivery_seconds": 0.5937946669291705,
+      "copies": 1
+    },
+    {
+      "sender": "phone",
+      "receiver": "mac",
+      "delivery_seconds": 0.5999295419314876,
+      "copies": 1
+    }
+  ],
+  "post_restart_message_single_copy": true,
+  "encrypted_authorization_document_counts": {
+    "before": 6,
+    "after-crash": 8,
+    "after-restart": 8
+  },
+  "signed_android_snapshots_verified": true,
+  "independent_cleanup": {
+    "owned_mac_process_absent": true,
+    "phone_process_absent": true,
+    "owned_forward_removed": true,
+    "debug_property_restored": true,
+    "profile_pointer_unchanged": true,
+    "owned_logcat_captures_absent": true,
+    "original_apk_hash_restored": true
+  },
+  "calls_or_audio_started": false,
+  "server_changes": false,
+  "release_packaging_qualified": false,
+  "engine_source_sha256": "dd94e08291a520f09ef10f86b4852f4ca5996c2a70db8f11e5c88f0bbcd2b5b9",
+  "native_ffi_sha256": {
+    "android": "69998f80518348d286eb1d3403939525920d37a6b5378e8a41b194750ffeaa35",
+    "macos": "bc77aa693136c6a057e34f757503d5320a652f45d5e7537d97c0dfd81a9c760e"
+  }
+}
