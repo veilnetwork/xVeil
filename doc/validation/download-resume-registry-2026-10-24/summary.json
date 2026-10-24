@@ -1,0 +1,66 @@
+{
+  "schema": "xveil-download-resume-registry/1",
+  "baseline_commit": "b1dc5cd2",
+  "baseline_real_container": {
+    "acknowledged_requests": 24,
+    "recovered_requests": 10,
+    "test_exit_code": 1
+  },
+  "corrected_real_container": {
+    "requested_downloads": 24,
+    "recovered_downloads": 24,
+    "all_recovered": true,
+    "cancelled_record_absent_after_another_reopen": true,
+    "real_container_reopened": true,
+    "network_used": false
+  },
+  "post_ack_process_crash": {
+    "requests_acknowledged": 24,
+    "recovered_requests": 24,
+    "writer_killed_without_shutdown": true,
+    "owned_child_processes_exited": true,
+    "network_used": false
+  },
+  "checks": {
+    "regression_tests_passed": 115,
+    "native_tests_passed": 2,
+    "analyzer_issues": 0
+  },
+  "android_apk": {
+    "sha256": "09356b3b803a3d1938df4ae92ddcd7f0ec0d53450765aa29c049b84bd19cd5ab",
+    "build": "debug",
+    "target": "lib/main.dart",
+    "main_application_id_verified": true,
+    "registry_code_present": true,
+    "checked_test_entrypoints_absent": true,
+    "packaged_abis": [
+      "arm64-v8a"
+    ],
+    "native_matches_current_staged_sources_after_strip": true,
+    "packaged_native_sha256": {
+      "libveilclient_ffi.so": "c6ed179a52f74633f57ff52c78aa2db9e9a265a3cec21aad23bc523269003d7b",
+      "libhidden_volume_ffi.so": "6229bae4ded5db35636ef724b8fca2ca3f7fdb3b71a722c48d69291fbbb7d891",
+      "libveil_media.so": "3546a0141ba9ad7533a081287c3af36916f5b4a457c42d212930e0e10ec049cb"
+    },
+    "installed": false,
+    "external_mount_lost": false
+  },
+  "native_hidden_volume_sha256": "c9f6f9742bb2d95bf312067a4c4bc745ae124bb40576d8ce1f9d4b02f6373ff5",
+  "source_sha256": {
+    "lib/state/messaging_download_resume.dart": "32526d6905329dc61718618dde923f07cd5cd8af3d5e1788f2dc3c20669915e3",
+    "lib/state/messaging_core.dart": "eed70fbede1366ed4c01f8cfa80e8c4ed951842ecf5b1cb82ac26267fcdd1395",
+    "lib/features/chat/chat_screen.dart": "578a0f0625ace30cc5e5b73c4d199c3ac2cdbf05582e4a902061351d99af95f3",
+    "test/native/download_resume_native_test.dart": "3d38fc94407b8eb1f2e1d9cdbec83e5de1c5267dd4242c3a12f625a2f41806f7",
+    "test/download_resume_persistence_test.dart": "55803b1fbe2e738d3a9ef31caf6f3069f770c75faf0b6b514204be5e626c42b6",
+    "test/native/download_resume_crash_test.dart": "8ebc33838809b81a143a3469b4079eabcee52b2d55821ac6c198b26902efa8e9"
+  },
+  "scope": {
+    "network_used": false,
+    "physical_phone_qualified": false,
+    "windows_runtime_qualified": false,
+    "large_file_throughput_qualified": false,
+    "full_63_case_matrix_qualified": false,
+    "production_fault_flags_added": false,
+    "release_published": false
+  }
+}
