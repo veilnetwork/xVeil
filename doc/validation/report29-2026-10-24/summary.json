@@ -1,12 +1,13 @@
 {
-  "sdk_revision": "fa7123f5e32b0a05e669551b7dbfbba18236df44",
+  "sdk_revision": "19171c10a90b15da9c0c5e6b112d0bc08e698b72",
   "certificate_commit": "97bdec79",
   "sdk_commits": {
     "ipc": "950141e5",
     "identity": "d459f72a",
     "stream": "9414f532",
     "embedded_host_authorization": "d4b403def8b01e2fe8d2e0e9131893d751c206f2",
-    "recent_reordering_evidence": "fa7123f5e32b0a05e669551b7dbfbba18236df44"
+    "recent_reordering_evidence": "fa7123f5e32b0a05e669551b7dbfbba18236df44",
+    "muted_video_audio_activity": "19171c10a90b15da9c0c5e6b112d0bc08e698b72"
   },
   "automated_verification": {
     "rust_passed": 1096,
@@ -85,6 +86,8 @@
     "latest_physical_file_180_second_gate_passed": true,
     "baseline_physical_file_180_second_gate_passed": false,
     "latest_physical_file_download_seconds": 112.96046283293981,
-    "latest_physical_file_hash_matches": true
+    "latest_physical_file_hash_matches": true,
+    "muted_video_native_regression_passed": true,
+    "macos_certificate_dialog_open_cancel_qualified": true
   }
 }
