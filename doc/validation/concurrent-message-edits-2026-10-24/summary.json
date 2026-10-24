@@ -1,0 +1,58 @@
+{
+  "base_commit": "f7f145c755d76fe04c6145eb727636c279b1f732",
+  "sdk_commit": "1440d89ee076834fcd9d8c054a60b732d0e96831",
+  "hidden_volume_commit": "47c28bc411abe9cc68f8f506c914891330f70121",
+  "initial_red_tests": 5,
+  "own_history_equal_revision_red_test": true,
+  "malformed_conversation_red_test": true,
+  "regression_test_files": 26,
+  "regression_tests_passed": 503,
+  "dart_analyze_issues": 0,
+  "native_scenario": {
+    "devices": 3,
+    "same_identity_devices": 2,
+    "separate_processes": true,
+    "local_network_only": true,
+    "controlled_offline_edits": true,
+    "legacy_frame_id_collisions": true,
+    "production_fault_switch_added": false,
+    "conflicting_messages": 2,
+    "both_arrival_orders_exercised": true,
+    "a_b_c_converged_at_equal_revision": true,
+    "same_id_order": true,
+    "duplicate_target_ids": 0,
+    "signed_journal_and_real_compaction_agree": true,
+    "equal_revision_survives_all_restarts": true,
+    "ordinary_edit_after_conflict_converged": true,
+    "same_edit_revision_in_reopened_containers": true,
+    "passed": true
+  },
+  "native_sources_unchanged_during_run": true,
+  "final_sources_match_native_run": true,
+  "cleanup": {
+    "owned_groups_checked": 12,
+    "owned_pids_checked": 16,
+    "remaining_processes": 0,
+    "stand_directory_removed": true
+  },
+  "source_sha256": {
+    "lib/data/storage/hidden_volume_storage.dart": "7f235c2d9bc152f0af9c42fe76b70be0281c5fd34e920aee07f2848a5a68546e",
+    "lib/domain/device_sync.dart": "a5870a8fc4e8b4b19e705f8b57943ff95c40526d306dc0243154ffe094029bf4",
+    "lib/state/group_service_providers.dart": "7275cf67bbd1669333ba2cb099bfce11f61f91cde5403f29dc4a8776b7071ed8",
+    "lib/state/messaging_core.dart": "c084cfb977ef8d4708831ff13bcf99e2b12d66ce2af3ddb84e9873863bd316d4",
+    "lib/state/messaging_device_mirror.dart": "c37733b99f2cd7935a07335c6a5d4edff1201884e66e348f35c266083910f226",
+    "lib/state/messaging_inbound_dispatch.dart": "609e8c1371fad1c8d040025c246fb52cb723aa6273471447ce340fdb393b564a",
+    "lib/state/messaging_mutations.dart": "1fbb1bc5142b23c9cc44de871b5617ff42625c703ffc5fdfbbe70d813311a910",
+    "lib/state/messaging_own_history.dart": "5940a908ecec7662d1fe6bd1db5ab0135b2e4a5aa330fd67db4206d84f3feb8d",
+    "lib/state/messaging_support.dart": "95bf917158d89193e9606e17afe6cfc23a953fd7efa10f56d0fb074e295b5aaa",
+    "test/own_device_history_test.dart": "b38def54e52ee5fddbc3a292a48e5d0e7aa5fb40215c914363e7a252dee55c95",
+    "lib/domain/message_edit.dart": "f048a1c575f7f0ca50b297ae37d0a582e8116068f245a1c06a73e1ff21aabaff",
+    "test/concurrent_message_edits_test.dart": "7aba82cfacc5c922c9080f2e32b7970bb4497664c71581f916868e0f515eef3f",
+    "test/e2e/concurrent_edits_process_e2e_test.dart": "1c8857554f12e9eaf3572d66a93067f96755fe8ae43c1814aedecad55c819245"
+  },
+  "native_software_sha256": {
+    "veil-cli": "fc2053432b4c6867ce8416ada4af34942c649e0b3d00ac5c8932f59f16e8538a",
+    "libveilclient_ffi.dylib": "35d1f0a501131616ab96eb8b96d91dee77c3715ac31608c07339c2d2d858471a",
+    "libhidden_volume_ffi.dylib": "c9f6f9742bb2d95bf312067a4c4bc745ae124bb40576d8ce1f9d4b02f6373ff5"
+  }
+}

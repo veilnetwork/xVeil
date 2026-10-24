@@ -62,9 +62,13 @@ extension _MessagingInboundDispatch on MessagingService {
 
   /// Remember only a completed durable effect (or a permanent policy refusal).
   /// A storage exception or a missing target leaves the sender's frame live.
-  Future<void> _settleMutationFrame(InboundMessage message, String? fid) async {
+  Future<void> _settleMutationFrame(
+    InboundMessage message,
+    String? fid, {
+    String? dedupId,
+  }) async {
     if (fid == null) return;
-    _outbox.remember(message.src.hex, fid);
+    _outbox.remember(message.src.hex, dedupId ?? fid);
     await _ackFrame(message, fid);
   }
 
@@ -280,6 +284,11 @@ extension _MessagingInboundDispatch on MessagingService {
         env.kind == WireKind.reaction ||
         env.kind == WireKind.disappearingSet;
     final deferredGroupCallAck = env.kind == WireKind.groupCallSignal;
+    // Older senders used the same frame ID for concurrent edits at one
+    // revision. ACK that wire ID, but deduplicate its actual value locally.
+    final persistenceDedupId = env.kind == WireKind.edit && fid != null
+        ? '$fid:${messageEditContentHash(env.body, env.customEmoji)}'
+        : fid;
     final deferredChatAck =
         env.kind == WireKind.message ||
         env.kind == WireKind.spaceRecommendation ||
@@ -318,7 +327,7 @@ extension _MessagingInboundDispatch on MessagingService {
         // Authorization is the group frame itself, not ContactStatus. The
         // groupCallSignal switch arm ACKs only after the group layer accepts.
       } else if (deferredPersistenceAck) {
-        if (_outbox.hasSeen(m.src.hex, fid)) {
+        if (_outbox.hasSeen(m.src.hex, persistenceDedupId!)) {
           await _ackFrame(m, fid);
           return;
         }
@@ -538,6 +547,21 @@ extension _MessagingInboundDispatch on MessagingService {
           // → storage allocates locally (no cross-device convergence for them).
           seq: env.seq,
         );
+        if (id != null && pending?.body != null && pending?.seq != null) {
+          await _storage.editMessage(
+            m.src.hex,
+            id,
+            body,
+            seq: pending!.seq,
+            customEmoji: pending.customEmoji,
+          );
+          _deviceMirror.onMessageEdited?.call(
+            m.src,
+            id,
+            body,
+            pending.customEmoji,
+          );
+        }
         _emitIncoming(m.src, body, isFile: false, messageId: id);
         if (id != null) {
           await _settleStoredPost(m, id, fid);
@@ -644,7 +668,7 @@ extension _MessagingInboundDispatch on MessagingService {
         // it; the direction check is the real authorization gate).
         if (existing?.status != ContactStatus.accepted) return;
         if (await _mutations.applyIncomingEdit(m.src, env)) {
-          await _settleMutationFrame(m, fid);
+          await _settleMutationFrame(m, fid, dedupId: persistenceDedupId);
         }
       case WireKind.del:
         // The peer unsent a message THEY sent us — purge + scrub our copy too.
