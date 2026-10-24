@@ -40,6 +40,7 @@ import '../domain/chat.dart'
         NotificationMutePolicy,
         kMuteForever;
 import '../domain/call_signal.dart';
+import '../domain/call_log.dart';
 import '../domain/cloud.dart'
     show CloudItem, answerableCloudContentIds, unresolvedCloudNoteRevisions;
 import '../domain/device_sync.dart';
@@ -20269,6 +20270,12 @@ class GroupService implements ArchiveGroups {
     required SovereignGroupSigner sovereign,
     bool broadcastSnapshot = true,
   }) async {
+    if (_disposed) return false;
+    // The ceremony persisted the new delegation BEFORE adding membership.
+    // Refresh the synchronous verifier's canonical local document before a
+    // snapshot can reach the new device and it starts signing family rows.
+    await refreshOwnIdentityDocument?.call();
+    if (_disposed) return false;
     final ok = await _linkDevice(
       device,
       sovereign: sovereign,
@@ -20288,6 +20295,10 @@ class GroupService implements ArchiveGroups {
   /// be replayed into the group. Wired by the provider; null in tests that do
   /// not care.
   Future<void> Function(NodeId device)? onMemberLinked;
+
+  /// Reload only the canonical document in this identity's container. A peer's
+  /// advertised document must never replace our own authorization source.
+  Future<void> Function()? refreshOwnIdentityDocument;
 
   Future<bool> _linkDevice(
     NodeId device, {
@@ -20699,6 +20710,30 @@ class GroupService implements ArchiveGroups {
 
   /// Working bundles of batches in progress, by group id hex.
   final Map<String, GroupBundle> _batchBundles = {};
+
+  /// Committed call results for publication deduplication, including events
+  /// whose timestamps are not effective yet. Share the mutation gate so this
+  /// never acknowledges a row from an in-flight, unsaved [_batchBundles] view.
+  /// Applying remote state must still use [deviceSyncState]'s clock filter.
+  Future<List<CallLogEntry>> committedDeviceCallLog() async {
+    final hex = await deviceGroupIdHex();
+    if (hex == null) return const [];
+    final gid = NodeId.fromHex(hex);
+    return _serialized(gid, () async {
+      final best = <String, CallLogEntry>{};
+      for (final message in await messagesOf(gid, applyLocalRetention: false)) {
+        final event = DeviceSyncEvent.fromBody(message.body);
+        if (event == null || event.kind != DeviceSyncKind.callLog) continue;
+        final row = CallLogEntry.fromJson(event.payload);
+        if (row == null || row.id != event.key) continue;
+        final previous = best[row.id];
+        if (previous == null || compareCallLogEntries(row, previous) > 0) {
+          best[row.id] = row;
+        }
+      }
+      return best.values.toList();
+    });
+  }
 
   /// The folded device-sync state: newest event per (kind, key), from the
   /// VALIDATED device-group log. Empty before adoption.
