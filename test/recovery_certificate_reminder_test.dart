@@ -71,7 +71,7 @@ void main() {
     });
   });
 
-  test('saved means the file read back, not that the write returned', () {
+  test('saved is recorded only after the shared export succeeds', () {
     final start = screen.indexOf(
       'Future<void> _saveCertificateToFile() async {',
     );
@@ -90,12 +90,14 @@ void main() {
       }
     }
     final body = screen.substring(start, end);
-    final readBack = body.indexOf('readAsString');
+    final exported = body.indexOf('await saveRecoveryCertificateToFile');
+    final cancelled = body.indexOf('if (!saved || !mounted) return;');
     final marked = body.indexOf('markRecoveryCertificateSaved');
-    expect(readBack, isNot(-1), reason: 'the file must be read back');
+    expect(exported, isNot(-1));
+    expect(cancelled, greaterThan(exported));
     expect(
       marked,
-      greaterThan(readBack),
+      greaterThan(cancelled),
       reason:
           'a write that reported success and left nothing behind would clear '
           'the only warning this person has',

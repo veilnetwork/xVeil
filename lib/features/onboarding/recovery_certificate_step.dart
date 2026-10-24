@@ -30,10 +30,8 @@
 // create a different one. Mint once, keep what was minted, certify that.
 
 import 'dart:async';
-import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:veil_flutter/veil_flutter.dart' as veil;
 
@@ -42,6 +40,7 @@ import '../../data/identity/veil_identity.dart' show veilGeneratePhrase;
 import '../../core/secret_display.dart';
 import '../../core/secure_screen.dart';
 import '../../domain/sovereign_recovery.dart';
+import '../../domain/recovery_certificate_export.dart';
 import '../../l10n/app_localizations.dart';
 
 /// What minting produced: the credential that IS the identity, and the pair
@@ -156,8 +155,8 @@ class RecoveryCertificateStep extends StatefulWidget {
   /// Leaves the step.
   ///
   /// `saved` is whether a copy of the certificate actually reached a file —
-  /// read back after writing, not merely written — so the standing reminder
-  /// can stay up for someone who declined.
+  /// verified by desktop readback or a completed mobile document export — so
+  /// the standing reminder can stay up for someone who declined.
   ///
   /// `credential` is what was minted, or null if nothing was. It must be
   /// stored as this install's sovereign credential: minting again would draw a
@@ -266,21 +265,6 @@ class _RecoveryCertificateStepState extends State<RecoveryCertificateStep> {
   /// Write the certificate out. The CODE is deliberately not in the file: the
   /// two together reconstruct the identity, so a backup carrying both is a
   /// backup of the whole capability.
-  Future<bool> _writeToFile(String certificate, String suggestedName) async {
-    final dest = await FilePicker.saveFile(fileName: suggestedName);
-    if (dest == null) return false;
-    await File(dest).writeAsString(certificate, flush: true);
-    // Read back before calling it saved. A write that returned without error
-    // and left nothing behind — a full disk, a sandbox that swallowed the
-    // path — would otherwise retire the only reminder this person has that
-    // their identity holds no copy.
-    final wrote = await File(dest).readAsString();
-    if (wrote.trim() != certificate.trim()) {
-      throw StateError('the certificate did not read back as written');
-    }
-    return true;
-  }
-
   Future<void> _save() async {
     final minted = _minted;
     if (minted == null || _busy) return;
@@ -291,7 +275,7 @@ class _RecoveryCertificateStepState extends State<RecoveryCertificateStep> {
       _failed = false;
     });
     try {
-      final landed = await (widget.save ?? _writeToFile)(
+      final landed = await (widget.save ?? saveRecoveryCertificateToFile)(
         minted.certificate,
         suggested,
       );

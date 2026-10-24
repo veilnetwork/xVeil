@@ -17,8 +17,9 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('the certificate writer never puts the code in the file', () {
-    final src = File('lib/features/settings/devices_screen.dart')
-        .readAsStringSync();
+    final src = File(
+      'lib/features/settings/devices_screen.dart',
+    ).readAsStringSync();
     final start = src.indexOf('Future<void> _saveCertificateToFile() async {');
     expect(start, isNot(-1), reason: 'the writer was renamed or removed');
     // To the end of that method, by matching braces. Cutting at "the next
@@ -58,9 +59,9 @@ void main() {
     // And it must still actually write the certificate, or the guard above is
     // watching an empty method.
     expect(
-      body.contains('writeAsString(certificate'),
+      body.contains('saveRecoveryCertificateToFile(certificate, suggested)'),
       isTrue,
-      reason: 'the writer no longer writes the certificate',
+      reason: 'the writer no longer exports the certificate',
     );
   });
 }
