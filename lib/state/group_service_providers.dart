@@ -424,6 +424,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
         final after = (await service.storage.editSeqs(peer.hex))[msgId];
         if (before != after) continue;
         if (current == null || after == null) return;
+        if (current.reflectedEdit) return;
         if (!await service.postDeviceEvent(
           DeviceSyncEvent(
             kind: DeviceSyncKind.msgEdit,
@@ -496,7 +497,8 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
         : MessageDirection.incoming;
     if (peerHex is! String ||
         body is! String ||
-        peerHex == service.selfId.hex) {
+        peerHex == service.selfId.hex ||
+        (event.payload['er'] != null && event.payload['er'] is! bool)) {
       return;
     }
     final contentId = event.payload['cid'];
@@ -513,6 +515,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
       positionVerified: event.payload['pv'] is bool
           ? event.payload['pv'] as bool
           : null,
+      reflectedEdit: event.payload['er'] == true,
       replyToId: replyTo is String ? replyTo : null,
       forwardedFrom: forwardedFrom is String ? forwardedFrom : null,
       peer: NodeId.fromHex(peerHex),

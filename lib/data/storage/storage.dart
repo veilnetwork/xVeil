@@ -345,12 +345,15 @@ abstract interface class Storage {
   /// §15 R4/R5), or null if the id is unknown in that conversation (a no-op).
   /// Pass [seq] when FOLDING a wire-delivered edit (keep the editor's seq, do not
   /// allocate); omit it for a locally-originated edit (allocate the next seq).
+  /// [reflected] records a queried counterpart's copy without claiming a slot
+  /// in the original author's replayable event stream; it requires [seq].
   Future<int?> editMessage(
     String conversationId,
     String messageId,
     String newBody, {
     int? seq,
     List<InlineCustomEmoji> customEmoji = const [],
+    bool reflected = false,
   });
 
   /// The forward log events authored by [author] in [conversationId] with seq
