@@ -1,0 +1,29 @@
+{
+  "base_revision": "ba22c489883a68bf3ddb3cddcdca14ea5babc8a6",
+  "sdk_revision": "de769239927908e2f6929b416f101f6641d7baef",
+  "hidden_volume_revision": "c4ba1fa8e0dc388fb590dbc382ce98138c90cfeb",
+  "baseline_new_fault_tests_total": 12,
+  "baseline_new_fault_tests_failed": 11,
+  "parent_sender_outbox_negative_controls_failed": 2,
+  "corrected_new_tests_passed": 19,
+  "final_selected_flutter_tests_passed": 211,
+  "dart_analysis_no_issues": true,
+  "sender_and_receiver_storage_reopened_in_recovery_tests": true,
+  "native_filesystem_or_sigkill_qualified": false,
+  "wire_format_changed": false,
+  "mailbox_policy_changed": false,
+  "production_test_hooks_added": false,
+  "source_sha256": {
+    "lib/state/messaging_inbound_dispatch.dart": "35b583d1f463aea7d69f13f66e2ddde9a08c61ffc8674e2ca815ee8c2344e6ab",
+    "lib/state/messaging_mutations.dart": "7edde933e17b01bc06098b054c44f7a9090507286187131295c0b721b49a5174",
+    "lib/state/messaging_support.dart": "0441ef0307eab41a2138a8908013bfab4ea3207e763fa98e9e8f150dc8672e9e",
+    "lib/state/messaging_device_mirror.dart": "c3651b27e9e7d918176cb33321a95957d5912d056a2af2d2ad4ae4e31ac767f0",
+    "test/mutation_ack_after_commit_test.dart": "fa2bc80447c2459ade31c2672d1f367b8f30e4cbdc1976482f109fe73ee4f5e8"
+  },
+  "cleanup": {
+    "all_owned_flutter_sessions_terminal": true,
+    "gui_or_phone_apps_started": false,
+    "native_nodes_started": false,
+    "servers_changed": false
+  }
+}

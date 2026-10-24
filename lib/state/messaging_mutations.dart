@@ -8,9 +8,12 @@ class _MessagingMutations {
 
   /// Edit/delete operations that drained before their target message.
   ///
-  /// In-memory, insertion-ordered, and bounded: no pending mutation metadata is
-  /// persisted, and an accepted peer cannot grow this without limit.
-  final Map<String, _PendingOp> _pending = {};
+  /// In-memory, insertion-ordered, and bounded. A peer frame waiting here is
+  /// NOT ACKed: its durable sender outbox owns recovery after our restart or
+  /// eviction. Own-device mutations are replayed from the signed device log.
+  final Map<String, ({int order, _PendingOp op})> _pending = {};
+  int _pendingOrder = 0;
+  final Set<String> _completedDeletes = {};
 
   Future<bool> hasMessage(NodeId peer, String id) async {
     final messages = await _owner._storage.loadMessages(peer.hex);
@@ -27,32 +30,55 @@ class _MessagingMutations {
     return false;
   }
 
-  String _key(NodeId peer, String id) => '${peer.hex}|$id';
+  String _key(NodeId peer, String id, bool incomingOnly) =>
+      '${peer.hex}|$id|${incomingOnly ? 'peer' : 'device'}';
 
-  _PendingOp? takePending(NodeId peer, String id) =>
-      _pending.remove(_key(peer, id));
+  _PendingOp? takePending(
+    NodeId peer,
+    String id, {
+    MessageDirection direction = MessageDirection.incoming,
+  }) {
+    final candidates = [
+      ?_pending.remove(_key(peer, id, false)),
+      ?_pending.remove(_key(peer, id, true)),
+    ];
+    _PendingOp? winner;
+    var order = -1;
+    for (final candidate in candidates) {
+      if (candidate.op.incomingOnly && direction != MessageDirection.incoming) {
+        continue;
+      }
+      if (winner?.isDelete == true) continue;
+      if (candidate.op.isDelete || candidate.order > order) {
+        winner = candidate.op;
+        order = candidate.order;
+      }
+    }
+    return winner;
+  }
 
   void bufferPending(NodeId peer, String id, _PendingOp operation) {
-    final key = _key(peer, id);
+    final key = _key(peer, id, operation.incomingOnly);
     final existing = _pending[key];
-    if (existing != null && existing.isDelete) return;
+    if (existing != null && existing.op.isDelete) return;
     if (!_pending.containsKey(key) && _pending.length >= kMaxPendingOps) {
       _pending.remove(_pending.keys.first);
     }
-    _pending[key] = operation;
+    _pending[key] = (order: ++_pendingOrder, op: operation);
   }
 
   /// Apply an edit only to a message authored by the peer, or buffer it until
   /// that message arrives. A peer can never rewrite our outgoing row.
-  Future<void> applyIncomingEdit(NodeId peer, WireEnvelope envelope) async {
+  /// False means only volatile buffering happened: do not ACK the frame yet.
+  Future<bool> applyIncomingEdit(NodeId peer, WireEnvelope envelope) async {
     final id = envelope.id;
-    if (id == null) return;
+    if (id == null) return true;
     if (await isIncomingFrom(peer, id)) {
       final target = await _findInConversation(peer.hex, id);
       if (target == null ||
           isSpaceRecommendationMessageBody(target.body) ||
           isSpaceRecommendationMessageBody(envelope.body)) {
-        return;
+        return true;
       }
       // Fold under the editor's seq so both devices converge on (author, seq).
       //
@@ -78,27 +104,49 @@ class _MessagingMutations {
         envelope.body,
         envelope.customEmoji,
       );
-    } else if (!await hasMessage(peer, id)) {
+    } else if (!await hasMessage(peer, id) &&
+        !await _owner._storage.isMessageDeleted(peer.hex, id)) {
       bufferPending(
         peer,
         id,
-        _PendingOp.edit(envelope.body, envelope.customEmoji),
+        _PendingOp.edit(
+          envelope.body,
+          envelope.customEmoji,
+          incomingOnly: true,
+        ),
       );
+      return false;
     }
+    return true;
   }
 
   /// Apply an authenticated peer unsend, or buffer it until the post arrives.
-  Future<void> applyIncomingDelete(NodeId peer, String id) async {
-    if (await isIncomingFrom(peer, id)) {
+  /// False leaves recovery with the sender's durable outbox.
+  Future<bool> applyIncomingDelete(NodeId peer, String id) async {
+    final deleted = await _owner._storage.isMessageDeleted(peer.hex, id);
+    final completedKey = _key(peer, id, true);
+    if (deleted && _completedDeletes.contains(completedKey)) return true;
+    if (deleted || await isIncomingFrom(peer, id)) {
+      // A preceding attempt can have committed its tombstone but failed the
+      // forensic scrub. A retry must finish that work even with no live row.
       await _owner._storage.deleteMessage(peer.hex, id);
       await _owner._storage.scrubDeleted();
       // My other devices hold their own copy of this message and heard no
       // unsend — only the device the peer reached did. Without this they keep
       // showing what the sender took back.
       _owner._deviceMirror.onMessageDeleted?.call(peer, id);
+      // A fresh frame ID for a terminal delete need not repeat an expensive
+      // scrub we already completed. Bounded and only an optimization: after a
+      // restart/eviction the tombstone still requires one recovery scrub.
+      _completedDeletes.add(completedKey);
+      if (_completedDeletes.length > kMaxPendingOps) {
+        _completedDeletes.remove(_completedDeletes.first);
+      }
     } else if (!await hasMessage(peer, id)) {
-      bufferPending(peer, id, _PendingOp.delete());
+      bufferPending(peer, id, _PendingOp.delete(incomingOnly: true));
+      return false;
     }
+    return true;
   }
 
   /// Delete a message from this device and immediately scrub its plaintext.

@@ -368,14 +368,24 @@ const kMaxPreConsentIntros = 5;
 /// modest cap loses nothing legitimate. Tunable.
 const kMaxPendingOps = 512;
 
-/// A peer's edit/delete of one of THEIR messages that drained before the message
-/// itself. Buffered until the target stores, then replayed. A delete is terminal
-/// (a later edit can't revive a message the peer unsent), so [isDelete] wins over
-/// a buffered edit for the same id.
+/// An edit/delete that arrived before its target. Peer mutations retain an
+/// incoming-only scope; authenticated own-device mutations can affect outgoing
+/// history too. Among applicable operations a delete wins over a buffered edit.
 class _PendingOp {
-  _PendingOp.edit(String this.body, this.customEmoji) : isDelete = false;
-  _PendingOp.delete() : isDelete = true, body = null, customEmoji = const [];
+  _PendingOp.edit(
+    String this.body,
+    this.customEmoji, {
+    this.incomingOnly = false,
+  }) : isDelete = false;
+  _PendingOp.delete({this.incomingOnly = false})
+    : isDelete = true,
+      body = null,
+      customEmoji = const [];
   final bool isDelete;
+  // An authenticated contact can mutate only its own incoming posts. A device
+  // mirror can also mutate our outgoing history; buffering must retain that
+  // distinction until the target's direction is known.
+  final bool incomingOnly;
 
   /// The replacement text for an edit; null for a delete.
   final String? body;

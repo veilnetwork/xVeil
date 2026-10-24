@@ -47,6 +47,14 @@ const _contactPrivilegedKinds = <WireKind>{
 /// [MessagingService]. Keeping every [WireKind] branch in one module makes the
 /// inbound protocol surface auditable without mixing it with send APIs.
 extension _MessagingInboundDispatch on MessagingService {
+  /// Remember only a completed durable effect (or a permanent policy refusal).
+  /// A storage exception or a missing target leaves the sender's frame live.
+  Future<void> _settleMutationFrame(InboundMessage message, String? fid) async {
+    if (fid == null) return;
+    _outbox.remember(message.src.hex, fid);
+    await _ackFrame(message, fid);
+  }
+
   /// Whether this delivery may act with the privileges of the accepted contact
   /// it NAMES — the question [InboundMessage.src] cannot answer, because the
   /// sender is the one who fills it in.
@@ -253,6 +261,9 @@ extension _MessagingInboundDispatch on MessagingService {
         env.kind == WireKind.spaceModerationAppealDecision ||
         env.kind == WireKind.spaceAbuseReport ||
         env.kind == WireKind.spaceAbuseReportDecision ||
+        env.kind == WireKind.edit ||
+        env.kind == WireKind.del ||
+        env.kind == WireKind.clear ||
         env.kind == WireKind.reaction ||
         env.kind == WireKind.disappearingSet;
     final deferredGroupCallAck = env.kind == WireKind.groupCallSignal;
@@ -603,7 +614,9 @@ extension _MessagingInboundDispatch on MessagingService {
         // our own outgoing messages (the id travels on the wire, so they know
         // it; the direction check is the real authorization gate).
         if (existing?.status != ContactStatus.accepted) return;
-        await _mutations.applyIncomingEdit(m.src, env);
+        if (await _mutations.applyIncomingEdit(m.src, env)) {
+          await _settleMutationFrame(m, fid);
+        }
       case WireKind.del:
         // The peer unsent a message THEY sent us — purge + scrub our copy too.
         // Same authorization gate: only their incoming messages, never ours.
@@ -612,10 +625,15 @@ extension _MessagingInboundDispatch on MessagingService {
         // unsend DECLINED — our copy stays. Buffering is skipped too, so an
         // out-of-order del can't apply once the message lands. No oracle: the
         // peer is never told the delete was ignored.
-        if (existing?.allowPeerDelete == false) return;
+        if (existing?.allowPeerDelete == false) {
+          await _settleMutationFrame(m, fid);
+          return;
+        }
         final delId = env.id;
-        if (delId == null) break;
-        await _mutations.applyIncomingDelete(m.src, delId);
+        if (delId == null ||
+            await _mutations.applyIncomingDelete(m.src, delId)) {
+          await _settleMutationFrame(m, fid);
+        }
       case WireKind.sync:
         // Event-log gap-fill beacon (§15, 3c): the peer tells us what it holds
         // per author; we re-ship every event it is missing above its high-water.
@@ -651,65 +669,69 @@ extension _MessagingInboundDispatch on MessagingService {
         // The requester is never told which way it went — the no-oracle rule
         // this layer keeps everywhere else.
         if (existing?.status != ContactStatus.accepted) return;
-        final verdict = clearRequestVerdict(
-          policy: existing?.clearPolicy ?? kDefaultClearRequestPolicy,
-          requesterIsAdmin: false,
-        );
-        if (verdict == ClearRequestVerdict.decline) return;
-        final cseq = env.seq;
-        if (cseq != null) {
-          Map<String, int> wm;
-          try {
-            final raw = jsonDecode(env.body);
-            wm = raw is Map
-                ? raw.map((k, v) => MapEntry(k as String, v as int))
-                : <String, int>{};
-          } catch (_) {
-            return; // malformed watermark → drop
-          }
-          // The watermark's VALUES are sequence numbers too, and take the same
-          // bound as the frame's own — one opinion for both, not two.
-          if (wm.values.any((hw) => !isAcceptableWireSeq(hw))) return;
-          // RE-SPELLED IN OUR NAMES before anything acts on it. The keys are
-          // the SENDER's, and the two sides do not use the same ones — see
-          // [clearWatermarkInOurNames], which is also where the measurement
-          // that found this lives.
-          wm = clearWatermarkInOurNames(
-            watermark: wm,
-            theirLabel: m.src.hex,
-            ourLabel: await _selfHex(),
-            ourIdentity: await selfIdentityHex?.call(),
+        Future<void> applyClearRequest() async {
+          final verdict = clearRequestVerdict(
+            policy: existing?.clearPolicy ?? kDefaultClearRequestPolicy,
+            requesterIsAdmin: false,
           );
-          if (verdict == ClearRequestVerdict.askThePerson) {
-            // ASKING IS NOT ACTING. The messages stay exactly where they are;
-            // what is kept is the watermark, ALREADY in our names, because the
-            // translation depends on which names the requester used and the
-            // record does not keep those.
-            await _conversationAdmin.rememberClearRequest(
-              PendingClearRequest(
-                chatHex: m.src.hex,
-                requesterHex: m.src.hex,
-                atMs: _now().millisecondsSinceEpoch,
-                seq: cseq,
-                watermark: wm,
-              ),
+          if (verdict == ClearRequestVerdict.decline) return;
+          final cseq = env.seq;
+          if (cseq != null) {
+            Map<String, int> wm;
+            try {
+              final raw = jsonDecode(env.body);
+              wm = raw is Map
+                  ? raw.map((k, v) => MapEntry(k as String, v as int))
+                  : <String, int>{};
+            } catch (_) {
+              return; // malformed watermark → drop
+            }
+            // The watermark's VALUES are sequence numbers too, and take the same
+            // bound as the frame's own — one opinion for both, not two.
+            if (wm.values.any((hw) => !isAcceptableWireSeq(hw))) return;
+            // RE-SPELLED IN OUR NAMES before anything acts on it. The keys are
+            // the SENDER's, and the two sides do not use the same ones — see
+            // [clearWatermarkInOurNames], which is also where the measurement
+            // that found this lives.
+            wm = clearWatermarkInOurNames(
+              watermark: wm,
+              theirLabel: m.src.hex,
+              ourLabel: await _selfHex(),
+              ourIdentity: await selfIdentityHex?.call(),
             );
-            devLog(
-              () =>
-                  'xVeil[clear]: request from ${m.src.short} held for an '
-                  'answer — this chat asks before clearing',
+            if (verdict == ClearRequestVerdict.askThePerson) {
+              // ASKING IS NOT ACTING. The messages stay exactly where they are;
+              // what is kept is the watermark, ALREADY in our names, because the
+              // translation depends on which names the requester used and the
+              // record does not keep those.
+              await _conversationAdmin.rememberClearRequest(
+                PendingClearRequest(
+                  chatHex: m.src.hex,
+                  requesterHex: m.src.hex,
+                  atMs: _now().millisecondsSinceEpoch,
+                  seq: cseq,
+                  watermark: wm,
+                ),
+              );
+              devLog(
+                () =>
+                    'xVeil[clear]: request from ${m.src.short} held for an '
+                    'answer — this chat asks before clearing',
+              );
+              return;
+            }
+            await _storage.applyRemoteClear(
+              m.src,
+              m.src.hex,
+              cseq,
+              wm,
+              selfHex: await _selfHex(),
             );
-            return;
+            _signal();
           }
-          await _storage.applyRemoteClear(
-            m.src,
-            m.src.hex,
-            cseq,
-            wm,
-            selfHex: await _selfHex(),
-          );
-          _signal();
         }
+        await applyClearRequest();
+        await _settleMutationFrame(m, fid);
         return;
       case WireKind.fileQuery:
         // A gap-fill probe for a file (§15 3c, resumable): the peer still holds
