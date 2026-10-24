@@ -1,0 +1,43 @@
+{
+  "base_commit": "827b71c9854c55a1ae4cfdb42bc4e18c4a7c38e3",
+  "devices": 3,
+  "same_identity_devices": 2,
+  "local_network_only": true,
+  "sent_messages": 1000,
+  "baseline_greeting_rows": 1,
+  "c_received_new_messages": 1000,
+  "c_offline_before_b_started": true,
+  "a_source_online": true,
+  "a_original_history_rows": 1001,
+  "a_compacted_mirror_events_at_capture": 185,
+  "b_received_new_messages_at_deadline": 154,
+  "catchup_deadline_seconds": 180,
+  "passed": false,
+  "interruption_scenario_reached": false,
+  "all_owned_native_processes_exited": true,
+  "native_containers_removed": true,
+  "physical_transfer_started": false,
+  "physical_preparation": {
+    "owned_mac_process_exited": true,
+    "owned_qa_phone_process_exited": true,
+    "owned_qa_package_removed": true,
+    "temporary_power_setting_restored": true,
+    "owned_adb_forward_removed": true,
+    "original_phone_apk_unchanged": true,
+    "physical_transfer_started": false,
+    "calls_started": false,
+    "owned_mac_profile_removed_from_user_catalog": true,
+    "qa_profile_retained_privately_for_later": true
+  },
+  "test_sources_sha256": {
+    "test/e2e/device_process_worker_test.dart": "de2e841c101d9b64bace45dc1a4a09c8a235b7b34b040891aa24b258dcbd7ab0",
+    "test/e2e/offline_backlog_process_e2e_test.dart": "45a154890dde14a9d97493b47306487efb5d517b8e71932dd4c579be08b2b147"
+  },
+  "cleanup": {
+    "owned_processes_and_group_members_remaining": 0,
+    "owned_process_groups_checked": 15,
+    "owned_pids_checked": 27,
+    "aborted_preliminary_worker_descendant_closed": true
+  },
+  "dart_analyze_issues": 0
+}

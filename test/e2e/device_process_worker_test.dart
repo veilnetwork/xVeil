@@ -19,47 +19,55 @@ import 'e2e_env.dart';
 void main() {
   final env = Platform.environment;
   final label = env['XVEIL_E2E_WORKER_LABEL'];
-  testWidgets('isolated device process worker', (tester) async {
-    final gate = E2eGate.read();
-    final dir = Directory(env['XVEIL_E2E_WORKER_DIR']!);
-    final peers = (jsonDecode(env['XVEIL_E2E_WORKER_PEERS']!) as List)
-        .map(
-          (p) => BootstrapPeerCfg(
-            transport: p['transport'] as String,
-            publicKey: p['publicKey'] as String,
-            nonce: p['nonce'] as String,
-            algo: p['algo'] as String,
-          ),
-        )
-        .toList();
-    E2eDevice? device;
-    try {
-      await tester.runAsync(() async {
-        device = await E2eDevice.startWorker(
-          gate: gate,
-          label: label!,
-          dir: dir,
-          bootstrapPeers: peers,
-        );
-        await tester.pumpWidget(
-          UncontrolledProviderScope(
-            container: device!.container,
-            child: const DebugSoakHookHost(
-              child: Directionality(
-                textDirection: TextDirection.ltr,
-                child: SizedBox.shrink(),
+  testWidgets(
+    'isolated device process worker',
+    (tester) async {
+      final gate = E2eGate.read();
+      final dir = Directory(env['XVEIL_E2E_WORKER_DIR']!);
+      final peers = (jsonDecode(env['XVEIL_E2E_WORKER_PEERS']!) as List)
+          .map(
+            (p) => BootstrapPeerCfg(
+              transport: p['transport'] as String,
+              publicKey: p['publicKey'] as String,
+              nonce: p['nonce'] as String,
+              algo: p['algo'] as String,
+            ),
+          )
+          .toList();
+      E2eDevice? device;
+      try {
+        await tester.runAsync(() async {
+          device = await E2eDevice.startWorker(
+            gate: gate,
+            label: label!,
+            dir: dir,
+            bootstrapPeers: peers,
+          );
+          await tester.pumpWidget(
+            UncontrolledProviderScope(
+              container: device!.container,
+              child: const DebugSoakHookHost(
+                child: Directionality(
+                  textDirection: TextDirection.ltr,
+                  child: SizedBox.shrink(),
+                ),
               ),
             ),
-          ),
-        );
-        while (!await File('${dir.path}/stop-worker').exists() &&
-            !device!.rebootRequested) {
-          await Future<void>.delayed(const Duration(milliseconds: 100));
-        }
-        await tester.pumpWidget(const SizedBox.shrink());
-      });
-    } finally {
-      await tester.runAsync(() async => device?.stop());
-    }
-  }, skip: label == null || !E2eGate.read().enabled);
+          );
+          while (!await File('${dir.path}/stop-worker').exists() &&
+              !device!.rebootRequested) {
+            await Future<void>.delayed(const Duration(milliseconds: 100));
+          }
+          await tester.pumpWidget(const SizedBox.shrink());
+        });
+      } finally {
+        await tester.runAsync(() async => device?.stop());
+      }
+    },
+    // testWidgets uses the binding's ten-minute default even with the library
+    // annotation above. Long offline/backlog scenarios must keep their source
+    // alive until the owning fleet explicitly stops it.
+    timeout: const Timeout(Duration(hours: 4)),
+    skip: label == null || !E2eGate.read().enabled,
+  );
 }
