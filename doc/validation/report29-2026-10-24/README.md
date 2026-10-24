@@ -297,3 +297,12 @@ nothing. Unmute, explicit pause, long-Opus protection and sparse recovery remain
 verified. Ordinary macOS/Android libraries compile with the same 105 exports and
 no test hooks. See [details](../muted-video-2026-10-24/README.md). This does not
 close the separate Windows audio or physical speech-quality requirements.
+
+## Follow-up: cancelled audio stop must remain retryable
+
+SDK `858d84d9` fixes another independently reproduced lifecycle defect, outside
+R29's original findings: a stop scheduling failure cleared the running flag,
+so subsequent stops falsely reported success with two streams still live.
+Direct/group regressions now verify repeated failure while blocked, real
+cleanup on retry, restart and healthy idempotence. Existing muted-video tests
+pass on the same library. See [details](../audio-stop-retry-2026-10-24/README.md).
