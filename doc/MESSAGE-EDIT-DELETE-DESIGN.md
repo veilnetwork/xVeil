@@ -71,6 +71,28 @@ edit + received-message purge).
 
 ## Follow-ups
 
+### Durable delivery and pending authorization (October 2026)
+
+The receiver ACKs `edit`, `del` and `clear` only after their durable effect
+completes. A pending clear prompt must itself be saved first. A declined policy
+still receives the same opaque ACK, so it does not reveal the reader's choice.
+Delete retries finish scrub even if the tombstone already committed before an
+interruption. Successfully scrubbed tombstones have a bounded in-memory fast
+path; reopening the receiver does not trust that vanished cache.
+
+An edit/delete arriving before its target remains **unACKed**. The existing
+durable sender outbox retains recovery responsibility; the receiver's 512-slot
+pending map is an optimization, not a durable delivery receipt. A receiver
+restart or pending eviction must not cause the sender to discard the operation.
+Legacy frames without durable IDs still have their older best-effort contract.
+
+Pending operations retain authorization scope: a contact may edit/delete only
+its incoming messages, even if its frame wins the race with an outgoing mirror
+from this identity's own device. Device and contact pending slots are separate
+within the same total cap. Unauthorized contact operations cannot replace an
+own-device pending operation. Delete dominates edit among applicable operations.
+See [fault and restart validation](validation/mutation-ack-2026-10-24/README.md).
+
 1. ✅ **Peer propagation — DONE.** `WireKind.edit` (id + new body) and
    `WireKind.del` (id); the receiver applies `editMessage`/`deleteMessage` +
    scrub, guarded by `_isIncomingFrom` (a peer can only edit/delete messages

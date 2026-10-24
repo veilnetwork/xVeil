@@ -531,7 +531,11 @@ class _MessagingDeviceMirror {
     // path spends a peer's unsend that outran its post: store, then apply, so
     // the row never shows the superseded text and an erased id is refused if it
     // is mirrored again.
-    final pending = _owner._mutations.takePending(peer, msgId);
+    final pending = _owner._mutations.takePending(
+      peer,
+      msgId,
+      direction: direction,
+    );
     if (pending != null && pending.isDelete) {
       await _owner._storage.deleteMessage(peer.hex, msgId);
       await _owner._storage.scrubDeleted();
