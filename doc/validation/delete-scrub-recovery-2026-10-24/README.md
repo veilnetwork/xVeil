@@ -73,6 +73,11 @@ B offline при delete-before-post, затем C offline, B восстанав�
 и не crash-квалификация всех иных видов erasure/edit/clear. Полная multi-device
 матрица, Windows и физический Android этой итерацией не закрываются.
 
+Последующая миграция старых tombstones и исправление partial-batch scrub в
+hidden-volume описаны в
+[`legacy-delete-scrub-2026-10-24`](../legacy-delete-scrub-2026-10-24/README.md).
+Предыдущие границы и результаты выше сохранены как история этой итерации.
+
 SDK/HV не менялись, Rust-сборок нет. Использованы проверенные frozen-библиотеки
 из совместной сборки. Flutter: `TMPDIR=/private/tmp/`. Пользовательские
 личности, установленные приложения, телефоны, микрофон и внешние реле не
