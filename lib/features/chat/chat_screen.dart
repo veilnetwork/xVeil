@@ -1100,10 +1100,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// Start an in-app download (encrypted tier / in-volume) + surface a hint if we
   /// had to ask the sender to re-advertise (stale offer after a restart).
   Future<void> _downloadEncrypted(String cid) async {
-    final r = await _messaging.downloadContent(_peer, cid);
-    if (mounted && r == ContentDownloadResult.requestedReoffer) {
-      _snack(AppL10n.of(context).fileRequestingResend);
-      _watchDownloadFailure(cid);
+    try {
+      final r = await _messaging.downloadContent(_peer, cid);
+      if (mounted && r == ContentDownloadResult.requestedReoffer) {
+        _snack(AppL10n.of(context).fileRequestingResend);
+        _watchDownloadFailure(cid);
+      }
+    } catch (_) {
+      if (mounted) _snack(AppL10n.of(context).chatFileSaveFailed);
     }
   }
 
@@ -1264,20 +1268,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         .catchError((_) {
           /* stream closed before completion */
         });
-    final r = await svc.downloadContentToFile(
-      _peer,
-      cid,
-      dest,
-      write: (offset, bytes) async {
-        await raf.setPosition(offset);
-        await raf.writeFrom(bytes);
-      },
-      close: () async {
-        await raf.close();
-      },
-    );
-    if (mounted && r == ContentDownloadResult.requestedReoffer) {
-      _snack(l.fileRequestingResend);
+    try {
+      final r = await svc.downloadContentToFile(
+        _peer,
+        cid,
+        dest,
+        write: (offset, bytes) async {
+          await raf.setPosition(offset);
+          await raf.writeFrom(bytes);
+        },
+        close: () async {
+          await raf.close();
+        },
+      );
+      if (mounted && r == ContentDownloadResult.requestedReoffer) {
+        _snack(l.fileRequestingResend);
+      }
+    } catch (_) {
+      // The service closes a sink whose resume intent could not be saved;
+      // its failure event also owns cleanup of this incomplete destination.
+      if (mounted) _snack(l.chatFileSaveFailed);
     }
   }
 
