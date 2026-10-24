@@ -42,7 +42,7 @@
     ],
     "original_apk_restored_and_independently_hash_verified": true,
     "embedded_floor_restart_persistence_complete": true,
-    "latest_sdk_physical_android_tested": false
+    "latest_sdk_physical_android_tested": true
   },
   "disposition": {
     "R29-01": "fixed",
@@ -79,6 +79,8 @@
     "physical_file_hash_matches": true,
     "physical_180_second_gate_passed": true,
     "physical_cleanup_independently_verified": true,
-    "embedded_host_native_tests_passed": 8
+    "embedded_host_native_tests_passed": 8,
+    "physical_android_host_authorization_restart_qualified": true,
+    "latest_physical_file_180_second_gate_passed": false
   }
 }
