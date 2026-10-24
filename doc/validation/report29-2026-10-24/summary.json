@@ -31,7 +31,7 @@
   },
   "limits": {
     "real_certificate_dialog_tested": true,
-    "new_sdk_physical_file_tested": false,
+    "new_sdk_physical_file_tested": true,
     "release_packaging_tested": false,
     "server_updates": false,
     "application_installs": true,
@@ -71,6 +71,11 @@
     "android_cancel_preserves_gate": true,
     "android_saved_reports_true": true,
     "test_file_removed": true,
-    "test_process_exited": true
+    "test_process_exited": true,
+    "physical_file_bytes": 33554432,
+    "physical_file_download_seconds": 134.6694735410856,
+    "physical_file_hash_matches": true,
+    "physical_180_second_gate_passed": true,
+    "physical_cleanup_independently_verified": true
   }
 }
