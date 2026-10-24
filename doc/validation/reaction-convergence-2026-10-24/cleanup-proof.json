@@ -1,0 +1,9 @@
+{
+  "owned_native_libraries_not_open": true,
+  "owned_relay_executables_absent": true,
+  "owned_application_process_groups_absent": true,
+  "temporary_fleet_root_removed": true,
+  "worker_successful_exits": 6,
+  "late_async_errors_in_worker_logs": 0,
+  "unrelated_temp_directories_preserved": true
+}
