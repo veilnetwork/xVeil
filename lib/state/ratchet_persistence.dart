@@ -8,6 +8,7 @@ import '../data/storage/rollback_anchor.dart';
 import '../data/storage/storage.dart';
 import '../data/storage/storage_write_census.dart';
 import '../data/veil_stack.dart' show RealVeilStack;
+import 'peer_authorization_persistence.dart';
 
 /// Marker recording which of OUR devices the stored conversations belong to.
 ///
@@ -37,6 +38,7 @@ RatchetPersistence? ratchetPersistenceFor(
     native: native,
     storage: storage,
     coalesce: kRatchetFlushCoalesce,
+    peerAuthorization: stack?.peerAuthorization,
   );
 }
 
@@ -80,13 +82,15 @@ class RatchetPersistence {
     required Storage storage,
     int dirtyBatch = 32,
     Duration coalesce = Duration.zero,
-  }) : this._(native, storage, dirtyBatch, coalesce);
+    PeerAuthorizationPersistence? peerAuthorization,
+  }) : this._(native, storage, dirtyBatch, coalesce, peerAuthorization);
 
   RatchetPersistence._(
     this._native,
     this._storage,
     this._dirtyBatch,
     this._coalesce,
+    this._peerAuthorization,
   ) {
     if (_dirtyBatch <= 0) {
       throw ArgumentError.value(_dirtyBatch, 'dirtyBatch', 'must be positive');
@@ -98,6 +102,7 @@ class RatchetPersistence {
 
   final RatchetStateHandle _native;
   final Storage _storage;
+  final PeerAuthorizationPersistence? _peerAuthorization;
 
   /// See [kRatchetFlushCoalesce]. Zero: every flush writes before it returns.
   final Duration _coalesce;
@@ -343,7 +348,8 @@ class RatchetPersistence {
   ///
   /// [now] skips the coalescing window: for a caller that must know the state
   /// is on disk before it goes on.
-  Future<int> flush({String why = 'unknown', bool now = false}) {
+  Future<int> flush({String why = 'unknown', bool now = false}) async {
+    await _peerAuthorization?.flush();
     if (now || _coalesce == Duration.zero) {
       _trailingTimer?.cancel();
       _trailingTimer = null;
@@ -486,6 +492,7 @@ class RatchetPersistence {
   }
 
   Future<int> _saveAll() async {
+    await _peerAuthorization?.flush();
     final entries = exportRatchetStates(_native, _native.list());
     if (entries.isEmpty) return 0;
     await _storage.saveRatchetStates(entries);

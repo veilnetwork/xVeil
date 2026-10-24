@@ -12,6 +12,7 @@ import '../../domain/event.dart';
 import '../../domain/identity.dart';
 import '../../domain/inline_custom_emoji.dart';
 import '../../domain/p2p_policy.dart';
+import '../../domain/peer_authorization.dart';
 import '../../domain/roster.dart';
 import '../transport/wire_envelope.dart' show isServiceEchoBody;
 import 'package:hidden_volume/hidden_volume.dart' as hv;
@@ -566,7 +567,8 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
   ///
   /// Stops at the first shard that is absent or empty: a write clears the
   /// shard after the last one it used, so an empty shard IS the end.
-  Future<List<String>> _contactIndex() async => (await _contactIndexShards()).$1;
+  Future<List<String>> _contactIndex() async =>
+      (await _contactIndexShards()).$1;
 
   /// The ids, and how many shards were actually read — the second is what a
   /// write needs in order to clear the ones it no longer fills.
@@ -596,7 +598,11 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
         (at + _contactIdsPerIndexShard).clamp(0, ids.length),
       );
       ops.add(
-        PutOp(Ns.settings, _sk(_contactIndexKey(shard)), _sk(jsonEncode(slice))),
+        PutOp(
+          Ns.settings,
+          _sk(_contactIndexKey(shard)),
+          _sk(jsonEncode(slice)),
+        ),
       );
       shard += 1;
     }
@@ -923,15 +929,16 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
       });
 
   @override
-  Future<Map<String, int>> editSeqs(String conversationId) =>
-      _serialized(() async {
-        await _foldCritical();
-        final prefix = '$conversationId\u001f';
-        return {
-          for (final e in _scanEditWinSeq.entries)
-            if (e.key.startsWith(prefix)) e.key.substring(prefix.length): e.value,
-        };
-      });
+  Future<Map<String, int>> editSeqs(String conversationId) => _serialized(
+    () async {
+      await _foldCritical();
+      final prefix = '$conversationId\u001f';
+      return {
+        for (final e in _scanEditWinSeq.entries)
+          if (e.key.startsWith(prefix)) e.key.substring(prefix.length): e.value,
+      };
+    },
+  );
 
   @override
   Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) =>
@@ -1291,6 +1298,172 @@ class HiddenVolumeStorage implements Storage, RollbackAnchorReader {
   /// bounded by a count, not by time — an idle profile does not sit on old keys
   /// because an idle profile is not producing any.
   static const int _kRatchetSavesPerScrub = 128;
+
+  // A disjoint key shape in the existing protected namespace avoids consuming
+  // another native namespace root (the on-disk format has a fixed root cap).
+  // Ratchet keys are 66 bytes; authorization keys are 35 bytes, or one byte for
+  // the layout marker. File/cache purges do not touch this namespace.
+  static const _peerAuthorizationTag = 0x50;
+  static const _peerAuthorizationChunkBytes = 1024;
+  static final _peerAuthorizationHeader = Uint8List.fromList([
+    _peerAuthorizationTag,
+  ]);
+  static final _peerAuthorizationLayout = _sk('peer-authorization/1');
+  static final _peerAuthorizationGates = Expando<Future<void>>(
+    'peer authorization storage',
+  );
+
+  Future<T> _peerAuthorizationExclusive<T>(Future<T> Function() operation) {
+    final previous = _peerAuthorizationGates[_as] ?? Future<void>.value();
+    final result = previous.then((_) => operation());
+    _peerAuthorizationGates[_as] = result.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    return result;
+  }
+
+  static Uint8List _peerAuthorizationKey(String peer, int chunk) {
+    final key = Uint8List(35);
+    key[0] = _peerAuthorizationTag;
+    key.setRange(1, 33, NodeId.fromHex(peer).bytes);
+    key[33] = chunk >> 8;
+    key[34] = chunk & 255;
+    return key;
+  }
+
+  static int _peerAuthorizationChunks(int bytes) =>
+      (bytes + 4 + _peerAuthorizationChunkBytes - 1) ~/
+      _peerAuthorizationChunkBytes;
+
+  @override
+  Future<List<PeerAuthorizationEntry>> loadPeerAuthorization() =>
+      _peerAuthorizationExclusive(_loadPeerAuthorization);
+
+  Future<List<PeerAuthorizationEntry>> _loadPeerAuthorization() async {
+    final layout = await _as.get(Ns.ratchet, _peerAuthorizationHeader);
+    if (layout != null && !_bytesEqual(layout, _peerAuthorizationLayout)) {
+      throw const CorruptPeerAuthorizationState();
+    }
+    final chunksByPeer = <String, Set<int>>{};
+    for (final key in await _as.kvKeys(Ns.ratchet)) {
+      if (key.length == kRatchetKeyLen + 2 ||
+          key.isEmpty ||
+          key[0] != _peerAuthorizationTag ||
+          key.length == 1) {
+        continue;
+      }
+      if (key.length != 35 || layout == null) {
+        throw const CorruptPeerAuthorizationState();
+      }
+      final peer = NodeId(Uint8List.sublistView(key, 1, 33)).hex;
+      (chunksByPeer[peer] ??= <int>{}).add((key[33] << 8) | key[34]);
+      if (chunksByPeer.length > PeerAuthorizationEntry.maxEntries) {
+        throw const CorruptPeerAuthorizationState();
+      }
+    }
+    final entries = <PeerAuthorizationEntry>[];
+    for (final peer in chunksByPeer.keys) {
+      final head = await _as.get(Ns.ratchet, _peerAuthorizationKey(peer, 0));
+      if (head == null || head.length < 4) {
+        throw const CorruptPeerAuthorizationState();
+      }
+      final length = ByteData.sublistView(head).getUint32(0);
+      if (length == 0 || length > PeerAuthorizationEntry.maxDocumentBytes) {
+        throw const CorruptPeerAuthorizationState();
+      }
+      final count = _peerAuthorizationChunks(length);
+      if (chunksByPeer[peer]!.length != count ||
+          !chunksByPeer[peer]!.containsAll(List.generate(count, (i) => i))) {
+        throw const CorruptPeerAuthorizationState();
+      }
+      final bytes = Uint8List(length);
+      var offset = 0;
+      for (var index = 0; index < count; index++) {
+        final chunk = index == 0
+            ? head
+            : await _as.get(Ns.ratchet, _peerAuthorizationKey(peer, index));
+        final skip = index == 0 ? 4 : 0;
+        final remaining = length - offset;
+        final take = min(remaining, _peerAuthorizationChunkBytes - skip);
+        if (chunk == null || chunk.length != skip + take) {
+          throw const CorruptPeerAuthorizationState();
+        }
+        bytes.setRange(offset, offset + take, chunk, skip);
+        offset += take;
+      }
+      entries.add(PeerAuthorizationEntry(peer, bytes));
+    }
+    return entries;
+  }
+
+  @override
+  Future<void> replacePeerAuthorization(List<PeerAuthorizationEntry> entries) {
+    if (entries.length > PeerAuthorizationEntry.maxEntries ||
+        entries.map((e) => e.peer).toSet().length != entries.length) {
+      throw const CorruptPeerAuthorizationState();
+    }
+    // Freeze and validate the complete input before any await or deletion.
+    // A caller may reuse/mutate its buffers while the container worker runs.
+    final snapshot = [
+      for (final e in entries) PeerAuthorizationEntry(e.peer, e.document),
+    ];
+    return _peerAuthorizationExclusive(() async {
+      final previous = {
+        for (final e in await _loadPeerAuthorization()) e.peer: e,
+      };
+      final wanted = snapshot.map((e) => e.peer).toSet();
+      // These absences come from the authoritative native snapshot after host
+      // restore. Its bounded policy only evicts entries without revocations.
+      // Remove whole ordinary rows before adding replacements, so interruption
+      // cannot leave more peers than the restore budget permits.
+      for (final prior in previous.values) {
+        if (wanted.contains(prior.peer)) continue;
+        await _as.commit([
+          for (
+            var i = 0;
+            i < _peerAuthorizationChunks(prior.document.length);
+            i++
+          )
+            DeleteOp(Ns.ratchet, _peerAuthorizationKey(prior.peer, i)),
+        ]);
+      }
+      for (final entry in snapshot) {
+        final prior = previous[entry.peer];
+        if (_bytesEqual(prior?.document, entry.document)) continue;
+        // Entries can be created by code as well as the decoder. Revalidate
+        // before publishing even if a caller mutated its byte array meanwhile.
+        if (entry.document.isEmpty ||
+            entry.document.length > PeerAuthorizationEntry.maxDocumentBytes) {
+          throw const CorruptPeerAuthorizationState();
+        }
+        final stream = Uint8List(4 + entry.document.length);
+        ByteData.sublistView(stream).setUint32(0, entry.document.length);
+        stream.setRange(4, stream.length, entry.document);
+        final count = _peerAuthorizationChunks(entry.document.length);
+        await _as.commit([
+          PutOp(Ns.ratchet, _peerAuthorizationHeader, _peerAuthorizationLayout),
+          for (var i = 0; i < count; i++)
+            PutOp(
+              Ns.ratchet,
+              _peerAuthorizationKey(entry.peer, i),
+              Uint8List.sublistView(
+                stream,
+                i * _peerAuthorizationChunkBytes,
+                min(stream.length, (i + 1) * _peerAuthorizationChunkBytes),
+              ),
+            ),
+          if (prior != null)
+            for (
+              var i = count;
+              i < _peerAuthorizationChunks(prior.document.length);
+              i++
+            )
+              DeleteOp(Ns.ratchet, _peerAuthorizationKey(entry.peer, i)),
+        ]);
+      }
+    });
+  }
 
   int _ratchetSavesSinceScrub = 0;
 

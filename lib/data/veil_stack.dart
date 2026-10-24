@@ -45,11 +45,12 @@ import 'storage/storage.dart';
 import 'storage/hidden_volume_storage.dart';
 import 'storage/rollback_anchor.dart';
 import '../state/ratchet_persistence.dart';
+import '../state/peer_authorization_persistence.dart';
+import '../domain/peer_authorization.dart';
 import 'transport/bootstrap_invite.dart';
 import 'transport/veil_flutter_transport.dart';
 import 'transport/veil_transport.dart';
 import 'package:xveil/core/log.dart';
-
 
 /// Which meeting points to boot with, when the caller did not resolve them.
 ///
@@ -315,7 +316,10 @@ Directory _createPrivateStagingDir(String base, String prefix) {
     final path = '$base/${_randomName(prefix)}';
     if (_createExclusiveDir(path)) return Directory(path);
   }
-  throw FileSystemException('could not create a private staging directory', base);
+  throw FileSystemException(
+    'could not create a private staging directory',
+    base,
+  );
 }
 
 String _randomName(String prefix) {
@@ -1055,6 +1059,7 @@ class RealVeilStack {
     this.lanListen = false,
     this.listenScheme = 'tcp',
     this.ratchetState,
+    this.peerAuthorization,
     this.embeddedNode,
     this.identityDir,
     List<BootstrapPeerCfg> registeredSeeds = const [],
@@ -1153,6 +1158,7 @@ class RealVeilStack {
   /// transport's would mean reaching into `VeilClient`'s private handle and
   /// then racing its close on the send path.
   final RatchetStateHandle? ratchetState;
+  final PeerAuthorizationPersistence? peerAuthorization;
 
   // The config-file dev path uses veil-cli + a config file for invite/join.
   final String? _cli;
@@ -1226,7 +1232,9 @@ class RealVeilStack {
         final masterCfg =
             (lib == null
                     ? Isolate.run(() => _configFromPhraseInIsolate(phrase))
-                    : Future(() => EmbeddedNode.configFromPhrase(phrase, lib: lib)))
+                    : Future(
+                        () => EmbeddedNode.configFromPhrase(phrase, lib: lib),
+                      ))
                 .then<String?>((toml) => toml)
                 .onError<Object>((e, _) {
                   devLog(
@@ -1821,7 +1829,10 @@ class RealVeilStack {
     // The renewal path had already been given the safer call; the other four
     // had not, which is the shape of a fix applied at one site instead of to
     // the operation.
-    final stagingDir = _createPrivateStagingDir(stagingBase, 'xveil-iddelegate');
+    final stagingDir = _createPrivateStagingDir(
+      stagingBase,
+      'xveil-iddelegate',
+    );
     final staging = stagingDir.path;
     try {
       await materialiseSovereignIdentity(staging, stored);
@@ -2461,6 +2472,7 @@ class RealVeilStack {
     // node can be handed a frame, and the import itself is a synchronous FFI
     // call in the middle of the boot — so the async half is done first, here.
     final storedRatchet = await loadStoredRatchetStates(storage);
+    final storedPeerAuthorization = await storage.loadPeerAuthorization();
 
     listenPort = await firstFreeListenPort(listenPort, lanListen: lanListen);
     final lease = await RuntimeDirLease.acquire(runtimeDirBase);
@@ -2477,6 +2489,7 @@ class RealVeilStack {
         sovereign: sovereign,
         storage: storage,
         storedRatchet: storedRatchet,
+        storedPeerAuthorization: storedPeerAuthorization,
         lap: lap,
         lib: lib,
         listenPort: listenPort,
@@ -2523,6 +2536,7 @@ class RealVeilStack {
     required Map<String, Uint8List>? sovereign,
     required Storage storage,
     required List<RatchetStateEntry> storedRatchet,
+    required List<PeerAuthorizationEntry> storedPeerAuthorization,
     required int Function() lap,
     required DynamicLibrary? lib,
     required int listenPort,
@@ -2821,6 +2835,7 @@ class RealVeilStack {
       ]);
       rethrow;
     }
+    PeerAuthorizationPersistence? peerAuthorization;
     try {
       final rejected = importRatchetStates(ratchetState, storedRatchet);
       // Whatever veil would not take can never open a frame again, so the
@@ -2896,8 +2911,26 @@ class RealVeilStack {
           () => 'xVeil[ratchet]: aged out $aged unanswered conversation(s)',
         );
       }
+      if (ratchetState is PeerAuthorizationStateHandle) {
+        peerAuthorization = PeerAuthorizationPersistence(
+          native: ratchetState as PeerAuthorizationStateHandle,
+          storage: storage,
+        );
+        peerAuthorization.restore(storedPeerAuthorization);
+        await peerAuthorization.flush();
+        // Seed registration can already resolve peer documents. Keep host
+        // checkpoints running during the rest of boot too, so those native
+        // tasks can obtain their durability ACK before their resolve timeout.
+        peerAuthorization.start();
+      } else if (storedPeerAuthorization.isNotEmpty) {
+        throw StateError('Native peer authorization restore is unavailable');
+      }
     } catch (_) {
       await runCleanupLegs('veil-stack-boot', [
+        (
+          'peer authorization checkpoint',
+          () async => peerAuthorization?.close(),
+        ),
         ('ratchet handle', () async => ratchetState?.close()),
         ('controller', controller.stop),
       ]);
@@ -2910,6 +2943,10 @@ class RealVeilStack {
       transport = await VeilFlutterTransport.connect(ipcSock);
     } catch (e) {
       await runCleanupLegs('veil-stack-boot', [
+        (
+          'peer authorization checkpoint',
+          () async => peerAuthorization?.close(),
+        ),
         ('ratchet handle', () async => ratchetState?.close()),
         ('controller', controller.stop),
       ]);
@@ -2931,6 +2968,7 @@ class RealVeilStack {
         lanListen: lanListen,
         listenScheme: listenScheme,
         ratchetState: ratchetState,
+        peerAuthorization: peerAuthorization,
         masterConfig: await storage.getSetting(kMasterConfigSetting),
         sovereignDocument: sovereign?[kIdentityDocumentFile],
         lib: lib,
@@ -2946,6 +2984,10 @@ class RealVeilStack {
       // of whatever failed the boot; that is the error the caller needs.
       await runCleanupLegs('veil-stack-boot', [
         ('transport', transport.dispose),
+        (
+          'peer authorization checkpoint',
+          () async => peerAuthorization?.close(),
+        ),
         ('ratchet handle', () async => ratchetState?.close()),
         ('controller', controller.stop),
       ]);
@@ -2968,15 +3010,18 @@ class RealVeilStack {
     required bool lanListen,
     required String listenScheme,
     required RatchetStateHandle? ratchetState,
+    required PeerAuthorizationPersistence? peerAuthorization,
     // Where the master's key and nonce live on a device that boots on a key of
     // its own. Null on every identity that boots on the phrase's own key.
     required String? masterConfig,
+
     /// This identity's signed document, when it has one.
     ///
     /// The invite's key comes from HERE in preference to anything else: the
     /// document is what the network was told, and the address a contact
     /// derives is `BLAKE3(key in the invite)`.
     required Uint8List? sovereignDocument,
+
     /// The explicit library handle, when the caller has one (tests). Null lets
     /// the binding resolve it the way every other call in this file does.
     DynamicLibrary? lib,
@@ -3048,7 +3093,9 @@ class RealVeilStack {
     final masterFields = masterConfig == null
         ? null
         : identityConfigFields(masterConfig);
-    if (documentMaster == null && masterConfig != null && masterFields == null) {
+    if (documentMaster == null &&
+        masterConfig != null &&
+        masterFields == null) {
       devLog(
         () =>
             'xVeil[identity]: the stored master config carries no usable '
@@ -3088,6 +3135,7 @@ class RealVeilStack {
       lanListen: lanListen,
       listenScheme: listenScheme,
       ratchetState: ratchetState,
+      peerAuthorization: peerAuthorization,
       embeddedNode: embeddedNode,
       identityDir: identityDir,
       registeredSeeds: seedsToRegister,
@@ -3225,7 +3273,10 @@ class RealVeilStack {
   Timer? _rememberPeers;
   String _lastRemembered = '';
 
-  void startRememberingPeers(Storage storage, {Duration every = const Duration(minutes: 3)}) {
+  void startRememberingPeers(
+    Storage storage, {
+    Duration every = const Duration(minutes: 3),
+  }) {
     _rememberPeers?.cancel();
     Future<void> snapshot() async {
       try {
@@ -3276,6 +3327,7 @@ class RealVeilStack {
     _rememberPeers = null;
     final failure = await runCleanupLegs('veil-stack', [
       ('transport', transport.dispose),
+      ('peer authorization checkpoint', () async => peerAuthorization?.close()),
       // Before the node stops: this is an IPC connection TO it, and a handle
       // left open is one more reason the node's shutdown waits.
       ('ratchet handle', () async => ratchetState?.close()),
@@ -3325,8 +3377,7 @@ Future<int> firstFreeListenPort(
       probe.close();
       if (port != preferred) {
         devLog(
-          () =>
-              'xVeil[stack]: listen port $preferred is taken — using $port',
+          () => 'xVeil[stack]: listen port $preferred is taken — using $port',
         );
       }
       return port;

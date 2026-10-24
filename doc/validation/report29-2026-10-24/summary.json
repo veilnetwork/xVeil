@@ -1,10 +1,11 @@
 {
-  "sdk_revision": "3c1b91d9",
+  "sdk_revision": "d4b403def8b01e2fe8d2e0e9131893d751c206f2",
   "certificate_commit": "97bdec79",
   "sdk_commits": {
     "ipc": "950141e5",
     "identity": "d459f72a",
-    "stream": "9414f532"
+    "stream": "9414f532",
+    "embedded_host_authorization": "d4b403def8b01e2fe8d2e0e9131893d751c206f2"
   },
   "automated_verification": {
     "rust_passed": 1096,
@@ -40,11 +41,12 @@
       "android"
     ],
     "original_apk_restored_and_independently_hash_verified": true,
-    "embedded_floor_restart_persistence_complete": false
+    "embedded_floor_restart_persistence_complete": true,
+    "latest_sdk_physical_android_tested": false
   },
   "disposition": {
     "R29-01": "fixed",
-    "R29-02": "cache_pressure_fixed_persistent_daemon_restart_fixed_embedded_encrypted_host_restore_pending",
+    "R29-02": "fixed_cache_pressure_daemon_and_encrypted_embedded_host_restart",
     "R29-03": "rejected_pinned_plugin_already_writes_bytes",
     "R29-04": "busy_code_and_request_echo_fixed_lossy_batch_contract_retained",
     "R29-05": "matched_dsack_rto_bound_retained_local_duplicate_source_fixed_in_06",
@@ -76,6 +78,7 @@
     "physical_file_download_seconds": 134.6694735410856,
     "physical_file_hash_matches": true,
     "physical_180_second_gate_passed": true,
-    "physical_cleanup_independently_verified": true
+    "physical_cleanup_independently_verified": true,
+    "embedded_host_native_tests_passed": 8
   }
 }

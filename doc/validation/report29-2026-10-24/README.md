@@ -46,7 +46,7 @@ SDK commits: IPC `950141e5`, revocation floors `d459f72a`, stream admission/repa
 | Finding | Result |
 | --- | --- |
 | R29-01 | Fixed: 32 MiB retained-body budget per IPC connection, in addition to the 64 MiB process budget. Failed admission releases all partial charges. This does not promise isolation against a local actor opening several connections. |
-| R29-02 | Cache-pressure protection fixed in all runtime modes. With persistence enabled, a shared bounded store also restores signed timestamp/revocation floors after restart. Incoming documents cannot drop previously observed tombstones; cached certificates are checked against the shared floor. **xVeil uses a memory-only node: encrypted host persistence of these floors still needs implementation.** |
+| R29-02 | Cache-pressure protection fixed in all runtime modes. With persistence enabled, a shared bounded store also restores signed timestamp/revocation floors after restart. Incoming documents cannot drop previously observed tombstones; cached certificates are checked against the shared floor. xVeil now restores/checkpoints those floors through its encrypted identity container; see the embedded-host follow-up below. |
 | R29-03 | Rejected for file_picker 11.0.2; diagnostics already supplies the bytes. |
 | R29-04 | Fixed local refusal semantics: additive SERVER_BUSY (12), request ID echoed, inaccurate client payload comment corrected. Loss-tolerant batches remain fire-and-forget; per-cell delivery receipts would change their contract. |
 | R29-05 | Matched D-SACK observations intentionally remain bounded by RTO, not SRTT. A malicious receiver can withhold all ACKs anyway. Existing matching of actual repair handoff, fresh minimum RTT, one observation per repair and recovery-round decay remain. R29-06 removes the confirmed local source of unnecessary duplicate repairs. No claim that an uncooperative receiver can be forced to maintain its own throughput. |
@@ -132,7 +132,7 @@ Persistent daemons retain on-disk floors. Two new regression tests cover both
 modes; all 684 runtime tests passed (11 explicitly ignored), as did Clippy with
 warnings denied.
 
-**Still required:** save/restore peer authorization floors through xVeil's
+**Gap recorded at that stage (closed below):** save/restore peer authorization floors through xVeil's
 identity-specific encrypted container. The persistent-daemon restart test does
 not prove the embedded application's restart behavior. A follow-up native/host
 interface must restore that state before application traffic, keep it current,
@@ -165,4 +165,56 @@ no media test hooks or PCM drivers were added.
 No audio/video call was started. No server configuration was changed. This run
 has no controlled throughput comparison and does not claim a speedup over the
 prior SDK or qualify source restart, every offline case, or the encrypted host
-floor persistence still required above.
+host integration implemented and qualified below.
+
+
+## Follow-up: encrypted embedded-host authorization (SDK `d4b403de`)
+
+The R29-02 embedded restart gap is closed. The host stores bounded signed peer
+floor documents inside the identity's existing encrypted ratchet namespace,
+using disjoint keys and 1 KiB chunks. This consumes no new namespace root and
+never puts peer identifiers/documents in diagnostic exports or plaintext
+runtime snapshots. File/message-cache purges retain the evidence; erasing an
+identity clears it. Each document replacement is an atomic container commit;
+ordinary evicted rows are removed before inserts to keep crash recovery bounded.
+Native code never evicts rows containing revocations.
+
+Boot reads storage before starting the native node, restores the signed floors
+before binding application endpoints, and replays transient native boot
+observations against that durable baseline. A stale pre-restore replica cannot
+veto a known revocation by using a larger timestamp. Corrupt/partial storage,
+invalid signatures and repeated restore are refused without silently replacing
+the security state with an empty store. Warm key caches are rechecked/retired.
+
+A revision poll alone would leave a crash window. After host restore, new
+native document authorization remains unavailable until the host acknowledges
+exactly the exported revision **after** the encrypted commit. Older ACKs do not
+unlock newer observations. Async resolution waits briefly for this local work
+instead of immediately treating it as a missing DHT record. The checkpoint owner
+runs during the rest of boot, periodically, around ratchet flushes, and before
+closing the shared native handle. A failed commit does not ACK and is retryable;
+failed restore cannot overwrite the durable baseline during boot unwind.
+
+Verification of this follow-up:
+
+* Runtime: **692 passed**, 11 explicitly ignored. FFI: **297 passed**, 1 ignored.
+* Selected Flutter storage/ratchet/certificate/teardown suites: **131 passed**.
+* Real native FFI, encrypted-container restart, production stack boot,
+  nickname boot and ratchet ABI: **8 passed** against the final matching dylib.
+* Native short-buffer export preserves output bytes and reports the required
+  size. Invalid signatures do not consume the valid one-time restore.
+* Clippy with warnings denied, regenerated header/ABI contract, SDK format
+  check and whole-project Dart analysis passed.
+* All owned native test nodes stopped, sockets/runtime directories removed;
+  Flutter test processes exited. No phone app, call, audio device or server was
+  changed in this follow-up.
+
+The new four-function native API changes the generated ABI contract: app
+bindings and native library must be rebuilt together. These tests qualify the
+Mac native/container path. The physical Android/file results above belong to
+SDK `3c1b91d9`; this newer host integration has not yet had a physical Android
+run or release-packaging qualification. Replacing the entire encrypted container
+with an older backup is not covered by these ordinary-restart guarantees.
+
+`peer-authorization-summary.json` contains only approved booleans/counts and
+software hashes. Raw native logs and generated identities were not committed.
