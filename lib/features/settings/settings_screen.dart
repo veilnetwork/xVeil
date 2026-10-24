@@ -1,3 +1,5 @@
+import '../identity/profile_avatar.dart';
+import '../../state/self_presentation.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -82,6 +84,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final identity = ref.watch(appControllerProvider.select((s) => s.identity));
+    final presentation = ref.watch(selfPresentationProvider);
     return Scaffold(
       appBar: AppBar(
         leading: const RootedBackButton(),
@@ -98,17 +101,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               padding: const EdgeInsets.all(16),
               child: Card(
                 child: ListTile(
-                  leading: const CircleAvatar(
+                  onTap: () => context.push('/settings/account'),
+                  leading: const IdentityAvatar(
                     radius: 26,
-                    child: Icon(Icons.person_outline),
+                    fallback: Icon(Icons.person_outline),
                   ),
-                  title: Text(
-                    identity.displayName ??
-                        identity.username ??
-                        'Node ${identity.nodeId.short}',
-                  ),
+                  title: Text(presentation.label),
                   subtitle: Text(
-                    identity.nodeId.short,
+                    identity.nodeId.hex,
                     style: const TextStyle(fontFeatures: []),
                   ),
                 ),

@@ -39,6 +39,7 @@ const _contactPrivilegedKinds = <WireKind>{
   WireKind.fileMeta,
   WireKind.fileChunk,
   WireKind.disappearingSet,
+  WireKind.profileAvatar,
 };
 
 /// Serialized, fail-closed dispatch for authenticated durable wire frames.
@@ -284,6 +285,7 @@ extension _MessagingInboundDispatch on MessagingService {
         env.kind == WireKind.spaceRecommendation ||
         env.kind == WireKind.chatDeleted;
     final liveOnlyNoAck =
+        env.kind == WireKind.profileAvatar ||
         env.kind == WireKind.groupContentReceipt ||
         env.kind == WireKind.groupContentManifest ||
         env.kind == WireKind.spacePublicFeedRequest ||
@@ -936,6 +938,10 @@ extension _MessagingInboundDispatch on MessagingService {
         } else {
           endpointsHandler(m.src, env.body);
         }
+        return;
+      case WireKind.profileAvatar:
+        if (existing?.status != ContactStatus.accepted) return;
+        await _receiveAvatar(m, env.body);
         return;
       case WireKind.modelInventoryRequest:
         // "What models have you got?" Accepted contacts only: the answer names

@@ -1,3 +1,4 @@
+import 'quick_unlock_screen.dart';
 import 'dart:async';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -208,6 +209,16 @@ class PrivacySettingsScreen extends ConsumerWidget {
                 onTap: () => _pickScreenLockTimeout(context, ref, l),
               );
             },
+          ),
+          ListTile(
+            leading: const Icon(Icons.fingerprint),
+            title: Text(l.quickUnlockTitle),
+            subtitle: Text(l.quickUnlockMenuHint),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const QuickUnlockScreen(),
+              ),
+            ),
           ),
           const Divider(),
           // Local automation API (REST API epic): off by default; a permanently

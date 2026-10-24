@@ -7871,4 +7871,91 @@ class AppL10nRu extends AppL10n {
   @override
   String get clearRequestsGroupAllConfirmTitle =>
       'Стереть сообщения этой группы?';
+
+  @override
+  String get quickUnlockTitle => 'Быстрая разблокировка';
+
+  @override
+  String get quickUnlockMenuHint => 'Графический ключ и биометрия устройства';
+
+  @override
+  String get quickUnlockHint =>
+      'Выберите способы разблокировки экрана. Для открытия контейнера после перезапуска включите настройку ниже. Обычный пароль остаётся доступным. Выбор действует только на этом устройстве.';
+
+  @override
+  String get quickUnlockPattern => 'Графический ключ';
+
+  @override
+  String get quickUnlockDraw =>
+      'Выберите по порядку минимум 4 разные точки: проведите пальцем или нажимайте. Чтобы оставить прежний ключ, не заполняйте обе сетки.';
+
+  @override
+  String get quickUnlockRepeat => 'Повторите последовательность';
+
+  @override
+  String get quickUnlockReset => 'Очистить обе сетки';
+
+  @override
+  String get quickUnlockMismatch => 'Последовательности не совпадают.';
+
+  @override
+  String get quickUnlockSystem => 'Биометрия / Windows Hello';
+
+  @override
+  String get quickUnlockSystemHint =>
+      'Отпечаток или распознавание лица средствами ОС. Windows Hello может также предложить PIN устройства. xVeil не хранит биометрические данные.';
+
+  @override
+  String get quickUnlockUnavailable =>
+      'Системная аутентификация недоступна или биометрия не настроена.';
+
+  @override
+  String get quickUnlockReason => 'Разблокировать экран xVeil';
+
+  @override
+  String get quickUnlockSaveFailed =>
+      'Не удалось сохранить. Проверьте пароль, совпадение ключей (минимум 4 точки) и системное подтверждение. Если было несколько ошибок, подождите перед повтором.';
+
+  @override
+  String get quickUnlockWithPattern => 'Открыть графическим ключом';
+
+  @override
+  String get nicknameUsageHint =>
+      'Передайте @имя собеседнику: его можно ввести в «Добавить контакт». Имя относится к личности, ID узла при этом не меняется.';
+
+  @override
+  String get avatarChoose => 'Выбрать фото';
+
+  @override
+  String get avatarRemove => 'Удалить фото';
+
+  @override
+  String get avatarSharingHint =>
+      'Ваше фото доступно принятым контактам и связанным устройствам. Исходное имя файла и метаданные фотографии удаляются.';
+
+  @override
+  String get avatarFailed =>
+      'Не удалось сохранить фото. Выберите изображение размером до 8 МиБ и повторите.';
+
+  @override
+  String get startupUnlockTitle => 'Также открывать после перезапуска';
+
+  @override
+  String get startupUnlockHint =>
+      'Сохраняет этот вход в защищённом хранилище ОС на этом устройстве. Запись выдаёт наличие быстрого входа, даже когда скрытый контейнер закрыт. Предыдущий сохранённый вход для этого профиля приложения заменяется. Не теряйте пароль: сброс ОС или изменение биометрии может отключить быстрый вход.';
+
+  @override
+  String get startupUnlockBlocked =>
+      'Вход графическим ключом заблокирован после повторных ошибок. Введите пароль и заново настройте быстрый вход в настройках.';
+
+  @override
+  String get startupUnlockFailed =>
+      'Не удалось открыть. Проверьте ключ или системное подтверждение; после повторных ошибок подождите перед новой попыткой. Можно ввести пароль контейнера.';
+
+  @override
+  String get wipeLeftQuickUnlock => 'сохранённый быстрый вход в хранилище ОС';
+
+  @override
+  String get startupUnlockSaveFailed =>
+      'Настройки блокировки экрана сохранены, но настроить быстрый вход через хранилище ОС не удалось. Пароль контейнера по-прежнему работает.';
 }

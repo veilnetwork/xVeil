@@ -42,7 +42,8 @@ class _NicknameScreenState extends ConsumerState<NicknameScreen> {
     if (svc == null) return null;
     // Ask for the secret this identity actually uses: a certificate is
     // unlocked by a CODE, not by the recovery phrase.
-    final usesCertificate = await svc.sovereignCredentialKind() == 'certificate';
+    final usesCertificate =
+        await svc.sovereignCredentialKind() == 'certificate';
     if (!mounted) return null;
     final secret = await showDialog<String>(
       context: context,
@@ -117,6 +118,8 @@ class _NicknameScreenState extends ConsumerState<NicknameScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           Text(l.nicknameIntro, style: theme.textTheme.bodyMedium),
+          const SizedBox(height: 12),
+          Text(l.nicknameUsageHint),
           const SizedBox(height: 16),
           if (st.ownedName != null) ...[
             Card(
@@ -130,7 +133,7 @@ class _NicknameScreenState extends ConsumerState<NicknameScreen> {
                             color: theme.colorScheme.error,
                           )
                         : const Icon(Icons.alternate_email),
-                    title: Text('@${st.ownedName}'),
+                    title: SelectableText('@${st.ownedName}'),
                     subtitle: Text(
                       st.ownedTakenOver
                           ? l.nicknameOwnedTakenOver('${st.ownedWeight}')
@@ -142,7 +145,8 @@ class _NicknameScreenState extends ConsumerState<NicknameScreen> {
                     trailing: st.busy
                         ? null
                         : TextButton(
-                            onPressed: () => ctrl.topUp(openSigner: _openSigner),
+                            onPressed: () =>
+                                ctrl.topUp(openSigner: _openSigner),
                             child: Text(l.nicknameTopUp),
                           ),
                   ),

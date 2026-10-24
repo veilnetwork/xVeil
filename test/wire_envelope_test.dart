@@ -86,7 +86,7 @@ void main() {
     // sentinel doing its job: every append shifts it, and this line is where a
     // build says out loud how many kinds it knows.
     // And from 49 when `presence` was, and from 50 for `deviceGone`.
-    expect(WireKind.unknown.index, 51);
+    expect(WireKind.unknown.index, 52);
 
     final report = WireEnvelope.decode(
       const WireEnvelope.spaceAbuseReport('{"kind":"report"}').encode(),
