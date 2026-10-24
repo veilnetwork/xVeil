@@ -1,0 +1,139 @@
+{
+  "schema": 1,
+  "date": "2026-10-24",
+  "base_commit": "b96b32f908709458c95dec89710c4749551aef7b",
+  "verification": {
+    "baseline_behavioral_widget_failures": 2,
+    "selected_tests_passed": 164,
+    "selected_tests_skipped": 0,
+    "new_notification_tests_passed": 10,
+    "analysis_issues": 0
+  },
+  "physical_android": {
+    "all_steps_passed": true,
+    "grids": {
+      "3": {
+        "same_process": {
+          "ok": true,
+          "wrong_pattern_rejected": true,
+          "encrypted_container_opened": true
+        },
+        "after_process_restart": {
+          "ok": true,
+          "wrong_pattern_rejected": true,
+          "encrypted_container_opened": true
+        }
+      },
+      "4": {
+        "same_process": {
+          "ok": true,
+          "wrong_pattern_rejected": true,
+          "encrypted_container_opened": true
+        },
+        "after_process_restart": {
+          "ok": true,
+          "wrong_pattern_rejected": true,
+          "encrypted_container_opened": true
+        }
+      },
+      "5": {
+        "same_process": {
+          "ok": true,
+          "wrong_pattern_rejected": true,
+          "encrypted_container_opened": true
+        },
+        "after_process_restart": {
+          "ok": true,
+          "wrong_pattern_rejected": true,
+          "encrypted_container_opened": true
+        }
+      }
+    },
+    "process_restart_verified": true,
+    "foreground_service_observed": true,
+    "active_partial_wake_lock_confirmed": true,
+    "doze": {
+      "forced_idle_before": true,
+      "forced_idle_after": true,
+      "lifecycle_after": "paused",
+      "observation_ms": 40501,
+      "timer_ticks": 81,
+      "expected_ticks": 81,
+      "whitelisted": true,
+      "process_alive": true,
+      "node_started": false,
+      "messages_tested": false
+    },
+    "service_stopped_after_request": true,
+    "cleanup": {
+      "idle_unforced": true,
+      "battery_restored": true,
+      "temporary_whitelist_removed": true,
+      "screen_woken": true,
+      "os_vault_grids_forgotten": [
+        3,
+        4,
+        5
+      ],
+      "owned_process_exited": true,
+      "probe_uninstalled": true,
+      "probe_package_absent": true,
+      "forward_removed": true,
+      "original_installed_apk_unchanged": true
+    }
+  },
+  "android_builds": {
+    "probe": {
+      "apk_sha256": "424754d408523ef42896010e1557756fc232c88d23bfed1acb68fa23ac945629",
+      "gradle_restored": true,
+      "entrypoint_sha256": "4786541e4f04e6793f63e67563fe253229019c9c669e72308cf5ce11fb012392",
+      "exit_code": 0,
+      "external_mount_lost": false
+    },
+    "ordinary_main": {
+      "apk_sha256": "ee633c45d3706cd57642e2e100f08ed0fdb65fa762e65e8daf4c649d72b79463",
+      "target": "lib/main.dart",
+      "main_application_id_verified": true,
+      "isolated_probe_marker_absent": true,
+      "gradle_restored_byte_exact": true,
+      "hidden_volume_ffi_sha256": "6229bae4ded5db35636ef724b8fca2ca3f7fdb3b71a722c48d69291fbbb7d891",
+      "veil_ffi_sha256": "8551904425fe89945e784c797a0b60271ffeedb9cb70d09a22280db8c2567614",
+      "native_libraries_match_previously_verified_package": true,
+      "exit_code": 0,
+      "external_mount_lost": false
+    }
+  },
+  "temporary_apks_removed": true,
+  "source_sha256": {
+    "lib/data/notifications/notification_service.dart": "604e9928bad48abc0dfdbf1b91bcd41dd33d9879bd9be6d0b69e1e23681413fd",
+    "lib/features/chat/notification_binder.dart": "6c524582f1073a7fd0463812e16cf7d0cc169b3a2c2da2648ebade484d9c98bc",
+    "lib/core/quick_unlock_vault.dart": "0e5abd93ad7eb180c9fdb878f37b5d336861083505de05b022f6fd8f3f7747ef",
+    "lib/core/local_authentication.dart": "998ee258f80610117d0b4c518589b894f5f62e5747978339e5c0fa533dd55d44",
+    "lib/data/storage/async_kv_log_store.dart": "11a770cece2b54935bce4e0047510f3febf2497cbf526e3c4406d94e4b4a34fd",
+    "lib/data/storage/hidden_volume_storage.dart": "85a1b368c244fd51c2ea1c187683b9a34e75197fc0b2899c002b604ccd48b3ef",
+    "test/notification_post_races_test.dart": "c7051a05e48ad4b51fcdc79da426f24aedabeb7b282f463c5b44d69cf1d28f4b",
+    "test/native/android_background_unlock_probe.dart": "4786541e4f04e6793f63e67563fe253229019c9c669e72308cf5ce11fb012392",
+    "test/identity_switch_dialog_guard_test.dart": "290543d62c62e0bd88b1500fbd51f3d3d8d2eca48cab8e7d6c94f1cd5842e874",
+    "test/notification_reply_identity_test.dart": "8b6f001e836b029e46be21a0a0703ec5765ec4cce38abeb06a134fc11180ea9e"
+  },
+  "limits": {
+    "biometric_prompt_or_finger_tested": false,
+    "full_pattern_input_ui_tested": false,
+    "message_delivery_during_doze_tested": false,
+    "long_android_background_qualified": false,
+    "windows_runtime_tested": false,
+    "original_sleep_complaint_closed": false,
+    "full_multi_device_matrix_qualified": false
+  },
+  "privacy": {
+    "raw_logs_committed": false,
+    "runtime_identifiers_committed": false,
+    "credentials_committed": false,
+    "user_container_opened": false
+  },
+  "released": false,
+  "pushed": false,
+  "notification_fix_commit": "80530f4e6faf27028153762e90c424136ed43fdf",
+  "veil_commit": "de769239927908e2f6929b416f101f6641d7baef",
+  "hidden_volume_commit": "47c28bc411abe9cc68f8f506c914891330f70121"
+}
