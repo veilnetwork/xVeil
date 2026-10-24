@@ -1880,6 +1880,9 @@ class MessagingService {
     bool selfAuthored = false,
   }) async {
     final msgId = id ?? _uuid.v4();
+    // Keep an already-installed owner across the async write: its shutdown
+    // must refuse required work, rather than a detached null tap implying success.
+    final publisher = onMessageStored;
     final stored = await _storage.appendMessage(
       Message(
         id: msgId,
@@ -1921,7 +1924,11 @@ class MessagingService {
     // Join the local device-journal commit before reporting the send complete
     // or acknowledging receipt. A process crash after return must not strand
     // a persisted conversation row outside its own-device recovery log.
-    await onMessageStored?.call(peer, stored);
+    await _deviceMirror.publishStored(
+      peer,
+      stored,
+      publisher: publisher ?? onMessageStored,
+    );
     return stored;
   }
 
@@ -1958,6 +1965,9 @@ class MessagingService {
 
   Future<bool> _hasMessage(NodeId peer, String id) =>
       _mutations.hasMessage(peer, id);
+
+  Future<bool> _mirrorStoredMessageIfPresent(NodeId peer, String id) =>
+      _deviceMirror.mirrorStoredIfPresent(peer, id);
 
   /// Fires after a local relationship transition, never after a mirrored one.
   void Function(NodeId peer, ContactStatus status)? onContactStatusChanged;
