@@ -30,6 +30,7 @@ import '../../domain/sovereign_secret.dart';
 import '../../domain/device_history_ask.dart';
 import '../../domain/device_sync.dart' show DeviceSyncEvent, DeviceSyncKind;
 import '../../domain/sovereign_recovery.dart';
+import '../../domain/recovery_certificate_export.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/back_affordance.dart';
 import '../../state/app_controller.dart';
@@ -1113,24 +1114,15 @@ class _RecoveryExportSheetState extends State<_RecoveryExportSheet> {
     final l = AppL10n.of(context);
     final certificate = _certificate;
     final nodeId = _nodeId;
-    if (certificate == null || nodeId == null) return;
+    if (certificate == null || nodeId == null || _busy) return;
     final suggested = 'xveil-recovery-${nodeId.hex.substring(0, 8)}.xvrc';
-    final dest = await FilePicker.saveFile(fileName: suggested);
-    if (dest == null || !mounted) return;
     setState(() {
       _busy = true;
       _failed = false;
     });
     try {
-      await File(dest).writeAsString(certificate, flush: true);
-      // Read it back before calling it saved. A write that reported success
-      // and left nothing behind — a full disk, a sandbox that swallowed the
-      // path — would otherwise clear the reminder that is the only thing
-      // telling this person their identity has no copy.
-      final wrote = await File(dest).readAsString();
-      if (wrote.trim() != certificate.trim()) {
-        throw StateError('the certificate did not read back as written');
-      }
+      final saved = await saveRecoveryCertificateToFile(certificate, suggested);
+      if (!saved || !mounted) return;
       await widget.service.markRecoveryCertificateSaved();
       if (!mounted) return;
       ScaffoldMessenger.of(
