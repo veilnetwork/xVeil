@@ -440,6 +440,18 @@ class _PostWriteGatedStorage extends HiddenVolumeStorage {
   final Completer<void> entered = Completer<void>();
   final Completer<void> release = Completer<void>();
   bool gateNextGroupWrite = false;
+  bool failAfterRelease = false;
+  bool gateEpochRead = false;
+
+  @override
+  Future<String?> getSetting(String key) async {
+    if (gateEpochRead && key.startsWith('devices.epoch_keys_shared.')) {
+      gateEpochRead = false;
+      entered.complete();
+      await release.future;
+    }
+    return super.getSetting(key);
+  }
 
   @override
   Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) async {
@@ -448,6 +460,7 @@ class _PostWriteGatedStorage extends HiddenVolumeStorage {
       gateNextGroupWrite = false;
       entered.complete();
       await release.future;
+      if (failAfterRelease) throw StateError('fixture write failure');
     }
   }
 }
@@ -6785,6 +6798,97 @@ void main() {
       );
     },
   );
+
+  test(
+    'dispose joins an admitted device-journal save before closing event streams',
+    () async {
+      final storage = _PostWriteGatedStorage();
+      await storage.open(password: 'fixture', createIfMissing: true);
+      addTearDown(storage.close);
+      final svc = GroupService(storage, _FakeSigner(owner));
+      await svc.linkDevice(bob, sovereign: sovereign);
+      storage.gateNextGroupWrite = true;
+      final post = svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.settingSet,
+          key: 'shutdown-fixture',
+          tsMs: 1000,
+          payload: const {'v': 'durable'},
+        ),
+      );
+      await storage.entered.future;
+      var finished = false;
+      final closing = svc.dispose().then((_) => finished = true);
+      await Future<void>.delayed(Duration.zero);
+      expect(finished, isFalse);
+      expect(
+        await svc.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.settingSet,
+            key: 'after-close',
+            tsMs: 1001,
+            payload: const {'v': 'refused'},
+          ),
+        ),
+        isFalse,
+      );
+      storage.release.complete();
+      await post;
+      await closing;
+      await svc.dispose();
+      expect(finished, isTrue);
+    },
+  );
+
+  test(
+    'dispose joins background epoch-key sharing after a completed save',
+    () async {
+      final storage = _PostWriteGatedStorage();
+      await storage.open(password: 'fixture', createIfMissing: true);
+      addTearDown(storage.close);
+      final svc = GroupService(
+        storage,
+        _FakeSigner(owner),
+        epochService: GroupEpochService(
+          LoopbackMailboxCrypto(senderForOpen: owner),
+        ),
+        send: (_, _, _) async {},
+      );
+      storage.gateEpochRead = true;
+      await svc.createGroup('fixture');
+      await storage.entered.future;
+      var finished = false;
+      final closing = svc.dispose().then((_) => finished = true);
+      await Future<void>.delayed(Duration.zero);
+      expect(finished, isFalse);
+      storage.release.complete();
+      await closing;
+      expect(finished, isTrue);
+    },
+  );
+
+  test('failed admitted write still closes group event streams', () async {
+    final storage = _PostWriteGatedStorage();
+    await storage.open(password: 'fixture', createIfMissing: true);
+    addTearDown(storage.close);
+    final svc = GroupService(storage, _FakeSigner(owner));
+    final streamClosed = Completer<void>();
+    final sub = svc.deviceIncoming.listen(
+      (_) {},
+      onDone: streamClosed.complete,
+    );
+    addTearDown(sub.cancel);
+    storage.gateNextGroupWrite = true;
+    storage.failAfterRelease = true;
+    final creation = expectLater(svc.createGroup('fixture'), throwsStateError);
+    await storage.entered.future;
+    final closing = expectLater(svc.dispose(), throwsStateError);
+    storage.release.complete();
+    await creation;
+    await closing;
+    await streamClosed.future;
+    expect(svc.isDisposed, isTrue);
+  });
 
   test('postDeviceEvent: concurrent fire-and-forget emits ALL land '
       '(regression: two unawaited posts raced the group log read-modify-write '
