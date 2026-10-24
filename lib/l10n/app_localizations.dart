@@ -717,6 +717,12 @@ abstract class AppL10n {
   /// **'Call,'**
   String get callOutcomeCompleted;
 
+  /// No description provided for @callOutcomeAnsweredElsewhere.
+  ///
+  /// In en, this message translates to:
+  /// **'Answered on another device'**
+  String get callOutcomeAnsweredElsewhere;
+
   /// No description provided for @callOutcomeDeclined.
   ///
   /// In en, this message translates to:

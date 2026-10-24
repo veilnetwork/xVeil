@@ -107,6 +107,40 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   final hub = ref.read(deviceSettingsSyncHubProvider);
   final callLog = ref.read(callLogStoreProvider);
 
+  final pendingCalls = <String, CallLogEntry>{};
+  Future<void>? callJournalWork;
+  Future<void> reconcileCallJournal(CallLogEntry received) {
+    final old = pendingCalls[received.id];
+    if (old == null || compareCallLogEntries(received, old) > 0) {
+      pendingCalls[received.id] = received;
+    }
+    final active = callJournalWork;
+    if (active != null) return active;
+    // A catch-up snapshot may deliver hundreds of calls. Share one fold/read
+    // across that burst, and drain entries that arrived during its awaits.
+    final work = Future<void>(() async {
+      try {
+        while (pendingCalls.isNotEmpty) {
+          final batch = pendingCalls.values.toList();
+          pendingCalls.clear();
+          final folded = await svc.deviceSyncState();
+          await callLog.reconcileMirrored([
+            for (final event in folded.values)
+              if (event.kind == DeviceSyncKind.callLog)
+                if (CallLogEntry.fromJson(event.payload) case final row?)
+                  if (row.id == event.key) row,
+            // Retain the already-admitted feed when a state read lags it.
+            ...batch,
+          ]);
+        }
+      } finally {
+        callJournalWork = null;
+      }
+    });
+    callJournalWork = work;
+    return work;
+  }
+
   // Boot catch-up is owned by groupServiceProvider's nudgeGroupSyncAll(). It
   // includes the device group and asks peers for missing rows. A full snapshot
   // here resent the whole device log on every restart and provider rebuild.
@@ -435,18 +469,18 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   tasks.start(() => announceStoredAvatar());
   tasks.start(() => announceStoredDevicePreferences());
   callLog.onAdded = (e) {
-    tasks.start(
-      () => svc.postDeviceEvent(
+    tasks.start(() async {
+      final posted = await svc.postDeviceEvent(
         DeviceSyncEvent(
           kind: DeviceSyncKind.callLog,
           key: e.id,
           tsMs: e.atMs,
           payload: e.toJson(),
         ),
-      ),
-    );
+      );
+      if (posted) await reconcileCallJournal(e);
+    });
   };
-
   // Read marks (brick 4c): reading here clears the badge on my other devices.
   // The event's tsMs IS the watermark (not a monotonic emit stamp) — two
   // devices reading independently converge on the newest read time, which is
@@ -871,7 +905,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
         gate.offer(e, () {
           final entry = CallLogEntry.fromJson(e.payload);
           if (entry == null || entry.id != e.key) return null;
-          return () => callLog.addMirrored(entry);
+          return () => reconcileCallJournal(entry);
         });
       case DeviceSyncKind.readMark:
         gate.offer(e, () {

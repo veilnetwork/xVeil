@@ -1,7 +1,9 @@
 // Call journal (multi-device epic, brick 4): the persistent record of finished
-// calls. Pure domain — entries are stored locally (encrypted settings JSON) and
+// calls. Pure domain — entries are stored locally in an encrypted append log and
 // ride the device group as `callLog` DeviceSyncEvents keyed by [id], so the
-// journal converges across my devices via the same LWW fold as everything else.
+// journal converges across my devices by final evidence, then a stable tie break.
+
+import 'dart:convert';
 
 import 'call_signal.dart';
 
@@ -35,7 +37,7 @@ enum CallLogOutcome {
 }
 
 /// Map a terminal call snapshot to its journal outcome. Pure and shared by the
-/// recorder and tests: [connected] = media ever flowed (connectedAt != null).
+/// recorder and tests: [connected] = the local media engine started successfully.
 CallLogOutcome callLogOutcomeFor({
   required bool outgoing,
   required bool connected,
@@ -59,10 +61,8 @@ CallLogOutcome callLogOutcomeFor({
     case CallEndReason.unknown:
       return CallLogOutcome.failed;
     case CallEndReason.answeredElsewhere:
-      // The identity DID take this call — on a sibling device. Journal rows
-      // converge across devices by callId, so agreeing with the answering
-      // device's outcome keeps the merged row honest and single-voiced;
-      // "missed" here would tell the user they missed a call they took.
+      // The sibling accepted, but its final outcome/duration is not known.
+      // The recorder marks this row provisional until that endpoint ends.
       return CallLogOutcome.completed;
   }
 }
@@ -78,6 +78,7 @@ class CallLogEntry {
     required this.outcome,
     required this.atMs,
     this.durationSec = 0,
+    this.provisional = false,
   });
 
   final String id;
@@ -92,15 +93,20 @@ class CallLogEntry {
   /// Talk time in seconds; 0 unless [outcome] is completed.
   final int durationSec;
 
+  /// This endpoint stopped ringing because a sibling answered. Its outcome
+  /// and duration are not yet the answering endpoint's final record.
+  final bool provisional;
+
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'peer': peerHex,
-        'out': outgoing,
-        'vid': video,
-        'o': outcome.name,
-        'at': atMs,
-        if (durationSec > 0) 'dur': durationSec,
-      };
+    'id': id,
+    'peer': peerHex,
+    'out': outgoing,
+    'vid': video,
+    'o': outcome.name,
+    'at': atMs,
+    if (durationSec > 0) 'dur': durationSec,
+    if (provisional) 'provisional': true,
+  };
 
   /// Null for anything malformed or from a newer vocabulary — callers skip.
   static CallLogEntry? fromJson(Map<String, dynamic> j) {
@@ -109,7 +115,14 @@ class CallLogEntry {
     if (id is! String || id.isEmpty || peer is! String || peer.isEmpty) {
       return null;
     }
-    if (at is! int || outcome == null) return null;
+    final provisional = j['provisional'];
+    final duration = j['dur'];
+    if (at is! int ||
+        outcome == null ||
+        (provisional != null && provisional is! bool) ||
+        (duration != null && (duration is! int || duration < 0))) {
+      return null;
+    }
     return CallLogEntry(
       id: id,
       peerHex: peer,
@@ -118,6 +131,36 @@ class CallLogEntry {
       outcome: outcome,
       atMs: at,
       durationSec: j['dur'] is int ? j['dur'] as int : 0,
+      provisional: provisional == true,
     );
   }
+}
+
+/// One ordering for persisted rows, live sync and snapshot compaction. A
+/// sibling's provisional observation must not defeat the final endpoint
+/// because its clock or offer receipt happened to be later. A known completed
+/// conversation also beats another ringing device's timeout; among completed
+/// records the longer final duration carries more information.
+int compareCallLogEntries(CallLogEntry a, CallLogEntry b) {
+  int rank(CallLogEntry e) => e.provisional
+      ? 0
+      : switch (e.outcome) {
+          CallLogOutcome.completed => 4,
+          CallLogOutcome.declined ||
+          CallLogOutcome.cancelled ||
+          CallLogOutcome.busy => 3,
+          CallLogOutcome.failed => 2,
+          CallLogOutcome.missed => 1,
+        };
+  final evidence = rank(a).compareTo(rank(b));
+  if (evidence != 0) return evidence;
+  if (!a.provisional &&
+      a.outcome == CallLogOutcome.completed &&
+      b.outcome == CallLogOutcome.completed) {
+    final duration = a.durationSec.compareTo(b.durationSec);
+    if (duration != 0) return duration;
+  }
+  final time = a.atMs.compareTo(b.atMs);
+  if (time != 0) return time;
+  return jsonEncode(a.toJson()).compareTo(jsonEncode(b.toJson()));
 }

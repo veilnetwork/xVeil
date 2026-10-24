@@ -103,6 +103,7 @@
   "callKindVoice": "Voice call",
   "callKindVideo": "Video call",
   "callOutcomeCompleted": "Call,",
+  "callOutcomeAnsweredElsewhere": "Answered on another device",
   "callOutcomeDeclined": "Declined",
   "callOutcomeCancelled": "Cancelled",
   "callOutcomeBusy": "Busy",

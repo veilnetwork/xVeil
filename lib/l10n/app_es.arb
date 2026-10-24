@@ -103,6 +103,7 @@
   "callKindVoice": "Llamada de voz",
   "callKindVideo": "Videollamada",
   "callOutcomeCompleted": "Llamada,",
+  "callOutcomeAnsweredElsewhere": "Respondida en otro dispositivo",
   "callOutcomeDeclined": "Rechazada",
   "callOutcomeCancelled": "Cancelada",
   "callOutcomeBusy": "Ocupado",

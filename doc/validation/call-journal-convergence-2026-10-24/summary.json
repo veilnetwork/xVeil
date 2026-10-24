@@ -1,0 +1,146 @@
+{
+  "schema": 1,
+  "date": "2026-10-24",
+  "base_commit": "2fc83a2306857ad79219c894eaa132b2417e75fa",
+  "sdk_commit": "1440d89ee076834fcd9d8c054a60b732d0e96831",
+  "hidden_volume_commit": "47c28bc411abe9cc68f8f506c914891330f70121",
+  "baseline": {
+    "unit_behavioral_failures": 3,
+    "independent_processes": {
+      "device_logs_converged": true,
+      "visible_journals_converged": false,
+      "A_duration_seconds": 0,
+      "B_duration_seconds": 75,
+      "A_rows": 1,
+      "B_rows": 1
+    }
+  },
+  "old_startup_criterion_control": {
+    "exit_code": 1,
+    "behavioral_failures": 2,
+    "source_restored_byte_exact": true,
+    "recorder_sha256": "3e2c995216af7b09b203ee0a43cd42b39786a77d19e130c790d3ce9fe5c5f188"
+  },
+  "corrected": {
+    "devices": 3,
+    "same_identity_devices": 2,
+    "offline_first_writers_converged": true,
+    "final_duration_seconds": 75,
+    "rows_per_call": 1,
+    "process_restart_preserved_result": true,
+    "future_placeholder_offset_ms": 120000,
+    "final_failure_won_device_fold": true,
+    "final_failure_won_both_visible_journals": true,
+    "new_debug_hooks_added": false,
+    "media_started": false
+  },
+  "verification": {
+    "selected_dart_tests_passed": 292,
+    "selected_dart_tests_skipped": 0,
+    "new_convergence_tests_passed": 13,
+    "open_journal_live_update_widget_passed": true,
+    "native_process_fleet_scenario_passed": true,
+    "analysis_issues": 0,
+    "retained_window_tested_with_calls": 201,
+    "retained_window_limit": 200,
+    "partial_reconciliation_failure_recovered": true,
+    "cleanup_failure_restart_recovered": true,
+    "no_mirror_echo_verified": true
+  },
+  "native_software": {
+    "software_sha256": {
+      "veil-cli": "fc2053432b4c6867ce8416ada4af34942c649e0b3d00ac5c8932f59f16e8538a",
+      "libveilclient_ffi.dylib": "35d1f0a501131616ab96eb8b96d91dee77c3715ac31608c07339c2d2d858471a"
+    },
+    "header_abi_hash": "665a027a4cbde50ca169a75673d6e7ca9118e237e446021f8ee7c1051e386a9a",
+    "same_build_cli_and_ffi": true,
+    "source_sha256": {
+      "crates/veil-dispatcher/src/app.rs": "ab5b8b69ebfe93f782f7531afc471dfd3cc804a06db23483d7805d6096c0bf5f",
+      "crates/veil-e2e/src/ratchet.rs": "210d69cd2a16e1a737db3ccde240241656e52fe258349f1dea3b923a99da74b1",
+      "crates/veil-node-runtime/src/runtime/service_tasks.rs": "99372098f723b04dead8e355f2aa368516124797104acac23913013e668c5ec7",
+      "crates/veil-node-runtime/src/runtime/service_tasks/tests.rs": "9c642721b24478fec28c04ca6bb9a1b7336dfd03fad457579a53da9d020d873e"
+    }
+  },
+  "hidden_volume": {
+    "final_preload_and_worker_same_frozen_artifact": true,
+    "library_sha256": "c9f6f9742bb2d95bf312067a4c4bc745ae124bb40576d8ce1f9d4b02f6373ff5",
+    "initial_pair_preload_sha256": "a92a4ecdc62d4f82ae3403d584f65c0eea7e3904b78372d2ab7959957acdb169",
+    "initial_pair_storage_binding_sha256": "c9f6f9742bb2d95bf312067a4c4bc745ae124bb40576d8ce1f9d4b02f6373ff5"
+  },
+  "android_main_apk": {
+    "apk_sha256": "502aa4a058304d66c561da5a9eab96ee984e7d252b2cb445018fb5bf26679239",
+    "build": "debug",
+    "target": "lib/main.dart",
+    "main_application_id_verified": true,
+    "probe_entrypoint_absent": true,
+    "abi_contract_present_in_dart": true,
+    "media_start_member_present": true,
+    "provisional_label_present": true,
+    "packaged_native_sha256": {
+      "libveilclient_ffi.so": "c6ed179a52f74633f57ff52c78aa2db9e9a265a3cec21aad23bc523269003d7b",
+      "libhidden_volume_ffi.so": "6229bae4ded5db35636ef724b8fca2ca3f7fdb3b71a722c48d69291fbbb7d891",
+      "libveil_media.so": "3546a0141ba9ad7533a081287c3af36916f5b4a457c42d212930e0e10ec049cb"
+    },
+    "packaged_native_matches_strip_unneeded_of_current_sources": true,
+    "packaged_abis": [
+      "arm64-v8a"
+    ],
+    "installed": false,
+    "external_mount_lost": false
+  },
+  "cleanup": {
+    "baseline": {
+      "all_recorded_workers_exited": true,
+      "recorded_workers": 6,
+      "remaining_owned_relays": 0,
+      "fleet_root_removed": true
+    },
+    "first_correction": {
+      "all_recorded_workers_exited": true,
+      "recorded_workers": 8,
+      "remaining_owned_relays": 0,
+      "fleet_root_removed": true
+    },
+    "intermediate": {
+      "all_recorded_workers_exited": true,
+      "recorded_workers": 8,
+      "remaining_owned_relays": 0,
+      "fleet_root_removed": true
+    },
+    "final": {
+      "all_recorded_workers_exited": true,
+      "recorded_workers": 8,
+      "owned_worker_process_groups_exited": true,
+      "remaining_owned_relays": 0,
+      "fleet_root_removed": true
+    }
+  },
+  "root_source_sha256": {
+    "lib/data/storage/hidden_volume_storage.dart": "eed3879049ffa5f8040dd1c55080a7bf0875a919252cdc65dfcf32e58c6cd0da",
+    "lib/data/storage/storage.dart": "8c32813d360bc0b796d90a3c572256c96cab227bb378c5191ec2d4ba97c853f4",
+    "lib/domain/call.dart": "9305873ef706fbcf165cc6353cbb0bad7e91ffcd312a2b3090cb0e8b39bf2332",
+    "lib/domain/call_log.dart": "5db122ab4ebc3a28826d29f32f81075e063018442076da649fe4e05f9c8e2832",
+    "lib/domain/device_sync.dart": "2009cba27fa2b5c0877619c53a7e572918175c09cc33bf2a0e611caad7b1c928",
+    "lib/features/calls/call_log_screen.dart": "c059fdf2d7475b27f851a32e07314b82877566d4c238579a4105b216aba361f4",
+    "lib/features/calls/call_timeline_row.dart": "2411071af66ca304210f7146bb874e707b126a520de932fd85d6373c15abd523",
+    "lib/l10n/app_en.arb": "dceb1f3d6444725f82923751a7b5a8cba7c594817c4d656350646929bafe5675",
+    "lib/l10n/app_es.arb": "3298c4cca153f52066054bcd88174d6402d3bcf113588bebea5fc7bfb1584cb4",
+    "lib/l10n/app_localizations.dart": "bac0610b46aa1ec60fdb1b5be5c2a3bcdca1fc453828eeebf167f130341997bd",
+    "lib/l10n/app_localizations_en.dart": "9bc7e3342a10cb99287ac3981afd41aa22be2fe71fbd57365a37558add9a2dd9",
+    "lib/l10n/app_localizations_es.dart": "f3966db09ef46a2aaf26f5bda723e3ab3eed418e4b91f614f065b484a1ee2ebe",
+    "lib/l10n/app_localizations_ru.dart": "7789c5b01976e3af6170b3dfe871e72d8fda2cadc86373c9a64fd2927fd2c358",
+    "lib/l10n/app_ru.arb": "52447496d1145a6e901e9e0976edbac64e449ac68f6016b2e4bca7ed4f07b222",
+    "lib/state/call_log.dart": "3e2c995216af7b09b203ee0a43cd42b39786a77d19e130c790d3ce9fe5c5f188",
+    "lib/state/call_service.dart": "3dcd44d604e32db5b5b5b4ac566a432621d4d77051a2eaf2768e204bccd2dcfb",
+    "lib/state/device_sync_bridge.dart": "d9967eced72946f79281661f913239a06376899f1415ea72d7ebfa28f85a26dc"
+  },
+  "test_source_sha256": {
+    "test/call_log_convergence_test.dart": "23f970b4c6320940b8083d71ade202f77d15ce21e0ec81a2df98f107fe1dfcd1",
+    "test/e2e/call_journal_convergence_e2e_test.dart": "d5c6d845fdc37a80da81be26012375a5d7a3263587c301d0090cb869b6584577",
+    "test/call_log_journal_storage_test.dart": "db193ccf95fffb102b2eb5bfce21612f4319aea71b639c0eb387ec5d0135b730",
+    "test/call_log_screen_test.dart": "a3e7652145c5e98b516f3ab9e96adc1afffc859593e699ec3dc035062b5b4c95"
+  },
+  "phone_and_installed_applications_untouched": true,
+  "physical_media_quality_tested": false,
+  "full_multi_device_matrix_qualified": false
+}

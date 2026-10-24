@@ -43,6 +43,7 @@ class Call {
     this.transport,
     this.endReason,
     this.connectedAt,
+    this.mediaStartedAt,
     this.endedAt,
     this.micOn = true,
     this.cameraOn = true,
@@ -101,6 +102,10 @@ class Call {
 
   /// When it reached [connecting] (answered).
   final DateTime? connectedAt;
+
+  /// First successful local media-engine start. Accepting an offer only sets
+  /// [connectedAt]; it does not establish that media could be opened.
+  final DateTime? mediaStartedAt;
 
   /// When it reached [ended].
   final DateTime? endedAt;
@@ -176,6 +181,7 @@ class Call {
     CallTransportKind? transport,
     CallEndReason? endReason,
     DateTime? connectedAt,
+    DateTime? mediaStartedAt,
     DateTime? endedAt,
     bool? micOn,
     bool? cameraOn,
@@ -200,6 +206,7 @@ class Call {
     transport: transport ?? this.transport,
     endReason: endReason ?? this.endReason,
     connectedAt: connectedAt ?? this.connectedAt,
+    mediaStartedAt: mediaStartedAt ?? this.mediaStartedAt,
     endedAt: endedAt ?? this.endedAt,
     micOn: micOn ?? this.micOn,
     cameraOn: cameraOn ?? this.cameraOn,
