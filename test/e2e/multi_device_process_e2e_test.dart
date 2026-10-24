@@ -40,7 +40,11 @@ Future<void> join(ProcessDevice from, ProcessDevice to) async {
   }
 }
 
-Future<String> linkProcesses(ProcessDevice source, ProcessDevice target) async {
+Future<String> linkProcesses(
+  ProcessDevice source,
+  ProcessDevice target, {
+  E2eIdentity owner = E2eIdentity.x,
+}) async {
   final sourceIdentity = (await deviceInfo(source))['identity'];
   final info = await deviceInfo(target);
   expect(info['nodeId'], isNot((await deviceInfo(source))['nodeId']));
@@ -55,7 +59,7 @@ Future<String> linkProcesses(ProcessDevice source, ProcessDevice target) async {
         document: link.document,
       ).toUri(),
     },
-    body: E2eIdentity.y.phrase,
+    body: (owner == E2eIdentity.x ? E2eIdentity.y : E2eIdentity.x).phrase,
   );
   expect(
     wrongSecret['ok'],
@@ -75,7 +79,7 @@ Future<String> linkProcesses(ProcessDevice source, ProcessDevice target) async {
         document: link.document,
       ).toUri(),
     },
-    body: E2eIdentity.x.phrase,
+    body: owner.phrase,
   );
   await join(target, source);
   final adopted = await target.checked(

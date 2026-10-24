@@ -1,0 +1,60 @@
+{
+  "sdk_revision": "de769239927908e2f6929b416f101f6641d7baef",
+  "hidden_volume_revision": "c4ba1fa8e0dc388fb590dbc382ce98138c90cfeb",
+  "native_cli_and_ffi_built_together": true,
+  "compiled_public_seeds_disabled": true,
+  "application_devices": 4,
+  "identities": 2,
+  "local_relays": 3,
+  "native_nodes": 7,
+  "cross_half_native_sessions_after_isolation": 0,
+  "application_process_restarts_during_partition_and_recovery": 0,
+  "partition_messages_created": 16,
+  "partition_messages_delivered_in_each_half_before_heal": 8,
+  "all_partition_messages_present_exactly_once_after_heal": true,
+  "per_writer_message_order_preserved": true,
+  "sibling_message_id_direction_body_edit_state_agrees": true,
+  "local_delete_wins_over_sibling_edit_for_same_identity": true,
+  "other_identity_retains_edited_message": true,
+  "concurrent_reaction_change_removal_converged": true,
+  "independent_other_identity_reaction_preserved": true,
+  "reaction_projection_rejects_duplicate_logical_reactors": true,
+  "read_markers_converged_to_at_least_preheal_max": true,
+  "manual_application_history_sync_used": false,
+  "transport_rejoin_after_admin_unban_used": true,
+  "physical_network_partition_used": false,
+  "hours_days_partition_qualified": false,
+  "calls_files_clock_skew_qualified_here": false,
+  "production_source_changed": false,
+  "phone_installed_app_or_public_relay_changed": false,
+  "source_fixture_files_unchanged": true,
+  "flutter_analysis_passed": true,
+  "measurements": {
+    "first_converged_ms": 19959,
+    "stable_observation_ms": 10383,
+    "total_recovery_ms": 30343
+  },
+  "cleanup": {
+    "recorded_fleet_roots_removed": 3,
+    "owned_relay_executables_absent": true,
+    "owned_native_libraries_not_open": true,
+    "owned_application_process_groups_absent": true,
+    "final_worker_test_successes": 6,
+    "final_relay_logs_preserved_privately": 3,
+    "unrelated_preexisting_temp_directories_preserved": true
+  },
+  "native_artifact_sha256": {
+    "veil-cli": "4bec94ee6f20ac08da5366b0cd6356aa058d7ae689d7e79d0b3dbbfd40699dd6",
+    "libveilclient_ffi.dylib": "07328ac13c8222083e6236e7a751b32d6f3d2b6c3211423200c7b1b113e584e0",
+    "libhidden_volume_ffi.dylib": "a92a4ecdc62d4f82ae3403d584f65c0eea7e3904b78372d2ab7959957acdb169"
+  },
+  "source_sha256": {
+    "test/e2e/device_process_fixture.dart": "3f6e9759eae06c3fb7068bdfb913079d9287f0c21fb05aaa66f5e6f9f607f68d",
+    "test/e2e/multi_device_process_e2e_test.dart": "a5abd98c281c6069b6a2250c3ccaee8df707b7f3847b075041c9562fa28e4eef",
+    "test/e2e/multi_device_partition_e2e_test.dart": "3d1f6397d55582d3807d008cf4c1f76000270f5f07693573bbada3a7c48239ce"
+  },
+  "native_default_features_disabled": true,
+  "native_low_difficulty_test_feature": true,
+  "sealed_loopback_fixtures": true,
+  "release_artifacts_qualified": false
+}

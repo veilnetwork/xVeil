@@ -1,0 +1,3 @@
+case,result,scope,remaining
+31,PASS_IN_SCOPE,"A/C and B/D stay live in separate native transport segments, then converge without restart",Physical network and prolonged partitions not covered
+32,PARTIAL,"Concurrent messages/read/reactions plus A edit and B local delete converge, order retained","Other edit/delete permutations, clock skew and prolonged partitions not covered"
