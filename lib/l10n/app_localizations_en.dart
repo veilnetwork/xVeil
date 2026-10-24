@@ -7802,4 +7802,92 @@ class AppL10nEn extends AppL10n {
   @override
   String get clearRequestsGroupAllConfirmTitle =>
       'Erase this group\'s messages?';
+
+  @override
+  String get quickUnlockTitle => 'Quick unlock';
+
+  @override
+  String get quickUnlockMenuHint => 'Pattern and device authentication';
+
+  @override
+  String get quickUnlockHint =>
+      'Choose methods for screen unlock. To also open the container after restart, enable the option below. Your normal password remains available. These choices stay on this device.';
+
+  @override
+  String get quickUnlockPattern => 'Pattern';
+
+  @override
+  String get quickUnlockDraw =>
+      'Select at least 4 distinct dots, in order. Draw or tap. Leave both grids empty to keep the existing pattern.';
+
+  @override
+  String get quickUnlockRepeat => 'Repeat the sequence';
+
+  @override
+  String get quickUnlockReset => 'Clear both grids';
+
+  @override
+  String get quickUnlockMismatch => 'The sequences do not match.';
+
+  @override
+  String get quickUnlockSystem => 'Device authentication';
+
+  @override
+  String get quickUnlockSystemHint =>
+      'Fingerprint or face recognition supported by your OS. Windows Hello may also offer a device PIN. No biometric data is stored in xVeil.';
+
+  @override
+  String get quickUnlockUnavailable =>
+      'Device authentication is unavailable or no biometrics are enrolled.';
+
+  @override
+  String get quickUnlockReason => 'Unlock the xVeil screen';
+
+  @override
+  String get quickUnlockSaveFailed =>
+      'Could not save. Check the password, matching patterns (at least 4 dots), or system authentication; try again after any attempt delay.';
+
+  @override
+  String get quickUnlockWithPattern => 'Unlock with pattern';
+
+  @override
+  String get nicknameUsageHint =>
+      'Share @name with a contact: they can enter it in Add contact. The name belongs to your identity; the node ID remains unchanged.';
+
+  @override
+  String get avatarChoose => 'Choose photo';
+
+  @override
+  String get avatarRemove => 'Remove photo';
+
+  @override
+  String get avatarSharingHint =>
+      'Your photo is shared with accepted contacts and linked devices. The original filename and photo metadata are removed.';
+
+  @override
+  String get avatarFailed =>
+      'Could not save the photo. Choose an image up to 8 MiB and try again.';
+
+  @override
+  String get startupUnlockTitle => 'Also unlock after restart';
+
+  @override
+  String get startupUnlockHint =>
+      'Saves this sign-in in the OS secure store on this device. This leaves evidence that quick sign-in is configured, even while the hidden container is locked. It replaces the previously saved sign-in for this app profile. Keep your password: OS reset or biometric changes can make quick sign-in unavailable.';
+
+  @override
+  String get startupUnlockBlocked =>
+      'Pattern sign-in is blocked after repeated attempts. Enter the password and configure quick unlock again in Settings.';
+
+  @override
+  String get startupUnlockFailed =>
+      'Could not unlock. Check the pattern or system confirmation; wait before retrying after repeated failures. You can always enter the container password.';
+
+  @override
+  String get wipeLeftQuickUnlock =>
+      'saved quick sign-in in the OS secure store';
+
+  @override
+  String get startupUnlockSaveFailed =>
+      'Screen lock settings were saved, but OS quick sign-in could not be configured. Your container password still works.';
 }

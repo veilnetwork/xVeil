@@ -1,3 +1,4 @@
+import '../../state/self_presentation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -210,7 +211,7 @@ class _SecurityCenterSheetState extends ConsumerState<_SecurityCenterSheet> {
               // fresh one, the row read "Identities & account" twice over and
               // said nothing at all. The string written for this second line
               // was sitting unused two files away.
-              title: Text(app.identity?.displayName ?? l.settingsCatAccount),
+              title: Text(ref.watch(selfPresentationProvider).label),
               subtitle: Text(l.settingsCatAccountHint),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => _open('/settings/account'),

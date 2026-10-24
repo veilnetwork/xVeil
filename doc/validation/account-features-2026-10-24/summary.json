@@ -1,0 +1,79 @@
+{
+  "schema": 1,
+  "date": "2026-10-24",
+  "base_commit": "e3eae6253d77d0284adc1e57706685fb959ecde8",
+  "veil_commit": "de769239927908e2f6929b416f101f6641d7baef",
+  "hidden_volume_commit": "47c28bc411abe9cc68f8f506c914891330f70121",
+  "selected_tests_passed": 243,
+  "selected_tests_skipped": 0,
+  "analyzer_issues": 0,
+  "node_guide": {
+    "checks": 8,
+    "passed": 8,
+    "temporary_directory_removed": true,
+    "node_started": false
+  },
+  "macos_pattern_os_vault": {
+    "exit_code": 0,
+    "process_exited": true,
+    "remaining_owned_apps": 0,
+    "passed": true,
+    "removed": true,
+    "failureType": null
+  },
+  "native_builds": {
+    "macos-build-final": {
+      "exit_code": 0,
+      "external_mount_lost": false
+    },
+    "android-hv-native": {
+      "exit_code": 0,
+      "external_mount_lost": false
+    },
+    "android-build-abi-final": {
+      "exit_code": 0,
+      "external_mount_lost": false
+    }
+  },
+  "packaged_hidden_volume_abi": {
+    "expected_checksums": 43,
+    "matched_checksums": 43,
+    "mismatch_count": 0,
+    "library_sha256": "6229bae4ded5db35636ef724b8fca2ca3f7fdb3b71a722c48d69291fbbb7d891",
+    "bindings_sha256": "2aa611d9a2feb24d9c76df8c401e053dd3e098352d3fce930b6e9b507e23fe61"
+  },
+  "packaged_veil_exports": {
+    "required_symbols": 203,
+    "matched_symbols": 203,
+    "missing_symbols": 0,
+    "apk_sha256": "7c05d99f10b7fae58054a4316b4ef1f28d37ba5ef41b7ef1906744c7828536a2"
+  },
+  "physical_android_tested": false,
+  "windows_runtime_tested": false,
+  "ios_runtime_tested": false,
+  "linux_runtime_tested": false,
+  "real_biometric_prompt_tested": false,
+  "released": false,
+  "pushed": false,
+  "source_sha256": {
+    "lib/core/quick_unlock_vault.dart": "0e5abd93ad7eb180c9fdb878f37b5d336861083505de05b022f6fd8f3f7747ef",
+    "lib/core/local_authentication.dart": "998ee258f80610117d0b4c518589b894f5f62e5747978339e5c0fa533dd55d44",
+    "lib/state/startup_unlock.dart": "5929f0762c3f7fdfd10e90083044b5392d00277319773c99d28fd379c2275e9d",
+    "lib/state/screen_lock_controller.dart": "8c5e33ba4864eb5508b44b4562d7b3a5dda6a642281b7c7a9a83a9bf110e93e7",
+    "lib/state/background_node_controller.dart": "a738260b1ecfd3a8e8c2b450c09dff7d8385f9d3a08c108ce87547aff343f6ba",
+    "lib/domain/profile_avatar.dart": "cd50dad1b7263df7cd5a33b5f3204d2dd35e8efedbeacaad12db8651f04983f9",
+    "lib/state/messaging_profile.dart": "10275feaa14cbd7a98feb303f6676dad742a59e5e0970dcb4d9db49c428e331a",
+    "lib/state/self_presentation.dart": "5126a8d56dd955858c86bd892c6878bb9a3f5eb72b53d30ae48071125988166d",
+    "lib/state/device_sync_bridge.dart": "180697afdb2981e8bb701153c7d72d6346ab33290dc0ca7d26064156e25c6e77",
+    "pubspec.lock": "e663a35860e7e53ccf318e21b9aaa46f4b17f3aa98f7b1cbdaf60eeee8490772",
+    "test/quick_unlock_settings_test.dart": "26d39892c536e798c1d95ae1f8a90300d899e14678bf693b6ecb7e8422dc890b",
+    "test/background_node_startup_test.dart": "b18c5d59b0996d20600ae7a3f9d8bd356a88c3d8d48ab81f34ab20b3d64b8efe",
+    "lib/state/app_controller.dart": "9e28ff97aaf76c455e033f5a6531c6a2cd848c75d94f4cf99710ecce91e75690"
+  },
+  "test_runs": {
+    "main_regression_passed": 241,
+    "additional_unique_cases_passed": 2,
+    "focused_recheck_passed_including_overlap": 5
+  },
+  "ios_pods_resolved": true
+}

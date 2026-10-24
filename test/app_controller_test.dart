@@ -1,3 +1,4 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -46,6 +47,7 @@ Future<void> _settle(ProviderContainer c) async {
 }
 
 void main() {
+  setUp(() => FlutterSecureStorage.setMockInitialValues({}));
   _p2pPolicyTests();
   _keyWipeOnLockTests();
   _nodeIdSourceOfTruthTests();

@@ -140,6 +140,7 @@ class _GatedStorage implements Storage {
   @override
   Future<String?> getSetting(String key) async {
     final answer = await inner.getSetting(key);
+    if (key != kScreenLockTimeoutSettingKey) return answer;
     final gate = Completer<void>();
     _gates.add(gate);
     await gate.future;

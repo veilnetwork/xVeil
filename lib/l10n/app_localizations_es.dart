@@ -7902,4 +7902,91 @@ class AppL10nEs extends AppL10n {
   @override
   String get clearRequestsGroupAllConfirmTitle =>
       '¿Borrar los mensajes de este grupo?';
+
+  @override
+  String get quickUnlockTitle => 'Desbloqueo rápido';
+
+  @override
+  String get quickUnlockMenuHint => 'Patrón y autenticación del dispositivo';
+
+  @override
+  String get quickUnlockHint =>
+      'Elige métodos para desbloquear la pantalla. Para abrir también el contenedor tras reiniciar, activa la opción siguiente. La contraseña sigue disponible. Ajustes locales.';
+
+  @override
+  String get quickUnlockPattern => 'Patrón';
+
+  @override
+  String get quickUnlockDraw =>
+      'Selecciona al menos 4 puntos distintos, en orden. Dibuja o pulsa. Deja ambas cuadrículas vacías para conservar el patrón.';
+
+  @override
+  String get quickUnlockRepeat => 'Repite la secuencia';
+
+  @override
+  String get quickUnlockReset => 'Borrar ambas cuadrículas';
+
+  @override
+  String get quickUnlockMismatch => 'Las secuencias no coinciden.';
+
+  @override
+  String get quickUnlockSystem => 'Autenticación del dispositivo';
+
+  @override
+  String get quickUnlockSystemHint =>
+      'Huella o reconocimiento facial del sistema. Windows Hello también puede ofrecer el PIN. xVeil no almacena datos biométricos.';
+
+  @override
+  String get quickUnlockUnavailable =>
+      'La autenticación no está disponible o no hay biometría registrada.';
+
+  @override
+  String get quickUnlockReason => 'Desbloquear la pantalla de xVeil';
+
+  @override
+  String get quickUnlockSaveFailed =>
+      'No se pudo guardar. Comprueba la contraseña, los patrones (al menos 4 puntos) y la autenticación; espera si hay un límite de intentos.';
+
+  @override
+  String get quickUnlockWithPattern => 'Desbloquear con patrón';
+
+  @override
+  String get nicknameUsageHint =>
+      'Comparte @nombre: se puede introducir en Añadir contacto. El nombre pertenece a tu identidad; el ID del nodo no cambia.';
+
+  @override
+  String get avatarChoose => 'Elegir foto';
+
+  @override
+  String get avatarRemove => 'Eliminar foto';
+
+  @override
+  String get avatarSharingHint =>
+      'Tu foto se comparte con contactos aceptados y dispositivos vinculados, sin nombre de archivo ni metadatos originales.';
+
+  @override
+  String get avatarFailed =>
+      'No se pudo guardar la foto. Elige una imagen de hasta 8 MiB e inténtalo de nuevo.';
+
+  @override
+  String get startupUnlockTitle => 'Desbloquear también tras reiniciar';
+
+  @override
+  String get startupUnlockHint =>
+      'Guarda este acceso en el almacén seguro del sistema de este dispositivo. La entrada revela que hay un acceso rápido configurado, incluso con el contenedor oculto bloqueado. Sustituye el acceso anterior del perfil. Conserva la contraseña: restablecer el sistema o cambiar la biometría puede impedir el acceso rápido.';
+
+  @override
+  String get startupUnlockBlocked =>
+      'El acceso por patrón está bloqueado tras varios intentos. Introduce la contraseña y vuelve a configurar el acceso rápido.';
+
+  @override
+  String get startupUnlockFailed =>
+      'No se pudo desbloquear. Comprueba el patrón o la confirmación del sistema; espera tras varios fallos. Puedes introducir la contraseña del contenedor.';
+
+  @override
+  String get wipeLeftQuickUnlock => 'acceso rápido guardado en el sistema';
+
+  @override
+  String get startupUnlockSaveFailed =>
+      'Los ajustes de bloqueo se guardaron, pero no se pudo configurar el acceso rápido del sistema. La contraseña del contenedor sigue funcionando.';
 }

@@ -285,6 +285,10 @@ enum WireKind {
   /// trust the counterpart with this), live only, never acked. Appended
   /// immediately before [unknown] (RULE WC).
   deviceGone,
+
+  /// Bounded JPEG avatar or live profile request; authenticated accepted contacts only.
+  /// Never queued into mailbox or chat history. Older builds drop this slot.
+  profileAvatar,
   unknown,
 }
 
@@ -364,6 +368,7 @@ const List<String> kWireKindOrder = [
   'disappearingSet',
   'presence',
   'deviceGone',
+  'profileAvatar',
   'unknown',
 ];
 
