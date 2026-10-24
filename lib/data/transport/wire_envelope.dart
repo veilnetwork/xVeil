@@ -289,6 +289,11 @@ enum WireKind {
   /// Bounded JPEG avatar or live profile request; authenticated accepted contacts only.
   /// Never queued into mailbox or chat history. Older builds drop this slot.
   profileAvatar,
+
+  /// Live, request-correlated history pages between currently delegated devices
+  /// of one identity. Inventory first; cursors survive restart. Never mailbox,
+  /// durable outbox, chat content or a group-log append.
+  deviceHistory,
   unknown,
 }
 
@@ -369,6 +374,7 @@ const List<String> kWireKindOrder = [
   'presence',
   'deviceGone',
   'profileAvatar',
+  'deviceHistory',
   'unknown',
 ];
 
@@ -586,6 +592,9 @@ class WireEnvelope {
 
   /// See [WireKind.deviceGone].
   const WireEnvelope.deviceGone(String json) : this(WireKind.deviceGone, json);
+
+  const WireEnvelope.deviceHistory(String json)
+    : this(WireKind.deviceHistory, json);
 
   /// See [WireKind.presence].
   WireEnvelope.presence(String deviceHex, {bool reply = false})
