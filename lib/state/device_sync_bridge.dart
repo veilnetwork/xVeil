@@ -19,6 +19,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import '../core/log.dart';
+import '../core/async_tasks.dart';
 import '../core/ids.dart';
 import '../data/node/sovereign_identity_material.dart';
 import '../data/veil_stack.dart';
@@ -31,7 +32,10 @@ import '../domain/clear_policy.dart';
 import '../domain/disappearing_messages.dart' show DisappearingSetting;
 import 'call_log.dart';
 import 'device_history_backfill.dart'
-    show historyAskToServe, kHistoryReplayBacklogRoom, prepareDeviceMirror,
+    show
+        historyAskToServe,
+        kHistoryReplayBacklogRoom,
+        prepareDeviceMirror,
         replayHistoryForAsk;
 import 'device_settings_sync.dart';
 import 'device_sync_appliers.dart';
@@ -98,6 +102,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   final svc = ref.watch(groupServiceProvider);
   if (svc == null) return;
   final messaging = ref.read(messagingServiceProvider);
+  final tasks = AsyncTasks();
   final hub = ref.read(deviceSettingsSyncHubProvider);
   final callLog = ref.read(callLogStoreProvider);
 
@@ -204,7 +209,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
     );
   }
 
-  unawaited(announceIdentityDocument());
+  tasks.start(() => announceIdentityDocument());
 
   // Claims made before the first sibling was linked, or on an older build,
   // could only be persisted locally. Announce one after the device group
@@ -266,7 +271,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   // the sibling it would describe itself). Same rule as the msgMirror
   // exclusion (brick 4c).
   messaging.onContactPrefsChanged = (c) {
-    unawaited(() async {
+    tasks.start(() async {
       if (c.nodeId == svc.selfId || await svc.isMyDevice(c.nodeId)) return;
       await svc.postDeviceEvent(
         DeviceSyncEvent(
@@ -276,7 +281,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
           payload: contactPrefsPayload(c),
         ),
       );
-    }());
+    });
   };
   // Relationship transitions ride a SEPARATE key namespace ('s:<peer>'), so
   // a preference edit and a status change LWW independently — an alias edit
@@ -363,12 +368,12 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   // The group is ready here, but publishing several preferences may take a
   // while. Let the link ceremony finish; the catch-up continues in the app.
   svc.onDeviceGroupAdopted = () async {
-    unawaited(announceStoredDevicePreferences());
+    tasks.start(() => announceStoredDevicePreferences());
   };
 
   messaging.onContactStatusChanged = (peer, status) {
     svc.notifyContactAccessChanged(peer);
-    unawaited(() async {
+    tasks.start(() async {
       if (peer == svc.selfId || await svc.isMyDevice(peer)) return;
       // ONLY DECISIONS TRAVEL. A pending status is the doorbell, and every
       // device hears the doorbell itself — the request wire is addressed to
@@ -389,11 +394,11 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
           payload: {'status': status.name},
         ),
       );
-    }());
+    });
   };
   hub.onLocalSet = (key, value) {
-    unawaited(
-      svc.postDeviceEvent(
+    tasks.start(
+      () => svc.postDeviceEvent(
         DeviceSyncEvent(
           kind: DeviceSyncKind.settingSet,
           key: key,
@@ -403,11 +408,11 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       ),
     );
   };
-  unawaited(announceStoredNickname());
-  unawaited(announceStoredDevicePreferences());
+  tasks.start(() => announceStoredNickname());
+  tasks.start(() => announceStoredDevicePreferences());
   callLog.onAdded = (e) {
-    unawaited(
-      svc.postDeviceEvent(
+    tasks.start(
+      () => svc.postDeviceEvent(
         DeviceSyncEvent(
           kind: DeviceSyncKind.callLog,
           key: e.id,
@@ -426,7 +431,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   // excluded — each side names it by the other device's id, so the key would
   // not be portable.
   messaging.onPinnedChanged = (peer, encoded) {
-    unawaited(() async {
+    tasks.start(() async {
       if (peer == svc.selfId || await svc.isMyDevice(peer)) return;
       await svc.postDeviceEvent(
         DeviceSyncEvent(
@@ -436,10 +441,10 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
           payload: {'v': encoded},
         ),
       );
-    }());
+    });
   };
   messaging.onReactionSent = (peer, msgId, emoji, atMs) {
-    unawaited(() async {
+    tasks.start(() async {
       if (peer == svc.selfId || await svc.isMyDevice(peer)) return;
       await svc.postDeviceEvent(
         DeviceSyncEvent(
@@ -449,10 +454,10 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
           payload: {'e': emoji},
         ),
       );
-    }());
+    });
   };
   messaging.onPeerReactionReceived = (peer, msgId, emoji, atMs) {
-    unawaited(() async {
+    tasks.start(() async {
       if (peer == svc.selfId || await svc.isMyDevice(peer)) return;
       await svc.postDeviceEvent(
         DeviceSyncEvent(
@@ -462,7 +467,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
           payload: {'e': emoji},
         ),
       );
-    }());
+    });
   };
   // ── STICKER PACKS → my other devices, with their images ─────────────────
   final stickers = ref.read(stickerControllerProvider.notifier);
@@ -478,9 +483,9 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   ref.onDispose(stickerSync.dispose);
 
   stickers.onLocalPackChange = (packId, {bool deleted = false}) =>
-      unawaited(stickerSync.emit(packId, deleted: deleted));
+      tasks.start(() => stickerSync.emit(packId, deleted: deleted));
   ref.onDispose(() => stickers.onLocalPackChange = null);
-  unawaited(() async {
+  tasks.start(() async {
     try {
       await ref.read(stickerControllerProvider.future);
       await stickers.giveDefaultPackItsOwnId();
@@ -488,13 +493,13 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
     } catch (e) {
       devLog(() => 'xVeil[devices]: sticker packs not announced: $e');
     }
-  }());
+  });
 
   final lastReadEmitted = <String, int>{};
   messaging.onConversationRead = (convId, ts) {
     if ((lastReadEmitted[convId] ?? 0) >= ts) return;
     lastReadEmitted[convId] = ts;
-    unawaited(() async {
+    tasks.start(() async {
       try {
         if (await svc.isMyDevice(NodeId.fromHex(convId))) return;
       } catch (_) {
@@ -508,11 +513,11 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
           payload: const {},
         ),
       );
-    }());
+    });
   };
   svc.onGroupPrefChanged = (pref, gidHex, value) {
-    unawaited(
-      svc.postDeviceEvent(
+    tasks.start(
+      () => svc.postDeviceEvent(
         DeviceSyncEvent(
           kind: DeviceSyncKind.groupPref,
           key: '$pref|$gidHex',
@@ -523,8 +528,8 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
     );
   };
   svc.onGroupNotificationPolicyChanged = (gidHex, stored) {
-    unawaited(
-      svc.postDeviceEvent(
+    tasks.start(
+      () => svc.postDeviceEvent(
         DeviceSyncEvent(
           kind: DeviceSyncKind.groupNotify,
           key: gidHex,
@@ -538,7 +543,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
     final key = 'g:$gidHex';
     if ((lastReadEmitted[key] ?? 0) >= ts) return;
     lastReadEmitted[key] = ts;
-    unawaited(() async {
+    tasks.start(() async {
       // Never for the device group itself (it is hidden from every list, but
       // hooks could still reach it) — its seen mark is meaningless to sync.
       if (gidHex == await svc.deviceGroupIdHex()) return;
@@ -550,7 +555,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
           payload: const {},
         ),
       );
-    }());
+    });
   };
 
   // Lazy attachments (brick 4b): when the user downloads a cid that is a
@@ -684,7 +689,9 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       ask: ask,
       storage: svc.storage,
       mirrorMessage: (peer, message, withFileBytes) => prepareDeviceMirror(
-        peer, message, storage: svc.storage,
+        peer,
+        message,
+        storage: svc.storage,
         registerContent: messaging.registerGroupContent,
         withFileBytes: withFileBytes,
       ),
@@ -739,6 +746,13 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   // refuse: it must leave no watermark, or the honest event ranked under it is
   // dropped without ever being looked at.
   final gate = DeviceSyncApplyGate();
+  final closeBridge = messaging.registerShutdownTask(() async {
+    bridgeGone = true;
+    final queued = gate.close();
+    await Future.wait([tasks.close(), queued, serveChain]);
+  });
+  ref.onDispose(() => unawaited(closeBridge()));
+
   final stickerRetryTimers = <String, Timer>{};
   final stickerRetryCounts = <String, int>{};
   void clearStickerRetry(String packId) {
@@ -788,6 +802,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   // MOMENT differs, and the moment was load-bearing when it should not have
   // been.
   void handleEvent(DeviceSyncEvent e) {
+    if (bridgeGone) return;
     switch (e.kind) {
       case DeviceSyncKind.contactUp:
         gate.offer(e, () {
@@ -893,8 +908,8 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
           return;
         }
         if (peer == svc.selfId) return;
-        unawaited(
-          messaging.applyMirroredReaction(
+        tasks.start(
+          () => messaging.applyMirroredReaction(
             peer,
             e.key.substring(cut + 1),
             emoji,
@@ -934,7 +949,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
             if (cid is String) {
               blob = await svc.storage.loadFile(cid);
               if (blob == null) {
-                unawaited(() async {
+                tasks.start(() async {
                   try {
                     await messaging.deviceContentPull?.call(cid);
                   } catch (error) {
@@ -944,9 +959,10 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
                           'pull failed: $error',
                     );
                   }
-                }());
+                });
                 for (var i = 0; i < 60 && blob == null; i++) {
                   await Future<void>.delayed(const Duration(seconds: 2));
+                  if (bridgeGone) throw const DeviceSyncApplyDeferred();
                   blob = await svc.storage.loadFile(cid);
                 }
               }
@@ -1001,8 +1017,8 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
           return;
         }
         if (peer == svc.selfId) return;
-        unawaited(
-          messaging.applyMirroredPeerReaction(
+        tasks.start(
+          () => messaging.applyMirroredPeerReaction(
             peer,
             e.key.substring(cut + 1),
             emoji,
@@ -1132,11 +1148,11 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   // contactUp for a freshly accepted contact while its contact list stayed
   // empty for good. The gate's watermarks make this idempotent — an event
   // the live stream already applied moves nothing.
-  unawaited(() async {
+  tasks.start(() async {
     final folded = await svc.deviceSyncState();
     for (final e in folded.values) {
       handleEvent(e);
     }
-  }());
+  });
   ref.onDispose(sub.cancel);
 });
