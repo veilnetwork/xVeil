@@ -91,10 +91,8 @@ const kOwnEchoCap = 50;
 /// Hashed, not truncated: ids are not all random (a file id is the content
 /// id's prefix, a test writes `m1`), and a truncated one could collide with a
 /// neighbour for good.
-String ownEchoKey(String messageId) => crypto.sha256
-    .convert(utf8.encode(messageId))
-    .toString()
-    .substring(0, 8);
+String ownEchoKey(String messageId) =>
+    crypto.sha256.convert(utf8.encode(messageId)).toString().substring(0, 8);
 
 /// Which of MY messages the counterpart holds and the asking device of mine
 /// does not.
@@ -140,9 +138,7 @@ List<T> ownEchoesMissing<T>({
           !held.contains(keyOf(m)))
         m,
   ]..sort((a, b) => tsOf(a).compareTo(tsOf(b)));
-  return missing.length > cap
-      ? missing.sublist(missing.length - cap)
-      : missing;
+  return missing.length > cap ? missing.sublist(missing.length - cap) : missing;
 }
 
 /// Which of MY messages the asking device holds with an OLDER text than the
@@ -154,11 +150,11 @@ List<T> ownEchoesMissing<T>({
 /// messages edited on one device showed the edit on the sibling that made it
 /// and on the counterpart, and the original on the other device of mine.
 ///
-/// [heldEdits] is the asker's edit seq per key, for the messages it holds
-/// edited; absent means it holds the original. An edit numbers past every
-/// edit of its message already held (so the counterpart keeps the higher
-/// seq), which makes a higher seq here the LATER text: one the asker made
-/// itself and has not yet reached the counterpart is not overwritten.
+/// [heldEdits] is the asker's edit seq per key; absent means the original.
+/// Current askers also name the edited value in [heldHashes]. Concurrent
+/// writers can allocate the same revision: choose its content with the same
+/// order as storage and own-device history. An older asker without hashes
+/// retains its strictly-higher-revision behavior.
 ///
 /// Pure, so the selection is testable without two devices and a peer.
 List<T> ownEchoesEdited<T>({
@@ -168,17 +164,32 @@ List<T> ownEchoesEdited<T>({
   required int? Function(T) editSeqOf,
   required Set<String> held,
   required Map<String, int> heldEdits,
+  String Function(T)? contentHashOf,
+  Map<String, String> heldHashes = const {},
   required int sinceMs,
   int? untilMs,
   int cap = kOwnEchoCap,
 }) {
+  bool newer(T message, int seq) {
+    final key = keyOf(message), heldSeq = heldEdits[key];
+    final hash = contentHashOf?.call(message);
+    if (hash == null) return seq > (heldSeq ?? -1);
+    return messageEditWins(
+      revision: seq,
+      contentHash: hash,
+      heldRevision: heldSeq,
+      heldContentHash: heldHashes[key] ?? hash,
+    );
+  }
+
   final stale = [
     for (final m in theirs)
       if (editSeqOf(m) case final seq?)
-        if (tsOf(m) > sinceMs &&
+        if (isAcceptableWireSeq(seq) &&
+            tsOf(m) > sinceMs &&
             (untilMs == null || tsOf(m) < untilMs) &&
             held.contains(keyOf(m)) &&
-            seq > (heldEdits[keyOf(m)] ?? -1))
+            newer(m, seq))
           m,
   ]..sort((a, b) => tsOf(a).compareTo(tsOf(b)));
   return stale.length > cap ? stale.sublist(stale.length - cap) : stale;
@@ -277,21 +288,13 @@ class _MessagingPeerSync {
   /// "my" messages into this chat unprompted.
   final Map<String, DateTime> _ownAskedAt = {};
 
-  /// Message id -> an edit seq the counterpart handed back whose text this
-  /// device already showed. Its own row keeps a different number (an edit
-  /// mirrored before edits carried their seq was numbered here), and without
-  /// this the counterpart would hand the same text back on every ask. In
-  /// memory: after a restart it costs one more hand-back per message.
-  final Map<String, int> _ownEditSettled = {};
-
   /// Asks made to each peer, for [ownEchoPage].
   final Map<String, int> _ownAskRounds = {};
 
   /// Echo answers already given, per peer: the ask and answer's signature, how
   /// many times, and when first. Every device of the identity asks under the same
   /// peer name, so several are kept, as for [_reshipRounds].
-  final Map<String, Map<String, ({int rounds, DateTime at})>> _ownAnswered =
-      {};
+  final Map<String, Map<String, ({int rounds, DateTime at})>> _ownAnswered = {};
   static const _ownAskTtl = Duration(minutes: 15);
   static const _reshipCap = 100;
 
@@ -308,6 +311,7 @@ class _MessagingPeerSync {
 
   /// How long re-shipping stays withheld from a mark that stopped moving.
   static const _reshipPause = Duration(minutes: 10);
+
   /// Per peer, per MARK: every device of an identity beacons under the same
   /// peer name, and a sibling that is up to date interleaves its own mark with
   /// the stuck one — tracked as one sequence, "the same mark twice in a row"
@@ -483,6 +487,7 @@ class _MessagingPeerSync {
       if (ownAsk != null) 'os': ownAsk.sinceMs,
       if (ownAsk?.untilMs != null) 'ou': ownAsk!.untilMs,
       if (ownAsk != null && ownAsk.edits.isNotEmpty) 'oe': ownAsk.edits,
+      if (ownAsk != null && ownAsk.hashes.isNotEmpty) 'oh': ownAsk.hashes,
       'ep': now.millisecondsSinceEpoch,
     });
     // Count the quiet round only on a round that actually SENDS: a throttled
@@ -621,7 +626,7 @@ class _MessagingPeerSync {
     final selfHex = await _owner._selfHex();
 
     final ownAsk = json['ow'], ownSince = json['os'], ownUntil = json['ou'];
-    final ownEdits = json['oe'];
+    final ownEdits = json['oe'], ownHashes = json['oh'];
     if (ownAsk is List && ownSince is int) {
       await _answerOwnEchoAsk(
         peer,
@@ -631,9 +636,19 @@ class _MessagingPeerSync {
         ownUntil is int ? ownUntil : null,
         edits: {
           if (ownEdits is Map)
-            for (final e in ownEdits.entries)
-              if (e.key is String && e.value is int)
+            for (final e in ownEdits.entries.take(kOwnEchoWindow))
+              if (e.key is String &&
+                  e.value is int &&
+                  isAcceptableWireSeq(e.value as int))
                 e.key as String: e.value as int,
+        },
+        hashes: {
+          if (ownHashes is Map)
+            for (final e in ownHashes.entries.take(kOwnEchoWindow))
+              if (e.key is String &&
+                  e.value is String &&
+                  RegExp(r'^[0-9a-f]{64}$').hasMatch(e.value as String))
+                e.key as String: e.value as String,
         },
       );
     }
@@ -932,24 +947,50 @@ class _MessagingPeerSync {
     }
   }
 
+  /// Do not attach a later revision to a body read before that revision.
+  /// Equal-revision changes remain safe: each observed body has that revision,
+  /// and the recipient chooses its winner by content rather than arrival.
+  Future<({List<Message> messages, Map<String, int> edits})> _editSnapshot(
+    NodeId peer,
+  ) async {
+    for (var attempt = 0; attempt < 3; attempt++) {
+      final before = await _owner._storage.editSeqs(peer.hex);
+      final messages = await _owner._storage.loadMessages(peer.hex);
+      final after = await _owner._storage.editSeqs(peer.hex);
+      if (before.length == after.length &&
+          before.entries.every((entry) => after[entry.key] == entry.value)) {
+        return (messages: messages, edits: after);
+      }
+    }
+    throw StateError('Message revisions changed during peer sync snapshot');
+  }
+
   /// The keys of my newest sent messages in this chat, and the time of the
   /// oldest of them, when a device of mine other than this one may have
   /// written in it too; null otherwise.
   Future<
-    ({List<String> keys, Map<String, int> edits, int sinceMs, int? untilMs})?
+    ({
+      List<String> keys,
+      Map<String, int> edits,
+      Map<String, String> hashes,
+      int sinceMs,
+      int? untilMs,
+    })?
   >
   _ownEchoAsk(NodeId peer) async {
     try {
       final siblings = await _owner.myOtherDevices?.call() ?? const <NodeId>[];
       if (siblings.isEmpty) return null;
+      final snapshot = await _editSnapshot(peer);
       // BY TIME: the log is in arrival order, and "the last hundred" of it is
       // not the newest hundred once gap-fill and mirrors have filled it in.
       final sent = [
-        for (final m in await _owner._storage.loadMessages(peer.hex))
+        for (final m in snapshot.messages)
           if (m.direction == MessageDirection.outgoing) m,
       ]..sort((a, b) => a.timestamp.compareTo(b.timestamp));
       if (sent.isEmpty) return null;
-      final round = _ownAskRounds[peer.hex] = (_ownAskRounds[peer.hex] ?? 0) + 1;
+      final round = _ownAskRounds[peer.hex] =
+          (_ownAskRounds[peer.hex] ?? 0) + 1;
       final pages = (sent.length + kOwnEchoWindow - 1) ~/ kOwnEchoWindow;
       final page = ownEchoPage(round: round, pages: pages);
       // Page p is the p-th hundred counted back from the newest, and it runs
@@ -958,19 +999,19 @@ class _MessagingPeerSync {
       final end = sent.length - page * kOwnEchoWindow;
       final start = end > kOwnEchoWindow ? end - kOwnEchoWindow : 0;
       final window = sent.sublist(start, end);
-      final editSeqs = await _owner._storage.editSeqs(peer.hex);
+      final edits = <String, int>{}, hashes = <String, String>{};
+      for (final m in window) {
+        final seq = snapshot.edits[m.id];
+        if (seq == null || !isAcceptableWireSeq(seq)) continue;
+        final hash = messageEditContentHash(m.body, m.customEmoji);
+        edits[ownEchoKey(m.id)] = seq;
+        hashes[ownEchoKey(m.id)] = hash;
+      }
       _ownAskedAt[peer.hex] = _owner._now();
       return (
         keys: [for (final m in window) ownEchoKey(m.id)],
-        // What I hold EDITED, and at which edit: the counterpart hands back a
-        // later text than this one — see [ownEchoesEdited].
-        edits: {
-          for (final m in window)
-            if (editSeqs[m.id] case final seq?)
-              ownEchoKey(m.id): (_ownEditSettled[m.id] ?? 0) > seq
-                  ? _ownEditSettled[m.id]!
-                  : seq,
-        },
+        edits: edits,
+        hashes: hashes,
         // The OLDEST page is open below. What the counterpart holds from
         // before my first message here is history this device was not
         // present for — a device linked later, whose sibling that wrote it is
@@ -978,12 +1019,8 @@ class _MessagingPeerSync {
         // itself). It cannot bring back what was dropped here: a deletion or
         // a retention cut leaves a tombstone the store refuses, and my own
         // clear bounds the conversation by time in the fold.
-        sinceMs: start == 0
-            ? 0
-            : window.first.timestamp.millisecondsSinceEpoch,
-        untilMs: page == 0
-            ? null
-            : sent[end].timestamp.millisecondsSinceEpoch,
+        sinceMs: start == 0 ? 0 : window.first.timestamp.millisecondsSinceEpoch,
+        untilMs: page == 0 ? null : sent[end].timestamp.millisecondsSinceEpoch,
       );
     } catch (_) {
       return null; // advisory: a beacon goes out without it
@@ -1006,14 +1043,16 @@ class _MessagingPeerSync {
     int sinceMs,
     int? untilMs, {
     Map<String, int> edits = const {},
+    Map<String, String> hashes = const {},
   }) async {
     final held = <String>{
       for (final k in ask.take(kOwnEchoWindow))
         if (k is String && k.length == 8) k,
     };
     if (held.isEmpty) return;
+    final snapshot = await _editSnapshot(peer);
     final theirs = [
-      for (final m in await _owner._storage.loadMessages(peer.hex))
+      for (final m in snapshot.messages)
         if (m.direction == MessageDirection.incoming &&
             m.seq != null &&
             (m.author == null || m.author == peer.hex) &&
@@ -1028,7 +1067,7 @@ class _MessagingPeerSync {
       sinceMs: sinceMs,
       untilMs: untilMs,
     );
-    final editSeqs = await _owner._storage.editSeqs(peer.hex);
+    final editSeqs = snapshot.edits;
     final edited = ownEchoesEdited(
       theirs: theirs,
       keyOf: (m) => ownEchoKey(m.id),
@@ -1036,6 +1075,8 @@ class _MessagingPeerSync {
       editSeqOf: (m) => editSeqs[m.id],
       held: held,
       heldEdits: edits,
+      contentHashOf: (m) => messageEditContentHash(m.body, m.customEmoji),
+      heldHashes: hashes,
       sinceMs: sinceMs,
       untilMs: untilMs,
     );
@@ -1055,8 +1096,8 @@ class _MessagingPeerSync {
               'id': m.id,
               'b': m.body,
               'ts': m.timestamp.millisecondsSinceEpoch,
-              // The edit's seq: marks this as a later TEXT of a message the
-              // asker holds, not a message it is missing.
+              // The revision belongs to the edited text, independently of
+              // the original post's position.
               'e': editSeqs[m.id],
               if (m.customEmoji.isNotEmpty)
                 'ce': encodeInlineCustomEmoji(m.customEmoji),
@@ -1196,11 +1237,9 @@ class _MessagingPeerSync {
     );
   }
 
-  /// A later text of one of my messages, which the peer holds and this device
-  /// missed (see [ownEchoesEdited]). Through the path a sibling's mirrored
-  /// edit takes, at the edit's own seq — so it is idempotent, and a deletion
-  /// here still wins. Refused when this device holds the same edit or a
-  /// later one: the ask said which, but the answer may cross a newer edit.
+  /// An edit the peer holds and this device missed. Use the common revision /
+  /// content order, including same-text emoji edits. This is a reflected value,
+  /// never a new authored edit or an authenticated device-journal publication.
   Future<void> _applyOwnEchoEdit(
     NodeId peer,
     String id,
@@ -1208,21 +1247,23 @@ class _MessagingPeerSync {
     int seq,
     Object? customEmoji,
   ) async {
+    if (!isAcceptableWireSeq(seq)) return;
     final held = await _owner._storage.loadMessageById(peer.hex, id);
     final heldSeq = (await _owner._storage.editSeqs(peer.hex))[id];
+    final emoji = parseInlineCustomEmoji(body, customEmoji);
+    final hash = messageEditContentHash(body, emoji);
     final String? refused;
     if (held == null) {
       refused = 'not held';
     } else if (held.direction != MessageDirection.outgoing) {
       refused = 'not mine';
-    } else if (heldSeq != null && heldSeq >= seq) {
-      refused = 'a later edit is held';
-    } else if (held.body == body) {
-      _ownEditSettled[id] = seq;
-      if (_ownEditSettled.length > 4096) {
-        _ownEditSettled.remove(_ownEditSettled.keys.first);
-      }
-      refused = 'this text is already shown';
+    } else if (!messageEditWins(
+      revision: seq,
+      contentHash: hash,
+      heldRevision: heldSeq,
+      heldContentHash: messageEditContentHash(held.body, held.customEmoji),
+    )) {
+      refused = 'the same or a later edit is held';
     } else {
       refused = null;
     }
@@ -1234,15 +1275,22 @@ class _MessagingPeerSync {
       );
       return;
     }
+    // The counterpart holding this copy is also positive delivery evidence.
+    // Save it before exposing reflected text to automatic outgoing retries.
+    await _owner._storage.markMessageStatus(
+      peer.hex,
+      id,
+      MessageStatus.delivered,
+    );
     await _owner._deviceMirror.applyEdit(
       peer: peer,
       msgId: id,
       body: body,
-      // The number is from MY stream. A row of mine stored before echoes
-      // carried an author is filed under the peer, and an edit at that number
-      // would land in the peer's stream; numbered locally, it cannot.
-      seq: held!.author == peer.hex ? null : seq,
-      customEmoji: parseInlineCustomEmoji(body, customEmoji),
+      // Keep the logical revision without asserting the original author's
+      // stream position, including old rows filed under the peer's name.
+      seq: seq,
+      reflected: true,
+      customEmoji: emoji,
     );
     devLog(
       () =>

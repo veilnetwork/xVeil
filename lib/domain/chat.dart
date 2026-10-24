@@ -312,6 +312,7 @@ class Message {
     this.fileExternal = false,
     this.thumb,
     this.edited = false,
+    this.reflectedEdit = false,
     this.author,
     this.seq,
     this.ordering,
@@ -332,6 +333,11 @@ class Message {
   /// True once the body has been replaced via an edit. Surfaced in the UI as
   /// an "edited" marker; never reveals the prior text (which is scrubbed).
   final bool edited;
+
+  /// Current edited text was recovered from the counterpart, not an original
+  /// author/device edit. Its revision is useful for reconciliation, but the
+  /// reflected value must not become an authentic outgoing event on replay.
+  final bool reflectedEdit;
 
   /// When set, this message carries a stored file (see Storage.loadFile);
   /// [body] holds a human label and [fileName] the original name.
@@ -417,6 +423,7 @@ class Message {
     MessageStatus? status,
     String? body,
     bool? edited,
+    bool? reflectedEdit,
     String? fileId,
     MessageSignature? signature,
     List<InlineCustomEmoji>? customEmoji,
@@ -436,6 +443,7 @@ class Message {
     fileExternal: fileExternal,
     thumb: thumb,
     edited: edited ?? this.edited,
+    reflectedEdit: reflectedEdit ?? this.reflectedEdit,
     author: author,
     seq: seq,
     ordering: ordering ?? this.ordering,

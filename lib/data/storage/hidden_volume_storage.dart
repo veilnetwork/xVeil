@@ -1829,6 +1829,7 @@ class HiddenVolumeStorage
             timestamp: message.timestamp,
             status: message.status,
             edited: message.edited,
+            reflectedEdit: message.reflectedEdit,
             fileId: message.fileId,
             fileName: message.fileName,
             fileSize: message.fileSize,
@@ -1947,7 +1948,7 @@ class HiddenVolumeStorage
     for (final m in rows) {
       // A status op carries no (author, seq) and consumes no seq — skip it. Every
       // other row (post / edit / void / seq-bearing del tombstone) carries au+sq.
-      if (m['op'] == 'status' || m['op'] == 'sig') continue;
+      if (m['op'] == 'status' || m['op'] == 'sig' || m['er'] == true) continue;
       final au = m['au'];
       final sq = m['sq'];
       // A legacy pre-event-log row (or a tombstone of one) has no au/sq → it
@@ -2049,7 +2050,8 @@ class HiddenVolumeStorage
           final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
           if (m['c'] != conversationId ||
               m['op'] == 'status' ||
-              m['op'] == 'sig') {
+              m['op'] == 'sig' ||
+              m['er'] == true) {
             continue;
           }
           if (m['au'] != author) continue;
@@ -2087,7 +2089,12 @@ class HiddenVolumeStorage
     final events = <LogEvent>[];
     for (final e in entries) {
       final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
-      if (m['c'] != conv || m['op'] == 'status' || m['op'] == 'sig') continue;
+      if (m['c'] != conv ||
+          m['op'] == 'status' ||
+          m['op'] == 'sig' ||
+          m['er'] == true) {
+        continue;
+      }
       final au = m['au'];
       final sq = m['sq'];
       if (au != author || sq is! int || sq <= fromSeq) continue;
@@ -2225,6 +2232,7 @@ class HiddenVolumeStorage
     't': m.timestamp.millisecondsSinceEpoch,
     's': m.status.index,
     if (m.edited) 'e': 1,
+    if (m.reflectedEdit) 'er': true,
     if (m.fileId != null) 'fi': m.fileId,
     if (m.fileName != null) 'fn': m.fileName,
     if (m.fileSize != null) 'fs': m.fileSize,
@@ -2351,6 +2359,7 @@ class HiddenVolumeStorage
     String newBody, {
     int? seq,
     List<InlineCustomEmoji> customEmoji = const [],
+    bool reflected = false,
   }) {
     final write = _editGate.then(
       (_) => _editMessageCritical(
@@ -2359,6 +2368,7 @@ class HiddenVolumeStorage
         newBody,
         seq: seq,
         customEmoji: customEmoji,
+        reflected: reflected,
       ),
     );
     _editGate = write.then<void>((_) {}, onError: (_) {});
@@ -2373,7 +2383,11 @@ class HiddenVolumeStorage
     String newBody, {
     int? seq,
     List<InlineCustomEmoji> customEmoji = const [],
+    bool reflected = false,
   }) async {
+    if (reflected && seq == null) {
+      throw ArgumentError('A reflected edit requires its source revision');
+    }
     final hit = await _liveEntryFor(conversationId, messageId);
     if (hit == null) return null;
     // EVENT-LOG edit (§15, "keep history + clear button" mode): append a NEW
@@ -2432,7 +2446,8 @@ class HiddenVolumeStorage
         if (m['c'] == conversationId &&
             m['id'] == thisEdit &&
             m['k'] == EventKind.edit.index &&
-            m['tg'] == messageId) {
+            m['tg'] == messageId &&
+            (reflected || (m['au'] == author && m['er'] != true))) {
           final heldBody = m['b'] as String? ?? '';
           if (messageEditContentHash(
                 heldBody,
@@ -2455,7 +2470,8 @@ class HiddenVolumeStorage
               'id': '$messageId~e$editSeq', // synthetic edit-event id (unique)
               'c': conversationId,
               'tg': messageId,
-              'au': author,
+              if (!reflected) 'au': author,
+              if (reflected) 'er': true,
               'sq': editSeq,
               'b': newBody,
               if (customEmoji.isNotEmpty)
@@ -4660,9 +4676,9 @@ class HiddenVolumeStorage
   List<Message>?
   _scanResult; // materialised; valid while _scanFoldedUpTo == nextId
 
-  // Namespace discovery is lazy and per-open-space. Namespace 3 is always
-  // included for pre-sharding history; marker keys make recovery robust when a
-  // concurrent commit persisted a slightly stale global next-id.
+  // Namespace discovery is lazy and per-open-space. The retired namespace 3
+  // is excluded; marker keys recover supported shards even when a concurrent
+  // commit persisted a slightly stale global next-id.
   final Set<int> _messageLogNamespaces = <int>{};
   final Set<int> _messageLogNamespaceMarkers = {};
   Future<void>? _messageLogNamespacesInit;
@@ -5044,6 +5060,7 @@ class HiddenVolumeStorage
           final win = _scanEditWinSeq[tk];
           final body = m['b'] as String? ?? post.body;
           final emoji = parseInlineCustomEmoji(body, m['ce']);
+          final reflected = m['er'] == true;
           final newer =
               editSeq == null ||
               messageEditWins(
@@ -5054,12 +5071,15 @@ class HiddenVolumeStorage
                   post.body,
                   post.customEmoji,
                 ),
+                reflected: reflected,
+                heldReflected: post.reflectedEdit,
               );
           if (authorOk && newer) {
             _scanById[tk] = post.copyWith(
               body: body,
               customEmoji: emoji,
               edited: true,
+              reflectedEdit: reflected,
             );
             if (editSeq != null) _scanEditWinSeq[tk] = editSeq;
           }
@@ -5113,6 +5133,7 @@ class HiddenVolumeStorage
         timestamp: DateTime.fromMillisecondsSinceEpoch(m['t'] as int),
         status: MessageStatus.values[m['s'] as int],
         edited: m['e'] == 1,
+        reflectedEdit: m['er'] == true,
         fileId: m['fi'] as String?,
         fileName: m['fn'] as String?,
         fileSize: m['fs'] as int?,

@@ -98,6 +98,7 @@ DeviceMessageMirror deviceMirrorOf(
           'peer': peerHex,
           'dir': message.direction.name,
           'body': message.body,
+          if (message.reflectedEdit) 'er': true,
           if (message.replyToId != null) 'r': message.replyToId,
           if (message.forwardedFrom != null) 'fw': message.forwardedFrom,
           // The row's place in its author's stream, so every device of mine
@@ -125,6 +126,7 @@ DeviceMessageMirror deviceMirrorOf(
         'peer': peerHex,
         'dir': message.direction.name,
         'body': message.body,
+        if (message.reflectedEdit) 'er': true,
         if (message.replyToId != null) 'r': message.replyToId,
         if (message.forwardedFrom != null) 'fw': message.forwardedFrom,
         if (message.orderAuthor != null) 'au': message.orderAuthor,

@@ -110,6 +110,7 @@ class _MessagingMessageDelivery {
       await _maybeReconnect(peer, messages);
       for (final message in messages) {
         if (message.direction != MessageDirection.outgoing ||
+            message.reflectedEdit ||
             message.status != MessageStatus.sent ||
             _delivered.contains(message.id)) {
           continue;
@@ -192,6 +193,7 @@ class _MessagingMessageDelivery {
     var anyTrying = false;
     for (final message in messages) {
       if (message.direction != MessageDirection.outgoing ||
+          message.reflectedEdit ||
           message.status != MessageStatus.sent ||
           _delivered.contains(message.id) ||
           now.difference(message.timestamp) <= _reconnectThreshold) {

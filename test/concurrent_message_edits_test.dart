@@ -44,6 +44,94 @@ Future<HiddenVolumeStorage> _open({
 
 void main() {
   test(
+    'reflected revisions survive reopen without becoming author events',
+    () async {
+      final store = await _open(direction: MessageDirection.outgoing);
+      try {
+        final before = await store.conversationSync(_peer.hex);
+        await store.editMessage(
+          _peer.hex,
+          'target',
+          'reflected',
+          seq: 99,
+          reflected: true,
+        );
+        expect(
+          (await store.loadMessageById(_peer.hex, 'target'))!.reflectedEdit,
+          isTrue,
+        );
+        expect((await store.editSeqs(_peer.hex))['target'], 99);
+        expect(
+          (await store.conversationSync(_peer.hex)).highWater,
+          before.highWater,
+        );
+        expect(
+          (await store.loadEventsSince(
+            _peer.hex,
+            _peer.hex,
+            0,
+          )).any((event) => event.body == 'reflected'),
+          isFalse,
+        );
+        await store.close();
+        expect(await store.open(password: 'fixture'), isTrue);
+        expect(
+          (await store.loadMessageById(_peer.hex, 'target'))!.reflectedEdit,
+          isTrue,
+        );
+        expect((await store.editSeqs(_peer.hex))['target'], 99);
+      } finally {
+        await store.close();
+      }
+    },
+  );
+
+  test(
+    'authentic same-value edit promotes once and cannot be demoted',
+    () async {
+      final store = await _open(direction: MessageDirection.outgoing);
+      try {
+        await store.editMessage(
+          _peer.hex,
+          'target',
+          'same text',
+          seq: 99,
+          reflected: true,
+        );
+        await store.editMessage(_peer.hex, 'target', 'same text', seq: 99);
+        await store.editMessage(_peer.hex, 'target', 'same text', seq: 99);
+        await store.editMessage(
+          _peer.hex,
+          'target',
+          'same text',
+          seq: 99,
+          reflected: true,
+        );
+        expect(
+          (await store.loadMessageById(_peer.hex, 'target'))!.reflectedEdit,
+          isFalse,
+        );
+        expect(
+          (await store.loadEventsSince(
+            _peer.hex,
+            _peer.hex,
+            0,
+          )).where((event) => event.body == 'same text'),
+          hasLength(1),
+        );
+        await store.close();
+        expect(await store.open(password: 'fixture'), isTrue);
+        expect(
+          (await store.loadMessageById(_peer.hex, 'target'))!.reflectedEdit,
+          isFalse,
+        );
+      } finally {
+        await store.close();
+      }
+    },
+  );
+
+  test(
     'equal-revision edits converge in both arrival orders and after reopen',
     () async {
       final bodies = <String>[];

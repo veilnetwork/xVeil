@@ -56,6 +56,33 @@ void main() {
           );
           while (!await File('${dir.path}/stop-worker').exists() &&
               !device!.rebootRequested) {
+            // Private fixture control, never part of the application's API.
+            // Read state through the live owner; parents must not open its
+            // encrypted container while this worker holds the handle.
+            final inspect = File('${dir.path}/storage-inspect.json');
+            if (await inspect.exists()) {
+              final request = jsonDecode(await inspect.readAsString()) as Map;
+              await inspect.delete();
+              if (request['reconcile'] == true) {
+                await device!.messaging.reconcileOnConnect();
+              }
+              final peer = request['peer'] as String;
+              final prefix = request['prefix'] as String;
+              final messages = (await device!.storage.loadMessages(
+                peer,
+              )).where((message) => message.id.startsWith(prefix)).toList();
+              final response = File('${dir.path}/storage-inspected.new');
+              await response.writeAsString(
+                jsonEncode({
+                  'nonce': request['nonce'],
+                  'count': messages.length,
+                  'reflectedEdits': messages
+                      .where((message) => message.reflectedEdit)
+                      .length,
+                }),
+              );
+              await response.rename('${dir.path}/storage-inspected.json');
+            }
             await Future<void>.delayed(const Duration(milliseconds: 100));
           }
           await tester.pumpWidget(const SizedBox.shrink());

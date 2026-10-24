@@ -311,6 +311,7 @@ class _MessagingOwnHistory {
           snapshot.edits[message.id],
           message.direction == MessageDirection.outgoing &&
               message.status == MessageStatus.delivered,
+          if (message.reflectedEdit) true,
         ],
     ];
     return crypto.sha256.convert(utf8.encode(jsonEncode(state))).toString();
@@ -394,6 +395,7 @@ class _MessagingOwnHistory {
             payload: {
               ...event.payload,
               'historyEditSeq': ?snapshot.edits[message.id],
+              if (message.reflectedEdit) 'er': true,
               if (message.direction == MessageDirection.outgoing &&
                   message.status == MessageStatus.delivered)
                 'historyDelivered': true,
@@ -593,9 +595,11 @@ class _MessagingOwnHistory {
       final expiry = event.payload['historyExpiryMs'];
       final editSeq = event.payload['historyEditSeq'];
       final delivered = event.payload['historyDelivered'];
+      final reflected = event.payload['er'];
       if ((editSeq != null &&
               (editSeq is! int || !isAcceptableWireSeq(editSeq))) ||
-          (delivered != null && delivered is! bool)) {
+          (delivered != null && delivered is! bool) ||
+          (reflected != null && reflected is! bool)) {
         throw StateError('Invalid history state');
       }
       if (expiry != null &&
@@ -628,6 +632,8 @@ class _MessagingOwnHistory {
                   target.body,
                   target.customEmoji,
                 ),
+                reflected: reflected == true,
+                heldReflected: target.reflectedEdit,
               )) {
             final body = event.payload['body'] as String;
             await _owner._storage.editMessage(
@@ -636,6 +642,7 @@ class _MessagingOwnHistory {
               body,
               seq: editSeq,
               customEmoji: parseInlineCustomEmoji(body, event.payload['ce']),
+              reflected: reflected == true,
             );
             heldEdits[event.key] = editSeq;
             changed = true;
