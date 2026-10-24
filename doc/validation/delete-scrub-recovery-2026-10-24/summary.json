@@ -1,0 +1,81 @@
+{
+  "status": "PASS_FOR_NEW_MESSAGE_DELETION_RECOVERY",
+  "base_revision": "3009726bbe035f3aa00ed6051240811f9beb2cc7",
+  "sdk_revision": "de769239927908e2f6929b416f101f6641d7baef",
+  "hidden_volume_revision": "c4ba1fa8e0dc388fb590dbc382ce98138c90cfeb",
+  "initial_negative_unit_failures": 4,
+  "negative_native_failures": 3,
+  "negative_native_exit_code": 1,
+  "new_fault_injection_unit_cases": 12,
+  "new_native_cases": 3,
+  "combined_tests_passed": 213,
+  "combined_tests_skipped": 0,
+  "native_storage_cases_within_combined": 13,
+  "dart_analysis_no_issues": true,
+  "native_multi_device_case_passed": true,
+  "native_state": {
+    "native_peer_delete_receipts": 1,
+    "peer_offline_during_sibling_recovery": true,
+    "source_deleted": true,
+    "own_journal_tombstone": true,
+    "sibling_deleted": true,
+    "sibling_restart_retained_delete": true
+  },
+  "native_teardown_late_errors": 0,
+  "cleanup": {
+    "owned_worker_and_relay_pids_absent": true,
+    "owned_root_removed": true,
+    "relay_boots": 3,
+    "late_async_errors": 0,
+    "native_test_temp_directories_absent": true
+  },
+  "source_sha256": {
+    "lib/state/messaging_core.dart": "b142f26db4b4046d16a3f50ea75f4bfc423c762ed02376cd358db7983f0f85a4",
+    "lib/state/messaging_device_mirror.dart": "80e38926ef5e73e9403bc162f9be31f9ea33b18a7c352e5bfe2bec61176048c6",
+    "lib/state/messaging_inbound_dispatch.dart": "2ce8e9066f0a55055d252a77d751f5009c96a25b22c72402e50cb67b9cc9e5c6",
+    "lib/state/messaging_mutations.dart": "c075819a97cfcc8b2af9f7ff4e6c988001d8c52893df645da793ee570941ad75",
+    "lib/state/group_service_providers.dart": "fd5a83a52d901bdabe96c09e122127941d6adcae0bd5255b2fd0eafd22f26892",
+    "test/e2e/device_fixture.dart": "c7c8975b6e93418fc900f67fe44ee94693349913452b9120ec0dec941b7ac397",
+    "test/e2e/pending_mutation_convergence_e2e_test.dart": "447dada37d5b4b3f2ddf813366dd8dc8107bc12a3c26a64aa9f9a48497a374e9",
+    "lib/core/async_tasks.dart": "40022bdd1a0885b982b404c11d8df25268d7bf0c7fa0a1fc2e7fe2a86184d8fe",
+    "lib/state/device_sync_bridge.dart": "515202015fe53e99f537839d50a3577b436cae3ddfb9b154ff31a85121d9ef28",
+    "lib/domain/device_sync.dart": "9dab831e5dbe2977f947aaa0c5b4c83e0f4d60ed809c2ec03eb9014d610c7a70",
+    "lib/state/group_service.dart": "3f16f5c87d614b102545e8a376d2f14fa6eacd5c92385f4152c51a2f8b2bc54b",
+    "lib/data/storage/hidden_volume_storage.dart": "95cdaeee3f978a967aebaa866fd51973c3ed160e0a76c10799921e240a2fb15c",
+    "test/delete_scrub_recovery_test.dart": "1145a4fb81acde45dcf0546c879d2ce5a064cbd64a823d45b7a9f1c7d9943c94",
+    "test/native/delete_scrub_recovery_native_test.dart": "28867e09922ffe26bd145a077c81daaa632282842527592f08d689498f6dd836"
+  },
+  "native_sha256": {
+    "veil-cli": "4bec94ee6f20ac08da5366b0cd6356aa058d7ae689d7e79d0b3dbbfd40699dd6",
+    "libveilclient_ffi.dylib": "07328ac13c8222083e6236e7a751b32d6f3d2b6c3211423200c7b1b113e584e0",
+    "libhidden_volume_ffi.dylib": "a92a4ecdc62d4f82ae3403d584f65c0eea7e3904b78372d2ab7959957acdb169"
+  },
+  "native_build_provenance": {
+    "reused_joint_build": true,
+    "compiled_public_seeds_disabled": true,
+    "final_source_tree_unchanged_during_run": true
+  },
+  "legacy_unmarked_tombstones_forensic_recovery_qualified": false,
+  "all_erasure_apis_crash_qualified": false,
+  "production_test_hooks_added": false,
+  "gui_or_phone_apps_started": false,
+  "microphone_used": false,
+  "servers_changed": false,
+  "native_stand_runs": {
+    "final": {
+      "native_case_passed": true,
+      "late_async_errors": 0,
+      "owned_processes_and_root_cleaned": true
+    },
+    "final2": {
+      "native_case_passed": true,
+      "late_async_errors": 0,
+      "owned_processes_and_root_cleaned": true
+    },
+    "final3": {
+      "native_case_passed": true,
+      "late_async_errors": 0,
+      "owned_processes_and_root_cleaned": true
+    }
+  }
+}
