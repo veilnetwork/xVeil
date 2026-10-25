@@ -1,0 +1,67 @@
+{
+  "baseline_root_commit": "d3ce0d8135300fad970421785628abbba2e0cd80",
+  "baseline_sdk_commit": "0fec0bfefe4cd60418213bae0320c24a43eefb5b",
+  "patched_sources_sha256": {
+    "crates/veilclient-ffi/src/anon_stream.rs": "fef78232c90e0e47a3f00f052796bc0e6d081ad4ff1b09683efa8ee119082062",
+    "crates/veilclient-ffi/src/anon_stream/call_scope_tests.rs": "fc8564d44f0e5eb8e0f8615e3e07f4d6738326c2b11ce604c5bcdd3eca6ae0b1",
+    "crates/veilclient-ffi/src/media_ffi/media_route_network_tests.rs": "f4cab3c78ad8566a45bc1daad01fd4e29791dd939d6fd9233fd03b246f166400"
+  },
+  "negative_control": {
+    "compiled": true,
+    "semantic_failure": true,
+    "actual_worker_counts": [
+      0,
+      0,
+      0,
+      0
+    ],
+    "expected_worker_counts": [
+      4,
+      4,
+      4,
+      4
+    ]
+  },
+  "candidate": {
+    "factory_cases": 4,
+    "workers_per_case": 4,
+    "real_network_exact_packets": 3,
+    "full_suite_passed": 377,
+    "full_suite_existing_ignored": 11,
+    "strict_clippy_all_targets": true,
+    "rustfmt": true,
+    "whitespace": true,
+    "physical_call_qualified": false,
+    "installed_on_phone": false,
+    "relay_configuration_changed": false
+  },
+  "build_monitors": {
+    "scope-red": {
+      "exit_code": 101,
+      "external_mount_lost": false
+    },
+    "scope-green": {
+      "exit_code": 0,
+      "external_mount_lost": false
+    },
+    "network-green": {
+      "exit_code": 0,
+      "external_mount_lost": false
+    },
+    "full-ffi": {
+      "exit_code": 0,
+      "external_mount_lost": false
+    },
+    "clippy": {
+      "exit_code": 0,
+      "external_mount_lost": false
+    }
+  },
+  "cleanup": {
+    "owned_test_process_groups_remaining": 0,
+    "gui_apps_started": false,
+    "successful_fixtures_close_runtimes_and_ipc_socket": true
+  },
+  "qualification_note": "The final cfg(unix) fixture attribute changes no Mac test body or production behavior; strict Clippy checked final source.",
+  "sdk_fix_commit": "4622b68435e3d719e4f8d6ddf7971cf7271d3948"
+}
