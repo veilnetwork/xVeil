@@ -1,0 +1,429 @@
+[
+  {
+    "endpoint": "B",
+    "phase": "primary_online",
+    "answer_relative_ms": 6112,
+    "event": "media.private_route.ready",
+    "plane": 0
+  },
+  {
+    "endpoint": "B",
+    "phase": "primary_online",
+    "answer_relative_ms": 6113,
+    "event": "media.private_route.ready",
+    "plane": 3
+  },
+  {
+    "endpoint": "B",
+    "phase": "primary_offline",
+    "answer_relative_ms": 4081,
+    "event": "media.private_route.ready",
+    "plane": 3
+  },
+  {
+    "endpoint": "B",
+    "phase": "primary_offline",
+    "answer_relative_ms": 4081,
+    "event": "media.private_route.ready",
+    "plane": 0
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 24,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 62,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 87,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 307,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 336,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 358,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 363,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 733,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 755,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 782,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 1251,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 1659,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 1676,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 1708,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 1774,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 2025,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 2460,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 2461,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 2888,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3111,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3149,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3150,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3151,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3151,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3152,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3153,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3153,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3154,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3155,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3155,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3156,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3157,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3157,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3158,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3159,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3159,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3160,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3161,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3161,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3162,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3162,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3163,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3163,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3164,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3165,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3165,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3166,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3335,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3345,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 3384,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 4028,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 4160,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "relay-mid1",
+    "phase": "primary_offline",
+    "answer_relative_ms": 5021,
+    "event": "anonymity.relay_chain.introduce.cookie_unknown",
+    "plane": null
+  },
+  {
+    "endpoint": "C",
+    "phase": "primary_online",
+    "answer_relative_ms": 5614,
+    "event": "media.private_route.ready",
+    "plane": 0
+  },
+  {
+    "endpoint": "C",
+    "phase": "primary_online",
+    "answer_relative_ms": 5668,
+    "event": "media.private_route.ready",
+    "plane": 3
+  },
+  {
+    "endpoint": "C",
+    "phase": "primary_offline",
+    "answer_relative_ms": 4072,
+    "event": "media.private_route.ready",
+    "plane": 0
+  },
+  {
+    "endpoint": "C",
+    "phase": "primary_offline",
+    "answer_relative_ms": 4229,
+    "event": "media.private_route.ready",
+    "plane": 3
+  }
+]
