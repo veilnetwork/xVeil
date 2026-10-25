@@ -1,0 +1,121 @@
+{
+  "date": "2026-10-25",
+  "fix_commit": "9deb0e1a0cacc9b4be23bdaddcb5dafec0a632f1",
+  "sdk_commit": "1297b3deb00bb1c21d24b81a80708f36442ebea9",
+  "test_results": {
+    "passed": 86,
+    "analyzer_issues": 0,
+    "queued_reoffer_red_confirmed": true,
+    "unproven_request_ack_red_confirmed": true,
+    "log_sha256": {
+      "red.log": "2daf19c3628d809034ba11c2760900996f1f161de708158b4c95085acc22d16c",
+      "proof-gate-red.log": "5cb9003c773620797d953f29d70c57cca4e7228eb0059191cc3f9cba7e9e3761",
+      "qualified-tests.log": "660b9a38b2eb91c2204368764f24ed2f519cc8f6b3e4db3091f2e2d1ee1ad53c",
+      "qualified-analyzer.log": "258eae4eb69b31ac81f3a974096a7cb67ae56200062300ac36cc6390f1245e38"
+    }
+  },
+  "build": {
+    "apk_sha256": "1a6e18b42c7bb2c76d49be195a9480556b1a358126b3b400ccdfb3efb984bc95",
+    "android_libraries_sha256": {
+      "lib/arm64-v8a/libVkLayer_khronos_validation.so": "ae445f7e74d402e3a367adb230b1edd9841899fcb3310166e5cc96a09ad37a3f",
+      "lib/arm64-v8a/libbarhopper_v3.so": "ec09597e9eb3aee0eb55ae3366da0d4ba416f5aa35a1af0b3811f50ff46743a1",
+      "lib/arm64-v8a/libdartjni.so": "1608612d6080b623820bbc69ec880d8eaeb5c3292e0075a9d03670bd98bce5ef",
+      "lib/arm64-v8a/libdatastore_shared_counter.so": "d3e48717c9aa147e0ab21063ba0e8e0211cabf8bf40b222640829519edbf58e1",
+      "lib/arm64-v8a/libflutter.so": "5e5a911af31499698997fbd21422b5b7ad35fda89f849ba2cbb4719b4d4e7c95",
+      "lib/arm64-v8a/libhidden_volume_ffi.so": "6229bae4ded5db35636ef724b8fca2ca3f7fdb3b71a722c48d69291fbbb7d891",
+      "lib/arm64-v8a/libimage_processing_util_jni.so": "0292b063fafccf734472cbb59588e756c2dbca907c72021ba6fbf126385508a2",
+      "lib/arm64-v8a/libjnidispatch.so": "fe9c603f2a7a5d19197b87f275d6e0afb975f997a57ff4f8ca801cb8c5e7b731",
+      "lib/arm64-v8a/libomp.so": "d5271fa122f3a42779782f8bb20f2cae7390b63f49eb3f6be8e6b9bd654cf741",
+      "lib/arm64-v8a/libredb-3424b30e232f38d7.so": "67f58e5a17a17417a0aac8db29a02d34cda4f72f410de763a5af3eb99423312a",
+      "lib/arm64-v8a/libsurface_util_jni.so": "a5c9d1928ea92ec7a94dff8cf666e7739cd734198b9f0ae1d4e28ea3c86516ba",
+      "lib/arm64-v8a/libveil_media.so": "1a11cbb809dbd6f878de7e40e4eb6158751674c68f152245204ce9271aa7a730",
+      "lib/arm64-v8a/libveil_media_camera_stub.so": "a4eef7190a2078519bd84bf0274b21601aab2d70eb1b9fd88ee0b9cd7615b2ca",
+      "lib/arm64-v8a/libveil_translate.so": "3b7d6091e3035bfdc7bb93f0b22c779574da6b61b546692d0d810e9c17b9cbc3",
+      "lib/arm64-v8a/libveil_whisper.so": "52c1860e68ea6828dc06ce7917b00d0a4b86338fe214356ea2a039ed10d880dc",
+      "lib/arm64-v8a/libveilclient_ffi.so": "0dd21032b96a8144b9d4dc96c6fc1c02e9bb66d58ad2b5a5aa97b596cf1ec037"
+    },
+    "mac_libraries_sha256": {
+      "libveilclient_ffi.dylib": "fea3b53eaae016941903c6bee48eca8e25f5770243686e54fee460a7d2b31d27",
+      "libveil_media.dylib": "42f70d8878163eb3d922e8ee220e3dedc8ab3c74768045d0f9f179ed63e5b71a",
+      "libhidden_volume_ffi.dylib": "3b2eacc819b307125cafe01665ebbaec5ee6ed9d3b3d5d96bc5d5b26a50f79e7"
+    },
+    "root_source_manifest_sha256": "e3077742906b65f61cec2d95d1a250b38376523938f5974fa8a757947a16e4e7",
+    "source_files": 548,
+    "production_seeds": true,
+    "test_low_difficulty": false,
+    "native_test_hooks": false,
+    "external_mount_lost": false
+  },
+  "android_source_restart": {
+    "bytes": 8388608,
+    "source_offline_seconds": 10,
+    "completion_gate_seconds": 180,
+    "p2p_allowed": false,
+    "ok": true,
+    "trigger_bytes": 4194304,
+    "fault": {
+      "trigger_elapsed_seconds": 7.034,
+      "old_process_exited": true,
+      "same_identity": true,
+      "ok": true,
+      "elapsed_seconds": 26.841
+    },
+    "download_seconds": 41.68,
+    "hash_matches": true,
+    "interruption_observed": true,
+    "completed_after_source_restart": true,
+    "total_seconds": 41.688
+  },
+  "android_source_timing": {
+    "source_denials": 0,
+    "retry_open_count": 1,
+    "reoffer_to_retry_handle_ms": 908,
+    "retry_handle_to_resume_request_ms": 6362,
+    "resume_offset_bytes": 4456448,
+    "source_not_ready_seconds": 19.807
+  },
+  "full_63_case_matrix": false,
+  "live_speech_quality_tested": false,
+  "cold_multidevice_media_start_qualified": false,
+  "mac_source_restart": {
+    "bytes": 8388608,
+    "source_offline_seconds": 10,
+    "completion_gate_seconds": 180,
+    "p2p_allowed": false,
+    "trigger_bytes": 4194304,
+    "fault": {
+      "trigger_elapsed_seconds": 10.23,
+      "old_process_exited": true,
+      "same_identity": true,
+      "ok": true,
+      "elapsed_seconds": 23.023
+    },
+    "download_seconds": 40.843,
+    "hash_matches": true,
+    "interruption_observed": true,
+    "ok": true,
+    "completed_after_source_restart": true,
+    "total_seconds": 40.983
+  },
+  "mac_source_not_ready_seconds": 12.793,
+  "final_source_proof": {
+    "root_source_unchanged_since_build": true,
+    "mac_source_denials": 0,
+    "no_test_media_hooks": true
+  },
+  "cleanup": {
+    "owned_mac_groups_checked": 2,
+    "remaining_mac_processes": 0,
+    "qa_android_processes_remaining": false,
+    "own_adb_forward_removed": true,
+    "own_mac_profile_archived_privately": true,
+    "main_app_modified": false,
+    "system_power_settings_changed": false
+  },
+  "install": {
+    "installed": true,
+    "exit_code": 0,
+    "root_commit": "9deb0e1a0cacc9b4be23bdaddcb5dafec0a632f1",
+    "sdk_commit": "1297b3deb00bb1c21d24b81a80708f36442ebea9"
+  }
+}
