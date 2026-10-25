@@ -82,3 +82,12 @@ Detailed local traces stay in the private stand cache.
 
 This cycle does not qualify Windows 10, live speech, background delivery, the
 complete multi-device matrix or the remaining production fault-injection audit.
+
+## Follow-up
+
+The subsequent [packet-duration investigation](../video-packet-duration-2026-10-25/README.md)
+identified a separate native gate behind the 32-second camera stall. Two calls
+with that gate corrected reached five decoded frames on both devices in
+6.526–8.076 seconds and finished around 30 FPS. The full-quality ramp still needs
+20–31 seconds by the five-second-window measure; broader qualification remains
+open.
