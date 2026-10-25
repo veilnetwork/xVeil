@@ -1,0 +1,130 @@
+{
+  "source_commit": "38bcbaaa",
+  "native_sdk_artifact_commit": "325e36e0",
+  "checkout_sdk_commit": "54dff306",
+  "scenario": "phone_to_mac_cellular_automatic_route",
+  "passed": false,
+  "ring_ms": 692,
+  "audio_start_ms": 2449,
+  "audio_only_observation_ms": 10000,
+  "video_observation_ms": 60294,
+  "startup_failure": "fewer_than_five_decoded_frames_per_receiver_within_60s",
+  "live_speech_quality_tested": false,
+  "loudness_tested": false,
+  "network": {
+    "active_cellular_before": true,
+    "active_wifi_before": false,
+    "verified_active_agent_only": true,
+    "active_cellular_after": true,
+    "active_wifi_after": false
+  },
+  "receivers": {
+    "mac": {
+      "first_five_second_window_at_least_20fps_ms": null,
+      "decoded_stall_lower_bound_ms": 53837,
+      "interruption_observations": 16,
+      "high_baseline_probe_observations": 0,
+      "rtt_min_ms": 58,
+      "rtt_max_ms": 1163,
+      "routes": [
+        "p2p"
+      ],
+      "audio_interruption_count": 8,
+      "audio_interruption_duration_ms": 3580,
+      "audio_rx_pkts": 490,
+      "video_tx_frames": 3,
+      "remote_frames": 3,
+      "video_frame_oversize_count": 2,
+      "route_handovers": 0,
+      "audio_tx_rtp_drops": 0,
+      "video_tx_rtp_drops": 0,
+      "network_activity_lease_held": true,
+      "source_pressure_samples": 125,
+      "sample_count": 129,
+      "active_media_samples": 126,
+      "audio_only": {
+        "audio_buffer_peak_ms": 81,
+        "interruption_counter_at_end": 0,
+        "interruption_duration_at_end_ms": 0
+      },
+      "with_video": {
+        "audio_buffer_peak_ms": 242,
+        "interruption_counter_at_end": 8,
+        "interruption_duration_at_end_ms": 3580
+      },
+      "adapter_receive_pressure_input_peak_ms": 827
+    },
+    "phone": {
+      "first_five_second_window_at_least_20fps_ms": null,
+      "decoded_stall_lower_bound_ms": 54888,
+      "interruption_observations": 15,
+      "high_baseline_probe_observations": 0,
+      "rtt_min_ms": 36,
+      "rtt_max_ms": 1393,
+      "routes": [
+        "p2p"
+      ],
+      "audio_interruption_count": 15,
+      "audio_interruption_duration_ms": 11237,
+      "audio_rx_pkts": 1430,
+      "video_tx_frames": 3,
+      "remote_frames": 3,
+      "video_frame_oversize_count": 1,
+      "route_handovers": 0,
+      "audio_tx_rtp_drops": 0,
+      "video_tx_rtp_drops": 0,
+      "network_activity_lease_held": true,
+      "source_pressure_samples": 125,
+      "sample_count": 129,
+      "active_media_samples": 126,
+      "audio_only": {
+        "audio_buffer_peak_ms": 173,
+        "interruption_counter_at_end": 2,
+        "interruption_duration_at_end_ms": 387
+      },
+      "with_video": {
+        "audio_buffer_peak_ms": 203,
+        "interruption_counter_at_end": 15,
+        "interruption_duration_at_end_ms": 11237
+      },
+      "adapter_receive_pressure_input_peak_ms": 203
+    }
+  },
+  "rtcp": {
+    "mac": {
+      "matched_audio_observations": 15,
+      "callback_transport_roundtrip_median_ms": 202.41,
+      "callback_transport_roundtrip_max_ms": 1163.279,
+      "counts": {
+        "received_rr_with_lsr": 27,
+        "matched": 27
+      }
+    },
+    "phone": {
+      "matched_audio_observations": 13,
+      "callback_transport_roundtrip_median_ms": 83.624,
+      "callback_transport_roundtrip_max_ms": 1393.142,
+      "counts": {
+        "received_rr_with_lsr": 24,
+        "matched": 24
+      }
+    }
+  },
+  "cleanup": {
+    "remaining_mac_processes": 0,
+    "remaining_qa_phone_processes": false,
+    "test_permissions_restored": true,
+    "own_forward_removed": true,
+    "own_profile_archived": true,
+    "main_app_modified": false,
+    "system_power_settings_changed": false,
+    "permissions_reread_verified": true,
+    "final_process_groups_zero": true,
+    "runtime_archived": true
+  },
+  "p2p_policy_restored": {
+    "mac": true,
+    "phone": true
+  },
+  "installed_apk_matches_qualified_artifact": true
+}
