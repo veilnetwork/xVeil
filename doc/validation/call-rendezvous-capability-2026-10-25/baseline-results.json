@@ -1,0 +1,40 @@
+{
+  "devices": 3,
+  "same_identity_devices": 2,
+  "anonymous": true,
+  "explicit_c_b_join": false,
+  "live_speech_quality_tested": false,
+  "receive_counter": "audio_rx_pkts",
+  "online_answerer": "B",
+  "passed": true,
+  "primary_online_answerer": "B",
+  "primary_online_ring_ms": 40,
+  "primary_online_answer_observed_ms": 3746,
+  "primary_online_first_five_rx_c_ms": 18005,
+  "primary_online_first_five_rx_b_ms": 25742,
+  "primary_online_answer_media_ms": 25743,
+  "primary_online_media_after_answer_ms": 21997,
+  "primary_online_media_rx_delta_b": 250,
+  "primary_online_media_rx_delta_c": 253,
+  "primary_online_hangup": true,
+  "primary_offline_answerer": "B",
+  "primary_offline_ring_ms": 20,
+  "primary_offline_answer_observed_ms": 40,
+  "primary_offline_first_five_rx_b_ms": 451,
+  "primary_offline_first_five_rx_c_ms": 32370,
+  "primary_offline_answer_media_ms": 32370,
+  "primary_offline_media_after_answer_ms": 32330,
+  "primary_offline_media_rx_delta_b": 163,
+  "primary_offline_media_rx_delta_c": 250,
+  "primary_offline_hangup": true,
+  "inbound_expansion_shapes": {
+    "2->3": 10
+  },
+  "whole_fixture_event_counts": {
+    "inbound_expansion_cycles": 10,
+    "circuit_registered": 235,
+    "install_refused": 46,
+    "cookie_unknown": 53
+  },
+  "private_timestamp_alignment_max_spread_ms": 2
+}

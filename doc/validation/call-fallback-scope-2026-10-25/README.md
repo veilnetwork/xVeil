@@ -1,5 +1,13 @@
 # Fallback ownership must belong to one call
 
+**Startup follow-up:** a later run with this ownership repair still took
+26–32 seconds to receive audio in both directions. A separate capability
+selection defect caused repeated receive-pool rebuilds and relay-slot pressure.
+After that repair, the same two native cases reached the audio gate in
+4.156 seconds and 447 ms. See the
+[capability investigation and qualification limits](../call-rendezvous-capability-2026-10-25/README.md).
+The results below describe the original ownership cycle.
+
 ## Confirmed defect
 
 The production `AnonStreamHub::private_media_routes` factory cloned the hub's
