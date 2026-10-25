@@ -1353,9 +1353,9 @@ class CallBitrateAdapter {
 
     if (rttMs > 0) _feedBaseline(rttMs);
     final baseline = rttBaselineMs;
-    // Bufferbloat verdicts are relative to the call's own floor; the absolute
-    // 400/250 ms rails remain as the outer bound for paths whose floor is
-    // itself already high.
+    // Bufferbloat verdicts are relative to the call's own floor. The absolute
+    // rails still gate ordinary recovery; a fully measured high-baseline path
+    // may separately earn the bounded decoder probes below.
     final rttBad =
         rttMs > 0 &&
         (rttMs >= absoluteRttDegradeMs ||
@@ -1428,12 +1428,20 @@ class CallBitrateAdapter {
         videoSendExpected &&
         measuredVideoProgress;
     final rttGrowthHold = measuredAudioPathHealthy && !rttGood && !rttBad;
-    // Relative RTT bloat is a warning while both audio directions remain
-    // measured and healthy. It still resets growth credit and any pending
-    // ramp, but cannot retire startup for the rest of the call. Absolute
-    // RTT failure, unproven audio and real impairments keep that protection.
+    // A stable long path can cross 400 ms with healthy playout in both
+    // directions. Withhold ordinary growth, but let causal decoder ACKs test
+    // headroom at the existing 25% gain. Require RTT near this route's own
+    // floor: a new queue above a previously short path still blocks probes.
+    // Multi-second RTT, unproven audio and real impairments remain failures.
+    final highBaselineRttWarning =
+        rttMs >= absoluteRttDegradeMs &&
+        rttMs < severeRttMs &&
+        baseline != null &&
+        rttMs <= baseline + bloatRecoverMs;
     final relativeRttWarning =
-        measuredAudioPathHealthy && rttBad && rttMs < absoluteRttDegradeMs;
+        measuredAudioPathHealthy &&
+        rttBad &&
+        (rttMs < absoluteRttDegradeMs || highBaselineRttWarning);
     // A cached RTT warning must not pin a proven decoder path at one FPS.
     // Only the delivery model may spend this limited probe: it still needs
     // fresh causal decoder progress after the last native budget ACK. Keep
@@ -1454,6 +1462,8 @@ class CallBitrateAdapter {
       'buffer_growth_pending': bufferGrowing && !bufferPressure,
       'rtt_growth_hold': rttGrowthHold,
       'relative_rtt_warning': relativeRttWarning,
+      'high_baseline_rtt_warning':
+          measuredAudioPathHealthy && highBaselineRttWarning,
       'audio_within_recovery_limits': audioWithinRecoveryLimits,
       'video_recovery_eligible': videoSendExpected,
       'audio_receive_age_ms': audioReceiveAgeMs,

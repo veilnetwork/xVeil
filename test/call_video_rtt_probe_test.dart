@@ -91,6 +91,58 @@ CallBitrateAdapter _started() {
 }
 
 void main() {
+  CallBitrateAdapter highBaseline() {
+    final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 60);
+    a.applyPendingTarget((_) => true);
+    a.applyPendingPause((_) => true);
+    _sample(a, 1, rtt: 420);
+    _sample(a, 2, rtt: 420);
+    return a;
+  }
+
+  test('a healthy high-baseline route earns bounded causal probes', () {
+    final a = highBaseline();
+    expect(a.acknowledgedTarget, (maxBitrateKbps: 19, maxFps: 1.25));
+    _sample(a, 3, rtt: 450);
+    expect(a.acknowledgedTarget, (maxBitrateKbps: 24, maxFps: 1.5625));
+    _sample(a, 4, rtt: 410);
+    expect(a.acknowledgedTarget, (maxBitrateKbps: 30, maxFps: 1.953125));
+  });
+
+  for (final failure in [
+    'cached decoder',
+    'unknown audio',
+    'buffer growth',
+    'loss',
+    'queueing above baseline',
+    'multi-second RTT',
+  ]) {
+    test('a high-baseline probe still refuses $failure', () {
+      final a = highBaseline();
+      final before = a.acknowledgedTarget!;
+      for (var n = 3; n <= 7; n++) {
+        _sample(
+          a,
+          n,
+          rtt: failure == 'multi-second RTT'
+              ? 2000
+              : failure == 'queueing above baseline'
+              ? 700
+              : 420,
+          peerDelay: failure == 'unknown audio' ? null : 60,
+          peerGrowing: failure == 'buffer growth',
+          loss: failure == 'loss' ? 1 : 0,
+          decoder: failure == 'cached decoder' ? _decoder(2) : null,
+        );
+      }
+      expect(a.acknowledgedTarget!.maxFps, lessThanOrEqualTo(before.maxFps));
+      expect(
+        a.acknowledgedTarget!.maxBitrateKbps,
+        lessThanOrEqualTo(before.maxBitrateKbps),
+      );
+    });
+  }
+
   test('a cautious sparse probe cannot double cadence from one FPS', () {
     final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 60);
     a.applyPendingTarget((_) => true);
