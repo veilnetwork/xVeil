@@ -1,0 +1,225 @@
+{
+  "work_cycle_base_commit": "c64035bbe308031ca044c3a7ac82ed20516b1d53",
+  "sdk_base_commit": "8cb2f13b99d6fe1f4727633700ab378f6c566d38",
+  "sdk_commit": "f3680bbc7589f0e01daaf0d09ad0dd865b18bbee",
+  "hidden_volume_commit": "47c28bc411abe9cc68f8f506c914891330f70121",
+  "confirmed_findings": 4,
+  "red_component_cases": 7,
+  "rust_tests": {
+    "passed": 705,
+    "ignored": 11,
+    "failed": 0,
+    "crate": "veil-node-runtime"
+  },
+  "dart_tests": {
+    "passed": 121,
+    "files": 4,
+    "failed": 0
+  },
+  "analyzer_issues": 0,
+  "clippy_warnings": 0,
+  "sdk_source_files_verified": 884,
+  "native_final_app_sources_match": true,
+  "native_recovery_gate_seconds": 180,
+  "native_final_passed": true,
+  "native_runs": {
+    "onion-link-ads-baseline": {
+      "exit_code": 1,
+      "result": {
+        "devices": 2,
+        "anonymous": true,
+        "passed": false
+      },
+      "cleanup": {
+        "owned_groups_checked": 4,
+        "owned_pids_checked": 8,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      }
+    },
+    "onion-link-fixed": {
+      "exit_code": 0,
+      "result": {
+        "devices": 2,
+        "anonymous": true,
+        "passed": true
+      },
+      "cleanup": {
+        "owned_groups_checked": 4,
+        "owned_pids_checked": 8,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      }
+    },
+    "onion-peer-edits-fixed": {
+      "exit_code": 1,
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "separate_processes": true,
+        "local_network_only": true,
+        "controlled_container_seed_while_stopped": true,
+        "production_fault_switch_added": false,
+        "anonymous": true,
+        "messages": 100
+      },
+      "cleanup": {
+        "owned_groups_checked": 7,
+        "owned_pids_checked": 11,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      }
+    },
+    "onion-peer-edits-backpressure": {
+      "exit_code": 1,
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "separate_processes": true,
+        "local_network_only": true,
+        "controlled_container_seed_while_stopped": true,
+        "production_fault_switch_added": false,
+        "anonymous": true,
+        "messages": 100
+      },
+      "cleanup": {
+        "owned_groups_checked": 7,
+        "owned_pids_checked": 11,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      }
+    },
+    "onion-peer-edits-qualified": {
+      "exit_code": 1,
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "separate_processes": true,
+        "local_network_only": true,
+        "controlled_container_seed_while_stopped": true,
+        "production_fault_switch_added": false,
+        "anonymous": true,
+        "messages": 100,
+        "recovery_seconds": 33.561,
+        "a_offline_during_peer_recovery": true,
+        "full_hash_window_recovered": true,
+        "reply_ratchets_keep_identity_name": true,
+        "cold_reopen_preserves_reflected_revisions": true,
+        "reflected_values_not_in_authored_replay": true,
+        "online_failure_history": {
+          "count": 100,
+          "matching_bodies": 70,
+          "order_matches": true,
+          "direct_c_echoes": 60
+        }
+      },
+      "cleanup": {
+        "owned_groups_checked": 10,
+        "owned_pids_checked": 14,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      }
+    },
+    "onion-peer-edits-fold-fixed": {
+      "exit_code": 1,
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "separate_processes": true,
+        "local_network_only": true,
+        "controlled_container_seed_while_stopped": true,
+        "production_fault_switch_added": false,
+        "anonymous": true,
+        "messages": 100,
+        "recovery_seconds": 33.568,
+        "a_offline_during_peer_recovery": true,
+        "full_hash_window_recovered": true,
+        "reply_ratchets_keep_identity_name": true,
+        "cold_reopen_preserves_reflected_revisions": true,
+        "reflected_values_not_in_authored_replay": true,
+        "online_failure_history": {
+          "count": 100,
+          "matching_bodies": 98,
+          "order_matches": true,
+          "direct_c_echoes": 98
+        }
+      },
+      "cleanup": {
+        "owned_groups_checked": 10,
+        "owned_pids_checked": 14,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      }
+    },
+    "onion-peer-edits-priority-final": {
+      "exit_code": 0,
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "separate_processes": true,
+        "local_network_only": true,
+        "controlled_container_seed_while_stopped": true,
+        "production_fault_switch_added": false,
+        "anonymous": true,
+        "messages": 100,
+        "recovery_seconds": 33.558,
+        "a_offline_during_peer_recovery": true,
+        "full_hash_window_recovered": true,
+        "reply_ratchets_keep_identity_name": true,
+        "cold_reopen_preserves_reflected_revisions": true,
+        "reflected_values_not_in_authored_replay": true,
+        "b_decrypted_distinct_c_echoes_while_a_online": 100,
+        "b_converged_100_edits_while_a_online": true,
+        "new_online_wave_ids_exclude_late_packets": true,
+        "genuine_same_value_provenance_restored_without_c": true,
+        "logical_duplicates": 0,
+        "passed": true
+      },
+      "cleanup": {
+        "owned_groups_checked": 12,
+        "owned_pids_checked": 16,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      }
+    }
+  },
+  "native_final_observations": {
+    "A": {
+      "authentication_failures": 0,
+      "no_session": 0,
+      "source_queue_deadline_exhausted": 0
+    },
+    "B": {
+      "authentication_failures": 0,
+      "no_session": 0,
+      "source_queue_deadline_exhausted": 0
+    },
+    "C": {
+      "authentication_failures": 0,
+      "no_session": 0,
+      "source_queue_deadline_exhausted": 0
+    }
+  },
+  "native_software_sha256": {
+    "libveilclient_ffi.dylib": "4de07a3540cce9c4fbefd99084b07847367bdfad84e1cfba8522db9dcfbe3257",
+    "veil-cli": "3f045cf61bcffaa6c4477fd013d4a036efeec8120d08bf5b37e72312135cbe98",
+    "libhidden_volume_ffi.dylib": "c9f6f9742bb2d95bf312067a4c4bc745ae124bb40576d8ce1f9d4b02f6373ff5"
+  },
+  "source_sha256": {
+    "lib/data/storage/hidden_volume_storage.dart": "8354f75be11257215d1abaa948e569d613cf7ffa6d9d15244d997aafa002361d",
+    "lib/state/messaging_peer_sync.dart": "6bb07b92f4d697099da7cd78df5771415c010afd3c9c6bf784523e8e6356b3ef",
+    "test/concurrent_message_edits_test.dart": "05150b64c8a39fdb223053d582679386744bfab20f17e37780639b4ec03a02c4",
+    "test/messaging_gapfill_test.dart": "17d1cf6b8e51cd4cda19658c57aae4f555aaa6bd41bce966044a0db34327010e",
+    "test/e2e/onion_device_link_process_e2e_test.dart": "fa511a606a441243f788cf151511b3e91b63ccec60749dd71f9b24a6dc57d1f8",
+    "test/e2e/multi_device_process_e2e_test.dart": "71d9db34417bd8df45e468496757345eeb124e29f1399c978a03b1df7c341350",
+    "test/e2e/peer_echo_edits_process_e2e_test.dart": "e667ee0377f05c36a4177012d7e02df90ad7591d246eaf6cef8c13f9b3c54979",
+    "test/e2e/device_process_fixture.dart": "3f6e9759eae06c3fb7068bdfb913079d9287f0c21fb05aaa66f5e6f9f607f68d",
+    "test/e2e/device_process_worker_test.dart": "ebcff716b4d969bc1cf84ffdc7062cd4c9832f2818ea867f47350c52cf6f9672"
+  },
+  "sdk_changed_source_sha256": {
+    "crates/veil-anonymity/src/sender.rs": "fc7cbee26dd8c7ae9934f8020ff237ab8a763f0e88454c420c6ef06aa61a44ca",
+    "crates/veil-node-runtime/src/runtime/sending.rs": "512d12fc5046e612a5ab7225029b0349c4c87c83fda664f80a653bee90c5abc1"
+  },
+  "physical_devices_tested": false,
+  "whole_multi_device_matrix_closed": false
+}
