@@ -5125,22 +5125,29 @@ class HiddenVolumeStorage
       }
       final k = _msgKey(c, id);
       if (!_scanById.containsKey(k)) _scanOrder.add(k);
+      // Replayed originals and metadata updates carry no edit revision. They
+      // must not replace a resolved edit while leaving its winning revision in
+      // the index: that mismatches text and version and can poison subsequent
+      // peer reconciliation. Actual edit rows above remain authoritative.
+      final heldEdit = _scanEditWinSeq.containsKey(k) ? _scanById[k] : null;
       _scanById[k] = Message(
         id: id,
         conversationId: c,
         direction: MessageDirection.values[m['d'] as int],
-        body: m['b'] as String,
+        body: heldEdit?.body ?? m['b'] as String,
         timestamp: DateTime.fromMillisecondsSinceEpoch(m['t'] as int),
         status: MessageStatus.values[m['s'] as int],
-        edited: m['e'] == 1,
-        reflectedEdit: m['er'] == true,
+        edited: heldEdit?.edited ?? (m['e'] == 1),
+        reflectedEdit: heldEdit?.reflectedEdit ?? (m['er'] == true),
         fileId: m['fi'] as String?,
         fileName: m['fn'] as String?,
         fileSize: m['fs'] as int?,
         fileContentId: m['fc'] as String?,
         fileExternal: m['fx'] == 1,
         thumb: m['tb'] as String?,
-        customEmoji: parseInlineCustomEmoji(m['b'] as String, m['ce']),
+        customEmoji:
+            heldEdit?.customEmoji ??
+            parseInlineCustomEmoji(m['b'] as String, m['ce']),
         author: m['au'] as String?,
         seq: m['sq'] as int?,
         positionVerified: m['pv'] is bool ? m['pv'] as bool : null,

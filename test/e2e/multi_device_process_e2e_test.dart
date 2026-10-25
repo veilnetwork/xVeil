@@ -44,6 +44,7 @@ Future<String> linkProcesses(
   ProcessDevice source,
   ProcessDevice target, {
   E2eIdentity owner = E2eIdentity.x,
+  Future<void> Function()? afterSnapshotSent,
 }) async {
   final sourceIdentity = (await deviceInfo(source))['identity'];
   final info = await deviceInfo(target);
@@ -90,6 +91,7 @@ Future<String> linkProcesses(
   await join(source, target);
   await join(target, source);
   await source.checked('/device_snapshot_send');
+  await afterSnapshotSent?.call();
   final group = prepared['deviceGroup'] as String;
   await waitUntil(
     () async => (await target.checked('/devices'))['deviceGroup'] == group,
