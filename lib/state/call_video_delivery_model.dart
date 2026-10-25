@@ -205,6 +205,7 @@ class CallVideoDeliveryModel {
     CallVideoBudget ceiling,
     DateTime now, {
     required bool healthy,
+    bool probeOnly = false,
   }) {
     if (!healthy ||
         !_credit ||
@@ -222,10 +223,16 @@ class CallVideoDeliveryModel {
       return null;
     }
     final startup = phase == CallVideoDeliveryPhase.startup;
-    if (!startup && _nextProbe != null && now.isBefore(_nextProbe!)) {
+    if ((!startup || probeOnly) &&
+        _nextProbe != null &&
+        now.isBefore(_nextProbe!)) {
       return null;
     }
-    final gain = startup ? 2.0 : 1.25;
+    // A healthy decoder/audio path can cautiously test headroom while RTT
+    // lies between recovery and failure rails. Its sparse cadence must obey
+    // the same 25% bound as bytes; adding one whole FPS would double 1 FPS.
+    final gain = startup && !probeOnly ? 2.0 : 1.25;
+    final fpsIncrement = probeOnly ? applied.maxFps * 0.25 : 1.0;
     return (
       maxBitrateKbps: math.min(
         ceiling.maxBitrateKbps,
@@ -236,7 +243,7 @@ class CallVideoDeliveryModel {
       ),
       maxFps: math.min(
         ceiling.maxFps,
-        math.max(applied.maxFps + 1, applied.maxFps * gain),
+        math.max(applied.maxFps + fpsIncrement, applied.maxFps * gain),
       ),
     );
   }
@@ -261,8 +268,12 @@ class CallVideoDeliveryModel {
         r.lagWindow = [(r.sample, r.mediaLagUs)];
         r.growingSince = null;
       }
-    } else if (phase != CallVideoDeliveryPhase.startup) {
-      phase = CallVideoDeliveryPhase.probe;
+    } else {
+      if (phase != CallVideoDeliveryPhase.startup) {
+        phase = CallVideoDeliveryPhase.probe;
+      }
+      // Fast healthy startup ignores this interval. Cautious RTT probes and
+      // ordinary cruise probes both wait after an acknowledged budget change.
       _nextProbe = now.add(const Duration(seconds: 3));
     }
   }
