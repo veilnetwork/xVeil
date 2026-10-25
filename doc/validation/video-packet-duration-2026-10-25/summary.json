@@ -1,0 +1,803 @@
+{
+  "root_base_commit": "323cfc0a",
+  "media_sdk_commit": "20a09084e717a41dbf16e48ce63db421e4e27fd6",
+  "rust_sdk_binary_base_commit": "a53142f5ea7618cd677e408ff36288def61aaa3b",
+  "production_header_sha256": "e34cb9843fbccce0cbafcdeaa22ceac7a60ed3ca4a2aaefd38cd43d89b28d176",
+  "android_libraries_sha256": {
+    "lib/arm64-v8a/libVkLayer_khronos_validation.so": "ae445f7e74d402e3a367adb230b1edd9841899fcb3310166e5cc96a09ad37a3f",
+    "lib/arm64-v8a/libbarhopper_v3.so": "ec09597e9eb3aee0eb55ae3366da0d4ba416f5aa35a1af0b3811f50ff46743a1",
+    "lib/arm64-v8a/libdartjni.so": "1608612d6080b623820bbc69ec880d8eaeb5c3292e0075a9d03670bd98bce5ef",
+    "lib/arm64-v8a/libdatastore_shared_counter.so": "d3e48717c9aa147e0ab21063ba0e8e0211cabf8bf40b222640829519edbf58e1",
+    "lib/arm64-v8a/libflutter.so": "5e5a911af31499698997fbd21422b5b7ad35fda89f849ba2cbb4719b4d4e7c95",
+    "lib/arm64-v8a/libhidden_volume_ffi.so": "6229bae4ded5db35636ef724b8fca2ca3f7fdb3b71a722c48d69291fbbb7d891",
+    "lib/arm64-v8a/libimage_processing_util_jni.so": "0292b063fafccf734472cbb59588e756c2dbca907c72021ba6fbf126385508a2",
+    "lib/arm64-v8a/libjnidispatch.so": "fe9c603f2a7a5d19197b87f275d6e0afb975f997a57ff4f8ca801cb8c5e7b731",
+    "lib/arm64-v8a/libomp.so": "d5271fa122f3a42779782f8bb20f2cae7390b63f49eb3f6be8e6b9bd654cf741",
+    "lib/arm64-v8a/libredb-3424b30e232f38d7.so": "67f58e5a17a17417a0aac8db29a02d34cda4f72f410de763a5af3eb99423312a",
+    "lib/arm64-v8a/libsurface_util_jni.so": "a5c9d1928ea92ec7a94dff8cf666e7739cd734198b9f0ae1d4e28ea3c86516ba",
+    "lib/arm64-v8a/libveil_media.so": "aea5a1de5ee90a4c6e62ef773ab6cc3443cbffcc2e1ef8defffd8a2cdf91396e",
+    "lib/arm64-v8a/libveil_media_camera_stub.so": "a4eef7190a2078519bd84bf0274b21601aab2d70eb1b9fd88ee0b9cd7615b2ca",
+    "lib/arm64-v8a/libveil_translate.so": "3b7d6091e3035bfdc7bb93f0b22c779574da6b61b546692d0d810e9c17b9cbc3",
+    "lib/arm64-v8a/libveil_whisper.so": "52c1860e68ea6828dc06ce7917b00d0a4b86338fe214356ea2a039ed10d880dc",
+    "lib/arm64-v8a/libveilclient_ffi.so": "c858cd1e0c1d8e80710bf01546d15451424a3abc4b6ef91bb3cf169cc4be6d97"
+  },
+  "mac_libraries_sha256": {
+    "libveilclient_ffi.dylib": "f2a80c011fea3f86dc6681a2522d78e9e56c5a972d7a35481aebad453145beca",
+    "libveil_media.dylib": "e7beb9a77aaed9b5f6ef276e0c25eba7a6b7cce42512e1fd7b4c3e73030fe3b2",
+    "libhidden_volume_ffi.dylib": "3b2eacc819b307125cafe01665ebbaec5ee6ed9d3b3d5d96bc5d5b26a50f79e7"
+  },
+  "production_dart_unchanged": true,
+  "native_test_hooks_in_physical_binaries": false,
+  "checks": {
+    "old_header_failed_video_continuity_regression": true,
+    "policy_and_real_opus_passed": true,
+    "real_opus_packets_decoded": 1017,
+    "native_opus_vp8_pipeline_passed": true,
+    "focused_dart_tests_passed": 200,
+    "production_android_and_macos_builds_passed": true,
+    "production_test_exports_absent": true,
+    "installed_apk_digest_matches": true,
+    "external_mount_lost": false
+  },
+  "qualification_limits": [
+    "mostly quiet room; no operator speech or loudness qualification",
+    "radio and network conditions not forced identical",
+    "not the multi-device matrix or a Windows test",
+    "full video quality ramp still takes 20-31 seconds in these candidates"
+  ],
+  "runs": {
+    "before": {
+      "delivery_passed": true,
+      "ring_ms": 817,
+      "audio_start_ms": 1676,
+      "five_decoded_frames_each_after_camera_request_ms": 38914,
+      "transport": {
+        "mac": "relay",
+        "phone": "relay"
+      },
+      "both_calls_ended": true,
+      "first_quality_window": {
+        "camera_request_to_first_5s_window_20fps_each_ms": 48113,
+        "window_ms": 5116,
+        "decoded_fps": {
+          "mac": 23.26,
+          "phone": 30.1
+        }
+      },
+      "tail_window_ms": 5110,
+      "tail": {
+        "mac": {
+          "decoded_frames": 153,
+          "decoded_fps": 29.94,
+          "audio_rtp_packets": 29
+        },
+        "phone": {
+          "decoded_frames": 155,
+          "decoded_fps": 30.33,
+          "audio_rtp_packets": 128
+        }
+      },
+      "metrics": {
+        "mac": {
+          "largest_sampled_video_tx_max_gap_ms": 1566,
+          "largest_sampled_audio_pressure_delay_ms": 147,
+          "largest_sampled_audio_jb_ms": 121,
+          "largest_sampled_audio_rtp_lag_ms": 147,
+          "largest_sampled_rtt_ms": 216,
+          "largest_sampled_audio_interruption_count": 0,
+          "largest_sampled_audio_interruption_duration_ms": 0,
+          "largest_sampled_audio_latency_discarded_ms": 0,
+          "packetization_hold_samples_with_capture": 0,
+          "native_pause_samples_with_capture": 0,
+          "audio_interruption_count_before_camera": 0
+        },
+        "phone": {
+          "largest_sampled_video_tx_max_gap_ms": 32023,
+          "largest_sampled_audio_pressure_delay_ms": 166,
+          "largest_sampled_audio_jb_ms": 166,
+          "largest_sampled_audio_rtp_lag_ms": 152,
+          "largest_sampled_rtt_ms": 218,
+          "largest_sampled_audio_interruption_count": 0,
+          "largest_sampled_audio_interruption_duration_ms": 0,
+          "largest_sampled_audio_latency_discarded_ms": 270,
+          "packetization_hold_samples_with_capture": 60,
+          "native_pause_samples_with_capture": 60,
+          "audio_interruption_count_before_camera": 0
+        }
+      },
+      "video_windows": [
+        {
+          "mac": {
+            "audio_delta": 28,
+            "decoded_frame_delta": 25
+          },
+          "phone": {
+            "audio_delta": 127,
+            "decoded_frame_delta": 150
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 141
+          },
+          "phone": {
+            "audio_delta": 128,
+            "decoded_frame_delta": 154
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 153
+          },
+          "phone": {
+            "audio_delta": 128,
+            "decoded_frame_delta": 150
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 153
+          },
+          "phone": {
+            "audio_delta": 128,
+            "decoded_frame_delta": 155
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 28,
+            "decoded_frame_delta": 154
+          },
+          "phone": {
+            "audio_delta": 128,
+            "decoded_frame_delta": 155
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 28,
+            "decoded_frame_delta": 152
+          },
+          "phone": {
+            "audio_delta": 128,
+            "decoded_frame_delta": 150
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 152
+          },
+          "phone": {
+            "audio_delta": 128,
+            "decoded_frame_delta": 155
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 154
+          },
+          "phone": {
+            "audio_delta": 129,
+            "decoded_frame_delta": 149
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 153
+          },
+          "phone": {
+            "audio_delta": 128,
+            "decoded_frame_delta": 156
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 153
+          },
+          "phone": {
+            "audio_delta": 129,
+            "decoded_frame_delta": 150
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 154
+          },
+          "phone": {
+            "audio_delta": 129,
+            "decoded_frame_delta": 156
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 29,
+            "decoded_frame_delta": 154
+          },
+          "phone": {
+            "audio_delta": 129,
+            "decoded_frame_delta": 154
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 153
+          },
+          "phone": {
+            "audio_delta": 129,
+            "decoded_frame_delta": 137
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 153
+          },
+          "phone": {
+            "audio_delta": 129,
+            "decoded_frame_delta": 157
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 154
+          },
+          "phone": {
+            "audio_delta": 128,
+            "decoded_frame_delta": 149
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 153
+          },
+          "phone": {
+            "audio_delta": 129,
+            "decoded_frame_delta": 155
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 152
+          },
+          "phone": {
+            "audio_delta": 129,
+            "decoded_frame_delta": 149
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 29,
+            "decoded_frame_delta": 153
+          },
+          "phone": {
+            "audio_delta": 128,
+            "decoded_frame_delta": 155
+          }
+        }
+      ]
+    },
+    "trial1": {
+      "delivery_passed": true,
+      "ring_ms": 853,
+      "audio_start_ms": 1736,
+      "five_decoded_frames_each_after_camera_request_ms": 8076,
+      "transport": {
+        "mac": "relay",
+        "phone": "relay"
+      },
+      "both_calls_ended": true,
+      "first_quality_window": {
+        "camera_request_to_first_5s_window_20fps_each_ms": 30738,
+        "window_ms": 5170,
+        "decoded_fps": {
+          "mac": 21.66,
+          "phone": 30.17
+        }
+      },
+      "tail_window_ms": 5123,
+      "tail": {
+        "mac": {
+          "decoded_frames": 154,
+          "decoded_fps": 30.06,
+          "audio_rtp_packets": 30
+        },
+        "phone": {
+          "decoded_frames": 152,
+          "decoded_fps": 29.67,
+          "audio_rtp_packets": 128
+        }
+      },
+      "metrics": {
+        "mac": {
+          "largest_sampled_video_tx_max_gap_ms": 1111,
+          "largest_sampled_audio_pressure_delay_ms": 121,
+          "largest_sampled_audio_jb_ms": 121,
+          "largest_sampled_audio_rtp_lag_ms": 101,
+          "largest_sampled_rtt_ms": 295,
+          "largest_sampled_audio_interruption_count": 0,
+          "largest_sampled_audio_interruption_duration_ms": 0,
+          "largest_sampled_audio_latency_discarded_ms": 0,
+          "packetization_hold_samples_with_capture": 0,
+          "native_pause_samples_with_capture": 0,
+          "audio_interruption_count_before_camera": 0
+        },
+        "phone": {
+          "largest_sampled_video_tx_max_gap_ms": 1842,
+          "largest_sampled_audio_pressure_delay_ms": 156,
+          "largest_sampled_audio_jb_ms": 156,
+          "largest_sampled_audio_rtp_lag_ms": 136,
+          "largest_sampled_rtt_ms": 257,
+          "largest_sampled_audio_interruption_count": 1,
+          "largest_sampled_audio_interruption_duration_ms": 150,
+          "largest_sampled_audio_latency_discarded_ms": 230,
+          "packetization_hold_samples_with_capture": 0,
+          "native_pause_samples_with_capture": 0,
+          "audio_interruption_count_before_camera": 1
+        }
+      },
+      "video_windows": [
+        {
+          "mac": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 5
+          },
+          "phone": {
+            "audio_delta": 128,
+            "decoded_frame_delta": 10
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 29,
+            "decoded_frame_delta": 4
+          },
+          "phone": {
+            "audio_delta": 129,
+            "decoded_frame_delta": 11
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 27
+          },
+          "phone": {
+            "audio_delta": 129,
+            "decoded_frame_delta": 101
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 67
+          },
+          "phone": {
+            "audio_delta": 129,
+            "decoded_frame_delta": 148
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 28,
+            "decoded_frame_delta": 152
+          },
+          "phone": {
+            "audio_delta": 128,
+            "decoded_frame_delta": 156
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 28,
+            "decoded_frame_delta": 154
+          },
+          "phone": {
+            "audio_delta": 128,
+            "decoded_frame_delta": 156
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 154
+          },
+          "phone": {
+            "audio_delta": 129,
+            "decoded_frame_delta": 156
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 153
+          },
+          "phone": {
+            "audio_delta": 128,
+            "decoded_frame_delta": 149
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 28,
+            "decoded_frame_delta": 154
+          },
+          "phone": {
+            "audio_delta": 129,
+            "decoded_frame_delta": 155
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 28,
+            "decoded_frame_delta": 153
+          },
+          "phone": {
+            "audio_delta": 128,
+            "decoded_frame_delta": 157
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 154
+          },
+          "phone": {
+            "audio_delta": 128,
+            "decoded_frame_delta": 150
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 155
+          },
+          "phone": {
+            "audio_delta": 129,
+            "decoded_frame_delta": 156
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 154
+          },
+          "phone": {
+            "audio_delta": 129,
+            "decoded_frame_delta": 156
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 29,
+            "decoded_frame_delta": 154
+          },
+          "phone": {
+            "audio_delta": 128,
+            "decoded_frame_delta": 150
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 31,
+            "decoded_frame_delta": 154
+          },
+          "phone": {
+            "audio_delta": 129,
+            "decoded_frame_delta": 156
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 28,
+            "decoded_frame_delta": 154
+          },
+          "phone": {
+            "audio_delta": 128,
+            "decoded_frame_delta": 156
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 28,
+            "decoded_frame_delta": 153
+          },
+          "phone": {
+            "audio_delta": 128,
+            "decoded_frame_delta": 150
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 30,
+            "decoded_frame_delta": 154
+          },
+          "phone": {
+            "audio_delta": 128,
+            "decoded_frame_delta": 152
+          }
+        }
+      ],
+      "startup_within_15s": true,
+      "tail_at_least_20fps_each": true
+    },
+    "trial2": {
+      "delivery_passed": true,
+      "ring_ms": 350,
+      "audio_start_ms": 2169,
+      "five_decoded_frames_each_after_camera_request_ms": 6526,
+      "transport": {
+        "mac": "relay",
+        "phone": "relay"
+      },
+      "both_calls_ended": true,
+      "first_quality_window": {
+        "camera_request_to_first_5s_window_20fps_each_ms": 19863,
+        "window_ms": 5133,
+        "decoded_fps": {
+          "mac": 22.79,
+          "phone": 29.03
+        }
+      },
+      "tail_window_ms": 5122,
+      "tail": {
+        "mac": {
+          "decoded_frames": 154,
+          "decoded_fps": 30.07,
+          "audio_rtp_packets": 47
+        },
+        "phone": {
+          "decoded_frames": 150,
+          "decoded_fps": 29.29,
+          "audio_rtp_packets": 91
+        }
+      },
+      "metrics": {
+        "mac": {
+          "largest_sampled_video_tx_max_gap_ms": 1005,
+          "largest_sampled_audio_pressure_delay_ms": 122,
+          "largest_sampled_audio_jb_ms": 122,
+          "largest_sampled_audio_rtp_lag_ms": 100,
+          "largest_sampled_rtt_ms": 264,
+          "largest_sampled_audio_interruption_count": 0,
+          "largest_sampled_audio_interruption_duration_ms": 0,
+          "largest_sampled_audio_latency_discarded_ms": 0,
+          "packetization_hold_samples_with_capture": 0,
+          "native_pause_samples_with_capture": 0,
+          "audio_interruption_count_before_camera": 0
+        },
+        "phone": {
+          "largest_sampled_video_tx_max_gap_ms": 1002,
+          "largest_sampled_audio_pressure_delay_ms": 154,
+          "largest_sampled_audio_jb_ms": 154,
+          "largest_sampled_audio_rtp_lag_ms": 145,
+          "largest_sampled_rtt_ms": 198,
+          "largest_sampled_audio_interruption_count": 0,
+          "largest_sampled_audio_interruption_duration_ms": 0,
+          "largest_sampled_audio_latency_discarded_ms": 180,
+          "packetization_hold_samples_with_capture": 0,
+          "native_pause_samples_with_capture": 0,
+          "audio_interruption_count_before_camera": 0
+        }
+      },
+      "video_windows": [
+        {
+          "mac": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 22
+          },
+          "phone": {
+            "audio_delta": 128,
+            "decoded_frame_delta": 112
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 81
+          },
+          "phone": {
+            "audio_delta": 129,
+            "decoded_frame_delta": 155
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 145
+          },
+          "phone": {
+            "audio_delta": 128,
+            "decoded_frame_delta": 156
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 28,
+            "decoded_frame_delta": 154
+          },
+          "phone": {
+            "audio_delta": 128,
+            "decoded_frame_delta": 150
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 48,
+            "decoded_frame_delta": 154
+          },
+          "phone": {
+            "audio_delta": 128,
+            "decoded_frame_delta": 155
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 73,
+            "decoded_frame_delta": 153
+          },
+          "phone": {
+            "audio_delta": 128,
+            "decoded_frame_delta": 156
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 49,
+            "decoded_frame_delta": 155
+          },
+          "phone": {
+            "audio_delta": 129,
+            "decoded_frame_delta": 150
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 32,
+            "decoded_frame_delta": 153
+          },
+          "phone": {
+            "audio_delta": 128,
+            "decoded_frame_delta": 142
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 46,
+            "decoded_frame_delta": 153
+          },
+          "phone": {
+            "audio_delta": 128,
+            "decoded_frame_delta": 156
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 50,
+            "decoded_frame_delta": 154
+          },
+          "phone": {
+            "audio_delta": 97,
+            "decoded_frame_delta": 149
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 29,
+            "decoded_frame_delta": 154
+          },
+          "phone": {
+            "audio_delta": 39,
+            "decoded_frame_delta": 156
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 155
+          },
+          "phone": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 156
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 137
+          },
+          "phone": {
+            "audio_delta": 48,
+            "decoded_frame_delta": 146
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 53,
+            "decoded_frame_delta": 148
+          },
+          "phone": {
+            "audio_delta": 103,
+            "decoded_frame_delta": 147
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 77,
+            "decoded_frame_delta": 144
+          },
+          "phone": {
+            "audio_delta": 126,
+            "decoded_frame_delta": 155
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 95,
+            "decoded_frame_delta": 153
+          },
+          "phone": {
+            "audio_delta": 127,
+            "decoded_frame_delta": 150
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 47,
+            "decoded_frame_delta": 154
+          },
+          "phone": {
+            "audio_delta": 94,
+            "decoded_frame_delta": 156
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 47,
+            "decoded_frame_delta": 154
+          },
+          "phone": {
+            "audio_delta": 91,
+            "decoded_frame_delta": 150
+          }
+        }
+      ],
+      "startup_within_15s": true,
+      "tail_at_least_20fps_each": true
+    }
+  },
+  "cleanup": {
+    "trial1": {
+      "remaining_mac_processes": 0,
+      "remaining_qa_phone_processes": false,
+      "permissions_match_before_test": true,
+      "own_profile_archived": true,
+      "own_forward_removed": true
+    },
+    "trial2": {
+      "remaining_mac_processes": 0,
+      "remaining_qa_phone_processes": false,
+      "permissions_match_before_test": true,
+      "own_profile_archived": true,
+      "own_forward_removed": true
+    }
+  },
+  "physical_library_exports": {
+    "mac_production_exports": 105,
+    "android_production_exports": 105,
+    "production_test_exports": 0,
+    "mac_exports_match_baseline": true,
+    "android_matches_mac_abi": true
+  }
+}
