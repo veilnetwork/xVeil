@@ -43,6 +43,54 @@ Future<HiddenVolumeStorage> _open({
 }
 
 void main() {
+  for (final direction in MessageDirection.values) {
+    for (final reflected in [false, true]) {
+      test(
+        'replayed original preserves edit ($direction, reflected=$reflected)',
+        () async {
+          final store = await _open(direction: direction);
+          try {
+            await store.editMessage(
+              _peer.hex,
+              'target',
+              'resolved edit',
+              seq: 99,
+              reflected: reflected,
+            );
+            await store.appendMessage(
+              Message(
+                id: 'target',
+                conversationId: _peer.hex,
+                direction: direction,
+                body: 'original',
+                timestamp: DateTime.utc(2020),
+                author: _peer.hex,
+                seq: 1,
+                status: MessageStatus.delivered,
+                positionVerified: true,
+              ),
+            );
+            Future<void> check() async {
+              final held = (await store.loadMessageById(_peer.hex, 'target'))!;
+              expect(held.body, 'resolved edit');
+              expect(held.edited, isTrue);
+              expect(held.reflectedEdit, reflected);
+              expect(held.positionVerified, isTrue);
+              expect((await store.editSeqs(_peer.hex))['target'], 99);
+            }
+
+            await check();
+            await store.close();
+            expect(await store.open(password: 'fixture'), isTrue);
+            await check();
+          } finally {
+            await store.close();
+          }
+        },
+      );
+    }
+  }
+
   test(
     'reflected revisions survive reopen without becoming author events',
     () async {

@@ -178,5 +178,11 @@
     "crates/veil-types/src/lib.rs": "e32cbda5f31e2dbef666b070e6f7eb852efea11f6c3e0c9a84953177905a6583"
   },
   "native_message_waves": 2,
-  "native_messages_per_wave": 100
+  "native_messages_per_wave": 100,
+  "followup_onion_device_link": {
+    "report": "../onion-device-link-2026-10-25/README.md",
+    "sdk_commit": "f3680bbc7589f0e01daaf0d09ad0dd865b18bbee",
+    "full_peer_edit_native_passed": true,
+    "whole_multi_device_matrix_closed": false
+  }
 }
