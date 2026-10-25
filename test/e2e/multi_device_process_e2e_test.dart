@@ -2,6 +2,8 @@
 library;
 
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/transport/bootstrap_invite.dart';
@@ -611,10 +613,29 @@ void main() {
       final f = await ProcessFleet.start(gate);
       addTearDown(f.dispose);
       final a = f.a, b = f.b, c = f.c;
+      final evidence = Platform.environment['XVEIL_PEER_ECHO_EVIDENCE'];
+      final result = <String, Object?>{
+        'devices': 3,
+        'receive_counter': 'audio_rx_pkts',
+        'live_speech_quality_tested': false,
+        'passed': false,
+        'stage': 'setup',
+      };
+      Map<String, dynamic>? ac, bc, cc;
+      if (evidence != null) {
+        await File(
+          '$evidence/fleet-private.json',
+        ).writeAsString(jsonEncode({'root': f.root.path, 'runnerPid': pid}));
+        addTearDown(() async {
+          await File(
+            '$evidence/calls-private.json',
+          ).writeAsString(jsonEncode({'A': ac, 'B': bc, 'C': cc}));
+          await File('$evidence/result.json').writeAsString(jsonEncode(result));
+        });
+      }
       await introduceProcesses(a, c);
       await linkProcesses(a, b);
       final ai = (await deviceInfo(a))['identity'] as String;
-      Map<String, dynamic>? ac, bc, cc;
       Future<void> sample() async {
         ac = (await a.checked('/call_state'))['call'] as Map<String, dynamic>?;
         bc = (await b.checked('/call_state'))['call'] as Map<String, dynamic>?;
@@ -624,12 +645,14 @@ void main() {
       Map<String, Object?> brief(Map<String, dynamic>? call) => {
         'status': call?['status'],
         'peer': call?['peer'],
-        'rx': (call?['mediaStats'] as Map?)?['rx_pkts'],
+        'audioRx': (call?['mediaStats'] as Map?)?['audio_rx_pkts'],
       };
       bool live(Map<String, dynamic>? call) =>
           call != null && call['status'] != 'ended';
       int received(Map<String, dynamic>? call) =>
-          ((call?['mediaStats'] as Map?)?['rx_pkts'] as num?)?.toInt() ?? 0;
+          ((call?['mediaStats'] as Map?)?['audio_rx_pkts'] as num?)?.toInt() ??
+          0;
+      result['stage'] = 'ringing';
       await c.checked('/call_place', query: {'peer': ai});
       await waitUntil(
         () async {
@@ -639,6 +662,7 @@ void main() {
         what: 'both independent sibling processes ring',
         describe: () => 'A=${brief(ac)} B=${brief(bc)} C=${brief(cc)}',
       );
+      result['stage'] = 'answer';
       await Future.wait([a.checked('/call_accept'), b.checked('/call_accept')]);
       await waitUntil(
         () async {
@@ -648,15 +672,33 @@ void main() {
               received(cc) > 0 &&
               received(live(ac) ? ac : bc) > 0;
         },
-        what: 'one accepted endpoint and bidirectional real media',
+        what: 'one accepted endpoint and bidirectional audio RTP',
         describe: () => 'A=${brief(ac)} B=${brief(bc)} C=${brief(cc)}',
         timeout: const Duration(seconds: 40),
       );
-      await (live(ac) ? a : b).checked('/call_hangup');
+      final winner = live(ac) ? a : b;
+      result['winner'] = winner == a ? 'A' : 'B';
+      result['stage'] = 'continuous_audio';
+      final beforeWinner = received(live(ac) ? ac : bc);
+      final beforeC = received(cc);
+      await Future<void>.delayed(const Duration(seconds: 5));
+      await sample();
+      expect([ac, bc].where(live).length, 1);
+      expect(live(winner == a ? ac : bc), isTrue);
+      expect(live(cc), isTrue);
+      expect(received(winner == a ? ac : bc), greaterThan(beforeWinner));
+      expect(received(cc), greaterThan(beforeC));
+      result['audio_rx_delta_winner'] =
+          received(winner == a ? ac : bc) - beforeWinner;
+      result['audio_rx_delta_c'] = received(cc) - beforeC;
+      result['stage'] = 'hangup';
+      await winner.checked('/call_hangup');
       await waitUntil(() async {
         await sample();
         return ![ac, bc, cc].any(live);
       }, what: 'the race call finishes everywhere');
+      result['passed'] = true;
+      result['stage'] = 'finished';
     },
     skip: gate.mediaSkip,
   );
