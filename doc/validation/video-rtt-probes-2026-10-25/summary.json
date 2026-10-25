@@ -1,0 +1,69 @@
+{
+  "root_base_commit": "0f405808",
+  "sdk_test_commit": "a95a67552543d0b8bb08c41e3abc96ac2dbe3db8",
+  "native_media_binary_base_commit": "20a09084",
+  "rust_sdk_binary_base_commit": "a53142f5",
+  "qualification": "candidate: unit and native-codec validation complete; physical phone validation pending",
+  "rules": {
+    "cautious_gain": 1.25,
+    "bitrate_rounding": "ceil to integer kbit/s",
+    "minimum_probe_interval_seconds": 3,
+    "requires_causal_decoder_progress": true,
+    "requires_native_budget_ack": true,
+    "absolute_rtt_failure_ms": 400,
+    "normal_healthy_startup_unchanged": true
+  },
+  "checks": {
+    "focused_flutter_tests_passed": 299,
+    "new_rtt_probe_tests": 24,
+    "old_code_semantic_regression_failed": true,
+    "native_fractional_probe": {
+      "bitrate_kbps": 19,
+      "fps": 1.25,
+      "duration_seconds": 12,
+      "encoded_video_frames": 15,
+      "audio_received": true
+    },
+    "android_and_macos_frontend_builds_passed": true,
+    "external_mount_lost": false,
+    "native_libraries_unchanged": true,
+    "candidate_installed_on_phone": false,
+    "physical_candidate_test_passed": null,
+    "test_app_instances_started": 0,
+    "analyzer_issues": 0
+  },
+  "changed_production_files": {
+    "lib/state/call_video_delivery_model.dart": "b357d45d51e716105f9dd05e542a654b212cc7b8b6ed84478813df40a7e076f6",
+    "lib/state/call_bitrate_adapter.dart": "3e47db9037b8085c8497003f8f436238aa4948bad4a3b23010a678ea1e9bb548"
+  },
+  "native_libraries_sha256": {
+    "android": {
+      "lib/arm64-v8a/libVkLayer_khronos_validation.so": "ae445f7e74d402e3a367adb230b1edd9841899fcb3310166e5cc96a09ad37a3f",
+      "lib/arm64-v8a/libbarhopper_v3.so": "ec09597e9eb3aee0eb55ae3366da0d4ba416f5aa35a1af0b3811f50ff46743a1",
+      "lib/arm64-v8a/libdartjni.so": "1608612d6080b623820bbc69ec880d8eaeb5c3292e0075a9d03670bd98bce5ef",
+      "lib/arm64-v8a/libdatastore_shared_counter.so": "d3e48717c9aa147e0ab21063ba0e8e0211cabf8bf40b222640829519edbf58e1",
+      "lib/arm64-v8a/libflutter.so": "5e5a911af31499698997fbd21422b5b7ad35fda89f849ba2cbb4719b4d4e7c95",
+      "lib/arm64-v8a/libhidden_volume_ffi.so": "6229bae4ded5db35636ef724b8fca2ca3f7fdb3b71a722c48d69291fbbb7d891",
+      "lib/arm64-v8a/libimage_processing_util_jni.so": "0292b063fafccf734472cbb59588e756c2dbca907c72021ba6fbf126385508a2",
+      "lib/arm64-v8a/libjnidispatch.so": "fe9c603f2a7a5d19197b87f275d6e0afb975f997a57ff4f8ca801cb8c5e7b731",
+      "lib/arm64-v8a/libomp.so": "d5271fa122f3a42779782f8bb20f2cae7390b63f49eb3f6be8e6b9bd654cf741",
+      "lib/arm64-v8a/libredb-3424b30e232f38d7.so": "67f58e5a17a17417a0aac8db29a02d34cda4f72f410de763a5af3eb99423312a",
+      "lib/arm64-v8a/libsurface_util_jni.so": "a5c9d1928ea92ec7a94dff8cf666e7739cd734198b9f0ae1d4e28ea3c86516ba",
+      "lib/arm64-v8a/libveil_media_camera_stub.so": "a4eef7190a2078519bd84bf0274b21601aab2d70eb1b9fd88ee0b9cd7615b2ca",
+      "lib/arm64-v8a/libveil_translate.so": "3b7d6091e3035bfdc7bb93f0b22c779574da6b61b546692d0d810e9c17b9cbc3",
+      "lib/arm64-v8a/libveil_whisper.so": "52c1860e68ea6828dc06ce7917b00d0a4b86338fe214356ea2a039ed10d880dc",
+      "lib/arm64-v8a/libveilclient_ffi.so": "c858cd1e0c1d8e80710bf01546d15451424a3abc4b6ef91bb3cf169cc4be6d97",
+      "lib/arm64-v8a/libveil_media.so": "aea5a1de5ee90a4c6e62ef773ab6cc3443cbffcc2e1ef8defffd8a2cdf91396e"
+    },
+    "macos": {
+      "libveilclient_ffi.dylib": "f2a80c011fea3f86dc6681a2522d78e9e56c5a972d7a35481aebad453145beca",
+      "libveil_media.dylib": "e7beb9a77aaed9b5f6ef276e0c25eba7a6b7cce42512e1fd7b4c3e73030fe3b2",
+      "libhidden_volume_ffi.dylib": "3b2eacc819b307125cafe01665ebbaec5ee6ed9d3b3d5d96bc5d5b26a50f79e7"
+    }
+  },
+  "unverified": [
+    "physical behavior and quality ramp under marginal RTT",
+    "live speech, loudness, Windows and full multi-device matrix",
+    "existing production fault-injection cleanup"
+  ]
+}
