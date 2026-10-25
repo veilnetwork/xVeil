@@ -6,7 +6,35 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
-## [0.13.89] — 2026-10-22
+## [0.13.89] — 2026-10-25
+
+### Added
+
+- Profile avatars, public nickname headers with the node ID beneath, and
+  optional device-local pattern or biometric quick unlock, including container
+  opening after restart. Keep password recovery available.
+- Node deployment documentation and clearer recovery-certificate file export
+  through the platform's system document picker.
+
+### Fixed
+
+- Recover offline linked-device history beyond compacted journal entries;
+  converge concurrent edits, reactions, message ordering and local deletions.
+  Persist mutation retries and deletion scrubs across interrupted commits.
+- Revalidate revoked-device authorization for messages, content and calls;
+  checkpoint peer revocation state inside the encrypted identity container.
+- Restore resumable file transfers after source restarts by reestablishing
+  authenticated requester proof before retrying streams. Retain resume intents
+  beyond the general settings limit and preserve bounded application credits.
+- Route anonymous calls to authorized sibling devices, isolate fallback
+  ownership per call, and retain independent incoming routes while constructing
+  outgoing routes. Remove runtime publication/mailbox-pause experiments.
+- Keep the active audio route when enabling video, recover video across Opus
+  packet-duration changes, and pace cautious startup probes with causal remote
+  decoder acknowledgements. Permit bounded probes on a measured healthy route
+  with a high stable RTT baseline; retain loss, buffer and freshness vetoes.
+- Load Android background-service preferences before node startup and serialize
+  notification updates while rejecting callbacks from retired sessions.
 
 ### Changed
 
@@ -52,7 +80,7 @@ bumps may change behaviour a user notices.
 
 ### Dependencies and verification
 
-- Veil 0.11.44, hidden-volume 2.6.3 and rebuilt native call engines.
+- Veil 0.11.45, hidden-volume 2.6.4 and rebuilt native call engines.
 - P2P and relay camera tests reached sustained 29–30 FPS; decoder-backed
   startup reached >=25 FPS in complete windows within 13–19 seconds on the
   retained stand. Resolution can recover more slowly after audio catch-up.
@@ -62,6 +90,15 @@ bumps may change behaviour a user notices.
 - The pre-existing native public Space discovery test still can return an
   older authority generation or miss holder quorum after an ownership transfer.
   This limitation predates 0.13.88; the video changes do not establish its fix.
+- Remaining call-quality failures are documented, including a physical cellular
+  Poco-to-Mac P2P run in which each receiver decoded only three video frames in
+  60 seconds and audio interruption counters increased. Other relay/anonymous
+  runs also retained stalls; these changes do not establish a universal video
+  startup improvement, live speech intelligibility or headphone loudness fix.
+- Multi-device regression repeats cover specific topologies and operations;
+  they do not certify the entire 63-scenario matrix or immediate revocation
+  across disconnected partitions. Own-device history needs an available source;
+  no own-device mailbox copy is added.
 
 ## [0.13.88] — 2026-10-21
 
