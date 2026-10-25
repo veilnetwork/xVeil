@@ -10,8 +10,9 @@ enum CallAudioRoute { earpiece, speaker, external }
 /// Owns the phone's communication-audio route for both direct and group calls.
 ///
 /// Connected headphones take precedence on Android. Without them, video uses
-/// the loudspeaker and audio uses the receiver. Explicit user selection still
-/// overrides the default.
+/// the loudspeaker and audio uses the receiver when a call starts. Once chosen,
+/// the route stays in place across camera changes until release or an explicit
+/// user selection. Reapplying a default can disconnect Android's audio devices.
 class CallAudioRouter {
   CallAudioRouter({MethodChannel? channel, bool? hasNativePhoneRoute})
     : _channel = channel ?? const MethodChannel('xveil/call_audio_route'),
@@ -20,18 +21,21 @@ class CallAudioRouter {
 
   final MethodChannel _channel;
   final bool _hasNativePhoneRoute;
+  bool _routeEstablished = false;
   final ValueNotifier<CallAudioRoute> route = ValueNotifier(
     CallAudioRoute.earpiece,
   );
 
   bool get supportsPhoneRouting => _hasNativePhoneRoute;
 
-  Future<bool> useDefaultFor(CallMedia media) => _applyRoute(
-    media.video || media.screen
-        ? CallAudioRoute.speaker
-        : CallAudioRoute.earpiece,
-    preferExternal: true,
-  );
+  Future<bool> useDefaultFor(CallMedia media) => _routeEstablished
+      ? Future.value(true)
+      : _applyRoute(
+          media.video || media.screen
+              ? CallAudioRoute.speaker
+              : CallAudioRoute.earpiece,
+          preferExternal: true,
+        );
 
   Future<bool> setRoute(CallAudioRoute next) =>
       _applyRoute(next, preferExternal: next == CallAudioRoute.external);
@@ -42,6 +46,7 @@ class CallAudioRouter {
   }) async {
     if (!_hasNativePhoneRoute) {
       route.value = next;
+      _routeEstablished = true;
       return true;
     }
     try {
@@ -54,12 +59,16 @@ class CallAudioRouter {
         for (final candidate in CallAudioRoute.values) {
           if (candidate.name == result) {
             route.value = candidate;
+            _routeEstablished = true;
             return true;
           }
         }
         return false;
       }
-      if (result == true) route.value = next;
+      if (result == true) {
+        route.value = next;
+        _routeEstablished = true;
+      }
       return result == true;
     } on PlatformException {
       return false;
@@ -85,6 +94,7 @@ class CallAudioRouter {
         // Older builds do not expose the route channel.
       }
     }
+    _routeEstablished = false;
     route.value = CallAudioRoute.earpiece;
   }
 }
