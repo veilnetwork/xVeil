@@ -258,6 +258,7 @@ class CallBitrateAdapter {
       'good_streak_after': _goodStreak,
       'startup_recovery': _startupRecovery,
       'startup_ramp_sample_healthy': _startupRampSampleHealthy,
+      'rtt_probe_eligible': _deliveryRttProbeEligible,
       'startup_good_streak_after': _startupGoodStreak,
       'growth_pause_transient': _growthSampleTransient,
       'ramp_recovery_needed': _rampNeedsRecovery,
@@ -273,6 +274,7 @@ class CallBitrateAdapter {
   bool _growthAllowed = false;
   bool _growthSampleHealthy = false, _rampNeedsRecovery = false;
   bool _startupRampSampleHealthy = false;
+  bool _deliveryRttProbeEligible = false;
   bool _growthSampleTransient = false;
   int _rampRecoverySamples = 0;
   int _lastGrowthObservation = -1;
@@ -337,6 +339,7 @@ class CallBitrateAdapter {
     } else {
       if (!_growthSampleHealthy &&
           !_growthSampleTransient &&
+          !_deliveryRttProbeEligible &&
           (desired.maxBitrateKbps > previous.maxBitrateKbps ||
               desired.maxFps > previous.maxFps)) {
         _rampNeedsRecovery = true;
@@ -485,6 +488,7 @@ class CallBitrateAdapter {
     _growthAllowed = false;
     _growthSampleHealthy = false;
     _startupRampSampleHealthy = false;
+    _deliveryRttProbeEligible = false;
     _growthSampleTransient = false;
   }
 
@@ -499,6 +503,7 @@ class CallBitrateAdapter {
     _growthAllowed = false;
     _growthSampleHealthy = false;
     _startupRampSampleHealthy = false;
+    _deliveryRttProbeEligible = false;
     _growthSampleTransient = false;
     _rampRecoverySamples = 0;
     _lastGrowthObservation = -1;
@@ -734,6 +739,7 @@ class CallBitrateAdapter {
     _growthAllowed = false;
     _growthSampleHealthy = false;
     _startupRampSampleHealthy = false;
+    _deliveryRttProbeEligible = false;
     _growthSampleTransient = false;
     _growthSampleAt = sampledAt;
     // Require a distinct peer report during this earned recovery period,
@@ -958,7 +964,7 @@ class CallBitrateAdapter {
               (maxBitrateKbps: baseBitrateKbps, maxFps: baseFps.toDouble()),
               sampledAt ?? DateTime.now(),
               healthy:
-                  _growthSampleHealthy &&
+                  (_growthSampleHealthy || _deliveryRttProbeEligible) &&
                   !sourceBudgetPressured &&
                   !_sourceFloor &&
                   !_sourcePause &&
@@ -966,6 +972,7 @@ class CallBitrateAdapter {
                   _appliedPause != true &&
                   videoSendExpected &&
                   !_delivery.queuePressure,
+              probeOnly: _deliveryRttProbeEligible,
             );
       _growthAllowed = next != null;
       if (next != null) {
@@ -1071,6 +1078,7 @@ class CallBitrateAdapter {
     _growthAllowed = false;
     _growthSampleHealthy = false;
     _startupRampSampleHealthy = false;
+    _deliveryRttProbeEligible = false;
     _growthSampleTransient = false;
     _growthSampleAt = sampledAt;
     final freshPeerSample =
@@ -1426,6 +1434,15 @@ class CallBitrateAdapter {
     // RTT failure, unproven audio and real impairments keep that protection.
     final relativeRttWarning =
         measuredAudioPathHealthy && rttBad && rttMs < absoluteRttDegradeMs;
+    // A cached RTT warning must not pin a proven decoder path at one FPS.
+    // Only the delivery model may spend this limited probe: it still needs
+    // fresh causal decoder progress after the last native budget ACK. Keep
+    // repair holds and every measured audio/loss/buffer guard in force.
+    _deliveryRttProbeEligible =
+        _delivery.supported &&
+        (rttGrowthHold || relativeRttWarning) &&
+        !transientGrowthHeld &&
+        txLossPct == 0;
     _growthSampleTransient =
         rttGrowthHold ||
         (audioWithinRecoveryLimits &&
