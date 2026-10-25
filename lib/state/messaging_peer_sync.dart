@@ -83,6 +83,11 @@ Map<String, int> floorDeclaration({
 /// mine may have written in the same chat.
 const kOwnEchoWindow = 100;
 
+/// Leave room for the signed onion envelope (6144 bytes in the SDK). A full
+/// hundred content hashes alone exceeds it; smaller pages still rotate through
+/// the entire history instead of silently failing every reconciliation ask.
+const kAnonymousOwnEchoWindow = 30;
+
 /// The most of my own messages one answer hands back.
 const kOwnEchoCap = 50;
 
@@ -994,13 +999,22 @@ class _MessagingPeerSync {
       if (sent.isEmpty) return null;
       final round = _ownAskRounds[peer.hex] =
           (_ownAskRounds[peer.hex] ?? 0) + 1;
+      final windowSize = _owner._anonymous
+          ? kAnonymousOwnEchoWindow
+          : kOwnEchoWindow;
+      // Preserve the newest-hundred priority when onion needs several frames
+      // for one logical window. Spreading those frames over the whole history
+      // delayed retries of a lost newest edit until the complete walk ended.
+      final parts = (kOwnEchoWindow + windowSize - 1) ~/ windowSize;
+      final logicalRound = (round - 1) ~/ parts + 1;
       final pages = (sent.length + kOwnEchoWindow - 1) ~/ kOwnEchoWindow;
-      final page = ownEchoPage(round: round, pages: pages);
-      // Page p is the p-th hundred counted back from the newest, and it runs
-      // up to where the NEWER page starts — so consecutive pages meet, and what
-      // the counterpart holds between two of my messages is inside one of them.
-      final end = sent.length - page * kOwnEchoWindow;
-      final start = end > kOwnEchoWindow ? end - kOwnEchoWindow : 0;
+      final page = ownEchoPage(round: logicalRound, pages: pages);
+      final pageEnd = sent.length - page * kOwnEchoWindow;
+      final pageStart = pageEnd > kOwnEchoWindow ? pageEnd - kOwnEchoWindow : 0;
+      final pageParts = (pageEnd - pageStart + windowSize - 1) ~/ windowSize;
+      final part = ((round - 1) % parts) % pageParts;
+      final end = pageEnd - part * windowSize;
+      final start = end - windowSize > pageStart ? end - windowSize : pageStart;
       final window = sent.sublist(start, end);
       final edits = <String, int>{}, hashes = <String, String>{};
       for (final m in window) {
@@ -1023,7 +1037,9 @@ class _MessagingPeerSync {
         // a retention cut leaves a tombstone the store refuses, and my own
         // clear bounds the conversation by time in the fold.
         sinceMs: start == 0 ? 0 : window.first.timestamp.millisecondsSinceEpoch,
-        untilMs: page == 0 ? null : sent[end].timestamp.millisecondsSinceEpoch,
+        untilMs: end == sent.length
+            ? null
+            : sent[end].timestamp.millisecondsSinceEpoch,
       );
     } catch (_) {
       return null; // advisory: a beacon goes out without it

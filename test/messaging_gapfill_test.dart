@@ -143,6 +143,84 @@ void main() {
     await mB.dispose();
   });
 
+  test(
+    'anonymous edit asks fit the onion envelope and visit every held row',
+    () async {
+      await mA.dispose();
+      var clock = DateTime.now();
+      tA.peer = null;
+      mA = MessagingService(tA, sA, anonymous: true, now: () => clock)..start();
+      mA.myOtherDevices = () async => [_id(3)];
+      final expected = <String>{};
+      for (var i = 0; i < 200; i++) {
+        final id = 'anonymous-window-$i';
+        expected.add(ownEchoKey(id));
+        await sA.appendMessage(
+          Message(
+            id: id,
+            conversationId: b.hex,
+            direction: MessageDirection.outgoing,
+            body: 'original',
+            timestamp: DateTime.utc(2020).add(Duration(seconds: i)),
+            author: a.hex,
+            seq: i + 1,
+            status: MessageStatus.delivered,
+          ),
+        );
+        await sA.editMessage(b.hex, id, 'edited', seq: kMaxWireSeq);
+      }
+      await _settle();
+      tA.sentSyncBodies.clear();
+      for (var round = 0; round < 16; round++) {
+        clock = clock.add(const Duration(seconds: 6));
+        // Keep this an answering contact; unanswered reconnects deliberately
+        // back off, independently of the edit-page rotation under test.
+        tA.inject(
+          b,
+          WireEnvelope.sync(
+            jsonEncode({
+              'hw': {a.hex: 200},
+            }),
+          ).encode(),
+        );
+        await _settle();
+        await mA.reconcileOnConnect();
+        await _settle();
+      }
+      final asks = tA.sentSyncBodies
+          .map((body) => jsonDecode(body) as Map)
+          .where((body) => body['oh'] != null)
+          .toList();
+      expect(asks, isNotEmpty);
+      final newest = {
+        for (var i = 100; i < 200; i++) ownEchoKey('anonymous-window-$i'),
+      };
+      final firstPass = asks
+          .take(8)
+          .expand((ask) => (ask['ow'] as List).cast<String>())
+          .toSet();
+      expect(firstPass, newest,
+          reason: 'newest edits must be retried before walking old history');
+      final visited = <String>{};
+      for (final ask in asks) {
+        // Reserve room below the SDK's 6144-byte authenticated wire cap for
+        // its signature/header and the app's transport framing.
+        expect(
+          WireEnvelope.sync(jsonEncode(ask)).encode().length,
+          lessThanOrEqualTo(4096),
+        );
+        visited.addAll((ask['ow'] as List).cast<String>());
+        expect((ask['oe'] as Map).length, (ask['ow'] as List).length);
+        expect((ask['oh'] as Map).length, (ask['ow'] as List).length);
+      }
+      expect(
+        visited,
+        expected,
+        reason: 'smaller onion pages must not strand older hashes',
+      );
+    },
+  );
+
   List<Message> bodies0(List<Message> m) => m;
 
   /// WHAT THE PEER CALLS US.
