@@ -1306,11 +1306,16 @@ class VeilFlutterTransport
   }) {
     if (anonymous) {
       return _diagnosticSend(
-        () => _realtimeApp.sendAnonymousAuthenticated(
+        // Ordinary authored sends use the recoverable DATA credit budget.
+        // Live control must not wait for a group/file cell holding that credit.
+        // This is an IPC-only source choice; onion cells keep neutral headers.
+        () => _realtimeApp.sendOnLocalLane(
           dstNodeId: dst.bytes,
           dstAppId: chatAppIdFor(dst),
           dstEndpointId: veilChatEndpointId,
           data: payload,
+          localLane: 1,
+          anonymous: true,
         ),
       );
     }
