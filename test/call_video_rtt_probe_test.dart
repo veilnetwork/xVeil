@@ -119,22 +119,19 @@ void main() {
   test('cautious RTT decoder probes preserve a live healthy audio path', () {
     final a = _started();
     _sample(a, 3);
-    _sample(a, 4);
-    expect(a.acknowledgedTarget, (maxBitrateKbps: 30, maxFps: 2.0));
-    _sample(a, 5);
     expect(a.acknowledgedTarget, (maxBitrateKbps: 38, maxFps: 2.5));
 
-    for (var n = 6; n <= 8; n++) {
-      _sample(a, n, decoder: _decoder(5));
+    for (var n = 4; n <= 6; n++) {
+      _sample(a, n, decoder: _decoder(3));
     }
     expect(
       a.acknowledgedTarget,
       (maxBitrateKbps: 38, maxFps: 2.5),
       reason: 'a timer and cached pre-probe frames cannot fund another probe',
     );
-    _sample(a, 9);
+    _sample(a, 7);
     expect(a.acknowledgedTarget, (maxBitrateKbps: 48, maxFps: 3.125));
-    _sample(a, 10, rtt: 100);
+    _sample(a, 8, rtt: 100);
     expect(
       a.acknowledgedTarget,
       (maxBitrateKbps: 96, maxFps: 6.25),
@@ -142,29 +139,24 @@ void main() {
     );
   });
 
-  test('RTT probes wait three seconds between native acknowledgements', () {
+  test('fresh causal RTT ACKs fund one bounded step per observation', () {
     final a = _started();
     _sample(a, 3);
+    expect(a.acknowledgedTarget, (maxBitrateKbps: 38, maxFps: 2.5));
     _sample(a, 4);
-    _sample(a, 5);
-    final first = a.acknowledgedTarget;
-    _sample(a, 6);
-    _sample(a, 7);
-    expect(a.acknowledgedTarget, first);
-    _sample(a, 8);
     expect(a.acknowledgedTarget, (maxBitrateKbps: 48, maxFps: 3.125));
+    _sample(a, 5);
+    expect(a.acknowledgedTarget, (maxBitrateKbps: 60, maxFps: 3.90625));
   });
 
   test('a busy native worker cannot spend or bank a cautious probe', () {
     final a = _started();
-    _sample(a, 3);
-    _sample(a, 4);
-    _sample(a, 5, apply: false);
+    _sample(a, 3, apply: false);
     expect(a.applyPendingTarget((_) => false), isFalse);
     expect(a.acknowledgedTarget, (maxBitrateKbps: 30, maxFps: 2.0));
-    _sample(a, 6, peerDelay: null);
+    _sample(a, 4, peerDelay: null);
     expect(a.acknowledgedTarget, (maxBitrateKbps: 30, maxFps: 2.0));
-    _sample(a, 7);
+    _sample(a, 5);
     expect(a.acknowledgedTarget, (maxBitrateKbps: 38, maxFps: 2.5));
   });
 

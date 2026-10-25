@@ -12,6 +12,12 @@ faster startup is not established. See the
 [physical qualification and limits](../call-fallback-lifetime-2026-10-25/README.md).
 The pending status above describes this original cycle.
 
+**Pacing follow-up:** the redundant three-second timer during cautious startup
+has since been removed; causal decoder acknowledgements and the 950-ms minimum
+interval now pace those steps. Cruise and loss-drain waits remain. See the
+[new tests, physical runs and RTT attribution](../video-startup-ack-pacing-2026-10-25/README.md).
+The policy and results below describe the original implementation.
+
 ## Evidence behind the change
 
 In the preceding [physical qualification](../video-packet-duration-2026-10-25/README.md),
