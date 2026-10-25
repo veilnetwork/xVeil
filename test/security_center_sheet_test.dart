@@ -86,7 +86,9 @@ void main() {
     final app = _FakeApp(anonymous: false);
     final l = await openSheet(tester, app);
 
-    await tester.tap(find.widgetWithText(SwitchListTile, l.settingsAnonymousRouting));
+    await tester.tap(
+      find.widgetWithText(SwitchListTile, l.settingsAnonymousRouting),
+    );
     await tester.pumpAndSettle();
 
     expect(
@@ -102,18 +104,16 @@ void main() {
   testWidgets('the identity row does not print its own title twice', (
     tester,
   ) async {
-    // Title and subtitle were the same string whenever the identity had no
-    // display name, which is every identity that has not been renamed. The row
-    // read "Identities & account" over "Identities & account" and told a
-    // person nothing about where it goes — while the string written for that
-    // second line sat unused two files away.
+    // Keep the destination hint distinct from the profile label. This fixture
+    // has no identity yet, so the shared presentation falls back to xVeil;
+    // a ready identity instead shows its nickname, display name or device ID.
     final l = await openSheet(tester, _FakeApp(anonymous: false));
 
     expect(find.text(l.settingsCatAccountHint), findsOneWidget);
     expect(
-      find.text(l.settingsCatAccount),
+      find.text('xVeil'),
       findsOneWidget,
-      reason: 'the fallback title stays — what must not repeat is the subtitle',
+      reason: 'the account destination must not replace the profile label',
     );
   });
 }
