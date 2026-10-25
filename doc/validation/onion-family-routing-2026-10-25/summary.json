@@ -1,0 +1,187 @@
+{
+  "schema": 1,
+  "date": "2026-10-25",
+  "baseline_sdk_commit": "f6dcd8aa",
+  "sdk_commit": "7415af3da7de223d4d7f6ae6b7dd100404807001",
+  "software": {
+    "baseline": {
+      "software_sha256": {
+        "veil-cli": "28282ce33bf2c73ff6d88ce515c09d63a6f5b20d6e4de3ea953ed33eadf812c8",
+        "libveilclient_ffi.dylib": "c6b2599d2a9cace0104c3665864bd00ac0c982bcfb7c7f3eada5574b32c56c3b"
+      },
+      "sdk_source_files": 884,
+      "sdk_source_manifest_sha256": "060584a1a8a84333f2dedd278cbbf280d2b24ef862dc78b4385e258fb46c9c4b",
+      "features": [
+        "allow-empty-seeds",
+        "test-low-difficulty",
+        "node-embedded",
+        "packet-tunnel"
+      ]
+    },
+    "fixed": {
+      "software_sha256": {
+        "veil-cli": "ca71b8943d90bb3763e5e8047bfd348f017b7f4efcd4a865738a1b4340cb099d",
+        "libveilclient_ffi.dylib": "7b9f7e5ec93215b1f01063b084e6cce83235c58c80393d726b63cc33d067cc9f"
+      },
+      "sdk_source_files": 884,
+      "sdk_source_manifest_sha256": "45ab3e7036fac988edeb8f123947d995f740ee1d8605521126ee742de0433f48",
+      "features": [
+        "allow-empty-seeds",
+        "test-low-difficulty",
+        "node-embedded",
+        "packet-tunnel"
+      ]
+    },
+    "media_sha256": "5ed10ef2fb698d603af96e0272ad9d8b8f99ebf0e7eca353c53e228ac9bf982e"
+  },
+  "baseline_evidence": {
+    "identity_registration_refused": 20,
+    "receiver_key_conflict": 20,
+    "b_refused": 20,
+    "x_alias_refused": 20,
+    "c_cached_b_physical_chat_ads": 2,
+    "c_cached_identity_chat_ads": 2
+  },
+  "tests": {
+    "runtime": {
+      "passed": 715,
+      "failed": 0,
+      "ignored": 11
+    },
+    "ffi": {
+      "passed": 366,
+      "failed": 0,
+      "ignored": 11
+    },
+    "strict_runtime_clippy": "passed",
+    "dart_analyzer_issues": 0
+  },
+  "native_runs": {
+    "anonymous-ring-latency-baseline": {
+      "exit_code": 1,
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "anonymous": true,
+        "explicit_c_b_join": false,
+        "media_acceptance_tested": false,
+        "passed": false,
+        "offline_ring_deadline_ms": 10000
+      },
+      "cleanup": {
+        "owned_groups_checked": 5,
+        "owned_pids_checked": 9,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      }
+    },
+    "anonymous-ring-latency-fanout": {
+      "exit_code": 0,
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "anonymous": true,
+        "explicit_c_b_join": false,
+        "media_acceptance_tested": false,
+        "passed": true,
+        "offline_ring_deadline_ms": 10000,
+        "both_online_ring_ms": 42,
+        "both_online_cancellation": true,
+        "a_offline_b_ring_ms": 3688,
+        "a_offline_b_cancellation": true
+      },
+      "cleanup": {
+        "owned_groups_checked": 5,
+        "owned_pids_checked": 9,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      }
+    },
+    "anonymous-fanout-media": {
+      "exit_code": 0,
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "anonymous": true,
+        "explicit_c_b_join": false,
+        "live_speech_quality_tested": false,
+        "passed": true,
+        "stage": "primary_offline:continuous-media",
+        "primary_online_ring_ms": 44,
+        "primary_online_answer_media_ms": 9897,
+        "primary_online_media_rx_delta_b": 288,
+        "primary_online_media_rx_delta_c": 280,
+        "primary_online_hangup": true,
+        "primary_offline_ring_ms": 3322,
+        "primary_offline_answer_media_ms": 441,
+        "primary_offline_media_rx_delta_b": 291,
+        "primary_offline_media_rx_delta_c": 288,
+        "primary_offline_hangup": true
+      },
+      "cleanup": {
+        "owned_groups_checked": 5,
+        "owned_pids_checked": 9,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      }
+    },
+    "anonymous-fanout-revocation": {
+      "exit_code": 0,
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "anonymous": true,
+        "explicit_c_b_join": false,
+        "passed": true,
+        "a_offline_b_receives": true,
+        "first_delivery_ms": 430,
+        "both_online_receive_once": true,
+        "both_online_delivery_ms": 833,
+        "cold_reopen_preserves_messages": true,
+        "stale_c_reconnect_delivers_only_to_active_device": true,
+        "revoked_device_observation_ms": 20153,
+        "logical_duplicates": 0
+      },
+      "cleanup": {
+        "owned_groups_checked": 9,
+        "owned_pids_checked": 13,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      }
+    },
+    "anonymous-ring-latency-final": {
+      "exit_code": 0,
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "anonymous": true,
+        "explicit_c_b_join": false,
+        "media_acceptance_tested": false,
+        "passed": true,
+        "offline_ring_deadline_ms": 10000,
+        "online_ring_deadline_ms": 10000,
+        "both_online_ring_ms": 49,
+        "both_online_cancellation": true,
+        "a_offline_b_ring_ms": 429,
+        "a_offline_b_cancellation": true
+      },
+      "cleanup": {
+        "owned_groups_checked": 5,
+        "owned_pids_checked": 9,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      }
+    }
+  },
+  "limits": {
+    "full_multi_device_matrix_complete": false,
+    "physical_devices_used": false,
+    "live_speech_quality_tested": false,
+    "first_media_start_latency_resolved": false,
+    "legacy_profile_matrix_qualified": false,
+    "long_offline_qualified": false,
+    "large_files_qualified": false,
+    "servers_changed": false,
+    "instant_unknown_revocation_guaranteed": false
+  }
+}
