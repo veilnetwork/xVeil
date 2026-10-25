@@ -1,0 +1,61 @@
+{
+  "date": "2026-10-26",
+  "status": "all_nine_services_updated_and_verified",
+  "previous_version": "0.11.44",
+  "installed_and_running_version": "0.11.45",
+  "release_url": "https://github.com/veilnetwork/veil/releases/tag/v0.11.45",
+  "source_commit": "d2854085f36042fbf79395e5f1e8526f33eb11e9",
+  "production_artifact": {
+    "installer_signature_valid": true,
+    "checksum_matches_signed_manifest": true,
+    "all_28_release_binary_digests_verified": true,
+    "signed_manifests_verified": 7
+  },
+  "release_ci": {
+    "core": "success",
+    "release": "success",
+    "mobile_full_matrix": "success"
+  },
+  "testnet_build": {
+    "source_export_matches_release_tag": true,
+    "locked_build_passed": true,
+    "target": "x86_64-unknown-linux-musl",
+    "features": "rocksdb-cold,tls-boring,testnet-seeds,veil-node-runtime/testnet-seeds"
+  },
+  "services": [
+    {
+      "network": "production",
+      "service_count": 6,
+      "healthy_services": 6,
+      "configurations_unchanged": true,
+      "running_binary_hashes_verified": true,
+      "state_and_binary_backups_created": true,
+      "same_process_since_planned_restart": true,
+      "unexpected_restarts": 0,
+      "listeners_verified": [
+        "quic/8443",
+        "obfs4/5556"
+      ]
+    },
+    {
+      "network": "testnet",
+      "service_count": 3,
+      "healthy_services": 3,
+      "configurations_unchanged": true,
+      "running_binary_hashes_verified": true,
+      "state_and_binary_backups_created": true,
+      "same_process_since_planned_restart": true,
+      "unexpected_restarts": 0,
+      "listeners_verified": [
+        "obfs4/5557"
+      ]
+    }
+  ],
+  "dht_list": {
+    "verified_services": 9,
+    "successful_exits": 9,
+    "broken_pipe_reproduced": false
+  },
+  "sensitive_data_exported": false,
+  "scope": "Server installation and administrative readiness. This does not certify end-to-end call or file-transfer quality."
+}
