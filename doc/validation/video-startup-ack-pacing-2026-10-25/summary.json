@@ -1,0 +1,287 @@
+{
+  "privacy": "Numeric allowlist only; no endpoint identifiers, addresses, keys, payload, capture labels or native absolute timestamps.",
+  "calls": {
+    "baseline1": {
+      "passed": true,
+      "ring_ms": 859,
+      "audio_start_ms": 1782,
+      "video_start_ms": 7164,
+      "tail_decoded_fps": {
+        "mac": 30.05,
+        "phone": 29.27
+      },
+      "tail_audio_rx_delta": {
+        "mac": 27,
+        "phone": 131
+      },
+      "native_traces_collected": true,
+      "first_5s_window_at_least_20fps_after_camera_seconds": {
+        "mac": 15.324,
+        "phone": 14.307
+      },
+      "audio_rtt_correlation": {
+        "mac": {
+          "matched_audio_reports": 24,
+          "callback_transport_roundtrip_ms": {
+            "median": 110.149,
+            "max": 203.651
+          },
+          "unsubtracted_receiver_residence_ms": {
+            "median": 0.456,
+            "max": 2.336
+          },
+          "source_sr_schedule_excess_ms": {
+            "median": 0.004,
+            "max": 0.027
+          },
+          "reconstructed_rtt_ms": {
+            "median": 111.576,
+            "max": 203.864
+          }
+        },
+        "phone": {
+          "matched_audio_reports": 21,
+          "callback_transport_roundtrip_ms": {
+            "median": 105.493,
+            "max": 291.633
+          },
+          "unsubtracted_receiver_residence_ms": {
+            "median": 0.02,
+            "max": 0.052
+          },
+          "source_sr_schedule_excess_ms": {
+            "median": 0.01,
+            "max": 0.095
+          },
+          "reconstructed_rtt_ms": {
+            "median": 105.501,
+            "max": 291.774
+          }
+        }
+      },
+      "registered_audio_interruption_peak": {
+        "mac": 0,
+        "phone": 0
+      },
+      "audio_jitter_buffer_peak_ms_during_video": {
+        "mac": 81,
+        "phone": 128
+      },
+      "rr_correlation_counts": {
+        "mac": {
+          "received_rr_with_lsr": 117,
+          "matched": 117
+        },
+        "phone": {
+          "received_rr_with_lsr": 117,
+          "matched": 117
+        }
+      }
+    },
+    "baseline2": {
+      "passed": true,
+      "ring_ms": 731,
+      "audio_start_ms": 2204,
+      "video_start_ms": 8048,
+      "tail_decoded_fps": {
+        "mac": 29.61,
+        "phone": 30.0
+      },
+      "tail_audio_rx_delta": {
+        "mac": 29,
+        "phone": 130
+      },
+      "native_traces_collected": true,
+      "first_5s_window_at_least_20fps_after_camera_seconds": {
+        "mac": 68.396,
+        "phone": 27.5
+      },
+      "audio_rtt_correlation": {
+        "mac": {
+          "matched_audio_reports": 21,
+          "callback_transport_roundtrip_ms": {
+            "median": 199.625,
+            "max": 508.356
+          },
+          "unsubtracted_receiver_residence_ms": {
+            "median": 0.393,
+            "max": 0.743
+          },
+          "source_sr_schedule_excess_ms": {
+            "median": 0.009,
+            "max": 0.02
+          },
+          "reconstructed_rtt_ms": {
+            "median": 200.134,
+            "max": 508.837
+          }
+        },
+        "phone": {
+          "matched_audio_reports": 22,
+          "callback_transport_roundtrip_ms": {
+            "median": 217.949,
+            "max": 512.61
+          },
+          "unsubtracted_receiver_residence_ms": {
+            "median": 0.027,
+            "max": 0.053
+          },
+          "source_sr_schedule_excess_ms": {
+            "median": 0.011,
+            "max": 0.052
+          },
+          "reconstructed_rtt_ms": {
+            "median": 217.995,
+            "max": 512.63
+          }
+        }
+      },
+      "registered_audio_interruption_peak": {
+        "mac": 0,
+        "phone": 0
+      },
+      "audio_jitter_buffer_peak_ms_during_video": {
+        "mac": 81,
+        "phone": 143
+      },
+      "rr_correlation_counts": {
+        "mac": {
+          "received_rr_with_lsr": 127,
+          "matched": 127
+        },
+        "phone": {
+          "received_rr_with_lsr": 126,
+          "matched": 126
+        }
+      }
+    },
+    "candidate": {
+      "passed": true,
+      "ring_ms": 812,
+      "audio_start_ms": 1937,
+      "video_start_ms": 7222,
+      "tail_decoded_fps": {
+        "mac": 29.89,
+        "phone": 29.11
+      },
+      "tail_audio_rx_delta": {
+        "mac": 27,
+        "phone": 129
+      },
+      "native_traces_collected": true,
+      "first_5s_window_at_least_20fps_after_camera_seconds": {
+        "mac": 14.414,
+        "phone": 13.385
+      },
+      "audio_rtt_correlation": {
+        "mac": {
+          "matched_audio_reports": 24,
+          "callback_transport_roundtrip_ms": {
+            "median": 110.696,
+            "max": 213.136
+          },
+          "unsubtracted_receiver_residence_ms": {
+            "median": 0.32,
+            "max": 2.574
+          },
+          "source_sr_schedule_excess_ms": {
+            "median": 0.009,
+            "max": 0.016
+          },
+          "reconstructed_rtt_ms": {
+            "median": 111.938,
+            "max": 213.459
+          }
+        },
+        "phone": {
+          "matched_audio_reports": 17,
+          "callback_transport_roundtrip_ms": {
+            "median": 110.683,
+            "max": 235.024
+          },
+          "unsubtracted_receiver_residence_ms": {
+            "median": 0.026,
+            "max": 0.055
+          },
+          "source_sr_schedule_excess_ms": {
+            "median": 0.01,
+            "max": 0.028
+          },
+          "reconstructed_rtt_ms": {
+            "median": 110.718,
+            "max": 235.068
+          }
+        }
+      },
+      "registered_audio_interruption_peak": {
+        "mac": 0,
+        "phone": 0
+      },
+      "audio_jitter_buffer_peak_ms_during_video": {
+        "mac": 81,
+        "phone": 122
+      },
+      "rr_correlation_counts": {
+        "mac": {
+          "received_rr_with_lsr": 117,
+          "matched": 117
+        },
+        "phone": {
+          "received_rr_with_lsr": 114,
+          "matched": 114
+        }
+      }
+    }
+  },
+  "build": {
+    "root_head": "892ecabc1def465006d7d89b09099aa12d5d7946",
+    "sdk_head": "9bf194c3fe74dcc59ba0369e1b9f57249d971e47",
+    "apk_sha256": "c0d32f0ce11bd7e83525bcb98a48d7a1b247d58f4e28abecf3012f9e7ed310b9",
+    "android_libraries_sha256": {
+      "lib/arm64-v8a/libVkLayer_khronos_validation.so": "ae445f7e74d402e3a367adb230b1edd9841899fcb3310166e5cc96a09ad37a3f",
+      "lib/arm64-v8a/libbarhopper_v3.so": "ec09597e9eb3aee0eb55ae3366da0d4ba416f5aa35a1af0b3811f50ff46743a1",
+      "lib/arm64-v8a/libdartjni.so": "1608612d6080b623820bbc69ec880d8eaeb5c3292e0075a9d03670bd98bce5ef",
+      "lib/arm64-v8a/libdatastore_shared_counter.so": "d3e48717c9aa147e0ab21063ba0e8e0211cabf8bf40b222640829519edbf58e1",
+      "lib/arm64-v8a/libflutter.so": "5e5a911af31499698997fbd21422b5b7ad35fda89f849ba2cbb4719b4d4e7c95",
+      "lib/arm64-v8a/libhidden_volume_ffi.so": "6229bae4ded5db35636ef724b8fca2ca3f7fdb3b71a722c48d69291fbbb7d891",
+      "lib/arm64-v8a/libimage_processing_util_jni.so": "0292b063fafccf734472cbb59588e756c2dbca907c72021ba6fbf126385508a2",
+      "lib/arm64-v8a/libjnidispatch.so": "fe9c603f2a7a5d19197b87f275d6e0afb975f997a57ff4f8ca801cb8c5e7b731",
+      "lib/arm64-v8a/libomp.so": "d5271fa122f3a42779782f8bb20f2cae7390b63f49eb3f6be8e6b9bd654cf741",
+      "lib/arm64-v8a/libredb-3424b30e232f38d7.so": "67f58e5a17a17417a0aac8db29a02d34cda4f72f410de763a5af3eb99423312a",
+      "lib/arm64-v8a/libsurface_util_jni.so": "a5c9d1928ea92ec7a94dff8cf666e7739cd734198b9f0ae1d4e28ea3c86516ba",
+      "lib/arm64-v8a/libveil_media_camera_stub.so": "a4eef7190a2078519bd84bf0274b21601aab2d70eb1b9fd88ee0b9cd7615b2ca",
+      "lib/arm64-v8a/libveil_translate.so": "3b7d6091e3035bfdc7bb93f0b22c779574da6b61b546692d0d810e9c17b9cbc3",
+      "lib/arm64-v8a/libveil_whisper.so": "52c1860e68ea6828dc06ce7917b00d0a4b86338fe214356ea2a039ed10d880dc",
+      "lib/arm64-v8a/libveilclient_ffi.so": "be8c5a4d09d5c3b5c9d6d91a27e6879abc4d4c1a63fe78e7fa8777cd779f1514",
+      "lib/arm64-v8a/libveil_media.so": "af66552b3ef0a5aee4313c89024076f5a62805c9dd46d18d23c89b830b1e36a2"
+    },
+    "mac_libraries_sha256": {
+      "libveilclient_ffi.dylib": "82cd3890bdbf586bb1522f88f0522b0633fe772a32d47c269c2436f39c9c7bcc",
+      "libveil_media.dylib": "d5b6842cd477f47761d21bc0ecd270d9fe8c2352a77eeff32b5c7d0e7287ceb5",
+      "libhidden_volume_ffi.dylib": "3b2eacc819b307125cafe01665ebbaec5ee6ed9d3b3d5d96bc5d5b26a50f79e7"
+    },
+    "native_test_hooks": false,
+    "production_seeds": true,
+    "test_low_difficulty": false,
+    "root_source_sha256": {
+      "lib/state/call_video_delivery_model.dart": "0503234e6c1dcd8d6d59184b9bb899aab349c0e12d9290a5e261f7dbb9703d33"
+    },
+    "state": "Baseline commit IDs plus this cycle\u2019s uncommitted source patch at build time",
+    "trace_header_sha256": "3bcd36135673e2558bc573d8d8d49d326b41a1d7d44fb0c8649a58872e7b95b7"
+  },
+  "checks": {
+    "flutter_tests_passed": 304,
+    "analyzer": "no issues",
+    "native_trace_smoke": "passed",
+    "negative_control_semantic_failures": 3,
+    "no_live_speech_or_loudness_qualification": true,
+    "changed_cautious_branch_exercised_in_candidate_physical_run": false
+  },
+  "cleanup": {
+    "all_three_physical_runs_closed": true,
+    "owned_mac_process_groups_remaining": 0,
+    "qa_phone_processes_remaining": 0,
+    "permissions_exactly_restored": true,
+    "main_app_modified": false
+  }
+}

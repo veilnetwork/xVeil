@@ -223,11 +223,13 @@ class CallVideoDeliveryModel {
       return null;
     }
     final startup = phase == CallVideoDeliveryPhase.startup;
-    if ((!startup || probeOnly) &&
-        _nextProbe != null &&
-        now.isBefore(_nextProbe!)) {
+    if (!startup && _nextProbe != null && now.isBefore(_nextProbe!)) {
       return null;
     }
+    // A new causal decoder ACK already closes the previous startup probe.
+    // The 950-ms native-ACK pacing above bounds the next step even under an
+    // RTT warning. A separate three-second cruise timer can miss a short
+    // healthy window and leave a proven sparse source stalled for seconds.
     // A healthy decoder/audio path can cautiously test headroom while RTT
     // lies between recovery and failure rails. Its sparse cadence must obey
     // the same 25% bound as bytes; adding one whole FPS would double 1 FPS.
@@ -272,8 +274,8 @@ class CallVideoDeliveryModel {
       if (phase != CallVideoDeliveryPhase.startup) {
         phase = CallVideoDeliveryPhase.probe;
       }
-      // Fast healthy startup ignores this interval. Cautious RTT probes and
-      // ordinary cruise probes both wait after an acknowledged budget change.
+      // Startup uses causal decoder ACKs and the native pacing floor. Cruise
+      // retains a longer interval after each acknowledged budget change.
       _nextProbe = now.add(const Duration(seconds: 3));
     }
   }
