@@ -56,6 +56,7 @@ void main() {
     int ts, {
     String? author,
     bool file = false,
+    MessageStatus status = MessageStatus.delivered,
   }) async {
     await storage.appendMessage(
       Message(
@@ -65,7 +66,7 @@ void main() {
         body: id,
         timestamp: DateTime.fromMillisecondsSinceEpoch(ts),
         author: author ?? identity.hex,
-        status: MessageStatus.delivered,
+        status: status,
         fileId: file ? 'local-blob' : null,
         fileContentId: file ? 'offered-blob' : null,
         fileName: file ? 'sample.bin' : null,
@@ -135,9 +136,18 @@ void main() {
   test(
     'repair preserves current edit, delivery state, file and annotations',
     () async {
-      await echo('file', 1000, file: true);
+      // Start without a delivery ACK: authenticated delivery is monotonic and
+      // cannot be downgraded merely to manufacture this failed-state fixture.
+      await echo('file', 1000, file: true, status: MessageStatus.sending);
       await storage.editMessage(peer.hex, 'file', 'latest edit', seq: 44);
-      await storage.markMessageStatus(peer.hex, 'file', MessageStatus.failed);
+      expect(
+        await storage.markMessageStatus(peer.hex, 'file', MessageStatus.failed),
+        isTrue,
+      );
+      expect(
+        (await storage.loadMessageById(peer.hex, 'file'))!.status,
+        MessageStatus.failed,
+      );
       await storage.setReadMarker(peer.hex, 9876);
       expect(await original('file', 7, 1000), isTrue);
       await storage.editMessage(peer.hex, 'file', 'later edit', seq: 45);

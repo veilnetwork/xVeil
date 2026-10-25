@@ -12,7 +12,7 @@ bumps may change behaviour a user notices.
 
 - Profile avatars, public nickname headers with the node ID beneath, and
   optional device-local pattern or biometric quick unlock, including container
-  opening after restart. Keep password recovery available.
+  opening after restart. Keep password-based unlock available.
 - Node deployment documentation and clearer recovery-certificate file export
   through the platform's system document picker.
 

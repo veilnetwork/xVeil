@@ -29,21 +29,27 @@ void main() {
 
   testWidgets('shows the identity of the ready session', (tester) async {
     late ProviderContainer container;
-    await tester.pumpWidget(ProviderScope(
-      overrides: [nodeControllerProvider.overrideWithValue(_NoopNode())],
-      child: Consumer(builder: (ctx, ref, _) {
-        container = ProviderScope.containerOf(ctx);
-        return const MaterialApp(
-          localizationsDelegates: AppL10n.localizationsDelegates,
-          supportedLocales: AppL10n.supportedLocales,
-          home: SettingsScreen(),
-        );
-      }),
-    ));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [nodeControllerProvider.overrideWithValue(_NoopNode())],
+        child: Consumer(
+          builder: (ctx, ref, _) {
+            container = ProviderScope.containerOf(ctx);
+            return const MaterialApp(
+              localizationsDelegates: AppL10n.localizationsDelegates,
+              supportedLocales: AppL10n.supportedLocales,
+              home: SettingsScreen(),
+            );
+          },
+        ),
+      ),
+    );
     await tester.pumpAndSettle();
 
     // Enter a ready session with a known identity.
-    await container.read(appControllerProvider.notifier).completeOnboarding(
+    await container
+        .read(appControllerProvider.notifier)
+        .completeOnboarding(
           displayName: 'Nat',
           password: 'pw',
           mode: StorageMode.hiddenSpace,
@@ -55,7 +61,8 @@ void main() {
     // The node id on screen is the transport's, not one onboarding invented
     // (audit XV-06).
     final nodeId = await container.read(veilTransportProvider).nodeId();
-    expect(find.text(nodeId.short), findsWidgets);
+    // The profile card now exposes the complete ID beneath the readable name.
+    expect(find.text(nodeId.hex), findsOneWidget);
 
     // "Lock now" moved to the navigation drawer (see folder_panel_test) — the
     // settings screen must NOT offer it anymore.
