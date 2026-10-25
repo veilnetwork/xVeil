@@ -1,0 +1,123 @@
+@Timeout(Duration(minutes: 9))
+library;
+
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+
+import 'device_process_fixture.dart';
+import 'e2e_env.dart';
+import 'multi_device_process_e2e_test.dart' as base;
+
+void main() {
+  final gate = E2eGate.read();
+  test(
+    'anonymous sibling answers with bidirectional media while primary is online or offline',
+    () async {
+      final fleet = await ProcessFleet.start(gate);
+      addTearDown(fleet.dispose);
+      final a = fleet.a, b = fleet.b, c = fleet.c;
+      final evidence = Platform.environment['XVEIL_PEER_ECHO_EVIDENCE'];
+      final result = <String, Object?>{
+        'devices': 3,
+        'same_identity_devices': 2,
+        'anonymous': true,
+        'explicit_c_b_join': false,
+        'live_speech_quality_tested': false,
+        'passed': false,
+      };
+      if (evidence != null) {
+        await File('$evidence/fleet-private.json').writeAsString(
+          jsonEncode({'root': fleet.root.path, 'runnerPid': pid}),
+        );
+      }
+      Future<Map<String, dynamic>?> call(ProcessDevice device) async =>
+          (await device.checked('/call_state'))['call']
+              as Map<String, dynamic>?;
+      bool live(Map<String, dynamic>? state) =>
+          state != null && state['status'] != 'ended';
+      int rx(Map<String, dynamic>? state) =>
+          ((state?['mediaStats'] as Map?)?['rx_pkts'] as num?)?.toInt() ?? 0;
+      Future<String> describe() async => jsonEncode({
+        for (final d in [b, c])
+          d.label: {
+            'status': (await call(d))?['status'],
+            'transport': (await call(d))?['transport'],
+            'rx': rx(await call(d)),
+          },
+      });
+      try {
+        await base.introduceProcesses(a, c);
+        final ai = (await base.deviceInfo(a))['identity'] as String;
+        await base.linkProcesses(a, b);
+        for (final primaryOnline in [true, false]) {
+          if (!primaryOnline) await a.stop();
+          final phase = primaryOnline ? 'primary_online' : 'primary_offline';
+          result['stage'] = '$phase:ringing';
+          final watch = Stopwatch()..start();
+          await c.checked('/call_place', query: {'peer': ai});
+          await waitUntil(
+            () async =>
+                (await call(b))?['status'] == 'ringing' &&
+                (!primaryOnline || (await call(a))?['status'] == 'ringing'),
+            what: '$phase: C rings every online device of X',
+            describe: describe,
+            timeout: const Duration(seconds: 60),
+          );
+          result['${phase}_ring_ms'] = watch.elapsedMilliseconds;
+          result['stage'] = '$phase:answer';
+          watch.reset();
+          await b.checked('/call_accept');
+          await waitUntil(
+            () async {
+              final bc = await call(b), cc = await call(c);
+              return live(bc) &&
+                  live(cc) &&
+                  bc?['transport'] == 'onion' &&
+                  cc?['transport'] == 'onion' &&
+                  rx(bc) >= 5 &&
+                  rx(cc) >= 5 &&
+                  (!primaryOnline || !live(await call(a)));
+            },
+            what:
+                '$phase: B alone answers and exchanges real onion media with C',
+            describe: describe,
+            timeout: const Duration(seconds: 40),
+          );
+          result['${phase}_answer_media_ms'] = watch.elapsedMilliseconds;
+          final beforeB = rx(await call(b)), beforeC = rx(await call(c));
+          result['stage'] = '$phase:continuous-media';
+          await Future<void>.delayed(const Duration(seconds: 5));
+          final afterB = await call(b), afterC = await call(c);
+          expect(live(afterB) && live(afterC), isTrue);
+          expect(rx(afterB), greaterThan(beforeB));
+          expect(rx(afterC), greaterThan(beforeC));
+          result['${phase}_media_rx_delta_b'] = rx(afterB) - beforeB;
+          result['${phase}_media_rx_delta_c'] = rx(afterC) - beforeC;
+          await b.checked('/call_hangup');
+          await waitUntil(
+            () async => !live(await call(b)) && !live(await call(c)),
+            what: '$phase: B hangup reaches C',
+            describe: describe,
+            timeout: const Duration(seconds: 25),
+          );
+          result['${phase}_hangup'] = true;
+        }
+        result['passed'] = true;
+      } finally {
+        if (evidence != null) {
+          await File('$evidence/calls-private.json').writeAsString(
+            jsonEncode({
+              for (final d in [b, c]) d.label: await call(d),
+            }),
+          );
+          await File('$evidence/result.json').writeAsString(jsonEncode(result));
+        }
+      }
+    },
+    skip: gate.enabled && Platform.environment['XVEIL_E2E_ANONYMOUS'] != '1'
+        ? 'requires XVEIL_E2E_ANONYMOUS=1'
+        : gate.mediaSkip,
+  );
+}
