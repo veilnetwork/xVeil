@@ -6,10 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
-## [0.13.90] — 2026-10-26
+## [0.13.91] — 2026-10-26
 
-Includes the changes prepared for 0.13.89, whose Windows release build failed
-before publication.
+Includes the work prepared for 0.13.89–0.13.90; those tags did not produce a
+published release.
 
 ### Added
 
@@ -26,6 +26,8 @@ before publication.
   authentication and keep the adjustment local to its plugin target.
 - Preserve MSVC switches when Git Bash invokes the Windows Whisper linker and
   export checker, so `/nologo` and `/exports` are not rewritten as file paths.
+- Install and document the Linux secure-storage plugin's `libsecret` runtime
+  dependency, including the Alpine/musl startup verification and launcher.
 - Carry the Tokio 1.53.3 security update in both native Rust dependencies and
   the k256/crypto-bigint/ctutils constant-time fixes in Veil.
 - Recover offline linked-device history beyond compacted journal entries;
