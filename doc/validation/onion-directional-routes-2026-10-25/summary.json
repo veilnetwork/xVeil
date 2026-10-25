@@ -1,0 +1,207 @@
+{
+  "date": "2026-10-25",
+  "root_base_commit": "0f346ab99cf35bad453557ae2593587c8148c199",
+  "sdk_commit": "bfc39c3d501a45e473fdf09a0ac5aea81eecc30e",
+  "findings": {
+    "outgoing_confirmation_blocks_receive_publication": "fixed",
+    "total_receive_counter_used_as_audio_gate_in_other_call_fixtures": "fixed_test_gates",
+    "variable_cold_audio_start": "open",
+    "simultaneous_answers_one_way_audio": "reproduced_open",
+    "fallback_ignores_current_call_receive_address": "candidate_not_yet_network_qualified",
+    "fallback_circuit_retention_after_call_close": "candidate_not_yet_network_qualified"
+  },
+  "tests": {
+    "ffi": {
+      "passed": 370,
+      "failed": 0,
+      "ignored": 11
+    },
+    "strict_clippy_passed": true,
+    "dart_analyzer_issues": 0,
+    "network_regression": {
+      "old_code_failed": true,
+      "broken_link_exercised": true,
+      "receive_publication_budget_ms": 5000,
+      "new_code_passed": true,
+      "new_full_fixture_seconds": 1.56
+    }
+  },
+  "runs": {
+    "startup-directional-qualification": {
+      "exit": {
+        "exit_code": 0
+      },
+      "cleanup": {
+        "owned_groups_checked": 5,
+        "owned_pids_checked": 9,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      },
+      "relay_diagnostics": {
+        "relay-mid1": {
+          "per_link_full": 8,
+          "peer_unreachable": 0
+        },
+        "relay-mid2": {
+          "per_link_full": 0,
+          "peer_unreachable": 0
+        },
+        "relay-mailbox": {
+          "per_link_full": 0,
+          "peer_unreachable": 0
+        }
+      },
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "anonymous": true,
+        "explicit_c_b_join": false,
+        "live_speech_quality_tested": false,
+        "receive_counter": "audio_rx_pkts",
+        "passed": true,
+        "stage": "primary_offline:continuous-media",
+        "primary_online_ring_ms": 43,
+        "primary_online_first_five_rx_c_ms": 3744,
+        "primary_online_answer_observed_ms": 3744,
+        "primary_online_first_five_rx_b_ms": 4154,
+        "primary_online_answer_media_ms": 4156,
+        "primary_online_media_after_answer_ms": 412,
+        "primary_online_media_rx_delta_b": 250,
+        "primary_online_media_rx_delta_c": 251,
+        "primary_online_hangup": true,
+        "primary_offline_ring_ms": 34,
+        "primary_offline_answer_observed_ms": 37,
+        "primary_offline_first_five_rx_b_ms": 449,
+        "primary_offline_first_five_rx_c_ms": 449,
+        "primary_offline_answer_media_ms": 449,
+        "primary_offline_media_after_answer_ms": 412,
+        "primary_offline_media_rx_delta_b": 253,
+        "primary_offline_media_rx_delta_c": 253,
+        "primary_offline_hangup": true
+      },
+      "root_source_manifest_sha256": "5296d2e25b8379e64ba9de8762246662f5f524a7d478f6b28b827479eed7ea02",
+      "root_source_file_count": 555
+    },
+    "startup-directional-confirmation": {
+      "exit": {
+        "exit_code": 0
+      },
+      "cleanup": {
+        "owned_groups_checked": 5,
+        "owned_pids_checked": 9,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      },
+      "relay_diagnostics": {
+        "relay-mid1": {
+          "per_link_full": 26,
+          "peer_unreachable": 0
+        },
+        "relay-mid2": {
+          "per_link_full": 4,
+          "peer_unreachable": 0
+        },
+        "relay-mailbox": {
+          "per_link_full": 0,
+          "peer_unreachable": 0
+        }
+      },
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "anonymous": true,
+        "explicit_c_b_join": false,
+        "live_speech_quality_tested": false,
+        "receive_counter": "audio_rx_pkts",
+        "passed": true,
+        "stage": "primary_offline:continuous-media",
+        "primary_online_ring_ms": 51,
+        "primary_online_answer_observed_ms": 3751,
+        "primary_online_first_five_rx_b_ms": 13967,
+        "primary_online_first_five_rx_c_ms": 19247,
+        "primary_online_answer_media_ms": 19249,
+        "primary_online_media_after_answer_ms": 15498,
+        "primary_online_media_rx_delta_b": 251,
+        "primary_online_media_rx_delta_c": 250,
+        "primary_online_hangup": true,
+        "primary_offline_ring_ms": 35,
+        "primary_offline_answer_observed_ms": 38,
+        "primary_offline_first_five_rx_b_ms": 461,
+        "primary_offline_first_five_rx_c_ms": 461,
+        "primary_offline_answer_media_ms": 461,
+        "primary_offline_media_after_answer_ms": 423,
+        "primary_offline_media_rx_delta_b": 253,
+        "primary_offline_media_rx_delta_c": 253,
+        "primary_offline_hangup": true
+      },
+      "root_source_manifest_sha256": "a8988cc480756a71f253fb2065257bb3452f5ced96b6fb69ff4a98b1e2408a1b",
+      "root_source_file_count": 555
+    },
+    "simultaneous-audio-qualification": {
+      "exit": {
+        "exit_code": 1
+      },
+      "cleanup": {
+        "owned_groups_checked": 5,
+        "owned_pids_checked": 8,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      },
+      "relay_diagnostics": {
+        "relay-mid1": {
+          "per_link_full": 32,
+          "peer_unreachable": 0
+        },
+        "relay-mid2": {
+          "per_link_full": 13,
+          "peer_unreachable": 42
+        },
+        "relay-mailbox": {
+          "per_link_full": 0,
+          "peer_unreachable": 0
+        }
+      },
+      "result": {
+        "passed": false,
+        "gate": "single_winner_and_bidirectional_audio_RTP_within_40_seconds",
+        "failure": "bidirectional_audio_timeout",
+        "last_periodic_snapshot": {
+          "winner": "A",
+          "audio_rx_a": 0,
+          "audio_rx_c": 1016,
+          "b_active": false
+        },
+        "continuous_audio_gate_reached": false,
+        "structured_failure_capture_added_after_this_run": true
+      },
+      "root_source_manifest_sha256": "89d91bec249147296bd63af97862a02de7772b06f4de54c4524a89647b1cb18b",
+      "root_source_file_count": 554
+    }
+  },
+  "native_build": {
+    "software_sha256": {
+      "veil-cli": "3958f0fb9711c6e2a93de47b71e11a90461809e0e1b76b50c96af401561e7bee",
+      "libveilclient_ffi.dylib": "553de2845e968fd43d00f1d5298f3a7401f874a3f2e6bde230423198419a71bb"
+    },
+    "features": [
+      "allow-empty-seeds",
+      "test-low-difficulty",
+      "node-embedded",
+      "packet-tunnel"
+    ],
+    "external_mount_lost": false,
+    "sdk_source_manifest_sha256": "f9dcffd8f16977e4790f8a7c64e584b3e06423b0ae04e4200fbd7c76421aed0e",
+    "sdk_source_file_count": 886,
+    "media_sha256": "5ed10ef2fb698d603af96e0272ad9d8b8f99ebf0e7eca353c53e228ac9bf982e"
+  },
+  "limitations": [
+    "not_full_63_case_matrix",
+    "no_live_speech_or_loudness_test",
+    "windows_10_not_tested",
+    "android_background_not_tested",
+    "new_sdk_not_installed_on_phone",
+    "cold_audio_start_still_variable",
+    "simultaneous_answer_case_failed",
+    "no_release_readiness_claim"
+  ]
+}

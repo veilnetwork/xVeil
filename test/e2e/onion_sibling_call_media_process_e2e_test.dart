@@ -25,6 +25,7 @@ void main() {
         'anonymous': true,
         'explicit_c_b_join': false,
         'live_speech_quality_tested': false,
+        'receive_counter': 'audio_rx_pkts',
         'passed': false,
       };
       if (evidence != null) {
@@ -38,7 +39,8 @@ void main() {
       bool live(Map<String, dynamic>? state) =>
           state != null && state['status'] != 'ended';
       int rx(Map<String, dynamic>? state) =>
-          ((state?['mediaStats'] as Map?)?['rx_pkts'] as num?)?.toInt() ?? 0;
+          ((state?['mediaStats'] as Map?)?['audio_rx_pkts'] as num?)?.toInt() ??
+          0;
       Future<String> describe() async => jsonEncode({
         for (final d in [b, c])
           d.label: {
@@ -81,7 +83,7 @@ void main() {
                   (!primaryOnline || !live(await call(a)));
             },
             what:
-                '$phase: B alone answers and exchanges real onion media with C',
+                '$phase: B alone answers and exchanges onion audio RTP with C',
             describe: describe,
             timeout: const Duration(seconds: 40),
           );
