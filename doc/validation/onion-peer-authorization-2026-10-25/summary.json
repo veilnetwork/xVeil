@@ -1,0 +1,113 @@
+{
+  "schema": 1,
+  "date": "2026-10-25",
+  "sdk_commit": "19838e1a77475c0f83af0d65731cb9614b16d39d",
+  "native_features": [
+    "allow-empty-seeds",
+    "test-low-difficulty",
+    "node-embedded",
+    "packet-tunnel"
+  ],
+  "software_sha256": {
+    "libveilclient_ffi.dylib": "2e3dd658330569c5c75fe23174342ddf14d39ca2c6e1d57ddc0ac54ceb2cb79c",
+    "veil-cli": "c79aa25119aec3bbfab52a14f0b362b8594ef9b0325427f6bae0bbca91bc488f"
+  },
+  "sdk_source_files_verified": 884,
+  "sdk_source_manifest_sha256": "2aeebd3ef451d34ecad54fc9cbc0e47ca9d84414109b309f74d8aba5a0de92df",
+  "runtime_tests": {
+    "passed": 712,
+    "ignored": 11,
+    "failed": 0
+  },
+  "clippy_warnings_denied": "passed",
+  "new_fixture_analyzer": "passed",
+  "behavioral_red_tests": {
+    "passed_controls": 4,
+    "expected_failures": 3
+  },
+  "native_runs": {
+    "native-baseline": {
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "anonymous": true,
+        "explicit_c_b_join": false,
+        "passed": true,
+        "a_offline_b_receives": true,
+        "both_online_receive_once": true,
+        "cold_reopen_preserves_messages": true,
+        "logical_duplicates": 0
+      },
+      "cleanup": {
+        "owned_groups_checked": 7,
+        "owned_pids_checked": 11,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      },
+      "exit_code": 0
+    },
+    "native-authorization": {
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "anonymous": true,
+        "explicit_c_b_join": false,
+        "passed": true,
+        "a_offline_b_receives": true,
+        "first_delivery_ms": 8594,
+        "both_online_receive_once": true,
+        "both_online_delivery_ms": 4528,
+        "cold_reopen_preserves_messages": true,
+        "stale_c_reconnect_delivers_only_to_active_device": true,
+        "revoked_device_observation_ms": 20135,
+        "logical_duplicates": 0
+      },
+      "cleanup": {
+        "owned_groups_checked": 9,
+        "owned_pids_checked": 13,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      },
+      "exit_code": 0
+    },
+    "peer-edits-regression": {
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "separate_processes": true,
+        "local_network_only": true,
+        "controlled_container_seed_while_stopped": true,
+        "production_fault_switch_added": false,
+        "anonymous": true,
+        "messages": 100,
+        "recovery_seconds": 33.572,
+        "a_offline_during_peer_recovery": true,
+        "full_hash_window_recovered": true,
+        "reply_ratchets_keep_identity_name": true,
+        "cold_reopen_preserves_reflected_revisions": true,
+        "reflected_values_not_in_authored_replay": true,
+        "b_decrypted_distinct_c_echoes_while_a_online": 100,
+        "b_converged_100_edits_while_a_online": true,
+        "new_online_wave_ids_exclude_late_packets": true,
+        "genuine_same_value_provenance_restored_without_c": true,
+        "logical_duplicates": 0,
+        "passed": true
+      },
+      "cleanup": {
+        "owned_groups_checked": 12,
+        "owned_pids_checked": 16,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      },
+      "exit_code": 0
+    }
+  },
+  "limits": {
+    "unseen_revocation_during_partition_qualified": false,
+    "revoked_outbound_operations_qualified": false,
+    "physical_devices_used": false,
+    "full_multi_device_matrix_complete": false,
+    "servers_changed": false,
+    "baseline_delivery_timer_available": false
+  }
+}
