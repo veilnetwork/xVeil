@@ -1,0 +1,79 @@
+{
+  "baseline_sdk_commit": "4622b68435e3d719e4f8d6ddf7971cf7271d3948",
+  "baseline_software_sha256": {
+    "libveilclient_ffi.dylib": "ebfb333f733e57e8ea867dd14170d6294c1fa6dfc097933e05c3b86a90f2b1e0",
+    "veil-cli": "db8430bbec762dd4fbadb6c7c7d6c7ce44301725fc4bcb4316a57f7e72781bfc"
+  },
+  "candidate_sdk_base_commit": "4622b68435e3d719e4f8d6ddf7971cf7271d3948",
+  "candidate_software_sha256": {
+    "libveilclient_ffi.dylib": "fb88369baabc99b0340cc7064fba705bf43ed78c58d27e89adbb3d1d1a4741c9",
+    "veil-cli": "db8430bbec762dd4fbadb6c7c7d6c7ce44301725fc4bcb4316a57f7e72781bfc"
+  },
+  "candidate_patch_sha256": {
+    "crates/veilclient-ffi/src/anon_stream.rs": "d65448e98f3375bed1ad2cf575331b4cc0420cab59886701eb91fd378a6b7365",
+    "crates/veilclient-ffi/src/anon_stream/media_routes.rs": "c3eb5cd6e5a2caeaec3d35d9292a28452188946de733286b9bda4c73c122c9db",
+    "crates/veilclient-ffi/src/anon_stream/call_scope_tests.rs": "e6af0685435016c1d4446a8b0bb94d1fec9be787221ab6a7fb58d9a8ebcb8497"
+  },
+  "test_source_sha256": "9ed3568e743ca6d7b80ca680297a8878ae9565758c590d9741efbfd085d77103",
+  "features": [
+    "allow-empty-seeds",
+    "test-low-difficulty",
+    "node-embedded",
+    "packet-tunnel"
+  ],
+  "production_seeds": false,
+  "native_call_cases_per_run": 2,
+  "full_ffi_passed": 378,
+  "full_ffi_existing_ignored": 11,
+  "strict_clippy_all_targets": true,
+  "flutter_analyzer": "no issues",
+  "physical_phone_qualified": false,
+  "live_speech_qualified": false,
+  "relay_limits_changed": false,
+  "relay_media_classification_added": false,
+  "checks": {
+    "native-build": {
+      "exit_code": 0,
+      "external_mount_lost": false
+    },
+    "relay-capability-tests": {
+      "exit_code": 0,
+      "external_mount_lost": false
+    },
+    "full-ffi-capability": {
+      "exit_code": 0,
+      "external_mount_lost": false
+    },
+    "clippy-capability": {
+      "exit_code": 0,
+      "external_mount_lost": false
+    },
+    "capability-native-build": {
+      "exit_code": 0,
+      "external_mount_lost": false
+    },
+    "startup-sibling": {
+      "exit_code": 0,
+      "external_mount_lost": false
+    },
+    "startup-capability-sibling": {
+      "exit_code": 0,
+      "external_mount_lost": false
+    }
+  },
+  "cleanup": {
+    "baseline": {
+      "owned_groups_checked": 5,
+      "owned_pids_checked": 9,
+      "remaining_processes": 0,
+      "stand_directory_removed": true
+    },
+    "candidate": {
+      "owned_groups_checked": 5,
+      "owned_pids_checked": 9,
+      "remaining_processes": 0,
+      "stand_directory_removed": true
+    }
+  },
+  "candidate_sdk_fix_commit": "325e36e083189c704a2e4f5cd8796551f88cb9ec"
+}

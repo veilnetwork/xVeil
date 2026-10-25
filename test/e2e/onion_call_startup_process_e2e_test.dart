@@ -91,6 +91,9 @@ void main() {
             startupSamples.add({
               'phase': phase,
               'elapsed_ms': elapsed,
+              // Private evidence only: align this answer-relative sample with
+              // SDK/relay event clocks without adding a production test hook.
+              'sample_unix_ms': DateTime.now().millisecondsSinceEpoch,
               for (final entry in {receiverLabel: rc, 'c': cc}.entries)
                 entry.key: {
                   'status': entry.value?['status'],
