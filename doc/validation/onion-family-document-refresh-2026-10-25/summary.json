@@ -1,0 +1,226 @@
+{
+  "schema": 1,
+  "date": "2026-10-25",
+  "sdk_commits": {
+    "document_refresh": "d14d8d3ee9ef54f0ff9ff86c82ffb944c1e68b30",
+    "replica_revocations": "1226992cc47a5d776877847d96d362daaec18166"
+  },
+  "software": {
+    "sha256": {
+      "veil-cli": "908a05dbb275a59725516ce3e0b15ad1b0262aa1489960b6af8e4e4c2a95ecbb",
+      "libveilclient_ffi.dylib": "f14d5134fbe97c026e0272392b44ab675b1f0f65bdd59379abee9f2d434fa1af"
+    },
+    "sdk_source_files": 886,
+    "sdk_source_manifest_sha256": "92b3f5bd0775d1eef54f2c0917ed0c157d5e3300730a546b7e5694af71f8fd76",
+    "features": [
+      "allow-empty-seeds",
+      "test-low-difficulty",
+      "node-embedded",
+      "packet-tunnel"
+    ],
+    "external_mount_lost": false
+  },
+  "tests": {
+    "dispatcher": {
+      "passed": 282,
+      "failed": 0,
+      "ignored": 0
+    },
+    "runtime": {
+      "passed": 719,
+      "failed": 0,
+      "ignored": 11
+    },
+    "embedded_ffi": {
+      "passed": 366,
+      "failed": 0,
+      "ignored": 11
+    },
+    "strict_clippy": "passed",
+    "dart_analyzer_issues": 0
+  },
+  "native_runs": {
+    "parallel-startup-baseline": {
+      "exit_code": 0,
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "anonymous": true,
+        "explicit_c_b_join": false,
+        "live_speech_quality_tested": false,
+        "passed": true,
+        "stage": "primary_offline:continuous-media",
+        "primary_online_ring_ms": 47,
+        "primary_online_answer_observed_ms": 13012,
+        "primary_online_answer_media_ms": 13428,
+        "primary_online_media_after_answer_ms": 416,
+        "primary_online_media_rx_delta_b": 286,
+        "primary_online_media_rx_delta_c": 279,
+        "primary_online_hangup": true,
+        "primary_offline_ring_ms": 2054,
+        "primary_offline_answer_observed_ms": 27,
+        "primary_offline_answer_media_ms": 436,
+        "primary_offline_media_after_answer_ms": 409,
+        "primary_offline_media_rx_delta_b": 291,
+        "primary_offline_media_rx_delta_c": 286,
+        "primary_offline_hangup": true
+      },
+      "cleanup": {
+        "owned_groups_checked": 5,
+        "owned_pids_checked": 9,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      }
+    },
+    "parallel-startup-fixed": {
+      "exit_code": 0,
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "anonymous": true,
+        "explicit_c_b_join": false,
+        "live_speech_quality_tested": false,
+        "passed": true,
+        "stage": "primary_offline:continuous-media",
+        "primary_online_ring_ms": 47,
+        "primary_online_answer_observed_ms": 19551,
+        "primary_online_answer_media_ms": 19556,
+        "primary_online_media_after_answer_ms": 5,
+        "primary_online_media_rx_delta_b": 287,
+        "primary_online_media_rx_delta_c": 280,
+        "primary_online_hangup": true,
+        "primary_offline_ring_ms": 2051,
+        "primary_offline_answer_observed_ms": 31,
+        "primary_offline_answer_media_ms": 443,
+        "primary_offline_media_after_answer_ms": 412,
+        "primary_offline_media_rx_delta_b": 289,
+        "primary_offline_media_rx_delta_c": 286,
+        "primary_offline_hangup": true
+      },
+      "cleanup": {
+        "owned_groups_checked": 5,
+        "owned_pids_checked": 9,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      }
+    },
+    "startup-relay-trace": {
+      "exit_code": 0,
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "anonymous": true,
+        "explicit_c_b_join": false,
+        "live_speech_quality_tested": false,
+        "passed": true,
+        "stage": "primary_offline:continuous-media",
+        "primary_online_ring_ms": 39,
+        "primary_online_answer_observed_ms": 11371,
+        "primary_online_answer_media_ms": 11787,
+        "primary_online_media_after_answer_ms": 416,
+        "primary_online_media_rx_delta_b": 286,
+        "primary_online_media_rx_delta_c": 282,
+        "primary_online_hangup": true,
+        "primary_offline_ring_ms": 2098,
+        "primary_offline_answer_observed_ms": 83,
+        "primary_offline_answer_media_ms": 941,
+        "primary_offline_media_after_answer_ms": 858,
+        "primary_offline_media_rx_delta_b": 285,
+        "primary_offline_media_rx_delta_c": 277,
+        "primary_offline_hangup": true
+      },
+      "cleanup": {
+        "owned_groups_checked": 5,
+        "owned_pids_checked": 9,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      }
+    },
+    "parallel-document-revocation": {
+      "exit_code": 1,
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "anonymous": true,
+        "explicit_c_b_join": false,
+        "passed": false,
+        "a_offline_b_receives": true,
+        "first_delivery_ms": 432,
+        "both_online_receive_once": true,
+        "both_online_delivery_ms": 465,
+        "cold_reopen_preserves_messages": true
+      },
+      "cleanup": {
+        "owned_groups_checked": 9,
+        "owned_pids_checked": 13,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      }
+    },
+    "identity-replica-revocation": {
+      "exit_code": 0,
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "anonymous": true,
+        "explicit_c_b_join": false,
+        "passed": true,
+        "a_offline_b_receives": true,
+        "first_delivery_ms": 459,
+        "both_online_receive_once": true,
+        "both_online_delivery_ms": 455,
+        "cold_reopen_preserves_messages": true,
+        "stale_c_reconnect_delivers_only_to_active_device": true,
+        "revoked_device_observation_ms": 20146,
+        "logical_duplicates": 0
+      },
+      "cleanup": {
+        "owned_groups_checked": 9,
+        "owned_pids_checked": 13,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      }
+    },
+    "identity-replica-call-startup": {
+      "exit_code": 0,
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "anonymous": true,
+        "explicit_c_b_join": false,
+        "live_speech_quality_tested": false,
+        "passed": true,
+        "stage": "primary_offline:continuous-media",
+        "primary_online_ring_ms": 451,
+        "primary_online_answer_observed_ms": 6141,
+        "primary_online_answer_media_ms": 6553,
+        "primary_online_media_after_answer_ms": 412,
+        "primary_online_media_rx_delta_b": 284,
+        "primary_online_media_rx_delta_c": 282,
+        "primary_online_hangup": true,
+        "primary_offline_ring_ms": 2080,
+        "primary_offline_answer_observed_ms": 51,
+        "primary_offline_answer_media_ms": 472,
+        "primary_offline_media_after_answer_ms": 421,
+        "primary_offline_media_rx_delta_b": 289,
+        "primary_offline_media_rx_delta_c": 289,
+        "primary_offline_hangup": true
+      },
+      "cleanup": {
+        "owned_groups_checked": 5,
+        "owned_pids_checked": 9,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      }
+    }
+  },
+  "qualification": {
+    "cold_answer_latency": "open",
+    "live_speech_quality_tested": false,
+    "full_63_case_matrix_completed": false,
+    "android_qa_installed": false,
+    "android_install_error": "INSTALL_FAILED_USER_RESTRICTED",
+    "temporary_production_diagnostics_removed": true,
+    "public_relay_deployment_tested": false
+  }
+}
