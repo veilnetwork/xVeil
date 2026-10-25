@@ -18,6 +18,8 @@ bumps may change behaviour a user notices.
 
 ### Fixed
 
+- Carry the Tokio 1.53.3 security update in both native Rust dependencies and
+  the k256/crypto-bigint/ctutils constant-time fixes in Veil.
 - Recover offline linked-device history beyond compacted journal entries;
   converge concurrent edits, reactions, message ordering and local deletions.
   Persist mutation retries and deletion scrubs across interrupted commits.
