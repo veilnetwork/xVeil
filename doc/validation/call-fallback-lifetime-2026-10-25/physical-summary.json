@@ -1,0 +1,38 @@
+{
+  "passed": true,
+  "network": "wifi",
+  "transport": "relay",
+  "ring_ms": 808,
+  "duplex_audio_start_after_answer_ms": 1701,
+  "both_five_decoded_frames_after_camera_ms": 10434,
+  "tail_decoded_fps": {
+    "desktop": 29.92,
+    "android": 30.31
+  },
+  "live_speech_tested": false,
+  "loudness_tested": false,
+  "new_native_media_changes": false,
+  "anonymous_fallback_exercised_by_physical_call": false,
+  "source_after_native_build_delta": "explanatory comment and cfg(test) fixture synchronization only",
+  "cleanup_verified": true,
+  "first_5s_window_at_least_20_fps_ms": {
+    "desktop": 38204,
+    "android": 39229
+  },
+  "max_audio_jitter_buffer_ms": {
+    "desktop": 121,
+    "android": 131
+  },
+  "audio_interruptions": {
+    "desktop": 0,
+    "android": 0
+  },
+  "rtt_probe_eligible_samples": {
+    "desktop": 24,
+    "android": 2
+  },
+  "first_applied_fractional_rtt_probe_ms": {
+    "desktop": 7805,
+    "android": 12505
+  }
+}
