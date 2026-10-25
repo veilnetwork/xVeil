@@ -1,0 +1,201 @@
+{
+  "date": "2026-10-25",
+  "root_base_commit": "fe42126442e2a85d2381cf7a28a3760564acb1d9",
+  "sdk_commit": "1297b3deb00bb1c21d24b81a80708f36442ebea9",
+  "sdk_changes": [
+    "6b8b26f6",
+    "1297b3de"
+  ],
+  "findings": {
+    "source_control_used_recoverable_data_credits": "fixed",
+    "known_device_lookup_serial_dependency": "fixed",
+    "canceled_dht_pending_query_retention": "fixed",
+    "cold_media_after_answer_delay": "open"
+  },
+  "tests": {
+    "runtime": {
+      "passed": 724,
+      "ignored": 11
+    },
+    "ffi": {
+      "passed": 366,
+      "ignored": 11
+    },
+    "session": {
+      "passed": 670,
+      "ignored": 8
+    },
+    "veilclient": {
+      "passed": 52,
+      "ignored": 0
+    },
+    "dart_call_signal": {
+      "passed": 51
+    },
+    "dart_analyzer_issues": 0,
+    "strict_clippy_passed": true
+  },
+  "native_build": {
+    "software_sha256": {
+      "veil-cli": "0c02983cb27ca3db3e4e1f50691b1ceb69731f365fcbaa185637cfd58932f395",
+      "libveilclient_ffi.dylib": "ae3863714e48ba705c98e67cb51473f8d213273bd31fa4c27acc8a1dc05ab912"
+    },
+    "sdk_source_file_count": 886,
+    "sdk_source_manifest_sha256": "39a898a546e985ae9e9677d4f25e667ec6f2f25c0e0edf47579c496596a882fa",
+    "features": [
+      "allow-empty-seeds",
+      "test-low-difficulty",
+      "node-embedded",
+      "packet-tunnel"
+    ],
+    "external_mount_lost": false,
+    "media_sha256": "5ed10ef2fb698d603af96e0272ad9d8b8f99ebf0e7eca353c53e228ac9bf982e"
+  },
+  "runs": {
+    "prefetch-call-startup": {
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "anonymous": true,
+        "explicit_c_b_join": false,
+        "live_speech_quality_tested": false,
+        "passed": true,
+        "stage": "primary_offline:continuous-media",
+        "primary_online_ring_ms": 44,
+        "primary_online_answer_observed_ms": 19121,
+        "primary_online_answer_media_ms": 19594,
+        "primary_online_media_after_answer_ms": 473,
+        "primary_online_media_rx_delta_b": 285,
+        "primary_online_media_rx_delta_c": 281,
+        "primary_online_hangup": true,
+        "primary_offline_ring_ms": 2075,
+        "primary_offline_answer_observed_ms": 32,
+        "primary_offline_answer_media_ms": 443,
+        "primary_offline_media_after_answer_ms": 411,
+        "primary_offline_media_rx_delta_b": 288,
+        "primary_offline_media_rx_delta_c": 290,
+        "primary_offline_hangup": true
+      },
+      "cleanup": {
+        "owned_groups_checked": 5,
+        "owned_pids_checked": 9,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      },
+      "exit": {
+        "exit_code": 0
+      },
+      "root_source_manifest_sha256": "eb61e3e04b7642e46a387668c7e788b91ab465338f01acc3dd0361b015dfd982",
+      "root_source_file_count": 555
+    },
+    "control-source-call-startup": {
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "anonymous": true,
+        "explicit_c_b_join": false,
+        "live_speech_quality_tested": false,
+        "passed": true,
+        "stage": "primary_offline:continuous-media",
+        "primary_online_ring_ms": 39,
+        "primary_online_answer_observed_ms": 3721,
+        "primary_online_answer_media_ms": 4137,
+        "primary_online_media_after_answer_ms": 416,
+        "primary_online_media_rx_delta_b": 278,
+        "primary_online_media_rx_delta_c": 278,
+        "primary_online_hangup": true,
+        "primary_offline_ring_ms": 56,
+        "primary_offline_answer_observed_ms": 38,
+        "primary_offline_answer_media_ms": 451,
+        "primary_offline_media_after_answer_ms": 413,
+        "primary_offline_media_rx_delta_b": 292,
+        "primary_offline_media_rx_delta_c": 290,
+        "primary_offline_hangup": true
+      },
+      "cleanup": {
+        "owned_groups_checked": 5,
+        "owned_pids_checked": 9,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      },
+      "exit": {
+        "exit_code": 0
+      },
+      "root_source_manifest_sha256": "4180def95105bf6e5a47e3d9f09876a21c95c9812c5eb2faecb5ecc775f9a6d9",
+      "root_source_file_count": 555
+    },
+    "control-source-call-confirmation": {
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "anonymous": true,
+        "explicit_c_b_join": false,
+        "live_speech_quality_tested": false,
+        "passed": true,
+        "stage": "primary_offline:continuous-media",
+        "primary_online_ring_ms": 1259,
+        "primary_online_answer_observed_ms": 3692,
+        "primary_online_answer_media_ms": 13975,
+        "primary_online_media_after_answer_ms": 10283,
+        "primary_online_media_rx_delta_b": 280,
+        "primary_online_media_rx_delta_c": 280,
+        "primary_online_hangup": true,
+        "primary_offline_ring_ms": 69,
+        "primary_offline_answer_observed_ms": 35,
+        "primary_offline_answer_media_ms": 452,
+        "primary_offline_media_after_answer_ms": 417,
+        "primary_offline_media_rx_delta_b": 289,
+        "primary_offline_media_rx_delta_c": 291,
+        "primary_offline_hangup": true
+      },
+      "cleanup": {
+        "owned_groups_checked": 5,
+        "owned_pids_checked": 9,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      },
+      "exit": {
+        "exit_code": 0
+      },
+      "root_source_manifest_sha256": "4180def95105bf6e5a47e3d9f09876a21c95c9812c5eb2faecb5ecc775f9a6d9",
+      "root_source_file_count": 555
+    },
+    "control-source-revocation": {
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "anonymous": true,
+        "explicit_c_b_join": false,
+        "passed": true,
+        "a_offline_b_receives": true,
+        "first_delivery_ms": 446,
+        "both_online_receive_once": true,
+        "both_online_delivery_ms": 463,
+        "cold_reopen_preserves_messages": true,
+        "stale_c_reconnect_delivers_only_to_active_device": true,
+        "revoked_device_observation_ms": 20148,
+        "logical_duplicates": 0
+      },
+      "cleanup": {
+        "owned_groups_checked": 9,
+        "owned_pids_checked": 13,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      },
+      "exit": {
+        "exit_code": 0
+      },
+      "root_source_manifest_sha256": "552cfe1fdf40655d1a53f8950d174399030d0655ff939f52e9152f99c50484c8",
+      "root_source_file_count": 555
+    }
+  },
+  "qualification": {
+    "full_63_case_matrix": false,
+    "live_speech_quality": false,
+    "windows_10": false,
+    "android_background": false,
+    "cold_media_start_stable": false,
+    "previous_qa_android_install_succeeded": true,
+    "previous_qa_install_qualifies_new_changes": false
+  }
+}
