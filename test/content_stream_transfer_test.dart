@@ -411,6 +411,19 @@ class _StreamLink
   final sentPayloads = <Uint8List>[];
   final sentTo = <String>[];
   Future<void> Function(Uint8List payload)? beforeSend;
+  bool holdReoffers = false;
+  bool dropAckFrames = false;
+  final heldReoffers = <({InboundMessage message, _StreamLink receiver})>[];
+
+  void releaseReoffers() {
+    final held = heldReoffers.toList();
+    heldReoffers.clear();
+    holdReoffers = false;
+    for (final item in held) {
+      item.receiver._in.add(item.message);
+    }
+  }
+
   final _accepts =
       <({ReliableStream stream, NodeId src, SenderProvenance provenance})>[];
   final _p2pAccepts =
@@ -464,14 +477,23 @@ class _StreamLink
     sentTo.add(dst.hex);
     final gate = beforeSend;
     if (gate != null) await gate(payload);
-    (routes[dst.hex] ?? peer)?._in.add(
-      InboundMessage(
-        src: _me,
-        payload: payload,
-        provenance: SenderProvenance.sessionPeer,
-        srcDevice: srcDevice,
-      ),
+    final receiver = routes[dst.hex] ?? peer;
+    final message = InboundMessage(
+      src: _me,
+      payload: payload,
+      provenance: SenderProvenance.sessionPeer,
+      srcDevice: srcDevice,
     );
+    if (receiver == null) return;
+    if (dropAckFrames && WireEnvelope.decode(payload).kind == WireKind.ack) {
+      return;
+    }
+    if (holdReoffers &&
+        WireEnvelope.decode(payload).kind == WireKind.contentReoffer) {
+      heldReoffers.add((message: message, receiver: receiver));
+      return;
+    }
+    receiver._in.add(message);
   }
 
   @override
@@ -1453,6 +1475,184 @@ void main() {
       );
     },
   );
+
+  test(
+    'a claimed reoffer cannot receive a proof receipt or consume its id',
+    () async {
+      final data = _rnd(90000, 2806);
+      final cid = await advertiseFromA(data, name: 'claimed-reoffer.bin');
+      final envelope = contentReofferEnvelope(
+        cid,
+      ).withFrameId('reoffer:proof-gate');
+      final device = _id(0x72);
+      tA.sentPayloads.clear();
+      tA._in.add(
+        InboundMessage(
+          src: b,
+          srcDevice: device,
+          payload: envelope.encode(),
+          provenance: SenderProvenance.claimed,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      bool acknowledged() => tA.sentPayloads.any((bytes) {
+        final e = WireEnvelope.decode(bytes);
+        return e.kind == WireKind.ack && e.id == envelope.frameId;
+      });
+      expect(acknowledged(), isFalse);
+      expect(mA.identityOfDevice(device), isNull);
+      tA._in.add(
+        InboundMessage(
+          src: b,
+          srcDevice: device,
+          payload: envelope.encode(),
+          provenance: SenderProvenance.sessionPeer,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(acknowledged(), isTrue);
+      expect(mA.identityOfDevice(device), b);
+    },
+  );
+
+  for (final mode in [
+    'resume',
+    'cancel',
+    'dispose',
+    'lost-ack',
+    'cancel-enqueue',
+  ]) {
+    test(
+      'retry waits for its source to receive the authenticated reoffer ($mode)',
+      () async {
+        await mB.dispose();
+        mB = MessagingService(
+          tB,
+          sB,
+          contentPacing: Duration.zero,
+          plainFileStream: true,
+          streamPullMaxAttempts: 2,
+          streamRequestTimeout: Duration(seconds: mode == 'lost-ack' ? 1 : 3),
+        )..start();
+        final requesterDevice = _id(0x6d), sourceDevice = _id(0x6e);
+        tB.srcDevice = requesterDevice;
+        tB.anonStreamSrc = requesterDevice;
+        tA.srcDevice = sourceDevice;
+        tB.routes[sourceDevice.hex] = tA;
+        final data = _rnd(600000, 2805);
+        final cid = await advertiseFromA(data, name: 'queued-reoffer.bin');
+        final manifest = ContentManifest.fromBytes('queued-reoffer.bin', data);
+        await sA.storeFile(cid, data, name: manifest.name);
+        await sA.storeFile(
+          'mf:$cid',
+          Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
+        );
+        await mA.dispose();
+        mA = MessagingService(
+          tA,
+          sA,
+          contentPacing: Duration.zero,
+          plainFileStream: true,
+        )..start();
+        expect(mA.identityOfDevice(requesterDevice), isNull);
+        tB.holdReoffers = true;
+        tA.dropAckFrames = mode == 'lost-ack';
+        final enqueueStarted = Completer<void>(),
+            releaseEnqueue = Completer<void>();
+        if (mode == 'cancel-enqueue') {
+          tB.beforeSend = (bytes) async {
+            if (WireEnvelope.decode(bytes).kind == WireKind.contentReoffer) {
+              enqueueStarted.complete();
+              await releaseEnqueue.future;
+            }
+          };
+        }
+        final got = mode.startsWith('cancel') || mode == 'dispose'
+            ? null
+            : mB.contentReceived.firstWhere((e) => e.contentId == cid);
+        expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+        if (mode == 'cancel-enqueue') {
+          await enqueueStarted.future.timeout(const Duration(seconds: 2));
+        } else {
+          await Future.doWhile(() async {
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+            return tB.heldReoffers.isEmpty;
+          }).timeout(const Duration(seconds: 2));
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        expect(
+          tB.openStreamAttemptCount,
+          1,
+          reason:
+              'local enqueue is not proof that the source relearned the device',
+        );
+        final fid = WireEnvelope.decode(
+          tB.sentPayloads.lastWhere(
+            (bytes) =>
+                WireEnvelope.decode(bytes).kind == WireKind.contentReoffer,
+          ),
+        ).frameId!;
+        final unrelated = _id(0x70);
+        await sB.upsertContact(
+          Contact(nodeId: unrelated, status: ContactStatus.accepted),
+        );
+        for (final receipt in [
+          InboundMessage(
+            src: unrelated,
+            payload: WireEnvelope.ack(fid).encode(),
+            provenance: SenderProvenance.sessionPeer,
+          ),
+          InboundMessage(
+            src: a,
+            srcDevice: _id(0x71),
+            payload: WireEnvelope.ack(fid).encode(),
+            provenance: SenderProvenance.sessionPeer,
+          ),
+          InboundMessage(
+            src: a,
+            srcDevice: sourceDevice,
+            payload: WireEnvelope.ack(fid).encode(),
+            provenance: SenderProvenance.claimed,
+          ),
+          InboundMessage(
+            src: a,
+            srcDevice: sourceDevice,
+            payload: WireEnvelope.ack('reoffer:stale-receipt').encode(),
+            provenance: SenderProvenance.sessionPeer,
+          ),
+        ]) {
+          tB._in.add(receipt);
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        expect(
+          tB.openStreamAttemptCount,
+          1,
+          reason:
+              'another peer, sibling, unproven delivery, or stale id cannot release a retry',
+        );
+        if (mode.startsWith('cancel') || mode == 'dispose') {
+          if (mode.startsWith('cancel')) {
+            await mB
+                .cancelContentDownload(cid)
+                .timeout(const Duration(seconds: 1));
+          } else {
+            await mB.dispose().timeout(const Duration(seconds: 1));
+          }
+          tB.releaseReoffers();
+          if (!releaseEnqueue.isCompleted) releaseEnqueue.complete();
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+          expect(tB.openStreamAttemptCount, 1);
+          expect(await sB.loadFile(cid), isNull);
+          return;
+        }
+        tB.releaseReoffers();
+        await got!.timeout(const Duration(seconds: 4));
+        expect(mA.identityOfDevice(requesterDevice), b);
+        expect(await sB.loadFile(cid), data);
+        expect(tB.openStreamAttemptCount, 2);
+      },
+    );
+  }
 
   test('P2P policy allowed: bulk download opens direct stream first', () async {
     await mA.dispose();

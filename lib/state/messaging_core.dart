@@ -4243,6 +4243,7 @@ class MessagingService {
 
   Future<void> _dispose() async {
     _disposed = true; // stops transfer retry/serve work
+    _contentAvailability.cancelRetryReoffers();
     final historyClosed = _ownHistory.close();
     _outbox.dispose();
     // Starts synchronously: the transport-scoped broker lease is detached
