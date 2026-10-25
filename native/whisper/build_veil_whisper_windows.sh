@@ -83,7 +83,9 @@ veil_whisper_free_string
 veil_whisper_version
 DEF
 
-cl.exe /nologo /std:c++17 /O2 /EHsc /MD /LD \
+# Every path below is already converted by win(). Git Bash must leave MSVC's
+# slash-prefixed switches intact, rather than rewriting /nologo as a path.
+MSYS2_ARG_CONV_EXCL='*' cl.exe /nologo /std:c++17 /O2 /EHsc /MD /LD \
   "$(win "$SRCDIR/veil_whisper.cc")" \
   /I"$(win "$WHISPER_SRC/include")" \
   /I"$(win "$WHISPER_SRC/ggml/include")" \
@@ -99,7 +101,7 @@ echo "==> done: $DEST/veil_whisper.dll"
 # nothing is the failure mode this script exists to avoid, and it is silent
 # without a check.
 if command -v dumpbin.exe >/dev/null 2>&1; then
-  n="$(dumpbin.exe /exports "$(win "$DEST/veil_whisper.dll")" | grep -c "veil_whisper_" || true)"
+  n="$(MSYS2_ARG_CONV_EXCL='*' dumpbin.exe /exports "$(win "$DEST/veil_whisper.dll")" | grep -c "veil_whisper_" || true)"
   echo "exported veil_whisper_* symbols: $n"
   [ "$n" -ge 3 ] || { echo "expected 3 exports, found $n" >&2; exit 1; }
 fi
