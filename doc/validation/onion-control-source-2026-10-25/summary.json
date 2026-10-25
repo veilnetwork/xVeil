@@ -10,7 +10,8 @@
     "source_control_used_recoverable_data_credits": "fixed",
     "known_device_lookup_serial_dependency": "fixed",
     "canceled_dht_pending_query_retention": "fixed",
-    "cold_media_after_answer_delay": "open"
+    "cold_media_after_answer_delay": "open",
+    "slow_android_source_restart_recovery": "open"
   },
   "tests": {
     "runtime": {
@@ -187,6 +188,46 @@
       },
       "root_source_manifest_sha256": "552cfe1fdf40655d1a53f8950d174399030d0655ff939f52e9152f99c50484c8",
       "root_source_file_count": 555
+    },
+    "control-source-startup-directions-qualified": {
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "anonymous": true,
+        "explicit_c_b_join": false,
+        "live_speech_quality_tested": false,
+        "passed": true,
+        "stage": "primary_offline:continuous-media",
+        "primary_online_ring_ms": 83,
+        "primary_online_first_five_rx_c_ms": 3766,
+        "primary_online_answer_observed_ms": 3766,
+        "primary_online_first_five_rx_b_ms": 5801,
+        "primary_online_answer_media_ms": 5803,
+        "primary_online_media_after_answer_ms": 2037,
+        "primary_online_media_rx_delta_b": 250,
+        "primary_online_media_rx_delta_c": 274,
+        "primary_online_hangup": true,
+        "primary_offline_ring_ms": 82,
+        "primary_offline_answer_observed_ms": 27,
+        "primary_offline_first_five_rx_c_ms": 439,
+        "primary_offline_first_five_rx_b_ms": 14253,
+        "primary_offline_answer_media_ms": 14253,
+        "primary_offline_media_after_answer_ms": 14226,
+        "primary_offline_media_rx_delta_b": 198,
+        "primary_offline_media_rx_delta_c": 271,
+        "primary_offline_hangup": true
+      },
+      "cleanup": {
+        "owned_groups_checked": 5,
+        "owned_pids_checked": 9,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      },
+      "exit": {
+        "exit_code": 0
+      },
+      "root_source_manifest_sha256": "f7d40d7068f817da9f05aa373447d6ffbffd3019d7403cf120b614f7ffb24822",
+      "root_source_file_count": 555
     }
   },
   "qualification": {
@@ -196,6 +237,126 @@
     "android_background": false,
     "cold_media_start_stable": false,
     "previous_qa_android_install_succeeded": true,
-    "previous_qa_install_qualifies_new_changes": false
+    "previous_qa_install_qualifies_new_changes": false,
+    "new_qa_android_installed": true
+  },
+  "physical_android_mac": {
+    "root_commit": "ba4c50c909224c10a5d47eb254943c9603e606e3",
+    "sdk_commit": "1297b3deb00bb1c21d24b81a80708f36442ebea9",
+    "apk_sha256": "a494bcb250609d05d5b70d2cd192eaf11945e0c31fcd7b2ab1a4076595b36124",
+    "android_libraries_sha256": {
+      "lib/arm64-v8a/libVkLayer_khronos_validation.so": "ae445f7e74d402e3a367adb230b1edd9841899fcb3310166e5cc96a09ad37a3f",
+      "lib/arm64-v8a/libbarhopper_v3.so": "ec09597e9eb3aee0eb55ae3366da0d4ba416f5aa35a1af0b3811f50ff46743a1",
+      "lib/arm64-v8a/libdartjni.so": "1608612d6080b623820bbc69ec880d8eaeb5c3292e0075a9d03670bd98bce5ef",
+      "lib/arm64-v8a/libdatastore_shared_counter.so": "d3e48717c9aa147e0ab21063ba0e8e0211cabf8bf40b222640829519edbf58e1",
+      "lib/arm64-v8a/libflutter.so": "5e5a911af31499698997fbd21422b5b7ad35fda89f849ba2cbb4719b4d4e7c95",
+      "lib/arm64-v8a/libhidden_volume_ffi.so": "6229bae4ded5db35636ef724b8fca2ca3f7fdb3b71a722c48d69291fbbb7d891",
+      "lib/arm64-v8a/libimage_processing_util_jni.so": "0292b063fafccf734472cbb59588e756c2dbca907c72021ba6fbf126385508a2",
+      "lib/arm64-v8a/libjnidispatch.so": "fe9c603f2a7a5d19197b87f275d6e0afb975f997a57ff4f8ca801cb8c5e7b731",
+      "lib/arm64-v8a/libomp.so": "d5271fa122f3a42779782f8bb20f2cae7390b63f49eb3f6be8e6b9bd654cf741",
+      "lib/arm64-v8a/libredb-3424b30e232f38d7.so": "67f58e5a17a17417a0aac8db29a02d34cda4f72f410de763a5af3eb99423312a",
+      "lib/arm64-v8a/libsurface_util_jni.so": "a5c9d1928ea92ec7a94dff8cf666e7739cd734198b9f0ae1d4e28ea3c86516ba",
+      "lib/arm64-v8a/libveil_media.so": "1a11cbb809dbd6f878de7e40e4eb6158751674c68f152245204ce9271aa7a730",
+      "lib/arm64-v8a/libveil_media_camera_stub.so": "a4eef7190a2078519bd84bf0274b21601aab2d70eb1b9fd88ee0b9cd7615b2ca",
+      "lib/arm64-v8a/libveil_translate.so": "3b7d6091e3035bfdc7bb93f0b22c779574da6b61b546692d0d810e9c17b9cbc3",
+      "lib/arm64-v8a/libveil_whisper.so": "52c1860e68ea6828dc06ce7917b00d0a4b86338fe214356ea2a039ed10d880dc",
+      "lib/arm64-v8a/libveilclient_ffi.so": "0dd21032b96a8144b9d4dc96c6fc1c02e9bb66d58ad2b5a5aa97b596cf1ec037"
+    },
+    "mac_libraries_sha256": {
+      "libveilclient_ffi.dylib": "fea3b53eaae016941903c6bee48eca8e25f5770243686e54fee460a7d2b31d27",
+      "libveil_media.dylib": "42f70d8878163eb3d922e8ee220e3dedc8ab3c74768045d0f9f179ed63e5b71a",
+      "libhidden_volume_ffi.dylib": "3b2eacc819b307125cafe01665ebbaec5ee6ed9d3b3d5d96bc5d5b26a50f79e7"
+    },
+    "production_seeds": true,
+    "test_low_difficulty": false,
+    "native_test_hooks": false,
+    "install": {
+      "installed": true,
+      "exit_code": 0,
+      "current_root": "ba4c50c909224c10a5d47eb254943c9603e606e3",
+      "current_sdk": "1297b3deb00bb1c21d24b81a80708f36442ebea9"
+    },
+    "certificate_export": {
+      "android_save_dialog_opened": true,
+      "save_confirmed": true,
+      "certificate_file_matches": true
+    },
+    "contact_setup": {
+      "passed": true,
+      "stage": "accepted",
+      "request_ms": 4999,
+      "request_and_accept_ms": 6259
+    },
+    "mac_source_restart": {
+      "bytes": 8388608,
+      "source_offline_seconds": 10,
+      "completion_gate_seconds": 180,
+      "p2p_allowed": false,
+      "trigger_bytes": 4194304,
+      "fault": {
+        "trigger_elapsed_seconds": 12.296,
+        "old_process_exited": true,
+        "same_identity": true,
+        "ok": true,
+        "elapsed_seconds": 25.068
+      },
+      "download_seconds": 38.747,
+      "hash_matches": true,
+      "interruption_observed": true,
+      "ok": true,
+      "completed_after_source_restart": true,
+      "total_seconds": 38.857
+    },
+    "android_source_restart": {
+      "bytes": 8388608,
+      "source_offline_seconds": 10,
+      "completion_gate_seconds": 180,
+      "p2p_allowed": false,
+      "ok": true,
+      "trigger_bytes": 4194304,
+      "fault": {
+        "trigger_elapsed_seconds": 8.938,
+        "old_process_exited": true,
+        "same_identity": true,
+        "ok": true,
+        "elapsed_seconds": 29.003
+      },
+      "download_seconds": 90.331,
+      "hash_matches": true,
+      "interruption_observed": true,
+      "completed_after_source_restart": true,
+      "total_seconds": 90.337
+    },
+    "audio_call": {
+      "passed": true,
+      "live_speech_quality_tested": false,
+      "video_tested": false,
+      "p2p_allowed": false,
+      "stage": "finished",
+      "ring_ms": 203,
+      "answer_media_ms": 1863,
+      "transport": {
+        "mac": "relay",
+        "phone": "relay"
+      },
+      "rx_delta": {
+        "mac": 313,
+        "phone": 392
+      },
+      "both_calls_ended": true
+    },
+    "first_audio_attempt": {
+      "passed": false,
+      "setup_issue": "QA RECORD_AUDIO permission missing; granted for repeat and restored after cleanup"
+    },
+    "cleanup": {
+      "owned_mac_groups_checked": 3,
+      "remaining_mac_processes": 0,
+      "qa_android_processes_remaining": false,
+      "own_adb_forward_removed": true,
+      "qa_microphone_permission_restored": true,
+      "own_mac_profile_archived_privately": true,
+      "main_app_modified": false
+    }
   }
 }

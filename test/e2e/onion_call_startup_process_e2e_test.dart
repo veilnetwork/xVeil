@@ -27,6 +27,7 @@ void main() {
         'live_speech_quality_tested': false,
         'passed': false,
       };
+      final startupSamples = <Map<String, Object?>>[];
       if (evidence != null) {
         await File('$evidence/fleet-private.json').writeAsString(
           jsonEncode({'root': fleet.root.path, 'runnerPid': pid}),
@@ -68,10 +69,34 @@ void main() {
           result['${phase}_ring_ms'] = watch.elapsedMilliseconds;
           result['stage'] = '$phase:answer';
           watch.reset();
+          void sampleMedia(Map<String, dynamic>? bc, Map<String, dynamic>? cc) {
+            final elapsed = watch.elapsedMilliseconds;
+            for (final entry in {'b': bc, 'c': cc}.entries) {
+              if (rx(entry.value) >= 5) {
+                result.putIfAbsent(
+                  '${phase}_first_five_rx_${entry.key}_ms',
+                  () => elapsed,
+                );
+              }
+            }
+            startupSamples.add({
+              'phase': phase,
+              'elapsed_ms': elapsed,
+              for (final entry in {'b': bc, 'c': cc}.entries)
+                entry.key: {
+                  'status': entry.value?['status'],
+                  'transport': entry.value?['transport'],
+                  'rx': rx(entry.value),
+                  'tx': (entry.value?['mediaStats'] as Map?)?['tx_pkts'],
+                },
+            });
+          }
+
           await b.checked('/call_accept');
           await waitUntil(
             () async {
-              final cc = await call(c);
+              final bc = await call(b), cc = await call(c);
+              sampleMedia(bc, cc);
               return cc?['status'] == 'connecting' || cc?['status'] == 'active';
             },
             what: '$phase: C observes the answer from B',
@@ -85,6 +110,7 @@ void main() {
           await waitUntil(
             () async {
               final bc = await call(b), cc = await call(c);
+              sampleMedia(bc, cc);
               return live(bc) &&
                   live(cc) &&
                   bc?['transport'] == 'onion' &&
@@ -122,6 +148,9 @@ void main() {
         result['passed'] = true;
       } finally {
         if (evidence != null) {
+          await File(
+            '$evidence/startup-samples-private.json',
+          ).writeAsString(jsonEncode(startupSamples));
           await File('$evidence/calls-private.json').writeAsString(
             jsonEncode({
               for (final d in [b, c]) d.label: await call(d),
