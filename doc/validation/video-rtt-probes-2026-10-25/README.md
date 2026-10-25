@@ -5,6 +5,13 @@ pending. The phone disappeared from ADB before installation. The new Android
 and macOS QA frontends are built, but this cycle has no physical candidate call
 or measured improvement in its full-quality ramp.
 
+**Follow-up:** a later combined-build Wi-Fi call exercised native 1.25-FPS
+probes on both physical devices and ended near 30 FPS. Its first observed
+five-second windows above 20 FPS ended 38–39 seconds after camera enable;
+faster startup is not established. See the
+[physical qualification and limits](../call-fallback-lifetime-2026-10-25/README.md).
+The pending status above describes this original cycle.
+
 ## Evidence behind the change
 
 In the preceding [physical qualification](../video-packet-duration-2026-10-25/README.md),
