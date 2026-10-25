@@ -105,18 +105,31 @@ void main() {
             });
           }
 
-          await receiver.checked('/call_accept');
-          await waitUntil(
-            () async {
-              final rc = await call(receiver), cc = await call(c);
-              sampleMedia(rc, cc);
-              return cc?['status'] == 'connecting' || cc?['status'] == 'active';
-            },
-            what: '$phase: C observes the answer from ${receiver.label}',
-            describe: describe,
-            timeout: const Duration(seconds: 40),
-          );
-          final answerObservedMs = watch.elapsedMilliseconds;
+          Future<int> observeAnswer() async {
+            await waitUntil(
+              () async {
+                // Observe the caller independently of the accept API and the
+                // answerer's media diagnostics. Either may finish after the
+                // answer has already reached the caller.
+                final cc = await call(c);
+                sampleMedia(null, cc);
+                return cc?['status'] == 'connecting' ||
+                    cc?['status'] == 'active';
+              },
+              what: '$phase: C observes the answer from ${receiver.label}',
+              describe: describe,
+              timeout: const Duration(seconds: 40),
+            );
+            return watch.elapsedMilliseconds;
+          }
+
+          // Attach both futures immediately and await both on failure too;
+          // do not leave an accept request running during fleet teardown.
+          final answerResults = await Future.wait<Object?>([
+            receiver.checked('/call_accept'),
+            observeAnswer(),
+          ]);
+          final answerObservedMs = answerResults[1] as int;
           result['${phase}_answer_observed_ms'] = answerObservedMs;
           final mediaBudgetMs = 40000 - watch.elapsedMilliseconds;
           expect(mediaBudgetMs, greaterThan(0));
