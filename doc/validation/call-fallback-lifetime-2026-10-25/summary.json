@@ -1,0 +1,137 @@
+{
+  "sdk_baseline": "4639f2b8",
+  "sdk_candidate": "9bf194c3",
+  "runs": {
+    "startup-baseline-sibling": {
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "anonymous": true,
+        "explicit_c_b_join": false,
+        "live_speech_quality_tested": false,
+        "receive_counter": "audio_rx_pkts",
+        "online_answerer": "B",
+        "passed": true,
+        "primary_online_answerer": "B",
+        "stage": "primary_offline:continuous-media",
+        "primary_online_ring_ms": 45,
+        "primary_online_answer_observed_ms": 3744,
+        "primary_online_first_five_rx_b_ms": 4153,
+        "primary_online_first_five_rx_c_ms": 5774,
+        "primary_online_answer_media_ms": 5775,
+        "primary_online_media_after_answer_ms": 2031,
+        "primary_online_media_rx_delta_b": 250,
+        "primary_online_media_rx_delta_c": 250,
+        "primary_online_hangup": true,
+        "primary_offline_answerer": "B",
+        "primary_offline_ring_ms": 63,
+        "primary_offline_answer_observed_ms": 31,
+        "primary_offline_first_five_rx_b_ms": 439,
+        "primary_offline_first_five_rx_c_ms": 439,
+        "primary_offline_answer_media_ms": 439,
+        "primary_offline_media_after_answer_ms": 408,
+        "primary_offline_media_rx_delta_b": 253,
+        "primary_offline_media_rx_delta_c": 253,
+        "primary_offline_hangup": true
+      },
+      "cleanup": {
+        "owned_groups_checked": 5,
+        "owned_pids_checked": 9,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      }
+    },
+    "startup-candidate-primary-retry": {
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "anonymous": true,
+        "explicit_c_b_join": false,
+        "live_speech_quality_tested": false,
+        "receive_counter": "audio_rx_pkts",
+        "online_answerer": "A",
+        "passed": true,
+        "primary_online_answerer": "A",
+        "stage": "primary_offline:continuous-media",
+        "primary_online_ring_ms": 462,
+        "primary_online_answer_observed_ms": 1660,
+        "primary_online_first_five_rx_a_ms": 2477,
+        "primary_online_first_five_rx_c_ms": 3288,
+        "primary_online_answer_media_ms": 3289,
+        "primary_online_media_after_answer_ms": 1629,
+        "primary_online_media_rx_delta_a": 251,
+        "primary_online_media_rx_delta_c": 251,
+        "primary_online_hangup": true,
+        "primary_offline_answerer": "B",
+        "primary_offline_ring_ms": 32,
+        "primary_offline_answer_observed_ms": 64,
+        "primary_offline_first_five_rx_c_ms": 524,
+        "primary_offline_first_five_rx_b_ms": 4234,
+        "primary_offline_answer_media_ms": 4234,
+        "primary_offline_media_after_answer_ms": 4170,
+        "primary_offline_media_rx_delta_b": 250,
+        "primary_offline_media_rx_delta_c": 250,
+        "primary_offline_hangup": true
+      },
+      "cleanup": {
+        "owned_groups_checked": 5,
+        "owned_pids_checked": 9,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      }
+    },
+    "startup-candidate-sibling": {
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "anonymous": true,
+        "explicit_c_b_join": false,
+        "live_speech_quality_tested": false,
+        "receive_counter": "audio_rx_pkts",
+        "online_answerer": "B",
+        "passed": true,
+        "primary_online_answerer": "B",
+        "stage": "primary_offline:continuous-media",
+        "primary_online_ring_ms": 41,
+        "primary_online_answer_observed_ms": 3731,
+        "primary_online_first_five_rx_b_ms": 13950,
+        "primary_online_first_five_rx_c_ms": 13950,
+        "primary_online_answer_media_ms": 13951,
+        "primary_online_media_after_answer_ms": 10220,
+        "primary_online_media_rx_delta_b": 251,
+        "primary_online_media_rx_delta_c": 250,
+        "primary_online_hangup": true,
+        "primary_offline_answerer": "B",
+        "primary_offline_ring_ms": 37,
+        "primary_offline_answer_observed_ms": 53,
+        "primary_offline_first_five_rx_c_ms": 12316,
+        "primary_offline_first_five_rx_b_ms": 14349,
+        "primary_offline_answer_media_ms": 14349,
+        "primary_offline_media_after_answer_ms": 14296,
+        "primary_offline_media_rx_delta_b": 198,
+        "primary_offline_media_rx_delta_c": 250,
+        "primary_offline_hangup": true
+      },
+      "cleanup": {
+        "owned_groups_checked": 5,
+        "owned_pids_checked": 9,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      }
+    }
+  },
+  "physical_artifact_sha256": {
+    "apk": "d3a574cf9cdd664fac7f737d1e46ba6124f73ebe1b35bc132393f9b3c13e1f37",
+    "libveilclient_ffi.dylib": "82cd3890bdbf586bb1522f88f0522b0633fe772a32d47c269c2436f39c9c7bcc",
+    "libveil_media.dylib": "e7beb9a77aaed9b5f6ef276e0c25eba7a6b7cce42512e1fd7b4c3e73030fe3b2",
+    "libhidden_volume_ffi.dylib": "3b2eacc819b307125cafe01665ebbaec5ee6ed9d3b3d5d96bc5d5b26a50f79e7"
+  },
+  "limits": {
+    "phone_network": "wifi",
+    "phone_call": "relay",
+    "matched_physical_before_after": false,
+    "live_speech_quality_tested": false,
+    "cold_start_fixed": false,
+    "full_63_case_matrix_complete": false
+  }
+}
