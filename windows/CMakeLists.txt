@@ -57,14 +57,13 @@ add_subdirectory("runner")
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
-# local_auth_windows 2.0.2 requests C++20 but also adds /await, which forces
-# MSVC back to pre-standard coroutines. MSVC 14.51 rejects those headers.
-# Keep the plugin on standard C++20 coroutines until upstream drops /await.
+# local_auth_windows 2.0.2 requires legacy /await: its coroutine contains an
+# ordinary return, so simply removing /await does not migrate it to C++20.
+# MSVC 14.51 requires this explicit compatibility opt-in for the legacy
+# headers. Scope it to this plugin until upstream migrates its coroutine code.
 if(MSVC AND TARGET local_auth_windows_plugin)
-  get_target_property(LOCAL_AUTH_OPTIONS local_auth_windows_plugin COMPILE_OPTIONS)
-  list(REMOVE_ITEM LOCAL_AUTH_OPTIONS "/await")
-  set_property(TARGET local_auth_windows_plugin PROPERTY COMPILE_OPTIONS "${LOCAL_AUTH_OPTIONS}")
-  target_compile_features(local_auth_windows_plugin PRIVATE cxx_std_20)
+  target_compile_definitions(local_auth_windows_plugin PRIVATE
+    _SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
 endif()
 
 

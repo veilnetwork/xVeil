@@ -6,9 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
-## [0.13.91] — 2026-10-26
+## [0.13.92] — 2026-10-26
 
-Includes the work prepared for 0.13.89–0.13.90; those tags did not produce a
+Includes the work prepared for 0.13.89–0.13.91; those tags did not produce a
 published release.
 
 ### Added
@@ -21,9 +21,10 @@ published release.
 
 ### Fixed
 
-- Build Windows Hello with standard C++20 coroutines on current MSVC, removing
-  the dependency's obsolete `/await` compiler option. Preserve Windows Hello
-  authentication and keep the adjustment local to its plugin target.
+- Build Windows Hello on current MSVC with its explicit legacy-coroutine
+  compatibility option. Keep the dependency's coroutine implementation and
+  authentication API intact; scope the adjustment to its plugin target until
+  upstream migrates away from `/await` and ordinary coroutine returns.
 - Preserve MSVC switches when Git Bash invokes the Windows Whisper linker and
   export checker, so `/nologo` and `/exports` are not rewritten as file paths.
 - Install and document the Linux secure-storage plugin's `libsecret` runtime
