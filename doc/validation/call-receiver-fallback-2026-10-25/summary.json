@@ -1,0 +1,494 @@
+{
+  "date": "2026-10-25",
+  "root_base_commit": "dc0180aba3395ba51b85f83d1e4cfe16da30789e",
+  "sdk_source_commit": "a53142f5ea7618cd677e408ff36288def61aaa3b",
+  "findings": {
+    "fallback_ignored_authenticated_call_receive_address": "fixed_in_tested_cases",
+    "matching_pool_path_discarded_by_first_round_robin_choice": "development_regression_caught_and_fixed_before_commit",
+    "permanent_one_way_audio_in_simultaneous_answer_baseline": "did_not_recur_in_qualified_runs",
+    "variable_cold_media_start": "open",
+    "physical_video_limited_to_one_fps": "observed_open",
+    "production_fault_injection_audit": "open"
+  },
+  "tests": {
+    "ffi": {
+      "passed": 372,
+      "failed": 0,
+      "ignored": 11
+    },
+    "strict_clippy_passed": true,
+    "dart_analyzer_issues": 0,
+    "obsolete_public_cookie_network_regression": {
+      "old_code_failed_with_local_admission": true,
+      "final_code_delivered_exact_packet_to_private_receiver": true,
+      "public_introduction_key_also_different": true,
+      "public_pool_unchanged": true,
+      "different_relay_rejected": true
+    },
+    "two_ready_pool_paths": {
+      "first_variant_accepted": 2,
+      "attempted": 4,
+      "final_variant_accepted": 4,
+      "wrong_output_datagrams": 0
+    }
+  },
+  "native_runs": {
+    "simultaneous-selected-qualification": {
+      "variant": "receiver_only",
+      "result": {
+        "devices": 3,
+        "receive_counter": "audio_rx_pkts",
+        "live_speech_quality_tested": false,
+        "passed": true,
+        "stage": "finished",
+        "winner": "A",
+        "audio_rx_delta_winner": 251,
+        "audio_rx_delta_c": 250
+      },
+      "cleanup": {
+        "owned_groups_checked": 5,
+        "owned_pids_checked": 9,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      },
+      "exit": {
+        "exit_code": 0
+      },
+      "relay_diagnostics": {
+        "relay-mid1": {
+          "per_link_full": 2,
+          "peer_unreachable": 0
+        },
+        "relay-mid2": {
+          "per_link_full": 0,
+          "peer_unreachable": 0
+        },
+        "relay-mailbox": {
+          "per_link_full": 0,
+          "peer_unreachable": 0
+        }
+      },
+      "root_source_file_count": 554,
+      "root_source_manifest_sha256": "c8a6cf312451944ee3339094bc762678940d3013691f5a89b0021f79046b8a5b"
+    },
+    "startup-selected-qualification": {
+      "variant": "receiver_only",
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "anonymous": true,
+        "explicit_c_b_join": false,
+        "live_speech_quality_tested": false,
+        "receive_counter": "audio_rx_pkts",
+        "passed": true,
+        "stage": "primary_offline:continuous-media",
+        "primary_online_ring_ms": 846,
+        "primary_online_answer_observed_ms": 3738,
+        "primary_online_first_five_rx_b_ms": 4554,
+        "primary_online_first_five_rx_c_ms": 6581,
+        "primary_online_answer_media_ms": 6582,
+        "primary_online_media_after_answer_ms": 2844,
+        "primary_online_media_rx_delta_b": 250,
+        "primary_online_media_rx_delta_c": 251,
+        "primary_online_hangup": true,
+        "primary_offline_ring_ms": 29,
+        "primary_offline_answer_observed_ms": 54,
+        "primary_offline_first_five_rx_c_ms": 466,
+        "primary_offline_first_five_rx_b_ms": 4528,
+        "primary_offline_answer_media_ms": 4528,
+        "primary_offline_media_after_answer_ms": 4474,
+        "primary_offline_media_rx_delta_b": 334,
+        "primary_offline_media_rx_delta_c": 250,
+        "primary_offline_hangup": true
+      },
+      "cleanup": {
+        "owned_groups_checked": 5,
+        "owned_pids_checked": 9,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      },
+      "exit": {
+        "exit_code": 0
+      },
+      "relay_diagnostics": {
+        "relay-mid1": {
+          "per_link_full": 0,
+          "peer_unreachable": 48
+        },
+        "relay-mid2": {
+          "per_link_full": 3,
+          "peer_unreachable": 49
+        },
+        "relay-mailbox": {
+          "per_link_full": 0,
+          "peer_unreachable": 0
+        }
+      },
+      "root_source_file_count": 555,
+      "root_source_manifest_sha256": "74e1ede5517d5bb29e0692ab09164f7bfe9f1aca72f40c7b11031d2077606932"
+    },
+    "simultaneous-filtered-qualification": {
+      "variant": "receiver_and_matching_pool",
+      "result": {
+        "devices": 3,
+        "receive_counter": "audio_rx_pkts",
+        "live_speech_quality_tested": false,
+        "passed": true,
+        "stage": "finished",
+        "winner": "B",
+        "audio_rx_delta_winner": 250,
+        "audio_rx_delta_c": 250
+      },
+      "cleanup": {
+        "owned_groups_checked": 5,
+        "owned_pids_checked": 9,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      },
+      "exit": {
+        "exit_code": 0
+      },
+      "relay_diagnostics": {
+        "relay-mid1": {
+          "per_link_full": 7,
+          "peer_unreachable": 0
+        },
+        "relay-mid2": {
+          "per_link_full": 0,
+          "peer_unreachable": 0
+        },
+        "relay-mailbox": {
+          "per_link_full": 0,
+          "peer_unreachable": 0
+        }
+      },
+      "root_source_file_count": 554,
+      "root_source_manifest_sha256": "c8a6cf312451944ee3339094bc762678940d3013691f5a89b0021f79046b8a5b"
+    },
+    "startup-filtered-primary": {
+      "variant": "receiver_and_matching_pool",
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "anonymous": true,
+        "explicit_c_b_join": false,
+        "live_speech_quality_tested": false,
+        "receive_counter": "audio_rx_pkts",
+        "online_answerer": "A",
+        "passed": true,
+        "primary_online_answerer": "A",
+        "stage": "primary_offline:continuous-media",
+        "primary_online_ring_ms": 862,
+        "primary_online_answer_observed_ms": 119,
+        "primary_online_first_five_rx_a_ms": 2161,
+        "primary_online_first_five_rx_c_ms": 2161,
+        "primary_online_answer_media_ms": 2162,
+        "primary_online_media_after_answer_ms": 2043,
+        "primary_online_media_rx_delta_a": 250,
+        "primary_online_media_rx_delta_c": 325,
+        "primary_online_hangup": true,
+        "primary_offline_answerer": "B",
+        "primary_offline_ring_ms": 23,
+        "primary_offline_answer_observed_ms": 38,
+        "primary_offline_first_five_rx_b_ms": 495,
+        "primary_offline_first_five_rx_c_ms": 12297,
+        "primary_offline_answer_media_ms": 12297,
+        "primary_offline_media_after_answer_ms": 12259,
+        "primary_offline_media_rx_delta_b": 164,
+        "primary_offline_media_rx_delta_c": 251,
+        "primary_offline_hangup": true
+      },
+      "cleanup": {
+        "owned_groups_checked": 5,
+        "owned_pids_checked": 9,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      },
+      "exit": {
+        "exit_code": 0
+      },
+      "relay_diagnostics": {
+        "relay-mid1": {
+          "per_link_full": 21,
+          "peer_unreachable": 0
+        },
+        "relay-mid2": {
+          "per_link_full": 0,
+          "peer_unreachable": 0
+        },
+        "relay-mailbox": {
+          "per_link_full": 0,
+          "peer_unreachable": 0
+        }
+      },
+      "root_source_file_count": 555,
+      "root_source_manifest_sha256": "7e41b1395ebc9da9c7180a3aaeaa387a182ce99863bea5ce606c55fa55565d3d"
+    },
+    "startup-filtered-sibling": {
+      "variant": "receiver_and_matching_pool",
+      "result": {
+        "devices": 3,
+        "same_identity_devices": 2,
+        "anonymous": true,
+        "explicit_c_b_join": false,
+        "live_speech_quality_tested": false,
+        "receive_counter": "audio_rx_pkts",
+        "online_answerer": "B",
+        "passed": true,
+        "primary_online_answerer": "B",
+        "stage": "primary_offline:continuous-media",
+        "primary_online_ring_ms": 59,
+        "primary_online_answer_observed_ms": 3725,
+        "primary_online_first_five_rx_b_ms": 4136,
+        "primary_online_first_five_rx_c_ms": 5759,
+        "primary_online_answer_media_ms": 5760,
+        "primary_online_media_after_answer_ms": 2035,
+        "primary_online_media_rx_delta_b": 250,
+        "primary_online_media_rx_delta_c": 351,
+        "primary_online_hangup": true,
+        "primary_offline_answerer": "B",
+        "primary_offline_ring_ms": 22,
+        "primary_offline_answer_observed_ms": 52,
+        "primary_offline_first_five_rx_b_ms": 463,
+        "primary_offline_first_five_rx_c_ms": 463,
+        "primary_offline_answer_media_ms": 463,
+        "primary_offline_media_after_answer_ms": 411,
+        "primary_offline_media_rx_delta_b": 253,
+        "primary_offline_media_rx_delta_c": 253,
+        "primary_offline_hangup": true
+      },
+      "cleanup": {
+        "owned_groups_checked": 5,
+        "owned_pids_checked": 9,
+        "remaining_processes": 0,
+        "stand_directory_removed": true
+      },
+      "exit": {
+        "exit_code": 0
+      },
+      "relay_diagnostics": {
+        "relay-mid1": {
+          "per_link_full": 15,
+          "peer_unreachable": 0
+        },
+        "relay-mid2": {
+          "per_link_full": 0,
+          "peer_unreachable": 0
+        },
+        "relay-mailbox": {
+          "per_link_full": 0,
+          "peer_unreachable": 0
+        }
+      },
+      "root_source_file_count": 555,
+      "root_source_manifest_sha256": "7e41b1395ebc9da9c7180a3aaeaa387a182ce99863bea5ce606c55fa55565d3d"
+    }
+  },
+  "native_build_variants": {
+    "receiver_only": {
+      "software_sha256": {
+        "veil-cli": "3958f0fb9711c6e2a93de47b71e11a90461809e0e1b76b50c96af401561e7bee",
+        "libveilclient_ffi.dylib": "f7f7a5d4abffc7c4a56ccf42e24e05180c1a13db2137a47c1d29a4132bdbca12"
+      },
+      "features": [
+        "allow-empty-seeds",
+        "test-low-difficulty",
+        "node-embedded",
+        "packet-tunnel"
+      ],
+      "external_mount_lost": false,
+      "sdk_source_file_count": 886,
+      "sdk_source_manifest_sha256": "3467c6761ccd471d56f598cb669a374d663579489524faa87582891511fc5963"
+    },
+    "receiver_and_matching_pool": {
+      "software_sha256": {
+        "veil-cli": "3958f0fb9711c6e2a93de47b71e11a90461809e0e1b76b50c96af401561e7bee",
+        "libveilclient_ffi.dylib": "19b889acbc5b0d6b33c080aa550072d9e3b5bcd5c3234a1afa6872b9b25df0e4"
+      },
+      "features": [
+        "allow-empty-seeds",
+        "test-low-difficulty",
+        "node-embedded",
+        "packet-tunnel"
+      ],
+      "external_mount_lost": false,
+      "sdk_source_file_count": 886,
+      "sdk_source_manifest_sha256": "631826cb26359f97a8952484d8d1607b84b94bded1765ae47925bfcd4b141875"
+    }
+  },
+  "physical": {
+    "result": {
+      "passed": true,
+      "live_speech_quality_tested": false,
+      "loudness_tested": false,
+      "native_test_hooks": false,
+      "p2p_allowed": false,
+      "stage": "finished",
+      "ring_ms": 850,
+      "audio_start_ms": 1817,
+      "transport": {
+        "mac": "relay",
+        "phone": "relay"
+      },
+      "audio_only_rx_delta": {
+        "mac": 67,
+        "phone": 176
+      },
+      "video_start_ms": 8586,
+      "video_windows": [
+        {
+          "mac": {
+            "audio_delta": 29,
+            "decoded_frame_delta": 2
+          },
+          "phone": {
+            "audio_delta": 118,
+            "decoded_frame_delta": 5
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 6
+          },
+          "phone": {
+            "audio_delta": 127,
+            "decoded_frame_delta": 5
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 5
+          },
+          "phone": {
+            "audio_delta": 128,
+            "decoded_frame_delta": 5
+          }
+        },
+        {
+          "mac": {
+            "audio_delta": 27,
+            "decoded_frame_delta": 5
+          },
+          "phone": {
+            "audio_delta": 128,
+            "decoded_frame_delta": 6
+          }
+        }
+      ],
+      "final_remote_fps": {
+        "mac": 0.9,
+        "phone": 1.0
+      },
+      "final_video_paused_for_audio": {
+        "mac": false,
+        "phone": false
+      },
+      "both_calls_ended": true
+    },
+    "install": {
+      "installed_apk_matches": true,
+      "sdk": "a53142f5",
+      "qa_package_only": true
+    },
+    "cleanup": {
+      "remaining_mac_processes": 0,
+      "remaining_qa_phone_processes": false,
+      "test_permissions_restored": true,
+      "own_forward_removed": true,
+      "own_profile_archived": true,
+      "main_app_modified": false,
+      "system_power_settings_changed": false
+    },
+    "cleanup_verified": {
+      "remaining_mac_processes": 0,
+      "remaining_qa_phone_processes": false,
+      "permissions_match_before_test": true
+    },
+    "production_seeds": true,
+    "test_low_difficulty": false,
+    "cargo_features": [
+      "node-embedded",
+      "packet-tunnel",
+      "production-seeds"
+    ],
+    "dart_source_file_count": 548,
+    "dart_source_manifest_sha256": "9ef1e33f330d5bb7cd47cce745111287e18c7f0b75161a642ae267a88dad8158",
+    "reused_identical_dart_frontend": true,
+    "android_libraries_sha256": {
+      "lib/arm64-v8a/libhidden_volume_ffi.so": "6229bae4ded5db35636ef724b8fca2ca3f7fdb3b71a722c48d69291fbbb7d891",
+      "lib/arm64-v8a/libveil_media.so": "1a11cbb809dbd6f878de7e40e4eb6158751674c68f152245204ce9271aa7a730",
+      "lib/arm64-v8a/libveilclient_ffi.so": "c858cd1e0c1d8e80710bf01546d15451424a3abc4b6ef91bb3cf169cc4be6d97"
+    },
+    "mac_libraries_sha256": {
+      "libveilclient_ffi.dylib": "f2a80c011fea3f86dc6681a2522d78e9e56c5a972d7a35481aebad453145beca",
+      "libveil_media.dylib": "42f70d8878163eb3d922e8ee220e3dedc8ab3c74768045d0f9f179ed63e5b71a",
+      "libhidden_volume_ffi.dylib": "3b2eacc819b307125cafe01665ebbaec5ee6ed9d3b3d5d96bc5d5b26a50f79e7"
+    },
+    "quality_qualified": false,
+    "video_started_mid_call": true,
+    "last_stats": {
+      "mac": {
+        "max_fps": 1.0,
+        "target_bitrate_bps": 15000,
+        "video_encoder_target_bps": 6504,
+        "video_frame_pixel_cap": 6144,
+        "video_tx_fps": 1.0,
+        "local_frame_fps": 30.0,
+        "remote_frame_fps": 0.9,
+        "rtt_ms": 98,
+        "video_feedback_rtt_ms": 102,
+        "video_feedback_loss_pct": 0,
+        "loss_pct": 0,
+        "audio_jb_ms": 10,
+        "audio_jb_target_ms": 60,
+        "audio_rtp_lag_ms": -1,
+        "audio_pressure_delay_ms": 10,
+        "peer_audio_playout_ms": 88,
+        "peer_audio_buffer_growing": false,
+        "video_audio_growth_holds": 5,
+        "video_audio_pixel_cuts": 4,
+        "video_audio_feedback_state": 0,
+        "max_observed_jitter_buffer_ms": 130,
+        "max_observed_pressure_delay_ms": 975
+      },
+      "phone": {
+        "max_fps": 1.0,
+        "target_bitrate_bps": 15000,
+        "video_encoder_target_bps": 6504,
+        "video_frame_pixel_cap": 6144,
+        "video_tx_fps": 0.9,
+        "local_frame_fps": 30.0,
+        "remote_frame_fps": 1.0,
+        "rtt_ms": 105,
+        "video_feedback_rtt_ms": 98,
+        "video_feedback_loss_pct": 0,
+        "loss_pct": 0,
+        "audio_jb_ms": 88,
+        "audio_jb_target_ms": 60,
+        "audio_rtp_lag_ms": 73,
+        "audio_pressure_delay_ms": 88,
+        "peer_audio_playout_ms": 941,
+        "peer_audio_buffer_growing": false,
+        "video_audio_growth_holds": 8,
+        "video_audio_pixel_cuts": 2,
+        "video_audio_feedback_state": 0,
+        "max_observed_jitter_buffer_ms": 694,
+        "max_observed_pressure_delay_ms": 694
+      }
+    },
+    "diagnostic_video_target_absent": true
+  },
+  "limitations": [
+    "not_full_63_case_matrix",
+    "windows_10_not_qualified",
+    "live_speech_and_loudness_not_qualified",
+    "android_background_not_qualified",
+    "cold_start_still_variable",
+    "physical_video_quality_not_qualified",
+    "direct_video_call_start_not_tested_this_cycle",
+    "physical_two_device_relay_call_does_not_replace_anonymous_multi_device_tests",
+    "production_fault_injection_audit_remains"
+  ]
+}
