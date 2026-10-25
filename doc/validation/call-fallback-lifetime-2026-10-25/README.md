@@ -2,6 +2,13 @@
 
 SDK fix: `9bf194c3`. The native media engine and hidden-volume are unchanged.
 
+**Factory follow-up:** this cleanup exposed a sharing defect in the production
+hub: call objects cloned the same producer owners, so one close could disable
+other and later calls. The factory now creates fresh producers per call; new
+tests retain the actual production hub across calls. See
+[fallback scope and qualification](../call-fallback-scope-2026-10-25/README.md).
+The results below describe the original lifetime-cleanup cycle.
+
 ## Confirmed defect and fix
 
 Closing a call stopped its private-route workers but did not own the generic
