@@ -1391,7 +1391,7 @@ jobs:
             echo '# handful of symbols it does not. On a glibc system this'
             echo '# preload is harmless but pointless — use the plain bundle.'
             echo '#'
-            echo '# apk add gcompat gtk+3.0 mesa-gl libayatana-appindicator'
+            echo '# apk add gcompat gtk+3.0 mesa-gl libsecret libayatana-appindicator'
             echo 'here="$(cd "$(dirname "$0")" && pwd)"'
             echo 'LD_PRELOAD="$here/lib/libmuslcompat.so${LD_PRELOAD:+:$LD_PRELOAD}" \'
             echo '  exec "$here/xveil" "$@"'
@@ -1406,7 +1406,7 @@ jobs:
       - name: It starts on musl
         run: |
           set -eu
-          apk add --no-cache gcompat gtk+3.0 mesa-gl >/dev/null
+          apk add --no-cache gcompat gtk+3.0 mesa-gl libsecret >/dev/null
           # The tray icon's dependencies, best-effort: they are a convenience,
           # not the app. Named here so an Alpine host knows to install them.
           apk add --no-cache libayatana-appindicator libdbusmenu-gtk3 \

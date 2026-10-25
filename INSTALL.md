@@ -82,6 +82,20 @@ Built on Ubuntu 24.04, so it needs that glibc or newer. It will not start on
 Debian 12 or Ubuntu 22.04 — build from source there instead
 (see [BUILDING.md](BUILDING.md)).
 
+The Linux bundle requires `libsecret-1.so.0` (`libsecret-1-0` on Debian/Ubuntu),
+including when password-based unlock is used.
+
+For Alpine, use the `xveil-linux-x64-musl.tar.gz` bundle and its `xveil-musl`
+launcher. Install the runtime libraries first:
+
+```sh
+apk add gcompat gtk+3.0 mesa-gl libsecret
+```
+
+The optional tray icon also needs `libayatana-appindicator` and
+`libdbusmenu-gtk3`. Quick unlock needs a running Secret Service keyring;
+password-based container opening remains available without one.
+
 ### macOS and iOS — build it yourself
 
 **Nothing is published for Apple platforms, and the reason is not laziness.**
@@ -230,6 +244,20 @@ Windows не может загрузить библиотеку-заполнит
 Собрано на Ubuntu 24.04, поэтому требует такой же glibc или новее. На Debian 12
 и Ubuntu 22.04 не запустится — там собирайте из исходников
 (см. [BUILDING.md](BUILDING.md)).
+
+Linux-сборке нужна `libsecret-1.so.0` (пакет `libsecret-1-0` в Debian/Ubuntu),
+в том числе при открытии контейнера по паролю.
+
+Для Alpine используйте архив `xveil-linux-x64-musl.tar.gz` и его скрипт
+`xveil-musl`. Сначала установите библиотеки:
+
+```sh
+apk add gcompat gtk+3.0 mesa-gl libsecret
+```
+
+Для необязательного значка в трее также нужны `libayatana-appindicator` и
+`libdbusmenu-gtk3`. Быстрая разблокировка требует работающей связки ключей
+Secret Service; открытие контейнера по паролю доступно и без неё.
 
 ### macOS и iOS — собирать самому
 
