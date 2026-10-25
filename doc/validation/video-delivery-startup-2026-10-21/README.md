@@ -483,7 +483,7 @@ still failed the unchanged public Space discovery test: authority generation
 0.13.88 while forming holder quorum, and both stale-generation and quorum
 failures are documented in the 0.13.87 changelog. The current nightly's
 multi-device harness passed. This existing discovery limitation is retained in
-the 0.13.90 release notes, not represented as a new video regression or a fix.
+the 0.13.91 release notes, not represented as a new video regression or a fix.
 Evidence: [current nightly](https://github.com/veilnetwork/xVeil/actions/runs/39749275327)
 and [baseline before 0.13.88](https://github.com/veilnetwork/xVeil/actions/runs/39570520090).
 
