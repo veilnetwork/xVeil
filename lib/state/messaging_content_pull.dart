@@ -2093,9 +2093,11 @@ extension _MessagingContentPull on MessagingService {
       // request before retrying; the source learns ownership through its
       // ordinary verified-message path, without trusting the stream claim.
       try {
-        await _contentAvailability
-            .requestContentReoffer(peer, cid)
-            .timeout(timeout ?? _streamRequestTimeout);
+        await _contentAvailability.requestContentReoffer(
+          peer,
+          cid,
+          confirmationTimeout: timeout ?? _streamRequestTimeout,
+        );
       } catch (error) {
         devLog(
           () =>

@@ -10,6 +10,13 @@ typedef _ContentManifestRefOffer = ({
   Map<String, NodeId> peers,
 });
 
+typedef _RetryReofferReceipt = ({
+  NodeId peer,
+  NodeId device,
+  String contentId,
+  Completer<bool> receipt,
+});
+
 /// Reoffer and terminal-availability lifecycle for large content.
 ///
 /// The content transfer engine remains responsible for moving and persisting
@@ -47,6 +54,41 @@ class _MessagingContentAvailability {
   final Map<String, _FetchSink?> _pending = {};
   final Map<String, Timer> _pendingTimers = {};
   final Set<Future<void>> _pendingCloses = {};
+
+  /// A local send completion only means the reoffer was enqueued. A retry
+  /// must give the source time to relearn the requester's authenticated device
+  /// before opening a stream which cannot prove that ownership itself.
+  final _retryReoffers = <String, _RetryReofferReceipt>{};
+
+  void cancelRetryReoffers([String? contentId]) {
+    for (final entry in _retryReoffers.entries.toList()) {
+      if (contentId != null && entry.value.contentId != contentId) continue;
+      _retryReoffers.remove(entry.key);
+      if (!entry.value.receipt.isCompleted) entry.value.receipt.complete(false);
+    }
+  }
+
+  bool confirmRetryReoffer(InboundMessage message, String? frameId) {
+    final pending = _retryReoffers[frameId];
+    if (pending == null ||
+        !message.provenance.isAuthenticated ||
+        message.src != pending.peer) {
+      return false;
+    }
+    final device = message.srcDevice ?? message.src;
+    // Another sibling receiving the family fanout has not restored the proof
+    // on the device which actually holds this file. A stale receipt is also
+    // insufficient: every request uses a fresh, unpredictable frame id.
+    if (pending.device != pending.peer && device != pending.device) {
+      return false;
+    }
+    if (device != pending.peer &&
+        !_owner.deviceProofAllowed(pending.peer, device)) {
+      return false;
+    }
+    if (!pending.receipt.isCompleted) pending.receipt.complete(true);
+    return true;
+  }
 
   static final Duration _reofferTimeout = Duration(
     milliseconds: const int.fromEnvironment(
@@ -179,6 +221,7 @@ class _MessagingContentAvailability {
       _holderDevices[contentId]?[holder.hex] ?? holder;
 
   Future<void> clearSession() async {
+    cancelRetryReoffers();
     for (final timer in _pendingTimers.values) {
       timer.cancel();
     }
@@ -220,7 +263,11 @@ class _MessagingContentAvailability {
     }
   }
 
-  Future<bool> requestContentReoffer(NodeId peer, String contentId) async {
+  Future<bool> requestContentReoffer(
+    NodeId peer,
+    String contentId, {
+    Duration? confirmationTimeout,
+  }) async {
     final contact = await _owner._storage.getContact(peer);
     if (contact == null || contact.status != ContactStatus.accepted) {
       return false;
@@ -230,8 +277,44 @@ class _MessagingContentAvailability {
           'xVeil[content]: requesting manifest re-advertise '
           '${contentId.substring(0, 12)} from ${peer.short}',
     );
-    await _owner._send(peer, contentReofferEnvelope(contentId).encode());
-    return true;
+    final envelope = contentReofferEnvelope(contentId);
+    if (confirmationTimeout == null) {
+      await _owner._send(peer, envelope.encode());
+      return true;
+    }
+    if (_owner._disposed ||
+        _owner._cancelledDownloads.contains(contentId) ||
+        _retryReoffers.length >= _maxOffers) {
+      return false;
+    }
+    final frameId = 'reoffer:${_uuid.v4()}';
+    final receipt = Completer<bool>();
+    _retryReoffers[frameId] = (
+      peer: peer,
+      device: streamTargetFor(peer, contentId),
+      contentId: contentId,
+      receipt: receipt,
+    );
+    try {
+      // Existing generic ACKs make this compatible with sources which do not
+      // know about this wait. Do not persist retries or send them to mailbox.
+      // Timeout covers BOTH local enqueue and the remote receipt.
+      return await (() async {
+        final sent = _owner._send(peer, envelope.withFrameId(frameId).encode());
+        await Future.any<void>([
+          sent,
+          receipt.future.then<void>((confirmed) async {
+            // Cancellation need not join a wedged enqueue. Success still
+            // waits for the send's ratchet persistence before opening a stream.
+            if (confirmed) await sent;
+          }),
+        ]);
+        return receipt.future;
+      })().timeout(confirmationTimeout, onTimeout: () => false);
+    } finally {
+      _retryReoffers.remove(frameId);
+      if (!receipt.isCompleted) receipt.complete(false);
+    }
   }
 
   Future<bool> resolveContentOfferViaStream(

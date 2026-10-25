@@ -47,6 +47,7 @@ class _MessagingDownloadResume {
 
   Future<String?> cancel(String contentId) async {
     _owner._cancelledDownloads.add(contentId);
+    _owner._contentAvailability.cancelRetryReoffers(contentId);
     _owner._clearGroupPullSources(contentId);
     final savedPath = _owner._fetchSavePath.remove(contentId);
     final parkedSink = _owner._contentAvailability.takePending(contentId);

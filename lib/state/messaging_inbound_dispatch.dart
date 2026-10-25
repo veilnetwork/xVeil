@@ -18,6 +18,9 @@ part of 'messaging_core.dart';
 ///   no secret at all, just a sequence number, to wipe a whole conversation;
 /// * it hands this device addresses it will then dial
 ///   ([WireKind.p2pEndpoints]).
+/// * its receipt is used to establish that a file source has relearned the
+///   requester's authenticated device ([WireKind.contentReoffer]). Refuse a
+///   merely claimed request before the generic ACK/dedup gate.
 ///
 /// Everything else deliberately stays out. Delivery acks, sync beacons, piece
 /// requests and chunk plumbing carry no attribution a user ever sees, are bound
@@ -40,6 +43,7 @@ const _contactPrivilegedKinds = <WireKind>{
   WireKind.fileChunk,
   WireKind.disappearingSet,
   WireKind.profileAvatar,
+  WireKind.contentReoffer,
 };
 
 /// Serialized, fail-closed dispatch for authenticated durable wire frames.
@@ -583,6 +587,7 @@ extension _MessagingInboundDispatch on MessagingService {
           }
         }
         if (ackId != null) {
+          if (_contentAvailability.confirmRetryReoffer(m, ackId)) return;
           // Retire a durable control frame the peer just confirmed (sign, edit,
           // del, clear, accept, reconnect): stop re-driving + re-stashing it.
           // A no-op when ackId is an ordinary message id (not in the outbox).
