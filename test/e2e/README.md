@@ -445,3 +445,41 @@ coverage claims for later assertions in the same test. In particular, passing
 one incoming message on three X devices does not certify every three-device
 scenario, and a timer-based eventual call settlement does not prove an immediate
 single-device answer election.
+
+### Certificate identity linking through the QR screens
+
+On macOS, with the same native binary environment above and a private IPv4
+interface, run:
+
+```bash
+TMPDIR=/private/tmp/ flutter test --no-pub \
+  test/e2e/qr_device_link_ui_e2e_test.dart --reporter expanded
+```
+
+This test opens the production source and target device-link sheets. It uses
+an XVRC certificate/code for the source identity, decodes the actual painted
+QR pixels with macOS Vision, and supplies that result at the camera route's
+return boundary. Swift/Xcode command-line tools are required. No camera or
+production control endpoint is introduced.
+
+The test operates the confirmation checkbox and recovery-code field, performs
+the encrypted LAN exchange, restarts B's actual native node before releasing
+the readiness handshake, and checks the snapshot, both visible rosters and
+history/message convergence. It also stops B, sends A to C, stops C and restarts
+B to verify recovery from A. Encrypted recovery credentials are intentionally
+part of the pinned device-group snapshot; a fresh incorrect recovery code
+must not open the copied certificate.
+
+Only fixture code supplies the unlocked controller and restart ownership.
+The test pumps UI-owned asynchronous work while joining native/storage
+shutdown; waiting with the widget clock stopped would hang the stand. Default
+process workers retain their existing restart behavior. Every native node is
+real, but this UI test's devices share one Flutter process and mocked platform
+preferences. Use the independent-process suite for cache/authorization
+propagation claims. This does not qualify physical scanning, OS permissions,
+Windows 10, Android or the production app controller's complete unlock path.
+
+Optional `XVEIL_E2E_EVIDENCE_DIR` output is private: it can contain the owned
+temporary root and a failed QR image. Keep it outside the repository and never
+attach it as an anonymous report. Published results must contain only the
+bounded stage/pass/cleanup summaries.
