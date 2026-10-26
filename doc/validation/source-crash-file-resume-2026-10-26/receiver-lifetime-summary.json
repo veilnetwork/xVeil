@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "local_only": true,
+  "devices": 3,
+  "same_identity_devices": 2,
+  "anonymous": true,
+  "old_receiver_binding_gc_regression_failed": true,
+  "corrected_receiver_binding_gc_regression_passed": true,
+  "third_party_traffic_cannot_extend_idle_deadline": true,
+  "replayed_heartbeat_cannot_extend_idle_deadline": true,
+  "primary_online_hold_ms": 661725,
+  "primary_online_audio_rx_delta_b": 33470,
+  "primary_online_audio_rx_delta_c": 33458,
+  "primary_offline_hold_ms": 5007,
+  "all_five_second_observations_had_audio_rtp_progress": true,
+  "source_unchanged_during_stand": true,
+  "owned_process_groups_remaining": 0,
+  "owned_runtime_commands_remaining": 0,
+  "supplemental_file_qualified": false,
+  "supplemental_file_exclusion": "fixture_teardown_before_download_deadline",
+  "windows_qualified": false,
+  "live_speech_quality_qualified": false,
+  "production_relays_updated": false,
+  "sdk_commit": "5fd3da68",
+  "rust_library_tests_passed": {
+    "veil_anonymity": 337,
+    "veil_dispatcher": 286,
+    "veil_node_runtime": 726,
+    "veilclient_ffi": 325
+  },
+  "existing_rust_skips": 14,
+  "dart_analysis_passed": true
+}
