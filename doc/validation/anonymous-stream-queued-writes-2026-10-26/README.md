@@ -73,6 +73,10 @@ The cause of the handshake stalls and RTT inflation remains unproven. Earlier
 publisher-slot refusals are also not yet causally connected to either delay;
 the admission limit remains unchanged.
 
+The [next cycle](../cold-stream-reply-identity-2026-10-26/README.md) confirms and
+corrects a cold-start reply-route identity lookup gap, and adds anonymous ingress
+diagnostics. Attribution of the original observed handshake stalls remains open.
+
 All owned app process groups were verified exited after the transfers. Latest
 encrypted profiles and raw diagnostics were archived privately; public evidence
 contains no identities, addresses, tickets, payloads or raw event timestamps.
