@@ -10,6 +10,9 @@ bumps may change behaviour a user notices.
 
 ### Fixed
 
+- Keep QR device pairing usable across multiple local interfaces: try bounded
+  authenticated exchanges concurrently, cancel losing connections, retain
+  listeners when an adapter disappears and advertise only bound addresses.
 - Update Veil's local pointer to recover message and call signaling after a
   restored session loses proof of its sender's previous rotating key. Validate
   recovery and a subsequent restart on retained macOS/Android profiles.
