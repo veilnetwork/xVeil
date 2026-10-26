@@ -90,40 +90,51 @@ SpacePublicDescriptor _transferredDescriptor({
   required int revision,
   required NodeId spaceId,
   NodeId? creator,
+  String? seen,
+  List<String?>? causalReferences,
 }) {
   final genesisOwner = creator ?? _id(2);
-  final nextOwner = _id(8);
+  var nextOwner = genesisOwner;
   final base = _descriptor(
     now: now,
     revision: revision,
     spaceId: spaceId,
     creator: genesisOwner,
   );
-  final unsignedTransfer = ControlEntry(
-    version: 6,
-    groupId: spaceId,
-    author: genesisOwner,
-    seq: 0,
-    prevHash: '',
-    op: ControlOp.transferOwnership,
-    target: nextOwner,
-    role: null,
-    policyVersion: 0,
-    createdAtMs: now - 1000,
-    signature: Uint8List(0),
-  );
-  final transfer = unsignedTransfer.withSignature(
-    _signature(
-      genesisOwner,
-      genesisOwner.bytes,
-      unsignedTransfer.canonicalBytes(),
-    ),
-    genesisOwner.bytes,
-  );
+  final transfers = <ControlEntry>[];
+  final references = causalReferences ?? [seen];
+  for (var index = 0; index < references.length; index++) {
+    final previousOwner = nextOwner;
+    nextOwner = _id(8 + index);
+    final unsignedTransfer = ControlEntry(
+      version: 6,
+      groupId: spaceId,
+      author: previousOwner,
+      seq: 0,
+      prevHash: '',
+      op: ControlOp.transferOwnership,
+      seen: references[index],
+      target: nextOwner,
+      role: null,
+      policyVersion: 0,
+      createdAtMs: now - 1000,
+      signature: Uint8List(0),
+    );
+    transfers.add(
+      unsignedTransfer.withSignature(
+        _signature(
+          previousOwner,
+          previousOwner.bytes,
+          unsignedTransfer.canonicalBytes(),
+        ),
+        previousOwner.bytes,
+      ),
+    );
+  }
   final authority = buildSpacePublicAuthorityChain(
     spaceId: spaceId,
     genesisOwner: genesisOwner,
-    acceptedControl: [transfer],
+    acceptedControl: transfers,
   );
   final ticket = SpaceJoinTicket(
     ticketId: '12' * 32,
@@ -346,6 +357,170 @@ void main() {
       minimumIndependentHolders: 2,
     );
     expect(merged.single.descriptorHash, older.descriptorHash);
+  });
+
+  test(
+    'transferred discovery preserves signed causal references on the wire',
+    () {
+      const now = 1500000;
+      final seen = '${_id(3).hex}:7';
+      final descriptor = _transferredDescriptor(
+        now: now,
+        revision: 1,
+        spaceId: _id(1),
+        seen: seen,
+      );
+      expect(descriptor.verifyAt(now, _verify), isTrue);
+      final decoded = SpacePublicDescriptor.fromJson(descriptor.toJson());
+      expect(decoded, isNotNull);
+      expect(decoded!.authorityChain.single.seen, seen);
+      expect(decoded.verifyAt(now, _verify), isTrue);
+      expect(decoded.descriptorHash, descriptor.descriptorHash);
+      final link = descriptor.authorityChain.single;
+      expect(SpacePublicAuthorityLink.fromJson(link.toJson())?.seen, seen);
+
+      final bound = _boundHolder(descriptor: descriptor, now: now);
+      final payload = SpacePublicDiscoveryPayload(
+        descriptor: descriptor,
+        holder: bound.holder,
+      );
+      final roundTrip = SpacePublicDiscoveryPayload.fromBytes(
+        payload.toBytes(),
+      );
+      expect(roundTrip, isNotNull);
+      expect(roundTrip!.verifyAt(now, _verify), isTrue);
+      final carrier = SpaceDiscoveryCarrier.sign(
+        route: SpaceDiscoveryCarrierRoute.direct(descriptor.spaceId),
+        payload: payload,
+        holder: bound.nodeId,
+        holderPublicKey: bound.publicKey,
+        sign: (message) => (
+          signature: _signature(bound.nodeId, bound.publicKey, message),
+          publicKey: bound.publicKey,
+        ),
+      );
+      expect(
+        SpaceDiscoveryCarrier.fromBytes(
+          carrier.toBytes(),
+        )?.verifyAt(now, _verify),
+        isTrue,
+      );
+    },
+  );
+
+  test(
+    'authority codec retains legacy bytes and mixed causal chains up to the cap',
+    () {
+      const now = 1500000;
+      final seen = '${_id(3).hex}:7';
+      for (final references in <List<String?>>[
+        [null],
+        [seen, null],
+        [null, seen],
+        [null, ''],
+        [null, 'причинная ссылка'],
+        List.generate(
+          kSpacePublicAuthorityMaxLinks,
+          (i) => i.isEven ? seen : null,
+        ),
+      ]) {
+        final descriptor = _transferredDescriptor(
+          now: now,
+          revision: 1,
+          spaceId: _id(1),
+          causalReferences: references,
+        );
+        final json = descriptor.toJson();
+        final bytes = base64Decode(json['authority'] as String);
+        final legacy = references.every((value) => value == null);
+        expect(bytes.sublist(0, 4), [
+          0x58,
+          0x41,
+          legacy ? 1 : 2,
+          references.length,
+        ]);
+        if (legacy) expect(bytes.length, 4 + 185 * references.length);
+        final decoded = SpacePublicDescriptor.fromJson(json)!;
+        expect(decoded.authorityChain.map((link) => link.seen), references);
+        expect(decoded.verifyAt(now, _verify), isTrue);
+        expect(decoded.canonicalBytes(), descriptor.canonicalBytes());
+        expect(decoded.descriptorHash, descriptor.descriptorHash);
+        final payload = SpacePublicDiscoveryPayload(
+          descriptor: descriptor,
+          holder: _holder(descriptor: descriptor, holder: _id(4), now: now),
+        );
+        expect(
+          payload.toBytes().length,
+          lessThanOrEqualTo(kSpacePublicDiscoveryPayloadMaxBytes),
+        );
+        expect(
+          SpacePublicDiscoveryPayload.fromBytes(
+            payload.toBytes(),
+          )?.verifyAt(now, _verify),
+          isTrue,
+        );
+      }
+    },
+  );
+
+  test('causal authority codec rejects malformed and noncanonical input', () {
+    const now = 1500000;
+    final descriptor = _transferredDescriptor(
+      now: now,
+      revision: 1,
+      spaceId: _id(1),
+      seen: '${_id(3).hex}:7',
+    );
+    final json = descriptor.toJson();
+    final bytes = base64Decode(json['authority'] as String);
+    const seenLengthOffset = 4 + 185;
+    for (final malformed in <List<int>>[
+      for (var end = 0; end < bytes.length; end++) bytes.sublist(0, end),
+      [...bytes, 0],
+      [...bytes]..[2] = 3,
+      [...bytes]..[3] = kSpacePublicAuthorityMaxLinks + 1,
+      [...bytes]
+        ..[seenLengthOffset] = 0xff
+        ..[seenLengthOffset + 1] = 0x7f,
+      [...bytes]..[seenLengthOffset + 2] = 0xff,
+      // XA2 with no actual reference is an alternate encoding of XA1.
+      [...bytes.sublist(0, seenLengthOffset), 0xff, 0xff],
+    ]) {
+      expect(
+        SpacePublicDescriptor.fromJson({
+          ...json,
+          'authority': base64Encode(malformed),
+        }),
+        isNull,
+      );
+    }
+    final tampered = [...bytes]..[bytes.length - 1] ^= 1;
+    final tamperedDescriptor = SpacePublicDescriptor.fromJson({
+      ...json,
+      'authority': base64Encode(tampered),
+    })!;
+    expect(tamperedDescriptor.verifyAt(now, _verify), isFalse);
+    // Even the current publisher cannot rewrite the predecessor's signed
+    // causal reference by signing a fresh descriptor around the changed link.
+    expect(
+      tamperedDescriptor
+          .withSignature(
+            _signature(
+              descriptor.publisher,
+              descriptor.publisherPublicKey,
+              tamperedDescriptor.canonicalBytes(),
+            ),
+          )
+          .verifyAt(now, _verify),
+      isFalse,
+    );
+    final linkJson = descriptor.authorityChain.single.toJson();
+    for (final badSeen in [null, 7, <String>[]]) {
+      expect(
+        SpacePublicAuthorityLink.fromJson({...linkJson, 'seen': badSeen}),
+        isNull,
+      );
+    }
   });
 
   test(

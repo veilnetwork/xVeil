@@ -10146,6 +10146,22 @@ void main() {
       expect(transferred.discovery.descriptor.authorityGeneration, 1);
       expect(transferred.discovery.descriptor.publisherPublicKey, bob.bytes);
       expect(
+        transferred.discovery.descriptor.authorityChain.single.seen,
+        isNotNull,
+      );
+      final transferredRoundTrip = SpacePublicDiscoveryPayload.fromBytes(
+        transferred.discovery.toBytes(),
+      );
+      expect(transferredRoundTrip, isNotNull);
+      expect(
+        transferredRoundTrip!.verifyAt(
+          transferred.discovery.holder.issuedAtMs,
+          _AuthorityFakeSigner(bob).verifyDetached,
+        ),
+        isTrue,
+        reason: 'serialization must preserve the original transfer signature',
+      );
+      expect(
         transferred.discovery.toBytes().length,
         lessThanOrEqualTo(kSpacePublicDiscoveryPayloadMaxBytes),
       );
