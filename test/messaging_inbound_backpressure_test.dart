@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/data/node/ratchet_ffi.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
@@ -10,6 +11,7 @@ import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/state/messaging_core.dart';
+import 'package:xveil/state/ratchet_persistence.dart';
 
 NodeId _id(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
 
@@ -63,6 +65,39 @@ SpaceOpener _memOpener() {
 
 Future<void> _pump([int ms = 30]) =>
     Future<void>.delayed(Duration(milliseconds: ms));
+
+class _UnusedRatchetNative implements RatchetStateHandle {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError();
+}
+
+class _HeldReplayCheckpoint extends RatchetPersistence {
+  _HeldReplayCheckpoint(HiddenVolumeStorage storage)
+    : super(native: _UnusedRatchetNative(), storage: storage);
+
+  final checkpoint = Completer<void>();
+  int replayFlushes = 0;
+  int version = 0;
+  int? savedVersion;
+
+  @override
+  Future<int> flush({String why = 'unknown', bool now = false}) async {
+    if (why == 'recv-coalesced') {
+      replayFlushes++;
+      await checkpoint.future;
+    }
+    return 0;
+  }
+
+  @override
+  Future<void> reserveBeforePublish(NodeId peer) async {}
+
+  @override
+  Future<int> saveAll() async {
+    savedVersion = version;
+    return 0;
+  }
+}
 
 void main() {
   late NodeId a, b;
@@ -181,6 +216,104 @@ void main() {
       contains('still delivered'),
     );
   });
+
+  test('queued snapshot retries do not bury a new chat message', () async {
+    var snapshots = 0;
+    mB.onGroupEntry = (_, _) {
+      snapshots++;
+    };
+    tB.sendGate = stall;
+    final chunk = groupEntryChunkEnvelope(
+      transferId: 'queued-replay',
+      index: 0,
+      count: 1,
+      data: Uint8List.fromList([123, 125]),
+    );
+    final frame = WireEnvelope(
+      chunk.kind,
+      chunk.body,
+      frameId: 'queued-replay:0',
+    ).encode();
+    for (var n = 0; n < 100; n++) {
+      await tA.send(b, frame);
+    }
+    await _pump();
+    expect(mB.inboundAdmission.queuedFrames, 1);
+    expect(mB.inboundAdmission.coalescedFrames, 99);
+    expect(snapshots, 0, reason: 'the first copy still awaits its ACK send');
+    final post = WireEnvelope.message(
+      'after the snapshot retries',
+      id: 'fresh-after-replays',
+    ).encode();
+    for (var n = 0; n < 100; n++) {
+      await tA.send(b, post);
+    }
+    await _pump();
+    expect(mB.inboundAdmission.queuedFrames, 2);
+    expect(mB.inboundAdmission.coalescedFrames, 198);
+    for (var n = 0; n < 2; n++) {
+      await tA.send(
+        b,
+        const WireEnvelope.message('legacy repeated text').encode(),
+      );
+    }
+    await _pump();
+    expect(mB.inboundAdmission.queuedFrames, 4);
+    stall.complete();
+    await _pump(100);
+    expect(snapshots, 1);
+    expect(
+      (await sB.loadMessages(
+        a.hex,
+      )).where((m) => m.id == 'fresh-after-replays'),
+      hasLength(1),
+    );
+    expect(
+      (await sB.loadMessages(
+        a.hex,
+      )).where((m) => m.body == 'legacy repeated text'),
+      hasLength(2),
+    );
+    await tA.send(b, frame);
+    await _pump();
+    expect(snapshots, 2, reason: 'a later chunk retry must reassemble again');
+    expect(mB.inboundAdmission.queuedFrames, 0);
+  });
+
+  test(
+    'coalesced native progress is checkpointed and joined on shutdown',
+    () async {
+      final ratchet = _HeldReplayCheckpoint(sB);
+      mB.ratchet = ratchet;
+      tB.sendGate = stall;
+      final frame = const WireEnvelope(
+        WireKind.groupEntry,
+        '{}',
+        frameId: 'checkpoint-replay',
+      ).encode();
+      try {
+        for (var n = 0; n < 100; n++) {
+          ratchet.version++;
+          await tA.send(b, frame);
+        }
+        await _pump();
+        expect(mB.inboundAdmission.coalescedFrames, 99);
+        expect(ratchet.replayFlushes, 1, reason: 'one checkpoint task, not 99');
+        stall.complete();
+        await _pump();
+        var disposed = false;
+        final closing = mB.dispose().then((_) => disposed = true);
+        await _pump();
+        expect(disposed, isFalse);
+        expect(ratchet.savedVersion, isNull);
+        ratchet.checkpoint.complete();
+        await closing;
+        expect(ratchet.savedVersion, 100);
+      } finally {
+        if (!ratchet.checkpoint.isCompleted) ratchet.checkpoint.complete();
+      }
+    },
+  );
 
   test('nothing already queued is written after dispose', () async {
     final before = (await sB.loadMessages(a.hex)).length;
