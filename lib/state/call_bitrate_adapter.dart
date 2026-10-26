@@ -297,6 +297,10 @@ class CallBitrateAdapter {
     );
   }
 
+  /// Small source-owned snapshot for anonymous reports, including release AOT.
+  /// Stand decision history and peer/clock identifiers remain separate.
+  Map<String, Object?> get videoDeliveryDiagnostics => _delivery.diagnostics;
+
   Map<String, Object?> get bufferDiagnostics => !_captureAdaptationDiagnostics
       ? const {}
       : {
@@ -304,7 +308,7 @@ class CallBitrateAdapter {
           'recent': List<Map<String, Object?>>.unmodifiable(_bufferHistory),
           'applied_video_kbps': _appliedTarget?.maxBitrateKbps,
           'applied_video_fps': _appliedTarget?.maxFps,
-          'delivery_model': _delivery.diagnostics,
+          'delivery_model': videoDeliveryDiagnostics,
         };
 
   void _recordBufferDecision() {
