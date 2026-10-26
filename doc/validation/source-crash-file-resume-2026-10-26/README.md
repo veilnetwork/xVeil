@@ -275,3 +275,53 @@ problem. A multi-MiB file during a call is still slow. The test does not qualify
 Windows 10, actual speech/loudness, cellular service or every multi-device
 scenario. All fixes remain local and committed without signatures or pushes;
 there was no release, deployment or modification of installed user apps.
+
+## Follow-up: recoverable backpressure and misleading loss accounting
+
+SDK commit `16048033` corrects accounting and excessive polling on the same
+local source path. `send_recoverable_with_result` reserves ingress and byte
+credits before invoking the builder. If those reservations fail, no frame or
+crypto sequence is created; the stream retains its exact cell for retry.
+Previously every such rejection increased the shared discarded-frame counter
+and emitted loss warnings. The regression failed with one reported drop for
+zero constructed frames. After correction it verifies unchanged drop count,
+unchanged activity and no builder invocation on rejection. An actual
+best-effort overflow on the same full queue still increases the counter.
+
+A full queue also returned a generic WouldBlock, causing one-millisecond
+polling even while deliberate endpoint pacing kept that queue full. The
+stream now observes the already-paid DATA/signaling byte deadline and uses
+the existing carrier retry hint, bounded to 1–10 ms. With no active primary or
+no remaining pacing debt, the original one-millisecond retry remains. Reading
+the hint grants no credit, renews no activity and reserves no fair-queue turn.
+The short upper bound avoids a long delay of new ACK/control work. Transport
+RTOs, congestion windows, source rates, relay scheduling and wire metadata are
+unchanged.
+
+All 671 enabled veil-session and 325 veilclient-ffi library tests passed
+(eight and two existing skips respectively), plus 16 real-driver tests covering
+backoff, cancellation, local handoff, fairness, reset and close. The source
+unit regression covers byte-debt preservation, shortened hints near a deadline,
+shared signaling debt and return to normal retries at primary idle expiry.
+Clippy with all targets passed for session and FFI. The optimized matching CLI
+and FFI were built with Rust warnings denied and the external target mount
+monitored throughout. These changes do not establish a throughput improvement
+or close the Windows interoperability report.
+
+The matching native candidate passed the sealed three-process stand. C rang
+A/B, B answered and A stopped ringing. During the active call, the full
+3,145,979-byte anonymous file arrived in 471,186 ms with matching size and
+SHA-256; every five-second observation continued receiving audio RTP on both
+endpoints. Hangup converged, and the subsequent C-to-B call with A offline also
+exchanged audio and hung up normally. SDK/Dart source hashes stayed unchanged
+during the run, and all owned runner/worker groups and runtime commands were
+verified absent afterwards. Frozen native hashes and the committed SDK tree
+were checked against the build proof.
+
+This is functional coverage, not a speed improvement: the preceding untraced
+run took 441,046 ms. The runs were not a controlled performance comparison
+(the candidate enabled the existing periodic stream summary). Its sender
+summary also reached a 10-second retransmission timeout allowance. Establishing
+where unsatisfied cells or acknowledgements wait remains open; local rejection
+must not be treated as proof of network loss. No Windows execution, physical
+speech/loudness qualification, release or relay deployment was performed.
