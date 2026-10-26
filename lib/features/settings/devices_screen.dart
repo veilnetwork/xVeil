@@ -1834,6 +1834,12 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
                 Center(child: _linkCodeQr(context, _pairCode!.toUri(), 220)),
                 const SizedBox(height: 12),
                 Text(l.devicesPairQrExpires),
+                const SizedBox(height: 8),
+                SecretCopyButton(
+                  label: l.actionCopy,
+                  value: () => _pairCode!.toUri(),
+                  copiedMessage: l.devicesTokenCopiedClears,
+                ),
               ] else if (_pairUnavailable && _candidateIdentity == null) ...[
                 Text(l.devicesPairLanUnavailable),
               ] else if (_candidateIdentity == null) ...[
@@ -2057,10 +2063,12 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
       if (code.identity == widget.stack.myInvite.nodeId) {
         throw const FormatException('self identity');
       }
-      final myInvite = DeviceLinkInvite(
-        device: widget.myDevice!,
-        document: widget.myDocument,
-      ).toUri();
+      // This is a join INTO the QR's identity, not a merge of two restored
+      // devices of that identity. An already configured target has a foreign
+      // document which cannot authorise the source and must not be adopted
+      // there. The source certifies this physical key after code confirmation;
+      // its resulting document comes back in the approved link token.
+      final myInvite = DeviceLinkInvite(device: widget.myDevice!).toUri();
       final request = jsonEncode({
         'k': 'request',
         'id': widget.stack.myInvite.nodeId.hex,
@@ -2181,6 +2189,14 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
 
   Future<void> _prepare() async {
     if (_busy) return;
+    final raw = _token.text.trim();
+    if (raw.startsWith(DevicePairingCode.scheme)) {
+      // The same setup code can arrive from the camera or an explicit paste,
+      // including on computers without a camera. Keep the LAN-only ceremony
+      // and its source confirmation rather than parsing this as a legacy token.
+      await _joinByQr(raw);
+      return;
+    }
     final l = AppL10n.of(context);
     setState(() {
       _busy = true;
@@ -2198,10 +2214,13 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
         throw const FormatException('expired');
       }
       await widget.stack.addContact(token.sourceInvite);
-      // The mirror of what the other device did with our invite's document.
-      // Both have to end up holding the document naming both, or the link is
-      // one-directional: this device would publish a registry of itself alone
-      // and have nowhere to send a sync.
+      final needsRestart = adoptionNeedsNodeRestart(
+        runningIdentity: widget.stack.myInvite.nodeId,
+        token: token,
+      );
+      // Take the source's approved document naming both devices. The token
+      // must authorise this physical key; without that document the target
+      // would publish a registry of itself alone and could not send a sync.
       final theirDoc = token.document;
       if (theirDoc != null && theirDoc.isNotEmpty) {
         // Same rule as the other half of the ceremony: a document this device
@@ -2211,7 +2230,10 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
           document: theirDoc,
           stagingBase: Directory.systemTemp.path,
         );
-        if (merged) {
+        // A different identity must be installed by the admitted restart.
+        // Reload is for updates within the running identity; native reload
+        // correctly refuses an identity switch before admission is persisted.
+        if (merged && !needsRestart) {
           await widget.stack.refreshSovereignIdentity(widget.service.storage);
         }
       }
@@ -2230,10 +2252,7 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
       }
       // The admission is on disk, so it survives the restart; the node comes
       // back as the identity the token names and takes the snapshot then.
-      if (adoptionNeedsNodeRestart(
-        runningIdentity: widget.stack.myInvite.nodeId,
-        token: token,
-      )) {
+      if (needsRestart) {
         final restart = widget.restartNode;
         final requesterId = _pairRequesterId;
         final myDevice = widget.myDevice?.nodeId;
@@ -2334,6 +2353,22 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
                 icon: const Icon(Icons.qr_code_scanner),
                 label: Text(l.devicesPairScan),
               ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _token,
+                onChanged: (_) => setState(() {}),
+                minLines: 1,
+                maxLines: 3,
+                decoration: InputDecoration(
+                  labelText: l.devicesJoinToken,
+                  helperText: l.devicesJoinTokenHint,
+                  suffixIcon: IconButton(
+                    tooltip: l.inviteScanTooltip,
+                    icon: const Icon(Icons.qr_code_scanner),
+                    onPressed: _busy ? null : _scan,
+                  ),
+                ),
+              ),
               const Divider(height: 28),
               ExpansionTile(
                 title: Text(l.devicesPairLegacy),
@@ -2346,21 +2381,6 @@ class _TargetLinkSheetState extends State<_TargetLinkSheet> {
                         Clipboard.setData(ClipboardData(text: myInvite)),
                     icon: const Icon(Icons.copy),
                     label: Text(l.actionCopy),
-                  ),
-                  TextField(
-                    controller: _token,
-                    onChanged: (_) => setState(() {}),
-                    minLines: 1,
-                    maxLines: 3,
-                    decoration: InputDecoration(
-                      labelText: l.devicesJoinToken,
-                      helperText: l.devicesJoinTokenHint,
-                      suffixIcon: IconButton(
-                        tooltip: l.inviteScanTooltip,
-                        icon: const Icon(Icons.qr_code_scanner),
-                        onPressed: _busy ? null : _scan,
-                      ),
-                    ),
                   ),
                 ],
               ),

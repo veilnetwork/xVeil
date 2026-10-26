@@ -10,6 +10,14 @@ bumps may change behaviour a user notices.
 
 ### Fixed
 
+- Link an independently configured device by its physical key without trying
+  to merge its previous identity document into the source identity. Preserve
+  source confirmation and verification of the approved family document. Save
+  admission before restarting into that identity instead of reloading it into
+  a node still running the previous identity.
+- Accept a copied current device-pairing QR code in the setup field, expose
+  that field outside legacy linking and add a short-lived copy action beside
+  the source QR. Keep the same LAN-only exchange and source approval.
 - Keep QR device pairing usable across multiple local interfaces: try bounded
   authenticated exchanges concurrently, cancel losing connections, retain
   listeners when an adapter disappears and advertise only bound addresses.
