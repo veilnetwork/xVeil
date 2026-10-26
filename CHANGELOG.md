@@ -6,6 +6,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [0.13.93] — 2026-10-26
+
+### Fixed
+
+- Preserve signed causal references in Public Space authority changes and apply
+  verified changes before evaluating the current holder quorum.
+- Resolve bounded independent holder samples beyond the former five-result
+  limit. Reserve the signed carrier overhead inside the discovery payload cap.
+- Pace healthy video recovery probes using validated RTT, bounded to 950–3000
+  ms, with conservative timing when RTT is unknown. Retain causal decoder ACKs,
+  audio safeguards and congestion drain; bound cruise FPS growth to 25%.
+
+### Dependencies and validation
+
+- Use Veil 0.11.46 and hidden-volume 2.6.4.
+- Public Space discovery passed its isolated native three-node gate. The video
+  model passed focused regressions, but a physical recovery speedup and cellular
+  call quality are not qualified by this cycle: the candidate physical attempt
+  stopped before incoming ringing and never started media.
+
 ## [0.13.92] — 2026-10-26
 
 Includes the work prepared for 0.13.89–0.13.91; those tags did not produce a
