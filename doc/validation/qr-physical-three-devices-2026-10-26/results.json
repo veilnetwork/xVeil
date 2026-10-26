@@ -1,0 +1,186 @@
+{
+  "pairing": {
+    "same_running_identity": true,
+    "source_preserved": true,
+    "target_adopted_source": true,
+    "physical_keys_preserved": true,
+    "same_device_group": true,
+    "production_restart_observed": false,
+    "rendered_rosters": {
+      "mac": {
+        "exact_two_physical_keys": true,
+        "physical_row_ids_count": 2,
+        "own_physical_key_visible": true,
+        "sibling_physical_key_visible": true,
+        "identity_alias_shown_as_extra_device": false
+      },
+      "phone": {
+        "exact_two_physical_keys": true,
+        "physical_row_ids_count": 2,
+        "own_physical_key_visible": true,
+        "sibling_physical_key_visible": true,
+        "identity_alias_shown_as_extra_device": false
+      }
+    },
+    "history": {
+      "source_history_markers": 10,
+      "target_history_markers": 10,
+      "no_duplicates": true,
+      "elapsed_ms": 3
+    }
+  },
+  "cold_restart": {
+    "cold_process_restart": true,
+    "forced_exit_after_clean_container_lock": true,
+    "same_identity": true,
+    "physical_key_preserved": true,
+    "device_group_retained": true
+  },
+  "contact": {
+    "request_delivered": true,
+    "request_ms": 3394,
+    "accepted_on_A_B_C": true,
+    "acceptance_ms": 3724,
+    "source": "C",
+    "accepted_on": "A"
+  },
+  "messages": {
+    "C": {
+      "delivered_everywhere": true,
+      "same_logical_id": true,
+      "duplicates": 0,
+      "elapsed_ms": 650
+    },
+    "A": {
+      "delivered_everywhere": true,
+      "same_logical_id": true,
+      "duplicates": 0,
+      "elapsed_ms": 3340
+    },
+    "B": {
+      "delivered_everywhere": true,
+      "same_logical_id": true,
+      "duplicates": 0,
+      "elapsed_ms": 4370
+    }
+  },
+  "calls": {
+    "C_answered_B": {
+      "ringed_required_devices": true,
+      "ring_ms": 189,
+      "active_caller_and_answerer": true,
+      "other_device_inactive": true,
+      "answerer": "B",
+      "audio_rx_packets": {
+        "C": 126,
+        "B": 122
+      }
+    },
+    "C_answered_A": {
+      "ringed_required_devices": true,
+      "ring_ms": 2531,
+      "active_caller_and_answerer": true,
+      "other_device_inactive": true,
+      "answerer": "A",
+      "audio_rx_packets": {
+        "C": 63,
+        "A": 161
+      }
+    },
+    "A_answered_C": {
+      "ringed_required_devices": true,
+      "ring_ms": 2164,
+      "active_caller_and_answerer": true,
+      "other_device_inactive": true,
+      "answerer": "C",
+      "audio_rx_packets": {
+        "A": 159,
+        "C": 59
+      }
+    },
+    "B_answered_C": {
+      "ringed_required_devices": true,
+      "ring_ms": 155,
+      "active_caller_and_answerer": true,
+      "other_device_inactive": true,
+      "answerer": "C",
+      "audio_rx_packets": {
+        "B": 135,
+        "C": 186
+      }
+    }
+  },
+  "online_file": {
+    "bytes": 3145965,
+    "one_offer_on_B_and_C": true,
+    "same_logical_message_id": true,
+    "B_bytes_held_before_fetch": false,
+    "C_download": {
+      "sha256_matches": true,
+      "bytes": 3145965,
+      "elapsed_ms": 3642
+    },
+    "B_download": {
+      "sha256_matches": true,
+      "bytes": 3145965,
+      "elapsed_ms": 3606
+    }
+  },
+  "offline_B": {
+    "B_offline_during_send": true,
+    "C_offline_during_B_reconnect_and_fetch": true,
+    "A_online": true,
+    "text_converged_once_same_id": true,
+    "file_offer_converged_once_same_id": true,
+    "file_not_cached_before_fetch": true,
+    "download_sha256_matches": true,
+    "file_bytes": 3145967,
+    "elapsed_since_B_unlock_ms": 24837
+  },
+  "alternate_holder_before": {
+    "A_offline_during_B_fetch": true,
+    "B_bytes_absent_before_fetch": true,
+    "C_online_with_completed_plaintext_download": true,
+    "file_bytes": 3145969,
+    "sha256_matches": true,
+    "elapsed_ms": 67446
+  },
+  "alternate_holder_after": {
+    "A_offline_during_B_fetch": true,
+    "B_bytes_absent_before_fetch": true,
+    "C_online_with_completed_plaintext_download": true,
+    "file_bytes": 3145971,
+    "sha256_matches": true,
+    "elapsed_ms": 56312
+  },
+  "reoffer_timing": {
+    "confirmation_wait_before_ms": 60044,
+    "confirmation_wait_after_ms": 2839,
+    "total_after_ms": 56253,
+    "bulk_after_manifest_ms": 40278,
+    "retry_used_anonymous_stream": true,
+    "claimed_first_request_rejected": true
+  },
+  "focused_stream_tests_passed": 77,
+  "new_regressions": 5,
+  "windows_qualified": false,
+  "live_speech_qualified": false,
+  "video_qualified": false,
+  "release_performed": false,
+  "push_performed": false,
+  "cleanup": {
+    "mac_owned_pending_downloads": 0,
+    "mac_active_calls": false,
+    "peer_owned_pending_downloads": 0,
+    "peer_active_calls": false,
+    "peer_profile_archived": true,
+    "all_recorded_app_groups_exited": true,
+    "own_phone_plaintext_fixtures_removed": true,
+    "main_apps_modified": false,
+    "global_power_or_volume_settings_changed": false
+  },
+  "phone_network": {
+    "active_transport_wifi": true,
+    "active_network_found": true
+  }
+}
