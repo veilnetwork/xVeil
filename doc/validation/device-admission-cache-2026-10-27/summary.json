@@ -1,0 +1,58 @@
+{
+  "schema": "xveil-device-admission-cache/1",
+  "source_base": "373363cb",
+  "veil_source": "1d36980d",
+  "roles": {
+    "A": "Android Wi-Fi, X",
+    "B": "macOS, X",
+    "C": "macOS, Y"
+  },
+  "inherited_recovery": {
+    "elapsed_ms": 181618,
+    "counts": {
+      "phone": 43,
+      "mac": 100,
+      "peer": 100
+    },
+    "complete": false,
+    "no_duplicates": true,
+    "same_logical_ids": false
+  },
+  "recovery_limit_failed": true,
+  "additional_load_added": false,
+  "later_phases_run": false,
+  "tests_passed": 353,
+  "tests_skipped": 3,
+  "analysis_exit": 0,
+  "baseline_owner_reads_after_theme": 2,
+  "candidate_owner_reads_after_theme_and_ten_mirrors": 1,
+  "owner_reads_after_identity_document": 2,
+  "owner_reads_after_original_expiry": 3,
+  "owner_reads_after_revoke": 4,
+  "existing_cache_ttl_ms": 30000,
+  "served_batch_samples": [
+    {
+      "rows": 227,
+      "merge_batches": 5
+    },
+    {
+      "rows": 221,
+      "merge_batches": 5
+    }
+  ],
+  "cleanup": {
+    "mac_remaining_processes": 0,
+    "peer_remaining_processes": 0,
+    "phone_remaining_processes": 0,
+    "own_forward_removed": true,
+    "main_app_modified": false,
+    "system_power_settings_changed": false,
+    "retained_profiles": true,
+    "all_recorded_groups_exited": true,
+    "permissions_restored": true
+  },
+  "release_or_push": false,
+  "windows_tested": false,
+  "native_test_hooks": false,
+  "private_timing_overlay": false
+}
