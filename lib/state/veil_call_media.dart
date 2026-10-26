@@ -1872,6 +1872,11 @@ class VeilCallMediaController implements CallMediaController {
       values: {DiagnosticMetric.success: audioOk ? 1 : 0},
     );
     devLog(() => 'xVeil[call-media]: startAudio=$audioOk');
+    // A mounted video pipeline does not make a failed audio device usable.
+    // Otherwise an audio/video call becomes active with no outgoing voice
+    // (for example when Android refuses capture behind the lock screen).
+    // CallService owns teardown and reports the failed media start.
+    if (call.media.audio && !audioOk) return false;
     var videoOk = false;
     // VP8 video over the same veil channel when the call requests video/screen.
     // Capture/render wiring lands with the platform capturer; the pipeline is
