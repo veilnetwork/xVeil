@@ -1851,6 +1851,11 @@ class VeilCallMediaController implements CallMediaController {
               callVideoPrompt.value == CallVideoPromptCause.linkFailing) {
             callVideoPrompt.value = null;
           }
+          if (kDiagnosticReportEnabled) {
+            diagnosticJournal.recordVideoDelivery(
+              adapter.videoDeliveryDiagnostics,
+            );
+          }
         }
       } catch (_) {}
     });
