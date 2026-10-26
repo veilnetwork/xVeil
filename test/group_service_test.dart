@@ -7871,6 +7871,45 @@ void main() {
       expect(() => header['g'] as List?, throwsA(isA<TypeError>()));
     });
 
+    test('concurrent loads share pending segments but retain independent bundles', () async {
+      final first = (await _groupFiles(storage, gid))[1];
+      final saved = (await storage.loadFile(first))!;
+      storage.segmentReads.clear();
+      final gate = Completer<void>();
+      storage.segmentReadGate = gate;
+      final pending = List.generate(20, (_) => svc.load(gid));
+      try {
+        for (var n = 0; n < 20; n++) { await Future<void>.delayed(Duration.zero); }
+        expect(storage.segmentReads[first], 1);
+      } finally {
+        gate.complete();
+        storage.segmentReadGate = null;
+        await Future.wait(pending);
+      }
+      final bundles = await Future.wait(pending);
+      expect(bundles.every((b) => b?.messages.length == 300), isTrue);
+      expect(storage.segmentReads.values.every((n) => n == 1), isTrue);
+      expect(identical(bundles[0]!.messages, bundles[1]!.messages), isFalse);
+      // A completed read must never hide deletion, damage, or a later repair.
+      await storage.deleteStoredFile(first);
+      expect(await svc.load(gid), isNull);
+      await storage.storeFile(first, saved);
+      expect((await svc.load(gid))!.messages, hasLength(300));
+    });
+
+    test('failed shared segment reads are retried after the failure', () async {
+      final gate = Completer<void>();
+      storage.segmentReadGate = gate;
+      storage.failSegmentRead = true;
+      final pending = List.generate(5, (_) => svc.load(gid));
+      for (var n = 0; n < 20; n++) { await Future<void>.delayed(Duration.zero); }
+      gate.complete();
+      expect(await Future.wait(pending), everyElement(isNull));
+      storage.segmentReadGate = null;
+      storage.failSegmentRead = false;
+      expect((await svc.load(gid))!.messages, hasLength(300));
+    });
+
     test('a fresh service reads back every message', () async {
       final again = GroupService(storage, _FakeSigner(owner));
       addTearDown(again.dispose);
@@ -24747,6 +24786,10 @@ class _CountingStorage extends HiddenVolumeStorage {
   int storedBytes = 0;
   final storedIds = <String>[];
   final deletedIds = <String>[];
+  final segmentReads = <String, int>{};
+  Completer<void>? segmentReadGate;
+  bool failSegmentRead = false;
+
 
   /// Called before each file read, once per arming; a test uses it to run a
   /// save in the middle of a load.
@@ -24754,6 +24797,11 @@ class _CountingStorage extends HiddenVolumeStorage {
 
   @override
   Future<Uint8List?> loadFile(String fileId, {int? maxBytes}) async {
+    if (fileId.contains(':s:')) {
+      segmentReads.update(fileId, (n) => n + 1, ifAbsent: () => 1);
+      await segmentReadGate?.future;
+      if (failSegmentRead) throw StateError('injected segment read failure');
+    }
     final hook = beforeLoadFile;
     if (hook != null) {
       beforeLoadFile = null;

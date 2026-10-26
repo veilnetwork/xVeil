@@ -6578,6 +6578,21 @@ class GroupService implements ArchiveGroups {
   final Map<String, ({Set<String> live, Set<String> pending})> _segmentIndex =
       {};
 
+  // Cloud, device sync and list readers can load the same journal at once.
+  // Share only an unfinished read of its content-addressed segment. Each
+  // caller still decodes its own bundle and validates it normally; a later
+  // read goes back to storage so deletion, corruption and repair stay visible.
+  final Map<String, Future<Uint8List?>> _segmentReads = {};
+
+  Future<Uint8List?> _readMessageSegment(String key) =>
+      _segmentReads.putIfAbsent(
+        key,
+        () => Future<Uint8List?>.sync(() => _storage.loadFile(key))
+            .whenComplete(() {
+              _segmentReads.remove(key);
+            }),
+      );
+
   /// Pack [messages] into segments whose boundaries depend only on the rows
   /// before them, keyed by their content.
   List<({String key, String json})> _encodeMessageSegments(
@@ -6651,7 +6666,7 @@ class GroupService implements ArchiveGroups {
     final rows = <Object?>[];
     for (final k in raw) {
       if (k is! String || !live.contains(k)) continue;
-      final blob = await _storage.loadFile(k);
+      final blob = await _readMessageSegment(k);
       if (blob == null) {
         return 'message segment ${k.substring(k.length - 8)} named by the '
             'header is missing';
