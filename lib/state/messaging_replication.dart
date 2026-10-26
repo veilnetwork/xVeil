@@ -17,13 +17,11 @@ part of 'messaging_core.dart';
 /// digest to its group/document. Both are NUL-terminated, which is
 /// unambiguous — neither a domain tag nor a hex id can contain a NUL.
 String _replicationDigest(String domain, String scopeHex, Uint8List payload) =>
-    crypto.sha256
-        .convert(<int>[
-          ...utf8.encode('$domain\u0000'),
-          ...utf8.encode('$scopeHex\u0000'),
-          ...payload,
-        ])
-        .toString();
+    crypto.sha256.convert(<int>[
+      ...utf8.encode('$domain\u0000'),
+      ...utf8.encode('$scopeHex\u0000'),
+      ...payload,
+    ]).toString();
 
 const _kGroupSnapshotDigestDomain = 'xveil.replication.group-snapshot.v1';
 const _kCloudDocumentDigestDomain = 'xveil.replication.cloud-document.v1';
@@ -52,9 +50,25 @@ class _MessagingReplication {
   static String _reasmKey(NodeId src, String transferId) =>
       '${src.hex}|$transferId';
 
-  /// In-RAM reassembly of chunked group snapshots, keyed by [_reasmKey].
+  /// In-RAM reassembly and minimal ACK routes, bounded by bytes and count.
   final _groupReasm =
-      <String, ({int count, Map<int, Uint8List> parts, int bytes})>{};
+      <
+        String,
+        ({
+          int count,
+          Map<int, Uint8List> parts,
+          Map<int, ({InboundMessage message, String fid, String bodyHash})>
+          acks,
+          int bytes,
+        })
+      >{};
+  final _groupReceipts = <(String, String, String)>{};
+  final _completedGroupTransfers = <String>{};
+  Object? _groupHandlerIdentity;
+  Object? _strangerHandlerIdentity;
+  int _groupEpoch = 0;
+  static const _maxGroupReceipts = 4096;
+  static const _maxCompletedGroupTransfers = 128;
 
   /// Document chunks additionally retain the durable ACK route per slice.
   final _cloudDocumentReasm =
@@ -209,11 +223,7 @@ class _MessagingReplication {
         '${_replicationDigest(_kCloudDocumentDigestDomain, documentIdHex, bytes)}'
         ':${dst.hex}';
     if (bytes.length <= _groupChunkBytes) {
-      await _owner.sendDurable(
-        dst,
-        tid,
-        WireEnvelope.cloudDocument(frameJson),
-      );
+      await _owner.sendDurable(dst, tid, WireEnvelope.cloudDocument(frameJson));
       return;
     }
     final count = (bytes.length + _groupChunkBytes - 1) ~/ _groupChunkBytes;
@@ -235,96 +245,300 @@ class _MessagingReplication {
     }
   }
 
-  /// Reassemble a chunked group snapshot ([WireKind.groupEntryChunk]); once
-  /// every chunk of a transferId is present, hand the joined bundle to
-  /// [_owner.onGroupEntry] exactly like a whole [WireKind.groupEntry]. In-RAM +
-  /// bounded; a lost partial re-heals on the sender's next full re-broadcast.
-  /// A NON-contact's chunk: admit only when the group layer confirms the
-  /// sender is a member of the group named in the transferId
-  /// (`grp:<gidHex>:<hash>`) — checked before buying reassembly RAM.
-  Future<void> ingestStrangerGroupChunk(NodeId src, String body) async {
-    final GroupEntryChunkFrame f;
-    try {
-      f = parseGroupEntryChunk(body);
-    } catch (_) {
-      return; // malformed / hostile chunk
-    }
-    final parts = f.transferId.split(':');
-    if (parts.length < 3 || parts[0] != 'grp') return;
-    final gidHex = parts[1];
-    if (!(await _owner.allowStrangerGroupSync?.call(src, gidHex) ?? false)) {
-      return; // silent drop — no membership oracle
-    }
-    ingestGroupChunk(src, body, fromStranger: true);
+  static final _digestHex = RegExp(r'^[0-9a-f]{64}$');
+
+  static bool _canonicalGroupTransfer(String id) {
+    // Current IDs are about 200 bytes. Bound parsing even for a hostile ID.
+    if (!id.startsWith('grp:') || id.length > 300) return false;
+    final parts = id.split(':');
+    return parts.length == 4 &&
+        parts[0] == 'grp' &&
+        _digestHex.hasMatch(parts[2]) &&
+        _digestHex.hasMatch(parts[3]);
   }
 
-  void ingestGroupChunk(NodeId src, String body, {bool fromStranger = false}) {
+  static String? _canonicalChunkTransfer(String? fid) {
+    if (fid == null || fid.length > 340 || !fid.startsWith('grpc:')) {
+      return null;
+    }
+    final colon = fid.lastIndexOf(':');
+    if (colon <= 5) return null;
+    final tid = fid.substring(5, colon);
+    return _canonicalGroupTransfer(tid) ? tid : null;
+  }
+
+  /// A different wire kind must not consume a snapshot's receipt namespace.
+  bool acceptsFrameKind(WireKind kind, String? fid) {
+    if (fid == null) return true;
+    if (_canonicalGroupTransfer(fid)) return kind == WireKind.groupEntry;
+    if (_canonicalChunkTransfer(fid) != null) {
+      return kind == WireKind.groupEntryChunk;
+    }
+    return true;
+  }
+
+  static bool _matchesGroupDigest(String tid, Uint8List bytes) {
+    if (!_canonicalGroupTransfer(tid)) return true; // legacy transport
+    final parts = tid.split(':');
+    return parts[2] ==
+        _replicationDigest(_kGroupSnapshotDigestDomain, parts[1], bytes);
+  }
+
+  static String _bodyHash(String body) =>
+      crypto.sha256.convert(utf8.encode(body)).toString();
+
+  void _refreshGroupHandlers() {
+    if (identical(_groupHandlerIdentity, _owner.onGroupEntry) &&
+        identical(_strangerHandlerIdentity, _owner.onGroupEntryFromStranger)) {
+      return;
+    }
+    // A rebuilt provider may own a different store/identity. Its receipts
+    // cannot inherit a preceding owner's successful write or partial bytes.
+    _groupReasm.clear();
+    _groupReceipts.clear();
+    _completedGroupTransfers.clear();
+    _groupHandlerIdentity = _owner.onGroupEntry;
+    _strangerHandlerIdentity = _owner.onGroupEntryFromStranger;
+    _groupEpoch++;
+  }
+
+  bool _currentGroupEpoch(int epoch) {
+    _refreshGroupHandlers();
+    return !_owner._disposed && _groupEpoch == epoch;
+  }
+
+  bool _hasGroupReceipt(InboundMessage m, String? fid, String bodyHash) =>
+      fid != null && _groupReceipts.contains((m.src.hex, fid, bodyHash));
+
+  Future<void> _ackGroupFrame(
+    InboundMessage m,
+    String? fid,
+    String bodyHash, {
+    required bool canonical,
+    List<NodeId>? ownDeviceTargets,
+    required int epoch,
+  }) async {
+    if (!_currentGroupEpoch(epoch) ||
+        fid == null ||
+        (!canonical && !m.provenance.isAuthenticated)) {
+      return;
+    }
+    // Legacy IDs do not bind content. They require authenticated attribution;
+    // current IDs additionally prove the exact committed snapshot bytes.
+    final key = (m.src.hex, fid, bodyHash);
+    final repeat = _groupReceipts.contains(key);
+    if (!repeat) {
+      if (_groupReceipts.length >= _maxGroupReceipts) {
+        _groupReceipts.remove(_groupReceipts.first);
+      }
+      _groupReceipts.add(key);
+    }
+    try {
+      await _owner._ackTo(
+        m,
+        fid,
+        direct: repeat,
+        repeat: repeat,
+        ownDeviceTargets: ownDeviceTargets,
+      );
+    } catch (error) {
+      // The durable receipt remains; retransmission asks for another ACK.
+      devLog(
+        () => 'xVeil[group]: ACK failed (${error.runtimeType}); retry retained',
+      );
+    }
+  }
+
+  Future<bool> _deliverGroupFrame(
+    NodeId peer,
+    String json, {
+    required bool fromStranger,
+  }) async {
+    final handler = fromStranger
+        ? _owner.onGroupEntryFromStranger
+        : _owner.onGroupEntry;
+    if (handler == null) return false;
+    try {
+      final terminal = await handler(peer, json);
+      final current = fromStranger
+          ? _owner.onGroupEntryFromStranger
+          : _owner.onGroupEntry;
+      if (!identical(handler, current)) {
+        _refreshGroupHandlers();
+        return false;
+      }
+      return terminal && !_owner._disposed;
+    } catch (error, stack) {
+      errorJournal.record(
+        kind: 'group-apply',
+        error: error,
+        stack: stack,
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      devLog(
+        () =>
+            'xVeil[group]: apply failed (${error.runtimeType}); retry retained',
+      );
+      return false;
+    }
+  }
+
+  Future<void> ingestGroupFrame(
+    InboundMessage m,
+    String body,
+    String? fid, {
+    required bool fromStranger,
+    required bool allowSeenAck,
+  }) async {
+    _refreshGroupHandlers();
+    final epoch = _groupEpoch;
+    final canonical = fid != null && _canonicalGroupTransfer(fid);
+    if (canonical &&
+        !_matchesGroupDigest(fid, Uint8List.fromList(utf8.encode(body)))) {
+      return;
+    }
+    final hash = _bodyHash(body);
+    if (allowSeenAck && _hasGroupReceipt(m, fid, hash)) {
+      await _ackGroupFrame(m, fid, hash, canonical: canonical, epoch: epoch);
+      return;
+    }
+    if (!await _deliverGroupFrame(m.src, body, fromStranger: fromStranger)) {
+      return;
+    }
+    await _ackGroupFrame(m, fid, hash, canonical: canonical, epoch: epoch);
+  }
+
+  /// Every slice remains retryable until the joined snapshot is durable.
+  /// Awaiting the apply also keeps its transport admission reservation alive.
+  Future<void> ingestGroupChunk(
+    InboundMessage m,
+    String body,
+    String? fid, {
+    required bool fromStranger,
+  }) async {
+    _refreshGroupHandlers();
     final GroupEntryChunkFrame f;
     try {
       f = parseGroupEntryChunk(body);
     } catch (_) {
-      return; // malformed / hostile chunk
+      return;
     }
-    if (f.count <= 0 || f.count > _kMaxGroupReasmChunks) return;
-    if (f.index < 0 || f.index >= f.count) return;
-    // The sender never cuts an empty slice, and an empty one is exactly what
-    // grows the parts map without moving the byte total (report9 X-10).
-    if (f.data.isEmpty) return;
-    final key = _reasmKey(src, f.transferId);
+    if (f.count <= 0 ||
+        f.count > _kMaxGroupReasmChunks ||
+        f.index < 0 ||
+        f.index >= f.count ||
+        f.data.isEmpty) {
+      return;
+    }
+    final boundTid = _canonicalChunkTransfer(fid);
+    if (boundTid != null &&
+        (boundTid != f.transferId ||
+            fid != 'grpc:${f.transferId}:${f.index}')) {
+      return;
+    }
+    if (fromStranger) {
+      final parts = f.transferId.split(':');
+      if (parts.length < 3 ||
+          parts[0] != 'grp' ||
+          !(await _owner.allowStrangerGroupSync?.call(m.src, parts[1]) ??
+              false)) {
+        return;
+      }
+      _refreshGroupHandlers();
+    }
+    final canonical = _canonicalGroupTransfer(f.transferId);
+    final epoch = _groupEpoch;
+    final hash = _bodyHash(body);
+    final key = _reasmKey(m.src, f.transferId);
+    if ((canonical && _completedGroupTransfers.contains(key)) ||
+        _hasGroupReceipt(m, fid, hash)) {
+      await _ackGroupFrame(m, fid, hash, canonical: canonical, epoch: epoch);
+      return;
+    }
     var slot = _groupReasm[key];
     if (slot == null) {
-      // Cap concurrent reassemblies — evict the least recently ADVANCED
-      // partial. The audit asked for a TTL here; a wall-clock TTL is the wrong
-      // instrument, because the transfer it would kill first is the honest slow
-      // one — a big snapshot over a congested mailbox route is exactly the case
-      // that takes minutes and is still making progress. Ordering the map by
-      // last progress instead means a partial is only ever dropped when it is
-      // BOTH the stalest AND we need its slot, which is the property a TTL was
-      // reaching for without the false positives (audit XV-11).
+      // Evict the least recently advanced partial, never ACKing its slices.
       if (_groupReasm.length >= _kMaxGroupReasmConcurrent) {
         _groupReasm.remove(_groupReasm.keys.first);
       }
-      slot = (count: f.count, parts: <int, Uint8List>{}, bytes: 0);
-      _groupReasm[key] = slot;
+      slot = (
+        count: f.count,
+        parts: <int, Uint8List>{},
+        acks: <int, ({InboundMessage message, String fid, String bodyHash})>{},
+        bytes: 0,
+      );
     }
-    if (f.count != slot.count) return; // stray chunk from a different snapshot
-    if (slot.parts.containsKey(f.index)) return; // duplicate slice
+    if (f.count != slot.count || slot.parts.containsKey(f.index)) return;
     final nextBytes = slot.bytes + f.data.length;
     if (nextBytes > _kMaxGroupReasmBytes) {
-      _groupReasm.remove(key); // refuse an oversized snapshot
+      _groupReasm.remove(key);
       return;
     }
     slot.parts[f.index] = f.data;
-    // Remove-then-insert, not a plain overwrite: Dart keeps a map's ORIGINAL
-    // insertion order when a present key is reassigned, so without this the
-    // eviction above would still be picking the oldest-STARTED partial.
+    if (fid != null) {
+      // Retain attribution and device reply routing, but not another payload.
+      slot.acks[f.index] = (
+        message: InboundMessage(
+          src: m.src,
+          srcDevice: m.srcDevice,
+          provenance: m.provenance,
+          replyId: m.replyId,
+          payload: Uint8List(0),
+        ),
+        fid: fid,
+        bodyHash: hash,
+      );
+    }
     _groupReasm.remove(key);
     _groupReasm[key] = (
       count: slot.count,
       parts: slot.parts,
+      acks: slot.acks,
       bytes: nextBytes,
     );
-    if (slot.parts.length < slot.count) return; // still missing chunks
-    // Complete: concatenate in index order, decode, ingest once.
+    if (slot.parts.length != slot.count) return;
     _groupReasm.remove(key);
     final joined = BytesBuilder(copy: false);
     for (var i = 0; i < slot.count; i++) {
       final part = slot.parts[i];
-      if (part == null) return; // gap despite full count — bail defensively
+      if (part == null) return;
       joined.add(part);
     }
+    final bytes = joined.takeBytes();
+    if (!_matchesGroupDigest(f.transferId, bytes)) return;
+    final String json;
     try {
-      final bundle = utf8.decode(joined.toBytes());
-      // The stranger path re-validates membership at ingest too (the guarded
-      // service half) — this routing just keeps the two admission stories
-      // separate end to end.
-      if (fromStranger) {
-        _owner.onGroupEntryFromStranger?.call(src, bundle);
-      } else {
-        _owner.onGroupEntry?.call(src, bundle);
-      }
+      json = utf8.decode(bytes);
     } catch (_) {
-      /* undecodable joined bundle */
+      return;
+    }
+    if (!await _deliverGroupFrame(m.src, json, fromStranger: fromStranger)) {
+      return;
+    }
+    if (!_currentGroupEpoch(epoch)) return;
+    if (canonical) {
+      if (_completedGroupTransfers.length >= _maxCompletedGroupTransfers) {
+        _completedGroupTransfers.remove(_completedGroupTransfers.first);
+      }
+      _completedGroupTransfers.add(key);
+    }
+    List<NodeId>? ownDeviceTargets;
+    if (slot.acks.values.any((a) => a.message.srcDevice == null) &&
+        await _owner.selfIdentityHex?.call() == m.src.hex) {
+      // Without physical attribution the ordinary ACK path asks the device
+      // journal for reply targets. Resolve once for this committed snapshot,
+      // rather than loading that entire journal again for every slice.
+      ownDeviceTargets = await _owner.myOtherDevices?.call() ?? const [];
+    }
+    for (final ack in slot.acks.values) {
+      await _ackGroupFrame(
+        ack.message,
+        ack.fid,
+        ack.bodyHash,
+        canonical: canonical,
+        ownDeviceTargets: ownDeviceTargets,
+        epoch: epoch,
+      );
     }
   }
 

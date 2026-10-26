@@ -15465,6 +15465,31 @@ class GroupService implements ArchiveGroups {
   /// answered (membership-gated), anything else is the normal idempotent
   /// snapshot/delta ingest. The wire wiring points here instead of calling
   /// [ingestSnapshot] directly.
+  /// Receipt boundary for messaging. A snapshot must actually land before its
+  /// frames retire. Sync/clear requests are terminal even when the authorized
+  /// answer is "nothing to send/change"; denial and missing state retry.
+  Future<bool> receiveGroupFrame(
+    NodeId peer,
+    String json, {
+    bool fromStranger = false,
+  }) async {
+    final applied = fromStranger
+        ? await ingestGroupEntryFromStranger(peer, json)
+        : await ingestGroupEntry(peer, json);
+    if (applied) return true;
+    try {
+      final request = jsonDecode(json);
+      if (request is! Map ||
+          !(request['sreq'] == 1 || (!fromStranger && request['creq'] == 1))) {
+        return false;
+      }
+      final gid = request['gid'];
+      return gid is String && await allowStrangerGroupSync(peer, gid);
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<bool> ingestGroupEntry(NodeId peer, String json) async {
     json = await _restoreOmittedManifest(json);
     Map? decoded;
