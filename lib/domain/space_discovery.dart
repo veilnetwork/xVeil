@@ -778,6 +778,21 @@ List<SpacePublicDescriptor> mergeSpacePublicDiscovery({
     if (!descriptor.verifyAt(nowMs, verify)) continue;
     validDescriptors[descriptor.descriptorHash] = descriptor;
   }
+  // A verified transfer revokes the old publisher independently of holder
+  // availability. Count quorum only within the newest authenticated authority
+  // of the same genesis; an unrelated self-signed genesis cannot revoke it.
+  String authorityScope(SpacePublicDescriptor descriptor) =>
+      '${descriptor.spaceId.hex}:'
+      '${crypto.sha256.convert(descriptor.genesisManifest.canonicalBytes())}';
+  final authorityByGenesis = <String, SpacePublicDescriptor>{};
+  for (final descriptor in validDescriptors.values) {
+    final scope = authorityScope(descriptor);
+    final current = authorityByGenesis[scope];
+    if (current == null ||
+        _compareSpacePublicAuthorities(descriptor, current) > 0) {
+      authorityByGenesis[scope] = descriptor;
+    }
+  }
   final holdersByDescriptor = <String, Set<NodeId>>{};
   for (final holder in holders) {
     final descriptor = validDescriptors[holder.descriptorHash];
@@ -794,11 +809,18 @@ List<SpacePublicDescriptor> mergeSpacePublicDiscovery({
   final normalizedQuery = normalizeSpaceDiscoverySearchText(query);
   final bestBySpace = <NodeId, SpacePublicDescriptor>{};
   for (final entry in validDescriptors.entries) {
+    final descriptor = entry.value;
+    if (_compareSpacePublicAuthorities(
+          descriptor,
+          authorityByGenesis[authorityScope(descriptor)]!,
+        ) !=
+        0) {
+      continue;
+    }
     if ((holdersByDescriptor[entry.key]?.length ?? 0) <
         minimumIndependentHolders) {
       continue;
     }
-    final descriptor = entry.value;
     if (normalizedQuery.isNotEmpty &&
         !normalizeSpaceDiscoverySearchText(
           descriptor.name,
@@ -829,12 +851,8 @@ int compareSpacePublicDescriptors(
   SpacePublicDescriptor left,
   SpacePublicDescriptor right,
 ) {
-  final byAuthorityGeneration = left.authorityGeneration.compareTo(
-    right.authorityGeneration,
-  );
-  if (byAuthorityGeneration != 0) return byAuthorityGeneration;
-  final byAuthorityHash = left.authorityHash.compareTo(right.authorityHash);
-  if (byAuthorityHash != 0) return byAuthorityHash;
+  final byAuthority = _compareSpacePublicAuthorities(left, right);
+  if (byAuthority != 0) return byAuthority;
   final byFeedRevision = left.publicFeedRevision.compareTo(
     right.publicFeedRevision,
   );
@@ -848,6 +866,17 @@ int compareSpacePublicDescriptors(
   final byIssue = left.issuedAtMs.compareTo(right.issuedAtMs);
   if (byIssue != 0) return byIssue;
   return left.descriptorHash.compareTo(right.descriptorHash);
+}
+
+int _compareSpacePublicAuthorities(
+  SpacePublicDescriptor left,
+  SpacePublicDescriptor right,
+) {
+  final byAuthorityGeneration = left.authorityGeneration.compareTo(
+    right.authorityGeneration,
+  );
+  if (byAuthorityGeneration != 0) return byAuthorityGeneration;
+  return left.authorityHash.compareTo(right.authorityHash);
 }
 
 Uint8List _encodeSpacePublicAuthorityChain(

@@ -10105,10 +10105,22 @@ void main() {
         isTrue,
       );
       expect(await service.transferSpaceOwnership(spaceId, bob), isTrue);
+      final publicationOutput = <String>[];
+      final revokedPublication = await runZoned(
+        () => service.buildSpacePublicDiscoveryPayload(spaceId),
+        zoneSpecification: ZoneSpecification(
+          print: (self, parent, zone, line) => publicationOutput.add(line),
+        ),
+      );
       expect(
-        await service.buildSpacePublicDiscoveryPayload(spaceId),
+        revokedPublication,
         isNull,
         reason: 'the revoked publisher must stop immediately after transfer',
+      );
+      expect(
+        publicationOutput,
+        isEmpty,
+        reason: 'declining publication must not print member identity data',
       );
       final nextOwnerService = GroupService(storage, _AuthorityFakeSigner(bob));
       addTearDown(nextOwnerService.dispose);

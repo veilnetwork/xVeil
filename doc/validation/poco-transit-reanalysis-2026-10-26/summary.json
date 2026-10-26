@@ -1,0 +1,68 @@
+{
+  "capture": "poco-cellular-call-2026-10-25",
+  "source_commit": "38bcbaaa",
+  "native_sdk_artifact_commit": "325e36e0",
+  "scope": "Matched single-call audio RTP, from native sender admission to peer native ingress. SDK, network and dispatch are not separated.",
+  "measurement": "Delay above the minimum matched transit within this capture; not absolute one-way latency. Constant clock offset cancels; relative clock rates are assumed stable over the capture.",
+  "unmatched_packets_are_not_loss_proof": true,
+  "relay_selected": false,
+  "sensitive_data_exported": false,
+  "directions": [
+    {
+      "source": "mac",
+      "receiver": "phone",
+      "unique_source_packets": 1443,
+      "unique_receiver_packets": 1441,
+      "matched_packets": 1441,
+      "ambiguous_matches_excluded": 0,
+      "transit_excess_over_capture_minimum": {
+        "count": 1441,
+        "median_ms": 18.334,
+        "p95_ms": 765.19,
+        "max_ms": 1317.209
+      },
+      "native_ingress_to_worker": {
+        "count": 1441,
+        "median_ms": 0.19,
+        "p95_ms": 1.045,
+        "max_ms": 9.174
+      },
+      "sender_native_admission": {
+        "count": 1443,
+        "median_ms": 0.008,
+        "p95_ms": 0.018,
+        "max_ms": 0.033
+      },
+      "transit_excess_over_100ms": 278,
+      "transit_excess_over_200ms": 210
+    },
+    {
+      "source": "phone",
+      "receiver": "mac",
+      "unique_source_packets": 500,
+      "unique_receiver_packets": 493,
+      "matched_packets": 493,
+      "ambiguous_matches_excluded": 0,
+      "transit_excess_over_capture_minimum": {
+        "count": 493,
+        "median_ms": 19.799,
+        "p95_ms": 660.287,
+        "max_ms": 1121.671
+      },
+      "native_ingress_to_worker": {
+        "count": 493,
+        "median_ms": 0.011,
+        "p95_ms": 0.029,
+        "max_ms": 0.06
+      },
+      "sender_native_admission": {
+        "count": 500,
+        "median_ms": 0.114,
+        "p95_ms": 0.474,
+        "max_ms": 2.349
+      },
+      "transit_excess_over_100ms": 94,
+      "transit_excess_over_200ms": 68
+    }
+  ]
+}
