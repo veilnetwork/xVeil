@@ -6,6 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 versioning follows [SemVer](https://semver.org/). The app is pre-1.0: minor
 bumps may change behaviour a user notices.
 
+## [Unreleased]
+
+### Fixed
+
+- Update Veil's local pointer to recover message and call signaling after a
+  restored session loses proof of its sender's previous rotating key. Validate
+  recovery and a subsequent restart on retained macOS/Android profiles.
+- Include bounded video controller state in anonymous diagnostic AOT reports
+  while keeping detailed stand history disabled in product builds.
+
 ## [0.13.93] — 2026-10-26
 
 ### Fixed
