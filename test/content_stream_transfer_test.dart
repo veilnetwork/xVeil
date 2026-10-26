@@ -1476,6 +1476,122 @@ void main() {
     },
   );
 
+  for (final loss in ['request', 'receipt', 'both']) {
+    test(
+      'retry recovers a lost authenticated reoffer $loss promptly',
+      () async {
+        await mB.dispose();
+        mB = MessagingService(
+          tB,
+          sB,
+          contentPacing: Duration.zero,
+          plainFileStream: true,
+          streamPullMaxAttempts: 2,
+          streamRequestTimeout: const Duration(seconds: 10),
+        )..start();
+        final requesterDevice = _id(0x73);
+        tB.srcDevice = requesterDevice;
+        tB.anonStreamSrc = requesterDevice;
+        final data = _rnd(300000, 2810);
+        final cid = await advertiseFromA(data, name: 'lost-reoffer.bin');
+        final manifest = ContentManifest.fromBytes('lost-reoffer.bin', data);
+        await sA.storeFile(cid, data, name: manifest.name);
+        await sA.storeFile(
+          'mf:$cid',
+          Uint8List.fromList(utf8.encode(jsonEncode(manifest.toJson()))),
+        );
+        await mA.dispose();
+        mA = MessagingService(
+          tA,
+          sA,
+          contentPacing: Duration.zero,
+          plainFileStream: true,
+        )..start();
+        expect(mA.identityOfDevice(requesterDevice), isNull);
+        var requests = 0, receipts = 0;
+        tB.beforeSend = (payload) async {
+          if (WireEnvelope.decode(payload).kind == WireKind.contentReoffer) {
+            requests++;
+            tB.holdReoffers = loss != 'receipt' && requests == 1;
+          }
+        };
+        tA.beforeSend = (payload) async {
+          final envelope = WireEnvelope.decode(payload);
+          if (envelope.kind == WireKind.ack &&
+              envelope.id?.startsWith('reoffer:') == true) {
+            receipts++;
+            tA.dropAckFrames = loss != 'request' && receipts == 1;
+          }
+        };
+        final got = mB.contentReceived.firstWhere((e) => e.contentId == cid);
+        expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+        await got.timeout(const Duration(seconds: 7));
+        expect(await sB.loadFile(cid), data);
+        expect(mA.identityOfDevice(requesterDevice), b);
+        expect(requests, greaterThan(1));
+        final frameIds = tB.sentPayloads
+            .map(WireEnvelope.decode)
+            .where((e) => e.kind == WireKind.contentReoffer)
+            .map((e) => e.frameId)
+            .toSet();
+        expect(
+          frameIds.length,
+          1,
+          reason: 'retransmits must reuse the id so the source only re-ACKs',
+        );
+        expect(tB.openStreamAttemptCount, 2);
+      },
+    );
+  }
+
+  for (final stop in ['cancel', 'block']) {
+    test('reoffer retransmits stop after $stop during receipt wait', () async {
+      await mB.dispose();
+      mB = MessagingService(
+        tB,
+        sB,
+        contentPacing: Duration.zero,
+        plainFileStream: true,
+        streamPullMaxAttempts: 2,
+        streamRequestTimeout: const Duration(seconds: 10),
+      )..start();
+      final requesterDevice = _id(0x74);
+      tB.srcDevice = requesterDevice;
+      tB.anonStreamSrc = requesterDevice;
+      final data = _rnd(90000, 2811);
+      final cid = await advertiseFromA(data, name: 'cancel-reoffer.bin');
+      await sA.storeFile(cid, data);
+      await mA.dispose();
+      mA = MessagingService(
+        tA,
+        sA,
+        contentPacing: Duration.zero,
+        plainFileStream: true,
+      )..start();
+      tB.holdReoffers = true;
+      expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+      await Future.doWhile(() async {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        return tB.heldReoffers.length < 2;
+      }).timeout(const Duration(seconds: 4));
+      if (stop == 'cancel') {
+        await mB.cancelContentDownload(cid);
+      } else {
+        await sB.upsertContact(
+          Contact(nodeId: a, status: ContactStatus.blocked),
+        );
+      }
+      final sent = tB.heldReoffers.length;
+      await Future<void>.delayed(const Duration(milliseconds: 2300));
+      expect(
+        tB.heldReoffers.length,
+        sent,
+        reason: 'cancellation and withdrawn contact consent stop new sends',
+      );
+      expect(await sB.loadFile(cid), isNull);
+    });
+  }
+
   test(
     'a claimed reoffer cannot receive a proof receipt or consume its id',
     () async {

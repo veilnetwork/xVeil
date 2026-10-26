@@ -78,3 +78,10 @@ QA permissions and own ADB forwarding were restored. The temporary build-source
 overlay was restored after shutdown. Capabilities, recovery codes, identifiers,
 profiles, native clocks and raw logs stay in private evidence storage. Only
 aggregate results and role labels are committed.
+
+## Follow-up
+
+[Cold physical A/B/C verification](../qr-physical-three-devices-2026-10-26/README.md)
+subsequently qualified the configured-target ceremony on Blackview/macOS,
+including the production AppController restart. Its separate remaining limits
+and content-reoffer retry correction are recorded there.
