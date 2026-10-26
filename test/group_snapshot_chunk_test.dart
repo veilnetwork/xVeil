@@ -25,6 +25,8 @@ class _Link implements VeilTransport {
   final _inbound = StreamController<InboundMessage>.broadcast();
   final sent = <Uint8List>[];
   _Link? peer;
+  int? passLimit;
+  final destinations = <NodeId>[];
 
   @override
   Future<NodeId> nodeId() async => _me;
@@ -42,8 +44,13 @@ class _Link implements VeilTransport {
     bool anonymous = false,
   }) async {
     sent.add(Uint8List.fromList(payload));
+    destinations.add(dst);
     final p = peer;
-    if (p == null || p._me != dst) return;
+    if (p == null ||
+        p._me != dst ||
+        (passLimit != null && sent.length > passLimit!)) {
+      return;
+    }
     p._inbound.add(
       InboundMessage(
         src: _me,
@@ -53,11 +60,17 @@ class _Link implements VeilTransport {
     );
   }
 
-  void inject(NodeId from, Uint8List payload) => _inbound.add(
+  void inject(
+    NodeId from,
+    Uint8List payload, {
+    NodeId? device,
+    SenderProvenance provenance = SenderProvenance.sessionPeer,
+  }) => _inbound.add(
     InboundMessage(
       src: from,
+      srcDevice: device,
       payload: payload,
-      provenance: SenderProvenance.sessionPeer,
+      provenance: provenance,
     ),
   );
 
@@ -175,6 +188,7 @@ void main() {
         gotPeer = peer;
         gotJson = json;
         calls++;
+        return true;
       };
       final frames = _chunkFrames(bundle, 'grp:z:1');
       expect(frames.length, greaterThan(1), reason: 'must actually split');
@@ -194,7 +208,11 @@ void main() {
       // A re-driven chunk (mailbox re-delivery / restart) is deduped: no re-fire.
       tB.inject(a, frames.first);
       await _settle();
-      expect(calls, 1, reason: 'seenFrames dedups the re-driven chunk');
+      expect(
+        calls,
+        1,
+        reason: 'committed group receipts dedup the re-driven chunk',
+      );
     },
   );
 
@@ -204,10 +222,14 @@ void main() {
       final stranger = _id(9); // no contact record on B
       var acceptedCalls = 0, strangerCalls = 0;
       String? viaStranger;
-      mB.onGroupEntry = (_, _) => acceptedCalls++;
+      mB.onGroupEntry = (_, _) {
+        acceptedCalls++;
+        return true;
+      };
       mB.onGroupEntryFromStranger = (peer, json) {
         viaStranger = json;
         strangerCalls++;
+        return true;
       };
       // The group layer's admission: this stranger may sync ONLY group aa11.
       mB.allowStrangerGroupSync = (peer, gidHex) async =>
@@ -246,7 +268,10 @@ void main() {
 
   test('out-of-order chunks still reassemble byte-exact', () async {
     String? gotJson;
-    mB.onGroupEntry = (_, json) => gotJson = json;
+    mB.onGroupEntry = (_, json) {
+      gotJson = json;
+      return true;
+    };
     final frames = _chunkFrames(bundle, 'grp:z:2').reversed.toList();
     for (final fr in frames) {
       tB.inject(a, fr);
@@ -269,7 +294,10 @@ void main() {
   /// this asserts.
   test('a chunk claiming an impossible slice count costs nothing', () async {
     var completed = 0;
-    mB.onGroupEntry = (_, _) => completed++;
+    mB.onGroupEntry = (_, _) {
+      completed++;
+      return true;
+    };
 
     // Eight honest transfers in flight, each missing its last chunk. The
     // first one is the least recently advanced, so it is next to be evicted.
@@ -311,7 +339,10 @@ void main() {
 
   test('an incomplete snapshot never fires onGroupEntry', () async {
     var calls = 0;
-    mB.onGroupEntry = (_, _) => calls++;
+    mB.onGroupEntry = (_, _) {
+      calls++;
+      return true;
+    };
     final frames = _chunkFrames(bundle, 'grp:z:3');
     // Deliver everything EXCEPT the last chunk.
     for (final fr in frames.take(frames.length - 1)) {
@@ -453,7 +484,10 @@ void main() {
     final fromC = bundle.replaceAll('y', 'z'); // same length → same chunk count
 
     final received = <({NodeId peer, String json})>[];
-    mB.onGroupEntry = (peer, json) => received.add((peer: peer, json: json));
+    mB.onGroupEntry = (peer, json) {
+      received.add((peer: peer, json: json));
+      return true;
+    };
 
     const sharedTid = 'grp:aa11:same-digest';
     final chunksA = _chunkFrames(fromA, sharedTid);
@@ -499,6 +533,7 @@ void main() {
     mB.onGroupEntry = (_, json) {
       gotJson = json;
       calls++;
+      return true;
     };
 
     final live = _chunkFrames(bundle, 'grp:aa11:live');
@@ -536,6 +571,468 @@ void main() {
     }
     expect(calls, 1, reason: 'the idle partial was the one evicted');
   });
+
+  test(
+    'whole group snapshot joins persistence before ACK or queue release',
+    () async {
+      final entered = Completer<void>(), persisted = Completer<void>();
+      mB.onGroupEntry = (_, _) async {
+        entered.complete();
+        await persisted.future;
+        return true;
+      };
+      final frame = const WireEnvelope.groupEntry(
+        '{}',
+      ).withFrameId('legacy-whole-held').encode();
+      try {
+        tB.inject(a, frame);
+        await entered.future;
+        await _settle();
+        expect(
+          mB.inboundAdmission.queuedFrames,
+          1,
+          reason: 'the group write still owns its admission reservation',
+        );
+        expect(
+          tB.sent.where((w) => WireEnvelope.decode(w).kind == WireKind.ack),
+          isEmpty,
+          reason: 'the snapshot is not durable yet',
+        );
+      } finally {
+        persisted.complete();
+      }
+      await _settle();
+      expect(mB.inboundAdmission.queuedFrames, 0);
+      expect(
+        tB.sent
+            .map(WireEnvelope.decode)
+            .where((e) => e.kind == WireKind.ack)
+            .map((e) => e.id),
+        contains('legacy-whole-held'),
+      );
+    },
+  );
+
+  test('a declined whole group snapshot retries the identical frame', () async {
+    var stored = false, calls = 0;
+    mB.onGroupEntry = (_, _) async {
+      calls++;
+      return stored;
+    };
+    final frame = const WireEnvelope.groupEntry(
+      '{}',
+    ).withFrameId('legacy-whole-retry').encode();
+    tB.inject(a, frame);
+    await _settle();
+    expect(calls, 1);
+    expect(
+      tB.sent.where((w) => WireEnvelope.decode(w).kind == WireKind.ack),
+      isEmpty,
+    );
+    stored = true;
+    tB.inject(a, frame);
+    await _settle();
+    expect(calls, 2, reason: 'an uncommitted attempt must not consume dedup');
+    tB.inject(a, frame);
+    await _settle();
+    expect(calls, 2, reason: 'a committed retry only needs another ACK');
+  });
+
+  test(
+    'group chunks retain every ACK until the complete write succeeds',
+    () async {
+      final frames = _chunkFrames(bundle, 'grp:aa11:durable');
+      var fail = true, calls = 0;
+      mB.onGroupEntry = (_, _) async {
+        calls++;
+        if (fail) throw StateError('injected group persistence failure');
+        return true;
+      };
+      for (final frame in frames) {
+        tB.inject(a, frame);
+        await _settle();
+      }
+      expect(calls, 1);
+      expect(
+        tB.sent.where((w) => WireEnvelope.decode(w).kind == WireKind.ack),
+        isEmpty,
+        reason: 'all slices must remain in the sender outbox',
+      );
+      fail = false;
+      for (final frame in frames) {
+        tB.inject(a, frame);
+        await _settle();
+      }
+      expect(calls, 2);
+      final ackIds = tB.sent
+          .map(WireEnvelope.decode)
+          .where((e) => e.kind == WireKind.ack)
+          .map((e) => e.id)
+          .toSet();
+      expect(
+        ackIds,
+        frames.map(WireEnvelope.decode).map((e) => e.frameId).toSet(),
+      );
+      for (final frame in frames) {
+        tB.inject(a, frame);
+        await _settle();
+      }
+      expect(
+        calls,
+        2,
+        reason: 'persisted slices must not launch another write',
+      );
+    },
+  );
+
+  test(
+    'partial receiver restart leaves the actual sender outbox recoverable',
+    () async {
+      final tA = _Link(a)
+        ..peer = tB
+        ..passLimit = 2;
+      tB.peer = tA;
+      final sA = HiddenVolumeStorage(_memOpener());
+      await sA.open(password: 'a', createIfMissing: true);
+      final mA = MessagingService(tA, sA)..start();
+      addTearDown(mA.dispose);
+      await sA.upsertContact(
+        Contact(nodeId: b, status: ContactStatus.accepted),
+      );
+      var committed = 0;
+      mB.onGroupEntry = (_, _) async {
+        committed++;
+        return true;
+      };
+      await mA.sendGroupSnapshot(b, 'aa11', bundle);
+      await _settle();
+      final frames = tA.sent
+          .where((w) => WireEnvelope.decode(w).kind == WireKind.groupEntryChunk)
+          .toList();
+      expect(frames.length, greaterThan(2));
+      expect(committed, 0);
+      expect(await sA.pendingOutboxFrames(), hasLength(frames.length));
+      await mB.dispose();
+      final restartedLink = _Link(b)..peer = tA;
+      tA.peer = restartedLink;
+      final restarted = MessagingService(restartedLink, sB)..start();
+      addTearDown(restarted.dispose);
+      restarted.onGroupEntry = (_, json) async {
+        expect(json, bundle);
+        committed++;
+        return true;
+      };
+      for (final frame in frames) {
+        restartedLink.inject(a, frame);
+        await _settle();
+      }
+      await _settle();
+      expect(committed, 1);
+      expect(
+        await sA.pendingOutboxFrames(),
+        isEmpty,
+        reason:
+            'all original frames retire only after the recovered snapshot lands',
+      );
+    },
+  );
+
+  test('group persistence is joined during messaging shutdown', () async {
+    final entered = Completer<void>(), persisted = Completer<void>();
+    mB.onGroupEntry = (_, _) async {
+      entered.complete();
+      await persisted.future;
+      return true;
+    };
+    tB.inject(
+      a,
+      const WireEnvelope.groupEntry('{}').withFrameId('legacy-close').encode(),
+    );
+    await entered.future;
+    var closed = false;
+    final closing = mB.dispose().then((_) {
+      closed = true;
+    });
+    try {
+      await _settle();
+      expect(closed, isFalse);
+    } finally {
+      persisted.complete();
+      await closing;
+    }
+  });
+
+  test('chunk ACKs retain the authenticated physical sender device', () async {
+    final physicalSender = _id(77);
+    mB.onGroupEntry = (_, _) async => true;
+    for (final frame in _chunkFrames(bundle, 'grp:aa11:device-ack')) {
+      tB.inject(a, frame, device: physicalSender);
+      await _settle();
+    }
+    final ackDestinations = [
+      for (var i = 0; i < tB.sent.length; i++)
+        if (WireEnvelope.decode(tB.sent[i]).kind == WireKind.ack)
+          tB.destinations[i],
+    ];
+    expect(ackDestinations, isNotEmpty);
+    expect(ackDestinations, everyElement(physicalSender));
+  });
+
+  test(
+    'a legacy group frame with only a claimed sender cannot consume an ACK',
+    () async {
+      var applies = 0;
+      mB.onGroupEntry = (_, _) async {
+        applies++;
+        return true;
+      };
+      final wire = const WireEnvelope.groupEntry(
+        '{}',
+      ).withFrameId('legacy-unbound').encode();
+      tB.inject(a, wire, provenance: SenderProvenance.claimed);
+      await _settle();
+      expect(
+        tB.sent.where((w) => WireEnvelope.decode(w).kind == WireKind.ack),
+        isEmpty,
+      );
+      tB.inject(a, wire);
+      await _settle();
+      expect(
+        applies,
+        2,
+        reason: 'the attributed copy still needs durable admission',
+      );
+      expect(
+        tB.sent.where((w) => WireEnvelope.decode(w).kind == WireKind.ack),
+        hasLength(1),
+      );
+    },
+  );
+
+  test(
+    'canonical whole snapshot IDs reject substituted bodies and other wire kinds',
+    () async {
+      final source = _Link(a);
+      final sA = HiddenVolumeStorage(_memOpener());
+      await sA.open(password: 'a', createIfMissing: true);
+      final mA = MessagingService(source, sA)..start();
+      addTearDown(mA.dispose);
+      await sA.upsertContact(
+        Contact(nodeId: b, status: ContactStatus.accepted),
+      );
+      await mA.sendGroupSnapshot(b, 'aa11', '{}');
+      final original = source.sent
+          .map(WireEnvelope.decode)
+          .firstWhere((e) => e.kind == WireKind.groupEntry);
+      var calls = 0;
+      mB.onGroupEntry = (_, body) async {
+        expect(body, '{}');
+        calls++;
+        return true;
+      };
+      tB.inject(
+        a,
+        const WireEnvelope.groupEntry(
+          '{"tampered":1}',
+        ).withFrameId(original.frameId!).encode(),
+      );
+      tB.inject(
+        a,
+        const WireEnvelope.reconnect(
+          '',
+        ).withFrameId(original.frameId!).encode(),
+      );
+      await _settle();
+      expect(calls, 0);
+      expect(
+        tB.sent.where((w) => WireEnvelope.decode(w).kind == WireKind.ack),
+        isEmpty,
+      );
+      tB.inject(a, original.encode(), provenance: SenderProvenance.claimed);
+      await _settle();
+      expect(calls, 1);
+      expect(
+        tB.sent.where((w) => WireEnvelope.decode(w).kind == WireKind.ack),
+        hasLength(1),
+      );
+    },
+  );
+
+  test(
+    'canonical chunk digest mismatch preserves every original retry',
+    () async {
+      final source = _Link(a);
+      final sA = HiddenVolumeStorage(_memOpener());
+      await sA.open(password: 'a', createIfMissing: true);
+      final mA = MessagingService(source, sA)..start();
+      addTearDown(mA.dispose);
+      await sA.upsertContact(
+        Contact(nodeId: b, status: ContactStatus.accepted),
+      );
+      await mA.sendGroupSnapshot(b, 'aa11', bundle);
+      final frames = source.sent
+          .map(WireEnvelope.decode)
+          .where((e) => e.kind == WireKind.groupEntryChunk)
+          .toList();
+      var calls = 0;
+      mB.onGroupEntry = (_, body) async {
+        expect(body, bundle);
+        calls++;
+        return true;
+      };
+      final first = parseGroupEntryChunk(frames.first.body);
+      final badData = Uint8List.fromList(first.data)..[0] ^= 1;
+      final bad = groupEntryChunkEnvelope(
+        transferId: first.transferId,
+        index: first.index,
+        count: first.count,
+        data: badData,
+      ).withFrameId(frames.first.frameId!).encode();
+      tB.inject(a, bad, provenance: SenderProvenance.claimed);
+      for (final frame in frames.skip(1)) {
+        tB.inject(a, frame.encode());
+        await _settle();
+      }
+      expect(calls, 0);
+      expect(
+        tB.sent.where((w) => WireEnvelope.decode(w).kind == WireKind.ack),
+        isEmpty,
+      );
+      for (final frame in frames) {
+        tB.inject(a, frame.encode());
+        await _settle();
+      }
+      expect(calls, 1);
+      expect(
+        tB.sent.where((w) => WireEnvelope.decode(w).kind == WireKind.ack),
+        hasLength(frames.length),
+      );
+    },
+  );
+
+  test(
+    'handler replacement cannot inherit a completed group receipt',
+    () async {
+      var writes = 0;
+      mB.onGroupEntry = (_, _) async {
+        writes++;
+        return true;
+      };
+      final frame = const WireEnvelope.groupEntry(
+        '{}',
+      ).withFrameId('legacy-new-owner').encode();
+      tB.inject(a, frame);
+      await _settle();
+      expect(writes, 1);
+      var accept = false;
+      mB.onGroupEntry = (_, _) async {
+        writes++;
+        return accept;
+      };
+      tB.inject(a, frame);
+      await _settle();
+      expect(writes, 2);
+      expect(
+        tB.sent.where((w) => WireEnvelope.decode(w).kind == WireKind.ack),
+        hasLength(1),
+      );
+      accept = true;
+      tB.inject(a, frame);
+      await _settle();
+      expect(writes, 3);
+      expect(
+        tB.sent.where((w) => WireEnvelope.decode(w).kind == WireKind.ack),
+        hasLength(2),
+      );
+    },
+  );
+
+  test(
+    'a replaced in-flight group handler cannot acknowledge its old write',
+    () async {
+      final entered = Completer<void>(), oldWrite = Completer<void>();
+      mB.onGroupEntry = (_, _) async {
+        entered.complete();
+        await oldWrite.future;
+        return true;
+      };
+      final frame = const WireEnvelope.groupEntry(
+        '{}',
+      ).withFrameId('legacy-inflight-owner').encode();
+      tB.inject(a, frame);
+      await entered.future;
+      var currentWrites = 0;
+      mB.onGroupEntry = (_, _) async {
+        currentWrites++;
+        return true;
+      };
+      oldWrite.complete();
+      await _settle();
+      expect(
+        tB.sent.where((w) => WireEnvelope.decode(w).kind == WireKind.ack),
+        isEmpty,
+      );
+      tB.inject(a, frame);
+      await _settle();
+      expect(currentWrites, 1);
+      expect(
+        tB.sent.where((w) => WireEnvelope.decode(w).kind == WireKind.ack),
+        hasLength(1),
+      );
+    },
+  );
+
+  test(
+    'a frame arriving before group handlers are installed remains retryable',
+    () async {
+      final frame = const WireEnvelope.groupEntry(
+        '{}',
+      ).withFrameId('legacy-early').encode();
+      tB.inject(a, frame);
+      await _settle();
+      expect(
+        tB.sent.where((w) => WireEnvelope.decode(w).kind == WireKind.ack),
+        isEmpty,
+      );
+      var writes = 0;
+      mB.onGroupEntry = (_, _) async {
+        writes++;
+        return true;
+      };
+      tB.inject(a, frame);
+      await _settle();
+      expect(writes, 1);
+    },
+  );
+
+  test(
+    'a committed own-device snapshot resolves fallback ACK targets only once',
+    () async {
+      final physicalSender = _id(77);
+      mB.selfIdentityHex = () async => a.hex;
+      var lookups = 0;
+      mB.myOtherDevices = () async {
+        lookups++;
+        return [physicalSender];
+      };
+      mB.onGroupEntry = (_, _) async => true;
+      final frames = _chunkFrames(bundle, 'grp:aa11:batch-acks');
+      for (final frame in frames) {
+        tB.inject(a, frame);
+        await _settle();
+      }
+      expect(
+        lookups,
+        1,
+        reason: 'one device-journal fold for the whole ACK batch',
+      );
+      expect(
+        tB.sent.where((w) => WireEnvelope.decode(w).kind == WireKind.ack),
+        hasLength(frames.length),
+      );
+      expect(tB.destinations, everyElement(physicalSender));
+    },
+  );
 
   test(
     'document chunks withhold ACK until persistence becomes terminal',

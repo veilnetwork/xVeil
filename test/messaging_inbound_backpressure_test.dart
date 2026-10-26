@@ -219,8 +219,10 @@ void main() {
 
   test('queued snapshot retries do not bury a new chat message', () async {
     var snapshots = 0;
-    mB.onGroupEntry = (_, _) {
+    mB.onGroupEntry = (_, _) async {
       snapshots++;
+      await stall.future;
+      return true;
     };
     tB.sendGate = stall;
     final chunk = groupEntryChunkEnvelope(
@@ -240,7 +242,7 @@ void main() {
     await _pump();
     expect(mB.inboundAdmission.queuedFrames, 1);
     expect(mB.inboundAdmission.coalescedFrames, 99);
-    expect(snapshots, 0, reason: 'the first copy still awaits its ACK send');
+    expect(snapshots, 1, reason: 'the first copy still awaits persistence');
     final post = WireEnvelope.message(
       'after the snapshot retries',
       id: 'fresh-after-replays',
@@ -276,7 +278,7 @@ void main() {
     );
     await tA.send(b, frame);
     await _pump();
-    expect(snapshots, 2, reason: 'a later chunk retry must reassemble again');
+    expect(snapshots, 1, reason: 'a durable retry needs only another ACK');
     expect(mB.inboundAdmission.queuedFrames, 0);
   });
 
@@ -285,6 +287,7 @@ void main() {
     () async {
       final ratchet = _HeldReplayCheckpoint(sB);
       mB.ratchet = ratchet;
+      mB.onGroupEntry = (_, _) async { await stall.future; return true; };
       tB.sendGate = stall;
       final frame = const WireEnvelope(
         WireKind.groupEntry,

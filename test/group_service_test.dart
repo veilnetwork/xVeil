@@ -9526,6 +9526,87 @@ void main() {
   );
 
   test(
+    'group frame receipt propagates storage failure and accepts an authorized no-op',
+    () async {
+      final sourceStorage = FakeHvContainer().storage();
+      await sourceStorage.open(password: 'pw', createIfMissing: true);
+      final source = GroupService(sourceStorage, _FakeSigner(owner));
+      addTearDown(source.dispose);
+      await source.linkDevice(
+        carol,
+        sovereign: sovereign,
+        broadcastSnapshot: false,
+      );
+      final gid = NodeId.fromHex((await source.deviceGroupIdHex())!);
+      final targetStorage = _ControlledGroupWriteStorage();
+      await targetStorage.open(password: 'pw', createIfMissing: true);
+      final target = GroupService(targetStorage, _FakeSigner(carol));
+      addTearDown(target.dispose);
+      expect(
+        await target.ingestSnapshot(
+          source.snapshotJson((await source.load(gid))!),
+        ),
+        isTrue,
+      );
+      expect(await target.adoptDeviceGroup(gid), isTrue);
+      await source.postDeviceEvent(
+        const DeviceSyncEvent(
+          kind: DeviceSyncKind.msgMirror,
+          key: 'durable-group',
+          tsMs: 1000,
+          payload: {'peer': 'aa', 'body': 'saved once'},
+        ),
+      );
+      final wire = source.snapshotJson((await source.load(gid))!);
+      targetStorage.failNextGroupWrite = true;
+      await expectLater(
+        target.receiveGroupFrame(owner, wire),
+        throwsStateError,
+      );
+      expect(await target.receiveGroupFrame(owner, wire), isTrue);
+      expect(
+        (await target.deviceSyncState()).values.where(
+          (e) => e.kind == DeviceSyncKind.msgMirror,
+        ),
+        hasLength(1),
+      );
+      final noOpRequest = jsonEncode(
+        (await target.buildGroupSyncRequest(gid))!,
+      );
+      // The callback must have a real send port, even when nothing is missing.
+      final responder = GroupService(
+        sourceStorage,
+        _FakeSigner(owner),
+        send: (_, _, _) async {},
+      );
+      addTearDown(responder.dispose);
+      expect(
+        await responder.handleGroupSyncRequest(
+          carol,
+          jsonDecode(noOpRequest) as Map,
+        ),
+        isFalse,
+      );
+      expect(
+        await responder.receiveGroupFrame(
+          carol,
+          noOpRequest,
+          fromStranger: true,
+        ),
+        isTrue,
+      );
+      expect(
+        await responder.receiveGroupFrame(
+          _id(99),
+          noOpRequest,
+          fromStranger: true,
+        ),
+        isFalse,
+      );
+    },
+  );
+
+  test(
     'device-group compaction: a revoked device must not delete the honest row '
     'it beat — reads filter by the current ACL, so the key would vanish',
     () async {
