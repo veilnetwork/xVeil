@@ -1,0 +1,461 @@
+{
+  "schema": "xveil-inbound-replay-validation/1",
+  "source_base": "67ab98e1",
+  "veil_source": "1d36980d",
+  "roles": {
+    "A": "Android Wi-Fi, identity X",
+    "B": "macOS, identity X",
+    "C": "macOS, identity Y"
+  },
+  "baseline": {
+    "peak_queued_frames": 477,
+    "cold_message": {
+      "both_received_once": false,
+      "elapsed_ms": 126394,
+      "final_counts": {
+        "phone": 0,
+        "mac": 1
+      },
+      "peak_queue_depth": 477
+    },
+    "handled_group_frame_log_sample": {
+      "groupEntryChunk": {
+        "frames": 388,
+        "unique_frame_ids": 211,
+        "repeated_frame_ids": 177
+      },
+      "groupEntry": {
+        "frames": 163,
+        "unique_frame_ids": 79,
+        "repeated_frame_ids": 84
+      }
+    },
+    "native_commit_sample": {
+      "count": 471,
+      "sample_count": 471,
+      "min_us": 12178,
+      "p50_us": 21397,
+      "p95_us": 73297,
+      "max_us": 229282,
+      "sum_us": 14685505
+    },
+    "commit_wait_sample": {
+      "count": 471,
+      "sample_count": 471,
+      "min_us": 603,
+      "p50_us": 24426,
+      "p95_us": 484076,
+      "max_us": 2943451,
+      "sum_us": 42950491
+    },
+    "group_queue_sample": {
+      "queue.groupEntry": {
+        "count": 93,
+        "sample_count": 93,
+        "min_us": 528,
+        "p50_us": 20168582,
+        "p95_us": 58222149,
+        "max_us": 58696442,
+        "sum_us": 2395114564
+      },
+      "queue.groupEntryChunk": {
+        "count": 91,
+        "sample_count": 91,
+        "min_us": 361,
+        "p50_us": 10524964,
+        "p95_us": 51294371,
+        "max_us": 56111580,
+        "sum_us": 1706560476
+      }
+    }
+  },
+  "tests": {
+    "behavioral_baseline_queue_slots": 100,
+    "corrected_pending_queue_slots": 1,
+    "same_frame_retries": 100,
+    "regression_tests_passed": 204,
+    "analysis_exit": 0,
+    "additional_group_and_device_tests_passed": 330,
+    "additional_group_and_device_tests_skipped": 3,
+    "read_batch_behavioral_baseline_batches": 0,
+    "read_batch_candidate_batches": 1,
+    "concurrent_segment_readers": 20,
+    "segment_baseline_reads": 20,
+    "segment_candidate_reads": 1,
+    "analysis_files": 9,
+    "standalone_admission_tests_passed": 13,
+    "storage_and_messaging_suite_skipped": 1
+  },
+  "unlocked_incoming_video": {
+    "both_ring_ms": 1266,
+    "active_after_30s": true,
+    "mac_stopped_ringing": true,
+    "audio_rx_packet_delta": {
+      "phone": 647,
+      "peer": 274
+    },
+    "video_rx_frame_delta": {
+      "phone": 337,
+      "peer": 286
+    },
+    "transports": {
+      "phone": "relay",
+      "peer": "relay"
+    }
+  },
+  "qa_timing_in_production_source": false,
+  "native_test_hooks": false,
+  "windows_10_tested": false,
+  "live_speech_tested": false,
+  "release_or_push": false,
+  "physical_candidate_burst": {
+    "coalescing_only": {
+      "messages": 100,
+      "send_loop_ms": 1969,
+      "A_received": 15,
+      "A_unique_ids": 15,
+      "A_complete": false,
+      "A_completion_or_limit_ms": 125509,
+      "coalesced_delta": 864,
+      "peak_queue_depth": 101,
+      "B_offline_during_delivery": true,
+      "B_recovery_or_limit_ms": 98315,
+      "final_counts": {
+        "A": 30,
+        "B": 100,
+        "C": 100
+      },
+      "same_logical_ids": false,
+      "no_duplicates": true
+    },
+    "coalescing_and_batch_reads": {
+      "messages": 100,
+      "send_loop_ms": 1569,
+      "A_received": 13,
+      "A_unique_ids": 13,
+      "A_complete": false,
+      "A_completion_or_limit_ms": 124706,
+      "coalesced_delta": 1159,
+      "peak_queue_depth": 106,
+      "B_offline_during_delivery": true,
+      "B_reconnect_limit_reached": true,
+      "B_recovery_or_limit_ms": 121508,
+      "final_counts": {
+        "A": 27,
+        "B": 25,
+        "C": 100
+      },
+      "same_logical_ids": false,
+      "no_duplicates": true
+    },
+    "passed": false
+  },
+  "cleanup": {
+    "mac_remaining_processes": 0,
+    "peer_remaining_processes": 0,
+    "phone_remaining_processes": 0,
+    "own_forward_removed": true,
+    "main_app_modified": false,
+    "system_power_settings_changed": false,
+    "retained_profiles": true,
+    "all_recorded_groups_exited": true,
+    "recorded_group_count": 4,
+    "qa_commands_absent": true,
+    "permissions_restored": true,
+    "private_source_overlay_removed": true
+  },
+  "shared_segment_followup": {
+    "before": {
+      "received_once": false,
+      "elapsed_ms": 90797,
+      "queued_frames_at_end": 540,
+      "peak_queued_frames": 540,
+      "sample": {
+        "group.load": {
+          "count": 251,
+          "sample_count": 251,
+          "p50_us": 4903132,
+          "p95_us": 7615178,
+          "max_us": 10820264,
+          "sum_us": 1246897230
+        },
+        "group.load.started": {
+          "count": 254,
+          "sample_count": 254,
+          "p50_us": 0,
+          "p95_us": 0,
+          "max_us": 0,
+          "sum_us": 0
+        },
+        "getCaller.joinSegments": {
+          "count": 2051,
+          "sample_count": 2051,
+          "p50_us": 0,
+          "p95_us": 0,
+          "max_us": 0,
+          "sum_us": 0
+        },
+        "getCaller.writeBundle": {
+          "count": 136,
+          "sample_count": 136,
+          "p50_us": 0,
+          "p95_us": 0,
+          "max_us": 0,
+          "sum_us": 0
+        },
+        "getCaller.loadFile": {
+          "count": 711,
+          "sample_count": 711,
+          "p50_us": 0,
+          "p95_us": 0,
+          "max_us": 0,
+          "sum_us": 0
+        },
+        "getCaller.storeFile": {
+          "count": 30,
+          "sample_count": 30,
+          "p50_us": 0,
+          "p95_us": 0,
+          "max_us": 0,
+          "sum_us": 0
+        },
+        "getCaller.other": {
+          "count": 2266,
+          "sample_count": 2266,
+          "p50_us": 0,
+          "p95_us": 0,
+          "max_us": 0,
+          "sum_us": 0
+        },
+        "inbound.ratchet": {
+          "count": 99,
+          "sample_count": 99,
+          "p50_us": 1311,
+          "p95_us": 446377,
+          "max_us": 13909595,
+          "sum_us": 20212637
+        },
+        "inbound.dispatch": {
+          "count": 98,
+          "sample_count": 98,
+          "p50_us": 308204,
+          "p95_us": 3436962,
+          "max_us": 4851222,
+          "sum_us": 70712082
+        },
+        "storage.get.rpc": {
+          "count": 5196,
+          "sample_count": 4096,
+          "p50_us": 118751,
+          "p95_us": 1219359,
+          "max_us": 4114745,
+          "sum_us": 1141991838
+        },
+        "storage.get.native": {
+          "count": 5196,
+          "sample_count": 4096,
+          "p50_us": 323,
+          "p95_us": 678,
+          "max_us": 88396,
+          "sum_us": 1635382
+        },
+        "storage.get.wait": {
+          "count": 5196,
+          "sample_count": 4096,
+          "p50_us": 118411,
+          "p95_us": 1219064,
+          "max_us": 4114383,
+          "sum_us": 1140356456
+        },
+        "storage.readbatch.rpc": {
+          "count": 1417,
+          "sample_count": 1417,
+          "p50_us": 167061,
+          "p95_us": 1135097,
+          "max_us": 2951757,
+          "sum_us": 411202949
+        },
+        "storage.readbatch.native": {
+          "count": 1417,
+          "sample_count": 1417,
+          "p50_us": 9412,
+          "p95_us": 18167,
+          "max_us": 140544,
+          "sum_us": 13454335
+        },
+        "storage.readbatch.wait": {
+          "count": 1417,
+          "sample_count": 1417,
+          "p50_us": 157765,
+          "p95_us": 1101984,
+          "max_us": 2951286,
+          "sum_us": 397748614
+        },
+        "storage.commit.native": {
+          "count": 318,
+          "sample_count": 318,
+          "p50_us": 21295,
+          "p95_us": 74108,
+          "max_us": 183953,
+          "sum_us": 10061592
+        }
+      },
+      "received_by_kind": {
+        "groupEntry": 30,
+        "groupEntryChunk": 424,
+        "presence": 1,
+        "deviceHistory": 6,
+        "p2pEndpoints": 4,
+        "ack": 63
+      }
+    },
+    "after": {
+      "received_once": false,
+      "elapsed_ms": 81136,
+      "queued_frames_at_end": 334,
+      "peak_queued_frames": 334,
+      "sample": {
+        "group.load": {
+          "count": 158,
+          "sample_count": 158,
+          "p50_us": 2528659,
+          "p95_us": 6067225,
+          "max_us": 6557413,
+          "sum_us": 418870901
+        },
+        "group.load.started": {
+          "count": 154,
+          "sample_count": 154,
+          "p50_us": 0,
+          "p95_us": 0,
+          "max_us": 0,
+          "sum_us": 0
+        },
+        "getCaller.joinSegments": {
+          "count": 519,
+          "sample_count": 519,
+          "p50_us": 0,
+          "p95_us": 0,
+          "max_us": 0,
+          "sum_us": 0
+        },
+        "getCaller.writeBundle": {
+          "count": 94,
+          "sample_count": 94,
+          "p50_us": 0,
+          "p95_us": 0,
+          "max_us": 0,
+          "sum_us": 0
+        },
+        "getCaller.loadFile": {
+          "count": 424,
+          "sample_count": 424,
+          "p50_us": 0,
+          "p95_us": 0,
+          "max_us": 0,
+          "sum_us": 0
+        },
+        "getCaller.storeFile": {
+          "count": 21,
+          "sample_count": 21,
+          "p50_us": 0,
+          "p95_us": 0,
+          "max_us": 0,
+          "sum_us": 0
+        },
+        "getCaller.other": {
+          "count": 1972,
+          "sample_count": 1972,
+          "p50_us": 0,
+          "p95_us": 0,
+          "max_us": 0,
+          "sum_us": 0
+        },
+        "inbound.ratchet": {
+          "count": 48,
+          "sample_count": 48,
+          "p50_us": 1232,
+          "p95_us": 345757,
+          "max_us": 1326525,
+          "sum_us": 3309974
+        },
+        "inbound.dispatch": {
+          "count": 48,
+          "sample_count": 48,
+          "p50_us": 899955,
+          "p95_us": 5035703,
+          "max_us": 15202414,
+          "sum_us": 81835225
+        },
+        "storage.get.rpc": {
+          "count": 3029,
+          "sample_count": 3029,
+          "p50_us": 42948,
+          "p95_us": 634857,
+          "max_us": 2998275,
+          "sum_us": 438629140
+        },
+        "storage.get.native": {
+          "count": 3029,
+          "sample_count": 3029,
+          "p50_us": 413,
+          "p95_us": 935,
+          "max_us": 110740,
+          "sum_us": 1742779
+        },
+        "storage.get.wait": {
+          "count": 3029,
+          "sample_count": 3029,
+          "p50_us": 42415,
+          "p95_us": 634608,
+          "max_us": 2997852,
+          "sum_us": 436886361
+        },
+        "storage.readbatch.rpc": {
+          "count": 520,
+          "sample_count": 520,
+          "p50_us": 38804,
+          "p95_us": 492666,
+          "max_us": 2991533,
+          "sum_us": 81563935
+        },
+        "storage.readbatch.native": {
+          "count": 520,
+          "sample_count": 520,
+          "p50_us": 6353,
+          "p95_us": 19528,
+          "max_us": 191388,
+          "sum_us": 4513935
+        },
+        "storage.readbatch.wait": {
+          "count": 520,
+          "sample_count": 520,
+          "p50_us": 33516,
+          "p95_us": 490648,
+          "max_us": 2989483,
+          "sum_us": 77050000
+        },
+        "storage.commit.native": {
+          "count": 306,
+          "sample_count": 306,
+          "p50_us": 20030,
+          "p95_us": 60483,
+          "max_us": 220308,
+          "sum_us": 8520670
+        }
+      },
+      "received_by_kind": {
+        "groupEntry": 1,
+        "groupEntryChunk": 186,
+        "presence": 1,
+        "deviceGone": 3,
+        "deviceHistory": 11,
+        "p2pEndpoints": 5,
+        "ack": 60
+      }
+    },
+    "controlled_performance_comparison": false,
+    "delivery_qualified": false,
+    "inflight_reads_may_complete_across_metric_reset": true
+  }
+}

@@ -56,6 +56,30 @@ abstract interface class AsyncKvLogStore {
   Future<void> close();
 }
 
+/// Bounded exact-id reads in one worker request. Null at the first missing
+/// record, without reading later ids. No extra records are fetched by range.
+abstract interface class AsyncLogBatchReader {
+  static const maxRecords = 64;
+  Future<List<Uint8List>?> readLogBatch(int namespace, List<int> logIds);
+}
+
+List<Uint8List>? _readLogBatch(
+  KvLogStore store,
+  int namespace,
+  List<int> logIds,
+) {
+  if (logIds.length > AsyncLogBatchReader.maxRecords) {
+    throw ArgumentError.value(logIds.length, 'logIds', 'batch exceeds limit');
+  }
+  final records = <Uint8List>[];
+  for (final id in logIds) {
+    final record = store.readLog(namespace, id);
+    if (record == null) return null;
+    records.add(record);
+  }
+  return records;
+}
+
 /// Adapts a SYNCHRONOUS [KvLogStore] to [AsyncKvLogStore] WITHOUT moving it off
 /// the calling isolate — every call still runs the blocking FFI inline, just
 /// wrapped in a resolved `Future`. Used for the in-memory fake (no FFI, nothing
@@ -64,7 +88,7 @@ abstract interface class AsyncKvLogStore {
 /// keys — are worker-backed now (audit XV-14); this is the degraded path, not
 /// the default one.
 class SyncWrappedAsyncKvLogStore
-    implements AsyncKvLogStore, CommitAnchorSource {
+    implements AsyncKvLogStore, CommitAnchorSource, AsyncLogBatchReader {
   SyncWrappedAsyncKvLogStore(this._inner);
 
   final KvLogStore _inner;
@@ -81,6 +105,24 @@ class SyncWrappedAsyncKvLogStore
   @override
   Future<Uint8List?> readLog(int namespace, int logId) async =>
       _inner.readLog(namespace, logId);
+  @override
+  Future<List<Uint8List>?> readLogBatch(
+    int namespace,
+    List<int> logIds,
+  ) async {
+    if (logIds.length > AsyncLogBatchReader.maxRecords) {
+      throw ArgumentError.value(logIds.length, 'logIds', 'batch exceeds limit');
+    }
+    final records = <Uint8List>[];
+    for (final id in logIds) {
+      // Honor overridden reads in adapters too. The real worker executes its
+      // synchronous loop inside one RPC instead of taking one hop per record.
+      final record = await readLog(namespace, id);
+      if (record == null) return null;
+      records.add(record);
+    }
+    return records;
+  }
   @override
   Future<List<KvLogEntry>> iterLogRange({
     required int namespace,
@@ -217,6 +259,12 @@ class _ReadLogReq extends _Req {
   const _ReadLogReq(this.namespace, this.logId, super.reply);
   final int namespace;
   final int logId;
+}
+
+class _ReadLogBatchReq extends _Req {
+  const _ReadLogBatchReq(this.namespace, this.logIds, super.reply);
+  final int namespace;
+  final List<int> logIds;
 }
 
 class _IterReq extends _Req {
@@ -366,6 +414,8 @@ void _workerEntry(_OpenConfig cfg) {
         run(() => store.get(namespace, key));
       case _ReadLogReq(:final namespace, :final logId):
         run(() => store.readLog(namespace, logId));
+      case _ReadLogBatchReq(:final namespace, :final logIds):
+        run(() => _readLogBatch(store, namespace, logIds));
       case _IterReq(:final namespace, :final start, :final end, :final limit):
         run(
           () => store.iterLogRange(
@@ -436,7 +486,8 @@ void _workerEntry(_OpenConfig cfg) {
 /// Off-UI-isolate [AsyncKvLogStore] backed by a dedicated worker isolate that
 /// owns the real [HvKvLogStore]. One instance == one worker == one container
 /// handle. Drop with [close].
-class WorkerKvLogStore implements AsyncKvLogStore, CommitAnchorSource {
+class WorkerKvLogStore
+    implements AsyncKvLogStore, CommitAnchorSource, AsyncLogBatchReader {
   WorkerKvLogStore._(this._isolate, this._toWorker, this._watch);
 
   /// Assemble a store over a worker that is ALREADY up.
@@ -618,6 +669,18 @@ class WorkerKvLogStore implements AsyncKvLogStore, CommitAnchorSource {
   @override
   Future<Uint8List?> readLog(int namespace, int logId) =>
       _call<Uint8List?>((reply) => _ReadLogReq(namespace, logId, reply));
+  @override
+  Future<List<Uint8List>?> readLogBatch(int namespace, List<int> logIds) async {
+    if (logIds.length > AsyncLogBatchReader.maxRecords) {
+      throw ArgumentError.value(logIds.length, 'logIds', 'batch exceeds limit');
+    }
+    if (logIds.isEmpty) return const <Uint8List>[];
+    final requested = List<int>.of(logIds);
+    return _call<List<Uint8List>?>(
+      (reply) => _ReadLogBatchReq(namespace, requested, reply),
+    );
+  }
+
   @override
   Future<List<KvLogEntry>> iterLogRange({
     required int namespace,

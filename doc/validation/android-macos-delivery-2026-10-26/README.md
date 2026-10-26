@@ -124,3 +124,10 @@ power settings were unchanged. Android remains behind its keyguard and needs
 manual unlocking for the deferred normal incoming-call qualification. No claim is made for the
 entire 63-case multi-device matrix, long offline TTL, device revocation, or all
 potential causes of one-way delivery.
+
+Follow-up on 2026-10-27: after the user unlocked Android, the deferred normal
+incoming video call passed on the audio-startup guard build. Worker timing
+also separated native commit work from RPC scheduling, and subsequent queue
+and journal-read corrections were tested. Burst delivery remains open. See
+[the follow-up evidence](../inbound-replay-queue-2026-10-27/README.md) for the
+exact build scope, failed delivery limits and cleanup audit.

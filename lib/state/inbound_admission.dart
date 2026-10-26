@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:crypto/crypto.dart' as crypto;
+
 import '../core/log.dart';
 import '../data/transport/veil_transport.dart';
 
@@ -63,11 +65,19 @@ class InboundAdmission {
   int _frames = 0;
   int _strangerBytes = 0;
   final Map<String, int> _peerBytes = {};
+  final Map<
+    (String, String?, SenderProvenance, int, bool, String),
+    Future<void>
+  >
+  _pendingIdentical = {};
   bool _closed = false;
 
   /// Frames refused since construction, and their weight.
   int droppedFrames = 0;
   int droppedBytes = 0;
+
+  /// Identical live replays already waiting for their original handler.
+  int coalescedFrames = 0;
 
   /// Payload bytes currently reserved (waiting or in flight).
   int get queuedBytes => _bytes;
@@ -92,9 +102,40 @@ class InboundAdmission {
     InboundMessage message, {
     required bool known,
     required Future<void> Function(InboundMessage message) handle,
+    bool coalesceIdentical = false,
   }) {
+    // Pending only: a later retransmit must still reach the handler to ACK or
+    // rebuild an expired chunk assembly. No callback-bearing mailbox verdict
+    // or new return route is consumed on behalf of another delivery.
+    final key =
+        !_closed &&
+            coalesceIdentical &&
+            message.provenance.isAuthenticated &&
+            message.onDeclined == null &&
+            message.payload.length <= maxBytes &&
+            message.payload.length <=
+                (known ? maxKnownPeerBytes : maxStrangerPeerBytes)
+        ? (
+            message.src.hex,
+            message.srcDevice?.hex,
+            message.provenance,
+            message.replyId,
+            known,
+            crypto.sha256.convert(message.payload).toString(),
+          )
+        : null;
+    final pending = key == null ? null : _pendingIdentical[key];
+    if (pending != null) {
+      coalescedFrames++;
+      return pending;
+    }
     if (!_reserve(message, known: known)) return null;
-    return handle(message).whenComplete(() => _release(message, known: known));
+    final result = Future<void>.sync(() => handle(message)).whenComplete(() {
+      if (key != null) _pendingIdentical.remove(key);
+      _release(message, known: known);
+    });
+    if (key != null) _pendingIdentical[key] = result;
+    return result;
   }
 
   bool _reserve(InboundMessage message, {required bool known}) {

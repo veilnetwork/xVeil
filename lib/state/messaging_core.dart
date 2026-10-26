@@ -1528,11 +1528,31 @@ class MessagingService {
     // hold and DROPS the rest (audit XV-05).
     void receive(InboundMessage m) {
       _mailboxDelivery.nudgeDrain();
+      var coalesceReplay = false;
+      if (m.provenance.isAuthenticated &&
+          m.payload.length <= inboundAdmission.maxKnownPeerBytes) {
+        try {
+          final envelope = WireEnvelope.decode(m.payload);
+          coalesceReplay =
+              envelope.kind == WireKind.groupEntry ||
+              envelope.kind == WireKind.groupEntryChunk ||
+              (envelope.kind == WireKind.message &&
+                  (envelope.id?.isNotEmpty == true ||
+                      envelope.frameId?.isNotEmpty == true));
+        } catch (_) {
+          // The normal handler owns malformed-frame refusal.
+        }
+      }
+      final coalescedBefore = inboundAdmission.coalescedFrames;
       final admitted = inboundAdmission.admit(
         m,
         known: _senderIsKnown(m),
         handle: _onInbound,
+        coalesceIdentical: coalesceReplay,
       );
+      if (inboundAdmission.coalescedFrames != coalescedBefore) {
+        _persistCoalescedRatchet();
+      }
       if (admitted != null) unawaited(admitted);
     }
 
@@ -2033,6 +2053,26 @@ class MessagingService {
   /// most one frame at a time. [_handleInbound] is fully try/catch-guarded so
   /// the chained future never rejects and the queue can't be poisoned.
   Future<void> _inboundChain = Future<void>.value();
+
+  // Re-encrypting a repeated frame can still advance the native ratchet. Keep
+  // its normal checkpoint request without adding another full dispatch
+  // or an unbounded task per replay. Shutdown joins this one drainer too.
+  bool _coalescedRatchetDirty = false;
+  Future<void>? _coalescedRatchetFlush;
+
+  void _persistCoalescedRatchet() {
+    if (_disposed || ratchet == null) return;
+    _coalescedRatchetDirty = true;
+    _coalescedRatchetFlush ??= Future<void>.sync(() async {
+      while (_coalescedRatchetDirty && !_disposed) {
+        _coalescedRatchetDirty = false;
+        await _persistRatchet('recv-coalesced');
+      }
+    }).whenComplete(() {
+      _coalescedRatchetFlush = null;
+      if (_coalescedRatchetDirty && !_disposed) _persistCoalescedRatchet();
+    });
+  }
 
   /// What the un-awaited durable lane may hold before it starts dropping.
   /// Public so a caller (and a test) can read what was refused: silent drops
@@ -4229,6 +4269,7 @@ class MessagingService {
       await Future.wait([
         _inboundChain,
         _realtimeControl.inboundChain,
+        ?_coalescedRatchetFlush,
       ]).timeout(const Duration(seconds: 3));
     } catch (e) {
       devLog(() => 'xVeil[recv]: inbound lanes did not quiesce cleanly: $e');

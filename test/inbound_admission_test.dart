@@ -143,4 +143,133 @@ void main() {
     expect(offer(_frame(1, 1)), isNull);
     expect(lane.isClosed, isTrue);
   });
+
+  test(
+    'pending live replays leave room for a new frame and run again later',
+    () async {
+      final small = InboundAdmission(label: 'replays', maxFrames: 2);
+      var handled = 0;
+      Future<void>? deliver(InboundMessage frame) => small.admit(
+        frame,
+        known: true,
+        coalesceIdentical: true,
+        handle: (_) {
+          handled++;
+          return stall.future;
+        },
+      );
+      final original = deliver(_frame(1, 30));
+      for (var n = 0; n < 100; n++) {
+        expect(identical(deliver(_frame(1, 30)), original), isTrue);
+      }
+      expect(handled, 1);
+      expect(small.queuedFrames, 1);
+      expect(small.queuedBytes, 30);
+      expect(small.coalescedFrames, 100);
+      expect(deliver(_frame(2, 40)), isNotNull);
+      expect(small.droppedFrames, 0);
+      stall.complete();
+      await original;
+      await Future<void>.delayed(Duration.zero);
+      expect(small.queuedFrames, 0);
+      await deliver(_frame(1, 30));
+      expect(handled, 3, reason: 'completed chunks must be re-consumable');
+    },
+  );
+
+  test(
+    'payload, source device, proof and reply route do not collapse',
+    () async {
+      final held = <Future<void>>[];
+      InboundMessage frame({
+        int peer = 1,
+        int? device = 2,
+        int reply = 0,
+        int byte = 0,
+        SenderProvenance proof = SenderProvenance.sessionPeer,
+        void Function(String)? declined,
+      }) => InboundMessage(
+        src: _id(peer),
+        srcDevice: device == null ? null : _id(device),
+        replyId: reply,
+        payload: Uint8List.fromList([byte]),
+        provenance: proof,
+        onDeclined: declined,
+      );
+      var calls = 0;
+      void deliver(InboundMessage message) {
+        held.add(
+          lane.admit(
+            message,
+            known: true,
+            coalesceIdentical: true,
+            handle: (_) {
+              calls++;
+              return stall.future;
+            },
+          )!,
+        );
+      }
+
+      deliver(frame());
+      deliver(frame(peer: 3));
+      deliver(frame(device: 3));
+      deliver(frame(device: null));
+      deliver(frame(reply: 1));
+      deliver(frame(byte: 1));
+      deliver(frame(proof: SenderProvenance.signed));
+      deliver(frame(proof: SenderProvenance.claimed));
+      deliver(frame(proof: SenderProvenance.claimed));
+      deliver(frame(declined: (_) {}));
+      deliver(frame(declined: (_) {}));
+      expect(calls, held.length);
+      stall.complete();
+      await Future.wait(held);
+      expect(lane.queuedBytes, 0);
+    },
+  );
+
+  test(
+    'synchronous failure releases replay reservation and permits retry',
+    () async {
+      final bad = lane.admit(
+        _frame(1, 100),
+        known: true,
+        coalesceIdentical: true,
+        handle: (_) => throw StateError('failed before returning a future'),
+      );
+      await expectLater(bad, throwsStateError);
+      expect(lane.queuedFrames, 0);
+      final retry = lane.admit(
+        _frame(1, 100),
+        known: true,
+        coalesceIdentical: true,
+        handle: (_) async {},
+      );
+      await retry;
+      expect(lane.queuedBytes, 0);
+    },
+  );
+
+  test('closing refuses even an identical pending replay', () async {
+    final first = lane.admit(
+      _frame(1, 30),
+      known: true,
+      coalesceIdentical: true,
+      handle: (_) => stall.future,
+    );
+    lane.close();
+    expect(
+      lane.admit(
+        _frame(1, 30),
+        known: true,
+        coalesceIdentical: true,
+        handle: (_) async {},
+      ),
+      isNull,
+    );
+    stall.complete();
+    await first;
+    expect(lane.queuedFrames, 0);
+  });
 }
