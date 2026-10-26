@@ -154,6 +154,7 @@ class SpacePublicAuthorityLink {
           'to',
           'seq',
           'prev',
+          'seen',
           'pv',
           'ts',
           'key',
@@ -164,6 +165,7 @@ class SpacePublicAuthorityLink {
         value['to'] is! String ||
         value['seq'] is! int ||
         value['prev'] is! String ||
+        (value.containsKey('seen') && value['seen'] is! String) ||
         value['pv'] is! int ||
         value['ts'] is! int ||
         value['key'] is! String ||
@@ -202,6 +204,11 @@ const int kSpacePublicDiscoveryPayloadMaxBytes = 16 * 1024;
 const int kSpacePublicAuthorityMaxLinks = 24;
 const int _spacePublicAuthorityLinkBytes = 185;
 const List<int> _spacePublicAuthorityMagic = <int>[0x58, 0x41, 0x01]; // XA1
+const List<int> _spacePublicAuthorityCausalMagic = <int>[
+  0x58,
+  0x41,
+  0x02,
+]; // XA2
 
 /// Project the accepted ownership hand-offs in their causal fold order.
 ///
@@ -890,8 +897,14 @@ Uint8List _encodeSpacePublicAuthorityChain(
       'exceeds public authority limit',
     );
   }
+  // XA1 predates ControlEntry.seen. Keep its exact bytes for legacy chains;
+  // XA2 adds a length-prefixed UTF-8 field to every link so the original
+  // control signature can be reconstructed, including null versus empty.
+  final causal = rows.any((link) => link.seen != null);
   final bytes = BytesBuilder(copy: false)
-    ..add(_spacePublicAuthorityMagic)
+    ..add(
+      causal ? _spacePublicAuthorityCausalMagic : _spacePublicAuthorityMagic,
+    )
     ..addByte(rows.length);
   for (final link in rows) {
     bytes
@@ -907,6 +920,20 @@ Uint8List _encodeSpacePublicAuthorityChain(
       ..add(_u64le(link.transferredAtMs))
       ..add(link.previousOwnerPublicKey)
       ..add(link.signature);
+    if (causal) {
+      final seen = link.seen == null ? null : utf8.encode(link.seen!);
+      if (seen != null && seen.length > kSpacePublicDiscoveryPayloadMaxBytes) {
+        throw ArgumentError(
+          'causal reference exceeds discovery payload budget',
+        );
+      }
+      bytes.add(
+        (ByteData(2)..setUint16(0, seen?.length ?? 0xffff, Endian.little))
+            .buffer
+            .asUint8List(),
+      );
+      if (seen != null) bytes.add(seen);
+    }
   }
   return bytes.toBytes();
 }
@@ -915,13 +942,19 @@ List<SpacePublicAuthorityLink>? _decodeSpacePublicAuthorityChain(
   Uint8List bytes,
   NodeId genesisOwner,
 ) {
-  if (bytes.length < 4 ||
-      !_sameBytes(bytes.sublist(0, 3), _spacePublicAuthorityMagic)) {
+  if (bytes.length < 4 || bytes.length > kSpacePublicDiscoveryPayloadMaxBytes) {
+    return null;
+  }
+  final causal = _sameBytes(
+    bytes.sublist(0, 3),
+    _spacePublicAuthorityCausalMagic,
+  );
+  if (!causal && !_sameBytes(bytes.sublist(0, 3), _spacePublicAuthorityMagic)) {
     return null;
   }
   final count = bytes[3];
   if (count > kSpacePublicAuthorityMaxLinks ||
-      bytes.length != 4 + count * _spacePublicAuthorityLinkBytes) {
+      (!causal && bytes.length != 4 + count * _spacePublicAuthorityLinkBytes)) {
     return null;
   }
   var offset = 4;
@@ -949,6 +982,19 @@ List<SpacePublicAuthorityLink>? _decodeSpacePublicAuthorityChain(
     offset += 32;
     final signature = Uint8List.fromList(bytes.sublist(offset, offset + 64));
     offset += 64;
+    String? seen;
+    if (causal) {
+      final length = ByteData.sublistView(
+        bytes,
+        offset,
+        offset + 2,
+      ).getUint16(0, Endian.little);
+      offset += 2;
+      if (length != 0xffff) {
+        seen = utf8.decode(bytes.sublist(offset, offset + length));
+        offset += length;
+      }
+    }
     final link = SpacePublicAuthorityLink(
       previousOwner: previousOwner,
       nextOwner: nextOwner,
@@ -958,10 +1004,17 @@ List<SpacePublicAuthorityLink>? _decodeSpacePublicAuthorityChain(
       transferredAtMs: transferredAtMs,
       previousOwnerPublicKey: publicKey,
       signature: signature,
+      seen: seen,
     );
     if (!link.isStructurallyValid) return null;
     result.add(link);
     previousOwner = nextOwner;
+  }
+  // Reject alternate encodings of the same signed descriptor. An all-null
+  // chain must use XA1; no unconsumed suffix belongs to either format.
+  if (offset != bytes.length ||
+      (causal && result.every((link) => link.seen == null))) {
+    return null;
   }
   return List<SpacePublicAuthorityLink>.unmodifiable(result);
 }

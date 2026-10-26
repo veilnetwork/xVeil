@@ -1,0 +1,77 @@
+{
+  "date": "2026-10-26",
+  "source_base": "9fd57dc4dfb408f7002c93c9477541836db52eae",
+  "native_sdk_source": "d2854085f36042fbf79395e5f1e8526f33eb11e9",
+  "finding": "The compact public authority codec omitted a signed causal reference. Transferred discovery verified in memory but failed after serialization.",
+  "regression_failed_before": true,
+  "regression_passed_after": true,
+  "fix": {
+    "legacy_no_reference_encoding_preserved": true,
+    "causal_authority_encoding": "XA2",
+    "reference_encoding": "UTF-8 with u16 little-endian length; 0xffff denotes absence",
+    "maximum_links": 24,
+    "complete_payload_budget_bytes": 16384,
+    "signature_validation_unchanged": true,
+    "minimum_global_search_holders": 2,
+    "native_server_change_required": false,
+    "older_client_behavior": "XA2 is rejected; updating the client is required for transferred Spaces with signed causal references."
+  },
+  "domain_tests": {
+    "passed": 12,
+    "failed": 0,
+    "coverage": [
+      "descriptor, payload and native carrier round trips",
+      "legacy, mixed and maximum-length authority chains",
+      "absent, empty and UTF-8 causal references",
+      "all byte truncation points, trailing data and invalid lengths",
+      "unknown versions, excess links and invalid UTF-8",
+      "noncanonical all-null XA2 and invalid JSON reference types",
+      "predecessor reference cannot be rewritten even by a successor signing a new descriptor",
+      "authority revocation before holder quorum"
+    ]
+  },
+  "service_tests": {
+    "passed": 7,
+    "failed": 0,
+    "note": "The filtered run also repeated one domain test, for eight total passes in that run."
+  },
+  "analysis": "no issues",
+  "native": {
+    "nodes": 3,
+    "public_seed_fallback_disabled": true,
+    "meeting_points_disabled": true,
+    "exact_peer_set_verified": true,
+    "serialized_transfer_real_signature_verification_passed": true,
+    "full_gate_passed": false,
+    "attempts": [
+      {
+        "label": "causal_codec_candidate",
+        "status": "partialQuorum",
+        "generation": 1,
+        "distinct_holders": 1,
+        "holder_role": "formerOwner"
+      },
+      {
+        "label": "causal_native_verification",
+        "status": "partialQuorum",
+        "generation": 1,
+        "distinct_holders": 1,
+        "holder_role": "publisher",
+        "observed_carrier_signatures_valid": true
+      }
+    ],
+    "process_cleanup_verified_for_both_attempts": true,
+    "owned_processes_remaining": 0,
+    "open_fixture_files": 0,
+    "remaining": "One-value-per-route sampling can retain only one holder across the connected replicas. Global search correctly refuses to treat that as a two-holder quorum."
+  },
+  "diagnostic_privacy": {
+    "identities_exported": false,
+    "addresses_exported": false,
+    "keys_exported": false,
+    "content_exported": false,
+    "raw_native_timestamps_exported": false,
+    "raw_traces_exported": false
+  },
+  "full_goal_completed": false
+}
