@@ -363,8 +363,9 @@ class MessagingService {
   }
 
   /// Attached by the group layer: an inbound group snapshot ([bundleJson]) from
-  /// an accepted [peer], to ingest idempotently. Dropped when unset.
-  void Function(NodeId peer, String bundleJson)? onGroupEntry;
+  /// an accepted [peer]. True only after the snapshot is durably applied or
+  /// an authorized no-op request is handled; false leaves it retryable.
+  FutureOr<bool> Function(NodeId peer, String bundleJson)? onGroupEntry;
 
   /// Consent-first Space lifecycle frames. Both are delivered only for an
   /// accepted contact; the Space layer validates sender/target/id and persists
@@ -651,8 +652,9 @@ class MessagingService {
   /// (scale-free log sync — members need no pairwise contact handshake). The
   /// group layer admits it ONLY into groups it already holds where the sender
   /// is a current member; new-group materialization (an invite) stays
-  /// contact-gated. Dropped when unset.
-  void Function(NodeId peer, String bundleJson)? onGroupEntryFromStranger;
+  /// contact-gated. The same terminal/durable contract as [onGroupEntry].
+  FutureOr<bool> Function(NodeId peer, String bundleJson)?
+  onGroupEntryFromStranger;
 
   /// Asks the group layer whether NON-contact [peer] may sync the group —
   /// the chunk-path admission, checked BEFORE reassembly RAM is spent.
@@ -890,15 +892,6 @@ class MessagingService {
     String frameJson,
   ) => _replication.sendCloudDocumentFrame(dst, documentIdHex, frameJson);
 
-  Future<void> _ingestStrangerGroupChunk(NodeId src, String body) =>
-      _replication.ingestStrangerGroupChunk(src, body);
-
-  void _ingestGroupChunk(
-    NodeId src,
-    String body, {
-    bool fromStranger = false,
-  }) => _replication.ingestGroupChunk(src, body, fromStranger: fromStranger);
-
   Future<void> _ingestCloudDocumentChunk(
     InboundMessage message,
     String body,
@@ -1125,6 +1118,7 @@ class MessagingService {
     String id, {
     bool direct = false,
     bool repeat = false,
+    List<NodeId>? ownDeviceTargets,
   }) async {
     final ack = WireEnvelope.ack(id).encode();
     final viaReply = !direct && m.replyId != 0;
@@ -1170,7 +1164,8 @@ class MessagingService {
         }
         return;
       }
-      final devices = await myOtherDevices?.call() ?? const <NodeId>[];
+      final devices =
+          ownDeviceTargets ?? await myOtherDevices?.call() ?? const <NodeId>[];
       if (devices.isNotEmpty) {
         for (final device in devices) {
           try {
