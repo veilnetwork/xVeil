@@ -1,0 +1,141 @@
+{
+  "published_baseline_sdk": "0.11.46",
+  "platforms": [
+    "macOS",
+    "Android"
+  ],
+  "p2p_allowed": false,
+  "phone_connection": "Wi-Fi",
+  "profiles_retained": true,
+  "main_app_modified": false,
+  "live_speech_tested": false,
+  "windows_tested": false,
+  "device_link_tested": false,
+  "baseline": {
+    "current_sdk_both_devices": true,
+    "main_app_modified": false,
+    "messages": {
+      "mac_to_phone": {
+        "accepted_locally": true,
+        "delivered": false,
+        "duplicates": 0,
+        "elapsed_ms": 12625
+      },
+      "phone_to_mac": {
+        "accepted_locally": true,
+        "delivered": false,
+        "duplicates": 0,
+        "elapsed_ms": 12480
+      }
+    },
+    "calls": {
+      "mac_to_phone": {
+        "placed": true,
+        "ringing": false,
+        "elapsed_ms": 12228
+      },
+      "phone_to_mac": {
+        "placed": true,
+        "ringing": false,
+        "elapsed_ms": 13784
+      }
+    }
+  },
+  "candidate_mac_only": {
+    "main_app_modified": false,
+    "messages": {
+      "mac_to_phone": {
+        "accepted_locally": true,
+        "delivered": true,
+        "duplicates": 0,
+        "elapsed_ms": 1155
+      },
+      "phone_to_mac": {
+        "accepted_locally": true,
+        "delivered": true,
+        "duplicates": 0,
+        "elapsed_ms": 1329
+      }
+    },
+    "calls": {
+      "mac_to_phone": {
+        "placed": true,
+        "ringing": true,
+        "elapsed_ms": 311
+      },
+      "phone_to_mac": {
+        "placed": true,
+        "ringing": true,
+        "elapsed_ms": 742
+      }
+    },
+    "sdk_patch_devices": [
+      "mac"
+    ]
+  },
+  "restart": {
+    "main_app_modified": false,
+    "messages": {
+      "mac_to_phone": {
+        "accepted_locally": true,
+        "delivered": true,
+        "duplicates": 0,
+        "elapsed_ms": 1143
+      },
+      "phone_to_mac": {
+        "accepted_locally": true,
+        "delivered": true,
+        "duplicates": 0,
+        "elapsed_ms": 1389
+      }
+    },
+    "calls": {
+      "mac_to_phone": {
+        "placed": true,
+        "ringing": true,
+        "elapsed_ms": 445,
+        "active_both_after_10s": true,
+        "audio_rx_packets": {
+          "mac": 134,
+          "phone": 143
+        }
+      },
+      "phone_to_mac": {
+        "placed": true,
+        "ringing": true,
+        "elapsed_ms": 2003,
+        "active_both_after_10s": true,
+        "audio_rx_packets": {
+          "mac": 138,
+          "phone": 158
+        }
+      }
+    },
+    "sdk_patch_devices": [
+      "mac"
+    ]
+  },
+  "staging": {
+    "before": {
+      "gradle_exit_code": 0,
+      "cargo_task_skipped": true,
+      "explicit_prebuilt_preserved": false,
+      "stale_target_packaged": true
+    },
+    "after": {
+      "gradle_exit_code": 0,
+      "cargo_task_skipped": true,
+      "explicit_prebuilt_preserved": true,
+      "stale_target_packaged": false
+    }
+  },
+  "cleanup": {
+    "all_owned_processes_exited": true,
+    "phone_qa_stopped": true,
+    "runtime_archives": 4,
+    "private_source_restored": {
+      "private_overlay_removed": true,
+      "private_dart_sources_restored": true
+    }
+  }
+}
