@@ -12,6 +12,12 @@ import 'multi_device_process_e2e_test.dart' as base;
 
 void main() {
   final gate = E2eGate.read();
+  final holdSeconds = int.tryParse(
+    Platform.environment['XVEIL_E2E_CALL_HOLD_SECONDS'] ?? '5',
+  );
+  if (holdSeconds == null || holdSeconds < 5 || holdSeconds > 720) {
+    throw ArgumentError('XVEIL_E2E_CALL_HOLD_SECONDS must be 5..720');
+  }
   test(
     'anonymous call startup separates answer delivery from media reception',
     () async {
@@ -156,7 +162,31 @@ void main() {
           final beforeReceiver = rx(await call(receiver)),
               beforeC = rx(await call(c));
           result['stage'] = '$phase:continuous-media';
-          await Future<void>.delayed(const Duration(seconds: 5));
+          // An optional long first call crosses the relay's receive-binding
+          // lifetime. Keep observing packet progress instead of sleeping once
+          // and allowing an early stall/reconnect to masquerade as continuity.
+          final hold = Stopwatch()..start();
+          final duration = Duration(seconds: primaryOnline ? holdSeconds : 5);
+          var previousReceiver = beforeReceiver, previousC = beforeC;
+          while (hold.elapsed < duration) {
+            await Future<void>.delayed(const Duration(seconds: 5));
+            final currentReceiver = await call(receiver),
+                currentC = await call(c);
+            expect(live(currentReceiver) && live(currentC), isTrue);
+            expect(rx(currentReceiver), greaterThan(previousReceiver));
+            expect(rx(currentC), greaterThan(previousC));
+            previousReceiver = rx(currentReceiver);
+            previousC = rx(currentC);
+            result['${phase}_continuous_ms'] = hold.elapsedMilliseconds;
+            result['${phase}_media_rx_delta_$receiverLabel'] =
+                previousReceiver - beforeReceiver;
+            result['${phase}_media_rx_delta_c'] = previousC - beforeC;
+            if (evidence != null) {
+              await File(
+                '$evidence/result.json',
+              ).writeAsString(jsonEncode(result));
+            }
+          }
           final afterReceiver = await call(receiver), afterC = await call(c);
           expect(live(afterReceiver) && live(afterC), isTrue);
           expect(rx(afterReceiver), greaterThan(beforeReceiver));
@@ -188,6 +218,7 @@ void main() {
         }
       }
     },
+    timeout: Timeout(Duration(seconds: holdSeconds + 540)),
     skip: gate.enabled && Platform.environment['XVEIL_E2E_ANONYMOUS'] != '1'
         ? 'requires XVEIL_E2E_ANONYMOUS=1'
         : gate.mediaSkip,

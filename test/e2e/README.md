@@ -41,6 +41,18 @@ to each other over the wire, and a mismatched pair fails as
 `scripts/build-native.sh` builds both from the same tree in one go, which is why
 it is the recommended path rather than two `cargo build`s.
 
+The anonymous-call startup fixture also supports a long first call:
+
+```bash
+XVEIL_E2E_ANONYMOUS=1 XVEIL_E2E_CALL_HOLD_SECONDS=660 \
+  flutter test --no-pub test/e2e/onion_call_startup_process_e2e_test.dart
+```
+
+`XVEIL_E2E_CALL_HOLD_SECONDS` accepts 5–720 seconds (default 5). Both endpoints
+must continue receiving audio RTP in every five-second observation window.
+The second call, after the primary device stops, retains its short hold. This
+checks packet continuity and call lifecycle, not speech quality or loudness.
+
 ### Environment gates
 
 | Variable | What it must be |
