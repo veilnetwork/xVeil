@@ -1,0 +1,202 @@
+{
+  "schema": "xveil-physical-delivery-validation/1",
+  "source_base": "231f7947",
+  "veil_source": "1d36980d",
+  "platforms": [
+    "Android Wi-Fi",
+    "macOS"
+  ],
+  "roles": {
+    "A": "Android, identity X",
+    "B": "macOS, identity X",
+    "C": "macOS, identity Y"
+  },
+  "production_seeds_build": true,
+  "test_low_difficulty": false,
+  "native_test_hooks": false,
+  "cold_first_message": {
+    "missing_on_A_after_60s": true,
+    "eventually_present": true,
+    "cause_established": false
+  },
+  "warm_messages": [
+    {
+      "sender": "peer",
+      "receivers": [
+        "phone",
+        "mac"
+      ],
+      "once_on_every_receiver": true,
+      "elapsed_ms": 896
+    },
+    {
+      "sender": "phone",
+      "receivers": [
+        "peer",
+        "mac"
+      ],
+      "once_on_every_receiver": true,
+      "elapsed_ms": 9755
+    },
+    {
+      "sender": "mac",
+      "receivers": [
+        "peer",
+        "phone"
+      ],
+      "once_on_every_receiver": true,
+      "elapsed_ms": 4771
+    }
+  ],
+  "warm_calls": [
+    {
+      "caller": "peer",
+      "answerer": "mac",
+      "ring_targets": [
+        "phone",
+        "mac"
+      ],
+      "ring_ms": 301,
+      "active_after_seconds": 20,
+      "active_both": true,
+      "audio_rx_packet_delta": {
+        "peer": 504,
+        "mac": 498
+      },
+      "transports": {
+        "peer": "relay",
+        "mac": "relay"
+      },
+      "unanswered_device_stopped_ringing": true
+    },
+    {
+      "caller": "phone",
+      "answerer": "peer",
+      "ring_targets": [
+        "peer"
+      ],
+      "ring_ms": 563,
+      "active_after_seconds": 20,
+      "active_both": true,
+      "audio_rx_packet_delta": {
+        "phone": 362,
+        "peer": 332
+      },
+      "transports": {
+        "phone": "relay",
+        "peer": "relay"
+      },
+      "unanswered_device_stopped_ringing": null
+    }
+  ],
+  "screen_off": {
+    "screen_off_before_send": true,
+    "qa_process_alive_after_45s": true,
+    "native_stack_ready_in_background": true,
+    "background_message_ms": 854,
+    "background_message_once": true,
+    "background_ring_ms": 77,
+    "background_incoming_call": true
+  },
+  "files": [
+    {
+      "sender": "peer",
+      "receiver": "phone",
+      "bytes": 3145979,
+      "elapsed_ms": 12530,
+      "sha256_matches": true,
+      "uncached_before_download": true
+    },
+    {
+      "sender": "phone",
+      "receiver": "peer",
+      "bytes": 3145979,
+      "elapsed_ms": 7652,
+      "sha256_matches": true,
+      "uncached_before_download": true
+    }
+  ],
+  "source_crash": {
+    "bytes": 8388859,
+    "bytes_before_source_crash": 3145728,
+    "fraction_before_source_crash": 0.375,
+    "source_restart_preserved_identity": true,
+    "sha256_matches": true,
+    "total_ms": 38896,
+    "after_crash_ms": 28312,
+    "manual_retry_required": false
+  },
+  "required_audio_failure": {
+    "before": {
+      "active_after_30s": true,
+      "audio_rx_packet_delta": {
+        "phone": 265,
+        "peer": 0
+      },
+      "video_rx_frame_delta": {
+        "phone": 7,
+        "peer": 0
+      }
+    },
+    "after": {
+      "keyguard_showing": true,
+      "phone_became_active": false,
+      "ended_both": true,
+      "elapsed_ms": 5790,
+      "native_audio_start_refused": true,
+      "video_started_after_audio_refusal": false
+    }
+  },
+  "checks": {
+    "call_unit_tests_passed": 196,
+    "changed_controller_analysis_exit": 0
+  },
+  "windows_10_tested": false,
+  "live_speech_tested": false,
+  "new_link_ceremony_tested": false,
+  "cellular_provider_tested": false,
+  "long_doze_tested": false,
+  "release_or_push": false,
+  "main_app_modified": false,
+  "cleanup": {
+    "mac_remaining_processes": 0,
+    "peer_remaining_processes": 0,
+    "phone_remaining_processes": 0,
+    "own_forward_removed": true,
+    "main_app_modified": false,
+    "system_power_settings_changed": false,
+    "retained_profiles": true,
+    "all_recorded_process_groups_absent": true,
+    "qa_runtime_commands_remaining": 0,
+    "qa_contact_overrides": "followGlobal"
+  },
+  "offline_backlog": {
+    "sent_from_C": 100,
+    "sent_from_A": 1,
+    "B_initially_offline": true,
+    "A_complete_within_120s": false,
+    "A_sampled_count_during_wait": 46,
+    "rows_expected_including_A_outgoing": 101,
+    "B_count_after_reconnect": 101,
+    "C_count_after_reconnect": 101,
+    "five_minute_C_offline_transition_completed": false,
+    "later_convergence": {
+      "expected_rows_per_device": 101,
+      "final_counts": {
+        "mac": 101,
+        "peer": 101,
+        "phone": 101
+      },
+      "all_same_ids": true,
+      "no_duplicates": true,
+      "observation_ms": 52648,
+      "all_devices_online_during_observation": true
+    }
+  },
+  "ratchet_save_sample_ms": {
+    "samples": 28,
+    "median": 440.5,
+    "maximum": 2083,
+    "causality_established": false
+  }
+}
