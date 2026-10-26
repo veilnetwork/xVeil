@@ -5808,7 +5808,7 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get devicesPairQrHint =>
-      'Conecta el teléfono y el ordenador a la misma red local. Escanea este código QR con el teléfono; la solicitud aparecerá aquí.';
+      'Conecta ambos dispositivos a la misma red local. En el dispositivo nuevo, escanea este código QR o pega el código de vinculación copiado. La solicitud de aprobación aparecerá aquí.';
 
   @override
   String get devicesPairLanUnavailable =>
@@ -5848,7 +5848,7 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get devicesPairScanHint =>
-      'Conecta el teléfono y el ordenador a la misma red local. Abre Añadir dispositivo en el ordenador y escanea su código QR.';
+      'Conecta ambos dispositivos a la misma red local. En el dispositivo que ya utilizas, abre Añadir dispositivo. Escanea su código QR o pega aquí el código de vinculación copiado.';
 
   @override
   String get devicesPairScan => 'Escanear el código QR del ordenador';

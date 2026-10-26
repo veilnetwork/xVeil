@@ -10115,7 +10115,7 @@ abstract class AppL10n {
   /// No description provided for @devicesPairQrHint.
   ///
   /// In en, this message translates to:
-  /// **'Connect your phone and computer to the same local network. Scan this QR code on your phone; the approval request will appear here.'**
+  /// **'Connect both devices to the same local network. On the new device, scan this QR code or paste the copied linking code. The approval request will appear here.'**
   String get devicesPairQrHint;
 
   /// No description provided for @devicesPairLanUnavailable.
@@ -10175,7 +10175,7 @@ abstract class AppL10n {
   /// No description provided for @devicesPairScanHint.
   ///
   /// In en, this message translates to:
-  /// **'Connect your phone and computer to the same local network. Open Add device on your computer and scan its QR code.'**
+  /// **'Connect both devices to the same local network. On the device you already use, open Add device. Scan its QR code or paste the copied linking code here.'**
   String get devicesPairScanHint;
 
   /// No description provided for @devicesPairScan.

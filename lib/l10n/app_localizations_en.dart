@@ -5739,7 +5739,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get devicesPairQrHint =>
-      'Connect your phone and computer to the same local network. Scan this QR code on your phone; the approval request will appear here.';
+      'Connect both devices to the same local network. On the new device, scan this QR code or paste the copied linking code. The approval request will appear here.';
 
   @override
   String get devicesPairLanUnavailable =>
@@ -5778,7 +5778,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get devicesPairScanHint =>
-      'Connect your phone and computer to the same local network. Open Add device on your computer and scan its QR code.';
+      'Connect both devices to the same local network. On the device you already use, open Add device. Scan its QR code or paste the copied linking code here.';
 
   @override
   String get devicesPairScan => 'Scan the computer QR code';
