@@ -134,3 +134,78 @@ No post-deployment improvement is claimed. The exact contribution of this race
 to that transfer or to the reported Windows 10 failure is still unproven. There
 was no release, push, main-app modification or change to system audio/network
 settings during this follow-up.
+
+## Follow-up: active receiver lifetime
+
+A second, independent lifetime defect was confirmed in relay-side subscription
+GC. The circuit table retained a receiver's path after its replay-admitted
+forward heartbeat, but the rendezvous registry expired its subscription at a
+fixed age of 600 seconds after registration. The pinned stream backend avoids
+timed mid-transfer rebuilds. Its plain mailbox recipient recheck uses a different
+cookie and does not renew the stream subscription.
+
+A regression registers a real signed receiver binding with an old creation
+clock, dispatches its encrypted forward heartbeat through the actual relay
+handler, then runs both collectors. Before correction, the circuit survives but
+the receive binding is removed. Afterwards both survive. Replaying that already
+admitted heartbeat does not refresh activity and cannot prevent expiry when the
+last valid activity is old.
+
+Subscription GC now uses the later of registration and activity on the exact
+registered circuit. At a terminus, that circuit's activity clock is touched by
+accepted forward cells from its owner; forwarding third-party introductions or
+splicing data to its cookie does not touch it. This retains a live receive path
+without increasing the heartbeat rate, re-registering or rotating a busy path.
+Existing per-link/global caps, registration signatures/epochs, wire headers and
+relay scheduling remain in force.
+
+Two additional tests keep the owner active for multiple subscription lifetimes,
+then verify exact-boundary idle expiry and per-link accounting, and check that
+third-party traffic cannot extend the owner's deadline. All 337 enabled
+veil-anonymity and 286 veil-dispatcher library tests passed, with one existing
+anonymity skip. The matching optimized CLI and FFI were built from the same
+working tree for the sealed local relay stand. Rust warnings were denied and
+the external target mount monitored for the entire build.
+
+The opt-in duration control in the existing three-process anonymous-call fixture
+allows a long first call, observing continuing audio-packet reception on both
+endpoints every five seconds. This is automated RTP/lifecycle qualification,
+not a listening test, loudness measurement or video-quality qualification.
+
+The sealed local run used A/B as identity X and C as identity Y. C rang both
+online devices; B answered and A stopped ringing. B and C continued receiving
+audio RTP in every five-second observation window for 661.725 seconds. The
+observed increments during that hold were 33,470 and 33,458 packets. Hangup
+converged on both endpoints. After A stopped, a second C-to-B call connected,
+exchanged packets through its five-second hold, and hung up normally. The test
+exited zero; source hashes remained unchanged throughout the run. Worker groups,
+runner group and commands belonging to the owned runtime directories were all
+verified absent afterwards.
+
+This long-call pass is functional coverage, not proof that the old 600-second
+registry bug caused a particular earlier call failure: private call routes have
+their own refresh lifecycle. The isolated failing-then-passing GC regression is
+the causal evidence for that bug. The additional externally driven file probe is
+excluded from successful qualification. Its first attempt failed in the private
+HTTP driver's query builder before sending a request. The corrected attempt
+reached the anonymous stream and its manifest, but the call fixture ended B
+before the pending download's deadline; no complete-file/hash result was obtained.
+One temporary policy restoration could not reach that disposed B; its entire
+throwaway profile/runtime was removed by normal fleet cleanup, so no user/main
+profile setting remains changed.
+
+Another source-side lifetime candidate remains for investigation:
+OriginCircuitTable::gc currently uses creation time even for persistent data
+circuits. The receive-binding correction above does not change that separate
+collector. Its effect on an actively used stream beyond the origin TTL is not
+qualified by this call run.
+
+The phone and main installed apps were untouched. No production relay was
+updated, no release created, and no commits pushed. The reported Windows 10
+interoperability issue remains unqualified.
+
+SDK commit `5fd3da68` records the receiver-idle correction. Final integration
+checks also passed: all 726 enabled veil-node-runtime and 325 veilclient-ffi
+library tests (11 and two existing skips respectively). The FFI run used
+`node-embedded,production-seeds,packet-tunnel` without default features. Dart
+analysis of the extended process fixture and format/whitespace checks passed.
