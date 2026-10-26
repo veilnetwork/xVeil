@@ -4,7 +4,10 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/core/ids.dart';
 import 'package:xveil/core/log.dart';
+import 'package:xveil/data/node/bundled_seeds.dart';
+import 'package:xveil/data/node/space_discovery_transport.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/transport/veil_flutter_transport.dart';
@@ -13,9 +16,13 @@ import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/group.dart';
 import 'package:xveil/domain/message_mention.dart';
 import 'package:xveil/domain/space_invite.dart';
+import 'package:xveil/domain/space_discovery.dart';
+import 'package:xveil/domain/space_discovery_carrier.dart';
+import 'package:xveil/domain/space_discovery_search.dart';
 import 'package:xveil/features/chat/mentions_screen.dart';
 import 'package:xveil/headless/headless_config.dart';
 import 'package:xveil/headless/headless_runtime.dart';
+import 'package:xveil/state/group_crypto.dart';
 import 'package:xveil/state/group_service.dart';
 
 Future<int> _freePort() async {
@@ -77,6 +84,7 @@ HeadlessConfig _config(String root, String label, int listenPort) =>
       apiPort: 0,
       anonymous: false,
       bootstrapPeers: const [],
+      useBundledSeeds: false,
     );
 
 Future<void> _preprovisionFastIdentity(
@@ -93,6 +101,7 @@ Future<void> _preprovisionFastIdentity(
       await storage.open(password: password, createIfMissing: true),
       isTrue,
     );
+    expect(await setMeetingPointsInSpace(storage, const []), isTrue);
     await storage.saveNodeConfig(
       await File(
         'test/native/fixtures/public_discovery_identity_$fixtureIndex.toml',
@@ -107,6 +116,49 @@ Future<void> _join(HeadlessRuntime joining, HeadlessRuntime target) async {
   final joiningTransport = joining.stack.transport as VeilFlutterTransport;
   final targetTransport = target.stack.transport as VeilFlutterTransport;
   await joiningTransport.joinInvite(await targetTransport.createInvite());
+}
+
+Future<bool> _hasExpectedPeers(
+  VeilFlutterTransport transport,
+  Set<NodeId> expected,
+) async {
+  final active = (await transport.peers())
+      .where((peer) => peer.isActive)
+      .toList(growable: false);
+  return active.length == expected.length &&
+      active.every((peer) => expected.contains(peer.nodeId));
+}
+
+Future<Map<String, Object?>> _discoverySnapshot(
+  HeadlessRuntime runtime,
+  String query,
+  Map<NodeId, String> roles,
+) async {
+  final node = await (runtime.stack.transport as VeilFlutterTransport).nodeId();
+  final records = await NativeSpaceDiscoveryTransport(node).resolve(
+    SpaceDiscoveryCarrierRoute.search(
+      spaceDiscoverySearchTokenHash(spaceDiscoveryQueryTerms(query).single),
+    ),
+    timeout: const Duration(seconds: 1),
+  );
+  return {
+    'recordCount': records.length,
+    'records': [
+      for (final bytes in records)
+        if (SpaceDiscoveryCarrier.fromBytes(bytes) case final carrier?)
+          if (SpacePublicDiscoveryPayload.fromBytes(carrier.payload)
+              case final payload?)
+            {
+              'bytes': bytes.length,
+              'generation': payload.descriptor.authorityGeneration,
+              'holder': roles[payload.holder.holder] ?? 'other',
+              'signaturesValid': carrier.verifyAt(
+                DateTime.now().millisecondsSinceEpoch,
+                verifyDetachedIdentity,
+              ),
+            },
+    ],
+  };
 }
 
 Future<bool> _containsBytes(Directory root, List<int> needle) async {
@@ -223,18 +275,15 @@ void main() {
         await _join(subscriber, nextOwner);
         await _waitUntil(
           () async =>
-              (await ownerTransport.peers())
-                      .where((peer) => peer.isActive)
-                      .length >=
-                  2 &&
-              (await publisherTransport.peers())
-                      .where((peer) => peer.isActive)
-                      .length >=
-                  2 &&
-              (await readerTransport.peers())
-                      .where((peer) => peer.isActive)
-                      .length >=
-                  2,
+              await _hasExpectedPeers(ownerTransport, {
+                publisherId,
+                readerId,
+              }) &&
+              await _hasExpectedPeers(publisherTransport, {
+                ownerId,
+                readerId,
+              }) &&
+              await _hasExpectedPeers(readerTransport, {ownerId, publisherId}),
           reason: 'the three-node transport mesh did not become active',
         );
         await owner.messaging.sendRequest(
@@ -318,6 +367,22 @@ void main() {
         expect(publication.discovery.descriptor.publisher, publisherId);
         expect(publication.discovery.descriptor.authorityGeneration, 1);
         expect(
+          publication.discovery.descriptor.authorityChain.single.seen,
+          isNotNull,
+        );
+        final roundTrip = SpacePublicDiscoveryPayload.fromBytes(
+          publication.discovery.toBytes(),
+        );
+        expect(roundTrip, isNotNull);
+        expect(
+          roundTrip!.verifyAt(
+            DateTime.now().millisecondsSinceEpoch,
+            verifyDetachedIdentity,
+          ),
+          isTrue,
+          reason: 'native transfer signatures must survive the discovery codec',
+        );
+        expect(
           await owner.groups.buildSpacePublicDiscoveryPublication(spaceId),
           isNull,
           reason: 'the genesis publisher must be revoked immediately',
@@ -351,6 +416,7 @@ void main() {
             return outcome!.status ==
                     SpacePublicDiscoverySearchStatus.available &&
                 outcome!.results.length == 1 &&
+                outcome!.results.single.descriptor.authorityGeneration == 1 &&
                 outcome!.results.single.holders.length >= 2;
           }, reason: 'global search did not reach a two-holder quorum');
         } on TimeoutException catch (error) {
@@ -360,9 +426,20 @@ void main() {
                 timeout: const Duration(seconds: 3),
                 minimumIndependentHolders: 1,
               );
+          final roles = <NodeId, String>{
+            ownerId: 'formerOwner',
+            publisherId: 'publisher',
+            readerId: 'reader',
+          };
+          final snapshots = await Future.wait([
+            _discoverySnapshot(owner, query, roles),
+            _discoverySnapshot(nextOwner, query, roles),
+            _discoverySnapshot(subscriber, query, roles),
+          ]);
           final diagnostic = jsonEncode({
             'status': outcome?.status.name,
             'provisionalStatus': provisional.status.name,
+            'replicas': snapshots,
             'candidates': [
               for (final result in provisional.results)
                 {
