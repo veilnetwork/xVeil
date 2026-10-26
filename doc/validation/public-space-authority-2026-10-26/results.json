@@ -1,0 +1,57 @@
+{
+  "date": "2026-10-26",
+  "source_base": "7fdc33a6a2c56250b5be3d12b8e1c33e66045b69",
+  "native_sdk_source": "d2854085f36042fbf79395e5f1e8526f33eb11e9",
+  "native_storage_source": "1ea2366fdd03d2719959aa88d15185ae48835f26",
+  "fixed": [
+    {
+      "finding": "Unexpected production stdout on public discovery refusal contained prefixes of local and owner identities.",
+      "regression_failed_before": true,
+      "regression_passed_after": true,
+      "change": "Remove diagnostic print; publication authorization remains unchanged."
+    },
+    {
+      "finding": "A quorum for a revoked publisher could outrank a verified successor before successor holder quorum formed.",
+      "regression_failed_before": true,
+      "regression_passed_after": true,
+      "change": "Choose authenticated authority within the same signed genesis before checking independent holder availability.",
+      "coverage": [
+        "old quorum plus one successor holder",
+        "input ordering",
+        "successor reaches quorum",
+        "invalid transfer signature",
+        "unrelated self-signed genesis with the same Space id",
+        "newer feed retains quorum rules within one authority"
+      ]
+    }
+  ],
+  "focused_regression": {
+    "passed": 18,
+    "failed": 0
+  },
+  "native_live": {
+    "nodes": 3,
+    "full_gate_passed": false,
+    "baseline_failure": "two-holder quorum timeout",
+    "candidate_failure": "search returned generation 0 after generation 1 publication",
+    "diagnosed_failure": {
+      "expected_generation": 1,
+      "returned_generation": 0,
+      "publisher_current_generation": 1,
+      "former_publisher_can_publish": false,
+      "returned_holder_count": 2
+    },
+    "candidate_and_diagnosed_cleanup_verified": true,
+    "note": "The fixture uses the normal headless network defaults, including public seed and meeting-point fallback. It is not an isolated three-node network.",
+    "remaining": "DHT publication/discovery can still expose only old authority records. The merge fix does not recover a newer record that lookup did not return."
+  },
+  "privacy": {
+    "exported_peer_ids": false,
+    "exported_addresses": false,
+    "exported_keys": false,
+    "exported_message_content": false,
+    "exported_native_clocks": false,
+    "raw_logs_exported": false
+  },
+  "full_goal_completed": false
+}

@@ -2253,14 +2253,6 @@ class GroupService implements ArchiveGroups {
         if (member.role == GroupRole.owner) member.nodeId,
     ];
     if (!state.isActive || owners.length != 1 || owners.single != selfId) {
-      // ignore: avoid_print
-      print(
-        'OWN active=${state.isActive} n=${owners.length} '
-        'owner=${owners.isEmpty ? "-" : owners.single.hex.substring(0, 4)} '
-        'self=${selfId.hex.substring(0, 4)} '
-        'rows=${folded.accepted.length} rej=${folded.rejected.length} '
-        'transfers=${folded.accepted.where((e) => e.op == ControlOp.transferOwnership).length}',
-      );
       return null;
     }
     final authorityChain = buildSpacePublicAuthorityChain(

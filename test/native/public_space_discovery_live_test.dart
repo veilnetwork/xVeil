@@ -342,18 +342,55 @@ void main() {
         }, reason: 'the former owner did not become an independent holder');
 
         SpacePublicDiscoverySearchOutcome? outcome;
-        await _waitUntil(() async {
-          outcome = await subscriber.groups.searchPublicSpaceDiscoveryOutcome(
-            query,
-            timeout: const Duration(seconds: 3),
-          );
-          return outcome!.status ==
-                  SpacePublicDiscoverySearchStatus.available &&
-              outcome!.results.length == 1 &&
-              outcome!.results.single.holders.length >= 2;
-        }, reason: 'global search did not reach a two-holder quorum');
+        try {
+          await _waitUntil(() async {
+            outcome = await subscriber.groups.searchPublicSpaceDiscoveryOutcome(
+              query,
+              timeout: const Duration(seconds: 3),
+            );
+            return outcome!.status ==
+                    SpacePublicDiscoverySearchStatus.available &&
+                outcome!.results.length == 1 &&
+                outcome!.results.single.holders.length >= 2;
+          }, reason: 'global search did not reach a two-holder quorum');
+        } on TimeoutException catch (error) {
+          final provisional = await subscriber.groups
+              .searchPublicSpaceDiscoveryOutcome(
+                query,
+                timeout: const Duration(seconds: 3),
+                minimumIndependentHolders: 1,
+              );
+          final diagnostic = jsonEncode({
+            'status': outcome?.status.name,
+            'provisionalStatus': provisional.status.name,
+            'candidates': [
+              for (final result in provisional.results)
+                {
+                  'generation': result.descriptor.authorityGeneration,
+                  'holders': result.holders.length,
+                },
+            ],
+          });
+          throw TimeoutException('${error.message}; $diagnostic');
+        }
         final result = outcome!.results.single;
-        expect(result.descriptor.authorityGeneration, 1);
+        expect(
+          result.descriptor.authorityGeneration,
+          1,
+          reason: jsonEncode({
+            'publishedGeneration':
+                publication.discovery.descriptor.authorityGeneration,
+            'currentPublisherGeneration':
+                (await nextOwner.groups.buildSpacePublicDiscoveryPublication(
+                  spaceId,
+                ))?.discovery.descriptor.authorityGeneration,
+            'formerPublisherGeneration':
+                (await owner.groups.buildSpacePublicDiscoveryPublication(
+                  spaceId,
+                ))?.discovery.descriptor.authorityGeneration,
+            'holders': result.holders.length,
+          }),
+        );
         expect({
           for (final holder in result.holders) holder.holder,
         }, containsAll(<Object>[ownerId, publisherId]));
