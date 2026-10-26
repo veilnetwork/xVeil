@@ -74,3 +74,63 @@ the intended receiver at its rendezvous relay.
 Raw logs, endpoint identities, source/destination contents, cookies, certificates,
 timestamps and ownership records remain private. Public evidence contains only
 roles, aggregate sizes/durations and source-owned event categories.
+
+## Follow-up: teardown after re-registration
+
+The next cold-start investigation kept the same current profiles and native
+library. A read-only QA authorization probe found the expected contact document
+and device-key bytes in both the restored native snapshot and encrypted host
+storage. There was one parent-document byte match per remote physical device.
+These structural observations neither authorize a sender nor invoke the proof
+check that can fetch/observe documents and alter the cold state being measured.
+The QA endpoint returns only booleans and counts; it does not return documents,
+identities, keys or the supplied query values.
+
+A further fresh, uncached 3 MiB plus 251-byte anonymous transfer did not finish
+within its three-minute download budget. Read-only local admin snapshots sampled
+DHT advertisements during the first two minutes. In those snapshots, the
+non-mailbox cookies at both physical device addresses matched each device's
+currently published stream registration cookie. There was one stream cookie
+and one introduction public key per device. This does not expose every remote
+candidate seen by the resolver and does not prove that each advertised relay
+still held the intended receiver's registration. The observation rules out
+simple mailbox-cookie misclassification in the sampled local mirrors, not all
+route failures. Original contact policies were restored in a separate cleanup
+reopen, and both owned process groups were verified absent.
+
+Inspection of the relay teardown path then found a separate, deterministic
+availability defect. A receiver can confirm a newer signed registration of its
+cookie on a replacement circuit. The old circuit still records that cookie;
+its subsequent teardown unconditionally removed the current subscription,
+even though the registry now pointed at the replacement. Consequently, valid
+post-cookie bytes arrived at the terminus without a receiver to splice to.
+
+The regression drives the real dispatcher: signed registration, confirmed
+replacement on another neighbouring link, delayed teardown of the first path,
+and an encrypted sender cell that must be returned through the replacement.
+Both receiving paths deliberately use the same link-local circuit number.
+Before the fix, the test failed because no spliced return cell was emitted.
+After the fix, both reliable CircuitData and CircuitDatagram delivery succeed.
+A second regression reuses the same neighbour AND circuit number with a new
+circuit incarnation, to prevent reducing ownership to just those numeric keys.
+Current-owner teardown still removes the subscription and its per-link index.
+
+Registry removal now compares the exact circuit incarnation and removes its
+subscription under one registry lock. It cannot erase a fresher registration
+that won before the comparison. Registration signatures, cookie binding, epoch
+checks, wire format, capacity limits, relay scheduling and media opacity are
+unchanged.
+
+SDK commit `c93427ee` contains the correction. All 335 enabled veil-anonymity,
+285 veil-dispatcher and 726 veil-node-runtime library tests passed, with one
+existing anonymity skip and eleven existing runtime skips. Rust warnings were denied and
+the external target mount monitored throughout compilation/testing. The QA
+Dart hook also passed static analysis; its two owned application bundles had
+already been built and exercised against the numeric-only authorization probe.
+
+This is a local server-code fix. Running production relays have not been changed,
+and the failing live transfer was performed against their previous binaries.
+No post-deployment improvement is claimed. The exact contribution of this race
+to that transfer or to the reported Windows 10 failure is still unproven. There
+was no release, push, main-app modification or change to system audio/network
+settings during this follow-up.
