@@ -31,13 +31,101 @@ void observe(
   Map<String, dynamic> peers, {
   int expected = 1,
   int route = 0,
+  int? rttMs,
 }) => m.observe(
   {'video_delivery_peers': peers, 'video_rtt_route_epoch': route},
   at(n),
   expected,
+  rttMs: rttMs,
 );
 
 void main() {
+  test('healthy cruise follows measured RTT after the congestion drain', () {
+    final m = CallVideoDeliveryModel();
+    observe(m, 1, {'p': report(1)}, rttMs: 100);
+    m.applied(at(1), reduced: true);
+    for (var n = 2; n < 7; n++) {
+      observe(m, n, {'p': report(n)}, rttMs: 100);
+      expect(m.propose(floor, ceiling, at(n), healthy: true), isNull);
+    }
+    observe(m, 7, {'p': report(7)}, rttMs: 100);
+    final first = m.propose(floor, ceiling, at(7), healthy: true)!;
+    m.applied(at(7), reduced: false);
+    observe(m, 8, {'p': report(8)}, rttMs: 100);
+    final next = m.propose(first, ceiling, at(8), healthy: true);
+    expect(
+      next,
+      isNotNull,
+      reason:
+          'a causal ACK on a healthy 100ms route need not wait three seconds',
+    );
+    expect(next!.maxFps, first.maxFps * 1.25);
+    expect(next.maxBitrateKbps, (first.maxBitrateKbps * 1.25).ceil());
+  });
+
+  for (final rtt in <int?>[1000, null, 0, -1, 60001]) {
+    test('cruise preserves RTT and unknown-measurement waits for $rtt ms', () {
+      final m = CallVideoDeliveryModel();
+      observe(m, 1, {'p': report(1)}, rttMs: rtt);
+      m.applied(at(1), reduced: true);
+      observe(m, 7, {'p': report(7)}, rttMs: rtt);
+      final first = m.propose(floor, ceiling, at(7), healthy: true)!;
+      m.applied(at(7), reduced: false);
+      observe(m, 8, {'p': report(8)}, rttMs: rtt);
+      expect(m.propose(first, ceiling, at(8), healthy: true), isNull);
+      observe(m, 9, {'p': report(9)}, rttMs: rtt);
+      if (rtt == 1000) {
+        expect(m.propose(first, ceiling, at(9), healthy: true), isNotNull);
+      } else {
+        expect(m.propose(first, ceiling, at(9), healthy: true), isNull);
+        observe(m, 10, {'p': report(10)}, rttMs: rtt);
+        expect(m.propose(first, ceiling, at(10), healthy: true), isNotNull);
+      }
+    });
+  }
+
+  for (final failure in ['cached', 'pre-probe', 'audio', 'route']) {
+    test('fast cruise cannot ignore $failure evidence', () {
+      final m = CallVideoDeliveryModel();
+      observe(m, 1, {'p': report(1)}, rttMs: 100);
+      m.applied(at(1), reduced: true);
+      observe(m, 7, {'p': report(7)}, rttMs: 100);
+      final first = m.propose(floor, ceiling, at(7), healthy: true)!;
+      m.applied(at(7), reduced: false);
+      observe(
+        m,
+        8,
+        {
+          'p': failure == 'cached'
+              ? report(7)
+              : report(8, timestamp: failure == 'pre-probe' ? 7 * 90000 : null),
+        },
+        rttMs: 100,
+        route: failure == 'route' ? 1 : 0,
+      );
+      expect(
+        m.propose(first, ceiling, at(8), healthy: failure != 'audio'),
+        isNull,
+      );
+    });
+  }
+
+  for (final laterRtt in <int?>[1000, null]) {
+    test(
+      'a longer or missing RTT extends a pending cruise wait: $laterRtt',
+      () {
+        final m = CallVideoDeliveryModel();
+        observe(m, 1, {'p': report(1)}, rttMs: 100);
+        m.applied(at(1), reduced: true);
+        observe(m, 7, {'p': report(7)}, rttMs: 100);
+        final first = m.propose(floor, ceiling, at(7), healthy: true)!;
+        m.applied(at(7), reduced: false);
+        observe(m, 8, {'p': report(8)}, rttMs: laterRtt);
+        expect(m.propose(first, ceiling, at(8), healthy: true), isNull);
+      },
+    );
+  }
+
   test('decoded frames received during pause cannot fund resumed growth', () {
     final m = CallVideoDeliveryModel();
     observe(m, 1, {'p': report(1)});
