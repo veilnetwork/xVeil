@@ -1,0 +1,48 @@
+{
+  "date": "2026-10-26",
+  "status": "complete",
+  "versions": {
+    "veil": "0.11.46",
+    "hidden_volume": "2.6.4",
+    "xveil": "0.13.93"
+  },
+  "source_commits": {
+    "veil": "09bf0da34df782c206a1341784de55c5790f19e3",
+    "xveil": "888a4ca9d3dbcef158861cd0980ef2bc8c7ed819",
+    "hidden_volume": "1ea2366fdd03d2719959aa88d15185ae48835f26"
+  },
+  "successful_ci": {
+    "veil": 40267196550,
+    "veil_mobile": 40267196662,
+    "xveil": 40267316098,
+    "veil_release": 40274324265,
+    "veil_mobile_full": 40274324268,
+    "xveil_release": 40276333793
+  },
+  "veil_assets": 43,
+  "signed_checksum_manifests_verified": 7,
+  "binary_digests_verified": 28,
+  "xveil_assets_verified": 15,
+  "fleet": {
+    "production": 6,
+    "testnet": 3,
+    "verified_services": 9,
+    "dht_list_success": 9,
+    "unexpected_restarts": 0,
+    "same_process_since_rollout": true,
+    "configs_preserved": true,
+    "backups_created": true,
+    "verified_again_after_app_publication": true
+  },
+  "local_pre_release_checks": {
+    "flutter_tests_passed": 6152,
+    "environment_skips": 186,
+    "analysis": "passed"
+  },
+  "privacy": {
+    "node_addresses_exported": false,
+    "peer_ids_exported": false,
+    "keys_exported": false,
+    "raw_logs_exported": false
+  }
+}
