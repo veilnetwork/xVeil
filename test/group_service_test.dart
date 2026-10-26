@@ -7664,9 +7664,13 @@ void main() {
     for (var i = 0; i < 5; i++) {
       expect(await svc.isMyDeviceOrMaster(contact), isFalse);
     }
-    expect(svc.deviceOwnerReads, 1, reason: 'the journal was re-read per frame');
+    expect(
+      svc.deviceOwnerReads,
+      1,
+      reason: 'the journal was re-read per frame',
+    );
 
-    // A write to the device group is the one thing that changes the answer.
+    // Ordinary data appends do not change device ownership or membership.
     await svc.postDeviceEvent(
       const DeviceSyncEvent(
         kind: DeviceSyncKind.settingSet,
@@ -7676,9 +7680,54 @@ void main() {
       ),
     );
     expect(await svc.isMyDeviceOrMaster(contact), isFalse);
-    expect(svc.deviceOwnerReads, 2, reason: 'a device-group write must clear it');
-    // And the answer for a real device of mine is unchanged.
-    expect(await svc.isMyDeviceOrMaster(bob), isTrue);
+    expect(
+      svc.deviceOwnerReads,
+      1,
+      reason: 'a theme cannot change device ownership',
+    );
+    for (var i = 0; i < 10; i++) {
+      await svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.msgMirror,
+          key: 'owner-cache-$i',
+          tsMs: 10 + i,
+          payload: {'peer': contact.hex, 'body': 'message $i'},
+        ),
+      );
+      expect(await svc.isMyDeviceOrMaster(contact), isFalse);
+    }
+    expect(
+      svc.deviceOwnerReads,
+      1,
+      reason: 'mirrors must not re-read the owner',
+    );
+    await svc.postDeviceEvent(
+      const DeviceSyncEvent(
+        kind: DeviceSyncKind.identityDoc,
+        key: 'new-document',
+        tsMs: 100,
+        payload: {},
+      ),
+    );
+    expect(await svc.isMyDeviceOrMaster(contact), isFalse);
+    expect(
+      svc.deviceOwnerReads,
+      2,
+      reason: 'identity announcements invalidate',
+    );
+    final afterExpiry = DateTime.now().millisecondsSinceEpoch + 31000;
+    svc.debugWallClockMs = () => afterExpiry;
+    expect(await svc.isMyDeviceOrMaster(contact), isFalse);
+    expect(
+      svc.deviceOwnerReads,
+      3,
+      reason: 'data appends must not extend expiry',
+    );
+    await svc.revokeDevice(bob, sovereign: sovereign);
+    expect(await svc.isMyDeviceOrMaster(bob), isFalse);
+    expect(svc.deviceOwnerReads, 4, reason: 'revoke invalidates both gates');
+    // The former member remains revoked on repeated cached checks.
+    expect(await svc.isMyDeviceOrMaster(bob), isFalse);
   });
 
   test('epoch keys handed to my devices are not handed again after a restart',
