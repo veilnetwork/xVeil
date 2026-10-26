@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' show min;
 import 'dart:typed_data';
 
 import '../../core/error_journal.dart';
@@ -965,10 +966,33 @@ class AsyncFileStore {
       return readFileRange(fileId, 0, m['size'] as int);
     }
     final out = BytesBuilder(copy: false);
-    for (final id in _recordIds(_fileSegments(m))) {
-      final chunk = await _store.readLog(Ns.fileChunks, id);
-      if (chunk == null) return null;
-      out.add(chunk);
+    final ids = _recordIds(_fileSegments(m));
+    final reader = _store;
+    if (reader is AsyncLogBatchReader) {
+      // Group journals load many small records. One isolate round trip per
+      // record made a received text wait seconds just to publish its mirror.
+      // Preserve the exact id order and missing-record refusal in bounded RPCs.
+      for (
+        var start = 0;
+        start < ids.length;
+        start += AsyncLogBatchReader.maxRecords
+      ) {
+        final end = min(start + AsyncLogBatchReader.maxRecords, ids.length);
+        final chunks = await (reader as AsyncLogBatchReader).readLogBatch(
+          Ns.fileChunks,
+          ids.sublist(start, end),
+        );
+        if (chunks == null || chunks.length != end - start) return null;
+        for (final chunk in chunks) {
+          out.add(chunk);
+        }
+      }
+    } else {
+      for (final id in ids) {
+        final chunk = await reader.readLog(Ns.fileChunks, id);
+        if (chunk == null) return null;
+        out.add(chunk);
+      }
     }
     return out.toBytes();
   }
