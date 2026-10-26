@@ -2932,7 +2932,10 @@ class GroupService implements ArchiveGroups {
       final identity =
           '${payload.descriptor.descriptorHash}:${payload.holder.holder.hex}';
       if (seen.add(identity)) payloads.add(payload);
-      if (payloads.length >= 5) break;
+      // Five bounded holder slots from five replicas plus our local samples.
+      // Keep all of them until verified authority/quorum merge; stopping at
+      // five could let old authority samples hide a reachable successor.
+      if (payloads.length >= 30) break;
     }
     return (
       payloads: List<SpacePublicDiscoveryPayload>.unmodifiable(payloads),
