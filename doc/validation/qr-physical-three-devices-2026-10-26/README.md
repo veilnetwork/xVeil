@@ -107,6 +107,12 @@ the un-retried proof/receipt wait. Reconnect logs also contain bounded publisher
 slot refusals; their separate cause and impact were not established here, and
 the native admission cap was not changed.
 
+Follow-up qualification found that the macOS stand above loaded an unoptimized
+development Rust library. This preserves its functional observations but limits
+its performance evidence. The [optimized anonymous-stream comparison](../anonymous-stream-queued-writes-2026-10-26/README.md)
+records a release-profile baseline, a bounded short-write batching correction,
+and the remaining connection/route variability.
+
 ## Cleanup and remaining scope
 
 All stand-owned calls/downloads finished. Owned app process groups were checked
