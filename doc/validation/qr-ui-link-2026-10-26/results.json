@@ -1,0 +1,45 @@
+{
+  "passed": true,
+  "ui_tests_passed": 1,
+  "default_fixture_tests_passed": 2,
+  "source_credential": "XVRC certificate and recovery code",
+  "devices": 3,
+  "same_identity_devices": 2,
+  "qr_pixels_decoded": true,
+  "joining_device_restarted_before_ready": true,
+  "exactly_two_physical_roster_entries_on_both_screens": true,
+  "old_history_transferred": true,
+  "bidirectional_messages_same_ids_without_duplicates": true,
+  "offline_B_recovered_with_C_offline_and_A_online": true,
+  "identity_and_physical_device_key_preserved_after_restart": true,
+  "encrypted_certificate_rejects_incorrect_recovery_code": true,
+  "static_analysis": "all test/e2e clean",
+  "markers": [
+    "QR_UI_CERTIFICATE_READY",
+    "QR_UI_CODE_DECODED",
+    "QR_UI_HISTORY_AND_DELIVERY_PASS",
+    "QR_UI_NODE_RESTARTED",
+    "QR_UI_PAIRING_PASS",
+    "QR_UI_RECONNECT_PASS",
+    "QR_UI_REQUEST_VISIBLE",
+    "QR_UI_RESTART_REQUESTED",
+    "QR_UI_SCAN_ROUTE"
+  ],
+  "limits": {
+    "devices_share_flutter_process": true,
+    "unlocked_controller_supplied_by_fixture": true,
+    "camera_route_result_supplied_after_real_pixel_decode": true,
+    "physical_android_tested": false,
+    "windows_tested": false,
+    "production_unlock_path_tested": false,
+    "live_media_quality_tested": false
+  },
+  "cleanup": {
+    "recorded_runner_groups": 6,
+    "remaining_owned_processes": 0,
+    "remaining_owned_relay_processes": 0,
+    "passing_ui_fixture_directory_removed": true,
+    "main_apps_modified": false,
+    "production_relays_modified": false
+  }
+}

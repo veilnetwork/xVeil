@@ -112,14 +112,16 @@ class E2eIdentity {
   );
 }
 
-/// The AppController seam. See the library doc: it stands in for the user
-/// having unlocked this identity, and for nothing else.
+/// The AppController seam supplies unlocked UI state and a restart request.
+/// The owning test/worker performs the actual node restart; UI tests can keep
+/// the returned readiness future pending until that restart has completed.
 class _E2eAppController extends AppController {
   _E2eAppController(this._identity, {this.anonymous = false});
 
   final Identity _identity;
   final bool anonymous;
   bool rebootRequested = false;
+  Future<bool> Function()? hostedNodeReboot;
 
   @override
   AppState build() => AppState(AppPhase.ready, identity: _identity);
@@ -132,6 +134,8 @@ class _E2eAppController extends AppController {
   @override
   Future<bool> rebootHostedNodes() async {
     rebootRequested = true;
+    final reboot = hostedNodeReboot;
+    if (reboot != null) return reboot();
     return true;
   }
 }
@@ -216,6 +220,15 @@ class E2eDevice {
   bool get rebootRequested =>
       (container.read(appControllerProvider.notifier) as _E2eAppController)
           .rebootRequested;
+
+  /// UI tests keep the real restart under their ownership: detach widgets,
+  /// restart the native node, then release the controller's readiness future.
+  /// Process workers retain their existing exit/restart handshake by default.
+  void onHostedNodeReboot(Future<bool> Function() reboot) {
+    (container.read(appControllerProvider.notifier) as _E2eAppController)
+            .hostedNodeReboot =
+        reboot;
+  }
 
   /// A worker owns one device; its relays live in the parent process. This
   /// keeps native document registries and preferences isolated per device.
