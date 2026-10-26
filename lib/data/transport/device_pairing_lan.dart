@@ -122,6 +122,8 @@ class DevicePairingLanServer {
   final _sockets = <Socket>{};
   final _subscriptions = <StreamSubscription<Socket>>[];
   int get port => _servers.first.port;
+  List<String> get boundHosts =>
+      List.unmodifiable(_servers.map((server) => server.address.address));
 
   static Future<DevicePairingLanServer> start(
     String ticket,
@@ -150,13 +152,23 @@ class DevicePairingLanServer {
     }
     final servers = <ServerSocket>[];
     try {
+      SocketException? lastBindError;
       for (final address in addresses.toSet()) {
-        servers.add(
-          await ServerSocket.bind(
-            address,
-            servers.isEmpty ? 0 : servers.first.port,
-          ),
-        );
+        try {
+          servers.add(
+            await ServerSocket.bind(
+              address,
+              servers.isEmpty ? 0 : servers.first.port,
+            ),
+          );
+        } on SocketException catch (error) {
+          // VPNs/adapters can disappear after interface discovery. Retain
+          // reachable listeners and advertise only their bound addresses.
+          lastBindError = error;
+        }
+      }
+      if (servers.isEmpty) {
+        throw lastBindError ?? StateError('no reachable pairing interface');
       }
       final session = DevicePairingLanServer._(servers, ticket, onRequest);
       for (final server in servers) {
@@ -214,27 +226,81 @@ class DevicePairingLanServer {
 
 class DevicePairingLanClient {
   static Future<String> exchange(DevicePairingCode code, String request) async {
+    final hosts = code.hosts.toSet();
+    if (hosts.isEmpty || hosts.length > 6) {
+      throw StateError('invalid pairing endpoint count');
+    }
     Object? lastError;
     final packet = await _seal(code.ticket, request);
-    for (final host in code.hosts) {
+    final result = Completer<String>();
+    final connections = <ConnectionTask<Socket>>{};
+    final sockets = <Socket>{};
+    var remaining = hosts.length;
+    var finished = false;
+
+    Future<void> tryHost(String host) async {
+      ConnectionTask<Socket>? connection;
       Socket? socket;
+      var connectTimedOut = false;
       try {
-        socket = await Socket.connect(
-          host,
-          code.port,
-          timeout: const Duration(seconds: 3),
-        );
+        connection = await Socket.startConnect(host, code.port);
+        connections.add(connection);
+        if (finished) connection.cancel();
+        socket = await connection.socket
+            .then((connected) {
+              if (finished || connectTimedOut) {
+                connected.destroy();
+                throw const SocketException('pairing attempt cancelled');
+              }
+              return connected;
+            })
+            .timeout(
+              const Duration(seconds: 3),
+              onTimeout: () {
+                connectTimedOut = true;
+                connection?.cancel();
+                throw TimeoutException('pairing connection timed out');
+              },
+            );
+        if (finished) return;
+        sockets.add(socket);
         await _writePacket(socket, packet);
         final response = await _readPacket(
           socket,
         ).timeout(const Duration(seconds: 12));
-        return await _open(code.ticket, response);
+        final clear = await _open(code.ticket, response);
+        if (!result.isCompleted) result.complete(clear);
       } catch (error) {
         lastError = error;
       } finally {
+        connection?.cancel();
+        connections.remove(connection);
         socket?.destroy();
+        sockets.remove(socket);
+        if (--remaining == 0 && !result.isCompleted) {
+          result.completeError(
+            StateError('pairing peer unreachable: $lastError'),
+          );
+        }
       }
     }
-    throw StateError('pairing peer unreachable: $lastError');
+
+    try {
+      // QR codes carry at most six explicit local interfaces. A stale/VPN
+      // endpoint must not hold a working one behind its response timeout.
+      // Requests/ready notifications are idempotent at the ceremony owner.
+      for (final host in hosts) {
+        unawaited(tryHost(host));
+      }
+      return await result.future;
+    } finally {
+      finished = true;
+      for (final connection in connections) {
+        connection.cancel();
+      }
+      for (final socket in sockets) {
+        socket.destroy();
+      }
+    }
   }
 }

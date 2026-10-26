@@ -1509,7 +1509,7 @@ class _SourceLinkSheetState extends State<_SourceLinkSheet> {
           source: widget.stack.myInvite,
           ticket: provisional.ticket,
           expiresAt: provisional.expiresAt,
-          hosts: hosts,
+          hosts: server.boundHosts,
           port: server.port,
         ),
       );
