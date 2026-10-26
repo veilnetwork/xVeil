@@ -23,6 +23,7 @@ enum DiagnosticEvent {
   callSignalReceived,
   audioStart,
   mediaSample,
+  videoDelivery,
   downloadRetry,
   downloadParked,
   downloadFailed,
@@ -77,6 +78,12 @@ enum DiagnosticMetric {
   videoSendPaused,
   concealedSamples,
   audioPayloadAgeMs,
+  videoDeliveryPhase,
+  videoDeliverySupported,
+  videoDeliveryProbeConfirmed,
+  videoDeliveryQueuePressure,
+  videoDeliveryKbps,
+  videoProbeIntervalMs,
 }
 
 /// Bounded process-local evidence. Monotonic offsets, never wall-clock time,
@@ -135,6 +142,42 @@ class DiagnosticJournal {
       minInterval: const Duration(seconds: 5),
     );
   }
+
+  /// Source-controller state, sampled after applying the current observation.
+  /// Phase codes: startup=0, drain=1, cruise=2, probe=3. No history, peer maps
+  /// or native clocks are copied. Unknown fields and malformed values stay out.
+  void recordVideoDelivery(Map<String, Object?> snapshot) {
+    if (!enabled) return;
+    final phase = switch (snapshot['phase']) {
+      'startup' => 0,
+      'drain' => 1,
+      'cruise' => 2,
+      'probe' => 3,
+      _ => null,
+    };
+    final kbps = snapshot['delivery_kbps'];
+    final interval = snapshot['probe_interval_ms'];
+    record(
+      DiagnosticEvent.videoDelivery,
+      values: {
+        DiagnosticMetric.videoDeliveryPhase: ?phase,
+        for (final entry in _videoDeliveryBooleans.entries)
+          if (snapshot[entry.key] case final bool flag)
+            entry.value: flag ? 1 : 0,
+        if (kbps is num && kbps.isFinite && kbps >= 0 && kbps <= 1000000)
+          DiagnosticMetric.videoDeliveryKbps: kbps,
+        if (interval is int && interval >= 950 && interval <= 3000)
+          DiagnosticMetric.videoProbeIntervalMs: interval,
+      },
+      minInterval: const Duration(seconds: 5),
+    );
+  }
+
+  static const _videoDeliveryBooleans = {
+    'supported': DiagnosticMetric.videoDeliverySupported,
+    'probe_confirmed': DiagnosticMetric.videoDeliveryProbeConfirmed,
+    'queue_pressure': DiagnosticMetric.videoDeliveryQueuePressure,
+  };
 
   static const _mediaFields = {
     'tx_pkts': DiagnosticMetric.txPackets,

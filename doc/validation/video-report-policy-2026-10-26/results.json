@@ -1,0 +1,34 @@
+{
+  "date": "2026-10-26",
+  "published": false,
+  "base_release": "v0.13.93",
+  "focused_tests_passed": 235,
+  "analysis": "passed",
+  "product_aot_diagnostics": true,
+  "stand_history_enabled_in_product": false,
+  "source_owned_fields": 6,
+  "phase_codes": {
+    "startup": 0,
+    "drain": 1,
+    "cruise": 2,
+    "probe": 3
+  },
+  "limits": {
+    "probe_interval_ms": [
+      950,
+      3000
+    ],
+    "delivery_kbps": [
+      0,
+      1000000
+    ],
+    "sample_interval_seconds": 5
+  },
+  "privacy": {
+    "canary_peer_exported": false,
+    "canary_clock_exported": false,
+    "unknown_fields_exported": false,
+    "values_stringified": false
+  },
+  "stand_apps_started": false
+}

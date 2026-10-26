@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/diagnostic_journal.dart';
+import 'package:xveil/state/call_bitrate_adapter.dart';
 
 class _PrivateValue {
   @override
@@ -94,8 +95,127 @@ void main() {
       values: {DiagnosticMetric.success: 1},
     );
     journal.recordMediaStats({'audio_rx_pkts': 23});
+    journal.recordVideoDelivery({'phase': _PrivateValue()});
     expect(journal.toJson()['events'], isEmpty);
     expect(journal.toJson()['counts'], isEmpty);
+  });
+
+  test(
+    'controller reports preserve bounded policy state without private data',
+    () {
+      final journal = DiagnosticJournal(enabled: true);
+      final snapshot = <String, Object?>{
+        'phase': 'probe',
+        'supported': true,
+        'probe_confirmed': false,
+        'queue_pressure': true,
+        'delivery_kbps': 125.5,
+        'probe_interval_ms': 950,
+        'source_epoch': 1793000000000000,
+        'peer': 'private-peer-canary',
+        'recent': _PrivateValue(),
+        'video_delivery_peers': {'private-peer-canary': _PrivateValue()},
+      };
+      journal.recordVideoDelivery(snapshot);
+      snapshot['probe_interval_ms'] = 3000;
+      final event = (journal.toJson()['events'] as List).single as Map;
+      expect(event['event'], 'videoDelivery');
+      expect(event['values'], {
+        'videoDeliveryPhase': 3,
+        'videoDeliverySupported': 1,
+        'videoDeliveryProbeConfirmed': 0,
+        'videoDeliveryQueuePressure': 1,
+        'videoDeliveryKbps': 125.5,
+        'videoProbeIntervalMs': 950,
+      });
+      final exported = jsonEncode(journal.toJson());
+      for (final private in [
+        'private-peer-canary',
+        'source_epoch',
+        '1793000000',
+        'recent',
+      ]) {
+        expect(exported, isNot(contains(private)));
+      }
+    },
+  );
+
+  test('malformed policy values cannot masquerade as report metrics', () {
+    for (final value in <Object?>[
+      null,
+      _PrivateValue(),
+      'private-canary',
+      true,
+      -1,
+      949,
+      3001,
+      1793000000000,
+      950.5,
+      double.nan,
+      double.infinity,
+    ]) {
+      final journal = DiagnosticJournal(enabled: true);
+      journal.recordVideoDelivery({
+        'phase': _PrivateValue(),
+        'supported': 1,
+        'probe_confirmed': 'yes',
+        'queue_pressure': {'private-peer': _PrivateValue()},
+        'delivery_kbps': double.infinity,
+        'probe_interval_ms': value,
+      });
+      expect(
+        ((journal.toJson()['events'] as List).single as Map)['values'],
+        isEmpty,
+      );
+    }
+    for (final value in <Object?>[
+      _PrivateValue(),
+      'private-canary',
+      -1,
+      1000001,
+      1793000000000,
+      double.nan,
+      double.infinity,
+    ]) {
+      final journal = DiagnosticJournal(enabled: true);
+      journal.recordVideoDelivery({'delivery_kbps': value});
+      expect(
+        ((journal.toJson()['events'] as List).single as Map)['values'],
+        isEmpty,
+      );
+    }
+  });
+
+  test('controller phase codes and timing boundaries are stable', () {
+    const phases = ['startup', 'drain', 'cruise', 'probe'];
+    for (var code = 0; code < phases.length; code++) {
+      final journal = DiagnosticJournal(enabled: true);
+      journal.recordVideoDelivery({
+        'phase': phases[code],
+        'probe_interval_ms': code.isEven ? 950 : 3000,
+      });
+      expect(((journal.toJson()['events'] as List).single as Map)['values'], {
+        'videoDeliveryPhase': code,
+        'videoProbeIntervalMs': code.isEven ? 950 : 3000,
+      });
+    }
+  });
+
+  test('native and controller samples retain separate bounded cadences', () {
+    final journal = DiagnosticJournal(enabled: true);
+    final adapter = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 30);
+    for (var n = 0; n < 1000; n++) {
+      journal.recordMediaStats({'audio_rx_pkts': n});
+      journal.recordVideoDelivery(adapter.videoDeliveryDiagnostics);
+    }
+    final report = journal.toJson();
+    expect(report['counts'], {'mediaSample': 1000, 'videoDelivery': 1000});
+    final events = report['events'] as List;
+    expect(events, hasLength(2));
+    expect(
+      (events.last as Map)['values'],
+      containsPair('videoProbeIntervalMs', 3000),
+    );
   });
 
   test('bounded tail preserves aggregate counts and reports evictions', () {
