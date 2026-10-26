@@ -1,0 +1,106 @@
+{
+  "date": "2026-10-26",
+  "application_source_base": "c961535bfbccc287e1888e607e4e3a474a590876",
+  "native_candidate_source_commit": "56d2baa39d7891193c9875ebaa15fb73ee112877",
+  "native_base_release_source": "d2854085f36042fbf79395e5f1e8526f33eb11e9",
+  "unreleased_candidate": true,
+  "fixes": [
+    "bounded independent-holder storage",
+    "atomic compare-and-swap for every publication/storage path",
+    "bounded indexed FIND_VALUE responses",
+    "merge candidates beyond the former five-result cap",
+    "reserve signed carrier overhead in payload budget",
+    "enable explicit loopback metrics for the native privacy gate"
+  ],
+  "limits": {
+    "holder_slots_per_route": 5,
+    "maximum_wire_record_bytes": 16384,
+    "maximum_application_payload_bytes": 16168,
+    "maximum_local_bucket_bytes": 81944,
+    "maximum_resolved_samples_per_route": 30,
+    "global_storage_byte_limit_changed": false,
+    "quota_checks_bypassed": false,
+    "global_search_minimum_independent_holders": 2
+  },
+  "regression_old_app_cap_failed": true,
+  "checks": {
+    "rust_crypto": {
+      "passed": 8,
+      "failed": 0
+    },
+    "rust_dht_samples": {
+      "passed": 4,
+      "failed": 0
+    },
+    "rust_existing_replica_fanout": {
+      "passed": 1,
+      "failed": 0
+    },
+    "rust_dispatcher": {
+      "passed": 3,
+      "failed": 0
+    },
+    "rust_runtime_republication": {
+      "passed": 2,
+      "failed": 0
+    },
+    "dart_ffi_buffer": {
+      "passed": 3,
+      "failed": 0
+    },
+    "dart_domain": {
+      "passed": 12,
+      "failed": 0
+    },
+    "dart_service": {
+      "passed": 8,
+      "failed": 0
+    },
+    "clippy": {
+      "passed": true,
+      "warnings_denied": true,
+      "crates": [
+        "veil-crypto",
+        "veil-dht",
+        "veil-dispatcher",
+        "veil-node-runtime"
+      ]
+    },
+    "dart_analysis": "no issues",
+    "stand_script_syntax": "passed"
+  },
+  "native": {
+    "passed": true,
+    "completed_test_marker": true,
+    "elapsed_seconds": 24,
+    "nodes": 3,
+    "isolated_mesh": true,
+    "authority_generation": 1,
+    "minimum_distinct_holders": 2,
+    "verified_subscription": true,
+    "exact_mention_navigation": true,
+    "telemetry_canary_absent": true,
+    "encrypted_store_canary_absent": true,
+    "owned_processes_remaining": 0,
+    "open_fixture_files": 0,
+    "successful_fixture_directories_remaining": 0,
+    "dylib_sha256": "2180acbe95b41b408f79dd31681f7ebf524d41de4d897e1c8db572b5ef977ee9"
+  },
+  "excluded_attempt": {
+    "phase": "dependency download",
+    "native_test_started": false,
+    "canceled": true,
+    "owned_processes_remaining": 0
+  },
+  "privacy": {
+    "peer_ids_exported": false,
+    "addresses_exported": false,
+    "keys_exported": false,
+    "user_content_exported": false,
+    "raw_native_clocks_exported": false,
+    "raw_traces_exported": false
+  },
+  "full_goal_completed": false,
+  "release_performed": false,
+  "server_deployment_performed": false
+}
