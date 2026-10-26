@@ -1,0 +1,72 @@
+{
+  "scope": {
+    "windows_tested": false,
+    "physical_phone_tested": false,
+    "full_qr_ui_tested": false,
+    "protocol_devices": 3,
+    "same_identity_devices": 2,
+    "public_network_used": false
+  },
+  "regressions": {
+    "stalled_first_interface_failed_before": true,
+    "stalled_interface_authenticated_fallback_under_2s_after": true,
+    "losing_connected_socket_closed_after": true,
+    "disappearing_interface_failed_before": true,
+    "disappearing_interface_orders_pass_after": true,
+    "all_bind_failures_still_fail_closed": true,
+    "invalid_aead_response_does_not_win": true,
+    "fanout_deduplicated_and_capped": true
+  },
+  "unit_tests": {
+    "passed": 44,
+    "failed": 0
+  },
+  "static_analysis": "passed",
+  "process_protocol": {
+    "exit_code": 0,
+    "all_tests_passed": true,
+    "markers": [
+      "PROCESS_CASE2_3_8_PASS",
+      "PROCESS_CASE5_PASS",
+      "PROCESS_RECONNECT_PASS",
+      "PROCESS_REVOKE_RECEIVE_AND_OLD_RELINK_PASS"
+    ]
+  },
+  "simultaneous_call_answers": {
+    "devices": 3,
+    "receive_counter": "audio_rx_pkts",
+    "live_speech_quality_tested": false,
+    "passed": true,
+    "stage": "finished",
+    "winner": "A",
+    "audio_rx_delta_winner": 61,
+    "audio_rx_delta_c": 66
+  },
+  "sibling_onion_calls": {
+    "devices": 3,
+    "same_identity_devices": 2,
+    "anonymous": true,
+    "explicit_c_b_join": false,
+    "live_speech_quality_tested": false,
+    "receive_counter": "audio_rx_pkts",
+    "passed": true,
+    "stage": "primary_offline:continuous-media",
+    "primary_online_ring_ms": 456,
+    "primary_online_answer_media_ms": 4124,
+    "primary_online_media_rx_delta_b": 233,
+    "primary_online_media_rx_delta_c": 179,
+    "primary_online_hangup": true,
+    "primary_offline_ring_ms": 23,
+    "primary_offline_answer_media_ms": 451,
+    "primary_offline_media_rx_delta_b": 94,
+    "primary_offline_media_rx_delta_c": 95,
+    "primary_offline_hangup": true
+  },
+  "cleanup": {
+    "owned_worker_and_runner_groups": 18,
+    "remaining_owned_processes": 0,
+    "remaining_owned_relays": 0,
+    "main_apps_modified": false,
+    "public_relays_modified": false
+  }
+}

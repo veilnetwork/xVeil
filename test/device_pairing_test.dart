@@ -13,12 +13,67 @@ BootstrapInvite _invite(int seed) => BootstrapInvite(
 );
 
 void main() {
+  test(
+    'a disappearing interface does not close the reachable LAN listener',
+    () async {
+      final seed = DevicePairingCode.fresh(
+        _invite(1),
+        _invite(2),
+        hosts: ['127.0.0.1'],
+        port: 1,
+      );
+      final missing = InternetAddress('192.0.2.1'); // Not assigned here.
+      for (final addresses in [
+        [InternetAddress.loopbackIPv4, missing],
+        [missing, InternetAddress.loopbackIPv4],
+      ]) {
+        final server = await DevicePairingLanServer.start(
+          seed.ticket,
+          (request) async => 'paired',
+          bindAddresses: addresses,
+        );
+        addTearDown(server.close);
+        expect(server.boundHosts, ['127.0.0.1']);
+        final code = DevicePairingCode(
+          device: seed.device,
+          source: seed.source,
+          ticket: seed.ticket,
+          expiresAt: seed.expiresAt,
+          hosts: server.boundHosts,
+          port: server.port,
+        );
+        expect(
+          await DevicePairingLanClient.exchange(code, 'request'),
+          'paired',
+        );
+      }
+      await expectLater(
+        DevicePairingLanServer.start(
+          seed.ticket,
+          (request) async => 'paired',
+          bindAddresses: [missing],
+        ),
+        throwsA(isA<SocketException>()),
+      );
+    },
+  );
+
   test('pairing refuses wildcard listeners', () async {
-    final code = DevicePairingCode.fresh(_invite(1), _invite(2),
-      hosts: ['127.0.0.1'], port: 1);
+    final code = DevicePairingCode.fresh(
+      _invite(1),
+      _invite(2),
+      hosts: ['127.0.0.1'],
+      port: 1,
+    );
     for (final address in [InternetAddress.anyIPv4, InternetAddress.anyIPv6]) {
-      await expectLater(DevicePairingLanServer.start(code.ticket,
-        (request) async => request, bindAddresses: [address]), throwsArgumentError);
+      await expectLater(
+        DevicePairingLanServer.start(
+          code.ticket,
+          (request) async => request,
+          bindAddresses: [address],
+        ),
+        throwsArgumentError,
+      );
     }
   });
 
@@ -161,5 +216,161 @@ void main() {
       DevicePairingLanClient.exchange(code, 'request'),
       throwsStateError,
     );
+  });
+
+  test(
+    'a stalled interface does not block another authenticated endpoint',
+    () async {
+      final seed = DevicePairingCode.fresh(
+        _invite(1),
+        _invite(2),
+        hosts: ['127.0.0.1'],
+        port: 1,
+      );
+      final server = await DevicePairingLanServer.start(
+        seed.ticket,
+        (request) async => 'paired',
+        bindAddress: InternetAddress.loopbackIPv4,
+      );
+      addTearDown(server.close);
+      // Two local interfaces at the same advertised port. The first accepts
+      // TCP but never returns a packet, as a stale adapter/service can do.
+      final stalled = await ServerSocket.bind(
+        InternetAddress.loopbackIPv6,
+        server.port,
+        v6Only: true,
+      );
+      final sockets = <Socket>[];
+      final closed = Completer<void>();
+      final subscription = stalled.listen((socket) {
+        sockets.add(socket);
+        socket.listen(
+          (_) {},
+          onDone: () {
+            if (!closed.isCompleted) closed.complete();
+          },
+        );
+      });
+      addTearDown(() async {
+        for (final socket in sockets) {
+          socket.destroy();
+        }
+        await subscription.cancel();
+        await stalled.close();
+      });
+      final code = DevicePairingCode(
+        device: seed.device,
+        source: seed.source,
+        ticket: seed.ticket,
+        expiresAt: seed.expiresAt,
+        hosts: ['::1', '127.0.0.1'],
+        port: server.port,
+      );
+      expect(
+        await DevicePairingLanClient.exchange(
+          code,
+          'request',
+        ).timeout(const Duration(seconds: 2)),
+        'paired',
+      );
+      await closed.future.timeout(const Duration(seconds: 2));
+    },
+  );
+
+  test('a faster invalid response cannot win endpoint selection', () async {
+    final seed = DevicePairingCode.fresh(
+      _invite(1),
+      _invite(2),
+      hosts: ['127.0.0.1'],
+      port: 1,
+    );
+    final invalidSent = Completer<void>();
+    final server = await DevicePairingLanServer.start(seed.ticket, (
+      request,
+    ) async {
+      await invalidSent.future;
+      return 'authenticated';
+    }, bindAddress: InternetAddress.loopbackIPv4);
+    addTearDown(server.close);
+    final invalid = await ServerSocket.bind(
+      InternetAddress.loopbackIPv6,
+      server.port,
+      v6Only: true,
+    );
+    final sockets = <Socket>[];
+    final subscription = invalid.listen((socket) {
+      sockets.add(socket);
+      socket.listen((_) {
+        if (invalidSent.isCompleted) return;
+        // Correct framing, invalid AEAD authentication.
+        final packet = Uint8List(32);
+        ByteData.sublistView(packet).setUint32(0, 28);
+        socket.add(packet);
+        invalidSent.complete();
+      }, onError: (Object _) {});
+    });
+    addTearDown(() async {
+      for (final socket in sockets) {
+        socket.destroy();
+      }
+      await subscription.cancel();
+      await invalid.close();
+    });
+    final code = DevicePairingCode(
+      device: seed.device,
+      source: seed.source,
+      ticket: seed.ticket,
+      expiresAt: seed.expiresAt,
+      hosts: ['::1', '127.0.0.1'],
+      port: server.port,
+    );
+    expect(
+      await DevicePairingLanClient.exchange(
+        code,
+        'request',
+      ).timeout(const Duration(seconds: 2)),
+      'authenticated',
+    );
+  });
+
+  test('endpoint racing retains a bounded, deduplicated fanout', () async {
+    final seed = DevicePairingCode.fresh(
+      _invite(1),
+      _invite(2),
+      hosts: ['127.0.0.1'],
+      port: 1,
+    );
+    var requests = 0;
+    final server = await DevicePairingLanServer.start(seed.ticket, (
+      request,
+    ) async {
+      requests++;
+      return 'paired';
+    }, bindAddress: InternetAddress.loopbackIPv4);
+    addTearDown(server.close);
+    DevicePairingCode at(List<String> hosts) => DevicePairingCode(
+      device: seed.device,
+      source: seed.source,
+      ticket: seed.ticket,
+      expiresAt: seed.expiresAt,
+      hosts: hosts,
+      port: server.port,
+    );
+    expect(
+      await DevicePairingLanClient.exchange(
+        at(List.filled(6, '127.0.0.1')),
+        'request',
+      ),
+      'paired',
+    );
+    expect(requests, 1);
+    await expectLater(
+      DevicePairingLanClient.exchange(
+        at(List.generate(7, (i) => '127.0.0.${i + 1}')),
+        'request',
+      ),
+      throwsStateError,
+    );
+    expect(requests, 1);
   });
 }
