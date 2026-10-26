@@ -32,10 +32,11 @@ SpacePublicDescriptor _descriptor({
   int revision = 1,
   String name = 'Public Space',
   NodeId? spaceId,
+  NodeId? creator,
   int wireVersion = SpacePublicDescriptor.version,
 }) {
   final space = spaceId ?? _id(1);
-  final publisher = _id(2);
+  final publisher = creator ?? _id(2);
   final ticket = SpaceJoinTicket(
     ticketId: '11' * 32,
     spaceId: space,
@@ -88,10 +89,16 @@ SpacePublicDescriptor _transferredDescriptor({
   required int now,
   required int revision,
   required NodeId spaceId,
+  NodeId? creator,
 }) {
-  final genesisOwner = _id(2);
+  final genesisOwner = creator ?? _id(2);
   final nextOwner = _id(8);
-  final base = _descriptor(now: now, revision: revision, spaceId: spaceId);
+  final base = _descriptor(
+    now: now,
+    revision: revision,
+    spaceId: spaceId,
+    creator: genesisOwner,
+  );
   final unsignedTransfer = ControlEntry(
     version: 6,
     groupId: spaceId,
@@ -230,6 +237,115 @@ void main() {
     expect(decoded!.toJson(), encoded);
     expect(decoded.descriptorHash, descriptor.descriptorHash);
     expect(decoded.verifyAt(now, _verify), isTrue);
+  });
+
+  test(
+    'verified transfer revokes an old quorum while new holder quorum forms',
+    () {
+      const now = 1500000;
+      final spaceId = _id(1);
+      final stale = _descriptor(now: now, revision: 99, spaceId: spaceId);
+      final current = _transferredDescriptor(
+        now: now,
+        revision: 1,
+        spaceId: spaceId,
+      );
+      final holders = [
+        _holder(descriptor: stale, holder: _id(3), now: now),
+        _holder(descriptor: stale, holder: _id(4), now: now),
+        _holder(descriptor: current, holder: _id(5), now: now),
+      ];
+      for (final candidates in [
+        [stale, current],
+        [current, stale],
+      ]) {
+        expect(
+          mergeSpacePublicDiscovery(
+            descriptors: candidates,
+            holders: holders,
+            nowMs: now,
+            verify: _verify,
+            minimumIndependentHolders: 2,
+          ),
+          isEmpty,
+          reason: 'an availability quorum cannot restore revoked authority',
+        );
+        final exact = mergeSpacePublicDiscovery(
+          descriptors: candidates,
+          holders: holders,
+          nowMs: now,
+          verify: _verify,
+        );
+        expect(exact.single.descriptorHash, current.descriptorHash);
+      }
+      final converged = mergeSpacePublicDiscovery(
+        descriptors: [stale, current],
+        holders: [
+          ...holders,
+          _holder(descriptor: current, holder: _id(6), now: now),
+        ],
+        nowMs: now,
+        verify: _verify,
+        minimumIndependentHolders: 2,
+      );
+      expect(converged.single.descriptorHash, current.descriptorHash);
+    },
+  );
+
+  test(
+    'invalid transfers and unrelated genesis cannot revoke an existing quorum',
+    () {
+      const now = 1500000;
+      final spaceId = _id(1);
+      final current = _descriptor(now: now, spaceId: spaceId);
+      final transfer = _transferredDescriptor(
+        now: now,
+        revision: 1,
+        spaceId: spaceId,
+      );
+      final foreign = _transferredDescriptor(
+        now: now,
+        revision: 1,
+        spaceId: spaceId,
+        creator: _id(7),
+      );
+      expect(foreign.verifyAt(now, _verify), isTrue);
+      for (final candidate in [
+        transfer.withSignature(Uint8List(64)),
+        foreign,
+      ]) {
+        final merged = mergeSpacePublicDiscovery(
+          descriptors: [current, candidate],
+          holders: [
+            _holder(descriptor: current, holder: _id(3), now: now),
+            _holder(descriptor: current, holder: _id(4), now: now),
+            _holder(descriptor: candidate, holder: _id(5), now: now),
+          ],
+          nowMs: now,
+          verify: _verify,
+          minimumIndependentHolders: 2,
+        );
+        expect(merged.single.descriptorHash, current.descriptorHash);
+      }
+    },
+  );
+
+  test('a newer feed keeps quorum rules within the same authority', () {
+    const now = 1500000;
+    final older = _descriptor(now: now, revision: 1);
+    final newer = _descriptor(now: now, revision: 2);
+    final merged = mergeSpacePublicDiscovery(
+      descriptors: [older, newer],
+      holders: [
+        _holder(descriptor: older, holder: _id(3), now: now),
+        _holder(descriptor: older, holder: _id(4), now: now),
+        _holder(descriptor: newer, holder: _id(5), now: now),
+      ],
+      nowMs: now,
+      verify: _verify,
+      minimumIndependentHolders: 2,
+    );
+    expect(merged.single.descriptorHash, older.descriptorHash);
   });
 
   test(
