@@ -63,6 +63,7 @@ import '../domain/space_moderation.dart';
 import '../domain/space_retention.dart';
 import '../domain/group_policy.dart';
 import '../domain/p2p_policy.dart';
+import '../domain/peer_authorization.dart';
 import '../state/group_crypto.dart';
 import '../domain/device_link.dart';
 import '../state/group_service_providers.dart';
@@ -1166,6 +1167,9 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
         case '/ratchet_positions':
           await _ratchetPositionsHook(req);
           return;
+        case '/peer_authorization_probe':
+          await _peerAuthorizationProbe(req);
+          return;
         case '/ratchet_forget':
           await _ratchetForgetHook(req);
           return;
@@ -2268,6 +2272,87 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
   /// `receive` matches it. Equal transport ids across two devices is the bug.
   /// STAND ONLY. Where each ratchet conversation's sending chain stands.
   ///
+  /// Read-only cache evidence. A byte match is structural, not authorization;
+  /// do not invoke the proof check here, since it can observe a DHT document
+  /// and thereby repair the very cold-start state the stand is measuring.
+  Future<void> _peerAuthorizationProbe(HttpRequest req) async {
+    if (!_requireReady(req)) return;
+    final peer = req.uri.queryParameters['peer']?.toLowerCase();
+    final device = req.uri.queryParameters['device']?.toLowerCase();
+    final hex = RegExp(r'^[0-9a-f]{64}$');
+    if (peer == null ||
+        device == null ||
+        !hex.hasMatch(peer) ||
+        !hex.hasMatch(device)) {
+      return _json(req, {
+        'ok': false,
+        'error': 'invalid peer/device',
+      }, status: 400);
+    }
+    final native = ref.read(realStackProvider)?.ratchetState;
+    if (native == null || native is! PeerAuthorizationStateHandle) {
+      return _json(req, {
+        'ok': false,
+        'error': 'authorization probe unavailable',
+      });
+    }
+    try {
+      final authorization = native as PeerAuthorizationStateHandle;
+      final snapshot = authorization.exportPeerAuthorization();
+      final stored = await ref.read(storageProvider).loadPeerAuthorization();
+      final deviceBytes = Uint8List.fromList([
+        for (var i = 0; i < 64; i += 2)
+          int.parse(device.substring(i, i + 2), radix: 16),
+      ]);
+      PeerAuthorizationEntry? find(List<PeerAuthorizationEntry> entries) {
+        for (final entry in entries) {
+          if (entry.peer == peer) return entry;
+        }
+        return null;
+      }
+
+      bool containsDeviceBytes(PeerAuthorizationEntry? entry) {
+        if (entry == null) return false;
+        final bytes = entry.document;
+        for (var i = 0; i <= bytes.length - deviceBytes.length; i++) {
+          var matches = true;
+          for (var j = 0; j < deviceBytes.length; j++) {
+            if (bytes[i + j] != deviceBytes[j]) {
+              matches = false;
+              break;
+            }
+          }
+          if (matches) return true;
+        }
+        return false;
+      }
+
+      final nativePeer = find(snapshot.entries);
+      final storedPeer = find(stored);
+      return _json(req, {
+        'ok': true,
+        'native_entries': snapshot.entries.length,
+        'stored_entries': stored.length,
+        'peer_in_native': nativePeer != null,
+        'peer_in_storage': storedPeer != null,
+        'device_bytes_in_native_document': containsDeviceBytes(nativePeer),
+        'device_bytes_in_stored_document': containsDeviceBytes(storedPeer),
+        'native_parent_documents_with_device_bytes': snapshot.entries
+            .where(
+              (entry) => entry.peer != device && containsDeviceBytes(entry),
+            )
+            .length,
+        'stored_parent_documents_with_device_bytes': stored
+            .where(
+              (entry) => entry.peer != device && containsDeviceBytes(entry),
+            )
+            .length,
+      });
+    } catch (_) {
+      return _json(req, {'ok': false, 'error': 'authorization probe failed'});
+    }
+  }
+
   /// A conversation is named by a short hash of its key, never by the key:
   /// the key names who this device talks to. Answers how far a sender has
   /// run ahead of what the other side can still skip to (`MAX_SKIP`).
