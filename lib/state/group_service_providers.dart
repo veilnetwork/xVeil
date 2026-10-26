@@ -260,9 +260,9 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   service.startScheduledSpacePostMaintenance();
   service.startPublicSpaceDiscoveryMaintenance();
 
-  messaging.onGroupEntry = (peer, bundleJson) => tasks.runRequired(() async {
-    await service.ingestGroupEntry(peer, bundleJson);
-  });
+  messaging.onGroupEntry = (peer, bundleJson) => tasks.runRequired(
+    () => service.receiveGroupFrame(peer, bundleJson),
+  );
   messaging.onSpaceInvite = (peer, inviteJson) => tasks.runRequired(() async {
     await service.receiveSpaceInvite(peer, inviteJson);
   });
@@ -299,9 +299,9 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
       tasks.runRequired(() => service.handleVerifiedContentSources(a, b));
   messaging.onGroupCallSignal = (a, b) =>
       tasks.runRequired(() => service.ingestGroupCallFrame(a, b));
-  messaging.onGroupEntryFromStranger = (peer, bundleJson) {
-    tasks.start(() => service.ingestGroupEntryFromStranger(peer, bundleJson));
-  };
+  messaging.onGroupEntryFromStranger = (peer, bundleJson) => tasks.runRequired(
+    () => service.receiveGroupFrame(peer, bundleJson, fromStranger: true),
+  );
   messaging.allowStrangerGroupSync = service.allowStrangerGroupSync;
   // isMyDeviceOrMaster: a LINKED device's master is not a member of the device
   // group — it is the owner — so `isMyDevice` says no about it, and every lane

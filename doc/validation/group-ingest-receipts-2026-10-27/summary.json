@@ -1,0 +1,50 @@
+{
+  "schema": "xveil-group-ingest-validation/1",
+  "automated": {
+    "compiled_baseline_behavioral_failure": true,
+    "passed": 419,
+    "skipped": 3,
+    "analysis_issues": 0
+  },
+  "physical": {
+    "roles": {
+      "A": "Android Wi-Fi, identity X",
+      "B": "macOS, identity X",
+      "C": "macOS, identity Y"
+    },
+    "retained_profiles": true,
+    "same_candidate": true,
+    "native_test_hooks": false,
+    "new_messages_added": 0,
+    "recovery": {
+      "expected": 100,
+      "initial": {"A": 44, "B": 100, "C": 100},
+      "final": {"A": 52, "B": 100, "C": 100},
+      "elapsed_ms": 181906,
+      "no_duplicates": true,
+      "converged": false,
+      "later_load_phases_run": false
+    },
+    "selected_slow_log_samples": {
+      "save_samples": 41,
+      "maximum_save_ms": 1829,
+      "flush_work_samples": 98,
+      "maximum_flush_work_ms": 2646
+    }
+  },
+  "cleanup": {
+    "owned_macos_process_groups_audited": 5,
+    "owned_macos_group_processes_remaining": 0,
+    "owned_macos_executable_processes_remaining": 0,
+    "qa_android_processes_remaining": 0,
+    "qa_permissions_restored": true,
+    "owned_adb_forward_removed": true,
+    "main_app_modified": false,
+    "system_power_settings_changed": false
+  },
+  "complete_multi_device_matrix_qualified": false,
+  "windows_qualified": false,
+  "post_commit_mid_ack_receiver_crash_qualified": false,
+  "pushed": false,
+  "released": false
+}

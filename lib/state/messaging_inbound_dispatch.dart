@@ -254,6 +254,7 @@ extension _MessagingInboundDispatch on MessagingService {
     // ack, or we restarted) is re-acked but not re-processed. Consent-gated:
     // only accepted peers reach the durable handlers below.
     final fid = env.frameId;
+    if (!_replication.acceptsFrameKind(env.kind, fid)) return;
     final callSignal = env.kind == WireKind.callSignal
         ? CallSignal.tryDecode(env.body)
         : null;
@@ -288,6 +289,8 @@ extension _MessagingInboundDispatch on MessagingService {
         env.kind == WireKind.reaction ||
         env.kind == WireKind.disappearingSet;
     final deferredGroupCallAck = env.kind == WireKind.groupCallSignal;
+    final deferredGroupSnapshotAck =
+        env.kind == WireKind.groupEntry || env.kind == WireKind.groupEntryChunk;
     // Older senders used the same frame ID for concurrent edits at one
     // revision. ACK that wire ID, but deduplicate its actual value locally.
     final persistenceDedupId = env.kind == WireKind.edit && fid != null
@@ -324,7 +327,10 @@ extension _MessagingInboundDispatch on MessagingService {
         (existing?.status == ContactStatus.accepted ||
             ownDeviceSender ||
             activeCallDevice)) {
-      if (deferredChatAck) {
+      if (deferredGroupSnapshotAck) {
+        // Receipt and dedup belong to the completed group write. Partial
+        // slices must remain in the sender's outbox across a receiver crash.
+      } else if (deferredChatAck) {
         // These branches ACK only after storage AND own-device publication.
         // Retry uses the stored row, so no RAM frame-seen gate is needed.
       } else if (deferredGroupCallAck) {
@@ -347,18 +353,8 @@ extension _MessagingInboundDispatch on MessagingService {
         } else {
           await _ackFrame(m, fid);
         }
-        // A CHUNK is re-consumed, never replay-dropped. Reassembly is in-RAM
-        // and keyed per transfer; "processed" for a chunk means "consumed
-        // into a buffer", not "landed". A restart mid-transfer killed the
-        // partial while every already-consumed chunk stayed durably
-        // remembered — so the sender's faithful re-drive of the SAME frames
-        // died here one by one and that snapshot could never assemble again
-        // (measured live 2026-08-17: five serves stuck at N-1/N chunks
-        // each). Re-consuming is idempotent by construction: a duplicate
-        // index returns early, the caps still bound the buffers.
-        //
-        // A CONTENT REQUEST is the same shape, one layer up, and it was not on
-        // this list. Its frame id is `creq:<contentId>` — stable per content,
+        // A CONTENT REQUEST is a read and must be served again on retry.
+        // Its frame id is `creq:<contentId>` — stable per content,
         // deliberately, so however often the re-request timer fires the outbox
         // holds one row. The consequence was that the SECOND request for a
         // content id, and every request after it, was dropped here as a
@@ -378,7 +374,6 @@ extension _MessagingInboundDispatch on MessagingService {
         // retry; nothing is stored, nothing is consumed, and the requester
         // only asks while it is still missing chunks.
         final reprocessSafely =
-            env.kind == WireKind.groupEntryChunk ||
             env.kind == WireKind.cloudDocumentChunk ||
             env.kind == WireKind.pieceRequest;
         if (!_outbox.remember(m.src.hex, fid) && !reprocessSafely) {
@@ -1217,27 +1212,18 @@ extension _MessagingInboundDispatch on MessagingService {
         await settleReaction();
         return;
       case WireKind.groupEntry:
-        // A group snapshot from a member (groups epic); the durable frame was
-        // already acked+deduped above. From an accepted contact it ingests as
-        // always; from a NON-contact it goes through the guarded stranger
-        // path (existing group + sender is a member — scale-free log sync).
-        if (existing?.status == ContactStatus.accepted) {
-          onGroupEntry?.call(m.src, env.body);
-        } else {
-          onGroupEntryFromStranger?.call(m.src, env.body);
-        }
+        await _replication.ingestGroupFrame(
+          m, env.body, fid,
+          fromStranger: existing?.status != ContactStatus.accepted,
+          allowSeenAck:
+              existing?.status == ContactStatus.accepted || ownDeviceSender,
+        );
         return;
       case WireKind.groupEntryChunk:
-        // One slice of an oversized snapshot (inline group media). Already
-        // acked/deduped above. Reassemble by transferId; once every chunk is
-        // present, ingest the joined bundle exactly like a whole groupEntry.
-        // A NON-contact's chunk must pass the membership admission BEFORE any
-        // reassembly RAM is spent on it.
-        if (existing?.status == ContactStatus.accepted) {
-          _ingestGroupChunk(m.src, env.body);
-        } else {
-          await _ingestStrangerGroupChunk(m.src, env.body);
-        }
+        await _replication.ingestGroupChunk(
+          m, env.body, fid,
+          fromStranger: existing?.status != ContactStatus.accepted,
+        );
         return;
       case WireKind.groupContentRequest:
         // A signed membership-authorized fetch request (groups content path).

@@ -704,9 +704,7 @@ class HeadlessRuntime {
     MessagingService messaging,
     GroupService groups,
   ) {
-    messaging.onGroupEntry = (peer, bundleJson) {
-      unawaited(groups.ingestGroupEntry(peer, bundleJson));
-    };
+    messaging.onGroupEntry = groups.receiveGroupFrame;
     messaging.onSpaceInvite = (peer, inviteJson) async {
       await groups.receiveSpaceInvite(peer, inviteJson);
     };
@@ -730,9 +728,8 @@ class HeadlessRuntime {
     messaging.onSpacePublicMediaGrantRequest =
         groups.handlePublicMediaGrantRequest;
     messaging.onGroupCallSignal = groups.ingestGroupCallFrame;
-    messaging.onGroupEntryFromStranger = (peer, bundleJson) {
-      unawaited(groups.ingestGroupEntryFromStranger(peer, bundleJson));
-    };
+    messaging.onGroupEntryFromStranger = (peer, bundleJson) =>
+        groups.receiveGroupFrame(peer, bundleJson, fromStranger: true);
     messaging.allowStrangerGroupSync = groups.allowStrangerGroupSync;
     unawaited(groups.nudgeGroupSyncAll());
   }
