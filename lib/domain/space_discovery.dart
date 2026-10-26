@@ -197,7 +197,9 @@ class SpacePublicAuthorityLink {
 ///
 /// The compact authority chain is bounded separately; the final payload check
 /// remains authoritative because profile and capability fields are variable.
-const int kSpacePublicDiscoveryPayloadMaxBytes = 16 * 1024;
+// Leave room for the native XS carrier's fixed header and signature: the
+// complete wire value must fit Veil's existing 16 KiB DHT budget.
+const int kSpacePublicDiscoveryPayloadMaxBytes = 16 * 1024 - 216;
 
 // Hard causal-history bound. The final carrier still enforces its independent
 // total payload budget above.
