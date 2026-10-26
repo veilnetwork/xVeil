@@ -1,0 +1,15 @@
+{
+  "input_variants": [
+    "scan",
+    "paste",
+    "paste_standalone_identity"
+  ],
+  "native_widget_cases_passed": 3,
+  "focused_tests_passed": 44,
+  "physical_text_directions_passed": 2,
+  "physical_accepted_call_packet_flow_directions_passed": 2,
+  "physical_final_pairing_qualified": false,
+  "windows_qualified": false,
+  "release_performed": false,
+  "push_performed": false
+}
