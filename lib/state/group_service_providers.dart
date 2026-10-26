@@ -200,6 +200,9 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     signer,
     epochService: GroupEpochService(epochCrypto),
     ourCertVersion: 1,
+    // sendGroupSnapshot fragments this bounded merge into ordinary durable
+    // chunks; the receiver need not reload its journal for every few rows.
+    deviceSyncBatchBytes: GroupService.chunkedDeviceSyncBatchBytes,
 
     send: (peer, groupId, json) =>
         messaging.sendGroupSnapshot(peer, groupId.hex, json),
