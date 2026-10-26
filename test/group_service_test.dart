@@ -11860,6 +11860,76 @@ void main() {
   );
 
   test(
+    'discovery merges a current quorum after five older descriptor samples',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'owner', createIfMissing: true);
+      final signer = _DiscoveryFakeSigner(17);
+      final second = _DiscoveryFakeSigner(52);
+      final transport = _FakeSpaceDiscoveryTransport();
+      final service = GroupService(
+        storage,
+        signer,
+        spaceDiscoveryTransport: transport,
+      );
+      addTearDown(service.dispose);
+      final spaceId = await service.createSpace(
+        'Index',
+        visibility: SpaceVisibility.public,
+        discoverable: true,
+      );
+      final route = SpaceDiscoveryCarrierRoute.search(
+        spaceDiscoverySearchTokenHash('index'),
+      );
+      Future<void> publish(
+        SpacePublicDiscoveryPayload payload,
+        _DiscoveryFakeSigner holder,
+      ) => transport.publish(
+        SpaceDiscoveryCarrier.sign(
+          route: route,
+          payload: payload,
+          holder: holder.selfId,
+          holderPublicKey: holder.selfPubKey,
+          sign: holder.signDetached,
+        ).toBytes(),
+      );
+      for (var index = 0; index < 5; index++) {
+        expect(await service.renameGroup(spaceId, 'Index $index'), isTrue);
+        await publish(
+          (await service.buildSpacePublicDiscoveryPayload(spaceId))!,
+          signer,
+        );
+      }
+      expect(await service.renameGroup(spaceId, 'Index latest'), isTrue);
+      final latest = (await service.buildSpacePublicDiscoveryPayload(spaceId))!;
+      await publish(latest, signer);
+      final announcement = SpacePublicHolderAnnouncement(
+        spaceId: spaceId,
+        descriptorHash: latest.descriptor.descriptorHash,
+        publicFeedManifestHash: latest.descriptor.publicFeedManifestHash,
+        holder: second.selfId,
+        holderPublicKey: second.selfPubKey,
+        issuedAtMs: latest.holder.issuedAtMs,
+        expiresAtMs: latest.holder.expiresAtMs,
+      );
+      await publish(
+        SpacePublicDiscoveryPayload(
+          descriptor: latest.descriptor,
+          holder: announcement.withSignature(
+            second.signDetached(announcement.canonicalBytes()).signature,
+          ),
+        ),
+        second,
+      );
+      final outcome = await service.searchPublicSpaceDiscoveryOutcome('index');
+      expect(outcome.status, SpacePublicDiscoverySearchStatus.available);
+      expect(outcome.results, hasLength(1));
+      expect(outcome.results.single.descriptor.name, 'Index latest');
+      expect(outcome.results.single.holders, hasLength(2));
+    },
+  );
+
+  test(
     'public discovery publishes native routes and keeps global search quorum',
     () async {
       final storage = FakeHvContainer().storage();

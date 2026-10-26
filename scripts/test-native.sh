@@ -84,5 +84,7 @@ flutter test \
 echo
 echo "== three real nodes (serialised: it competes for CPU with nothing) =="
 PUBLIC_SPACE_DISCOVERY_LIVE=1 exec flutter test \
+  --no-pub \
   test/native/public_space_discovery_live_test.dart \
+  --dart-define=XVEIL_DEBUG_METRICS=true \
   "$@"

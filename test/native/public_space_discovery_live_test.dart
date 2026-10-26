@@ -12,6 +12,8 @@ import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/transport/veil_flutter_transport.dart';
 import 'package:xveil/data/transport/veil_mailbox.dart';
+import 'package:xveil/data/veil_stack.dart'
+    show kXVeilDebugMetricsDefine, kXVeilDebugHookDefine;
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/group.dart';
 import 'package:xveil/domain/message_mention.dart';
@@ -192,6 +194,13 @@ void main() {
   test(
     'three real nodes transfer authority, form holder quorum and navigate an exact public mention without plaintext telemetry',
     () async {
+      expect(
+        kXVeilDebugMetricsDefine || kXVeilDebugHookDefine,
+        isTrue,
+        reason:
+            'the telemetry privacy gate requires '
+            '--dart-define=XVEIL_DEBUG_METRICS=true',
+      );
       // Native IPC uses Unix-domain sockets with a short platform path cap.
       final temp = await Directory(
         '/tmp',
