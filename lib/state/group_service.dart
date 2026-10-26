@@ -589,9 +589,20 @@ class GroupService implements ArchiveGroups {
     this.contentRequestFanoutTimeout = const Duration(seconds: 8),
     this.contentGrantDelay = const Duration(seconds: 4),
     this.myDevice,
+    this.deviceSyncBatchBytes = 3500,
     SpaceObservability? observability,
-  }) : _observability = observability ?? SpaceObservability();
+  }) : assert(deviceSyncBatchBytes > 0),
+       assert(deviceSyncBatchBytes <= chunkedDeviceSyncBatchBytes),
+       _observability = observability ?? SpaceObservability();
   final Storage _storage;
+
+  /// Row-byte budget for one device-history merge. The conservative default
+  /// supports hosts without snapshot fragmentation. A host that sends through
+  /// MessagingService.sendGroupSnapshot can use the larger bounded budget:
+  /// wire chunks remain small, while catch-up avoids reloading and validating
+  /// the whole journal after every three or four rows.
+  final int deviceSyncBatchBytes;
+  static const chunkedDeviceSyncBatchBytes = 32 * 1024;
 
   /// The identity's own container. Exposed for the device-group bridge, which
   /// has to reach the sovereign identity material stored beside the node config
@@ -15282,23 +15293,20 @@ class GroupService implements ArchiveGroups {
       peer,
       repairFingerprint: repairFingerprint,
     );
-    // The DEVICE group's reply is BATCHED. One frame with the whole missing
-    // set grows past what either leg can carry — measured live 2026-08-16: a
-    // 13.8KB serve to a freshly adopted device travelled by NO path (the live
-    // leg never delivered it, the mailbox relay silently dropped the
-    // oversized deposit), so the requester stayed 7 messages short forever
-    // while the responder logged a healthy verdict. Rows are idempotent and
-    // the receiver merges each frame independently, so batches under the
-    // frame budget arrive where the monolith could not. Everything that is
-    // not the row list (controls, reactions, envelopes, cuts) rides ONLY the
-    // first frame — it is small and re-sending it per batch buys nothing.
+    // Bound DEVICE-group catch-up merges. Unfragmented hosts retain the
+    // conservative row budget: an oversized raw frame used to disappear on
+    // the live leg. The app uses the larger budget with sendGroupSnapshot's
+    // durable fragmentation, keeping wire frames small while avoiding a full
+    // journal load/verify/save for every few rows. One oversized row remains
+    // whole; the snapshot transport handles it just as it handles attachments.
+    // Controls, reactions, envelopes and cuts ride only the first batch.
     if (b.manifest.name == kDeviceGroupName && missingMsgs.length > 1) {
-      const budget = 3500;
+      final budget = deviceSyncBatchBytes;
       final batches = <List<GroupMessage>>[];
       var batch = <GroupMessage>[];
       var batchBytes = 0;
       for (final m in missingMsgs) {
-        final size = jsonEncode(m.toJson()).length;
+        final size = utf8.encode(jsonEncode(m.toJson())).length;
         if (batch.isNotEmpty && batchBytes + size > budget) {
           batches.add(batch);
           batch = <GroupMessage>[];

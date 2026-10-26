@@ -9382,6 +9382,101 @@ void main() {
   );
 
   test(
+    'chunked device catch-up batches reduce merges and count UTF-8 bytes',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final source = GroupService(storage, _FakeSigner(owner));
+      addTearDown(source.dispose);
+      expect(
+        await source.linkDevice(
+          carol,
+          sovereign: sovereign,
+          broadcastSnapshot: false,
+        ),
+        isTrue,
+      );
+      final gid = NodeId.fromHex((await source.deviceGroupIdHex())!);
+      for (var i = 0; i < 100; i++) {
+        await source.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.msgMirror,
+            key: 'utf8-$i',
+            tsMs: 1000 + i,
+            payload: {'peer': 'aa', 'body': 'row-$i ${'😀я' * 400}'},
+          ),
+        );
+      }
+      final targetStorage = FakeHvContainer().storage();
+      await targetStorage.open(password: 'pw', createIfMissing: true);
+      final target = GroupService(targetStorage, _FakeSigner(carol));
+      addTearDown(target.dispose);
+      final empty = (await source.load(gid))!.copyWith(messages: const []);
+      expect(
+        await target.ingestSnapshot(
+          source.snapshotJson(empty, recipient: carol, ownDevice: true),
+        ),
+        isTrue,
+      );
+      expect(await target.adoptDeviceGroup(gid), isTrue);
+      final request = (await target.buildGroupSyncRequest(gid))!;
+      int? legacyMerges;
+      GroupService? lastResponder;
+      for (final budget in [3500, GroupService.chunkedDeviceSyncBatchBytes]) {
+        final replies = <String>[];
+        final responder = GroupService(
+          storage,
+          _FakeSigner(owner),
+          deviceSyncBatchBytes: budget,
+          send: (peer, _, json) async {
+            replies.add(json);
+          },
+        );
+        addTearDown(responder.dispose);
+        lastResponder = responder;
+        expect(await responder.handleGroupSyncRequest(carol, request), isTrue);
+        if (budget == 3500) {
+          legacyMerges = replies.length;
+        } else {
+          expect(replies.length, lessThanOrEqualTo(legacyMerges! ~/ 4));
+        }
+        var rows = 0;
+        for (final reply in replies) {
+          final payload = jsonDecode(reply) as Map;
+          final messages = payload['g'] as List;
+          final bytes = messages.fold<int>(
+            0,
+            (n, row) => n + utf8.encode(jsonEncode(row)).length,
+          );
+          expect(
+            bytes <= budget || messages.length == 1,
+            isTrue,
+            reason: 'multi-row batches count bytes, not UTF-16 characters',
+          );
+          rows += messages.length;
+          if (budget != 3500) {
+            expect(await target.ingestSnapshot(reply), isTrue);
+          }
+        }
+        expect(rows, 100);
+      }
+      final folded = await target.deviceSyncState();
+      expect(
+        folded.values.where((e) => e.kind == DeviceSyncKind.msgMirror),
+        hasLength(100),
+      );
+      expect(
+        await lastResponder!.handleGroupSyncRequest(
+          carol,
+          (await target.buildGroupSyncRequest(gid))!,
+        ),
+        isFalse,
+        reason: 'the same signed history must converge without more replies',
+      );
+    },
+  );
+
+  test(
     'device-group compaction: a revoked device must not delete the honest row '
     'it beat — reads filter by the current ACL, so the key would vanish',
     () async {
