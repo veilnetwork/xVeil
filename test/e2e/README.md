@@ -53,6 +53,20 @@ must continue receiving audio RTP in every five-second observation window.
 The second call, after the primary device stops, retains its short hold. This
 checks packet continuity and call lifecycle, not speech quality or loudness.
 
+Set `XVEIL_E2E_CALL_FILE_BYTES=3145979` to additionally send a fresh 3 MiB plus
+251-byte file from C to the answerer after that hold. Valid sizes are 3–16 MiB;
+0 disables the transfer. The call stays active until the reliable anonymous
+stream finishes and the received bytes pass SHA-256 verification. Both contacts'
+P2P overrides are temporarily denied and restored before hangup. Audio reception
+is also observed while the download runs. The fixture owns this transfer and
+cancels it on failure before disposing the devices.
+Completion has a size-dependent bound (90 seconds plus one second per 4 KiB),
+because endpoint DATA pacing during a call can be as low as 5 KiB/s before wire
+overhead. Separately, two minutes without another verified piece write fails
+the test. This distinguishes slow progress from a stalled stream; it does not
+qualify file throughput. For private diagnostics, opt into
+`XVEIL_E2E_BULK_STREAM_TRACE=1`; raw endpoint logs are not anonymous reports.
+
 ### Environment gates
 
 | Variable | What it must be |

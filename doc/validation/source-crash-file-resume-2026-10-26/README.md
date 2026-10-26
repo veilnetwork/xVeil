@@ -194,11 +194,8 @@ One temporary policy restoration could not reach that disposed B; its entire
 throwaway profile/runtime was removed by normal fleet cleanup, so no user/main
 profile setting remains changed.
 
-Another source-side lifetime candidate remains for investigation:
-OriginCircuitTable::gc currently uses creation time even for persistent data
-circuits. The receive-binding correction above does not change that separate
-collector. Its effect on an actively used stream beyond the origin TTL is not
-qualified by this call run.
+That run did not qualify the separate source-side origin collector. Its
+creation-age behavior was investigated independently in the follow-up below.
 
 The phone and main installed apps were untouched. No production relay was
 updated, no release created, and no commits pushed. The reported Windows 10
@@ -209,3 +206,72 @@ checks also passed: all 726 enabled veil-node-runtime and 325 veilclient-ffi
 library tests (11 and two existing skips respectively). The FFI run used
 `node-embedded,production-seeds,packet-tunnel` without default features. Dart
 analysis of the extended process fixture and format/whitespace checks passed.
+
+## Follow-up: active origin lifetime and concurrent file qualification
+
+SDK commit `8bc2ca34` corrects a third circuit-lifecycle defect. The origin
+collector expired persistent DATA state by creation age even after the real
+local send path had accepted more cells. A retained data handle could remain
+confirmed after its return keys were removed from the origin table.
+
+The regression creates a real circuit through NodeServices, ages only its
+creation clock while retaining the shared activity witness, admits a real
+first-hop send and invokes the collector. The old collector removes that
+active origin. The corrected collector retains it for both reliable and
+recoverable sends. Subsequent idle expiry invalidates the retained handle,
+allowing repair. Rejected, unroutable or already expired cells cannot renew
+the clock. Remote return traffic cannot renew it, and one-shot reply origins
+retain their hard creation-age limit. No wire format, mailbox policy, relay
+priority or public transport configuration changed.
+
+Checks passed with Rust warnings denied and the external target mount monitored:
+
+| Suite | Passed | Existing skips |
+| --- | ---: | ---: |
+| veil-anonymity library | 338 | 1 |
+| veil-dispatcher library | 286 | 0 |
+| veil-node-runtime library | 728 | 11 |
+| veilclient-ffi library | 325 | 2 |
+| neutral-chain / opaque-datagram integration subset | 28 | 0 |
+
+Clippy with all targets also passed for those four libraries. An initial FFI
+run exposed parallel test fixtures contending on the global control registry:
+the API legitimately returned BUSY before inspecting a just-closed handle.
+Fixtures are now serialized; production nonblocking behavior is unchanged.
+Both modified process-fixture Dart files passed static analysis.
+
+The call fixture now owns an optional concurrent, uncached anonymous file
+transfer from C to the answering device. It awaits transfer completion or
+cancellation before hangup/teardown, restores temporary contact policies,
+checks the final bytes with SHA-256 and observes audio RTP throughout. This
+addresses the invalid external probe described above.
+
+Two initial 3 MiB plus 251-byte runs reached only 524,288 verified bytes by a
+fixed 90-second deadline, while audio reception continued. One traced run
+showed local DATA admission pacing and repeated upstream WouldBlock; sampled
+first-hop QUIC RTT was below one millisecond. These are not evidence of a
+90-second network outage or proof that a file permanently stalls. The test's
+original total deadline was incompatible with the existing endpoint policy:
+own DATA is paced at 5–20 KiB/s during primary activity, before wire overhead.
+Even its upper allowance needs more than 90 seconds for that file size.
+
+The test now separates a size-dependent completion bound from a two-minute
+limit without a new verified piece write. This changes only qualification,
+not production pacing, audio protection or relay behavior. Raw traces and
+content identifiers remain outside this repository. No sustained-throughput
+claim follows from this test.
+
+The untraced repeat completed the entire 3,145,979-byte file in 441,046 ms;
+size and SHA-256 matched. Every five-second audio observation on both active
+endpoints advanced. The first call hung up normally. With A then offline,
+C again called B, both exchanged audio packets and hangup converged. The
+fixture exited zero, its SDK/Dart source hashes remained unchanged during the
+run, and all owned worker/runner groups and runtime commands were absent after
+cleanup. The final error-only change to fail promptly on an observer error
+passed analysis; the successful stand did not exercise that failure branch.
+
+This clears the short total-deadline artifact, not the remaining performance
+problem. A multi-MiB file during a call is still slow. The test does not qualify
+Windows 10, actual speech/loudness, cellular service or every multi-device
+scenario. All fixes remain local and committed without signatures or pushes;
+there was no release, deployment or modification of installed user apps.
