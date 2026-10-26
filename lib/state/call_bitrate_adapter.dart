@@ -869,12 +869,19 @@ class CallBitrateAdapter {
       _mutedRecoveryStreak = 0;
     }
     _deliveryProbe = false;
+    final measuredRttMs = anyFeedbackAvailable && routeRttUsable
+        ? (stats[sendAudioExpected ? 'rtt_ms' : 'video_feedback_rtt_ms']
+                      as num?)
+                  ?.toInt() ??
+              0
+        : 0;
     if (supportsLowRateVideo) {
       final generation = _delivery.generation;
       _delivery.observe(
         stats,
         sampledAt ?? DateTime.now(),
         expectedVideoFeedbackReports ?? 1,
+        rttMs: measuredRttMs,
         sourcePaused:
             !videoSendExpected ||
             _appliedPause == true ||
@@ -896,12 +903,7 @@ class CallBitrateAdapter {
           videoProgress && videoFrames is num && videoFrames > 0,
       sendAudioExpected: sendAudioExpected,
       receiveAudioExpected: receiveRequested,
-      rttMs: anyFeedbackAvailable && routeRttUsable
-          ? (stats[sendAudioExpected ? 'rtt_ms' : 'video_feedback_rtt_ms']
-                        as num?)
-                    ?.toInt() ??
-                0
-          : 0,
+      rttMs: measuredRttMs,
       txJitterMs: anyFeedbackAvailable
           ? (stats[sendAudioExpected
                             ? 'tx_jitter_ms'

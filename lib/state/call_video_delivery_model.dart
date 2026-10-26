@@ -16,6 +16,7 @@ class CallVideoDeliveryModel {
   final _streamEpochs = <String, String>{};
   CallVideoDeliveryPhase phase = CallVideoDeliveryPhase.startup;
   DateTime? _lastApply, _drainUntil, _nextProbe;
+  Duration _probeInterval = const Duration(seconds: 3);
   int? _route;
   String? _membership;
   bool supported = false, queuePressure = false, _credit = false;
@@ -41,6 +42,7 @@ class CallVideoDeliveryModel {
     deliveryKbps = 0;
     phase = CallVideoDeliveryPhase.startup;
     _lastApply = _drainUntil = _nextProbe = null;
+    _probeInterval = const Duration(seconds: 3);
     _route = null;
     _membership = null;
   }
@@ -50,6 +52,7 @@ class CallVideoDeliveryModel {
     DateTime now,
     int expectedPeers, {
     bool sourcePaused = false,
+    int? rttMs,
   }) {
     queuePressure = _credit = false;
     if (sourcePaused) _qualified.clear();
@@ -75,6 +78,20 @@ class CallVideoDeliveryModel {
       ..clear()
       ..addAll(epochs);
     _route = route is int ? route : null;
+    // A causal decoder ACK closes each probe; keep at least two measured
+    // round trips between cruise probes, with the native 950ms pacing floor.
+    // Unknown RTT retains the conservative legacy interval. Congestion drain
+    // and its first six-second retry are independent and stay unchanged.
+    _probeInterval = rttMs != null && rttMs > 0 && rttMs <= 60000
+        ? Duration(milliseconds: (2 * rttMs).clamp(950, 3000))
+        : const Duration(seconds: 3);
+    final lastApply = _lastApply;
+    if (phase != CallVideoDeliveryPhase.startup && lastApply != null) {
+      final deadline = lastApply.add(_probeInterval);
+      if (_nextProbe == null || deadline.isAfter(_nextProbe!)) {
+        _nextProbe = deadline;
+      }
+    }
     var all = names.length == expectedPeers && expectedPeers > 0;
     var complete = all;
     var slowest = double.infinity;
@@ -234,7 +251,7 @@ class CallVideoDeliveryModel {
     // lies between recovery and failure rails. Its sparse cadence must obey
     // the same 25% bound as bytes; adding one whole FPS would double 1 FPS.
     final gain = startup && !probeOnly ? 2.0 : 1.25;
-    final fpsIncrement = probeOnly ? applied.maxFps * 0.25 : 1.0;
+    final fpsIncrement = startup && !probeOnly ? 1.0 : applied.maxFps * 0.25;
     return (
       maxBitrateKbps: math.min(
         ceiling.maxBitrateKbps,
@@ -275,8 +292,8 @@ class CallVideoDeliveryModel {
         phase = CallVideoDeliveryPhase.probe;
       }
       // Startup uses causal decoder ACKs and the native pacing floor. Cruise
-      // retains a longer interval after each acknowledged budget change.
-      _nextProbe = now.add(const Duration(seconds: 3));
+      // additionally leaves two measured round trips after the native ACK.
+      _nextProbe = now.add(_probeInterval);
     }
   }
 
@@ -291,6 +308,7 @@ class CallVideoDeliveryModel {
     'delivery_kbps': deliveryKbps,
     'probe_confirmed': _credit,
     'queue_pressure': queuePressure,
+    'probe_interval_ms': _probeInterval.inMilliseconds,
   };
 }
 

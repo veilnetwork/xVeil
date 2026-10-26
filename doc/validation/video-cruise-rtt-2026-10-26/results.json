@@ -1,0 +1,32 @@
+{
+  "date": "2026-10-26",
+  "focused_tests_passed": 231,
+  "focused_analysis": "passed",
+  "physical_candidate": {
+    "passed": false,
+    "stage": "incoming_ringing_timeout",
+    "media_started": false,
+    "excluded_from_passing_media_evidence": true
+  },
+  "baseline_tail_decoded_fps": {
+    "desktop": 29.5,
+    "android": 29.5
+  },
+  "new_probe_interval_ms": {
+    "minimum": 950,
+    "maximum": 3000,
+    "unknown_rtt": 3000
+  },
+  "physical_recovery_speedup_qualified": false,
+  "live_speech_qualified": false,
+  "cellular_qualified": false,
+  "cleanup": {
+    "remaining_mac_processes": 0,
+    "remaining_qa_phone_processes": false,
+    "test_permissions_restored": true,
+    "own_forward_removed": true,
+    "own_profile_archived": true,
+    "main_app_modified": false,
+    "system_power_settings_changed": false
+  }
+}
