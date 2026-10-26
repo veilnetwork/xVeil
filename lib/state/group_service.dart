@@ -6406,12 +6406,17 @@ class GroupService implements ArchiveGroups {
     );
   }
 
-  Future<void> _save(GroupBundle b, {bool notify = true}) async {
+  Future<void> _save(
+    GroupBundle b, {
+    bool notify = true,
+    bool preserveDeviceAdmission = false,
+  }) async {
     if (_batchBundles.containsKey(b.manifest.groupId.hex)) {
       // A batch is building on this bundle; it saves once, at its end.
       _batchBundles[b.manifest.groupId.hex] = b;
       return;
     }
+    final controlBeforeAdmission = b.control;
     b = _admitControlRowsSignedByLiveKeys(b);
     final controlReceipts = _notedControlReceipts(b);
     // Chunked file-store (not putSetting): the bundle carries inline media that
@@ -6482,9 +6487,12 @@ class GroupService implements ArchiveGroups {
     if (!_disposed) {
       _backgroundTasks.start(() => _shareNewEpochKeysWithMyDevices(b));
     }
-    // The device journal is where the master names its device; a write to it
-    // may have changed that name, so the admission cache must not outlive it.
-    if (b.manifest.isSovereignDevice) {
+    // Default to invalidation: incoming state and control/document changes may
+    // alter ownership. A locally serialized data-only append can preserve the
+    // existing bounded cache, unless admission itself removed a control row.
+    if (b.manifest.isSovereignDevice &&
+        (!preserveDeviceAdmission ||
+            !identical(controlBeforeAdmission, b.control))) {
       _masterDeviceCachedAtMs = null;
       _deviceOwnerCachedAtMs = null;
     }
@@ -19589,7 +19597,8 @@ class GroupService implements ArchiveGroups {
   /// stand: ~570 ms per inbound frame from the counterpart, in the ONE
   /// serialized inbound lane, so a few hundred re-driven group chunks from a
   /// contact held a sibling's mirrors behind them for over ten minutes. A
-  /// write to the device group clears it, as it does [_masterDeviceCached].
+  /// control/document write or remote ingest clears it, as it does
+  /// [_masterDeviceCached]. Local data-only appends keep its original expiry.
   Future<NodeId?> _deviceGroupOwnerIfLinked() async {
     final now = _now();
     final at = _deviceOwnerCachedAtMs;
@@ -20521,8 +20530,8 @@ class GroupService implements ArchiveGroups {
   /// That question is asked for every peer a p2p gate or a group ingress
   /// meets, and for anyone who is not one of mine it gets this far — while
   /// [masterDeviceId] re-reads and re-verifies the whole device journal. A
-  /// write to the device group clears it, which is the only way the answer
-  /// changes.
+  /// control/document write or remote ingest clears it. Local data-only
+  /// appends cannot change the answer and keep the original expiry.
   Future<NodeId?> _masterDeviceForAdmission() async {
     final now = _now();
     final at = _masterDeviceCachedAtMs;
@@ -20717,7 +20726,27 @@ class GroupService implements ArchiveGroups {
         if (!before.contains(m.ref)) m,
     ];
     if (fresh.isEmpty) return results;
-    await _save(working);
+    // These local appends cannot change the device owner or master's address.
+    // Clearing their 30-second cache for every mirror made the next frame
+    // reload the entire journal just to rediscover the same admission answer.
+    // Keep unknown/future event kinds conservative, and never preserve across
+    // any manifest or control change made while constructing the batch.
+    final admissionNeutral =
+        identical(start.manifest, working.manifest) &&
+        identical(start.control, working.control) &&
+        batch.every((item) => switch (item.event.kind) {
+          DeviceSyncKind.msgMirror ||
+          DeviceSyncKind.msgStatus ||
+          DeviceSyncKind.msgGone ||
+          DeviceSyncKind.msgEdit ||
+          DeviceSyncKind.convClear ||
+          DeviceSyncKind.readMark ||
+          DeviceSyncKind.contactUp ||
+          DeviceSyncKind.settingSet ||
+          DeviceSyncKind.callLog => true,
+          _ => false,
+        });
+    await _save(working, preserveDeviceAdmission: admissionNeutral);
     if (!_disposed) {
       _backgroundTasks.start(() async {
         await broadcastDelta(gid, messages: fresh);
