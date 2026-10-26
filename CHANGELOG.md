@@ -10,6 +10,9 @@ bumps may change behaviour a user notices.
 
 ### Fixed
 
+- Retry authenticated content reoffers while awaiting their receipt, using a
+  bounded budget and the same frame ID. Avoid a full timeout when a restart
+  drops the first request/proof or its ACK; stop on cancellation or blocking.
 - Link an independently configured device by its physical key without trying
   to merge its previous identity document into the source identity. Preserve
   source confirmation and verification of the approved family document. Save

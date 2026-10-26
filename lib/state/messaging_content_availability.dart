@@ -59,6 +59,8 @@ class _MessagingContentAvailability {
   /// must give the source time to relearn the requester's authenticated device
   /// before opening a stream which cannot prove that ownership itself.
   final _retryReoffers = <String, _RetryReofferReceipt>{};
+  static const _retryReofferInterval = Duration(seconds: 2);
+  static const _maxRetryReofferSends = 8;
 
   void cancelRetryReoffers([String? contentId]) {
     for (final entry in _retryReoffers.entries.toList()) {
@@ -295,12 +297,49 @@ class _MessagingContentAvailability {
       contentId: contentId,
       receipt: receipt,
     );
+    Timer? retryTimer;
+    final payload = envelope.withFrameId(frameId).encode();
+    Future<void> sendUntilConfirmed() async {
+      for (var attempt = 0; attempt < _maxRetryReofferSends; attempt++) {
+        if (receipt.isCompleted ||
+            _owner._disposed ||
+            _owner._cancelledDownloads.contains(contentId)) {
+          return;
+        }
+        if (attempt > 0) {
+          final current = await _owner._storage.getContact(peer);
+          if (current?.status != ContactStatus.accepted) {
+            if (!receipt.isCompleted) receipt.complete(false);
+            return;
+          }
+          if (receipt.isCompleted || _owner._disposed) return;
+        }
+        await _owner._send(peer, payload);
+        if (receipt.isCompleted || attempt + 1 == _maxRetryReofferSends) return;
+        // A live send can be lost or arrive without usable identity proof
+        // while a source restarts or its route warms.
+        // Reuse the unpredictable frame id: a source that already processed
+        // it only repeats its ACK, without rebuilding the manifest again.
+        final delay = Completer<void>();
+        retryTimer = Timer(_retryReofferInterval, delay.complete);
+        try {
+          await Future.any<void>([
+            delay.future,
+            receipt.future.then<void>((_) {}),
+          ]);
+        } finally {
+          retryTimer?.cancel();
+          retryTimer = null;
+        }
+      }
+    }
+
     try {
       // Existing generic ACKs make this compatible with sources which do not
       // know about this wait. Do not persist retries or send them to mailbox.
       // Timeout covers BOTH local enqueue and the remote receipt.
       return await (() async {
-        final sent = _owner._send(peer, envelope.withFrameId(frameId).encode());
+        final sent = sendUntilConfirmed();
         await Future.any<void>([
           sent,
           receipt.future.then<void>((confirmed) async {
@@ -312,6 +351,7 @@ class _MessagingContentAvailability {
         return receipt.future;
       })().timeout(confirmationTimeout, onTimeout: () => false);
     } finally {
+      retryTimer?.cancel();
       _retryReoffers.remove(frameId);
       if (!receipt.isCompleted) receipt.complete(false);
     }
