@@ -12943,9 +12943,26 @@ class GroupService implements ArchiveGroups {
     NodeId author,
     String scope, {
     SpaceRetentionCut? cut,
+  }) => _acceptedCanonicalMessageChain(
+    manifest,
+    _canonicalMessageRows(manifest, input),
+    author,
+    scope,
+    cut: cut,
+  );
+
+  // Only for rows canonicalized in this synchronous view. Do not retain this
+  // result across reads: a changed identity document, fork or retention cut
+  // must be evaluated again by the next caller.
+  List<GroupMessage> _acceptedCanonicalMessageChain(
+    SpaceManifest manifest,
+    Iterable<GroupMessage> canonical,
+    NodeId author,
+    String scope, {
+    SpaceRetentionCut? cut,
   }) {
     final authored =
-        _canonicalMessageRows(manifest, input)
+        canonical
             .where(
               (message) =>
                   message.author == author &&
@@ -13005,7 +13022,7 @@ class GroupService implements ArchiveGroups {
     }
     final accepted = <GroupMessage>[
       for (final chain in chains.entries)
-        ..._acceptedMessageChain(
+        ..._acceptedCanonicalMessageChain(
           manifest,
           canonical,
           chain.value.author,
