@@ -10467,6 +10467,104 @@ void main() {
   });
 
   test(
+    'reading canonical history does not reverify it for every author',
+    () async {
+      final sourceStore = FakeHvContainer().storage();
+      await sourceStore.open(password: 'pw', createIfMissing: true);
+      addTearDown(sourceStore.close);
+      final source = GroupService(sourceStore, _FakeSigner(owner));
+      addTearDown(source.dispose);
+      final gid = await source.createGroup('multiple writers');
+      for (final member in [bob, carol]) {
+        expect(
+          await source.addControlOp(
+            gid,
+            ControlOp.addMember,
+            target: member,
+            role: GroupRole.member,
+          ),
+          isTrue,
+        );
+      }
+      final base = (await source.load(gid))!;
+      final state = (await source.stateOf(gid))!;
+      final checksPerRead = <int>[];
+      for (final authors in [
+        [owner],
+        [owner, bob, carol],
+      ]) {
+        final last = <NodeId, GroupMessage>{};
+        final rows = <GroupMessage>[];
+        for (var i = 0; i < 6; i++) {
+          final author = authors[i % authors.length];
+          final previous = last[author];
+          final message = _FakeSigner(author).signMessage(
+            GroupMessage(
+              groupId: gid,
+              author: author,
+              seq: previous == null ? 0 : previous.seq + 1,
+              prevHash: previous == null ? '' : groupMessageHash(previous),
+              body: 'row-$i',
+              policyVersion: state.policyVersion,
+              createdAtMs: DateTime.now().millisecondsSinceEpoch + i,
+              signature: Uint8List(0),
+            ),
+          );
+          rows.add(message);
+          last[author] = message;
+        }
+        final store = FakeHvContainer().storage();
+        await store.open(password: 'pw', createIfMissing: true);
+        addTearDown(store.close);
+        final signer = _MessageCheckCountingSigner(owner);
+        final reader = GroupService(store, signer);
+        addTearDown(reader.dispose);
+        expect(
+          await reader.ingestSnapshot(
+            source.snapshotJson(base.copyWith(messages: rows)),
+          ),
+          isTrue,
+        );
+        // Keep an invalid signature at a real slot out of the accepted chain.
+        final invalid = rows[2].withSignature(
+          Uint8List(1),
+          rows[2].authorPubKey,
+        );
+        final carrier = jsonDecode(source.snapshotJson(base)) as Map;
+        expect(
+          await reader.ingestSnapshot(
+            jsonEncode({
+              ...carrier,
+              'c': [],
+              'g': [invalid.toJson()],
+              'r': [],
+            }),
+          ),
+          isTrue,
+        );
+        for (var read = 0; read < 2; read++) {
+          signer.checks.clear();
+          expect((await reader.messagesOf(gid)).map((m) => m.body), [
+            for (var i = 0; i < 6; i++) 'row-$i',
+          ]);
+          final count = signer.checks.values.fold(0, (a, b) => a + b);
+          expect(
+            count,
+            greaterThanOrEqualTo(6),
+            reason: 'each new view still verifies its raw input',
+          );
+          checksPerRead.add(count);
+        }
+      }
+      expect(
+        checksPerRead.toSet(),
+        hasLength(1),
+        reason: 'signature work must depend on rows, not author count',
+      );
+    },
+  );
+
+  test(
     'a fresh row does not reverify unrelated history to find a duplicate',
     () async {
       final sourceStore = FakeHvContainer().storage();
