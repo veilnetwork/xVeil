@@ -98,3 +98,14 @@ should use AOT/profile and reduce observer load. Native storage/queue time and
 the remaining history work need further investigation. Windows, long offline
 cases, files, the full multi-device matrix and the earlier partial chunk-ACK
 receiver-crash limit remain outside this qualification.
+
+
+### FPS interpretation correction
+
+The [follow-up](../canonical-history-work-2026-10-27/README.md) checked the
+implementation: the exported FPS snapshots above are cumulative rates since
+the first frame, including earlier startup/slow periods. They are not rolling
+rates, even where a summary field was named `steady_rx_fps`. Filtering samples
+to those after 30 seconds does not change that definition. Use counter deltas
+over sampling intervals to investigate current cadence; these older snapshots
+alone do not establish continuing video degradation or absence of freezes.

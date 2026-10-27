@@ -1,0 +1,849 @@
+{
+  "source_base": "a7f32d52",
+  "source_patch_sha256": "a7a7949f65d76c728fc91821a555081df19b5ae2567292cac15c24736958fcb3",
+  "sdk": "1d36980d",
+  "checks": {
+    "related_tests_passed": 374,
+    "related_tests_skipped": 3,
+    "static_analysis_issues": 0,
+    "regression_before_author_counts": {
+      "one_author": 12,
+      "three_authors": 24
+    },
+    "regression_rows": 6
+  },
+  "roles": {
+    "A": "Android/profile-AOT, identity X, Wi-Fi",
+    "B": "macOS/debug, identity X",
+    "C": "macOS/debug, identity Y"
+  },
+  "timed_phases": {
+    "baseline": {
+      "rounds": [
+        {
+          "origin": "A",
+          "round": 1,
+          "submit_ms": 3826,
+          "first_storage_observed_ms": {
+            "A": 1202,
+            "C": 2241,
+            "B": 10092
+          },
+          "all_roles_observed": true,
+          "phone_stage_window": {
+            "store.append": {
+              "count": 1,
+              "total_ms": 36.7,
+              "mean_ms": 36.7
+            },
+            "store.publish": {
+              "count": 1,
+              "total_ms": 3612.2,
+              "mean_ms": 3612.2
+            },
+            "group.messagesView": {
+              "count": 13,
+              "total_ms": 11152.4,
+              "mean_ms": 857.9
+            },
+            "group.postMessage": {
+              "count": 1,
+              "total_ms": 628.6,
+              "mean_ms": 628.6
+            },
+            "group.save": {
+              "count": 2,
+              "total_ms": 1713.4,
+              "mean_ms": 856.7
+            },
+            "send.transport": {
+              "count": 5,
+              "total_ms": 110.9,
+              "mean_ms": 22.2
+            }
+          }
+        },
+        {
+          "origin": "A",
+          "round": 2,
+          "submit_ms": 6450,
+          "first_storage_observed_ms": {
+            "C": 1083,
+            "A": 2138,
+            "B": 10669
+          },
+          "all_roles_observed": true,
+          "phone_stage_window": {
+            "store.append": {
+              "count": 1,
+              "total_ms": 54.2,
+              "mean_ms": 54.2
+            },
+            "store.publish": {
+              "count": 1,
+              "total_ms": 6240.6,
+              "mean_ms": 6240.6
+            },
+            "group.messagesView": {
+              "count": 10,
+              "total_ms": 13266.9,
+              "mean_ms": 1326.7
+            },
+            "group.postMessage": {
+              "count": 2,
+              "total_ms": 1310.7,
+              "mean_ms": 655.4
+            },
+            "group.save": {
+              "count": 5,
+              "total_ms": 10796.6,
+              "mean_ms": 2159.3
+            },
+            "send.transport": {
+              "count": 11,
+              "total_ms": 410.6,
+              "mean_ms": 37.3
+            }
+          }
+        },
+        {
+          "origin": "A",
+          "round": 3,
+          "submit_ms": 4262,
+          "first_storage_observed_ms": {
+            "C": 1321,
+            "A": 1851,
+            "B": 9126
+          },
+          "all_roles_observed": true,
+          "phone_stage_window": {
+            "store.append": {
+              "count": 1,
+              "total_ms": 665.0,
+              "mean_ms": 665.0
+            },
+            "store.publish": {
+              "count": 1,
+              "total_ms": 3353.4,
+              "mean_ms": 3353.4
+            },
+            "group.messagesView": {
+              "count": 10,
+              "total_ms": 9743.4,
+              "mean_ms": 974.3
+            },
+            "group.postMessage": {
+              "count": 2,
+              "total_ms": 1236.2,
+              "mean_ms": 618.1
+            },
+            "group.save": {
+              "count": 4,
+              "total_ms": 4444.8,
+              "mean_ms": 1111.2
+            },
+            "send.transport": {
+              "count": 6,
+              "total_ms": 614.6,
+              "mean_ms": 102.4
+            }
+          }
+        },
+        {
+          "origin": "C",
+          "round": 4,
+          "submit_ms": 89,
+          "first_storage_observed_ms": {
+            "B": 1181,
+            "C": 1188,
+            "A": 13997
+          },
+          "all_roles_observed": true,
+          "phone_stage_window": {
+            "store.append": {
+              "count": 1,
+              "total_ms": 22.0,
+              "mean_ms": 22.0
+            },
+            "group.messagesView": {
+              "count": 19,
+              "total_ms": 13113.5,
+              "mean_ms": 690.2
+            },
+            "group.postMessage": {
+              "count": 1,
+              "total_ms": 610.5,
+              "mean_ms": 610.5
+            },
+            "group.save": {
+              "count": 1,
+              "total_ms": 0.0,
+              "mean_ms": 0.0
+            },
+            "send.transport": {
+              "count": 3,
+              "total_ms": 531.5,
+              "mean_ms": 177.2
+            }
+          }
+        },
+        {
+          "origin": "C",
+          "round": 5,
+          "submit_ms": 56,
+          "first_storage_observed_ms": {
+            "B": 1104,
+            "C": 1108,
+            "A": 14118
+          },
+          "all_roles_observed": true,
+          "phone_stage_window": {
+            "group.messagesView": {
+              "count": 19,
+              "total_ms": 11483.6,
+              "mean_ms": 604.4
+            },
+            "group.save": {
+              "count": 1,
+              "total_ms": 1944.5,
+              "mean_ms": 1944.5
+            },
+            "send.transport": {
+              "count": 3,
+              "total_ms": 43.4,
+              "mean_ms": 14.5
+            }
+          }
+        },
+        {
+          "origin": "C",
+          "round": 6,
+          "submit_ms": 26,
+          "first_storage_observed_ms": {
+            "C": 30,
+            "B": 1147,
+            "A": 10641
+          },
+          "all_roles_observed": true,
+          "phone_stage_window": {
+            "group.messagesView": {
+              "count": 13,
+              "total_ms": 7848.2,
+              "mean_ms": 603.7
+            },
+            "group.save": {
+              "count": 1,
+              "total_ms": 1645.9,
+              "mean_ms": 1645.9
+            },
+            "send.transport": {
+              "count": 6,
+              "total_ms": 594.0,
+              "mean_ms": 99.0
+            }
+          }
+        }
+      ],
+      "projection": {
+        "prior_burst": {
+          "counts": {
+            "B": 18,
+            "C": 18,
+            "A": 18
+          },
+          "common_rows": 18,
+          "AB_order_author_equal": true,
+          "all_order_seq_equal": true,
+          "AB_status_difference_count": 0,
+          "AB_raw_seq_difference_count": 5,
+          "B_ordering_corrections": 5
+        },
+        "new": {
+          "counts": {
+            "B": 6,
+            "C": 6,
+            "A": 6
+          },
+          "common_rows": 6,
+          "AB_order_author_equal": true,
+          "all_order_seq_equal": true,
+          "AB_status_difference_count": 0,
+          "AB_raw_seq_difference_count": 0,
+          "B_ordering_corrections": 0
+        }
+      }
+    },
+    "candidate": {
+      "rounds": [
+        {
+          "origin": "A",
+          "round": 1,
+          "submit_ms": 2650,
+          "first_storage_observed_ms": {
+            "A": 2073,
+            "C": 3109,
+            "B": 6925
+          },
+          "all_roles_observed": true,
+          "phone_stage_window": {
+            "store.append": {
+              "count": 1,
+              "total_ms": 342.4,
+              "mean_ms": 342.4
+            },
+            "store.publish": {
+              "count": 1,
+              "total_ms": 1773.6,
+              "mean_ms": 1773.6
+            },
+            "group.messagesView": {
+              "count": 18,
+              "total_ms": 6417.6,
+              "mean_ms": 356.5
+            },
+            "group.postMessage": {
+              "count": 1,
+              "total_ms": 569.6,
+              "mean_ms": 569.6
+            },
+            "group.save": {
+              "count": 2,
+              "total_ms": 755.1,
+              "mean_ms": 377.6
+            },
+            "send.transport": {
+              "count": 8,
+              "total_ms": 161.8,
+              "mean_ms": 20.2
+            }
+          }
+        },
+        {
+          "origin": "A",
+          "round": 2,
+          "submit_ms": 3088,
+          "first_storage_observed_ms": {
+            "C": 1234,
+            "A": 1812,
+            "B": 6096
+          },
+          "all_roles_observed": true,
+          "phone_stage_window": {
+            "store.append": {
+              "count": 1,
+              "total_ms": 21.2,
+              "mean_ms": 21.2
+            },
+            "store.publish": {
+              "count": 1,
+              "total_ms": 2703.7,
+              "mean_ms": 2703.7
+            },
+            "group.messagesView": {
+              "count": 12,
+              "total_ms": 6919.3,
+              "mean_ms": 576.6
+            },
+            "group.postMessage": {
+              "count": 2,
+              "total_ms": 1247.9,
+              "mean_ms": 624.0
+            },
+            "group.save": {
+              "count": 3,
+              "total_ms": 1262.8,
+              "mean_ms": 420.9
+            },
+            "send.transport": {
+              "count": 4,
+              "total_ms": 124.7,
+              "mean_ms": 31.2
+            }
+          }
+        },
+        {
+          "origin": "A",
+          "round": 3,
+          "submit_ms": 1077,
+          "first_storage_observed_ms": {
+            "C": 1151,
+            "A": 1204,
+            "B": 4631
+          },
+          "all_roles_observed": true,
+          "phone_stage_window": {
+            "store.append": {
+              "count": 1,
+              "total_ms": 43.9,
+              "mean_ms": 43.9
+            },
+            "store.publish": {
+              "count": 1,
+              "total_ms": 954.9,
+              "mean_ms": 954.9
+            },
+            "group.messagesView": {
+              "count": 5,
+              "total_ms": 2585.4,
+              "mean_ms": 517.1
+            },
+            "group.postMessage": {
+              "count": 2,
+              "total_ms": 1226.3,
+              "mean_ms": 613.1
+            },
+            "group.save": {
+              "count": 4,
+              "total_ms": 1835.6,
+              "mean_ms": 458.9
+            },
+            "send.transport": {
+              "count": 3,
+              "total_ms": 269.8,
+              "mean_ms": 89.9
+            }
+          }
+        },
+        {
+          "origin": "C",
+          "round": 4,
+          "submit_ms": 183,
+          "first_storage_observed_ms": {
+            "B": 1239,
+            "C": 1247,
+            "A": 1830
+          },
+          "all_roles_observed": true,
+          "phone_stage_window": {
+            "store.append": {
+              "count": 1,
+              "total_ms": 35.4,
+              "mean_ms": 35.4
+            },
+            "group.messagesView": {
+              "count": 4,
+              "total_ms": 1708.7,
+              "mean_ms": 427.2
+            },
+            "group.postMessage": {
+              "count": 1,
+              "total_ms": 607.7,
+              "mean_ms": 607.7
+            },
+            "group.save": {
+              "count": 1,
+              "total_ms": 0.0,
+              "mean_ms": 0.0
+            },
+            "send.transport": {
+              "count": 1,
+              "total_ms": 10.9,
+              "mean_ms": 10.9
+            }
+          }
+        },
+        {
+          "origin": "C",
+          "round": 5,
+          "submit_ms": 217,
+          "first_storage_observed_ms": {
+            "C": 44,
+            "B": 1369,
+            "A": 1699
+          },
+          "all_roles_observed": true,
+          "phone_stage_window": {
+            "store.append": {
+              "count": 1,
+              "total_ms": 37.9,
+              "mean_ms": 37.9
+            },
+            "group.messagesView": {
+              "count": 5,
+              "total_ms": 1362.2,
+              "mean_ms": 272.4
+            },
+            "group.postMessage": {
+              "count": 1,
+              "total_ms": 581.4,
+              "mean_ms": 581.4
+            },
+            "group.save": {
+              "count": 1,
+              "total_ms": 0.0,
+              "mean_ms": 0.0
+            },
+            "send.transport": {
+              "count": 1,
+              "total_ms": 69.4,
+              "mean_ms": 69.4
+            }
+          }
+        },
+        {
+          "origin": "C",
+          "round": 6,
+          "submit_ms": 55,
+          "first_storage_observed_ms": {
+            "C": 47,
+            "A": 1307,
+            "B": 5715
+          },
+          "all_roles_observed": true,
+          "phone_stage_window": {
+            "store.append": {
+              "count": 1,
+              "total_ms": 56.7,
+              "mean_ms": 56.7
+            },
+            "store.publish": {
+              "count": 1,
+              "total_ms": 1670.7,
+              "mean_ms": 1670.7
+            },
+            "group.messagesView": {
+              "count": 12,
+              "total_ms": 3703.0,
+              "mean_ms": 308.6
+            },
+            "group.postMessage": {
+              "count": 1,
+              "total_ms": 594.8,
+              "mean_ms": 594.8
+            },
+            "group.save": {
+              "count": 2,
+              "total_ms": 647.1,
+              "mean_ms": 323.6
+            },
+            "send.transport": {
+              "count": 3,
+              "total_ms": 97.1,
+              "mean_ms": 32.4
+            }
+          }
+        }
+      ],
+      "projection": {
+        "prior_burst": {
+          "counts": {
+            "B": 18,
+            "C": 18,
+            "A": 18
+          },
+          "common_rows": 18,
+          "AB_order_author_equal": true,
+          "all_order_seq_equal": true,
+          "AB_status_difference_count": 0,
+          "AB_raw_seq_difference_count": 5,
+          "B_ordering_corrections": 5
+        },
+        "new": {
+          "counts": {
+            "B": 6,
+            "C": 6,
+            "A": 6
+          },
+          "common_rows": 6,
+          "AB_order_author_equal": true,
+          "all_order_seq_equal": true,
+          "AB_status_difference_count": 0,
+          "AB_raw_seq_difference_count": 0,
+          "B_ordering_corrections": 0
+        }
+      }
+    }
+  },
+  "measurement_limits": [
+    "Stage windows include concurrent background activity; totals overlap and are not additive.",
+    "First-storage observations poll memory probes and include API/event-loop delays.",
+    "Profiles advanced between phases; this is not an isolated end-to-end speedup benchmark."
+  ],
+  "normal_stand": {
+    "private_timing_overlay": false,
+    "timing_endpoint_absent_on_all_roles": true,
+    "new_messages": 18,
+    "new_counts": {
+      "A": 18,
+      "B": 18,
+      "C": 18
+    },
+    "new_ids_equal": true,
+    "no_duplicates": true,
+    "burst_submission_seconds": 27.0,
+    "full_visible_counts": {
+      "B": 550,
+      "C": 550,
+      "A": 550
+    },
+    "full_visible_id_sets_equal": true,
+    "full_visible_order_equal": true,
+    "call": {
+      "initiator": "C",
+      "answering_device": "A",
+      "ring_first_observed_ms": {
+        "A": 593,
+        "B": 680
+      },
+      "connect_after_answer_ms": 3813,
+      "other_sibling_stopped_ringing": true,
+      "sample_duration_seconds": 89.8,
+      "endpoints": {
+        "A": {
+          "samples": 41,
+          "all_active": true,
+          "all_p2p": true,
+          "camera_on_all_samples": true,
+          "audio_rx_packets_increase": true,
+          "audio_delay_peak_ms": 93,
+          "worker_stalled_any": false,
+          "video_worker_stalled_any": false,
+          "cumulative_rx_fps_snapshot": {
+            "min": 4.3,
+            "median": 17.25,
+            "max": 21.4,
+            "zero_samples": 0
+          }
+        },
+        "C": {
+          "samples": 41,
+          "all_active": true,
+          "all_p2p": true,
+          "camera_on_all_samples": true,
+          "audio_rx_packets_increase": true,
+          "audio_delay_peak_ms": 91,
+          "worker_stalled_any": false,
+          "video_worker_stalled_any": false,
+          "cumulative_rx_fps_snapshot": {
+            "min": 1.2,
+            "median": 13.399999999999999,
+            "max": 18.8,
+            "zero_samples": 0
+          }
+        }
+      },
+      "interval_frame_rate_estimates_after_30s": {
+        "A": {
+          "video_tx_frames": {
+            "min": 7.3,
+            "median": 29.5,
+            "max": 34.3
+          },
+          "video_rx_arrival_frames": {
+            "min": 25.6,
+            "median": 30.0,
+            "max": 34.8
+          },
+          "video_rx_deliver_frames": {
+            "min": 25.6,
+            "median": 30.0,
+            "max": 34.8
+          },
+          "video_decoded_frames": {
+            "min": 22.9,
+            "median": 29.5,
+            "max": 37.1
+          },
+          "remote_frames": {
+            "min": 22.9,
+            "median": 29.5,
+            "max": 37.1
+          },
+          "local_frames": {
+            "min": 18.1,
+            "median": 28.1,
+            "max": 42.9
+          }
+        },
+        "C": {
+          "video_tx_frames": {
+            "min": 29.1,
+            "median": 30.0,
+            "max": 31.2
+          },
+          "video_rx_arrival_frames": {
+            "min": 6.8,
+            "median": 29.5,
+            "max": 31.0
+          },
+          "video_rx_deliver_frames": {
+            "min": 6.8,
+            "median": 29.5,
+            "max": 31.0
+          },
+          "remote_frames": {
+            "min": 6.4,
+            "median": 29.2,
+            "max": 31.0
+          },
+          "local_frames": {
+            "min": 29.1,
+            "median": 30.0,
+            "max": 31.5
+          }
+        }
+      },
+      "fps_metric_definition": "Snapshot FPS fields are cumulative since the first frame, not rolling rates. Interval estimates use frame-count differences over host sampling intervals.",
+      "quality_inputs_after_30s": {
+        "A": {
+          "camera_requested_fps": {
+            "min": 30,
+            "median": 30.0,
+            "max": 30
+          },
+          "camera_capture_fps": {
+            "min": 29.5,
+            "median": 29.6,
+            "max": 29.6
+          },
+          "camera_capture_width": {
+            "min": 960,
+            "median": 960.0,
+            "max": 960
+          },
+          "camera_capture_height": {
+            "min": 540,
+            "median": 540.0,
+            "max": 540
+          },
+          "local_frame_fps": {
+            "min": 29.5,
+            "median": 29.6,
+            "max": 29.6
+          },
+          "video_decoded_fps": {
+            "min": 4.3,
+            "median": 17.25,
+            "max": 21.4
+          },
+          "video_audio_buffer_pressure": {
+            "true": 0,
+            "samples": 28
+          },
+          "video_paused_for_audio": {
+            "true": 0,
+            "samples": 28
+          },
+          "video_send_paused": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0
+          },
+          "adaptLevel": {
+            "min": 0,
+            "median": 0.0,
+            "max": 3
+          },
+          "pacer_delay_ms": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0
+          },
+          "video_delay_ms": {
+            "min": 60,
+            "median": 60.0,
+            "max": 60
+          },
+          "rtt_ms": {
+            "min": 6,
+            "median": 26.0,
+            "max": 100
+          },
+          "loss_pct": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0
+          },
+          "tx_loss_pct": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0
+          },
+          "applied_video_fps": {
+            "min": 4.0,
+            "median": 60.0,
+            "max": 60.0
+          },
+          "applied_video_kbps": {
+            "min": 60,
+            "median": 900.0,
+            "max": 900
+          }
+        },
+        "C": {
+          "local_frame_fps": {
+            "min": 30.0,
+            "median": 30.0,
+            "max": 30.0
+          },
+          "video_audio_buffer_pressure": {
+            "true": 0,
+            "samples": 28
+          },
+          "video_paused_for_audio": {
+            "true": 0,
+            "samples": 28
+          },
+          "video_send_paused": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0
+          },
+          "adaptLevel": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0
+          },
+          "pacer_delay_ms": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0
+          },
+          "video_delay_ms": {
+            "min": 60,
+            "median": 60.0,
+            "max": 60
+          },
+          "rtt_ms": {
+            "min": 24,
+            "median": 28.5,
+            "max": 44
+          },
+          "loss_pct": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0
+          },
+          "tx_loss_pct": {
+            "min": 0,
+            "median": 0.0,
+            "max": 0
+          },
+          "applied_video_fps": {
+            "min": 60.0,
+            "median": 60.0,
+            "max": 60.0
+          },
+          "applied_video_kbps": {
+            "min": 900,
+            "median": 900.0,
+            "max": 900
+          }
+        }
+      }
+    }
+  },
+  "cleanup": {
+    "recorded_owned_groups_checked": 9,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false
+  },
+  "remaining": [
+    "Unpaced burst submission still takes about 27 seconds.",
+    "Android-to-Mac video had low-rate intervals in sampled seconds 30.5-37.3; startup needs investigation.",
+    "Counter rates do not establish smooth per-frame presentation or live speech/headphone volume.",
+    "Windows reports, partial chunk-ACK receiver-crash recovery, long offline and the full multi-device matrix remain open."
+  ]
+}

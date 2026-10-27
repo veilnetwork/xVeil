@@ -1,4 +1,5 @@
 {
+  "fps_metric_definition": "Snapshot FPS fields are cumulative since the first frame, not rolling rates; this includes legacy steady_rx_fps labels. See the canonical-history-work-2026-10-27 follow-up.",
   "base": "5b3771f2",
   "sdk": "1d36980d",
   "automated_checks": {
