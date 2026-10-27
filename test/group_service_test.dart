@@ -216,6 +216,18 @@ class _FakeSigner implements GroupSigner {
       _bytesEqual(_fakeSovereignSignature(publicKey, message), signature);
 }
 
+class _MessageCheckCountingSigner extends _FakeSigner {
+  _MessageCheckCountingSigner(super.self);
+
+  final checks = <String, int>{};
+
+  @override
+  bool verifyMessage(GroupMessage message) {
+    checks.update(message.ref, (n) => n + 1, ifAbsent: () => 1);
+    return super.verifyMessage(message);
+  }
+}
+
 /// Keeps the control and detached fake signatures cryptographically
 /// interchangeable, matching the production identity key used by public
 /// authority links.
@@ -10453,6 +10465,94 @@ void main() {
     expect(await master.handleContentRequest(requests.single.$2), isTrue);
     expect(grants, [(bob, cid)]);
   });
+
+  test(
+    'a fresh row does not reverify unrelated history to find a duplicate',
+    () async {
+      final sourceStore = FakeHvContainer().storage();
+      await sourceStore.open(password: 'pw', createIfMissing: true);
+      final source = GroupService(sourceStore, _FakeSigner(owner));
+      addTearDown(source.dispose);
+      final gid = await source.createGroup('history');
+      expect(
+        await source.addControlOp(
+          gid,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      for (var i = 0; i < 8; i++) {
+        await source.postMessage(gid, 'history-$i');
+      }
+      final initial = (await source.load(gid))!;
+      final seed = source.snapshotJson(initial);
+      final historicalRefs = initial.messages.map((m) => m.ref).toSet();
+      final signers = <_MessageCheckCountingSigner>[];
+      final targets = <GroupService>[];
+      for (var i = 0; i < 2; i++) {
+        final store = FakeHvContainer().storage();
+        await store.open(password: 'pw', createIfMissing: true);
+        final signer = _MessageCheckCountingSigner(bob);
+        final target = GroupService(store, signer);
+        addTearDown(target.dispose);
+        expect(await target.ingestSnapshot(seed), isTrue);
+        signers.add(signer);
+        targets.add(target);
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      for (final signer in signers) {
+        signer.checks.clear();
+      }
+      await source.postMessage(gid, 'fresh');
+      final fresh = (await source.load(gid))!.messages.last;
+      final base = jsonDecode(seed) as Map;
+      final empty = jsonEncode({...base, 'c': [], 'g': [], 'r': []});
+      final delta = jsonEncode({
+        ...base,
+        'c': [],
+        'g': [fresh.toJson()],
+        'r': [],
+      });
+      expect(await targets[0].ingestSnapshot(empty), isTrue);
+      expect(await targets[1].ingestSnapshot(delta), isTrue);
+      int historicalChecks(_MessageCheckCountingSigner signer) =>
+          historicalRefs.fold(0, (n, ref) => n + (signer.checks[ref] ?? 0));
+      expect(
+        historicalChecks(signers[1]),
+        historicalChecks(signers[0]),
+        reason:
+            'new content must not add a historical signature scan for dedup',
+      );
+      expect((await targets[0].messagesOf(gid)).length, 8);
+      expect((await targets[1].messagesOf(gid)).last.body, 'fresh');
+      expect(await targets[1].ingestSnapshot(delta), isTrue);
+      expect((await targets[1].load(gid))!.messages.length, 9);
+
+      // Author/sequence is only a prefilter, never the deduplication identity.
+      // Distinct signatures at the same slot remain signed fork evidence.
+      final fork = fresh.withSignature(
+        Uint8List.fromList(List.filled(64, 0x7e)),
+        fresh.authorPubKey,
+      );
+      final forkWire = jsonEncode({
+        ...base,
+        'c': [],
+        'g': [fork.toJson()],
+        'r': [],
+      });
+      expect(await targets[1].ingestSnapshot(forkWire), isTrue);
+      final stored = (await targets[1].load(gid))!.messages;
+      expect(stored.length, 10);
+      expect(
+        stored.where((m) => m.ref == fresh.ref).map(groupMessageHash).toSet(),
+        {groupMessageHash(fresh), groupMessageHash(fork)},
+      );
+      expect(await targets[1].ingestSnapshot(delta), isTrue);
+      expect((await targets[1].load(gid))!.messages.length, 10);
+    },
+  );
 
   test(
     'own transport addresses use one fresh validated journal view',
