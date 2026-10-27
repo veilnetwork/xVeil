@@ -1200,6 +1200,48 @@ void main() {
       },
     );
 
+    test('old group snapshots to our authority alias retire without a dial',
+        () async {
+      final authority = _id(9);
+      mA.selfIdentityHex = () async => authority.hex;
+      mA.isOwnDevice = (peer) async => peer == authority || peer == b;
+      var authorityChecks = 0;
+      mA.isSovereignAuthority = (peer) async {
+        authorityChecks++;
+        return peer == authority;
+      };
+      Future<void> queue(String id, NodeId peer, WireEnvelope envelope) =>
+          sA.enqueueOutboxFrame(id, peer.hex, envelope.withFrameId(id).encode());
+      await queue('grp:obsolete', authority, const WireEnvelope.groupEntry('{}'));
+      await queue('grpc:obsolete:0', authority,
+          const WireEnvelope.groupEntryChunk('{}'));
+      await queue('grp:healthy', b, const WireEnvelope.groupEntry('{}'));
+      await queue('grp:control', authority,
+          const WireEnvelope.edit('message', 'keep this control'));
+      tA.sentFrameIds.clear();
+      await mA.debugFlushOutboxFrames();
+      await _settle();
+      expect((await sA.pendingOutboxFrames()).map((f) => f.frameId),
+          unorderedEquals(['grp:healthy', 'grp:control']));
+      expect(tA.sentFrameIds, isNot(contains('grp:obsolete')));
+      expect(tA.sentFrameIds, isNot(contains('grpc:obsolete:0')));
+      expect(authorityChecks, 1,
+          reason: 'a pass must not read the device journal once per slice');
+    });
+
+    test('a self identity which is not an authority remains a valid destination',
+        () async {
+      final identity = _id(9);
+      mA.selfIdentityHex = () async => identity.hex;
+      mA.isOwnDevice = (peer) async => peer == identity;
+      mA.isSovereignAuthority = (_) async => false;
+      await sA.enqueueOutboxFrame('grp:legacy', identity.hex,
+          const WireEnvelope.groupEntry('{}').withFrameId('grp:legacy').encode());
+      await mA.debugFlushOutboxFrames();
+      await _settle();
+      expect((await sA.pendingOutboxFrames()).single.frameId, 'grp:legacy');
+    });
+
     test(
       'non-contact group content request re-drives by membership then expires',
       () async {

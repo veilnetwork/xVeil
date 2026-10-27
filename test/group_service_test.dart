@@ -580,6 +580,23 @@ class _HeldGroupHeaderStorage extends HiddenVolumeStorage {
   Completer<void>? captured;
   int headerReads = 0;
   bool failRead = false;
+  bool failNextHeaderWrite = false;
+  Completer<void>? headerWriteEntered, headerWriteRelease;
+
+  @override
+  Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) async {
+    final held = fileId == heldKey ? headerWriteRelease : null;
+    if (held != null) {
+      headerWriteRelease = null;
+      headerWriteEntered!.complete();
+      await held.future;
+    }
+    if (fileId == heldKey && failNextHeaderWrite) {
+      failNextHeaderWrite = false;
+      throw StateError('injected device header write failure');
+    }
+    await super.storeFile(fileId, bytes, name: name);
+  }
 
   @override
   Future<Uint8List?> loadFile(String fileId, {int? maxBytes}) async {
@@ -8264,6 +8281,408 @@ void main() {
       expect(wire['mid'], isNull);
     });
   });
+
+  group('an adopted device delta restores its manifest inside the merge', () {
+    late GroupService source, target;
+    late _HeldGroupHeaderStorage targetStorage;
+    late NodeId gid;
+    late Map<String, dynamic> delta;
+
+    setUp(() async {
+      final sourceStorage = FakeHvContainer().storage();
+      await sourceStorage.open(password: 'pw', createIfMissing: true);
+      targetStorage = _HeldGroupHeaderStorage();
+      await targetStorage.open(password: 'pw', createIfMissing: true);
+      source = GroupService(sourceStorage, _FakeSigner(owner));
+      target = GroupService(targetStorage, _FakeSigner(bob));
+      expect(await source.linkDevice(bob, sovereign: sovereign), isTrue);
+      gid = NodeId.fromHex((await source.deviceGroupIdHex())!);
+      for (var i = 0; i < 2; i++) {
+        await source.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.settingSet,
+            key: 'existing-$i',
+            tsMs: DateTime.now().millisecondsSinceEpoch,
+            payload: {'v': 'kept-$i'},
+          ),
+        );
+      }
+      expect(
+        await target.ingestSnapshot(
+          source.snapshotJson(
+            (await source.load(gid))!,
+            ownDevice: true,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+      expect(await target.adoptDeviceGroup(gid), isTrue);
+      await source.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.msgMirror,
+          key: 'lean-message',
+          tsMs: DateTime.now().millisecondsSinceEpoch,
+          payload: {'peer': carol.hex, 'body': 'a new message'},
+        ),
+      );
+      final bundle = (await source.load(gid))!;
+      delta = {
+        'mid': gid.hex,
+        'mh': GroupService.manifestHash(bundle.manifest),
+        'c': <Object?>[],
+        'g': [bundle.messages.last.toJson()],
+        'r': <Object?>[],
+      };
+      expect(await target.isMyDeviceOrMaster(owner), isTrue);
+      await Future<void>.delayed(Duration.zero);
+      targetStorage.heldKey = 'group:${gid.hex}';
+      targetStorage.headerReads = 0;
+    });
+    tearDown(() async {
+      await source.dispose();
+      await target.dispose();
+    });
+
+    for (final fromStranger in [false, true]) {
+      test('one bundle read for a ${fromStranger ? 'non-contact' : 'contact'} '
+          'device delta', () async {
+        expect(
+          await target.receiveGroupFrame(
+            owner,
+            jsonEncode(delta),
+            fromStranger: fromStranger,
+          ),
+          isTrue,
+        );
+        expect(
+          targetStorage.headerReads,
+          1,
+          reason: 'manifest restoration and merge must share one locked view',
+        );
+        final state = await target.deviceSyncState();
+        expect(state[(DeviceSyncKind.msgMirror, 'lean-message')], isNotNull);
+        expect(
+          state[(DeviceSyncKind.settingSet, 'existing-0')]!.payload['v'],
+          'kept-0',
+        );
+        expect(
+          state[(DeviceSyncKind.settingSet, 'existing-1')]!.payload['v'],
+          'kept-1',
+        );
+      });
+    }
+
+    test('a different manifest hash refuses the delta', () async {
+      expect(
+        await target.receiveGroupFrame(
+          owner,
+          jsonEncode({...delta, 'mh': '0' * 32}),
+          fromStranger: true,
+        ),
+        isFalse,
+      );
+      expect(
+        (await target.deviceSyncState())[(
+          DeviceSyncKind.msgMirror,
+          'lean-message',
+        )],
+        isNull,
+      );
+    });
+
+    test('a non-member cannot enter the adopted device delta path', () async {
+      expect(
+        await target.receiveGroupFrame(
+          stranger,
+          jsonEncode(delta),
+          fromStranger: true,
+        ),
+        isFalse,
+      );
+      expect(
+        (await target.deviceSyncState())[(
+          DeviceSyncKind.msgMirror,
+          'lean-message',
+        )],
+        isNull,
+      );
+    });
+
+    test(
+      'a missing journal segment refuses the delta without losing history',
+      () async {
+        final key = 'group:${gid.hex}';
+        final header = (await targetStorage.loadFile(key))!;
+        final metadata = jsonDecode(utf8.decode(header)) as Map;
+        final segment = (metadata['gs'] as List).first as String;
+        final bytes = (await targetStorage.loadFile(segment))!;
+        await targetStorage.deleteStoredFile(segment);
+        expect(
+          await target.receiveGroupFrame(
+            owner,
+            jsonEncode(delta),
+            fromStranger: true,
+          ),
+          isFalse,
+        );
+        expect(await targetStorage.loadFile(key), orderedEquals(header));
+        await targetStorage.storeFile(segment, bytes);
+        expect(
+          await target.receiveGroupFrame(
+            owner,
+            jsonEncode(delta),
+            fromStranger: true,
+          ),
+          isTrue,
+        );
+        final state = await target.deviceSyncState();
+        expect(state[(DeviceSyncKind.settingSet, 'existing-0')], isNotNull);
+        expect(state[(DeviceSyncKind.msgMirror, 'lean-message')], isNotNull);
+      },
+    );
+
+    test('a revoked device cannot use its earlier delta', () async {
+      expect(await target.revokeDevice(owner, sovereign: sovereign), isTrue);
+      expect(await target.isMyDeviceOrMaster(owner), isFalse);
+      expect(
+        await target.receiveGroupFrame(
+          owner,
+          jsonEncode(delta),
+          fromStranger: true,
+        ),
+        isFalse,
+      );
+      expect(
+        (await target.deviceSyncState())[(
+          DeviceSyncKind.msgMirror,
+          'lean-message',
+        )],
+        isNull,
+      );
+    });
+
+    test(
+      'the ordinary message-signature check still rejects a bad row',
+      () async {
+        final row = Map<String, dynamic>.from(
+          (delta['g'] as List).single as Map,
+        );
+        row['sig'] = '';
+        await target.receiveGroupFrame(
+          owner,
+          jsonEncode({
+            ...delta,
+            'g': [row],
+          }),
+          fromStranger: true,
+        );
+        expect(
+          (await target.deviceSyncState())[(
+            DeviceSyncKind.msgMirror,
+            'lean-message',
+          )],
+          isNull,
+        );
+        expect(
+          await target.receiveGroupFrame(
+            owner,
+            jsonEncode(delta),
+            fromStranger: true,
+          ),
+          isTrue,
+        );
+        expect(
+          (await target.deviceSyncState())[(
+            DeviceSyncKind.msgMirror,
+            'lean-message',
+          )],
+          isNotNull,
+        );
+      },
+    );
+
+    test(
+      'a failed delta write stays retryable with the old journal intact',
+      () async {
+        targetStorage.failNextHeaderWrite = true;
+        await expectLater(
+          target.receiveGroupFrame(
+            owner,
+            jsonEncode(delta),
+            fromStranger: true,
+          ),
+          throwsStateError,
+        );
+        final before = await target.deviceSyncState();
+        expect(before[(DeviceSyncKind.settingSet, 'existing-0')], isNotNull);
+        expect(before[(DeviceSyncKind.msgMirror, 'lean-message')], isNull);
+        expect(
+          await target.receiveGroupFrame(
+            owner,
+            jsonEncode(delta),
+            fromStranger: true,
+          ),
+          isTrue,
+        );
+      },
+    );
+
+    test(
+      'a delta queued behind a local append uses the committed view',
+      () async {
+        final entered = Completer<void>();
+        final release = Completer<void>();
+        targetStorage.headerWriteEntered = entered;
+        targetStorage.headerWriteRelease = release;
+        final local = target.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.settingSet,
+            key: 'queued-local',
+            tsMs: DateTime.now().millisecondsSinceEpoch,
+            payload: const {'v': 'kept-local'},
+          ),
+        );
+        await entered.future;
+        var finished = false;
+        final incoming = target
+            .receiveGroupFrame(owner, jsonEncode(delta), fromStranger: true)
+            .then((value) {
+              finished = true;
+              return value;
+            });
+        try {
+          await Future<void>.delayed(Duration.zero);
+          expect(finished, isFalse);
+        } finally {
+          release.complete();
+        }
+        expect(await local, isTrue);
+        expect(await incoming, isTrue);
+        final state = await target.deviceSyncState();
+        expect(
+          state[(DeviceSyncKind.settingSet, 'queued-local')]!.payload['v'],
+          'kept-local',
+        );
+        expect(state[(DeviceSyncKind.msgMirror, 'lean-message')], isNotNull);
+        expect(state[(DeviceSyncKind.settingSet, 'existing-0')], isNotNull);
+      },
+    );
+
+    test(
+      'a cold device resolves its reply address before building a sync ask',
+      () async {
+        final sent = <Map>[];
+        final cold = GroupService(
+          targetStorage,
+          _FakeSigner(bob),
+          send: (_, _, json) async => sent.add(jsonDecode(json) as Map),
+        )..myDeviceReader = () async => bob;
+        addTearDown(cold.dispose);
+        expect(cold.myDevice, isNull);
+        expect(await cold.nudgeGroupSync(gid), greaterThan(0));
+        expect(cold.myDevice, bob);
+        expect(sent, isNotEmpty);
+        expect(sent.map((wire) => wire['dv']), everyElement(bob.hex));
+      },
+    );
+  });
+
+  test(
+    'device sync answers the announced master device, not its authority key',
+    () async {
+      final masterStore = FakeHvContainer().storage();
+      final linkedStore = FakeHvContainer().storage();
+      await masterStore.open(password: 'pw', createIfMissing: true);
+      await linkedStore.open(password: 'pw', createIfMissing: true);
+      final masterDevice = _id(0xd7);
+      final master = GroupService(masterStore, _FakeSigner(owner))
+        ..myDevice = masterDevice;
+      addTearDown(master.dispose);
+      expect(
+        await master.linkDevice(
+          bob,
+          sovereign: sovereign,
+          broadcastSnapshot: false,
+        ),
+        isTrue,
+      );
+      final gid = NodeId.fromHex((await master.deviceGroupIdHex())!);
+      expect(
+        await master.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.identityDoc,
+            key: masterDevice.hex,
+            tsMs: DateTime.now().millisecondsSinceEpoch,
+            payload: const {'d': 'ZG9j', 'o': true},
+          ),
+        ),
+        isTrue,
+      );
+      final replies = <NodeId>[];
+      final linked =
+          GroupService(
+              linkedStore,
+              _FakeSigner(bob),
+              send: (peer, _, _) async => replies.add(peer),
+            )
+            ..myDevice = bob
+            ..documentNodeId = (_) => owner;
+      addTearDown(linked.dispose);
+      expect(
+        await linked.ingestSnapshot(
+          master.snapshotJson(
+            (await master.load(gid))!,
+            ownDevice: true,
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+      expect(await linked.adoptDeviceGroup(gid), isTrue);
+      await linked.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.settingSet,
+          key: 'missing-at-master',
+          tsMs: DateTime.now().millisecondsSinceEpoch,
+          payload: const {'v': 'yes'},
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+      replies.clear();
+      final request = (await master.buildGroupSyncRequest(gid))!;
+      expect(request['dv'], masterDevice.hex);
+      expect(
+        await linked.isMyDevice(masterDevice),
+        isFalse,
+        reason: 'the master transport address is announced outside membership',
+      );
+      expect(
+        await linked.handleGroupSyncRequest(sovereign.nodeId, request),
+        isTrue,
+      );
+      expect(replies, [masterDevice]);
+      replies.clear();
+      expect(
+        await linked.handleGroupSyncRequest(sovereign.nodeId, {
+          ...request,
+          'dv': stranger.hex,
+        }),
+        isFalse,
+      );
+      final noDevice = Map<String, dynamic>.from(request)..remove('dv');
+      expect(
+        await linked.handleGroupSyncRequest(sovereign.nodeId, noDevice),
+        isFalse,
+      );
+      expect(
+        replies,
+        isEmpty,
+        reason:
+            'neither an outsider nor the non-listening authority is a target',
+      );
+    },
+  );
 
   group('device-log rows about one message or call expire', () {
     // Keyed by an id that is never written twice, every such row won its own
