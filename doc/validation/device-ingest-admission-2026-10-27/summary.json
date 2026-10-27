@@ -1,0 +1,516 @@
+{
+  "base": "280bd02a",
+  "sdk": "1d36980d",
+  "read_count_regression": {
+    "before": 2,
+    "after": 0
+  },
+  "unknown_device_config_regression": {
+    "before": 1,
+    "after": 0
+  },
+  "automated_checks": {
+    "passed": 464,
+    "existing_skips": 3,
+    "static_analysis_issues": 0
+  },
+  "timed_windows": {
+    "baseline": [
+      {
+        "round": 1,
+        "A_first_observed_ms": 24914,
+        "B_first_observed_ms": 563,
+        "no_duplicates": true,
+        "same_logical_ids": true,
+        "A_stage_windows": {
+          "group.ownerRead": {
+            "count": 1,
+            "mean_ms": 1972.8
+          },
+          "group.primeAdmission": {
+            "count": 0,
+            "mean_ms": null
+          },
+          "mirror.apply": {
+            "count": 51,
+            "mean_ms": 492.0
+          },
+          "group.merge": {
+            "count": 0,
+            "mean_ms": null
+          }
+        }
+      },
+      {
+        "round": 2,
+        "A_first_observed_ms": 30816,
+        "B_first_observed_ms": 1085,
+        "no_duplicates": true,
+        "same_logical_ids": true,
+        "A_stage_windows": {
+          "group.ownerRead": {
+            "count": 4,
+            "mean_ms": 1778.2
+          },
+          "group.primeAdmission": {
+            "count": 0,
+            "mean_ms": null
+          },
+          "mirror.apply": {
+            "count": 127,
+            "mean_ms": 198.9
+          },
+          "group.merge": {
+            "count": 2,
+            "mean_ms": 3305.8
+          }
+        }
+      },
+      {
+        "round": 3,
+        "A_first_observed_ms": 22155,
+        "B_first_observed_ms": 205,
+        "no_duplicates": true,
+        "same_logical_ids": true,
+        "A_stage_windows": {
+          "group.ownerRead": {
+            "count": 2,
+            "mean_ms": 1012.4
+          },
+          "group.primeAdmission": {
+            "count": 0,
+            "mean_ms": null
+          },
+          "mirror.apply": {
+            "count": 2,
+            "mean_ms": 1293.7
+          },
+          "group.merge": {
+            "count": 2,
+            "mean_ms": 3967.4
+          }
+        }
+      },
+      {
+        "round": 4,
+        "A_first_observed_ms": 7243,
+        "B_first_observed_ms": 159,
+        "no_duplicates": true,
+        "same_logical_ids": true,
+        "A_stage_windows": {
+          "group.ownerRead": {
+            "count": 1,
+            "mean_ms": 758.8
+          },
+          "group.primeAdmission": {
+            "count": 0,
+            "mean_ms": null
+          },
+          "mirror.apply": {
+            "count": 1,
+            "mean_ms": 1054.8
+          },
+          "group.merge": {
+            "count": 1,
+            "mean_ms": 2533.4
+          }
+        }
+      },
+      {
+        "round": 5,
+        "A_first_observed_ms": 9359,
+        "B_first_observed_ms": 466,
+        "no_duplicates": true,
+        "same_logical_ids": true,
+        "A_stage_windows": {
+          "group.ownerRead": {
+            "count": 2,
+            "mean_ms": 2148.8
+          },
+          "group.primeAdmission": {
+            "count": 0,
+            "mean_ms": null
+          },
+          "mirror.apply": {
+            "count": 1,
+            "mean_ms": 2258.2
+          },
+          "group.merge": {
+            "count": 1,
+            "mean_ms": 2682.7
+          }
+        }
+      },
+      {
+        "round": 6,
+        "A_first_observed_ms": 7978,
+        "B_first_observed_ms": 176,
+        "no_duplicates": true,
+        "same_logical_ids": true,
+        "A_stage_windows": {
+          "group.ownerRead": {
+            "count": 1,
+            "mean_ms": 792.1
+          },
+          "group.primeAdmission": {
+            "count": 0,
+            "mean_ms": null
+          },
+          "mirror.apply": {
+            "count": 1,
+            "mean_ms": 1244.9
+          },
+          "group.merge": {
+            "count": 1,
+            "mean_ms": 2575.4
+          }
+        }
+      }
+    ],
+    "candidate": [
+      {
+        "round": 1,
+        "A_first_observed_ms": 15064,
+        "B_first_observed_ms": 1127,
+        "no_duplicates": true,
+        "same_logical_ids": true,
+        "A_stage_windows": {
+          "group.ownerRead": {
+            "count": 0,
+            "mean_ms": null
+          },
+          "group.primeAdmission": {
+            "count": 0,
+            "mean_ms": null
+          },
+          "mirror.apply": {
+            "count": 55,
+            "mean_ms": 275.1
+          },
+          "group.merge": {
+            "count": 0,
+            "mean_ms": null
+          }
+        }
+      },
+      {
+        "round": 2,
+        "A_first_observed_ms": 30304,
+        "B_first_observed_ms": 496,
+        "no_duplicates": true,
+        "same_logical_ids": true,
+        "A_stage_windows": {
+          "group.ownerRead": {
+            "count": 0,
+            "mean_ms": null
+          },
+          "group.primeAdmission": {
+            "count": 2,
+            "mean_ms": 2.7
+          },
+          "mirror.apply": {
+            "count": 88,
+            "mean_ms": 151.6
+          },
+          "group.merge": {
+            "count": 2,
+            "mean_ms": 3720.5
+          }
+        }
+      },
+      {
+        "round": 3,
+        "A_first_observed_ms": 29571,
+        "B_first_observed_ms": 1149,
+        "no_duplicates": true,
+        "same_logical_ids": true,
+        "A_stage_windows": {
+          "group.ownerRead": {
+            "count": 0,
+            "mean_ms": null
+          },
+          "group.primeAdmission": {
+            "count": 2,
+            "mean_ms": 0.5
+          },
+          "mirror.apply": {
+            "count": 2,
+            "mean_ms": 94.5
+          },
+          "group.merge": {
+            "count": 2,
+            "mean_ms": 3377.8
+          }
+        }
+      },
+      {
+        "round": 4,
+        "A_first_observed_ms": 11547,
+        "B_first_observed_ms": 2415,
+        "no_duplicates": true,
+        "same_logical_ids": true,
+        "A_stage_windows": {
+          "group.ownerRead": {
+            "count": 0,
+            "mean_ms": null
+          },
+          "group.primeAdmission": {
+            "count": 1,
+            "mean_ms": 0.7
+          },
+          "mirror.apply": {
+            "count": 1,
+            "mean_ms": 271.7
+          },
+          "group.merge": {
+            "count": 1,
+            "mean_ms": 3326.8
+          }
+        }
+      },
+      {
+        "round": 5,
+        "A_first_observed_ms": 6832,
+        "B_first_observed_ms": 900,
+        "no_duplicates": true,
+        "same_logical_ids": true,
+        "A_stage_windows": {
+          "group.ownerRead": {
+            "count": 0,
+            "mean_ms": null
+          },
+          "group.primeAdmission": {
+            "count": 1,
+            "mean_ms": 0.5
+          },
+          "mirror.apply": {
+            "count": 1,
+            "mean_ms": 240.6
+          },
+          "group.merge": {
+            "count": 1,
+            "mean_ms": 2551.6
+          }
+        }
+      },
+      {
+        "round": 6,
+        "A_first_observed_ms": 9223,
+        "B_first_observed_ms": 446,
+        "no_duplicates": true,
+        "same_logical_ids": true,
+        "A_stage_windows": {
+          "group.ownerRead": {
+            "count": 0,
+            "mean_ms": null
+          },
+          "group.primeAdmission": {
+            "count": 1,
+            "mean_ms": 0.6
+          },
+          "mirror.apply": {
+            "count": 1,
+            "mean_ms": 331.3
+          },
+          "group.merge": {
+            "count": 1,
+            "mean_ms": 3488.0
+          }
+        }
+      }
+    ]
+  },
+  "stage_caveat": "Window averages can include background work and overlapping operations; profiles advanced between runs; no controlled end-to-end speedup ratio.",
+  "normal_resolved_device_check": {
+    "rounds": [
+      {
+        "round": 1,
+        "origin": "C",
+        "submit_ms": 151,
+        "first_observed_ms": {
+          "B": 587,
+          "C": 612,
+          "A": 16904
+        },
+        "no_duplicates": true,
+        "same_logical_ids": true
+      },
+      {
+        "round": 2,
+        "origin": "C",
+        "submit_ms": 124,
+        "first_observed_ms": {
+          "C": 475,
+          "B": 2855,
+          "A": 19543
+        },
+        "no_duplicates": true,
+        "same_logical_ids": true
+      },
+      {
+        "round": 3,
+        "origin": "A",
+        "submit_ms": 14427,
+        "first_observed_ms": {
+          "A": 14925,
+          "C": 14945,
+          "B": 21362
+        },
+        "no_duplicates": true,
+        "same_logical_ids": true
+      }
+    ],
+    "complete_visible_conversation": {
+      "rows": {
+        "A": 483,
+        "B": 483,
+        "C": 483
+      },
+      "identical_ids": true,
+      "identical_order": true
+    },
+    "private_timer_endpoint_absent": true,
+    "call": {
+      "initiator": "C",
+      "answered_on": "A",
+      "first_ringing_ms": {
+        "A": 1167,
+        "B": 1388
+      },
+      "connection_after_answer_ms": 7532,
+      "other_sibling_stopped_ringing": true,
+      "duration_seconds": 57.8,
+      "samples": 23,
+      "active_throughout": true,
+      "media": {
+        "A": {
+          "all_p2p": true,
+          "all_cameras_on": true,
+          "audio_rx_first": 25,
+          "audio_rx_last": 1432,
+          "audio_tx_first": 52,
+          "audio_tx_last": 696,
+          "video_receive_fps_min": 1.0,
+          "video_receive_fps_median": 13.3,
+          "video_receive_fps_max": 22.3,
+          "worker_stalled_peak": 0
+        },
+        "C": {
+          "all_p2p": true,
+          "all_cameras_on": true,
+          "audio_rx_first": 52,
+          "audio_rx_last": 677,
+          "audio_tx_first": 187,
+          "audio_tx_last": 1565,
+          "video_receive_fps_min": 0.0,
+          "video_receive_fps_median": 4.4,
+          "video_receive_fps_max": 18.8,
+          "worker_stalled_peak": 0
+        }
+      },
+      "speech_intelligibility_assessed": false
+    },
+    "cleanup": {
+      "mac_remaining_processes": 0,
+      "peer_remaining_processes": 0,
+      "phone_remaining_processes": 0,
+      "own_forward_removed": true,
+      "main_app_modified": false,
+      "system_power_settings_changed": false,
+      "retained_profiles": true
+    }
+  },
+  "final_source_check": {
+    "rounds": [
+      {
+        "round": 1,
+        "origin": "C",
+        "submit_ms": 239,
+        "first_observed_ms": {
+          "B": 2596,
+          "C": 2645,
+          "A": 24934
+        },
+        "no_duplicates": true,
+        "same_logical_ids": true
+      }
+    ],
+    "complete_visible_conversation": {
+      "rows": {
+        "A": 484,
+        "B": 484,
+        "C": 484
+      },
+      "identical_ids": true,
+      "identical_order": true
+    },
+    "private_timer_endpoint_absent": true,
+    "call": {
+      "initiator": "C",
+      "answered_on": "A",
+      "first_ringing_ms": {
+        "A": 436,
+        "B": 454
+      },
+      "connection_after_answer_ms": 9054,
+      "other_sibling_stopped_ringing": true,
+      "duration_seconds": 28.6,
+      "samples": 11,
+      "active_throughout": true,
+      "media": {
+        "A": {
+          "all_p2p": true,
+          "all_cameras_on": true,
+          "audio_rx_first": 45,
+          "audio_rx_last": 700,
+          "audio_tx_first": 60,
+          "audio_tx_last": 335,
+          "video_receive_fps_min": 1.0,
+          "video_receive_fps_median": 1.5,
+          "video_receive_fps_max": 9.7,
+          "worker_stalled_peak": 0
+        },
+        "C": {
+          "all_p2p": true,
+          "all_cameras_on": true,
+          "audio_rx_first": 58,
+          "audio_rx_last": 335,
+          "audio_tx_first": 205,
+          "audio_tx_last": 867,
+          "video_receive_fps_min": 0.0,
+          "video_receive_fps_median": 3.3,
+          "video_receive_fps_max": 14.0,
+          "worker_stalled_peak": 0
+        }
+      },
+      "speech_intelligibility_assessed": false
+    },
+    "cleanup": {
+      "mac_remaining_processes": 0,
+      "peer_remaining_processes": 0,
+      "phone_remaining_processes": 0,
+      "own_forward_removed": true,
+      "main_app_modified": false,
+      "system_power_settings_changed": false,
+      "retained_profiles": true
+    }
+  },
+  "timer_strings_absent_from_final_kernels": {
+    "mac": true,
+    "peer": true,
+    "phone": true
+  },
+  "cleanup_audit": {
+    "recorded_groups_checked": 5,
+    "recorded_group_processes_remaining": 0,
+    "owned_app_executables_remaining": 0,
+    "phone_processes_remaining": 0,
+    "own_forward_removed": true,
+    "permissions_restored": true
+  },
+  "windows_qualified": false,
+  "full_multi_device_matrix_qualified": false,
+  "pushed": false,
+  "released": false,
+  "servers_changed": false
+}
