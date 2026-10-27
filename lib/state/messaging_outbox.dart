@@ -520,10 +520,17 @@ class _MessagingOutbox {
           ({NodeId peer, OutboxFrame frame, int attempt, bool contactIdentity})
         >[];
     NodeId? selfNode;
+    String? selfIdentityHex;
+    bool? selfAliasIsAuthority;
     try {
       selfNode = await _owner._transport.nodeId();
     } catch (_) {
       // No self id (transport still booting) — skip the self check this pass.
+    }
+    try {
+      selfIdentityHex = await _owner.selfIdentityHex?.call();
+    } catch (_) {
+      // An unavailable identity cannot justify retiring its queued state.
     }
     for (final frame in pending) {
       if (_retireExpiredTransient(frame)) continue;
@@ -553,6 +560,34 @@ class _MessagingOutbox {
       );
       if (_owner.backgroundStashPaused && !isCallSignal) continue;
       final peer = NodeId.fromHex(frame.peerHex);
+      if (frame.peerHex == selfIdentityHex &&
+          (frame.frameId.startsWith('grp:') ||
+              frame.frameId.startsWith('grpc:'))) {
+        var groupReplication = false;
+        try {
+          final kind = WireEnvelope.decode(frame.wire).kind;
+          groupReplication = kind == WireKind.groupEntry ||
+              kind == WireKind.groupEntryChunk;
+        } catch (_) {}
+        if (groupReplication) {
+          try {
+            selfAliasIsAuthority ??=
+                await _owner.isSovereignAuthority?.call(peer) ?? false;
+          } catch (_) {
+            selfAliasIsAuthority = false;
+          }
+          if (selfAliasIsAuthority == true) {
+            // An old sync answer addressed the shared authority rather than
+            // the requesting device. Fragments can reach different endpoints
+            // and never assemble. Current sync asks carry a physical reply
+            // address and recover state from the source journal instead.
+            devLog(() => 'xVeil[durable]: retire group frame addressed to '
+                'the sovereign authority, not a device');
+            retire(frame.peerHex, frame.frameId);
+            continue;
+          }
+        }
+      }
       final Contact? contact;
       try {
         contact = await _owner._storage.getContact(peer);
