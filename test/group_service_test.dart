@@ -10454,6 +10454,114 @@ void main() {
     expect(grants, [(bob, cid)]);
   });
 
+  test(
+    'own transport addresses use one fresh validated journal view',
+    () async {
+      final ownerStore = _HeldGroupHeaderStorage();
+      final linkedStore = _HeldGroupHeaderStorage();
+      await ownerStore.open(password: 'pw', createIfMissing: true);
+      await linkedStore.open(password: 'pw', createIfMissing: true);
+      final physicalMaster = _id(0xD7);
+      final master = GroupService(ownerStore, _FakeSigner(owner))
+        ..myDevice = physicalMaster
+        ..documentNodeId = (_) => owner;
+      addTearDown(master.dispose);
+      expect(
+        await master.linkDevice(
+          bob,
+          sovereign: sovereign,
+          broadcastSnapshot: false,
+        ),
+        isTrue,
+      );
+      final gid = NodeId.fromHex((await master.deviceGroupIdHex())!);
+      expect(
+        await master.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.identityDoc,
+            key: physicalMaster.hex,
+            tsMs: 444,
+            payload: const {'d': 'ZG9j', 'o': true},
+          ),
+        ),
+        isTrue,
+      );
+      final linked = GroupService(linkedStore, _FakeSigner(bob))
+        ..myDevice = bob
+        ..documentNodeId = (_) => owner;
+      addTearDown(linked.dispose);
+      expect(
+        await linked.ingestSnapshot(
+          master.snapshotJson((await master.load(gid))!, recipient: bob),
+        ),
+        isTrue,
+      );
+      expect(await linked.adoptDeviceGroup(gid), isTrue);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      for (final (service, store, expected) in [
+        (master, ownerStore, bob),
+        (linked, linkedStore, physicalMaster),
+      ]) {
+        store.heldKey = 'group:${gid.hex}';
+        for (var read = 0; read < 2; read++) {
+          store.headerReads = 0;
+          expect(await service.addressableOwnDevices(), [expected]);
+          expect(
+            store.headerReads,
+            1,
+            reason: 'routing needs one fresh view, including on cold lookup',
+          );
+        }
+      }
+
+      // Routing still uses the validated, clock-filtered fold, rather than
+      // reading marked rows directly from the raw bundle.
+      final replacement = _id(0xD8);
+      for (final (device, stamp) in [
+        (replacement, 445),
+        (
+          _id(0xD9),
+          DateTime.now().millisecondsSinceEpoch +
+              kDeviceSyncClockSkew.inMilliseconds +
+              60000,
+        ),
+      ]) {
+        expect(
+          await master.postDeviceEvent(
+            DeviceSyncEvent(
+              kind: DeviceSyncKind.identityDoc,
+              key: device.hex,
+              tsMs: stamp,
+              payload: const {'d': 'ZG9j', 'o': true},
+            ),
+          ),
+          isTrue,
+        );
+      }
+      expect(
+        await linked.ingestSnapshot(
+          master.snapshotJson((await master.load(gid))!, recipient: bob),
+        ),
+        isTrue,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      linkedStore.headerReads = 0;
+      expect(await linked.addressableOwnDevices(), [replacement]);
+      expect(linkedStore.headerReads, 1);
+      linkedStore.failRead = true;
+      await expectLater(linked.addressableOwnDevices(), throwsStateError);
+      linkedStore.failRead = false;
+      expect(await linked.addressableOwnDevices(), [replacement]);
+
+      // A successful lookup must not cache a grant across a later revoke.
+      expect(await master.revokeDevice(bob, sovereign: sovereign), isTrue);
+      ownerStore.headerReads = 0;
+      expect(await master.addressableOwnDevices(), isEmpty);
+      expect(ownerStore.headerReads, 1);
+    },
+  );
+
   test('a newer master announcement replaces an older marked device', () async {
     final ownerStore = FakeHvContainer().storage();
     final linkedStore = FakeHvContainer().storage();
