@@ -1,0 +1,153 @@
+{
+  "schema": "xveil-group-header-validation/1",
+  "automated": {
+    "baseline_compiled_behavioral_failure": true,
+    "concurrent_header_reads_before": 12,
+    "concurrent_header_reads_after": 1,
+    "passed": 387,
+    "skipped": 3,
+    "analysis_issues": 0
+  },
+  "physical": {
+    "roles": {
+      "A": "Android Wi-Fi, identity X",
+      "B": "macOS, identity X",
+      "C": "macOS, identity Y"
+    },
+    "normal_baseline_recovery": {
+      "expected": 100,
+      "initial": {
+        "A": 52,
+        "B": 100,
+        "C": 100
+      },
+      "final": {
+        "A": 91,
+        "B": 100,
+        "C": 100
+      },
+      "elapsed_ms": 609217,
+      "new_messages_added": 0,
+      "converged": false
+    },
+    "timed_baseline": {
+      "new_messages_added": 20,
+      "source_submit_ms": 810,
+      "elapsed_ms": 307391,
+      "recent": {
+        "A": 0,
+        "B": 20,
+        "C": 20
+      },
+      "inherited": {
+        "A": 99,
+        "B": 100,
+        "C": 100
+      },
+      "converged": false
+    },
+    "timed_candidate_recovery": {
+      "new_messages_added": 0,
+      "elapsed_ms": 249812,
+      "recent": {
+        "A": 20,
+        "B": 20,
+        "C": 20
+      },
+      "inherited": {
+        "A": 100,
+        "B": 100,
+        "C": 100
+      },
+      "converged": true,
+      "no_duplicates": true
+    },
+    "controlled_latency_comparison": false,
+    "latency_resolved": false,
+    "normal_restart": {
+      "elapsed_ms": 650,
+      "inherited_per_role": 100,
+      "recent_per_role": 20,
+      "same_logical_ids": true,
+      "no_duplicates": true,
+      "timing_source_absent_from_kernels": true,
+      "private_timing_endpoint_absent": true
+    },
+    "baseline_stage_costs": {
+      "group.load": {
+        "count": 705,
+        "mean_ms": 2002.5,
+        "maximum_ms": 7854.5
+      },
+      "inbound.queue": {
+        "count": 48,
+        "mean_ms": 157049.2,
+        "maximum_ms": 279907.7
+      },
+      "inbound.ratchet": {
+        "count": 48,
+        "mean_ms": 149.1,
+        "maximum_ms": 6287.3
+      },
+      "group.save": {
+        "count": 35,
+        "mean_ms": 1456.8,
+        "maximum_ms": 4494.7
+      },
+      "group.apply": {
+        "count": 34,
+        "mean_ms": 7651.6,
+        "maximum_ms": 16790.9
+      },
+      "inbound.total": {
+        "count": 47,
+        "mean_ms": 6397.5,
+        "maximum_ms": 33131.5
+      }
+    },
+    "candidate_stage_costs": {
+      "inbound.queue": {
+        "count": 104,
+        "mean_ms": 113495.7,
+        "maximum_ms": 227647.1
+      },
+      "inbound.ratchet": {
+        "count": 104,
+        "mean_ms": 45.2,
+        "maximum_ms": 2032.3
+      },
+      "group.load": {
+        "count": 532,
+        "mean_ms": 2324.7,
+        "maximum_ms": 12638.1
+      },
+      "inbound.total": {
+        "count": 103,
+        "mean_ms": 2459.3,
+        "maximum_ms": 19523.8
+      },
+      "group.save": {
+        "count": 25,
+        "mean_ms": 1447.1,
+        "maximum_ms": 5422.3
+      },
+      "group.apply": {
+        "count": 24,
+        "mean_ms": 7618.3,
+        "maximum_ms": 14515.9
+      }
+    }
+  },
+  "cleanup": {
+    "owned_macos_process_groups_audited": 5,
+    "owned_macos_group_processes_remaining": 0,
+    "owned_macos_executable_processes_remaining": 0,
+    "qa_android_processes_remaining": 0,
+    "qa_permissions_restored": true,
+    "owned_adb_forward_removed": true
+  },
+  "complete_multi_device_matrix_qualified": false,
+  "windows_qualified": false,
+  "pushed": false,
+  "released": false
+}

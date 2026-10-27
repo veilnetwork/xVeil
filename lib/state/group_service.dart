@@ -5964,6 +5964,27 @@ class GroupService implements ArchiveGroups {
     // (2026-07-27). The loop re-checks because a second save can start while
     // we await the first.
     await _awaitStoreWrite(key);
+    // A timeout deliberately falls back to a direct read. Do not share that
+    // potentially half-written view with a reader arriving after the save.
+    if (_bundleWrites.containsKey(key)) return _readBundleRaw(key);
+    final pending = _bundleReads[key];
+    if (pending != null) return pending;
+    late final Future<String?> read;
+    read = _readBundleRaw(key).whenComplete(() {
+      if (identical(_bundleReads[key], read)) _bundleReads.remove(key);
+    });
+    _bundleReads[key] = read;
+    return read;
+  }
+
+  // Header reads can be slow behind the encrypted store's transaction gate.
+  // UI, sync and media readers otherwise repeat the same read concurrently,
+  // then reach the existing shared segment reads at different times. Share
+  // unfinished immutable bytes only; each load still decodes and validates,
+  // and a later read must observe deletion, corruption or repair from storage.
+  final Map<String, Future<String?>> _bundleReads = {};
+
+  Future<String?> _readBundleRaw(String key) async {
     final blob = await _storage.loadFile(key);
     if (blob != null) return utf8.decode(blob);
     return _storage.getSetting(key);
@@ -6474,6 +6495,9 @@ class GroupService implements ArchiveGroups {
     final write = (_bundleWrites[key] ?? Future<void>.value())
         .then<void>((_) {}, onError: (_) {})
         .then((_) => _writeBundleBytes(key, b, header, segments: segments));
+    // A read begun before this write cannot answer for a subsequent reader.
+    // Its completion also must not remove a newer read's shared future.
+    _bundleReads.remove(key);
     _bundleWrites[key] = write;
     try {
       await write;
@@ -8076,12 +8100,14 @@ class GroupService implements ArchiveGroups {
             ),
           );
           final files = await _bundleFileKeys(spaceId);
+          _bundleReads.remove(_key(spaceId));
           // Header first: a segment without a header is unreachable, a header
           // without its segments would refuse to load.
           for (final k in files) {
             await _storage.deleteStoredFile(k);
           }
           _segmentIndex.remove(_key(spaceId));
+          _bundleReads.remove(_key(spaceId));
           await _clearGroupKindHint(spaceId.hex);
           return true;
         });
@@ -21534,6 +21560,7 @@ class GroupService implements ArchiveGroups {
     for (final pending in _pendingPublicFeedObjects.values) {
       if (!pending.completer.isCompleted) pending.completer.complete(null);
     }
+    _bundleReads.clear();
     _pendingPublicFeedObjects.clear();
     _publicFeedServeQuotas.clear();
     _publicMediaServeQuotas.clear();
