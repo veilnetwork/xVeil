@@ -19583,14 +19583,44 @@ class GroupService implements ArchiveGroups {
   /// id differs, so it is excluded as well. On a linked device the identity
   /// is read from the master's announced document, not guessed from selfId.
   Future<List<NodeId>> addressableOwnDevices() async {
-    final ids = [...await otherDeviceIds()];
-    final owner = await _deviceGroupOwnerIfLinked();
+    final me = await resolveMyDevice();
+    final hex = await deviceGroupIdHex();
+    if (hex == null) return const [];
+    final b = await load(NodeId.fromHex(hex));
+    if (b == null) return const [];
+    // Membership and announcements must come from the same fresh journal.
+    // Composing the public helpers reloaded the full history two or three
+    // times per fanout. Do not cache this view or reuse the caller's earlier
+    // bundle: a revoke may have landed since that caller saved its message.
+    final state = foldControlLog(
+      owner: b.manifest.owner,
+      entries: b.control,
+      verify: (e) => _validControlFor(b.manifest, e),
+    ).state;
+    final ids = [
+      ...snapshotRecipients(
+        isDeviceGroup: true,
+        members: [for (final member in state.members.values) member.nodeId],
+        identity: _signer.selfId,
+        myDevice: me,
+        owner: b.manifest.owner,
+      ),
+    ];
+    final linked =
+        me != null &&
+        state.members.values.any(
+          (member) => member.nodeId == me && member.role != GroupRole.owner,
+        );
+    final owner = linked ? b.manifest.owner : null;
     if (owner != null) {
       // The sovereign owner key is an authority, not a listening device.
       // Before the master names its device, the shared identity is its only
       // address. Afterwards replace that address with the actual device so a
       // fanout does not send once to each name for the same recipient.
-      final master = await _masterAddress();
+      final master = _masterAddressInState(
+        await _deviceSyncStateOfBundle(b),
+        me,
+      );
       if (master == null) {
         // Sovereign groups already list the identity as a member. A legacy
         // group may have omitted it as the owner; restore only that fallback.
@@ -19615,11 +19645,10 @@ class GroupService implements ArchiveGroups {
       // transport id. Its own marked document names the identity in that
       // case; avoid reading the device journal when selfId already suffices.
       if (!ids.remove(_signer.selfId)) {
-        final me = await resolveMyDevice();
         if (me != null) {
-          final announcement = (await deviceSyncState())[
-            (DeviceSyncKind.identityDoc, me.hex)
-          ];
+          final announcement = (await _deviceSyncStateOfBundle(
+            b,
+          ))[(DeviceSyncKind.identityDoc, me.hex)];
           if (announcement?.payload['o'] == true) {
             final identity = _identityInDeviceAnnouncement(announcement!);
             if (identity != null) ids.remove(identity);
@@ -19696,8 +19725,15 @@ class GroupService implements ArchiveGroups {
   Future<({NodeId device, NodeId? identity})?> _masterAddress() async {
     if (await _deviceGroupOwnerIfLinked() == null) return null;
     final me = await resolveMyDevice();
+    return _masterAddressInState(await deviceSyncState(), me);
+  }
+
+  ({NodeId device, NodeId? identity})? _masterAddressInState(
+    Map<(DeviceSyncKind, String), DeviceSyncEvent> state,
+    NodeId? me,
+  ) {
     ({NodeId device, DeviceSyncEvent event})? newest;
-    for (final entry in (await deviceSyncState()).entries) {
+    for (final entry in state.entries) {
       if (entry.key.$1 != DeviceSyncKind.identityDoc) continue;
       if (entry.value.payload['o'] != true) continue;
       final hex = entry.key.$2;
@@ -20929,7 +20965,14 @@ class GroupService implements ArchiveGroups {
   deviceSyncState() async {
     final hex = await deviceGroupIdHex();
     if (hex == null) return const {};
-    final msgs = await messagesOf(NodeId.fromHex(hex));
+    final b = await load(NodeId.fromHex(hex));
+    if (b == null) return const {};
+    return _deviceSyncStateOfBundle(b);
+  }
+
+  Future<Map<(DeviceSyncKind, String), DeviceSyncEvent>>
+  _deviceSyncStateOfBundle(GroupBundle b) async {
+    final msgs = await _messagesOfBundle(b);
     final nowMs = _now();
     return foldDeviceSync([
       for (final m in msgs)
