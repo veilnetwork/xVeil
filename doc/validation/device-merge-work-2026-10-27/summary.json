@@ -1,0 +1,648 @@
+{
+  "base": "5b3771f2",
+  "sdk": "1d36980d",
+  "automated_checks": {
+    "passed": 484,
+    "existing_skips": 3,
+    "static_analysis_issues": 0,
+    "initial_parallel_watchdog_timeout": true,
+    "isolated_watchdog_passed": true,
+    "full_serial_suite_passed": true
+  },
+  "dedup_regression": {
+    "historical_checks_before_empty_delta": 48,
+    "historical_checks_before_new_row": 56,
+    "new_row_has_no_extra_historical_dedup_scan_after": true,
+    "same_slot_signed_fork_evidence_preserved": true
+  },
+  "diagnostic_stage_runs": {
+    "baseline": {
+      "flutter_mode": "debug",
+      "private_stage_overlay": true,
+      "rounds": [
+        {
+          "round": 1,
+          "first_observed_ms": {
+            "B": 3788,
+            "C": 3810,
+            "A": 21802
+          },
+          "no_duplicates": true,
+          "same_logical_ids": true,
+          "A_stage_windows": {
+            "merge.beforeRows": {
+              "count": 1,
+              "mean_ms": 668.0
+            },
+            "merge.incomingRows": {
+              "count": 1,
+              "mean_ms": 169.5
+            },
+            "merge.freshAndPosts": {
+              "count": 1,
+              "mean_ms": 628.7
+            },
+            "merge.reactionTargets": {
+              "count": 1,
+              "mean_ms": 604.8
+            },
+            "merge.save": {
+              "count": 1,
+              "mean_ms": 4580.6
+            },
+            "group.merge": {
+              "count": 1,
+              "mean_ms": 6891.7
+            }
+          }
+        },
+        {
+          "round": 2,
+          "first_observed_ms": {
+            "B": 775,
+            "C": 790,
+            "A": 21803
+          },
+          "no_duplicates": true,
+          "same_logical_ids": true,
+          "A_stage_windows": {
+            "merge.beforeRows": {
+              "count": 0,
+              "mean_ms": null
+            },
+            "merge.incomingRows": {
+              "count": 0,
+              "mean_ms": null
+            },
+            "merge.freshAndPosts": {
+              "count": 0,
+              "mean_ms": null
+            },
+            "merge.reactionTargets": {
+              "count": 0,
+              "mean_ms": null
+            },
+            "merge.save": {
+              "count": 1,
+              "mean_ms": 2233.3
+            },
+            "group.merge": {
+              "count": 1,
+              "mean_ms": 4523.5
+            }
+          }
+        },
+        {
+          "round": 3,
+          "first_observed_ms": {
+            "B": 1260,
+            "C": 1271,
+            "A": 5300
+          },
+          "no_duplicates": true,
+          "same_logical_ids": true,
+          "A_stage_windows": {
+            "merge.beforeRows": {
+              "count": 1,
+              "mean_ms": 871.2
+            },
+            "merge.incomingRows": {
+              "count": 1,
+              "mean_ms": 176.9
+            },
+            "merge.freshAndPosts": {
+              "count": 1,
+              "mean_ms": 640.4
+            },
+            "merge.reactionTargets": {
+              "count": 1,
+              "mean_ms": 580.3
+            },
+            "merge.save": {
+              "count": 1,
+              "mean_ms": 291.9
+            },
+            "group.merge": {
+              "count": 1,
+              "mean_ms": 2603.9
+            }
+          }
+        },
+        {
+          "round": 4,
+          "first_observed_ms": {
+            "B": 151,
+            "C": 182,
+            "A": 4961
+          },
+          "no_duplicates": true,
+          "same_logical_ids": true,
+          "A_stage_windows": {
+            "merge.beforeRows": {
+              "count": 1,
+              "mean_ms": 702.8
+            },
+            "merge.incomingRows": {
+              "count": 1,
+              "mean_ms": 168.0
+            },
+            "merge.freshAndPosts": {
+              "count": 1,
+              "mean_ms": 643.7
+            },
+            "merge.reactionTargets": {
+              "count": 1,
+              "mean_ms": 590.9
+            },
+            "merge.save": {
+              "count": 1,
+              "mean_ms": 450.2
+            },
+            "group.merge": {
+              "count": 1,
+              "mean_ms": 2596.1
+            }
+          }
+        },
+        {
+          "round": 5,
+          "first_observed_ms": {
+            "C": 172,
+            "A": 1606,
+            "B": 2010
+          },
+          "no_duplicates": true,
+          "same_logical_ids": true,
+          "A_stage_windows": {
+            "merge.beforeRows": {
+              "count": 0,
+              "mean_ms": null
+            },
+            "merge.incomingRows": {
+              "count": 0,
+              "mean_ms": null
+            },
+            "merge.freshAndPosts": {
+              "count": 0,
+              "mean_ms": null
+            },
+            "merge.reactionTargets": {
+              "count": 0,
+              "mean_ms": null
+            },
+            "merge.save": {
+              "count": 0,
+              "mean_ms": null
+            },
+            "group.merge": {
+              "count": 0,
+              "mean_ms": null
+            }
+          }
+        },
+        {
+          "round": 6,
+          "first_observed_ms": {
+            "B": 156,
+            "C": 166,
+            "A": 4984
+          },
+          "no_duplicates": true,
+          "same_logical_ids": true,
+          "A_stage_windows": {
+            "merge.beforeRows": {
+              "count": 1,
+              "mean_ms": 686.5
+            },
+            "merge.incomingRows": {
+              "count": 1,
+              "mean_ms": 184.7
+            },
+            "merge.freshAndPosts": {
+              "count": 1,
+              "mean_ms": 627.8
+            },
+            "merge.reactionTargets": {
+              "count": 1,
+              "mean_ms": 614.6
+            },
+            "merge.save": {
+              "count": 1,
+              "mean_ms": 344.9
+            },
+            "group.merge": {
+              "count": 1,
+              "mean_ms": 2501.0
+            }
+          }
+        }
+      ],
+      "cleanup": {
+        "mac_remaining_processes": 0,
+        "peer_remaining_processes": 0,
+        "phone_remaining_processes": 0,
+        "own_forward_removed": true,
+        "main_app_modified": false,
+        "system_power_settings_changed": false,
+        "retained_profiles": true
+      }
+    },
+    "candidate": {
+      "flutter_mode": "debug",
+      "private_stage_overlay": true,
+      "rounds": [
+        {
+          "round": 1,
+          "first_observed_ms": {
+            "B": 905,
+            "C": 935,
+            "A": 13651
+          },
+          "no_duplicates": true,
+          "same_logical_ids": true,
+          "A_stage_windows": {
+            "merge.beforeRows": {
+              "count": 1,
+              "mean_ms": 718.9
+            },
+            "merge.incomingRows": {
+              "count": 1,
+              "mean_ms": 5.5
+            },
+            "merge.freshAndPosts": {
+              "count": 1,
+              "mean_ms": 624.5
+            },
+            "merge.reactionTargets": {
+              "count": 1,
+              "mean_ms": 2.4
+            },
+            "merge.save": {
+              "count": 1,
+              "mean_ms": 489.3
+            },
+            "group.merge": {
+              "count": 1,
+              "mean_ms": 1945.9
+            }
+          }
+        },
+        {
+          "round": 2,
+          "first_observed_ms": {
+            "B": 405,
+            "C": 420,
+            "A": 5459
+          },
+          "no_duplicates": true,
+          "same_logical_ids": true,
+          "A_stage_windows": {
+            "merge.beforeRows": {
+              "count": 0,
+              "mean_ms": null
+            },
+            "merge.incomingRows": {
+              "count": 0,
+              "mean_ms": null
+            },
+            "merge.freshAndPosts": {
+              "count": 0,
+              "mean_ms": null
+            },
+            "merge.reactionTargets": {
+              "count": 0,
+              "mean_ms": null
+            },
+            "merge.save": {
+              "count": 0,
+              "mean_ms": null
+            },
+            "group.merge": {
+              "count": 0,
+              "mean_ms": null
+            }
+          }
+        },
+        {
+          "round": 3,
+          "first_observed_ms": {
+            "B": 1647,
+            "C": 1657,
+            "A": 20813
+          },
+          "no_duplicates": true,
+          "same_logical_ids": true,
+          "A_stage_windows": {
+            "merge.beforeRows": {
+              "count": 1,
+              "mean_ms": 665.9
+            },
+            "merge.incomingRows": {
+              "count": 1,
+              "mean_ms": 3.9
+            },
+            "merge.freshAndPosts": {
+              "count": 1,
+              "mean_ms": 628.4
+            },
+            "merge.reactionTargets": {
+              "count": 1,
+              "mean_ms": 1.5
+            },
+            "merge.save": {
+              "count": 2,
+              "mean_ms": 1224.8
+            },
+            "group.merge": {
+              "count": 2,
+              "mean_ms": 2696.8
+            }
+          }
+        },
+        {
+          "round": 4,
+          "first_observed_ms": {
+            "B": 1718,
+            "C": 1735,
+            "A": 12139
+          },
+          "no_duplicates": true,
+          "same_logical_ids": true,
+          "A_stage_windows": {
+            "merge.beforeRows": {
+              "count": 1,
+              "mean_ms": 672.1
+            },
+            "merge.incomingRows": {
+              "count": 1,
+              "mean_ms": 4.0
+            },
+            "merge.freshAndPosts": {
+              "count": 1,
+              "mean_ms": 653.9
+            },
+            "merge.reactionTargets": {
+              "count": 1,
+              "mean_ms": 1.8
+            },
+            "merge.save": {
+              "count": 1,
+              "mean_ms": 1041.5
+            },
+            "group.merge": {
+              "count": 1,
+              "mean_ms": 2409.5
+            }
+          }
+        },
+        {
+          "round": 5,
+          "first_observed_ms": {
+            "B": 1047,
+            "C": 1060,
+            "A": 5406
+          },
+          "no_duplicates": true,
+          "same_logical_ids": true,
+          "A_stage_windows": {
+            "merge.beforeRows": {
+              "count": 0,
+              "mean_ms": null
+            },
+            "merge.incomingRows": {
+              "count": 0,
+              "mean_ms": null
+            },
+            "merge.freshAndPosts": {
+              "count": 0,
+              "mean_ms": null
+            },
+            "merge.reactionTargets": {
+              "count": 0,
+              "mean_ms": null
+            },
+            "merge.save": {
+              "count": 0,
+              "mean_ms": null
+            },
+            "group.merge": {
+              "count": 0,
+              "mean_ms": null
+            }
+          }
+        },
+        {
+          "round": 6,
+          "first_observed_ms": {
+            "B": 873,
+            "C": 883,
+            "A": 12795
+          },
+          "no_duplicates": true,
+          "same_logical_ids": true,
+          "A_stage_windows": {
+            "merge.beforeRows": {
+              "count": 1,
+              "mean_ms": 729.7
+            },
+            "merge.incomingRows": {
+              "count": 1,
+              "mean_ms": 3.8
+            },
+            "merge.freshAndPosts": {
+              "count": 1,
+              "mean_ms": 678.4
+            },
+            "merge.reactionTargets": {
+              "count": 1,
+              "mean_ms": 1.9
+            },
+            "merge.save": {
+              "count": 1,
+              "mean_ms": 1085.9
+            },
+            "group.merge": {
+              "count": 1,
+              "mean_ms": 2542.6
+            }
+          }
+        }
+      ],
+      "cleanup": {
+        "mac_remaining_processes": 0,
+        "peer_remaining_processes": 0,
+        "phone_remaining_processes": 0,
+        "own_forward_removed": true,
+        "main_app_modified": false,
+        "system_power_settings_changed": false,
+        "retained_profiles": true
+      }
+    }
+  },
+  "normal_check": {
+    "runtime_modes": {
+      "A": "profile AOT",
+      "B": "debug",
+      "C": "debug"
+    },
+    "retained_profiles": true,
+    "native_libraries_unchanged": true,
+    "native_test_hooks": false,
+    "forced_routes": false,
+    "rows": [
+      {
+        "round": 1,
+        "origin": "C",
+        "submit_ms": 252,
+        "first_observed_ms": {
+          "C": 518,
+          "B": 1329,
+          "A": 8692
+        },
+        "same_logical_ids": true,
+        "no_duplicates": true
+      },
+      {
+        "round": 2,
+        "origin": "C",
+        "submit_ms": 105,
+        "first_observed_ms": {
+          "B": 169,
+          "C": 180,
+          "A": 14871
+        },
+        "same_logical_ids": true,
+        "no_duplicates": true
+      },
+      {
+        "round": 3,
+        "origin": "C",
+        "submit_ms": 109,
+        "first_observed_ms": {
+          "B": 574,
+          "C": 610,
+          "A": 7248
+        },
+        "same_logical_ids": true,
+        "no_duplicates": true
+      },
+      {
+        "round": 4,
+        "origin": "A",
+        "submit_ms": 3833,
+        "first_observed_ms": {
+          "A": 5170,
+          "C": 5200,
+          "B": 6725
+        },
+        "same_logical_ids": true,
+        "no_duplicates": true
+      },
+      {
+        "round": 5,
+        "origin": "A",
+        "submit_ms": 4025,
+        "first_observed_ms": {
+          "A": 4112,
+          "C": 4332,
+          "B": 8422
+        },
+        "same_logical_ids": true,
+        "no_duplicates": true
+      },
+      {
+        "round": 6,
+        "origin": "A",
+        "submit_ms": 4176,
+        "first_observed_ms": {
+          "A": 4311,
+          "C": 4490,
+          "B": 11783
+        },
+        "same_logical_ids": true,
+        "no_duplicates": true
+      }
+    ],
+    "whole_visible_conversation": {
+      "complete_api_results": true,
+      "rows": {
+        "A": 502,
+        "B": 502,
+        "C": 502
+      },
+      "identical_ids": true,
+      "identical_order": true
+    },
+    "call": {
+      "initiator": "C",
+      "answering_device": "A",
+      "first_ringing_ms": {
+        "A": 718,
+        "B": 1068
+      },
+      "connect_after_answer_ms": 3601,
+      "other_sibling_stopped_ringing": true,
+      "sample_count": 40,
+      "duration_seconds": 89.1,
+      "media": {
+        "A": {
+          "all_active": true,
+          "all_p2p": true,
+          "all_cameras_on": true,
+          "audio_rx_first": 68,
+          "audio_rx_last": 2093,
+          "native_audio_delay_peak_ms": 73,
+          "receive_video_fps_after_30s": {
+            "min": 20.2,
+            "median": 25.1,
+            "max": 26.7
+          },
+          "worker_stalled_peak": 0
+        },
+        "C": {
+          "all_active": true,
+          "all_p2p": true,
+          "all_cameras_on": true,
+          "audio_rx_first": 44,
+          "audio_rx_last": 1082,
+          "native_audio_delay_peak_ms": 80,
+          "receive_video_fps_after_30s": {
+            "min": 17.5,
+            "median": 23.9,
+            "max": 25.9
+          },
+          "worker_stalled_peak": 0
+        }
+      },
+      "live_speech_assessed": false
+    },
+    "timer_endpoint_absent": true,
+    "timer_strings_absent": {
+      "B": true,
+      "C": true,
+      "A": true
+    },
+    "cleanup": {
+      "mac_remaining_processes": 0,
+      "peer_remaining_processes": 0,
+      "phone_remaining_processes": 0,
+      "own_forward_removed": true,
+      "main_app_modified": false,
+      "system_power_settings_changed": false,
+      "retained_profiles": true
+    }
+  },
+  "cleanup_audit": {
+    "recorded_groups_checked": 7,
+    "recorded_group_processes_remaining": 0,
+    "owned_app_executables_remaining": 0,
+    "phone_processes_remaining": 0,
+    "own_forward_removed": true,
+    "permissions_restored": true
+  },
+  "pushed": false,
+  "released": false,
+  "servers_changed": false,
+  "windows_qualified": false,
+  "full_multi_device_matrix_qualified": false
+}
