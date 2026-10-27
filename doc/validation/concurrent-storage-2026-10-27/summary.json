@@ -1,0 +1,105 @@
+{
+  "source_base": "d3bae562",
+  "sdk": "1d36980d",
+  "hidden_volume": "1ea2366f",
+  "checks": {
+    "tests_passed": 321,
+    "static_analysis_issues": 0
+  },
+  "stand": {
+    "roles": {
+      "A": "Android/profile-AOT, identity X, Wi-Fi",
+      "B": "macOS/debug, identity X",
+      "C": "macOS/debug, identity Y"
+    },
+    "retained_profiles": true,
+    "native_test_hooks": false,
+    "forced_route": false,
+    "private_timing_overlay": false,
+    "android_aot_verified": true,
+    "requested_messages": 18,
+    "A_to_C": 12,
+    "C_to_X": 6,
+    "parallel_submitters": 6,
+    "submission_seconds": 27.3,
+    "new_counts": {
+      "A": 18,
+      "B": 18,
+      "C": 18
+    },
+    "new_ids_equal": true,
+    "new_duplicates": false,
+    "full_visible_counts": {
+      "B": 520,
+      "C": 520,
+      "A": 520
+    },
+    "full_visible_ids_equal": true,
+    "full_visible_order_equal": true,
+    "new_raw_seq_unique_per_origin": true,
+    "projection_limits": {
+      "new_AB_raw_seq_differences": 5,
+      "new_AB_status_differences_at_data_snapshot": 5,
+      "new_AB_body_differences": 0,
+      "order_metadata_not_exported_by_probe": true
+    }
+  },
+  "call": {
+    "initiator": "C",
+    "answering_device": "A",
+    "ring_first_observed_ms": {
+      "A": 271,
+      "B": 319
+    },
+    "connect_after_answer_ms": 5189,
+    "B_stopped_ringing": true,
+    "sample_duration_seconds": 88.7,
+    "endpoints": {
+      "A": {
+        "samples": 35,
+        "all_active": true,
+        "all_p2p": true,
+        "camera_on_all_samples": true,
+        "audio_rx_packets_increase": true,
+        "audio_delay_peak_ms": 101,
+        "worker_stalled_any": false,
+        "video_worker_stalled_any": false,
+        "steady_rx_fps": {
+          "min": 3.7,
+          "median": 17.7,
+          "max": 21.5,
+          "zero_samples": 0
+        }
+      },
+      "C": {
+        "samples": 35,
+        "all_active": true,
+        "all_p2p": true,
+        "camera_on_all_samples": true,
+        "audio_rx_packets_increase": true,
+        "audio_delay_peak_ms": 83,
+        "worker_stalled_any": false,
+        "video_worker_stalled_any": false,
+        "steady_rx_fps": {
+          "min": 1.0,
+          "median": 11.3,
+          "max": 17.4,
+          "zero_samples": 0
+        }
+      }
+    }
+  },
+  "cleanup": {
+    "recorded_owned_groups_checked": 5,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false
+  },
+  "remaining": [
+    "Burst propagation to Android still took tens of seconds.",
+    "Received video FPS dipped; this does not qualify video quality.",
+    "Full event-state convergence, raw versus repaired ordering, later status convergence, Windows and the full multi-device matrix remain unqualified.",
+    "Partial chunk-ACK receiver-crash recovery and live speech/headphone-volume checks remain open."
+  ]
+}
