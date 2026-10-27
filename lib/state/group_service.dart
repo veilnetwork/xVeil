@@ -14449,6 +14449,7 @@ class GroupService implements ArchiveGroups {
   Future<Map<String, dynamic>?> buildGroupSyncRequest(NodeId groupId) async {
     final b = await load(groupId);
     if (b == null) return null;
+    if (b.manifest.isSovereignDevice) await resolveMyDevice();
     return _buildGroupSyncRequest(b);
   }
 
@@ -14917,6 +14918,24 @@ class GroupService implements ArchiveGroups {
         }
       }
       return false;
+    }
+    if (b.manifest.isSovereignDevice && replyTo == b.manifest.owner) {
+      // The master's physical device may be announced outside membership.
+      // Accept only our own resolved transport addresses; the sovereign key
+      // itself cannot receive a fragmented answer as one physical endpoint.
+      final claimed = req['dv'];
+      if (claimed is String && claimed.length == 64) {
+        for (final device in await addressableOwnDevices()) {
+          if (device.hex == claimed) {
+            replyTo = device;
+            break;
+          }
+        }
+      }
+      if (replyTo == b.manifest.owner) {
+        devLog(() => 'xVeil[devices]: sync ask has no bound device reply address');
+        return false;
+      }
     }
     final retention = b.manifest.isSpace || _hasRetentionRows(b)
         ? await _materializedRetentionHistory(b, state)
@@ -15517,6 +15536,8 @@ class GroupService implements ArchiveGroups {
   }
 
   Future<bool> ingestGroupEntry(NodeId peer, String json) async {
+    final adoptedDelta = await _tryIngestAdoptedDeviceDelta(peer, json);
+    if (adoptedDelta != null) return adoptedDelta;
     json = await _restoreOmittedManifest(json);
     Map? decoded;
     try {
@@ -15927,6 +15948,9 @@ class GroupService implements ArchiveGroups {
     await loadPeerDocuments();
     final bundle = await load(groupId);
     if (bundle == null) return 0;
+    // The address must be resolved before the synchronous request builder.
+    // addressableOwnDevices() also resolves it, but runs after the builder.
+    if (bundle.manifest.isSovereignDevice) await resolveMyDevice();
     final req = _buildGroupSyncRequest(bundle);
     final state = foldControlLog(
       owner: bundle.manifest.owner,
@@ -16947,6 +16971,10 @@ class GroupService implements ArchiveGroups {
     NodeId peer,
     String bundleJson,
   ) async {
+    final adoptedDelta = await _tryIngestAdoptedDeviceDelta(
+      peer, bundleJson, fromStranger: true,
+    );
+    if (adoptedDelta != null) return adoptedDelta;
     bundleJson = await _restoreOmittedManifest(bundleJson);
     String? gidHex;
     try {
@@ -17884,6 +17912,59 @@ class GroupService implements ArchiveGroups {
     }
   }
 
+  /// An already-adopted device delta needs one journal view: restore its
+  /// manifest and merge against that same view under the group's mutation
+  /// gate. Loading before the gate merely to restore the manifest then loaded
+  /// the whole journal again to merge each mirrored message.
+  ///
+  /// Other groups and adoption seeds retain their normal consent routes. No
+  /// header-only fallback: a missing segment must refuse the delta, not turn
+  /// a damaged journal into a newly materialized group containing one row.
+  Future<bool?> _tryIngestAdoptedDeviceDelta(
+    NodeId peer,
+    String json, {
+    bool fromStranger = false,
+  }) async {
+    if (!json.contains('"mid":')) return null;
+    final Map wire;
+    try {
+      final decoded = jsonDecode(json);
+      if (decoded is! Map) return null;
+      wire = decoded;
+    } catch (_) {
+      return null;
+    }
+    final id = wire['mid'], hash = wire['mh'];
+    if (wire['m'] != null ||
+        wire['tx'] != null ||
+        wire['sreq'] == 1 ||
+        wire['creq'] == 1 ||
+        id is! String ||
+        hash is! String ||
+        id != await deviceGroupIdHex()) {
+      return null;
+    }
+    if (fromStranger && !await allowStrangerGroupSync(peer, id)) return false;
+    await learnPeerDocuments(wire['docs']);
+    final gid = NodeId.fromHex(id);
+    return _serialized(gid, () async {
+      final held = await load(gid);
+      if (held == null) return false;
+      if (!held.manifest.isSovereignDevice) return null;
+      if (held.manifest.groupId != gid || manifestHash(held.manifest) != hash) {
+        return false;
+      }
+      // Membership may have changed while this delta waited for the gate.
+      if (fromStranger && !await allowStrangerGroupSync(peer, id)) return false;
+      return _ingestSnapshot(
+        jsonEncode({...wire, 'm': held.manifest.toJson()}),
+        fromOwnDevice: fromStranger && await isMyDeviceOrMaster(peer),
+        sender: peer,
+        loadedBundle: held,
+      );
+    });
+  }
+
   /// A delta that left its manifest out (`mid` + `mh` instead of `m`) gets
   /// back the one this device holds for that group — if it holds one, and it
   /// is the same manifest the sender had (by hash). Anything else is left as
@@ -17919,6 +18000,7 @@ class GroupService implements ArchiveGroups {
     String bundleJson, {
     bool fromOwnDevice = false,
     NodeId? sender,
+    GroupBundle? loadedBundle,
   }) async {
     Map<String, dynamic> d;
     try {
@@ -17928,6 +18010,10 @@ class GroupService implements ArchiveGroups {
     }
     final manifest = SpaceManifest.fromJson(d['m']);
     if (manifest == null || !_validManifest(manifest)) return false;
+    if (loadedBundle != null &&
+        loadedBundle.manifest.groupId != manifest.groupId) {
+      return false;
+    }
     final Uint8List? incomingSovereignBundle;
     try {
       incomingSovereignBundle = d['s'] is String
@@ -17995,7 +18081,7 @@ class GroupService implements ArchiveGroups {
       if (incomingFold.state.lifecycleTransition == null) return false;
     }
 
-    final existing = await load(manifest.groupId);
+    final existing = loadedBundle ?? await load(manifest.groupId);
     if ((existing == null &&
             !_validSovereignBundle(manifest, incomingSovereignBundle)) ||
         (existing != null &&
