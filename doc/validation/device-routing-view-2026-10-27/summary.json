@@ -1,0 +1,176 @@
+{
+  "source_base": "02294fb1",
+  "sdk": "1d36980d",
+  "journal_header_reads_per_address_lookup": {
+    "compiled_red_master": 2,
+    "candidate_master_cold_and_repeat": 1,
+    "candidate_linked_cold_and_repeat": 1
+  },
+  "automated_checks": {
+    "group_service_passed": 328,
+    "existing_skips": 3,
+    "adjacent_suites_passed": 135,
+    "extended_address_regression_passed": true,
+    "static_analysis_issues": 0
+  },
+  "stand": {
+    "roles": {
+      "A": "Android Wi-Fi identity X",
+      "B": "macOS identity X",
+      "C": "macOS identity Y"
+    },
+    "retained_profiles": true,
+    "private_timing_overlay": false,
+    "native_test_hooks": false,
+    "forced_routes": false,
+    "rounds": [
+      {
+        "round": 1,
+        "submit_ms": 132,
+        "first_observed_ms": {
+          "B": 928,
+          "C": 974,
+          "A": 5620
+        },
+        "no_duplicates": true,
+        "same_logical_ids": true,
+        "sender_retries": 1,
+        "sender_receipt_ms": 1089
+      },
+      {
+        "round": 2,
+        "submit_ms": 125,
+        "first_observed_ms": {
+          "C": 1029,
+          "B": 3915,
+          "A": 18129
+        },
+        "no_duplicates": true,
+        "same_logical_ids": true,
+        "sender_retries": 0,
+        "sender_receipt_ms": 1934
+      },
+      {
+        "round": 3,
+        "submit_ms": 133,
+        "first_observed_ms": {
+          "B": 1125,
+          "C": 1135,
+          "A": 15437
+        },
+        "no_duplicates": true,
+        "same_logical_ids": true,
+        "sender_retries": 0,
+        "sender_receipt_ms": 561
+      },
+      {
+        "round": 4,
+        "submit_ms": 53,
+        "first_observed_ms": {
+          "B": 3155,
+          "C": 3167,
+          "A": 14010
+        },
+        "no_duplicates": true,
+        "same_logical_ids": true,
+        "sender_retries": 0,
+        "sender_receipt_ms": 2019
+      },
+      {
+        "round": 5,
+        "submit_ms": 38,
+        "first_observed_ms": {
+          "B": 773,
+          "C": 791,
+          "A": 7888
+        },
+        "no_duplicates": true,
+        "same_logical_ids": true,
+        "sender_retries": 0,
+        "sender_receipt_ms": 786
+      },
+      {
+        "round": 6,
+        "submit_ms": 40,
+        "first_observed_ms": {
+          "B": 632,
+          "C": 686,
+          "A": 7814
+        },
+        "no_duplicates": true,
+        "same_logical_ids": true,
+        "sender_retries": 0,
+        "sender_receipt_ms": 596
+      }
+    ],
+    "whole_visible_conversation": {
+      "complete_api_results": true,
+      "rows": {
+        "A": 468,
+        "B": 468,
+        "C": 468
+      },
+      "identical_id_sets": true,
+      "identical_visible_order": true
+    },
+    "call": {
+      "initiator": "C",
+      "answering_device": "A",
+      "ring_first_observed_ms": {
+        "A": 479,
+        "B": 492
+      },
+      "connect_after_answer_ms": 6752,
+      "other_sibling_stopped_ringing": true,
+      "duration_seconds": 89.9,
+      "sample_count": 43,
+      "media": {
+        "A": {
+          "all_samples_active": true,
+          "all_samples_p2p": true,
+          "all_samples_camera_on": true,
+          "audio_tx_packets_first": 32,
+          "audio_tx_packets_last": 1043,
+          "audio_rx_packets_first": 20,
+          "audio_rx_packets_last": 2208,
+          "native_audio_delay_ms_peak": 97,
+          "worker_stalled_peak": 0,
+          "video_receive_fps_after_30s": {
+            "min": 15.8,
+            "median": 22.5,
+            "max": 24.9
+          }
+        },
+        "C": {
+          "all_samples_active": true,
+          "all_samples_p2p": true,
+          "all_samples_camera_on": true,
+          "audio_tx_packets_first": 177,
+          "audio_tx_packets_last": 2366,
+          "audio_rx_packets_first": 30,
+          "audio_rx_packets_last": 1043,
+          "native_audio_delay_ms_peak": 73,
+          "worker_stalled_peak": 0,
+          "video_receive_fps_after_30s": {
+            "min": 15.6,
+            "median": 22.7,
+            "max": 25.0
+          }
+        }
+      },
+      "live_speech_evaluation": false
+    }
+  },
+  "cleanup": {
+    "recorded_process_groups_checked": 5,
+    "remaining_processes": 0,
+    "phone_remaining_processes": 0,
+    "own_forward_removed": true,
+    "permissions_restored": true
+  },
+  "pushed": false,
+  "released": false,
+  "servers_changed": false,
+  "windows_qualified": false,
+  "full_multi_device_matrix_qualified": false
+}
