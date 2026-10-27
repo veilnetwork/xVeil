@@ -1,0 +1,200 @@
+{
+  "schema": "xveil-device-delta-and-address-validation/1",
+  "automated": {
+    "compiled_regression_failures_confirmed": true,
+    "journal_reads_per_adopted_delta_before": 2,
+    "journal_reads_per_adopted_delta_after": 1,
+    "passed": 439,
+    "skipped": 3,
+    "analysis_issues": 0
+  },
+  "physical": {
+    "roles": {
+      "A": "Android Wi-Fi, identity X",
+      "B": "macOS, identity X",
+      "C": "macOS, identity Y"
+    },
+    "retained_profiles": true,
+    "all_roles_online_during_messages": true,
+    "post_start_warm_up_seconds": 30,
+    "private_timing_overlay": false,
+    "native_test_hooks": false,
+    "baseline": {
+      "messages_sent": 1,
+      "completed_rounds": 0,
+      "last_counts": {
+        "A": 0,
+        "B": 1,
+        "C": 1
+      },
+      "B_first_observed_ms": 427,
+      "A_observation_window_ms": 90000
+    },
+    "candidate": {
+      "rounds": [
+        {
+          "round": 1,
+          "submission_ms": 114,
+          "first_observed_ms": {
+            "B": 865,
+            "C": 899,
+            "A": 54448
+          },
+          "counts": {
+            "A": 1,
+            "B": 1,
+            "C": 1
+          },
+          "no_duplicate_ids": true,
+          "same_id_sets": true
+        },
+        {
+          "round": 2,
+          "submission_ms": 70,
+          "first_observed_ms": {
+            "C": 818,
+            "B": 18535,
+            "A": 25223
+          },
+          "counts": {
+            "A": 2,
+            "B": 2,
+            "C": 2
+          },
+          "no_duplicate_ids": true,
+          "same_id_sets": true
+        },
+        {
+          "round": 3,
+          "submission_ms": 36,
+          "first_observed_ms": {
+            "C": 199,
+            "A": 13028,
+            "B": 23070
+          },
+          "counts": {
+            "A": 3,
+            "B": 3,
+            "C": 3
+          },
+          "no_duplicate_ids": true,
+          "same_id_sets": true
+        },
+        {
+          "round": 4,
+          "submission_ms": 26,
+          "first_observed_ms": {
+            "C": 156,
+            "A": 1379,
+            "B": 10377
+          },
+          "counts": {
+            "A": 4,
+            "B": 4,
+            "C": 4
+          },
+          "no_duplicate_ids": true,
+          "same_id_sets": true
+        },
+        {
+          "round": 5,
+          "submission_ms": 36,
+          "first_observed_ms": {
+            "C": 239,
+            "A": 1276,
+            "B": 7832
+          },
+          "counts": {
+            "A": 5,
+            "B": 5,
+            "C": 5
+          },
+          "no_duplicate_ids": true,
+          "same_id_sets": true
+        },
+        {
+          "round": 6,
+          "submission_ms": 45,
+          "first_observed_ms": {
+            "C": 157,
+            "A": 756,
+            "B": 10133
+          },
+          "counts": {
+            "A": 6,
+            "B": 6,
+            "C": 6
+          },
+          "no_duplicate_ids": true,
+          "same_id_sets": true
+        }
+      ],
+      "all_six_rounds_complete": true,
+      "prior_baseline_message_recovered_on_all_roles": true,
+      "sender_attempts": [
+        {
+          "round": 1,
+          "sender_retries": 0,
+          "sender_receipt_ms": 637
+        },
+        {
+          "round": 2,
+          "sender_retries": 3,
+          "sender_receipt_ms": 17551
+        },
+        {
+          "round": 3,
+          "sender_retries": 3,
+          "sender_receipt_ms": 15555
+        },
+        {
+          "round": 4,
+          "sender_retries": 0,
+          "sender_receipt_ms": 1566
+        },
+        {
+          "round": 5,
+          "sender_retries": 0,
+          "sender_receipt_ms": 1611
+        },
+        {
+          "round": 6,
+          "sender_retries": 0,
+          "sender_receipt_ms": 2466
+        }
+      ]
+    },
+    "authority_alias_queue": {
+      "B_group_frames_before": 26,
+      "B_group_frames_after": 0,
+      "retirement_log_count": 26,
+      "wrong_alias_redrives_logged": 0,
+      "log_entries_dropped": 0
+    },
+    "final_visible_conversation": {
+      "messages_per_role": 462,
+      "API_returned_entire_conversation": true,
+      "same_id_sets": true,
+      "same_order_A_B": true,
+      "same_order_A_C": true,
+      "same_text_edit_flags_filenames_sizes": true,
+      "no_duplicate_ids": true,
+      "file_byte_equivalence_tested": false
+    },
+    "controlled_latency_comparison": false,
+    "delivery_latency_resolved": false
+  },
+  "cleanup": {
+    "owned_macos_process_groups_audited": 5,
+    "owned_macos_group_processes_remaining": 0,
+    "owned_macos_executable_processes_remaining": 0,
+    "qa_android_processes_remaining": 0,
+    "qa_permissions_restored": true,
+    "owned_adb_forward_removed": true
+  },
+  "full_multi_device_matrix_qualified": false,
+  "windows_qualified": false,
+  "pushed": false,
+  "released": false,
+  "servers_modified": false
+}
