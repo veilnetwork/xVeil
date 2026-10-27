@@ -6427,7 +6427,7 @@ class GroupService implements ArchiveGroups {
     );
   }
 
-  Future<void> _save(
+  Future<GroupBundle> _save(
     GroupBundle b, {
     bool notify = true,
     bool preserveDeviceAdmission = false,
@@ -6435,7 +6435,7 @@ class GroupService implements ArchiveGroups {
     if (_batchBundles.containsKey(b.manifest.groupId.hex)) {
       // A batch is building on this bundle; it saves once, at its end.
       _batchBundles[b.manifest.groupId.hex] = b;
-      return;
+      return b;
     }
     final controlBeforeAdmission = b.control;
     b = _admitControlRowsSignedByLiveKeys(b);
@@ -6533,6 +6533,9 @@ class GroupService implements ArchiveGroups {
             .whenComplete(() => _deviceLogCompactionQueued.remove(key)),
       );
     }
+    // Callers that need the committed view must use the admitted control rows
+    // and their durable receipts, rather than the pre-admission input bundle.
+    return b.copyWith(controlReceipts: controlReceipts);
   }
 
   /// Device logs with a size-triggered compaction already queued.
@@ -18823,7 +18826,7 @@ class GroupService implements ArchiveGroups {
       controlReceipts: existing?.controlReceipts ?? const <String, int>{},
     );
     final feedAccessChanged = hadFeedAccess != hasFeedAccess;
-    await _save(saved, notify: !feedAccessChanged);
+    final committed = await _save(saved, notify: !feedAccessChanged);
     if (feedAccessChanged) _invalidateFeedAccess();
     final freshPosts = !man.isSpace
         ? const <SpacePostView>[]
@@ -18841,7 +18844,14 @@ class GroupService implements ArchiveGroups {
         man.name == kDeviceGroupName &&
         await deviceGroupIdHex() == man.groupId.hex;
     if (adoptedDeviceGroup) {
-      _publishDeviceMembersCache(man, mergedState);
+      final committedState = foldControlLog(
+        owner: committed.manifest.owner,
+        entries: committed.control,
+        verify: (entry) => _validControlFor(committed.manifest, entry),
+        initialName: committed.manifest.name,
+      ).state;
+      _publishDeviceMembersCache(committed.manifest, committedState);
+      await _primeDeviceAdmission(committed, committedState);
     }
     if (existing == null) {
       final idx = await _index();
@@ -20770,6 +20780,46 @@ class GroupService implements ArchiveGroups {
         if (member.nodeId != manifest.owner) member.nodeId.hex,
     };
     _deviceMembersCacheAtMs = _now();
+  }
+
+  /// Ingest already holds the complete, durably admitted journal. Reuse it
+  /// before streaming mirrors: asking whether their counterparty is a sibling
+  /// otherwise reloads the journal for owner and master immediately afterwards.
+  /// Local appends keep their existing invalidation/expiry rules.
+  Future<void> _primeDeviceAdmission(
+    GroupBundle bundle,
+    GroupState state,
+  ) async {
+    final generation = _deviceMembersCacheGeneration;
+    try {
+      // Optional cache preparation must not reopen encrypted configuration
+      // while the device address is still unavailable.
+      final me = myDevice;
+      if (me == null) return;
+      final linked = state.members.values.any(
+        (member) => member.nodeId == me && member.role != GroupRole.owner,
+      );
+      final master = linked
+          ? _masterAddressInState(await _deviceSyncStateOfBundle(bundle), me)
+          : null;
+      if (_disposed ||
+          generation != _deviceMembersCacheGeneration ||
+          _deviceGidCache != bundle.manifest.groupId.hex ||
+          myDevice != me) {
+        return;
+      }
+      final at = _now();
+      _deviceOwnerCached = linked ? bundle.manifest.owner : null;
+      _deviceOwnerCachedAtMs = at;
+      _masterDeviceCached = master?.device;
+      _masterDeviceCachedAtMs = at;
+    } catch (error) {
+      // Persistence succeeded. Failed cache preparation leaves the ordinary
+      // bounded lookup in charge; it must not turn a durable ingest into a NAK.
+      devLog(
+        () => 'xVeil[devices]: admission remains cold (${error.runtimeType})',
+      );
+    }
   }
 
   // [postDeviceEvent] appends are serialized by the ONE drainer of
