@@ -18409,8 +18409,13 @@ class GroupService implements ArchiveGroups {
         );
       }
       final incomingHash = groupMessageHash(m);
+      // The digest binds author and sequence. Narrow the candidates before
+      // signature verification, but keep the full signed digest as identity:
+      // distinct same-slot rows must remain available as fork evidence.
       if (!messages.any(
         (stored) =>
+            stored.seq == m.seq &&
+            stored.author == m.author &&
             _validMessageFor(manifest.groupId, stored) &&
             groupMessageHash(stored) == incomingHash,
       )) {
@@ -18474,14 +18479,15 @@ class GroupService implements ArchiveGroups {
     // received before its predecessor stays silent; when gap-fill later closes
     // the chain, the predecessor and newly-unblocked suffix become visible in
     // one deterministic batch. Fork evidence never produces a notification.
+    final acceptedAfterMerge = _acceptedMessagesWithinLifecycle(
+      materialBundle.copyWith(
+        messages: messages,
+        retentionCuts: mergedRetentionCuts,
+      ),
+      mergedState,
+    );
     fresh.addAll(
-      _acceptedMessagesWithinLifecycle(
-        materialBundle.copyWith(
-          messages: messages,
-          retentionCuts: mergedRetentionCuts,
-        ),
-        mergedState,
-      ).where(
+      acceptedAfterMerge.where(
         // "Not one of OURS" means not written by THIS DEVICE — by the signing
         // key, not the author. The author is the IDENTITY, and in the device
         // group every row's author is the identity, so `author != selfId`
@@ -18607,10 +18613,13 @@ class GroupService implements ArchiveGroups {
     final visiblePostIds = man.isSpace
         ? {for (final post in await _postsOfBundle(targetBundle)) post.postId}
         : const <String>{};
-    final acceptedMessages = _acceptedMessagesWithinLifecycle(
-      targetBundle,
-      mergedState,
-    );
+    // Non-Space posts are ignored above, with no intervening await or change
+    // to messages, cuts or control state. Their reaction targets can reuse the
+    // validated view prepared for notifications. Spaces keep their later read:
+    // post materialization may have awaited decryption in the meantime.
+    final acceptedMessages = man.isSpace
+        ? _acceptedMessagesWithinLifecycle(targetBundle, mergedState)
+        : acceptedAfterMerge;
     final acceptedOpenMessageRefs = {
       for (final message in acceptedMessages)
         if (!message.isChannelEncrypted) message.ref,
