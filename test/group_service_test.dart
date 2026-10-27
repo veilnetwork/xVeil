@@ -568,6 +568,35 @@ class _CountingGroupReadStorage extends HiddenVolumeStorage {
   }
 }
 
+class _HeldGroupHeaderStorage extends HiddenVolumeStorage {
+  _HeldGroupHeaderStorage()
+    : super(
+        ({required Uint8List password, required bool create}) =>
+            FakeKvLogStore(),
+      );
+
+  String? heldKey;
+  Completer<void>? release;
+  Completer<void>? captured;
+  int headerReads = 0;
+  bool failRead = false;
+
+  @override
+  Future<Uint8List?> loadFile(String fileId, {int? maxBytes}) async {
+    final bytes = await super.loadFile(fileId, maxBytes: maxBytes);
+    if (fileId == heldKey) {
+      headerReads++;
+      final held = release;
+      if (held != null) {
+        if (!(captured?.isCompleted ?? true)) captured!.complete();
+        await held.future;
+      }
+      if (failRead) throw StateError('injected group header read failure');
+    }
+    return bytes;
+  }
+}
+
 /// The one chain in a sync vector whose scope starts with [prefix].
 ///
 /// Looked up by prefix because a chain's scope now ends with the DEVICE that
@@ -1007,6 +1036,81 @@ void main() {
       );
     },
   );
+
+  test(
+    'concurrent group readers share only the unfinished header read',
+    () async {
+      final storage = _HeldGroupHeaderStorage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _FakeSigner(owner));
+      addTearDown(service.dispose);
+      final gid = await service.createGroup('Concurrent readers');
+      storage.heldKey = 'group:${gid.hex}';
+      storage.release = Completer<void>();
+      storage.captured = Completer<void>();
+      final reads = List.generate(12, (_) => service.load(gid));
+      try {
+        await storage.captured!.future;
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          storage.headerReads,
+          1,
+          reason: 'a burst must not duplicate the same encrypted header read',
+        );
+      } finally {
+        storage.release!.complete();
+        storage.release = null;
+        await Future.wait(reads);
+      }
+      final bundles = await Future.wait(reads);
+      expect(bundles, everyElement(isNotNull));
+      expect(
+        identical(bundles.first, bundles.last),
+        isFalse,
+        reason: 'each reader still decodes and validates its own bundle',
+      );
+      expect(await service.load(gid), isNotNull);
+      expect(
+        storage.headerReads,
+        2,
+        reason: 'a settled read must go back to storage',
+      );
+      await storage.deleteStoredFile('group:${gid.hex}');
+      expect(
+        await service.load(gid),
+        isNull,
+        reason: 'a previously read header cannot conceal deletion',
+      );
+      expect(storage.headerReads, 3);
+    },
+  );
+
+  test('failed shared group header reads are retried from storage', () async {
+    final storage = _HeldGroupHeaderStorage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = GroupService(storage, _FakeSigner(owner));
+    addTearDown(service.dispose);
+    final gid = await service.createGroup('Retry a header read');
+    storage.heldKey = 'group:${gid.hex}';
+    storage.release = Completer<void>();
+    storage.captured = Completer<void>();
+    storage.failRead = true;
+    final reads = List.generate(8, (_) => service.load(gid));
+    final failed = expectLater(Future.wait(reads), throwsStateError);
+    await storage.captured!.future;
+    await Future<void>.delayed(Duration.zero);
+    storage.release!.complete();
+    storage.release = null;
+    await failed;
+    expect(storage.headerReads, 1);
+    storage.failRead = false;
+    expect(await service.load(gid), isNotNull);
+    expect(
+      storage.headerReads,
+      2,
+      reason: 'the failed future must not poison later reads',
+    );
+  });
 
   test('a read that races a bundle save does not see a missing group', () async {
     // The store cannot tell a half-written blob from an absent one, and every
