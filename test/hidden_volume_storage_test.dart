@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
@@ -13,6 +15,54 @@ import 'package:xveil/domain/identity.dart';
 import 'package:xveil/domain/roster.dart';
 
 NodeId _id(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
+
+Message _localRow(
+  String id,
+  String conv, {
+  String author = 'local-author',
+  int? seq,
+}) => Message(
+  id: id,
+  conversationId: conv,
+  direction: MessageDirection.outgoing,
+  body: id,
+  timestamp: DateTime(2020),
+  author: author,
+  seq: seq,
+);
+
+bool _appendsId(List<KvLogOp> ops, String id) => ops
+    .whereType<AppendLogOp>()
+    .any((op) => (jsonDecode(utf8.decode(op.payload)) as Map)['id'] == id);
+
+class _ControlledCommits extends SyncWrappedAsyncKvLogStore {
+  _ControlledCommits(super.inner);
+  Future<void> Function(List<KvLogOp>)? beforeCommit;
+  Future<void> Function(int namespace)? afterLogRead;
+
+  @override
+  Future<int> commit(List<KvLogOp> ops) async {
+    await beforeCommit?.call(ops);
+    return super.commit(ops);
+  }
+
+  @override
+  Future<List<KvLogEntry>> iterLogRange({
+    required int namespace,
+    int? start,
+    int? end,
+    required int limit,
+  }) async {
+    final rows = await super.iterLogRange(
+      namespace: namespace,
+      start: start,
+      end: end,
+      limit: limit,
+    );
+    await afterLogRead?.call(namespace);
+    return rows;
+  }
+}
 
 Message _msg({
   required String conv,
@@ -159,6 +209,406 @@ void main() {
         ),
         isTrue,
       );
+    },
+  );
+
+  test(
+    'concurrent local appends allocate unique gap-free stream positions',
+    () async {
+      final conv = _id(2).hex;
+      final rows = await Future.wait([
+        for (var i = 0; i < 16; i++)
+          storage.appendMessage(
+            Message(
+              id: 'concurrent-local-$i',
+              conversationId: conv,
+              direction: MessageDirection.outgoing,
+              body: '$i',
+              timestamp: DateTime(2026, 10, 27, 0, 0, i),
+              author: 'local-author',
+            ),
+          ),
+      ]);
+      expect(rows.map((m) => m.seq).toSet(), {for (var i = 1; i <= 16; i++) i});
+      expect((await storage.loadMessages(conv)).length, 16);
+      final reopened = HiddenVolumeStorage(
+        ({required Uint8List password, required bool create}) => store,
+      );
+      await reopened.open(password: 'pw');
+      final next = await reopened.appendMessage(
+        Message(
+          id: 'after-reopen',
+          conversationId: conv,
+          direction: MessageDirection.outgoing,
+          body: 'next',
+          timestamp: DateTime(2026, 10, 27, 0, 1),
+          author: 'local-author',
+        ),
+      );
+      expect(next.seq, 17);
+    },
+  );
+
+  test('local edits and appends share the sequence allocation lane', () async {
+    final conv = _id(2).hex;
+    await storage.appendMessage(_localRow('original', conv));
+    final pending = [
+      for (var i = 0; i < 8; i++)
+        storage.appendMessage(_localRow('mixed-$i', conv)),
+    ];
+    final edit = storage.editMessage(conv, 'original', 'edited');
+    final rows = await Future.wait(pending);
+    final editSeq = await edit;
+    expect(
+      {for (final row in rows) row.seq, editSeq},
+      {for (var seq = 2; seq <= 10; seq++) seq},
+    );
+    expect((await storage.loadMessageById(conv, 'original'))!.body, 'edited');
+    expect(
+      (await storage.conversationSync(conv)).highWater['local-author'],
+      10,
+    );
+  });
+
+  test(
+    'a queued local clear covers preceding appends before taking its seq',
+    () async {
+      final peer = _id(2), conv = _id(2).hex;
+      final posts = [
+        for (var i = 0; i < 4; i++)
+          storage.appendMessage(_localRow('before-clear-$i', conv)),
+      ];
+      final clearing = storage.emitClearConversation(peer, 'local-author');
+      expect((await Future.wait(posts)).map((m) => m.seq).toSet(), {
+        1,
+        2,
+        3,
+        4,
+      });
+      final clear = await clearing;
+      expect(clear.seq, 5);
+      expect(clear.watermark['local-author'], 4);
+      expect(await storage.loadMessages(conv), isEmpty);
+      expect(
+        (await storage.conversationSync(conv)).highWater['local-author'],
+        5,
+      );
+      expect(
+        (await storage.appendMessage(_localRow('after-clear', conv))).seq,
+        6,
+      );
+    },
+  );
+
+  test(
+    'a failed sequence commit does not strand the queued successor',
+    () async {
+      final controlled = _ControlledCommits(FakeKvLogStore());
+      final backend = HiddenVolumeStorage.async(
+        ({required Uint8List password, required bool create}) async =>
+            controlled,
+      );
+      await backend.open(password: 'pw');
+      addTearDown(backend.close);
+      final conv = _id(2).hex;
+      controlled.beforeCommit = (ops) async {
+        if (_appendsId(ops, 'failed')) {
+          throw StateError('injected atomic failure');
+        }
+      };
+      final failure = expectLater(
+        backend.appendMessage(_localRow('failed', conv)),
+        throwsStateError,
+      );
+      final next = backend.appendMessage(_localRow('successor', conv));
+      await failure;
+      expect((await next).seq, 1);
+      expect((await backend.loadMessages(conv)).map((m) => m.id), [
+        'successor',
+      ]);
+      expect(
+        (await backend.appendMessage(_localRow('after-success', conv))).seq,
+        2,
+      );
+    },
+  );
+
+  test(
+    'a stalled sequence commit leaves other conversations and authors free',
+    () async {
+      final controlled = _ControlledCommits(FakeKvLogStore());
+      final backend = HiddenVolumeStorage.async(
+        ({required Uint8List password, required bool create}) async =>
+            controlled,
+      );
+      await backend.open(password: 'pw');
+      addTearDown(backend.close);
+      final conv = _id(2).hex;
+      // Publish the shard marker first: its own first-commit barrier is separate.
+      await backend.appendMessage(
+        _localRow('seed', conv, author: 'seed', seq: 1),
+      );
+      final entered = Completer<void>(), release = Completer<void>();
+      controlled.beforeCommit = (ops) async {
+        if (_appendsId(ops, 'held')) {
+          entered.complete();
+          await release.future;
+        }
+      };
+      final first = backend.appendMessage(_localRow('held', conv));
+      await entered.future.timeout(const Duration(seconds: 2));
+      var secondFinished = false;
+      final second = backend.appendMessage(_localRow('same-stream', conv)).then(
+        (m) {
+          secondFinished = true;
+          return m;
+        },
+      );
+      try {
+        final others = await Future.wait([
+          backend.appendMessage(_localRow('other-conversation', _id(3).hex)),
+          backend.appendMessage(
+            _localRow('other-author', conv, author: 'other'),
+          ),
+        ]).timeout(const Duration(seconds: 2));
+        expect(others.map((m) => m.seq), [1, 1]);
+        expect(secondFinished, isFalse);
+      } finally {
+        release.complete();
+        expect((await first).seq, 1);
+        expect((await second).seq, 2);
+      }
+    },
+  );
+
+  for (final maintenance in ['close', 'erase']) {
+    test(
+      '$maintenance drains accepted sequence writes and refuses new ones',
+      () async {
+        final controlled = _ControlledCommits(FakeKvLogStore());
+        final backend = HiddenVolumeStorage.async(
+          ({required Uint8List password, required bool create}) async =>
+              controlled,
+        );
+        await backend.open(password: 'pw');
+        addTearDown(backend.close);
+        final conv = _id(2).hex;
+        await backend.appendMessage(
+          _localRow('seed', conv, author: 'seed', seq: 1),
+        );
+        final entered = Completer<void>(), release = Completer<void>();
+        controlled.beforeCommit = (ops) async {
+          if (_appendsId(ops, 'held')) {
+            entered.complete();
+            await release.future;
+          }
+        };
+        final first = backend.appendMessage(_localRow('held', conv));
+        await entered.future.timeout(const Duration(seconds: 2));
+        final queued = backend.appendMessage(_localRow('queued', conv));
+        var maintenanceFinished = false;
+        final done =
+            (maintenance == 'close' ? backend.close() : backend.eraseSpace())
+                .then((_) => maintenanceFinished = true);
+        try {
+          await expectLater(
+            backend
+                .appendMessage(_localRow('too-late', conv))
+                .timeout(const Duration(seconds: 2)),
+            throwsStateError,
+          );
+          expect(maintenanceFinished, isFalse);
+        } finally {
+          release.complete();
+          await first;
+          await queued;
+          await done;
+        }
+        if (maintenance == 'close') {
+          expect(backend.isOpen, isFalse);
+          await backend.open(password: 'pw');
+          expect((await backend.loadMessages(conv)).map((m) => m.id).toSet(), {
+            'seed',
+            'held',
+            'queued',
+          });
+          expect((await backend.appendMessage(_localRow('next', conv))).seq, 3);
+        } else {
+          expect(await backend.loadMessages(conv), isEmpty);
+          expect(
+            (await backend.appendMessage(_localRow('fresh', conv))).seq,
+            1,
+          );
+        }
+      },
+    );
+  }
+
+  for (final warm in [false, true]) {
+    test(
+      'out-of-order commits preserve cursor and rows (warm=$warm)',
+      () async {
+        final disk = FakeKvLogStore();
+        final controlled = _ControlledCommits(disk);
+        final backend = HiddenVolumeStorage.async(
+          ({required Uint8List password, required bool create}) async =>
+              controlled,
+        );
+        await backend.open(password: 'pw');
+        addTearDown(backend.close);
+        await backend.appendMessage(_localRow('seed', 'seed-conversation'));
+        final entered = Completer<void>(), release = Completer<void>();
+        controlled.beforeCommit = (ops) async {
+          if (_appendsId(ops, 'held')) {
+            entered.complete();
+            await release.future;
+          }
+        };
+        final held = backend.appendMessage(_localRow('held', 'A'));
+        await entered.future.timeout(const Duration(seconds: 2));
+        try {
+          await backend.appendMessage(_localRow('later', 'B'));
+          if (warm) {
+            expect((await backend.loadMessages('B')).single.id, 'later');
+            // A full replay after the late commit must retain edit winners too.
+            await backend.editMessage('B', 'later', 'edited');
+            expect((await backend.loadMessages('B')).single.body, 'edited');
+          }
+        } finally {
+          release.complete();
+          await held;
+        }
+        final cursor = int.parse(
+          utf8.decode(
+            disk.get(
+              Ns.settings,
+              Uint8List.fromList(utf8.encode('msg_next_id')),
+            )!,
+          ),
+        );
+        final records = disk.iterLogRange(
+          namespace: Ns.messageLogShardFirst,
+          limit: 100,
+        );
+        expect(records.every((row) => row.logId < cursor), isTrue);
+        expect((await backend.loadMessages('A')).single.id, 'held');
+        if (warm) {
+          expect((await backend.loadMessages('B')).single.body, 'edited');
+        }
+        final oldIds = records.map((row) => row.logId).toSet();
+        await backend.close();
+        await backend.open(password: 'pw');
+        await backend.appendMessage(_localRow('after-reopen', 'A'));
+        expect((await backend.loadMessages('A')).map((row) => row.id).toSet(), {
+          'held',
+          'after-reopen',
+        });
+        final newIds = disk
+            .iterLogRange(namespace: Ns.messageLogShardFirst, limit: 100)
+            .map((r) => r.logId)
+            .toSet();
+        expect(newIds.containsAll(oldIds), isTrue);
+        expect(newIds.length, oldIds.length + 1);
+      },
+    );
+  }
+
+  test(
+    'commit during a snapshot read remains visible on the next read',
+    () async {
+      final controlled = _ControlledCommits(FakeKvLogStore());
+      final backend = HiddenVolumeStorage.async(
+        ({required Uint8List password, required bool create}) async =>
+            controlled,
+      );
+      await backend.open(password: 'pw');
+      addTearDown(backend.close);
+      await backend.appendMessage(_localRow('seed', 'seed'));
+      await backend.loadMessages('seed');
+      final writeEntered = Completer<void>(), releaseWrite = Completer<void>();
+      controlled.beforeCommit = (ops) async {
+        if (_appendsId(ops, 'held')) {
+          writeEntered.complete();
+          await releaseWrite.future;
+        }
+      };
+      final held = backend.appendMessage(_localRow('held', 'A'));
+      await writeEntered.future.timeout(const Duration(seconds: 2));
+      await backend.appendMessage(_localRow('later', 'B'));
+      final readEntered = Completer<void>(), releaseRead = Completer<void>();
+      controlled.afterLogRead = (namespace) async {
+        if (namespace == Ns.messageLogShardFirst && !readEntered.isCompleted) {
+          readEntered.complete();
+          await releaseRead.future;
+        }
+      };
+      final reading = backend.loadMessages('B');
+      try {
+        await readEntered.future.timeout(const Duration(seconds: 2));
+        releaseWrite.complete();
+        await held;
+      } finally {
+        if (!releaseWrite.isCompleted) releaseWrite.complete();
+        releaseRead.complete();
+        await held;
+      }
+      expect((await reading).single.id, 'later');
+      expect((await backend.loadMessages('A')).single.id, 'held');
+    },
+  );
+
+  test(
+    'failed durable reservation can retry without publishing a row',
+    () async {
+      final disk = FakeKvLogStore();
+      final controlled = _ControlledCommits(disk);
+      final backend = HiddenVolumeStorage.async(
+        ({required Uint8List password, required bool create}) async =>
+            controlled,
+      );
+      await backend.open(password: 'pw');
+      addTearDown(backend.close);
+      controlled.beforeCommit = (ops) async {
+        if (ops.whereType<PutOp>().any(
+          (op) =>
+              op.namespace == Ns.settings &&
+              utf8.decode(op.key) == 'msg_next_id',
+        )) {
+          throw StateError('injected reservation refusal');
+        }
+      };
+      await expectLater(
+        backend.appendMessage(_localRow('refused', 'A')),
+        throwsStateError,
+      );
+      expect(await backend.loadMessages('A'), isEmpty);
+      controlled.beforeCommit = null;
+      expect((await backend.appendMessage(_localRow('retry', 'A'))).seq, 1);
+      expect((await backend.loadMessages('A')).single.id, 'retry');
+    },
+  );
+
+  test(
+    'chunked outbox and concurrent streams reserve disjoint durable ranges',
+    () async {
+      final wire = Uint8List.fromList(List.generate(16000, (i) => i % 251));
+      await Future.wait([
+        storage.enqueueOutboxFrame('large', 'peer', wire),
+        for (var i = 0; i < 24; i++)
+          storage.appendMessage(_localRow('range-$i', 'conv-$i')),
+      ]);
+      await storage.close();
+      await storage.open(password: 'pw');
+      expect((await storage.pendingOutboxFrames()).single.wire, wire);
+      for (var i = 0; i < 24; i++) {
+        expect((await storage.loadMessages('conv-$i')).single.id, 'range-$i');
+      }
+      final logIds = [
+        ...store.iterLogRange(namespace: Ns.outbox, limit: 100),
+        ...store.iterLogRange(namespace: Ns.messageLogShardFirst, limit: 100),
+      ].map((row) => row.logId).toList();
+      expect(logIds.toSet().length, logIds.length);
+      expect(logIds.length, greaterThan(32));
     },
   );
 

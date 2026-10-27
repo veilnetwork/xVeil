@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -277,20 +278,13 @@ class HiddenVolumeStorage
   /// WITHOUT yielding to the event loop, so a Busy container still fails the
   /// caller synchronously-first (semantics some callers/tests rely on).
   Future<void> _closeStaleStoreBeforeOpen(String who) async {
-    final stale = _store;
-    if (stale == null) return;
-    _store = null;
-    _anchorBeforeDeletionRecovery = null;
+    if (_store == null) return;
     devLog(
       () =>
           'xVeil[storage]: $who called while a space is still open — '
           'closing the stale handle first (leaked by an earlier failure?)',
     );
-    try {
-      await stale.close();
-    } catch (e) {
-      devLog(() => 'xVeil[storage]: stale-handle close failed: $e');
-    }
+    await close();
   }
 
   @override
@@ -298,6 +292,8 @@ class HiddenVolumeStorage
     required String password,
     bool createIfMissing = false,
   }) async {
+    final closing = _closePending;
+    if (closing != null) await closing;
     if (_store != null) await _closeStaleStoreBeforeOpen('open()');
     final store = await _opener(
       password: Uint8List.fromList(utf8.encode(password)),
@@ -305,6 +301,7 @@ class HiddenVolumeStorage
     );
     if (store == null) return false;
     _store = store;
+    _resetLogAllocator();
     await _invalidateScanCache(); // adopting a different space — drop the old fold
     await _invalidateOutboxCache();
     await _prepareOpenedStore();
@@ -317,10 +314,13 @@ class HiddenVolumeStorage
   @override
   Future<bool> openWithKeys(Uint8List keys) async {
     if (keysOpener == null) return false;
+    final closing = _closePending;
+    if (closing != null) await closing;
     if (_store != null) await _closeStaleStoreBeforeOpen('openWithKeys()');
     final store = await keysOpener?.call(keys);
     if (store == null) return false;
     _store = store;
+    _resetLogAllocator();
     await _invalidateScanCache(); // adopting a different space — drop the old fold
     await _invalidateOutboxCache();
     await _prepareOpenedStore();
@@ -1805,7 +1805,13 @@ class HiddenVolumeStorage
   }
 
   @override
-  Future<Message> appendMessage(Message message) async {
+  Future<Message> appendMessage(Message message) => _withConvSequence(
+    message.conversationId,
+    message.author ?? message.conversationId,
+    () => _appendMessage(message),
+  );
+
+  Future<Message> _appendMessage(Message message) async {
     // Bind (author, seq): the author is the message originator (set by the
     // messaging layer from the authenticated sender — R1; defaults to the
     // conversation peer for a bare incoming row). The seq is the message's own
@@ -2248,7 +2254,11 @@ class HiddenVolumeStorage
   });
 
   Future<int> _nextLogId() async {
-    final raw = await _as.get(Ns.settings, _sk('msg_next_id'));
+    final store = _as;
+    if (identical(store, _allocatorStore) && _visibleNextLogId != null) {
+      return _visibleNextLogId!;
+    }
+    final raw = await store.get(Ns.settings, _sk('msg_next_id'));
     if (raw == null) return 1;
     return int.tryParse(utf8.decode(raw)) ?? 1;
   }
@@ -2361,16 +2371,36 @@ class HiddenVolumeStorage
     List<InlineCustomEmoji> customEmoji = const [],
     bool reflected = false,
   }) {
-    final write = _editGate.then(
-      (_) => _editMessageCritical(
-        conversationId,
-        messageId,
-        newBody,
-        seq: seq,
-        customEmoji: customEmoji,
-        reflected: reflected,
-      ),
+    if (reflected && seq == null) {
+      return Future.error(
+        ArgumentError('A reflected edit requires its source revision'),
+      );
+    }
+    final session = _store;
+    if (session == null || _convSequenceFences > 0) {
+      return Future.error(StateError('storage is closing or locked'));
+    }
+    Future<int?> apply() => _editMessageCritical(
+      conversationId,
+      messageId,
+      newBody,
+      seq: seq,
+      customEmoji: customEmoji,
+      reflected: reflected,
     );
+    final write = _editGate.then((_) async {
+      if (!identical(session, _store)) {
+        throw StateError('storage session changed before edit');
+      }
+      final hit = await _liveEntryFor(conversationId, messageId);
+      if (hit == null) return null;
+      return _withConvSequence(
+        conversationId,
+        hit.message.author ?? conversationId,
+        apply,
+        acceptedBeforeFence: true,
+      );
+    });
     _editGate = write.then<void>((_) {}, onError: (_) {});
     return write;
   }
@@ -3048,7 +3078,14 @@ class HiddenVolumeStorage
 
   @override
   Future<({String author, int seq, Map<String, int> watermark, int atMs})>
-  emitClearConversation(NodeId peer, String selfHex) async {
+  emitClearConversation(NodeId peer, String selfHex) => _withConvSequence(
+    peer.hex,
+    selfHex,
+    () => _emitClearConversation(peer, selfHex),
+  );
+
+  Future<({String author, int seq, Map<String, int> watermark, int atMs})>
+  _emitClearConversation(NodeId peer, String selfHex) async {
     // Clear locally AND record a propagatable + replayable clear EVENT: a
     // per-author seq WATERMARK (= the current contiguous high-water) under
     // [selfHex]'s next seq. The per-message scrub + tombstone still runs (forensic
@@ -3257,7 +3294,9 @@ class HiddenVolumeStorage
   }
 
   @override
-  Future<void> eraseSpace() async {
+  Future<void> eraseSpace() => _drainConvSequenceWrites(_eraseSpace);
+
+  Future<void> _eraseSpace() async {
     // FIRST, while the volume can still be read: which blobs are OURS.
     //
     // Every space of a container shares one blob directory, and this used to
@@ -3313,6 +3352,7 @@ class HiddenVolumeStorage
     await _deleteBlobFiles(ownBlobs);
     // The message log is gone — drop the in-memory fold or a later loadMessages
     // would resurrect the erased conversation from cache.
+    _resetLogAllocator();
     await _invalidateScanCache();
     await _invalidateOutboxCache();
   }
@@ -4203,28 +4243,28 @@ class HiddenVolumeStorage
 
   // Incompressible control envelopes can exceed the ~4 KiB encrypted
   // DataBatch capacity. Split the serialized row, not its network envelope.
-  // All parts, descriptor, index and allocation counter share one commit.
+  // All parts, descriptor and index share one commit, after reserving their ids.
   static const _outboxPartBytes = 1800;
   static const _outboxMaxPayloadBytes = 512 * 1024;
 
   Future<({int logId, List<int> logIds})> _persistOutboxPayload(
     String frameId,
     Uint8List payload,
-  ) async {
+  ) => _trackLogWrite((store) async {
     if (payload.length > _outboxMaxPayloadBytes) {
       throw ArgumentError('outbox payload exceeds the storage bound');
     }
-    final logId = await _allocLogId();
+    final partCount = payload.length <= _outboxPartBytes
+        ? 0
+        : (payload.length + _outboxPartBytes - 1) ~/ _outboxPartBytes;
+    final logId = await _allocLogIds(store, count: partCount + 1);
     final ops = <KvLogOp>[];
     final logIds = <int>[logId];
     if (payload.length <= _outboxPartBytes) {
       ops.add(AppendLogOp(Ns.outbox, logId, payload));
     } else {
-      final count = (payload.length + _outboxPartBytes - 1) ~/ _outboxPartBytes;
-      // The allocator has initialized; reserving this contiguous range has
-      // no await and cannot interleave with another allocator on this isolate.
-      final first = _nextIdCache!;
-      _nextIdCache = first + count;
+      final count = partCount;
+      final first = logId + 1;
       for (var i = 0; i < count; i++) {
         final end = ((i + 1) * _outboxPartBytes).clamp(0, payload.length);
         ops.add(
@@ -4252,13 +4292,13 @@ class HiddenVolumeStorage
         ),
       );
     }
-    await _as.commit([
+    await store.commit([
       ...ops,
       PutOp(Ns.outboxIndex, _outboxIndexKey(frameId), _sk('$logId')),
-      PutOp(Ns.settings, _sk('msg_next_id'), _sk('${_nextIdCache!}')),
     ]);
+    _noteLogCommit(store, logId + partCount);
     return (logId: logId, logIds: logIds);
-  }
+  });
 
   Future<({Uint8List payload, List<int> logIds})?> _readOutboxPayload(
     int logId,
@@ -4673,6 +4713,8 @@ class HiddenVolumeStorage
   /// from the wire, so no sender can widen it.
   final Map<String, int> _clearedAt = {};
   int _scanFoldedUpTo = 0; // next log_id not yet folded into the state above
+  int? _foldReadingUpTo;
+  bool _messageScanNeedsRebuild = false;
   List<Message>?
   _scanResult; // materialised; valid while _scanFoldedUpTo == nextId
 
@@ -4692,6 +4734,56 @@ class HiddenVolumeStorage
     return result;
   }
 
+  // A sequence and its event/cursor commit are one operation. Global log ids
+  // already have their own nonblocking allocator; they do not protect this
+  // per-(conversation, author) cursor from two callers reading the same value.
+  final _convSequenceTails = <(String, String), Future<void>>{};
+  int _convSequenceFences = 0;
+
+  Future<T> _withConvSequence<T>(
+    String conversation,
+    String author,
+    Future<T> Function() body, {
+    bool acceptedBeforeFence = false,
+  }) {
+    final session = _store;
+    if (session == null || (_convSequenceFences > 0 && !acceptedBeforeFence)) {
+      return Future.error(StateError('storage is closing or locked'));
+    }
+    final key = (conversation, author);
+    final previous = _convSequenceTails[key] ?? Future<void>.value();
+    final result = previous.then((_) {
+      if (!identical(session, _store)) {
+        throw StateError('storage session changed before message write');
+      }
+      return runZoned(body, zoneValues: {_acceptedConvWriteZone: this});
+    });
+    late final Future<void> tail;
+    tail = result.then<void>((_) {}, onError: (_) {}).whenComplete(() {
+      if (identical(_convSequenceTails[key], tail)) {
+        _convSequenceTails.remove(key);
+      }
+    });
+    _convSequenceTails[key] = tail;
+    return result;
+  }
+
+  Future<T> _drainConvSequenceWrites<T>(Future<T> Function() body) async {
+    _convSequenceFences++;
+    try {
+      // Edits accepted before the fence may still join their stream. New
+      // edits/appends/clears are refused until maintenance has finished.
+      await _editGate;
+      await Future.wait(_convSequenceTails.values.toList());
+      while (_logWrites.isNotEmpty) {
+        await Future.wait(_logWrites.toList());
+      }
+      return await body();
+    } finally {
+      _convSequenceFences--;
+    }
+  }
+
   // Single-flight gate serializing file-blob stores. storeFile reads the
   // file_next_log counter from the store, appends the chunks across SEVERAL
   // commits, then bumps the counter LAST — so two concurrent stores (e.g. the
@@ -4705,62 +4797,162 @@ class HiddenVolumeStorage
     return result;
   }
 
-  // IN-MEMORY log-id allocator. The next log id lives in [_nextIdCache] and is
-  // handed out by a SYNCHRONOUS atomic increment ([_allocLogId]) — there is no
-  // await between reading and incrementing it, so two concurrent appenders can
-  // never get the same id (the race a previous serializing gate fixed) WITHOUT
-  // serializing the slow data commit behind one lock. That gate head-of-line
-  // BLOCKED every append whenever a single commit stalled: an inline
-  // notification-reply send issued while the app was backgrounded (storage worker
-  // slow to respond) held the gate and froze ALL later sends until it finally
-  // completed. With the counter, a slow commit delays only itself. (deleteMessage
-  // rewrites an EXISTING log id and bumps nothing → no allocation.)
+  // Reserve a small durable window before handing out any global log ids.
+  // Data commits may finish out of order; they must never write an older
+  // msg_next_id over a newer one. A crash can skip unused internal ids, but
+  // conversation sequence numbers are still committed gap-free with events.
+  static const int _logIdReserveAhead = 8;
+  static final Object _acceptedConvWriteZone = Object();
+  final _logWrites = <Future<void>>{};
+  AsyncKvLogStore? _allocatorStore;
   int? _nextIdCache;
+  int? _visibleNextLogId;
+  int _logReservedUntil = 0;
   Future<void>? _idInit;
-  Future<int> _allocLogId() async {
-    if (_nextIdCache == null) {
-      _idInit ??= _nextLogId().then((v) {
-        _nextIdCache ??= v;
-      });
-      await _idInit;
+  Future<void>? _idReservation;
+
+  void _resetLogAllocator() {
+    _allocatorStore = null;
+    _nextIdCache = null;
+    _visibleNextLogId = null;
+    _logReservedUntil = 0;
+    _idInit = null;
+    _idReservation = null;
+  }
+
+  Future<void> _ensureLogAllocator(AsyncKvLogStore store) async {
+    if (!identical(_allocatorStore, store)) {
+      _resetLogAllocator();
+      _allocatorStore = store;
     }
-    // Synchronous read-then-increment (no await between) → atomic across
-    // concurrent callers: each gets a distinct id.
-    final id = _nextIdCache!;
-    _nextIdCache = id + 1;
-    return id;
+    if (_nextIdCache != null) return;
+    var init = _idInit;
+    if (init == null) {
+      init = () async {
+        final raw = await store.get(Ns.settings, _sk('msg_next_id'));
+        final first = raw == null ? 1 : int.tryParse(utf8.decode(raw)) ?? 1;
+        if (first < 1) throw StateError('invalid message log cursor');
+        if (!identical(store, _store) || !identical(store, _allocatorStore)) {
+          throw StateError('storage session changed during log allocation');
+        }
+        _nextIdCache = first;
+        _visibleNextLogId = first;
+        _logReservedUntil = first;
+      }();
+      _idInit = init;
+    }
+    try {
+      await init;
+    } catch (_) {
+      if (identical(_idInit, init)) _idInit = null;
+      rethrow;
+    }
   }
 
-  Future<int> _commitAtNextLogId(
-    List<KvLogOp> Function(int logId) opsFor,
-  ) async {
-    final logId = await _allocLogId();
-    await _as.commit([
-      ...opsFor(logId),
-      // Persist the current in-memory counter (monotonic, > every allocated id),
-      // so a reopen never re-hands an id still in use. A crash mid-flight between
-      // two concurrent commits can persist a slightly stale value; the only
-      // consequence is a single re-used log id whose append the gap-fill heals —
-      // far cheaper than the global stall the serializing gate caused.
-      PutOp(Ns.settings, _sk('msg_next_id'), _sk('${_nextIdCache!}')),
-    ]);
-    return logId;
+  Future<int> _allocLogId(AsyncKvLogStore store, {int? maximum}) =>
+      _allocLogIds(store, count: 1, maximum: maximum);
+
+  Future<int> _allocLogIds(
+    AsyncKvLogStore store, {
+    required int count,
+    int? maximum,
+  }) async {
+    await _ensureLogAllocator(store);
+    while (true) {
+      if (!identical(store, _store) || !identical(store, _allocatorStore)) {
+        throw StateError('storage session changed during log allocation');
+      }
+      final next = _nextIdCache!;
+      if (maximum != null && next + count - 1 > maximum) {
+        throw RangeError.range(next + count - 1, 1, maximum, 'message log id');
+      }
+      if (next + count <= _logReservedUntil) {
+        _nextIdCache = next + count;
+        return next;
+      }
+      var reservation = _idReservation;
+      if (reservation == null) {
+        final int end = maximum == null
+            ? next + max<int>(_logIdReserveAhead, count)
+            : min<int>(next + max<int>(_logIdReserveAhead, count), maximum + 1);
+        late final Future<void> write;
+        write =
+            () async {
+              await store.commit([
+                PutOp(Ns.settings, _sk('msg_next_id'), _sk('$end')),
+              ]);
+              if (!identical(store, _store) ||
+                  !identical(store, _allocatorStore)) {
+                throw StateError(
+                  'storage session changed during log reservation',
+                );
+              }
+              _logReservedUntil = end;
+            }().whenComplete(() {
+              if (identical(_idReservation, write)) _idReservation = null;
+            });
+        _idReservation = reservation = write;
+      }
+      await reservation;
+    }
   }
 
-  /// Append one or more message-log operations at a fresh global id, routing
-  /// them to the deterministic shard for that id. [opsFor] receives the owning
-  /// namespace so callers cannot accidentally put the payload back into the
-  /// full legacy namespace.
+  Future<T> _trackLogWrite<T>(Future<T> Function(AsyncKvLogStore) body) {
+    final store = _store;
+    if (store == null ||
+        (_convSequenceFences > 0 &&
+            Zone.current[_acceptedConvWriteZone] != this)) {
+      return Future.error(StateError('storage is closing or locked'));
+    }
+    final result = body(store);
+    late final Future<void> settled;
+    settled = result.then<void>((_) {}, onError: (_) {}).whenComplete(() {
+      _logWrites.remove(settled);
+    });
+    _logWrites.add(settled);
+    return result;
+  }
+
+  void _noteLogCommit(
+    AsyncKvLogStore store,
+    int logId, {
+    bool message = false,
+  }) {
+    if (!identical(store, _store) || !identical(store, _allocatorStore)) return;
+    _visibleNextLogId = max(_visibleNextLogId ?? 1, logId + 1);
+    if (message) {
+      // An earlier allocated record can arrive after a later one was folded.
+      // Replay the complete prefix in that rare case: replaying only an old
+      // post over warm edit/delete maps is not idempotent.
+      if (logId < _scanFoldedUpTo ||
+          (_foldReadingUpTo != null && logId < _foldReadingUpTo!)) {
+        _messageScanNeedsRebuild = true;
+      }
+      _scanResult = null;
+    }
+  }
+
+  Future<int> _commitAtNextLogId(List<KvLogOp> Function(int logId) opsFor) =>
+      _trackLogWrite((store) async {
+        final logId = await _allocLogId(store);
+        await store.commit(opsFor(logId));
+        _noteLogCommit(store, logId);
+        return logId;
+      });
+
+  /// Route a fresh global id to its deterministic message shard. Only the
+  /// first record in a shard waits for its durable discovery marker; data
+  /// commits in unrelated streams remain independent.
   Future<int> _commitAtNextMessageLogId(
     List<KvLogOp> Function(int namespace, int logId) opsFor,
-  ) async {
-    final logId = await _allocLogId();
+  ) => _trackLogWrite((store) async {
+    final logId = await _allocLogId(store, maximum: Ns.messageLogShardCapacity);
     final namespace = Ns.messageLogNamespaceFor(logId);
     await _ensureMessageLogNamespacesLoaded();
     final messageOps = opsFor(namespace, logId);
 
     Future<void> commit({required bool withMarker}) async {
-      await _as.commit([
+      await store.commit([
         ...messageOps,
         if (withMarker)
           PutOp(
@@ -4768,7 +4960,6 @@ class HiddenVolumeStorage
             _sk('$_messageLogNamespaceMarkerPrefix$namespace'),
             _sk('1'),
           ),
-        PutOp(Ns.settings, _sk('msg_next_id'), _sk('${_nextIdCache!}')),
       ]);
     }
 
@@ -4777,8 +4968,6 @@ class HiddenVolumeStorage
     } else {
       final firstCommit = _messageLogMarkerWrites[namespace];
       if (firstCommit != null) {
-        // Only the first record of a never-used shard waits: its atomic commit
-        // publishes the durable discovery marker before followers can land.
         await firstCommit;
         await commit(withMarker: false);
       } else {
@@ -4799,8 +4988,9 @@ class HiddenVolumeStorage
       }
     }
     _messageLogNamespaces.add(namespace);
+    _noteLogCommit(store, logId, message: true);
     return logId;
-  }
+  });
 
   /// Composite key for the scan maps: a conversation + a message id, joined by
   /// the Unit Separator (U+001F). `conv` is a server-authenticated 64-hex node id
@@ -4828,10 +5018,9 @@ class HiddenVolumeStorage
     _messageLogNamespaceMarkers.clear();
     _messageLogNamespacesInit = null;
     _messageLogMarkerWrites.clear();
-    // Drop the log-id counter too: adopting a different space (open), or a
-    // scrub/vacuum that may renumber the log, invalidates it — re-read lazily.
-    _nextIdCache = null;
-    _idInit = null;
+    _messageScanNeedsRebuild = false;
+    // Logical log ids survive a scrub. Keep active reservations across a fold
+    // rebuild; open/close/erase reset them only after accepted writers drain.
   }
 
   Future<void> _invalidateScanCache() =>
@@ -4858,7 +5047,11 @@ class HiddenVolumeStorage
     }
     final nextId = await _nextLogId();
     final cached = _scanResult;
-    if (cached != null && _scanFoldedUpTo == nextId) return cached;
+    if (cached != null &&
+        _scanFoldedUpTo == nextId &&
+        !_messageScanNeedsRebuild) {
+      return cached;
+    }
     await _foldCritical();
     // Materialise from the (now-current) fold state, applying delivery status.
     final result = _scanOrder
@@ -4893,6 +5086,7 @@ class HiddenVolumeStorage
       _clearScanState();
     }
     final nextId = await _nextLogId();
+    if (_messageScanNeedsRebuild) _clearScanState();
     if (_scanFoldedUpTo == nextId) return; // fold state already current
     // The fold state is about to change, so the materialised list is now stale.
     // Drop it here (not only in _scanLogCritical) because a NON-materialising
@@ -4900,14 +5094,26 @@ class HiddenVolumeStorage
     // this, a later loadMessages would see _scanFoldedUpTo == nextId next to a
     // stale _scanResult and return the OLD list.
     _scanResult = null;
-    // Re-read ONE record of overlap (start = foldedUpTo - 1) so we don't depend
-    // on the range's inclusive/exclusive boundary — re-applying a record is
-    // idempotent under the composite-key maps.
+    // Read one record of overlap to tolerate either range boundary convention.
+    // Filter it below: replaying an old post over a warm edit is not idempotent.
     final start = _scanFoldedUpTo == 0 ? null : _scanFoldedUpTo - 1;
     final scanT0 = DateTime.now();
     var scanned = 0;
-    final entries = await _messageLogEntries(start: start);
+    final List<_MessageLogEntry> entries;
+    _foldReadingUpTo = nextId;
+    try {
+      entries = await _messageLogEntries(start: start);
+    } catch (_) {
+      _messageScanNeedsRebuild = true;
+      rethrow;
+    } finally {
+      _foldReadingUpTo = null;
+    }
+    final rebuildAfterRead = _messageScanNeedsRebuild;
+    _messageScanNeedsRebuild =
+        true; // a failed decode must retry from clean maps
     for (final e in entries) {
+      if (e.logId < _scanFoldedUpTo || e.logId >= nextId) continue;
       scanned++;
       final m = jsonDecode(utf8.decode(e.payload)) as Map<String, dynamic>;
       if (m['op'] == 'status') {
@@ -5163,6 +5369,7 @@ class HiddenVolumeStorage
       _scanPendingDeletions.remove(k);
     }
     _scanFoldedUpTo = nextId;
+    _messageScanNeedsRebuild = rebuildAfterRead;
     final ms = DateTime.now().difference(scanT0).inMilliseconds;
     if (ms > 50) {
       devLog(
@@ -5174,14 +5381,27 @@ class HiddenVolumeStorage
   }
 
   @override
-  Future<void> close() async {
-    await _editGate;
+  Future<void> close() {
+    final pending = _closePending;
+    if (pending != null) return pending;
+    late final Future<void> closing;
+    closing = _drainConvSequenceWrites(_close).whenComplete(() {
+      if (identical(_closePending, closing)) _closePending = null;
+    });
+    _closePending = closing;
+    return closing;
+  }
+
+  Future<void>? _closePending;
+
+  Future<void> _close() async {
     final s = _store;
     // Clear the handle FIRST: a throwing native close must never leave a stale
     // _store behind — that would wedge every later open of the same container
     // behind its exclusive flock until an app restart. The error itself is
     // logged and swallowed (callers close best-effort on teardown paths).
     _store = null;
+    _resetLogAllocator();
     _deleteScrubPending = null;
     _legacyDeleteScrubReady = null;
     _deleteScrubRecoveryNeeded = false;
