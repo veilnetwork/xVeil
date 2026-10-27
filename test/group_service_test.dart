@@ -10562,6 +10562,175 @@ void main() {
     },
   );
 
+  test(
+    'durable device ingest publishes admission without rereading its journal',
+    () async {
+      final sourceStore = FakeHvContainer().storage();
+      final store = _HeldGroupHeaderStorage();
+      await sourceStore.open(password: 'pw', createIfMissing: true);
+      await store.open(password: 'pw', createIfMissing: true);
+      final source = GroupService(sourceStore, _FakeSigner(owner));
+      final target = GroupService(store, _FakeSigner(bob))
+        ..myDevice = bob
+        ..documentNodeId = (_) => owner;
+      addTearDown(source.dispose);
+      addTearDown(target.dispose);
+      expect(
+        await source.linkDevice(
+          bob,
+          sovereign: sovereign,
+          broadcastSnapshot: false,
+        ),
+        isTrue,
+      );
+      final gid = NodeId.fromHex((await source.deviceGroupIdHex())!);
+      expect(
+        await target.ingestSnapshot(
+          source.snapshotJson((await source.load(gid))!, recipient: bob),
+        ),
+        isTrue,
+      );
+      expect(await target.adoptDeviceGroup(gid), isTrue);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      store.heldKey = 'group:${gid.hex}';
+
+      final former = _id(0xD6), current = _id(0xD7), stranger = _id(0xE4);
+      final future = _id(0xEE);
+      expect(
+        await source.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.identityDoc,
+            key: future.hex,
+            tsMs:
+                DateTime.now().millisecondsSinceEpoch +
+                kDeviceSyncClockSkew.inMilliseconds +
+                60000,
+            payload: const {'d': 'ZG9j', 'o': true},
+          ),
+        ),
+        isTrue,
+      );
+      for (final (device, stamp) in [(former, 444), (current, 445)]) {
+        expect(
+          await source.postDeviceEvent(
+            DeviceSyncEvent(
+              kind: DeviceSyncKind.identityDoc,
+              key: device.hex,
+              tsMs: stamp,
+              payload: const {'d': 'ZG9j', 'o': true},
+            ),
+          ),
+          isTrue,
+        );
+        expect(
+          await target.ingestSnapshot(
+            source.snapshotJson((await source.load(gid))!, recipient: bob),
+          ),
+          isTrue,
+        );
+        store.headerReads = 0;
+        expect(await target.isMyDeviceOrMaster(stranger), isFalse);
+        expect(await target.isMyDeviceOrMaster(future), isFalse);
+        expect(await target.isMyDeviceOrMaster(device), isTrue);
+        if (device == current) {
+          expect(await target.isMyDeviceOrMaster(former), isFalse);
+        }
+        expect(await target.ownsDeviceGroup(), isFalse);
+        expect(
+          store.headerReads,
+          0,
+          reason: 'the committed validated view already contains admission',
+        );
+      }
+
+      final replacement = _id(0xD8);
+      expect(
+        await source.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.identityDoc,
+            key: replacement.hex,
+            tsMs: 446,
+            payload: const {'d': 'ZG9j', 'o': true},
+          ),
+        ),
+        isTrue,
+      );
+      final replacementWire = source.snapshotJson(
+        (await source.load(gid))!,
+        recipient: bob,
+      );
+      store.failNextHeaderWrite = true;
+      await expectLater(
+        target.ingestSnapshot(replacementWire),
+        throwsStateError,
+      );
+      store.headerReads = 0;
+      expect(await target.isMyDeviceOrMaster(current), isTrue);
+      expect(await target.isMyDeviceOrMaster(replacement), isFalse);
+      expect(
+        store.headerReads,
+        0,
+        reason: 'an uncommitted announcement must not replace admission',
+      );
+      expect(await target.ingestSnapshot(replacementWire), isTrue);
+      store.headerReads = 0;
+      expect(await target.isMyDeviceOrMaster(current), isFalse);
+      expect(await target.isMyDeviceOrMaster(replacement), isTrue);
+      expect(store.headerReads, 0);
+
+      final sibling = _id(0xD9);
+      expect(
+        await source.linkDevice(
+          sibling,
+          sovereign: sovereign,
+          broadcastSnapshot: false,
+        ),
+        isTrue,
+      );
+      expect(
+        await target.ingestSnapshot(
+          source.snapshotJson((await source.load(gid))!, recipient: bob),
+        ),
+        isTrue,
+      );
+      expect(await target.isMyDeviceOrMaster(sibling), isTrue);
+      expect(await source.revokeDevice(sibling, sovereign: sovereign), isTrue);
+      expect(
+        await target.ingestSnapshot(
+          source.snapshotJson((await source.load(gid))!, recipient: bob),
+        ),
+        isTrue,
+      );
+      store.headerReads = 0;
+      expect(await target.isMyDeviceOrMaster(sibling), isFalse);
+      expect(await target.isMyDeviceOrMaster(replacement), isTrue);
+      expect(
+        store.headerReads,
+        0,
+        reason: 'revocation and routing come from the new committed state',
+      );
+
+      final expired = DateTime.now().millisecondsSinceEpoch + 31000;
+      target.debugWallClockMs = () => expired;
+      expect(await target.isMyDeviceOrMaster(stranger), isFalse);
+      expect(
+        store.headerReads,
+        greaterThan(0),
+        reason: 'priming does not remove the ordinary 30-second expiry',
+      );
+      target.debugWallClockMs = null;
+      target.myDevice = null;
+      var deviceConfigReads = 0;
+      target.myDeviceReader = () async {
+        deviceConfigReads++;
+        return bob;
+      };
+      expect(await target.ingestSnapshot(replacementWire), isTrue);
+      expect(deviceConfigReads, 0,
+          reason: 'optional cache warming must not reopen device config');
+    },
+  );
+
   test('a newer master announcement replaces an older marked device', () async {
     final ownerStore = FakeHvContainer().storage();
     final linkedStore = FakeHvContainer().storage();
