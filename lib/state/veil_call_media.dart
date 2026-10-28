@@ -952,7 +952,10 @@ class VeilCallMediaController implements CallMediaController {
   }
 
   @override
-  Future<bool> switchRoute(CallTransportKind transport) async {
+  Future<bool> switchRoute(
+    CallTransportKind transport, {
+    Future<bool> Function()? canCommit,
+  }) async {
     final call = _activeCall;
     if (call == null ||
         (transport != CallTransportKind.relay &&
@@ -965,6 +968,8 @@ class VeilCallMediaController implements CallMediaController {
       call.callId,
       () => _activeCall?.callId,
       () async {
+        if (canCommit != null && !await canCommit()) return false;
+        if (_activeCall?.callId != call.callId) return false;
         if (activeTransport == transport) return true;
         final engine = _engine;
         if (engine != null &&
@@ -972,7 +977,12 @@ class VeilCallMediaController implements CallMediaController {
             _handoverPacketSizeReady &&
             (activeTransport == CallTransportKind.relay ||
                 activeTransport == CallTransportKind.p2p)) {
-          return _switchRoutePreservingEngine(call, transport, engine);
+          return _switchRoutePreservingEngine(
+            call,
+            transport,
+            engine,
+            canCommit: canCommit,
+          );
         }
         if (engine != null &&
             (activeTransport == CallTransportKind.p2p ||
@@ -982,6 +992,7 @@ class VeilCallMediaController implements CallMediaController {
           // replacement whose delivery has not been observed.
           return false;
         }
+        if (canCommit != null) return false;
         await _stopSession(clearActiveCall: false);
         if (_activeCall?.callId != call.callId) return false;
         final ok = await start(_activeCall!.copyWith(transport: transport));
@@ -993,8 +1004,9 @@ class VeilCallMediaController implements CallMediaController {
   Future<bool> _switchRoutePreservingEngine(
     Call call,
     CallTransportKind target,
-    VeilMediaEngine engine,
-  ) async {
+    VeilMediaEngine engine, {
+    Future<bool> Function()? canCommit,
+  }) async {
     final previous = _chan;
     final previousPeer = _chanPeer;
     final epoch = _mediaEpoch;
@@ -1036,6 +1048,7 @@ class VeilCallMediaController implements CallMediaController {
         devLog(() => 'xVeil[call-media]: candidate delivery unconfirmed');
         return false;
       }
+      if (canCommit != null && !await canCommit()) return false;
       final current = _activeCall;
       if (_engine != engine ||
           epoch != _mediaEpoch ||

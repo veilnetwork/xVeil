@@ -74,7 +74,7 @@ const Duration kCallHeartbeatInterval = Duration(seconds: 5);
 
 /// A failed delivery probe must not replace the working relay or permanently
 /// strand a call there. Retry after two heartbeats, checking consent/admission
-/// again. A completed direct handover still cannot oscillate back and forth.
+/// again. Every relay fallback requires a fresh mutual readiness exchange.
 const Duration kCallP2PCandidateRetry = Duration(seconds: 10);
 
 /// …and if NOTHING is heard from the peer for this long, the call is torn down
@@ -252,7 +252,12 @@ abstract class CallMediaController {
 
   /// Follow a mutually safe mid-call route change between P2P and non-onion
   /// relay for two direct identities.
-  Future<bool> switchRoute(CallTransportKind transport) async => false;
+  /// Keep the live route while qualifying the candidate. If supplied, check
+  /// [canCommit] inside the operation queue and again immediately before rebind.
+  Future<bool> switchRoute(
+    CallTransportKind transport, {
+    Future<bool> Function()? canCommit,
+  }) async => false;
 
   /// Non-sensitive live transport counters for diagnostics. Implementations
   /// must not include media bytes, keys, peer addresses, or cleartext.
@@ -474,10 +479,12 @@ class CallService {
   bool _lateP2PLocalReady = false;
   bool _lateP2PPeerReady = false;
   bool _lateP2PPeerActive = false;
+  bool _lateP2PNeedsDatedReadiness = false;
   int _lastPeerRouteHealthAtMs = 0;
   bool _lateP2PAttempted = false;
   bool _lateP2PBusy = false;
   DateTime? _lateP2PRetryAt;
+  DateTime? _lateP2PActivatedAt;
   int _lateP2PGeneration = 0;
 
   void _resetLateP2P() {
@@ -487,15 +494,32 @@ class CallService {
     _lateP2PLocalReady = false;
     _lateP2PPeerReady = false;
     _lateP2PPeerActive = false;
+    _lateP2PNeedsDatedReadiness = false;
     _lastPeerRouteHealthAtMs = 0;
     _lateP2PAttempted = false;
     _lateP2PBusy = false;
     _lateP2PRetryAt = null;
+    _lateP2PActivatedAt = null;
+  }
+
+  void _rearmP2PAfterRelay() {
+    _lateP2PGeneration++;
+    _lateP2PLocalReady = false;
+    _lateP2PPeerReady = false;
+    _lateP2PPeerActive = false;
+    _lateP2PNeedsDatedReadiness = true;
+    _lateP2PAttempted = false;
+    _lateP2PBusy = false;
+    _lateP2PRetryAt = _now().add(kCallP2PCandidateRetry);
+    // Keep the direct activation time until relay actually commits. A failed
+    // relay candidate can leave direct live; fresh peer relay health must still
+    // be able to request a later fallback. _set clears the time on relay commit.
   }
 
   void _deferLateP2PCandidate(Call call) {
     _lateP2PAttempted = false;
     _lateP2PLocalReady = false;
+    _lateP2PPeerReady = false;
     _lateP2PRetryAt = _now().add(kCallP2PCandidateRetry);
     // A concurrent peer fallback agrees with our surviving relay. There is
     // no committed direct route to undo and no reason to revoke mutual consent.
@@ -527,10 +551,13 @@ class CallService {
         media == null ||
         !_canUpgradeP2P(c) ||
         _lateP2PBusy ||
+        _relayFallbackFlight != null ||
         (_lateP2PRetryAt != null && _now().isBefore(_lateP2PRetryAt!)) ||
         media.isRepairingReceiveSession ||
         (c.transport == CallTransportKind.p2p && _lateP2PPeerActive) ||
-        (c.transport != CallTransportKind.relay && !_lateP2PLocalReady)) {
+        (c.transport != CallTransportKind.relay &&
+            !_lateP2PLocalReady &&
+            !_lateP2PPeerReady)) {
       return;
     }
     final generation = _lateP2PGeneration;
@@ -563,6 +590,11 @@ class CallService {
         _lateP2PLocalReady = false;
         return;
       }
+      if (!await _localAllowsP2P(c.mediaIdentity) ||
+          !stillCurrent() ||
+          !_lateP2PConsent) {
+        return;
+      }
       _lateP2PLocalReady = true;
       await _sendCallSignal(
         c.peer,
@@ -581,7 +613,28 @@ class CallService {
       }
       _lateP2PAttempted = true;
       final epoch = ++_mediaOperationEpoch;
-      final ok = await media.switchRoute(CallTransportKind.p2p);
+      final ok = await media.switchRoute(
+        CallTransportKind.p2p,
+        canCommit: () async {
+          if (!stillCurrent() ||
+              epoch != _mediaOperationEpoch ||
+              !_lateP2PConsent) {
+            return false;
+          }
+          final allowed = await _localAllowsP2P(c.mediaIdentity);
+          if (!stillCurrent() ||
+              epoch != _mediaOperationEpoch ||
+              !_lateP2PConsent) {
+            return false;
+          }
+          if (!allowed) {
+            _lateP2PConsent = false;
+            _lateP2PLocalReady = false;
+            _lateP2PPeerReady = false;
+          }
+          return allowed;
+        },
+      );
       if (!stillCurrent() || epoch != _mediaOperationEpoch) return;
       final cur = _current!;
       if (ok && media.activeTransport == CallTransportKind.p2p) {
@@ -1323,7 +1376,14 @@ class CallService {
             sig.transport != null) {
           _lastPeerRouteHealthAtMs = at;
           _lateP2PPeerActive = sig.transport!.kind == CallTransportKind.p2p;
-          if (_foldPeerRelaySettlement(live, sig)) {
+          final withdrawn = _foldPeerRelaySettlement(live, sig);
+          final relayConfirmed =
+              sig.transport?.kind == CallTransportKind.relay &&
+              sig.p2pUpgradeAllowed == true &&
+              live.transport == CallTransportKind.p2p &&
+              _lateP2PActivatedAt != null &&
+              _now().difference(_lateP2PActivatedAt!) >= kCallP2PCandidateRetry;
+          if (withdrawn || relayConfirmed) {
             if (_lateP2PBusy && _lateP2PAttempted) {
               _pendingRelayCallId = sig.callId;
               _pendingRelayPeer = peer;
@@ -1346,7 +1406,9 @@ class CallService {
         if (routeCall?.callId == sig.callId && routeCall?.peer == peer) {
           final at = sig.sentAtMs;
           if (at != null) {
-            if (at <= _lastTransportInfoAtMs) break;
+            if (at <= _lastTransportInfoAtMs || at < _lastPeerRouteHealthAtMs) {
+              break;
+            }
             _lastTransportInfoAtMs = at;
           }
           _foldPeerRelaySettlement(routeCall!, sig);
@@ -1356,6 +1418,7 @@ class CallService {
             upgrade.callId == sig.callId &&
             upgrade.peer == peer &&
             _canUpgradeP2P(upgrade) &&
+            (!_lateP2PNeedsDatedReadiness || sig.sentAtMs != null) &&
             sig.protocolVersion >= kCallLateP2PUpgradeMinVersion &&
             sig.transport?.kind == CallTransportKind.p2p) {
           // A relay announcement can be queued while the native direct
@@ -1432,8 +1495,8 @@ class CallService {
         signal.p2pUpgradeAllowed != false) {
       return false;
     }
-    // The peer has committed to relay, rather than merely rejected a trial.
-    // Its old readiness cannot authorize a later one-sided direct upgrade.
+    // Explicit peer withdrawal is binding even when the original call allowed
+    // P2P. A transient relay report with consent retained never enters here.
     _lateP2PConsent = false;
     _lateP2PPeerReady = false;
     _lateP2PPeerActive = false;
@@ -1579,8 +1642,7 @@ class CallService {
         actual == CallTransportKind.relay &&
         cur.localPosture == CallPosture.direct &&
         cur.peerPosture == CallPosture.direct) {
-      _lateP2PConsent = false;
-      _lateP2PLocalReady = false;
+      _rearmP2PAfterRelay();
       _set(cur.copyWith(transport: CallTransportKind.relay));
       await _announceRelayFallback(cur);
       return;
@@ -1623,8 +1685,7 @@ class CallService {
         !before.isLive) {
       return;
     }
-    _lateP2PConsent = false;
-    _lateP2PLocalReady = false;
+    _rearmP2PAfterRelay();
     // Supersede an in-flight P2P start. Its eventual failure belongs to the
     // abandoned route and must not tear down the relay session opened below.
     _mediaOperationEpoch++;
@@ -1644,6 +1705,7 @@ class CallService {
     }
     if (ok && media.activeTransport == CallTransportKind.relay) {
       _relayCandidateRetry = null;
+      _rearmP2PAfterRelay();
       final settled = cur.copyWith(
         transport: CallTransportKind.relay,
         status: cur.status == CallStatus.connecting
@@ -1651,8 +1713,8 @@ class CallService {
             : cur.status,
       );
       _set(settled);
-      // The peer may still have a failed candidate queued for retry. Announce
-      // the settled route; periodic health repeats the withdrawal if lost.
+      // Announce the surviving relay while preserving original consent.
+      // A later return still needs fresh readiness and delivery qualification.
       try {
         await _announceRelayFallback(settled);
       } catch (error) {
@@ -1671,6 +1733,7 @@ class CallService {
         callId: callId,
         until: _now().add(const Duration(seconds: 5)),
       );
+      _lateP2PLocalReady = true;
       devLog(() => 'xVeil[call-media]: relay candidate deferred; kept direct');
       return;
     }
@@ -2545,6 +2608,12 @@ class CallService {
           DiagnosticMetric.video: call.media.video ? 1 : 0,
         },
       );
+    }
+    if (call.status == CallStatus.active &&
+        call.transport == CallTransportKind.p2p) {
+      _lateP2PActivatedAt ??= _now();
+    } else {
+      _lateP2PActivatedAt = null;
     }
     _current = call;
     if (!_changes.isClosed) _changes.add(call);
