@@ -118,8 +118,8 @@ void main() {
     await reopened.replacePeerAuthorization([smaller]);
     expect(
       raw.count(Ns.ratchet),
-      3,
-      reason: 'marker, auth head and ratchet head; old tails removed',
+      4,
+      reason: 'auth layout, cleanup budget, auth head and ratchet head; old tails removed',
     );
     expect(
       (await reopened.loadPeerAuthorization()).single.document,

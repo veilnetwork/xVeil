@@ -1,0 +1,40 @@
+{
+  "date": "2026-10-28",
+  "scope": "durable per-space ratchet cleanup and lifecycle drain",
+  "initial_regressions_failed_before_fix": 5,
+  "new_unit_regressions": 12,
+  "suite_files": 41,
+  "suite_passed": 577,
+  "native_checks_passed": 7,
+  "static_analysis_issues": 0,
+  "physical": {
+    "roles": {
+      "A": "Android profile/AOT Wi-Fi identity X",
+      "B": "Mac sibling of A",
+      "C": "Mac identity Y"
+    },
+    "new_messages": 18,
+    "submission_seconds": 20.6,
+    "all_messages_observed_seconds": 66.3,
+    "all_delivery_marks_observed_seconds": 76.7,
+    "visible_rows_per_role": 1000,
+    "ids_and_order_equal": true,
+    "duplicate_messages": 0,
+    "local_sequences_unique": true,
+    "private_timing_overlay": false,
+    "private_timing_endpoint_absent": true,
+    "native_libraries_unchanged": true
+  },
+  "cleanup": {
+    "recorded_owned_groups_checked": 55,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false
+  },
+  "limitations": [
+    "Long message and delivery-mark latency remains open.",
+    "Injected erasure failures and actual file reopen were tested; not every physical power-loss stage.",
+    "Legacy orphaned keys without any live ratchet record or cleanup marker cannot be detected by this migration."
+  ]
+}
