@@ -556,6 +556,14 @@ Map<String, int> groupClearWatermark({
 /// can learn the group.
 const kDeltaOmitsManifest = true;
 
+/// Private draft shared only by the rows of one serialized device post batch.
+/// Public reads must use storage, never a not-yet-committed row from this draft.
+class _DevicePostWorkingBundle {
+  _DevicePostWorkingBundle(this.bundle);
+
+  GroupBundle bundle;
+}
+
 class GroupService implements ArchiveGroups {
   GroupService(
     this._storage,
@@ -5999,8 +6007,6 @@ class GroupService implements ArchiveGroups {
       devLog(() => 'xVeil[group]: load ${groupId.short} refused — $why');
 
   Future<GroupBundle?> load(NodeId groupId) async {
-    final batched = _batchBundles[groupId.hex];
-    if (batched != null) return batched;
     var raw = await _loadBundleRaw(groupId);
     if (raw == null) {
       _loadRefused(groupId, 'no bundle in the file store nor the legacy key');
@@ -6432,11 +6438,6 @@ class GroupService implements ArchiveGroups {
     bool notify = true,
     bool preserveDeviceAdmission = false,
   }) async {
-    if (_batchBundles.containsKey(b.manifest.groupId.hex)) {
-      // A batch is building on this bundle; it saves once, at its end.
-      _batchBundles[b.manifest.groupId.hex] = b;
-      return b;
-    }
     final controlBeforeAdmission = b.control;
     b = _admitControlRowsSignedByLiveKeys(b);
     final controlReceipts = _notedControlReceipts(b);
@@ -10983,6 +10984,7 @@ class GroupService implements ArchiveGroups {
     List<InlineCustomEmoji> customEmoji = const [],
     bool publiclyVisible = false,
     bool broadcast = true,
+    _DevicePostWorkingBundle? deviceBatch,
   }) async {
     var effectiveAttachment = attachment;
     var publishPublicComment = publiclyVisible;
@@ -11005,7 +11007,7 @@ class GroupService implements ArchiveGroups {
         attachment == null) {
       return false;
     }
-    final b = await load(groupId);
+    final b = deviceBatch?.bundle ?? await load(groupId);
     if (b == null) return false;
     final state = foldControlLog(
       owner: b.manifest.owner,
@@ -11391,12 +11393,15 @@ class GroupService implements ArchiveGroups {
       );
       if (!publicComment.verify(_signer.verifyDetached)) return false;
     }
-    await _save(
-      b.copyWith(
-        messages: [...b.messages, signed],
-        publicComments: [...b.publicComments, ?publicComment],
-      ),
+    final updated = b.copyWith(
+      messages: [...b.messages, signed],
+      publicComments: [...b.publicComments, ?publicComment],
     );
+    if (deviceBatch == null) {
+      await _save(updated);
+    } else {
+      deviceBatch.bundle = updated;
+    }
     // Ship only the NEW message (delta), not the whole log — a post to a group
     // that already holds an image must not re-chunk that image over the wire.
     if (broadcast) {
@@ -21014,26 +21019,22 @@ class GroupService implements ArchiveGroups {
     final start = await load(gid);
     if (start == null) return List.filled(batch.length, false);
     final before = {for (final m in start.messages) m.ref};
-    // While this is set, [load] answers the working bundle and [_save] only
-    // records it: each row is built on the one before it, exactly as if it had
-    // been saved, and nothing is written until the batch is done.
-    _batchBundles[gid.hex] = start;
+    // Only these row builders may see the draft. Public load/export/sync
+    // readers must not publish a row whose final batch save can still fail.
+    final draft = _DevicePostWorkingBundle(start);
     final results = <bool>[];
-    GroupBundle working;
-    try {
-      for (final item in batch) {
-        results.add(
-          await _postMessage(
-            gid,
-            item.event.toBody(),
-            attachment: item.attachment,
-            broadcast: false,
-          ),
-        );
-      }
-    } finally {
-      working = _batchBundles.remove(gid.hex)!;
+    for (final item in batch) {
+      results.add(
+        await _postMessage(
+          gid,
+          item.event.toBody(),
+          attachment: item.attachment,
+          broadcast: false,
+          deviceBatch: draft,
+        ),
+      );
     }
+    final working = draft.bundle;
     final fresh = [
       for (final m in working.messages)
         if (!before.contains(m.ref)) m,
@@ -21047,18 +21048,20 @@ class GroupService implements ArchiveGroups {
     final admissionNeutral =
         identical(start.manifest, working.manifest) &&
         identical(start.control, working.control) &&
-        batch.every((item) => switch (item.event.kind) {
-          DeviceSyncKind.msgMirror ||
-          DeviceSyncKind.msgStatus ||
-          DeviceSyncKind.msgGone ||
-          DeviceSyncKind.msgEdit ||
-          DeviceSyncKind.convClear ||
-          DeviceSyncKind.readMark ||
-          DeviceSyncKind.contactUp ||
-          DeviceSyncKind.settingSet ||
-          DeviceSyncKind.callLog => true,
-          _ => false,
-        });
+        batch.every(
+          (item) => switch (item.event.kind) {
+            DeviceSyncKind.msgMirror ||
+            DeviceSyncKind.msgStatus ||
+            DeviceSyncKind.msgGone ||
+            DeviceSyncKind.msgEdit ||
+            DeviceSyncKind.convClear ||
+            DeviceSyncKind.readMark ||
+            DeviceSyncKind.contactUp ||
+            DeviceSyncKind.settingSet ||
+            DeviceSyncKind.callLog => true,
+            _ => false,
+          },
+        );
     await _save(working, preserveDeviceAdmission: admissionNeutral);
     if (!_disposed) {
       _backgroundTasks.start(() async {
@@ -21068,12 +21071,10 @@ class GroupService implements ArchiveGroups {
     return results;
   }
 
-  /// Working bundles of batches in progress, by group id hex.
-  final Map<String, GroupBundle> _batchBundles = {};
-
   /// Committed call results for publication deduplication, including events
-  /// whose timestamps are not effective yet. Share the mutation gate so this
-  /// never acknowledges a row from an in-flight, unsaved [_batchBundles] view.
+  /// whose timestamps are not effective yet. Join in-flight local posts before
+  /// deciding whether a call needs publication; ordinary reads can still see
+  /// the preceding committed state while a batch is being built.
   /// Applying remote state must still use [deviceSyncState]'s clock filter.
   Future<List<CallLogEntry>> committedDeviceCallLog() async {
     final hex = await deviceGroupIdHex();
