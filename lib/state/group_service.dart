@@ -6530,8 +6530,7 @@ class GroupService implements ArchiveGroups {
     // The device log is one stored blob with a hard cap; the hourly pass is
     // too slow for a history replay posting thousands of rows. Queued behind
     // the caller's own serialized section, never inside it.
-    if (b.manifest.name == kDeviceGroupName &&
-        b.messages.length > deviceLogCompactAtRows &&
+    if (_compaction.shouldCompactOnSave(b) &&
         _deviceLogCompactionQueued.add(key)) {
       unawaited(
         compactStateLogs(b.manifest.groupId)
