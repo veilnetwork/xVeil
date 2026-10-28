@@ -1,0 +1,688 @@
+{
+  "source_base": "5226304f6753289451082689a0b6e5ea83e097d4",
+  "source_lib_patch_sha256": "52f8ec77197c1bee998464896de197e5f7c711133c001c52d739af973945eba2",
+  "checks": {
+    "suite_passed": 803,
+    "existing_skips": 3,
+    "suite_files": 34,
+    "new_fake_cases": 9,
+    "native_cases_passed": 2,
+    "native_pair_benchmark_passed": true,
+    "updated_gc_subset_passed": 18,
+    "subset_counts_overlap": true,
+    "static_analysis": "no issues"
+  },
+  "private_timing_overlays_in_repository": false,
+  "rust_or_relay_changes": false,
+  "native_pair": {
+    "sync": {
+      "before": {
+        "writes": 16,
+        "commits_per_write": [
+          2
+        ],
+        "mean_ms": 33.45,
+        "median_ms": 32.88,
+        "peak_ms": 40.01
+      },
+      "after": {
+        "writes": 16,
+        "commits_per_write": [
+          1
+        ],
+        "mean_ms": 18.75,
+        "median_ms": 18.29,
+        "peak_ms": 24.7
+      }
+    },
+    "async": {
+      "before": {
+        "writes": 16,
+        "commits_per_write": [
+          2
+        ],
+        "mean_ms": 34.14,
+        "median_ms": 33.26,
+        "peak_ms": 39.03
+      },
+      "after": {
+        "writes": 16,
+        "commits_per_write": [
+          1
+        ],
+        "mean_ms": 19.02,
+        "median_ms": 18.25,
+        "peak_ms": 26.13
+      }
+    }
+  },
+  "observations": {
+    "baseline": {
+      "new_messages_requested": 18,
+      "burst_submission_seconds": 13.1,
+      "all_roles_observed_seconds": 33.8,
+      "new_C_logical_handlers_observed": 6,
+      "new_logical_ids_converged": true,
+      "no_duplicates": true,
+      "full_visible_ids_equal": true,
+      "full_visible_order_equal": true,
+      "counts": {
+        "B": 18,
+        "C": 18,
+        "A": 18
+      },
+      "full_visible_counts": {
+        "B": 892,
+        "C": 892,
+        "A": 892
+      },
+      "cleanup": {
+        "mac_remaining_processes": 0,
+        "peer_remaining_processes": 0,
+        "phone_remaining_processes": 0,
+        "own_forward_removed": true,
+        "main_app_modified": false,
+        "system_power_settings_changed": false,
+        "retained_profiles": true
+      },
+      "costs": {
+        "B": {
+          "new_C_message_costs": {
+            "mirror.batchRun": {
+              "samples": 6,
+              "mean_ms": 688.3,
+              "peak_ms": 821.2
+            },
+            "mirror.groupId": {
+              "samples": 6,
+              "mean_ms": 0.0,
+              "peak_ms": 0.2
+            },
+            "mirror.journal": {
+              "samples": 6,
+              "mean_ms": 689.6,
+              "peak_ms": 821.4
+            },
+            "mirror.membership": {
+              "samples": 6,
+              "mean_ms": 0.2,
+              "peak_ms": 1.3
+            },
+            "mirror.prepare": {
+              "samples": 6,
+              "mean_ms": 0.0,
+              "peak_ms": 0.2
+            },
+            "store.append": {
+              "samples": 6,
+              "mean_ms": 21.0,
+              "peak_ms": 41.5
+            },
+            "store.mirror": {
+              "samples": 6,
+              "mean_ms": 690.4,
+              "peak_ms": 821.5
+            }
+          },
+          "window": {
+            "mirror.batchLoad": {
+              "samples": 11,
+              "mean_ms": 219.0,
+              "total_ms": 2409.5
+            },
+            "mirror.batchSave": {
+              "samples": 11,
+              "mean_ms": 320.5,
+              "total_ms": 3525.7
+            },
+            "group.postBatch": {
+              "samples": 11,
+              "mean_ms": 673.3,
+              "total_ms": 7406.7
+            },
+            "ack.transport": {
+              "samples": 28,
+              "mean_ms": 12.7,
+              "total_ms": 355.9
+            }
+          }
+        },
+        "C": {
+          "new_C_message_costs": {
+            "ack.markStatus": {
+              "samples": 6,
+              "mean_ms": 14.1,
+              "peak_ms": 21.5
+            },
+            "mirror.groupId": {
+              "samples": 6,
+              "mean_ms": 0.2,
+              "peak_ms": 0.5
+            },
+            "mirror.membership": {
+              "samples": 6,
+              "mean_ms": 0.2,
+              "peak_ms": 0.4
+            },
+            "store.append": {
+              "samples": 6,
+              "mean_ms": 13.5,
+              "peak_ms": 22.9
+            },
+            "store.mirror": {
+              "samples": 6,
+              "mean_ms": 0.4,
+              "peak_ms": 1.0
+            }
+          },
+          "window": {
+            "ack.transport": {
+              "samples": 61,
+              "mean_ms": 1.5,
+              "total_ms": 93.5
+            }
+          }
+        },
+        "A": {
+          "new_C_message_costs": {
+            "mirror.batchRun": {
+              "samples": 6,
+              "mean_ms": 2607.9,
+              "peak_ms": 2777.8
+            },
+            "mirror.groupId": {
+              "samples": 6,
+              "mean_ms": 0.0,
+              "peak_ms": 0.0
+            },
+            "mirror.journal": {
+              "samples": 6,
+              "mean_ms": 2617.6,
+              "peak_ms": 2778.9
+            },
+            "mirror.membership": {
+              "samples": 6,
+              "mean_ms": 0.0,
+              "peak_ms": 0.1
+            },
+            "mirror.prepare": {
+              "samples": 6,
+              "mean_ms": 0.1,
+              "peak_ms": 0.1
+            },
+            "store.append": {
+              "samples": 6,
+              "mean_ms": 65.0,
+              "peak_ms": 163.0
+            },
+            "store.mirror": {
+              "samples": 6,
+              "mean_ms": 2617.8,
+              "peak_ms": 2779.1
+            }
+          },
+          "window": {
+            "mirror.batchLoad": {
+              "samples": 11,
+              "mean_ms": 907.0,
+              "total_ms": 9977.2
+            },
+            "mirror.batchSave": {
+              "samples": 11,
+              "mean_ms": 1529.3,
+              "total_ms": 16822.8
+            },
+            "group.postBatch": {
+              "samples": 11,
+              "mean_ms": 3000.0,
+              "total_ms": 33000.3
+            },
+            "ack.transport": {
+              "samples": 6,
+              "mean_ms": 66.3,
+              "total_ms": 397.6
+            }
+          }
+        }
+      }
+    },
+    "candidate": {
+      "new_messages_requested": 18,
+      "burst_submission_seconds": 16.9,
+      "all_roles_observed_seconds": 58.6,
+      "new_C_logical_handlers_observed": 6,
+      "new_logical_ids_converged": true,
+      "no_duplicates": true,
+      "full_visible_ids_equal": true,
+      "full_visible_order_equal": true,
+      "counts": {
+        "B": 18,
+        "C": 18,
+        "A": 18
+      },
+      "full_visible_counts": {
+        "B": 910,
+        "C": 910,
+        "A": 910
+      },
+      "cleanup": {
+        "mac_remaining_processes": 0,
+        "peer_remaining_processes": 0,
+        "phone_remaining_processes": 0,
+        "own_forward_removed": true,
+        "main_app_modified": false,
+        "system_power_settings_changed": false,
+        "retained_profiles": true
+      },
+      "costs": {
+        "B": {
+          "new_C_message_costs": {
+            "mirror.batchRun": {
+              "samples": 6,
+              "mean_ms": 603.3,
+              "peak_ms": 701.7
+            },
+            "mirror.groupId": {
+              "samples": 6,
+              "mean_ms": 0.0,
+              "peak_ms": 0.0
+            },
+            "mirror.journal": {
+              "samples": 6,
+              "mean_ms": 603.9,
+              "peak_ms": 701.9
+            },
+            "mirror.membership": {
+              "samples": 6,
+              "mean_ms": 0.0,
+              "peak_ms": 0.1
+            },
+            "mirror.prepare": {
+              "samples": 6,
+              "mean_ms": 0.1,
+              "peak_ms": 0.2
+            },
+            "store.append": {
+              "samples": 6,
+              "mean_ms": 17.1,
+              "peak_ms": 27.5
+            },
+            "store.mirror": {
+              "samples": 6,
+              "mean_ms": 604.2,
+              "peak_ms": 702.0
+            }
+          },
+          "window": {
+            "mirror.batchLoad": {
+              "samples": 11,
+              "mean_ms": 289.1,
+              "total_ms": 3179.7
+            },
+            "mirror.batchSave": {
+              "samples": 11,
+              "mean_ms": 445.9,
+              "total_ms": 4904.8
+            },
+            "group.postBatch": {
+              "samples": 11,
+              "mean_ms": 827.0,
+              "total_ms": 9097.4
+            },
+            "ack.transport": {
+              "samples": 53,
+              "mean_ms": 11.1,
+              "total_ms": 586.9
+            }
+          }
+        },
+        "C": {
+          "new_C_message_costs": {
+            "ack.markStatus": {
+              "samples": 6,
+              "mean_ms": 17.2,
+              "peak_ms": 25.8
+            },
+            "mirror.groupId": {
+              "samples": 6,
+              "mean_ms": 0.1,
+              "peak_ms": 0.2
+            },
+            "mirror.membership": {
+              "samples": 6,
+              "mean_ms": 0.2,
+              "peak_ms": 0.2
+            },
+            "store.append": {
+              "samples": 6,
+              "mean_ms": 21.2,
+              "peak_ms": 40.3
+            },
+            "store.mirror": {
+              "samples": 6,
+              "mean_ms": 0.3,
+              "peak_ms": 0.3
+            }
+          },
+          "window": {
+            "ack.transport": {
+              "samples": 62,
+              "mean_ms": 1.0,
+              "total_ms": 64.8
+            }
+          }
+        },
+        "A": {
+          "new_C_message_costs": {
+            "mirror.batchRun": {
+              "samples": 6,
+              "mean_ms": 2343.4,
+              "peak_ms": 3202.4
+            },
+            "mirror.groupId": {
+              "samples": 6,
+              "mean_ms": 0.0,
+              "peak_ms": 0.0
+            },
+            "mirror.journal": {
+              "samples": 6,
+              "mean_ms": 2678.0,
+              "peak_ms": 5205.7
+            },
+            "mirror.membership": {
+              "samples": 6,
+              "mean_ms": 0.0,
+              "peak_ms": 0.1
+            },
+            "mirror.prepare": {
+              "samples": 6,
+              "mean_ms": 0.0,
+              "peak_ms": 0.1
+            },
+            "store.append": {
+              "samples": 6,
+              "mean_ms": 85.9,
+              "peak_ms": 122.6
+            },
+            "store.mirror": {
+              "samples": 6,
+              "mean_ms": 2678.2,
+              "peak_ms": 5205.9
+            }
+          },
+          "window": {
+            "mirror.batchLoad": {
+              "samples": 16,
+              "mean_ms": 831.3,
+              "total_ms": 13300.5
+            },
+            "mirror.batchSave": {
+              "samples": 15,
+              "mean_ms": 1266.0,
+              "total_ms": 18989.6
+            },
+            "group.postBatch": {
+              "samples": 15,
+              "mean_ms": 2543.8,
+              "total_ms": 38156.5
+            },
+            "ack.transport": {
+              "samples": 19,
+              "mean_ms": 488.0,
+              "total_ms": 9272.1
+            }
+          }
+        }
+      }
+    },
+    "normal": {
+      "new_messages_requested": 18,
+      "private_timing_overlay": false,
+      "private_timing_endpoint_absent_on_all_roles": true,
+      "phone_build_mode": "profile",
+      "burst_submission_seconds": 25.0,
+      "new_logical_ids_converged": true,
+      "no_duplicates": true,
+      "complete": true,
+      "full_visible_id_sets_equal": true,
+      "full_visible_order_equal": true,
+      "all_roles_observed_seconds": 96.7,
+      "all_new_delivery_marks_converged": true,
+      "delivery_marks_last_observed_seconds": 129.1,
+      "counts": {
+        "A": 18,
+        "B": 18,
+        "C": 18
+      },
+      "full_visible_counts": {
+        "B": 928,
+        "C": 928,
+        "A": 928
+      },
+      "delivered_counts": {
+        "A": 18,
+        "B": 18,
+        "C": 18
+      },
+      "cleanup": {
+        "mac_remaining_processes": 0,
+        "peer_remaining_processes": 0,
+        "phone_remaining_processes": 0,
+        "own_forward_removed": true,
+        "main_app_modified": false,
+        "system_power_settings_changed": false,
+        "retained_profiles": true
+      }
+    }
+  },
+  "independent_cleanup": {
+    "recorded_owned_groups_checked": 47,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false
+  },
+  "identical_native_and_hv_binaries_across_phases": true,
+  "slow_sends_whole_session_on_A": {
+    "baseline": {
+      "slow_send_samples_whole_session": 45,
+      "combined_ms": {
+        "mean": 428.6,
+        "sum": 19289,
+        "peak": 3685
+      },
+      "transport_call_ms": {
+        "mean": 101.6,
+        "sum": 4570,
+        "peak": 1735
+      },
+      "post_send_ratchet_ms": {
+        "mean": 327.1,
+        "sum": 14719,
+        "peak": 3682
+      }
+    },
+    "candidate": {
+      "slow_send_samples_whole_session": 88,
+      "combined_ms": {
+        "mean": 526.3,
+        "sum": 46312,
+        "peak": 3496
+      },
+      "transport_call_ms": {
+        "mean": 53.5,
+        "sum": 4712,
+        "peak": 428
+      },
+      "post_send_ratchet_ms": {
+        "mean": 472.7,
+        "sum": 41600,
+        "peak": 3470
+      }
+    },
+    "normal": {
+      "slow_send_samples_whole_session": 141,
+      "combined_ms": {
+        "mean": 334.4,
+        "sum": 47149,
+        "peak": 2340
+      },
+      "transport_call_ms": {
+        "mean": 96.2,
+        "sum": 13564,
+        "peak": 1471
+      },
+      "post_send_ratchet_ms": {
+        "mean": 238.2,
+        "sum": 33585,
+        "peak": 2034
+      }
+    }
+  },
+  "ratchet_slow_events_whole_session_on_A": {
+    "baseline": {
+      "flush": {
+        "samples_whole_session": 73,
+        "gate_ms": {
+          "mean": 201.0,
+          "peak": 3629,
+          "sum": 14670
+        },
+        "work_ms": {
+          "mean": 202.1,
+          "peak": 1326,
+          "sum": 14756
+        },
+        "written": {
+          "mean": 1.2,
+          "peak": 2,
+          "sum": 90
+        }
+      },
+      "step": {
+        "samples_whole_session": 19,
+        "peek_ms": {
+          "mean": 0.1,
+          "peak": 1,
+          "sum": 1
+        },
+        "note_ms": {
+          "mean": 2.3,
+          "peak": 43,
+          "sum": 43
+        },
+        "export_ms": {
+          "mean": 0,
+          "peak": 0,
+          "sum": 0
+        },
+        "save_ms": {
+          "mean": 505.7,
+          "peak": 1322,
+          "sum": 9608
+        },
+        "written": {
+          "mean": 1.3,
+          "peak": 2,
+          "sum": 25
+        }
+      }
+    },
+    "candidate": {
+      "flush": {
+        "samples_whole_session": 153,
+        "gate_ms": {
+          "mean": 572.1,
+          "peak": 3359,
+          "sum": 87528
+        },
+        "work_ms": {
+          "mean": 163.2,
+          "peak": 1867,
+          "sum": 24977
+        },
+        "written": {
+          "mean": 1.1,
+          "peak": 3,
+          "sum": 174
+        }
+      },
+      "step": {
+        "samples_whole_session": 35,
+        "peek_ms": {
+          "mean": 0.1,
+          "peak": 2,
+          "sum": 5
+        },
+        "note_ms": {
+          "mean": 4.4,
+          "peak": 153,
+          "sum": 153
+        },
+        "export_ms": {
+          "mean": 0.5,
+          "peak": 2,
+          "sum": 19
+        },
+        "save_ms": {
+          "mean": 435.2,
+          "peak": 1708,
+          "sum": 15232
+        },
+        "written": {
+          "mean": 1.5,
+          "peak": 3,
+          "sum": 52
+        }
+      }
+    },
+    "normal": {
+      "flush": {
+        "samples_whole_session": 229,
+        "gate_ms": {
+          "mean": 205.8,
+          "peak": 2063,
+          "sum": 47123
+        },
+        "work_ms": {
+          "mean": 180.3,
+          "peak": 1535,
+          "sum": 41279
+        },
+        "written": {
+          "mean": 1.2,
+          "peak": 3,
+          "sum": 264
+        }
+      },
+      "step": {
+        "samples_whole_session": 61,
+        "peek_ms": {
+          "mean": 0.0,
+          "peak": 1,
+          "sum": 3
+        },
+        "note_ms": {
+          "mean": 0.7,
+          "peak": 40,
+          "sum": 40
+        },
+        "export_ms": {
+          "mean": 0.6,
+          "peak": 20,
+          "sum": 35
+        },
+        "save_ms": {
+          "mean": 441.1,
+          "peak": 1529,
+          "sum": 26907
+        },
+        "written": {
+          "mean": 1.2,
+          "peak": 3,
+          "sum": 75
+        }
+      }
+    }
+  }
+}
