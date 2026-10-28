@@ -246,6 +246,7 @@ class HiddenVolumeStorage
     _deleteScrubRecoveryNeeded = false;
     try {
       await _recoverMessageDeletion(opening: true);
+      await _withRatchetIo(() => _recoverRatchetCleanup(opening: true));
     } catch (_) {
       // A failed recovery must not leak the exclusive handle and wedge retry.
       await close();
@@ -1595,7 +1596,81 @@ class HiddenVolumeStorage
     });
   }
 
-  int _ratchetSavesSinceScrub = 0;
+  // One protected byte, committed WITH the replacement states. A RAM-only
+  // count can be reset indefinitely by restarts, or carried into another
+  // identity when a Storage handle switches spaces. Unlike settings, this
+  // namespace is not cleared by cache/file maintenance. 0x53 is disjoint
+  // from both the 66-byte session keys and the authorization layout (0x50).
+  static final _ratchetCleanupKey = Uint8List.fromList([0x53]);
+  int? _ratchetSavesSinceScrub;
+  Future<void> _ratchetIoGate = Future<void>.value();
+  int _ratchetIoFences = 0;
+
+  Future<T> _withRatchetIo<T>(Future<T> Function() operation) {
+    if (_closePending != null || _ratchetIoFences > 0) {
+      return Future<T>.error(StateError('ratchet storage is closing'));
+    }
+    final session = _store;
+    if (session == null) {
+      return Future<T>.error(StateError('ratchet storage is locked'));
+    }
+    final result = _ratchetIoGate.then((_) {
+      if (!identical(session, _store)) {
+        throw StateError('storage session changed before ratchet operation');
+      }
+      return operation();
+    });
+    _ratchetIoGate = result.then<void>((_) {}, onError: (_) {});
+    return result;
+  }
+
+  Future<T> _drainRatchetIo<T>(Future<T> Function() operation) async {
+    _ratchetIoFences++;
+    try {
+      // Queue maintenance as well as waiting for earlier accepted operations.
+      // No new ratchet work can join until this maintenance has finished.
+      final result = _ratchetIoGate.then((_) => operation());
+      _ratchetIoGate = result.then<void>((_) {}, onError: (_) {});
+      return await result;
+    } finally {
+      _ratchetIoFences--;
+    }
+  }
+
+  PutOp _ratchetBudgetOp(int count) =>
+      PutOp(Ns.ratchet, _ratchetCleanupKey, Uint8List.fromList([count]));
+
+  // Called only under the ratchet IO gate. Already-open multi-space views
+  // need this lazily too, before exposing persisted keys to the native node.
+  Future<void> _recoverRatchetCleanup({bool opening = false}) async {
+    if (_ratchetSavesSinceScrub == null) {
+      final raw = await _as.get(Ns.ratchet, _ratchetCleanupKey);
+      if (raw == null) {
+        final keys = await _as.kvKeys(Ns.ratchet);
+        // Old stores have no count. A live run (including a headless damaged
+        // run) can have superseded chunks: reclaim once before restoring it.
+        _ratchetSavesSinceScrub =
+            keys.any((k) => k.length == kRatchetKeyLen + 2)
+            ? _kRatchetSavesPerScrub
+            : 0;
+      } else {
+        // Damaged metadata must not silently waive the cleanup obligation.
+        _ratchetSavesSinceScrub = raw.length == 1
+            ? min(raw[0], _kRatchetSavesPerScrub)
+            : _kRatchetSavesPerScrub;
+      }
+    }
+    if (_ratchetSavesSinceScrub! < _kRatchetSavesPerScrub) return;
+    if (opening) {
+      _anchorBeforeDeletionRecovery ??= await readCommitAnchor();
+    }
+    await _as.scrub();
+    // Keep the durable obligation until BOTH erasure and its completion
+    // commit succeed. A crash here merely repeats a safe vacuum on reopen.
+    await _as.commit([_ratchetBudgetOp(0)]);
+    _ratchetSavesSinceScrub = 0;
+    // Vacuum preserves live log IDs/values, so retain the warm message fold.
+  }
 
   /// `conversation key ‖ chunk index`, the record key.
   static Uint8List _ratchetRecordKey(Uint8List conversationKey, int chunk) {
@@ -1613,7 +1688,8 @@ class HiddenVolumeStorage
       ((4 + blobLen) + _kRatchetChunkBytes - 1) ~/ _kRatchetChunkBytes;
 
   @override
-  Future<List<Uint8List>> ratchetConversationKeys() async {
+  Future<List<Uint8List>> ratchetConversationKeys() => _withRatchetIo(() async {
+    await _recoverRatchetCleanup();
     final keys = await _as.kvKeys(Ns.ratchet);
     final out = <Uint8List>[];
     for (final k in keys) {
@@ -1624,54 +1700,68 @@ class HiddenVolumeStorage
       out.add(Uint8List.fromList(k.sublist(0, kRatchetKeyLen)));
     }
     return out;
-  }
+  });
 
   @override
-  Future<Uint8List?> loadRatchetState(Uint8List conversationKey) async {
-    if (conversationKey.length != kRatchetKeyLen) return null;
-    final head = await _as.get(
-      Ns.ratchet,
-      _ratchetRecordKey(conversationKey, 0),
-    );
-    if (head == null || head.length < 4) return null;
-    final total = (head[0] << 24) | (head[1] << 16) | (head[2] << 8) | head[3];
-    if (total <= 0 || total > kRatchetMaxStateLen) return null;
-    final out = Uint8List(total);
-    var filled = 0;
-    void take(Uint8List record, int from) {
-      final n = record.length - from;
-      if (n <= 0) return;
-      final room = total - filled;
-      final take = n < room ? n : room;
-      out.setRange(filled, filled + take, record, from);
-      filled += take;
-    }
+  Future<Uint8List?> loadRatchetState(Uint8List conversationKey) =>
+      _withRatchetIo(() async {
+        await _recoverRatchetCleanup();
+        if (conversationKey.length != kRatchetKeyLen) return null;
+        final head = await _as.get(
+          Ns.ratchet,
+          _ratchetRecordKey(conversationKey, 0),
+        );
+        if (head == null || head.length < 4) return null;
+        final total =
+            (head[0] << 24) | (head[1] << 16) | (head[2] << 8) | head[3];
+        if (total <= 0 || total > kRatchetMaxStateLen) return null;
+        final out = Uint8List(total);
+        var filled = 0;
+        void take(Uint8List record, int from) {
+          final n = record.length - from;
+          if (n <= 0) return;
+          final room = total - filled;
+          final take = n < room ? n : room;
+          out.setRange(filled, filled + take, record, from);
+          filled += take;
+        }
 
-    take(head, 4);
-    final chunks = _ratchetChunkCount(total);
-    for (var i = 1; i < chunks; i++) {
-      final part = await _as.get(
-        Ns.ratchet,
-        _ratchetRecordKey(conversationKey, i),
-      );
-      // A missing record means the run is incomplete. Half a session is a
-      // session with the WRONG keys, so answer "nothing held" and let the
-      // conversation re-key rather than importing a lie.
-      if (part == null) return null;
-      take(part, 0);
-    }
-    return filled == total ? out : null;
-  }
+        take(head, 4);
+        final chunks = _ratchetChunkCount(total);
+        for (var i = 1; i < chunks; i++) {
+          final part = await _as.get(
+            Ns.ratchet,
+            _ratchetRecordKey(conversationKey, i),
+          );
+          // A missing record means the run is incomplete. Half a session is a
+          // session with the WRONG keys, so answer "nothing held" and let the
+          // conversation re-key rather than importing a lie.
+          if (part == null) return null;
+          take(part, 0);
+        }
+        return filled == total ? out : null;
+      });
 
   @override
-  Future<void> saveRatchetStates(List<RatchetStateEntry> entries) async {
+  Future<void> saveRatchetStates(
+    List<RatchetStateEntry> entries,
+  ) => _withRatchetIo(() async {
     if (entries.isEmpty) return;
+    await _recoverRatchetCleanup();
     var pending = <KvLogOp>[];
+    var pendingSaves = 0;
     Future<void> flush() async {
       if (pending.isEmpty) return;
       final ops = pending;
       pending = <KvLogOp>[];
-      await _as.commit(ops);
+      final count = min(
+        _ratchetSavesSinceScrub! + pendingSaves,
+        _kRatchetSavesPerScrub,
+      );
+      await _as.commit([...ops, _ratchetBudgetOp(count)]);
+      _ratchetSavesSinceScrub = count;
+      pendingSaves = 0;
+      await _recoverRatchetCleanup();
     }
 
     for (final entry in entries) {
@@ -1725,29 +1815,24 @@ class HiddenVolumeStorage
       // however large it is, or a crash between them restores a session whose
       // halves came from different points in the chain.
       if (pending.isNotEmpty &&
-          pending.length + ops.length > _kRatchetOpsPerCommit) {
+          pending.length + ops.length + 1 > _kRatchetOpsPerCommit) {
         await flush();
       }
       pending.addAll(ops);
-      if (pending.length >= _kRatchetOpsPerCommit) await flush();
-      _ratchetSavesSinceScrub++;
+      pendingSaves++;
+      if (pending.length + 1 >= _kRatchetOpsPerCommit ||
+          _ratchetSavesSinceScrub! + pendingSaves >= _kRatchetSavesPerScrub) {
+        await flush();
+      }
     }
     await flush();
-    if (_ratchetSavesSinceScrub >= _kRatchetSavesPerScrub) {
-      // Reclaim the chunks the replacements above orphaned. Every one of them
-      // holds a session from before the chain moved on, and a chain key that
-      // survives in the container is a chain key a password still opens.
-      await _as.scrub();
-      // A failed scrub retains the budget so the next save retries it.
-      _ratchetSavesSinceScrub = 0;
-      // Vacuum preserves live keys, logical log IDs and values. Ratchet
-      // replacement has not changed the message log: keep its warm fold and
-      // incremental watermark rather than forcing a full conversation scan.
-    }
-  }
+  });
 
   @override
-  Future<int> forgetRatchetStates(Iterable<Uint8List> conversationKeys) async {
+  Future<int> forgetRatchetStates(
+    Iterable<Uint8List> conversationKeys,
+  ) => _withRatchetIo(() async {
+    await _recoverRatchetCleanup();
     var pending = <KvLogOp>[];
     var forgotten = 0;
     var wrote = false;
@@ -1755,7 +1840,10 @@ class HiddenVolumeStorage
       if (pending.isEmpty) return;
       final ops = pending;
       pending = <KvLogOp>[];
-      await _as.commit(ops);
+      // Deletion requires immediate cleanup. Persist that requirement even
+      // when a crash removes the last live head before the vacuum can run.
+      await _as.commit([...ops, _ratchetBudgetOp(_kRatchetSavesPerScrub)]);
+      _ratchetSavesSinceScrub = _kRatchetSavesPerScrub;
       wrote = true;
     }
 
@@ -1778,19 +1866,19 @@ class HiddenVolumeStorage
       // keys, unreachable and never scrubbed. Forward secrecy a password
       // still opens is the thing this namespace exists to prevent.
       if (pending.isNotEmpty &&
-          pending.length + ops.length > _kRatchetOpsPerCommit) {
+          pending.length + ops.length + 1 > _kRatchetOpsPerCommit) {
         await flush();
       }
       pending.addAll(ops);
-      if (pending.length >= _kRatchetOpsPerCommit) await flush();
+      if (pending.length + 1 >= _kRatchetOpsPerCommit) await flush();
     }
     await flush();
     // The bytes are key material, so the records they occupied are reclaimed
     // rather than orphaned — a tombstone that leaves the old chunk readable to
     // a key-holder is not forgetting.
-    if (wrote) await _as.scrub();
+    if (wrote) await _recoverRatchetCleanup();
     return forgotten;
-  }
+  });
 
   /// Records currently stored for [conversationKey], read from its head
   /// record's length prefix (0 when nothing is held).
@@ -3295,7 +3383,8 @@ class HiddenVolumeStorage
   }
 
   @override
-  Future<void> eraseSpace() => _drainConvSequenceWrites(_eraseSpace);
+  Future<void> eraseSpace() =>
+      _drainConvSequenceWrites(() => _drainRatchetIo(_eraseSpace));
 
   Future<void> _eraseSpace() async {
     // FIRST, while the volume can still be read: which blobs are OURS.
@@ -3344,6 +3433,7 @@ class HiddenVolumeStorage
       await _as.eraseNamespace(ns);
     }
     await _as.scrub();
+    _ratchetSavesSinceScrub = null;
     // The on-disk LARGE-FILE tier: every per-blob key just went with the
     // settings namespace (the ciphertext is already unreadable), so remove the
     // ciphertext files too — an erased identity must not leave a directory of
@@ -5386,9 +5476,10 @@ class HiddenVolumeStorage
     final pending = _closePending;
     if (pending != null) return pending;
     late final Future<void> closing;
-    closing = _drainConvSequenceWrites(_close).whenComplete(() {
-      if (identical(_closePending, closing)) _closePending = null;
-    });
+    closing = _drainConvSequenceWrites(() => _drainRatchetIo(_close))
+        .whenComplete(() {
+          if (identical(_closePending, closing)) _closePending = null;
+        });
     _closePending = closing;
     return closing;
   }
@@ -5402,6 +5493,7 @@ class HiddenVolumeStorage
     // behind its exclusive flock until an app restart. The error itself is
     // logged and swallowed (callers close best-effort on teardown paths).
     _store = null;
+    _ratchetSavesSinceScrub = null;
     _resetLogAllocator();
     _deleteScrubPending = null;
     _legacyDeleteScrubReady = null;
