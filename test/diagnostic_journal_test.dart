@@ -10,6 +10,37 @@ class _PrivateValue {
 }
 
 void main() {
+  test(
+    'last call end survives traffic-ring eviction without retaining identifiers',
+    () {
+      final journal = DiagnosticJournal(enabled: true, capacity: 2);
+      journal.record(
+        DiagnosticEvent.callEnded,
+        values: {DiagnosticMetric.endReason: 7, DiagnosticMetric.origin: 9},
+      );
+      for (var i = 0; i < 5; i++) {
+        journal.record(DiagnosticEvent.transportReceived);
+      }
+      final report = journal.toJson();
+      expect(
+        (report['events'] as List).where(
+          (e) => (e as Map)['event'] == 'callEnded',
+        ),
+        isEmpty,
+      );
+      expect(report['last_call_end'], isA<Map>());
+      final last = report['last_call_end'] as Map;
+      expect(last['values'], {'endReason': 7, 'origin': 9});
+      (last['values'] as Map)['origin'] = 999;
+      expect((journal.toJson()['last_call_end'] as Map)['values'], {
+        'endReason': 7,
+        'origin': 9,
+      });
+      journal.clear();
+      expect(journal.toJson().containsKey('last_call_end'), isFalse);
+    },
+  );
+
   test('native snapshots export only explicit numeric fields', () {
     final journal = DiagnosticJournal(enabled: true);
     final snapshot = <String, dynamic>{

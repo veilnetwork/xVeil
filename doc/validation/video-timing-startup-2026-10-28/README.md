@@ -67,6 +67,9 @@ corrected the earlier answer: the phone was untouched and the call was not
 ended manually. This is an unresolved unexpected termination, not a successful
 90-second qualification. No ring/liveness timeout was logged before that end
 signal; an emitted end signal alone does not identify a user action.
+The [terminal-cause follow-up](../call-terminal-cause-2026-10-28/README.md)
+adds missing anonymous reason/origin evidence and two stress repeats. The
+original termination remains unresolved.
 
 The call-only repeat used the same final source and baseline native libraries;
 it did not repeat the message burst. Both A/B rang after 534/538 ms; answering

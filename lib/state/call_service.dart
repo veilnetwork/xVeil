@@ -608,7 +608,7 @@ class CallService {
               CallEndReason.error,
             ),
           );
-          _end(CallEndReason.error);
+          _end(CallEndReason.error, origin: CallEndOrigin.routeHandoverFailure);
         }
       }
       if (stillCurrent() &&
@@ -926,7 +926,9 @@ class CallService {
   }
 
   /// Reject the ringing incoming call.
-  Future<void> reject() async {
+  Future<void> reject({
+    CallEndOrigin origin = CallEndOrigin.unspecified,
+  }) async {
     final c = _current;
     if (c == null ||
         c.direction != CallDirection.incoming ||
@@ -954,11 +956,13 @@ class CallService {
         CallEndReason.declined,
       ),
     );
-    _end(CallEndReason.declined);
+    _end(CallEndReason.declined, origin: origin);
   }
 
   /// Cancel an outgoing call we placed, before it was answered.
-  Future<void> cancel() async {
+  Future<void> cancel({
+    CallEndOrigin origin = CallEndOrigin.unspecified,
+  }) async {
     final c = _current;
     if (c == null ||
         c.direction != CallDirection.outgoing ||
@@ -973,20 +977,22 @@ class CallService {
         CallEndReason.cancelled,
       ),
     );
-    _end(CallEndReason.cancelled);
+    _end(CallEndReason.cancelled, origin: origin);
   }
 
   /// Hang up / dismiss the current call whatever its state (maps to
   /// cancel/reject/end as appropriate).
-  Future<void> hangup() async {
+  Future<void> hangup({
+    CallEndOrigin origin = CallEndOrigin.unspecified,
+  }) async {
     final c = _current;
     if (c == null || !c.isLive) return;
-    if (c.status == CallStatus.dialing) return cancel();
-    if (c.status == CallStatus.ringing) return reject();
+    if (c.status == CallStatus.dialing) return cancel(origin: origin);
+    if (c.status == CallStatus.ringing) return reject(origin: origin);
     unawaited(
       _sendControl(c.peer, c.callId, CallSignalType.end, CallEndReason.hangup),
     );
-    _end(CallEndReason.hangup);
+    _end(CallEndReason.hangup, origin: origin);
   }
 
   /// Toggle the local mic on/off during a live call (the in-call mic button).
@@ -1579,7 +1585,7 @@ class CallService {
     unawaited(
       _sendControl(peer, callId, CallSignalType.end, CallEndReason.error),
     );
-    _end(CallEndReason.error);
+    _end(CallEndReason.error, origin: CallEndOrigin.mediaRepairFailure);
   }
 
   Future<void> _followRelayFallback(NodeId peer, String callId) {
@@ -1666,7 +1672,7 @@ class CallService {
     unawaited(
       _sendControl(peer, callId, CallSignalType.end, CallEndReason.error),
     );
-    _end(CallEndReason.error);
+    _end(CallEndReason.error, origin: CallEndOrigin.routeHandoverFailure);
   }
 
   /// Exercise the existing direct-to-relay recovery on an authenticated stand.
@@ -2039,7 +2045,10 @@ class CallService {
           '${declined ? 'declined' : 'answered'} on another device — '
           'stopping this ring',
     );
-    _end(declined ? CallEndReason.declined : CallEndReason.answeredElsewhere);
+    _end(
+      declined ? CallEndReason.declined : CallEndReason.answeredElsewhere,
+      origin: CallEndOrigin.siblingSelection,
+    );
   }
 
   void _announceAnswerSelection(Call call) {
@@ -2093,7 +2102,10 @@ class CallService {
     // Both devices can already be connecting/active when sibling hush arrives.
     // Only the caller that accepted an answer elects the winner; local sibling
     // timing cannot decide which media contribution the caller actually uses.
-    _end(CallEndReason.answeredElsewhere);
+    _end(
+      CallEndReason.answeredElsewhere,
+      origin: CallEndOrigin.siblingSelection,
+    );
   }
 
   void _onAnswer(NodeId peer, CallSignal sig) {
@@ -2214,7 +2226,7 @@ class CallService {
     if (reason == CallEndReason.busy && c.status != CallStatus.dialing) {
       return;
     }
-    _end(reason);
+    _end(reason, origin: CallEndOrigin.remoteSignal);
   }
 
   // ---- helpers ------------------------------------------------------------
@@ -2319,7 +2331,7 @@ class CallService {
           CallEndReason.timeout,
         ),
       );
-      _end(CallEndReason.timeout);
+      _end(CallEndReason.timeout, origin: CallEndOrigin.ringTimeout);
     });
   }
 
@@ -2391,7 +2403,7 @@ class CallService {
             CallEndReason.timeout,
           ),
         );
-        _end(CallEndReason.timeout);
+        _end(CallEndReason.timeout, origin: CallEndOrigin.livenessTimeout);
         return;
       }
       final receiveNeedsRepair =
@@ -2629,7 +2641,7 @@ class CallService {
             CallEndReason.error,
           ),
         );
-        _end(CallEndReason.error);
+        _end(CallEndReason.error, origin: CallEndOrigin.routeMismatch);
         return;
       }
       _set(cur.copyWith(status: CallStatus.active));
@@ -2639,7 +2651,7 @@ class CallService {
     unawaited(
       _sendControl(cur.peer, callId, CallSignalType.end, CallEndReason.error),
     );
-    _end(CallEndReason.error);
+    _end(CallEndReason.error, origin: CallEndOrigin.mediaStartFailure);
   }
 
   Future<void> _stopMediaAndReleaseSlot() async {
@@ -2652,12 +2664,34 @@ class CallService {
     }
   }
 
-  void _end(CallEndReason reason) {
+  void _end(
+    CallEndReason reason, {
+    CallEndOrigin origin = CallEndOrigin.unspecified,
+  }) {
     _cancelRingTimeout();
     _cancelHeartbeat();
     _resetLateP2P();
     final ending = _current;
     if (ending != null) {
+      // _end publishes its terminal snapshot directly, bypassing _set. Keep
+      // the cause before the live slot clears; completed journal rows do not
+      // retain it. Only enum codes and coarse posture enter the report.
+      diagnosticJournal.record(
+        DiagnosticEvent.callEnded,
+        values: {
+          DiagnosticMetric.state: ending.status.index,
+          DiagnosticMetric.transport: ending.transport?.index ?? -1,
+          DiagnosticMetric.direction: ending.direction.index,
+          DiagnosticMetric.endReason: reason.index,
+          DiagnosticMetric.origin: origin.index,
+          DiagnosticMetric.video: ending.media.video ? 1 : 0,
+        },
+      );
+      devLog(
+        () =>
+            'xVeil[call-end]: reason=${reason.name} origin=${origin.name} '
+            'phase=${ending.status.name} route=${ending.transport?.name ?? 'unset'}',
+      );
       _rememberFinished(ending.peer, ending.callId);
     }
     _pendingRelayCallId = null;

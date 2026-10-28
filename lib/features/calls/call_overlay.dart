@@ -1120,7 +1120,7 @@ class _FloatingCallTile extends ConsumerWidget {
                   icon: Icons.call_end,
                   color: Colors.redAccent,
                   onTap: () {
-                    svc.hangup();
+                    svc.hangup(origin: CallEndOrigin.userInterface);
                   },
                 ),
               ),
@@ -1468,7 +1468,7 @@ class _VideoControlsBar extends StatelessWidget {
           icon: Icons.call_end,
           label: l.callEnd,
           destructive: true,
-          onPressed: () => svc.hangup(),
+          onPressed: () => svc.hangup(origin: CallEndOrigin.userInterface),
         ),
       ],
     );
@@ -1498,7 +1498,7 @@ class _Controls extends StatelessWidget {
               icon: Icons.call_end,
               label: l.callDecline,
               destructive: true,
-              onPressed: () => svc.reject(),
+              onPressed: () => svc.reject(origin: CallEndOrigin.userInterface),
             ),
             CallControlAction(
               key: const ValueKey('call-accept'),
@@ -1517,7 +1517,7 @@ class _Controls extends StatelessWidget {
               icon: Icons.call_end,
               label: l.callCancel,
               destructive: true,
-              onPressed: () => svc.cancel(),
+              onPressed: () => svc.cancel(origin: CallEndOrigin.userInterface),
             ),
           ],
         );
@@ -1554,7 +1554,7 @@ class _Controls extends StatelessWidget {
               icon: Icons.call_end,
               label: l.callEnd,
               destructive: true,
-              onPressed: () => svc.hangup(),
+              onPressed: () => svc.hangup(origin: CallEndOrigin.userInterface),
             ),
           ],
         );
