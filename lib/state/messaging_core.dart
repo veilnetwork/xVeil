@@ -1428,7 +1428,7 @@ class MessagingService {
     final ratchet = this.ratchet;
     if (ratchet == null) return;
     try {
-      await ratchet.saveAll();
+      await ratchet.close();
     } catch (e) {
       devLog(() => 'xVeil[ratchet]: shutdown save FAILED: $e');
     }
