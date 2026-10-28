@@ -1278,7 +1278,7 @@ extension _MessagingInboundDispatch on MessagingService {
         await _deviceMirror.handleErasureFrame(m, env.body);
         return;
       case WireKind.deviceHistory:
-        await _ownHistory.handle(m, env.body);
+        _ownHistory.enqueue(m, env.body);
         return;
       case WireKind.presence:
         // One of MY devices is online: it is heard, its queue rewinds, and —
