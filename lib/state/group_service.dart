@@ -12836,7 +12836,14 @@ class GroupService implements ArchiveGroups {
     SpaceManifest manifest,
     Iterable<GroupMessage> input,
   ) {
-    final rows = <String, GroupMessage>{};
+    final rows = <GroupMessage>[];
+    // The hash commits to the author, sequence and signature as well as the
+    // payload. Different values of this cheap signed-slot prefilter cannot be
+    // duplicates; a collision still requires the full hash. Keep row indices
+    // so distinct branches retain their original order and exact repeats
+    // replace the earlier value in place, as the hash-keyed map did.
+    final slots =
+        <(String, int, String), ({int first, Map<String, int>? hashes})>{};
     var dropped = 0;
     GroupMessage? firstDropped;
     for (final message in input) {
@@ -12845,7 +12852,29 @@ class GroupService implements ArchiveGroups {
         firstDropped ??= message;
         continue;
       }
-      rows[groupMessageHash(message)] = message;
+      final slot = (
+        message.author.hex,
+        message.seq,
+        base64Encode(message.signature),
+      );
+      final previous = slots[slot];
+      if (previous == null) {
+        slots[slot] = (first: rows.length, hashes: null);
+        rows.add(message);
+      } else {
+        final hashes =
+            previous.hashes ??
+            {groupMessageHash(rows[previous.first]): previous.first};
+        final hash = groupMessageHash(message);
+        final index = hashes[hash];
+        if (index == null) {
+          hashes[hash] = rows.length;
+          rows.add(message);
+        } else {
+          rows[index] = message;
+        }
+        slots[slot] = (first: previous.first, hashes: hashes);
+      }
     }
     if (dropped > 0 && manifest.isSovereignDevice) {
       // The silent drop here is where a linked device's history quietly
@@ -12866,7 +12895,7 @@ class GroupService implements ArchiveGroups {
             'author=${sample.author.short})',
       );
     }
-    return rows.values.toList();
+    return rows;
   }
 
   Map<String, ({int seq, Set<String> hashes})> _messageForks(
@@ -12904,18 +12933,33 @@ class GroupService implements ArchiveGroups {
     SpaceManifest manifest,
     Iterable<GroupMessage> retained,
   ) {
-    final candidates = <String, Map<String, GroupMessage>>{};
+    // A unique writer/sequence slot cannot equivocate. Hash only colliding
+    // slots, rather than serializing and hashing every retained payload just
+    // to discover that it has no second version. All rows were verified by
+    // this synchronous view's caller; no verdict survives into a later view.
+    final candidates =
+        <
+          String,
+          ({GroupMessage latest, Map<String, GroupMessage>? variants})
+        >{};
     for (final message in retained) {
       final scope = _messageChainScope(manifest, message);
       final identity = '$scope|${message.author.hex}:${message.seq}';
-      candidates.putIfAbsent(
-        identity,
-        () => <String, GroupMessage>{},
-      )[groupMessageHash(message)] = message;
+      final previous = candidates[identity];
+      if (previous == null) {
+        candidates[identity] = (latest: message, variants: null);
+      } else {
+        final variants =
+            previous.variants ??
+            {groupMessageHash(previous.latest): previous.latest};
+        variants[groupMessageHash(message)] = message;
+        candidates[identity] = (latest: message, variants: variants);
+      }
     }
     final forks = <String, ({int seq, Set<String> hashes})>{};
-    for (final distinct in candidates.values) {
-      if (distinct.length <= 1) continue;
+    for (final candidate in candidates.values) {
+      final distinct = candidate.variants;
+      if (distinct == null || distinct.length <= 1) continue;
       final sample = distinct.values.first;
       final key =
           '${_messageChainScope(manifest, sample)}|${sample.author.hex}';
@@ -12926,14 +12970,14 @@ class GroupService implements ArchiveGroups {
     }
     return (
       canonical: [
-        for (final distinct in candidates.values)
-          if (distinct.length == 1)
-            if (distinct.values.single.seq <
-                (forks['${_messageChainScope(manifest, distinct.values.single)}|'
-                            '${distinct.values.single.author.hex}']
+        for (final candidate in candidates.values)
+          if (candidate.variants == null || candidate.variants!.length == 1)
+            if (candidate.latest.seq <
+                (forks['${_messageChainScope(manifest, candidate.latest)}|'
+                            '${candidate.latest.author.hex}']
                         ?.seq ??
                     (1 << 62)))
-              distinct.values.single,
+              candidate.latest,
       ],
       forks: forks,
     );
