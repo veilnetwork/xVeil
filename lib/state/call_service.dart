@@ -1549,6 +1549,9 @@ class CallService {
       // again if media is still silent after both sides are active.
       return;
     }
+    // A handover claims a new epoch before its native work can leave the
+    // repair queue. An obsolete repair failure must not kill that successor.
+    final epoch = _mediaOperationEpoch;
     var repaired = false;
     try {
       repaired = await media.repairRoute();
@@ -1556,7 +1559,9 @@ class CallService {
       devLog(() => 'xVeil[call-media]: route repair failed call=$callId: $e');
     }
     final cur = _current;
-    if (cur == null ||
+    if (_disposed ||
+        epoch != _mediaOperationEpoch ||
+        cur == null ||
         cur.callId != callId ||
         cur.peer != peer ||
         !cur.isLive) {
