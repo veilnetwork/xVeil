@@ -1,0 +1,181 @@
+{
+  "tests_default": 263,
+  "tests_diagnostics_enabled": 198,
+  "test_counts_overlap": true,
+  "regressions_observed_failing": 4,
+  "unanswered_offer_negative_controls": 2,
+  "analysis_issues": 0,
+  "physical": {
+    "planned_seconds": 180,
+    "last_active_sample_seconds": 179.094,
+    "samples": 144,
+    "ring_ms": {
+      "A": 608,
+      "B": 665
+    },
+    "active_after_answer_ms": 1591,
+    "active_throughout": true,
+    "sibling_A_stayed_idle": true,
+    "intentional_script_hangup": true,
+    "endpoints": {
+      "B": {
+        "trajectory": [
+          {
+            "seconds": 0.0,
+            "route": "p2p"
+          },
+          {
+            "seconds": 94.071,
+            "route": "relay"
+          },
+          {
+            "seconds": 106.483,
+            "route": "p2p"
+          }
+        ],
+        "engine_epochs": [
+          1
+        ],
+        "handovers": 2,
+        "counters": {
+          "audio_rx_pkts": {
+            "first": 0,
+            "last": 4555,
+            "monotonic": true
+          },
+          "audio_tx_pkts": {
+            "first": 4,
+            "last": 4353,
+            "monotonic": true
+          },
+          "video_rx_deliver_frames": {
+            "first": 0,
+            "last": 4356,
+            "monotonic": true
+          },
+          "video_tx_frames": {
+            "first": 0,
+            "last": 0,
+            "monotonic": true
+          }
+        }
+      },
+      "C": {
+        "trajectory": [
+          {
+            "seconds": 0.0,
+            "route": "p2p"
+          },
+          {
+            "seconds": 94.071,
+            "route": "relay"
+          },
+          {
+            "seconds": 105.211,
+            "route": "p2p"
+          }
+        ],
+        "engine_epochs": [
+          1
+        ],
+        "handovers": 2,
+        "counters": {
+          "audio_rx_pkts": {
+            "first": 4,
+            "last": 4353,
+            "monotonic": true
+          },
+          "audio_tx_pkts": {
+            "first": 0,
+            "last": 4555,
+            "monotonic": true
+          },
+          "video_rx_deliver_frames": {
+            "first": 0,
+            "last": 0,
+            "monotonic": true
+          },
+          "video_tx_frames": {
+            "first": 0,
+            "last": 4368,
+            "monotonic": true
+          }
+        }
+      }
+    },
+    "controlled_relay_recovery": {
+      "role": "C",
+      "preceding_sample_seconds": 91.158,
+      "request_ms": 597,
+      "ok": true
+    },
+    "terminal_traces": {
+      "A": {
+        "before": [
+          {
+            "reason": "answeredElsewhere",
+            "origin": "siblingSelection",
+            "phase": "ringing",
+            "route": "p2p"
+          }
+        ],
+        "after": [
+          {
+            "reason": "answeredElsewhere",
+            "origin": "siblingSelection",
+            "phase": "ringing",
+            "route": "p2p"
+          }
+        ]
+      },
+      "B": {
+        "before": [],
+        "after": [
+          {
+            "reason": "hangup",
+            "origin": "diagnosticApi",
+            "phase": "active",
+            "route": "p2p"
+          }
+        ]
+      },
+      "C": {
+        "before": [],
+        "after": [
+          {
+            "reason": "hangup",
+            "origin": "remoteSignal",
+            "phase": "active",
+            "route": "p2p"
+          }
+        ]
+      }
+    },
+    "messages": {
+      "new_per_role": {
+        "B": 36,
+        "C": 36,
+        "A": 36
+      },
+      "history_rows_per_role": {
+        "B": 1288,
+        "C": 1288,
+        "A": 1288
+      },
+      "id_sets_equal": true,
+      "order_equal": true,
+      "no_duplicates": true
+    }
+  },
+  "cleanup": {
+    "android_package_processes": 0,
+    "recorded_owned_groups_checked": 75,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false
+  },
+  "native_libraries_unchanged": true,
+  "delayed_refusal_injected_in_physical_run": false,
+  "old_25_second_incident_cause_established": false
+}
