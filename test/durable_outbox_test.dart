@@ -11,6 +11,8 @@ class _CountingFakeKvLogStore extends FakeKvLogStore {
   int iterLogRangeCalls = 0;
   bool enforceSmallRecords = false;
   bool rejectNextCommit = false;
+  bool failAfterNextCommit = false;
+  bool enforceLogDeleteCap = false;
 
   @override
   int commit(List<KvLogOp> ops) {
@@ -18,11 +20,18 @@ class _CountingFakeKvLogStore extends FakeKvLogStore {
       rejectNextCommit = false;
       throw StateError('injected atomic commit refusal');
     }
+    if (enforceLogDeleteCap && ops.whereType<DeleteLogOp>().length > 1024) {
+      throw StateError('log deletion transaction exceeds native cap');
+    }
     if (enforceSmallRecords &&
         ops.whereType<AppendLogOp>().any((op) => op.payload.length > 1800)) {
       throw StateError('incompressible record exceeds guaranteed capacity');
     }
-    return super.commit(ops);
+    final uncertain = failAfterNextCommit;
+    failAfterNextCommit = false;
+    final result = super.commit(ops);
+    if (uncertain) throw StateError('injected uncertainty after atomic commit');
+    return result;
   }
 
   @override
@@ -55,6 +64,79 @@ void main() {
   });
 
   Uint8List wire(String s) => Uint8List.fromList(s.codeUnits);
+
+  for (final uncertain in [false, true]) {
+    test(
+      'batch outbox retirement reloads all-or-none after failure ($uncertain)',
+      () async {
+        for (final id in ['first', 'second']) {
+          await storage.enqueueOutboxFrame(id, 'peer', wire(id));
+        }
+        await storage.enqueueOutboxFrame('unrelated', 'other', wire('keep'));
+        if (uncertain) {
+          fake.failAfterNextCommit = true;
+        } else {
+          fake.rejectNextCommit = true;
+        }
+        await expectLater(
+          storage.ackOutboxFrames([
+            'first',
+            'second',
+            'unrelated',
+          ], fromPeerHex: 'peer'),
+          throwsStateError,
+        );
+        final reopened = HiddenVolumeStorage(
+          ({required password, required bool create}) => fake,
+        );
+        await reopened.open(password: 'pw', createIfMissing: true);
+        expect(
+          (await reopened.pendingOutboxFrames()).map((f) => f.frameId).toSet(),
+          uncertain ? {'unrelated'} : {'first', 'second', 'unrelated'},
+        );
+        expect(
+          (await storage.pendingOutboxFrames()).map((f) => f.frameId).toSet(),
+          uncertain ? {'unrelated'} : {'first', 'second', 'unrelated'},
+        );
+        if (!uncertain) {
+          expect(
+            await storage.ackOutboxFrames([
+              'first',
+              'second',
+              'unrelated',
+            ], fromPeerHex: 'peer'),
+            unorderedEquals(['first', 'second']),
+          );
+          expect(
+            (await storage.pendingOutboxFrames()).single.frameId,
+            'unrelated',
+          );
+        }
+      },
+    );
+  }
+
+  test(
+    'large batch retires its index atomically without exceeding log delete cap',
+    () async {
+      fake.enforceLogDeleteCap = true;
+      final ids = List.generate(1100, (i) => 'large-$i');
+      for (final id in ids) {
+        await storage.enqueueOutboxFrame(id, 'peer', wire(id));
+      }
+      await storage.enqueueOutboxFrame('keep', 'other', wire('keep'));
+      expect(
+        await storage.ackOutboxFrames(ids, fromPeerHex: 'peer'),
+        hasLength(ids.length),
+      );
+      final reopened = HiddenVolumeStorage(
+        ({required password, required bool create}) => fake,
+      );
+      await reopened.open(password: 'pw', createIfMissing: true);
+      expect((await reopened.pendingOutboxFrames()).single.frameId, 'keep');
+      expect(fake.count(Ns.outbox), 1);
+    },
+  );
 
   test('enqueue surfaces a pending frame; ack retires it', () async {
     expect(await storage.pendingOutboxFrames(), isEmpty);

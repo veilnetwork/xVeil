@@ -61,6 +61,7 @@ class _MessagingReplication {
           acks,
           int bytes,
           bool strangerAdmitted,
+          bool transferAck,
         })
       >{};
   final _groupReceipts = <(String, String, String)>{};
@@ -167,6 +168,22 @@ class _MessagingReplication {
     // a durable frame keyed per (snapshot, index) so it acks/dedups on its own;
     // the receiver reassembles by (sender, [tid]) and ingests the joined bundle.
     final count = (bytes.length + _groupChunkBytes - 1) ~/ _groupChunkBytes;
+    // Preserve the ACK mode of a transfer already queued by an older client.
+    var transferAck = true;
+    for (final pending in await _owner._storage.pendingOutboxFrames()) {
+      if (pending.peerHex != dst.hex ||
+          !pending.frameId.startsWith('grpc:$tid:')) {
+        continue;
+      }
+      try {
+        final envelope = WireEnvelope.decode(pending.wire);
+        if (envelope.kind == WireKind.groupEntryChunk &&
+            !parseGroupEntryChunk(envelope.body).transferAck) {
+          transferAck = false;
+          break;
+        }
+      } catch (_) {}
+    }
     if (count >= 16) {
       // One line per large NEW transfer. Outbox re-drives log separately, so
       // this distinguishes a fresh boot-time serve from old queued chunks.
@@ -202,6 +219,7 @@ class _MessagingReplication {
           index: i,
           count: count,
           data: Uint8List.sublistView(bytes, start, end),
+          transferAck: transferAck,
         ),
       );
     }
@@ -288,6 +306,36 @@ class _MessagingReplication {
 
   static String _bodyHash(String body) =>
       crypto.sha256.convert(utf8.encode(body)).toString();
+
+  static String? committedTransferAck(String id) {
+    if (!id.startsWith('grpa:')) return null;
+    final tid = id.substring(5);
+    return _canonicalGroupTransfer(tid) ? tid : null;
+  }
+
+  Future<bool> authorizedCommitAck(NodeId peer, String id) async {
+    final tid = committedTransferAck(id);
+    if (tid == null || tid.split(':').last != peer.hex) return false;
+    return await _owner.allowStrangerGroupSync?.call(peer, tid.split(':')[1]) ??
+        false;
+  }
+
+  Future<void> _ackGroupTransfer(
+    InboundMessage message,
+    String tid, {
+    required int epoch,
+    required bool repeat,
+  }) async {
+    if (!_currentGroupEpoch(epoch)) return;
+    try {
+      await _owner._ackTo(message, 'grpa:$tid', direct: repeat, repeat: repeat);
+    } catch (error) {
+      devLog(
+        () =>
+            'xVeil[group]: transfer ACK failed (${error.runtimeType}); retry retained',
+      );
+    }
+  }
 
   void _refreshGroupHandlers() {
     if (identical(_groupHandlerIdentity, _owner.onGroupEntry) &&
@@ -443,6 +491,7 @@ class _MessagingReplication {
       return;
     }
     final canonical = _canonicalGroupTransfer(f.transferId);
+    if (f.transferAck && (!canonical || boundTid == null)) return;
     final hash = _bodyHash(body);
     final key = _reasmKey(m.src, f.transferId);
     final committed =
@@ -451,7 +500,10 @@ class _MessagingReplication {
     // A native-authenticated contact/sibling can retry a committed slice
     // without reloading the group journal. This acknowledges only an existing
     // receipt; partial transfers still get no ACK and strangers reauthorize.
-    if (committed && allowSeenAck && m.provenance.isAuthenticated) {
+    if (!f.transferAck &&
+        committed &&
+        allowSeenAck &&
+        m.provenance.isAuthenticated) {
       await _ackGroupFrame(m, fid, hash, canonical: canonical, epoch: epoch);
       return;
     }
@@ -472,7 +524,7 @@ class _MessagingReplication {
       if (!await admitStranger()) return;
       strangerAdmitted = true;
     }
-    if (committed) {
+    if (committed && !f.transferAck) {
       await _ackGroupFrame(m, fid, hash, canonical: canonical, epoch: epoch);
       return;
     }
@@ -487,9 +539,14 @@ class _MessagingReplication {
         acks: <int, ({InboundMessage message, String fid, String bodyHash})>{},
         bytes: 0,
         strangerAdmitted: strangerAdmitted,
+        transferAck: f.transferAck,
       );
     }
-    if (f.count != slot.count || slot.parts.containsKey(f.index)) return;
+    if (f.count != slot.count || f.transferAck != slot.transferAck) {
+      _groupReasm.remove(key); // inconsistent metadata must not poison retries
+      return;
+    }
+    if (slot.parts.containsKey(f.index)) return;
     final nextBytes = slot.bytes + f.data.length;
     if (nextBytes > _kMaxGroupReasmBytes) {
       _groupReasm.remove(key);
@@ -517,6 +574,7 @@ class _MessagingReplication {
       acks: slot.acks,
       bytes: nextBytes,
       strangerAdmitted: strangerAdmitted,
+      transferAck: slot.transferAck,
     );
     if (slot.parts.length != slot.count) return;
     _groupReasm.remove(key);
@@ -537,7 +595,10 @@ class _MessagingReplication {
     // Revocation during reassembly must win over the partial-RAM lease.
     if (fromStranger && !await admitStranger()) return;
     if (!_currentGroupEpoch(epoch)) return;
-    if (!await _deliverGroupFrame(m.src, json, fromStranger: fromStranger)) {
+    final canReuseCommit =
+        committed && allowSeenAck && m.provenance.isAuthenticated;
+    if (!canReuseCommit &&
+        !await _deliverGroupFrame(m.src, json, fromStranger: fromStranger)) {
       return;
     }
     if (!_currentGroupEpoch(epoch)) return;
@@ -546,6 +607,12 @@ class _MessagingReplication {
         _completedGroupTransfers.remove(_completedGroupTransfers.first);
       }
       _completedGroupTransfers.add(key);
+    }
+    if (slot.transferAck) {
+      // Always assemble every slice, even for an in-RAM committed retry. An
+      // early ACK while the sender is still enqueueing could strand its tail.
+      await _ackGroupTransfer(m, f.transferId, epoch: epoch, repeat: committed);
+      return;
     }
     List<NodeId>? ownDeviceTargets;
     if (slot.acks.values.any((a) => a.message.srcDevice == null) &&

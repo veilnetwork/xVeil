@@ -61,7 +61,7 @@ void main() {
       storage = HiddenVolumeStorage(
         ({required password, required bool create}) => backing,
       );
-      addTearDown(storage.close);
+      addTearDown(() => storage.close());
       await storage.open(password: 'fixture-password', createIfMissing: false);
       expect((await storage.pendingOutboxFrames()).single.wire, wire);
       expect(backing.count(Ns.outbox), rows);
@@ -70,6 +70,39 @@ void main() {
       await storage.ackOutboxFrame('frame', fromPeerHex: 'peer');
       expect(await storage.pendingOutboxFrames(), isEmpty);
       expect(backing.count(Ns.outbox), 0);
+      await storage.enqueueOutboxFrame('slice-0', 'peer', wire);
+      await storage.enqueueOutboxFrame('slice-1', 'peer', wire);
+      await storage.enqueueOutboxFrame('other-transfer', 'other', wire);
+      expect(
+        await storage.ackOutboxFrames([
+          'slice-0',
+          'slice-1',
+          'other-transfer',
+        ], fromPeerHex: 'peer'),
+        unorderedEquals(['slice-0', 'slice-1']),
+      );
+      await storage.close();
+      space = hv.HvSpace.open(path: path, password: password);
+      backing = HvKvLogStore(space);
+      storage = HiddenVolumeStorage(
+        ({required password, required bool create}) => backing,
+      );
+      await storage.open(password: 'fixture-password', createIfMissing: false);
+      expect(
+        (await storage.pendingOutboxFrames()).single.frameId,
+        'other-transfer',
+      );
+      // Group reassembly allows >1024 slices. The logical batch deletes KV
+      // index keys rather than exceeding the log-tombstone transaction cap.
+      final keys = List.generate(
+        2200,
+        (i) => Uint8List.fromList(utf8.encode('boundary-$i')),
+      );
+      backing.commit([
+        for (final key in keys) PutOp(Ns.outboxIndex, key, Uint8List(1)),
+      ]);
+      backing.commit([for (final key in keys) DeleteOp(Ns.outboxIndex, key)]);
+      expect(backing.kvKeys(Ns.outboxIndex), hasLength(1));
     },
     skip: (Platform.environment['XVEIL_HV_DYLIB']?.isNotEmpty ?? false)
         ? false
