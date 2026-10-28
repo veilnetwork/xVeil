@@ -1734,14 +1734,15 @@ class HiddenVolumeStorage
     }
     await flush();
     if (_ratchetSavesSinceScrub >= _kRatchetSavesPerScrub) {
-      _ratchetSavesSinceScrub = 0;
       // Reclaim the chunks the replacements above orphaned. Every one of them
       // holds a session from before the chain moved on, and a chain key that
       // survives in the container is a chain key a password still opens.
       await _as.scrub();
-      // Same defensive invalidation [scrubDeleted] does: if a vacuum ever
-      // renumbers the log, the fold's watermark is stale.
-      await _invalidateScanCache();
+      // A failed scrub retains the budget so the next save retries it.
+      _ratchetSavesSinceScrub = 0;
+      // Vacuum preserves live keys, logical log IDs and values. Ratchet
+      // replacement has not changed the message log: keep its warm fold and
+      // incremental watermark rather than forcing a full conversation scan.
     }
   }
 
