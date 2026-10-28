@@ -11154,16 +11154,11 @@ class GroupService implements ArchiveGroups {
       b.manifest,
       b.messages,
     ).where((message) => message.author == _signer.selfId).toList();
-    if (_messageForks(
-      b.manifest,
-      retainedSelf,
-    ).containsKey('$targetScope|${_signer.selfId.hex}')) {
+    final ownHistory = _canonicalRetainedMessageView(b.manifest, retainedSelf);
+    if (ownHistory.forks.containsKey('$targetScope|${_signer.selfId.hex}')) {
       return false;
     }
-    final canonicalSelf = _canonicalMessageRows(
-      b.manifest,
-      retainedSelf,
-    ).where((message) => message.author == _signer.selfId).toList();
+    final canonicalSelf = ownHistory.canonical;
     final scopedSelf = canonicalSelf
         .where(
           (message) => _messageChainScope(b.manifest, message) == targetScope,
@@ -11171,7 +11166,7 @@ class GroupService implements ArchiveGroups {
         .toList();
     final selfScopeCut =
         b.retentionCuts[retentionCutKey(targetScope, _signer.selfId)];
-    final acceptedScope = _acceptedMessageChain(
+    final acceptedScope = _acceptedCanonicalMessageChain(
       b.manifest,
       canonicalSelf,
       _signer.selfId,
@@ -12868,31 +12863,7 @@ class GroupService implements ArchiveGroups {
   Map<String, ({int seq, Set<String> hashes})> _messageForks(
     SpaceManifest manifest,
     Iterable<GroupMessage> input,
-  ) {
-    final candidates = <String, Set<String>>{};
-    final samples = <String, GroupMessage>{};
-    for (final message in input) {
-      if (!_validMessageFor(manifest.groupId, message)) continue;
-      final scope = _messageChainScope(manifest, message);
-      final identity = '$scope|${message.author.hex}:${message.seq}';
-      candidates
-          .putIfAbsent(identity, () => <String>{})
-          .add(groupMessageHash(message));
-      samples[identity] = message;
-    }
-    final forks = <String, ({int seq, Set<String> hashes})>{};
-    for (final entry in candidates.entries) {
-      if (entry.value.length <= 1) continue;
-      final sample = samples[entry.key]!;
-      final key =
-          '${_messageChainScope(manifest, sample)}|${sample.author.hex}';
-      final current = forks[key];
-      if (current == null || sample.seq < current.seq) {
-        forks[key] = (seq: sample.seq, hashes: Set.unmodifiable(entry.value));
-      }
-    }
-    return forks;
-  }
+  ) => _canonicalMessageView(manifest, input).forks;
 
   /// Return valid rows outside an equivocated suffix in the same visibility
   /// scope. A fork in a restricted channel cannot suppress unrelated public
@@ -12901,10 +12872,31 @@ class GroupService implements ArchiveGroups {
   List<GroupMessage> _canonicalMessageRows(
     SpaceManifest manifest,
     Iterable<GroupMessage> input,
+  ) => _canonicalMessageView(manifest, input).canonical;
+
+  ({
+    List<GroupMessage> canonical,
+    Map<String, ({int seq, Set<String> hashes})> forks,
+  })
+  _canonicalMessageView(SpaceManifest manifest, Iterable<GroupMessage> input) =>
+      _canonicalRetainedMessageView(
+        manifest,
+        input.where((message) => _validMessageFor(manifest.groupId, message)),
+      );
+
+  // Only for rows verified in the same synchronous view. Fork evidence and
+  // canonical history must use the exact same retained set; a later read or
+  // write still starts with signature and identity-document validation.
+  ({
+    List<GroupMessage> canonical,
+    Map<String, ({int seq, Set<String> hashes})> forks,
+  })
+  _canonicalRetainedMessageView(
+    SpaceManifest manifest,
+    Iterable<GroupMessage> retained,
   ) {
     final candidates = <String, Map<String, GroupMessage>>{};
-    for (final message in input) {
-      if (!_validMessageFor(manifest.groupId, message)) continue;
+    for (final message in retained) {
       final scope = _messageChainScope(manifest, message);
       final identity = '$scope|${message.author.hex}:${message.seq}';
       candidates.putIfAbsent(
@@ -12912,24 +12904,30 @@ class GroupService implements ArchiveGroups {
         () => <String, GroupMessage>{},
       )[groupMessageHash(message)] = message;
     }
-    final forkedAt = <String, int>{};
+    final forks = <String, ({int seq, Set<String> hashes})>{};
     for (final distinct in candidates.values) {
       if (distinct.length <= 1) continue;
       final sample = distinct.values.first;
       final key =
           '${_messageChainScope(manifest, sample)}|${sample.author.hex}';
-      final current = forkedAt[key];
-      if (current == null || sample.seq < current) forkedAt[key] = sample.seq;
+      final current = forks[key];
+      if (current == null || sample.seq < current.seq) {
+        forks[key] = (seq: sample.seq, hashes: Set.unmodifiable(distinct.keys));
+      }
     }
-    return [
-      for (final distinct in candidates.values)
-        if (distinct.length == 1)
-          if (distinct.values.single.seq <
-              (forkedAt['${_messageChainScope(manifest, distinct.values.single)}|'
-                      '${distinct.values.single.author.hex}'] ??
-                  (1 << 62)))
-            distinct.values.single,
-    ];
+    return (
+      canonical: [
+        for (final distinct in candidates.values)
+          if (distinct.length == 1)
+            if (distinct.values.single.seq <
+                (forks['${_messageChainScope(manifest, distinct.values.single)}|'
+                            '${distinct.values.single.author.hex}']
+                        ?.seq ??
+                    (1 << 62)))
+              distinct.values.single,
+      ],
+      forks: forks,
+    );
   }
 
   /// Fold one author's chain inside one visibility scope. Legacy rows used an
