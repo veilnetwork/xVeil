@@ -4732,6 +4732,51 @@ class HiddenVolumeStorage
   });
 
   @override
+  Future<List<String>> ackOutboxFrames(
+    Iterable<String> frameIds, {
+    required String fromPeerHex,
+  }) => _outboxSerialized(() async {
+    if (!await _ensureOutboxLoadedCritical()) {
+      throw StateError('durable outbox could not be loaded');
+    }
+    final ids = frameIds
+        .toSet()
+        .where((id) => _outboxById[id]?.frame.peerHex == fromPeerHex)
+        .toList();
+    if (ids.isEmpty) return const <String>[];
+    final payloadIds = <int>{for (final id in ids) ..._outboxById[id]!.logIds};
+    // Log tombstones have a per-transaction cap. Small transfers can reclaim
+    // their payload in this same commit; larger ones retire the index first.
+    final inlineCleanup = payloadIds.length <= 1024;
+    try {
+      // The index is authoritative. Retire all logical rows together; payload
+      // garbage may be cleaned in bounded batches after this atomic boundary.
+      await _as.commit([
+        for (final id in ids) DeleteOp(Ns.outboxIndex, _outboxIndexKey(id)),
+        if (inlineCleanup)
+          for (final logId in payloadIds) DeleteLogOp(Ns.outbox, logId),
+      ]);
+    } catch (_) {
+      // A refused/uncertain commit must reload its all-or-none durable result.
+      _outboxLoaded = false;
+      _outboxById.clear();
+      rethrow;
+    }
+    for (final id in ids) {
+      _outboxById.remove(id);
+    }
+    try {
+      if (_outboxById.isEmpty) {
+        await _as.eraseNamespace(Ns.outbox);
+        await _as.eraseNamespace(Ns.outboxIndex);
+      } else if (!inlineCleanup) {
+        await _cleanupIndexedOutboxCritical();
+      }
+    } catch (_) {}
+    return ids;
+  });
+
+  @override
   Future<List<OutboxFrame>> pendingOutboxFrames() =>
       _outboxSerialized(() async {
         if (!await _ensureOutboxLoadedCritical()) return const [];

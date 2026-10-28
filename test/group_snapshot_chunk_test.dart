@@ -888,6 +888,248 @@ void main() {
     },
   );
 
+  Future<
+    ({
+      MessagingService service,
+      HiddenVolumeStorage store,
+      _Link link,
+      List<WireEnvelope> chunks,
+    })
+  >
+  queuedSender() async {
+    final link = _Link(a);
+    final store = HiddenVolumeStorage(_memOpener());
+    await store.open(password: 'source', createIfMissing: true);
+    await store.upsertContact(
+      Contact(nodeId: b, status: ContactStatus.accepted),
+    );
+    final service = MessagingService(link, store)..start();
+    addTearDown(service.dispose);
+    await service.sendGroupSnapshot(b, 'aa11', bundle);
+    final chunks = link.sent
+        .map(WireEnvelope.decode)
+        .where((e) => e.kind == WireKind.groupEntryChunk)
+        .toList();
+    expect(chunks.length, greaterThan(2));
+    return (service: service, store: store, link: link, chunks: chunks);
+  }
+
+  test(
+    'lost transfer ACK leaves all slices recoverable after receiver restart',
+    () async {
+      final source = await queuedSender();
+      source.link.peer = tB;
+      tB
+        ..peer = source.link
+        ..passLimit = 0;
+      var applies = 0;
+      mB.onGroupEntry = (_, body) async {
+        expect(body, bundle);
+        await sB.putSetting('committed-group-fixture', 'committed');
+        applies++;
+        return true;
+      };
+      for (final frame in source.chunks) {
+        tB.inject(a, frame.encode());
+        await _settle();
+      }
+      expect(applies, 1);
+      expect(
+        await source.store.pendingOutboxFrames(),
+        hasLength(source.chunks.length),
+      );
+      await mB.dispose();
+      final link = _Link(b)..peer = source.link;
+      source.link.peer = link;
+      final restored = MessagingService(link, sB)..start();
+      addTearDown(restored.dispose);
+      restored.onGroupEntry = (_, body) async {
+        expect(await sB.getSetting('committed-group-fixture'), 'committed');
+        expect(body, bundle);
+        applies++;
+        return true;
+      };
+      for (final frame in await source.store.pendingOutboxFrames()) {
+        link.inject(a, frame.wire);
+        await _settle();
+      }
+      expect(applies, 2);
+      expect(await source.store.pendingOutboxFrames(), isEmpty);
+    },
+  );
+
+  test(
+    'committed transfer retry still waits for every slice before aggregate ACK',
+    () async {
+      final source = await queuedSender();
+      var applies = 0;
+      mB.onGroupEntry = (_, _) async {
+        applies++;
+        return true;
+      };
+      for (final frame in source.chunks) {
+        tB.inject(a, frame.encode());
+        await _settle();
+      }
+      expect(applies, 1);
+      expect(
+        tB.sent.map(WireEnvelope.decode).where((e) => e.kind == WireKind.ack),
+        hasLength(1),
+      );
+      tB.sent.clear();
+      tB.inject(a, source.chunks.first.encode());
+      await _settle();
+      expect(
+        tB.sent,
+        isEmpty,
+        reason: 'do not retire a sender still enqueueing its next copy',
+      );
+      for (final frame in source.chunks.skip(1)) {
+        tB.inject(a, frame.encode());
+        await _settle();
+      }
+      expect(applies, 1);
+      final ack = tB.sent.map(WireEnvelope.decode).single;
+      expect(ack.kind, WireKind.ack);
+      expect(ack.id, startsWith('grpa:'));
+    },
+  );
+
+  test(
+    'transfer ACK stays destination-bound and legacy ACK stays slice-bound',
+    () async {
+      final source = await queuedSender();
+      final tid = parseGroupEntryChunk(source.chunks.first.body).transferId;
+      final other = _id(3);
+      await source.store.upsertContact(
+        Contact(nodeId: other, status: ContactStatus.accepted),
+      );
+      source.link.inject(other, WireEnvelope.ack('grpa:$tid').encode());
+      await _settle();
+      expect(
+        await source.store.pendingOutboxFrames(),
+        hasLength(source.chunks.length),
+      );
+      source.link.inject(
+        b,
+        WireEnvelope.ack(source.chunks.first.frameId!).encode(),
+      );
+      await _settle();
+      expect(
+        await source.store.pendingOutboxFrames(),
+        hasLength(source.chunks.length - 1),
+        reason: 'legacy per-slice ACK must never imply the complete transfer',
+      );
+      source.link.inject(
+        b,
+        WireEnvelope.ack('grpa:$tid').encode(),
+        provenance: SenderProvenance.claimed,
+      );
+      await _settle();
+      expect(await source.store.pendingOutboxFrames(), isEmpty);
+    },
+  );
+
+  test(
+    'own-identity transfer ACK retires only a verified sibling destination',
+    () async {
+      final source = await queuedSender();
+      final tid = parseGroupEntryChunk(source.chunks.first.body).transferId;
+      source.service.isOwnDevice = (peer) async => peer == a;
+      source.link.inject(a, WireEnvelope.ack('grpa:$tid').encode());
+      await _settle();
+      expect(
+        await source.store.pendingOutboxFrames(),
+        hasLength(source.chunks.length),
+      );
+      source.service.isOwnDevice = (peer) async => peer == a || peer == b;
+      source.link.inject(a, WireEnvelope.ack('grpa:$tid').encode());
+      await _settle();
+      expect(await source.store.pendingOutboxFrames(), isEmpty);
+    },
+  );
+
+  test(
+    'an upgraded sender preserves a legacy transfer already in its outbox',
+    () async {
+      final source = await queuedSender();
+      for (final frame in source.chunks) {
+        final part = parseGroupEntryChunk(frame.body);
+        await source.store.ackOutboxFrame(frame.frameId!, fromPeerHex: b.hex);
+        await source.store.enqueueOutboxFrame(
+          frame.frameId!,
+          b.hex,
+          groupEntryChunkEnvelope(
+            transferId: part.transferId,
+            index: part.index,
+            count: part.count,
+            data: part.data,
+          ).withFrameId(frame.frameId!).encode(),
+        );
+      }
+      source.link.sent.clear();
+      await source.service.sendGroupSnapshot(b, 'aa11', bundle);
+      final resent = source.link.sent
+          .map(WireEnvelope.decode)
+          .where((e) => e.kind == WireKind.groupEntryChunk)
+          .toList();
+      expect(resent, hasLength(source.chunks.length));
+      expect(
+        resent.every((e) => !parseGroupEntryChunk(e.body).transferAck),
+        isTrue,
+      );
+      mB.onGroupEntry = (_, _) async => true;
+      tB.peer = source.link;
+      for (final frame in resent) {
+        tB.inject(a, frame.encode());
+        await _settle();
+      }
+      expect(await source.store.pendingOutboxFrames(), isEmpty);
+      expect(
+        tB.sent.map(WireEnvelope.decode).where((e) => e.kind == WireKind.ack),
+        hasLength(source.chunks.length),
+      );
+    },
+  );
+
+  test(
+    'one post-commit acknowledgement retires the complete chunk transfer',
+    () async {
+      final tA = _Link(a)..peer = tB;
+      tB
+        ..peer = tA
+        ..passLimit = 1;
+      final sA = HiddenVolumeStorage(_memOpener());
+      await sA.open(password: 'a', createIfMissing: true);
+      final mA = MessagingService(tA, sA)..start();
+      addTearDown(mA.dispose);
+      await sA.upsertContact(
+        Contact(nodeId: b, status: ContactStatus.accepted),
+      );
+      var commits = 0;
+      mB.onGroupEntry = (_, json) async {
+        expect(json, bundle);
+        await sB.putSetting('committed-group-fixture', 'committed');
+        commits++;
+        return true;
+      };
+      await mA.sendGroupSnapshot(b, 'aa11', bundle);
+      await _settle();
+      final chunks = tA.sent
+          .where((w) => WireEnvelope.decode(w).kind == WireKind.groupEntryChunk)
+          .toList();
+      expect(chunks.length, greaterThan(2));
+      expect(commits, 1);
+      expect(await sB.getSetting('committed-group-fixture'), 'committed');
+      expect(
+        await sA.pendingOutboxFrames(),
+        isEmpty,
+        reason:
+            'a crash during subsequent ACK delivery must leave no residual slices',
+      );
+    },
+  );
+
   test(
     'partial receiver restart leaves the actual sender outbox recoverable',
     () async {
@@ -1090,6 +1332,7 @@ void main() {
         index: first.index,
         count: first.count,
         data: badData,
+        transferAck: first.transferAck,
       ).withFrameId(frames.first.frameId!).encode();
       tB.inject(a, bad, provenance: SenderProvenance.claimed);
       for (final frame in frames.skip(1)) {
@@ -1108,7 +1351,7 @@ void main() {
       expect(calls, 1);
       expect(
         tB.sent.where((w) => WireEnvelope.decode(w).kind == WireKind.ack),
-        hasLength(frames.length),
+        hasLength(1),
       );
     },
   );

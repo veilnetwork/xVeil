@@ -1,0 +1,123 @@
+{
+  "schema": "group-transfer-commit-ack-v1",
+  "date": "2026-10-28",
+  "base_application": "8d4c6a93",
+  "flutter_sdk": "a8f9f5dc",
+  "frozen_native_sdk": "1d36980d",
+  "hidden_volume": "1ea2366f",
+  "changes": [
+    "opt_in_transfer_level_group_ack",
+    "destination_bound_atomic_outbox_index_retirement",
+    "legacy_queued_transfer_mode_preserved"
+  ],
+  "deterministic_checks": {
+    "passed": 504,
+    "existing_skips": 3,
+    "files": 11,
+    "real_hidden_volume_enabled": true,
+    "analysis_changed_dart_files": 10,
+    "analysis_issues": 0,
+    "old_source_regression_failed": true,
+    "old_source_chunks": 7,
+    "old_source_remaining_after_first_ack": 6,
+    "failure_injection_before_and_after_atomic_commit": true,
+    "large_batch_rows": 1100,
+    "real_native_index_transaction_keys": 2200
+  },
+  "physical": {
+    "roles": {
+      "A": "Android_WiFi_identity_X",
+      "B": "macOS_identity_X",
+      "C": "macOS_identity_Y"
+    },
+    "android_build": "profile_AOT",
+    "mac_build": "debug_Dart",
+    "retained_profiles": true,
+    "production_native_artifacts_frozen": true,
+    "source_copies_equal": true,
+    "native_test_hooks": false,
+    "timing_overlay": false,
+    "senders": {
+      "A": 12,
+      "C": 6
+    },
+    "concurrent_submitters": 6,
+    "additional_text_fixture_chars": 1200,
+    "submission_seconds": 16.1,
+    "counts": {
+      "A": 18,
+      "B": 18,
+      "C": 18
+    },
+    "full_history_counts": {
+      "A": 1371,
+      "B": 1371,
+      "C": 1371
+    },
+    "same_full_id_sets": true,
+    "same_full_order": true,
+    "no_duplicates": true,
+    "fixture_exact_on_all_roles": true,
+    "first_all_new_messages_observed_seconds": 59.4,
+    "first_all_group_chunk_queues_empty_seconds": 109.2,
+    "aggregate_ack_observations": {
+      "A": {
+        "log_entries": 6,
+        "unique_ack_ids": 5
+      },
+      "B": {
+        "log_entries": 25,
+        "unique_ack_ids": 12
+      },
+      "C": {
+        "log_entries": 0,
+        "unique_ack_ids": 0
+      }
+    },
+    "final_group_chunk_rows": {
+      "A": 0,
+      "B": 0,
+      "C": 0
+    },
+    "final_outbox_rows": {
+      "A": 0,
+      "B": 1,
+      "C": 0
+    },
+    "remaining_B_frame_kind": "p2p_endpoint_announcement",
+    "last_observed_seconds": 166.7,
+    "complete_outbox_drain_claimed": false,
+    "delivery_latency_improvement_claimed": false,
+    "live_speech_tested": false
+  },
+  "first_attempt": {
+    "passed": false,
+    "synthetic_text_fixture_chars": 12300,
+    "stage": "message_storage",
+    "error": "HvException.PayloadTooLarge",
+    "separate_limit_fixed": false
+  },
+  "limits": [
+    "new_guarantee_requires_both_peers_support_transfer_ack",
+    "mixed_legacy_post_commit_crash_limitation_remains",
+    "old_partial_legacy_tail_not_reconstructed",
+    "shared_document_chunk_protocol_unchanged",
+    "physical_power_cut_not_tested",
+    "original_25_second_call_end_cause_not_established",
+    "Windows_not_tested",
+    "full_multi_device_matrix_not_claimed"
+  ],
+  "cleanup": {
+    "android_package_processes": 0,
+    "recorded_owned_groups_checked": 87,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false
+  },
+  "main_app_modified": false,
+  "rust_built": false,
+  "servers_modified": false,
+  "pushed": false,
+  "released": false
+}

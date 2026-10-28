@@ -330,6 +330,13 @@ abstract interface class Storage {
   /// [fromPeerHex]. See `HiddenVolumeStorage.ackOutboxFrame` (audit XV-02).
   Future<void> ackOutboxFrame(String frameId, {required String fromPeerHex});
 
+  /// Retire matching rows in ONE atomic commit. Return only IDs addressed to
+  /// [fromPeerHex]. A failure must never expose a partially retired batch.
+  Future<List<String>> ackOutboxFrames(
+    Iterable<String> frameIds, {
+    required String fromPeerHex,
+  });
+
   /// The frames still awaiting delivery (enqueued and not yet acked).
   Future<List<OutboxFrame>> pendingOutboxFrames();
 
