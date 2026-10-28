@@ -10,6 +10,8 @@ import '../data/storage/storage_write_census.dart';
 import '../data/veil_stack.dart' show RealVeilStack;
 import 'peer_authorization_persistence.dart';
 
+part 'ratchet_publication_persistence.dart';
+
 /// Marker recording which of OUR devices the stored conversations belong to.
 ///
 /// The first 16 bytes of every conversation key are the local device, and they
@@ -98,11 +100,22 @@ class RatchetPersistence {
     // The same Storage object may have been closed/reopened or restored.
     // A fresh binder starts from durable marks, never an earlier open's cache.
     _reservations[_storage]?.clear();
+    _beginHostPublication();
   }
 
   final RatchetStateHandle _native;
   final Storage _storage;
   final PeerAuthorizationPersistence? _peerAuthorization;
+  late final RatchetPublicationGuard? _publicationGuard =
+      _native is RatchetPublicationGuard
+      ? _native as RatchetPublicationGuard
+      : null;
+  int? _publicationEpoch;
+  Timer? _publicationTimer;
+  Future<void>? _publicationPump;
+  Future<int>? _publicationShutdown;
+  bool _publicationClosing = false, _publicationRetired = false;
+  int _publicationFailures = 0;
 
   /// See [kRatchetFlushCoalesce]. Zero: every flush writes before it returns.
   final Duration _coalesce;
@@ -231,18 +244,33 @@ class RatchetPersistence {
   /// WRITE, which still happens once per run of indices and not once per
   /// message.
   List<Uint8List> _keysFor(NodeId peer) {
-    final keys = _native.list();
-    final live = {for (final key in keys) _hex(key)};
-    _reserved.removeWhere((key, _) => !live.contains(key));
     return [
-      for (final key in keys)
+      for (final key in _liveKeys())
         if (_peerNodeMatches(key, peer.bytes)) key,
     ];
   }
 
+  List<Uint8List> _liveKeys() {
+    final keys = _native.list();
+    final live = {for (final key in keys) _hex(key)};
+    _reserved.removeWhere((key, _) => !live.contains(key));
+    return keys;
+  }
+
   Future<void> _reserveBeforePublish(NodeId peer) async {
+    if (_publicationClosing ||
+        _publicationRetired ||
+        _isSupersededPublication()) {
+      throw StateError('ratchet publication owner closed');
+    }
+    await _reserveForKeys(_keysFor(peer));
+  }
+
+  Future<void> _reserveForKeys(List<Uint8List> keys) async {
     var wrote = false;
-    for (final key in _keysFor(peer)) {
+    final permits =
+        <(Uint8List, List<RatchetSendPosition>, List<RatchetSendPosition>)>[];
+    for (final key in keys) {
       final live = _native.sendPositions(key);
       if (live.isEmpty) continue;
       final held = _reserved[_hex(key)];
@@ -250,7 +278,10 @@ class RatchetPersistence {
         (at) =>
             marks.any((m) => _sameKey(m.chain, at.chain) && at.next < m.next),
       );
-      if (held != null && covers(held)) continue;
+      if (held != null && covers(held)) {
+        permits.add((key, held, live));
+        continue;
+      }
 
       // Read fresh at a write boundary: another persistence object over this
       // container may have reserved a different chain since our last write.
@@ -259,6 +290,7 @@ class RatchetPersistence {
       );
       if (covers(marks)) {
         _reserved[_hex(key)] = marks;
+        permits.add((key, marks, live));
         continue;
       }
       final blob = await _storage.loadRatchetState(key);
@@ -288,6 +320,7 @@ class RatchetPersistence {
         encodeRatchetReservations(marks),
       );
       _reserved[_hex(key)] = marks;
+      permits.add((key, marks, live));
       wrote = true;
     }
     // The anchor moves with the reservation, and this is the only place it
@@ -316,6 +349,11 @@ class RatchetPersistence {
               'did not move — a restore after this point may not be noticed',
         );
       }
+    }
+    // Authorize only after the committed marks and anchor attempt. In-flight
+    // IPC tasks can resume as soon as the native floor is installed.
+    for (final (key, marks, live) in permits) {
+      _permitCommittedPositions(key, marks, live);
     }
   }
 
@@ -349,6 +387,7 @@ class RatchetPersistence {
   /// [now] skips the coalescing window: for a caller that must know the state
   /// is on disk before it goes on.
   Future<int> flush({String why = 'unknown', bool now = false}) async {
+    if (_publicationClosing || _publicationRetired) return 0;
     await _peerAuthorization?.flush();
     if (now || _coalesce == Duration.zero) {
       _trailingTimer?.cancel();
@@ -410,6 +449,7 @@ class RatchetPersistence {
   }
 
   Future<int> _flush() async {
+    if (_publicationRetired || _isSupersededPublication()) return 0;
     var written = 0;
     // A pass count, not a while(true): a store that somehow kept re-marking
     // would spin here forever, on the send path, holding a message.
@@ -478,6 +518,10 @@ class RatchetPersistence {
     return written;
   }
 
+  /// Stop native publication before the final snapshot. A superseded binder
+  /// cannot retire the successor's native attachment.
+  Future<int> close() => _publicationShutdown ??= _closeHostPublication();
+
   /// Save everything held, consuming no marks — for a clean shutdown.
   ///
   /// `list` rather than `take_dirty` on purpose: the marks are the record of
@@ -492,6 +536,7 @@ class RatchetPersistence {
   }
 
   Future<int> _saveAll() async {
+    if (_isSupersededPublication()) return 0;
     await _peerAuthorization?.flush();
     final entries = exportRatchetStates(_native, _native.list());
     if (entries.isEmpty) return 0;

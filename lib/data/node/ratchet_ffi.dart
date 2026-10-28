@@ -29,6 +29,24 @@ import '../native_libs.dart' show processLibFor;
 import '../storage/storage.dart'
     show kRatchetKeyLen, kRatchetMaxStateLen, RatchetStateEntry, Storage;
 
+part 'ratchet_publication_ffi.dart';
+
+/// Native publication demand for one journaling attachment.
+enum RatchetPublicationState { retired, idle, needsReservation, superseded }
+
+/// Optional native door implemented by builds with atomic publication floors.
+/// The host installs a floor only after its hidden-volume commit succeeds.
+abstract interface class RatchetPublicationGuard {
+  int beginHostPublication();
+  RatchetPublicationState hostPublicationState(int epoch);
+  void allowHostPublication(
+    int epoch,
+    Uint8List key,
+    List<RatchetSendPosition> positions,
+  );
+  void endHostPublication(int epoch);
+}
+
 /// The one thing in veil that cannot be rebuilt from anything public.
 ///
 /// A Double Ratchet IS state: chain keys that advance one way, message keys
@@ -528,9 +546,37 @@ bool ratchetStateAvailable({
 class FfiRatchetStateHandle
     implements
         RatchetStateHandle,
+        RatchetPublicationGuard,
         PeerAuthorizationStateHandle,
         PeerDeviceAuthorizationHandle {
   FfiRatchetStateHandle(this._handle, this._dl);
+  int? _ownedPublicationEpoch;
+
+  @override
+  int beginHostPublication() {
+    if (_closed) throw StateError('ratchet handle closed');
+    return _ownedPublicationEpoch = _beginHostPublication(this);
+  }
+
+  @override
+  RatchetPublicationState hostPublicationState(int epoch) => _closed
+      ? RatchetPublicationState.retired
+      : _hostPublicationState(this, epoch);
+
+  @override
+  void allowHostPublication(
+    int epoch,
+    Uint8List key,
+    List<RatchetSendPosition> positions,
+  ) {
+    if (_closed) throw StateError('ratchet handle closed');
+    _allowHostPublication(this, epoch, key, positions);
+  }
+
+  @override
+  void endHostPublication(int epoch) {
+    if (!_closed) _endHostPublication(this, epoch);
+  }
 
   /// Open a connection to the node's IPC socket and take the ratchet door on
   /// it. Null when this dylib has no ratchet door; throws when the node is not
@@ -587,6 +633,14 @@ class FfiRatchetStateHandle
   @override
   void close() {
     if (_closed) return;
+    final epoch = _ownedPublicationEpoch;
+    if (epoch != null) {
+      try {
+        _endHostPublication(this, epoch);
+      } catch (_) {
+        // The embedded owner may already have stopped; never reopen it here.
+      }
+    }
     _closed = true;
     _dl.lookupFunction<_CloseNative, _CloseDart>('veil_close')(_handle);
   }
