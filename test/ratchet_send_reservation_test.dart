@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -196,7 +197,101 @@ Uint8List _convKey({
   return out;
 }
 
+class _GuardNode extends _Node implements RatchetPublicationGuard {
+  int epoch = 0;
+  bool active = false;
+  final Map<String, RatchetSendPosition> permits = {};
+  final Set<String> needs = {};
+  int allowed = 0;
+
+  @override
+  int beginHostPublication() {
+    active = true;
+    permits.clear();
+    needs.clear();
+    return ++epoch;
+  }
+
+  @override
+  RatchetPublicationState hostPublicationState(int owner) {
+    if (owner != epoch) return RatchetPublicationState.superseded;
+    if (!active) return RatchetPublicationState.retired;
+    return needs.isEmpty
+        ? RatchetPublicationState.idle
+        : RatchetPublicationState.needsReservation;
+  }
+
+  @override
+  void endHostPublication(int owner) {
+    if (owner == epoch) active = false;
+  }
+
+  @override
+  void allowHostPublication(
+    int owner,
+    Uint8List key,
+    List<RatchetSendPosition> positions,
+  ) {
+    if (owner != epoch || !active) throw StateError('retired owner');
+    final at = sendPosition(key)!;
+    for (final p in positions) {
+      if (_Node._same(p.chain, at.chain) && p.next > at.next) {
+        permits[_Node._hex(key)] = p;
+        needs.remove(_Node._hex(key));
+        allowed++;
+      }
+    }
+  }
+
+  @override
+  int seal(Uint8List key) {
+    if (epoch == 0) return super.seal(key);
+    if (!active) throw StateError('closed');
+    final at = sendPosition(key)!;
+    final permit = permits[_Node._hex(key)];
+    if (permit == null ||
+        !_Node._same(permit.chain, at.chain) ||
+        at.next >= permit.next) {
+      needs.add(_Node._hex(key));
+      throw StateError('reservation required');
+    }
+    return super.seal(key);
+  }
+}
+
+class _ReservationStorage extends HiddenVolumeStorage {
+  _ReservationStorage()
+    : super(({required password, required bool create}) => FakeKvLogStore());
+  Completer<void>? hold;
+  Completer<void>? entered;
+  bool fail = false;
+  bool failAfterCommit = false;
+  int writes = 0;
+  int anchors = 0;
+  @override
+  Future<void> putSetting(String key, String value) async {
+    if (key.startsWith('ratchet_reserve:')) {
+      writes++;
+      entered?.complete();
+      entered = null;
+      await hold?.future;
+      if (fail) throw StateError('injected commit failure');
+      await super.putSetting(key, value);
+      if (failAfterCommit) throw StateError('injected uncertain commit');
+      return;
+    }
+    await super.putSetting(key, value);
+  }
+
+  @override
+  Future<bool> advanceRollbackAnchor() async {
+    anchors++;
+    return true;
+  }
+}
+
 void main() {
+  _hostPublicationTests();
   late HiddenVolumeStorage storage;
   final peer = NodeId(Uint8List.fromList(List.filled(32, 2)));
   final key = _convKey(local: 1, peerNode: 2);
@@ -483,5 +578,156 @@ void main() {
       isNot(first),
       reason: 'the run ran out, so a further one must reach disk',
     );
+  });
+}
+
+void _hostPublicationTests() {
+  group('native host publication attachment', () {
+    late _ReservationStorage storage;
+    late _GuardNode node;
+    late RatchetPersistence owner;
+    final key = _convKey(local: 1, peerNode: 2);
+    final peer = NodeId(Uint8List.fromList(List.filled(32, 2)));
+    setUp(() async {
+      storage = _ReservationStorage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      node = _GuardNode();
+      for (var i = 0; i < 31; i++) {
+        node.seal(key);
+      }
+      owner = RatchetPersistence(native: node, storage: storage);
+      await owner.flush(now: true);
+    });
+    tearDown(() async {
+      storage.hold?.complete();
+      storage.hold = null;
+      await owner.close();
+      await storage.close();
+    });
+
+    test('idle polling does not write a reservation', () async {
+      await Future<void>.delayed(const Duration(milliseconds: 450));
+      expect(storage.writes, 0);
+      expect(node.allowed, 0);
+    });
+
+    test(
+      'parallel prechecks cannot publish beyond the committed floor',
+      () async {
+        await storage.putSetting(
+          ratchetReservationKey(key),
+          encodeRatchetReservations([
+            RatchetSendPosition(node.sendPosition(key)!.chain, 32),
+          ]),
+        );
+        await Future.wait([
+          owner.reserveBeforePublish(peer),
+          owner.reserveBeforePublish(peer),
+        ]);
+        expect(node.seal(key), 31);
+        expect(() => node.seal(key), throwsStateError);
+        final entered = Completer<void>();
+        storage.entered = entered;
+        storage.hold = Completer<void>();
+        final permitsBefore = node.allowed;
+        await entered.future.timeout(const Duration(seconds: 3));
+        expect(node.sendPosition(key)!.next, 32);
+        expect(node.allowed, permitsBefore);
+        expect(() => node.seal(key), throwsStateError);
+        storage.hold!.complete();
+        storage.hold = null;
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        expect(node.seal(key), 32);
+        expect(storage.anchors, greaterThan(0));
+        final oldSnapshot = (await storage.loadRatchetState(key))!;
+        final restored = _Node();
+        restored.import(key, oldSnapshot);
+        await recoverReservedSendPositions(restored, storage);
+        expect(restored.seal(key), 64);
+      },
+    );
+
+    for (final uncertain in [false, true]) {
+      test(
+        'failed commit ($uncertain uncertain) cannot authorize ciphertext',
+        () async {
+          storage.fail = !uncertain;
+          storage.failAfterCommit = uncertain;
+          await expectLater(owner.reserveBeforePublish(peer), throwsStateError);
+          expect(node.allowed, 0);
+          expect(() => node.seal(key), throwsStateError);
+          expect(node.sendPosition(key)!.next, 31);
+          storage.fail = false;
+          storage.failAfterCommit = false;
+          await owner.reserveBeforePublish(peer);
+          expect(node.seal(key), 31);
+        },
+      );
+    }
+
+    test(
+      'demand pump reserves the native identity despite a physical alias',
+      () async {
+        final alias = NodeId(Uint8List.fromList(List.filled(32, 99)));
+        await owner.reserveBeforePublish(alias);
+        expect(storage.writes, 0);
+        expect(() => node.seal(key), throwsStateError);
+        await Future<void>.delayed(const Duration(milliseconds: 450));
+        expect(node.seal(key), 31);
+        expect(storage.writes, 1);
+      },
+    );
+
+    test('rotated chain cannot borrow the old chain floor', () async {
+      await owner.reserveBeforePublish(peer);
+      final old = node.sendPosition(key)!;
+      node.rotate(key, 73);
+      expect(() => node.seal(key), throwsStateError);
+      await Future<void>.delayed(const Duration(milliseconds: 450));
+      expect(node.seal(key), 0);
+      final marks = decodeRatchetReservations(
+        await storage.getSetting(ratchetReservationKey(key)),
+      );
+      expect(marks.any((m) => _Node._same(m.chain, old.chain)), isTrue);
+      expect(marks.length, 2);
+    });
+
+    test(
+      'shutdown joins an in-flight commit and never permits a closed owner',
+      () async {
+        final entered = Completer<void>();
+        storage.entered = entered;
+        storage.hold = Completer<void>();
+        expect(() => node.seal(key), throwsStateError);
+        await entered.future.timeout(const Duration(seconds: 3));
+        var done = false;
+        final closing = owner.close().then((_) {
+          done = true;
+        });
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        expect(done, isFalse);
+        expect(node.active, isFalse);
+        expect(node.allowed, 0);
+        storage.hold!.complete();
+        storage.hold = null;
+        await closing;
+        expect(node.allowed, 0);
+        expect(() => node.seal(key), throwsStateError);
+      },
+    );
+
+    test('superseded binder cannot close or snapshot a successor', () async {
+      final previous = owner;
+      owner = RatchetPersistence(native: node, storage: storage);
+      node.rotate(key, 92);
+      final saved = await storage.loadRatchetState(key);
+      expect(await previous.flush(now: true), 0);
+      await expectLater(previous.reserveBeforePublish(peer), throwsStateError);
+      expect(await previous.close(), 0);
+      expect(node.active, isTrue);
+      expect(await storage.loadRatchetState(key), saved);
+      await owner.reserveBeforePublish(peer);
+      expect(node.seal(key), 0);
+    });
   });
 }

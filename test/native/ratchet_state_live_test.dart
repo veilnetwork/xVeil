@@ -83,6 +83,31 @@ void main() {
       // were mis-typed this reads back stack garbage rather than zero.
       expect(ratchet.stateVersion(), 0);
 
+      // Exercise the publication lease through the real C ABI. Ownership is
+      // separate from conversation state: a retired binder cannot save or
+      // authorize the replacement binder's store.
+      final firstOwner = door.beginHostPublication();
+      expect(
+        door.hostPublicationState(firstOwner),
+        RatchetPublicationState.idle,
+      );
+      final secondOwner = door.beginHostPublication();
+      expect(secondOwner, greaterThan(firstOwner));
+      expect(
+        door.hostPublicationState(firstOwner),
+        RatchetPublicationState.superseded,
+      );
+      door.endHostPublication(firstOwner);
+      expect(
+        door.hostPublicationState(secondOwner),
+        RatchetPublicationState.idle,
+      );
+      door.endHostPublication(secondOwner);
+      expect(
+        door.hostPublicationState(secondOwner),
+        RatchetPublicationState.retired,
+      );
+
       final dirty = ratchet.peekDirty(8);
       expect(dirty.keys, isEmpty);
       expect(dirty.remaining, 0);
