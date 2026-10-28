@@ -1,0 +1,389 @@
+{
+  "source_base": "e5ffbba5",
+  "source_lib_patch_sha256": "91f4cfb8923aaed49d7605a6e88adfc3489f71b91f81575e5fc75b54adab4cce",
+  "sdk": "1d36980d",
+  "roles": {
+    "A": "Android/profile-AOT, identity X, Wi-Fi",
+    "B": "macOS/debug, identity X",
+    "C": "macOS/debug, identity Y"
+  },
+  "checks": {
+    "related_tests_passed": 458,
+    "existing_related_test_skips": 3,
+    "final_fork_predecessor_writer_tests_passed": 8,
+    "static_analysis_issues": 0,
+    "post_regression_checks_per_old_own_row_before": 4,
+    "post_regression_checks_per_old_peer_row_before": 1,
+    "post_regression_checks_per_old_row_after": 1,
+    "next_write_rechecks_changed_verification": true
+  },
+  "timed_phases": {
+    "baseline": {
+      "burst_submission_seconds": 28.2,
+      "all_roles_observed_seconds": 80.3,
+      "new_logical_ids_converged": true,
+      "no_duplicates": true,
+      "full_visible_order_equal": true,
+      "full_visible_ids_equal": true,
+      "counts": {
+        "B": 18,
+        "C": 18,
+        "A": 18
+      },
+      "full_visible_counts": {
+        "B": 658,
+        "C": 658,
+        "A": 658
+      },
+      "phone_profile_aot": true,
+      "private_timing_overlay": true,
+      "native_test_hooks": false,
+      "stage_window": {
+        "A": {
+          "group.load": {
+            "count": 362,
+            "total_ms": 633522.0,
+            "mean_ms": 1750.1
+          },
+          "group.canonical": {
+            "count": 165,
+            "total_ms": 27806.9,
+            "mean_ms": 168.5
+          },
+          "group.fold": {
+            "count": 240,
+            "total_ms": 1576.5,
+            "mean_ms": 6.6
+          },
+          "group.messagesView": {
+            "count": 103,
+            "total_ms": 93421.7,
+            "mean_ms": 907.0
+          },
+          "group.save": {
+            "count": 47,
+            "total_ms": 28520.8,
+            "mean_ms": 606.8
+          },
+          "group.retained": {
+            "count": 30,
+            "total_ms": 4662.0,
+            "mean_ms": 155.4
+          },
+          "group.forks": {
+            "count": 30,
+            "total_ms": 4664.3,
+            "mean_ms": 155.5
+          },
+          "group.postMessage": {
+            "count": 30,
+            "total_ms": 19483.6,
+            "mean_ms": 649.5
+          },
+          "group.postBatch": {
+            "count": 14,
+            "total_ms": 56084.5,
+            "mean_ms": 4006.0
+          },
+          "store.total": {
+            "count": 18,
+            "total_ms": 185975.6,
+            "mean_ms": 10332.0
+          },
+          "sendText.total": {
+            "count": 12,
+            "total_ms": 161075.7,
+            "mean_ms": 13423.0
+          },
+          "group.merge": {
+            "count": 1,
+            "total_ms": 2353.9,
+            "mean_ms": 2353.9
+          }
+        },
+        "B": {
+          "group.load": {
+            "count": 243,
+            "total_ms": 30771.1,
+            "mean_ms": 126.6
+          },
+          "group.canonical": {
+            "count": 247,
+            "total_ms": 12882.5,
+            "mean_ms": 52.2
+          },
+          "group.fold": {
+            "count": 440,
+            "total_ms": 676.0,
+            "mean_ms": 1.5
+          },
+          "group.messagesView": {
+            "count": 185,
+            "total_ms": 16275.1,
+            "mean_ms": 88.0
+          },
+          "group.save": {
+            "count": 45,
+            "total_ms": 6884.1,
+            "mean_ms": 153.0
+          },
+          "group.retained": {
+            "count": 18,
+            "total_ms": 912.7,
+            "mean_ms": 50.7
+          },
+          "group.forks": {
+            "count": 18,
+            "total_ms": 1021.8,
+            "mean_ms": 56.8
+          },
+          "group.merge": {
+            "count": 13,
+            "total_ms": 5328.5,
+            "mean_ms": 409.9
+          },
+          "group.postMessage": {
+            "count": 18,
+            "total_ms": 3882.7,
+            "mean_ms": 215.7
+          },
+          "group.postBatch": {
+            "count": 12,
+            "total_ms": 9396.0,
+            "mean_ms": 783.0
+          },
+          "store.total": {
+            "count": 6,
+            "total_ms": 5069.0,
+            "mean_ms": 844.8
+          }
+        },
+        "C": {
+          "store.total": {
+            "count": 18,
+            "total_ms": 280.7,
+            "mean_ms": 15.6
+          },
+          "sendText.total": {
+            "count": 6,
+            "total_ms": 155.7,
+            "mean_ms": 25.9
+          }
+        }
+      },
+      "native_libraries_match_baseline": true,
+      "cleanup": {
+        "mac_remaining_processes": 0,
+        "peer_remaining_processes": 0,
+        "phone_remaining_processes": 0,
+        "own_forward_removed": true,
+        "main_app_modified": false,
+        "system_power_settings_changed": false,
+        "retained_profiles": true
+      }
+    },
+    "candidate": {
+      "burst_submission_seconds": 20.8,
+      "all_roles_observed_seconds": 92.6,
+      "new_logical_ids_converged": true,
+      "no_duplicates": true,
+      "full_visible_order_equal": true,
+      "full_visible_ids_equal": true,
+      "counts": {
+        "B": 18,
+        "C": 18,
+        "A": 18
+      },
+      "full_visible_counts": {
+        "B": 676,
+        "C": 676,
+        "A": 676
+      },
+      "phone_profile_aot": true,
+      "private_timing_overlay": true,
+      "native_test_hooks": false,
+      "stage_window": {
+        "A": {
+          "group.load": {
+            "count": 481,
+            "total_ms": 585452.2,
+            "mean_ms": 1217.2
+          },
+          "group.canonical": {
+            "count": 177,
+            "total_ms": 27871.5,
+            "mean_ms": 157.5
+          },
+          "group.fold": {
+            "count": 322,
+            "total_ms": 2035.1,
+            "mean_ms": 6.3
+          },
+          "group.messagesView": {
+            "count": 124,
+            "total_ms": 57163.7,
+            "mean_ms": 461.0
+          },
+          "group.retained": {
+            "count": 31,
+            "total_ms": 4633.6,
+            "mean_ms": 149.5
+          },
+          "group.save": {
+            "count": 56,
+            "total_ms": 32180.5,
+            "mean_ms": 574.7
+          },
+          "group.merge": {
+            "count": 11,
+            "total_ms": 15215.0,
+            "mean_ms": 1383.2
+          },
+          "group.postMessage": {
+            "count": 30,
+            "total_ms": 7846.9,
+            "mean_ms": 261.6
+          },
+          "group.postBatch": {
+            "count": 14,
+            "total_ms": 42826.5,
+            "mean_ms": 3059.0
+          },
+          "store.total": {
+            "count": 18,
+            "total_ms": 133182.3,
+            "mean_ms": 7399.0
+          },
+          "sendText.total": {
+            "count": 12,
+            "total_ms": 117423.3,
+            "mean_ms": 9785.3
+          }
+        },
+        "B": {
+          "group.load": {
+            "count": 425,
+            "total_ms": 118514.5,
+            "mean_ms": 278.9
+          },
+          "group.canonical": {
+            "count": 186,
+            "total_ms": 9687.2,
+            "mean_ms": 52.1
+          },
+          "group.fold": {
+            "count": 360,
+            "total_ms": 631.0,
+            "mean_ms": 1.8
+          },
+          "group.messagesView": {
+            "count": 146,
+            "total_ms": 12686.2,
+            "mean_ms": 86.9
+          },
+          "group.save": {
+            "count": 36,
+            "total_ms": 6026.6,
+            "mean_ms": 167.4
+          },
+          "group.retained": {
+            "count": 12,
+            "total_ms": 693.0,
+            "mean_ms": 57.8
+          },
+          "group.merge": {
+            "count": 14,
+            "total_ms": 5608.3,
+            "mean_ms": 400.6
+          },
+          "group.postMessage": {
+            "count": 12,
+            "total_ms": 1109.5,
+            "mean_ms": 92.5
+          },
+          "group.postBatch": {
+            "count": 9,
+            "total_ms": 6810.4,
+            "mean_ms": 756.7
+          },
+          "store.total": {
+            "count": 6,
+            "total_ms": 4781.2,
+            "mean_ms": 796.9
+          }
+        },
+        "C": {
+          "store.total": {
+            "count": 18,
+            "total_ms": 329.0,
+            "mean_ms": 18.3
+          },
+          "sendText.total": {
+            "count": 6,
+            "total_ms": 229.4,
+            "mean_ms": 38.2
+          }
+        }
+      },
+      "native_libraries_match_baseline": true,
+      "cleanup": {
+        "mac_remaining_processes": 0,
+        "peer_remaining_processes": 0,
+        "phone_remaining_processes": 0,
+        "own_forward_removed": true,
+        "main_app_modified": false,
+        "system_power_settings_changed": false,
+        "retained_profiles": true
+      }
+    }
+  },
+  "normal_stand": {
+    "burst_submission_seconds": 14.2,
+    "new_logical_ids_converged": true,
+    "no_duplicates": true,
+    "full_visible_id_sets_equal": true,
+    "full_visible_order_equal": true,
+    "counts": {
+      "A": 18,
+      "B": 18,
+      "C": 18
+    },
+    "full_visible_counts": {
+      "B": 694,
+      "C": 694,
+      "A": 694
+    },
+    "phone_profile_aot": true,
+    "private_timer_strings_absent": true,
+    "timing_endpoint_absent_on_all_roles": true,
+    "native_test_hooks": false,
+    "native_libraries_match_baseline": true,
+    "cleanup": {
+      "mac_remaining_processes": 0,
+      "peer_remaining_processes": 0,
+      "phone_remaining_processes": 0,
+      "own_forward_removed": true,
+      "main_app_modified": false,
+      "system_power_settings_changed": false,
+      "retained_profiles": true
+    }
+  },
+  "final_cleanup": {
+    "recorded_owned_groups_checked": 21,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false
+  },
+  "measurement_limits": [
+    "Async stage times include waiting and nested operations; totals overlap.",
+    "Retained histories advanced between phases; background merges differed. This is not an isolated network or universal speedup benchmark.",
+    "After refactoring, the canonical timer includes the shared retained view and raw fork entry points; its average is not like-for-like with the baseline.",
+    "Physical checks use production native crypto; fake-signature regression counts establish application rules and repeated work only.",
+    "No new call, file, relay-only, Windows, long-offline or full multi-device qualification is claimed by this message-only stand."
+  ],
+  "remaining": [
+    "Incoming-message convergence remained slow: 80.3 seconds before and 92.6 seconds after, including the burst and polling.",
+    "Partial chunk-ACK receiver-crash recovery, Windows reports, human speech/headphone volume, long-offline/revoke/split-brain and the full multi-device matrix remain unqualified."
+  ]
+}
