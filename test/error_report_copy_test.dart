@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/error_journal.dart';
 import 'package:xveil/core/diagnostic_journal.dart';
+import 'package:xveil/domain/call.dart';
+import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/features/settings/error_report.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 
@@ -65,6 +67,35 @@ void main() {
     }
     expect((decoded['errors']! as List), hasLength(1));
   });
+
+  testWidgets(
+    'copied diagnostics retain the terminal cause after busy traffic',
+    (tester) async {
+      diagnosticJournal.record(
+        DiagnosticEvent.callEnded,
+        values: {
+          DiagnosticMetric.endReason: CallEndReason.error.index,
+          DiagnosticMetric.origin: CallEndOrigin.mediaStartFailure.index,
+        },
+      );
+      for (var i = 0; i < 400; i++) {
+        diagnosticJournal.record(DiagnosticEvent.transportReceived);
+      }
+      await pumpTile(tester);
+      await tester.tap(find.byType(ListTile));
+      await tester.pumpAndSettle();
+      final report = jsonDecode(copied!) as Map;
+      if (kDiagnosticReportEnabled) {
+        final diagnostics = report['diagnostics'] as Map;
+        expect((diagnostics['last_call_end'] as Map)['values'], {
+          'endReason': CallEndReason.error.index,
+          'origin': CallEndOrigin.mediaStartFailure.index,
+        });
+      } else {
+        expect(report.containsKey('diagnostics'), isFalse);
+      }
+    },
+  );
 
   testWidgets(
     'an empty journal still copies — "nothing happened" is a report',

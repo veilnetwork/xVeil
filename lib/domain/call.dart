@@ -4,6 +4,24 @@ import 'call_signal.dart';
 /// Who initiated the call.
 enum CallDirection { outgoing, incoming }
 
+/// Source-owned termination codes for opt-in diagnostics. A hangup reason
+/// alone does not prove a user gesture. Append values to preserve report codes.
+enum CallEndOrigin {
+  unspecified,
+  userInterface,
+  androidNotification,
+  localApi,
+  diagnosticApi,
+  remoteSignal,
+  siblingSelection,
+  ringTimeout,
+  livenessTimeout,
+  mediaStartFailure,
+  mediaRepairFailure,
+  routeMismatch,
+  routeHandoverFailure,
+}
+
 /// The call-session lifecycle. Phase 1 (control plane) drives everything up to
 /// [connecting]; media (Phase 2+) drives [connecting] → [active].
 enum CallStatus {

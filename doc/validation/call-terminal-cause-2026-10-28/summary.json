@@ -1,0 +1,172 @@
+{
+  "rounds": [
+    {
+      "planned_seconds": 180,
+      "initiator": "C",
+      "answering_device": "A",
+      "ring_ms": {
+        "A": 296,
+        "B": 357
+      },
+      "connect_after_answer_ms": 3154,
+      "sibling_stopped_ringing": true,
+      "duration_seconds": 179.427,
+      "samples": 149,
+      "active_throughout": true,
+      "intentional_script_hangup_issued": true,
+      "endpoints": {
+        "A": {
+          "terminal_causes_before_script_hangup": [],
+          "terminal_causes_after_script_hangup": [
+            {
+              "reason": "hangup",
+              "origin": "diagnosticApi",
+              "phase": "active",
+              "route": "p"
+            }
+          ],
+          "all_p2p": true,
+          "audio_receive_packets_increased": true,
+          "rendered_frames_increased": true,
+          "worker_stall_samples": 0,
+          "video_worker_stall_samples": 0,
+          "same_call_all_samples": true
+        },
+        "C": {
+          "terminal_causes_before_script_hangup": [],
+          "terminal_causes_after_script_hangup": [
+            {
+              "reason": "hangup",
+              "origin": "remoteSignal",
+              "phase": "active",
+              "route": "p"
+            }
+          ],
+          "all_p2p": true,
+          "audio_receive_packets_increased": true,
+          "rendered_frames_increased": true,
+          "worker_stall_samples": 0,
+          "video_worker_stall_samples": 0,
+          "same_call_all_samples": true
+        },
+        "B": {
+          "terminal_causes_before_script_hangup": [
+            {
+              "reason": "answeredElsewhere",
+              "origin": "siblingSelection",
+              "phase": "ringing",
+              "route": "p"
+            }
+          ],
+          "terminal_causes_after_script_hangup": [],
+          "all_p2p": null,
+          "audio_receive_packets_increased": null,
+          "rendered_frames_increased": null,
+          "worker_stall_samples": 0,
+          "video_worker_stall_samples": 0
+        }
+      }
+    },
+    {
+      "planned_seconds": 180,
+      "initiator": "C",
+      "answering_device": "A",
+      "ring_ms": {
+        "A": 392,
+        "B": 397
+      },
+      "connect_after_answer_ms": 2471,
+      "sibling_stopped_ringing": true,
+      "duration_seconds": 179.951,
+      "samples": 157,
+      "active_throughout": true,
+      "intentional_script_hangup_issued": true,
+      "endpoints": {
+        "A": {
+          "terminal_causes_before_script_hangup": [],
+          "terminal_causes_after_script_hangup": [
+            {
+              "reason": "hangup",
+              "origin": "diagnosticApi",
+              "phase": "active",
+              "route": "p"
+            }
+          ],
+          "all_p2p": true,
+          "audio_receive_packets_increased": true,
+          "rendered_frames_increased": true,
+          "worker_stall_samples": 0,
+          "video_worker_stall_samples": 0,
+          "same_call_all_samples": true
+        },
+        "C": {
+          "terminal_causes_before_script_hangup": [],
+          "terminal_causes_after_script_hangup": [
+            {
+              "reason": "hangup",
+              "origin": "remoteSignal",
+              "phase": "active",
+              "route": "p"
+            }
+          ],
+          "all_p2p": true,
+          "audio_receive_packets_increased": true,
+          "rendered_frames_increased": true,
+          "worker_stall_samples": 0,
+          "video_worker_stall_samples": 0,
+          "same_call_all_samples": true
+        },
+        "B": {
+          "terminal_causes_before_script_hangup": [
+            {
+              "reason": "answeredElsewhere",
+              "origin": "siblingSelection",
+              "phase": "ringing",
+              "route": "p"
+            }
+          ],
+          "terminal_causes_after_script_hangup": [],
+          "all_p2p": null,
+          "audio_receive_packets_increased": null,
+          "rendered_frames_increased": null,
+          "worker_stall_samples": 0,
+          "video_worker_stall_samples": 0
+        }
+      }
+    }
+  ],
+  "new_messages": 54,
+  "new_message_counts": {
+    "B": 54,
+    "C": 54,
+    "A": 54
+  },
+  "whole_history_counts": {
+    "B": 1108,
+    "C": 1108,
+    "A": 1108
+  },
+  "whole_history_ids_equal": true,
+  "whole_history_order_equal": true,
+  "no_new_duplicates": true,
+  "diagnostic_tests_passed": 212,
+  "default_tests_passed": 234,
+  "counts_overlap": true,
+  "static_analysis_issues": 0,
+  "product_aot_diagnostic_retention_passed": true,
+  "cleanup": {
+    "recorded_owned_groups_checked": 65,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false
+  },
+  "unexpected_old_call_termination": "unresolved; did not reproduce in these two calls",
+  "native_libraries_unchanged": true,
+  "no_private_timing_overlay": true,
+  "roles": {
+    "A": "Android/profile-AOT Wi-Fi identity X",
+    "B": "Mac sibling of A",
+    "C": "Mac identity Y"
+  }
+}

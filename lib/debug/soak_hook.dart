@@ -54,6 +54,7 @@ import '../domain/group_message.dart' show GroupMessage, MediaObject;
 import '../data/transport/veil_flutter_transport.dart';
 import '../data/transport/wire_envelope.dart';
 import '../domain/call_signal.dart';
+import '../domain/call.dart' show CallEndOrigin;
 import '../domain/chat.dart';
 import '../domain/content_manifest.dart' show ContentManifest;
 import '../domain/device_sync.dart';
@@ -1131,10 +1132,16 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
           await _callAction(req, (svc) => svc.accept());
           return;
         case '/call_reject':
-          await _callAction(req, (svc) => svc.reject());
+          await _callAction(
+            req,
+            (svc) => svc.reject(origin: CallEndOrigin.diagnosticApi),
+          );
           return;
         case '/call_hangup':
-          await _callAction(req, (svc) => svc.hangup());
+          await _callAction(
+            req,
+            (svc) => svc.hangup(origin: CallEndOrigin.diagnosticApi),
+          );
           return;
         case '/call_mic':
           await _callAction(
