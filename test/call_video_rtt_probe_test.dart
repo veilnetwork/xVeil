@@ -22,6 +22,8 @@ void _sample(
   int rtt = 295,
   int? receiveDelay = 60,
   int? peerDelay = 60,
+  int? peerCurrentDelay,
+  int? peerSequence,
   int receiveTarget = 60,
   int peerTarget = 60,
   bool peerGrowing = false,
@@ -35,6 +37,7 @@ void _sample(
   int expectedReceivers = 1,
   Map<String, dynamic>? decoder,
   bool apply = true,
+  Map<String, dynamic> extra = const {},
 }) {
   a.onNativeStats(
     {
@@ -59,6 +62,7 @@ void _sample(
       'tx_drops': 0,
       'video_tx_frames': n,
       'video_delivery_peers': {'p': decoder ?? _decoder(n)},
+      ...extra,
     },
     sampledAt: _epoch.add(Duration(seconds: n)),
     sourceBudgetPressured: sourcePressure,
@@ -69,9 +73,9 @@ void _sample(
     audioReceiveDelayMs: receiveDelay,
     audioReceiveTargetDelayMs: receiveTarget,
     peerAudioDelayMs: peerDelay,
-    peerCurrentAudioDelayMs: peerDelay,
+    peerCurrentAudioDelayMs: peerCurrentDelay ?? peerDelay,
     peerTargetAudioDelayMs: peerTarget,
-    peerAudioSampleSequence: n,
+    peerAudioSampleSequence: peerSequence ?? n,
     peerAudioBufferGrowing: peerGrowing,
     audioInterrupted: interrupted,
     expectedVideoFeedbackReports: expectedReceivers,
@@ -91,6 +95,147 @@ CallBitrateAdapter _started() {
 }
 
 void main() {
+  Map<String, dynamic> videoTiming() => {
+    'rtt_ms': 0,
+    'audio_feedback_reports': 0,
+    'audio_rtt_route_epoch': 0,
+    'video_rtt_route_epoch': 0,
+    'video_feedback_rtt_ms': 12,
+    'video_feedback_loss_pct': 0,
+  };
+
+  test('measured video RTT can fund startup before audio RR timing', () {
+    final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 60);
+    a.applyPendingTarget((_) => true);
+    a.applyPendingPause((_) => true);
+    for (var n = 1; n <= 8; n++) {
+      _sample(a, n, extra: videoTiming());
+    }
+    expect(a.acknowledgedTarget!.maxFps, greaterThanOrEqualTo(30));
+    expect(a.acknowledgedTarget!.maxBitrateKbps, lessThanOrEqualTo(900));
+    expect(a.audioReserve, isFalse);
+  });
+
+  test(
+    'a handover needs a new audio playout report before borrowing video RTT',
+    () {
+      final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 60);
+      a.applyPendingTarget((_) => true);
+      a.applyPendingPause((_) => true);
+      _sample(a, 1, extra: videoTiming());
+      _sample(a, 2, extra: videoTiming());
+      final before = a.acknowledgedTarget!;
+      expect(before.maxFps, 2);
+      final newRoute = {
+        ...videoTiming(),
+        'audio_rtt_route_epoch': 1,
+        'video_rtt_route_epoch': 1,
+      };
+      for (var n = 3; n <= 6; n++) {
+        _sample(a, n, peerSequence: 2, extra: newRoute);
+        expect(
+          a.acknowledgedTarget,
+          before,
+          reason: 'cached audio health belongs to the previous route',
+        );
+      }
+      _sample(a, 7, peerSequence: 3, extra: newRoute);
+      expect(a.acknowledgedTarget!.maxFps, greaterThan(before.maxFps));
+      expect(
+        a.acknowledgedTarget!.maxFps,
+        lessThanOrEqualTo(before.maxFps * 2),
+      );
+      a.invalidateAppliedState();
+      a.applyPendingTarget((_) => true);
+      a.applyPendingPause((_) => true);
+      _sample(a, 1, extra: videoTiming());
+      _sample(a, 2, extra: videoTiming());
+      expect(
+        a.bufferDiagnostics['latest'],
+        containsPair('video_timing_fallback', true),
+        reason: 'a replacement engine must not inherit an old route baseline',
+      );
+    },
+  );
+
+  for (final fault in [
+    'unknown video RTT',
+    'missing video RR',
+    'video worker stalled',
+    'audio worker stalled',
+    'missing route epoch',
+    'different route epoch',
+    'missing local playout',
+    'missing peer playout',
+    'receive outage',
+    'local buffer pressure',
+    'peer buffer pressure',
+    'audio loss',
+    'audio drops',
+    'video loss',
+    'audio jitter',
+    'severe audio RTT',
+    'peer buffer growing',
+    'high peer target',
+    'cached decoder ACK',
+    'inconsistent peer current',
+    'partial receiver reports',
+    'missing decoder reports',
+  ]) {
+    test('video timing preserves the $fault guard', () {
+      final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 60);
+      a.applyPendingTarget((_) => true);
+      a.applyPendingPause((_) => true);
+      for (var n = 1; n <= 4; n++) {
+        _sample(
+          a,
+          n,
+          receiveDelay: fault == 'missing local playout'
+              ? null
+              : fault == 'local buffer pressure'
+              ? 500
+              : 60,
+          peerDelay: fault == 'missing peer playout'
+              ? null
+              : fault == 'peer buffer pressure'
+              ? 500
+              : 60,
+          peerCurrentDelay: fault == 'inconsistent peer current' ? 900 : null,
+          expectedReceivers: fault == 'partial receiver reports' ? 2 : 1,
+          peerTarget: fault == 'high peer target' ? 500 : 60,
+          peerGrowing: fault == 'peer buffer growing',
+          audioLoss: fault == 'audio loss' ? n : 0,
+          audioDrops: fault == 'audio drops' ? n : 0,
+          decoder: fault == 'cached decoder ACK' ? _decoder(1) : null,
+          extra: {
+            ...videoTiming(),
+            if (fault == 'partial receiver reports')
+              'video_delivery_peers': {'p': _decoder(n), 'q': _decoder(n)},
+            if (fault == 'missing decoder reports')
+              'video_delivery_peers': <String, dynamic>{},
+            if (fault == 'unknown video RTT') 'video_feedback_rtt_ms': 0,
+            if (fault == 'missing video RR') 'video_feedback_reports': 0,
+            if (fault == 'video worker stalled') 'video_worker_stalled': 1,
+            if (fault == 'audio worker stalled') 'worker_stalled': 1,
+            if (fault == 'missing route epoch') 'audio_rtt_route_epoch': null,
+            if (fault == 'different route epoch') 'video_rtt_route_epoch': 1,
+            if (fault == 'receive outage') 'audio_rx_native_age_ms': 1500,
+            if (fault == 'video loss') 'video_feedback_loss_pct': 20,
+            if (fault == 'audio jitter' || fault == 'severe audio RTT')
+              'audio_feedback_reports': 1,
+            if (fault == 'audio jitter') 'tx_jitter_ms': 90,
+            if (fault == 'severe audio RTT') 'rtt_ms': 2000,
+          },
+        );
+        expect(
+          a.acknowledgedTarget!.maxFps,
+          lessThanOrEqualTo(1),
+          reason: fault,
+        );
+      }
+    });
+  }
+
   CallBitrateAdapter highBaseline() {
     final a = CallBitrateAdapter(baseBitrateKbps: 900, baseFps: 60);
     a.applyPendingTarget((_) => true);
