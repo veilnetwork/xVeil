@@ -62,9 +62,11 @@ all 640 visible IDs and their order agreed on A/B/C. Burst submission still
 took 25.7 seconds. C-to-X rang A/B after 445/519 ms; answering on A stopped B
 ringing. Active state was observed 2,767 ms after answering. Applied video
 budgets reached at least 30 FPS after 13.7/16.8 seconds. This call ended early
-at sampled second 25.1, after A sent an end signal. The user confirmed manually hanging up. It is recorded as a manually
-interrupted run, not a successful 90-second qualification or an application
-defect. No ring/liveness timeout was logged before that end signal.
+at sampled second 25.1, after A sent an end signal. The user subsequently
+corrected the earlier answer: the phone was untouched and the call was not
+ended manually. This is an unresolved unexpected termination, not a successful
+90-second qualification. No ring/liveness timeout was logged before that end
+signal; an emitted end signal alone does not identify a user action.
 
 The call-only repeat used the same final source and baseline native libraries;
 it did not repeat the message burst. Both A/B rang after 534/538 ms; answering
