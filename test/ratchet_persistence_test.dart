@@ -849,7 +849,7 @@ void main() {
       await storage.saveRatchetStates([RatchetStateEntry(key, small)]);
       expect(await storage.loadRatchetState(key), small);
       expect(
-        store.count(Ns.ratchet),
+        store.kvKeys(Ns.ratchet).where((k) => k.length == kRatchetKeyLen + 2).length,
         1,
         reason: 'the records past the new tail are gone, not orphaned',
       );
