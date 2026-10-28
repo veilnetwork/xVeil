@@ -119,6 +119,14 @@ class _MessagingMessageDelivery {
         final now = DateTime.now();
         final backoff = _retryBackoff[message.id];
         if (backoff != null && now.isBefore(backoff.nextAt)) continue;
+
+        // The conversation row becomes visible before its required device-log
+        // commit. A timer/reconnect retry must respect the same durable boundary
+        // as the initial send, including repair after an interrupted write.
+        if (!await _owner._deviceMirror.prepareStoredRetry(peer, message)) {
+          continue;
+        }
+
         final count = (backoff?.count ?? 0) + 1;
         // Clamp the shift: an unbounded count eventually wraps the delay to 0.
         final delayMs =
