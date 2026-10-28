@@ -47,6 +47,7 @@ import '../domain/space_recommendation.dart';
 import '../domain/space_join_request.dart';
 import '../domain/space_public_feed_transport.dart';
 import 'inbound_admission.dart';
+import 'post_receipt_queue.dart';
 import 'mailbox_service.dart' show MailboxSink;
 import 'ratchet_persistence.dart';
 import 'sticker_message.dart';
@@ -226,6 +227,11 @@ class MessagingService {
   late final _MessagingAttestation _attestation = _MessagingAttestation(this);
   late final _MessagingReplication _replication = _MessagingReplication(this);
   late final _MessagingLargeFrames _largeFrames = _MessagingLargeFrames(this);
+  late final _postReceipts = PostReceiptQueue(
+    onError: (error, _) => devLog(
+      () => 'xVeil[recv]: post receipt send FAILED (${error.runtimeType})',
+    ),
+  );
   late final _MessagingGroupContent _groupContent = _MessagingGroupContent(
     this,
   );
@@ -1562,7 +1568,7 @@ class MessagingService {
       final admitted = inboundAdmission.admit(
         m,
         known: _senderIsKnown(m),
-        handle: _onInbound,
+        handle: (message) => _onInbound(message, waitForPostReceipt: false),
         coalesceIdentical: coalesceReplay,
       );
       if (inboundAdmission.coalescedFrames != coalescedBefore) {
@@ -2109,20 +2115,31 @@ class MessagingService {
   bool _senderIsKnown(InboundMessage m) =>
       m.provenance.isAuthenticated || _realtimeControl.isAccepted(m.src);
 
-  Future<void> _onInbound(InboundMessage m) {
+  Future<void> _onInbound(InboundMessage m, {bool waitForPostReceipt = true}) {
     diagnosticJournal.record(
       DiagnosticEvent.transportReceived,
       minInterval: const Duration(seconds: 1),
     );
-    final next = _inboundChain.then((_) => _handleInbound(m));
+    Future<void> receipt = Future<void>.value();
+    final next = _inboundChain.then(
+      (_) => _handleInbound(m, onPostReceipt: (done) => receipt = done),
+    );
     _inboundChain = next;
-    return next;
+    // Keep explicit delivery callers' original settlement semantics, but
+    // release serialized durable dispatch before the receipt transport waits.
+    // The live listener does not await transport settlement. Release its
+    // payload/admission reservation after durable handling; queued receipts
+    // retain compact metadata only. Explicit delivery callers still join ACK.
+    return waitForPostReceipt ? next.then((_) => receipt) : next;
   }
 
   Future<void> _onRealtimeInbound(InboundMessage message) =>
       _realtimeControl.deliverInbound(message);
 
-  Future<void> _handleInbound(InboundMessage m) async {
+  Future<void> _handleInbound(
+    InboundMessage m, {
+    void Function(Future<void>)? onPostReceipt,
+  }) async {
     // The lane outlives dispose(): cancelling the subscription stops NEW
     // frames, it does not retract the ones already chained, and the container
     // those would write into is closed moments later by
@@ -2164,12 +2181,13 @@ class MessagingService {
           await _dispatch(
             joined.message,
             blockedWhileReassembling: joined.wasBlocked,
+            onPostReceipt: onPostReceipt,
           );
         } finally {
           joined.release();
         }
       } else {
-        await _dispatch(m);
+        await _dispatch(m, onPostReceipt: onPostReceipt);
       }
     } catch (e) {
       // A hostile or corrupt datagram (malformed JSON, missing/ill-typed
@@ -4317,6 +4335,7 @@ class MessagingService {
   Future<void> _dispose() async {
     _disposed = true; // stops transfer retry/serve work
     final largeFramesClosed = _largeFrames.close();
+    final postReceiptsClosed = _postReceipts.close();
     _contentAvailability.cancelRetryReoffers();
     final historyClosed = _ownHistory.close();
     _outbox.dispose();
@@ -4337,6 +4356,7 @@ class MessagingService {
     _realtimeSub = null;
     await _quiesceInboundLanes();
     await largeFramesClosed;
+    await postReceiptsClosed;
     await historyClosed;
     await _mutations.quiesce();
     Object? shutdownError;
