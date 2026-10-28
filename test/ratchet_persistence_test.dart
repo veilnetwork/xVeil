@@ -9,7 +9,8 @@ import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
-import 'package:xveil/domain/chat.dart' show Contact, ContactStatus, Message;
+import 'package:xveil/domain/chat.dart'
+    show Contact, ContactStatus, Message, MessageDirection, MessageStatus;
 import 'package:xveil/domain/content_manifest.dart';
 import 'package:xveil/state/messaging.dart';
 import 'package:xveil/state/ratchet_persistence.dart';
@@ -384,9 +385,14 @@ class _ScrubCountingStore implements KvLogStore {
   String? hardeningWarning() => null;
   final FakeKvLogStore inner = FakeKvLogStore();
   int scrubs = 0;
+  bool failScrub = false;
+  final logStarts = <int?>[];
 
   @override
-  void scrub() => scrubs++;
+  void scrub() {
+    scrubs++;
+    if (failScrub) throw StateError('injected scrub failure');
+  }
 
   @override
   int commit(List<KvLogOp> ops) => inner.commit(ops);
@@ -400,12 +406,15 @@ class _ScrubCountingStore implements KvLogStore {
     int? start,
     int? end,
     required int limit,
-  }) => inner.iterLogRange(
-    namespace: namespace,
-    start: start,
-    end: end,
-    limit: limit,
-  );
+  }) {
+    logStarts.add(start);
+    return inner.iterLogRange(
+      namespace: namespace,
+      start: start,
+      end: end,
+      limit: limit,
+    );
+  }
   @override
   int count(int ns) => inner.count(ns);
   @override
@@ -938,6 +947,108 @@ void main() {
         reason: 'the window is bounded by a count of writes, not by time',
       );
       expect(await vol.loadRatchetState(key), blob(127));
+    });
+
+    test('ratchet vacuum retains the warm conversation fold', () async {
+      final counting = _ScrubCountingStore();
+      final vol = HiddenVolumeStorage(
+        ({required Uint8List password, required bool create}) => counting,
+      );
+      await vol.open(password: 'pw', createIfMissing: true);
+      addTearDown(vol.close);
+      Message row(int i) => Message(
+        id: 'fixture-$i',
+        conversationId: 'fixture-peer',
+        direction: MessageDirection.outgoing,
+        author: 'fixture-author',
+        body: 'body-$i',
+        timestamp: DateTime.utc(2020).add(Duration(seconds: i)),
+        status: MessageStatus.sent,
+      );
+      for (var i = 0; i < 200; i++) {
+        await vol.appendMessage(row(i));
+      }
+      expect(await vol.loadMessages('fixture-peer'), hasLength(200));
+      counting.logStarts.clear();
+      final key = _convKey(local: 3, peerNode: 120);
+      for (var i = 0; i < 128; i++) {
+        await vol.saveRatchetStates([
+          RatchetStateEntry(key, Uint8List(1400)..[0] = i),
+        ]);
+      }
+      expect(counting.scrubs, 1);
+      final held = await vol.loadMessages('fixture-peer');
+      expect(held.map((m) => m.id).toSet(), {
+        for (var i = 0; i < 200; i++) 'fixture-$i',
+      });
+      expect(
+        counting.logStarts,
+        isEmpty,
+        reason: 'key erasure does not change conversation rows or log IDs',
+      );
+      await vol.appendMessage(row(200));
+      expect(await vol.loadMessages('fixture-peer'), hasLength(201));
+      expect(counting.logStarts, isNotEmpty);
+      expect(
+        counting.logStarts.every((start) => start != null && start > 0),
+        isTrue,
+        reason: 'the next post must use the incremental fold',
+      );
+    });
+
+    test('a failed ratchet vacuum is retried on the next state save', () async {
+      final counting = _ScrubCountingStore();
+      final vol = HiddenVolumeStorage(
+        ({required Uint8List password, required bool create}) => counting,
+      );
+      await vol.open(password: 'pw', createIfMissing: true);
+      addTearDown(vol.close);
+      final key = _convKey(local: 3, peerNode: 120);
+      Uint8List blob(int i) => Uint8List(1400)..[0] = i;
+      for (var i = 0; i < 127; i++) {
+        await vol.saveRatchetStates([RatchetStateEntry(key, blob(i))]);
+      }
+      counting.failScrub = true;
+      await expectLater(
+        vol.saveRatchetStates([RatchetStateEntry(key, blob(127))]),
+        throwsStateError,
+      );
+      expect(counting.scrubs, 1);
+      counting.failScrub = false;
+      await vol.saveRatchetStates([RatchetStateEntry(key, blob(128))]);
+      expect(
+        counting.scrubs,
+        2,
+        reason: 'a failed erasure must not reset the cleanup budget',
+      );
+      expect(await vol.loadRatchetState(key), blob(128));
+    });
+
+    test('scrub failure keeps dirty state and the degraded guard until retry', () async {
+      final counting = _ScrubCountingStore();
+      final vol = HiddenVolumeStorage(
+        ({required Uint8List password, required bool create}) => counting,
+      );
+      await vol.open(password: 'pw', createIfMissing: true);
+      addTearDown(vol.close);
+      final node = _FakeRatchetNode();
+      final persistence = RatchetPersistence(native: node, storage: vol);
+      final key = _convKey(local: 3, peerNode: 120);
+      for (var i = 0; i < 127; i++) {
+        node.seal(key);
+        await persistence.flush();
+      }
+      node.seal(key);
+      counting.failScrub = true;
+      await expectLater(persistence.flush(), throwsStateError);
+      expect(persistence.degraded, isTrue);
+      expect(node.peekDirty(32).keys, hasLength(1));
+      expect(counting.scrubs, 1);
+      counting.failScrub = false;
+      await persistence.flush(now: true);
+      expect(counting.scrubs, 2);
+      expect(persistence.degraded, isFalse);
+      expect(node.peekDirty(32).keys, isEmpty);
     });
 
     test('erasing an identity takes its ratchet state with it', () async {
