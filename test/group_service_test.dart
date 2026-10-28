@@ -220,11 +220,13 @@ class _MessageCheckCountingSigner extends _FakeSigner {
   _MessageCheckCountingSigner(super.self);
 
   final checks = <String, int>{};
+  final rejectedBodies = <String>{};
 
   @override
   bool verifyMessage(GroupMessage message) {
     checks.update(message.ref, (n) => n + 1, ifAbsent: () => 1);
-    return super.verifyMessage(message);
+    return !rejectedBodies.contains(message.body) &&
+        super.verifyMessage(message);
   }
 }
 
@@ -10465,6 +10467,95 @@ void main() {
     expect(await master.handleContentRequest(requests.single.$2), isTrue);
     expect(grants, [(bob, cid)]);
   });
+
+  test(
+    'posting reuses the verified own history for fork and chain checks',
+    () async {
+      final store = FakeHvContainer().storage();
+      await store.open(password: 'pw', createIfMissing: true);
+      addTearDown(store.close);
+      final signer = _MessageCheckCountingSigner(owner);
+      final service = GroupService(store, signer);
+      addTearDown(service.dispose);
+      final gid = await service.createGroup('post history work');
+      expect(
+        await service.addControlOp(
+          gid,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      final base = (await service.load(gid))!;
+      final state = (await service.stateOf(gid))!;
+      final rows = <GroupMessage>[];
+      for (final author in [owner, bob]) {
+        GroupMessage? previous;
+        for (var seq = 0; seq < 3; seq++) {
+          final row = _FakeSigner(author).signMessage(
+            GroupMessage(
+              groupId: gid,
+              author: author,
+              seq: seq,
+              prevHash: previous == null ? '' : groupMessageHash(previous),
+              body: 'old-${author == owner ? 'own' : 'peer'}-$seq',
+              policyVersion: state.policyVersion,
+              createdAtMs: DateTime.now().millisecondsSinceEpoch + seq,
+              signature: Uint8List(0),
+            ),
+          );
+          rows.add(row);
+          previous = row;
+        }
+      }
+      expect(
+        await service.ingestSnapshot(
+          service.snapshotJson(base.copyWith(messages: rows)),
+        ),
+        isTrue,
+      );
+      signer.checks.clear();
+      expect(
+        await service.postMessage(gid, 'new row', broadcast: false),
+        isTrue,
+      );
+      final ownChecks = rows
+          .where((r) => r.author == owner)
+          .map((r) => signer.checks[r.ref] ?? 0)
+          .toList();
+      final peerChecks = rows
+          .where((r) => r.author == bob)
+          .map((r) => signer.checks[r.ref] ?? 0)
+          .toList();
+      expect(
+        ownChecks,
+        everyElement(greaterThan(0)),
+        reason: 'each new write must still verify retained input',
+      );
+      expect(
+        ownChecks,
+        peerChecks,
+        reason:
+            'fork detection and the predecessor fold share that verified view',
+      );
+      final posted = (await service.messagesOf(
+        gid,
+      )).where((r) => r.body == 'new row').single;
+      expect(posted.seq, 3);
+      expect(posted.prevHash, groupMessageHash(rows[2]));
+      // An identity-document change must be observed by the next write, even
+      // though the preceding synchronous view accepted the exact same rows.
+      signer.rejectedBodies.add('old-own-1');
+      signer.checks.clear();
+      expect(
+        await service.postMessage(gid, 'after key change', broadcast: false),
+        isFalse,
+        reason: 'a newly invalid predecessor must break the chain',
+      );
+      expect(signer.checks[rows[1].ref], greaterThan(0));
+    },
+  );
 
   test(
     'reading canonical history does not reverify it for every author',
