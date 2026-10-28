@@ -1,0 +1,137 @@
+{
+  "schema": "bounded-message-records-v1",
+  "date": "2026-10-28",
+  "base_application": "0dd2a74f",
+  "flutter_sdk": "a8f9f5dc",
+  "frozen_native_sdk": "1d36980d",
+  "hidden_volume": "1ea2366f",
+  "confirmed_findings": [
+    "oversized_message_event_record",
+    "bulk_scrub_obligation_missing_on_interruption"
+  ],
+  "storage": {
+    "inline_encoded_event_bytes": 1800,
+    "part_raw_bytes": 1200,
+    "max_encoded_event_bytes": 524288,
+    "atomic_head_parts_author_cursor_and_markers": true,
+    "read_checks": [
+      "descriptor_bound",
+      "part_owner",
+      "part_index",
+      "part_length",
+      "sha256"
+    ],
+    "old_small_record_format_preserved": true,
+    "split_reads_independent_of_inline_write_threshold": true,
+    "downgrade_shows_new_split_events": false,
+    "new_namespace": false,
+    "plaintext_spill": false
+  },
+  "verification": {
+    "passed": 284,
+    "skipped": 0,
+    "files": 17,
+    "focused_payload_cases": 17,
+    "native_storage_test_files": 3,
+    "native_fixture_random_bytes_before_base64": 16384,
+    "native_fixture_text_chars": 21848,
+    "old_native_payload_failure_reproduced": true,
+    "old_small_bulk_scrub_regression_failed": true,
+    "analysis_files": 3,
+    "analysis_issues": 0,
+    "failure_injection": true,
+    "physical_power_cut_tested": false
+  },
+  "physical": {
+    "roles": {
+      "A": "Android_WiFi_identity_X",
+      "B": "macOS_identity_X",
+      "C": "macOS_identity_Y"
+    },
+    "retained_profiles": true,
+    "android_build": "profile_AOT",
+    "mac_build": "debug_Dart",
+    "native_artifacts_frozen": true,
+    "lib_copies_byte_equal": true,
+    "apk_diff_proof_verified": true,
+    "native_test_hooks": false,
+    "private_timing_overlay": false,
+    "concurrent_submitters": 6,
+    "senders": {
+      "A": 12,
+      "C": 6
+    },
+    "additional_ascii_fixture_chars": 2000,
+    "submission_seconds": 12.8,
+    "new_message_counts": {
+      "A": 18,
+      "B": 18,
+      "C": 18
+    },
+    "history_before_mutation": {
+      "A": 1406,
+      "B": 1406,
+      "C": 1406
+    },
+    "same_ids_and_order_before_mutation": true,
+    "no_duplicates": true,
+    "new_fixture_exact_on_all_roles": true,
+    "first_all_messages_observed_seconds": 29.5,
+    "group_chunk_queues_empty_before_mutation_seconds": 88.8,
+    "edited_target_counts": {
+      "A": 1,
+      "B": 1,
+      "C": 1
+    },
+    "edit_observed_seconds": 10.2,
+    "same_ids_and_order_after_edit": true,
+    "deleted_target_remaining": {
+      "A": 0,
+      "B": 0,
+      "C": 0
+    },
+    "delete_observed_seconds": 12.6,
+    "unrelated_ids_preserved": true,
+    "same_order_after_delete": true,
+    "history_after_delete": {
+      "A": 1405,
+      "B": 1405,
+      "C": 1405
+    },
+    "final_outbox_rows": {
+      "A": 0,
+      "B": 1,
+      "C": 0
+    },
+    "final_group_chunk_rows": {
+      "A": 0,
+      "B": 0,
+      "C": 0
+    },
+    "remaining_B_kind": "p2p_endpoint_announcement",
+    "complete_outbox_drain_claimed": false,
+    "latency_improvement_claimed": false
+  },
+  "limits": [
+    "large_live_text_delivery_still_subject_to_6144_encoded_auth_delivery_cap",
+    "tens_of_kilobytes_relay_text_delivery_not_qualified",
+    "multi_batch_clear_not_one_conversation_wide_transaction",
+    "new_split_events_require_current_reader_to_display",
+    "Windows_not_qualified",
+    "original_25_second_call_termination_cause_not_established",
+    "full_multi_device_matrix_not_claimed"
+  ],
+  "cleanup": {
+    "android_package_processes": 0,
+    "recorded_owned_groups_checked": 91,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false
+  },
+  "main_app_modified": false,
+  "rust_built": false,
+  "servers_modified": false,
+  "pushed": false,
+  "released": false
+}

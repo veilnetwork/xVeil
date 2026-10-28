@@ -156,15 +156,21 @@ class HiddenVolumeStorage
 
   Future<void> _commitMessageDeletion(List<KvLogOp> ops) =>
       _serializeDeleteScrub(() async {
-        await _as.commit([
-          ...ops,
-          PutOp(
-            Ns.settings,
-            _sk(_pendingDeleteScrubKey),
-            Uint8List.fromList([1]),
-          ),
-        ]);
-        _deleteScrubPending = true;
+        try {
+          await _as.commit([
+            for (final unit in await _messageRewriteUnits(ops)) ...unit,
+            PutOp(
+              Ns.settings,
+              _sk(_pendingDeleteScrubKey),
+              Uint8List.fromList([1]),
+            ),
+          ]);
+          _deleteScrubPending = true;
+        } catch (_) {
+          _deleteScrubPending = null;
+          _deleteScrubRecoveryNeeded = true;
+          rethrow;
+        }
       });
 
   // Legacy point deletes retained their tombstone, but not a pending-scrub
@@ -2473,7 +2479,145 @@ class HiddenVolumeStorage
       final byId = a.logId.compareTo(b.logId);
       return byId != 0 ? byId : a.namespace.compareTo(b.namespace);
     });
-    return entries;
+    final byId = {for (final entry in entries) entry.logId: entry};
+    final logical = <_MessageLogEntry>[];
+    for (final entry in entries) {
+      final wrapper = _messageWrapper(entry.payload);
+      if (wrapper == null) {
+        logical.add(entry);
+      } else if (wrapper['messagePart'] == 1) {
+        continue; // storage fragments are never conversation events
+      } else {
+        logical.add(
+          _MessageLogEntry(
+            namespace: entry.namespace,
+            logId: entry.logId,
+            payload: await _readMessageParts(entry, wrapper, available: byId),
+          ),
+        );
+      }
+    }
+    return logical;
+  }
+
+  // Each encoded part remains below the incompressible native record bound.
+  // Wrappers are body-less voids to older readers, so a downgrade can still
+  // read surrounding ordinary records instead of failing its entire fold.
+  static const _messagePartBytes = 1200;
+  static const _messageInlineBytes = 1800;
+  static const _messagePayloadMaxBytes = 512 * 1024;
+  static final _messageWrapperPrefix = _sk('{"messagePart');
+
+  static Map<String, dynamic>? _messageWrapper(Uint8List raw) {
+    if (raw.length < _messageWrapperPrefix.length) return null;
+    for (var i = 0; i < _messageWrapperPrefix.length; i++) {
+      if (raw[i] != _messageWrapperPrefix[i]) return null;
+    }
+    final decoded = jsonDecode(utf8.decode(raw));
+    if (decoded is! Map<String, dynamic> ||
+        decoded['k'] != EventKind.void_.index ||
+        (decoded['messagePart'] != 1 && decoded['messageParts'] != 1)) {
+      throw const FormatException('invalid message storage wrapper');
+    }
+    return decoded;
+  }
+
+  static ({int first, int count, int length, String digest})
+  _messagePartsDescriptor(Map<String, dynamic> wrapper, int head) {
+    final first = wrapper['first'];
+    final count = wrapper['count'];
+    final length = wrapper['length'];
+    final digest = wrapper['sha256'];
+    if (wrapper['messageParts'] != 1 ||
+        first is! int ||
+        first <= head ||
+        count is! int ||
+        count < 1 ||
+        length is! int ||
+        length <= _messagePartBytes ||
+        length > _messagePayloadMaxBytes ||
+        count != (length + _messagePartBytes - 1) ~/ _messagePartBytes ||
+        first + count - 1 > Ns.messageLogShardCapacity ||
+        digest is! String ||
+        !_sharedContentIdPattern.hasMatch(digest)) {
+      throw const FormatException('invalid message storage descriptor');
+    }
+    return (first: first, count: count, length: length, digest: digest);
+  }
+
+  Future<Uint8List> _readMessageParts(
+    _MessageLogEntry head,
+    Map<String, dynamic> wrapper, {
+    Map<int, _MessageLogEntry> available = const {},
+  }) async {
+    final descriptor = _messagePartsDescriptor(wrapper, head.logId);
+    final bytes = BytesBuilder(copy: false);
+    for (var i = 0; i < descriptor.count; i++) {
+      final id = descriptor.first + i;
+      final ns = Ns.messageLogNamespaceFor(id);
+      final cached = available[id];
+      final raw = cached != null && cached.namespace == ns
+          ? cached.payload
+          : await _as.readLog(ns, id);
+      final part = raw == null ? null : _messageWrapper(raw);
+      if (part == null ||
+          part['messagePart'] != 1 ||
+          part['owner'] != head.logId ||
+          part['i'] != i ||
+          part['d'] is! String) {
+        throw const FormatException('missing or misbound message storage part');
+      }
+      final data = base64Decode(part['d'] as String);
+      final expected = min(_messagePartBytes, descriptor.length - bytes.length);
+      if (data.length != expected) {
+        throw const FormatException('invalid message storage part length');
+      }
+      bytes.add(data);
+    }
+    final payload = bytes.takeBytes();
+    if (crypto.sha256.convert(payload).toString() != descriptor.digest) {
+      throw const FormatException('invalid message storage payload digest');
+    }
+    return payload;
+  }
+
+  // A head rewrite and the erasure of every fragment are one commit unit.
+  // Splitting a bulk clear between them would orphan readable deleted text.
+  Future<List<List<KvLogOp>>> _messageRewriteUnits(List<KvLogOp> ops) async {
+    final units = <List<KvLogOp>>[];
+    for (final op in ops) {
+      final unit = <KvLogOp>[];
+      if (op is AppendLogOp &&
+          op.namespace >= Ns.messageLogShardFirst &&
+          op.namespace <= Ns.messageLogShardRetiredLast) {
+        final raw = await _as.readLog(op.namespace, op.logId);
+        final wrapper = raw == null ? null : _messageWrapper(raw);
+        if (wrapper?['messageParts'] == 1) {
+          final descriptor = _messagePartsDescriptor(wrapper!, op.logId);
+          // Verify ownership before rewriting any other log id.
+          await _readMessageParts(
+            _MessageLogEntry(
+              namespace: op.namespace,
+              logId: op.logId,
+              payload: raw!,
+            ),
+            wrapper,
+          );
+          for (var i = 0; i < descriptor.count; i++) {
+            final id = descriptor.first + i;
+            unit.add(
+              AppendLogOp(
+                Ns.messageLogNamespaceFor(id),
+                id,
+                _sk(jsonEncode({'messagePart': 1, 'k': EventKind.void_.index})),
+              ),
+            );
+          }
+        }
+      }
+      units.add([...unit, op]);
+    }
+    return units;
   }
 
   /// Resolve the log_id (and decoded body) of a LIVE message in a SPECIFIC
@@ -3407,25 +3551,64 @@ class HiddenVolumeStorage
     await _patchCache(() {});
   }
 
-  /// Commit [ops] in as few batches as fit. The at-rest store encodes ONE commit
-  /// into a single DataBatch bounded by the chunk capacity (~4 KB zstd), with no
-  /// auto-split at this layer — so a big atomic commit (clearing a chat with many
-  /// files = a chunk-zeroing op PER chunk, thousands of records) overflowed with
-  /// `HvException.PayloadTooLarge`, aborting the whole clear so the history
-  /// survived. Try the whole list first (one commit when it fits), and on
-  /// PayloadTooLarge split recursively in half until each batch fits. This is no
-  /// longer a single atomic commit, but every caller [scrubDeleted]s afterwards,
-  /// so a deleted blob still ends forensically erased even if a split lands
-  /// mid-file. A genuinely oversized SINGLE record (length 1) still rethrows.
+  /// Pack a bulk mutation without splitting one message's head/part rewrite.
+  /// The native store packs bounded records into multiple data batches; this
+  /// fallback also supports backings that bound a whole operation batch.
   Future<void> _commitBatched(List<KvLogOp> ops) async {
-    if (ops.isEmpty) return;
+    final messageDeletion = ops.whereType<AppendLogOp>().any(
+      (op) =>
+          op.namespace >= Ns.messageLogShardFirst &&
+          op.namespace <= Ns.messageLogShardRetiredLast,
+    );
+    Future<void> commit() async {
+      try {
+        await _commitBatchedUnits(
+          await _messageRewriteUnits(ops),
+          messageDeletion: messageDeletion,
+        );
+      } catch (_) {
+        if (messageDeletion) {
+          _deleteScrubPending = null;
+          _deleteScrubRecoveryNeeded = true;
+        }
+        rethrow;
+      }
+    }
+
+    if (messageDeletion) {
+      await _serializeDeleteScrub(commit);
+    } else {
+      await commit();
+    }
+  }
+
+  Future<void> _commitBatchedUnits(
+    List<List<KvLogOp>> units, {
+    required bool messageDeletion,
+  }) async {
+    if (units.isEmpty) return;
     try {
-      await _as.commit(ops);
+      await _as.commit([
+        for (final unit in units) ...unit,
+        if (messageDeletion)
+          PutOp(
+            Ns.settings,
+            _sk(_pendingDeleteScrubKey),
+            Uint8List.fromList([1]),
+          ),
+      ]);
+      if (messageDeletion) _deleteScrubPending = true;
     } on hv.HvException catch (e) {
-      if (e.kind != 'PayloadTooLarge' || ops.length == 1) rethrow;
-      final mid = ops.length >> 1;
-      await _commitBatched(ops.sublist(0, mid));
-      await _commitBatched(ops.sublist(mid));
+      if (e.kind != 'PayloadTooLarge' || units.length == 1) rethrow;
+      final mid = units.length >> 1;
+      await _commitBatchedUnits(
+        units.sublist(0, mid),
+        messageDeletion: messageDeletion,
+      );
+      await _commitBatchedUnits(
+        units.sublist(mid),
+        messageDeletion: messageDeletion,
+      );
     }
   }
 
@@ -5133,46 +5316,116 @@ class HiddenVolumeStorage
     final logId = await _allocLogId(store, maximum: Ns.messageLogShardCapacity);
     final namespace = Ns.messageLogNamespaceFor(logId);
     await _ensureMessageLogNamespacesLoaded();
-    final messageOps = opsFor(namespace, logId);
-
-    Future<void> commit({required bool withMarker}) async {
+    final messageOps = <KvLogOp>[];
+    final namespaces = <int>{namespace};
+    var lastId = logId;
+    for (final op in opsFor(namespace, logId)) {
+      if (op is! AppendLogOp ||
+          op.namespace != namespace ||
+          op.logId != logId ||
+          op.payload.length <= _messageInlineBytes) {
+        messageOps.add(op);
+        continue;
+      }
+      final payload = op.payload;
+      if (payload.length > _messagePayloadMaxBytes) {
+        throw ArgumentError('message event exceeds the storage bound');
+      }
+      final count =
+          (payload.length + _messagePartBytes - 1) ~/ _messagePartBytes;
+      final first = await _allocLogIds(
+        store,
+        count: count,
+        maximum: Ns.messageLogShardCapacity,
+      );
+      lastId = first + count - 1;
+      for (var i = 0; i < count; i++) {
+        final id = first + i;
+        final ns = Ns.messageLogNamespaceFor(id);
+        namespaces.add(ns);
+        messageOps.add(
+          AppendLogOp(
+            ns,
+            id,
+            _sk(
+              jsonEncode({
+                'messagePart': 1,
+                'k': EventKind.void_.index,
+                'owner': logId,
+                'i': i,
+                'd': base64Encode(
+                  Uint8List.sublistView(
+                    payload,
+                    i * _messagePartBytes,
+                    min((i + 1) * _messagePartBytes, payload.length),
+                  ),
+                ),
+              }),
+            ),
+          ),
+        );
+      }
+      messageOps.add(
+        AppendLogOp(
+          namespace,
+          logId,
+          _sk(
+            jsonEncode({
+              'messageParts': 1,
+              'k': EventKind.void_.index,
+              'first': first,
+              'count': count,
+              'length': payload.length,
+              'sha256': crypto.sha256.convert(payload).toString(),
+            }),
+          ),
+        ),
+      );
+    }
+    // Join earlier first-use publications before claiming any new shard.
+    // Register one shared flight for all newly touched shards, so a crossing
+    // record publishes every fragment and discovery marker in the same commit.
+    for (final ns in namespaces) {
+      final pending = _messageLogMarkerWrites[ns];
+      if (pending != null) await pending;
+    }
+    final missing = namespaces.difference(_messageLogNamespaceMarkers);
+    late final Future<void> publish;
+    publish = () async {
       await store.commit([
         ...messageOps,
-        if (withMarker)
+        for (final ns in missing)
           PutOp(
             Ns.settings,
-            _sk('$_messageLogNamespaceMarkerPrefix$namespace'),
+            _sk('$_messageLogNamespaceMarkerPrefix$ns'),
             _sk('1'),
           ),
       ]);
+      _messageLogNamespaces.addAll(namespaces);
+      _messageLogNamespaceMarkers.addAll(missing);
+    }();
+    for (final ns in missing) {
+      _messageLogMarkerWrites[ns] = publish;
     }
-
-    if (_messageLogNamespaceMarkers.contains(namespace)) {
-      await commit(withMarker: false);
-    } else {
-      final firstCommit = _messageLogMarkerWrites[namespace];
-      if (firstCommit != null) {
-        await firstCommit;
-        await commit(withMarker: false);
-      } else {
-        late final Future<void> publish;
-        publish = () async {
-          await commit(withMarker: true);
-          _messageLogNamespaces.add(namespace);
-          _messageLogNamespaceMarkers.add(namespace);
-        }();
-        _messageLogMarkerWrites[namespace] = publish;
-        try {
-          await publish;
-        } finally {
-          if (identical(_messageLogMarkerWrites[namespace], publish)) {
-            _messageLogMarkerWrites.remove(namespace);
-          }
+    try {
+      await publish;
+    } catch (_) {
+      // A worker can lose its reply after the atomic commit. Include the
+      // possible rows in subsequent reads, without claiming that the write
+      // succeeded or spending another author sequence on its behalf.
+      _messageLogNamespaces.addAll(namespaces);
+      _noteLogCommit(store, logId, message: true);
+      if (lastId != logId) _noteLogCommit(store, lastId, message: true);
+      rethrow;
+    } finally {
+      for (final ns in missing) {
+        if (identical(_messageLogMarkerWrites[ns], publish)) {
+          _messageLogMarkerWrites.remove(ns);
         }
       }
     }
-    _messageLogNamespaces.add(namespace);
     _noteLogCommit(store, logId, message: true);
+    if (lastId != logId) _noteLogCommit(store, lastId, message: true);
     return logId;
   });
 
