@@ -290,6 +290,12 @@ class _MessagingReplication {
   /// A different wire kind must not consume a snapshot's receipt namespace.
   bool acceptsFrameKind(WireKind kind, String? fid) {
     if (fid == null) return true;
+    // All supported current/legacy snapshot IDs fit this bound. Do not
+    // retain an arbitrarily large legacy ID in the committed-receipt cache.
+    if ((kind == WireKind.groupEntry || kind == WireKind.groupEntryChunk) &&
+        fid.length > 340) {
+      return false;
+    }
     if (_canonicalGroupTransfer(fid)) return kind == WireKind.groupEntry;
     if (_canonicalChunkTransfer(fid) != null) {
       return kind == WireKind.groupEntryChunk;
@@ -325,17 +331,14 @@ class _MessagingReplication {
     String tid, {
     required int epoch,
     required bool repeat,
-  }) async {
-    if (!_currentGroupEpoch(epoch)) return;
-    try {
-      await _owner._ackTo(message, 'grpa:$tid', direct: repeat, repeat: repeat);
-    } catch (error) {
-      devLog(
-        () =>
-            'xVeil[group]: transfer ACK failed (${error.runtimeType}); retry retained',
-      );
-    }
-  }
+    void Function(Future<void>)? onReceipt,
+  }) => _queueGroupReceipt(
+    message,
+    'grpa:$tid',
+    epoch: epoch,
+    repeat: repeat,
+    onReceipt: onReceipt,
+  );
 
   void _refreshGroupHandlers() {
     if (identical(_groupHandlerIdentity, _owner.onGroupEntry) &&
@@ -369,9 +372,11 @@ class _MessagingReplication {
     required bool canonical,
     List<NodeId>? ownDeviceTargets,
     required int epoch,
+    void Function(Future<void>)? onReceipt,
   }) async {
     if (!_currentGroupEpoch(epoch) ||
         fid == null ||
+        fid.length > 340 ||
         (!canonical && !m.provenance.isAuthenticated)) {
       return;
     }
@@ -385,20 +390,14 @@ class _MessagingReplication {
       }
       _groupReceipts.add(key);
     }
-    try {
-      await _owner._ackTo(
-        m,
-        fid,
-        direct: repeat,
-        repeat: repeat,
-        ownDeviceTargets: ownDeviceTargets,
-      );
-    } catch (error) {
-      // The durable receipt remains; retransmission asks for another ACK.
-      devLog(
-        () => 'xVeil[group]: ACK failed (${error.runtimeType}); retry retained',
-      );
-    }
+    await _queueGroupReceipt(
+      m,
+      fid,
+      epoch: epoch,
+      repeat: repeat,
+      ownDeviceTargets: ownDeviceTargets,
+      onReceipt: onReceipt,
+    );
   }
 
   Future<bool> _deliverGroupFrame(
@@ -441,6 +440,7 @@ class _MessagingReplication {
     String? fid, {
     required bool fromStranger,
     required bool allowSeenAck,
+    void Function(Future<void>)? onReceipt,
   }) async {
     _refreshGroupHandlers();
     final epoch = _groupEpoch;
@@ -451,13 +451,27 @@ class _MessagingReplication {
     }
     final hash = _bodyHash(body);
     if (allowSeenAck && _hasGroupReceipt(m, fid, hash)) {
-      await _ackGroupFrame(m, fid, hash, canonical: canonical, epoch: epoch);
+      await _ackGroupFrame(
+        m,
+        fid,
+        hash,
+        canonical: canonical,
+        epoch: epoch,
+        onReceipt: onReceipt,
+      );
       return;
     }
     if (!await _deliverGroupFrame(m.src, body, fromStranger: fromStranger)) {
       return;
     }
-    await _ackGroupFrame(m, fid, hash, canonical: canonical, epoch: epoch);
+    await _ackGroupFrame(
+      m,
+      fid,
+      hash,
+      canonical: canonical,
+      epoch: epoch,
+      onReceipt: onReceipt,
+    );
   }
 
   /// Every slice remains retryable until the joined snapshot is durable.
@@ -468,6 +482,7 @@ class _MessagingReplication {
     String? fid, {
     required bool fromStranger,
     required bool allowSeenAck,
+    void Function(Future<void>)? onReceipt,
   }) async {
     _refreshGroupHandlers();
     final epoch = _groupEpoch;
@@ -504,7 +519,14 @@ class _MessagingReplication {
         committed &&
         allowSeenAck &&
         m.provenance.isAuthenticated) {
-      await _ackGroupFrame(m, fid, hash, canonical: canonical, epoch: epoch);
+      await _ackGroupFrame(
+        m,
+        fid,
+        hash,
+        canonical: canonical,
+        epoch: epoch,
+        onReceipt: onReceipt,
+      );
       return;
     }
     var slot = _groupReasm[key];
@@ -525,7 +547,14 @@ class _MessagingReplication {
       strangerAdmitted = true;
     }
     if (committed && !f.transferAck) {
-      await _ackGroupFrame(m, fid, hash, canonical: canonical, epoch: epoch);
+      await _ackGroupFrame(
+        m,
+        fid,
+        hash,
+        canonical: canonical,
+        epoch: epoch,
+        onReceipt: onReceipt,
+      );
       return;
     }
     if (slot == null) {
@@ -611,7 +640,13 @@ class _MessagingReplication {
     if (slot.transferAck) {
       // Always assemble every slice, even for an in-RAM committed retry. An
       // early ACK while the sender is still enqueueing could strand its tail.
-      await _ackGroupTransfer(m, f.transferId, epoch: epoch, repeat: committed);
+      await _ackGroupTransfer(
+        m,
+        f.transferId,
+        epoch: epoch,
+        repeat: committed,
+        onReceipt: onReceipt,
+      );
       return;
     }
     List<NodeId>? ownDeviceTargets;
@@ -630,6 +665,7 @@ class _MessagingReplication {
         canonical: canonical,
         ownDeviceTargets: ownDeviceTargets,
         epoch: epoch,
+        onReceipt: onReceipt,
       );
     }
   }
