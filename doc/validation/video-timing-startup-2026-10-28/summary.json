@@ -474,7 +474,9 @@
           "B": 519
         },
         "other_sibling_stopped_ringing": true,
-        "end_classification": "user_confirmed_manual_hangup"
+        "end_classification": "unexpected_termination_under_investigation",
+        "unexpected_termination_unresolved": true,
+        "user_reports_manual_hangup": false
       },
       "endpoints": {
         "A": {
@@ -676,6 +678,7 @@
   },
   "remaining": [
     "Burst submission still takes about 20\u201327 seconds, with additional background convergence time.",
-    "Human speech/headphone volume, per-frame smoothness, Windows reports, relay-only behavior, physical handover, partial chunk-ACK crash recovery, long offline and the full multi-device matrix remain unqualified."
+    "Human speech/headphone volume, per-frame smoothness, Windows reports, relay-only behavior, physical handover, partial chunk-ACK crash recovery, long offline and the full multi-device matrix remain unqualified.",
+    "The 25.1-second dart-final call ended unexpectedly. The user corrected the earlier answer and states the phone was untouched; a later 90-second pass does not explain that termination."
   ]
 }

@@ -1,0 +1,68 @@
+{
+  "date": "2026-10-28",
+  "source_base": "ea6ccff6",
+  "suite_files": 44,
+  "tests_passed": 595,
+  "skips": 0,
+  "production_hv_checks_passed": 7,
+  "static_analysis_issues": 0,
+  "changes": [
+    "Bounded cache of confirmed committed ratchet run lengths, invalidated on lifecycle changes and uncertain outcomes.",
+    "Reload durable cleanup count after uncertain commit.",
+    "Bounded geometric export retry for growing native snapshots; validate size before changing wipe capacity.",
+    "Corrected unsupported manual classification of the earlier unexpected call termination."
+  ],
+  "baseline_android_rpc_mean_ms": {
+    "ratchet_kv_chunk_read": {
+      "count": 84,
+      "dispatch": 20.24,
+      "backend": 0.45,
+      "reply": 52.97,
+      "total": 73.66
+    },
+    "ratchet_commit": {
+      "count": 76,
+      "dispatch": 6.31,
+      "backend": 37.67,
+      "reply": 54.92,
+      "total": 98.9
+    }
+  },
+  "normal_stand": {
+    "roles": {
+      "A": "Android/profile-AOT Wi-Fi identity X",
+      "B": "Mac sibling of A",
+      "C": "Mac identity Y"
+    },
+    "new_messages": 18,
+    "submission_seconds": 22.0,
+    "all_messages_and_delivery_marks_observed_seconds": 53.0,
+    "whole_history_rows_per_role": 1054,
+    "whole_history_ids_and_order_equal": true,
+    "duplicate_new_messages": 0,
+    "unique_local_sequences": true,
+    "private_timing_overlay": false,
+    "private_timing_endpoint_absent": true,
+    "native_libraries_unchanged": true,
+    "export_growth_errors_in_retained_logs": 0,
+    "degraded_flushes_in_retained_logs": 0
+  },
+  "cleanup": {
+    "recorded_owned_groups_checked": 61,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false
+  },
+  "unexpected_call": {
+    "sampled_seconds": 25.094,
+    "user_reports_manual_hangup": false,
+    "android_end_precedes_script_hangup_seconds": 0.709,
+    "reason": "unresolved"
+  },
+  "remaining": [
+    "Long delivery/receipt queues and thousands of settings RPCs with app-isolate reply waits.",
+    "Unexpected 25.1-second call termination: reason/origin was not logged; user states the phone was untouched.",
+    "Windows reports, live speech/headphone volume and the broad multi-device security/crash matrix remain unqualified."
+  ]
+}
