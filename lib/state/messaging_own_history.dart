@@ -7,6 +7,18 @@ class _MessagingOwnHistory {
   _MessagingOwnHistory(this._owner);
   final MessagingService _owner;
   final _tasks = AsyncTasks();
+  // A complete encoded 64-slice page fits one peer's budget. History is
+  // live-only and retries, so overflow drops instead of growing another queue.
+  final admission = InboundAdmission(
+    label: 'device-history',
+    maxBytes: 1 << 20,
+    maxFrames: 512,
+    maxKnownPeerBytes: 256 << 10,
+    maxStrangerPeerBytes: 0,
+    maxStrangerBytes: 0,
+  );
+  Future<void> _inbound = Future<void>.value();
+
   final _pulls = <String, _OwnHistoryPull>{};
   final _starting = <String, Object>{};
   final _serving = <String>{};
@@ -48,7 +60,17 @@ class _MessagingOwnHistory {
 
   void _run(Future<void> Function() action) {
     if (_closed) return;
-    unawaited(_tasks.runRequired(action).catchError((Object _) => _report()));
+    // Catch inside the owned future too: close() joins those futures, so an
+    // already reported history error must not abort the remaining shutdown.
+    unawaited(
+      _tasks.runRequired(() async {
+        try {
+          await action();
+        } catch (_) {
+          _report();
+        }
+      }),
+    );
   }
 
   void start() {
@@ -202,6 +224,60 @@ class _MessagingOwnHistory {
     if (_pulls[pull.device.hex] == pull) {
       _pulls.remove(pull.device.hex);
       _nextScan[pull.device.hex] = _owner._now().add(cooldown);
+    }
+  }
+
+  /// Common consent/provenance and ratchet handling already ran in the durable
+  /// lane. Slow sibling-roster reads belong to this separately bounded lane,
+  /// not in front of unrelated chat messages. Every history effect still checks
+  /// the current binding and device authorization in the normal handler.
+  void enqueue(InboundMessage message, String body) {
+    if (!_ready || !message.provenance.isAuthenticated || body.length > 5000) {
+      return;
+    }
+    if (!_wanted(message, body)) return;
+    final coalesced = admission.coalescedFrames;
+    final work = admission.admit(
+      message,
+      known: true,
+      coalesceIdentical: true,
+      handle: (frame) {
+        final next = _inbound.then((_) async {
+          if (_ready && _wanted(frame, body)) await handle(frame, body);
+        });
+        // A failed read is reported by the owned task, but must not poison
+        // the next request in this lane.
+        _inbound = next.then<void>(
+          (_) {},
+          onError: (Object _, StackTrace _) {},
+        );
+        return next;
+      },
+    );
+    // The original reservation is already owned. Tracking each duplicate of
+    // its future would recreate an unbounded task list despite byte coalescing.
+    if (work != null && admission.coalescedFrames == coalesced) {
+      _run(() => work);
+    }
+  }
+
+  // Refusing a stale/held slice exercises no authority. In particular a retry
+  // must not refill the queue with an already retained prefix while its missing
+  // tail keeps being dropped. Authorization is still checked by handle/apply.
+  bool _wanted(InboundMessage message, String body) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is! Map<String, dynamic>) return false;
+      final device = message.srcDevice ?? message.src;
+      if (decoded['q'] is Map<String, dynamic>) return true;
+      final pull = _pulls[device.hex];
+      return pull != null &&
+          !pull.processing &&
+          identical(pull.binding, _owner.groupBindingsOwner) &&
+          pull.id == decoded['id'] &&
+          !pull.parts.containsKey(decoded['i']);
+    } on FormatException {
+      return false;
     }
   }
 
@@ -682,6 +758,7 @@ class _MessagingOwnHistory {
   }
 
   Future<void> close() {
+    admission.close();
     _closed = true;
     _timer?.cancel();
     for (final pull in _pulls.values) {

@@ -1,0 +1,566 @@
+{
+  "source_base": "9444b459",
+  "source_lib_patch_sha256": "d8c2e3b36dc58e765dc694e054ea931910242567dd1713b1d0b0e8839617feba",
+  "sdk": "1d36980d",
+  "roles": {
+    "A": "Android/profile-AOT, identity X, Wi-Fi",
+    "B": "macOS/debug, identity X",
+    "C": "macOS/debug, identity Y"
+  },
+  "checks": {
+    "expanded_related_passed_before_final_shutdown_fix": 639,
+    "existing_skips": 3,
+    "final_shutdown_related_passed": 84,
+    "test_counts_overlap": true,
+    "static_analysis_issues": 0,
+    "verified_before_fix_regressions": [
+      "overlapping routing queries verify the journal twice",
+      "an overtaken routing lookup returns the revoked device",
+      "a linked-owner lookup returns the removed membership view",
+      "a master lookup republishes an obsolete announcement",
+      "a routing lookup returns addresses after session shutdown",
+      "a held history roster read blocks an ordinary message",
+      "a history error aborts messaging shutdown"
+    ],
+    "additional_guards": [
+      "routing announcement replacement invalidates unfinished readers",
+      "a later routing call reads fresh bytes and failures remain visible",
+      "caller mutation cannot alter another routing result",
+      "history queue byte/frame caps and identical-frame coalescing",
+      "queued history is refused after revoke and drained during close",
+      "failed history work cannot poison the next request",
+      "large reversed pages and retransmitted retained prefixes recover the missing tail"
+    ]
+  },
+  "timed_phases": {
+    "baseline": {
+      "burst_submission_seconds": 21.5,
+      "all_roles_observed_seconds": 83.2,
+      "new_logical_ids_converged": true,
+      "no_duplicates": true,
+      "full_visible_ids_equal": true,
+      "full_visible_order_equal": true,
+      "counts": {
+        "B": 18,
+        "C": 18,
+        "A": 18
+      },
+      "full_visible_counts": {
+        "B": 712,
+        "C": 712,
+        "A": 712
+      },
+      "source_lib_patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "native_libraries_match_baseline": true,
+      "phone_profile_aot": true,
+      "private_timing_overlay": true,
+      "native_test_hooks": false,
+      "completed_global_history_handlers_on_A": {
+        "count": 16,
+        "queue_mean_ms": 48487.4,
+        "queue_peak_ms": 56694.9,
+        "handler_mean_ms": 1179.9,
+        "handler_total_ms": 18879.1
+      },
+      "A_stage_window": {
+        "group.load": {
+          "count": 400,
+          "total_ms": 475398.3,
+          "mean_ms": 1188.5
+        },
+        "group.addresses": {
+          "count": 75,
+          "total_ms": 107020.4,
+          "mean_ms": 1426.9
+        },
+        "group.canonical": {
+          "count": 150,
+          "total_ms": 24080.5,
+          "mean_ms": 160.5
+        },
+        "group.fold": {
+          "count": 273,
+          "total_ms": 1747.8,
+          "mean_ms": 6.4
+        },
+        "group.messagesView": {
+          "count": 114,
+          "total_ms": 48566.5,
+          "mean_ms": 426.0
+        },
+        "recv.ratchet": {
+          "count": 135,
+          "total_ms": 5139.1,
+          "mean_ms": 38.1
+        },
+        "dispatch.contact": {
+          "count": 135,
+          "total_ms": 5154.6,
+          "mean_ms": 38.2
+        },
+        "dispatch.ownDevice": {
+          "count": 135,
+          "total_ms": 3.8,
+          "mean_ms": 0.0
+        },
+        "history.handle": {
+          "count": 16,
+          "total_ms": 17642.1,
+          "mean_ms": 1102.6
+        },
+        "ack.total": {
+          "count": 30,
+          "total_ms": 8775.8,
+          "mean_ms": 292.5
+        },
+        "group.save": {
+          "count": 45,
+          "total_ms": 25363.3,
+          "mean_ms": 563.6
+        },
+        "group.retained": {
+          "count": 26,
+          "total_ms": 3928.7,
+          "mean_ms": 151.1
+        },
+        "group.merge": {
+          "count": 5,
+          "total_ms": 8744.4,
+          "mean_ms": 1748.9
+        },
+        "group.apply": {
+          "count": 6,
+          "total_ms": 22004.8,
+          "mean_ms": 3667.5
+        },
+        "group.ack": {
+          "count": 20,
+          "total_ms": 4984.8,
+          "mean_ms": 249.2
+        },
+        "history.serve": {
+          "count": 3,
+          "total_ms": 27948.8,
+          "mean_ms": 9316.3
+        },
+        "group.postMessage": {
+          "count": 25,
+          "total_ms": 6613.3,
+          "mean_ms": 264.5
+        },
+        "group.postBatch": {
+          "count": 14,
+          "total_ms": 35758.7,
+          "mean_ms": 2554.2
+        },
+        "store.total": {
+          "count": 18,
+          "total_ms": 124605.4,
+          "mean_ms": 6922.5
+        },
+        "sendText.total": {
+          "count": 12,
+          "total_ms": 116171.6,
+          "mean_ms": 9681.0
+        },
+        "ack.ownDevice": {
+          "count": 88,
+          "total_ms": 0.9,
+          "mean_ms": 0.0
+        }
+      },
+      "cleanup": {
+        "mac_remaining_processes": 0,
+        "peer_remaining_processes": 0,
+        "phone_remaining_processes": 0,
+        "own_forward_removed": true,
+        "main_app_modified": false,
+        "system_power_settings_changed": false,
+        "retained_profiles": true
+      },
+      "C_message_frame_handlers_queued_after_window_start_on_A": {
+        "count": 6,
+        "queue_mean_ms": 58187.9,
+        "queue_peak_ms": 64959.9,
+        "handler_mean_ms": 2841.9,
+        "handler_total_ms": 17051.6
+      }
+    },
+    "candidate": {
+      "burst_submission_seconds": 18.9,
+      "all_roles_observed_seconds": 91.4,
+      "new_logical_ids_converged": true,
+      "no_duplicates": true,
+      "full_visible_ids_equal": true,
+      "full_visible_order_equal": true,
+      "counts": {
+        "B": 18,
+        "C": 18,
+        "A": 18
+      },
+      "full_visible_counts": {
+        "B": 730,
+        "C": 730,
+        "A": 730
+      },
+      "source_lib_patch_sha256": "aa905a34b13b64e9115c6a1f0a3d7ec2a86f604eef6f368bc2fa8eae361c59b8",
+      "native_libraries_match_baseline": true,
+      "phone_profile_aot": true,
+      "private_timing_overlay": true,
+      "native_test_hooks": false,
+      "completed_global_history_handlers_on_A": {
+        "count": 6,
+        "queue_mean_ms": 38270.1,
+        "queue_peak_ms": 45881.5,
+        "handler_mean_ms": 895.4,
+        "handler_total_ms": 5372.2
+      },
+      "A_stage_window": {
+        "group.load": {
+          "count": 436,
+          "total_ms": 518674.7,
+          "mean_ms": 1189.6
+        },
+        "group.addressRead": {
+          "count": 53,
+          "total_ms": 64578.2,
+          "mean_ms": 1218.5
+        },
+        "group.canonical": {
+          "count": 146,
+          "total_ms": 23474.1,
+          "mean_ms": 160.8
+        },
+        "group.fold": {
+          "count": 260,
+          "total_ms": 1737.3,
+          "mean_ms": 6.7
+        },
+        "group.messagesView": {
+          "count": 99,
+          "total_ms": 37971.3,
+          "mean_ms": 383.5
+        },
+        "group.addresses": {
+          "count": 67,
+          "total_ms": 91250.0,
+          "mean_ms": 1361.9
+        },
+        "recv.ratchet": {
+          "count": 156,
+          "total_ms": 11480.7,
+          "mean_ms": 73.6
+        },
+        "dispatch.contact": {
+          "count": 156,
+          "total_ms": 10930.6,
+          "mean_ms": 70.1
+        },
+        "dispatch.ownDevice": {
+          "count": 156,
+          "total_ms": 4.9,
+          "mean_ms": 0.0
+        },
+        "history.handle": {
+          "count": 6,
+          "total_ms": 3732.7,
+          "mean_ms": 622.1
+        },
+        "group.save": {
+          "count": 53,
+          "total_ms": 28694.8,
+          "mean_ms": 541.4
+        },
+        "group.retained": {
+          "count": 31,
+          "total_ms": 4684.1,
+          "mean_ms": 151.1
+        },
+        "ack.ownDevice": {
+          "count": 109,
+          "total_ms": 1.6,
+          "mean_ms": 0.0
+        },
+        "ack.total": {
+          "count": 39,
+          "total_ms": 7683.9,
+          "mean_ms": 197.0
+        },
+        "group.merge": {
+          "count": 7,
+          "total_ms": 10635.6,
+          "mean_ms": 1519.4
+        },
+        "group.apply": {
+          "count": 8,
+          "total_ms": 28420.5,
+          "mean_ms": 3552.6
+        },
+        "group.ack": {
+          "count": 26,
+          "total_ms": 5272.5,
+          "mean_ms": 202.8
+        },
+        "group.postMessage": {
+          "count": 30,
+          "total_ms": 7852.2,
+          "mean_ms": 261.7
+        },
+        "group.postBatch": {
+          "count": 15,
+          "total_ms": 40539.0,
+          "mean_ms": 2702.6
+        },
+        "store.total": {
+          "count": 18,
+          "total_ms": 102835.8,
+          "mean_ms": 5713.1
+        },
+        "sendText.total": {
+          "count": 12,
+          "total_ms": 108030.9,
+          "mean_ms": 9002.6
+        },
+        "history.serve": {
+          "count": 2,
+          "total_ms": 13361.2,
+          "mean_ms": 6680.6
+        }
+      },
+      "cleanup": {
+        "mac_remaining_processes": 0,
+        "peer_remaining_processes": 0,
+        "phone_remaining_processes": 0,
+        "own_forward_removed": true,
+        "main_app_modified": false,
+        "system_power_settings_changed": false,
+        "retained_profiles": true
+      },
+      "C_message_frame_handlers_queued_after_window_start_on_A": {
+        "count": 6,
+        "queue_mean_ms": 57841.5,
+        "queue_peak_ms": 66215.1,
+        "handler_mean_ms": 3050.5,
+        "handler_total_ms": 18303.0
+      }
+    },
+    "history-lane": {
+      "burst_submission_seconds": 24.7,
+      "all_roles_observed_seconds": 87.0,
+      "new_logical_ids_converged": true,
+      "no_duplicates": true,
+      "full_visible_ids_equal": true,
+      "full_visible_order_equal": true,
+      "counts": {
+        "B": 18,
+        "C": 18,
+        "A": 18
+      },
+      "full_visible_counts": {
+        "B": 748,
+        "C": 748,
+        "A": 748
+      },
+      "source_lib_patch_sha256": "310d0c3dbb7bc7fc647294f3f43b2cd75650f0864a057bafa71755d5f93ecf03",
+      "native_libraries_match_baseline": true,
+      "phone_profile_aot": true,
+      "private_timing_overlay": true,
+      "native_test_hooks": false,
+      "completed_global_history_handlers_on_A": {
+        "count": 5,
+        "queue_mean_ms": 48036.5,
+        "queue_peak_ms": 57832.3,
+        "handler_mean_ms": 53.0,
+        "handler_total_ms": 265.0
+      },
+      "A_stage_window": {
+        "group.load": {
+          "count": 412,
+          "total_ms": 556735.7,
+          "mean_ms": 1351.3
+        },
+        "group.addressRead": {
+          "count": 45,
+          "total_ms": 72810.5,
+          "mean_ms": 1618.0
+        },
+        "group.canonical": {
+          "count": 127,
+          "total_ms": 20019.7,
+          "mean_ms": 157.6
+        },
+        "group.fold": {
+          "count": 227,
+          "total_ms": 1462.4,
+          "mean_ms": 6.4
+        },
+        "group.messagesView": {
+          "count": 89,
+          "total_ms": 42273.5,
+          "mean_ms": 475.0
+        },
+        "group.addresses": {
+          "count": 59,
+          "total_ms": 158368.2,
+          "mean_ms": 2684.2
+        },
+        "recv.ratchet": {
+          "count": 109,
+          "total_ms": 8495.6,
+          "mean_ms": 77.9
+        },
+        "dispatch.contact": {
+          "count": 109,
+          "total_ms": 4228.7,
+          "mean_ms": 38.8
+        },
+        "dispatch.ownDevice": {
+          "count": 109,
+          "total_ms": 214.8,
+          "mean_ms": 2.0
+        },
+        "history.handle": {
+          "count": 5,
+          "total_ms": 3956.5,
+          "mean_ms": 791.3
+        },
+        "group.save": {
+          "count": 48,
+          "total_ms": 32960.4,
+          "mean_ms": 686.7
+        },
+        "ack.total": {
+          "count": 38,
+          "total_ms": 7946.4,
+          "mean_ms": 209.1
+        },
+        "group.retained": {
+          "count": 26,
+          "total_ms": 4101.4,
+          "mean_ms": 157.7
+        },
+        "group.merge": {
+          "count": 7,
+          "total_ms": 10296.6,
+          "mean_ms": 1470.9
+        },
+        "group.apply": {
+          "count": 8,
+          "total_ms": 35967.0,
+          "mean_ms": 4495.9
+        },
+        "group.ack": {
+          "count": 28,
+          "total_ms": 6656.2,
+          "mean_ms": 237.7
+        },
+        "group.postMessage": {
+          "count": 25,
+          "total_ms": 6807.0,
+          "mean_ms": 272.3
+        },
+        "group.postBatch": {
+          "count": 14,
+          "total_ms": 43727.7,
+          "mean_ms": 3123.4
+        },
+        "store.total": {
+          "count": 18,
+          "total_ms": 143224.8,
+          "mean_ms": 7956.9
+        },
+        "sendText.total": {
+          "count": 12,
+          "total_ms": 133398.2,
+          "mean_ms": 11116.5
+        },
+        "history.serve": {
+          "count": 3,
+          "total_ms": 64061.6,
+          "mean_ms": 21353.9
+        },
+        "ack.ownDevice": {
+          "count": 67,
+          "total_ms": 0.8,
+          "mean_ms": 0.0
+        }
+      },
+      "cleanup": {
+        "mac_remaining_processes": 0,
+        "peer_remaining_processes": 0,
+        "phone_remaining_processes": 0,
+        "own_forward_removed": true,
+        "main_app_modified": false,
+        "system_power_settings_changed": false,
+        "retained_profiles": true
+      },
+      "C_message_frame_handlers_queued_after_window_start_on_A": {
+        "count": 6,
+        "queue_mean_ms": 56330.6,
+        "queue_peak_ms": 65130.1,
+        "handler_mean_ms": 3519.3,
+        "handler_total_ms": 21115.6
+      }
+    }
+  },
+  "normal_stand": {
+    "burst_submission_seconds": 24.3,
+    "all_roles_observed_seconds": 55.7,
+    "all_new_delivery_marks_converged": true,
+    "delivery_marks_last_observed_seconds": 55.7,
+    "new_logical_ids_converged": true,
+    "no_duplicates": true,
+    "full_visible_id_sets_equal": true,
+    "full_visible_order_equal": true,
+    "private_timing_endpoint_absent_on_all_roles": true,
+    "counts": {
+      "A": 18,
+      "B": 18,
+      "C": 18
+    },
+    "delivered_counts": {
+      "A": 18,
+      "B": 18,
+      "C": 18
+    },
+    "full_visible_counts": {
+      "B": 766,
+      "C": 766,
+      "A": 766
+    },
+    "phone_profile_aot": true,
+    "private_timer_strings_absent": true,
+    "native_test_hooks": false,
+    "native_libraries_match_baseline": true,
+    "cleanup": {
+      "mac_remaining_processes": 0,
+      "peer_remaining_processes": 0,
+      "phone_remaining_processes": 0,
+      "own_forward_removed": true,
+      "main_app_modified": false,
+      "system_power_settings_changed": false,
+      "retained_profiles": true
+    }
+  },
+  "final_cleanup": {
+    "recorded_owned_groups_checked": 29,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false
+  },
+  "measurement_limits": [
+    "Queue times start when the Dart inbound callback enqueues a frame; native/network waits before that point are not measured.",
+    "Six C-to-X message handlers per phase; timings are workload observations, not a statistically isolated speedup benchmark.",
+    "Stages include nested work and overlapping awaits; totals must not be added. Histories advanced and background traffic changed between phases.",
+    "The history-lane timing phase predates the final change that catches history task errors inside the owned future; the final 84-test subset and normal stand include that shutdown fix.",
+    "The final stand has no private timers and therefore does not measure the final per-frame queue wait.",
+    "Private queue records contain source and wire kind, but no logical message ID; C-frame timing samples are selected by source, kind and enqueue window, not by per-ID correlation."
+  ],
+  "remaining": [
+    "Long incoming-message queue waits remain: 58.2 seconds mean before, 57.8 with coalesced route reads, 56.3 with a dedicated history lane.",
+    "Group apply completed eight calls totaling 36.0 seconds in the history-lane window; classify sync request serving versus ingest and locate its remaining waits before changing scheduling.",
+    "The ordinary final build converged all 18 messages and delivery marks in 55.7 seconds, still too slow.",
+    "Windows reports, partial chunk-ACK receiver-crash recovery, live speech/headphone volume, long-offline/revoke/split-brain and the full multi-device matrix remain unqualified."
+  ]
+}
