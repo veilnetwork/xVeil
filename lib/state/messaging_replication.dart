@@ -60,12 +60,14 @@ class _MessagingReplication {
           Map<int, ({InboundMessage message, String fid, String bodyHash})>
           acks,
           int bytes,
+          bool strangerAdmitted,
         })
       >{};
   final _groupReceipts = <(String, String, String)>{};
   final _completedGroupTransfers = <String>{};
   Object? _groupHandlerIdentity;
   Object? _strangerHandlerIdentity;
+  Object? _groupAdmissionIdentity;
   int _groupEpoch = 0;
   static const _maxGroupReceipts = 4096;
   static const _maxCompletedGroupTransfers = 128;
@@ -289,7 +291,8 @@ class _MessagingReplication {
 
   void _refreshGroupHandlers() {
     if (identical(_groupHandlerIdentity, _owner.onGroupEntry) &&
-        identical(_strangerHandlerIdentity, _owner.onGroupEntryFromStranger)) {
+        identical(_strangerHandlerIdentity, _owner.onGroupEntryFromStranger) &&
+        identical(_groupAdmissionIdentity, _owner.allowStrangerGroupSync)) {
       return;
     }
     // A rebuilt provider may own a different store/identity. Its receipts
@@ -299,6 +302,7 @@ class _MessagingReplication {
     _completedGroupTransfers.clear();
     _groupHandlerIdentity = _owner.onGroupEntry;
     _strangerHandlerIdentity = _owner.onGroupEntryFromStranger;
+    _groupAdmissionIdentity = _owner.allowStrangerGroupSync;
     _groupEpoch++;
   }
 
@@ -415,8 +419,10 @@ class _MessagingReplication {
     String body,
     String? fid, {
     required bool fromStranger,
+    required bool allowSeenAck,
   }) async {
     _refreshGroupHandlers();
+    final epoch = _groupEpoch;
     final GroupEntryChunkFrame f;
     try {
       f = parseGroupEntryChunk(body);
@@ -436,26 +442,40 @@ class _MessagingReplication {
             fid != 'grpc:${f.transferId}:${f.index}')) {
       return;
     }
-    if (fromStranger) {
-      final parts = f.transferId.split(':');
-      if (parts.length < 3 ||
-          parts[0] != 'grp' ||
-          !(await _owner.allowStrangerGroupSync?.call(m.src, parts[1]) ??
-              false)) {
-        return;
-      }
-      _refreshGroupHandlers();
-    }
     final canonical = _canonicalGroupTransfer(f.transferId);
-    final epoch = _groupEpoch;
     final hash = _bodyHash(body);
     final key = _reasmKey(m.src, f.transferId);
-    if ((canonical && _completedGroupTransfers.contains(key)) ||
-        _hasGroupReceipt(m, fid, hash)) {
+    final committed =
+        (canonical && _completedGroupTransfers.contains(key)) ||
+        _hasGroupReceipt(m, fid, hash);
+    // A native-authenticated contact/sibling can retry a committed slice
+    // without reloading the group journal. This acknowledges only an existing
+    // receipt; partial transfers still get no ACK and strangers reauthorize.
+    if (committed && allowSeenAck && m.provenance.isAuthenticated) {
       await _ackGroupFrame(m, fid, hash, canonical: canonical, epoch: epoch);
       return;
     }
     var slot = _groupReasm[key];
+    Future<bool> admitStranger() async {
+      final parts = f.transferId.split(':');
+      if (parts.length < 3 || parts[0] != 'grp') return false;
+      final allowed =
+          await _owner.allowStrangerGroupSync?.call(m.src, parts[1]) ?? false;
+      return _currentGroupEpoch(epoch) && allowed;
+    }
+
+    // Admission leases only bounded partial RAM, never permission to apply.
+    // A slot created for a contact has no stranger lease: after relationship
+    // changes it must pass this check before accepting another fragment.
+    var strangerAdmitted = slot?.strangerAdmitted ?? false;
+    if (fromStranger && !strangerAdmitted) {
+      if (!await admitStranger()) return;
+      strangerAdmitted = true;
+    }
+    if (committed) {
+      await _ackGroupFrame(m, fid, hash, canonical: canonical, epoch: epoch);
+      return;
+    }
     if (slot == null) {
       // Evict the least recently advanced partial, never ACKing its slices.
       if (_groupReasm.length >= _kMaxGroupReasmConcurrent) {
@@ -466,6 +486,7 @@ class _MessagingReplication {
         parts: <int, Uint8List>{},
         acks: <int, ({InboundMessage message, String fid, String bodyHash})>{},
         bytes: 0,
+        strangerAdmitted: strangerAdmitted,
       );
     }
     if (f.count != slot.count || slot.parts.containsKey(f.index)) return;
@@ -495,6 +516,7 @@ class _MessagingReplication {
       parts: slot.parts,
       acks: slot.acks,
       bytes: nextBytes,
+      strangerAdmitted: strangerAdmitted,
     );
     if (slot.parts.length != slot.count) return;
     _groupReasm.remove(key);
@@ -512,6 +534,9 @@ class _MessagingReplication {
     } catch (_) {
       return;
     }
+    // Revocation during reassembly must win over the partial-RAM lease.
+    if (fromStranger && !await admitStranger()) return;
+    if (!_currentGroupEpoch(epoch)) return;
     if (!await _deliverGroupFrame(m.src, json, fromStranger: fromStranger)) {
       return;
     }

@@ -1213,7 +1213,9 @@ extension _MessagingInboundDispatch on MessagingService {
         return;
       case WireKind.groupEntry:
         await _replication.ingestGroupFrame(
-          m, env.body, fid,
+          m,
+          env.body,
+          fid,
           fromStranger: existing?.status != ContactStatus.accepted,
           allowSeenAck:
               existing?.status == ContactStatus.accepted || ownDeviceSender,
@@ -1221,8 +1223,12 @@ extension _MessagingInboundDispatch on MessagingService {
         return;
       case WireKind.groupEntryChunk:
         await _replication.ingestGroupChunk(
-          m, env.body, fid,
+          m,
+          env.body,
+          fid,
           fromStranger: existing?.status != ContactStatus.accepted,
+          allowSeenAck:
+              existing?.status == ContactStatus.accepted || ownDeviceSender,
         );
         return;
       case WireKind.groupContentRequest:
