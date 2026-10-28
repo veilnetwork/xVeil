@@ -1,0 +1,57 @@
+{
+  "date": "2026-10-29",
+  "tests": {
+    "before_fix_regressions_failed": 4,
+    "new_regressions_passed": 8,
+    "seven_file_set_passed": 155,
+    "disjoint_six_file_set_passed": 116,
+    "total_disjoint_passed": 271,
+    "static_analysis": "no issues",
+    "formatting": "passed"
+  },
+  "native_libraries_changed": false,
+  "physical": {
+    "roles": {
+      "A": "Android Wi-Fi",
+      "B": "Mac sibling of A",
+      "C": "Mac other identity"
+    },
+    "retained_profiles": true,
+    "anonymous_routing": false,
+    "cross_identity_p2p": "deny",
+    "requested_messages": 18,
+    "visible_each": 18,
+    "large_body_characters_each_origin": 12300,
+    "first_all_visible_sample_seconds": 52.8,
+    "group_chunk_queues_empty_seconds": 154.8,
+    "all_control_queues_empty": false,
+    "full_ids_and_order_equal": true,
+    "duplicates": 0,
+    "edit_converged_seconds": 9.2,
+    "delete_converged_seconds": 13.3,
+    "unrelated_ids_preserved": true,
+    "original_modes_restored": true,
+    "cold_surviving_fixture_rows_each": 17,
+    "cold_full_history_rows_each": 1541,
+    "cold_history_identical_to_saved_state": true,
+    "cold_outgoing_delivered": {
+      "A": 11,
+      "B": 11,
+      "C": 6
+    }
+  },
+  "speed_improvement_demonstrated": false,
+  "rust_build": false,
+  "push": false,
+  "release": false,
+  "server_update": false,
+  "cleanup": {
+    "retired_groups_with_reused_system_pgid": 0,
+    "android_package_processes": 0,
+    "recorded_owned_groups_checked": 138,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false
+  }
+}

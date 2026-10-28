@@ -709,12 +709,29 @@ class _MessagingPeerSync {
     final ourMax = ours.highWater[selfHex] ?? 0;
     if (peerHighWater > ourMax) peerHighWater = ourMax;
 
-    final events = await _owner._storage.loadEventsSince(
+    final candidates = await _owner._storage.loadEventsSince(
       peer.hex,
       selfHex,
       peerHighWater,
       limit: _reshipCap,
     );
+    final byId = {
+      if (candidates.isNotEmpty)
+        for (final message in await _owner._storage.loadMessages(peer.hex))
+          message.id: message,
+    };
+    final events = <LogEvent>[];
+    for (final event in candidates) {
+      final stored = byId[event.id];
+      if ((event.kind == EventKind.post || event.kind == EventKind.filePost) &&
+          stored != null &&
+          !await _owner._deviceMirror.prepareStoredRetry(peer, stored)) {
+        continue;
+      }
+      events.add(event);
+    }
+    // A deferred local commit is not a failed network attempt. Filter before
+    // charging reship rounds so later committed rows retain their retry budget.
     // EVERY beacon, not only the ones that re-ship.
     //
     // This line used to fire only when there was something to send, so a
@@ -745,10 +762,6 @@ class _MessagingPeerSync {
                     'this mark without it moving)' : ''}',
     );
     if (events.isNotEmpty && !withheld) {
-      final byId = {
-        for (final message in await _owner._storage.loadMessages(peer.hex))
-          message.id: message,
-      };
       for (final event in events) {
         switch (event.kind) {
           case EventKind.post:
