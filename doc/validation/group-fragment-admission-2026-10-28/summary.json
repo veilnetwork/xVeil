@@ -1,0 +1,364 @@
+{
+  "source_base": "1d558c536ecc4c65c9a3f7ccdd4615c44407a588",
+  "source_lib_patch_sha256": "61fb88c19251a0f855f6ce9b95e18c248d643a9e46e32805ad9c55be5c04a947",
+  "unit_tests": {
+    "passed": 602,
+    "existing_skips": 3,
+    "files": 18
+  },
+  "static_analysis": "no issues",
+  "new_regressions": 5,
+  "private_timing_overlays_in_repository": false,
+  "rust_or_relay_changes": false,
+  "observations": {
+    "baseline": {
+      "new_messages_requested": 18,
+      "burst_submission_seconds": 20.7,
+      "all_roles_observed_seconds": 43.1,
+      "new_C_handler_entries_observed": 6,
+      "new_C_logical_handlers_observed": 6,
+      "handlers_last_observed_seconds": 45.5,
+      "new_logical_ids_converged": true,
+      "no_duplicates": true,
+      "full_visible_ids_equal": true,
+      "full_visible_order_equal": true,
+      "counts": {
+        "B": 18,
+        "C": 18,
+        "A": 18
+      },
+      "full_visible_counts": {
+        "B": 784,
+        "C": 784,
+        "A": 784
+      },
+      "costs": {
+        "B": {
+          "stages": {
+            "group.queueWait": {
+              "count": 23,
+              "total_ms": 4717.4,
+              "mean_ms": 205.1
+            },
+            "group.admit": {
+              "count": 44,
+              "total_ms": 2625.3,
+              "mean_ms": 59.7
+            },
+            "group.merge": {
+              "count": 10,
+              "total_ms": 6438.8,
+              "mean_ms": 643.9
+            },
+            "group.apply": {
+              "count": 10,
+              "total_ms": 13530.5,
+              "mean_ms": 1353.1
+            },
+            "group.apply.ingest": {
+              "count": 10,
+              "total_ms": 13532.1,
+              "mean_ms": 1353.2
+            }
+          },
+          "completed_frame_kinds": {
+            "ack": {
+              "count": 13,
+              "handler_total_ms": 801.6
+            },
+            "deviceHistory": {
+              "count": 9,
+              "handler_total_ms": 84.6
+            },
+            "groupEntry": {
+              "count": 9,
+              "handler_total_ms": 10597.3
+            },
+            "groupEntryChunk": {
+              "count": 22,
+              "handler_total_ms": 6953.9
+            },
+            "message": {
+              "count": 6,
+              "handler_total_ms": 6339.2
+            },
+            "sync": {
+              "count": 1,
+              "handler_total_ms": 181.6
+            }
+          }
+        },
+        "C": {
+          "stages": {},
+          "completed_frame_kinds": {
+            "ack": {
+              "count": 12,
+              "handler_total_ms": 244.8
+            },
+            "message": {
+              "count": 50,
+              "handler_total_ms": 921.7
+            },
+            "sync": {
+              "count": 2,
+              "handler_total_ms": 89.9
+            }
+          }
+        },
+        "A": {
+          "stages": {
+            "group.queueWait": {
+              "count": 14,
+              "total_ms": 6146.7,
+              "mean_ms": 439.0
+            }
+          },
+          "completed_frame_kinds": {
+            "ack": {
+              "count": 16,
+              "handler_total_ms": 9438.3
+            },
+            "deviceHistory": {
+              "count": 3,
+              "handler_total_ms": 291.3
+            },
+            "message": {
+              "count": 6,
+              "handler_total_ms": 25981.1
+            },
+            "sync": {
+              "count": 1,
+              "handler_total_ms": 8529.5
+            }
+          }
+        }
+      },
+      "new_C_messages_on_A": {
+        "distinct_logical_ids": 6,
+        "handler_samples": 6,
+        "queue_mean_ms": 22720.6,
+        "queue_peak_ms": 32250.0,
+        "handler_mean_ms": 4330.2
+      },
+      "cleanup": {
+        "mac_remaining_processes": 0,
+        "peer_remaining_processes": 0,
+        "phone_remaining_processes": 0,
+        "own_forward_removed": true,
+        "main_app_modified": false,
+        "system_power_settings_changed": false,
+        "retained_profiles": true
+      }
+    },
+    "candidate": {
+      "new_messages_requested": 18,
+      "burst_submission_seconds": 21.7,
+      "all_roles_observed_seconds": 52.4,
+      "new_C_handler_entries_observed": 6,
+      "new_C_logical_handlers_observed": 6,
+      "handlers_last_observed_seconds": 52.4,
+      "new_logical_ids_converged": true,
+      "no_duplicates": true,
+      "full_visible_ids_equal": true,
+      "full_visible_order_equal": true,
+      "counts": {
+        "B": 18,
+        "C": 18,
+        "A": 18
+      },
+      "full_visible_counts": {
+        "B": 802,
+        "C": 802,
+        "A": 802
+      },
+      "costs": {
+        "B": {
+          "stages": {
+            "group.queueWait": {
+              "count": 26,
+              "total_ms": 388.1,
+              "mean_ms": 14.9
+            },
+            "group.admit": {
+              "count": 33,
+              "total_ms": 335.0,
+              "mean_ms": 10.2
+            },
+            "group.merge": {
+              "count": 13,
+              "total_ms": 4287.6,
+              "mean_ms": 329.8
+            },
+            "group.apply": {
+              "count": 13,
+              "total_ms": 5666.0,
+              "mean_ms": 435.8
+            },
+            "group.apply.ingest": {
+              "count": 13,
+              "total_ms": 5666.1,
+              "mean_ms": 435.9
+            }
+          },
+          "completed_frame_kinds": {
+            "ack": {
+              "count": 16,
+              "handler_total_ms": 347.2
+            },
+            "deviceHistory": {
+              "count": 8,
+              "handler_total_ms": 97.5
+            },
+            "groupEntry": {
+              "count": 14,
+              "handler_total_ms": 4591.8
+            },
+            "groupEntryChunk": {
+              "count": 23,
+              "handler_total_ms": 2429.6
+            },
+            "message": {
+              "count": 6,
+              "handler_total_ms": 4317.7
+            },
+            "sync": {
+              "count": 9,
+              "handler_total_ms": 779.6
+            }
+          }
+        },
+        "C": {
+          "stages": {},
+          "completed_frame_kinds": {
+            "ack": {
+              "count": 12,
+              "handler_total_ms": 247.7
+            },
+            "message": {
+              "count": 40,
+              "handler_total_ms": 488.0
+            },
+            "sync": {
+              "count": 3,
+              "handler_total_ms": 239.1
+            }
+          }
+        },
+        "A": {
+          "stages": {
+            "group.queueWait": {
+              "count": 16,
+              "total_ms": 7402.9,
+              "mean_ms": 462.7
+            },
+            "group.admit": {
+              "count": 4,
+              "total_ms": 728.2,
+              "mean_ms": 182.1
+            },
+            "group.apply": {
+              "count": 1,
+              "total_ms": 3867.7,
+              "mean_ms": 3867.7
+            },
+            "group.syncServe": {
+              "count": 1,
+              "total_ms": 3839.5,
+              "mean_ms": 3839.5
+            },
+            "group.apply.request": {
+              "count": 1,
+              "total_ms": 3867.7,
+              "mean_ms": 3867.7
+            }
+          },
+          "completed_frame_kinds": {
+            "ack": {
+              "count": 46,
+              "handler_total_ms": 19208.6
+            },
+            "deviceHistory": {
+              "count": 8,
+              "handler_total_ms": 3691.2
+            },
+            "groupEntryChunk": {
+              "count": 11,
+              "handler_total_ms": 3427.4
+            },
+            "message": {
+              "count": 6,
+              "handler_total_ms": 17534.0
+            },
+            "sync": {
+              "count": 1,
+              "handler_total_ms": 2917.1
+            }
+          }
+        }
+      },
+      "new_C_messages_on_A": {
+        "distinct_logical_ids": 6,
+        "handler_samples": 6,
+        "queue_mean_ms": 21740.2,
+        "queue_peak_ms": 29386.6,
+        "handler_mean_ms": 2922.3
+      },
+      "cleanup": {
+        "mac_remaining_processes": 0,
+        "peer_remaining_processes": 0,
+        "phone_remaining_processes": 0,
+        "own_forward_removed": true,
+        "main_app_modified": false,
+        "system_power_settings_changed": false,
+        "retained_profiles": true
+      }
+    },
+    "normal": {
+      "new_messages_requested": 18,
+      "private_timing_overlay": false,
+      "private_timing_endpoint_absent_on_all_roles": true,
+      "phone_build_mode": "profile",
+      "burst_submission_seconds": 15.5,
+      "new_logical_ids_converged": true,
+      "no_duplicates": true,
+      "complete": true,
+      "full_visible_id_sets_equal": true,
+      "full_visible_order_equal": true,
+      "all_roles_observed_seconds": 56.8,
+      "all_new_delivery_marks_converged": true,
+      "delivery_marks_last_observed_seconds": 56.8,
+      "counts": {
+        "A": 18,
+        "B": 18,
+        "C": 18
+      },
+      "full_visible_counts": {
+        "B": 820,
+        "C": 820,
+        "A": 820
+      },
+      "delivered_counts": {
+        "A": 18,
+        "B": 18,
+        "C": 18
+      },
+      "cleanup": {
+        "mac_remaining_processes": 0,
+        "peer_remaining_processes": 0,
+        "phone_remaining_processes": 0,
+        "own_forward_removed": true,
+        "main_app_modified": false,
+        "system_power_settings_changed": false,
+        "retained_profiles": true
+      }
+    }
+  },
+  "independent_cleanup": {
+    "recorded_owned_groups_checked": 35,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false
+  },
+  "identical_native_and_hv_binaries_across_phases": true
+}
