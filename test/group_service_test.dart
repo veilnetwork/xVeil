@@ -216,6 +216,19 @@ class _FakeSigner implements GroupSigner {
       _bytesEqual(_fakeSovereignSignature(publicKey, message), signature);
 }
 
+class _MessageSigningObserver extends _FakeSigner {
+  _MessageSigningObserver(super.self);
+
+  void Function(GroupMessage message)? onSigned;
+
+  @override
+  GroupMessage signMessage(GroupMessage message) {
+    final signed = super.signMessage(message);
+    onSigned?.call(signed);
+    return signed;
+  }
+}
+
 class _MessageCheckCountingSigner extends _FakeSigner {
   _MessageCheckCountingSigner(super.self);
 
@@ -7977,6 +7990,102 @@ void main() {
     expect(policy.mode, NotificationMuteMode.none);
     expect(policy.until?.millisecondsSinceEpoch, until.millisecondsSinceEpoch);
   });
+
+  for (final rejectWrite in [false, true]) {
+    test(
+      'public reads cannot export an unsaved device batch reject=$rejectWrite',
+      () async {
+        final storage = _ControlledGroupWriteStorage();
+        await storage.open(password: 'pw', createIfMissing: true);
+        final signer = _MessageSigningObserver(owner);
+        final service = GroupService(storage, signer);
+        addTearDown(service.dispose);
+        expect(await service.linkDevice(bob, sovereign: sovereign), isTrue);
+        final gid = NodeId.fromHex((await service.deviceGroupIdHex())!);
+        final entered = Completer<void>(), release = Completer<void>();
+        addTearDown(() {
+          if (!release.isCompleted) release.complete();
+        });
+        Future<String?>? export;
+        String? earlyExport;
+        signer.onSigned = (message) {
+          final event = DeviceSyncEvent.fromBody(message.body);
+          if (event?.key != 'draft-2') return;
+          // The second batch has already built draft-1, but neither row has
+          // reached storage. A concurrent exporter may see committed data or
+          // wait for the write; it must never see this private working copy.
+          export = service.archiveSnapshot(gid.hex).then((value) {
+            if (!release.isCompleted) earlyExport = value;
+            return value;
+          });
+          storage.callWriteEntered = entered;
+          storage.callWriteRelease = release;
+          storage.failNextGroupWrite = rejectWrite;
+        };
+        final posts = [
+          for (var i = 0; i < 3; i++)
+            service.postDeviceEvent(
+              DeviceSyncEvent(
+                kind: DeviceSyncKind.settingSet,
+                key: 'draft-$i',
+                tsMs: DateTime.now().millisecondsSinceEpoch,
+                payload: {'v': '$i'},
+              ),
+            ),
+        ];
+        await entered.future;
+        await Future<void>.delayed(Duration.zero);
+        // Preserve cleanup even when this assertion detects the old defect.
+        try {
+          expect(earlyExport ?? '', isNot(contains('draft-1')));
+          expect(earlyExport ?? '', isNot(contains('draft-2')));
+        } finally {
+          release.complete();
+        }
+        expect(await Future.wait(posts), [true, !rejectWrite, !rejectWrite]);
+        final exported = await export!;
+        if (rejectWrite) {
+          expect(exported, isNot(contains('draft-1')));
+          expect(exported, isNot(contains('draft-2')));
+        }
+        final state = await service.deviceSyncState();
+        expect(
+          state.containsKey((DeviceSyncKind.settingSet, 'draft-0')),
+          isTrue,
+        );
+        expect(
+          state.containsKey((DeviceSyncKind.settingSet, 'draft-1')),
+          !rejectWrite,
+        );
+        expect(
+          state.containsKey((DeviceSyncKind.settingSet, 'draft-2')),
+          !rejectWrite,
+        );
+        if (rejectWrite) {
+          expect(
+            await service.postDeviceEvent(DeviceSyncEvent(
+              kind: DeviceSyncKind.settingSet,
+              key: 'draft-1',
+              tsMs: DateTime.now().millisecondsSinceEpoch,
+              payload: const {'v': 'retry'},
+            )),
+            isTrue,
+          );
+          final repaired = await service.deviceSyncState();
+          expect(
+            repaired[(DeviceSyncKind.settingSet, 'draft-1')]?.payload['v'],
+            'retry',
+          );
+          expect(
+            repaired.containsKey((DeviceSyncKind.settingSet, 'draft-2')),
+            isFalse,
+          );
+          final rows = (await service.load(gid))!.messages;
+          expect(rows.map((row) => row.seq).toSet(), hasLength(rows.length));
+        }
+      },
+    );
+  }
 
   test('a burst of device events goes out in a few saves, all of it, in order',
       () async {

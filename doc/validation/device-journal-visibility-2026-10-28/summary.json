@@ -1,0 +1,363 @@
+{
+  "source_base": "388dc482f33a7a9a0e1bfadf23f6a5e26359e391",
+  "source_lib_patch_sha256": "6a14af2e264852201d372daf97fd794fb49fb912664145c8048bce26fe70f2df",
+  "tests": {
+    "passed": 604,
+    "existing_skips": 3,
+    "files": 18,
+    "new_regressions": 2,
+    "extended_retry_subset_passed": 5,
+    "counts_overlap": true
+  },
+  "static_analysis": "no issues",
+  "private_timing_overlays_in_repository": false,
+  "rust_or_relay_changes": false,
+  "observations": {
+    "baseline": {
+      "new_messages_requested": 18,
+      "burst_submission_seconds": 17.3,
+      "all_roles_observed_seconds": 58.5,
+      "new_C_logical_handlers_observed": 6,
+      "new_logical_ids_converged": true,
+      "no_duplicates": true,
+      "full_visible_ids_equal": true,
+      "full_visible_order_equal": true,
+      "counts": {
+        "B": 18,
+        "C": 18,
+        "A": 18
+      },
+      "full_visible_counts": {
+        "B": 838,
+        "C": 838,
+        "A": 838
+      },
+      "cleanup": {
+        "mac_remaining_processes": 0,
+        "peer_remaining_processes": 0,
+        "phone_remaining_processes": 0,
+        "own_forward_removed": true,
+        "main_app_modified": false,
+        "system_power_settings_changed": false,
+        "retained_profiles": true
+      },
+      "measurement_limit": "Only bridge/batch and ACK status sub-stages were instrumented; chat append and outbound ACK sub-stages were added in the candidate."
+    },
+    "candidate": {
+      "new_messages_requested": 18,
+      "burst_submission_seconds": 19.0,
+      "all_roles_observed_seconds": 39.8,
+      "new_C_logical_handlers_observed": 6,
+      "new_logical_ids_converged": true,
+      "no_duplicates": true,
+      "full_visible_ids_equal": true,
+      "full_visible_order_equal": true,
+      "counts": {
+        "B": 18,
+        "C": 18,
+        "A": 18
+      },
+      "full_visible_counts": {
+        "B": 856,
+        "C": 856,
+        "A": 856
+      },
+      "cleanup": {
+        "mac_remaining_processes": 0,
+        "peer_remaining_processes": 0,
+        "phone_remaining_processes": 0,
+        "own_forward_removed": true,
+        "main_app_modified": false,
+        "system_power_settings_changed": false,
+        "retained_profiles": true
+      },
+      "costs": {
+        "A": {
+          "new_C_message_costs": {
+            "mirror.batchRun": {
+              "samples": 6,
+              "mean_ms": 3180.7,
+              "max_ms": 4783.8
+            },
+            "mirror.groupId": {
+              "samples": 6,
+              "mean_ms": 0.0,
+              "max_ms": 0.0
+            },
+            "mirror.journal": {
+              "samples": 6,
+              "mean_ms": 3227.1,
+              "max_ms": 4785.2
+            },
+            "mirror.membership": {
+              "samples": 6,
+              "mean_ms": 0.0,
+              "max_ms": 0.1
+            },
+            "mirror.prepare": {
+              "samples": 6,
+              "mean_ms": 0.0,
+              "max_ms": 0.0
+            },
+            "store.append": {
+              "samples": 6,
+              "mean_ms": 32.8,
+              "max_ms": 60.7
+            },
+            "store.mirror": {
+              "samples": 6,
+              "mean_ms": 3227.3,
+              "max_ms": 4785.4
+            }
+          },
+          "window": {
+            "mirror.batchLoad": {
+              "samples": 10,
+              "total_ms": 10906.2,
+              "mean_ms": 1090.6
+            },
+            "mirror.batchSave": {
+              "samples": 10,
+              "total_ms": 13818.7,
+              "mean_ms": 1381.9
+            },
+            "group.postMessage": {
+              "samples": 30,
+              "total_ms": 7607.0,
+              "mean_ms": 253.6
+            },
+            "ack.total": {
+              "samples": 9,
+              "total_ms": 682.2,
+              "mean_ms": 75.8
+            },
+            "ack.transport": {
+              "samples": 9,
+              "total_ms": 630.8,
+              "mean_ms": 70.1
+            },
+            "ack.selfIdentity": {
+              "samples": 9,
+              "total_ms": 7.5,
+              "mean_ms": 0.8
+            },
+            "ack.ownDevice": {
+              "samples": 25,
+              "total_ms": 0.4,
+              "mean_ms": 0.0
+            },
+            "ack.outboxRead": {
+              "samples": 5,
+              "total_ms": 66.2,
+              "mean_ms": 13.2
+            },
+            "ack.markStatus": {
+              "samples": 17,
+              "total_ms": 2343.4,
+              "mean_ms": 137.8
+            },
+            "ack.holderMembership": {
+              "samples": 5,
+              "total_ms": 0.2,
+              "mean_ms": 0.0
+            }
+          }
+        },
+        "B": {
+          "new_C_message_costs": {
+            "mirror.batchRun": {
+              "samples": 6,
+              "mean_ms": 767.8,
+              "max_ms": 1035.7
+            },
+            "mirror.groupId": {
+              "samples": 6,
+              "mean_ms": 0.0,
+              "max_ms": 0.0
+            },
+            "mirror.journal": {
+              "samples": 6,
+              "mean_ms": 953.7,
+              "max_ms": 1654.1
+            },
+            "mirror.membership": {
+              "samples": 6,
+              "mean_ms": 0.0,
+              "max_ms": 0.1
+            },
+            "mirror.prepare": {
+              "samples": 6,
+              "mean_ms": 0.0,
+              "max_ms": 0.1
+            },
+            "store.append": {
+              "samples": 6,
+              "mean_ms": 30.0,
+              "max_ms": 53.8
+            },
+            "store.mirror": {
+              "samples": 6,
+              "mean_ms": 954.1,
+              "max_ms": 1655.9
+            }
+          },
+          "window": {
+            "mirror.batchLoad": {
+              "samples": 10,
+              "total_ms": 2776.7,
+              "mean_ms": 277.7
+            },
+            "mirror.batchSave": {
+              "samples": 10,
+              "total_ms": 3840.3,
+              "mean_ms": 384.0
+            },
+            "group.postMessage": {
+              "samples": 13,
+              "total_ms": 1138.2,
+              "mean_ms": 87.6
+            },
+            "ack.total": {
+              "samples": 33,
+              "total_ms": 1008.5,
+              "mean_ms": 30.6
+            },
+            "ack.transport": {
+              "samples": 33,
+              "total_ms": 965.6,
+              "mean_ms": 29.3
+            },
+            "ack.selfIdentity": {
+              "samples": 33,
+              "total_ms": 9.7,
+              "mean_ms": 0.3
+            },
+            "ack.ownDevice": {
+              "samples": 20,
+              "total_ms": 0.3,
+              "mean_ms": 0.0
+            },
+            "ack.outboxRead": {
+              "samples": 3,
+              "total_ms": 1.7,
+              "mean_ms": 0.6
+            },
+            "ack.markStatus": {
+              "samples": 15,
+              "total_ms": 245.0,
+              "mean_ms": 16.3
+            },
+            "ack.holderMembership": {
+              "samples": 3,
+              "total_ms": 0.1,
+              "mean_ms": 0.0
+            }
+          }
+        },
+        "C": {
+          "new_C_message_costs": {
+            "ack.markStatus": {
+              "samples": 6,
+              "mean_ms": 20.7,
+              "max_ms": 38.2
+            },
+            "mirror.groupId": {
+              "samples": 6,
+              "mean_ms": 0.2,
+              "max_ms": 0.3
+            },
+            "mirror.membership": {
+              "samples": 6,
+              "mean_ms": 0.2,
+              "max_ms": 0.3
+            },
+            "store.append": {
+              "samples": 6,
+              "mean_ms": 26.1,
+              "max_ms": 51.1
+            },
+            "store.mirror": {
+              "samples": 6,
+              "mean_ms": 0.4,
+              "max_ms": 0.7
+            }
+          },
+          "window": {
+            "ack.total": {
+              "samples": 44,
+              "total_ms": 109.4,
+              "mean_ms": 2.5
+            },
+            "ack.transport": {
+              "samples": 44,
+              "total_ms": 94.5,
+              "mean_ms": 2.1
+            },
+            "ack.selfIdentity": {
+              "samples": 44,
+              "total_ms": 3.6,
+              "mean_ms": 0.1
+            },
+            "ack.ownDevice": {
+              "samples": 12,
+              "total_ms": 2.7,
+              "mean_ms": 0.2
+            },
+            "ack.markStatus": {
+              "samples": 6,
+              "total_ms": 124.1,
+              "mean_ms": 20.7
+            }
+          }
+        }
+      }
+    },
+    "normal": {
+      "new_messages_requested": 18,
+      "private_timing_overlay": false,
+      "private_timing_endpoint_absent_on_all_roles": true,
+      "phone_build_mode": "profile",
+      "burst_submission_seconds": 17.3,
+      "new_logical_ids_converged": true,
+      "no_duplicates": true,
+      "complete": true,
+      "full_visible_id_sets_equal": true,
+      "full_visible_order_equal": true,
+      "all_roles_observed_seconds": 48.0,
+      "all_new_delivery_marks_converged": true,
+      "delivery_marks_last_observed_seconds": 48.0,
+      "counts": {
+        "A": 18,
+        "B": 18,
+        "C": 18
+      },
+      "full_visible_counts": {
+        "B": 874,
+        "C": 874,
+        "A": 874
+      },
+      "delivered_counts": {
+        "A": 18,
+        "B": 18,
+        "C": 18
+      },
+      "cleanup": {
+        "mac_remaining_processes": 0,
+        "peer_remaining_processes": 0,
+        "phone_remaining_processes": 0,
+        "own_forward_removed": true,
+        "main_app_modified": false,
+        "system_power_settings_changed": false,
+        "retained_profiles": true
+      }
+    }
+  },
+  "identical_native_and_hv_binaries_across_phases": true,
+  "independent_cleanup": {
+    "recorded_owned_groups_checked": 41,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false
+  }
+}
