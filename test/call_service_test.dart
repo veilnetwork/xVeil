@@ -5792,6 +5792,108 @@ void main() {
       svc.dispose();
     });
 
+    for (final response in [CallSignalType.reject, CallSignalType.busy]) {
+      test('$response still ends an unanswered outgoing offer', () async {
+        final fake = _FakeMessaging();
+        final svc = CallService(fake)..start();
+        addTearDown(svc.dispose);
+        final peer = NodeId.fromHex('a' * 64);
+        final changes = <Call?>[];
+        final sub = svc.changes.listen(changes.add);
+        addTearDown(sub.cancel);
+        await svc.placeCall(peer, const CallMedia(audio: true));
+        final id = svc.current!.callId;
+        expect(svc.current?.status, CallStatus.dialing);
+        fake.onCallSignal!(peer, CallSignal(callId: id, type: response));
+        await pumpEventQueue();
+        expect(svc.current, isNull);
+        expect(
+          changes.whereType<Call>().last.endReason,
+          response == CallSignalType.reject
+              ? CallEndReason.declined
+              : CallEndReason.busy,
+        );
+        fake.onCallSignal!(
+          peer,
+          CallSignal(
+            callId: id,
+            type: CallSignalType.answer,
+            mediaKey: generateCallMediaKeyContribution(),
+          ),
+        );
+        await pumpEventQueue();
+        expect(svc.current, isNull, reason: 'a refused offer cannot revive');
+      });
+    }
+
+    for (final answeredAsIdentity in [false, true]) {
+      for (final active in [false, true]) {
+        test(
+          'late fork decline preserves ${active ? 'active' : 'connecting'} call '
+          'after ${answeredAsIdentity ? 'identity' : 'device'} answer',
+          () async {
+            final fake = _FakeMessaging();
+            final media = active
+                ? (_FakeMedia()..openedTransport = CallTransportKind.relay)
+                : null;
+            final svc = CallService(fake, media: media)..start();
+            addTearDown(svc.dispose);
+            final identity = NodeId.fromHex('a' * 64);
+            final selectedDevice = NodeId.fromHex('b' * 64);
+            await svc.placeCall(identity, const CallMedia(audio: true));
+            final id = svc.current!.callId;
+            fake.onCallSignal!(
+              answeredAsIdentity ? identity : selectedDevice,
+              CallSignal(
+                callId: id,
+                type: CallSignalType.answer,
+                posture: CallPosture.direct,
+                transport: const CallTransportProposal(CallTransportKind.relay),
+                replyDevice: selectedDevice.hex,
+                mediaKey: generateCallMediaKeyContribution(),
+              ),
+            );
+            await pumpEventQueue();
+            final phase = active ? CallStatus.active : CallStatus.connecting;
+            expect(svc.current?.status, phase);
+            expect(svc.current?.peerDevice, selectedDevice);
+            final before = svc.current;
+            final changes = <Call?>[];
+            final sub = svc.changes.listen(changes.add);
+            addTearDown(sub.cancel);
+            // The identity's other device declined while its hush/selection was
+            // still in flight. That pre-answer response arrives after B's answer.
+            fake.onCallSignal!(
+              identity,
+              CallSignal(
+                callId: id,
+                type: CallSignalType.reject,
+                reason: CallEndReason.declined,
+              ),
+            );
+            await pumpEventQueue();
+            expect(svc.current, same(before));
+            expect(changes, isEmpty);
+            // A real hangup from the elected endpoint still terminates the call.
+            fake.onCallSignal!(
+              selectedDevice,
+              CallSignal(
+                callId: id,
+                type: CallSignalType.end,
+                reason: CallEndReason.hangup,
+              ),
+            );
+            await pumpEventQueue();
+            expect(svc.current, isNull);
+            expect(
+              changes.whereType<Call>().single.endReason,
+              CallEndReason.hangup,
+            );
+          },
+        );
+      }
+    }
+
     test('the caller rebinds to whichever device answers', () async {
       final fake = _FakeMessaging();
       final svc = CallService(fake)..start();

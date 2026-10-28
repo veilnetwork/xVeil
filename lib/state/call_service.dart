@@ -2288,10 +2288,14 @@ class CallService {
     }
     final c = _current;
     if (c == null || c.callId != sig.callId || c.peer != peer) return;
-    // `busy` is an answer to DIALING. Once the call is past it — the fan-out
-    // caller may have rebound to the device that answered — a late busy from
-    // a re-driven offer must not tear down the connected call.
-    if (reason == CallEndReason.busy && c.status != CallStatus.dialing) {
+    // Reject/busy answer an outstanding offer. A sibling may have produced
+    // its refusal before learning which endpoint answered; identity-addressed
+    // delivery can bring that refusal AFTER the selected endpoint is active.
+    // Only end/cancel control can then terminate the established dialog.
+    if ((sig.type == CallSignalType.reject ||
+            sig.type == CallSignalType.busy) &&
+        (c.direction != CallDirection.outgoing ||
+            c.status != CallStatus.dialing)) {
       return;
     }
     _end(reason, origin: CallEndOrigin.remoteSignal);
