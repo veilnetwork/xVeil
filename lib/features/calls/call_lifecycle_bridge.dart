@@ -215,7 +215,7 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
         }
       case 'hangup':
         if (direct != null && direct.isLive) {
-          await svc.hangup();
+          await svc.hangup(origin: CallEndOrigin.androidNotification);
         } else if (groupSvc?.current?.isLive ?? false) {
           await groupSvc!.leave();
         }

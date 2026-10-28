@@ -29,6 +29,7 @@ enum DiagnosticEvent {
   downloadFailed,
   downloadReceived,
   backgroundService,
+  callEnded,
 }
 
 enum DiagnosticMetric {
@@ -84,6 +85,7 @@ enum DiagnosticMetric {
   videoDeliveryQueuePressure,
   videoDeliveryKbps,
   videoProbeIntervalMs,
+  origin,
 }
 
 /// Bounded process-local evidence. Monotonic offsets, never wall-clock time,
@@ -101,6 +103,7 @@ class DiagnosticJournal {
   final _events = ListQueue<Map<String, Object>>();
   final _counts = <DiagnosticEvent, int>{};
   final _lastAt = <DiagnosticEvent, int>{};
+  Map<String, Object>? _lastCallEnd;
   int _dropped = 0;
 
   void record(
@@ -114,7 +117,7 @@ class DiagnosticJournal {
     final last = _lastAt[event];
     if (last != null && at - last < minInterval.inMilliseconds) return;
     _lastAt[event] = at;
-    _events.add({
+    final row = <String, Object>{
       'elapsed_ms': at,
       'event': event.name,
       'values': {
@@ -122,7 +125,12 @@ class DiagnosticJournal {
           if (entry.value.isFinite && entry.value.abs() <= 1000000000000)
             entry.key.name: entry.value,
       },
-    });
+    };
+    _events.add(row);
+    // A busy transport can fill the ring while the person opens Settings to
+    // copy the report. Keep one identifier-free terminal cause until the next
+    // call ends, the journal is cleared, or this process exits.
+    if (event == DiagnosticEvent.callEnded) _lastCallEnd = row;
     if (_events.length > capacity) {
       _events.removeFirst();
       _dropped++;
@@ -228,6 +236,11 @@ class DiagnosticJournal {
     'counts': {
       for (final entry in _counts.entries) entry.key.name: entry.value,
     },
+    if (_lastCallEnd case final last?)
+      'last_call_end': {
+        ...last,
+        'values': {...last['values'] as Map},
+      },
     // Export snapshots; callers cannot mutate the journal through the report.
     'events': [
       for (final e in _events)
@@ -242,6 +255,7 @@ class DiagnosticJournal {
     _events.clear();
     _counts.clear();
     _lastAt.clear();
+    _lastCallEnd = null;
     _dropped = 0;
     _clock.reset();
   }
