@@ -2752,6 +2752,149 @@ void main() {
       },
     );
 
+    for (final relaySucceeds in [true, false]) {
+      test(
+        'superseded failed repair cannot end a pending relay handover: $relaySucceeds',
+        () async {
+          diagnosticJournal.clear();
+          final fake = _FakeMessaging();
+          final media = _RepairThenRelayMedia()
+            ..openedTransport = CallTransportKind.p2p
+            ..repairSucceeds = false
+            ..relayGate = Completer<bool>();
+          final svc = CallService(
+            fake,
+            media: media,
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+          )..start();
+          addTearDown(svc.dispose);
+          Call? terminal;
+          final sub = svc.changes.listen((c) {
+            if (c?.status == CallStatus.ended) terminal = c;
+          });
+          addTearDown(sub.cancel);
+          fake.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: 'superseded-repair',
+              type: CallSignalType.offer,
+              media: CallMedia(audio: true),
+              posture: CallPosture.direct,
+              transport: CallTransportProposal(CallTransportKind.p2p),
+            ),
+          );
+          await svc.accept();
+          await pumpEventQueue();
+          fake.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: 'superseded-repair',
+              type: CallSignalType.health,
+              mediaRepairRequested: true,
+            ),
+          );
+          await pumpEventQueue();
+          expect(media.receiveRepairing, isTrue);
+          fake.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: 'superseded-repair',
+              type: CallSignalType.transportInfo,
+              transport: CallTransportProposal(CallTransportKind.relay),
+              sentAtMs: 1,
+            ),
+          );
+          await pumpEventQueue();
+          media.cameraStopped.complete();
+          await pumpEventQueue();
+          expect(media.switches, [CallTransportKind.relay]);
+          expect(
+            svc.current?.status,
+            CallStatus.active,
+            reason:
+                'the old repair failed, but its successor still owns recovery',
+          );
+          expect(terminal, isNull);
+          expect(fake.sent.where((s) => s.type == CallSignalType.end), isEmpty);
+          media.relayGate!.complete(relaySucceeds);
+          await pumpEventQueue();
+          if (relaySucceeds) {
+            expect(svc.current?.transport, CallTransportKind.relay);
+            expect(svc.current?.status, CallStatus.active);
+            expect(terminal, isNull);
+          } else {
+            expect(svc.current, isNull);
+            expect(
+              terminal?.endReason,
+              CallEndReason.error,
+              reason: 'a successor with no usable route still fails closed',
+            );
+            if (kDiagnosticReportEnabled) {
+              final last = diagnosticJournal.toJson()['last_call_end'] as Map;
+              expect(
+                (last['values'] as Map)['origin'],
+                CallEndOrigin.routeHandoverFailure.index,
+              );
+            }
+          }
+        },
+      );
+    }
+
+    test(
+      'a failed repair without a successor still ends the unusable call',
+      () async {
+        diagnosticJournal.clear();
+        final fake = _FakeMessaging();
+        final media = _RepairThenRelayMedia()
+          ..openedTransport = CallTransportKind.p2p
+          ..repairSucceeds = false;
+        final svc = CallService(
+          fake,
+          media: media,
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => true,
+        )..start();
+        addTearDown(svc.dispose);
+        fake.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'failed-repair-alone',
+            type: CallSignalType.offer,
+            media: CallMedia(audio: true),
+            posture: CallPosture.direct,
+            transport: CallTransportProposal(CallTransportKind.p2p),
+          ),
+        );
+        await svc.accept();
+        await pumpEventQueue();
+        fake.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'failed-repair-alone',
+            type: CallSignalType.health,
+            mediaRepairRequested: true,
+          ),
+        );
+        await pumpEventQueue();
+        media.cameraStopped.complete();
+        await pumpEventQueue();
+        expect(svc.current, isNull);
+        expect(
+          fake.sent.where((s) => s.type == CallSignalType.end),
+          hasLength(1),
+        );
+        if (kDiagnosticReportEnabled) {
+          final last = diagnosticJournal.toJson()['last_call_end'] as Map;
+          expect(
+            (last['values'] as Map)['origin'],
+            CallEndOrigin.mediaRepairFailure.index,
+          );
+        }
+      },
+    );
+
     test('concurrent relay announcements join the same route switch', () async {
       final fake = _FakeMessaging();
       final media = _GatedRelaySwitchMedia();
@@ -5781,6 +5924,8 @@ class _FakeMedia extends CallMediaController {
 class _RepairThenRelayMedia extends _FakeMedia {
   final operations = CallMediaRouteOperations();
   final cameraStopped = Completer<void>();
+  bool repairSucceeds = true;
+  Completer<bool>? relayGate;
 
   @override
   Future<bool> repairRoute() => operations.run(() async {
@@ -5788,14 +5933,21 @@ class _RepairThenRelayMedia extends _FakeMedia {
     receiveRepairing = true;
     openedTransport = null;
     await cameraStopped.future;
-    openedTransport = CallTransportKind.p2p;
+    openedTransport = repairSucceeds ? CallTransportKind.p2p : null;
     receiveRepairing = false;
-    return true;
+    return repairSucceeds;
   });
 
   @override
   Future<bool> switchRoute(CallTransportKind transport) =>
-      operations.run(() => super.switchRoute(transport));
+      operations.run(() async {
+        final gate = relayGate;
+        if (gate == null) return super.switchRoute(transport);
+        switches.add(transport);
+        final ok = await gate.future;
+        openedTransport = ok ? transport : null;
+        return ok;
+      });
 }
 
 class _GatedRelaySwitchMedia extends _FakeMedia {
