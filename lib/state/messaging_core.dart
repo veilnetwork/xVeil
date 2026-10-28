@@ -1970,53 +1970,55 @@ class MessagingService {
     // Keep an already-installed owner across the async write: its shutdown
     // must refuse required work, rather than a detached null tap implying success.
     final publisher = onMessageStored;
-    final stored = await _storage.appendMessage(
-      Message(
-        id: msgId,
-        conversationId: peer.hex,
-        direction: dir,
-        replyToId: replyToId,
-        forwardedFrom: forwardedFrom,
-        thumb: thumb,
-        customEmoji: customEmoji,
-        body: body,
-        // Incoming messages carry the SENDER's send time (env.sentAtMs) so the
-        // conversation orders by send-order, not the scrambled arrival order.
-        timestamp: timestamp ?? DateTime.now(),
-        status: status,
-        fileId: fileId,
-        fileName: fileName,
-        fileSize: fileSize,
-        fileContentId: fileContentId,
-        // Event-log author (R1): the message originator's node id, bound to the
-        // AUTHENTICATED side — our own for an outgoing message, the peer (the
-        // server-authenticated conversation id) for an incoming one. Never
-        // inferred from an in-band wire field.
-        author: selfAuthored || dir == MessageDirection.outgoing
-            ? await _selfHex()
-            : peer.hex,
-        // The SENDER's seq when this is a wire-delivered incoming event (keeps
-        // the log convergent, R4); null for our own outgoing message → storage
-        // allocates the next gap-free value, which the caller puts on the wire.
-        seq: seq,
-        positionVerified: selfAuthored || dir == MessageDirection.outgoing
-            ? true
-            : null,
-      ),
-    );
-    // Multi-device mirror tap: after the single write path persists a 1:1 row,
-    // let the device-sync bridge mirror it to my other devices. [_store] is the
-    // one messaging write path; applyMirroredMessage bypasses it, so a mirrored
-    // row never re-mirrors.
-    // Join the local device-journal commit before reporting the send complete
-    // or acknowledging receipt. A process crash after return must not strand
-    // a persisted conversation row outside its own-device recovery log.
-    await _deviceMirror.publishStored(
-      peer,
-      stored,
-      publisher: publisher ?? onMessageStored,
-    );
-    return stored;
+    return _deviceMirror.withStoredWrite(peer, msgId, () async {
+      final stored = await _storage.appendMessage(
+        Message(
+          id: msgId,
+          conversationId: peer.hex,
+          direction: dir,
+          replyToId: replyToId,
+          forwardedFrom: forwardedFrom,
+          thumb: thumb,
+          customEmoji: customEmoji,
+          body: body,
+          // Incoming messages carry the SENDER's send time (env.sentAtMs) so the
+          // conversation orders by send-order, not the scrambled arrival order.
+          timestamp: timestamp ?? DateTime.now(),
+          status: status,
+          fileId: fileId,
+          fileName: fileName,
+          fileSize: fileSize,
+          fileContentId: fileContentId,
+          // Event-log author (R1): the message originator's node id, bound to the
+          // AUTHENTICATED side — our own for an outgoing message, the peer (the
+          // server-authenticated conversation id) for an incoming one. Never
+          // inferred from an in-band wire field.
+          author: selfAuthored || dir == MessageDirection.outgoing
+              ? await _selfHex()
+              : peer.hex,
+          // The SENDER's seq when this is a wire-delivered incoming event (keeps
+          // the log convergent, R4); null for our own outgoing message → storage
+          // allocates the next gap-free value, which the caller puts on the wire.
+          seq: seq,
+          positionVerified: selfAuthored || dir == MessageDirection.outgoing
+              ? true
+              : null,
+        ),
+      );
+      // Multi-device mirror tap: after the single write path persists a 1:1 row,
+      // let the device-sync bridge mirror it to my other devices. [_store] is the
+      // one messaging write path; applyMirroredMessage bypasses it, so a mirrored
+      // row never re-mirrors.
+      // Join the local device-journal commit before reporting the send complete
+      // or acknowledging receipt. A process crash after return must not strand
+      // a persisted conversation row outside its own-device recovery log.
+      await _deviceMirror.publishStored(
+        peer,
+        stored,
+        publisher: publisher ?? onMessageStored,
+      );
+      return stored;
+    });
   }
 
   /// The sender's send time off the wire as a DateTime, or null (older sender

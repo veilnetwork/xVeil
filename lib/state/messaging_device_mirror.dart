@@ -180,6 +180,52 @@ class _MessagingDeviceMirror {
   FutureOr<void> Function(NodeId peer, Message stored)? _storedPublisher;
   final Set<(String, String)> _storedPublished = {};
 
+  // Storage can expose an appended row before its append Future, and then its
+  // required own-device publication, have completed. Background readers must
+  // not mistake that visibility for permission to transmit the row.
+  final Map<(String, String), int> _storedWrites = {};
+
+  Future<T> withStoredWrite<T>(
+    NodeId peer,
+    String id,
+    Future<T> Function() write,
+  ) async {
+    final key = (peer.hex, id);
+    _storedWrites[key] = (_storedWrites[key] ?? 0) + 1;
+    try {
+      return await write();
+    } finally {
+      final left = _storedWrites[key]! - 1;
+      if (left == 0) {
+        _storedWrites.remove(key);
+      } else {
+        _storedWrites[key] = left;
+      }
+    }
+  }
+
+  /// Defer unfinished local writes without parking other conversations behind
+  /// them. After failure or restart, repair a locally authored row's missing
+  /// publication before retrying it. A sibling's projection already came from
+  /// the journal and must not be published back into it.
+  Future<bool> prepareStoredRetry(NodeId peer, Message stored) async {
+    final key = (peer.hex, stored.id);
+    if (_owner._disposed || _storedWrites.containsKey(key)) return false;
+    // Completed history is not a recovery job. Re-publishing every old,
+    // delivered row requested by gap-fill would churn the bounded device log.
+    if (stored.direction != MessageDirection.outgoing ||
+        stored.status != MessageStatus.sent) {
+      return true;
+    }
+    final self = await _owner._selfHex();
+    if (_owner._disposed || _storedWrites.containsKey(key)) return false;
+    if (stored.author != self) return true;
+    return withStoredWrite(peer, stored.id, () async {
+      await publishStored(peer, stored, publisher: onMessageStored);
+      return true;
+    });
+  }
+
   FutureOr<void> Function(NodeId peer, Message stored)? get onMessageStored =>
       _storedPublisher;
 
