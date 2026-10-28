@@ -1,0 +1,681 @@
+{
+  "source_base": "5ecd0e27",
+  "sdk": "1d36980d",
+  "checks": {
+    "related_tests_passed": 428,
+    "static_analysis_issues": 0,
+    "cached_playout_handover_regression_failed_before_fix": true
+  },
+  "roles": {
+    "A": "Android/profile-AOT, identity X, Wi-Fi",
+    "B": "macOS/debug, identity X",
+    "C": "macOS/debug, identity Y"
+  },
+  "phases": {
+    "baseline": {
+      "native_audio_report_interval_ms": 5000,
+      "new_messages_per_role": {
+        "A": 18,
+        "B": 18,
+        "C": 18
+      },
+      "no_duplicates": true,
+      "new_logical_ids_converged": true,
+      "visible_counts": {
+        "B": 568,
+        "C": 568,
+        "A": 568
+      },
+      "visible_ids_equal": true,
+      "visible_order_equal": true,
+      "burst_submission_seconds": 24.3,
+      "call": {
+        "initiator": "C",
+        "answering_device": "A",
+        "connect_after_answer_ms": 2329,
+        "sampling_start_after_place_ms": 3678,
+        "sampling_start_after_answer_ms": 2354,
+        "duration_seconds": 89.008,
+        "active_throughout": true,
+        "non_active_samples_excluded_from_media_statistics": 0,
+        "ring_first_observed_ms": {
+          "A": 764,
+          "B": 821
+        },
+        "other_sibling_stopped_ringing": true
+      },
+      "endpoints": {
+        "A": {
+          "samples": 75,
+          "all_p2p": true,
+          "cameras_on_all_samples": true,
+          "microphones_on_all_samples": true,
+          "worker_stall_samples": 0,
+          "video_paused_samples": 0,
+          "native_audio_delay_peak_ms": 102,
+          "audio_receive_packets_increase": true,
+          "first_positive_audio_rtt_seconds": 30.11,
+          "first_peer_playout_seconds": 3.502,
+          "first_video_timing_fallback_seconds": null,
+          "first_applied_budget_at_least_30fps_seconds": 37.269,
+          "sent_counter_rates": {
+            "first_window_at_least_24fps": {
+              "window_end_seconds": 39.773,
+              "span_seconds": 3.577,
+              "fps": 30.5
+            },
+            "after_30s_interval_median_fps": 29.5
+          },
+          "rendered_counter_rates": {
+            "first_window_at_least_24fps": {
+              "window_end_seconds": 36.196,
+              "span_seconds": 3.366,
+              "fps": 29.4
+            },
+            "after_30s_interval_median_fps": 28.8
+          }
+        },
+        "C": {
+          "samples": 75,
+          "all_p2p": true,
+          "cameras_on_all_samples": true,
+          "microphones_on_all_samples": true,
+          "worker_stall_samples": 0,
+          "video_paused_samples": 1,
+          "native_audio_delay_peak_ms": 86,
+          "audio_receive_packets_increase": true,
+          "first_positive_audio_rtt_seconds": 27.761,
+          "first_peer_playout_seconds": 3.434,
+          "first_video_timing_fallback_seconds": null,
+          "first_applied_budget_at_least_30fps_seconds": 34.027,
+          "sent_counter_rates": {
+            "first_window_at_least_24fps": {
+              "window_end_seconds": 36.174,
+              "span_seconds": 3.526,
+              "fps": 27.2
+            },
+            "after_30s_interval_median_fps": 30.0
+          },
+          "rendered_counter_rates": {
+            "first_window_at_least_24fps": {
+              "window_end_seconds": 39.515,
+              "span_seconds": 3.341,
+              "fps": 28.1
+            },
+            "after_30s_interval_median_fps": 29.5
+          }
+        }
+      },
+      "android_aot": true,
+      "private_timing_endpoint_absent": true,
+      "native_test_hooks": false,
+      "native_libraries_match_baseline": true,
+      "cleanup": {
+        "mac_remaining_processes": 0,
+        "peer_remaining_processes": 0,
+        "phone_remaining_processes": 0,
+        "own_forward_removed": true,
+        "main_app_modified": false,
+        "system_power_settings_changed": false,
+        "retained_profiles": true
+      }
+    },
+    "candidate": {
+      "native_audio_report_interval_ms": 1000,
+      "new_messages_per_role": {
+        "A": 18,
+        "B": 18,
+        "C": 18
+      },
+      "no_duplicates": true,
+      "new_logical_ids_converged": true,
+      "visible_counts": {
+        "B": 586,
+        "C": 586,
+        "A": 586
+      },
+      "visible_ids_equal": true,
+      "visible_order_equal": true,
+      "burst_submission_seconds": 20.6,
+      "call": {
+        "initiator": "C",
+        "answering_device": "A",
+        "connect_after_answer_ms": 2878,
+        "sampling_start_after_place_ms": 4030,
+        "sampling_start_after_answer_ms": 2919,
+        "duration_seconds": 89.252,
+        "active_throughout": true,
+        "non_active_samples_excluded_from_media_statistics": 0,
+        "ring_first_observed_ms": {
+          "A": 504,
+          "B": 608
+        },
+        "other_sibling_stopped_ringing": true
+      },
+      "endpoints": {
+        "A": {
+          "samples": 73,
+          "all_p2p": true,
+          "cameras_on_all_samples": true,
+          "microphones_on_all_samples": true,
+          "worker_stall_samples": 0,
+          "video_paused_samples": 0,
+          "native_audio_delay_peak_ms": 99,
+          "audio_receive_packets_increase": true,
+          "first_positive_audio_rtt_seconds": 2.408,
+          "first_peer_playout_seconds": 3.512,
+          "first_video_timing_fallback_seconds": null,
+          "first_applied_budget_at_least_30fps_seconds": 16.866,
+          "sent_counter_rates": {
+            "first_window_at_least_24fps": {
+              "window_end_seconds": 18.106,
+              "span_seconds": 3.552,
+              "fps": 24.2
+            },
+            "after_30s_interval_median_fps": 29.4
+          },
+          "rendered_counter_rates": {
+            "first_window_at_least_24fps": {
+              "window_end_seconds": 29.962,
+              "span_seconds": 3.594,
+              "fps": 25.9
+            },
+            "after_30s_interval_median_fps": 29.9
+          }
+        },
+        "C": {
+          "samples": 73,
+          "all_p2p": true,
+          "cameras_on_all_samples": true,
+          "microphones_on_all_samples": true,
+          "worker_stall_samples": 0,
+          "video_paused_samples": 0,
+          "native_audio_delay_peak_ms": 82,
+          "audio_receive_packets_increase": true,
+          "first_positive_audio_rtt_seconds": 20.182,
+          "first_peer_playout_seconds": 4.584,
+          "first_video_timing_fallback_seconds": null,
+          "first_applied_budget_at_least_30fps_seconds": 27.406,
+          "sent_counter_rates": {
+            "first_window_at_least_24fps": {
+              "window_end_seconds": 29.823,
+              "span_seconds": 3.486,
+              "fps": 26.4
+            },
+            "after_30s_interval_median_fps": 30.0
+          },
+          "rendered_counter_rates": {
+            "first_window_at_least_24fps": {
+              "window_end_seconds": 19.14,
+              "span_seconds": 3.52,
+              "fps": 28.7
+            },
+            "after_30s_interval_median_fps": 29.5
+          }
+        }
+      },
+      "android_aot": true,
+      "private_timing_endpoint_absent": true,
+      "native_test_hooks": false,
+      "native_libraries_match_baseline": false,
+      "cleanup": {
+        "mac_remaining_processes": 0,
+        "peer_remaining_processes": 0,
+        "phone_remaining_processes": 0,
+        "own_forward_removed": true,
+        "main_app_modified": false,
+        "system_power_settings_changed": false,
+        "retained_profiles": true
+      }
+    },
+    "dart-candidate": {
+      "native_audio_report_interval_ms": 5000,
+      "new_messages_per_role": {
+        "A": 18,
+        "B": 18,
+        "C": 18
+      },
+      "no_duplicates": true,
+      "new_logical_ids_converged": true,
+      "visible_counts": {
+        "B": 604,
+        "C": 604,
+        "A": 604
+      },
+      "visible_ids_equal": true,
+      "visible_order_equal": true,
+      "burst_submission_seconds": 23.2,
+      "call": {
+        "initiator": "C",
+        "answering_device": "A",
+        "connect_after_answer_ms": 3820,
+        "sampling_start_after_place_ms": 5119,
+        "sampling_start_after_answer_ms": 4123,
+        "duration_seconds": 89.62,
+        "active_throughout": true,
+        "non_active_samples_excluded_from_media_statistics": 0,
+        "ring_first_observed_ms": {
+          "A": 481,
+          "B": 494
+        },
+        "other_sibling_stopped_ringing": true
+      },
+      "endpoints": {
+        "A": {
+          "samples": 80,
+          "all_p2p": true,
+          "cameras_on_all_samples": true,
+          "microphones_on_all_samples": true,
+          "worker_stall_samples": 0,
+          "video_paused_samples": 0,
+          "native_audio_delay_peak_ms": 90,
+          "audio_receive_packets_increase": true,
+          "first_positive_audio_rtt_seconds": 18.869,
+          "first_peer_playout_seconds": 2.379,
+          "first_video_timing_fallback_seconds": 6.101,
+          "first_applied_budget_at_least_30fps_seconds": 11.767,
+          "sent_counter_rates": {
+            "first_window_at_least_24fps": {
+              "window_end_seconds": 14.08,
+              "span_seconds": 3.421,
+              "fps": 26.6
+            },
+            "after_30s_interval_median_fps": 29.4
+          },
+          "rendered_counter_rates": {
+            "first_window_at_least_24fps": {
+              "window_end_seconds": 12.941,
+              "span_seconds": 3.354,
+              "fps": 28.3
+            },
+            "after_30s_interval_median_fps": 28.9
+          }
+        },
+        "C": {
+          "samples": 80,
+          "all_p2p": true,
+          "cameras_on_all_samples": true,
+          "microphones_on_all_samples": true,
+          "worker_stall_samples": 0,
+          "video_paused_samples": 0,
+          "native_audio_delay_peak_ms": 107,
+          "audio_receive_packets_increase": true,
+          "first_positive_audio_rtt_seconds": 25.451,
+          "first_peer_playout_seconds": 3.425,
+          "first_video_timing_fallback_seconds": 4.983,
+          "first_applied_budget_at_least_30fps_seconds": 10.646,
+          "sent_counter_rates": {
+            "first_window_at_least_24fps": {
+              "window_end_seconds": 12.867,
+              "span_seconds": 3.325,
+              "fps": 30.1
+            },
+            "after_30s_interval_median_fps": 30.0
+          },
+          "rendered_counter_rates": {
+            "first_window_at_least_24fps": {
+              "window_end_seconds": 14.032,
+              "span_seconds": 3.386,
+              "fps": 26.0
+            },
+            "after_30s_interval_median_fps": 29.5
+          }
+        }
+      },
+      "android_aot": true,
+      "private_timing_endpoint_absent": true,
+      "native_test_hooks": false,
+      "native_libraries_match_baseline": true,
+      "cleanup": {
+        "mac_remaining_processes": 0,
+        "peer_remaining_processes": 0,
+        "phone_remaining_processes": 0,
+        "own_forward_removed": true,
+        "main_app_modified": false,
+        "system_power_settings_changed": false,
+        "retained_profiles": true
+      }
+    },
+    "dart-reverse": {
+      "native_audio_report_interval_ms": 5000,
+      "new_messages_per_role": {
+        "A": 18,
+        "B": 18,
+        "C": 18
+      },
+      "no_duplicates": true,
+      "new_logical_ids_converged": true,
+      "visible_counts": {
+        "B": 622,
+        "C": 622,
+        "A": 622
+      },
+      "visible_ids_equal": true,
+      "visible_order_equal": true,
+      "burst_submission_seconds": 19.5,
+      "call": {
+        "initiator": "A",
+        "answering_device": "C",
+        "connect_after_answer_ms": 1903,
+        "sampling_start_after_place_ms": 4891,
+        "sampling_start_after_answer_ms": 2041,
+        "duration_seconds": 89.31,
+        "active_throughout": true,
+        "non_active_samples_excluded_from_media_statistics": 0,
+        "ring_first_observed_ms": {
+          "C": 2346
+        },
+        "caller_sibling_never_rang": true
+      },
+      "endpoints": {
+        "A": {
+          "samples": 76,
+          "all_p2p": true,
+          "cameras_on_all_samples": true,
+          "microphones_on_all_samples": true,
+          "worker_stall_samples": 0,
+          "video_paused_samples": 0,
+          "native_audio_delay_peak_ms": 121,
+          "audio_receive_packets_increase": true,
+          "first_positive_audio_rtt_seconds": 6.912,
+          "first_peer_playout_seconds": 4.257,
+          "first_video_timing_fallback_seconds": 4.257,
+          "first_applied_budget_at_least_30fps_seconds": 14.032,
+          "sent_counter_rates": {
+            "first_window_at_least_24fps": {
+              "window_end_seconds": 16.666,
+              "span_seconds": 4.005,
+              "fps": 27.5
+            },
+            "after_30s_interval_median_fps": 29.9
+          },
+          "rendered_counter_rates": {
+            "first_window_at_least_24fps": {
+              "window_end_seconds": 22.881,
+              "span_seconds": 3.819,
+              "fps": 27.2
+            },
+            "after_30s_interval_median_fps": 29.8
+          }
+        },
+        "C": {
+          "samples": 76,
+          "all_p2p": true,
+          "cameras_on_all_samples": true,
+          "microphones_on_all_samples": true,
+          "worker_stall_samples": 0,
+          "video_paused_samples": 0,
+          "native_audio_delay_peak_ms": 161,
+          "audio_receive_packets_increase": true,
+          "first_positive_audio_rtt_seconds": 1.89,
+          "first_peer_playout_seconds": 6.599,
+          "first_video_timing_fallback_seconds": null,
+          "first_applied_budget_at_least_30fps_seconds": 20.116,
+          "sent_counter_rates": {
+            "first_window_at_least_24fps": {
+              "window_end_seconds": 22.768,
+              "span_seconds": 3.734,
+              "fps": 27.6
+            },
+            "after_30s_interval_median_fps": 29.9
+          },
+          "rendered_counter_rates": {
+            "first_window_at_least_24fps": {
+              "window_end_seconds": 16.64,
+              "span_seconds": 4.03,
+              "fps": 27.0
+            },
+            "after_30s_interval_median_fps": 29.5
+          }
+        }
+      },
+      "android_aot": true,
+      "private_timing_endpoint_absent": true,
+      "native_test_hooks": false,
+      "native_libraries_match_baseline": true,
+      "cleanup": {
+        "mac_remaining_processes": 0,
+        "peer_remaining_processes": 0,
+        "phone_remaining_processes": 0,
+        "own_forward_removed": true,
+        "main_app_modified": false,
+        "system_power_settings_changed": false,
+        "retained_profiles": true
+      }
+    },
+    "dart-final": {
+      "native_audio_report_interval_ms": 5000,
+      "new_messages_per_role": {
+        "A": 18,
+        "B": 18,
+        "C": 18
+      },
+      "no_duplicates": true,
+      "new_logical_ids_converged": true,
+      "visible_counts": {
+        "B": 640,
+        "C": 640,
+        "A": 640
+      },
+      "visible_ids_equal": true,
+      "visible_order_equal": true,
+      "burst_submission_seconds": 25.7,
+      "call": {
+        "initiator": "C",
+        "answering_device": "A",
+        "connect_after_answer_ms": 2767,
+        "sampling_start_after_place_ms": 4577,
+        "sampling_start_after_answer_ms": 3555,
+        "duration_seconds": 25.094,
+        "active_throughout": false,
+        "non_active_samples_excluded_from_media_statistics": 1,
+        "ring_first_observed_ms": {
+          "A": 445,
+          "B": 519
+        },
+        "other_sibling_stopped_ringing": true,
+        "end_classification": "user_confirmed_manual_hangup"
+      },
+      "endpoints": {
+        "A": {
+          "samples": 19,
+          "all_p2p": true,
+          "cameras_on_all_samples": true,
+          "microphones_on_all_samples": true,
+          "worker_stall_samples": 0,
+          "video_paused_samples": 0,
+          "native_audio_delay_peak_ms": 151,
+          "audio_receive_packets_increase": true,
+          "first_positive_audio_rtt_seconds": 20.226,
+          "first_peer_playout_seconds": 2.234,
+          "first_video_timing_fallback_seconds": 4.478,
+          "first_applied_budget_at_least_30fps_seconds": 13.691,
+          "sent_counter_rates": {
+            "first_window_at_least_24fps": {
+              "window_end_seconds": 15.239,
+              "span_seconds": 3.134,
+              "fps": 29.0
+            },
+            "after_30s_interval_median_fps": null
+          },
+          "rendered_counter_rates": {
+            "first_window_at_least_24fps": {
+              "window_end_seconds": 20.226,
+              "span_seconds": 3.381,
+              "fps": 27.8
+            },
+            "after_30s_interval_median_fps": null
+          }
+        },
+        "C": {
+          "samples": 19,
+          "all_p2p": true,
+          "cameras_on_all_samples": true,
+          "microphones_on_all_samples": true,
+          "worker_stall_samples": 0,
+          "video_paused_samples": 0,
+          "native_audio_delay_peak_ms": 92,
+          "audio_receive_packets_increase": true,
+          "first_positive_audio_rtt_seconds": 21.306,
+          "first_peer_playout_seconds": 3.276,
+          "first_video_timing_fallback_seconds": 4.402,
+          "first_applied_budget_at_least_30fps_seconds": 16.783,
+          "sent_counter_rates": {
+            "first_window_at_least_24fps": {
+              "window_end_seconds": 20.162,
+              "span_seconds": 3.379,
+              "fps": 29.9
+            },
+            "after_30s_interval_median_fps": null
+          },
+          "rendered_counter_rates": {
+            "first_window_at_least_24fps": {
+              "window_end_seconds": 14.713,
+              "span_seconds": 3.169,
+              "fps": 24.3
+            },
+            "after_30s_interval_median_fps": null
+          }
+        }
+      },
+      "android_aot": true,
+      "private_timing_endpoint_absent": true,
+      "native_test_hooks": false,
+      "native_libraries_match_baseline": true,
+      "cleanup": {
+        "mac_remaining_processes": 0,
+        "peer_remaining_processes": 0,
+        "phone_remaining_processes": 0,
+        "own_forward_removed": true,
+        "main_app_modified": false,
+        "system_power_settings_changed": false,
+        "retained_profiles": true
+      },
+      "includes_handover_freshness_guard": true
+    },
+    "dart-final-retry": {
+      "native_audio_report_interval_ms": 5000,
+      "new_messages_per_role": {},
+      "no_duplicates": true,
+      "new_logical_ids_converged": true,
+      "visible_counts": {
+        "B": 640,
+        "C": 640,
+        "A": 640
+      },
+      "visible_ids_equal": true,
+      "visible_order_equal": true,
+      "call": {
+        "initiator": "C",
+        "answering_device": "A",
+        "connect_after_answer_ms": 6861,
+        "sampling_start_after_place_ms": 7943,
+        "sampling_start_after_answer_ms": 6896,
+        "duration_seconds": 89.855,
+        "active_throughout": true,
+        "non_active_samples_excluded_from_media_statistics": 0,
+        "ring_first_observed_ms": {
+          "A": 534,
+          "B": 538
+        },
+        "other_sibling_stopped_ringing": true
+      },
+      "endpoints": {
+        "A": {
+          "samples": 78,
+          "all_p2p": true,
+          "cameras_on_all_samples": true,
+          "microphones_on_all_samples": true,
+          "worker_stall_samples": 0,
+          "video_paused_samples": 0,
+          "native_audio_delay_peak_ms": 103,
+          "audio_receive_packets_increase": true,
+          "first_positive_audio_rtt_seconds": 31.854,
+          "first_peer_playout_seconds": 5.04,
+          "first_video_timing_fallback_seconds": 6.534,
+          "first_applied_budget_at_least_30fps_seconds": 12.518,
+          "sent_counter_rates": {
+            "first_window_at_least_24fps": {
+              "window_end_seconds": 15.9,
+              "span_seconds": 3.382,
+              "fps": 28.1
+            },
+            "after_30s_interval_median_fps": 29.9
+          },
+          "rendered_counter_rates": {
+            "first_window_at_least_24fps": {
+              "window_end_seconds": 26.175,
+              "span_seconds": 3.208,
+              "fps": 29.6
+            },
+            "after_30s_interval_median_fps": 29.9
+          }
+        },
+        "C": {
+          "samples": 78,
+          "all_p2p": true,
+          "cameras_on_all_samples": true,
+          "microphones_on_all_samples": true,
+          "worker_stall_samples": 0,
+          "video_paused_samples": 0,
+          "native_audio_delay_peak_ms": 82,
+          "audio_receive_packets_increase": true,
+          "first_positive_audio_rtt_seconds": 18.009,
+          "first_peer_playout_seconds": 13.711,
+          "first_video_timing_fallback_seconds": 13.711,
+          "first_applied_budget_at_least_30fps_seconds": 24.049,
+          "sent_counter_rates": {
+            "first_window_at_least_24fps": {
+              "window_end_seconds": 26.156,
+              "span_seconds": 3.26,
+              "fps": 27.3
+            },
+            "after_30s_interval_median_fps": 29.9
+          },
+          "rendered_counter_rates": {
+            "first_window_at_least_24fps": {
+              "window_end_seconds": 15.883,
+              "span_seconds": 3.544,
+              "fps": 27.1
+            },
+            "after_30s_interval_median_fps": 29.6
+          }
+        }
+      },
+      "message_validation_reused_from": "dart-final",
+      "android_aot": true,
+      "private_timing_endpoint_absent": true,
+      "native_test_hooks": false,
+      "native_libraries_match_baseline": true,
+      "cleanup": {
+        "mac_remaining_processes": 0,
+        "peer_remaining_processes": 0,
+        "phone_remaining_processes": 0,
+        "own_forward_removed": true,
+        "main_app_modified": false,
+        "system_power_settings_changed": false,
+        "retained_profiles": true
+      },
+      "includes_handover_freshness_guard": true
+    }
+  },
+  "measurement_limits": [
+    "Times are host per-role poll midpoints after both camera-enable API calls; not call placement, frame timestamps, or end-to-end speech delays.",
+    "FPS estimates use counter differences, not cumulative snapshot FPS. The first >=24 FPS window spans at least 3 seconds; it is not a permanent smoothness guarantee.",
+    "Retained histories advance between phases; debug Mac/profile Android builds, startup and background traffic affect observations.",
+    "Native 1-second RTCP is a rejected private experiment; only the Dart change is retained.",
+    "No human speech, headphone volume, Windows, forced handover, relay-only path, or full multi-device matrix qualification."
+  ],
+  "source_lib_patch_sha256": "2baa80fc94d9afa6a7bc684ad52a38f804743aff02103652c2b44df88484dc63",
+  "final_cleanup": {
+    "recorded_owned_groups_checked": 15,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false
+  },
+  "remaining": [
+    "Burst submission still takes about 20\u201327 seconds, with additional background convergence time.",
+    "Human speech/headphone volume, per-frame smoothness, Windows reports, relay-only behavior, physical handover, partial chunk-ACK crash recovery, long offline and the full multi-device matrix remain unqualified."
+  ]
+}
