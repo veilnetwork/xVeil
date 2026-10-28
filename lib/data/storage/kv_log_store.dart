@@ -54,6 +54,7 @@ class Ns {
   /// be paid for on every sweep that has nothing to do with them.
   /// Also holds signed peer authorization documents: 35-byte prefixed keys
   /// and a one-byte layout marker, disjoint from 66-byte ratchet chunk keys.
+  /// A separate one-byte key holds the durable ratchet cleanup count.
   /// They are security state, retained across file/cache purges and restarts.
   static const int ratchet = 9;
 

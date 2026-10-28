@@ -40,9 +40,10 @@ next post used an incremental range and all 201 messages remained visible.
 The latest ratchet blob was intact. This is native vacuum/read verification,
 not a physical power-loss experiment or a qualification of every crash stage.
 
-The cleanup budget is still an in-memory per-storage field. Same-session
-failure/retry is verified here. Persistence of that budget or an outstanding
-cleanup obligation across restart remains an audit item.
+At the time of these measurements the cleanup budget was still an in-memory
+per-storage field; this cycle verified same-session failure/retry. The
+[subsequent cleanup-budget validation](../ratchet-cleanup-budget-2026-10-28/README.md)
+addresses persistence and outstanding cleanup obligations across restart.
 
 ## Physical measurements
 
