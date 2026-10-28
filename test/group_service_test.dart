@@ -628,6 +628,28 @@ class _HeldGroupHeaderStorage extends HiddenVolumeStorage {
   }
 }
 
+/// Holds a completed journal load, after shared raw-byte reads have drained.
+/// This exposes a routing lookup finishing after a later committed revoke.
+class _HeldRoutingGroupService extends GroupService {
+  _HeldRoutingGroupService(super.storage, super.signer);
+
+  NodeId? holdGroup;
+  int readsUntilHold = 1;
+  Completer<void> captured = Completer<void>();
+  Completer<void> release = Completer<void>();
+
+  @override
+  Future<GroupBundle?> load(NodeId groupId) async {
+    final bundle = await super.load(groupId);
+    if (holdGroup == groupId && --readsUntilHold == 0) {
+      holdGroup = null;
+      captured.complete();
+      await release.future;
+    }
+    return bundle;
+  }
+}
+
 /// The one chain in a sync vector whose scope starts with [prefix].
 ///
 /// Looked up by prefix because a chain's scope now ends with the DEVICE that
@@ -10742,6 +10764,194 @@ void main() {
       expect((await targets[1].load(gid))!.messages.length, 10);
     },
   );
+
+  Future<(_HeldRoutingGroupService, _MessageCheckCountingSigner, NodeId)>
+  heldRouting() async {
+    final store = FakeHvContainer().storage();
+    await store.open(password: 'pw', createIfMissing: true);
+    addTearDown(store.close);
+    final signer = _MessageCheckCountingSigner(owner);
+    final service = _HeldRoutingGroupService(store, signer)
+      ..myDevice = owner
+      ..documentNodeId = (_) => owner;
+    addTearDown(service.dispose);
+    expect(
+      await service.linkDevice(
+        bob,
+        sovereign: sovereign,
+        broadcastSnapshot: false,
+      ),
+      isTrue,
+    );
+    final gid = NodeId.fromHex((await service.deviceGroupIdHex())!);
+    expect(
+      await service.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.identityDoc,
+          key: owner.hex,
+          tsMs: 444,
+          payload: const {'d': 'ZG9j', 'o': true},
+        ),
+      ),
+      isTrue,
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    return (service, signer, gid);
+  }
+
+  test(
+    'concurrent own routing queries share only an unfinished journal view',
+    () async {
+      final (service, signer, gid) = await heldRouting();
+      final rows = (await service.load(gid))!.messages;
+      expect(rows, isNotEmpty);
+      signer.checks.clear();
+      service.holdGroup = gid;
+      final first = service.addressableOwnDevices();
+      await service.captured.future;
+      final second = service.addressableOwnDevices();
+      await Future<void>.delayed(Duration.zero);
+      service.release.complete();
+      final addresses = await Future.wait([first, second]);
+      expect(addresses, [
+        [bob],
+        [bob],
+      ]);
+      for (final row in rows) {
+        expect(
+          signer.checks[row.ref],
+          1,
+          reason: 'overlapping queries must not verify the same journal twice',
+        );
+      }
+      addresses.first.clear();
+      expect(addresses.last, [
+        bob,
+      ], reason: 'callers cannot mutate a shared result');
+      signer.checks.clear();
+      expect(await service.addressableOwnDevices(), [bob]);
+      for (final row in rows) {
+        expect(
+          signer.checks[row.ref],
+          greaterThan(0),
+          reason: 'a later query must read and verify a new view',
+        );
+      }
+    },
+  );
+
+  test(
+    'an own routing read overtaken by revoke retries the committed journal',
+    () async {
+      final (service, _, gid) = await heldRouting();
+      service.holdGroup = gid;
+      final reading = service.addressableOwnDevices();
+      await service.captured.future;
+      expect(await service.revokeDevice(bob, sovereign: sovereign), isTrue);
+      expect(await service.addressableOwnDevices(), isEmpty);
+      service.release.complete();
+      expect(
+        await reading,
+        isEmpty,
+        reason: 'a captured pre-revoke view must not restore a revoked target',
+      );
+    },
+  );
+
+  test('an own routing read retries a newer master announcement', () async {
+    final (service, _, gid) = await heldRouting();
+    service.myDevice = bob;
+    expect(await service.addressableOwnDevices(), [owner]);
+    service.holdGroup = gid;
+    final reading = service.addressableOwnDevices();
+    await service.captured.future;
+    final replacement = _id(0xDA);
+    expect(
+      await service.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.identityDoc,
+          key: replacement.hex,
+          tsMs: 445,
+          payload: const {'d': 'ZG9j', 'o': true},
+        ),
+      ),
+      isTrue,
+    );
+    service.release.complete();
+    expect(
+      await reading,
+      [replacement],
+      reason: 'data carrying a routing announcement also invalidates readers',
+    );
+    expect(await service.addressableOwnDevices(), [replacement]);
+  });
+
+  test(
+    'a linked-owner lookup cannot return an overtaken membership view',
+    () async {
+      final (service, _, gid) = await heldRouting();
+      service.myDevice = bob;
+      service.holdGroup = gid;
+      final checking = service.isMyDeviceOrMaster(sovereign.nodeId);
+      await service.captured.future;
+      expect(await service.revokeDevice(bob, sovereign: sovereign), isTrue);
+      service.release.complete();
+      expect(await checking, isFalse);
+      expect(await service.isMyDeviceOrMaster(sovereign.nodeId), isFalse);
+    },
+  );
+
+  test(
+    'a master admission lookup cannot republish an old announcement',
+    () async {
+      final (service, _, gid) = await heldRouting();
+      service.myDevice = bob;
+      final former = _id(0xDB), replacement = _id(0xDC);
+      expect(
+        await service.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.identityDoc,
+            key: former.hex,
+            tsMs: 445,
+            payload: const {'d': 'ZG9j', 'o': true},
+          ),
+        ),
+        isTrue,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      // The first load resolves the linked owner; the second reads the master.
+      service.readsUntilHold = 2;
+      service.holdGroup = gid;
+      final checking = service.isMyDeviceOrMaster(former);
+      await service.captured.future;
+      expect(
+        await service.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.identityDoc,
+            key: replacement.hex,
+            tsMs: 446,
+            payload: const {'d': 'ZG9j', 'o': true},
+          ),
+        ),
+        isTrue,
+      );
+      service.release.complete();
+      expect(await checking, isFalse);
+      expect(await service.isMyDeviceOrMaster(former), isFalse);
+      expect(await service.isMyDeviceOrMaster(replacement), isTrue);
+    },
+  );
+
+  test('an own routing read cannot outlive its identity session', () async {
+    final (service, _, gid) = await heldRouting();
+    service.holdGroup = gid;
+    final reading = service.addressableOwnDevices();
+    await service.captured.future;
+    service.beginShutdown();
+    service.release.complete();
+    expect(await reading, isEmpty);
+    expect(await service.addressableOwnDevices(), isEmpty);
+  });
 
   test(
     'own transport addresses use one fresh validated journal view',

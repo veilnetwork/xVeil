@@ -2077,6 +2077,9 @@ class MessagingService {
   /// The latency lane's own bound, for tests that assert both are in place.
   InboundAdmission get realtimeAdmissionForTest => _realtimeControl.admission;
 
+  /// Independent admission budget for live sibling-history recovery work.
+  InboundAdmission get historyInboundAdmission => _ownHistory.admission;
+
   /// Synchronous evidence that a sender is more than the name it wrote in the
   /// `src` field — the only question admission can answer before the frame is
   /// queued, since the real consent gate needs a storage read. Provenance is
