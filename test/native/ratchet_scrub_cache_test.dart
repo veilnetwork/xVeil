@@ -14,6 +14,15 @@ class _CountingNativeStore extends HvKvLogStore {
   _CountingNativeStore(super.space);
   final logStarts = <int?>[];
   int scrubs = 0;
+  int ratchetHeadReads = 0;
+
+  @override
+  Uint8List? get(int namespace, Uint8List key) {
+    if (namespace == Ns.ratchet && key.length == kRatchetKeyLen + 2) {
+      ratchetHeadReads++;
+    }
+    return super.get(namespace, key);
+  }
 
   @override
   List<KvLogEntry> iterLogRange({
@@ -84,6 +93,7 @@ void main() {
         ]);
       }
       expect(raw.scrubs, 1);
+      expect(raw.ratchetHeadReads, 1);
       expect(await storage.loadMessages('fixture-peer'), hasLength(200));
       expect(raw.logStarts, isEmpty);
       final after = raw.iterLogRange(
@@ -101,6 +111,14 @@ void main() {
         isTrue,
       );
       expect(await storage.loadRatchetState(key), Uint8List(1400)..[0] = 127);
+      await storage.saveRatchetStates([RatchetStateEntry(key, Uint8List(60000))]);
+      await storage.saveRatchetStates([RatchetStateEntry(key, Uint8List(100))]);
+      expect(await storage.loadRatchetState(key), Uint8List(100));
+      expect(
+        raw.kvKeys(Ns.ratchet).where((k) => k.length == kRatchetKeyLen + 2),
+        hasLength(1),
+        reason: 'the cached committed length prunes the whole native tail',
+      );
     },
     skip: (Platform.environment['XVEIL_HV_DYLIB']?.isNotEmpty ?? false)
         ? false
