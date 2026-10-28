@@ -1,0 +1,137 @@
+{
+  "date": "2026-10-29",
+  "scope": "reduce redundant payload hashing while preserving verification and fork evidence",
+  "tests": {
+    "new_checks_passed": 8,
+    "canonical_before_change_failures": 4,
+    "retained_before_change_failures": 1,
+    "group_service_passed": 355,
+    "group_service_existing_skips": 3,
+    "disjoint_integration_passed": 73,
+    "static_analysis": "no issues"
+  },
+  "phone_aba": {
+    "before": {
+      "local_post_ms": [
+        1175,
+        3001,
+        4306
+      ],
+      "group_timing_ms": {
+        "load": 891,
+        "load_again": 821,
+        "stateOf": 271,
+        "messagesOf": 652,
+        "reactionsOf": 990
+      },
+      "cpu_samples": 5420,
+      "samples_with_named_stack": {
+        "groupMessageHash": 1610,
+        "_canonicalRetainedMessageView": 1873,
+        "_retainedMessageRows": 843,
+        "_joinSegments": 1114,
+        "_verdictKey": 607,
+        "_writeBundleBytes": 12
+      },
+      "profiler_restored": true,
+      "vm_forward_removed": true
+    },
+    "after": {
+      "local_post_ms": [
+        1272,
+        1981,
+        2940
+      ],
+      "group_timing_ms": {
+        "load": 161,
+        "load_again": 191,
+        "stateOf": 174,
+        "messagesOf": 348,
+        "reactionsOf": 544
+      },
+      "cpu_samples": 3827,
+      "samples_with_named_stack": {
+        "groupMessageHash": 0,
+        "_canonicalRetainedMessageView": 806,
+        "_retainedMessageRows": 388,
+        "_joinSegments": 1109,
+        "_verdictKey": 649,
+        "_writeBundleBytes": 11
+      },
+      "profiler_restored": true,
+      "vm_forward_removed": true
+    },
+    "before-repeat": {
+      "local_post_ms": [
+        1225,
+        3551,
+        3665
+      ],
+      "group_timing_ms": {
+        "load": 333,
+        "load_again": 715,
+        "stateOf": 319,
+        "messagesOf": 815,
+        "reactionsOf": 808
+      },
+      "cpu_samples": 5618,
+      "samples_with_named_stack": {
+        "groupMessageHash": 1737,
+        "_canonicalRetainedMessageView": 2182,
+        "_retainedMessageRows": 765,
+        "_joinSegments": 1132,
+        "_verdictKey": 653,
+        "_writeBundleBytes": 9
+      },
+      "profiler_restored": true,
+      "vm_forward_removed": true
+    }
+  },
+  "no_production_instrumentation_added": true,
+  "native_libraries_changed": false,
+  "rust_build": false,
+  "push": false,
+  "release": false,
+  "server_update": false,
+  "all_delivery_defects_closed": false,
+  "physical": {
+    "roles": {
+      "A": "Android Wi-Fi",
+      "B": "Mac sibling of A",
+      "C": "Mac other identity"
+    },
+    "retained_profiles": true,
+    "anonymous_routing": false,
+    "cross_identity_p2p": "deny",
+    "requested_messages": 18,
+    "visible_messages_each": 18,
+    "large_body_characters_each_origin": 12300,
+    "first_all_visible_sample_seconds": 58.7,
+    "group_chunk_queues_empty_seconds": 75.4,
+    "all_control_queues_empty": false,
+    "duplicates": 0,
+    "full_ids_and_order_equal": true,
+    "edit_converged_seconds": 11.0,
+    "delete_converged_seconds": 16.0,
+    "unrelated_ids_preserved": true,
+    "original_modes_restored": true,
+    "cold_surviving_fixture_rows_each": 17,
+    "cold_full_history_rows_each": 1558,
+    "cold_history_identical_to_saved_state": true,
+    "cold_outgoing_delivered": {
+      "A": 11,
+      "B": 11,
+      "C": 6
+    }
+  },
+  "cleanup": {
+    "retired_groups_with_reused_system_pgid": 0,
+    "android_package_processes": 0,
+    "recorded_owned_groups_checked": 142,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false,
+    "owned_vm_forwards_remaining": 0
+  }
+}

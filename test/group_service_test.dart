@@ -681,6 +681,37 @@ Map<dynamic, dynamic> chainOf(Map<dynamic, dynamic> chains, String prefix) {
   return matches.single.value as Map<dynamic, dynamic>;
 }
 
+class _HashWorkMessage extends GroupMessage {
+  _HashWorkMessage({
+    required super.groupId,
+    required super.author,
+    required super.seq,
+    required super.prevHash,
+    required super.body,
+    required super.policyVersion,
+    required super.createdAtMs,
+    required super.signature,
+    required super.authorPubKey,
+  });
+
+  int canonicalCalls = 0;
+
+  @override
+  Uint8List canonicalBytes() {
+    canonicalCalls++;
+    return super.canonicalBytes();
+  }
+}
+
+class _HashWorkReadService extends GroupService {
+  _HashWorkReadService(super.storage, super.signer);
+  GroupBundle? view;
+
+  @override
+  Future<GroupBundle?> load(NodeId groupId) async =>
+      view?.manifest.groupId == groupId ? view : super.load(groupId);
+}
+
 class _CountedCompactionService extends GroupService {
   _CountedCompactionService(super.storage, super.signer);
 
@@ -10869,6 +10900,212 @@ void main() {
       expect(signer.checks[rows[1].ref], greaterThan(0));
     },
   );
+
+  group('canonical message hash work', () {
+    late HiddenVolumeStorage store;
+    late _HashWorkReadService service;
+    late _MessageCheckCountingSigner signer;
+    late GroupBundle base;
+
+    _HashWorkMessage row(
+      int seq, {
+      NodeId? author,
+      String? body,
+      int signature = 0,
+    }) => _HashWorkMessage(
+      groupId: base.manifest.groupId,
+      author: author ?? owner,
+      seq: seq,
+      prevHash: '',
+      body: body ?? 'legacy-$seq',
+      policyVersion: 1,
+      createdAtMs: 1000 + seq,
+      signature: Uint8List.fromList(List.filled(64, signature)),
+      authorPubKey: (author ?? owner).bytes,
+    );
+
+    Future<List<GroupMessage>> read(List<GroupMessage> rows) {
+      service.view = base.copyWith(messages: rows);
+      return service.messagesOf(base.manifest.groupId);
+    }
+
+    setUp(() async {
+      store = FakeHvContainer().storage();
+      await store.open(password: 'pw', createIfMissing: true);
+      signer = _MessageCheckCountingSigner(owner);
+      service = _HashWorkReadService(store, signer);
+      final gid = await service.createGroup('hash work');
+      expect(
+        await service.addControlOp(
+          gid,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      base = (await service.load(gid))!;
+    });
+    tearDown(() async {
+      await service.dispose();
+      await store.close();
+    });
+
+    test(
+      'unique legacy slots need no fork hashes and still reverify every row',
+      () async {
+        final rows = [
+          for (var i = 0; i < 120; i++) row(i, author: i.isEven ? owner : bob),
+        ];
+        expect(await read(rows), hasLength(120));
+        expect(
+          rows.map((r) => r.canonicalCalls),
+          everyElement(0),
+          reason:
+              'a unique author/scope/sequence has no equivocation candidate',
+        );
+        expect(
+          rows.map((r) => signer.checks[r.ref] ?? 0),
+          everyElement(greaterThan(0)),
+        );
+        signer.rejectedBodies.add(rows[7].body);
+        signer.checks.clear();
+        expect((await read(rows)).any((r) => r.ref == rows[7].ref), isFalse);
+        expect(
+          signer.checks[rows[7].ref],
+          greaterThan(0),
+          reason: 'the next view must observe changed verification context',
+        );
+      },
+    );
+
+    test('exact repeats hash their slot and retain one logical row', () async {
+      final first = row(0), second = row(0), third = row(0), unique = row(1);
+      final visible = await read([first, unique, second, third]);
+      expect(visible.map((r) => r.body), ['legacy-0', 'legacy-1']);
+      expect(identical(visible.first, third), isTrue);
+      expect(
+        [first, second, third].map((r) => r.canonicalCalls),
+        everyElement(1),
+      );
+      expect(unique.canonicalCalls, 0);
+    });
+
+    test(
+      'different signatures remain a fork even over identical content',
+      () async {
+        final first = row(0),
+            alternate = row(0, signature: 0x7e),
+            later = row(1);
+        expect(await read([first, later, alternate]), isEmpty);
+        expect(first.canonicalCalls, 1);
+        expect(alternate.canonicalCalls, 1);
+        expect(later.canonicalCalls, 0);
+      },
+    );
+
+    test(
+      'an invalid collision is verified and cannot quarantine a valid row',
+      () async {
+        final first = row(0), invalid = row(0, body: 'rejected');
+        signer.rejectedBodies.add('rejected');
+        expect((await read([first, invalid])).map((r) => r.body), ['legacy-0']);
+        expect(first.canonicalCalls, 0);
+        expect(invalid.canonicalCalls, 0);
+        expect(signer.checks[first.ref], greaterThanOrEqualTo(2));
+      },
+    );
+
+    test(
+      'fork quarantine converges across arrival orders without hiding other authors',
+      () async {
+        final first = row(0),
+            fork = row(1, body: 'left'),
+            alternate = row(1, body: 'right');
+        final tail = row(2), other = row(1, author: bob, body: 'other');
+        final rows = [first, fork, alternate, tail, other];
+        for (var i = 0; i < rows.length; i++) {
+          final rotated = [...rows.skip(i), ...rows.take(i)];
+          for (final order in [rotated, rotated.reversed.toList()]) {
+            expect((await read(order)).map((r) => r.body), [
+              'legacy-0',
+              'other',
+            ]);
+          }
+        }
+      },
+    );
+
+    test(
+      'retained snapshot rows avoid payload hashes for unique signed slots',
+      () {
+        final rows = [for (var i = 0; i < 120; i++) row(i)];
+        final wire =
+            jsonDecode(service.snapshotJson(base.copyWith(messages: rows)))
+                as Map;
+        expect(wire['g'] as List, hasLength(120));
+        expect(rows.map((r) => r.canonicalCalls), everyElement(0));
+        expect(
+          rows.map((r) => signer.checks[r.ref] ?? 0),
+          everyElement(greaterThan(0)),
+        );
+      },
+    );
+
+    test(
+      'retained snapshot dedup preserves distinct signatures and first-seen ordering',
+      () {
+        final first = row(0), other = row(0, author: bob, body: 'other');
+        final fork = row(0, body: 'fork'),
+            duplicate = row(0),
+            signedFork = row(0, signature: 0x7e);
+        final wire =
+            jsonDecode(
+                  service.snapshotJson(
+                    base.copyWith(
+                      messages: [first, other, fork, duplicate, signedFork],
+                    ),
+                  ),
+                )
+                as Map;
+        final retained = (wire['g'] as List)
+            .map(GroupMessage.fromJson)
+            .whereType<GroupMessage>()
+            .toList();
+        expect(retained.map((r) => r.body), [
+          'legacy-0',
+          'other',
+          'fork',
+          'legacy-0',
+        ]);
+        expect(retained.last.signature[0], 0x7e);
+        expect(retained.map(groupMessageHash).toList(), [
+          groupMessageHash(duplicate),
+          groupMessageHash(other),
+          groupMessageHash(fork),
+          groupMessageHash(signedFork),
+        ]);
+      },
+    );
+
+    test(
+      'retained snapshot rereads changed signature bytes instead of reusing a verdict',
+      () {
+        final first = row(0), second = row(0);
+        List<dynamic> retained() =>
+            (jsonDecode(
+                      service.snapshotJson(
+                        base.copyWith(messages: [first, second]),
+                      ),
+                    )
+                    as Map)['g']
+                as List;
+        expect(retained(), hasLength(1));
+        second.signature[0] = 0x7e;
+        expect(retained(), hasLength(2));
+      },
+    );
+  });
 
   test(
     'reading canonical history does not reverify it for every author',
