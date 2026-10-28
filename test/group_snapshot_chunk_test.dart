@@ -266,6 +266,209 @@ void main() {
     },
   );
 
+  test(
+    'sibling fragments share admission but recheck before durable apply',
+    () async {
+      final sibling = _id(9);
+      var checks = 0, applied = 0;
+      var allowed = true;
+      mB.isOwnDevice = (peer) async => peer == sibling;
+      mB.allowStrangerGroupSync = (peer, gid) async {
+        checks++;
+        return allowed && peer == sibling && gid == 'aa11';
+      };
+      mB.onGroupEntryFromStranger = (_, json) async {
+        expect(json, bundle);
+        applied++;
+        return allowed;
+      };
+      final frames = _chunkFrames(bundle, 'grp:aa11:lease');
+      expect(frames.length, greaterThan(2));
+      for (final frame in frames.take(frames.length - 1)) {
+        tB.inject(sibling, frame);
+        await _settle();
+      }
+      expect(
+        checks,
+        1,
+        reason: 'one authorization reserves this bounded transfer',
+      );
+      expect(applied, 0);
+      expect(
+        tB.sent.where((w) => WireEnvelope.decode(w).kind == WireKind.ack),
+        isEmpty,
+      );
+      tB.inject(sibling, frames.last);
+      await _settle();
+      expect(checks, 2, reason: 'permission must be current at commit');
+      expect(applied, 1);
+      final beforeReplay = tB.sent.length;
+      for (final frame in frames) {
+        tB.inject(sibling, frame);
+        await _settle();
+      }
+      expect(
+        checks,
+        2,
+        reason: 'a known sibling may re-ACK the exact committed bytes',
+      );
+      expect(applied, 1);
+      expect(tB.sent.length, greaterThan(beforeReplay));
+      allowed = false;
+      final beforeClaim = tB.sent.length;
+      tB.inject(sibling, frames.first, provenance: SenderProvenance.claimed);
+      await _settle();
+      expect(
+        checks,
+        3,
+        reason: 'a claimed sibling name must use current admission',
+      );
+      expect(tB.sent.length, beforeClaim);
+    },
+  );
+
+  test(
+    'a revoked partial-transfer sender cannot apply or ACK its remaining parts',
+    () async {
+      final member = _id(9);
+      var allowed = true, checks = 0, applied = 0;
+      mB.allowStrangerGroupSync = (_, _) async {
+        checks++;
+        return allowed;
+      };
+      mB.onGroupEntryFromStranger = (_, _) async {
+        applied++;
+        return true;
+      };
+      final frames = _chunkFrames(bundle, 'grp:aa11:revoked');
+      tB.inject(member, frames.first);
+      await _settle();
+      expect(checks, 1);
+      allowed = false;
+      for (final frame in frames.skip(1)) {
+        tB.inject(member, frame);
+        await _settle();
+      }
+      expect(
+        checks,
+        2,
+        reason: 'the completed body must face a new permission check',
+      );
+      expect(applied, 0);
+      expect(
+        tB.sent.where((w) => WireEnvelope.decode(w).kind == WireKind.ack),
+        isEmpty,
+      );
+    },
+  );
+
+  test('a stranger must reauthorize a committed chunk replay', () async {
+    final member = _id(9);
+    var allowed = true, checks = 0, applied = 0;
+    mB.allowStrangerGroupSync = (_, _) async {
+      checks++;
+      return allowed;
+    };
+    mB.onGroupEntryFromStranger = (_, _) async {
+      applied++;
+      return true;
+    };
+    final frames = _chunkFrames(bundle, 'grp:aa11:member-replay');
+    for (final frame in frames) {
+      tB.inject(member, frame);
+      await _settle();
+    }
+    expect(applied, 1);
+    expect(checks, 2);
+    final ackCount = tB.sent.length;
+    allowed = false;
+    tB.inject(member, frames.first);
+    await _settle();
+    expect(checks, 3);
+    expect(applied, 1);
+    expect(tB.sent.length, ackCount);
+  });
+
+  test(
+    'replacement admission cannot inherit an in-flight partial lease',
+    () async {
+      final member = _id(9);
+      final entered = Completer<void>(), admission = Completer<bool>();
+      mB.allowStrangerGroupSync = (_, _) {
+        entered.complete();
+        return admission.future;
+      };
+      var applied = 0, currentChecks = 0;
+      mB.onGroupEntryFromStranger = (_, _) async {
+        applied++;
+        return true;
+      };
+      final frames = _chunkFrames(bundle, 'grp:aa11:admission-owner');
+      tB.inject(member, frames.first);
+      await entered.future;
+      mB.allowStrangerGroupSync = (_, _) async {
+        currentChecks++;
+        return true;
+      };
+      admission.complete(true);
+      await _settle();
+      for (final frame in frames.skip(1)) {
+        tB.inject(member, frame);
+        await _settle();
+      }
+      expect(currentChecks, 1);
+      expect(applied, 0, reason: 'old-owner bytes must not enter the new slot');
+      expect(
+        tB.sent.where((w) => WireEnvelope.decode(w).kind == WireKind.ack),
+        isEmpty,
+      );
+      tB.inject(member, frames.first);
+      await _settle();
+      expect(currentChecks, 2);
+      expect(applied, 1);
+      expect(
+        tB.sent.where((w) => WireEnvelope.decode(w).kind == WireKind.ack),
+        hasLength(frames.length),
+      );
+    },
+  );
+
+  test(
+    'contact partials need admission after the contact becomes a stranger',
+    () async {
+      var applied = 0, checks = 0;
+      mB.onGroupEntry = (_, _) async {
+        applied++;
+        return true;
+      };
+      mB.onGroupEntryFromStranger = (_, _) async {
+        applied++;
+        return true;
+      };
+      mB.allowStrangerGroupSync = (_, _) async {
+        checks++;
+        return false;
+      };
+      final frames = _chunkFrames(bundle, 'grp:aa11:relationship-change');
+      tB.inject(a, frames.first);
+      await _settle();
+      expect(checks, 0);
+      await sB.upsertContact(
+        Contact(nodeId: a, status: ContactStatus.pendingIncoming),
+      );
+      for (final frame in frames.skip(1)) {
+        tB.inject(a, frame);
+        await _settle();
+      }
+      expect(checks, frames.length - 1);
+      expect(applied, 0);
+      expect(
+        tB.sent.where((w) => WireEnvelope.decode(w).kind == WireKind.ack),
+        isEmpty,
+      );
+    },
+  );
+
   test('out-of-order chunks still reassemble byte-exact', () async {
     String? gotJson;
     mB.onGroupEntry = (_, json) {
