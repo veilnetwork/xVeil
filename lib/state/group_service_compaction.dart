@@ -60,10 +60,10 @@ String deviceLogPerItemPool(DeviceSyncKind kind) => switch (kind) {
   _ => kind.name,
 };
 
-/// The device log's row count past which a save schedules a compaction
-/// instead of waiting for the hourly pass: a history replay posts thousands
-/// of rows in minutes, and between passes every row is rewritten on every
-/// save.
+/// The initial device-log row count past which a save schedules compaction
+/// instead of waiting for the hourly pass. After a successful pass, a small
+/// growth margin above the retained count prevents scanning the same required
+/// state on every append. The hourly expiry sweep remains independent.
 const kDeviceLogCompactAtRows = 400;
 
 class _LogCompaction {
@@ -74,6 +74,43 @@ class _LogCompaction {
   /// Where the last compaction pass stopped, so consecutive hours cover
   /// different groups instead of re-folding the same first few.
   int _compactionCursor = 0;
+
+  // A pass can retain more than the trigger: distinct settings, tombstones,
+  // unresolved branches and not-yet-verifiable rows must remain. Give the
+  // retained state a small growth margin before repeating that entire scan.
+  // This is scheduling metadata only, never a fold or authorization cache.
+  final _deviceSizeScans = <String, ({int budget, int retained, int next})>{};
+  static const _maxDeviceSizeScans = 64;
+
+  bool shouldCompactOnSave(GroupBundle bundle) {
+    if (bundle.manifest.name != GroupService.kDeviceGroupName) return false;
+    final budget = _owner.deviceLogCompactAtRows;
+    final key = bundle.manifest.groupId.hex;
+    final previous = _deviceSizeScans[key];
+    final applicable =
+        previous != null &&
+        previous.budget == budget &&
+        bundle.messages.length >= previous.retained;
+    if (!applicable) _deviceSizeScans.remove(key);
+    final threshold = applicable ? max(budget, previous.next) : budget;
+    return bundle.messages.length > threshold;
+  }
+
+  void _noteDeviceSizeScan(GroupBundle bundle, int retained) {
+    if (bundle.manifest.name != GroupService.kDeviceGroupName) return;
+    final budget = _owner.deviceLogCompactAtRows;
+    final growth = (budget ~/ 4).clamp(1, 16);
+    final key = bundle.manifest.groupId.hex;
+    _deviceSizeScans.remove(key);
+    if (_deviceSizeScans.length >= _maxDeviceSizeScans) {
+      _deviceSizeScans.remove(_deviceSizeScans.keys.first);
+    }
+    _deviceSizeScans[key] = (
+      budget: budget,
+      retained: retained,
+      next: max(budget, retained + growth),
+    );
+  }
 
   Future<List<GroupReaction>> _compactReactions(GroupBundle bundle) async {
     final latest = <String, GroupReaction>{};
@@ -210,8 +247,7 @@ class _LogCompaction {
       for (final v in latest.values)
         if (kDeviceLogPerItemKinds.contains(v.event.kind)) v,
     ]..sort((a, b) => b.event.tsMs.compareTo(a.event.tsMs));
-    final oldestKept =
-        nowMs - kDeviceLogPerItemMaxAge.inMilliseconds;
+    final oldestKept = nowMs - kDeviceLogPerItemMaxAge.inMilliseconds;
     final seenInPool = <String, int>{};
     final expired = <String>{
       for (final v in perItem)
@@ -341,6 +377,10 @@ class _LogCompaction {
         ),
       );
     }
+    // No marker is installed if validation/storage threw. A failed pass must
+    // remain eligible on the next save. Hourly and explicit passes still run
+    // independently of this watermark, including expiry without new rows.
+    _noteDeviceSizeScan(b, result.messagesAfter);
     return result;
   }
 

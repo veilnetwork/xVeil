@@ -681,6 +681,27 @@ Map<dynamic, dynamic> chainOf(Map<dynamic, dynamic> chains, String prefix) {
   return matches.single.value as Map<dynamic, dynamic>;
 }
 
+class _CountedCompactionService extends GroupService {
+  _CountedCompactionService(super.storage, super.signer);
+
+  int compactions = 0;
+  bool failNextCompaction = false;
+  Future<GroupLogCompaction?>? lastCompaction;
+
+  @override
+  Future<GroupLogCompaction?> compactStateLogs(NodeId groupId) {
+    compactions++;
+    final work = failNextCompaction
+        ? Future<GroupLogCompaction?>.error(
+            StateError('injected compaction failure'),
+          )
+        : super.compactStateLogs(groupId);
+    failNextCompaction = false;
+    lastCompaction = work;
+    return work;
+  }
+}
+
 void main() {
   final hasVeilFfi = (Platform.environment['VEIL_FFI_DYLIB'] ?? '').isNotEmpty;
   final owner = _id(1);
@@ -8934,6 +8955,167 @@ void main() {
 
       expect((await svc.load(deviceGid))!.messages, hasLength(1),
           reason: 'a replay can post thousands of rows before the hourly pass');
+    });
+  });
+
+  group('size compaction amortizes retained device state', () {
+    late HiddenVolumeStorage store;
+    late _CountedCompactionService service;
+    late NodeId deviceGid;
+    var stamp = 0;
+
+    Future<void> post(String key) async {
+      expect(
+        await service.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.settingSet,
+            key: key,
+            tsMs: ++stamp,
+            payload: {'v': '$stamp'},
+          ),
+        ),
+        isTrue,
+      );
+    }
+
+    Future<void> joinCompaction() async {
+      final work = service.lastCompaction;
+      if (work != null) {
+        try {
+          await work;
+        } catch (_) {}
+      }
+      await Future<void>.delayed(Duration.zero);
+    }
+
+    Future<void> seed({bool repeated = false}) async {
+      for (var i = 0; i < 20; i++) {
+        await post(repeated ? 'shared' : 'seed-$i');
+      }
+      expect(service.compactions, 0);
+      service.deviceLogCompactAtRows = 16;
+      await post(repeated ? 'shared' : 'first-trigger');
+      await joinCompaction();
+      expect(service.compactions, 1);
+    }
+
+    setUp(() async {
+      store = FakeHvContainer().storage();
+      await store.open(password: 'pw', createIfMissing: true);
+      service = _CountedCompactionService(store, _FakeSigner(owner))
+        ..deviceLogCompactAtRows = 100000;
+      expect(
+        await service.linkDevice(
+          bob,
+          sovereign: sovereign,
+          broadcastSnapshot: false,
+        ),
+        isTrue,
+      );
+      deviceGid = NodeId.fromHex((await service.deviceGroupIdHex())!);
+      stamp = DateTime.now().millisecondsSinceEpoch - 1000;
+    });
+    tearDown(() async {
+      await service.dispose();
+      await store.close();
+    });
+
+    test('a no-op pass is not repeated on every new retained key', () async {
+      await seed();
+      for (var i = 0; i < 3; i++) {
+        await post('after-$i');
+        await joinCompaction();
+      }
+      expect(
+        service.compactions,
+        1,
+        reason:
+            'irreducible state above the row budget must not force a full scan per save',
+      );
+      expect((await service.load(deviceGid))!.messages.length, 24);
+      final state = await service.deviceSyncState();
+      expect(state[(DeviceSyncKind.settingSet, 'after-2')], isNotNull);
+    });
+
+    test(
+      'enough new rows trigger another pass without waiting for the hourly sweep',
+      () async {
+        await seed();
+        for (var i = 0; i < 8; i++) {
+          await post('growth-$i');
+          await joinCompaction();
+        }
+        expect(service.compactions, 2);
+        expect((await service.deviceSyncState()).length, 29);
+      },
+    );
+
+    test('a shrinking pass rearms from the retained count', () async {
+      await seed(repeated: true);
+      expect((await service.load(deviceGid))!.messages.length, 1);
+      for (var i = 0; i < 16; i++) {
+        await post('fresh-$i');
+        await joinCompaction();
+      }
+      expect(service.compactions, 2);
+      expect((await service.deviceSyncState()).length, 17);
+    });
+
+    test(
+      'a failed scan does not postpone the next compaction attempt',
+      () async {
+        for (var i = 0; i < 20; i++) {
+          await post('seed-$i');
+        }
+        service.deviceLogCompactAtRows = 16;
+        service.failNextCompaction = true;
+        await post('failed-pass');
+        await joinCompaction();
+        expect(service.compactions, 1);
+        await post('retry-pass');
+        await joinCompaction();
+        expect(service.compactions, 2);
+      },
+    );
+
+    test(
+      'a changed row budget is evaluated instead of inheriting an old watermark',
+      () async {
+        await seed();
+        service.deviceLogCompactAtRows = 4;
+        await post('new-budget');
+        await joinCompaction();
+        expect(service.compactions, 2);
+      },
+    );
+    test(
+      'a pass retaining nearly the row budget gets a growth margin too',
+      () async {
+        for (var i = 0; i < 20; i++) {
+          await post('retained-$i');
+        }
+        for (var i = 0; i < 20; i++) {
+          await post('shared');
+        }
+        service.deviceLogCompactAtRows = 16;
+        await post('shared');
+        await joinCompaction();
+        expect((await service.load(deviceGid))!.messages.length, 21);
+        expect(service.compactions, 1);
+        for (var i = 0; i < 3; i++) {
+          await post('after-shrink-$i');
+          await joinCompaction();
+        }
+        expect(service.compactions, 1);
+        expect((await service.deviceSyncState()).length, 24);
+      },
+    );
+
+    test('the periodic sweep still scans without new rows', () async {
+      await seed();
+      await service.sweepStateLogCompaction(limit: 1);
+      expect(service.compactions, 2);
+      expect((await service.deviceSyncState()).length, 21);
     });
   });
 

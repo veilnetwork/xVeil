@@ -1,0 +1,62 @@
+{
+  "date": "2026-10-29",
+  "tests": {
+    "group_service_passed": 347,
+    "group_service_existing_skips": 3,
+    "new_compaction_regressions": 7,
+    "static_analysis": "no issues"
+  },
+  "performance_claim": "redundant scans prevented; local latency improvement not demonstrated",
+  "local_post_before_ms": [
+    972,
+    2397,
+    3716
+  ],
+  "local_post_after_ms": [
+    893,
+    2357,
+    3832
+  ],
+  "physical": {
+    "roles": {
+      "A": "Android Wi-Fi",
+      "B": "Mac sibling of A",
+      "C": "Mac other identity"
+    },
+    "retained_profiles": true,
+    "anonymous_routing": false,
+    "cross_identity_p2p": "deny",
+    "messages_requested": 18,
+    "messages_each": 18,
+    "large_body_characters_each_origin": 12300,
+    "visible_sample_seconds": 57.9,
+    "group_chunk_queues_empty_seconds": 108.0,
+    "full_ids_and_order_equal": true,
+    "duplicates": 0,
+    "edit_converged_seconds": 18.1,
+    "delete_converged_seconds": 13.7,
+    "unrelated_ids_preserved": true,
+    "cold_surviving_rows_each": 17,
+    "cold_full_history_rows_each": 1524,
+    "cold_outgoing_delivered": {
+      "A": 11,
+      "B": 11,
+      "C": 6
+    },
+    "original_anonymous_modes_restored": true,
+    "all_control_queues_drained": false
+  },
+  "cleanup": {
+    "retired_groups_with_reused_system_pgid": 0,
+    "android_package_processes": 0,
+    "recorded_owned_groups_checked": 134,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false
+  },
+  "rust_build": false,
+  "push": false,
+  "release": false,
+  "server_update": false
+}
