@@ -1,0 +1,66 @@
+{
+  "date": "2026-10-29",
+  "native_sdk_unchanged": "f031513a",
+  "focused_tests_passed": 173,
+  "additional_binding_shutdown_ratchet_tests_passed": 42,
+  "new_group_receipt_tests": 12,
+  "anonymous_during_delivery": false,
+  "cross_identity_p2p_denied": true,
+  "new_messages_per_role": {
+    "A": 18,
+    "B": 18,
+    "C": 18
+  },
+  "large_fixture_chars": 12300,
+  "large_fixture_origins": [
+    "A",
+    "C"
+  ],
+  "large_payloads_exact_on_all_roles": true,
+  "first_all_visible_seconds": 70.3,
+  "group_chunk_queues_empty_seconds": 139.3,
+  "edit_seconds": 18.9,
+  "delete_seconds": 12.7,
+  "full_counts_after_delete": {
+    "A": 1507,
+    "B": 1507,
+    "C": 1507
+  },
+  "no_duplicates": true,
+  "unrelated_ids_preserved": true,
+  "same_history_after_original_modes_restored": true,
+  "cold_readback": {
+    "same_previous_ids_bodies_order": true,
+    "same_order_all_roles": true,
+    "statuses": {
+      "A": {
+        "new_surviving_rows": 17,
+        "outgoing_rows": 11,
+        "outgoing_delivered": 11
+      },
+      "B": {
+        "new_surviving_rows": 17,
+        "outgoing_rows": 11,
+        "outgoing_delivered": 11
+      },
+      "C": {
+        "new_surviving_rows": 17,
+        "outgoing_rows": 6,
+        "outgoing_delivered": 6
+      }
+    }
+  },
+  "cleanup": {
+    "retired_groups_with_reused_system_pgid": 0,
+    "android_package_processes": 0,
+    "recorded_owned_groups_checked": 130,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false
+  },
+  "push_performed": false,
+  "release_performed": false,
+  "server_update_performed": false,
+  "rust_build_performed": false
+}
