@@ -1050,6 +1050,7 @@ typedef GroupEntryChunkFrame = ({
   int index,
   int count,
   Uint8List data,
+  bool transferAck,
 });
 
 /// One chunk of an oversized group snapshot: body `{tid, i, n, d:base64}`. The
@@ -1061,22 +1062,28 @@ WireEnvelope groupEntryChunkEnvelope({
   required int index,
   required int count,
   required Uint8List data,
+  bool transferAck = false,
 }) => WireEnvelope.groupEntryChunk(
   jsonEncode({
     'tid': transferId,
     'i': index,
     'n': count,
     'd': base64.encode(data),
+    if (transferAck) 'a': 1,
   }),
 );
 
 GroupEntryChunkFrame parseGroupEntryChunk(String body) {
   final j = jsonDecode(body) as Map<String, dynamic>;
+  if (j.containsKey('a') && j['a'] != 1) {
+    throw const FormatException('unknown group acknowledgement mode');
+  }
   return (
     transferId: j['tid'] as String,
     index: j['i'] as int,
     count: j['n'] as int,
     data: base64.decode(j['d'] as String),
+    transferAck: j['a'] == 1,
   );
 }
 

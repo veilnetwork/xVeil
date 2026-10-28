@@ -613,6 +613,35 @@ void main() {
     expect(out.body, '');
   });
 
+  test('group chunk transfer ACK opt-in preserves the legacy default', () {
+    for (final transferAck in [false, true]) {
+      final envelope = groupEntryChunkEnvelope(
+        transferId: 'fixture',
+        index: 0,
+        count: 2,
+        data: Uint8List.fromList([1, 2]),
+        transferAck: transferAck,
+      );
+      final part = parseGroupEntryChunk(envelope.body);
+      expect(part.transferAck, transferAck);
+      expect(part.data, [1, 2]);
+      expect((jsonDecode(envelope.body) as Map).containsKey('a'), transferAck);
+    }
+  });
+
+  test('unknown group chunk ACK mode fails closed', () {
+    for (final mode in [false, true, 0, 2, '1', null]) {
+      final body = jsonEncode({
+        'tid': 'fixture',
+        'i': 0,
+        'n': 1,
+        'd': 'AQ==',
+        'a': mode,
+      });
+      expect(() => parseGroupEntryChunk(body), throwsFormatException);
+    }
+  });
+
   test('groupEntryChunk round-trips (tid/index/count/data) as v:2', () {
     final data = Uint8List.fromList(List.generate(300, (i) => i & 0xff));
     final raw = groupEntryChunkEnvelope(
