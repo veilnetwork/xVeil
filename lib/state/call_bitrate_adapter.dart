@@ -232,6 +232,8 @@ class CallBitrateAdapter {
   int? _prevWindowMin;
   int _windowFill = 0;
   int? _lastRttRouteEpoch;
+  bool _videoTimingPeerRefreshRequired = false;
+  int? _videoTimingPeerBaseline;
   final _receiveBuffer = CallAudioBufferWindow();
   final _peerBuffer = CallAudioBufferWindow();
   // The global trend can still describe a higher rung after its budget was
@@ -513,6 +515,8 @@ class CallBitrateAdapter {
     _lastGrowthObservation = -1;
     _appliedPause = null;
     _lastRttRouteEpoch = null;
+    _videoTimingPeerRefreshRequired = false;
+    _videoTimingPeerBaseline = null;
     // Native counters belong to the replaced engine. Its first snapshot is
     // a new baseline, even if it already exceeds the predecessor's count.
     _lastAudioTxDrops = null;
@@ -568,7 +572,11 @@ class CallBitrateAdapter {
   // The native shim advances this local epoch only after rebinding to a
   // confirmed route. It reports unknown RTT until RR/SR echoes refer to a
   // sender report generated after that handover. Old libraries omit epochs.
-  bool _observeRttRoute(Map<String, dynamic> stats, bool audio) {
+  bool _observeRttRoute(
+    Map<String, dynamic> stats,
+    bool audio,
+    int? peerAudioSampleSequence,
+  ) {
     final key = audio ? 'audio_rtt_route_epoch' : 'video_rtt_route_epoch';
     if (!stats.containsKey(key)) return true;
     final epoch = stats[key];
@@ -577,6 +585,11 @@ class CallBitrateAdapter {
     if (previous != null && epoch < previous) return false;
     if (epoch != previous) {
       _lastRttRouteEpoch = epoch;
+      // A matching video RTT proves the new network route, but cached audio
+      // playout can still describe its predecessor. Require a newer peer
+      // report before using video timing to grow on that route.
+      _videoTimingPeerRefreshRequired = previous != null || epoch > 0;
+      _videoTimingPeerBaseline = peerAudioSampleSequence;
       _curWindowMin = null;
       _prevWindowMin = null;
       _windowFill = 0;
@@ -584,6 +597,12 @@ class CallBitrateAdapter {
       _startupGoodStreak = 0;
       _audioRecoveryStreak = 0;
       if (previous != null || epoch > 0) _startupRecovery = false;
+    }
+    if (_videoTimingPeerRefreshRequired &&
+        _videoTimingPeerBaseline == null &&
+        peerAudioSampleSequence != null &&
+        peerAudioSampleSequence > 0) {
+      _videoTimingPeerBaseline = peerAudioSampleSequence;
     }
     return true;
   }
@@ -753,7 +772,11 @@ class CallBitrateAdapter {
     if (_goodStreak == 0) {
       _recoveryPeerBaseline = peerAudioSampleSequence;
     }
-    final routeRttUsable = _observeRttRoute(stats, sendAudioExpected);
+    final routeRttUsable = _observeRttRoute(
+      stats,
+      sendAudioExpected,
+      peerAudioSampleSequence,
+    );
     final networkLoss = _rtcpLoss.observe(
       audioReportUs: stats['audio_loss_report_us'],
       videoReportUs: stats.containsKey('video_persistent_loss_report_us')
@@ -879,13 +902,60 @@ class CallBitrateAdapter {
                   ?.toInt() ??
               0
         : 0;
+    // Audio SR/RR can lag video feedback by several report periods. A measured
+    // video RTT may fund decoder-ACKed probes while audio timing is unknown,
+    // but only with current playout measurements for every expected audio
+    // direction and matching native route epochs. This supplies network timing;
+    // the audio loss, outage, buffer and source-pressure guards below still run.
+    final videoRtt = stats['video_feedback_rtt_ms'];
+    final videoLossPct = stats['video_feedback_loss_pct'];
+    final audioRoute = stats['audio_rtt_route_epoch'];
+    bool measuredDelay(int? value) =>
+        value != null && value >= 0 && value <= 60000;
+    final videoTimingAvailable =
+        supportsLowRateVideo &&
+        sendAudioExpected &&
+        videoSendExpected &&
+        measuredRttMs == 0 &&
+        routeRttUsable &&
+        stats['worker_stalled'] == 0 &&
+        stats['video_worker_stalled'] == 0 &&
+        videoRtt is int &&
+        videoRtt > 0 &&
+        videoRtt <= 60000 &&
+        videoLossPct is int &&
+        videoLossPct >= 0 &&
+        videoLossPct <= 1 &&
+        ((stats['video_feedback_reports'] as num?) ?? 0) >=
+            ((expectedVideoFeedbackReports ?? 0) > 0
+                ? expectedVideoFeedbackReports!
+                : 1) &&
+        audioRoute is int &&
+        audioRoute >= 0 &&
+        stats['video_rtt_route_epoch'] == audioRoute &&
+        requirePeerAudioPlayout &&
+        measuredDelay(peerAudioDelayMs) &&
+        measuredDelay(peerCurrentAudioDelayMs) &&
+        peerCurrentAudioDelayMs! <= peerAudioDelayMs! &&
+        peerAudioSampleSequence != null &&
+        peerAudioSampleSequence > 0 &&
+        (!_videoTimingPeerRefreshRequired ||
+            (_videoTimingPeerBaseline != null &&
+                peerAudioSampleSequence > _videoTimingPeerBaseline!)) &&
+        (!receiveRequested ||
+            (requireAudioReceivePlayout &&
+                receive.expected &&
+                receive.ageMs != null &&
+                receive.ageMs! >= 0 &&
+                receive.ageMs! < audioReceiveRecoverMs &&
+                measuredDelay(receiveDelay)));
     if (supportsLowRateVideo) {
       final generation = _delivery.generation;
       _delivery.observe(
         stats,
         sampledAt ?? DateTime.now(),
         expectedVideoFeedbackReports ?? 1,
-        rttMs: measuredRttMs,
+        rttMs: videoTimingAvailable ? videoRtt : measuredRttMs,
         sourcePaused:
             !videoSendExpected ||
             _appliedPause == true ||
@@ -896,6 +966,8 @@ class CallBitrateAdapter {
         _setDeliveryLevel();
       }
     }
+    final useVideoTiming = videoTimingAvailable && _delivery.supported;
+    final growthFeedbackAvailable = feedbackAvailable || useVideoTiming;
     final videoProgress = _videoCanEarnRecovery(stats, videoSendExpected);
     final floorTrialMeasured = _observeFloorTrial(stats, videoSendExpected);
     final videoFrames = stats['video_tx_frames'];
@@ -907,7 +979,7 @@ class CallBitrateAdapter {
           videoProgress && videoFrames is num && videoFrames > 0,
       sendAudioExpected: sendAudioExpected,
       receiveAudioExpected: receiveRequested,
-      rttMs: measuredRttMs,
+      rttMs: useVideoTiming ? videoRtt : measuredRttMs,
       txJitterMs: anyFeedbackAvailable
           ? (stats[sendAudioExpected
                             ? 'tx_jitter_ms'
@@ -931,7 +1003,7 @@ class CallBitrateAdapter {
               (stats['audio_tx_rtp_drops'] as int) >= 0
           ? stats['audio_tx_rtp_drops'] as int
           : null,
-      feedbackAvailable: feedbackAvailable,
+      feedbackAvailable: growthFeedbackAvailable,
       anyAudioFeedbackAvailable: anyFeedbackAvailable,
       peerAudioDelayMs: peerAudioDelayMs,
       peerCurrentAudioDelayMs: peerCurrentAudioDelayMs,
@@ -945,7 +1017,7 @@ class CallBitrateAdapter {
           requireAudioReceivePlayout && receiveRequested,
       audioReceiveDelayMs: receiveDelay,
       audioReceiveTargetDelayMs: receiveTarget,
-      missingAudioReceiverFeedback: !feedbackAvailable,
+      missingAudioReceiverFeedback: !growthFeedbackAvailable,
       audioInterrupted: audioInterrupted,
       videoLossObserved: videoLoss || _delivery.queuePressure,
       audioNetworkLossObserved: networkLoss.audio,
@@ -961,6 +1033,7 @@ class CallBitrateAdapter {
           _appliedPause != true &&
           floorTrialMeasured,
     );
+    _bufferInputs?['video_timing_fallback'] = useVideoTiming;
     if (_delivery.supported) {
       final previous = _appliedTarget;
       final next = previous == null
