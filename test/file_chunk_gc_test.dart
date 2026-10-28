@@ -278,12 +278,11 @@ void main() {
       );
     });
 
-    test('accounting survives a crash between chunk and metadata commits', () {
-      // Chunks are appended in their own commits; the metadata lands last. A
-      // counter bumped only at the end would not see records written by a run
-      // that died in between — which is exactly the population the collector
-      // exists to reclaim.
-      files.storeFile('a', _patterned(200000)); // ~53 records
+    test('multi-commit accounting remains durable after reopening', () {
+      // Stay above the small atomic-publication budget so this exercises
+      // several chunk commits and the final metadata publication. Failure
+      // between them is covered by file_store_atomic_publication_test.
+      files.storeFile('a', _patterned(300000)); // ~79 records
       final gc = raw.get(Ns.settings, _k('file_chunk_gc'))!;
       final live = (jsonDecode(utf8.decode(gc)) as Map)['live'];
       expect(live, raw.count(Ns.fileChunks));
