@@ -566,8 +566,8 @@ class _MessagingOutbox {
         var groupReplication = false;
         try {
           final kind = WireEnvelope.decode(frame.wire).kind;
-          groupReplication = kind == WireKind.groupEntry ||
-              kind == WireKind.groupEntryChunk;
+          groupReplication =
+              kind == WireKind.groupEntry || kind == WireKind.groupEntryChunk;
         } catch (_) {}
         if (groupReplication) {
           try {
@@ -581,8 +581,11 @@ class _MessagingOutbox {
             // the requesting device. Fragments can reach different endpoints
             // and never assemble. Current sync asks carry a physical reply
             // address and recover state from the source journal instead.
-            devLog(() => 'xVeil[durable]: retire group frame addressed to '
-                'the sovereign authority, not a device');
+            devLog(
+              () =>
+                  'xVeil[durable]: retire group frame addressed to '
+                  'the sovereign authority, not a device',
+            );
             retire(frame.peerHex, frame.frameId);
             continue;
           }
@@ -1149,6 +1152,60 @@ class _MessagingOutbox {
   /// else, suppressing that delivery entirely (audit XV-02).
   void retire(String peerHex, String frameId) {
     unawaited(_retirePersisted(peerHex, frameId));
+  }
+
+  Future<void> retireGroupTransfer(
+    NodeId source,
+    String tid, {
+    required bool ownDeviceAck,
+  }) async {
+    if (_owner._disposed) return;
+    final destination = NodeId.fromHex(tid.split(':').last);
+    if (source != destination &&
+        !(ownDeviceAck &&
+            (await _owner.isOwnDevice?.call(destination) ?? false))) {
+      return;
+    }
+    final pending = await _owner._storage.pendingOutboxFrames();
+    if (_owner._disposed) return;
+    final ids = <String>[];
+    for (final frame in pending) {
+      if (frame.peerHex != destination.hex ||
+          !frame.frameId.startsWith('grpc:$tid:')) {
+        continue;
+      }
+      try {
+        final envelope = WireEnvelope.decode(frame.wire);
+        if (envelope.kind != WireKind.groupEntryChunk) continue;
+        final part = parseGroupEntryChunk(envelope.body);
+        if (part.transferAck &&
+            part.transferId == tid &&
+            frame.frameId == 'grpc:$tid:${part.index}') {
+          ids.add(frame.frameId);
+        }
+      } catch (_) {
+        /* malformed queued data cannot consume another namespace */
+      }
+    }
+    if (ids.isEmpty) return;
+    final retired = await _owner._storage.ackOutboxFrames(
+      ids,
+      fromPeerHex: destination.hex,
+    );
+    // Change volatile accounting only after the all-or-none storage commit.
+    for (final id in retired) {
+      _owner._mailboxDelivery.removeStashed(id);
+      final key = _key(destination.hex, id);
+      _liveBackoff.remove(key);
+      if (_pendingKeys.remove(key)) {
+        final left = (_pendingByPeer[destination.hex] ?? 0) - 1;
+        if (left > 0) {
+          _pendingByPeer[destination.hex] = left;
+        } else {
+          _pendingByPeer.remove(destination.hex);
+        }
+      }
+    }
   }
 
   Future<void> _retirePersisted(String peerHex, String frameId) {

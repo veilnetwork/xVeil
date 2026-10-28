@@ -577,11 +577,23 @@ extension _MessagingInboundDispatch on MessagingService {
         if (existing?.status != ContactStatus.accepted && !ownDeviceAck) {
           if (ackId == null ||
               (!await _authorizedGroupCallAck(m.src, ackId) &&
+                  !await _replication.authorizedCommitAck(m.src, ackId) &&
                   !await _authorizedExternalSpaceProposalAck(m.src, ackId))) {
             return;
           }
         }
         if (ackId != null) {
+          if (ackId.startsWith('grpa:')) {
+            final transfer = _MessagingReplication.committedTransferAck(ackId);
+            if (transfer != null) {
+              await _outbox.retireGroupTransfer(
+                m.src,
+                transfer,
+                ownDeviceAck: ownDeviceAck,
+              );
+            }
+            return;
+          }
           if (_contentAvailability.confirmRetryReoffer(m, ackId)) return;
           // Retire a durable control frame the peer just confirmed (sign, edit,
           // del, clear, accept, reconnect): stop re-driving + re-stashing it.
