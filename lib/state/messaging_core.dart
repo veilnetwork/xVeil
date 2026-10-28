@@ -19,6 +19,7 @@ import '../data/transport/veil_transport.dart';
 import '../data/transport/stream_write_idle.dart';
 import '../data/transport/content_stream_credit.dart';
 import '../data/transport/wire_envelope.dart';
+import '../data/transport/large_frame.dart';
 import '../domain/device_history_ask.dart' show kHeavyHistoryMediaUntilKey;
 import '../domain/device_sync.dart';
 import '../domain/call_signal.dart';
@@ -81,6 +82,7 @@ part 'messaging_content_pull.dart';
 part 'messaging_content_publish.dart';
 part 'messaging_content_receive.dart';
 part 'messaging_inbound_dispatch.dart';
+part 'messaging_large_frames.dart';
 
 /// Wires the [VeilTransport] inbound stream into [Storage] and exposes a send
 /// path. Persists every message, then signals [changes] so the read providers
@@ -223,6 +225,7 @@ class MessagingService {
       _MessagingConversationAdmin(this);
   late final _MessagingAttestation _attestation = _MessagingAttestation(this);
   late final _MessagingReplication _replication = _MessagingReplication(this);
+  late final _MessagingLargeFrames _largeFrames = _MessagingLargeFrames(this);
   late final _MessagingGroupContent _groupContent = _MessagingGroupContent(
     this,
   );
@@ -923,6 +926,23 @@ class MessagingService {
     bool requireIdentityAddress = false,
     bool background = false,
   }) async {
+    if (_anonymous && payload.length > kLargeFrameMaxBytes) {
+      throw ArgumentError(
+        'anonymous application frame exceeds the framing bound',
+      );
+    }
+
+    if (_anonymous &&
+        payload.length > kLargeFrameInlineBytes &&
+        largeFrameKind(payload) != null) {
+      return _largeFrames.send(
+        dst,
+        payload,
+        wantReply: wantReply,
+        requireIdentityAddress: requireIdentityAddress,
+        background: background,
+      );
+    }
     if (!kDiagnosticReportEnabled) {
       return _sendImpl(
         dst,
@@ -2058,15 +2078,16 @@ class MessagingService {
   void _persistCoalescedRatchet() {
     if (_disposed || ratchet == null) return;
     _coalescedRatchetDirty = true;
-    _coalescedRatchetFlush ??= Future<void>.sync(() async {
-      while (_coalescedRatchetDirty && !_disposed) {
-        _coalescedRatchetDirty = false;
-        await _persistRatchet('recv-coalesced');
-      }
-    }).whenComplete(() {
-      _coalescedRatchetFlush = null;
-      if (_coalescedRatchetDirty && !_disposed) _persistCoalescedRatchet();
-    });
+    _coalescedRatchetFlush ??=
+        Future<void>.sync(() async {
+          while (_coalescedRatchetDirty && !_disposed) {
+            _coalescedRatchetDirty = false;
+            await _persistRatchet('recv-coalesced');
+          }
+        }).whenComplete(() {
+          _coalescedRatchetFlush = null;
+          if (_coalescedRatchetDirty && !_disposed) _persistCoalescedRatchet();
+        });
   }
 
   /// What the un-awaited durable lane may hold before it starts dropping.
@@ -2136,7 +2157,20 @@ class MessagingService {
     // ...and revive any parked downloads that list it as a holder.
     noteInboundFromPeer(m.src);
     try {
-      await _dispatch(m);
+      if (isLargeFrame(m.payload)) {
+        final joined = await _largeFrames.receive(m);
+        if (joined == null) return;
+        try {
+          await _dispatch(
+            joined.message,
+            blockedWhileReassembling: joined.wasBlocked,
+          );
+        } finally {
+          joined.release();
+        }
+      } else {
+        await _dispatch(m);
+      }
     } catch (e) {
       // A hostile or corrupt datagram (malformed JSON, missing/ill-typed
       // fields, bad base64) must never throw out of the stream listener and
@@ -4282,6 +4316,7 @@ class MessagingService {
 
   Future<void> _dispose() async {
     _disposed = true; // stops transfer retry/serve work
+    final largeFramesClosed = _largeFrames.close();
     _contentAvailability.cancelRetryReoffers();
     final historyClosed = _ownHistory.close();
     _outbox.dispose();
@@ -4301,6 +4336,7 @@ class MessagingService {
     await _realtimeSub?.cancel();
     _realtimeSub = null;
     await _quiesceInboundLanes();
+    await largeFramesClosed;
     await historyClosed;
     await _mutations.quiesce();
     Object? shutdownError;
