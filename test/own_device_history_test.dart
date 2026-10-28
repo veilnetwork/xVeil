@@ -779,6 +779,317 @@ void main() {
     },
   );
 
+  InboundMessage historyRequest(int nonce, {int padding = 0}) => InboundMessage(
+    src: identity,
+    srcDevice: b,
+    provenance: SenderProvenance.signed,
+    payload: WireEnvelope.deviceHistory(
+      jsonEncode({
+        'v': 1,
+        'd': b.hex,
+        'id': nonce.toRadixString(16).padLeft(32, '0'),
+        'q': {'op': 'list', if (padding > 0) 'padding': 'x' * padding},
+      }),
+    ).encode(),
+  );
+
+  Future<Completer<void>> holdHistoryAdmission({
+    List<NodeId> Function()? roster,
+    bool failOnRelease = false,
+  }) async {
+    ma.start();
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    final entered = Completer<void>(), release = Completer<void>();
+    ma.isOwnDevice = (node) async => node == identity || node == b;
+    ma.myOtherDevices = () async {
+      if (!entered.isCompleted) entered.complete();
+      await release.future;
+      if (failOnRelease) throw StateError('fixture history close failure');
+      return roster?.call() ?? [b];
+    };
+    ta.incoming.add(historyRequest(0));
+    await entered.future.timeout(const Duration(seconds: 1));
+    return release;
+  }
+
+  test(
+    'history work is frame-bounded, coalesced and joined during shutdown',
+    () async {
+      final release = await holdHistoryAdmission();
+      final budget = ma.historyInboundAdmission;
+      try {
+        for (var i = 0; i < 40; i++) {
+          ta.incoming.add(historyRequest(0));
+        }
+        await until(() async => budget.coalescedFrames >= 40);
+        expect(budget.queuedFrames, 1);
+        for (var i = 1; i <= budget.maxFrames + 10; i++) {
+          ta.incoming.add(historyRequest(i));
+        }
+        await until(() async => budget.droppedFrames > 0);
+        expect(budget.queuedFrames, budget.maxFrames);
+        expect(budget.queuedBytes, lessThanOrEqualTo(budget.maxBytes));
+        await ma
+            .deliverInbound(
+              InboundMessage(
+                src: peer,
+                provenance: SenderProvenance.signed,
+                payload: const WireEnvelope.message(
+                  'chat survives history flood',
+                  id: 'live-behind-flood',
+                  seq: 0,
+                ).encode(),
+              ),
+            )
+            .timeout(const Duration(seconds: 1));
+        expect(
+          (await sa.loadMessageById(peer.hex, 'live-behind-flood'))?.body,
+          'chat survives history flood',
+        );
+        final closing = ma.dispose();
+        expect(budget.isClosed, isTrue);
+        release.complete();
+        await closing;
+        expect(budget.queuedFrames, 0);
+        expect(budget.queuedBytes, 0);
+        expect(
+          net.history.where(
+            (entry) => entry.from == a && entry.body['i'] != null,
+          ),
+          isEmpty,
+          reason: 'close revokes queued history work before disclosure',
+        );
+      } finally {
+        if (!release.isCompleted) release.complete();
+      }
+    },
+  );
+
+  test(
+    'history admission also bounds bytes for one authenticated sender',
+    () async {
+      final release = await holdHistoryAdmission();
+      final budget = ma.historyInboundAdmission;
+      try {
+        for (var i = 1; i <= 100; i++) {
+          ta.incoming.add(historyRequest(i, padding: 4300));
+        }
+        await until(() async => budget.droppedFrames > 0);
+        expect(budget.queuedBytes, lessThanOrEqualTo(budget.maxKnownPeerBytes));
+        expect(budget.queuedFrames, lessThan(budget.maxFrames));
+        final closing = ma.dispose();
+        release.complete();
+        await closing;
+        expect(budget.queuedFrames, 0);
+        expect(budget.queuedBytes, 0);
+      } finally {
+        if (!release.isCompleted) release.complete();
+      }
+    },
+  );
+
+  test(
+    'revocation refuses history requests already waiting in its lane',
+    () async {
+      var liveDevices = [b];
+      final release = await holdHistoryAdmission(roster: () => liveDevices);
+      try {
+        ta.incoming.add(historyRequest(1));
+        await until(() async => ma.historyInboundAdmission.queuedFrames == 2);
+        liveDevices = [];
+        release.complete();
+        await until(() async => ma.historyInboundAdmission.queuedFrames == 0);
+        expect(
+          net.history.where(
+            (entry) => entry.from == a && entry.body['i'] != null,
+          ),
+          isEmpty,
+        );
+      } finally {
+        if (!release.isCompleted) release.complete();
+      }
+    },
+  );
+
+  test('a failing history read cannot abort messaging shutdown', () async {
+    final release = await holdHistoryAdmission(failOnRelease: true);
+    try {
+      final closing = ma.dispose();
+      release.complete();
+      await closing;
+      expect(ma.historyInboundAdmission.queuedFrames, 0);
+      expect(ma.historyInboundAdmission.queuedBytes, 0);
+      expect(
+        errorJournal.entries.where((entry) => entry.kind == 'device-history'),
+        isNotEmpty,
+      );
+    } finally {
+      if (!release.isCompleted) release.complete();
+    }
+  });
+
+  test('a failed history handler does not poison its next request', () async {
+    ma.start();
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    ma.isOwnDevice = (node) async => node == identity || node == b;
+    var fail = true;
+    ma.myOtherDevices = () async {
+      if (fail) {
+        fail = false;
+        throw StateError('fixture history admission failure');
+      }
+      return [b];
+    };
+    ta.incoming.add(historyRequest(1));
+    ta.incoming.add(historyRequest(2));
+    await until(
+      () async => net.history.any(
+        (entry) =>
+            entry.from == a &&
+            entry.body['id'] == '2'.padLeft(32, '0') &&
+            entry.body['i'] != null,
+      ),
+    );
+    expect(
+      errorJournal.entries.where((entry) => entry.kind == 'device-history'),
+      isNotEmpty,
+    );
+    expect(
+      net.history.where(
+        (entry) =>
+            entry.from == a &&
+            entry.body['id'] == '1'.padLeft(32, '0') &&
+            entry.body['i'] != null,
+      ),
+      isEmpty,
+    );
+  });
+
+  test(
+    'a large reversed history page fits the dedicated admission budget',
+    () async {
+      net.reverseParts = true;
+      await seed(8, bodyBytes: 12000);
+      ma.start();
+      mb.start();
+      await until(() async => (await sb.loadMessages(peer.hex)).length == 8);
+      expect(
+        (await sb.loadMessages(
+          peer.hex,
+        )).every((row) => row.body.length == 12000),
+        isTrue,
+      );
+    },
+  );
+
+  test(
+    'retained history slices do not repeat roster reads or starve the tail',
+    () async {
+      Map<String, dynamic>? firstPart;
+      var dropTail = true;
+      net.drop = (from, to, body) {
+        if (from != a || to != b) return false;
+        if (body['q'] != null) return true; // Only B initiates this recovery.
+        if (body['i'] is int && (body['n'] as int) > 1) {
+          if (body['i'] == 0) firstPart ??= Map<String, dynamic>.of(body);
+          return dropTail && body['i'] != 0;
+        }
+        return false;
+      };
+      var rosterReads = 0;
+      mb.myOtherDevices = () async {
+        rosterReads++;
+        return [a];
+      };
+      await seed(17, bodyBytes: 6000);
+      ma.start();
+      mb.start();
+      await until(
+        () async =>
+            firstPart != null &&
+            mb.historyInboundAdmission.queuedFrames == 0 &&
+            mb.inboundAdmission.queuedFrames == 0,
+      );
+      final before = rosterReads;
+      for (var i = 0; i < 20; i++) {
+        tb.incoming.add(
+          InboundMessage(
+            src: identity,
+            srcDevice: a,
+            provenance: SenderProvenance.signed,
+            payload: WireEnvelope.deviceHistory(jsonEncode(firstPart)).encode(),
+          ),
+        );
+      }
+      await Future<void>.delayed(Duration.zero);
+      await until(
+        () async =>
+            mb.historyInboundAdmission.queuedFrames == 0 &&
+            mb.inboundAdmission.queuedFrames == 0,
+      );
+      expect(
+        rosterReads,
+        before,
+        reason: 'an already held slice needs no new grant or journal read',
+      );
+      dropTail = false;
+      await until(() async => (await sb.loadMessages(peer.hex)).length == 17);
+    },
+  );
+
+  test(
+    'slow sibling history admission does not hold ordinary messages',
+    () async {
+      ma.start();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      final entered = Completer<void>(), release = Completer<void>();
+      ma.isOwnDevice = (node) async => node == identity || node == b;
+      ma.myOtherDevices = () async {
+        if (!entered.isCompleted) entered.complete();
+        await release.future;
+        return [b];
+      };
+      ta.incoming.add(
+        InboundMessage(
+          src: identity,
+          srcDevice: b,
+          provenance: SenderProvenance.signed,
+          payload: WireEnvelope.deviceHistory(
+            jsonEncode({
+              'v': 1,
+              'd': b.hex,
+              'id': 'a' * 32,
+              'q': {'op': 'list'},
+            }),
+          ).encode(),
+        ),
+      );
+      try {
+        await entered.future.timeout(const Duration(seconds: 1));
+        await ma
+            .deliverInbound(
+              InboundMessage(
+                src: peer,
+                provenance: SenderProvenance.signed,
+                payload: const WireEnvelope.message(
+                  'live while history waits',
+                  id: 'live-behind-history',
+                  seq: 0,
+                ).encode(),
+              ),
+            )
+            .timeout(const Duration(seconds: 1));
+        expect(
+          (await sa.loadMessageById(peer.hex, 'live-behind-history'))?.body,
+          'live while history waits',
+        );
+      } finally {
+        release.complete();
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+    },
+  );
+
   test(
     'claimed, wrong-device and revoked requests disclose no history',
     () async {

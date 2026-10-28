@@ -6440,6 +6440,11 @@ class GroupService implements ArchiveGroups {
     final controlBeforeAdmission = b.control;
     b = _admitControlRowsSignedByLiveKeys(b);
     final controlReceipts = _notedControlReceipts(b);
+    if ((b.manifest.isSovereignDevice || b.manifest.name == kDeviceGroupName) &&
+        (!preserveDeviceAdmission ||
+            !identical(controlBeforeAdmission, b.control))) {
+      _invalidateDeviceAddressRead();
+    }
     // Chunked file-store (not putSetting): the bundle carries inline media that
     // overflows the single-setting cap. storeFile replaces the prior blob (or
     // no-ops if byte-identical) and chunks large values across commits.
@@ -19617,15 +19622,64 @@ class GroupService implements ArchiveGroups {
   /// id differs, so it is excluded as well. On a linked device the identity
   /// is read from the master's announced document, not guessed from selfId.
   Future<List<NodeId>> addressableOwnDevices() async {
-    final me = await resolveMyDevice();
-    final hex = await deviceGroupIdHex();
-    if (hex == null) return const [];
+    while (!_disposed) {
+      final epoch = _deviceAddressReadEpoch;
+      final me = await resolveMyDevice();
+      final hex = await deviceGroupIdHex();
+      if (_disposed) return const [];
+      if (epoch != _deviceAddressReadEpoch || myDevice != me) continue;
+      if (hex == null) return const [];
+      final pending = _deviceAddressRead;
+      final Future<List<NodeId>> read;
+      if (pending != null &&
+          pending.epoch == epoch &&
+          pending.device == me &&
+          pending.group == hex) {
+        read = pending.future;
+      } else {
+        late final Future<List<NodeId>> fresh;
+        fresh = _readOwnDeviceAddresses(me, hex).whenComplete(() {
+          if (identical(_deviceAddressRead?.future, fresh)) {
+            _deviceAddressRead = null;
+          }
+        });
+        _deviceAddressRead = (
+          epoch: epoch,
+          device: me,
+          group: hex,
+          future: fresh,
+        );
+        read = fresh;
+      }
+      final addresses = await read;
+      if (_disposed) return const [];
+      if (epoch != _deviceAddressReadEpoch ||
+          myDevice != me ||
+          _deviceGidCache != hex) {
+        continue;
+      }
+      // The shared future must not let one caller mutate another's targets.
+      return List<NodeId>.of(addresses);
+    }
+    return const [];
+  }
+
+  int _deviceAddressReadEpoch = 0;
+  ({int epoch, NodeId? device, String group, Future<List<NodeId>> future})?
+  _deviceAddressRead;
+
+  void _invalidateDeviceAddressRead() {
+    _deviceAddressReadEpoch++;
+    _deviceAddressRead = null;
+  }
+
+  Future<List<NodeId>> _readOwnDeviceAddresses(NodeId? me, String hex) async {
     final b = await load(NodeId.fromHex(hex));
     if (b == null) return const [];
-    // Membership and announcements must come from the same fresh journal.
-    // Composing the public helpers reloaded the full history two or three
-    // times per fanout. Do not cache this view or reuse the caller's earlier
-    // bundle: a revoke may have landed since that caller saved its message.
+    // Membership and announcements come from one fresh journal. Concurrent
+    // readers share only this unfinished lookup; completion and any routing
+    // mutation discard it. No view survives into a later operation. A revoke
+    // overtaking the read makes every waiter retry the new committed state.
     final state = foldControlLog(
       owner: b.manifest.owner,
       entries: b.control,
@@ -19807,17 +19861,21 @@ class GroupService implements ArchiveGroups {
   /// control/document write or remote ingest clears it, as it does
   /// [_masterDeviceCached]. Local data-only appends keep its original expiry.
   Future<NodeId?> _deviceGroupOwnerIfLinked() async {
-    final now = _now();
-    final at = _deviceOwnerCachedAtMs;
-    if (at != null && now - at <= 30000) return _deviceOwnerCached;
-    final generation = _deviceMembersCacheGeneration;
-    final owner = await _deviceGroupOwnerIfLinkedUncached();
-    // A membership change that landed while this read was in flight wins.
-    if (generation == _deviceMembersCacheGeneration) {
+    while (!_disposed) {
+      final now = _now();
+      final at = _deviceOwnerCachedAtMs;
+      if (at != null && now - at <= 30000) return _deviceOwnerCached;
+      final generation = _deviceMembersCacheGeneration;
+      final owner = await _deviceGroupOwnerIfLinkedUncached();
+      // A membership change must win for this caller too, not only prevent
+      // its old answer from entering the cache.
+      if (_disposed) return null;
+      if (generation != _deviceMembersCacheGeneration) continue;
       _deviceOwnerCached = owner;
       _deviceOwnerCachedAtMs = now;
+      return owner;
     }
-    return owner;
+    return null;
   }
 
   NodeId? _deviceOwnerCached;
@@ -20740,13 +20798,19 @@ class GroupService implements ArchiveGroups {
   /// control/document write or remote ingest clears it. Local data-only
   /// appends cannot change the answer and keep the original expiry.
   Future<NodeId?> _masterDeviceForAdmission() async {
-    final now = _now();
-    final at = _masterDeviceCachedAtMs;
-    if (at != null && now - at <= 30000) return _masterDeviceCached;
-    final master = await masterDeviceId();
-    _masterDeviceCached = master;
-    _masterDeviceCachedAtMs = now;
-    return master;
+    while (!_disposed) {
+      final epoch = _deviceAddressReadEpoch;
+      final now = _now();
+      final at = _masterDeviceCachedAtMs;
+      if (at != null && now - at <= 30000) return _masterDeviceCached;
+      final master = await masterDeviceId();
+      if (_disposed) return null;
+      if (epoch != _deviceAddressReadEpoch) continue;
+      _masterDeviceCached = master;
+      _masterDeviceCachedAtMs = now;
+      return master;
+    }
+    return null;
   }
 
   NodeId? _masterDeviceCached;
@@ -20791,12 +20855,14 @@ class GroupService implements ArchiveGroups {
   int _deviceMembersCacheGeneration = 0;
 
   void _invalidateDeviceMembersCache() {
+    _invalidateDeviceAddressRead();
     _deviceMembersCache = null;
     _deviceMembersCacheGeneration++;
     _deviceOwnerCachedAtMs = null;
   }
 
   void _publishDeviceMembersCache(SpaceManifest manifest, GroupState state) {
+    _invalidateDeviceAddressRead();
     _deviceMembersCacheGeneration++;
     _deviceOwnerCachedAtMs = null;
     _deviceMembersCache = {
