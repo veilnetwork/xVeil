@@ -1,0 +1,78 @@
+{
+  "tests_diagnostics_enabled": 203,
+  "tests_default": 237,
+  "test_counts_overlap": true,
+  "regressions_failed_before_fix": 2,
+  "negative_control_current_failed_repair_ends": true,
+  "static_analysis_issues": 0,
+  "physical": {
+    "baseline-B": {
+      "call": {
+        "planned_seconds": 90,
+        "initiator": "C",
+        "answering_device": "B",
+        "ring_ms": {
+          "B": 99,
+          "A": 891
+        },
+        "connect_after_answer_ms": 1608,
+        "sibling_stopped_ringing": true,
+        "duration_seconds": 89.462,
+        "samples": 75,
+        "active_throughout": true,
+        "intentional_script_hangup_issued": true
+      },
+      "new_messages_per_role": 36,
+      "history_rows_per_role": 1144,
+      "histories_equal": true,
+      "duplicates": 0,
+      "sibling_A_stayed_idle": true
+    },
+    "candidate-B": {
+      "call": {
+        "planned_seconds": 90,
+        "initiator": "C",
+        "answering_device": "B",
+        "ring_ms": {
+          "A": 270,
+          "B": 523
+        },
+        "connect_after_answer_ms": 2172,
+        "sibling_stopped_ringing": true,
+        "repair_and_recovery_requested": true,
+        "duration_seconds": 89.18,
+        "samples": 75,
+        "active_throughout": true,
+        "intentional_script_hangup_issued": true,
+        "recovery_results": [
+          {
+            "ok": true
+          },
+          {
+            "ok": true
+          }
+        ]
+      },
+      "new_messages_per_role": 36,
+      "history_rows_per_role": 1180,
+      "histories_equal": true,
+      "duplicates": 0,
+      "sibling_A_stayed_idle": true
+    }
+  },
+  "overlap": {
+    "requests_overlap": true,
+    "recovery_start_after_repair_start_ms": 81.6,
+    "repair_duration_ms": 211.1,
+    "recovery_duration_ms": 532.7
+  },
+  "cleanup": {
+    "recorded_owned_groups_checked": 69,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false
+  },
+  "old_25_second_incident_cause_established": false,
+  "native_libraries_unchanged": true
+}
