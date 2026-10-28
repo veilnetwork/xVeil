@@ -62,6 +62,7 @@ part 'messaging_local_chat.dart';
 part 'messaging_conversation_admin.dart';
 part 'messaging_attestation.dart';
 part 'messaging_replication.dart';
+part 'messaging_group_receipts.dart';
 part 'messaging_group_content.dart';
 part 'messaging_contacts.dart';
 part 'messaging_peer_sync.dart';
@@ -230,6 +231,12 @@ class MessagingService {
   late final _postReceipts = PostReceiptQueue(
     onError: (error, _) => devLog(
       () => 'xVeil[recv]: post receipt send FAILED (${error.runtimeType})',
+    ),
+  );
+  late final _groupReceiptQueue = PostReceiptQueue(
+    onError: (error, _) => devLog(
+      () =>
+          'xVeil[group]: committed receipt send FAILED (${error.runtimeType}); sender retry retained',
     ),
   );
   late final _MessagingGroupContent _groupContent = _MessagingGroupContent(
@@ -1568,7 +1575,7 @@ class MessagingService {
       final admitted = inboundAdmission.admit(
         m,
         known: _senderIsKnown(m),
-        handle: (message) => _onInbound(message, waitForPostReceipt: false),
+        handle: (message) => _onInbound(message, waitForReceipts: false),
         coalesceIdentical: coalesceReplay,
       );
       if (inboundAdmission.coalescedFrames != coalescedBefore) {
@@ -2115,14 +2122,19 @@ class MessagingService {
   bool _senderIsKnown(InboundMessage m) =>
       m.provenance.isAuthenticated || _realtimeControl.isAccepted(m.src);
 
-  Future<void> _onInbound(InboundMessage m, {bool waitForPostReceipt = true}) {
+  Future<void> _onInbound(InboundMessage m, {bool waitForReceipts = true}) {
     diagnosticJournal.record(
       DiagnosticEvent.transportReceived,
       minInterval: const Duration(seconds: 1),
     );
-    Future<void> receipt = Future<void>.value();
+    final receipts = <Future<void>>[];
     final next = _inboundChain.then(
-      (_) => _handleInbound(m, onPostReceipt: (done) => receipt = done),
+      (_) => _handleInbound(
+        m,
+        onReceipt: (done) {
+          if (waitForReceipts) receipts.add(done);
+        },
+      ),
     );
     _inboundChain = next;
     // Keep explicit delivery callers' original settlement semantics, but
@@ -2130,7 +2142,11 @@ class MessagingService {
     // The live listener does not await transport settlement. Release its
     // payload/admission reservation after durable handling; queued receipts
     // retain compact metadata only. Explicit delivery callers still join ACK.
-    return waitForPostReceipt ? next.then((_) => receipt) : next;
+    return waitForReceipts
+        ? next.then((_) async {
+            await Future.wait(receipts);
+          })
+        : next;
   }
 
   Future<void> _onRealtimeInbound(InboundMessage message) =>
@@ -2138,7 +2154,7 @@ class MessagingService {
 
   Future<void> _handleInbound(
     InboundMessage m, {
-    void Function(Future<void>)? onPostReceipt,
+    void Function(Future<void>)? onReceipt,
   }) async {
     // The lane outlives dispose(): cancelling the subscription stops NEW
     // frames, it does not retract the ones already chained, and the container
@@ -2181,13 +2197,13 @@ class MessagingService {
           await _dispatch(
             joined.message,
             blockedWhileReassembling: joined.wasBlocked,
-            onPostReceipt: onPostReceipt,
+            onReceipt: onReceipt,
           );
         } finally {
           joined.release();
         }
       } else {
-        await _dispatch(m, onPostReceipt: onPostReceipt);
+        await _dispatch(m, onReceipt: onReceipt);
       }
     } catch (e) {
       // A hostile or corrupt datagram (malformed JSON, missing/ill-typed
@@ -4336,6 +4352,7 @@ class MessagingService {
     _disposed = true; // stops transfer retry/serve work
     final largeFramesClosed = _largeFrames.close();
     final postReceiptsClosed = _postReceipts.close();
+    final groupReceiptsClosed = _groupReceiptQueue.close();
     _contentAvailability.cancelRetryReoffers();
     final historyClosed = _ownHistory.close();
     _outbox.dispose();
@@ -4357,6 +4374,7 @@ class MessagingService {
     await _quiesceInboundLanes();
     await largeFramesClosed;
     await postReceiptsClosed;
+    await groupReceiptsClosed;
     await historyClosed;
     await _mutations.quiesce();
     Object? shutdownError;
