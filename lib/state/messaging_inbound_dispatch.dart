@@ -113,7 +113,10 @@ extension _MessagingInboundDispatch on MessagingService {
     m.onDeclined?.call(reason);
   }
 
-  Future<void> _dispatch(InboundMessage m) async {
+  Future<void> _dispatch(
+    InboundMessage m, {
+    bool blockedWhileReassembling = false,
+  }) async {
     final env = WireEnvelope.decode(m.payload);
     // What actually arrived. `recv: INBOUND` says a frame came and how big it
     // was, and every gate below says why a frame went — but nothing said WHAT
@@ -146,7 +149,9 @@ extension _MessagingInboundDispatch on MessagingService {
       return;
     }
     final existing = await _storage.getContact(m.src);
-    if (existing?.status == ContactStatus.blocked) {
+    if (existing?.status == ContactStatus.blocked ||
+        (blockedWhileReassembling &&
+            existing?.status == ContactStatus.accepted)) {
       // A MESSAGE from a blocked contact is kept aside up to the payload cap,
       // out of the chat, and acknowledged so its sender stops re-sending it.
       // When it was dropped without an ACK, the sender re-drove it until the
@@ -156,6 +161,23 @@ extension _MessagingInboundDispatch on MessagingService {
       if (env.kind == WireKind.message &&
           m.provenance.isAuthenticated &&
           env.id != null) {
+        // A whole compatibility copy, user Show/Delete, or an earlier retry
+        // may already have settled this ID. A later joined copy must not
+        // recreate its held banner or retain discarded text a second time.
+        if (await _mirrorStoredMessageIfPresent(m.src, env.id!)) {
+          await _ackTo(m, env.id!, direct: true);
+          return;
+        }
+        if (await _storage.isMessageDeleted(m.src.hex, env.id!)) {
+          await _mutations.applyIncomingDelete(m.src, env.id!);
+          await _ackTo(m, env.id!, direct: true);
+          return;
+        }
+        if (await _storage.isBlockedMessage(m.src.hex, env.id!) ||
+            await _contacts.isHeld(m.src, env.id!)) {
+          await _ackTo(m, env.id!, direct: true);
+          return;
+        }
         // Keep an id-local marker even at the 200-message cap. A retry after
         // unblock must neither show a held message before Show nor resurrect
         // one the person discarded. The marker also fills its gap-fill slot.

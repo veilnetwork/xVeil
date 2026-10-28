@@ -1,0 +1,120 @@
+{
+  "application_base": "2afd3009",
+  "native_libraries_unchanged": true,
+  "native_test_hooks": false,
+  "low_difficulty_test_identity": false,
+  "main_app_and_data_untouched": true,
+  "tests": {
+    "relevant_suite_passed": 238,
+    "existing_skips": 0,
+    "changed_dart_files_analyzed": 8,
+    "analysis_issues": 0,
+    "old_source_regressions": 2,
+    "uncommitted_binary_candidate_compatibility_regression": true
+  },
+  "protocol": {
+    "anonymous_only": true,
+    "inline_limit_bytes": 4500,
+    "legacy_whole_attempt_max_bytes": 6144,
+    "fragment_wire_max_bytes": 1200,
+    "fragment_data_bytes": 800,
+    "max_original_bytes": 1048576,
+    "max_reassembly_held_bytes": 4194304,
+    "max_reassembly_peer_bytes": 1048576,
+    "max_sets": 64,
+    "max_sets_per_peer": 16,
+    "partial_idle_ttl_seconds": 120,
+    "monotonic_expiry": true,
+    "original_persist_before_ack": true,
+    "mailbox_added": false,
+    "relay_priority_added": false,
+    "older_v2_decoder_drops_fragment": true
+  },
+  "physical": {
+    "roles": {
+      "A": "Android Wi-Fi, profile/AOT, identity X",
+      "B": "macOS debug, identity X",
+      "C": "macOS debug, identity Y"
+    },
+    "all_roles_anonymous": true,
+    "cross_identity_p2p_denied": true,
+    "source_copies_verified": true,
+    "new_messages_per_role": {
+      "A": 18,
+      "B": 18,
+      "C": 18
+    },
+    "large_fixture_added_ascii_chars": 12300,
+    "large_fixture_origins": [
+      "A",
+      "C"
+    ],
+    "large_fixtures_exact_on_all_roles": true,
+    "initial_complete_history_rows": {
+      "A": 1422,
+      "B": 1422,
+      "C": 1422
+    },
+    "equal_full_history_before_delete_rows": {
+      "A": 1440,
+      "B": 1440,
+      "C": 1440
+    },
+    "first_all_role_message_sample_seconds": 66.7,
+    "group_chunk_queues_empty_sample_seconds": 108.0,
+    "submission_seconds": 14.8,
+    "full_id_sets_equal": true,
+    "full_id_order_equal": true,
+    "no_duplicates": true,
+    "final_group_chunk_frames": {
+      "A": 0,
+      "B": 0,
+      "C": 0
+    },
+    "final_outbox_totals_before_mutation": {
+      "A": 0,
+      "B": 1,
+      "C": 0
+    },
+    "edit": {
+      "observed_seconds": 10.9,
+      "one_edited_row_each": true,
+      "same_id_order": true
+    },
+    "delete": {
+      "observed_seconds": 12.4,
+      "absent_each_role": true,
+      "unrelated_ids_preserved": true,
+      "same_order": true,
+      "final_history_rows": {
+        "A": 1439,
+        "B": 1439,
+        "C": 1439
+      }
+    },
+    "anonymous_full_fragment_size_send_log_observations": {
+      "A": 60,
+      "B": 15,
+      "C": 60
+    },
+    "anonymous_modes_restored": true,
+    "after_restore_same_history": true,
+    "functional_convergence_only_not_controlled_latency_comparison": true,
+    "only_subsequent_production_change": "JSON-escaped receipt-ID admission tightening; covered by final unit suite"
+  },
+  "cleanup": {
+    "android_package_processes": 0,
+    "recorded_owned_groups_checked": 95,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false
+  },
+  "not_qualified": [
+    "Windows 10",
+    "live speech and headphone loudness",
+    "earlier unexplained 25.1-second call termination",
+    "complete multi-device failure matrix",
+    "mixed-version legacy orphaned chunk tails"
+  ]
+}
