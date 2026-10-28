@@ -166,7 +166,7 @@ extension _MessagingInboundDispatch on MessagingService {
   Future<void> _dispatch(
     InboundMessage m, {
     bool blockedWhileReassembling = false,
-    void Function(Future<void>)? onPostReceipt,
+    void Function(Future<void>)? onReceipt,
   }) async {
     Future<void> settlePost(
       InboundMessage message,
@@ -174,10 +174,10 @@ extension _MessagingInboundDispatch on MessagingService {
       String? fid, {
       bool direct = false,
     }) {
-      if (onPostReceipt == null) {
+      if (onReceipt == null) {
         return _settleStoredPost(message, id, fid, direct: direct);
       }
-      onPostReceipt(_queueStoredPostReceipt(message, id, fid, direct: direct));
+      onReceipt(_queueStoredPostReceipt(message, id, fid, direct: direct));
       return Future<void>.value();
     }
 
@@ -1314,6 +1314,7 @@ extension _MessagingInboundDispatch on MessagingService {
           m,
           env.body,
           fid,
+          onReceipt: onReceipt,
           fromStranger: existing?.status != ContactStatus.accepted,
           allowSeenAck:
               existing?.status == ContactStatus.accepted || ownDeviceSender,
@@ -1324,6 +1325,7 @@ extension _MessagingInboundDispatch on MessagingService {
           m,
           env.body,
           fid,
+          onReceipt: onReceipt,
           fromStranger: existing?.status != ContactStatus.accepted,
           allowSeenAck:
               existing?.status == ContactStatus.accepted || ownDeviceSender,
