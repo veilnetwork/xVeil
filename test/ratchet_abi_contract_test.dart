@@ -5,7 +5,13 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/node/ratchet_ffi.dart';
 import 'package:xveil/data/storage/storage.dart' show kRatchetMaxStateLen;
 // ignore: implementation_imports
-import 'package:veil_flutter/src/abi_contract.dart' show veilRatchetMaxStateLen;
+import 'package:veil_flutter/src/abi_contract.dart'
+    show
+        veilRatchetMaxStateLen,
+        veilRatchetHostRetired,
+        veilRatchetHostIdle,
+        veilRatchetHostNeedsReservation,
+        veilRatchetHostSuperseded;
 // ignore: implementation_imports
 import 'package:veil_flutter/src/native.dart' show VeilAbiContractMismatch;
 
@@ -20,6 +26,15 @@ import 'package:veil_flutter/src/native.dart' show VeilAbiContractMismatch;
 /// reported the door as available and failed later, somewhere else, on a symbol
 /// that had nothing to do with the real problem.
 void main() {
+  test('publication owner states match the generated native contract', () {
+    expect(RatchetPublicationState.retired.index, veilRatchetHostRetired);
+    expect(RatchetPublicationState.idle.index, veilRatchetHostIdle);
+    expect(
+      RatchetPublicationState.needsReservation.index,
+      veilRatchetHostNeedsReservation,
+    );
+    expect(RatchetPublicationState.superseded.index, veilRatchetHostSuperseded);
+  });
   test('the host accepts every native conversation snapshot size', () {
     expect(kRatchetMaxStateLen, veilRatchetMaxStateLen);
   });

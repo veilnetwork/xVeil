@@ -1,0 +1,112 @@
+{
+  "date": "2026-10-29",
+  "sdk_commit": "f031513a",
+  "native_tests": {
+    "e2e_passed": 143,
+    "ipc_passed": 187,
+    "ffi_passed": 326,
+    "ignored": 7
+  },
+  "host_new_fault_injection_tests": 8,
+  "real_abi_tests_passed": 9,
+  "production_seeds": true,
+  "native_test_hooks": false,
+  "three_roles": {
+    "A": "Android Wi-Fi",
+    "B": "Mac sibling of A",
+    "C": "Mac other identity"
+  },
+  "anonymous_during_delivery": false,
+  "cross_identity_p2p_denied_during_delivery": true,
+  "native_guard_observed_on_all_roles": true,
+  "new_messages_per_role": {
+    "A": 18,
+    "B": 18,
+    "C": 18
+  },
+  "large_fixture_chars": 12300,
+  "large_origins": [
+    "A",
+    "C"
+  ],
+  "large_payloads_exact": true,
+  "first_all_role_visible_seconds": 76.9,
+  "chunk_queues_empty_seconds": 145.1,
+  "edit_seconds": 10.6,
+  "delete_seconds": 13.6,
+  "no_duplicates": true,
+  "unrelated_ids_preserved": true,
+  "full_history_counts_after_delete": {
+    "A": 1490,
+    "B": 1490,
+    "C": 1490
+  },
+  "cold_readback": {
+    "full_history_equal": true,
+    "same_ids_bodies_order": true,
+    "statuses": {
+      "A": {
+        "new_surviving_rows": 17,
+        "outgoing_rows": 11,
+        "outgoing_delivered": 11
+      },
+      "B": {
+        "new_surviving_rows": 17,
+        "outgoing_rows": 11,
+        "outgoing_delivered": 11
+      },
+      "C": {
+        "new_surviving_rows": 17,
+        "outgoing_rows": 6,
+        "outgoing_delivered": 6
+      }
+    }
+  },
+  "call_rounds": [
+    {
+      "answering_role": "A",
+      "planned_active_seconds": 45,
+      "ring_seconds": {
+        "A": 0.638,
+        "B": 0.703
+      },
+      "active_after_accept_seconds": 2.454,
+      "sibling_stopped_ringing": true,
+      "observed_active_seconds": 45.3,
+      "active_throughout": true,
+      "transports": [
+        "p2p"
+      ],
+      "intentional_hangup_issued": true
+    },
+    {
+      "answering_role": "B",
+      "planned_active_seconds": 45,
+      "ring_seconds": {
+        "A": 0.422,
+        "B": 0.473
+      },
+      "active_after_accept_seconds": 1.396,
+      "sibling_stopped_ringing": true,
+      "observed_active_seconds": 45.3,
+      "active_throughout": true,
+      "transports": [
+        "p2p"
+      ],
+      "intentional_hangup_issued": true
+    }
+  ],
+  "live_speech_qualified": false,
+  "cleanup": {
+    "retired_groups_with_reused_system_pgid": 0,
+    "android_package_processes": 0,
+    "recorded_owned_groups_checked": 126,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false
+  },
+  "push_performed": false,
+  "release_performed": false,
+  "server_update_performed": false
+}
