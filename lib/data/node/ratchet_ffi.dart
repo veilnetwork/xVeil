@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:ffi';
+import 'dart:math' show max, min;
 import 'dart:typed_data';
 
 import 'package:ffi/ffi.dart';
@@ -1031,7 +1032,7 @@ class FfiRatchetStateHandle
     var cap = 4096;
     try {
       keyPtr.asTypedList(kRatchetKeyLen).setAll(0, conversationKey);
-      for (var attempt = 0; attempt < 2; attempt++) {
+      while (true) {
         buf = calloc<Uint8>(cap);
         final rc = fn(_handle, keyPtr, buf, cap, outLen, errOut);
         if (rc == kVeilErrRatchetNoConversation) {
@@ -1040,12 +1041,17 @@ class FfiRatchetStateHandle
         }
         if (rc == kVeilErrRatchetBufferTooSmall) {
           _takeErr(errOut);
-          // `*out_len` carries the size required, and nothing was written or
-          // consumed, so the retry sees the same state.
-          cap = outLen.value;
-          if (cap <= 0 || cap > kRatchetMaxStateLen) {
-            throw StateError('veil_ratchet_export asked for $cap bytes');
+          // Export consumes nothing, but native receive processing can grow
+          // the skipped-key cache before the next call. An exact-sized retry
+          // could fail again and put persistence into its degraded state.
+          final required = outLen.value;
+          if (required <= cap || required > kRatchetMaxStateLen) {
+            throw StateError('veil_ratchet_export asked for $required bytes');
           }
+          // Geometric slack, bounded by the ABI ceiling. Even continuous
+          // growth reaches the maximum buffer in at most nine native calls;
+          // a short-buffer answer there is an out-of-contract size above.
+          cap = min(kRatchetMaxStateLen, max(required, cap * 2));
           // Nothing was written into this one, so there is nothing to wipe.
           calloc.free(buf);
           buf = nullptr;
@@ -1060,7 +1066,6 @@ class FfiRatchetStateHandle
         }
         return Uint8List.fromList(buf.asTypedList(len));
       }
-      throw StateError('veil_ratchet_export grew between two sizing passes');
     } finally {
       // The buffer held a whole session. Zero it before the allocator can hand
       // the block on (audit XV-22) — this is the largest plaintext copy of that

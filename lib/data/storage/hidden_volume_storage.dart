@@ -1606,6 +1606,22 @@ class HiddenVolumeStorage
   Future<void> _ratchetIoGate = Future<void>.value();
   int _ratchetIoFences = 0;
 
+  // This view is the space's sole ratchet writer; all writes join the gate
+  // below. Remember only confirmed committed run lengths, never session blobs.
+  // A send otherwise pays another worker round trip just to read the head
+  // it wrote itself. Bound the cache and discard it on uncertain outcomes or
+  // lifecycle changes. Authorization rows have a disjoint key shape.
+  static const _ratchetChunkCacheLimit = 128;
+  final _ratchetCommittedChunks = <String, int>{};
+
+  void _rememberRatchetChunks(String key, int chunks) {
+    _ratchetCommittedChunks.remove(key);
+    _ratchetCommittedChunks[key] = chunks;
+    if (_ratchetCommittedChunks.length > _ratchetChunkCacheLimit) {
+      _ratchetCommittedChunks.remove(_ratchetCommittedChunks.keys.first);
+    }
+  }
+
   Future<T> _withRatchetIo<T>(Future<T> Function() operation) {
     if (_closePending != null || _ratchetIoFences > 0) {
       return Future<T>.error(StateError('ratchet storage is closing'));
@@ -1614,11 +1630,19 @@ class HiddenVolumeStorage
     if (session == null) {
       return Future<T>.error(StateError('ratchet storage is locked'));
     }
-    final result = _ratchetIoGate.then((_) {
+    final result = _ratchetIoGate.then((_) async {
       if (!identical(session, _store)) {
         throw StateError('storage session changed before ratchet operation');
       }
-      return operation();
+      try {
+        return await operation();
+      } catch (_) {
+        // A commit may have reached disk even if its reply was lost. Never
+        // use an old run length to prune that possibly newer durable state.
+        _ratchetCommittedChunks.clear();
+        _ratchetSavesSinceScrub = null;
+        rethrow;
+      }
     });
     _ratchetIoGate = result.then<void>((_) {}, onError: (_) {});
     return result;
@@ -1749,16 +1773,22 @@ class HiddenVolumeStorage
     if (entries.isEmpty) return;
     await _recoverRatchetCleanup();
     var pending = <KvLogOp>[];
+    var pendingChunks = <String, int>{};
     var pendingSaves = 0;
     Future<void> flush() async {
       if (pending.isEmpty) return;
       final ops = pending;
       pending = <KvLogOp>[];
+      final committedChunks = pendingChunks;
+      pendingChunks = <String, int>{};
       final count = min(
         _ratchetSavesSinceScrub! + pendingSaves,
         _kRatchetSavesPerScrub,
       );
       await _as.commit([...ops, _ratchetBudgetOp(count)]);
+      for (final entry in committedChunks.entries) {
+        _rememberRatchetChunks(entry.key, entry.value);
+      }
       _ratchetSavesSinceScrub = count;
       pendingSaves = 0;
       await _recoverRatchetCleanup();
@@ -1805,7 +1835,10 @@ class HiddenVolumeStorage
       // new tail. Left behind, the NEXT read would stop at the length prefix
       // and never notice them — but a later, longer save would then reuse them
       // as if they were its own, splicing bytes from two points in the chain.
-      final priorChunks = await _ratchetStoredChunkCount(entry.conversationKey);
+      final cacheKey = base64Encode(entry.conversationKey);
+      final priorChunks =
+          pendingChunks[cacheKey] ??
+          await _ratchetStoredChunkCount(entry.conversationKey, useCache: true);
       for (var i = chunks; i < priorChunks; i++) {
         ops.add(
           DeleteOp(Ns.ratchet, _ratchetRecordKey(entry.conversationKey, i)),
@@ -1819,6 +1852,7 @@ class HiddenVolumeStorage
         await flush();
       }
       pending.addAll(ops);
+      pendingChunks[cacheKey] = chunks;
       pendingSaves++;
       if (pending.length + 1 >= _kRatchetOpsPerCommit ||
           _ratchetSavesSinceScrub! + pendingSaves >= _kRatchetSavesPerScrub) {
@@ -1834,6 +1868,7 @@ class HiddenVolumeStorage
   ) => _withRatchetIo(() async {
     await _recoverRatchetCleanup();
     var pending = <KvLogOp>[];
+    var pendingKeys = <String>[];
     var forgotten = 0;
     var wrote = false;
     Future<void> flush() async {
@@ -1843,6 +1878,10 @@ class HiddenVolumeStorage
       // Deletion requires immediate cleanup. Persist that requirement even
       // when a crash removes the last live head before the vacuum can run.
       await _as.commit([...ops, _ratchetBudgetOp(_kRatchetSavesPerScrub)]);
+      for (final key in pendingKeys) {
+        _ratchetCommittedChunks.remove(key);
+      }
+      pendingKeys = <String>[];
       _ratchetSavesSinceScrub = _kRatchetSavesPerScrub;
       wrote = true;
     }
@@ -1870,6 +1909,7 @@ class HiddenVolumeStorage
         await flush();
       }
       pending.addAll(ops);
+      pendingKeys.add(base64Encode(key));
       if (pending.length + 1 >= _kRatchetOpsPerCommit) await flush();
     }
     await flush();
@@ -1882,7 +1922,14 @@ class HiddenVolumeStorage
 
   /// Records currently stored for [conversationKey], read from its head
   /// record's length prefix (0 when nothing is held).
-  Future<int> _ratchetStoredChunkCount(Uint8List conversationKey) async {
+  Future<int> _ratchetStoredChunkCount(
+    Uint8List conversationKey, {
+    bool useCache = false,
+  }) async {
+    if (useCache) {
+      final cached = _ratchetCommittedChunks[base64Encode(conversationKey)];
+      if (cached != null) return cached;
+    }
     final head = await _as.get(
       Ns.ratchet,
       _ratchetRecordKey(conversationKey, 0),
@@ -3387,6 +3434,7 @@ class HiddenVolumeStorage
       _drainConvSequenceWrites(() => _drainRatchetIo(_eraseSpace));
 
   Future<void> _eraseSpace() async {
+    _ratchetCommittedChunks.clear();
     // FIRST, while the volume can still be read: which blobs are OURS.
     //
     // Every space of a container shares one blob directory, and this used to
@@ -5494,6 +5542,7 @@ class HiddenVolumeStorage
     // logged and swallowed (callers close best-effort on teardown paths).
     _store = null;
     _ratchetSavesSinceScrub = null;
+    _ratchetCommittedChunks.clear();
     _resetLogAllocator();
     _deleteScrubPending = null;
     _legacyDeleteScrubReady = null;
