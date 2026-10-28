@@ -20,6 +20,7 @@ import 'cloud_service.dart';
 import '../data/serve_source.dart';
 import '../data/transport/bootstrap_invite.dart';
 import '../domain/call_signal.dart' show CallMedia;
+import '../domain/call.dart' show CallEndOrigin;
 import '../domain/chat.dart';
 import '../domain/group.dart' show GroupRole;
 import '../domain/group_call.dart' show GroupCallStatus;
@@ -510,8 +511,7 @@ class ApiServerController extends Notifier<ApiConfig> {
     return _attachmentsFor = AttachmentDownloads(storage);
   }
 
-  Future<ApiBlobSource?> _loadFile(String fileId) =>
-      _attachments.open(fileId);
+  Future<ApiBlobSource?> _loadFile(String fileId) => _attachments.open(fileId);
 
   /// The direct-download route, as a test can reach it: the same call the HTTP
   /// handler makes, so a test proves the route rather than the field behind it.
@@ -564,11 +564,11 @@ class ApiServerController extends Notifier<ApiConfig> {
     final svc = ref.read(callServiceProvider);
     switch (action) {
       case 'hangup':
-        await svc.hangup();
+        await svc.hangup(origin: CallEndOrigin.localApi);
       case 'accept':
         await svc.accept();
       case 'reject':
-        await svc.reject();
+        await svc.reject(origin: CallEndOrigin.localApi);
     }
   }
 

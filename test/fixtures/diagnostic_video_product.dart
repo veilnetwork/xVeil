@@ -27,6 +27,24 @@ void main() {
       values['videoDeliveryPhase'] != 0) {
     throw StateError('Missing product controller metrics');
   }
+  journal.record(
+    DiagnosticEvent.callEnded,
+    values: {DiagnosticMetric.endReason: 7, DiagnosticMetric.origin: 9},
+  );
+  for (var i = 0; i < 400; i++) {
+    journal.record(DiagnosticEvent.transportReceived);
+  }
+  final terminal = journal.toJson()['last_call_end'] as Map?;
+  if (terminal == null ||
+      (terminal['values'] as Map)['endReason'] != 7 ||
+      (terminal['values'] as Map)['origin'] != 9) {
+    throw StateError('Product terminal cause lost after traffic-ring eviction');
+  }
+  final terminalText = jsonEncode(journal.toJson());
+  if (terminalText.contains('private-peer-canary') ||
+      terminalText.contains('source_epoch')) {
+    throw StateError('Private data exported with terminal cause');
+  }
   final text = jsonEncode(report);
   if (text.contains('private-peer-canary') ||
       text.contains('source_epoch') ||
@@ -34,6 +52,6 @@ void main() {
     throw StateError('Private data exported');
   }
   stdout.writeln(
-    'Product AOT controller report passed; stand history disabled',
+    'Product AOT controller and terminal reports passed; stand history disabled',
   );
 }

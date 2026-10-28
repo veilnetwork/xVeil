@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:clock/clock.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/core/diagnostic_journal.dart';
 import 'package:xveil/domain/call.dart';
 import 'package:xveil/domain/call_log.dart';
 import 'package:xveil/domain/call_signal.dart';
@@ -14,6 +16,175 @@ import 'package:xveil/state/messaging.dart';
 import 'package:xveil/state/veil_call_media.dart';
 
 void main() {
+  test(
+    'terminal call diagnostics retain reason after the live slot clears',
+    () async {
+      final wire = _FakeMessaging();
+      final svc = CallService(wire, media: _FakeMedia())..start();
+      addTearDown(svc.dispose);
+      diagnosticJournal.clear();
+      wire.onCallSignal!(
+        NodeId.fromHex('d' * 64),
+        CallSignal(
+          callId: 'private-call-diagnostic-fixture',
+          type: CallSignalType.offer,
+          media: const CallMedia(audio: true),
+          posture: CallPosture.direct,
+          mediaKey: generateCallMediaKeyContribution(),
+        ),
+      );
+      await pumpEventQueue();
+      await svc.accept();
+      await pumpEventQueue();
+      expect(svc.current?.status, CallStatus.active);
+      await svc.hangup();
+      await pumpEventQueue();
+      expect(svc.current, isNull);
+      final report = diagnosticJournal.toJson();
+      final terminal = (report['events'] as List).where(
+        (e) => (e as Map)['event'] == 'callEnded',
+      );
+      if (kDiagnosticReportEnabled) {
+        expect(terminal, hasLength(1));
+        expect(
+          (terminal.single as Map)['values'],
+          containsPair('endReason', CallEndReason.hangup.index),
+        );
+        expect(
+          (terminal.single as Map)['values'],
+          containsPair('origin', CallEndOrigin.unspecified.index),
+          reason: 'an unclassified hangup must not be labelled a user gesture',
+        );
+      } else {
+        expect(terminal, isEmpty);
+      }
+      final encoded = jsonEncode(report);
+      expect(encoded, isNot(contains('private-call-diagnostic-fixture')));
+      expect(encoded, isNot(contains('d' * 64)));
+    },
+  );
+
+  test('hangup diagnostics distinguish each local action source', () async {
+    for (final origin in [
+      CallEndOrigin.userInterface,
+      CallEndOrigin.androidNotification,
+      CallEndOrigin.localApi,
+      CallEndOrigin.diagnosticApi,
+    ]) {
+      final wire = _FakeMessaging();
+      final svc = CallService(wire, media: _FakeMedia())..start();
+      addTearDown(svc.dispose);
+      wire.onCallSignal!(NodeId.fromHex('d' * 64), _diagnosticOffer());
+      await pumpEventQueue();
+      await svc.accept();
+      await pumpEventQueue();
+      diagnosticJournal.clear();
+      await svc.hangup(origin: origin);
+      await pumpEventQueue();
+      final events = (diagnosticJournal.toJson()['events'] as List).where(
+        (e) => (e as Map)['event'] == 'callEnded',
+      );
+      if (kDiagnosticReportEnabled) {
+        expect(events, hasLength(1));
+        expect((events.single as Map)['values'], {
+          'state': CallStatus.active.index,
+          'transport': CallTransportKind.relay.index,
+          'direction': CallDirection.incoming.index,
+          'endReason': CallEndReason.hangup.index,
+          'origin': origin.index,
+          'video': 0,
+        });
+      } else {
+        expect(events, isEmpty);
+      }
+    }
+  });
+
+  test(
+    'remote error and local media failure keep distinct terminal causes',
+    () async {
+      for (final remote in [true, false]) {
+        final wire = _FakeMessaging();
+        final media = _FakeMedia();
+        if (!remote) media.startGate = Completer<bool>()..complete(false);
+        final svc = CallService(wire, media: media)..start();
+        addTearDown(svc.dispose);
+        diagnosticJournal.clear();
+        wire.onCallSignal!(NodeId.fromHex('d' * 64), _diagnosticOffer());
+        await pumpEventQueue();
+        await svc.accept();
+        await pumpEventQueue();
+        if (remote) {
+          expect(svc.current?.status, CallStatus.active);
+          wire.onCallSignal!(
+            NodeId.fromHex('d' * 64),
+            CallSignal(
+              callId: svc.current!.callId,
+              type: CallSignalType.end,
+              reason: CallEndReason.error,
+            ),
+          );
+          await pumpEventQueue();
+        }
+        expect(svc.current, isNull);
+        final events = (diagnosticJournal.toJson()['events'] as List).where(
+          (e) => (e as Map)['event'] == 'callEnded',
+        );
+        if (kDiagnosticReportEnabled) {
+          expect(events, hasLength(1));
+          final values = (events.single as Map)['values'] as Map;
+          expect(values['endReason'], CallEndReason.error.index);
+          expect(
+            values['origin'],
+            (remote
+                    ? CallEndOrigin.remoteSignal
+                    : CallEndOrigin.mediaStartFailure)
+                .index,
+          );
+        } else {
+          expect(events, isEmpty);
+        }
+        final encoded = jsonEncode(diagnosticJournal.toJson());
+        expect(encoded, isNot(contains('private-call-diagnostic-fixture')));
+        expect(encoded, isNot(contains('d' * 64)));
+      }
+    },
+  );
+
+  test('hangup preserves origin when delegated to cancel or reject', () async {
+    for (final incoming in [true, false]) {
+      final wire = _FakeMessaging();
+      final svc = CallService(wire, media: _FakeMedia())..start();
+      addTearDown(svc.dispose);
+      diagnosticJournal.clear();
+      if (incoming) {
+        wire.onCallSignal!(NodeId.fromHex('d' * 64), _diagnosticOffer());
+        await pumpEventQueue();
+      } else {
+        await svc.placeCall(
+          NodeId.fromHex('d' * 64),
+          const CallMedia(audio: true),
+        );
+      }
+      await svc.hangup(origin: CallEndOrigin.diagnosticApi);
+      await pumpEventQueue();
+      final events = (diagnosticJournal.toJson()['events'] as List).where(
+        (e) => (e as Map)['event'] == 'callEnded',
+      );
+      if (kDiagnosticReportEnabled) {
+        expect(events, hasLength(1));
+        final values = (events.single as Map)['values'] as Map;
+        expect(values['origin'], CallEndOrigin.diagnosticApi.index);
+        expect(
+          values['endReason'],
+          (incoming ? CallEndReason.declined : CallEndReason.cancelled).index,
+        );
+      } else {
+        expect(events, isEmpty);
+      }
+    }
+  });
+
   test(
     'caller selection settles two already-active sibling answers without disclosing media keys',
     () async {
@@ -5392,6 +5563,14 @@ class _CompactHealthMedia extends _FakeMedia {
     return true;
   }
 }
+
+CallSignal _diagnosticOffer() => CallSignal(
+  callId: 'private-call-diagnostic-fixture',
+  type: CallSignalType.offer,
+  media: const CallMedia(audio: true),
+  posture: CallPosture.direct,
+  mediaKey: generateCallMediaKeyContribution(),
+);
 
 class _FakeMedia extends CallMediaController {
   final List<bool> peerAudioCapture = [];
