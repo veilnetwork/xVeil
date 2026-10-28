@@ -53,7 +53,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var nativeCallVideoRenderer: NativeCallVideoRenderer? = null
     private var callWifiLock: WifiManager.WifiLock? = null
     private var callWifiBackgroundLock: WifiManager.WifiLock? = null
-    private var pendingCallAction: String? = null
+    private var pendingCallAction: Map<String, String>? = null
     private var pipAutoWanted = false
     private var pipAspect = Rational(16, 9)
     private var previousCallVolumeStream: Int? = null
@@ -743,17 +743,19 @@ class MainActivity : FlutterFragmentActivity() {
      * other app can read or rewrite. A forged intent carries no token, or a
      * guessed one, and is dropped.
      */
-    private fun callActionFrom(intent: Intent?): String? {
+    private fun callActionFrom(intent: Intent?): Map<String, String>? {
         val action = intent?.getStringExtra(CallActionCapability.EXTRA_CALL_ACTION)
             ?: return null
         val token = intent.getStringExtra(CallActionCapability.EXTRA_CALL_TOKEN)
-        if (!CallActionCapability.consume(action, token)) {
+        val session = intent.getStringExtra(CallActionCapability.EXTRA_CALL_SESSION) ?: return null
+        if ((action != "accept" && action != "hangup") ||
+            !CallActionCapability.consume(action, token, session)) {
             XVeilLog.w(applicationContext, "XVeilCall") {
-                "call action '" + action + "' rejected: no valid capability"
+                "call action rejected: no valid scoped capability"
             }
             return null
         }
-        return action
+        return mapOf("action" to action, "session" to session)
     }
 
     private fun deliverCallAction(intent: Intent?) {

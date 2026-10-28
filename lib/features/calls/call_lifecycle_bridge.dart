@@ -14,6 +14,7 @@ import '../../l10n/app_localizations.dart';
 import '../../routing/router.dart' show rootNavigatorKey;
 import '../../state/background_node_controller.dart';
 import '../../state/call_service.dart';
+import '../../state/call_notification_session.dart';
 import '../../state/group_call_service.dart';
 import '../../state/locale_controller.dart';
 import '../../state/providers.dart';
@@ -39,6 +40,9 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
   bool _ownsForegroundService = false;
   bool _videoCallActive = false;
   bool _batteryPromptChecked = false;
+  final _notificationSession = CallNotificationSession();
+  StreamSubscription<Call?>? _directChanges;
+  StreamSubscription<GroupCall?>? _groupChanges;
 
   static const _kBatteryPromptKey = 'call_battery_prompted';
 
@@ -48,6 +52,18 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
     WidgetsBinding.instance.addObserver(this);
     _actions.setMethodCallHandler(_handleNativeCallAction);
     _pipEvents.setMethodCallHandler(_handlePipEvent);
+    // Flutter can defer frames while the activity is in the background. Call
+    // notifications and ringing must follow backend events, not widget builds.
+    ref.listenManual(callServiceProvider, (_, service) {
+      unawaited(_directChanges?.cancel());
+      _directChanges = service.changes.listen((_) => _syncCallState());
+      _syncCallState();
+    }, fireImmediately: true);
+    ref.listenManual(groupCallServiceProvider, (_, service) {
+      unawaited(_groupChanges?.cancel());
+      _groupChanges = service?.changes.listen((_) => _syncCallState());
+      _syncCallState();
+    }, fireImmediately: true);
     unawaited(_consumeInitialAction());
   }
 
@@ -55,6 +71,9 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _ringTimer?.cancel();
+    _notificationSession.clear();
+    unawaited(_directChanges?.cancel());
+    unawaited(_groupChanges?.cancel());
     _actions.setMethodCallHandler(null);
     _pipEvents.setMethodCallHandler(null);
     super.dispose();
@@ -71,9 +90,12 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
   }
 
   @override
-  Widget build(BuildContext context) {
-    final call = ref.watch(currentCallProvider);
-    final groupCall = ref.watch(currentGroupCallProvider).value;
+  Widget build(BuildContext context) => const SizedBox.shrink();
+
+  void _syncCallState() {
+    if (!mounted) return;
+    final call = ref.read(callServiceProvider).current;
+    final groupCall = ref.read(groupCallServiceProvider)?.current;
     final wasVideoCallActive = _videoCallActive;
     _videoCallActive =
         _isVideoCallActive(call) || _isGroupVideoCallActive(groupCall);
@@ -102,7 +124,6 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
             (groupCall.status == GroupCallStatus.connecting ||
                 groupCall.status == GroupCallStatus.active));
     if (connected) unawaited(_maybeOfferBatteryExemption());
-    return const SizedBox.shrink();
   }
 
   Future<void> _maybeOfferBatteryExemption() async {
@@ -177,7 +198,7 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
 
   Future<void> _handleNativeCallAction(MethodCall call) async {
     if (call.method == 'callAction') {
-      await _applyCallAction(call.arguments as String?);
+      await _applyCallAction(call.arguments);
     }
   }
 
@@ -190,7 +211,7 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
   Future<void> _consumeInitialAction() async {
     if (!Platform.isAndroid) return;
     try {
-      final action = await _actions.invokeMethod<String>(
+      final action = await _actions.invokeMethod<Object?>(
         'consumeInitialAction',
       );
       await _applyCallAction(action);
@@ -199,13 +220,30 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
     }
   }
 
-  Future<void> _applyCallAction(String? action) async {
+  Future<void> _applyCallAction(Object? payload) async {
+    if (!mounted) return;
     final svc = ref.read(callServiceProvider);
-    // The notification's buttons belong to whichever call is actually live:
-    // the 1:1 FSM when it holds a call, else the group room (its foreground
-    // service reuses the same action channel).
+    // Native authentication is not enough: a consumed button can wait in the
+    // channel while its call ends. Match its local session against the exact
+    // live call, including the controller that owns the identity/group room.
     final groupSvc = ref.read(groupCallServiceProvider);
     final direct = svc.current;
+    final group = groupSvc?.current;
+    final action = direct != null && direct.isLive
+        ? _notificationSession.actionFor(
+            payload,
+            owner: svc,
+            callId: direct.callId,
+            startedAt: direct.startedAt,
+          )
+        : group != null && group.isLive
+        ? _notificationSession.actionFor(
+            payload,
+            owner: groupSvc!,
+            callId: group.callId,
+            startedAt: group.startedAt,
+          )
+        : null;
     switch (action) {
       case 'accept':
         if (direct != null && direct.isLive) {
@@ -248,20 +286,37 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
         groupLive &&
         (groupCall.status == GroupCallStatus.connecting ||
             groupCall.status == GroupCallStatus.active);
+    final owner = directLive
+        ? ref.read(callServiceProvider)
+        : groupLive
+        ? ref.read(groupCallServiceProvider)
+        : null;
+    final session = owner == null
+        ? null
+        : _notificationSession.bind(
+            owner,
+            directLive ? call.callId : groupCall!.callId,
+            directLive ? call.startedAt : groupCall!.startedAt,
+          );
+    if (session == null) _notificationSession.clear();
     final key = directLive
-        ? 'direct:${call.callId}:${call.status.name}:${call.mediaIdentity.short}:'
+        ? 'direct:$session:${call.status.name}:${call.mediaIdentity.short}:'
               '${directCapture && call.micOn}:${directCapture && call.cameraOn}'
         : groupLive
-        ? 'group:${groupCall.callId}:${groupCall.status.name}:'
+        ? 'group:$session:${groupCall.callId}:${groupCall.status.name}:'
               '${groupCapture && groupCall.micOn}:'
               '${groupCapture && groupCall.cameraOn}'
         : 'none';
     if (key == _lastServiceKey) return;
     _lastServiceKey = key;
-    unawaited(_applyForegroundService(call, groupCall));
+    unawaited(_applyForegroundService(call, groupCall, session));
   }
 
-  Future<void> _applyForegroundService(Call? call, GroupCall? groupCall) async {
+  Future<void> _applyForegroundService(
+    Call? call,
+    GroupCall? groupCall,
+    String? session,
+  ) async {
     if (!Platform.isAndroid) return;
     final directLive = call != null && call.status != CallStatus.ended;
     final groupLive = groupCall != null && groupCall.isLive;
@@ -294,6 +349,7 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
         title: title,
         text: call.mediaIdentity.short,
         hangupAction: true,
+        callSession: session,
         ringing: call.isIncoming && call.status == CallStatus.ringing,
         microphone:
             (call.status == CallStatus.connecting ||
@@ -321,6 +377,7 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
           : groupL.callNotificationGroup,
       text: groupCall.groupId.short,
       hangupAction: true,
+      callSession: session,
       ringing: ringing,
       microphone:
           (groupCall.status == GroupCallStatus.connecting ||
