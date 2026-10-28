@@ -2696,7 +2696,11 @@ void main() {
         expect(svc.current?.transport, CallTransportKind.relay);
         expect(
           fake.sent
-              .where((s) => s.type == CallSignalType.transportInfo)
+              .where(
+                (s) =>
+                    s.type == CallSignalType.transportInfo &&
+                    s.transport?.kind == CallTransportKind.relay,
+              )
               .single
               .transport
               ?.kind,
@@ -3228,7 +3232,7 @@ void main() {
       expect(media.switches, [CallTransportKind.relay]);
       expect(svc.current?.transport, CallTransportKind.relay);
       expect(fake.sent.single.type, CallSignalType.transportInfo);
-      expect(fake.sent.single.p2pUpgradeAllowed, isFalse);
+      expect(fake.sent.single.p2pUpgradeAllowed, isTrue);
       // Once settled, repeats acknowledge no new transition and cannot
       // create a relay-announcement feedback loop.
       fake.onCallSignal!(peer, fake.sent.single);
@@ -3316,6 +3320,191 @@ void main() {
         replyDevice: device?.hex,
       ),
     );
+
+    for (final recovery in ['handover', 'repair']) {
+      test('returns from relay to direct twice after temporary $recovery', () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _FakeMedia()..openedTransport = CallTransportKind.p2p;
+          final svc = CallService(
+            fake,
+            media: media,
+            now: () => clock.now(),
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+          )..start();
+          void receiveFor(Duration duration) {
+            for (var i = 0; i < duration.inSeconds; i++) {
+              media.rxAt = clock.now();
+              async.elapse(const Duration(seconds: 1));
+              async.flushMicrotasks();
+            }
+          }
+
+          offer(fake, 'return-twice');
+          svc.accept();
+          async.flushMicrotasks();
+          expect(svc.current?.transport, CallTransportKind.p2p);
+          for (var cycle = 0; cycle < 2; cycle++) {
+            fake.onCallSignal!(
+              peer,
+              ready(
+                'return-twice',
+              ).copyWith(sentAtMs: clock.now().millisecondsSinceEpoch),
+            );
+            async.flushMicrotasks();
+            if (recovery == 'handover') {
+              svc.requestRelayRecoveryForDiagnostics();
+            } else {
+              media.repairTo = CallTransportKind.relay;
+              fake.onCallSignal!(
+                peer,
+                CallSignal(
+                  callId: 'return-twice',
+                  type: CallSignalType.health,
+                  mediaRepairRequested: true,
+                ),
+              );
+            }
+            async.flushMicrotasks();
+            expect(svc.current?.transport, CallTransportKind.relay);
+            media.rxAt = clock.now();
+            receiveFor(kCallP2PCandidateRetry);
+            async.flushMicrotasks();
+            expect(
+              svc.current?.transport,
+              CallTransportKind.relay,
+              reason: 'old readiness cannot authorize the next handover',
+            );
+            fake.onCallSignal!(
+              peer,
+              ready(
+                'return-twice',
+              ).copyWith(sentAtMs: clock.now().millisecondsSinceEpoch + 1),
+            );
+            async.flushMicrotasks();
+            expect(svc.current?.status, CallStatus.active);
+            expect(svc.current?.transport, CallTransportKind.p2p);
+            fake.onCallSignal!(
+              peer,
+              CallSignal(
+                callId: 'return-twice',
+                type: CallSignalType.health,
+                transport: const CallTransportProposal(CallTransportKind.p2p),
+                p2pUpgradeAllowed: true,
+                sentAtMs: clock.now().millisecondsSinceEpoch + 2,
+              ),
+            );
+            media.rxAt = clock.now();
+            receiveFor(kCallHeartbeatInterval);
+            async.flushMicrotasks();
+          }
+          expect(
+            media.switches,
+            recovery == 'handover'
+                ? [
+                    CallTransportKind.relay,
+                    CallTransportKind.p2p,
+                    CallTransportKind.relay,
+                    CallTransportKind.p2p,
+                  ]
+                : [CallTransportKind.p2p, CallTransportKind.p2p],
+          );
+          expect(media.repairs, recovery == 'repair' ? 2 : 0);
+          expect(fake.sent.where((s) => s.type == CallSignalType.end), isEmpty);
+          svc.dispose();
+          async.flushMicrotasks();
+        });
+      });
+    }
+
+    test('failed return trial preserves relay and can retry', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FailOnceDirectSwitchMedia(throws: false)
+          ..openedTransport = CallTransportKind.p2p;
+        final svc = CallService(
+          fake,
+          media: media,
+          now: () => clock.now(),
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => true,
+        )..start();
+        offer(fake, 'return-retry');
+        svc.accept();
+        async.flushMicrotasks();
+        svc.requestRelayRecoveryForDiagnostics();
+        async.flushMicrotasks();
+        media.rxAt = clock.now();
+        async.elapse(kCallP2PCandidateRetry);
+        fake.onCallSignal!(
+          peer,
+          ready(
+            'return-retry',
+          ).copyWith(sentAtMs: clock.now().millisecondsSinceEpoch),
+        );
+        async.flushMicrotasks();
+        expect(media.switches, [
+          CallTransportKind.relay,
+          CallTransportKind.p2p,
+        ]);
+        expect(svc.current?.transport, CallTransportKind.relay);
+        expect(media.openedTransport, CallTransportKind.relay);
+        media.rxAt = clock.now();
+        async.elapse(kCallP2PCandidateRetry);
+        fake.onCallSignal!(
+          peer,
+          ready(
+            'return-retry',
+          ).copyWith(sentAtMs: clock.now().millisecondsSinceEpoch),
+        );
+        async.flushMicrotasks();
+        expect(svc.current?.transport, CallTransportKind.p2p);
+        expect(svc.current?.status, CallStatus.active);
+        expect(fake.sent.where((s) => s.type == CallSignalType.end), isEmpty);
+        svc.dispose();
+        async.flushMicrotasks();
+      });
+    });
+
+    test('policy withdrawal during direct qualification preserves relay', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _GatedSwitchMedia()
+          ..openedTransport = CallTransportKind.relay;
+        var allowed = true;
+        final svc = CallService(
+          fake,
+          media: media,
+          now: () => clock.now(),
+          localAllowsP2P: (_) async => allowed,
+          peerReachableForP2P: (_) async => true,
+        )..start();
+        offer(fake, 'withdraw-during-probe');
+        svc.accept();
+        async.flushMicrotasks();
+        fake.onCallSignal!(peer, ready('withdraw-during-probe'));
+        async.flushMicrotasks();
+        expect(media.switches, [CallTransportKind.p2p]);
+        expect(media.openedTransport, CallTransportKind.relay);
+        allowed = false;
+        media.switchGate.complete(true);
+        async.flushMicrotasks();
+        expect(
+          media.openedTransport,
+          CallTransportKind.relay,
+          reason: 'permission must still hold at the traffic switch',
+        );
+        expect(svc.current?.transport, CallTransportKind.relay);
+        expect(svc.current?.status, CallStatus.active);
+        media.rxAt = clock.now();
+        async.elapse(kCallP2PCandidateRetry);
+        async.flushMicrotasks();
+        expect(media.switches, hasLength(1));
+        svc.dispose();
+        async.flushMicrotasks();
+      });
+    });
 
     test('keeps relay until peer readiness; repeats a lost announcement', () {
       fakeAsync((async) {
@@ -3506,8 +3695,12 @@ void main() {
           final sa = service(fa, ma);
           final sb = service(fb, mb);
           var stamp = clock.now().millisecondsSinceEpoch;
-          CallSignal wire(CallSignal s) =>
-              CallSignal.tryDecode(s.copyWith(sentAtMs: ++stamp).encode())!;
+          CallSignal wire(CallSignal s) {
+            final now = clock.now().millisecondsSinceEpoch;
+            stamp = now > stamp ? now : stamp + 1;
+            return CallSignal.tryDecode(s.copyWith(sentAtMs: stamp).encode())!;
+          }
+
           sa.placeCall(b, const CallMedia(audio: true));
           async.flushMicrotasks();
           fb.onCallSignal!(
@@ -3542,9 +3735,9 @@ void main() {
           fa.onCallSignal!(b, wire(trialFailure));
           async.flushMicrotasks();
           expect(sa.current?.transport, CallTransportKind.relay);
-          expect(fa.sent.last.p2pUpgradeAllowed, isFalse);
-          // Drop that final announcement. A's next health must communicate the
-          // withdrawal before B retries based on A's old readiness.
+          expect(fa.sent.last.p2pUpgradeAllowed, isTrue);
+          // Drop that announcement. Health confirms relay without revoking
+          // consent; old readiness alone must not start a new trial.
           ma.rxAt = mb.rxAt = clock.now();
           async.elapse(kCallHeartbeatInterval);
           async.flushMicrotasks();
@@ -3552,7 +3745,7 @@ void main() {
             (s) => s.type == CallSignalType.health,
           );
           expect(beat.transport?.kind, CallTransportKind.relay);
-          expect(beat.p2pUpgradeAllowed, isFalse);
+          expect(beat.p2pUpgradeAllowed, isTrue);
           fb.onCallSignal!(a, CallSignal.tryDecode(beat.encode())!);
           fb.onCallSignal!(a, oldReadyA);
           async.flushMicrotasks();
@@ -3565,12 +3758,144 @@ void main() {
           expect(mb.switches, [CallTransportKind.p2p]);
           expect(sa.current?.transport, CallTransportKind.relay);
           expect(sb.current?.transport, CallTransportKind.relay);
+          mb.rejectDirect = false;
+          fa.onCallSignal!(b, wire(readiness(fb)));
+          async.flushMicrotasks();
+          fb.onCallSignal!(a, wire(readiness(fa)));
+          async.flushMicrotasks();
+          expect(sa.current?.transport, CallTransportKind.p2p);
+          expect(sb.current?.transport, CallTransportKind.p2p);
+          expect(ma.switches, [
+            CallTransportKind.p2p,
+            CallTransportKind.relay,
+            CallTransportKind.p2p,
+          ]);
+          expect(mb.switches, [CallTransportKind.p2p, CallTransportKind.p2p]);
           sa.dispose();
           sb.dispose();
           async.flushMicrotasks();
         });
       },
     );
+
+    test(
+      'lost relay announcement converges through health after handover grace',
+      () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _FakeMedia()..openedTransport = CallTransportKind.relay;
+          final svc = CallService(
+            fake,
+            media: media,
+            now: () => clock.now(),
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+          )..start();
+          offer(fake, 'lost-fallback');
+          svc.accept();
+          async.flushMicrotasks();
+          fake.onCallSignal!(
+            peer,
+            ready('lost-fallback').copyWith(sentAtMs: 1000),
+          );
+          async.flushMicrotasks();
+          void relayHealth(int at) {
+            fake.onCallSignal!(
+              peer,
+              CallSignal(
+                callId: 'lost-fallback',
+                type: CallSignalType.health,
+                sentAtMs: at,
+                transport: const CallTransportProposal(CallTransportKind.relay),
+                p2pUpgradeAllowed: true,
+              ),
+            );
+            async.flushMicrotasks();
+          }
+
+          relayHealth(2000);
+          expect(
+            svc.current?.transport,
+            CallTransportKind.p2p,
+            reason: 'peer may still be qualifying its candidate',
+          );
+          media.rxAt = clock.now();
+          async.elapse(kCallP2PCandidateRetry);
+          relayHealth(3000);
+          expect(svc.current?.transport, CallTransportKind.relay);
+          expect(fake.sent.last.p2pUpgradeAllowed, isTrue);
+          media.rxAt = clock.now();
+          async.elapse(kCallP2PCandidateRetry);
+          fake.onCallSignal!(
+            peer,
+            ready('lost-fallback').copyWith(sentAtMs: 2500),
+          );
+          async.flushMicrotasks();
+          // A transportInfo older than the most recent route health is stale.
+          expect(svc.current?.transport, CallTransportKind.relay);
+          fake.onCallSignal!(
+            peer,
+            ready('lost-fallback').copyWith(sentAtMs: 4000),
+          );
+          async.flushMicrotasks();
+          expect(svc.current?.transport, CallTransportKind.p2p);
+          expect(media.switches, [
+            CallTransportKind.p2p,
+            CallTransportKind.relay,
+            CallTransportKind.p2p,
+          ]);
+          svc.dispose();
+          async.flushMicrotasks();
+        });
+      },
+    );
+
+    test('relay health can retry a failed fallback that kept direct alive', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _UnprovenRelayMedia()
+          ..openedTransport = CallTransportKind.p2p;
+        final svc = CallService(
+          fake,
+          media: media,
+          now: () => clock.now(),
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => true,
+        )..start();
+        offer(fake, 'failed-relay-health');
+        svc.accept();
+        async.flushMicrotasks();
+        svc.requestRelayRecoveryForDiagnostics();
+        async.flushMicrotasks();
+        expect(media.switches, [CallTransportKind.relay]);
+        expect(svc.current?.transport, CallTransportKind.p2p);
+        media.candidateProven = true;
+        for (var i = 0; i < 10; i++) {
+          media.rxAt = clock.now();
+          async.elapse(const Duration(seconds: 1));
+          async.flushMicrotasks();
+        }
+        fake.onCallSignal!(
+          peer,
+          CallSignal(
+            callId: 'failed-relay-health',
+            type: CallSignalType.health,
+            sentAtMs: clock.now().millisecondsSinceEpoch,
+            transport: const CallTransportProposal(CallTransportKind.relay),
+            p2pUpgradeAllowed: true,
+          ),
+        );
+        async.flushMicrotasks();
+        expect(svc.current?.transport, CallTransportKind.relay);
+        expect(media.switches, [
+          CallTransportKind.relay,
+          CallTransportKind.relay,
+        ]);
+        expect(fake.sent.where((s) => s.type == CallSignalType.end), isEmpty);
+        svc.dispose();
+        async.flushMicrotasks();
+      });
+    });
 
     test('settled relay health waits for an in-flight direct candidate', () {
       fakeAsync((async) {
@@ -3608,15 +3933,12 @@ void main() {
         );
         media.switchGate.complete(true);
         async.flushMicrotasks();
-        expect(media.switches, [
-          CallTransportKind.p2p,
-          CallTransportKind.relay,
-        ]);
+        expect(media.switches, [CallTransportKind.p2p]);
         expect(svc.current?.transport, CallTransportKind.relay);
         media.rxAt = clock.now();
         async.elapse(kCallP2PCandidateRetry);
         async.flushMicrotasks();
-        expect(media.switches.length, 2);
+        expect(media.switches.length, 1);
         svc.dispose();
         async.flushMicrotasks();
       });
@@ -5894,8 +6216,12 @@ class _FakeMedia extends CallMediaController {
   }
 
   @override
-  Future<bool> switchRoute(CallTransportKind transport) async {
+  Future<bool> switchRoute(
+    CallTransportKind transport, {
+    Future<bool> Function()? canCommit,
+  }) async {
     switches.add(transport);
+    if (canCommit != null && !await canCommit()) return false;
     openedTransport = transport;
     return true;
   }
@@ -5939,31 +6265,38 @@ class _RepairThenRelayMedia extends _FakeMedia {
   });
 
   @override
-  Future<bool> switchRoute(CallTransportKind transport) =>
-      operations.run(() async {
-        final gate = relayGate;
-        if (gate == null) return super.switchRoute(transport);
-        switches.add(transport);
-        final ok = await gate.future;
-        openedTransport = ok ? transport : null;
-        return ok;
-      });
+  Future<bool> switchRoute(
+    CallTransportKind transport, {
+    Future<bool> Function()? canCommit,
+  }) => operations.run(() async {
+    final gate = relayGate;
+    if (gate == null) return super.switchRoute(transport, canCommit: canCommit);
+    switches.add(transport);
+    final ok = await gate.future;
+    openedTransport = ok ? transport : null;
+    return ok;
+  });
 }
 
 class _GatedRelaySwitchMedia extends _FakeMedia {
   final relayGate = Completer<bool>();
   @override
-  Future<bool> switchRoute(CallTransportKind transport) async {
+  Future<bool> switchRoute(
+    CallTransportKind transport, {
+    Future<bool> Function()? canCommit,
+  }) async {
     switches.add(transport);
     // Match native: attempting a second switch during rebuilding fails.
     if (switches.length > 1) return false;
     final ok = await relayGate.future;
+    if (canCommit != null && !await canCommit()) return false;
     if (ok) openedTransport = transport;
     return ok;
   }
 }
 
 class _UnprovenRelayMedia extends _FakeMedia {
+  bool candidateProven = false;
   int stops = 0;
   bool retainDirect = true;
   @override
@@ -5972,7 +6305,13 @@ class _UnprovenRelayMedia extends _FakeMedia {
   }
 
   @override
-  Future<bool> switchRoute(CallTransportKind transport) async {
+  Future<bool> switchRoute(
+    CallTransportKind transport, {
+    Future<bool> Function()? canCommit,
+  }) async {
+    if (candidateProven) {
+      return super.switchRoute(transport, canCommit: canCommit);
+    }
     switches.add(transport);
     if (!retainDirect) openedTransport = null;
     return false;
@@ -6039,19 +6378,30 @@ class _FakeMessaging implements MessagingService {
 class _GatedSwitchMedia extends _FakeMedia {
   final switchGate = Completer<bool>();
   @override
-  Future<bool> switchRoute(CallTransportKind transport) async {
+  Future<bool> switchRoute(
+    CallTransportKind transport, {
+    Future<bool> Function()? canCommit,
+  }) async {
     switches.add(transport);
     if (transport == CallTransportKind.p2p) await switchGate.future;
+    if (canCommit != null && !await canCommit()) return false;
     openedTransport = transport;
     return true;
   }
 }
 
 class _RejectDirectSwitchMedia extends _FakeMedia {
+  bool rejectDirect = true;
   @override
-  Future<bool> switchRoute(CallTransportKind transport) async {
-    switches.add(transport);
-    return false;
+  Future<bool> switchRoute(
+    CallTransportKind transport, {
+    Future<bool> Function()? canCommit,
+  }) async {
+    if (rejectDirect && transport == CallTransportKind.p2p) {
+      switches.add(transport);
+      return false;
+    }
+    return super.switchRoute(transport, canCommit: canCommit);
   }
 }
 
@@ -6062,7 +6412,10 @@ class _FailOnceDirectSwitchMedia extends _FakeMedia {
   void Function()? onCandidateFailure;
 
   @override
-  Future<bool> switchRoute(CallTransportKind transport) async {
+  Future<bool> switchRoute(
+    CallTransportKind transport, {
+    Future<bool> Function()? canCommit,
+  }) async {
     switches.add(transport);
     if (transport == CallTransportKind.p2p && !failed) {
       failed = true;
@@ -6070,6 +6423,7 @@ class _FailOnceDirectSwitchMedia extends _FakeMedia {
       if (throws) throw StateError('candidate delivery unconfirmed');
       return false;
     }
+    if (canCommit != null && !await canCommit()) return false;
     openedTransport = transport;
     return true;
   }

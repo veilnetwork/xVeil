@@ -1,0 +1,297 @@
+{
+  "tests_default": 277,
+  "tests_diagnostics_enabled": 196,
+  "test_counts_overlap": true,
+  "distinct_regressions_observed_failing": 5,
+  "analysis_issues": 0,
+  "physical": {
+    "phone-return": {
+      "planned_seconds": 180,
+      "last_active_sample_seconds": 179.885,
+      "samples": 147,
+      "active_throughout": true,
+      "ring_ms": {
+        "A": 306,
+        "B": 579
+      },
+      "active_after_answer_ms": 3709,
+      "sibling_B_stayed_idle": true,
+      "intentional_script_hangup": true,
+      "recovery_attempts": [
+        {
+          "request_seconds": 26.084,
+          "completion_seconds": 28.272,
+          "relay_qualified": true
+        },
+        {
+          "request_seconds": 91.098,
+          "completion_seconds": 92.102,
+          "relay_qualified": false
+        }
+      ],
+      "endpoints": {
+        "A": {
+          "trajectory": [
+            {
+              "seconds": 0.0,
+              "route": "p2p"
+            },
+            {
+              "seconds": 29.272,
+              "route": "relay"
+            },
+            {
+              "seconds": 47.096,
+              "route": "p2p"
+            }
+          ],
+          "engine_epochs": [
+            1
+          ],
+          "handovers": 2,
+          "counters": {
+            "audio_rx_pkts": {
+              "first": 51,
+              "last": 4503,
+              "monotonic": true
+            },
+            "audio_tx_pkts": {
+              "first": 15,
+              "last": 3572,
+              "monotonic": true
+            },
+            "video_rx_deliver_frames": {
+              "first": 0,
+              "last": 4210,
+              "monotonic": true
+            },
+            "video_tx_frames": {
+              "first": 0,
+              "last": 4715,
+              "monotonic": true
+            }
+          },
+          "max_audio_jitter_buffer_ms": 196,
+          "max_audio_receive_age_ms": 198
+        },
+        "C": {
+          "trajectory": [
+            {
+              "seconds": 0.0,
+              "route": "p2p"
+            },
+            {
+              "seconds": 30.522,
+              "route": "relay"
+            },
+            {
+              "seconds": 43.197,
+              "route": "p2p"
+            }
+          ],
+          "engine_epochs": [
+            1
+          ],
+          "handovers": 2,
+          "counters": {
+            "audio_rx_pkts": {
+              "first": 15,
+              "last": 3571,
+              "monotonic": true
+            },
+            "audio_tx_pkts": {
+              "first": 47,
+              "last": 4502,
+              "monotonic": true
+            },
+            "video_rx_deliver_frames": {
+              "first": 0,
+              "last": 4314,
+              "monotonic": true
+            },
+            "video_tx_frames": {
+              "first": 0,
+              "last": 4245,
+              "monotonic": true
+            }
+          },
+          "max_audio_jitter_buffer_ms": 169,
+          "max_audio_receive_age_ms": 345
+        }
+      },
+      "messages": {
+        "new_per_role": {
+          "B": 36,
+          "C": 36,
+          "A": 36
+        },
+        "history_rows_per_role": {
+          "B": 1216,
+          "C": 1216,
+          "A": 1216
+        },
+        "id_sets_equal": true,
+        "order_equal": true,
+        "no_duplicates": true
+      }
+    },
+    "final-return": {
+      "planned_seconds": 180,
+      "last_active_sample_seconds": 179.246,
+      "samples": 152,
+      "active_throughout": true,
+      "ring_ms": {
+        "A": 300,
+        "B": 404
+      },
+      "active_after_answer_ms": 4287,
+      "sibling_B_stayed_idle": true,
+      "intentional_script_hangup": true,
+      "recovery_attempts": [
+        {
+          "request_seconds": 26.268,
+          "completion_seconds": 27.98,
+          "relay_qualified": true
+        },
+        {
+          "request_seconds": 73.52,
+          "completion_seconds": 75.938,
+          "relay_qualified": true
+        }
+      ],
+      "endpoints": {
+        "A": {
+          "trajectory": [
+            {
+              "seconds": 0.0,
+              "route": "p2p"
+            },
+            {
+              "seconds": 28.989,
+              "route": "relay"
+            },
+            {
+              "seconds": 42.825,
+              "route": "p2p"
+            },
+            {
+              "seconds": 76.942,
+              "route": "relay"
+            },
+            {
+              "seconds": 100.727,
+              "route": "p2p"
+            }
+          ],
+          "engine_epochs": [
+            1
+          ],
+          "handovers": 4,
+          "counters": {
+            "audio_rx_pkts": {
+              "first": 25,
+              "last": 4241,
+              "monotonic": true
+            },
+            "audio_tx_pkts": {
+              "first": 23,
+              "last": 3114,
+              "monotonic": true
+            },
+            "video_rx_deliver_frames": {
+              "first": 0,
+              "last": 2026,
+              "monotonic": true
+            },
+            "video_tx_frames": {
+              "first": 0,
+              "last": 4378,
+              "monotonic": true
+            }
+          },
+          "max_audio_jitter_buffer_ms": 177,
+          "max_audio_receive_age_ms": 128
+        },
+        "C": {
+          "trajectory": [
+            {
+              "seconds": 0.0,
+              "route": "p2p"
+            },
+            {
+              "seconds": 28.989,
+              "route": "relay"
+            },
+            {
+              "seconds": 40.613,
+              "route": "p2p"
+            },
+            {
+              "seconds": 80.691,
+              "route": "relay"
+            },
+            {
+              "seconds": 93.951,
+              "route": "p2p"
+            }
+          ],
+          "engine_epochs": [
+            1
+          ],
+          "handovers": 4,
+          "counters": {
+            "audio_rx_pkts": {
+              "first": 19,
+              "last": 3113,
+              "monotonic": true
+            },
+            "audio_tx_pkts": {
+              "first": 35,
+              "last": 4262,
+              "monotonic": true
+            },
+            "video_rx_deliver_frames": {
+              "first": 0,
+              "last": 2611,
+              "monotonic": true
+            },
+            "video_tx_frames": {
+              "first": 0,
+              "last": 2074,
+              "monotonic": true
+            }
+          },
+          "max_audio_jitter_buffer_ms": 186,
+          "max_audio_receive_age_ms": 361
+        }
+      },
+      "messages": {
+        "new_per_role": {
+          "B": 36,
+          "C": 36,
+          "A": 36
+        },
+        "history_rows_per_role": {
+          "B": 1252,
+          "C": 1252,
+          "A": 1252
+        },
+        "id_sets_equal": true,
+        "order_equal": true,
+        "no_duplicates": true
+      }
+    }
+  },
+  "cleanup": {
+    "android_package_processes": 0,
+    "recorded_owned_groups_checked": 73,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false
+  },
+  "native_libraries_unchanged": true,
+  "human_speech_qualified": false,
+  "cellular_qualified_in_this_cycle": false,
+  "old_25_second_incident_cause_established": false
+}
