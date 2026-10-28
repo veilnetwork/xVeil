@@ -4567,7 +4567,9 @@ class HiddenVolumeStorage
   // DataBatch capacity. Split the serialized row, not its network envelope.
   // All parts, descriptor and index share one commit, after reserving their ids.
   static const _outboxPartBytes = 1800;
-  static const _outboxMaxPayloadBytes = 512 * 1024;
+  // A valid 512-KiB stored text edit also needs its original retry frame;
+  // the outbox's JSON/base64 wrapper expands it beyond the event's size.
+  static const _outboxMaxPayloadBytes = 1024 * 1024;
 
   Future<({int logId, List<int> logIds})> _persistOutboxPayload(
     String frameId,

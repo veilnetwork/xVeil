@@ -64,6 +64,11 @@ qualification completed. That run is not counted as a passing delivery check;
 the text-record size limit is a separate observed, unfixed issue. The follow-up
 uses a 1,200-character fixture and retained profiles.
 
+Later work corrected that separate [message-record storage limit](../message-record-parts-2026-10-28/README.md)
+and added [large anonymous-text delivery](../large-anonymous-text-2026-10-28/README.md).
+The failed initial fixture above remains historical evidence, rather than an
+open finding in the final application source.
+
 ## Physical follow-up
 
 A is Android on Wi-Fi; B is its Mac sibling and C is a different identity on

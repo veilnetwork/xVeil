@@ -111,3 +111,8 @@ Only QA profiles/apps were used. Raw logs, addresses, credentials, message IDs
 and fixture bodies remain private. Public evidence contains fixed roles,
 counts, timings and source-owned labels. No push, release or server update was
 performed.
+
+The subsequent [large anonymous-text check](../large-anonymous-text-2026-10-28/README.md)
+adds bounded application framing for text and edits above the native anonymous
+delivery limit. It separately qualifies that live carrier; the native bound
+itself is unchanged.
