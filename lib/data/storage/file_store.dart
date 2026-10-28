@@ -22,6 +22,8 @@ const int _kStoreRecord = 3800;
 /// Append at most this many chunk records per commit. The store auto-splits a
 /// commit's records into per-chunk DataBatches; keeping each commit modest bounds
 /// the split recursion's work while staying well under MAX_RECORDS_PER_BATCH=1024.
+/// Small whole-file publication also limits its complete operation list
+/// to this size.
 const int _kChunksPerCommit = 64;
 
 /// Start a conservative orphan scan before the Log namespace reaches the
@@ -417,23 +419,7 @@ class FileStore {
             for (var offset = 0; offset < chunks.length; offset++)
               nextBase + offset,
           ];
-    for (var start = 0; start < chunks.length; start += _kChunksPerCommit) {
-      final end = start + _kChunksPerCommit < chunks.length
-          ? start + _kChunksPerCommit
-          : chunks.length;
-      // The accounting rides IN the append commit: chunks written before a
-      // crash occupy index slots whether or not the metadata was published, so
-      // a counter updated only at the end would under-count exactly the
-      // orphans this collector exists to find.
-      gc = gc.afterWrite(appended: end - start);
-      _store.commit([
-        for (var i = start; i < end; i++)
-          AppendLogOp(Ns.fileChunks, ids[i], chunks[i].data),
-        PutOp(Ns.settings, _k(_kChunkGcKey), gc.encode()),
-      ]);
-    }
-    gc = gc.afterWrite(deleted: priorIds.length);
-    _store.commit([
+    final publication = <KvLogOp>[
       for (final id in priorIds) DeleteLogOp(Ns.fileChunks, id),
       PutOp(
         Ns.settings,
@@ -452,6 +438,45 @@ class FileStore {
           _k('file_next_log'),
           _k('${nextBase + chunks.length}'),
         ),
+    ];
+    // A small creation can publish chunks and metadata atomically. The store
+    // forbids append_log + delete_log in the same namespace/transaction, so a
+    // nonempty replacement retains its chunk-then-publication sequence. Empty
+    // replacements have no appends and can also fit this path. Count every op,
+    // including GC and metadata; a pre-write orphan sweep is independent.
+    final retiredChunks = publication.whereType<DeleteLogOp>().length;
+    if ((chunks.isEmpty || retiredChunks == 0) &&
+        chunks.length + publication.length + 1 <= _kChunksPerCommit) {
+      final complete = gc.afterWrite(
+        appended: chunks.length,
+        deleted: retiredChunks,
+      );
+      _store.commit([
+        for (var i = 0; i < chunks.length; i++)
+          AppendLogOp(Ns.fileChunks, ids[i], chunks[i].data),
+        ...publication,
+        PutOp(Ns.settings, _k(_kChunkGcKey), complete.encode()),
+      ]);
+      return fileId;
+    }
+    for (var start = 0; start < chunks.length; start += _kChunksPerCommit) {
+      final end = start + _kChunksPerCommit < chunks.length
+          ? start + _kChunksPerCommit
+          : chunks.length;
+      // The accounting rides IN the append commit: chunks written before a
+      // crash occupy index slots whether or not the metadata was published, so
+      // a counter updated only at the end would under-count exactly the
+      // orphans this collector exists to find.
+      gc = gc.afterWrite(appended: end - start);
+      _store.commit([
+        for (var i = start; i < end; i++)
+          AppendLogOp(Ns.fileChunks, ids[i], chunks[i].data),
+        PutOp(Ns.settings, _k(_kChunkGcKey), gc.encode()),
+      ]);
+    }
+    gc = gc.afterWrite(deleted: priorIds.length);
+    _store.commit([
+      ...publication,
       PutOp(Ns.settings, _k(_kChunkGcKey), gc.encode()),
     ]);
     return fileId;
@@ -673,22 +698,7 @@ class AsyncFileStore {
             for (var offset = 0; offset < chunks.length; offset++)
               nextBase + offset,
           ];
-    for (var start = 0; start < chunks.length; start += _kChunksPerCommit) {
-      final end = start + _kChunksPerCommit < chunks.length
-          ? start + _kChunksPerCommit
-          : chunks.length;
-      gc = gc.afterWrite(appended: end - start);
-      await _store.commit([
-        for (var i = start; i < end; i++)
-          AppendLogOp(Ns.fileChunks, ids[i], chunks[i].data),
-        PutOp(Ns.settings, _k(_kChunkGcKey), gc.encode()),
-      ]);
-    }
-    gc = gc.afterWrite(
-      deleted:
-          priorIds.length + priorPurge.whereType<DeleteLogOp>().length,
-    );
-    await _store.commit([
+    final publication = <KvLogOp>[
       ...priorPurge,
       for (final id in priorIds) DeleteLogOp(Ns.fileChunks, id),
       PutOp(
@@ -708,6 +718,43 @@ class AsyncFileStore {
           _k('file_next_log'),
           _k('${nextBase + chunks.length}'),
         ),
+    ];
+    // A small creation can publish chunks and metadata atomically. The store
+    // forbids append_log + delete_log in the same namespace/transaction, so a
+    // nonempty replacement retains its chunk-then-publication sequence. Empty
+    // replacements have no appends and can also fit this path. Count every op,
+    // including GC and metadata; a pre-write orphan sweep is independent.
+    final retiredChunks = publication.whereType<DeleteLogOp>().length;
+    if ((chunks.isEmpty || retiredChunks == 0) &&
+        chunks.length + publication.length + 1 <= _kChunksPerCommit) {
+      final complete = gc.afterWrite(
+        appended: chunks.length,
+        deleted: retiredChunks,
+      );
+      await _store.commit([
+        for (var i = 0; i < chunks.length; i++)
+          AppendLogOp(Ns.fileChunks, ids[i], chunks[i].data),
+        ...publication,
+        PutOp(Ns.settings, _k(_kChunkGcKey), complete.encode()),
+      ]);
+      return fileId;
+    }
+    for (var start = 0; start < chunks.length; start += _kChunksPerCommit) {
+      final end = start + _kChunksPerCommit < chunks.length
+          ? start + _kChunksPerCommit
+          : chunks.length;
+      gc = gc.afterWrite(appended: end - start);
+      await _store.commit([
+        for (var i = start; i < end; i++)
+          AppendLogOp(Ns.fileChunks, ids[i], chunks[i].data),
+        PutOp(Ns.settings, _k(_kChunkGcKey), gc.encode()),
+      ]);
+    }
+    gc = gc.afterWrite(
+      deleted: priorIds.length + priorPurge.whereType<DeleteLogOp>().length,
+    );
+    await _store.commit([
+      ...publication,
       PutOp(Ns.settings, _k(_kChunkGcKey), gc.encode()),
     ]);
     return fileId;
