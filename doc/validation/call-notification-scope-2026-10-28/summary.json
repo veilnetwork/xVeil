@@ -1,0 +1,97 @@
+{
+  "tests_default_dart": 201,
+  "tests_diagnostics_dart": 207,
+  "dart_test_counts_overlap": true,
+  "native_kotlin_scenarios": 8,
+  "regressions_observed_failing": 3,
+  "analysis_issues": 0,
+  "physical": {
+    "rounds": [
+      {
+        "ring_ms": {
+          "A": 754,
+          "B": 866
+        },
+        "active_after_UI_action_start_ms": 9604,
+        "last_active_sample_seconds": 44.232,
+        "samples": 36,
+        "active_throughout": true,
+        "sibling_B_stayed_idle": true,
+        "accepted_via_notification": true,
+        "hung_up_via_notification": true,
+        "terminal_traces": {
+          "A": {
+            "reason": "hangup",
+            "origin": "androidNotification",
+            "phase": "active",
+            "route": "p2p"
+          },
+          "C": {
+            "reason": "hangup",
+            "origin": "remoteSignal",
+            "phase": "active",
+            "route": "p2p"
+          }
+        }
+      },
+      {
+        "ring_ms": {
+          "A": 573,
+          "B": 578
+        },
+        "active_after_UI_action_start_ms": 13407,
+        "last_active_sample_seconds": 44.392,
+        "samples": 39,
+        "active_throughout": true,
+        "sibling_B_stayed_idle": true,
+        "accepted_via_notification": true,
+        "hung_up_via_notification": true,
+        "terminal_traces": {
+          "A": {
+            "reason": "hangup",
+            "origin": "androidNotification",
+            "phase": "active",
+            "route": "p2p"
+          },
+          "C": {
+            "reason": "hangup",
+            "origin": "remoteSignal",
+            "phase": "active",
+            "route": "p2p"
+          }
+        }
+      }
+    ],
+    "phone_background_before_second_offer": true,
+    "scoped_pending_intent_snapshot_counts": [
+      1,
+      2
+    ],
+    "new_scope_on_second_call": true,
+    "new_messages_per_role": {
+      "B": 18,
+      "C": 18,
+      "A": 18
+    },
+    "history_rows_per_role": {
+      "B": 1336,
+      "C": 1336,
+      "A": 1336
+    },
+    "id_sets_equal": true,
+    "order_equal": true,
+    "no_duplicates": true
+  },
+  "cleanup": {
+    "android_package_processes": 0,
+    "recorded_owned_groups_checked": 83,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false
+  },
+  "rust_sdk_media_HV_binaries_unchanged": true,
+  "flutter_android_glue_updated": true,
+  "old_25_second_incident_cause_established": false,
+  "human_speech_qualified": false
+}
