@@ -237,6 +237,7 @@ abstract interface class KvLogStore {
   /// records (the edit/delete path) so the prior plaintext is no longer
   /// recoverable from the container. Maps to hidden-volume's
   /// `vacuum_data_batches`/`compact_known`; a no-op where unsupported.
+  /// Retains live keys and logical log IDs with their current values.
   void scrub();
 
   /// This space's opaque `SpaceKeys` (64 bytes — the per-space decryption root),

@@ -1,0 +1,704 @@
+{
+  "source_base": "51c9ecdceccbf9218ba7a6405b170e37e212d1ff",
+  "source_lib_patch_sha256": "0a492506b7f1d0088b3aa5f47a57e6208abc3e5ccc9369cf347a0049ad11b26d",
+  "checks": {
+    "suite_passed": 805,
+    "existing_skips": 3,
+    "suite_files": 34,
+    "final_ratchet_subset_passed": 44,
+    "counts_overlap": true,
+    "new_fake_cases": 3,
+    "new_native_cases_passed": 1,
+    "static_analysis": "no issues"
+  },
+  "private_timing_overlays_in_repository": false,
+  "rust_or_relay_changes": false,
+  "observations": {
+    "baseline": {
+      "new_messages_requested": 18,
+      "burst_submission_seconds": 13.3,
+      "all_roles_observed_seconds": 44.5,
+      "new_C_logical_handlers_observed": 6,
+      "new_logical_ids_converged": true,
+      "no_duplicates": true,
+      "full_visible_ids_equal": true,
+      "full_visible_order_equal": true,
+      "counts": {
+        "B": 18,
+        "C": 18,
+        "A": 18
+      },
+      "full_visible_counts": {
+        "B": 946,
+        "C": 946,
+        "A": 946
+      },
+      "costs": {
+        "B": {
+          "storage_window": {
+            "storage.chatFold": {
+              "count": 95,
+              "mean_ms": 5.8,
+              "total_ms": 554.4
+            },
+            "storage.chatView": {
+              "count": 145,
+              "mean_ms": 3.2,
+              "total_ms": 458.5
+            },
+            "storage.ratchetHead": {
+              "count": 91,
+              "mean_ms": 23.8,
+              "total_ms": 2169.3
+            },
+            "storage.ratchetCommit": {
+              "count": 82,
+              "mean_ms": 34.5,
+              "total_ms": 2826.4
+            },
+            "storage.ratchetSave": {
+              "count": 82,
+              "mean_ms": 68.5,
+              "total_ms": 5614.5
+            },
+            "storage.ratchetScrub": {
+              "count": 1,
+              "mean_ms": 610.8,
+              "total_ms": 610.8
+            },
+            "storage.ratchetInvalidate": {
+              "count": 1,
+              "mean_ms": 2.1,
+              "total_ms": 2.1
+            }
+          },
+          "new_C_costs": {
+            "ack.send": {
+              "samples": 6,
+              "mean_ms": 9.5,
+              "peak_ms": 29.9
+            },
+            "mirror.batchRun": {
+              "samples": 6,
+              "mean_ms": 949.3,
+              "peak_ms": 1213.4
+            },
+            "mirror.groupId": {
+              "samples": 6,
+              "mean_ms": 0.0,
+              "peak_ms": 0.1
+            },
+            "mirror.journal": {
+              "samples": 6,
+              "mean_ms": 950.5,
+              "peak_ms": 1213.6
+            },
+            "mirror.membership": {
+              "samples": 6,
+              "mean_ms": 0.1,
+              "peak_ms": 0.2
+            },
+            "mirror.prepare": {
+              "samples": 6,
+              "mean_ms": 0.2,
+              "peak_ms": 0.8
+            },
+            "send.ack.flush": {
+              "samples": 6,
+              "mean_ms": 0.3,
+              "peak_ms": 1.0
+            },
+            "send.ack.native": {
+              "samples": 6,
+              "mean_ms": 2.3,
+              "peak_ms": 11.0
+            },
+            "send.ack.precondition": {
+              "samples": 6,
+              "mean_ms": 0.2,
+              "peak_ms": 0.9
+            },
+            "send.ack.reserve": {
+              "samples": 6,
+              "mean_ms": 3.1,
+              "peak_ms": 16.9
+            },
+            "store.append": {
+              "samples": 6,
+              "mean_ms": 36.3,
+              "peak_ms": 84.4
+            },
+            "store.mirror": {
+              "samples": 6,
+              "mean_ms": 951.0,
+              "peak_ms": 1213.7
+            }
+          },
+          "new_C_frames": {}
+        },
+        "C": {
+          "storage_window": {
+            "storage.chatFold": {
+              "count": 118,
+              "mean_ms": 0.4,
+              "total_ms": 43.7
+            },
+            "storage.chatView": {
+              "count": 75,
+              "mean_ms": 0.8,
+              "total_ms": 60.4
+            },
+            "storage.ratchetHead": {
+              "count": 79,
+              "mean_ms": 0.3,
+              "total_ms": 25.3
+            },
+            "storage.ratchetCommit": {
+              "count": 70,
+              "mean_ms": 14.5,
+              "total_ms": 1018.0
+            },
+            "storage.ratchetSave": {
+              "count": 70,
+              "mean_ms": 14.9,
+              "total_ms": 1046.1
+            }
+          },
+          "new_C_costs": {
+            "ack.markStatus": {
+              "samples": 6,
+              "mean_ms": 16.7,
+              "peak_ms": 21.6
+            },
+            "mirror.groupId": {
+              "samples": 6,
+              "mean_ms": 0.1,
+              "peak_ms": 0.2
+            },
+            "mirror.membership": {
+              "samples": 6,
+              "mean_ms": 0.3,
+              "peak_ms": 0.6
+            },
+            "send.message.flush": {
+              "samples": 14,
+              "mean_ms": 1.0,
+              "peak_ms": 14.2
+            },
+            "send.message.native": {
+              "samples": 14,
+              "mean_ms": 0.8,
+              "peak_ms": 9.0
+            },
+            "send.message.precondition": {
+              "samples": 14,
+              "mean_ms": 0.2,
+              "peak_ms": 1.7
+            },
+            "send.message.reserve": {
+              "samples": 14,
+              "mean_ms": 3.4,
+              "peak_ms": 26.2
+            },
+            "store.append": {
+              "samples": 6,
+              "mean_ms": 13.6,
+              "peak_ms": 16.0
+            },
+            "store.mirror": {
+              "samples": 6,
+              "mean_ms": 0.4,
+              "peak_ms": 0.8
+            }
+          },
+          "new_C_frames": {}
+        },
+        "A": {
+          "storage_window": {
+            "storage.chatView": {
+              "count": 74,
+              "mean_ms": 31.0,
+              "total_ms": 2296.1
+            },
+            "storage.chatFold": {
+              "count": 69,
+              "mean_ms": 32.6,
+              "total_ms": 2252.7
+            },
+            "storage.ratchetHead": {
+              "count": 86,
+              "mean_ms": 65.8,
+              "total_ms": 5662.4
+            },
+            "storage.ratchetCommit": {
+              "count": 64,
+              "mean_ms": 86.8,
+              "total_ms": 5557.9
+            },
+            "storage.ratchetSave": {
+              "count": 64,
+              "mean_ms": 198.9,
+              "total_ms": 12728.3
+            },
+            "storage.ratchetScrub": {
+              "count": 1,
+              "mean_ms": 1504.8,
+              "total_ms": 1504.8
+            },
+            "storage.ratchetInvalidate": {
+              "count": 1,
+              "mean_ms": 0.1,
+              "total_ms": 0.1
+            }
+          },
+          "new_C_costs": {
+            "ack.send": {
+              "samples": 6,
+              "mean_ms": 449.4,
+              "peak_ms": 2508.9
+            },
+            "mirror.batchRun": {
+              "samples": 6,
+              "mean_ms": 2452.0,
+              "peak_ms": 3417.1
+            },
+            "mirror.groupId": {
+              "samples": 6,
+              "mean_ms": 0.0,
+              "peak_ms": 0.0
+            },
+            "mirror.journal": {
+              "samples": 6,
+              "mean_ms": 3076.8,
+              "peak_ms": 4881.4
+            },
+            "mirror.membership": {
+              "samples": 6,
+              "mean_ms": 0.0,
+              "peak_ms": 0.1
+            },
+            "mirror.prepare": {
+              "samples": 6,
+              "mean_ms": 1.1,
+              "peak_ms": 6.5
+            },
+            "send.ack.flush": {
+              "samples": 6,
+              "mean_ms": 287.4,
+              "peak_ms": 1722.5
+            },
+            "send.ack.native": {
+              "samples": 6,
+              "mean_ms": 13.2,
+              "peak_ms": 27.0
+            },
+            "send.ack.precondition": {
+              "samples": 6,
+              "mean_ms": 0.1,
+              "peak_ms": 0.2
+            },
+            "send.ack.reserve": {
+              "samples": 6,
+              "mean_ms": 141.9,
+              "peak_ms": 748.3
+            },
+            "store.append": {
+              "samples": 6,
+              "mean_ms": 80.1,
+              "peak_ms": 234.0
+            },
+            "store.mirror": {
+              "samples": 6,
+              "mean_ms": 3078.1,
+              "peak_ms": 4881.6
+            }
+          },
+          "new_C_frames": {
+            "logical_ids": 6,
+            "handlers": 6,
+            "queue_mean_ms": 18617.2,
+            "queue_peak_ms": 28241.1
+          }
+        }
+      },
+      "cleanup": {
+        "mac_remaining_processes": 0,
+        "peer_remaining_processes": 0,
+        "phone_remaining_processes": 0,
+        "own_forward_removed": true,
+        "main_app_modified": false,
+        "system_power_settings_changed": false,
+        "retained_profiles": true
+      }
+    },
+    "candidate": {
+      "new_messages_requested": 18,
+      "burst_submission_seconds": 18.3,
+      "all_roles_observed_seconds": 49.9,
+      "new_C_logical_handlers_observed": 6,
+      "new_logical_ids_converged": true,
+      "no_duplicates": true,
+      "full_visible_ids_equal": true,
+      "full_visible_order_equal": true,
+      "counts": {
+        "B": 18,
+        "C": 18,
+        "A": 18
+      },
+      "full_visible_counts": {
+        "B": 964,
+        "C": 964,
+        "A": 964
+      },
+      "costs": {
+        "B": {
+          "storage_window": {
+            "storage.chatFold": {
+              "count": 108,
+              "mean_ms": 4.7,
+              "total_ms": 512.8
+            },
+            "storage.chatView": {
+              "count": 158,
+              "mean_ms": 3.1,
+              "total_ms": 483.8
+            },
+            "storage.ratchetHead": {
+              "count": 87,
+              "mean_ms": 14.2,
+              "total_ms": 1233.3
+            },
+            "storage.ratchetCommit": {
+              "count": 78,
+              "mean_ms": 32.9,
+              "total_ms": 2562.8
+            },
+            "storage.ratchetSave": {
+              "count": 78,
+              "mean_ms": 52.4,
+              "total_ms": 4085.7
+            },
+            "storage.ratchetScrub": {
+              "count": 1,
+              "mean_ms": 283.1,
+              "total_ms": 283.1
+            }
+          },
+          "new_C_costs": {
+            "ack.send": {
+              "samples": 6,
+              "mean_ms": 21.4,
+              "peak_ms": 55.2
+            },
+            "mirror.batchRun": {
+              "samples": 6,
+              "mean_ms": 880.9,
+              "peak_ms": 1047.4
+            },
+            "mirror.groupId": {
+              "samples": 6,
+              "mean_ms": 0.0,
+              "peak_ms": 0.0
+            },
+            "mirror.journal": {
+              "samples": 6,
+              "mean_ms": 1060.0,
+              "peak_ms": 1783.9
+            },
+            "mirror.membership": {
+              "samples": 6,
+              "mean_ms": 0.0,
+              "peak_ms": 0.1
+            },
+            "mirror.prepare": {
+              "samples": 6,
+              "mean_ms": 0.1,
+              "peak_ms": 0.1
+            },
+            "send.ack.flush": {
+              "samples": 6,
+              "mean_ms": 11.5,
+              "peak_ms": 39.6
+            },
+            "send.ack.native": {
+              "samples": 6,
+              "mean_ms": 5.0,
+              "peak_ms": 16.0
+            },
+            "send.ack.precondition": {
+              "samples": 6,
+              "mean_ms": 0.7,
+              "peak_ms": 3.8
+            },
+            "send.ack.reserve": {
+              "samples": 6,
+              "mean_ms": 0.2,
+              "peak_ms": 0.2
+            },
+            "store.append": {
+              "samples": 6,
+              "mean_ms": 29.6,
+              "peak_ms": 88.4
+            },
+            "store.mirror": {
+              "samples": 6,
+              "mean_ms": 1060.3,
+              "peak_ms": 1784.0
+            }
+          },
+          "new_C_frames": {}
+        },
+        "C": {
+          "storage_window": {
+            "storage.chatFold": {
+              "count": 118,
+              "mean_ms": 0.1,
+              "total_ms": 14.5
+            },
+            "storage.chatView": {
+              "count": 77,
+              "mean_ms": 0.3,
+              "total_ms": 22.0
+            },
+            "storage.ratchetHead": {
+              "count": 96,
+              "mean_ms": 0.5,
+              "total_ms": 52.8
+            },
+            "storage.ratchetCommit": {
+              "count": 87,
+              "mean_ms": 12.9,
+              "total_ms": 1124.9
+            },
+            "storage.ratchetSave": {
+              "count": 87,
+              "mean_ms": 14.7,
+              "total_ms": 1280.5
+            },
+            "storage.ratchetScrub": {
+              "count": 1,
+              "mean_ms": 97.7,
+              "total_ms": 97.7
+            }
+          },
+          "new_C_costs": {
+            "ack.markStatus": {
+              "samples": 6,
+              "mean_ms": 13.8,
+              "peak_ms": 25.9
+            },
+            "mirror.groupId": {
+              "samples": 6,
+              "mean_ms": 0.1,
+              "peak_ms": 0.1
+            },
+            "mirror.membership": {
+              "samples": 6,
+              "mean_ms": 0.2,
+              "peak_ms": 0.2
+            },
+            "send.message.flush": {
+              "samples": 17,
+              "mean_ms": 1.2,
+              "peak_ms": 20.1
+            },
+            "send.message.native": {
+              "samples": 17,
+              "mean_ms": 0.0,
+              "peak_ms": 0.0
+            },
+            "send.message.precondition": {
+              "samples": 17,
+              "mean_ms": 0.0,
+              "peak_ms": 0.1
+            },
+            "send.message.reserve": {
+              "samples": 17,
+              "mean_ms": 6.0,
+              "peak_ms": 35.8
+            },
+            "store.append": {
+              "samples": 6,
+              "mean_ms": 17.2,
+              "peak_ms": 24.8
+            },
+            "store.mirror": {
+              "samples": 6,
+              "mean_ms": 0.3,
+              "peak_ms": 0.4
+            }
+          },
+          "new_C_frames": {}
+        },
+        "A": {
+          "storage_window": {
+            "storage.chatView": {
+              "count": 97,
+              "mean_ms": 12.7,
+              "total_ms": 1236.0
+            },
+            "storage.chatFold": {
+              "count": 63,
+              "mean_ms": 26.4,
+              "total_ms": 1664.6
+            },
+            "storage.ratchetHead": {
+              "count": 95,
+              "mean_ms": 67.1,
+              "total_ms": 6376.7
+            },
+            "storage.ratchetCommit": {
+              "count": 75,
+              "mean_ms": 70.4,
+              "total_ms": 5279.5
+            },
+            "storage.ratchetSave": {
+              "count": 75,
+              "mean_ms": 167.8,
+              "total_ms": 12581.8
+            },
+            "storage.ratchetScrub": {
+              "count": 1,
+              "mean_ms": 901.7,
+              "total_ms": 901.7
+            }
+          },
+          "new_C_costs": {
+            "ack.send": {
+              "samples": 6,
+              "mean_ms": 623.2,
+              "peak_ms": 3042.3
+            },
+            "mirror.batchRun": {
+              "samples": 6,
+              "mean_ms": 2401.8,
+              "peak_ms": 2904.0
+            },
+            "mirror.groupId": {
+              "samples": 6,
+              "mean_ms": 0.0,
+              "peak_ms": 0.0
+            },
+            "mirror.journal": {
+              "samples": 6,
+              "mean_ms": 2418.3,
+              "peak_ms": 2905.3
+            },
+            "mirror.membership": {
+              "samples": 6,
+              "mean_ms": 0.0,
+              "peak_ms": 0.1
+            },
+            "mirror.prepare": {
+              "samples": 6,
+              "mean_ms": 0.0,
+              "peak_ms": 0.1
+            },
+            "send.ack.flush": {
+              "samples": 6,
+              "mean_ms": 297.5,
+              "peak_ms": 1783.5
+            },
+            "send.ack.native": {
+              "samples": 6,
+              "mean_ms": 14.3,
+              "peak_ms": 26.0
+            },
+            "send.ack.precondition": {
+              "samples": 6,
+              "mean_ms": 0.1,
+              "peak_ms": 0.3
+            },
+            "send.ack.reserve": {
+              "samples": 6,
+              "mean_ms": 302.1,
+              "peak_ms": 1221.5
+            },
+            "store.append": {
+              "samples": 6,
+              "mean_ms": 60.6,
+              "peak_ms": 161.7
+            },
+            "store.mirror": {
+              "samples": 6,
+              "mean_ms": 2418.5,
+              "peak_ms": 2905.6
+            }
+          },
+          "new_C_frames": {
+            "logical_ids": 6,
+            "handlers": 6,
+            "queue_mean_ms": 20452.3,
+            "queue_peak_ms": 29433.3
+          }
+        }
+      },
+      "cleanup": {
+        "mac_remaining_processes": 0,
+        "peer_remaining_processes": 0,
+        "phone_remaining_processes": 0,
+        "own_forward_removed": true,
+        "main_app_modified": false,
+        "system_power_settings_changed": false,
+        "retained_profiles": true
+      }
+    },
+    "normal": {
+      "new_messages_requested": 18,
+      "private_timing_overlay": false,
+      "private_timing_endpoint_absent_on_all_roles": true,
+      "phone_build_mode": "profile",
+      "burst_submission_seconds": 23.0,
+      "new_logical_ids_converged": true,
+      "no_duplicates": true,
+      "complete": true,
+      "full_visible_id_sets_equal": true,
+      "full_visible_order_equal": true,
+      "all_roles_observed_seconds": 86.5,
+      "all_new_delivery_marks_converged": true,
+      "delivery_marks_last_observed_seconds": 86.5,
+      "counts": {
+        "A": 18,
+        "B": 18,
+        "C": 18
+      },
+      "full_visible_counts": {
+        "B": 982,
+        "C": 982,
+        "A": 982
+      },
+      "delivered_counts": {
+        "A": 18,
+        "B": 18,
+        "C": 18
+      },
+      "cleanup": {
+        "mac_remaining_processes": 0,
+        "peer_remaining_processes": 0,
+        "phone_remaining_processes": 0,
+        "own_forward_removed": true,
+        "main_app_modified": false,
+        "system_power_settings_changed": false,
+        "retained_profiles": true
+      }
+    }
+  },
+  "baseline_worst_new_C_ack_on_A": {
+    "ack_ms": 2508.9,
+    "components_ms": {
+      "send.ack.precondition": 0.1,
+      "send.ack.reserve": 748.3,
+      "send.ack.native": 27.0,
+      "send.ack.flush": 1722.5
+    },
+    "exact_logical_id_binding_verified": true
+  },
+  "independent_cleanup": {
+    "recorded_owned_groups_checked": 53,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false
+  },
+  "identical_native_and_hv_binaries_across_phases": true
+}
