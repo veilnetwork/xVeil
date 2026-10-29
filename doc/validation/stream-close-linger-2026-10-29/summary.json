@@ -1,0 +1,453 @@
+{
+  "schema_version": 1,
+  "sdk_fix": "63bcc1c9",
+  "frozen_frontend": "f389116a",
+  "baseline_stream_sdk": "d19923f5",
+  "file_bytes": 3145979,
+  "stream_tests": {
+    "passed": 166,
+    "ignored": 0
+  },
+  "ffi_tests": {
+    "passed": 326,
+    "ignored": 2
+  },
+  "analyzer_tests_passed": 6,
+  "stream_clippy_passed": true,
+  "external_target_mount_preserved": true,
+  "baseline": {
+    "runs": [
+      {
+        "sample": 0,
+        "receiver": "phone",
+        "bytes": 3145979,
+        "sha256_matches": true,
+        "seconds": 16.706,
+        "first_piece_seconds": 8.973,
+        "max_gap_after_first_seconds": 3.319,
+        "progress_samples": 15
+      },
+      {
+        "sample": 0,
+        "receiver": "peer",
+        "bytes": 3145979,
+        "sha256_matches": true,
+        "seconds": 38.312,
+        "first_piece_seconds": 2.523,
+        "max_gap_after_first_seconds": 7.05,
+        "progress_samples": 76
+      },
+      {
+        "sample": 1,
+        "receiver": "phone",
+        "bytes": 3145979,
+        "sha256_matches": true,
+        "seconds": 7.872,
+        "first_piece_seconds": 2.304,
+        "max_gap_after_first_seconds": 1.12,
+        "progress_samples": 7
+      },
+      {
+        "sample": 1,
+        "receiver": "peer",
+        "bytes": 3145979,
+        "sha256_matches": true,
+        "seconds": 75.131,
+        "first_piece_seconds": 5.542,
+        "max_gap_after_first_seconds": 7.571,
+        "progress_samples": 149
+      },
+      {
+        "sample": 2,
+        "receiver": "phone",
+        "bytes": 3145979,
+        "sha256_matches": true,
+        "seconds": 15.845,
+        "first_piece_seconds": 11.356,
+        "max_gap_after_first_seconds": 1.133,
+        "progress_samples": 14
+      },
+      {
+        "sample": 2,
+        "receiver": "peer",
+        "bytes": 3145979,
+        "sha256_matches": true,
+        "seconds": 119.962,
+        "first_piece_seconds": 21.177,
+        "max_gap_after_first_seconds": 19.661,
+        "progress_samples": 238
+      },
+      {
+        "sample": 3,
+        "receiver": "phone",
+        "bytes": 3145979,
+        "sha256_matches": true,
+        "seconds": 6.812,
+        "first_piece_seconds": 2.35,
+        "max_gap_after_first_seconds": 1.141,
+        "progress_samples": 6
+      },
+      {
+        "sample": 3,
+        "receiver": "peer",
+        "bytes": 3145979,
+        "sha256_matches": true,
+        "seconds": 112.382,
+        "first_piece_seconds": 4.546,
+        "max_gap_after_first_seconds": 17.641,
+        "progress_samples": 223
+      },
+      {
+        "sample": 4,
+        "receiver": "phone",
+        "bytes": 3145979,
+        "sha256_matches": true,
+        "seconds": 12.354,
+        "first_piece_seconds": 3.442,
+        "max_gap_after_first_seconds": 4.476,
+        "progress_samples": 11
+      },
+      {
+        "sample": 4,
+        "receiver": "peer",
+        "bytes": 3145979,
+        "sha256_matches": true,
+        "seconds": 12.596,
+        "first_piece_seconds": 8.072,
+        "max_gap_after_first_seconds": 0.506,
+        "progress_samples": 25
+      }
+    ],
+    "endpoint_numeric_summaries": {
+      "mac": {
+        "driver_samples": 702,
+        "streams_observed": 10,
+        "omitted_summaries_at_stream_cap": 0,
+        "longest_observed_stream_span_ms": 148569,
+        "streams_with_out_of_order_data": 5,
+        "streams_with_rto_events": 3,
+        "established_zero_window_samples": 0,
+        "small_flight_rto_samples": 0,
+        "small_flight_rto_with_buffered_incoming_data_samples": 0,
+        "small_pending_rto_samples": 10,
+        "observed_maxima": {
+          "blocked_age": 3579,
+          "wb_total": 1163,
+          "inflight": 133249,
+          "cwnd": 190216,
+          "rwnd": 8388608,
+          "pending": 239485,
+          "segs": 77,
+          "consec_rto": 6,
+          "read_buf": 59460,
+          "oo": 78,
+          "oo_bytes": 150925,
+          "srtt": 664,
+          "rttvar": 734,
+          "rto": 10000,
+          "reo_wnd": 3123,
+          "rack_rtt": 2489,
+          "rto_skipped_sacked": 896,
+          "sack_rto_refreshes": 0
+        },
+        "samples_are_not_packet_loss_attribution": true
+      },
+      "android": {
+        "driver_samples": 637,
+        "streams_observed": 10,
+        "omitted_summaries_at_stream_cap": 0,
+        "longest_observed_stream_span_ms": 112850,
+        "streams_with_out_of_order_data": 5,
+        "streams_with_rto_events": 6,
+        "established_zero_window_samples": 0,
+        "small_flight_rto_samples": 0,
+        "small_flight_rto_with_buffered_incoming_data_samples": 0,
+        "small_pending_rto_samples": 4,
+        "observed_maxima": {
+          "blocked_age": 3584,
+          "wb_total": 466,
+          "inflight": 260438,
+          "cwnd": 514694,
+          "rwnd": 8388608,
+          "pending": 252959,
+          "segs": 134,
+          "consec_rto": 2,
+          "read_buf": 100421,
+          "oo": 45,
+          "oo_bytes": 85226,
+          "srtt": 3039,
+          "rttvar": 1913,
+          "rto": 10000,
+          "reo_wnd": 5200,
+          "rack_rtt": 1457,
+          "rto_skipped_sacked": 1056,
+          "sack_rto_refreshes": 2
+        },
+        "samples_are_not_packet_loss_attribution": true
+      }
+    },
+    "inter_transfer_pause_seconds": 5
+  },
+  "candidate": {
+    "runs": [
+      {
+        "sample": 0,
+        "receiver": "phone",
+        "bytes": 3145979,
+        "sha256_matches": true,
+        "seconds": 14.665,
+        "first_piece_seconds": 6.813,
+        "max_gap_after_first_seconds": 1.161,
+        "progress_samples": 13
+      },
+      {
+        "sample": 0,
+        "receiver": "peer",
+        "bytes": 3145979,
+        "sha256_matches": true,
+        "seconds": 9.563,
+        "first_piece_seconds": 2.522,
+        "max_gap_after_first_seconds": 1.01,
+        "progress_samples": 19
+      },
+      {
+        "sample": 1,
+        "receiver": "phone",
+        "bytes": 3145979,
+        "sha256_matches": true,
+        "seconds": 7.893,
+        "first_piece_seconds": 3.486,
+        "max_gap_after_first_seconds": 1.109,
+        "progress_samples": 7
+      },
+      {
+        "sample": 1,
+        "receiver": "peer",
+        "bytes": 3145979,
+        "sha256_matches": true,
+        "seconds": 11.587,
+        "first_piece_seconds": 1.511,
+        "max_gap_after_first_seconds": 5.04,
+        "progress_samples": 23
+      }
+    ],
+    "endpoint_numeric_summaries": {
+      "mac": {
+        "driver_samples": 68,
+        "streams_observed": 4,
+        "omitted_summaries_at_stream_cap": 0,
+        "longest_observed_stream_span_ms": 12586,
+        "streams_with_out_of_order_data": 2,
+        "streams_with_rto_events": 1,
+        "established_zero_window_samples": 0,
+        "small_flight_rto_samples": 0,
+        "small_flight_rto_with_buffered_incoming_data_samples": 0,
+        "small_pending_rto_samples": 2,
+        "observed_maxima": {
+          "blocked_age": 3550,
+          "wb_total": 3636,
+          "inflight": 132794,
+          "cwnd": 3273810,
+          "rwnd": 8388608,
+          "pending": 172272,
+          "segs": 67,
+          "consec_rto": 2,
+          "read_buf": 5946,
+          "oo": 37,
+          "oo_bytes": 67278,
+          "srtt": 301,
+          "rttvar": 151,
+          "rto": 6720,
+          "reo_wnd": 234,
+          "rack_rtt": 560,
+          "rto_skipped_sacked": 961,
+          "sack_rto_refreshes": 0
+        },
+        "samples_are_not_packet_loss_attribution": true
+      },
+      "android": {
+        "driver_samples": 68,
+        "streams_observed": 4,
+        "omitted_summaries_at_stream_cap": 0,
+        "longest_observed_stream_span_ms": 10815,
+        "streams_with_out_of_order_data": 2,
+        "streams_with_rto_events": 0,
+        "established_zero_window_samples": 0,
+        "small_flight_rto_samples": 0,
+        "small_flight_rto_with_buffered_incoming_data_samples": 0,
+        "small_pending_rto_samples": 0,
+        "observed_maxima": {
+          "blocked_age": 36,
+          "wb_total": 707,
+          "inflight": 126359,
+          "cwnd": 146281,
+          "rwnd": 8388608,
+          "pending": 195949,
+          "segs": 67,
+          "consec_rto": 0,
+          "read_buf": 8090,
+          "oo": 22,
+          "oo_bytes": 42848,
+          "srtt": 333,
+          "rttvar": 120,
+          "rto": 2000,
+          "reo_wnd": 420,
+          "rack_rtt": 408,
+          "rto_skipped_sacked": 923,
+          "sack_rto_refreshes": 0
+        },
+        "samples_are_not_packet_loss_attribution": true
+      }
+    },
+    "inter_transfer_pause_seconds": 25,
+    "battery_during_downloads": [
+      {
+        "sample": 0,
+        "receiver": "phone",
+        "battery_samples_during_download": 6,
+        "qa_resumed": [
+          true
+        ],
+        "mWakefulness": [
+          "Awake"
+        ],
+        "mIsPowered": [
+          "true"
+        ],
+        "mState": [
+          "ACTIVE"
+        ],
+        "mLightState": [
+          "ACTIVE"
+        ],
+        "mScreenOn": [
+          "true"
+        ],
+        "mCharging": [
+          "true"
+        ]
+      },
+      {
+        "sample": 0,
+        "receiver": "peer",
+        "battery_samples_during_download": 4,
+        "qa_resumed": [
+          true
+        ],
+        "mWakefulness": [
+          "Awake"
+        ],
+        "mIsPowered": [
+          "true"
+        ],
+        "mState": [
+          "ACTIVE"
+        ],
+        "mLightState": [
+          "ACTIVE"
+        ],
+        "mScreenOn": [
+          "true"
+        ],
+        "mCharging": [
+          "true"
+        ]
+      },
+      {
+        "sample": 1,
+        "receiver": "phone",
+        "battery_samples_during_download": 3,
+        "qa_resumed": [
+          true
+        ],
+        "mWakefulness": [
+          "Awake"
+        ],
+        "mIsPowered": [
+          "true"
+        ],
+        "mState": [
+          "ACTIVE"
+        ],
+        "mLightState": [
+          "ACTIVE"
+        ],
+        "mScreenOn": [
+          "true"
+        ],
+        "mCharging": [
+          "true"
+        ]
+      },
+      {
+        "sample": 1,
+        "receiver": "peer",
+        "battery_samples_during_download": 4,
+        "qa_resumed": [
+          true
+        ],
+        "mWakefulness": [
+          "Awake"
+        ],
+        "mIsPowered": [
+          "true"
+        ],
+        "mState": [
+          "ACTIVE"
+        ],
+        "mLightState": [
+          "ACTIVE"
+        ],
+        "mScreenOn": [
+          "true"
+        ],
+        "mCharging": [
+          "true"
+        ]
+      }
+    ],
+    "system_battery_saver_setting": 0
+  },
+  "baseline_relay_reads": {
+    "services_active": 6,
+    "cli_version": "0.11.46",
+    "shed_samples": 59,
+    "all_observed_tx_queue_and_outbox_shed_zero": true,
+    "not_a_complete_packet_loss_accounting": true
+  },
+  "candidate_artifacts": {
+    "baseline_apk_sha256": "843db3172564729028b79500d21c4a7ae655ffc1ea07098de209eb4920bc0ed7",
+    "candidate_apk_sha256": "80ec856c501c0654472ca98a16858ca5b745d794e8521b21b306f6720f7595e1",
+    "android_native_sha256": "433f3e05f7620341596d45dfc8c1b6fa4065009fffea08d6abcf06d8a8d7fa89",
+    "mac_native_sha256": "69ac0c3b570475f9cc8f5a12abb440d8c9a040f8e47fe79b967594ee538a6de8",
+    "other_apk_entries_unchanged": true,
+    "same_signing_certificate": true,
+    "mac_other_artifacts_unchanged": true
+  },
+  "cleanup": {
+    "peer_settings_restored": true,
+    "phone_settings_restored": true,
+    "debug_property_restored": true,
+    "phone_exited": true,
+    "forward_removed": true,
+    "series_exit_code": 0,
+    "series_completed": true,
+    "candidate_mac_exited": true,
+    "baseline_ownership_restored": true,
+    "baseline_qa_restored": true,
+    "restored_installed_hash_verified": true,
+    "qa_exited": true,
+    "mac_exited": true,
+    "logcat_exited": true,
+    "peer_api_port_free": true,
+    "phone_api_port_free": true,
+    "adb_forward_removed": true,
+    "external_mount_still_distinct": true
+  },
+  "controlled_performance_comparison": false,
+  "all_causes_of_file_pauses_resolved": false,
+  "doze_does_not_explain_observed_foreground_pauses": true,
+  "oem_wifi_power_saving_excluded": false,
+  "old_partial_group_assembly_creates_journal_gap": false,
+  "push_or_release_or_server_changes": false
+}
