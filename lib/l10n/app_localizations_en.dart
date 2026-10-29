@@ -2080,12 +2080,12 @@ class AppL10nEn extends AppL10n {
 
   @override
   String groupSyncNeighborsLabel(int count) {
-    return 'XOR neighbours: $count';
+    return 'Neighbours: $count';
   }
 
   @override
   String get groupSyncNeighborsHint =>
-      'How many XOR-closest members this device connects to for chat history. More neighbours improve redundancy but use more traffic. This setting is local to this device.';
+      'How many members this device exchanges chat history with. More neighbours improve redundancy but use more traffic. This setting is local to this device.';
 
   @override
   String get groupRenameTitle => 'Rename group';

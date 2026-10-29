@@ -145,8 +145,9 @@ int _compareXorDistance(NodeId origin, NodeId left, NodeId right) {
 }
 
 /// Deterministically selects the [k] node ids closest to [self] by XOR
-/// distance. Duplicate ids and [self] are ignored; callers do not need to
-/// preserve any particular membership iteration order.
+/// distance. Duplicate ids are ignored; callers do not need to preserve any
+/// membership iteration order. A candidate equal to the sort origin is kept:
+/// it may name the master device when a sibling is selecting transport ids.
 List<NodeId> nearestGroupNodesByXor(
   NodeId self,
   Iterable<NodeId> members, {
@@ -187,6 +188,58 @@ List<NodeId> nearestGroupNodesByXor(
   }
   final out = <NodeId>[...live, ...rest];
   return out.sublist(0, k);
+}
+
+/// Selects up to [k] other identities for a connected group overlay.
+/// With a common eligible roster, all members form a directed ring.
+///
+/// XOR-nearest neighbours alone can form disjoint components. Reserve one
+/// slot for the successor in the common identity order: every member retains
+/// this directed ring edge, even with a stale or conflicting liveness view.
+/// With another slot available, also bypass offline successors using the same
+/// order among known reachable members. Fill the remaining slots by XOR.
+///
+/// Callers supply the eligible identity roster, not device addresses. Own
+/// devices are appended separately and never compete for these slots. A
+/// one-neighbour overlay relies on durable delivery if its successor is away.
+List<NodeId> groupOverlayPeers(
+  NodeId self,
+  Iterable<NodeId> members, {
+  int k = GroupService.kGroupSyncNeighbors,
+  Set<String>? reachable,
+}) {
+  if (k <= 0) return const [];
+  final ordered = <String, NodeId>{
+    for (final member in members)
+      if (member != self) member.hex: member,
+  }.values.toList()..sort((left, right) => left.hex.compareTo(right.hex));
+  if (ordered.length <= k) {
+    return nearestGroupNodesByXor(self, ordered, k: k, reachable: reachable);
+  }
+  final afterSelf = ordered.indexWhere(
+    (member) => member.hex.compareTo(self.hex) > 0,
+  );
+  final start = afterSelf < 0 ? 0 : afterSelf;
+  final chosen = <NodeId>{ordered[start]};
+  if (k > 1 && reachable != null && reachable.isNotEmpty) {
+    for (var offset = 0; offset < ordered.length; offset++) {
+      final peer = ordered[(start + offset) % ordered.length];
+      if (reachable.contains(peer.hex)) {
+        chosen.add(peer);
+        break;
+      }
+    }
+  }
+  for (final peer in nearestGroupNodesByXor(
+    self,
+    ordered,
+    k: k,
+    reachable: reachable,
+  )) {
+    if (chosen.length == k) break;
+    chosen.add(peer);
+  }
+  return chosen.toList();
 }
 
 /// Flutter-free change signal used by both the GUI provider and headless host.
@@ -14480,13 +14533,13 @@ class GroupService implements ArchiveGroups {
   // ── Group log gap-fill (reliability brick G1) ─────────────────────────────
   // A delta that dies while EVERY entry node is down is lost for good — the
   // full snapshot only ships on join. Each device therefore sends a compact
-  // per-author high-water VECTOR to its deterministic XOR neighbours on boot;
+  // per-author high-water VECTOR to its connected overlay neighbours on boot;
   // a
   // member that holds more replies with ONLY the missing entries. Bandwidth
   // is one small JSON each way when in sync; convergence is eventual (a
   // sampled member that is itself behind just yields nothing this round).
 
-  /// Number of outbound XOR neighbours in the sparse chat-sync overlay.
+  /// Number of outbound identity neighbours in the sparse chat-sync overlay.
   static const int kGroupSyncNeighbors = 5;
   static const int kMinGroupSyncNeighbors = 1;
   static const int kMaxGroupSyncNeighbors = 20;
@@ -15777,6 +15830,14 @@ class GroupService implements ArchiveGroups {
   /// group we hold still passes — that legitimate member-to-member sync without
   /// a pairwise contact handshake is exactly what the gate exists to allow.
   Future<bool> ingestGroupEntryFromStranger(NodeId peer, String json) async {
+    final adoptedDelta = await _tryIngestAdoptedDeviceDelta(
+      peer, json, fromStranger: true,
+    );
+    if (adoptedDelta != null) return adoptedDelta;
+    // The admission/merge path restores a compact manifest too, but the
+    // overlay relay below needs that same restored wire document. Decoding
+    // the original mid/mh-only frame silently stopped every stranger hop.
+    json = await _restoreOmittedManifest(json);
     Map? decoded;
     try {
       final d = jsonDecode(json);
@@ -15957,8 +16018,8 @@ class GroupService implements ArchiveGroups {
     );
   }
 
-  /// Boot catch-up for EVERY group. Chat groups use the same deterministic
-  /// XOR neighbours as live deltas; device groups retain all-device delivery.
+  /// Boot catch-up for EVERY group. Chat groups use the same connected
+  /// overlay as live deltas; device groups retain all-device delivery.
   /// Cheap when in sync (one small JSON), and the reply path ships only what
   /// this device actually lacks.
   Future<void> nudgeGroupSyncAll() async {
@@ -16010,7 +16071,7 @@ class GroupService implements ArchiveGroups {
     }
   }
 
-  /// Starts one compact anti-entropy exchange with this chat's current XOR
+  /// Starts one compact anti-entropy exchange with this chat's current overlay
   /// neighbours. Used at boot and immediately after changing the local `k`.
   Future<int> nudgeGroupSync(
     NodeId groupId, {
@@ -16050,22 +16111,12 @@ class GroupService implements ArchiveGroups {
             for (final member in state.members.values)
               if (member.nodeId != _signer.selfId) member.nodeId,
           ];
-    // MY OWN DEVICES, for the same reason broadcastDelta appends them: the
-    // member scan lists IDENTITIES, and this identity's other devices are not
-    // among them. Without this a group whose only member is us asks NOBODY —
-    // measured live as a chained suffix that could never heal: the sibling's
-    // newer row arrived by mailbox, its predecessor did not, the row stayed
-    // hidden pending gap-fill, and the gap-fill request itself fanned out to
-    // an empty list forever.
-    if (!bundle.manifest.isSovereignDevice) {
-      for (final device in await _myOtherDevicesForGroups()) {
-        if (!others.contains(device)) others.add(device);
-      }
-    }
+    // Own devices are appended after selection. Inserting private transport
+    // addresses here gives each identity a different ring roster.
     final reachable = await _reachableNow();
     final basePeers = bundle.manifest.name == kDeviceGroupName
         ? others
-        : nearestGroupNodesByXor(
+        : groupOverlayPeers(
             _signer.selfId,
             others,
             k: await readNeighborCount(),
@@ -16078,7 +16129,7 @@ class GroupService implements ArchiveGroups {
       final protected = await _protectedChannelsOf(bundle, state);
       final k = await readNeighborCount();
       for (final clear in protected.values) {
-        for (final peer in nearestGroupNodesByXor(
+        for (final peer in groupOverlayPeers(
           _signer.selfId,
           clear.recipients,
           k: k,
@@ -21354,9 +21405,9 @@ class GroupService implements ArchiveGroups {
   }
 
   /// Fan a DELTA (only the just-added entries). Chat messages and reactions go
-  /// to the [kGroupSyncNeighbors] XOR-closest members and are relayed across
-  /// that sparse overlay. Control changes and device-group events still reach
-  /// every member: roster/key changes carry per-recipient epoch material and
+  /// to [kGroupSyncNeighbors] members selected with a ring backbone plus XOR
+  /// redundancy and are relayed across that connected sparse overlay. Control
+  /// changes and device-group events still reach every member: roster/key changes carry per-recipient epoch material and
   /// cannot safely depend on a relay that does not own everybody's envelope.
   /// A new member still gets a full [broadcast] on join.
   /// Test seam and release switch for [kDeltaOmitsManifest].
@@ -21419,24 +21470,8 @@ class GroupService implements ArchiveGroups {
                       )))
                 member.nodeId,
           ];
-    // MY OWN DEVICES ARE NOT MEMBERS, and a delta has to reach them anyway.
-    //
-    // A group's members are IDENTITIES. This device's siblings are not among
-    // them — the identity is — so a group whose only member is us produces an
-    // empty candidate list and every message stays where it was written.
-    // Measured on a two-device stand: two posts on one device, and the other
-    // ended up exactly one message behind, carried only by whatever full
-    // snapshot happened to follow.
-    //
-    // Appended rather than folded into the member scan above, because they are
-    // a different question: that loop asks who is entitled to the group, this
-    // asks who else is ME. Deduped so a device that IS a member (the
-    // master-key one, whose id is the identity) is not addressed twice.
-    if (!b.manifest.isSovereignDevice) {
-      for (final device in await _myOtherDevicesForGroups()) {
-        if (!candidates.contains(device)) candidates.add(device);
-      }
-    }
+    // Keep the common identity roster separate from private device addresses;
+    // the latter are appended unconditionally after the overlay selection.
     final sparse = control.isEmpty && b.manifest.name != kDeviceGroupName;
     final neighborCount = sparse
         ? await groupSyncNeighborCount(groupId)
@@ -21459,7 +21494,7 @@ class GroupService implements ArchiveGroups {
       peers = onlyTo.toList();
     } else {
       final chosen = sparse
-          ? nearestGroupNodesByXor(
+          ? groupOverlayPeers(
               _signer.selfId,
               candidates,
               k: neighborCount,
