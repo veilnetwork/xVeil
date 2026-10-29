@@ -1,17 +1,23 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/core/diagnostic_journal.dart';
+import 'package:xveil/core/error_journal.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
+import 'package:xveil/data/translation_model_store.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/group_call.dart';
 import 'package:xveil/state/messaging.dart';
+import 'package:xveil/state/model_exchange_service.dart';
 
 NodeId _id(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
 
@@ -36,6 +42,8 @@ class _RealtimeProbe
   int realtimeSends = 0;
   int relayRealtimeSends = 0;
   bool? lastRealtimeAnonymous;
+  bool? lastNormalAnonymous;
+  bool failSends = false;
   NodeId? lastNormalDestination;
   NodeId? lastRealtimeDestination;
   NodeId? lastRelayRealtimeDestination;
@@ -54,6 +62,8 @@ class _RealtimeProbe
     bool anonymous = false,
   }) async {
     normalSends++;
+    lastNormalAnonymous = anonymous;
+    if (failSends) throw StateError('private-peer /private/model/path');
     lastNormalDestination = dst;
     if (blockAck && WireEnvelope.decode(payload).kind == WireKind.ack) {
       if (!ackEntered.isCompleted) ackEntered.complete();
@@ -69,6 +79,7 @@ class _RealtimeProbe
     bool anonymous = false,
   }) async {
     realtimeSends++;
+    if (failSends) throw StateError('private-peer /private/model/path');
     lastRealtimeDestination = dst;
     lastRealtimeAnonymous = anonymous;
     lastRealtimePayload = Uint8List.fromList(payload);
@@ -89,6 +100,7 @@ class _RealtimeProbe
   @override
   Future<void> sendRelayRealtime(NodeId dst, Uint8List payload) async {
     relayRealtimeSends++;
+    if (failSends) throw StateError('private-peer /private/model/path');
     lastRelayRealtimeDestination = dst;
   }
 
@@ -115,6 +127,31 @@ class _RealtimeProbe
     await inbound.close();
     await realtimeInbound.close();
   }
+}
+
+/// The same ordinary channel without advertising optional realtime features.
+class _OrdinaryProbe implements VeilTransport {
+  _OrdinaryProbe(this.delegate);
+  final _RealtimeProbe delegate;
+  @override
+  Future<NodeId> nodeId() => delegate.nodeId();
+  @override
+  Future<void> send(NodeId dst, Uint8List payload, {bool anonymous = false}) =>
+      delegate.send(dst, payload, anonymous: anonymous);
+  @override
+  Future<void> sendWithReply(NodeId dst, Uint8List payload) =>
+      delegate.sendWithReply(dst, payload);
+  @override
+  Future<void> sendReply(int replyId, Uint8List payload) =>
+      delegate.sendReply(replyId, payload);
+  @override
+  Stream<InboundMessage> messages() => delegate.messages();
+  @override
+  Stream<int> sessionCount() => delegate.sessionCount();
+  @override
+  Future<List<PeerInfo>> peers() => delegate.peers();
+  @override
+  Future<void> dispose() => delegate.dispose();
 }
 
 SpaceOpener _memOpener() {
@@ -179,6 +216,8 @@ void main() {
   late HiddenVolumeStorage storage;
 
   setUp(() async {
+    diagnosticJournal.clear();
+    errorJournal.clear();
     me = _id(1);
     peer = _id(2);
     transport = _RealtimeProbe(me);
@@ -190,6 +229,252 @@ void main() {
     addTearDown(transport.dispose);
     addTearDown(storage.close);
   });
+
+  for (final anonymous in [false, true]) {
+    test('model inventory reaches ordinary receiver with realtime transport '
+        '(anonymous=$anonymous)', () async {
+      final otherTransport = _RealtimeProbe(peer);
+      final otherStorage = HiddenVolumeStorage(_memOpener());
+      await otherStorage.open(password: 'pw', createIfMissing: true);
+      await otherStorage.upsertContact(
+        Contact(nodeId: me, status: ContactStatus.accepted),
+      );
+      final left = MessagingService(transport, storage, anonymous: anonymous)
+        ..start();
+      final right = MessagingService(
+        otherTransport,
+        otherStorage,
+        anonymous: anonymous,
+      )..start();
+      // An endpoint pinned for a call is one device, whereas model discovery
+      // asks the contact identity and must not inherit that device's address.
+      left.routeFor = (dst) => dst == peer ? _id(3) : null;
+      right.routeFor = (dst) => dst == me ? _id(4) : null;
+      addTearDown(otherStorage.close);
+      addTearDown(otherTransport.dispose);
+      addTearDown(right.dispose);
+      addTearDown(left.dispose);
+      void link(_RealtimeProbe from, _RealtimeProbe to) {
+        InboundMessage message(Uint8List wire) => InboundMessage(
+          src: from.me,
+          payload: wire,
+          provenance: SenderProvenance.sessionPeer,
+        );
+        from.onNormalSend = (dst, wire) {
+          if (dst == to.me) to.inbound.add(message(wire));
+        };
+        from.onRealtimeSend = (_, wire) =>
+            to.realtimeInbound.add(message(wire));
+      }
+
+      link(transport, otherTransport);
+      link(otherTransport, transport);
+      final root = Directory.systemTemp.createTempSync('xveil-live-inventory');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final pair = Directory('${root.path}/ru-en')..createSync();
+      for (final name in kPairFiles) {
+        File('${pair.path}/$name').writeAsStringSync('$name fixture');
+      }
+      final requester = ModelExchangeService(
+        messaging: left,
+        storage: storage,
+        translateRoot: () async => null,
+        speechRoot: () async => null,
+        now: DateTime.now,
+      );
+      final responder = ModelExchangeService(
+        messaging: right,
+        storage: otherStorage,
+        translateRoot: () async => root,
+        speechRoot: () async => null,
+        now: DateTime.now,
+      );
+      addTearDown(requester.dispose);
+      addTearDown(responder.dispose);
+      final response = requester.answers.first;
+      await requester.ask([peer]);
+      final answer = await response.timeout(const Duration(seconds: 2));
+      expect(answer.peer, peer);
+      expect(answer.offers.single.label, 'ru → en');
+      expect(transport.normalSends, 1);
+      expect(otherTransport.normalSends, 1);
+      expect(transport.lastNormalDestination, peer);
+      expect(otherTransport.lastNormalDestination, me);
+      expect(transport.lastNormalAnonymous, anonymous);
+      expect(otherTransport.lastNormalAnonymous, anonymous);
+      expect(transport.realtimeSends + transport.relayRealtimeSends, 0);
+      expect(
+        otherTransport.realtimeSends + otherTransport.relayRealtimeSends,
+        0,
+      );
+      expect(await storage.pendingOutboxFrames(), isEmpty);
+      expect(await otherStorage.pendingOutboxFrames(), isEmpty);
+      final counts = diagnosticJournal.toJson()['counts'] as Map;
+      expect(counts['callSignalSent'] ?? 0, 0);
+      expect(counts['callSignalReceived'] ?? 0, 0);
+      expect(
+        counts['modelInventorySent'] ?? 0,
+        kDiagnosticReportEnabled ? 2 : 0,
+      );
+      expect(
+        counts['modelInventoryReceived'] ?? 0,
+        kDiagnosticReportEnabled ? 2 : 0,
+      );
+    });
+  }
+
+  for (final realtime in [false, true]) {
+    for (final anonymous in [false, true]) {
+      for (final fails in [false, true]) {
+        test(
+          'call health keeps its own evidence and error contract '
+          '(realtime=$realtime, anonymous=$anonymous, fails=$fails)',
+          () async {
+            final messaging = MessagingService(
+              realtime ? transport : _OrdinaryProbe(transport),
+              storage,
+              anonymous: anonymous,
+            );
+            addTearDown(messaging.dispose);
+            transport.failSends = fails;
+            final send = messaging.sendCallSignal(
+              peer,
+              const CallSignal(
+                callId: 'private-call-id',
+                type: CallSignalType.health,
+              ),
+            );
+            if (anonymous && fails) {
+              await expectLater(send, throwsStateError);
+            } else {
+              await send;
+            }
+            final counts = diagnosticJournal.toJson()['counts'] as Map;
+            final attempts = realtime && !anonymous ? 2 : 1;
+            expect(
+              counts[fails ? 'callSignalFailed' : 'callSignalSent'] ?? 0,
+              kDiagnosticReportEnabled ? attempts : 0,
+            );
+            expect(
+              counts[fails ? 'callSignalSent' : 'callSignalFailed'] ?? 0,
+              0,
+            );
+            expect(counts['p2pBootstrapSent'] ?? 0, 0);
+            expect(counts['modelInventorySent'] ?? 0, 0);
+            final report = diagnosticJournal.toJson().toString();
+            expect(report, isNot(contains('private-call-id')));
+          },
+        );
+      }
+    }
+  }
+
+  for (final anonymous in [false, true]) {
+    test('failed inventory is live-only best effort and not a call failure '
+        '(anonymous=$anonymous)', () async {
+      final messaging = MessagingService(
+        transport,
+        storage,
+        anonymous: anonymous,
+      );
+      addTearDown(messaging.dispose);
+      transport.failSends = true;
+      await messaging.sendModelInventoryRequest(peer);
+      final counts = diagnosticJournal.toJson()['counts'] as Map;
+      expect(
+        counts['modelInventoryFailed'] ?? 0,
+        kDiagnosticReportEnabled ? 1 : 0,
+      );
+      expect(counts['callSignalFailed'] ?? 0, 0);
+      expect(transport.normalSends, 1);
+      expect(transport.realtimeSends + transport.relayRealtimeSends, 0);
+      expect(await storage.pendingOutboxFrames(), isEmpty);
+    });
+  }
+
+  for (final fails in [false, true]) {
+    test(
+      'P2P bootstrap ${fails ? 'failure' : 'success'} is not call evidence',
+      () async {
+        final messaging = MessagingService(transport, storage);
+        addTearDown(messaging.dispose);
+        transport.failSends = fails;
+        await messaging.sendP2PEndpoints(
+          peer,
+          'private-endpoints',
+          sentAtMs: 1,
+        );
+        await pumpEventQueue();
+        final counts = diagnosticJournal.toJson()['counts'] as Map;
+        expect(counts['callSignalSent'] ?? 0, 0);
+        expect(counts['callSignalFailed'] ?? 0, 0);
+        expect(
+          counts[fails ? 'p2pBootstrapFailed' : 'p2pBootstrapSent'] ?? 0,
+          kDiagnosticReportEnabled ? 3 : 0,
+        );
+        final report = errorJournal.toJson(
+          platform: 'test',
+          osVersion: 'test',
+          appVersion: 'test',
+          phase: 'ready',
+          diagnostics: diagnosticJournal,
+          includeTimestamps: false,
+        );
+        expect(report, isNot(contains('private-peer')));
+        expect(report, isNot(contains('/private/model/path')));
+        expect(report, isNot(contains('private-endpoints')));
+        final errors = (jsonDecode(report) as Map)['errors'] as List;
+        expect(errors.where((e) => e['kind'] == 'call-signal-send'), isEmpty);
+        if (fails && kDiagnosticReportEnabled) {
+          expect(errors.any((e) => e['kind'] == 'p2p-bootstrap-send'), isTrue);
+        }
+      },
+    );
+  }
+
+  test('realtime endpoint arrivals are not call signal arrivals', () async {
+    final messaging = MessagingService(transport, storage)..start();
+    addTearDown(messaging.dispose);
+    var endpoints = 0;
+    messaging.onP2PEndpoints = (_, _) => endpoints++;
+    transport.realtimeInbound.add(
+      InboundMessage(
+        src: peer,
+        payload: WireEnvelope.p2pEndpoints('private-endpoints').encode(),
+        provenance: SenderProvenance.sessionPeer,
+      ),
+    );
+    await pumpEventQueue();
+    expect(endpoints, 1);
+    final counts = diagnosticJournal.toJson()['counts'] as Map;
+    expect(counts['callSignalReceived'] ?? 0, 0);
+    expect(
+      counts['p2pBootstrapReceived'] ?? 0,
+      kDiagnosticReportEnabled ? 1 : 0,
+    );
+  });
+
+  test(
+    'unrecognized realtime payloads do not manufacture call evidence',
+    () async {
+      final messaging = MessagingService(transport, storage)..start();
+      addTearDown(messaging.dispose);
+      for (final bytes in [
+        Uint8List.fromList([0xff]),
+        const WireEnvelope.modelInventoryRequest().encode(),
+      ]) {
+        transport.realtimeInbound.add(
+          InboundMessage(
+            src: peer,
+            payload: bytes,
+            provenance: SenderProvenance.sessionPeer,
+          ),
+        );
+      }
+      await pumpEventQueue();
+      expect(diagnosticJournal.toJson()['counts'], isEmpty);
+    },
+  );
 
   for (final realtime in [false, true]) {
     for (final ownDevice in [false, true]) {
