@@ -1,5 +1,49 @@
 part of 'messaging_core.dart';
 
+/// A flush owns a snapshot, not a lease to send rows after their ACK. Track
+/// changes even while that snapshot is being read. Nothing survives the pass.
+class _OutboxFlushSnapshot {
+  final _candidates = <String>{};
+  Set<String>? _changedWhileReading = {};
+  var _changedBytes = 0;
+  var _cancelled = false;
+
+  void invalidate(String key) {
+    _candidates.remove(key);
+    final changed = _changedWhileReading;
+    if (_cancelled || changed == null || changed.contains(key)) return;
+    // A slow read must not retain an unbounded stream of unrelated ACK IDs.
+    // Overflow postpones this pass; the next pass reads authoritative rows.
+    final bytes = 64 + 2 * key.length;
+    if (changed.length >= 256 || _changedBytes + bytes > 64 * 1024) {
+      cancel();
+      return;
+    }
+    changed.add(key);
+    _changedBytes += bytes;
+  }
+
+  bool capture(List<OutboxFrame> rows) {
+    if (_cancelled) return false;
+    final changed = _changedWhileReading!;
+    _changedWhileReading = null;
+    for (final row in rows) {
+      final key = _MessagingOutbox._key(row.peerHex, row.frameId);
+      if (!changed.contains(key)) _candidates.add(key);
+    }
+    return true;
+  }
+
+  bool contains(String peer, String id) =>
+      !_cancelled && _candidates.contains(_MessagingOutbox._key(peer, id));
+
+  void cancel() {
+    _cancelled = true;
+    _candidates.clear();
+    _changedWhileReading = null;
+  }
+}
+
 /// Durable control-frame persistence, deduplication, acknowledgement and
 /// bounded live re-drive.
 ///
@@ -10,6 +54,8 @@ class _MessagingOutbox {
   _MessagingOutbox(this._owner);
 
   final MessagingService _owner;
+
+  _OutboxFlushSnapshot? _flushSnapshot;
 
   // Large replication slices share the endpoint's background source lane
   // with file bodies. Small group/control updates keep their normal path.
@@ -208,6 +254,7 @@ class _MessagingOutbox {
   static const _callSignalTtl = Duration(minutes: 2);
 
   void recordQueued(String frameId, String peerHex, {bool callSignal = false}) {
+    _flushSnapshot?.invalidate(_key(peerHex, frameId));
     final now = _owner._now();
     _liveBackoff[_key(peerHex, frameId)] = (
       count: 1,
@@ -476,13 +523,28 @@ class _MessagingOutbox {
   Future<void> flush() async {
     // The periodic timer outlives lock/unlock; a deliberately closed volume is
     // not an error and must not wake its worker every three seconds.
-    if (!_owner._storage.isOpen) return;
+    if (!_owner._storage.isOpen || _owner._disposed || _flushSnapshot != null) {
+      return;
+    }
+    final snapshot = _OutboxFlushSnapshot();
+    _flushSnapshot = snapshot;
+    try {
+      await _flush(snapshot);
+    } finally {
+      _flushSnapshot = null;
+    }
+  }
+
+  Future<void> _flush(_OutboxFlushSnapshot snapshot) async {
     final List<OutboxFrame> pending;
     try {
       pending = await _owner._storage.pendingOutboxFrames();
     } catch (_) {
       return;
     }
+    if (_owner._disposed || !snapshot.capture(pending)) return;
+    bool current(OutboxFrame frame) =>
+        !_owner._disposed && snapshot.contains(frame.peerHex, frame.frameId);
     // The authoritative count, once per cycle. Everything between cycles only
     // adjusts it.
     _pendingByPeer.clear();
@@ -517,8 +579,14 @@ class _MessagingOutbox {
     // firing them all at once would trade a pile-up for a storm.
     final redrive =
         <
-          ({NodeId peer, OutboxFrame frame, int attempt, bool contactIdentity})
+          ({
+            NodeId peer,
+            OutboxFrame frame,
+            bool callSignal,
+            bool contactIdentity,
+          })
         >[];
+    final plannedSilentPeers = <String>{};
     NodeId? selfNode;
     String? selfIdentityHex;
     bool? selfAliasIsAuthority;
@@ -533,6 +601,7 @@ class _MessagingOutbox {
       // An unavailable identity cannot justify retiring its queued state.
     }
     for (final frame in pending) {
+      if (!current(frame)) continue;
       if (_retireExpiredTransient(frame)) continue;
       if (_retireStaleReplication(frame)) continue;
       if (selfNode != null && frame.peerHex == selfNode.hex) {
@@ -577,6 +646,7 @@ class _MessagingOutbox {
             selfAliasIsAuthority = false;
           }
           if (selfAliasIsAuthority == true) {
+            if (!current(frame)) continue;
             // An old sync answer addressed the shared authority rather than
             // the requesting device. Fragments can reach different endpoints
             // and never assemble. Current sync asks carry a physical reply
@@ -597,6 +667,7 @@ class _MessagingOutbox {
       } catch (_) {
         continue;
       }
+      if (!current(frame)) continue;
       var groupMemberCarrier = false;
       final externalSpaceProposalCarrier =
           frame.frameId.startsWith('space-join-request:') ||
@@ -622,6 +693,7 @@ class _MessagingOutbox {
       // survivors instead of carrying them to every flush until the till TTL.
       if (frame.frameId.startsWith('gcr:') &&
           (await _owner.isSovereignAuthority?.call(peer) ?? false)) {
+        if (!current(frame)) continue;
         devLog(
           () =>
               'xVeil[durable]: retire gcr fid=${frame.frameId} — addressed to '
@@ -640,6 +712,7 @@ class _MessagingOutbox {
       // convinced it had delivered.
       final ownDevice =
           contact == null && (await _owner.isOwnDevice?.call(peer) ?? false);
+      if (!current(frame)) continue;
       if (contact == null &&
           !ownDevice &&
           !groupMemberCarrier &&
@@ -670,6 +743,7 @@ class _MessagingOutbox {
         _owner._stashInBackground(peer, frame.frameId, frame.wire);
       }
       final now = _owner._now();
+      if (!snapshot.contains(frame.peerHex, frame.frameId)) continue;
       final backoff = _liveBackoff[_key(frame.peerHex, frame.frameId)];
       if (backoff != null && now.isBefore(backoff.nextAt)) continue;
       // A CEILING ON THE LIVE HALF OF ONE PASS.
@@ -685,34 +759,22 @@ class _MessagingOutbox {
       // Frames past the ceiling remain queued for the next pass. Nothing is
       // dropped and no attempt is counted against an unsent frame.
       if (redrive.length >= _maxLiveRedrivesPerPass) continue;
-      // Past the ceiling check, so a probe is spent only on a frame that goes.
-      if (!isCallSignal && !_takeSilentProbe(frame.peerHex, now)) {
-        continue;
+      // Reserve only this pass's slot here. The persisted probe cadence and
+      // retry ladder advance when the actual attempt starts, not while it is
+      // waiting behind another peer. A cancelled candidate spends neither.
+      if (!isCallSignal) {
+        if (!_canTakeSilentProbe(frame.peerHex, now)) continue;
+        final heard =
+            _lastHeard[frame.peerHex] ?? _quietSince[frame.peerHex] ?? now;
+        if (now.difference(heard) >= _silentAfter &&
+            !plannedSilentPeers.add(frame.peerHex)) {
+          continue;
+        }
       }
-      final count = (backoff?.count ?? 0) + 1;
-      // Call control is useful only inside the ring window and therefore uses
-      // a sub-second initial ladder; ordinary durable control starts at 20s. Both grow
-      // exponentially and cap at ten minutes to avoid permanent ghost load.
-      final baseMs = isCallSignal
-          ? _callSignalLiveResend.inMilliseconds
-          : _liveResend.inMilliseconds;
-      final delayMs = _jittered(
-        (baseMs * (1 << (count - 1).clamp(0, 10))).clamp(
-          0,
-          _liveResendCap.inMilliseconds,
-        ),
-        frame.frameId,
-      );
-      _liveBackoff[_key(frame.peerHex, frame.frameId)] = (
-        count: count,
-        nextAt: now.add(Duration(milliseconds: delayMs)),
-        peer: frame.peerHex,
-        lastSentAt: now,
-      );
       redrive.add((
         peer: peer,
         frame: frame,
-        attempt: count,
+        callSignal: isCallSignal,
         contactIdentity: contact?.status == ContactStatus.accepted,
       ));
     }
@@ -724,10 +786,38 @@ class _MessagingOutbox {
     // single-flighted behind `_flushing` and one that never ends is the last
     // one this process runs.
     for (final entry in redrive) {
+      if (_owner._disposed) break;
+      if (!snapshot.contains(entry.frame.peerHex, entry.frame.frameId)) {
+        continue;
+      }
+      final now = _owner._now();
+      final key = _key(entry.frame.peerHex, entry.frame.frameId);
+      final backoff = _liveBackoff[key];
+      if (backoff != null && now.isBefore(backoff.nextAt)) continue;
+      if (!entry.callSignal && !_takeSilentProbe(entry.frame.peerHex, now)) {
+        continue;
+      }
+      final count = (backoff?.count ?? 0) + 1;
+      final baseMs = entry.callSignal
+          ? _callSignalLiveResend.inMilliseconds
+          : _liveResend.inMilliseconds;
+      final delayMs = _jittered(
+        (baseMs * (1 << (count - 1).clamp(0, 10))).clamp(
+          0,
+          _liveResendCap.inMilliseconds,
+        ),
+        entry.frame.frameId,
+      );
+      _liveBackoff[key] = (
+        count: count,
+        nextAt: now.add(Duration(milliseconds: delayMs)),
+        peer: entry.frame.peerHex,
+        lastSentAt: now,
+      );
       devLog(
         () =>
             'xVeil[durable]: re-drive fid=${entry.frame.frameId} '
-            'dst=${entry.peer.short} attempt=${entry.attempt} '
+            'dst=${entry.peer.short} attempt=$count '
             't=${DateTime.now().millisecondsSinceEpoch}',
       );
       await boundedLiveLeg(
@@ -973,6 +1063,15 @@ class _MessagingOutbox {
   /// A peer never heard from at all is timed from the first pass that had
   /// something for it, and that moment is stored, so neither a restart nor a
   /// fresh process makes a long-gone peer look freshly quiet.
+  bool _canTakeSilentProbe(String peerHex, DateTime now) {
+    final heard = _lastHeard[peerHex] ?? _quietSince[peerHex] ?? now;
+    if (now.difference(heard) < _silentAfter) return true;
+    final last = _lastContact[peerHex];
+    return last == null ||
+        !last.isAfter(heard) ||
+        !now.isBefore(last.add(silentProbeInterval(last.difference(heard))));
+  }
+
   bool _takeSilentProbe(String peerHex, DateTime now) {
     var heard = _lastHeard[peerHex];
     if (heard == null) {
@@ -984,11 +1083,7 @@ class _MessagingOutbox {
     // THE INTERVAL IS CHOSEN BY THE SILENCE AT THE LAST PROBE — how long the
     // peer had said nothing when it was last asked. A probe from before the
     // peer was last heard belongs to an earlier silence and does not count.
-    final last = _lastContact[peerHex];
-    if (last != null && last.isAfter(heard)) {
-      final every = silentProbeInterval(last.difference(heard));
-      if (now.isBefore(last.add(every))) return false;
-    }
+    if (!_canTakeSilentProbe(peerHex, now)) return false;
     _lastContact[peerHex] = now;
     _storeSilence(peerHex);
     final every = silentProbeInterval(now.difference(heard));
@@ -1188,10 +1283,23 @@ class _MessagingOutbox {
       }
     }
     if (ids.isEmpty) return;
-    final retired = await _owner._storage.ackOutboxFrames(
-      ids,
-      fromPeerHex: destination.hex,
-    );
+    void invalidate() {
+      for (final id in ids) {
+        _flushSnapshot?.invalidate(_key(destination.hex, id));
+      }
+    }
+
+    invalidate();
+    final List<String> retired;
+    try {
+      retired = await _owner._storage.ackOutboxFrames(
+        ids,
+        fromPeerHex: destination.hex,
+      );
+    } finally {
+      // A flush can start while the atomic retirement is still waiting.
+      invalidate();
+    }
     // Change volatile accounting only after the all-or-none storage commit.
     for (final id in retired) {
       _owner._mailboxDelivery.removeStashed(id);
@@ -1208,8 +1316,9 @@ class _MessagingOutbox {
     }
   }
 
-  Future<void> _retirePersisted(String peerHex, String frameId) {
+  Future<void> _retirePersisted(String peerHex, String frameId) async {
     final key = _key(peerHex, frameId);
+    _flushSnapshot?.invalidate(key);
     if (_sendingUnpersisted.contains(key)) {
       // The row is still being written. Remember the ACK so the sender retires
       // it the moment it exists — otherwise this call deletes nothing and the
@@ -1227,10 +1336,15 @@ class _MessagingOutbox {
         _pendingByPeer.remove(peerHex);
       }
     }
-    return _owner._storage.ackOutboxFrame(frameId, fromPeerHex: peerHex);
+    try {
+      await _owner._storage.ackOutboxFrame(frameId, fromPeerHex: peerHex);
+    } finally {
+      _flushSnapshot?.invalidate(key);
+    }
   }
 
   void dispose() {
+    _flushSnapshot?.cancel();
     for (final timer in _fastCallRetryTimers.values) {
       timer.cancel();
     }
