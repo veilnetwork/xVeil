@@ -58,6 +58,7 @@ class _Storage extends HiddenVolumeStorage {
 class _Transport implements VeilTransport {
   final inbound = StreamController<InboundMessage>.broadcast();
   final sent = <WireEnvelope>[];
+  final blocked = <String, Completer<void>>{};
   Completer<void>? enteredSend;
   Completer<void>? releaseSend;
   Completer<void>? enteredNode;
@@ -88,6 +89,7 @@ class _Transport implements VeilTransport {
       entered.complete();
       await releaseSend!.future;
     }
+    await blocked[frame.frameId]?.future;
   }
 
   @override
@@ -136,6 +138,7 @@ void main() {
       transport.releaseSend,
       transport.releaseNode,
       storage.releaseSnapshot,
+      ...transport.blocked.values,
     ]) {
       if (gate != null && !gate.isCompleted) gate.complete();
     }
@@ -366,6 +369,25 @@ void main() {
         '${clock.subtract(const Duration(days: 2)).millisecondsSinceEpoch}',
       );
       await queue('edit:first', 'first');
+      // Keep all four recipient workers occupied so the silent peer's
+      // selected probe has genuinely not started when it is cancelled.
+      for (final seed in [3, 4, 6]) {
+        final busy = _id(seed);
+        final fid = 'edit:busy-$seed';
+        await storage.upsertContact(
+          Contact(nodeId: busy, status: ContactStatus.accepted),
+        );
+        await storage.enqueueOutboxFrame(
+          fid,
+          busy.hex,
+          WireEnvelope.edit(
+            'message',
+            'busy',
+            seq: 1,
+          ).withFrameId(fid).encode(),
+        );
+        transport.blocked[fid] = Completer<void>();
+      }
       const id = 'edit:ghost';
       await storage.enqueueOutboxFrame(
         id,
@@ -388,6 +410,9 @@ void main() {
         WireEnvelope.edit('message', 'new', seq: 2),
       );
       transport.releaseSend!.complete();
+      for (final gate in transport.blocked.values) {
+        gate.complete();
+      }
       await flushed;
       clock = clock.add(const Duration(seconds: 21));
       await service.debugFlushOutboxFrames();
