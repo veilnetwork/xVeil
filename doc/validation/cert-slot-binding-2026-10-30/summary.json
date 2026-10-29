@@ -1,0 +1,36 @@
+{
+  "baseline_sdk": "e8e54d42",
+  "fixed_sdk": "bdd149c4",
+  "certificate_slot_regressions": {
+    "baseline": {"passed": 44, "failed": 4, "ignored": 0},
+    "fixed": {"passed": 48, "failed": 0, "ignored": 0},
+    "tests_use_elapsed_time_thresholds": false
+  },
+  "full_runtime": {"passed": 742, "failed": 0, "ignored": 11},
+  "ffi_unit": {"passed": 326, "failed": 0, "ignored": 2},
+  "ffi_doctest": {"passed": 0, "failed": 0, "ignored": 5},
+  "clippy_runtime_lib_tests_warnings_denied": true,
+  "rustfmt_and_diff_check": true,
+  "external_mount_verified_and_monitored": true,
+  "physical_before_certificate_fix": {
+    "app_source": "8a7abf8b",
+    "sdk_source": "e8e54d42",
+    "phone_network": "wifi",
+    "mac_dart": "jit",
+    "android_dart": "profile_aot",
+    "series_completed": false,
+    "completed_transfers": 1,
+    "payload_bytes": 3145979,
+    "mac_to_android_sha256_matches": true,
+    "mac_to_android_request_to_hash_seconds": 7.906,
+    "first_observed_verified_part_seconds": 5.717,
+    "max_observed_verified_write_gap_seconds": 1.103,
+    "android_to_mac_offer_observation_seconds": 120,
+    "android_to_mac_offer_received": false,
+    "android_to_mac_download_started": false,
+    "certificate_fix_caused_or_resolved_physical_failure": "not_established",
+    "original_qa_apk_restored_and_hash_verified": true,
+    "started_app_processes_exited": true,
+    "public_relay_changes": false
+  }
+}
