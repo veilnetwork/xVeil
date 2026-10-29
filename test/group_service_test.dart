@@ -8318,11 +8318,72 @@ void main() {
       expect(bundles.every((b) => b?.messages.length == 300), isTrue);
       expect(storage.segmentReads.values.every((n) => n == 1), isTrue);
       expect(identical(bundles[0]!.messages, bundles[1]!.messages), isFalse);
+      final other = bundles[1]!.messages.first;
+      final signature = Uint8List.fromList(other.signature);
+      final author = other.author.hex;
+      bundles[0]!.messages.first.signature[0] ^= 1;
+      bundles[0]!.messages.first.author.bytes[0] ^= 1;
+      bundles[0]!.messages.removeLast();
+      expect(bundles[1]!.messages, hasLength(300));
+      expect(other.signature, signature);
+      expect(other.author.hex, author);
       // A completed read must never hide deletion, damage, or a later repair.
       await storage.deleteStoredFile(first);
       expect(await svc.load(gid), isNull);
       await storage.storeFile(first, saved);
       expect((await svc.load(gid))!.messages, hasLength(300));
+    });
+
+    test('a shared segment parse failure does not hide damage or a repair',
+        () async {
+      final first = (await _groupFiles(storage, gid))[1];
+      final saved = (await storage.loadFile(first))!;
+      for (final damaged in [
+        utf8.encode('{bad-json'),
+        utf8.encode('null'),
+        utf8.encode('{}'),
+        [0xff],
+      ]) {
+        await storage.storeFile(first, Uint8List.fromList(damaged));
+        final gate = Completer<void>();
+        storage.segmentReadGate = gate;
+        storage.segmentReads.clear();
+        final pending = List.generate(5, (_) => svc.load(gid));
+        try {
+          for (var i = 0; i < 20; i++) {
+            await Future<void>.delayed(Duration.zero);
+          }
+          expect(storage.segmentReads[first], 1);
+        } finally {
+          storage.segmentReadGate = null;
+          gate.complete();
+          expect(await Future.wait(pending), everyElement(isNull));
+        }
+        await storage.storeFile(first, saved);
+        expect((await svc.load(gid))!.messages, hasLength(300));
+      }
+    });
+
+    test('sharing segment JSON does not share signature verdicts', () async {
+      final signer = _MessageCheckCountingSigner(owner);
+      final reader = GroupService(storage, signer);
+      addTearDown(reader.dispose);
+      final gate = Completer<void>();
+      storage.segmentReadGate = gate;
+      final pending = List.generate(3, (_) => reader.messagesOf(gid));
+      for (var i = 0; i < 20; i++) {
+        await Future<void>.delayed(Duration.zero);
+      }
+      storage.segmentReadGate = null;
+      gate.complete();
+      expect(await Future.wait(pending), everyElement(hasLength(300)));
+      expect(signer.checks, hasLength(300));
+      expect(signer.checks.values, everyElement(greaterThanOrEqualTo(3)));
+      final rejected = (await svc.load(gid))!.messages.last.body;
+      signer.rejectedBodies.add(rejected);
+      expect(await reader.messagesOf(gid), hasLength(299));
+      signer.rejectedBodies.clear();
+      expect(await reader.messagesOf(gid), hasLength(300));
     });
 
     test('failed shared segment reads are retried after the failure', () async {
