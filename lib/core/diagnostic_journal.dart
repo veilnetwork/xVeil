@@ -30,6 +30,12 @@ enum DiagnosticEvent {
   downloadReceived,
   backgroundService,
   callEnded,
+  p2pBootstrapSent,
+  p2pBootstrapFailed,
+  p2pBootstrapReceived,
+  modelInventorySent,
+  modelInventoryFailed,
+  modelInventoryReceived,
 }
 
 enum DiagnosticMetric {
