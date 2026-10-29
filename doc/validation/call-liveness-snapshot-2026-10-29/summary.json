@@ -39,22 +39,171 @@
   "wire_protocol_changed": false,
   "anonymous_report_fields_changed": false,
   "production_test_hooks_added": false,
-  "physical_candidate_installed": false,
-  "physical_candidate_tested": false,
+  "physical_candidate_installed": true,
+  "physical_candidate_tested": true,
   "old_25_second_failure_cause_proven": false,
   "all_open_cases_closed": false,
   "rust_builds": false,
-  "new_stand_apps_started": false,
+  "new_stand_apps_started": true,
   "pushed": false,
   "released": false,
   "cleanup": {
     "retired_groups_with_reused_system_pgid": 1,
     "android_package_processes": 0,
-    "recorded_owned_groups_checked": 242,
+    "recorded_owned_groups_checked": 250,
     "recorded_owned_groups_remaining": 0,
     "owned_mac_executable_processes": 0,
     "android_qa_process_present": false,
     "owned_adb_forward_present": false,
     "owned_vm_forwards_remaining": 0
+  },
+  "physical": {
+    "candidate_app_commit": "f389116a",
+    "candidate_code_commit": "cf1cf2ab",
+    "sdk_commit": "d19923f5",
+    "hidden_volume_commit": "1ea2366f",
+    "native_libraries_rebuilt": false,
+    "roles": {
+      "A": "Android, identity X",
+      "B": "Mac, identity X",
+      "C": "Mac, identity Y"
+    },
+    "mac_roles_share_host": true,
+    "microphones_muted": true,
+    "speech_quality_qualified": false,
+    "induced_periodic_callback_cancellation": true,
+    "product_test_hooks_added": false,
+    "first_baseline_instrumentation_attempt_inconclusive": true,
+    "controlled": {
+      "baseline-retry": {
+        "samples": 17,
+        "active_samples": 16,
+        "vm_observations": 15,
+        "missing_vm_active_samples": 1,
+        "last_seconds": 20.187,
+        "callee_ended_before_stop": true,
+        "signal_clock_unchanged_when_vm_observed": true,
+        "cache_timestamp_distinct_when_vm_observed": 1,
+        "engine_rx_first_last": [
+          1,
+          4
+        ],
+        "last_engine_rx_increase_seconds": 16.42,
+        "same_media_epoch": true,
+        "all_active_routes_onion": true,
+        "worker_stall_samples": 0,
+        "terminal_causes_before_stop": {
+          "mac": [
+            {
+              "reason": "timeout",
+              "origin": "livenessTimeout",
+              "phase": "active",
+              "route": "onion"
+            }
+          ],
+          "peer": [
+            {
+              "reason": "timeout",
+              "origin": "remoteSignal",
+              "phase": "active",
+              "route": "onion"
+            }
+          ],
+          "phone": [
+            {
+              "reason": "answeredElsewhere",
+              "origin": "siblingSelection",
+              "phase": "ringing",
+              "route": "p2p"
+            }
+          ]
+        }
+      },
+      "candidate": {
+        "samples": 54,
+        "active_samples": 54,
+        "vm_observations": 54,
+        "missing_vm_active_samples": 0,
+        "last_seconds": 64.872,
+        "callee_ended_before_stop": false,
+        "signal_clock_unchanged_when_vm_observed": true,
+        "cache_timestamp_distinct_when_vm_observed": 3,
+        "engine_rx_first_last": [
+          1,
+          13
+        ],
+        "last_engine_rx_increase_seconds": 64.872,
+        "same_media_epoch": true,
+        "all_active_routes_onion": true,
+        "worker_stall_samples": 0,
+        "terminal_causes_before_stop": {
+          "mac": [],
+          "peer": [],
+          "phone": [
+            {
+              "reason": "answeredElsewhere",
+              "origin": "siblingSelection",
+              "phase": "ringing",
+              "route": "p2p"
+            }
+          ]
+        }
+      }
+    },
+    "single_hangup_delivery_qualified_by_controlled_run": false,
+    "android_normal": {
+      "requested_observation_seconds": 120,
+      "last_sample_seconds": 118.561,
+      "samples": 57,
+      "both_sibling_devices_rang": true,
+      "answering_device": "A",
+      "sibling_stopped_ringing": true,
+      "periodic_callbacks_stopped": false,
+      "ended_before_script_stop": false,
+      "hangup_requests_before_cleanup": 1,
+      "remote_ended_after_single_hangup": true,
+      "remote_end_observed_seconds": 2.031,
+      "endpoints": {
+        "phone": {
+          "rx_first_last": [
+            0,
+            24
+          ],
+          "same_media_epoch": true,
+          "all_routes_onion": true,
+          "all_microphones_off": true,
+          "worker_stall_samples": 0,
+          "terminal_causes_before_stop": [],
+          "terminal_causes_after_stop": [
+            {
+              "reason": "hangup",
+              "origin": "diagnosticApi",
+              "phase": "active",
+              "route": "onion"
+            }
+          ]
+        },
+        "peer": {
+          "rx_first_last": [
+            0,
+            24
+          ],
+          "same_media_epoch": true,
+          "all_routes_onion": true,
+          "all_microphones_off": true,
+          "worker_stall_samples": 0,
+          "terminal_causes_before_stop": [],
+          "terminal_causes_after_stop": [
+            {
+              "reason": "hangup",
+              "origin": "remoteSignal",
+              "phase": "active",
+              "route": "onion"
+            }
+          ]
+        }
+      }
+    },
+    "candidate_packaged_artifacts_verified": true
   }
 }
