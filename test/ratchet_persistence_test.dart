@@ -51,6 +51,7 @@ class _FakeRatchetNode implements RatchetStateHandle {
 
   /// Frames refused because the receiving state was not there.
   int refusedForMissingState = 0;
+  int dirtyPeeks = 0;
 
   static String _hex(Uint8List k) =>
       [for (final b in k) b.toRadixString(16).padLeft(2, '0')].join();
@@ -137,6 +138,7 @@ class _FakeRatchetNode implements RatchetStateHandle {
   ({List<Uint8List> keys, int remaining, int generation}) peekDirty(
     int maxKeys,
   ) {
+    dirtyPeeks++;
     final ordered = _dirty.keys.toList()..sort();
     final named = ordered.take(maxKeys).toList();
     // CONSUMES NOTHING, and whatever did not fit is still listed — the two
@@ -350,6 +352,7 @@ class _PausableStorage extends HiddenVolumeStorage {
   /// Runs once, inside the first ratchet save, between the bytes being read out
   /// of veil and the records reaching the container.
   Future<void> Function()? beforeRatchetSave;
+  Future<void> Function()? beforeRatchetForget;
 
   @override
   Future<void> saveRatchetStates(List<RatchetStateEntry> entries) async {
@@ -359,6 +362,16 @@ class _PausableStorage extends HiddenVolumeStorage {
       await hook();
     }
     await super.saveRatchetStates(entries);
+  }
+
+  @override
+  Future<int> forgetRatchetStates(Iterable<Uint8List> keys) async {
+    final hook = beforeRatchetForget;
+    if (hook != null) {
+      beforeRatchetForget = null;
+      await hook();
+    }
+    return super.forgetRatchetStates(keys);
   }
 }
 
@@ -485,6 +498,54 @@ class _HeldShutdownRatchet extends RatchetPersistence {
     await release.future;
     return 0;
   }
+}
+
+Future<
+  ({
+    _PausableStorage storage,
+    _FakeRatchetNode node,
+    RatchetPersistence run,
+    Uint8List key,
+    Completer<void> release,
+    Future<int> gate,
+  })
+>
+_heldFlushGate({Duration coalesce = const Duration(milliseconds: 1)}) async {
+  final space = _space();
+  final storage = _PausableStorage(
+    ({required Uint8List password, required bool create}) =>
+        password.isEmpty ? null : space.store,
+  );
+  await storage.open(password: 'pw', createIfMissing: true);
+  final node = _FakeRatchetNode();
+  final key = _convKey(local: 3, peerNode: 42);
+  node.seal(key);
+  final entered = Completer<void>(), release = Completer<void>();
+  storage.beforeRatchetSave = () async {
+    entered.complete();
+    await release.future;
+  };
+  final run = RatchetPersistence(
+    native: node,
+    storage: storage,
+    coalesce: coalesce,
+  );
+  final gate = run.saveAll();
+  await entered.future;
+  addTearDown(() async {
+    if (!release.isCompleted) release.complete();
+    await gate;
+    await run.close();
+    await storage.close();
+  });
+  return (
+    storage: storage,
+    node: node,
+    run: run,
+    key: key,
+    release: release,
+    gate: gate,
+  );
 }
 
 void main() {
@@ -705,6 +766,220 @@ void main() {
   });
 
   group('flushes inside the coalescing window are batched', () {
+    for (final otherBinder in [false, true]) {
+      test(
+        'coalescing does not overtake a queued purge (other binder=$otherBinder)',
+        () async {
+          final r = await _heldFlushGate();
+          final purgeEntered = Completer<void>(),
+              purgeRelease = Completer<void>();
+          r.storage.beforeRatchetForget = () async {
+            purgeEntered.complete();
+            await purgeRelease.future;
+          };
+          addTearDown(() {
+            if (!purgeRelease.isCompleted) purgeRelease.complete();
+          });
+          r.node.seal(r.key);
+          final first = r.run.flush();
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+          final purger = otherBinder
+              ? RatchetPersistence(native: r.node, storage: r.storage)
+              : r.run;
+          if (otherBinder) {
+            addTearDown(() async {
+              if (!purgeRelease.isCompleted) purgeRelease.complete();
+              await purger.close();
+            });
+          }
+          final purge = purger.forgetPeer(_node(42));
+          var laterDone = false;
+          final later = r.run.flush().then((n) {
+            laterDone = true;
+            return n;
+          });
+          r.release.complete();
+          await r.gate;
+          await first;
+          await purgeEntered.future;
+          await Future<void>.delayed(Duration.zero);
+          try {
+            expect(
+              laterDone,
+              isFalse,
+              reason:
+                  'a later flush must wait for the preceding purge transaction',
+            );
+          } finally {
+            purgeRelease.complete();
+            await purge;
+            await later;
+          }
+          expect(await r.storage.loadRatchetState(r.key), isNull);
+          expect(r.node.marked, isEmpty);
+        },
+      );
+    }
+
+    test(
+      'queued flushes share a fresh snapshot across elapsed windows',
+      () async {
+        final r = await _heldFlushGate();
+        final calls = <Future<int>>[];
+        for (var i = 0; i < 6; i++) {
+          r.node.seal(r.key);
+          calls.add(r.run.flush());
+          // The write gate stays held while several batching windows elapse.
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+        final done = Future.wait(calls);
+        r.release.complete();
+        await r.gate;
+        await done;
+        expect(
+          r.node.dirtyPeeks,
+          1,
+          reason:
+              'one queued snapshot can cover every change made before it starts',
+        );
+        expect(
+          _FakeConversation.decode(
+            (await r.storage.loadRatchetState(r.key))!,
+          )!.sent,
+          7,
+        );
+        expect(r.node.marked, isEmpty);
+      },
+    );
+
+    test(
+      'a change after export gets a separate snapshot, not the active one',
+      () async {
+        final r = await _heldFlushGate();
+        // Finish the fixture's initial gate, then hold a real dirty export.
+        r.release.complete();
+        await r.gate;
+        final entered = Completer<void>(), release = Completer<void>();
+        r.storage.beforeRatchetSave = () async {
+          entered.complete();
+          await release.future;
+        };
+        addTearDown(() {
+          if (!release.isCompleted) release.complete();
+        });
+        final first = r.run.flush();
+        await entered.future;
+        final later = <Future<int>>[];
+        for (var i = 0; i < 4; i++) {
+          r.node.seal(r.key);
+          later.add(r.run.flush());
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+        final done = Future.wait([first, ...later]);
+        release.complete();
+        await done;
+        expect(r.node.dirtyPeeks, 2);
+        expect(r.node.refusedStaleAcks, 1);
+        expect(
+          _FakeConversation.decode(
+            (await r.storage.loadRatchetState(r.key))!,
+          )!.sent,
+          5,
+        );
+        expect(r.node.marked, isEmpty);
+      },
+    );
+
+    test(
+      'a shared queued failure reaches all callers and can be retried',
+      () async {
+        final r = await _heldFlushGate();
+        final outcomes = <Future<bool>>[];
+        for (var i = 0; i < 4; i++) {
+          r.node.seal(r.key);
+          outcomes.add(
+            r.run.flush().then((_) => false, onError: (Object _) => true),
+          );
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+        r.storage.beforeRatchetSave = () async =>
+            throw StateError('fixture save failure');
+        r.release.complete();
+        await r.gate;
+        expect(await Future.wait(outcomes), everyElement(isTrue));
+        expect(r.run.degraded, isTrue);
+        expect(r.node.marked, hasLength(1));
+        await r.run.flush(now: true);
+        expect(r.run.degraded, isFalse);
+        expect(r.node.marked, isEmpty);
+        expect(
+          _FakeConversation.decode(
+            (await r.storage.loadRatchetState(r.key))!,
+          )!.sent,
+          5,
+        );
+      },
+    );
+
+    for (final force in [false, true]) {
+      test(
+        'strict flushes keep their individual barriers (now=$force)',
+        () async {
+          final r = await _heldFlushGate(
+            coalesce: force ? const Duration(milliseconds: 1) : Duration.zero,
+          );
+          final calls = <Future<int>>[];
+          for (var i = 0; i < 4; i++) {
+            r.node.seal(r.key);
+            calls.add(r.run.flush(now: force));
+          }
+          final done = Future.wait(calls);
+          r.release.complete();
+          await r.gate;
+          await done;
+          expect(r.node.dirtyPeeks, 4);
+          expect(
+            _FakeConversation.decode(
+              (await r.storage.loadRatchetState(r.key))!,
+            )!.sent,
+            5,
+          );
+        },
+      );
+    }
+
+    test(
+      'final save joins queued shared work before reporting completion',
+      () async {
+        final r = await _heldFlushGate();
+        final calls = <Future<int>>[];
+        for (var i = 0; i < 4; i++) {
+          r.node.seal(r.key);
+          calls.add(r.run.flush());
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+        var saved = false;
+        final finalSave = r.run.saveAll().then((n) {
+          saved = true;
+          return n;
+        });
+        await Future<void>.delayed(Duration.zero);
+        expect(saved, isFalse);
+        final done = Future.wait([...calls, finalSave]);
+        r.release.complete();
+        await r.gate;
+        await done;
+        expect(r.node.dirtyPeeks, 1);
+        expect(saved, isTrue);
+        expect(
+          _FakeConversation.decode(
+            (await r.storage.loadRatchetState(r.key))!,
+          )!.sent,
+          5,
+        );
+        expect(r.node.marked, isEmpty);
+      },
+    );
     test('ten sends in a burst cost two writes, and every one of them lands',
         () async {
       // One container commit per send and per receive: 190–310 s of flush

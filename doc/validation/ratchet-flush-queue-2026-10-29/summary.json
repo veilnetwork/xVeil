@@ -1,0 +1,81 @@
+{
+  "base_app_commit": "fa870c7a",
+  "sdk_commit": "f031513a",
+  "hidden_volume_commit": "1ea2366f",
+  "tested_lib_inventory_sha256": "c41b3ba7410949ba610c391726a221d19cefc69b9e3fc619a08701c625d03cbb",
+  "tests": {
+    "passed": 143,
+    "files": 10,
+    "new_tests": 8,
+    "pre_fix_failing_scenarios": 3,
+    "analysis_issues": 0
+  },
+  "controlled": {
+    "queued_requests": 6,
+    "pre_fix_dirty_list_reads": 6,
+    "fixed_dirty_list_reads": 1,
+    "latest_state_durable": true,
+    "active_exports_not_joined": true,
+    "forced_barriers_preserved": true,
+    "shared_failure_observed": true,
+    "shutdown_joined": true,
+    "intervening_transactions_preserved": true
+  },
+  "physical": {
+    "roles": {
+      "A": "Android identity X",
+      "B": "Mac identity X",
+      "C": "Mac identity Y"
+    },
+    "messages": 18,
+    "all_visible_seconds": 50.9,
+    "group_chunks_empty_seconds": 119.1,
+    "edit_seconds": 9.3,
+    "delete_seconds": 13.9,
+    "large_bodies_exact": true,
+    "duplicates": 0,
+    "remaining_outbox_by_role": {
+      "A": 0,
+      "B": 1,
+      "C": 0
+    },
+    "anonymous_modes_restored": true,
+    "native_test_hooks": false,
+    "remaining_kinds_by_role": {
+      "A": {},
+      "B": {
+        "p2p": 1
+      },
+      "C": {}
+    },
+    "outbox_after_mutations_before_mode_restore": {
+      "A": 0,
+      "B": 1,
+      "C": 0
+    }
+  },
+  "cold_readback": {
+    "histories_equal": true,
+    "order_equal": true,
+    "rows_each": 1673,
+    "surviving_fixture_rows_each": 17,
+    "delivered_outgoing_by_role": {
+      "A": 11,
+      "B": 11,
+      "C": 6
+    }
+  },
+  "speedup_proven": false,
+  "cleanup": {
+    "retired_groups_with_reused_system_pgid": 0,
+    "android_package_processes": 0,
+    "recorded_owned_groups_checked": 162,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false,
+    "owned_vm_forwards_remaining": 0
+  },
+  "pushed": false,
+  "released": false
+}
