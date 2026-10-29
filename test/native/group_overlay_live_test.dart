@@ -6,6 +6,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/core/log.dart' show devLogDirectoryOverride;
 import 'package:xveil/crypto/blake3.dart';
 import 'package:xveil/data/node/embedded_node.dart';
 import 'package:xveil/data/node/node_controller.dart';
@@ -15,10 +16,13 @@ import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/hv_native.dart';
 import 'package:xveil/data/transport/bootstrap_invite.dart';
 import 'package:xveil/data/transport/veil_flutter_transport.dart';
+import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/group.dart';
 import 'package:xveil/state/group_service.dart';
 import 'package:xveil/state/messaging.dart';
-import 'package:xveil/state/ratchet_persistence.dart';
+import 'package:xveil/state/peer_authorization_persistence.dart';
+
+import '../support/timed_native_store.dart';
 
 // Opt-in, local TCP only. Twelve actual embedded nodes, native signatures,
 // encrypted containers and the ordinary MessagingService fragmentation/ACK path.
@@ -38,15 +42,19 @@ Future<int> _port() async {
 }
 
 class _Member {
-  _Member(this.index, this.identity, this.root, this.lib);
+  _Member(this.index, this.identity, this.root, this.lib, this.clock);
   final int index;
   final String identity;
   final Directory root;
   final DynamicLibrary lib;
+  final Stopwatch clock;
+  NativeTiming? observeSystem;
+  StreamSubscription<dynamic>? receiveTap;
   EmbeddedNodeController? controller;
   VeilFlutterTransport? transport;
   HiddenVolumeStorage? storage;
   FfiRatchetStateHandle? nativeRatchet;
+  PeerAuthorizationPersistence? peerAuthorization;
   MessagingService? messaging;
   GroupService? groups;
   late NodeId id;
@@ -66,7 +74,7 @@ class _Member {
       adminSocket: admin,
       useBundledSeeds: false,
       meetingPoints: const [],
-      serveDht: false,
+      serveDht: Platform.environment['GROUP_OVERLAY_DHT'] != '0',
       lib: lib,
     );
     controller = EmbeddedNodeController(
@@ -76,11 +84,22 @@ class _Member {
     );
     await controller!.start();
     expect(controller!.current.phase, NodePhase.connected);
-    transport = await VeilFlutterTransport.connect(app);
-    id = await transport!.nodeId();
     final signed = EmbeddedNode.signMessage(identity, Uint8List(0), lib: lib);
-    expect(id, NodeId(blake3Hash(signed.publicKey)));
-    storage = HiddenVolumeStorage.async(workerSpaceOpener('${dir.path}/s.hv'));
+    id = NodeId(blake3Hash(signed.publicKey));
+    final opener = workerSpaceOpener('${dir.path}/s.hv');
+    storage = HiddenVolumeStorage.async(({
+      required password,
+      required create,
+    }) async {
+      final inner = await opener(password: password, create: create);
+      return inner == null
+          ? null
+          : TimedNativeStore(
+              inner,
+              clock,
+              (values) => observeSystem?.call(values),
+            );
+    });
     expect(
       await storage!.open(
         password: 'local-overlay-fixture',
@@ -90,12 +109,22 @@ class _Member {
     );
     nativeRatchet = FfiRatchetStateHandle.connect(app, lib: lib);
     expect(nativeRatchet, isNotNull);
-    final ratchet = RatchetPersistence(
+    peerAuthorization = PeerAuthorizationPersistence(
       native: nativeRatchet!,
       storage: storage!,
-      coalesce: kRatchetFlushCoalesce,
+    );
+    peerAuthorization!.restore(await storage!.loadPeerAuthorization());
+    peerAuthorization!.start();
+    final ratchet = TimedNativeRatchet(
+      native: nativeRatchet!,
+      storage: storage!,
+      peerAuthorization: peerAuthorization,
+      clock: clock,
+      observe: (values) => observeSystem?.call(values),
     );
     await ratchet.restore();
+    transport = await VeilFlutterTransport.connect(app);
+    expect(await transport!.nodeId(), id);
     messaging = MessagingService(transport!, storage!, anonymous: false)
       ..ratchet = ratchet;
     groups = GroupService(
@@ -152,6 +181,14 @@ class _Member {
         ingest(peer, json, true);
     messaging!.allowStrangerGroupSync = groups!.allowStrangerGroupSync;
     messaging!.start();
+    // AppHandle caches a broadcast controller; this adds a passive observer,
+    // not another native receive handler or a second dispatch.
+    receiveTap = transport!.messages().listen((message) {
+      final envelope = WireEnvelope.decode(message.payload);
+      if (envelope.kind == WireKind.groupEntry) {
+        observe?.call('transport_rx', message.src, envelope.body);
+      }
+    });
   }
 
   Future<String> invite() async {
@@ -189,28 +226,43 @@ void main() {
         Platform.environment['GROUP_OVERLAY_EVIDENCE']!,
       );
       expect(evidence.existsSync(), isTrue);
+      final oldLogDirectory = devLogDirectoryOverride;
+      devLogDirectoryOverride = evidence.path;
       final root = await Directory.systemTemp.createTemp('xvgo-');
       final members = <_Member>[];
       final result = <String, Object?>{
         'nodes': 12,
+        'product_const_gate': const bool.fromEnvironment('dart.vm.product'),
+        'wall_epoch_us': DateTime.now().microsecondsSinceEpoch,
         'host_pid': pid,
         'local_tcp_only': true,
         'public_discovery': false,
+        'dht_participation': Platform.environment['GROUP_OVERLAY_DHT'] != '0',
         'membership_epoch_encryption': false,
         'native_signatures': true,
         'encrypted_stores': true,
         'ratchet_persistence': true,
+        'peer_authorization_persistence': true,
         'separate_processes': false,
       };
       final samples = <Map<String, Object?>>[];
       final trace = <Map<String, Object?>>[];
+      final systemTrace = <Map<String, Object?>>[];
+      var timingDropped = 0;
+      var activeWindow = -1;
       final subscriptions = <StreamSubscription<dynamic>>[];
       final incoming = <String, Map<int, int>>{};
       final events = <String, int>{};
       final wall = Stopwatch()..start();
       void save() => File('${evidence.path}/native-overlay-result-private.json')
           .writeAsStringSync(
-            jsonEncode({...result, 'samples': samples, 'trace': trace}),
+            jsonEncode({
+              ...result,
+              'samples': samples,
+              'trace': trace,
+              'system_trace': systemTrace,
+              'timing_dropped': timingDropped,
+            }),
           );
       try {
         final buckets = [<String>[], <String>[]];
@@ -242,7 +294,7 @@ void main() {
         }
         expect(buckets.map((b) => b.length), [6, 6]);
         for (final identity in [...buckets[0], ...buckets[1]]) {
-          final member = _Member(members.length, identity, root, lib);
+          final member = _Member(members.length, identity, root, lib, wall);
           members.add(member);
           await member.open();
           stderr.writeln(
@@ -294,6 +346,9 @@ void main() {
         for (final member in members) {
           member.sendEnabled = true;
         }
+        result['private_node_ids'] = [
+          for (final member in members) member.id.hex,
+        ];
         final roster = members.map((m) => m.id).toList();
         final old = {
           for (final id in roster)
@@ -312,6 +367,18 @@ void main() {
         );
         final byId = {for (final member in members) member.id: member.index};
         for (final member in members) {
+          member.observeSystem = (values) {
+            if (activeWindow < 0) return;
+            if (systemTrace.length >= 65536) {
+              timingDropped++;
+              return;
+            }
+            systemTrace.add({
+              ...values,
+              'member': member.index,
+              'window': activeWindow,
+            });
+          };
           member.observe = (phase, peer, json) {
             final wire = jsonDecode(json) as Map;
             for (final row in (wire['g'] as List? ?? const [])) {
@@ -334,6 +401,13 @@ void main() {
               if (!body.startsWith('overlay-live-')) return;
               incoming.putIfAbsent(body, () => {})[member.index] =
                   wall.elapsedMicroseconds;
+              trace.add({
+                'phase': 'visible',
+                'member': member.index,
+                'peer': byId[event.message.author],
+                'sample': int.parse(body.substring(13)),
+                'us': wall.elapsedMicroseconds,
+              });
               events.update(
                 '$body|${member.index}',
                 (n) => n + 1,
@@ -345,6 +419,7 @@ void main() {
         for (final sourceIndex in [0, 6, 5, 11]) {
           final source = members[sourceIndex];
           final body = 'overlay-live-${samples.length}';
+          activeWindow = samples.length;
           final started = wall.elapsedMicroseconds;
           expect(await source.groups!.postMessage(gid, body), isTrue);
           await _until(() async {
@@ -370,6 +445,7 @@ void main() {
           }
           samples.add({
             'source_index': sourceIndex,
+            'started_us': started,
             'visible_ms': visible.map((k, v) => MapEntry('$k', v)),
           });
           save();
@@ -383,6 +459,10 @@ void main() {
         }
         result['converged'] = true;
       } finally {
+        activeWindow = -1;
+        for (final member in members) {
+          await member.receiveTap?.cancel();
+        }
         for (final subscription in subscriptions) {
           await subscription.cancel();
         }
@@ -401,6 +481,10 @@ void main() {
         }
         for (final member in members.reversed) {
           await clean('transport', () async => member.transport?.dispose());
+          await clean(
+            'peer-authorization',
+            () async => member.peerAuthorization?.close(),
+          );
           member.nativeRatchet?.close();
           await clean('controller', () async => member.controller?.stop());
           await clean('storage', () async => member.storage?.close());
@@ -428,6 +512,7 @@ void main() {
         save();
         if (cleanupErrors.isEmpty) await root.delete(recursive: true);
         expect(cleanupErrors, isEmpty);
+        devLogDirectoryOverride = oldLogDirectory;
         expect(result['nodes_stopped'], isTrue);
       }
     },
