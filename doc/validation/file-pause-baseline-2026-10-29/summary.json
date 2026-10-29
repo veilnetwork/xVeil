@@ -1,0 +1,122 @@
+{
+  "app_commit": "32bdcfbf",
+  "sdk_commit": "4857bebc",
+  "hidden_volume_commit": "1ea2366f",
+  "tested_lib_inventory_sha256": "ce08615187b4bf16de38a590bab62b8980e2ffac5a76c8d6f6ae7b642b120890",
+  "production_sources_changed": false,
+  "new_builds": false,
+  "previous_build_artifacts_verified": true,
+  "stand": {
+    "A": "Android identity X",
+    "B": "Mac identity X",
+    "C": "Mac identity Y",
+    "all_online": true,
+    "mac_clients_share_host": true,
+    "phone_network": "Wi-Fi",
+    "calls_active": false,
+    "content_p2p_denied": true,
+    "anonymous_setting": false,
+    "bulk_transport": "anonymous circuit stream",
+    "native_production_build": true,
+    "mac_debug": true,
+    "phone_aot_profile": true,
+    "mac_stream_summary_period_ms": 1000
+  },
+  "transfers": {
+    "C_to_B_Mac": {
+      "bytes": 3145979,
+      "complete": true,
+      "sha256_matches": true,
+      "download_seconds": 90.193,
+      "max_completed_piece_gap_seconds": 22.784,
+      "new_source_uncached": true,
+      "modes_restored": true
+    },
+    "C_to_A_Android": {
+      "bytes": 3145979,
+      "complete": true,
+      "sha256_matches": true,
+      "download_seconds": 158.093,
+      "max_completed_piece_gap_seconds": 48.318,
+      "new_source_uncached": true,
+      "modes_restored": true
+    }
+  },
+  "sampling": {
+    "completed_piece_bytes": 262144,
+    "mac_file_poll_seconds": 0.5,
+    "android_file_poll_seconds": 1,
+    "piece_gap_is_packet_idle": false,
+    "native_summaries_are_sampled": true
+  },
+  "mac_receiver_native": {
+    "source": {
+      "samples": 73,
+      "maxima": {
+        "blocked_age": 2043,
+        "consec_rto": 1,
+        "inflight": 238918,
+        "oo": 0,
+        "oo_bytes": 0,
+        "rack_rtt": 4439,
+        "read_buf": 8,
+        "reo_wnd": 8024,
+        "rto": 10000,
+        "rttvar": 1952,
+        "srtt": 3243,
+        "wb_total": 371
+      },
+      "samples_with_out_of_order_data": 0,
+      "samples_with_nonzero_local_blocked_age": 3
+    },
+    "receiver": {
+      "samples": 70,
+      "maxima": {
+        "blocked_age": 2024,
+        "consec_rto": 0,
+        "inflight": 8,
+        "oo": 116,
+        "oo_bytes": 228027,
+        "rack_rtt": 180,
+        "read_buf": 126848,
+        "reo_wnd": 32,
+        "rto": 2000,
+        "rttvar": 52,
+        "srtt": 130,
+        "wb_total": 107
+      },
+      "samples_with_out_of_order_data": 64,
+      "samples_with_nonzero_local_blocked_age": 2
+    }
+  },
+  "android_receiver_native_source_only": {
+    "samples": 124,
+    "maxima": {
+      "blocked_age": 3060,
+      "consec_rto": 2,
+      "inflight": 192254,
+      "pending": 229884,
+      "reo_wnd": 6362,
+      "rto": 10000,
+      "rttvar": 1956,
+      "wb_total": 262
+    },
+    "android_test_sink_removed": true,
+    "samples_with_empty_engine_pending_and_nonzero_inflight": 23
+  },
+  "all_file_pause_causes_closed": false,
+  "mutex_construction_hypothesis_confirmed": false,
+  "cleanup": {
+    "retired_groups_with_reused_system_pgid": 1,
+    "android_package_processes": 0,
+    "recorded_owned_groups_checked": 223,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false,
+    "owned_vm_forwards_remaining": 0
+  },
+  "new_rust_or_flutter_tests_run": false,
+  "pushed": false,
+  "released": false
+}
