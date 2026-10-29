@@ -1,5 +1,12 @@
 part of 'messaging_core.dart';
 
+typedef _OutboxRedrive = ({
+  NodeId peer,
+  OutboxFrame frame,
+  bool callSignal,
+  bool contactIdentity,
+});
+
 /// A flush owns a snapshot, not a lease to send rows after their ACK. Track
 /// changes even while that snapshot is being read. Nothing survives the pass.
 class _OutboxFlushSnapshot {
@@ -575,17 +582,10 @@ class _MessagingOutbox {
     // Splitting the walk decouples the two: every frame in this pass is
     // offered to the deposit gate before any of them is dialled, so a
     // destination that cannot be reached costs the LIVE half of the pass and
-    // nothing else. The dials keep their serial order and their ladder —
-    // firing them all at once would trade a pile-up for a storm.
-    final redrive =
-        <
-          ({
-            NodeId peer,
-            OutboxFrame frame,
-            bool callSignal,
-            bool contactIdentity,
-          })
-        >[];
+    // nothing else. Attempts retain serial order within each recipient and their ladder.
+    // A bounded number of recipient lanes prevents a single stalled dial
+    // from holding every other peer behind it.
+    final redrive = <String, List<_OutboxRedrive>>{};
     final plannedSilentPeers = <String>{};
     NodeId? selfNode;
     String? selfIdentityHex;
@@ -758,7 +758,9 @@ class _MessagingOutbox {
       //
       // Frames past the ceiling remain queued for the next pass. Nothing is
       // dropped and no attempt is counted against an unsent frame.
-      if (redrive.length >= _maxLiveRedrivesPerPass) continue;
+      if ((redrive[frame.peerHex]?.length ?? 0) >= _maxLiveRedrivesPerPass) {
+        continue;
+      }
       // Reserve only this pass's slot here. The persisted probe cadence and
       // retry ladder advance when the actual attempt starts, not while it is
       // waiting behind another peer. A cancelled candidate spends neither.
@@ -771,63 +773,93 @@ class _MessagingOutbox {
           continue;
         }
       }
-      redrive.add((
+      (redrive[frame.peerHex] ??= []).add((
         peer: peer,
         frame: frame,
         callSignal: isCallSignal,
         contactIdentity: contact?.status == ContactStatus.accepted,
       ));
     }
-    // The live half, after every deposit this pass had to offer. Bounded per
-    // send: this is NOT a delivery signal — a send returns when the local node
-    // takes the frame, so an unreachable peer looks exactly like a reachable
-    // one from here, and retention reasons about AGE rather than about what
-    // this did. What it must never do is fail to return, because the pass is
-    // single-flighted behind `_flushing` and one that never ends is the last
-    // one this process runs.
-    for (final entry in redrive) {
-      if (_owner._disposed) break;
-      if (!snapshot.contains(entry.frame.peerHex, entry.frame.frameId)) {
-        continue;
+    // Give each due recipient a slot before taking another from its backlog.
+    // The global ceiling stays 16 attempts; a cold first peer must not consume
+    // all of them while a healthy peer waits at the end of the stored list.
+    final selected = <String, List<_OutboxRedrive>>{};
+    var left = _maxLiveRedrivesPerPass;
+    for (var index = 0; left > 0; index++) {
+      var added = false;
+      for (final lane in redrive.entries) {
+        if (index >= lane.value.length) continue;
+        (selected[lane.key] ??= []).add(lane.value[index]);
+        added = true;
+        if (--left == 0) break;
       }
-      final now = _owner._now();
-      final key = _key(entry.frame.peerHex, entry.frame.frameId);
-      final backoff = _liveBackoff[key];
-      if (backoff != null && now.isBefore(backoff.nextAt)) continue;
-      if (!entry.callSignal && !_takeSilentProbe(entry.frame.peerHex, now)) {
-        continue;
-      }
-      final count = (backoff?.count ?? 0) + 1;
-      final baseMs = entry.callSignal
-          ? _callSignalLiveResend.inMilliseconds
-          : _liveResend.inMilliseconds;
-      final delayMs = _jittered(
-        (baseMs * (1 << (count - 1).clamp(0, 10))).clamp(
-          0,
-          _liveResendCap.inMilliseconds,
-        ),
-        entry.frame.frameId,
-      );
-      _liveBackoff[key] = (
-        count: count,
-        nextAt: now.add(Duration(milliseconds: delayMs)),
-        peer: entry.frame.peerHex,
-        lastSentAt: now,
-      );
-      devLog(
-        () =>
-            'xVeil[durable]: re-drive fid=${entry.frame.frameId} '
-            'dst=${entry.peer.short} attempt=$count '
-            't=${DateTime.now().millisecondsSinceEpoch}',
-      );
-      await boundedLiveLeg(
-        _redriveLive(
-          entry.peer,
-          entry.frame.wire,
-          contactIdentity: entry.contactIdentity,
-        ),
-      );
+      if (!added) break;
     }
+    // Join at most four worker jobs, each waiting for one recipient's attempts
+    // in order. Keep the existing live-leg deadline semantics: timing out stops
+    // waiting, not an already-started transport operation. The pass still
+    // admits at most 16 attempts; local/wire lanes and consent stay unchanged.
+    final lanes = selected.values.toList();
+    var next = 0;
+    Future<void> worker() async {
+      while (!_owner._disposed && next < lanes.length) {
+        final lane = lanes[next++];
+        for (final entry in lane) {
+          await _redriveCandidate(entry, snapshot);
+        }
+      }
+    }
+
+    await Future.wait<void>([
+      for (var i = 0; i < lanes.length && i < 4; i++) worker(),
+    ]);
+  }
+
+  Future<void> _redriveCandidate(
+    _OutboxRedrive entry,
+    _OutboxFlushSnapshot snapshot,
+  ) async {
+    if (_owner._disposed ||
+        !snapshot.contains(entry.frame.peerHex, entry.frame.frameId)) {
+      return;
+    }
+    final now = _owner._now();
+    final key = _key(entry.frame.peerHex, entry.frame.frameId);
+    final backoff = _liveBackoff[key];
+    if (backoff != null && now.isBefore(backoff.nextAt)) return;
+    if (!entry.callSignal && !_takeSilentProbe(entry.frame.peerHex, now)) {
+      return;
+    }
+    final count = (backoff?.count ?? 0) + 1;
+    final baseMs = entry.callSignal
+        ? _callSignalLiveResend.inMilliseconds
+        : _liveResend.inMilliseconds;
+    final delayMs = _jittered(
+      (baseMs * (1 << (count - 1).clamp(0, 10))).clamp(
+        0,
+        _liveResendCap.inMilliseconds,
+      ),
+      entry.frame.frameId,
+    );
+    _liveBackoff[key] = (
+      count: count,
+      nextAt: now.add(Duration(milliseconds: delayMs)),
+      peer: entry.frame.peerHex,
+      lastSentAt: now,
+    );
+    devLog(
+      () =>
+          'xVeil[durable]: re-drive fid=${entry.frame.frameId} '
+          'dst=${entry.peer.short} attempt=$count '
+          't=${DateTime.now().millisecondsSinceEpoch}',
+    );
+    await boundedLiveLeg(
+      _redriveLive(
+        entry.peer,
+        entry.frame.wire,
+        contactIdentity: entry.contactIdentity,
+      ),
+    );
   }
 
   /// Restore the original live lanes after restart and after the fast retry
