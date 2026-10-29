@@ -48,10 +48,10 @@
   "pushed": false,
   "released": false,
   "cleanup": {
-    "retired_groups_with_reused_system_pgid": 0,
+    "retired_groups_with_reused_system_pgid": 1,
     "android_package_processes": 0,
     "recorded_owned_groups_checked": 242,
-    "recorded_owned_groups_remaining": 1,
+    "recorded_owned_groups_remaining": 0,
     "owned_mac_executable_processes": 0,
     "android_qa_process_present": false,
     "owned_adb_forward_present": false,
