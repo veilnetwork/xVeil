@@ -1,0 +1,223 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-29",
+  "xveil_base": "12632fa3",
+  "veil_base": "d19923f5",
+  "veil_fix": "c9297488",
+  "hidden_volume": "1ea2366f",
+  "scope": {
+    "nodes": 12,
+    "processes": 1,
+    "physical_computers": 1,
+    "loopback_tcp": true,
+    "group_membership_epoch_encryption": false,
+    "native_signatures": true,
+    "native_transport_encryption": true,
+    "encrypted_worker_stores": true,
+    "ratchet_persistence": true,
+    "peer_authorization_persistence": true,
+    "dht_participation": true,
+    "operator_core_nodes": 0,
+    "public_discovery": false,
+    "flutter_jit_product_logging_gate": true,
+    "flutter_release_aot_qualified": false
+  },
+  "checks": {
+    "regression_failed_before_fix": true,
+    "new_tests": 4,
+    "runtime_passed": 732,
+    "runtime_ignored": 11,
+    "ffi_passed": 326,
+    "ffi_ignored": 2,
+    "dart_analysis_issues": 0,
+    "diff_check_passed": true,
+    "guarded_rust_commands": {
+      "runtime-suite": {
+        "exit_code": 0,
+        "external_mount_lost": false
+      },
+      "ffi-suite": {
+        "exit_code": 0,
+        "external_mount_lost": false
+      },
+      "native-candidate": {
+        "exit_code": 0,
+        "external_mount_lost": false
+      }
+    }
+  },
+  "artifact": {
+    "sha256": "f264769be98542e854e259242678e3001772536227955130aaf1a45cdd291af0",
+    "bytes": 24747168,
+    "features": [
+      "node-embedded",
+      "production-seeds",
+      "packet-tunnel"
+    ],
+    "default_features": false,
+    "test_low_difficulty": false,
+    "native_test_hooks": false,
+    "external_mount_verified_during_build": true
+  },
+  "sequential_runs": [
+    {
+      "label": "baseline_before",
+      "samples": [
+        {
+          "max_visible_ms": 16803,
+          "action_to_first_sender_ms": 72.39,
+          "sender_to_first_transport_callback_ms": 4288.62,
+          "first_callback_to_group_max_ms": 131.68,
+          "group_to_first_visibility_max_ms": 285.06
+        },
+        {
+          "max_visible_ms": 2329,
+          "action_to_first_sender_ms": 180.5,
+          "sender_to_first_transport_callback_ms": 51.53,
+          "first_callback_to_group_max_ms": 98.14,
+          "group_to_first_visibility_max_ms": 997.31
+        },
+        {
+          "max_visible_ms": 2440,
+          "action_to_first_sender_ms": 345.05,
+          "sender_to_first_transport_callback_ms": 103.87,
+          "first_callback_to_group_max_ms": 162.81,
+          "group_to_first_visibility_max_ms": 888.23
+        },
+        {
+          "max_visible_ms": 2375,
+          "action_to_first_sender_ms": 320.37,
+          "sender_to_first_transport_callback_ms": 25.66,
+          "first_callback_to_group_max_ms": 184.78,
+          "group_to_first_visibility_max_ms": 474.01
+        }
+      ],
+      "messages_per_recipient": 4,
+      "recipients_including_author": 12,
+      "all_visible_once": true,
+      "slow_seals_only": {
+        "threshold_ms": 1000,
+        "count": 38,
+        "over_5000ms": 11,
+        "median_ms": 3252.0,
+        "max_ms": 6299
+      },
+      "timing_events_dropped": 0,
+      "nodes_stopped": true,
+      "listeners_released": 12,
+      "host_exited": true,
+      "cleanup_error_count": 0
+    },
+    {
+      "label": "candidate",
+      "samples": [
+        {
+          "max_visible_ms": 12093,
+          "action_to_first_sender_ms": 71.52,
+          "sender_to_first_transport_callback_ms": 3192.28,
+          "first_callback_to_group_max_ms": 270.35,
+          "group_to_first_visibility_max_ms": 291.39
+        },
+        {
+          "max_visible_ms": 2153,
+          "action_to_first_sender_ms": 200.09,
+          "sender_to_first_transport_callback_ms": 58.42,
+          "first_callback_to_group_max_ms": 170.6,
+          "group_to_first_visibility_max_ms": 1026.25
+        },
+        {
+          "max_visible_ms": 2529,
+          "action_to_first_sender_ms": 212.01,
+          "sender_to_first_transport_callback_ms": 59.38,
+          "first_callback_to_group_max_ms": 99.26,
+          "group_to_first_visibility_max_ms": 1104.95
+        },
+        {
+          "max_visible_ms": 2857,
+          "action_to_first_sender_ms": 139.76,
+          "sender_to_first_transport_callback_ms": 27.51,
+          "first_callback_to_group_max_ms": 100.93,
+          "group_to_first_visibility_max_ms": 635.94
+        }
+      ],
+      "messages_per_recipient": 4,
+      "recipients_including_author": 12,
+      "all_visible_once": true,
+      "slow_seals_only": {
+        "threshold_ms": 1000,
+        "count": 33,
+        "over_5000ms": 3,
+        "median_ms": 3002,
+        "max_ms": 6641
+      },
+      "timing_events_dropped": 0,
+      "nodes_stopped": true,
+      "listeners_released": 12,
+      "host_exited": true,
+      "cleanup_error_count": 0
+    },
+    {
+      "label": "baseline_after",
+      "samples": [
+        {
+          "max_visible_ms": 12696,
+          "action_to_first_sender_ms": 67.72,
+          "sender_to_first_transport_callback_ms": 3252.99,
+          "first_callback_to_group_max_ms": 129.55,
+          "group_to_first_visibility_max_ms": 162.81
+        },
+        {
+          "max_visible_ms": 1436,
+          "action_to_first_sender_ms": 89.16,
+          "sender_to_first_transport_callback_ms": 19.1,
+          "first_callback_to_group_max_ms": 202.37,
+          "group_to_first_visibility_max_ms": 833.14
+        },
+        {
+          "max_visible_ms": 2731,
+          "action_to_first_sender_ms": 342.82,
+          "sender_to_first_transport_callback_ms": 60.95,
+          "first_callback_to_group_max_ms": 201.08,
+          "group_to_first_visibility_max_ms": 1051.04
+        },
+        {
+          "max_visible_ms": 2322,
+          "action_to_first_sender_ms": 67.23,
+          "sender_to_first_transport_callback_ms": 58.22,
+          "first_callback_to_group_max_ms": 190.6,
+          "group_to_first_visibility_max_ms": 381.02
+        }
+      ],
+      "messages_per_recipient": 4,
+      "recipients_including_author": 12,
+      "all_visible_once": true,
+      "slow_seals_only": {
+        "threshold_ms": 1000,
+        "count": 46,
+        "over_5000ms": 10,
+        "median_ms": 3174.0,
+        "max_ms": 6770
+      },
+      "timing_events_dropped": 0,
+      "nodes_stopped": true,
+      "listeners_released": 12,
+      "host_exited": true,
+      "cleanup_error_count": 0
+    }
+  ],
+  "additional_candidate_trace": {
+    "purpose": "diagnostic_only",
+    "named_lookup_count": 64,
+    "max_named_lookup_ms": 3894,
+    "misses": 1,
+    "over_5000ms": 0,
+    "all_visible_once": true,
+    "completed_samples": 4,
+    "nodes_stopped": true,
+    "listeners_released": 12,
+    "cleanup_error_count": 0,
+    "host_exited": true
+  },
+  "overall_delivery_speedup_proven": false,
+  "original_physical_backlog_timeline_complete": false
+}
