@@ -1,0 +1,54 @@
+{
+  "base_app_commit": "865f02a8",
+  "base_sdk_commit": "4857bebc",
+  "sdk_commit": "77070335d5194dd3c248603f38348a2e86e688b3",
+  "engine_sha256": "1d4ff2d0b37e058c2fb568cba1aeabdd03bd533e68868a6e16e96f05400a970e",
+  "tests": {
+    "stream_passed": 158,
+    "ffi_passed": 304,
+    "ffi_ignored": 1,
+    "ffi_child_run_included_in_parent_count": true,
+    "new_tests": 6,
+    "initial_red_failures": 3,
+    "clippy_passed": true,
+    "format_check_passed": true,
+    "initial_red_new_tests": 4,
+    "initial_red_total_tests": 11
+  },
+  "controlled": {
+    "first_repair_sack_exposes_earlier_lost_repairs": true,
+    "cumulative_repair_exposes_later_sequence_older_holes": true,
+    "karn_estimators_not_trained_from_repairs": true,
+    "fresh_original_minimum_rtt_required": true,
+    "local_pending_repair_not_timed": true,
+    "real_handoff_required": true,
+    "first_receipt_only": true,
+    "reordering_floor_ms_tested": 8000,
+    "same_send_time_sequence_wrap_tested": true,
+    "repair_eligible_ms_tested": 230,
+    "rto_deadline_ms_in_test": 10000
+  },
+  "external_target": {
+    "mount_verified_before_and_during_builds": true,
+    "mount_lost": false
+  },
+  "physical_candidate_tested": false,
+  "native_candidate_installed": false,
+  "all_file_pause_causes_closed": false,
+  "production_test_hooks_added": false,
+  "wire_protocol_changed": false,
+  "c_abi_changed": false,
+  "relay_changes": false,
+  "prior_stand_cleanup": {
+    "retired_groups_with_reused_system_pgid": 1,
+    "android_package_processes": 0,
+    "recorded_owned_groups_checked": 223,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false,
+    "owned_vm_forwards_remaining": 0
+  },
+  "pushed": false,
+  "released": false
+}
