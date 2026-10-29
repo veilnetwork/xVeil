@@ -1,0 +1,334 @@
+{
+  "date": "2026-10-30",
+  "sdk": "3bea87807f081f4f04fff5b91c019aed094faac3",
+  "baseline_sdk": "9f2456d1",
+  "source_hashes": {
+    "src/engine.rs": "f7dc48855e6c8654221d1e13026291018199f760cd9d3ce1ced47dc27b3de02f",
+    "tests/receive_capacity.rs": "9f41b019d33aa4d980803322dc80359a67804307cd458b9dec167f29f17856d5",
+    "tests/read_window_driver.rs": "795e18f9f172c1690826dd1d646898bbcd34eae4ffb2e42d902c4388bfd8fda8"
+  },
+  "guarantee": "Per-stream retained unique unread + OO payload <= actual receive window; metadata and allocator capacity are separate bounded costs.",
+  "invariants": {
+    "capacity_edge": "rcv_nxt + configured_window - unread_bytes",
+    "unique_oo_storage": true,
+    "sack_promises_retained": true,
+    "head_gap_fill_at_metadata_cap": true,
+    "first_sacked_content_preserved_under_conflicting_overlap": true,
+    "actual_receive_window_max": 2147483647,
+    "oo_metadata_entries_max": 8192
+  },
+  "regressions": {
+    "same_final_test_sources_on_baseline": true,
+    "old_integration": [
+      {
+        "status": "FAILED",
+        "passed": 1,
+        "failed": 1,
+        "ignored": 0
+      },
+      {
+        "status": "FAILED",
+        "passed": 1,
+        "failed": 6,
+        "ignored": 0
+      }
+    ],
+    "initial_unread_case": {
+      "window": 64,
+      "old": 80,
+      "new": 64
+    },
+    "overlap_case": {
+      "window": 128,
+      "old_oo_bytes": 4096,
+      "new_unique_oo_bytes": 127,
+      "head_gap_credit_bytes": 1
+    },
+    "bitmap_model": {
+      "starts": 3,
+      "seeds_each": 12,
+      "steps_each": 1500,
+      "total_steps": 54000,
+      "stream_bytes": 1024,
+      "checks_payload_bounds_and_stored_interval_union": true
+    }
+  },
+  "checks": {
+    "stream_passed": 216,
+    "stream_failed": 0,
+    "stream_ignored": 0,
+    "ffi": {
+      "status": "ok",
+      "passed": 326,
+      "failed": 0,
+      "ignored": 2
+    },
+    "ffi_features": [
+      "node-embedded",
+      "production-seeds",
+      "packet-tunnel"
+    ],
+    "ffi_default_features": false,
+    "clippy_lib_tests_deny_warnings": true,
+    "rustfmt_passed": true,
+    "new_tests": 9
+  },
+  "real_drivers": {
+    "type": "two real OnionStream drivers over FIFO CellDuplex",
+    "clock": "paused tokio virtual time",
+    "read_pause_ms": 2000,
+    "mss": 16,
+    "receive_window": 32,
+    "rto_init_min_max_ms": [
+      50,
+      50,
+      400
+    ],
+    "max_retransmits": 2,
+    "refusals": 39,
+    "bytes_intact": 2048,
+    "eof": true,
+    "closed_callbacks": 2,
+    "loss_events": 0
+  },
+  "mixed_ABA": {
+    "rows": [
+      {
+        "a_new": false,
+        "b_new": false,
+        "rack": false,
+        "drop_reopen": false,
+        "virtual_ms": 4130,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 237
+      },
+      {
+        "a_new": false,
+        "b_new": false,
+        "rack": false,
+        "drop_reopen": true,
+        "virtual_ms": 4237,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 252
+      },
+      {
+        "a_new": false,
+        "b_new": false,
+        "rack": true,
+        "drop_reopen": false,
+        "virtual_ms": 4130,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 237
+      },
+      {
+        "a_new": false,
+        "b_new": false,
+        "rack": true,
+        "drop_reopen": true,
+        "virtual_ms": 4237,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 252
+      },
+      {
+        "a_new": false,
+        "b_new": true,
+        "rack": false,
+        "drop_reopen": false,
+        "virtual_ms": 344,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 386
+      },
+      {
+        "a_new": false,
+        "b_new": true,
+        "rack": false,
+        "drop_reopen": true,
+        "virtual_ms": 1251,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 334
+      },
+      {
+        "a_new": false,
+        "b_new": true,
+        "rack": true,
+        "drop_reopen": false,
+        "virtual_ms": 344,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 386
+      },
+      {
+        "a_new": false,
+        "b_new": true,
+        "rack": true,
+        "drop_reopen": true,
+        "virtual_ms": 1251,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 334
+      },
+      {
+        "a_new": true,
+        "b_new": false,
+        "rack": false,
+        "drop_reopen": false,
+        "virtual_ms": 3397,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 290
+      },
+      {
+        "a_new": true,
+        "b_new": false,
+        "rack": false,
+        "drop_reopen": true,
+        "virtual_ms": 8431,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 285
+      },
+      {
+        "a_new": true,
+        "b_new": false,
+        "rack": true,
+        "drop_reopen": false,
+        "virtual_ms": 3397,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 290
+      },
+      {
+        "a_new": true,
+        "b_new": false,
+        "rack": true,
+        "drop_reopen": true,
+        "virtual_ms": 8431,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 285
+      },
+      {
+        "a_new": true,
+        "b_new": true,
+        "rack": false,
+        "drop_reopen": false,
+        "virtual_ms": 344,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 326
+      },
+      {
+        "a_new": true,
+        "b_new": true,
+        "rack": false,
+        "drop_reopen": true,
+        "virtual_ms": 349,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 327
+      },
+      {
+        "a_new": true,
+        "b_new": true,
+        "rack": true,
+        "drop_reopen": false,
+        "virtual_ms": 344,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 326
+      },
+      {
+        "a_new": true,
+        "b_new": true,
+        "rack": true,
+        "drop_reopen": true,
+        "virtual_ms": 349,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 327
+      }
+    ],
+    "all_three_phases_equal": true,
+    "phase_metrics_sha256": {
+      "A1": "726032b0697600ad18924e0a58a3f71b38e967d831093c52b14f5acfaf8ed599",
+      "B": "726032b0697600ad18924e0a58a3f71b38e967d831093c52b14f5acfaf8ed599",
+      "A2": "726032b0697600ad18924e0a58a3f71b38e967d831093c52b14f5acfaf8ed599"
+    },
+    "probe_source_sha256": "0d3a053c08cbfe5a27391a2f7667b76d7c5affae6ead8d4a01fe0eb3bb07c382",
+    "mss": 64,
+    "receive_window": 128,
+    "read_pause_ms": 25,
+    "one_way_delay_ms": 3,
+    "legacy_label": "04eb1c1d",
+    "new_label_A": "9f2456d1",
+    "new_label_B": "candidate",
+    "not_long_full_window_qualification": true
+  },
+  "legacy_long_window": {
+    "read_pause_ms": 2000,
+    "rto_init_min_max_ms": [
+      50,
+      50,
+      400
+    ],
+    "max_retransmits": 2,
+    "legacy_sender": "04eb1c1d",
+    "legacy_result": {
+      "sender_reset": true,
+      "virtual_ms": 412
+    },
+    "updated_both_result": {
+      "a_new": true,
+      "b_new": true,
+      "rack": true,
+      "drop_reopen": false,
+      "virtual_ms": 2319,
+      "intact_bytes_each_way": 4096,
+      "eof_both": true,
+      "dropped_window_updates": 0,
+      "wire_cells": 526
+    },
+    "requires_sender_persist_fix": "9f2456d1",
+    "not_production_timing": true,
+    "probe_source_sha256": "c92d23c8a18d2804ba68878c4cdf310bf20233427727f1b0c8ce1c003310a2d5"
+  },
+  "hygiene": {
+    "owned_process_checks": 17,
+    "all_owned_children_absent": true,
+    "mount_monitored_all_cargo_runs": true,
+    "source_variants_separate_targets": true,
+    "phone_or_gui_apps_started_or_installed": false,
+    "real_relays_changed": false,
+    "ffi_release_library_built": false,
+    "probe_release_executables_built": true,
+    "push_or_release": false
+  },
+  "remaining": [
+    "Original physical 33% and public-route file pauses",
+    "Mixed-version persist waiting and legacy rollout",
+    "Unknown cell and per-hop attribution",
+    "Other user reports and full multi-device matrix"
+  ]
+}
