@@ -727,9 +727,9 @@ class GroupService implements ArchiveGroups {
   }
 
   final GroupSnapshotSender? _send;
-  /// A reply must be durably queued before its request is acknowledged, but
-  /// need not await network admission inside serialized inbound processing.
-  /// Hosts without a separate reply scheduler retain the ordinary sender.
+  /// Replies and validated overlay relays must be durably queued before the
+  /// input is acknowledged, without awaiting live admission in the serialized
+  /// inbound lane. Hosts without a reply scheduler retain the ordinary sender.
   final GroupSnapshotSender? sendSyncResponse;
   final SpaceInviteSender? sendSpaceInvite;
   final SpaceInviteDecisionSender? sendSpaceInviteDecision;
@@ -16006,7 +16006,7 @@ class GroupService implements ArchiveGroups {
         !_rememberOverlayDelta(overlayId)) {
       return;
     }
-    await broadcastDelta(
+    await _broadcastDelta(
       manifest.groupId,
       messages: validMessages,
       reactions: validReactions,
@@ -16015,6 +16015,7 @@ class GroupService implements ArchiveGroups {
       publicReactions: validPublicReactions,
       exclude: {source},
       overlayId: overlayId,
+      sendOverride: sendSyncResponse,
     );
   }
 
@@ -21428,8 +21429,36 @@ class GroupService implements ArchiveGroups {
     /// Send to exactly these and nobody else — the forward of rows received
     /// from outside to my own devices.
     Set<NodeId>? onlyTo,
+  }) => _broadcastDelta(
+    groupId,
+    control: control,
+    messages: messages,
+    reactions: reactions,
+    posts: posts,
+    publicComments: publicComments,
+    publicReactions: publicReactions,
+    exclude: exclude,
+    overlayId: overlayId,
+    onlyTo: onlyTo,
+  );
+
+  Future<int> _broadcastDelta(
+    NodeId groupId, {
+    List<ControlEntry> control = const [],
+    List<GroupMessage> messages = const [],
+    List<GroupReaction> reactions = const [],
+    List<SpacePost> posts = const [],
+    List<SpacePublicComment> publicComments = const [],
+    List<SpacePublicReaction> publicReactions = const [],
+    Set<NodeId> exclude = const {},
+    String? overlayId,
+
+    /// Send to exactly these and nobody else — the forward of rows received
+    /// from outside to my own devices.
+    Set<NodeId>? onlyTo,
+    GroupSnapshotSender? sendOverride,
   }) async {
-    final send = _send;
+    final send = sendOverride ?? _send;
     final b = await load(groupId);
     if (b == null) return 0;
     final attempt = Stopwatch()..start();
