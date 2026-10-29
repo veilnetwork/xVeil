@@ -32,8 +32,6 @@
     "mount_verified_before_and_during_builds": true,
     "mount_lost": false
   },
-  "physical_candidate_tested": false,
-  "native_candidate_installed": false,
   "all_file_pause_causes_closed": false,
   "production_test_hooks_added": false,
   "wire_protocol_changed": false,
@@ -50,5 +48,8 @@
     "owned_vm_forwards_remaining": 0
   },
   "pushed": false,
-  "released": false
+  "released": false,
+  "physical_candidate_tested_in_initial_cycle": false,
+  "native_candidate_installed_in_initial_cycle": false,
+  "followup_physical_validation": "../rack-file-physical-2026-10-29/summary.json"
 }
