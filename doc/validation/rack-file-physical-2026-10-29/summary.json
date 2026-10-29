@@ -1,0 +1,151 @@
+{
+  "app_commit": "8dc01f5b12886ae747dbb2f70e71811d1d47d5c9",
+  "sdk_commit": "77070335d5194dd3c248603f38348a2e86e688b3",
+  "hidden_volume_commit": "1ea2366f",
+  "tested_lib_inventory_sha256": "ce08615187b4bf16de38a590bab62b8980e2ffac5a76c8d6f6ae7b642b120890",
+  "native_features": [
+    "node-embedded",
+    "production-seeds",
+    "packet-tunnel"
+  ],
+  "default_native_features": false,
+  "test_low_difficulty": false,
+  "native_test_hooks": false,
+  "new_production_sources_in_this_cycle": false,
+  "candidate_native_installed": true,
+  "artifact_hashes_verified_before_and_after_test": true,
+  "media_and_hidden_volume_unchanged": true,
+  "stand": {
+    "A": "Android identity X",
+    "B": "Mac identity X",
+    "C": "Mac identity Y",
+    "all_online": true,
+    "phone_network": "Wi-Fi",
+    "Mac_clients_share_host": true,
+    "mac_debug": true,
+    "phone_aot_profile": true,
+    "calls_active": false,
+    "content_p2p_denied": true,
+    "anonymous_setting": false,
+    "bulk_transport": "anonymous circuit stream"
+  },
+  "transfers": {
+    "mac-receiver": {
+      "download_seconds": 65.886,
+      "max_completed_piece_gap_seconds": 13.218,
+      "first_completed_piece_seconds": 5.568,
+      "max_gap_after_first_completed_piece_seconds": 13.218,
+      "complete": true,
+      "sha256_matches": true,
+      "native": {
+        "source": {
+          "samples": 54,
+          "maxima": {
+            "blocked_age": 3029,
+            "consec_rto": 1,
+            "inflight": 126848,
+            "oo": 0,
+            "oo_bytes": 0,
+            "pending": 208168,
+            "rack_rtt": 2045,
+            "reo_wnd": 8840,
+            "rto": 10000,
+            "rttvar": 2602,
+            "wb_total": 646
+          }
+        },
+        "Mac_sibling": {
+          "samples": 52,
+          "maxima": {
+            "blocked_age": 1000,
+            "consec_rto": 0,
+            "inflight": 8,
+            "oo": 63,
+            "oo_bytes": 124866,
+            "pending": 48,
+            "rack_rtt": 209,
+            "reo_wnd": 31,
+            "rto": 2000,
+            "rttvar": 42,
+            "wb_total": 35
+          }
+        }
+      },
+      "bytes": 3145979,
+      "new_source_uncached": true,
+      "modes_restored": true
+    },
+    "android-receiver": {
+      "download_seconds": 34.791,
+      "max_completed_piece_gap_seconds": 24.753,
+      "first_completed_piece_seconds": 24.753,
+      "max_gap_after_first_completed_piece_seconds": 2.227,
+      "complete": true,
+      "sha256_matches": true,
+      "native": {
+        "source": {
+          "samples": 27,
+          "maxima": {
+            "blocked_age": 2009,
+            "consec_rto": 0,
+            "inflight": 180965,
+            "oo": 0,
+            "oo_bytes": 0,
+            "pending": 260688,
+            "rack_rtt": 5100,
+            "reo_wnd": 10000,
+            "rto": 10000,
+            "rttvar": 574,
+            "wb_total": 598
+          }
+        }
+      },
+      "bytes": 3145979,
+      "new_source_uncached": true,
+      "modes_restored": true
+    }
+  },
+  "comparison": {
+    "prior_app_commit": "32bdcfbf",
+    "prior_sdk_commit": "4857bebc",
+    "mac_receiver": {
+      "download_seconds": 90.193,
+      "first_completed_piece_seconds": 7.565,
+      "max_gap_after_first_completed_piece_seconds": 22.784
+    },
+    "android_receiver": {
+      "download_seconds": 158.093,
+      "first_completed_piece_seconds": 16.838,
+      "max_gap_after_first_completed_piece_seconds": 48.318
+    },
+    "controlled_route_or_speed_comparison": false
+  },
+  "sampling": {
+    "completed_piece_bytes": 262144,
+    "mac_file_poll_seconds": 0.5,
+    "android_file_poll_seconds": 1,
+    "piece_gap_is_packet_idle": false
+  },
+  "repair_receipt_branch_activation_directly_measured": false,
+  "all_file_pause_causes_closed": false,
+  "source_crash_resume_retested": false,
+  "full_multi_device_matrix_retested": false,
+  "external_target": {
+    "mount_verified_before_and_during_builds": true,
+    "mount_lost": false
+  },
+  "cleanup": {
+    "retired_groups_with_reused_system_pgid": 0,
+    "android_package_processes": 0,
+    "recorded_owned_groups_checked": 229,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false,
+    "owned_vm_forwards_remaining": 0
+  },
+  "android_test_sink_removed": true,
+  "pushed": false,
+  "released": false,
+  "relays_updated": false
+}
