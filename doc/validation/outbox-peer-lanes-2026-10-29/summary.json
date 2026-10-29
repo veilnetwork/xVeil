@@ -1,0 +1,121 @@
+{
+  "base_app_commit": "ca24d440",
+  "sdk_commit": "4857bebc",
+  "hidden_volume_commit": "1ea2366f",
+  "tested_lib_inventory_sha256": "ddefe40ffe6fb609b1979ad9c9ffd35212322c53dc0349fe9cd12161c3916e19",
+  "physical": {
+    "roles": {
+      "A": "Android identity X",
+      "B": "Mac identity X",
+      "C": "Mac identity Y"
+    },
+    "online": "all",
+    "phone_network": "Wi-Fi",
+    "messages": 18,
+    "large_body_chars": 12300,
+    "large_origins": [
+      "A",
+      "C"
+    ],
+    "all_visible_seconds": 49.8,
+    "group_chunks_empty_seconds": 108.5,
+    "edit_seconds": 9.3,
+    "delete_seconds": 14.6,
+    "same_order": true,
+    "large_bodies_exact": true,
+    "duplicates": 0,
+    "mixed_topology_qualified": false,
+    "both_native_sessions_direct": true,
+    "native_receipts_from_C": {
+      "A": {
+        "native_chat_receipts_distinct": 6,
+        "native_chat_receipts_total": 6,
+        "log_dropped": 0
+      },
+      "B": {
+        "native_chat_receipts_distinct": 6,
+        "native_chat_receipts_total": 7,
+        "log_dropped": 0
+      }
+    },
+    "outbox_after_mutations_before_mode_restore": {
+      "A": {
+        "total": 0,
+        "kinds": {}
+      },
+      "B": {
+        "total": 1,
+        "kinds": {
+          "p2p": 1
+        }
+      },
+      "C": {
+        "total": 0,
+        "kinds": {}
+      }
+    },
+    "anonymous_modes_restored": true,
+    "native_test_hooks": false,
+    "test_low_difficulty": false
+  },
+  "cold_readback": {
+    "histories_equal": true,
+    "order_equal": true,
+    "rows_by_role": {
+      "A": 1758,
+      "B": 1758,
+      "C": 1758
+    },
+    "surviving_fixture_rows_each": 17,
+    "delivered_outgoing_by_role": {
+      "A": 11,
+      "B": 11,
+      "C": 6
+    }
+  },
+  "cleanup": {
+    "retired_groups_with_reused_system_pgid": 0,
+    "android_package_processes": 0,
+    "recorded_owned_groups_checked": 201,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false,
+    "owned_vm_forwards_remaining": 0
+  },
+  "pushed": false,
+  "released": false,
+  "end_to_end_speedup_proven": false,
+  "flutter_tests": {
+    "queue_sync_passed": 165,
+    "queue_sync_files": 9,
+    "ratchet_passed": 97,
+    "ratchet_files": 6,
+    "new_tests": 6,
+    "pre_fix_failures": 5,
+    "analysis_issues": 0
+  },
+  "native_libraries_changed": false,
+  "controlled": {
+    "healthy_recipient_moves_while_other_blocked": true,
+    "global_attempt_ceiling": 16,
+    "waiting_worker_limit": 4,
+    "backlog_cannot_take_every_slot": true,
+    "per_recipient_attempt_order_preserved": true,
+    "ack_cancels_waiting_recipient": true,
+    "legacy_deadline_semantics_preserved": true,
+    "durable_rows_preserved": true
+  },
+  "two_role_diagnostic_probe": {
+    "fixture_events": 3,
+    "fixture_chars_each": 2500,
+    "exact_on_B": 3,
+    "native_send_failures_observed": false,
+    "transport_failures_observed": false,
+    "resume_read_failure_later_recovered": true,
+    "current_runtime_class_verified_A_B": true,
+    "new_product_observers_or_cpu_profiling": false
+  },
+  "runtime_new_mac_method_verified": true,
+  "diagnostic_control_counter_misclassification_remains_open": true
+}
