@@ -6635,18 +6635,21 @@ class GroupService implements ArchiveGroups {
       {};
 
   // Cloud, device sync and list readers can load the same journal at once.
-  // Share only an unfinished read of its content-addressed segment. Each
-  // caller still decodes its own bundle and validates it normally; a later
-  // read goes back to storage so deletion, corruption and repair stay visible.
-  final Map<String, Future<Uint8List?>> _segmentReads = {};
+  // Share the JSON parse as well as an unfinished read. The parsed rows stay
+  // private to _joinSegments/load: every caller constructs its own mutable
+  // domain objects and validates them normally. Nothing is retained after
+  // completion; a later read must observe deletion, corruption and repair.
+  final Map<String, Future<({Object? json})?>> _segmentReads = {};
 
-  Future<Uint8List?> _readMessageSegment(String key) =>
+  Future<({Object? json})?> _readMessageSegment(String key) =>
       _segmentReads.putIfAbsent(
         key,
-        () => Future<Uint8List?>.sync(() => _storage.loadFile(key))
-            .whenComplete(() {
-              _segmentReads.remove(key);
-            }),
+        () => Future<({Object? json})?>.sync(() async {
+          final blob = await _storage.loadFile(key);
+          return blob == null ? null : (json: jsonDecode(utf8.decode(blob)));
+        }).whenComplete(() {
+          _segmentReads.remove(key);
+        }),
       );
 
   /// Pack [messages] into segments whose boundaries depend only on the rows
@@ -6722,12 +6725,12 @@ class GroupService implements ArchiveGroups {
     final rows = <Object?>[];
     for (final k in raw) {
       if (k is! String || !live.contains(k)) continue;
-      final blob = await _readMessageSegment(k);
-      if (blob == null) {
+      final segment = await _readMessageSegment(k);
+      if (segment == null) {
         return 'message segment ${k.substring(k.length - 8)} named by the '
             'header is missing';
       }
-      final list = jsonDecode(utf8.decode(blob));
+      final list = segment.json;
       if (list is! List) return 'message segment is not a list';
       rows.addAll(list);
     }
