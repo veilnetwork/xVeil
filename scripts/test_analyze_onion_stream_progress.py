@@ -27,10 +27,14 @@ class StreamProgressTests(unittest.TestCase):
         secret = 'PRIVATE_SENTINEL_never_export'
         result = analyze_driver([
             f'{secret} node=10.20.30.40 onion-stream-driver[987654321]: now=1 '
-            f'peer={secret} path=/private/{secret} password={secret} rto=1000ms oo=0'
+            f'peer={secret} path=/private/{secret} password={secret} rto=1000ms oo=0 '
+            'phase=Established eof=false rcv_nxt=4000000000',
+            'onion-stream-driver[987654321]: now=2 phase=Established eof=false '
+            'rcv_nxt=4000000010',
         ])
         text = json.dumps(result)
-        for value in [secret, '10.20.30.40', '987654321', '/private/']:
+        for value in [secret, '10.20.30.40', '987654321', '/private/',
+                      '4000000000', '4000000010']:
             self.assertNotIn(value, text)
         self.assertNotIn(secret, json.dumps(analyze_progress([
             {'seconds': 1, 'written': 4, 'message': secret, 'path': secret}
@@ -68,6 +72,41 @@ class StreamProgressTests(unittest.TestCase):
         self.assertEqual(result['trailing_no_progress_seconds'], 3)
         self.assertEqual(result['regressive_observations'], 1)
         self.assertEqual(result['observed_high_water_bytes'], 20)
+
+    def test_receive_prefix_excludes_handshake_fin_and_tracks_gap_arrivals(self):
+        def row(at, seq, oo=0, phase='Established', eof='false'):
+            return (f'onion-stream-driver[123]: now={at} phase={phase} '
+                    f'rcv_nxt={seq} oo_bytes={oo} eof={eof}')
+        result = analyze_driver([
+            row(0, 0, phase='SynSent'), row(100, 4000000000),
+            row(200, 4000000100), row(700, 4000000100, 20),
+            row(1200, 4000000100, 40), row(1700, 4000000100, 40),
+            row(2200, 4000000200), row(2300, 4000000201, eof='true'),
+        ])['receive_prefix_observations'][0]
+        self.assertEqual(result['sequence_advance'], 200)
+        self.assertEqual(result['advancing_intervals'], 2)
+        self.assertEqual(result['max_gap_between_observed_advances_ms'], 2000)
+        self.assertEqual(result['max_head_gap_observation_span_ms'], 1000)
+        self.assertEqual(result['ooo_growth_without_prefix_advance_samples'], 2)
+
+    def test_receive_prefix_wrap_rollback_and_missing_fields(self):
+        lines = [
+            'now=1 phase=Established rcv_nxt=4294967290 eof=false',
+            'now=2 phase=Established rcv_nxt=4 eof=false',
+            'now=2 phase=Established rcv_nxt=8 eof=false',  # ambiguous clock
+            'now=3 phase=Established rcv_nxt=7 eof=false',  # stale sequence
+            'now=4 phase=Established rcv_nxt=12 eof=false',
+            'now=5 phase=Established eof=false',  # do not bridge missing fields
+            'now=6 phase=Established rcv_nxt=1000 eof=false',
+            'now=7 phase=Established rcv_nxt=1004 eof=false',
+            'now=8 phase=Established rcv_nxt=4294967296 eof=false',
+        ]
+        result = analyze_driver('onion-stream-driver[1]: ' + line for line in lines)
+        receive = result['receive_prefix_observations'][0]
+        self.assertEqual(receive['sequence_advance'], 19)
+        self.assertEqual(receive['clock_discontinuities'], 1)
+        self.assertEqual(receive['ambiguous_sequence_intervals'], 1)
+        self.assertEqual(receive['max_gap_between_observed_advances_ms'], 0)
 
     def test_malformed_progress_and_cli_errors_do_not_disclose_paths(self):
         for value in [math.nan, math.inf, -1, True, 'secret']:

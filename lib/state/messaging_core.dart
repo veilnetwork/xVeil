@@ -3224,7 +3224,7 @@ class MessagingService {
     // conversation peer may be unreachable — or, for a mirrored OUTGOING
     // file, may never have had the blob at all.
     unawaited(deviceContentPull?.call(contentId));
-    _warmStreamPeer(peer);
+    _warmStreamPeer(peer, contentId: contentId);
     // An explicit user retry overrides a terminal "gone" mark — if the bytes
     // are still gone everywhere, the next reoffer round re-marks it.
     unawaited(_clearContentGone(contentId));
@@ -3449,7 +3449,7 @@ class MessagingService {
           'xVeil[content]: user download-to-file (unencrypted) '
           '${contentId.substring(0, 12)} -> $savedPath',
     );
-    _warmStreamPeer(peer);
+    _warmStreamPeer(peer, contentId: contentId);
     unawaited(_clearContentGone(contentId));
     _markContentDownloadStarted(contentId);
     if (await _storage.hasFile(contentId)) {
@@ -3812,8 +3812,11 @@ class MessagingService {
 
   /// Best-effort pre-warm of the outbound stream path toward [peer] (see
   /// [StreamTransport.warmStreamPeer]). Fire-and-forget: never blocks the
-  /// caller and never throws.
-  void _warmStreamPeer(NodeId peer) => _downloadResume.warmPeer(peer);
+  /// caller and never throws. For a pull, warm the same offering device that
+  /// openStream will use; the identity's advertisement can be mailbox-only or
+  /// point to a sibling without the bytes.
+  void _warmStreamPeer(NodeId peer, {String? contentId}) =>
+      _downloadResume.warmPeer(peer, contentId: contentId);
 
   /// An offer/manifest for a durable-pending content id arrived — the sender
   /// is provably online, resume soon (the short delay lets an already-running

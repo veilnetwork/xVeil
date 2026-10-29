@@ -1,0 +1,589 @@
+{
+  "schema_version": 1,
+  "sdk": "3bea87807f081f4f04fff5b91c019aed094faac3",
+  "frozen_frontend": "f389116a",
+  "physical_run_precedes_dart_warm_target_fix": true,
+  "network_transport": "wifi",
+  "p2p_policy": "deny",
+  "serial_transfers": true,
+  "rt_trace": true,
+  "native_summary_period_ms": 500,
+  "features": [
+    "node-embedded",
+    "production-seeds",
+    "packet-tunnel"
+  ],
+  "default_features": false,
+  "test_low_difficulty": false,
+  "native_test_hooks": false,
+  "mac_native_sha256": "a43381ed1c28f1832b9c3ddc9fe2e4e7dc4838d539b3b96ed7ffa75e1c62489b",
+  "android_native_sha256": "ffcf36d51548d0cee06c84049a51bb0605d733c47db3fffbae2921fdaf3ab0af",
+  "android_target": "aarch64-linux-android",
+  "android_api": 21,
+  "artifact_checks": {
+    "other_apk_entries_unchanged": true,
+    "same_signing_certificate": true,
+    "mac_other_artifacts_unchanged": true
+  },
+  "summary": {
+    "mac_to_android": {
+      "files": 5,
+      "sha256_matches": 5,
+      "median_seconds": 6.848,
+      "min_seconds": 6.78,
+      "max_seconds": 9.109,
+      "first_piece_min_seconds": 2.342,
+      "first_piece_max_seconds": 5.778,
+      "max_observed_verified_piece_gap_seconds": 1.135
+    },
+    "android_to_mac": {
+      "files": 5,
+      "sha256_matches": 5,
+      "median_seconds": 7.595,
+      "min_seconds": 6.059,
+      "max_seconds": 7.606,
+      "first_piece_min_seconds": 1.523,
+      "first_piece_max_seconds": 2.535,
+      "max_observed_verified_piece_gap_seconds": 1.022
+    }
+  },
+  "runs": [
+    {
+      "sample": 0,
+      "bytes": 3145979,
+      "sha256_matches": true,
+      "seconds": 9.109,
+      "first_piece_seconds": 5.778,
+      "max_gap_after_first_seconds": 1.123,
+      "progress_samples": 8,
+      "direction": "mac_to_android"
+    },
+    {
+      "sample": 0,
+      "bytes": 3145979,
+      "sha256_matches": true,
+      "seconds": 7.606,
+      "first_piece_seconds": 2.535,
+      "max_gap_after_first_seconds": 0.51,
+      "progress_samples": 15,
+      "direction": "android_to_mac"
+    },
+    {
+      "sample": 1,
+      "bytes": 3145979,
+      "sha256_matches": true,
+      "seconds": 6.78,
+      "first_piece_seconds": 2.342,
+      "max_gap_after_first_seconds": 1.117,
+      "progress_samples": 6,
+      "direction": "mac_to_android"
+    },
+    {
+      "sample": 1,
+      "bytes": 3145979,
+      "sha256_matches": true,
+      "seconds": 7.6,
+      "first_piece_seconds": 2.031,
+      "max_gap_after_first_seconds": 1.022,
+      "progress_samples": 15,
+      "direction": "android_to_mac"
+    },
+    {
+      "sample": 2,
+      "bytes": 3145979,
+      "sha256_matches": true,
+      "seconds": 6.845,
+      "first_piece_seconds": 2.397,
+      "max_gap_after_first_seconds": 1.124,
+      "progress_samples": 6,
+      "direction": "mac_to_android"
+    },
+    {
+      "sample": 2,
+      "bytes": 3145979,
+      "sha256_matches": true,
+      "seconds": 6.059,
+      "first_piece_seconds": 2.026,
+      "max_gap_after_first_seconds": 0.51,
+      "progress_samples": 12,
+      "direction": "android_to_mac"
+    },
+    {
+      "sample": 3,
+      "bytes": 3145979,
+      "sha256_matches": true,
+      "seconds": 6.848,
+      "first_piece_seconds": 2.347,
+      "max_gap_after_first_seconds": 1.135,
+      "progress_samples": 6,
+      "direction": "mac_to_android"
+    },
+    {
+      "sample": 3,
+      "bytes": 3145979,
+      "sha256_matches": true,
+      "seconds": 7.595,
+      "first_piece_seconds": 2.531,
+      "max_gap_after_first_seconds": 1.011,
+      "progress_samples": 15,
+      "direction": "android_to_mac"
+    },
+    {
+      "sample": 4,
+      "bytes": 3145979,
+      "sha256_matches": true,
+      "seconds": 7.939,
+      "first_piece_seconds": 3.489,
+      "max_gap_after_first_seconds": 1.124,
+      "progress_samples": 7,
+      "direction": "mac_to_android"
+    },
+    {
+      "sample": 4,
+      "bytes": 3145979,
+      "sha256_matches": true,
+      "seconds": 7.57,
+      "first_piece_seconds": 1.523,
+      "max_gap_after_first_seconds": 1.009,
+      "progress_samples": 15,
+      "direction": "android_to_mac"
+    }
+  ],
+  "endpoints": {
+    "mac": {
+      "driver": {
+        "driver_samples": 120,
+        "streams_observed": 10,
+        "omitted_summaries_at_stream_cap": 0,
+        "longest_observed_stream_span_ms": 7068,
+        "streams_with_out_of_order_data": 5,
+        "streams_with_rto_events": 0,
+        "established_zero_window_samples": 0,
+        "small_flight_rto_samples": 0,
+        "small_flight_rto_with_buffered_incoming_data_samples": 0,
+        "small_pending_rto_samples": 0,
+        "observed_maxima": {
+          "blocked_age": 3576,
+          "wb_total": 1582,
+          "inflight": 207038,
+          "cwnd": 3273811,
+          "rwnd": 8388608,
+          "pending": 176192,
+          "segs": 105,
+          "consec_rto": 0,
+          "read_buf": 21942,
+          "oo": 33,
+          "oo_bytes": 60274,
+          "srtt": 259,
+          "rttvar": 114,
+          "rto": 2000,
+          "reo_wnd": 37,
+          "rack_rtt": 300,
+          "rto_skipped_sacked": 94,
+          "sack_rto_refreshes": 0
+        },
+        "receive_prefix_observations": [
+          {
+            "samples": 12,
+            "sequence_advance": 3146962,
+            "advancing_intervals": 11,
+            "max_sample_interval_ms": 545,
+            "max_gap_between_observed_advances_ms": 545,
+            "max_head_gap_observation_span_ms": 0,
+            "ooo_growth_without_prefix_advance_samples": 0,
+            "ambiguous_sequence_intervals": 0,
+            "clock_discontinuities": 0
+          },
+          {
+            "samples": 13,
+            "sequence_advance": 3146962,
+            "advancing_intervals": 12,
+            "max_sample_interval_ms": 698,
+            "max_gap_between_observed_advances_ms": 698,
+            "max_head_gap_observation_span_ms": 0,
+            "ooo_growth_without_prefix_advance_samples": 0,
+            "ambiguous_sequence_intervals": 0,
+            "clock_discontinuities": 0
+          },
+          {
+            "samples": 11,
+            "sequence_advance": 3146958,
+            "advancing_intervals": 10,
+            "max_sample_interval_ms": 592,
+            "max_gap_between_observed_advances_ms": 592,
+            "max_head_gap_observation_span_ms": 0,
+            "ooo_growth_without_prefix_advance_samples": 0,
+            "ambiguous_sequence_intervals": 0,
+            "clock_discontinuities": 0
+          },
+          {
+            "samples": 12,
+            "sequence_advance": 3113918,
+            "advancing_intervals": 11,
+            "max_sample_interval_ms": 563,
+            "max_gap_between_observed_advances_ms": 563,
+            "max_head_gap_observation_span_ms": 0,
+            "ooo_growth_without_prefix_advance_samples": 0,
+            "ambiguous_sequence_intervals": 0,
+            "clock_discontinuities": 0
+          },
+          {
+            "samples": 13,
+            "sequence_advance": 3060853,
+            "advancing_intervals": 12,
+            "max_sample_interval_ms": 531,
+            "max_gap_between_observed_advances_ms": 531,
+            "max_head_gap_observation_span_ms": 0,
+            "ooo_growth_without_prefix_advance_samples": 0,
+            "ambiguous_sequence_intervals": 0,
+            "clock_discontinuities": 0
+          },
+          {
+            "samples": 15,
+            "sequence_advance": 408,
+            "advancing_intervals": 8,
+            "max_sample_interval_ms": 522,
+            "max_gap_between_observed_advances_ms": 502,
+            "max_head_gap_observation_span_ms": 0,
+            "ooo_growth_without_prefix_advance_samples": 0,
+            "ambiguous_sequence_intervals": 0,
+            "clock_discontinuities": 0
+          },
+          {
+            "samples": 10,
+            "sequence_advance": 384,
+            "advancing_intervals": 9,
+            "max_sample_interval_ms": 738,
+            "max_gap_between_observed_advances_ms": 738,
+            "max_head_gap_observation_span_ms": 0,
+            "ooo_growth_without_prefix_advance_samples": 0,
+            "ambiguous_sequence_intervals": 0,
+            "clock_discontinuities": 0
+          },
+          {
+            "samples": 11,
+            "sequence_advance": 368,
+            "advancing_intervals": 10,
+            "max_sample_interval_ms": 717,
+            "max_gap_between_observed_advances_ms": 717,
+            "max_head_gap_observation_span_ms": 0,
+            "ooo_growth_without_prefix_advance_samples": 0,
+            "ambiguous_sequence_intervals": 0,
+            "clock_discontinuities": 0
+          },
+          {
+            "samples": 11,
+            "sequence_advance": 368,
+            "advancing_intervals": 10,
+            "max_sample_interval_ms": 516,
+            "max_gap_between_observed_advances_ms": 516,
+            "max_head_gap_observation_span_ms": 0,
+            "ooo_growth_without_prefix_advance_samples": 0,
+            "ambiguous_sequence_intervals": 0,
+            "clock_discontinuities": 0
+          },
+          {
+            "samples": 10,
+            "sequence_advance": 336,
+            "advancing_intervals": 8,
+            "max_sample_interval_ms": 597,
+            "max_gap_between_observed_advances_ms": 597,
+            "max_head_gap_observation_span_ms": 0,
+            "ooo_growth_without_prefix_advance_samples": 0,
+            "ambiguous_sequence_intervals": 0,
+            "clock_discontinuities": 0
+          }
+        ],
+        "prefix_observations_are_not_exact_payload_or_network_silence": true,
+        "samples_are_not_packet_loss_attribution": true
+      },
+      "preparation": {
+        "mux_scopes_observed": 1,
+        "mux_totals": {
+          "received": 13886,
+          "routed": 13886,
+          "inbox_full": 0,
+          "inbox_full_data": 0,
+          "inbox_full_ack": 0,
+          "inbox_full_control": 0,
+          "inbox_closed": 0,
+          "unknown": 0,
+          "invalid": 0,
+          "accept_full": 0,
+          "accepted": 5
+        },
+        "preparation_stages": {
+          "circuit_open/result1/local0/address0": {
+            "samples": 14,
+            "median_ms": 0.0,
+            "max_ms": 7
+          },
+          "receiver_ads/result1/local0/address0": {
+            "samples": 10,
+            "median_ms": 5.0,
+            "max_ms": 3506
+          },
+          "receiver_ads/result1/local0/address2": {
+            "samples": 1,
+            "median_ms": 3514,
+            "max_ms": 3514
+          }
+        },
+        "outbound_preparation": {
+          "resolve_ms": {
+            "samples": 11,
+            "median_ms": 5,
+            "max_ms": 3514
+          },
+          "circuit_open_ms": {
+            "samples": 14,
+            "median_ms": 0.0,
+            "max_ms": 7
+          },
+          "confirm_ms": {
+            "samples": 14,
+            "median_ms": 80.5,
+            "max_ms": 234
+          },
+          "publish_ms": {
+            "samples": 14,
+            "median_ms": 0.0,
+            "max_ms": 0
+          }
+        },
+        "omitted_at_observation_cap": 0,
+        "observed_snapshots_not_complete_packet_loss_accounting": true,
+        "stage_durations_overlap_and_must_not_be_added": true
+      }
+    },
+    "android": {
+      "driver": {
+        "driver_samples": 115,
+        "streams_observed": 10,
+        "omitted_summaries_at_stream_cap": 0,
+        "longest_observed_stream_span_ms": 6439,
+        "streams_with_out_of_order_data": 0,
+        "streams_with_rto_events": 0,
+        "established_zero_window_samples": 0,
+        "small_flight_rto_samples": 0,
+        "small_flight_rto_with_buffered_incoming_data_samples": 0,
+        "small_pending_rto_samples": 0,
+        "observed_maxima": {
+          "blocked_age": 7,
+          "wb_total": 348,
+          "inflight": 126848,
+          "cwnd": 145433,
+          "rwnd": 8388608,
+          "pending": 163224,
+          "segs": 69,
+          "consec_rto": 0,
+          "read_buf": 168069,
+          "oo": 0,
+          "oo_bytes": 0,
+          "srtt": 213,
+          "rttvar": 103,
+          "rto": 2000,
+          "reo_wnd": 429,
+          "rack_rtt": 238,
+          "rto_skipped_sacked": 1191,
+          "sack_rto_refreshes": 0
+        },
+        "receive_prefix_observations": [
+          {
+            "samples": 9,
+            "sequence_advance": 3146962,
+            "advancing_intervals": 8,
+            "max_sample_interval_ms": 508,
+            "max_gap_between_observed_advances_ms": 508,
+            "max_head_gap_observation_span_ms": 0,
+            "ooo_growth_without_prefix_advance_samples": 0,
+            "ambiguous_sequence_intervals": 0,
+            "clock_discontinuities": 0
+          },
+          {
+            "samples": 11,
+            "sequence_advance": 3146962,
+            "advancing_intervals": 10,
+            "max_sample_interval_ms": 534,
+            "max_gap_between_observed_advances_ms": 534,
+            "max_head_gap_observation_span_ms": 0,
+            "ooo_growth_without_prefix_advance_samples": 0,
+            "ambiguous_sequence_intervals": 0,
+            "clock_discontinuities": 0
+          },
+          {
+            "samples": 12,
+            "sequence_advance": 3140033,
+            "advancing_intervals": 11,
+            "max_sample_interval_ms": 648,
+            "max_gap_between_observed_advances_ms": 648,
+            "max_head_gap_observation_span_ms": 0,
+            "ooo_growth_without_prefix_advance_samples": 0,
+            "ambiguous_sequence_intervals": 0,
+            "clock_discontinuities": 0
+          },
+          {
+            "samples": 10,
+            "sequence_advance": 3090219,
+            "advancing_intervals": 9,
+            "max_sample_interval_ms": 769,
+            "max_gap_between_observed_advances_ms": 769,
+            "max_head_gap_observation_span_ms": 0,
+            "ooo_growth_without_prefix_advance_samples": 0,
+            "ambiguous_sequence_intervals": 0,
+            "clock_discontinuities": 0
+          },
+          {
+            "samples": 11,
+            "sequence_advance": 2957801,
+            "advancing_intervals": 10,
+            "max_sample_interval_ms": 653,
+            "max_gap_between_observed_advances_ms": 653,
+            "max_head_gap_observation_span_ms": 0,
+            "ooo_growth_without_prefix_advance_samples": 0,
+            "ambiguous_sequence_intervals": 0,
+            "clock_discontinuities": 0
+          },
+          {
+            "samples": 13,
+            "sequence_advance": 392,
+            "advancing_intervals": 12,
+            "max_sample_interval_ms": 798,
+            "max_gap_between_observed_advances_ms": 798,
+            "max_head_gap_observation_span_ms": 0,
+            "ooo_growth_without_prefix_advance_samples": 0,
+            "ambiguous_sequence_intervals": 0,
+            "clock_discontinuities": 0
+          },
+          {
+            "samples": 12,
+            "sequence_advance": 384,
+            "advancing_intervals": 11,
+            "max_sample_interval_ms": 503,
+            "max_gap_between_observed_advances_ms": 503,
+            "max_head_gap_observation_span_ms": 0,
+            "ooo_growth_without_prefix_advance_samples": 0,
+            "ambiguous_sequence_intervals": 0,
+            "clock_discontinuities": 0
+          },
+          {
+            "samples": 11,
+            "sequence_advance": 376,
+            "advancing_intervals": 10,
+            "max_sample_interval_ms": 519,
+            "max_gap_between_observed_advances_ms": 519,
+            "max_head_gap_observation_span_ms": 0,
+            "ooo_growth_without_prefix_advance_samples": 0,
+            "ambiguous_sequence_intervals": 0,
+            "clock_discontinuities": 0
+          },
+          {
+            "samples": 12,
+            "sequence_advance": 360,
+            "advancing_intervals": 11,
+            "max_sample_interval_ms": 563,
+            "max_gap_between_observed_advances_ms": 563,
+            "max_head_gap_observation_span_ms": 0,
+            "ooo_growth_without_prefix_advance_samples": 0,
+            "ambiguous_sequence_intervals": 0,
+            "clock_discontinuities": 0
+          },
+          {
+            "samples": 13,
+            "sequence_advance": 352,
+            "advancing_intervals": 11,
+            "max_sample_interval_ms": 510,
+            "max_gap_between_observed_advances_ms": 510,
+            "max_head_gap_observation_span_ms": 0,
+            "ooo_growth_without_prefix_advance_samples": 0,
+            "ambiguous_sequence_intervals": 0,
+            "clock_discontinuities": 0
+          }
+        ],
+        "prefix_observations_are_not_exact_payload_or_network_silence": true,
+        "samples_are_not_packet_loss_attribution": true
+      },
+      "preparation": {
+        "mux_scopes_observed": 1,
+        "mux_totals": {
+          "received": 18263,
+          "routed": 18263,
+          "inbox_full": 0,
+          "inbox_full_data": 0,
+          "inbox_full_ack": 0,
+          "inbox_full_control": 0,
+          "inbox_closed": 0,
+          "unknown": 0,
+          "invalid": 0,
+          "accept_full": 0,
+          "accepted": 5
+        },
+        "preparation_stages": {
+          "circuit_open/result1/local0/address0": {
+            "samples": 25,
+            "median_ms": 2,
+            "max_ms": 4
+          },
+          "receiver_ads/result1/local0/address0": {
+            "samples": 10,
+            "median_ms": 26.5,
+            "max_ms": 3529
+          },
+          "receiver_ads/result1/local0/address2": {
+            "samples": 38,
+            "median_ms": 4.0,
+            "max_ms": 175
+          }
+        },
+        "outbound_preparation": {
+          "resolve_ms": {
+            "samples": 46,
+            "median_ms": 5.5,
+            "max_ms": 3530
+          },
+          "circuit_open_ms": {
+            "samples": 18,
+            "median_ms": 2.0,
+            "max_ms": 4
+          },
+          "confirm_ms": {
+            "samples": 18,
+            "median_ms": 78.0,
+            "max_ms": 234
+          },
+          "publish_ms": {
+            "samples": 18,
+            "median_ms": 0.0,
+            "max_ms": 0
+          }
+        },
+        "omitted_at_observation_cap": 0,
+        "observed_snapshots_not_complete_packet_loss_accounting": true,
+        "stage_durations_overlap_and_must_not_be_added": true
+      }
+    }
+  },
+  "power_observations_within_downloads": {
+    "count": 31,
+    "qa_foreground": 31,
+    "all_awake_charging_and_doze_active": true
+  },
+  "cleanup": {
+    "peer_trace_disabled": true,
+    "phone_trace_disabled": true,
+    "peer_settings_restored": true,
+    "phone_settings_restored": true,
+    "debug_property_restored": true,
+    "phone_exited": true,
+    "forward_removed": true,
+    "series_exit_code": 0,
+    "series_completed": true,
+    "candidate_mac_exited": true,
+    "baseline_ownership_restored": true,
+    "baseline_qa_restored": true,
+    "restored_installed_hash_verified": true,
+    "qa_exited": true
+  },
+  "controlled_route_ab_comparison": false,
+  "reported_33_percent_stall_closed": false
+}

@@ -207,7 +207,7 @@ extension _MessagingContentReceive on MessagingService {
       final cid = ref.contentId;
       if (!_groupPullSourceAllowed(peer, cid)) return;
       _contentAvailability.rememberRef(peer, ref);
-      _warmStreamPeer(peer);
+      _warmStreamPeer(peer, contentId: cid);
       devLog(
         () =>
             'xVeil[content]: group holder ref '
@@ -222,7 +222,7 @@ extension _MessagingContentReceive on MessagingService {
       return;
     }
     _rememberOfferedManifest(peer, manifest);
-    _warmStreamPeer(peer);
+    _warmStreamPeer(peer, contentId: manifest.contentId);
     devLog(
       () =>
           'xVeil[content]: group holder manifest '

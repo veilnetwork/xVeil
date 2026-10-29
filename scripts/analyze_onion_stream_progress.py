@@ -15,6 +15,68 @@ HEADER = re.compile(r'onion-stream-driver\[(\d{1,10})\]:\s+now=(\d{1,18})\b')
 MAX_STREAMS = 4096
 
 
+class _ReceiveProgress:
+    """Sampled contiguous receive prefix, never a network-silence detector."""
+
+    def __init__(self):
+        self.previous = None
+        self.last_advance = None
+        self.head_gap_span = 0
+        self.stats = dict.fromkeys((
+            'samples', 'sequence_advance', 'advancing_intervals',
+            'max_sample_interval_ms', 'max_gap_between_observed_advances_ms',
+            'max_head_gap_observation_span_ms',
+            'ooo_growth_without_prefix_advance_samples',
+            'ambiguous_sequence_intervals', 'clock_discontinuities',
+        ), 0)
+
+    def observe(self, at, body, values):
+        seq = re.search(r'\brcv_nxt=(\d{1,10})\b', body)
+        if (not re.search(r'\bphase=Established\b', body)
+                or not re.search(r'\beof=false\b', body)
+                or seq is None or int(seq[1]) > 0xffffffff):
+            # SYN initializes an arbitrary sequence number; FIN consumes one.
+            # Neither is application payload. Never bridge either transition.
+            self.previous = self.last_advance = None
+            self.head_gap_span = 0
+            return
+        self.stats['samples'] += 1
+        current = (at, int(seq[1]), values.get('oo_bytes'))
+        previous, self.previous = self.previous, current
+        if previous is None:
+            return
+        before, old_seq, old_oo = previous
+        delta = (current[1] - old_seq) & 0xffffffff
+        if at <= before or delta >= 0x80000000:
+            key = ('clock_discontinuities' if at <= before
+                   else 'ambiguous_sequence_intervals')
+            self.stats[key] += 1
+            self.last_advance = None
+            self.head_gap_span = 0
+            return
+        interval = at - before
+        self.stats['max_sample_interval_ms'] = max(
+            self.stats['max_sample_interval_ms'], interval)
+        if delta:
+            self.stats['sequence_advance'] += delta
+            self.stats['advancing_intervals'] += 1
+            if self.last_advance is not None:
+                key = 'max_gap_between_observed_advances_ms'
+                self.stats[key] = max(self.stats[key], at - self.last_advance)
+            self.last_advance = at
+            self.head_gap_span = 0
+        else:
+            oo = current[2]
+            if oo is not None and old_oo is not None and oo > old_oo:
+                self.stats['ooo_growth_without_prefix_advance_samples'] += 1
+            if oo and old_oo:
+                self.head_gap_span += interval
+                key = 'max_head_gap_observation_span_ms'
+                self.stats[key] = max(self.stats[key], self.head_gap_span)
+            else:
+                self.head_gap_span = 0
+
+
 def analyze_driver(lines):
     streams = {}
     maxima = {key: None for key in FIELDS}
@@ -29,7 +91,8 @@ def analyze_driver(lines):
             if len(streams) >= MAX_STREAMS:
                 omitted += 1
                 continue
-            streams[key] = {'first': at, 'last': at, 'ooo': False, 'rto': False}
+            streams[key] = {'first': at, 'last': at, 'ooo': False, 'rto': False,
+                            'receive': _ReceiveProgress()}
         stream = streams[key]
         stream['first'] = min(stream['first'], at)
         stream['last'] = max(stream['last'], at)
@@ -59,6 +122,7 @@ def analyze_driver(lines):
             small_pending_rtos += (values.get('inflight') == 0
                                    and 0 < values.get('pending', 0) <= 64
                                    and values.get('consec_rto', 0) > 0)
+        stream['receive'].observe(at, body, values)
         samples += 1
     return {
         'driver_samples': samples,
@@ -73,6 +137,14 @@ def analyze_driver(lines):
         'small_flight_rto_with_buffered_incoming_data_samples': duplex_small_rtos,
         'small_pending_rto_samples': small_pending_rtos,
         'observed_maxima': maxima,
+        # Numeric anonymous rows only, sorted by observed prefix advance. A
+        # snapshot can miss the beginning/end; no claim of exact file bytes,
+        # content association, or continuous silence between observations.
+        'receive_prefix_observations': sorted(
+            (s['receive'].stats for s in streams.values()
+             if s['receive'].stats['samples']),
+            key=lambda s: s['sequence_advance'], reverse=True),
+        'prefix_observations_are_not_exact_payload_or_network_silence': True,
         'samples_are_not_packet_loss_attribution': True,
     }
 
