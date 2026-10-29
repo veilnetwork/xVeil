@@ -1,0 +1,79 @@
+{
+  "base_app_commit": "6008fcdb1e06c3e13dd4164c974230a1554c4353",
+  "sdk_commit": "d19923f57484b955a68dd656d10d7e106c7d1c26",
+  "hidden_volume_commit": "1ea2366fdd03d2719959aa88d15185ae48835f26",
+  "source_sha256": {
+    "lib/state/group_service.dart": "bde749056a547c1529aafd135f6f15fdab2e3e073b37ae6d5378d23b580f7f66",
+    "test/group_service_test.dart": "63e5602b0d27f121c57203fa92770dd0b3bcad8607a3d764a2d4c2b620cd926e",
+    "test/group_overlay_topology_test.dart": "7ebc0cab1ce1387a5123807e3977b6b916316a6900d533d758f86884a3a473d7"
+  },
+  "confirmed": {
+    "xor_split_6_plus_6": true,
+    "directed_isolated_recipient_6_plus_1": true,
+    "contact_relay_already_existed": true,
+    "compact_stranger_delta_stopped_relay": true
+  },
+  "fix": {
+    "canonical_directed_successor_in_budget": true,
+    "additional_reachable_successor_when_budget_allows": true,
+    "xor_fills_remaining_slots": true,
+    "shared_roster_excludes_private_device_addresses": true,
+    "own_devices_always_appended": true,
+    "membership_and_epoch_filters_preserved": true,
+    "adopted_device_single_read_path_preserved": true,
+    "stranger_manifest_restored_before_relay": true,
+    "default_neighbor_count": 5,
+    "neighbor_count_range": [
+      1,
+      20
+    ],
+    "wire_protocol_changed": false,
+    "native_libraries_changed": false,
+    "relay_media_classification_or_priority_added": false,
+    "mailbox_policy_changed": false
+  },
+  "tests": {
+    "default": {
+      "passed": 510,
+      "skipped": 3
+    },
+    "diagnostics_enabled": {
+      "passed": 510,
+      "skipped": 3
+    },
+    "suite_counts_overlap": true,
+    "files": 12,
+    "new_tests": 10,
+    "new_service_network_tests": 4,
+    "new_topology_tests": 6,
+    "initial_red_tests": 3,
+    "initial_red_failures": 3,
+    "random_roster_trials": 1000,
+    "random_roster_size_range": [
+      6,
+      64
+    ],
+    "local_degree_range": [
+      1,
+      20
+    ],
+    "analysis_issues": 0,
+    "analysis_files": 3,
+    "existing_skips_require_native_ffi": 3
+  },
+  "validation_limits": {
+    "fake_signatures_and_containers": true,
+    "serialized_in_memory_transport": true,
+    "physical_12_client_network_qualified": false,
+    "mixed_versions_qualified": false,
+    "long_offline_qualified": false,
+    "arbitrary_offline_subset_progress_guaranteed": false,
+    "original_25_second_call_cause_proven": false,
+    "all_open_cases_closed": false
+  },
+  "stand_apps_started": false,
+  "rust_builds": false,
+  "installed": false,
+  "pushed": false,
+  "released": false
+}

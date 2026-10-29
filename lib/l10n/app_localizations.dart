@@ -3629,13 +3629,13 @@ abstract class AppL10n {
   /// No description provided for @groupSyncNeighborsLabel.
   ///
   /// In en, this message translates to:
-  /// **'XOR neighbours: {count}'**
+  /// **'Neighbours: {count}'**
   String groupSyncNeighborsLabel(int count);
 
   /// No description provided for @groupSyncNeighborsHint.
   ///
   /// In en, this message translates to:
-  /// **'How many XOR-closest members this device connects to for chat history. More neighbours improve redundancy but use more traffic. This setting is local to this device.'**
+  /// **'How many members this device exchanges chat history with. More neighbours improve redundancy but use more traffic. This setting is local to this device.'**
   String get groupSyncNeighborsHint;
 
   /// No description provided for @groupRenameTitle.

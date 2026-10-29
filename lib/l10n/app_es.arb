@@ -869,7 +869,7 @@
   "groupConvertConfirm": "Este chat pasa a ser una comunidad con canales, publicaciones y novedades. Se conservan los miembros y el historial. Se moverá a Comunidades. Esto no se puede deshacer.",
   "groupConvertAction": "Convertir",
   "groupSyncNeighborsTitle": "Sincronización del chat",
-  "groupSyncNeighborsLabel": "Vecinos XOR: {count}",
+  "groupSyncNeighborsLabel": "Vecinos: {count}",
   "@groupSyncNeighborsLabel": {
     "placeholders": {
       "count": {
@@ -877,7 +877,7 @@
       }
     }
   },
-  "groupSyncNeighborsHint": "A cuántos miembros más próximos por XOR se conecta este dispositivo para el historial del chat. Más vecinos mejoran la redundancia, pero gastan más tráfico. Este ajuste es local de este dispositivo.",
+  "groupSyncNeighborsHint": "Con cuántos miembros intercambia este dispositivo el historial del chat. Más vecinos mejoran la redundancia, pero gastan más tráfico. Este ajuste es local de este dispositivo.",
   "groupRenameTitle": "Cambiar el nombre del grupo",
   "groupRenameAction": "Cambiar el nombre",
   "groupRenameDenied": "No tienes permiso para cambiar el nombre de este grupo",
