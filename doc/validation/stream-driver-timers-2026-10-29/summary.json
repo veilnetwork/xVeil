@@ -46,15 +46,26 @@
     "c_abi_changed": false,
     "test_hooks_added": false
   },
-  "native_candidate_installed": false,
-  "physical_candidate_tested": false,
+  "native_candidate_installed": true,
+  "physical_candidate_tested": true,
   "all_file_pause_causes_closed": false,
   "external_target": {
     "mount_verified_before_and_during_builds": true,
     "mount_lost": false
   },
-  "new_stand_apps_started": false,
   "cleanup": {
+    "retired_groups_with_reused_system_pgid": 0,
+    "android_package_processes": 0,
+    "recorded_owned_groups_checked": 242,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false,
+    "owned_vm_forwards_remaining": 0
+  },
+  "pushed": false,
+  "released": false,
+  "unit_phase_cleanup": {
     "retired_groups_with_reused_system_pgid": 0,
     "android_package_processes": 0,
     "recorded_owned_groups_checked": 236,
@@ -64,6 +75,120 @@
     "owned_adb_forward_present": false,
     "owned_vm_forwards_remaining": 0
   },
-  "pushed": false,
-  "released": false
+  "stand_apps_started_during_unit_phase": false,
+  "physical": {
+    "app_commit": "e4dd6dd251ecb5951810abb663f441d8dde9fd5a",
+    "tested_lib_inventory_sha256": "ce08615187b4bf16de38a590bab62b8980e2ffac5a76c8d6f6ae7b642b120890",
+    "roles": {
+      "A": "Android identity X",
+      "B": "Mac identity X",
+      "C": "Mac identity Y"
+    },
+    "all_online": true,
+    "Mac_clients_share_host": true,
+    "phone_active_default_network_wifi": true,
+    "mac_debug": true,
+    "phone_aot_profile": true,
+    "calls_active": false,
+    "content_p2p_denied": true,
+    "anonymous_setting": false,
+    "bulk_transport": "anonymous circuit stream",
+    "native_features": [
+      "node-embedded",
+      "production-seeds",
+      "packet-tunnel"
+    ],
+    "default_native_features": false,
+    "test_low_difficulty": false,
+    "native_test_hooks": false,
+    "artifact_hashes_verified_before_and_after_test": true,
+    "media_and_hidden_volume_unchanged": true,
+    "transfers": {
+      "android-receiver": {
+        "complete": true,
+        "bytes": 3145979,
+        "sha256_matches": true,
+        "download_seconds": 23.657,
+        "max_completed_piece_gap_seconds": 6.894,
+        "new_source_uncached": true,
+        "first_completed_piece_seconds": 6.894,
+        "max_gap_after_first_completed_piece_seconds": 2.245,
+        "modes_restored": true,
+        "native": {
+          "source": {
+            "samples": 19,
+            "maxima": {
+              "blocked_age": 1017,
+              "consec_rto": 0,
+              "inflight": 67388,
+              "oo": 0,
+              "oo_bytes": 0,
+              "pending": 187154,
+              "rack_rtt": 271,
+              "reo_wnd": 485,
+              "rto": 2000,
+              "rttvar": 78,
+              "wb_total": 5963
+            }
+          }
+        }
+      },
+      "mac-receiver": {
+        "complete": true,
+        "bytes": 3145979,
+        "sha256_matches": true,
+        "download_seconds": 50.715,
+        "max_completed_piece_gap_seconds": 7.65,
+        "new_source_uncached": true,
+        "first_completed_piece_seconds": 5.074,
+        "max_gap_after_first_completed_piece_seconds": 7.65,
+        "modes_restored": true,
+        "native": {
+          "source": {
+            "samples": 45,
+            "maxima": {
+              "blocked_age": 1011,
+              "consec_rto": 1,
+              "inflight": 192825,
+              "oo": 0,
+              "oo_bytes": 0,
+              "pending": 201219,
+              "rack_rtt": 870,
+              "reo_wnd": 7608,
+              "rto": 9612,
+              "rttvar": 1798,
+              "wb_total": 286
+            }
+          },
+          "Mac_sibling": {
+            "samples": 45,
+            "maxima": {
+              "blocked_age": 1025,
+              "consec_rto": 1,
+              "inflight": 16,
+              "oo": 95,
+              "oo_bytes": 181012,
+              "pending": 48,
+              "rack_rtt": 471,
+              "reo_wnd": 55,
+              "rto": 2000,
+              "rttvar": 127,
+              "wb_total": 49
+            }
+          }
+        }
+      }
+    },
+    "sampling": {
+      "completed_piece_bytes": 262144,
+      "mac_file_poll_seconds": 0.5,
+      "android_file_poll_seconds": 1,
+      "piece_gap_is_packet_idle": false
+    },
+    "controlled_route_comparison": false,
+    "timer_starvation_contribution_to_previous_network_pauses_measured": false,
+    "source_crash_resume_retested": false,
+    "full_multi_device_matrix_retested": false,
+    "android_test_sink_removed": true
+  }
 }
