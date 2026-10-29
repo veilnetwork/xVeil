@@ -569,6 +569,7 @@ class GroupService implements ArchiveGroups {
     this._storage,
     this._signer, {
     this._send,
+    this.sendSyncResponse,
     this.sendSpaceInvite,
     this.sendSpaceInviteDecision,
     this.sendSpaceJoinRequest,
@@ -673,6 +674,10 @@ class GroupService implements ArchiveGroups {
   }
 
   final GroupSnapshotSender? _send;
+  /// A reply must be durably queued before its request is acknowledged, but
+  /// need not await network admission inside serialized inbound processing.
+  /// Hosts without a separate reply scheduler retain the ordinary sender.
+  final GroupSnapshotSender? sendSyncResponse;
   final SpaceInviteSender? sendSpaceInvite;
   final SpaceInviteDecisionSender? sendSpaceInviteDecision;
   final SpaceJoinRequestSender? sendSpaceJoinRequest;
@@ -14912,7 +14917,7 @@ class GroupService implements ArchiveGroups {
   );
 
   Future<bool> handleGroupSyncRequest(NodeId peer, Map req) async {
-    final send = _send;
+    final send = sendSyncResponse ?? _send;
     if (send == null) return false;
     final gidHex = req['gid'];
     if (gidHex is! String ||

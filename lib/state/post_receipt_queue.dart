@@ -1,20 +1,22 @@
 import 'dart:async';
 import 'dart:collection';
 
-/// Serial best-effort receipts for already committed effects. A dropped job is
-/// repaired by the sender's durable retry, never by acknowledging early.
+/// Bounded transport work for already committed effects. Receipts default to
+/// serial execution. Source work may use independent recipient lanes without
+/// overlapping two jobs in one lane. Dropped work retains its durable retry.
 class PostReceiptQueue {
   PostReceiptQueue({
     this.maxJobs = 128,
     this.maxBytes = 128 * 1024,
+    this.maxConcurrent = 1,
     this.onError,
-  });
+  }) : assert(maxConcurrent > 0);
 
-  final int maxJobs, maxBytes;
+  final int maxJobs, maxBytes, maxConcurrent;
   final void Function(Object, StackTrace)? onError;
   final _jobs = <String, _ReceiptJob>{};
   final _waiting = Queue<_ReceiptJob>();
-  _ReceiptJob? _active;
+  final _active = <String, _ReceiptJob>{};
   bool _closed = false;
   int _bytes = 0;
   int dropped = 0, coalesced = 0, failed = 0;
@@ -23,6 +25,7 @@ class PostReceiptQueue {
 
   Future<void> submit({
     required String key,
+    String lane = '',
     required int bytes,
     required Future<void> Function() send,
   }) {
@@ -40,7 +43,7 @@ class PostReceiptQueue {
       dropped++;
       return Future<void>.value();
     }
-    final job = _ReceiptJob(key, bytes, send);
+    final job = _ReceiptJob(key, lane, bytes, send);
     _jobs[key] = job;
     _bytes += bytes;
     _waiting.add(job);
@@ -49,20 +52,31 @@ class PostReceiptQueue {
   }
 
   void _pump() {
-    if (_closed || _active != null || _waiting.isEmpty) return;
-    final job = _active = _waiting.removeFirst();
-    Future<void>.sync(job.send).then<void>(
-      (_) => _finish(job),
-      onError: (Object error, StackTrace stack) {
-        failed++;
-        try {
-          onError?.call(error, stack);
-        } catch (_) {
-          // A diagnostic callback cannot poison receipt processing.
+    while (!_closed && _active.length < maxConcurrent && _waiting.isNotEmpty) {
+      _ReceiptJob? ready;
+      for (final candidate in _waiting) {
+        if (!_active.containsKey(candidate.lane)) {
+          ready = candidate;
+          break;
         }
-        _finish(job);
-      },
-    );
+      }
+      final job = ready;
+      if (job == null) return;
+      _waiting.remove(job);
+      _active[job.lane] = job;
+      Future<void>.sync(job.send).then<void>(
+        (_) => _finish(job),
+        onError: (Object error, StackTrace stack) {
+          failed++;
+          try {
+            onError?.call(error, stack);
+          } catch (_) {
+            // A diagnostic callback cannot poison receipt processing.
+          }
+          _finish(job);
+        },
+      );
+    }
   }
 
   void _release(_ReceiptJob job) {
@@ -72,25 +86,27 @@ class PostReceiptQueue {
   }
 
   void _finish(_ReceiptJob job) {
-    _active = null;
+    _active.remove(job.lane);
     _release(job);
     _pump();
   }
 
-  /// Pending ACKs can be lost safely. Join the one active send before the
+  /// Pending work retains durable recovery. Join every active send before the
   /// owner's final ratchet snapshot and before closing its native transport.
   Future<void> close() {
     _closed = true;
     while (_waiting.isNotEmpty) {
       _release(_waiting.removeFirst());
     }
-    return _active?.done.future ?? Future<void>.value();
+    return Future.wait(
+      _active.values.map((job) => job.done.future),
+    ).then((_) {});
   }
 }
 
 class _ReceiptJob {
-  _ReceiptJob(this.key, this.bytes, this.send);
-  final String key;
+  _ReceiptJob(this.key, this.lane, this.bytes, this.send);
+  final String key, lane;
   final int bytes;
   final Future<void> Function() send;
   final done = Completer<void>();
