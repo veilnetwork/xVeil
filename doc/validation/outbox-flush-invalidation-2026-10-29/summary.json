@@ -1,0 +1,128 @@
+{
+  "base_app_commit": "3cca412e",
+  "sdk_commit": "4857bebc",
+  "hidden_volume_commit": "1ea2366f",
+  "tested_lib_inventory_sha256": "ac88476dc79ff70c2d7101226eb9ac999ff2bfe8a4a27afad8f487c15a429c96",
+  "physical": {
+    "roles": {
+      "A": "Android identity X",
+      "B": "Mac identity X",
+      "C": "Mac identity Y"
+    },
+    "online": "all",
+    "phone_network": "Wi-Fi",
+    "messages": 18,
+    "large_body_chars": 12300,
+    "large_origins": [
+      "A",
+      "C"
+    ],
+    "all_visible_seconds": 43.5,
+    "group_chunks_empty_seconds": 112.3,
+    "edit_seconds": 9.2,
+    "delete_seconds": 15.4,
+    "same_order": true,
+    "large_bodies_exact": true,
+    "duplicates": 0,
+    "mixed_topology_qualified": false,
+    "both_native_sessions_direct": true,
+    "native_receipts_from_C": {
+      "A": {
+        "native_chat_receipts_distinct": 6,
+        "native_chat_receipts_total": 6,
+        "log_dropped": 0
+      },
+      "B": {
+        "native_chat_receipts_distinct": 6,
+        "native_chat_receipts_total": 7,
+        "log_dropped": 0
+      }
+    },
+    "outbox_after_mutations_before_mode_restore": {
+      "A": {
+        "total": 0,
+        "kinds": {}
+      },
+      "B": {
+        "total": 1,
+        "kinds": {
+          "p2p": 1
+        }
+      },
+      "C": {
+        "total": 0,
+        "kinds": {}
+      }
+    },
+    "anonymous_modes_restored": true,
+    "native_test_hooks": false,
+    "test_low_difficulty": false,
+    "raw_group_chunks_including_mutations": {
+      "A": {
+        "transfers": 4,
+        "unique_chunks_within_transfers": 16,
+        "received_chunks": 25
+      },
+      "B": {
+        "transfers": 7,
+        "unique_chunks_within_transfers": 39,
+        "received_chunks": 95
+      }
+    },
+    "packet_repeats_remain": true
+  },
+  "cold_readback": {
+    "histories_equal": true,
+    "order_equal": true,
+    "rows_by_role": {
+      "A": 1741,
+      "B": 1741,
+      "C": 1741
+    },
+    "surviving_fixture_rows_each": 17,
+    "delivered_outgoing_by_role": {
+      "A": 11,
+      "B": 11,
+      "C": 6
+    }
+  },
+  "cleanup": {
+    "retired_groups_with_reused_system_pgid": 0,
+    "android_package_processes": 0,
+    "recorded_owned_groups_checked": 195,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false,
+    "owned_vm_forwards_remaining": 0,
+    "transient_historical_pgid_reused_by_verified_system_daemon": true,
+    "system_process_not_terminated_by_cleanup": true
+  },
+  "pushed": false,
+  "released": false,
+  "end_to_end_speedup_proven": false,
+  "flutter_tests": {
+    "passed": 159,
+    "files": 8,
+    "new_tests": 13,
+    "pre_fix_failures": 6,
+    "additional_intermediate_failures": 3,
+    "analysis_issues": 0
+  },
+  "native_libraries_changed": false,
+  "controlled": {
+    "confirmed_selected_retry_cancelled": true,
+    "retirement_during_read_and_authorization_observed": true,
+    "requeued_payload_not_replaced_by_old_retry": true,
+    "old_retention_cannot_delete_requeued_row": true,
+    "batch_ack_destination_authority_preserved": true,
+    "disposal_cancels_unstarted_work": true,
+    "read_failure_retries": true,
+    "read_invalidation_overflow_retains_durable_rows": true,
+    "unrelated_peer_retirement_keeps_current_rows_due": true,
+    "retry_delay_starts_at_actual_attempt": true,
+    "cancelled_silent_probe_not_spent": true,
+    "read_invalidation_key_cap": 256,
+    "estimated_read_invalidation_byte_cap": 65536
+  }
+}
