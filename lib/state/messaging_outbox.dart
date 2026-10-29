@@ -64,6 +64,11 @@ class _MessagingOutbox {
 
   _OutboxFlushSnapshot? _flushSnapshot;
 
+  // A wait deadline does not cancel the underlying transport future. Keep
+  // the recipient occupied until that future actually settles, across flush
+  // passes, so late operations cannot pile up behind repeated deadlines.
+  final Map<String, Object> _activeLivePeers = {};
+
   // Large replication slices share the endpoint's background source lane
   // with file bodies. Small group/control updates keep their normal path.
   // Derive this from durable wire kind so restart/re-drive keeps the lane;
@@ -464,11 +469,11 @@ class _MessagingOutbox {
       devLog(
         () =>
             'xVeil[durable]: live leg ABANDONED after '
-            '${_owner.liveLegDeadline.inSeconds}s — the durable copy is '
-            'already deposited, so the pass moves on',
+            '${_owner.liveLegDeadline.inSeconds}s — the durable copy remains '
+            'queued, so the pass moves on',
       );
     } catch (_) {
-      // Best-effort by contract; the durable copy and the deposit both stand.
+      // Best-effort by contract; the durable copy remains queued until ACK.
     }
   }
 
@@ -744,6 +749,7 @@ class _MessagingOutbox {
       }
       final now = _owner._now();
       if (!snapshot.contains(frame.peerHex, frame.frameId)) continue;
+      if (_activeLivePeers.containsKey(frame.peerHex)) continue;
       final backoff = _liveBackoff[_key(frame.peerHex, frame.frameId)];
       if (backoff != null && now.isBefore(backoff.nextAt)) continue;
       // A CEILING ON THE LIVE HALF OF ONE PASS.
@@ -805,7 +811,7 @@ class _MessagingOutbox {
       while (!_owner._disposed && next < lanes.length) {
         final lane = lanes[next++];
         for (final entry in lane) {
-          await _redriveCandidate(entry, snapshot);
+          if (!await _redriveCandidate(entry, snapshot)) break;
         }
       }
     }
@@ -815,20 +821,24 @@ class _MessagingOutbox {
     ]);
   }
 
-  Future<void> _redriveCandidate(
+  // False leaves this recipient's unsent tail for a later pass: its actual
+  // operation is still running even though this worker stopped waiting.
+  Future<bool> _redriveCandidate(
     _OutboxRedrive entry,
     _OutboxFlushSnapshot snapshot,
   ) async {
     if (_owner._disposed ||
         !snapshot.contains(entry.frame.peerHex, entry.frame.frameId)) {
-      return;
+      return true;
     }
+    final peerHex = entry.frame.peerHex;
+    if (_activeLivePeers.containsKey(peerHex)) return false;
     final now = _owner._now();
     final key = _key(entry.frame.peerHex, entry.frame.frameId);
     final backoff = _liveBackoff[key];
-    if (backoff != null && now.isBefore(backoff.nextAt)) return;
+    if (backoff != null && now.isBefore(backoff.nextAt)) return true;
     if (!entry.callSignal && !_takeSilentProbe(entry.frame.peerHex, now)) {
-      return;
+      return true;
     }
     final count = (backoff?.count ?? 0) + 1;
     final baseMs = entry.callSignal
@@ -853,13 +863,26 @@ class _MessagingOutbox {
           'dst=${entry.peer.short} attempt=$count '
           't=${DateTime.now().millisecondsSinceEpoch}',
     );
-    await boundedLiveLeg(
-      _redriveLive(
-        entry.peer,
-        entry.frame.wire,
-        contactIdentity: entry.contactIdentity,
-      ),
-    );
+    final token = Object();
+    _activeLivePeers[peerHex] = token;
+    var completed = false;
+    Future<void> send() async {
+      try {
+        await _redriveLive(
+          entry.peer,
+          entry.frame.wire,
+          contactIdentity: entry.contactIdentity,
+        );
+      } finally {
+        completed = true;
+        if (identical(_activeLivePeers[peerHex], token)) {
+          _activeLivePeers.remove(peerHex);
+        }
+      }
+    }
+
+    await boundedLiveLeg(send());
+    return completed;
   }
 
   /// Restore the original live lanes after restart and after the fast retry
@@ -1377,6 +1400,7 @@ class _MessagingOutbox {
 
   void dispose() {
     _flushSnapshot?.cancel();
+    _activeLivePeers.clear();
     for (final timer in _fastCallRetryTimers.values) {
       timer.cancel();
     }
