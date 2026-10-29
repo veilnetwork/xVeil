@@ -1386,6 +1386,67 @@ void main() {
   );
 
   test(
+    'sync replies use the reply sender without changing broadcasts',
+    () async {
+      final ownerStore = FakeHvContainer().storage();
+      final bobStore = FakeHvContainer().storage();
+      await ownerStore.open(password: 'pw', createIfMissing: true);
+      await bobStore.open(password: 'pw', createIfMissing: true);
+      final ordinary = <String>[], replies = <String>[];
+      final service = GroupService(
+        ownerStore,
+        _FakeSigner(owner),
+        send: (_, _, json) async => ordinary.add(json),
+        sendSyncResponse: (_, _, json) async => replies.add(json),
+      );
+      final receiver = GroupService(bobStore, _FakeSigner(bob));
+      addTearDown(() async {
+        await service.dispose();
+        await receiver.dispose();
+        await ownerStore.close();
+        await bobStore.close();
+      });
+      final gid = await service.createGroup('reply sender fixture');
+      await service.addControlOp(
+        gid,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      );
+      expect(
+        await receiver.ingestSnapshot(
+          service.snapshotJson((await service.load(gid))!),
+        ),
+        isTrue,
+      );
+      ordinary.clear();
+      expect(await service.postMessage(gid, 'missing row'), isTrue);
+      final deadline = DateTime.now().add(const Duration(seconds: 2));
+      while (!ordinary.any((wire) => wire.contains('missing row')) &&
+          DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      expect(ordinary.any((wire) => wire.contains('missing row')), isTrue);
+      expect(replies, isEmpty);
+      final before = ordinary.toList();
+      final request = (await receiver.buildGroupSyncRequest(gid))!;
+      expect(await service.handleGroupSyncRequest(bob, request), isTrue);
+      expect(ordinary, before);
+      expect(replies, hasLength(1));
+      expect(await receiver.ingestSnapshot(replies.single), isTrue);
+      expect((await receiver.messagesOf(gid)).map((m) => m.body), [
+        'missing row',
+      ]);
+      replies.clear();
+      expect(await service.handleGroupSyncRequest(_id(9), request), isFalse);
+      expect(
+        replies,
+        isEmpty,
+        reason: 'the scheduler does not bypass admission',
+      );
+    },
+  );
+  test(
     'Space receipts are source-bound, loop-free and confirm only a caught-up '
     'authorized sync frontier',
     () async {
