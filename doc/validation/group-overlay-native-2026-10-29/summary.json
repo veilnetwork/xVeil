@@ -1,0 +1,121 @@
+{
+  "base_app_commit": "e5d9ee6aebe73b8337bd93b822b9d859d6fee1be",
+  "sdk_commit": "d19923f57484b955a68dd656d10d7e106c7d1c26",
+  "hidden_volume_commit": "1ea2366f",
+  "native_artifacts_sha256": {
+    "veil_ffi": "c2aba7705ec6b491cbb019c3d75ba5580f64220954b7f00a2ce248ebe873fb34",
+    "hidden_volume_ffi": "3b2eacc819b307125cafe01665ebbaec5ee6ed9d3b3d5d96bc5d5b26a50f79e7"
+  },
+  "source_sha256": {
+    "lib/state/group_service.dart": "32271c199d201852d82f7ee2fd96dc42d1ec8124741545100a28ec547501bbbb",
+    "lib/headless/headless_runtime.dart": "fad3615b930c0f31618bfaaa05ee2e8a096f753c3d2812c95f792b69b58c1ba8",
+    "test/group_service_test.dart": "beea5b5ac119431df57911b4af4dff551e9bd1befd7de909a97b227132c5b2dd",
+    "test/native/group_overlay_live_test.dart": "352b7b08413659eaaeeffc98cdfa286a26aaf04022eae0bc827928a98a660504"
+  },
+  "fix": {
+    "received_overlay_uses_durable_reply_sender": true,
+    "ingress_waits_for_durable_enqueue": true,
+    "ingress_waits_for_initial_network_send": false,
+    "ordinary_broadcast_sender_unchanged": true,
+    "legacy_sender_fallback_preserved": true,
+    "headless_reply_sender_wired": true,
+    "initial_send_queue_max_bytes": 524288,
+    "initial_send_queue_max_concurrent": 4,
+    "wire_protocol_changed": false,
+    "relay_priority_added": false,
+    "mailbox_policy_changed": false,
+    "production_timing_hooks_added": false
+  },
+  "tests": {
+    "default_passed": 529,
+    "diagnostic_passed": 529,
+    "counts_overlap": true,
+    "suite_files": 14,
+    "suite_skipped": 0,
+    "focused_native_credentials_passed": 3,
+    "credential_tests_also_in_suites": true,
+    "new_relay_test_initially_red": true,
+    "new_native_opt_in_test_passed": true,
+    "analysis_files": 4,
+    "analysis_issues": 0
+  },
+  "local_native": {
+    "runs": [
+      {
+        "node_count": 12,
+        "messages": 4,
+        "max_visibility_ms": [
+          11694,
+          6314,
+          2473,
+          3102
+        ],
+        "all_nodes_stopped": true,
+        "released_listeners": null,
+        "cleanup_errors": 0
+      },
+      {
+        "node_count": 12,
+        "messages": 4,
+        "max_visibility_ms": [
+          5872,
+          1846,
+          2616,
+          2565
+        ],
+        "all_nodes_stopped": true,
+        "released_listeners": 12,
+        "cleanup_errors": 0
+      },
+      {
+        "node_count": 12,
+        "messages": 4,
+        "max_visibility_ms": [
+          5932,
+          5573,
+          1528,
+          2303
+        ],
+        "all_nodes_stopped": true,
+        "released_listeners": 12,
+        "cleanup_errors": 0
+      }
+    ],
+    "independent_native_nodes": 12,
+    "single_host": true,
+    "single_process": true,
+    "transport": "loopback TCP",
+    "full_mesh_underlay": true,
+    "sparse_application_overlay": true,
+    "native_signatures": true,
+    "native_encrypted_stores": true,
+    "ratchet_persistence": true,
+    "membership_epoch_encryption": false,
+    "initial_roster_provisioned_out_of_band": true,
+    "pairwise_contacts": false,
+    "public_discovery_enabled": false,
+    "native_pow_bits": 24,
+    "candidate_overlapped_test_load": true,
+    "controlled_performance_comparison": false
+  },
+  "cleanup": {
+    "candidate_host_exited": true,
+    "candidate_listeners_released": 12,
+    "recorded_prior_runner_groups": 1,
+    "prior_runner_groups_remaining": 0,
+    "gui_apps_started": false,
+    "phone_modified": false
+  },
+  "qualification_gaps": {
+    "separate_hosts_or_processes": true,
+    "mixed_versions": true,
+    "concurrent_roster_changes": true,
+    "long_offline": true,
+    "encrypted_spaces_on_native_mesh": true,
+    "all_delay_causes_closed": false,
+    "original_25_second_call_cause_proven": false
+  },
+  "rust_builds": false,
+  "pushed": false,
+  "released": false
+}
