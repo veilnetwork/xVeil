@@ -874,7 +874,7 @@
   "groupConvertConfirm": "This chat becomes a community with channels, publications and a feed. Members and history are kept. It moves to Communities. This cannot be undone.",
   "groupConvertAction": "Convert",
   "groupSyncNeighborsTitle": "Chat synchronization",
-  "groupSyncNeighborsLabel": "XOR neighbours: {count}",
+  "groupSyncNeighborsLabel": "Neighbours: {count}",
   "@groupSyncNeighborsLabel": {
     "placeholders": {
       "count": {
@@ -882,7 +882,7 @@
       }
     }
   },
-  "groupSyncNeighborsHint": "How many XOR-closest members this device connects to for chat history. More neighbours improve redundancy but use more traffic. This setting is local to this device.",
+  "groupSyncNeighborsHint": "How many members this device exchanges chat history with. More neighbours improve redundancy but use more traffic. This setting is local to this device.",
   "groupRenameTitle": "Rename group",
   "groupRenameAction": "Rename",
   "groupRenameDenied": "You don't have permission to rename this group",
