@@ -63,6 +63,7 @@ part 'messaging_conversation_admin.dart';
 part 'messaging_attestation.dart';
 part 'messaging_replication.dart';
 part 'messaging_group_receipts.dart';
+part 'messaging_group_source.dart';
 part 'messaging_group_content.dart';
 part 'messaging_contacts.dart';
 part 'messaging_peer_sync.dart';
@@ -237,6 +238,14 @@ class MessagingService {
     onError: (error, _) => devLog(
       () =>
           'xVeil[group]: committed receipt send FAILED (${error.runtimeType}); sender retry retained',
+    ),
+  );
+  late final _groupSourceQueue = PostReceiptQueue(
+    maxBytes: 512 * 1024,
+    maxConcurrent: 4,
+    onError: (error, _) => devLog(
+      () =>
+          'xVeil[group]: initial send FAILED (${error.runtimeType}); durable retry retained',
     ),
   );
   late final _MessagingGroupContent _groupContent = _MessagingGroupContent(
@@ -788,12 +797,20 @@ class MessagingService {
   List<Map<String, Object>> debugGroupServeGrants() =>
       _groupContent.debugGroupServeGrants();
 
-  /// Ship a group snapshot to [dst] durably, chunking oversized bundles.
+  /// Persist a group snapshot to [dst], chunking oversized bundles. Sync
+  /// responses may release inbound processing after persistence by setting
+  /// [awaitInitialSend] false; bounded initial transport then runs separately.
   Future<void> sendGroupSnapshot(
     NodeId dst,
     String groupIdHex,
-    String bundleJson,
-  ) => _replication.sendGroupSnapshot(dst, groupIdHex, bundleJson);
+    String bundleJson, {
+    bool awaitInitialSend = true,
+  }) => _replication.sendGroupSnapshot(
+    dst,
+    groupIdHex,
+    bundleJson,
+    awaitInitialSend: awaitInitialSend,
+  );
 
   Future<void> sendSpacePublicFeedRequest(NodeId dst, String requestJson) =>
       _send(dst, WireEnvelope.spacePublicFeedRequest(requestJson).encode());
@@ -4355,6 +4372,7 @@ class MessagingService {
     final largeFramesClosed = _largeFrames.close();
     final postReceiptsClosed = _postReceipts.close();
     final groupReceiptsClosed = _groupReceiptQueue.close();
+    final groupSourceClosed = _groupSourceQueue.close();
     _contentAvailability.cancelRetryReoffers();
     final historyClosed = _ownHistory.close();
     _outbox.dispose();
@@ -4377,6 +4395,7 @@ class MessagingService {
     await largeFramesClosed;
     await postReceiptsClosed;
     await groupReceiptsClosed;
+    await groupSourceClosed;
     await historyClosed;
     await _mutations.quiesce();
     Object? shutdownError;

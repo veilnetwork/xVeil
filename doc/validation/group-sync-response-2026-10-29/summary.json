@@ -1,0 +1,69 @@
+{
+  "base_app_commit": "763f7a91",
+  "sdk_commit": "f031513a",
+  "hidden_volume_commit": "1ea2366f",
+  "tested_lib_inventory_sha256": "c6069645f5c4a4cc23009c026e87fe07d6def3cb3a06f11f75c57ffc7f48e301",
+  "scope": "durable group-sync responses only; ordinary initial transport pacing preserved",
+  "tests": {
+    "passed": 494,
+    "existing_skips": 3,
+    "files": 11,
+    "analysis_issues": 0
+  },
+  "controlled_inbound_block_fixed": true,
+  "network_speedup_proven": false,
+  "network_speed_regression_excluded": false,
+  "physical": {
+    "roles": {
+      "A": "Android identity X",
+      "B": "Mac identity X",
+      "C": "Mac identity Y"
+    },
+    "new_messages": 18,
+    "all_visible_seconds": 76.8,
+    "group_chunks_empty_seconds": 135.4,
+    "large_payloads_exact": true,
+    "full_order_equal": true,
+    "no_duplicates": true,
+    "edit_seconds": 9.5,
+    "delete_seconds": 12.9,
+    "remaining_outbox_by_role": {
+      "A": 0,
+      "B": 1,
+      "C": 0
+    },
+    "remaining_B_kind": "p2p",
+    "all_original_anonymous_modes_restored": true,
+    "native_test_hooks": false,
+    "source_queue_refusals": 0,
+    "source_initial_send_failures": 0
+  },
+  "cold_readback": {
+    "all_full_histories_equal": true,
+    "rows_each": 1639,
+    "surviving_fixture_rows_each": 17,
+    "delivered_outgoing_by_role": {
+      "A": 11,
+      "B": 11,
+      "C": 6
+    }
+  },
+  "control": {
+    "app_commit": "763f7a91",
+    "all_visible_seconds": 42.3,
+    "group_chunks_empty_seconds": 117.8,
+    "comparison": "sequential retained-profile runs; not a controlled replay of an identical network trace"
+  },
+  "cleanup": {
+    "retired_groups_with_reused_system_pgid": 0,
+    "android_package_processes": 0,
+    "recorded_owned_groups_checked": 154,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false,
+    "owned_vm_forwards_remaining": 0
+  },
+  "published": false,
+  "pushed": false
+}

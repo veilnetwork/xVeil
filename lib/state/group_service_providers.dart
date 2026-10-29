@@ -206,6 +206,12 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
 
     send: (peer, groupId, json) =>
         messaging.sendGroupSnapshot(peer, groupId.hex, json),
+    sendSyncResponse: (peer, groupId, json) => messaging.sendGroupSnapshot(
+      peer,
+      groupId.hex,
+      json,
+      awaitInitialSend: false,
+    ),
     sendSpaceInvite: messaging.sendSpaceInvite,
     sendSpaceInviteDecision: messaging.sendSpaceInviteDecision,
     sendSpaceJoinRequest: messaging.sendSpaceJoinRequest,

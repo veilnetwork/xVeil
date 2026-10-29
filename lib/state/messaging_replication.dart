@@ -132,11 +132,14 @@ class _MessagingReplication {
 
   /// Ship a group entry to [dst] durably. This path carries full snapshots,
   /// deltas and sync vectors; distinct entries must keep distinct frame ids.
+  /// Sync responses can complete at the durable boundary. Ordinary sends keep
+  /// their existing initial-attempt pacing.
   Future<void> sendGroupSnapshot(
     NodeId dst,
     String groupIdHex,
-    String bundleJson,
-  ) async {
+    String bundleJson, {
+    bool awaitInitialSend = true,
+  }) async {
     if (await _backedUp(dst, 'group snapshot')) return;
     final bytes = Uint8List.fromList(utf8.encode(bundleJson));
     // Three things belong in this id, and two of them were missing.
@@ -160,7 +163,12 @@ class _MessagingReplication {
     final tid = 'grp:$groupIdHex:$digest:${dst.hex}';
     // Small snapshot (control/text updates): one frame, as before (brick 4).
     if (bytes.length <= _groupChunkBytes) {
-      await _owner.sendDurable(dst, tid, WireEnvelope.groupEntry(bundleJson));
+      await _sendStoredGroupFrame(
+        dst,
+        tid,
+        WireEnvelope.groupEntry(bundleJson),
+        awaitInitialSend: awaitInitialSend,
+      );
       return;
     }
     // Oversized (an inline image): a single frame would exceed the auth_deliver
@@ -211,7 +219,7 @@ class _MessagingReplication {
       final end = start + _groupChunkBytes < bytes.length
           ? start + _groupChunkBytes
           : bytes.length;
-      await _owner.sendDurable(
+      await _sendStoredGroupFrame(
         dst,
         'grpc:$tid:$i',
         groupEntryChunkEnvelope(
@@ -221,6 +229,7 @@ class _MessagingReplication {
           data: Uint8List.sublistView(bytes, start, end),
           transferAck: transferAck,
         ),
+        awaitInitialSend: awaitInitialSend,
       );
     }
   }
