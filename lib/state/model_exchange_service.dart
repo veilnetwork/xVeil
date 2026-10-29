@@ -59,6 +59,21 @@ class PeerModelOffers {
   final List<ModelOffer> offers;
 }
 
+// The wire advertises no content hash or version. Deduplicate only identical
+// advertised metadata; different sizes may be different model packages.
+typedef _ModelOfferKey = (String, String?, String?, int);
+
+_ModelOfferKey _offerKey(ModelOffer offer) =>
+    (offer.kind, offer.pair?.from, offer.pair?.to, offer.bytes);
+
+int _compareOffers(ModelOffer a, ModelOffer b) {
+  final label = a.label.compareTo(b.label);
+  if (label != 0) return label;
+  final kind = a.kind.compareTo(b.kind);
+  if (kind != 0) return kind;
+  return a.bytes.compareTo(b.bytes);
+}
+
 class ModelExchangeService {
   ModelExchangeService({
     required MessagingService messaging,
@@ -84,6 +99,10 @@ class ModelExchangeService {
   /// When each peer was asked. An answer outside the window is dropped.
   final Map<String, DateTime> _asked = {};
 
+  /// One bounded union per live question, shared by the contact's devices.
+  /// Remote paths and device identifiers never participate in this cache.
+  final _catalogs = <String, Map<_ModelOfferKey, ModelOffer>>{};
+
   /// Set by [dispose]. Detaching the handlers stops the NEXT request; an
   /// answer already in flight is several awaits deep and needs telling.
   bool _disposed = false;
@@ -101,12 +120,18 @@ class ModelExchangeService {
 
   /// Ask [peers] what they have.
   Future<void> ask(Iterable<NodeId> peers) async {
-    final at = _now();
+    if (_disposed) return;
     for (final peer in peers) {
+      if (_disposed) return;
+      final at = _now();
+      // Register immediately before this send, not at the start of a possibly
+      // slow scan. Refresh insertion order and discard this peer's old union.
+      _catalogs.remove(peer.hex);
+      _asked.remove(peer.hex);
       _asked[peer.hex] = at;
+      _forgetExpired(at);
       await _messaging.sendModelInventoryRequest(peer);
     }
-    _forgetExpired(at);
   }
 
   Future<void> _answer(NodeId peer) async {
@@ -162,25 +187,42 @@ class ModelExchangeService {
       placeholder: Directory.systemTemp,
     );
     if (offers.isEmpty) return;
+    final merged = _catalogs.putIfAbsent(peer.hex, () => {});
+    var changed = false;
+    for (final offer in offers) {
+      final key = _offerKey(offer);
+      if (merged.containsKey(key)) continue;
+      if (merged.length == kMaxRowsPerPeer) {
+        // Retain the same first K metadata rows regardless of sibling reply
+        // order, with at most K entries in memory even while merging a list.
+        var largest = merged.values.first;
+        for (final value in merged.values) {
+          if (_compareOffers(value, largest) > 0) largest = value;
+        }
+        if (_compareOffers(offer, largest) >= 0) continue;
+        merged.remove(_offerKey(largest));
+      }
+      merged[key] = offer;
+      changed = true;
+    }
+    if (!changed) return;
     _answers.add(
       PeerModelOffers(
         peer,
-        offers.length > kMaxRowsPerPeer
-            ? offers.sublist(0, kMaxRowsPerPeer)
-            : offers,
+        List<ModelOffer>.unmodifiable(
+          merged.values.toList()..sort(_compareOffers),
+        ),
       ),
     );
   }
 
   void _forgetExpired(DateTime at) {
     _asked.removeWhere((_, when) => at.difference(when) > kModelAnswerWindow);
-    if (_asked.length <= kMaxAnsweringPeers) return;
-    // Oldest first: the questions least likely still to be answered.
-    final ordered = _asked.entries.toList()
-      ..sort((a, b) => a.value.compareTo(b.value));
-    for (final entry in ordered.take(_asked.length - kMaxAnsweringPeers)) {
-      _asked.remove(entry.key);
+    // Oldest registered question first, including equal or skewed clocks.
+    while (_asked.length > kMaxAnsweringPeers) {
+      _asked.remove(_asked.keys.first);
     }
+    _catalogs.removeWhere((peer, _) => !_asked.containsKey(peer));
   }
 
   /// How many questions are still remembered. For the bound test: what must
@@ -199,7 +241,10 @@ class ModelExchangeService {
   /// stale handler is A still answering on A's pipeline after the screen
   /// showed B.
   void dispose() {
+    if (_disposed) return;
     _disposed = true;
+    _asked.clear();
+    _catalogs.clear();
     if (_messaging.onModelInventoryRequest == _answer) {
       _messaging.onModelInventoryRequest = null;
     }
