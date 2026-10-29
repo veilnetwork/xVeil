@@ -1,0 +1,418 @@
+{
+  "schema_version": 1,
+  "sdk_fix": "33eff37911bef9a52d832c6e5a9912ea05e1d548",
+  "proof": {
+    "sdk": "33eff37911bef9a52d832c6e5a9912ea05e1d548",
+    "source_clean": true,
+    "stream_passed": 174,
+    "stream_ignored": 0,
+    "ffi_passed": 326,
+    "ffi_ignored": 2,
+    "red_scenarios": 3,
+    "new_regressions": 5
+  },
+  "clippy_passed": true,
+  "native_build": {
+    "sdk": "33eff37911bef9a52d832c6e5a9912ea05e1d548",
+    "source_clean": true,
+    "stream_passed": 174,
+    "stream_ignored": 0,
+    "ffi_passed": 326,
+    "ffi_ignored": 2,
+    "red_scenarios": 3,
+    "new_regressions": 5,
+    "default_features": false,
+    "features": [
+      "node-embedded",
+      "production-seeds",
+      "packet-tunnel"
+    ],
+    "test_low_difficulty": false,
+    "native_test_hooks": false,
+    "mac_sha256": "96751c8df81294f2474ed0cf6ed6f4e62d937f87d2a9e60d70bb8b768321942a",
+    "android_sha256": "178ee4aca6b46632f567da2f0c86c29a647fc4546a5c0d332d499ea55d06085f"
+  },
+  "candidate_artifacts": {
+    "baseline_apk_sha256": "843db3172564729028b79500d21c4a7ae655ffc1ea07098de209eb4920bc0ed7",
+    "candidate_apk_sha256": "338858a669c6d8d011813753aa33b014a060d2e773f1288292dc51dfe73577a5",
+    "android_native_sha256": "178ee4aca6b46632f567da2f0c86c29a647fc4546a5c0d332d499ea55d06085f",
+    "mac_native_sha256": "9ada31d054515fa919fbb52384a0c2f342a60db1823ac61da93a67a1ad8c8309",
+    "other_apk_entries_unchanged": true,
+    "same_signing_certificate": true,
+    "mac_other_artifacts_unchanged": true
+  },
+  "frozen_frontend": "f389116a",
+  "source_qualification": "native change only; Mac debug/JIT and Android AOT profile; ordinary native release features",
+  "physical": {
+    "runs": [
+      {
+        "sample": 0,
+        "receiver": "phone",
+        "bytes": 3145979,
+        "sha256_matches": true,
+        "seconds": 59.936,
+        "first_piece_seconds": 5.696,
+        "max_gap_after_first_seconds": 18.921,
+        "progress_samples": 54
+      },
+      {
+        "sample": 0,
+        "receiver": "peer",
+        "bytes": 3145979,
+        "sha256_matches": true,
+        "seconds": 45.345,
+        "first_piece_seconds": 2.522,
+        "max_gap_after_first_seconds": 6.053,
+        "progress_samples": 90
+      },
+      {
+        "sample": 1,
+        "receiver": "phone",
+        "bytes": 3145979,
+        "sha256_matches": true,
+        "seconds": 39.027,
+        "first_piece_seconds": 5.655,
+        "max_gap_after_first_seconds": 4.479,
+        "progress_samples": 35
+      },
+      {
+        "sample": 1,
+        "receiver": "peer",
+        "bytes": 3145979,
+        "sha256_matches": true,
+        "seconds": 33.768,
+        "first_piece_seconds": 8.573,
+        "max_gap_after_first_seconds": 5.035,
+        "progress_samples": 67
+      },
+      {
+        "sample": 2,
+        "receiver": "phone",
+        "bytes": 3145979,
+        "sha256_matches": true,
+        "seconds": 41.342,
+        "first_piece_seconds": 3.479,
+        "max_gap_after_first_seconds": 6.731,
+        "progress_samples": 37
+      },
+      {
+        "sample": 2,
+        "receiver": "peer",
+        "bytes": 3145979,
+        "sha256_matches": true,
+        "seconds": 45.856,
+        "first_piece_seconds": 8.055,
+        "max_gap_after_first_seconds": 6.054,
+        "progress_samples": 91
+      },
+      {
+        "sample": 3,
+        "receiver": "phone",
+        "bytes": 3145979,
+        "sha256_matches": true,
+        "seconds": 34.667,
+        "first_piece_seconds": 7.928,
+        "max_gap_after_first_seconds": 5.598,
+        "progress_samples": 31
+      },
+      {
+        "sample": 3,
+        "receiver": "peer",
+        "bytes": 3145979,
+        "sha256_matches": true,
+        "seconds": 37.78,
+        "first_piece_seconds": 5.041,
+        "max_gap_after_first_seconds": 4.531,
+        "progress_samples": 75
+      },
+      {
+        "sample": 4,
+        "receiver": "phone",
+        "bytes": 3145979,
+        "sha256_matches": true,
+        "seconds": 55.514,
+        "first_piece_seconds": 6.783,
+        "max_gap_after_first_seconds": 7.713,
+        "progress_samples": 50
+      },
+      {
+        "sample": 4,
+        "receiver": "peer",
+        "bytes": 3145979,
+        "sha256_matches": true,
+        "seconds": 28.732,
+        "first_piece_seconds": 2.525,
+        "max_gap_after_first_seconds": 4.033,
+        "progress_samples": 57
+      }
+    ],
+    "medians_seconds": {
+      "phone": 41.342,
+      "peer": 37.78
+    },
+    "max_gap_after_first_seconds": 18.921,
+    "calls_or_media_started": false,
+    "mac_bulk_active_limit": 2,
+    "numeric_endpoint_observations": {
+      "mac": {
+        "mux_scopes_observed": 1,
+        "mux_totals": {
+          "received": 22874,
+          "routed": 22874,
+          "inbox_full": 0,
+          "inbox_full_data": 0,
+          "inbox_full_ack": 0,
+          "inbox_full_control": 0,
+          "inbox_closed": 0,
+          "unknown": 0,
+          "invalid": 0,
+          "accept_full": 0,
+          "accepted": 5
+        },
+        "preparation_stages": {
+          "circuit_open/result1/local0/address0": {
+            "samples": 57,
+            "median_ms": 0,
+            "max_ms": 0
+          },
+          "receiver_ads/result1/local0/address0": {
+            "samples": 10,
+            "median_ms": 1.0,
+            "max_ms": 3506
+          },
+          "receiver_ads/result1/local0/address2": {
+            "samples": 22,
+            "median_ms": 0.0,
+            "max_ms": 247
+          }
+        },
+        "outbound_preparation": {
+          "resolve_ms": {
+            "samples": 32,
+            "median_ms": 0.0,
+            "max_ms": 3506
+          },
+          "circuit_open_ms": {
+            "samples": 56,
+            "median_ms": 0.0,
+            "max_ms": 0
+          },
+          "confirm_ms": {
+            "samples": 56,
+            "median_ms": 160.0,
+            "max_ms": 1328
+          },
+          "publish_ms": {
+            "samples": 56,
+            "median_ms": 0.0,
+            "max_ms": 0
+          }
+        },
+        "omitted_at_observation_cap": 0,
+        "observed_snapshots_not_complete_packet_loss_accounting": true,
+        "stage_durations_overlap_and_must_not_be_added": true
+      },
+      "android": {
+        "mux_scopes_observed": 1,
+        "mux_totals": {
+          "received": 23452,
+          "routed": 23109,
+          "inbox_full": 0,
+          "inbox_full_data": 0,
+          "inbox_full_ack": 0,
+          "inbox_full_control": 0,
+          "inbox_closed": 0,
+          "unknown": 343,
+          "invalid": 0,
+          "accept_full": 0,
+          "accepted": 5
+        },
+        "preparation_stages": {
+          "circuit_open/result0/local0/address0": {
+            "samples": 2,
+            "median_ms": 2.0,
+            "max_ms": 3
+          },
+          "circuit_open/result1/local0/address0": {
+            "samples": 48,
+            "median_ms": 1.0,
+            "max_ms": 20
+          },
+          "directory_warm/result1/local0/address0": {
+            "samples": 2,
+            "median_ms": 1.5,
+            "max_ms": 2
+          },
+          "directory_warm_lock/result1/local0/address0": {
+            "samples": 2,
+            "median_ms": 0.0,
+            "max_ms": 0
+          },
+          "receiver_ads/result1/local0/address0": {
+            "samples": 10,
+            "median_ms": 22.5,
+            "max_ms": 3541
+          },
+          "receiver_ads/result1/local0/address2": {
+            "samples": 63,
+            "median_ms": 8,
+            "max_ms": 785
+          },
+          "relay_directory/result1/local1/address0": {
+            "samples": 2,
+            "median_ms": 0.0,
+            "max_ms": 0
+          }
+        },
+        "outbound_preparation": {
+          "resolve_ms": {
+            "samples": 69,
+            "median_ms": 9,
+            "max_ms": 3541
+          },
+          "circuit_open_ms": {
+            "samples": 42,
+            "median_ms": 2.0,
+            "max_ms": 6
+          },
+          "confirm_ms": {
+            "samples": 42,
+            "median_ms": 105.0,
+            "max_ms": 1987
+          },
+          "publish_ms": {
+            "samples": 42,
+            "median_ms": 0.0,
+            "max_ms": 0
+          }
+        },
+        "omitted_at_observation_cap": 0,
+        "observed_snapshots_not_complete_packet_loss_accounting": true,
+        "stage_durations_overlap_and_must_not_be_added": true
+      }
+    },
+    "driver": {
+      "mac": {
+        "driver_max": {
+          "srtt": 2105,
+          "rto": 10000,
+          "blocked_age": 626,
+          "rwnd": 8388608,
+          "consec_rto": 6
+        },
+        "established_window_samples": 714,
+        "established_window_min": 8265648,
+        "established_zero_window_samples": 0
+      },
+      "android": {
+        "driver_max": {
+          "srtt": 3382,
+          "rto": 10000,
+          "blocked_age": 1027,
+          "rwnd": 8388608,
+          "consec_rto": 1
+        },
+        "established_window_samples": 726,
+        "established_window_min": 8263742,
+        "established_zero_window_samples": 0
+      }
+    },
+    "stage_source_selection": {
+      "mac": {
+        "primary_stage_records": 89,
+        "auxiliary_stage_records_not_merged": 89,
+        "auxiliary_exact_multiset_copy": true
+      },
+      "android": {
+        "primary_stage_records": 129,
+        "auxiliary_stage_records_not_merged": 0,
+        "auxiliary_exact_multiset_copy": false
+      }
+    },
+    "unknown_cell_observation": {
+      "android_unknown": 343,
+      "observed_counter_increase_during_other_transfers": 157,
+      "between_or_after_transfers": 186,
+      "individual_streams_and_frame_kinds_not_identified": true,
+      "counter_snapshots_not_per_packet_delivery_times": true
+    },
+    "small_stream_timeout_observation": {
+      "endpoint": "mac",
+      "max_inflight_bytes": 16,
+      "max_consecutive_rto": 6,
+      "last_phase": "Closed",
+      "not_a_file_completion_failure": true
+    }
+  },
+  "prior_window_observations": {
+    "mac": {
+      "driver_samples": 516,
+      "min_peer_window": 8287383,
+      "zero_window_samples": 0,
+      "recoverable_wait_samples": 458,
+      "max_reported_recoverable_wait_ms": 90,
+      "max_reported_outbox_to_transport_us": 203085,
+      "established_driver_samples": 516,
+      "established_min_peer_window": 8287383,
+      "established_zero_window_samples": 0
+    },
+    "android": {
+      "driver_samples": 520,
+      "min_peer_window": 1982,
+      "zero_window_samples": 0,
+      "recoverable_wait_samples": 104,
+      "max_reported_recoverable_wait_ms": 6,
+      "max_reported_outbox_to_transport_us": 204924,
+      "established_driver_samples": 519,
+      "established_min_peer_window": 8303382,
+      "established_zero_window_samples": 0
+    }
+  },
+  "warm_path_source": {
+    "lib/state/messaging_download_resume.dart": {
+      "same_as_frozen_frontend": true
+    },
+    "lib/state/messaging_file_transfer.dart": {
+      "same_as_frozen_frontend": true
+    },
+    "lib/state/messaging_content_pull.dart": {
+      "same_as_frozen_frontend": true
+    },
+    "lib/state/messaging_content_availability.dart": {
+      "same_as_frozen_frontend": true
+    },
+    "lib/data/transport/veil_flutter_transport.dart": {
+      "same_as_frozen_frontend": true
+    }
+  },
+  "cleanup": {
+    "peer_trace_disabled": true,
+    "phone_trace_disabled": true,
+    "peer_settings_restored": true,
+    "phone_settings_restored": true,
+    "debug_property_restored": true,
+    "phone_exited": true,
+    "forward_removed": true,
+    "series_exit_code": 0,
+    "series_completed": true,
+    "candidate_mac_exited": true,
+    "baseline_ownership_restored": true,
+    "baseline_qa_restored": true,
+    "restored_installed_hash_verified": true,
+    "qa_exited": true,
+    "mac_exited": true,
+    "logcat_exited": true,
+    "peer_api_port_free": true,
+    "phone_api_port_free": true,
+    "shell_fixtures_removed": true,
+    "app_fixtures_removed": true,
+    "external_mount_still_distinct": true,
+    "own_duplicate_artifacts_and_test_bodies_removed": true,
+    "private_evidence_permissions_restricted": true
+  },
+  "controlled_performance_comparison": false,
+  "all_file_pause_causes_fixed": false,
+  "previous_pause_attributed_to_stale_ack_window": false,
+  "relay_logs_collected_for_this_window": false,
+  "push_release_or_server_changes": false
+}
