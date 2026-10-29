@@ -5,6 +5,37 @@ part of 'messaging_core.dart';
 /// agree — a silent disagreement leaves the old frames re-driving.
 const _kP2PEndpointFramePrefix = 'p2p:ep:';
 
+/// Observation labels belong to the protocol, never a debug scope or payload.
+enum _RealtimeControlKind {
+  call(
+    DiagnosticEvent.callSignalSent,
+    DiagnosticEvent.callSignalFailed,
+    DiagnosticEvent.callSignalReceived,
+    'call-signal-send',
+  ),
+  p2p(
+    DiagnosticEvent.p2pBootstrapSent,
+    DiagnosticEvent.p2pBootstrapFailed,
+    DiagnosticEvent.p2pBootstrapReceived,
+    'p2p-bootstrap-send',
+  ),
+  modelInventory(
+    DiagnosticEvent.modelInventorySent,
+    DiagnosticEvent.modelInventoryFailed,
+    DiagnosticEvent.modelInventoryReceived,
+    'model-inventory-send',
+  );
+
+  const _RealtimeControlKind(
+    this.sent,
+    this.failed,
+    this.received,
+    this.errorKind,
+  );
+  final DiagnosticEvent sent, failed, received;
+  final String errorKind;
+}
+
 /// Latency-critical 1:1 call and direct-endpoint control plane.
 ///
 /// Owns the dedicated serialized inbound lane, its session-scoped consent
@@ -96,10 +127,6 @@ class _MessagingRealtimeControl {
   /// Serialize APP_RT frames independently from the durable inbox. A transient
   /// failure drops only one datagram and cannot poison later answer/end frames.
   Future<void> deliverInbound(InboundMessage message) {
-    diagnosticJournal.record(
-      DiagnosticEvent.callSignalReceived,
-      minInterval: const Duration(seconds: 1),
-    );
     // Start at Dart admission, before the serialized consent/dispatch lane.
     // This distinguishes local queue/handler waits from the age of a remote
     // signal. It cannot measure daemon/FFI waits or correct remote clock skew.
@@ -151,6 +178,7 @@ class _MessagingRealtimeControl {
       // Fail closed: APP_RT must not become a route around message consent.
       return;
     }
+    recordInbound(envelope.kind);
 
     if (envelope.kind == WireKind.p2pEndpoints) {
       // BEFORE the contact check, not after: the cache below is primed by any
@@ -245,6 +273,24 @@ class _MessagingRealtimeControl {
           'handler=${elapsed.elapsedMilliseconds - queueMs}ms';
     });
     onCallSignal?.call(message.src, signal);
+  }
+
+  /// Count decoded protocol arrivals, before consent/dedup, on either inbox.
+  /// Copies on different live paths are arrivals, not distinct logical calls.
+  void recordInbound(WireKind wireKind) {
+    final kind = switch (wireKind) {
+      WireKind.callSignal ||
+      WireKind.groupCallSignal => _RealtimeControlKind.call,
+      WireKind.p2pEndpoints => _RealtimeControlKind.p2p,
+      WireKind.modelInventoryRequest ||
+      WireKind.modelInventoryOffer => _RealtimeControlKind.modelInventory,
+      _ => null,
+    };
+    if (kind == null) return;
+    diagnosticJournal.record(
+      kind.received,
+      minInterval: const Duration(seconds: 1),
+    );
   }
 
   /// Whether this delivery may be granted an accepted contact's privileges.
@@ -357,22 +403,41 @@ class _MessagingRealtimeControl {
   }
 
   Future<void> _sendRealtimePaths(
+    _RealtimeControlKind kind,
     String scope,
     NodeId peer,
     Uint8List wire,
   ) async {
     if (_owner._anonymous) {
-      await sendRealtime(peer, wire);
+      await _observeSend(kind, () => sendRealtime(peer, wire));
+      return;
+    }
+    if (_owner._transport is! RealtimeTransport) {
+      await _attempt(
+        kind,
+        scope,
+        'contact',
+        peer,
+        () => sendRealtime(peer, wire),
+      );
       return;
     }
     await Future.wait<void>([
-      _attempt(scope, 'realtime direct', peer, () => sendRealtime(peer, wire)),
       _attempt(
+        kind,
         scope,
-        'realtime relay',
+        'realtime direct',
         peer,
-        () => _sendRelayRealtime(peer, wire),
+        () => sendRealtime(peer, wire),
       ),
+      if (_owner._transport is RelayRealtimeTransport)
+        _attempt(
+          kind,
+          scope,
+          'realtime relay',
+          peer,
+          () => _sendRelayRealtime(peer, wire),
+        ),
     ]);
   }
 
@@ -422,15 +487,22 @@ class _MessagingRealtimeControl {
     required bool contactIdentity,
   }) async {
     if (_owner._anonymous) {
-      await sendRealtime(peer, wire);
+      await _observeSend(
+        _RealtimeControlKind.call,
+        () => sendRealtime(peer, wire),
+      );
       return;
     }
     if (_owner._transport is! RealtimeTransport) {
-      await _owner._send(peer, wire, requireIdentityAddress: contactIdentity);
+      await _observeSend(
+        _RealtimeControlKind.call,
+        () => _owner._send(peer, wire, requireIdentityAddress: contactIdentity),
+      );
       return;
     }
     await Future.wait<void>([
       _attempt(
+        _RealtimeControlKind.call,
         'call-sig',
         'contact',
         peer,
@@ -438,7 +510,7 @@ class _MessagingRealtimeControl {
       ),
       // The realtime endpoint is bound under the identity. A physical device
       // id cannot receive this frame without a device-scoped binding there.
-      _sendRealtimePaths('call-sig', peer, wire),
+      _sendRealtimePaths(_RealtimeControlKind.call, 'call-sig', peer, wire),
     ]);
   }
 
@@ -446,45 +518,61 @@ class _MessagingRealtimeControl {
   /// contact lane with realtime instead of waiting for a mailbox re-drive.
   Future<void> _sendP2PBootstrap(NodeId peer, Uint8List wire) async {
     if (_owner._transport is! RealtimeTransport) {
-      await _owner._send(peer, wire);
+      await _observeSend(
+        _RealtimeControlKind.p2p,
+        () => _owner._send(peer, wire),
+      );
       return;
     }
     await Future.wait<void>([
       _attempt(
+        _RealtimeControlKind.p2p,
         'p2p',
         'bootstrap contact',
         peer,
         () => _owner._send(peer, wire),
       ),
-      _sendRealtimePaths('p2p bootstrap', peer, wire),
+      _sendRealtimePaths(_RealtimeControlKind.p2p, 'p2p bootstrap', peer, wire),
     ]);
   }
 
-  Future<void> _attempt(
-    String scope,
-    String lane,
-    NodeId peer,
+  Future<void> _observeSend(
+    _RealtimeControlKind kind,
     Future<void> Function() send,
   ) async {
     try {
       await send();
       diagnosticJournal.record(
-        DiagnosticEvent.callSignalSent,
+        kind.sent,
         minInterval: const Duration(seconds: 1),
       );
     } catch (error, stack) {
       if (kDiagnosticReportEnabled) {
         errorJournal.record(
-          kind: 'call-signal-send',
+          kind: kind.errorKind,
           error: error,
           stack: stack,
           atMs: DateTime.now().millisecondsSinceEpoch,
         );
       }
       diagnosticJournal.record(
-        DiagnosticEvent.callSignalFailed,
+        kind.failed,
         minInterval: const Duration(seconds: 1),
       );
+      rethrow;
+    }
+  }
+
+  Future<void> _attempt(
+    _RealtimeControlKind kind,
+    String scope,
+    String lane,
+    NodeId peer,
+    Future<void> Function() send,
+  ) async {
+    try {
+      await _observeSend(kind, send);
+    } catch (error) {
       devLog(
         () =>
             'xVeil[$scope]: $lane live leg failed '
@@ -520,7 +608,12 @@ class _MessagingRealtimeControl {
     );
     final envelope = WireEnvelope.callSignal(stamped.encode());
     if (stamped.type == CallSignalType.health) {
-      await _sendRealtimePaths('call-sig', peer, envelope.encode());
+      await _sendRealtimePaths(
+        _RealtimeControlKind.call,
+        'call-sig',
+        peer,
+        envelope.encode(),
+      );
       return;
     }
     // Destination-bound for the same reason as the group signal above: this
@@ -550,14 +643,18 @@ class _MessagingRealtimeControl {
   /// The accepted check is repeated here rather than trusted from the caller:
   /// this is the last place before the frame leaves, and the thing being sent
   /// is a description of what languages this device holds.
-  Future<void> sendModelInventory(
-    NodeId peer,
-    WireEnvelope envelope,
-    String scope,
-  ) async {
+  Future<void> sendModelInventory(NodeId peer, WireEnvelope envelope) async {
     final contact = await _owner._storage.getContact(peer);
     if (contact == null || contact.status != ContactStatus.accepted) return;
-    await _sendRealtimePaths(scope, peer, envelope.encode());
+    // APP_RT accepts only call control and endpoint exchange. Model inventory
+    // belongs to the ordinary live inbox; no outbox or mailbox is created.
+    await _attempt(
+      _RealtimeControlKind.modelInventory,
+      'model-inventory',
+      'contact',
+      peer,
+      () => _owner._send(peer, envelope.encode(), requireIdentityAddress: true),
+    );
   }
 
   Future<void> sendP2PEndpoints(

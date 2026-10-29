@@ -182,6 +182,7 @@ extension _MessagingInboundDispatch on MessagingService {
     }
 
     final env = WireEnvelope.decode(m.payload);
+    _realtimeControl.recordInbound(env.kind);
     // What actually arrived. `recv: INBOUND` says a frame came and how big it
     // was, and every gate below says why a frame went — but nothing said WHAT
     // it was, so a snapshot that arrives and vanishes cannot be told from an

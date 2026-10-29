@@ -2264,6 +2264,22 @@ class MessagingService {
   Future<void> sendCallSignal(NodeId peer, CallSignal signal) =>
       _realtimeControl.sendCallSignal(peer, signal);
 
+  /// Ask [peer] what models they have, or answer that question.
+  ///
+  /// Live-only, on the ordinary contact path: nothing
+  /// durable, nothing acked, nothing re-driven, nothing in chat history. A
+  /// question the contact was not online to hear is a question nobody heard,
+  /// and a durable one would arrive days later to answer something long since
+  /// settled -- with a list of this device's languages attached.
+  Future<void> sendModelInventoryRequest(NodeId peer) => _realtimeControl
+      .sendModelInventory(peer, const WireEnvelope.modelInventoryRequest());
+
+  Future<void> sendModelInventoryOffer(NodeId peer, String bodyJson) =>
+      _realtimeControl.sendModelInventory(
+        peer,
+        WireEnvelope.modelInventoryOffer(bodyJson),
+      );
+
   /// Share this device's direct dial endpoints with an accepted contact (P2P
   /// epic). [bodyJson] is the [WireKind.p2pEndpoints] payload built by the
   /// endpoint service, which ALSO enforces the P2P policy before calling this —
@@ -2271,27 +2287,6 @@ class MessagingService {
   /// [sentAtMs] so a refreshed endpoint set is a NEW frame (the old one may
   /// still be un-acked in the outbox); the receiver treats each frame
   /// idempotently and stale addresses simply fail to dial.
-  /// Ask [peer] what models they have, or answer that question.
-  ///
-  /// Live-only, on the realtime paths, exactly like a call heartbeat: nothing
-  /// durable, nothing acked, nothing re-driven, nothing in chat history. A
-  /// question the contact was not online to hear is a question nobody heard,
-  /// and a durable one would arrive days later to answer something long since
-  /// settled -- with a list of this device's languages attached.
-  Future<void> sendModelInventoryRequest(NodeId peer) =>
-      _realtimeControl.sendModelInventory(
-        peer,
-        const WireEnvelope.modelInventoryRequest(),
-        'model-ask',
-      );
-
-  Future<void> sendModelInventoryOffer(NodeId peer, String bodyJson) =>
-      _realtimeControl.sendModelInventory(
-        peer,
-        WireEnvelope.modelInventoryOffer(bodyJson),
-        'model-offer',
-      );
-
   Future<void> sendP2PEndpoints(
     NodeId peer,
     String bodyJson, {

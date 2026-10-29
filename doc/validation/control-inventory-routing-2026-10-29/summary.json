@@ -1,0 +1,258 @@
+{
+  "base_app_commit": "c5085861",
+  "sdk_commit": "4857bebc",
+  "hidden_volume_commit": "1ea2366f",
+  "tested_final_lib_inventory_sha256": "14fcab5bff192388358f2f7ec134875c8f1f6f6be1521948b778bae4296776ce",
+  "tests": {
+    "diagnostics_enabled_passed": 415,
+    "diagnostics_disabled_passed": 415,
+    "same_set_not_additive": true,
+    "files": 12,
+    "new_realtime_tests": 16,
+    "initial_pre_fix_failing_tests": 5,
+    "subsequent_addressing_red_cases": 2,
+    "analysis_issues": 0,
+    "product_aot_serialization_passed": true
+  },
+  "first_build_stress": {
+    "description": "control classification and ordinary inventory egress; before final identity-address fix",
+    "rounds": [
+      {
+        "planned_seconds": 180,
+        "initiator": "C",
+        "answering_device": "A",
+        "ring_ms": {
+          "A": 104,
+          "B": 171
+        },
+        "connect_after_answer_ms": 3345,
+        "sibling_stopped_ringing": true,
+        "duration_seconds": 179.066,
+        "samples": 149,
+        "active_throughout": true,
+        "intentional_script_hangup_issued": true,
+        "endpoints": {
+          "A": {
+            "before_script_stop": [],
+            "after_script_stop": [
+              {
+                "reason": "hangup",
+                "origin": "diagnosticApi",
+                "phase": "active",
+                "route": "p2p"
+              }
+            ],
+            "all_p2p": true,
+            "audio_receive_counter_advanced": true,
+            "rendered_frames_advanced": true,
+            "worker_stall_samples": 0,
+            "video_worker_stall_samples": 0
+          },
+          "B": {
+            "before_script_stop": [
+              {
+                "reason": "answeredElsewhere",
+                "origin": "siblingSelection",
+                "phase": "ringing",
+                "route": "p2p"
+              }
+            ],
+            "after_script_stop": [],
+            "all_p2p": null,
+            "audio_receive_counter_advanced": null,
+            "rendered_frames_advanced": null,
+            "worker_stall_samples": 0,
+            "video_worker_stall_samples": 0
+          },
+          "C": {
+            "before_script_stop": [],
+            "after_script_stop": [
+              {
+                "reason": "hangup",
+                "origin": "remoteSignal",
+                "phase": "active",
+                "route": "p2p"
+              }
+            ],
+            "all_p2p": true,
+            "audio_receive_counter_advanced": true,
+            "rendered_frames_advanced": true,
+            "worker_stall_samples": 0,
+            "video_worker_stall_samples": 0
+          }
+        }
+      },
+      {
+        "planned_seconds": 180,
+        "initiator": "C",
+        "answering_device": "B",
+        "ring_ms": {
+          "B": 100,
+          "A": 633
+        },
+        "connect_after_answer_ms": 1216,
+        "sibling_stopped_ringing": true,
+        "duration_seconds": 179.079,
+        "samples": 149,
+        "active_throughout": true,
+        "intentional_script_hangup_issued": true,
+        "endpoints": {
+          "A": {
+            "before_script_stop": [
+              {
+                "reason": "answeredElsewhere",
+                "origin": "siblingSelection",
+                "phase": "ringing",
+                "route": "p2p"
+              }
+            ],
+            "after_script_stop": [],
+            "all_p2p": null,
+            "audio_receive_counter_advanced": null,
+            "rendered_frames_advanced": null,
+            "worker_stall_samples": 0,
+            "video_worker_stall_samples": 0
+          },
+          "B": {
+            "before_script_stop": [],
+            "after_script_stop": [
+              {
+                "reason": "hangup",
+                "origin": "diagnosticApi",
+                "phase": "active",
+                "route": "p2p"
+              }
+            ],
+            "all_p2p": true,
+            "audio_receive_counter_advanced": true,
+            "rendered_frames_advanced": true,
+            "worker_stall_samples": 0,
+            "video_worker_stall_samples": 0
+          },
+          "C": {
+            "before_script_stop": [],
+            "after_script_stop": [
+              {
+                "reason": "hangup",
+                "origin": "remoteSignal",
+                "phase": "active",
+                "route": "p2p"
+              }
+            ],
+            "all_p2p": true,
+            "audio_receive_counter_advanced": true,
+            "rendered_frames_advanced": true,
+            "worker_stall_samples": 0,
+            "video_worker_stall_samples": 0
+          }
+        }
+      }
+    ],
+    "messages": 54,
+    "rows_by_role": {
+      "B": 1829,
+      "C": 1829,
+      "A": 1829
+    },
+    "same_ids_and_order": true,
+    "no_logical_duplicates": true,
+    "phone_network": "Wi-Fi",
+    "modes_restored": true
+  },
+  "final_build": {
+    "inventory": {
+      "invocation_available": true,
+      "sent": true,
+      "received": true,
+      "receiving_devices": [
+        "A",
+        "B"
+      ],
+      "call_counters_unchanged": true,
+      "call_counters_before_calls_zero": true,
+      "counter_roles": [
+        "B",
+        "C",
+        "A"
+      ]
+    },
+    "ring_ms": {
+      "A": 237,
+      "B": 240
+    },
+    "connect_ms": 2908,
+    "last_active_seconds": 59.613,
+    "sibling_stopped_ringing": true,
+    "endpoints": {
+      "A": {
+        "before_script_stop": [],
+        "after_script_stop": [
+          {
+            "reason": "hangup",
+            "origin": "diagnosticApi",
+            "phase": "active",
+            "route": "p2p"
+          }
+        ],
+        "all_p2p": true,
+        "audio_receive_counter_advanced": true,
+        "rendered_frames_advanced": true,
+        "worker_stall_samples": 0,
+        "video_worker_stall_samples": 0
+      },
+      "B": {
+        "before_script_stop": [
+          {
+            "reason": "answeredElsewhere",
+            "origin": "siblingSelection",
+            "phase": "ringing",
+            "route": "p2p"
+          }
+        ],
+        "after_script_stop": [],
+        "all_p2p": null,
+        "audio_receive_counter_advanced": null,
+        "rendered_frames_advanced": null,
+        "worker_stall_samples": 0,
+        "video_worker_stall_samples": 0
+      },
+      "C": {
+        "before_script_stop": [],
+        "after_script_stop": [
+          {
+            "reason": "hangup",
+            "origin": "remoteSignal",
+            "phase": "active",
+            "route": "p2p"
+          }
+        ],
+        "all_p2p": true,
+        "audio_receive_counter_advanced": true,
+        "rendered_frames_advanced": true,
+        "worker_stall_samples": 0,
+        "video_worker_stall_samples": 0
+      }
+    },
+    "history_counts": {
+      "B": 1829,
+      "C": 1829,
+      "A": 1829
+    },
+    "history_order_and_bodies_equal": true
+  },
+  "native_libraries_changed": false,
+  "reported_25_second_end": "unresolved; not reproduced in these calls",
+  "human_speech_and_headphone_volume_qualified": false,
+  "cleanup": {
+    "retired_groups_with_reused_system_pgid": 0,
+    "android_package_processes": 0,
+    "recorded_owned_groups_checked": 211,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false,
+    "owned_vm_forwards_remaining": 0
+  },
+  "pushed": false,
+  "released": false
+}
