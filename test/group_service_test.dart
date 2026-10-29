@@ -4163,6 +4163,103 @@ void main() {
     });
   }
 
+  test(
+    'overlay ingress waits for durable relay enqueue, not its live send',
+    () async {
+      final sourceStore = FakeHvContainer().storage();
+      await sourceStore.open(password: 'pw', createIfMissing: true);
+      final frames = <String>[];
+      final source = GroupService(
+        sourceStore,
+        _FakeSigner(owner),
+        send: (_, _, json) async => frames.add(json),
+      );
+      addTearDown(source.dispose);
+      final gid = await source.createGroup('relay queue');
+      for (final member in [bob, carol]) {
+        await source.addControlOp(
+          gid,
+          ControlOp.addMember,
+          target: member,
+          role: GroupRole.member,
+        );
+      }
+      final before = (await source.load(gid))!;
+      expect(
+        await source.postMessage(gid, 'forward', broadcast: false),
+        isTrue,
+      );
+      final row = (await source.load(gid))!.messages.single;
+      frames.clear();
+      await source.broadcastDelta(gid, messages: [row]);
+      final wire = frames.first;
+      final targetStore = FakeHvContainer().storage();
+      await targetStore.open(password: 'pw', createIfMissing: true);
+      final network = Completer<void>();
+      final durable = Completer<void>();
+      var normalCalls = 0;
+      var queuedCalls = 0;
+      final target = GroupService(
+        targetStore,
+        _FakeSigner(bob),
+        send: (_, _, _) async {
+          normalCalls++;
+          await network.future;
+        },
+        sendSyncResponse: (_, _, _) async {
+          queuedCalls++;
+          await durable.future;
+        },
+      );
+      addTearDown(target.dispose);
+      expect(
+        await target.ingestSnapshot(
+          source.snapshotJson(before, recipient: bob),
+        ),
+        isTrue,
+      );
+      var finished = false;
+      final received = target.ingestGroupEntryFromStranger(owner, wire).then((
+        accepted,
+      ) {
+        finished = true;
+        return accepted;
+      });
+      try {
+        for (var i = 0; i < 20 && normalCalls + queuedCalls == 0; i++) {
+          await Future<void>.delayed(Duration.zero);
+        }
+        expect(
+          queuedCalls,
+          greaterThan(0),
+          reason: 'received rows must use the durable reply scheduler',
+        );
+        expect(
+          normalCalls,
+          0,
+          reason: 'live admission must not hold the global inbound lane',
+        );
+        expect(
+          finished,
+          isFalse,
+          reason: 'receipt still waits for durable enqueue',
+        );
+        expect((await target.messagesOf(gid)).single.body, 'forward');
+        durable.complete();
+        expect(await received.timeout(const Duration(seconds: 1)), isTrue);
+        expect(
+          network.isCompleted,
+          isFalse,
+          reason: 'no live send was needed to acknowledge the input',
+        );
+      } finally {
+        if (!durable.isCompleted) durable.complete();
+        if (!network.isCompleted) network.complete();
+        await received;
+      }
+    },
+  );
+
   test('XOR neighbour selection is deterministic, unique, and capped at k', () {
     final self = _id(1);
     final peers = [_id(7), _id(2), _id(5), _id(3), _id(0), _id(3)];
