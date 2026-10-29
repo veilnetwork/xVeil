@@ -1,0 +1,471 @@
+{
+  "sdk": "524112a2bad503636efd0d841d816bada9734be9",
+  "baseline_sdk": "04eb1c1dd31d25ccfafd552cf8886c7f81d4b163",
+  "date": "2026-10-29",
+  "scope": "Sans-I/O, real async driver, FFI unit tests; no physical relay or phone qualification.",
+  "source_hashes": {
+    "files": {
+      "src/engine.rs": "e9891b23d9a1688b288c750afc9ea98fccf2f1c8d69c02b7ec69cd0ba9aa0081",
+      "src/driver.rs": "02178041b083951da8ab6e1f614ffa48e3e671a4a23468ef0e3763536a6b85e6",
+      "src/wire.rs": "3ac44f73de73ad6f75456bcf297e5e9a7b5b5cbca0f695572d20d2c45da87e57",
+      "src/lib.rs": "a8466e0b8540b5978fce29e65afe345f00988c4f2a8f3e430678cd1000448c25",
+      "tests/ack_window_order.rs": "be6d05c8376d16e04872383d04e1f8c1ffa66ff00d9e27e8ec982062ad3338ca",
+      "tests/read_window_driver.rs": "0afb211d2ec09cb8e99946b7c667aaceadf97b27236b28d58e2f10f96250433c"
+    },
+    "baseline_engine_sha256": "e7881c5a4e6091de742efcfbfcd863d94ea5b1f985a2722c3f090a8fb738b64d",
+    "tests_equal_baseline": true
+  },
+  "checks": {
+    "stream": {
+      "passed": 197,
+      "failed": 0,
+      "ignored": 0
+    },
+    "ffi": {
+      "status": "ok",
+      "passed": 326,
+      "failed": 0,
+      "ignored": 2
+    },
+    "ffi_default_features": false,
+    "ffi_features": [
+      "node-embedded",
+      "production-seeds",
+      "packet-tunnel"
+    ],
+    "clippy_lib_tests_deny_warnings": true,
+    "rustfmt_passed": true,
+    "new_tests": 14,
+    "red_on_old_engine": [
+      {
+        "status": "FAILED",
+        "passed": 8,
+        "failed": 10,
+        "ignored": 0
+      },
+      {
+        "status": "FAILED",
+        "passed": 0,
+        "failed": 1,
+        "ignored": 0
+      }
+    ],
+    "old_and_new_used_identical_test_sources": true
+  },
+  "async_read_resume": {
+    "old": {
+      "virtual_wait_ms": 10000,
+      "ack_progress_before_reopen": 1
+    },
+    "new": {
+      "virtual_wait_ms": 0,
+      "ack_progress_before_reopen": 0
+    },
+    "clock": "tokio paused virtual time",
+    "bytes_intact": 4096,
+    "both_driver_close_callbacks_observed": true,
+    "watchdog_is_not_the_latency_assertion": true
+  },
+  "mixed": {
+    "rows": [
+      {
+        "a_new": false,
+        "b_new": false,
+        "rack": false,
+        "drop_reopen": false,
+        "virtual_ms": 4130,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 237
+      },
+      {
+        "a_new": false,
+        "b_new": false,
+        "rack": false,
+        "drop_reopen": true,
+        "virtual_ms": 4237,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 252
+      },
+      {
+        "a_new": false,
+        "b_new": false,
+        "rack": true,
+        "drop_reopen": false,
+        "virtual_ms": 4130,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 237
+      },
+      {
+        "a_new": false,
+        "b_new": false,
+        "rack": true,
+        "drop_reopen": true,
+        "virtual_ms": 4237,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 252
+      },
+      {
+        "a_new": false,
+        "b_new": true,
+        "rack": false,
+        "drop_reopen": false,
+        "virtual_ms": 344,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 386
+      },
+      {
+        "a_new": false,
+        "b_new": true,
+        "rack": false,
+        "drop_reopen": true,
+        "virtual_ms": 5935,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 331
+      },
+      {
+        "a_new": false,
+        "b_new": true,
+        "rack": true,
+        "drop_reopen": false,
+        "virtual_ms": 344,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 386
+      },
+      {
+        "a_new": false,
+        "b_new": true,
+        "rack": true,
+        "drop_reopen": true,
+        "virtual_ms": 5935,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 331
+      },
+      {
+        "a_new": true,
+        "b_new": false,
+        "rack": false,
+        "drop_reopen": false,
+        "virtual_ms": 4540,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 284
+      },
+      {
+        "a_new": true,
+        "b_new": false,
+        "rack": false,
+        "drop_reopen": true,
+        "virtual_ms": 13872,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 281
+      },
+      {
+        "a_new": true,
+        "b_new": false,
+        "rack": true,
+        "drop_reopen": false,
+        "virtual_ms": 4540,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 284
+      },
+      {
+        "a_new": true,
+        "b_new": false,
+        "rack": true,
+        "drop_reopen": true,
+        "virtual_ms": 13872,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 281
+      },
+      {
+        "a_new": true,
+        "b_new": true,
+        "rack": false,
+        "drop_reopen": false,
+        "virtual_ms": 344,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 326
+      },
+      {
+        "a_new": true,
+        "b_new": true,
+        "rack": false,
+        "drop_reopen": true,
+        "virtual_ms": 349,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 327
+      },
+      {
+        "a_new": true,
+        "b_new": true,
+        "rack": true,
+        "drop_reopen": false,
+        "virtual_ms": 344,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 326
+      },
+      {
+        "a_new": true,
+        "b_new": true,
+        "rack": true,
+        "drop_reopen": true,
+        "virtual_ms": 349,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 327
+      }
+    ],
+    "mss": 64,
+    "receive_window": 128,
+    "initial_cwnd": 128,
+    "one_way_fifo_delay_ms": 3,
+    "rate_serialization_modeled": false,
+    "initial_app_read_pause_ms": 25,
+    "app_read_cadences_ms": [
+      3,
+      5
+    ],
+    "bbr": true,
+    "wraparound_one_direction": true,
+    "published_probe_sha256": "45f159bf4c3471253e83e61e3f3311e9a93784bccbc3ed3d09e7c8a94ac2847d",
+    "initial_candidate_without_hint_rows": [
+      {
+        "a_new": false,
+        "b_new": false,
+        "rack": false,
+        "drop_reopen": false,
+        "virtual_ms": 4130,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 237
+      },
+      {
+        "a_new": false,
+        "b_new": false,
+        "rack": false,
+        "drop_reopen": true,
+        "virtual_ms": 4237,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 252
+      },
+      {
+        "a_new": false,
+        "b_new": false,
+        "rack": true,
+        "drop_reopen": false,
+        "virtual_ms": 4130,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 237
+      },
+      {
+        "a_new": false,
+        "b_new": false,
+        "rack": true,
+        "drop_reopen": true,
+        "virtual_ms": 4237,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 252
+      },
+      {
+        "a_new": false,
+        "b_new": true,
+        "rack": false,
+        "drop_reopen": false,
+        "virtual_ms": 13843,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 342
+      },
+      {
+        "a_new": false,
+        "b_new": true,
+        "rack": false,
+        "drop_reopen": true,
+        "virtual_ms": 2384,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 331
+      },
+      {
+        "a_new": false,
+        "b_new": true,
+        "rack": true,
+        "drop_reopen": false,
+        "virtual_ms": 13843,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 342
+      },
+      {
+        "a_new": false,
+        "b_new": true,
+        "rack": true,
+        "drop_reopen": true,
+        "virtual_ms": 2384,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 331
+      },
+      {
+        "a_new": true,
+        "b_new": false,
+        "rack": false,
+        "drop_reopen": false,
+        "virtual_ms": 9556,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 273
+      },
+      {
+        "a_new": true,
+        "b_new": false,
+        "rack": false,
+        "drop_reopen": true,
+        "virtual_ms": 6169,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 274
+      },
+      {
+        "a_new": true,
+        "b_new": false,
+        "rack": true,
+        "drop_reopen": false,
+        "virtual_ms": 9556,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 273
+      },
+      {
+        "a_new": true,
+        "b_new": false,
+        "rack": true,
+        "drop_reopen": true,
+        "virtual_ms": 6169,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 274
+      },
+      {
+        "a_new": true,
+        "b_new": true,
+        "rack": false,
+        "drop_reopen": false,
+        "virtual_ms": 344,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 326
+      },
+      {
+        "a_new": true,
+        "b_new": true,
+        "rack": false,
+        "drop_reopen": true,
+        "virtual_ms": 349,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 327
+      },
+      {
+        "a_new": true,
+        "b_new": true,
+        "rack": true,
+        "drop_reopen": false,
+        "virtual_ms": 344,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 326
+      },
+      {
+        "a_new": true,
+        "b_new": true,
+        "rack": true,
+        "drop_reopen": true,
+        "virtual_ms": 349,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 327
+      }
+    ],
+    "same_final_rows_before_and_after_probe_formatting": true,
+    "mixed_latency_regressions_remain_open": true,
+    "minimum_package_changes_to_old_copy": [
+      "remove workspace lint inheritance",
+      "private package version renamed to 0.1.0-validation-old"
+    ],
+    "production_sources_old_unmodified": true
+  },
+  "intermediate_regression_caught": {
+    "test": "rack_two_path_reorder_adapts_without_spurious_collapse",
+    "first_read_notification_candidate_introduced_rto": true,
+    "fixed_by_limiting_read_notifications_to_small_advertised_window": true,
+    "original_test_unchanged": true
+  },
+  "hygiene": {
+    "build_checkouts_and_probes_used_separate_targets": true,
+    "mount_monitored_for_all_cargo_runs": true,
+    "all_owned_cargo_children_absent": true,
+    "owned_process_checks": 20,
+    "phone_or_gui_apps_started": false,
+    "phone_or_gui_apps_installed": false,
+    "real_relays_modified": false,
+    "release_binary_built": false,
+    "push_or_release": false
+  },
+  "remaining": [
+    "Mixed-version latency",
+    "Physical public-route file stalls and original 33% case",
+    "Cold initial 64-MSS flight",
+    "Unknown-cell attribution and per-hop traces",
+    "Other open findings and multi-device matrix"
+  ]
+}
