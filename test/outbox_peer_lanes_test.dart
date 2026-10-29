@@ -204,6 +204,58 @@ void main() {
     },
   );
 
+  test(
+    'a timed-out recipient defers its unsent tail in the same pass',
+    () async {
+      for (var i = 0; i < 4; i++) {
+        final id = 'edit:slow-$i';
+        await queue(_id(2), id);
+        transport.blocked[id] = Completer<void>();
+      }
+      await queue(_id(3), 'edit:healthy');
+      service.liveLegDeadline = const Duration(milliseconds: 20);
+      flush();
+      await Future.wait(runs).timeout(const Duration(seconds: 1));
+      expect(transport.sent.where((f) => f.peer == _id(2)), hasLength(1));
+      expect(transport.sent.any((f) => f.id == 'edit:healthy'), isTrue);
+      expect(await storage.pendingOutboxFrames(), hasLength(5));
+    },
+  );
+
+  for (final failsLate in [false, true]) {
+    test(
+      'a late ${failsLate ? 'failure' : 'completion'} gates retries only for its own recipient',
+      () async {
+        var clock = DateTime.now();
+        service = MessagingService(transport, storage, now: () => clock);
+        await queue(_id(2), 'edit:slow');
+        await queue(_id(3), 'edit:healthy');
+        final gate = Completer<void>();
+        transport.blocked['edit:slow'] = gate;
+        service.liveLegDeadline = const Duration(milliseconds: 20);
+        flush();
+        await Future.wait(runs).timeout(const Duration(seconds: 1));
+        clock = clock.add(const Duration(seconds: 31));
+        flush();
+        await Future.wait(runs).timeout(const Duration(seconds: 1));
+        expect(transport.sent.where((f) => f.peer == _id(2)), hasLength(1));
+        expect(transport.sent.where((f) => f.peer == _id(3)), hasLength(2));
+        transport.blocked.remove('edit:slow');
+        if (failsLate) {
+          gate.completeError(StateError('late source failure'));
+        } else {
+          gate.complete();
+        }
+        await _until(() => transport.active == 0);
+        await Future<void>.delayed(Duration.zero);
+        flush();
+        await Future.wait(runs).timeout(const Duration(seconds: 1));
+        expect(transport.sent.where((f) => f.peer == _id(2)), hasLength(2));
+        expect(await storage.pendingOutboxFrames(), hasLength(2));
+      },
+    );
+  }
+
   test('an ACK cancels a fifth recipient before its lane starts', () async {
     for (var i = 0; i < 5; i++) {
       final id = 'edit:peer-$i';
