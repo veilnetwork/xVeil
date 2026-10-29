@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-29",
+  "xveil_base": "9cee6aff",
+  "veil_base": "c9297488",
+  "veil_fix": "1fbef225",
+  "hidden_volume": "1ea2366f",
+  "new_regression_tests": 3,
+  "regressions_failed_before_fix": 2,
+  "runtime_tests": {
+    "passed": 735,
+    "ignored": 11
+  },
+  "ffi_tests": {
+    "passed": 326,
+    "ignored": 2
+  },
+  "guarded_rust_commands": {
+    "admission-red": {
+      "exit_code": 101,
+      "external_mount_verified": true,
+      "external_mount_lost": false
+    },
+    "cancellation-red": {
+      "exit_code": 101,
+      "external_mount_verified": true,
+      "external_mount_lost": false
+    },
+    "runtime-green": {
+      "exit_code": 0,
+      "external_mount_verified": true,
+      "external_mount_lost": false
+    },
+    "ffi-green": {
+      "exit_code": 0,
+      "external_mount_verified": true,
+      "external_mount_lost": false
+    },
+    "native-build": {
+      "exit_code": 0,
+      "external_mount_verified": true,
+      "external_mount_lost": false
+    }
+  },
+  "native_artifact": {
+    "sha256": "90e8e57740f0a03036376f250be53e798ee9285d88563bc69dd1023a58013610",
+    "bytes": 24747152,
+    "features": [
+      "node-embedded",
+      "production-seeds",
+      "packet-tunnel"
+    ],
+    "default_features": false,
+    "test_low_difficulty": false,
+    "native_test_hooks": false,
+    "external_mount_verified_during_build": true
+  },
+  "native_stand": {
+    "nodes": 12,
+    "processes": 1,
+    "physical_computers": 1,
+    "loopback_tcp": true,
+    "public_discovery": false,
+    "native_signatures": true,
+    "native_transport_encryption": true,
+    "encrypted_worker_stores": true,
+    "ratchet_persistence": true,
+    "peer_authorization_persistence": true,
+    "membership_epoch_encryption": false,
+    "flutter_jit_product_logging_gate": true,
+    "flutter_release_aot_qualified": false,
+    "queue_saturation_injected": false,
+    "converged": true,
+    "completed_samples": 4,
+    "messages_visible_once_per_recipient": 4,
+    "max_visibility_ms": [
+      9475,
+      2361,
+      2340,
+      2845
+    ],
+    "nodes_stopped": true,
+    "listeners_released": 12,
+    "cleanup_error_count": 0,
+    "host_exited": true
+  },
+  "existing_file_pause_cause_proven": false,
+  "overall_delivery_speedup_proven": false,
+  "push_performed": false,
+  "release_performed": false,
+  "relay_update_performed": false
+}
