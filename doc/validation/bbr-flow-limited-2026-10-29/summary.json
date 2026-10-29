@@ -1,0 +1,622 @@
+{
+  "date": "2026-10-29",
+  "sdk": "6d33974d67c9a31f6f6e6411050c25f851850ac9",
+  "reference_sdk": "524112a2",
+  "legacy_sdk": "04eb1c1d",
+  "scope": "CC sampling epochs, deterministic models, driver/FFI regressions; not physical phone qualification",
+  "source_hashes": {
+    "candidate_engine_sha256": "974d9d43f86ec8145ced928038dd9b099bca65839af9d0acf9cb19eee777ee00",
+    "candidate_test_sha256": "66ec8124bde7a72e61bd6347f8072043563f5a1e4a6786d3f3c7b62afadac090",
+    "reference_engine_sha256": "e9891b23d9a1688b288c750afc9ea98fccf2f1c8d69c02b7ec69cd0ba9aa0081",
+    "probe_sha256": "0d3a053c08cbfe5a27391a2f7667b76d7c5affae6ead8d4a01fe0eb3bb07c382"
+  },
+  "regression": {
+    "same_final_test_source_in_old_and_new": true,
+    "old": [
+      {
+        "status": "FAILED",
+        "passed": 0,
+        "failed": 1,
+        "ignored": 0
+      }
+    ],
+    "false_old_rate_bytes_per_second": 128,
+    "correct_cold_rate_before_usable_samples": 0,
+    "delivered_bytes_preserved_at_reopen": 256,
+    "post_reopen_delivery_bytes": 64,
+    "post_reopen_delivery_spacing_ms": 8,
+    "learned_fresh_rate_bytes_per_second": 8000
+  },
+  "tests": {
+    "stream_passed": 199,
+    "stream_failed": 0,
+    "stream_ignored": 0,
+    "ffi": {
+      "status": "ok",
+      "passed": 326,
+      "failed": 0,
+      "ignored": 2
+    },
+    "ffi_features": [
+      "node-embedded",
+      "production-seeds",
+      "packet-tunnel"
+    ],
+    "ffi_default_features": false,
+    "clippy_lib_tests_deny_warnings_passed": true,
+    "rustfmt_passed": true,
+    "warm_seed_and_stale_ack_epoch_guards_passed": true
+  },
+  "controls": {
+    "A1": [
+      {
+        "a_new": false,
+        "b_new": false,
+        "rack": false,
+        "drop_reopen": false,
+        "virtual_ms": 4130,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 237
+      },
+      {
+        "a_new": false,
+        "b_new": false,
+        "rack": false,
+        "drop_reopen": true,
+        "virtual_ms": 4237,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 252
+      },
+      {
+        "a_new": false,
+        "b_new": false,
+        "rack": true,
+        "drop_reopen": false,
+        "virtual_ms": 4130,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 237
+      },
+      {
+        "a_new": false,
+        "b_new": false,
+        "rack": true,
+        "drop_reopen": true,
+        "virtual_ms": 4237,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 252
+      },
+      {
+        "a_new": false,
+        "b_new": true,
+        "rack": false,
+        "drop_reopen": false,
+        "virtual_ms": 344,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 386
+      },
+      {
+        "a_new": false,
+        "b_new": true,
+        "rack": false,
+        "drop_reopen": true,
+        "virtual_ms": 5935,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 331
+      },
+      {
+        "a_new": false,
+        "b_new": true,
+        "rack": true,
+        "drop_reopen": false,
+        "virtual_ms": 344,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 386
+      },
+      {
+        "a_new": false,
+        "b_new": true,
+        "rack": true,
+        "drop_reopen": true,
+        "virtual_ms": 5935,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 331
+      },
+      {
+        "a_new": true,
+        "b_new": false,
+        "rack": false,
+        "drop_reopen": false,
+        "virtual_ms": 4540,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 284
+      },
+      {
+        "a_new": true,
+        "b_new": false,
+        "rack": false,
+        "drop_reopen": true,
+        "virtual_ms": 13872,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 281
+      },
+      {
+        "a_new": true,
+        "b_new": false,
+        "rack": true,
+        "drop_reopen": false,
+        "virtual_ms": 4540,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 284
+      },
+      {
+        "a_new": true,
+        "b_new": false,
+        "rack": true,
+        "drop_reopen": true,
+        "virtual_ms": 13872,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 281
+      },
+      {
+        "a_new": true,
+        "b_new": true,
+        "rack": false,
+        "drop_reopen": false,
+        "virtual_ms": 344,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 326
+      },
+      {
+        "a_new": true,
+        "b_new": true,
+        "rack": false,
+        "drop_reopen": true,
+        "virtual_ms": 349,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 327
+      },
+      {
+        "a_new": true,
+        "b_new": true,
+        "rack": true,
+        "drop_reopen": false,
+        "virtual_ms": 344,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 326
+      },
+      {
+        "a_new": true,
+        "b_new": true,
+        "rack": true,
+        "drop_reopen": true,
+        "virtual_ms": 349,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 327
+      }
+    ],
+    "B": [
+      {
+        "a_new": false,
+        "b_new": false,
+        "rack": false,
+        "drop_reopen": false,
+        "virtual_ms": 4130,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 237
+      },
+      {
+        "a_new": false,
+        "b_new": false,
+        "rack": false,
+        "drop_reopen": true,
+        "virtual_ms": 4237,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 252
+      },
+      {
+        "a_new": false,
+        "b_new": false,
+        "rack": true,
+        "drop_reopen": false,
+        "virtual_ms": 4130,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 237
+      },
+      {
+        "a_new": false,
+        "b_new": false,
+        "rack": true,
+        "drop_reopen": true,
+        "virtual_ms": 4237,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 252
+      },
+      {
+        "a_new": false,
+        "b_new": true,
+        "rack": false,
+        "drop_reopen": false,
+        "virtual_ms": 344,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 386
+      },
+      {
+        "a_new": false,
+        "b_new": true,
+        "rack": false,
+        "drop_reopen": true,
+        "virtual_ms": 1251,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 334
+      },
+      {
+        "a_new": false,
+        "b_new": true,
+        "rack": true,
+        "drop_reopen": false,
+        "virtual_ms": 344,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 386
+      },
+      {
+        "a_new": false,
+        "b_new": true,
+        "rack": true,
+        "drop_reopen": true,
+        "virtual_ms": 1251,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 334
+      },
+      {
+        "a_new": true,
+        "b_new": false,
+        "rack": false,
+        "drop_reopen": false,
+        "virtual_ms": 3397,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 290
+      },
+      {
+        "a_new": true,
+        "b_new": false,
+        "rack": false,
+        "drop_reopen": true,
+        "virtual_ms": 8431,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 285
+      },
+      {
+        "a_new": true,
+        "b_new": false,
+        "rack": true,
+        "drop_reopen": false,
+        "virtual_ms": 3397,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 290
+      },
+      {
+        "a_new": true,
+        "b_new": false,
+        "rack": true,
+        "drop_reopen": true,
+        "virtual_ms": 8431,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 285
+      },
+      {
+        "a_new": true,
+        "b_new": true,
+        "rack": false,
+        "drop_reopen": false,
+        "virtual_ms": 344,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 326
+      },
+      {
+        "a_new": true,
+        "b_new": true,
+        "rack": false,
+        "drop_reopen": true,
+        "virtual_ms": 349,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 327
+      },
+      {
+        "a_new": true,
+        "b_new": true,
+        "rack": true,
+        "drop_reopen": false,
+        "virtual_ms": 344,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 326
+      },
+      {
+        "a_new": true,
+        "b_new": true,
+        "rack": true,
+        "drop_reopen": true,
+        "virtual_ms": 349,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 327
+      }
+    ],
+    "A2": [
+      {
+        "a_new": false,
+        "b_new": false,
+        "rack": false,
+        "drop_reopen": false,
+        "virtual_ms": 4130,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 237
+      },
+      {
+        "a_new": false,
+        "b_new": false,
+        "rack": false,
+        "drop_reopen": true,
+        "virtual_ms": 4237,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 252
+      },
+      {
+        "a_new": false,
+        "b_new": false,
+        "rack": true,
+        "drop_reopen": false,
+        "virtual_ms": 4130,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 237
+      },
+      {
+        "a_new": false,
+        "b_new": false,
+        "rack": true,
+        "drop_reopen": true,
+        "virtual_ms": 4237,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 252
+      },
+      {
+        "a_new": false,
+        "b_new": true,
+        "rack": false,
+        "drop_reopen": false,
+        "virtual_ms": 344,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 386
+      },
+      {
+        "a_new": false,
+        "b_new": true,
+        "rack": false,
+        "drop_reopen": true,
+        "virtual_ms": 5935,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 331
+      },
+      {
+        "a_new": false,
+        "b_new": true,
+        "rack": true,
+        "drop_reopen": false,
+        "virtual_ms": 344,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 386
+      },
+      {
+        "a_new": false,
+        "b_new": true,
+        "rack": true,
+        "drop_reopen": true,
+        "virtual_ms": 5935,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 331
+      },
+      {
+        "a_new": true,
+        "b_new": false,
+        "rack": false,
+        "drop_reopen": false,
+        "virtual_ms": 4540,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 284
+      },
+      {
+        "a_new": true,
+        "b_new": false,
+        "rack": false,
+        "drop_reopen": true,
+        "virtual_ms": 13872,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 281
+      },
+      {
+        "a_new": true,
+        "b_new": false,
+        "rack": true,
+        "drop_reopen": false,
+        "virtual_ms": 4540,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 284
+      },
+      {
+        "a_new": true,
+        "b_new": false,
+        "rack": true,
+        "drop_reopen": true,
+        "virtual_ms": 13872,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 281
+      },
+      {
+        "a_new": true,
+        "b_new": true,
+        "rack": false,
+        "drop_reopen": false,
+        "virtual_ms": 344,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 326
+      },
+      {
+        "a_new": true,
+        "b_new": true,
+        "rack": false,
+        "drop_reopen": true,
+        "virtual_ms": 349,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 327
+      },
+      {
+        "a_new": true,
+        "b_new": true,
+        "rack": true,
+        "drop_reopen": false,
+        "virtual_ms": 344,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 0,
+        "wire_cells": 326
+      },
+      {
+        "a_new": true,
+        "b_new": true,
+        "rack": true,
+        "drop_reopen": true,
+        "virtual_ms": 349,
+        "intact_bytes_each_way": 4096,
+        "eof_both": true,
+        "dropped_window_updates": 2,
+        "wire_cells": 327
+      }
+    ],
+    "A1_equals_A2": true,
+    "identical_probe_source": true,
+    "mss": 64,
+    "receive_window_bytes": 128,
+    "bytes_each_direction": 4096,
+    "one_way_delay_ms": 3,
+    "initial_read_pause_ms": 25,
+    "app_read_cadence_ms": [
+      3,
+      5
+    ],
+    "clock": "virtual milliseconds",
+    "bbr": true,
+    "rack": "both settings",
+    "old_label": "04eb1c1d",
+    "new_label_A": "524112a2",
+    "new_label_B": "candidate",
+    "loss_case": "drop first reopening ACK in each direction",
+    "single_deterministic_control_not_population_statistics": true
+  },
+  "hygiene": {
+    "owned_process_checks": 13,
+    "all_owned_children_absent": true,
+    "all_cargo_runs_mount_monitored": true,
+    "separate_targets_for_source_variants": true,
+    "phone_or_gui_apps_started_or_installed": false,
+    "real_relays_changed": false,
+    "native_release_binary_built": false,
+    "push_or_release": false
+  },
+  "remaining": [
+    "Legacy receiver persist waits and mixed-version latency",
+    "Public-route original 33% report",
+    "Cold initial flight",
+    "Unknown cells and per-hop attribution",
+    "Other open user reports and full multi-device matrix"
+  ]
+}
