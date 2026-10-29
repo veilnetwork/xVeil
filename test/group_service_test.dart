@@ -4000,6 +4000,169 @@ void main() {
     expect(sent.every((e) => e.$2 == gid), isTrue);
   });
 
+  for (final scenario in [
+    (
+      name: 'split roster through contacts',
+      split: true,
+      outlier: false,
+      stranger: false,
+    ),
+    (
+      name: 'split roster through strangers',
+      split: true,
+      outlier: false,
+      stranger: true,
+    ),
+    (
+      name: 'compact delta through strangers',
+      split: false,
+      outlier: false,
+      stranger: true,
+    ),
+    (
+      name: 'one isolated recipient',
+      split: false,
+      outlier: true,
+      stranger: false,
+    ),
+  ]) {
+    test('group overlay reaches every member: ${scenario.name}', () async {
+      final members = scenario.split
+          ? [
+              for (var i = 0; i < 6; i++) _id(i),
+              for (var i = 0x80; i < 0x86; i++) _id(i),
+            ]
+          : scenario.outlier
+          ? [for (var i = 0; i < 6; i++) _id(i), _id(0x80)]
+          : [for (var i = 0; i < 7; i++) _id(i)];
+      final services = <NodeId, GroupService>{};
+      final frames = <({NodeId from, NodeId to, String json})>[];
+      var enabled = false;
+      for (final member in members) {
+        final storage = FakeHvContainer().storage();
+        await storage.open(password: 'pw', createIfMissing: true);
+        final svc = GroupService(
+          storage,
+          _FakeSigner(member),
+          activePeers: () async => members.toSet(),
+          send: (peer, gid, json) async {
+            if (enabled) frames.add((from: member, to: peer, json: json));
+          },
+        );
+        services[member] = svc;
+        addTearDown(svc.dispose);
+      }
+      final source = services[members.first]!;
+      final gid = await source.createGroup('connected overlay');
+      for (final member in members.skip(1)) {
+        expect(
+          await source.addControlOp(
+            gid,
+            ControlOp.addMember,
+            target: member,
+            role: GroupRole.member,
+          ),
+          isTrue,
+        );
+      }
+      final seed = (await source.load(gid))!;
+      for (final member in members.skip(1)) {
+        expect(
+          await services[member]!.ingestSnapshot(
+            source.snapshotJson(seed, recipient: member),
+          ),
+          isTrue,
+        );
+      }
+      enabled = true;
+      final expected = <String>[];
+      for (final author in [members.first, members.last]) {
+        final sender = services[author]!;
+        final body = 'from ${expected.length}';
+        expected.add(body);
+        expect(await sender.postMessage(gid, body, broadcast: false), isTrue);
+        final row = (await sender.load(gid))!.messages.last;
+        frames.clear();
+        await sender.broadcastDelta(gid, messages: [row]);
+        final firstFrame = frames.first;
+        // The compact production format must survive all transit hops.
+        expect((jsonDecode(firstFrame.json) as Map).containsKey('m'), isFalse);
+        if (scenario.stranger) {
+          final recipient = services[firstFrame.to]!;
+          final beforeDenied = frames.length;
+          expect(
+            await recipient.receiveGroupFrame(
+              _id(0xfe),
+              firstFrame.json,
+              fromStranger: true,
+            ),
+            isFalse,
+            reason: 'restoring a manifest grants no membership',
+          );
+          final wrongManifest = Map<String, dynamic>.from(
+            jsonDecode(firstFrame.json) as Map,
+          )..['mh'] = '0' * 32;
+          expect(
+            await recipient.receiveGroupFrame(
+              firstFrame.from,
+              jsonEncode(wrongManifest),
+              fromStranger: true,
+            ),
+            isFalse,
+            reason: 'a mismatched local manifest cannot be restored',
+          );
+          expect(
+            frames,
+            hasLength(beforeDenied),
+            reason:
+                'denied frames must not trigger a relay or poison valid replay',
+          );
+        }
+        for (var cursor = 0; cursor < frames.length; cursor++) {
+          expect(
+            frames.length,
+            lessThanOrEqualTo(
+              members.length * GroupService.kGroupSyncNeighbors,
+            ),
+          );
+          final frame = frames[cursor];
+          expect(
+            await services[frame.to]!.receiveGroupFrame(
+              frame.from,
+              frame.json,
+              fromStranger: scenario.stranger,
+            ),
+            isTrue,
+          );
+        }
+        for (final member in members) {
+          final visible = await services[member]!.messagesOf(gid);
+          expect(
+            visible.map((message) => message.body),
+            unorderedEquals(expected),
+            reason:
+                'every member must receive both halves without a join snapshot',
+          );
+          expect(
+            visible.map((message) => message.ref).toSet().length,
+            visible.length,
+            reason: 'relay cycles must not duplicate rows',
+          );
+        }
+        final delivered = frames.length;
+        expect(
+          await services[firstFrame.to]!.receiveGroupFrame(
+            firstFrame.from,
+            firstFrame.json,
+            fromStranger: scenario.stranger,
+          ),
+          isTrue,
+        );
+        expect(frames, hasLength(delivered), reason: 'replay must not reflood');
+      }
+    });
+  }
+
   test('XOR neighbour selection is deterministic, unique, and capped at k', () {
     final self = _id(1);
     final peers = [_id(7), _id(2), _id(5), _id(3), _id(0), _id(3)];
@@ -4037,7 +4200,7 @@ void main() {
   });
 
   test(
-    'chat deltas use five XOR neighbours and relay once transitively',
+    'chat deltas use five connected neighbours and relay once transitively',
     () async {
       final sent = <(NodeId, String)>[];
       final storage = FakeHvContainer().storage();
@@ -4198,7 +4361,7 @@ void main() {
   });
 
   test(
-    'boot gap-fill contacts the same deterministic XOR neighbours',
+    'boot gap-fill contacts connected neighbours within the local limit',
     () async {
       final sent = <(NodeId, String)>[];
       final storage = FakeHvContainer().storage();
@@ -4225,7 +4388,7 @@ void main() {
 
       await svc.nudgeGroupSyncAll();
 
-      expect(sent.map((entry) => entry.$1).toSet(), {_id(0), _id(3)});
+      expect(sent.map((entry) => entry.$1).toSet(), {_id(2), _id(0)});
       expect(sent, hasLength(2));
       expect(
         sent.every((entry) => (jsonDecode(entry.$2) as Map)['sreq'] == 1),
