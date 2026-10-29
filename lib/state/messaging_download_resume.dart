@@ -319,9 +319,14 @@ class _MessagingDownloadResume {
   }) async {
     final pending = await _pendingDownloads();
     final warmed = <String>{};
-    for (final intent in pending.values) {
-      for (final hex in intent.peers) {
-        if (warmed.add(hex)) warmPeer(NodeId.fromHex(hex));
+    for (final entry in pending.entries) {
+      for (final hex in entry.value.peers) {
+        final target = _owner._contentAvailability.streamTargetFor(
+          NodeId.fromHex(hex),
+          entry.key,
+        );
+        // One identity may have offered different files from different devices.
+        if (warmed.add(target.hex)) warmPeer(target);
       }
     }
     var index = 0;
@@ -342,11 +347,14 @@ class _MessagingDownloadResume {
     unawaited(resumeAll(stagger: const Duration(seconds: 2)));
   }
 
-  void warmPeer(NodeId peer) {
+  void warmPeer(NodeId peer, {String? contentId}) {
     final transport = _owner._transport;
     if (transport is! StreamTransport) return;
+    final target = contentId == null
+        ? peer
+        : _owner._contentAvailability.streamTargetFor(peer, contentId);
     unawaited(
-      (transport as StreamTransport).warmStreamPeer(peer).catchError((
+      (transport as StreamTransport).warmStreamPeer(target).catchError((
         Object e,
       ) {
         devLog(() => 'xVeil[stream]: warm ${peer.short} failed: $e');

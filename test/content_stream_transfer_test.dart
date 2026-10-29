@@ -2017,14 +2017,19 @@ void main() {
     final plain = _rnd(90000, 93);
     final plainCid = await advertiseFromA(plain, name: 'no-device.bin');
     final gotPlain = mB.contentReceived.first;
-    expect(await mB.downloadContent(a, plainCid), ContentDownloadResult.started);
+    expect(
+      await mB.downloadContent(a, plainCid),
+      ContentDownloadResult.started,
+    );
     await gotPlain.timeout(const Duration(seconds: 20));
     expect(tB.openStreamAttemptsByPeer[aDevice.hex], isNull);
     expect(tB.openStreamAttemptsByPeer[a.hex], greaterThan(0));
+    expect(tB.warmedPeers, contains(a.hex));
 
     // The offer now arrives from A's device: the pull follows it there.
     tA.srcDevice = aDevice;
     tB.openStreamAttemptsByPeer.clear();
+    tB.warmedPeers.clear();
     final data = _rnd(90000, 94);
     final cid = await advertiseFromA(data, name: 'from-device.bin');
     final got = mB.contentReceived.first;
@@ -2032,11 +2037,72 @@ void main() {
     await got.timeout(const Duration(seconds: 20));
     expect(await sB.loadFile(cid), data);
     expect(tB.openStreamAttemptsByPeer[aDevice.hex], greaterThan(0));
+    expect(tB.warmedPeers, contains(aDevice.hex));
+    expect(tB.warmedPeers, isNot(contains(a.hex)));
     expect(
       tB.openStreamAttemptsByPeer[a.hex],
       isNull,
       reason: 'the identity address may name a sibling without the bytes',
     );
+  });
+
+  test(
+    'a plaintext pull warms the offering device rather than its identity',
+    () async {
+      final device = _id(0x1D);
+      tA.srcDevice = device;
+      tB.routes[device.hex] = tA;
+      final data = _rnd(180000, 95);
+      final cid = await advertiseFromA(data, name: 'warm-device.bin');
+      final got = mB.contentReceived.firstWhere(
+        (event) => event.contentId == cid,
+      );
+      final pieces = <int, Uint8List>{};
+      tB.warmedPeers.clear();
+
+      expect(
+        await mB.downloadContentToFile(
+          a,
+          cid,
+          'warm-device.bin',
+          write: (offset, bytes) async =>
+              pieces[offset] = Uint8List.fromList(bytes),
+          close: () async {},
+        ),
+        ContentDownloadResult.started,
+      );
+      await got.timeout(const Duration(seconds: 20));
+      final received = BytesBuilder();
+      for (final offset in pieces.keys.toList()..sort()) {
+        received.add(pieces[offset]!);
+      }
+      expect(received.takeBytes(), data);
+      expect(tB.openStreamAttemptsByPeer[device.hex], greaterThan(0));
+      expect(tB.warmedPeers, contains(device.hex));
+      expect(tB.warmedPeers, isNot(contains(a.hex)));
+    },
+  );
+
+  test('resume warms distinct offering devices of the same identity', () async {
+    final devices = [_id(0x1D), _id(0x1E)];
+    final contentIds = <String>[];
+    for (var i = 0; i < devices.length; i++) {
+      tA.srcDevice = devices[i];
+      contentIds.add(await advertiseFromA(_rnd(90000, 96 + i)));
+    }
+    // Queue both intents while their holder is unreachable. Stream opens and
+    // fallback datagrams fail locally; the durable choices remain pending.
+    tB.peer = null;
+    for (final cid in contentIds) {
+      await mB.downloadContent(a, cid);
+    }
+    expect(await mB.pendingAutoResumeContentIds(), containsAll(contentIds));
+    tB.warmedPeers.clear();
+    await mB.reconcileOnConnect();
+    await Future<void>.delayed(Duration.zero);
+    expect(tB.warmedPeers, containsAll(devices.map((device) => device.hex)));
+    expect(tB.warmedPeers, hasLength(2));
+    expect(tB.warmedPeers, isNot(contains(a.hex)));
   });
 
   test('a file my other device sent is pulled from that device', () async {
