@@ -25,6 +25,7 @@ import 'call_bitrate_adapter.dart';
 import 'call_network_activity.dart';
 import 'call_video_profile.dart';
 import 'call_audio_receive_activity.dart';
+import 'call_media_receive_activity.dart';
 import 'call_audio_source_pressure.dart';
 import 'call_audio_framing.dart';
 import 'call_microphone_state.dart';
@@ -434,7 +435,7 @@ class VeilCallMediaController implements CallMediaController {
   bool sendEphemeralHealth(CallSignal signal) {
     final call = _activeCall;
     final channel = _chan;
-    final lastRx = _lastRxAt;
+    final lastRx = _mediaReceiveActivity.lastRxAt;
     if (call == null ||
         channel == null ||
         signal.callId != call.callId ||
@@ -525,7 +526,7 @@ class VeilCallMediaController implements CallMediaController {
       createAndroidScreenCapture;
   final StreamController<void> _screenShareStops = StreamController.broadcast();
   Timer? _statsTimer; // polls rx_pkts for the call-liveness signal
-  DateTime? _lastRxAt; // wall-clock when ENGINE rx_pkts last increased
+  final _mediaReceiveActivity = CallMediaReceiveActivity();
   int _lastRxPkts = 0;
   final _audioReceiveActivity = CallAudioReceiveActivity();
   CallPeerAudioPlayout _peerAudioPlayout = CallPeerAudioPlayout();
@@ -719,7 +720,14 @@ class VeilCallMediaController implements CallMediaController {
   bool get _highQualityRoute => _chanTransport != CallTransportKind.onion;
 
   @override
-  DateTime? get lastMediaRxAt => _lastRxAt;
+  DateTime? get lastMediaRxAt => _mediaReceiveActivity.lastRxAt;
+
+  @override
+  Future<DateTime?> readLatestMediaRxAt() async {
+    final engine = _engine;
+    if (engine == null || _routeRepairing) return null;
+    return _mediaReceiveActivity.observe(engine.getStats(), DateTime.now());
+  }
 
   @override
   bool get hasAudioReceiveTelemetry => _audioReceiveActivity.supported;
@@ -1588,7 +1596,7 @@ class VeilCallMediaController implements CallMediaController {
     // Liveness signal for the call FSM: poll rx_pkts so it can tell the peer's
     // media is still arriving even when the durable signaling heartbeat lags.
     _statsTimer?.cancel();
-    _lastRxAt = null;
+    _mediaReceiveActivity.reset();
     _lastRxPkts = 0;
     _audioReceiveActivity.reset();
     _receiveSessionStartedAt = DateTime.now();
@@ -1598,16 +1606,17 @@ class VeilCallMediaController implements CallMediaController {
     _lastRepairAt = null;
     var statsTick = 0;
     _statsTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (_engine != engine) return;
+      if (_engine != engine || _activeCall?.callId != call.callId) return;
       try {
         final stats = engine.getStats();
+        final now = DateTime.now();
+        _mediaReceiveActivity.observe(stats, now);
         diagnosticJournal.recordMediaStats(stats);
         final channel = _chan;
         if (channel != null) {
           _refreshAudioFraming(engine, channel, stats: stats);
           _refreshVideoFraming(engine, channel, stats: stats);
         }
-        final now = DateTime.now();
         _audioReceiveActivity.observe(stats, now);
         final peerInterrupted = _peerAudioPlayout.takeInterruption();
         final peerRecovered = _peerAudioPlayout.takeRecovery();
@@ -1724,7 +1733,6 @@ class VeilCallMediaController implements CallMediaController {
           currentCall!.mediaPeer.bytes,
         );
         if (rx > _lastRxPkts) {
-          _lastRxAt = DateTime.now();
           _engineRxStalledSince = null;
         } else if (nativeRx > _lastNativeRxCount) {
           // The node keeps receiving the peer's media while the engine gets
@@ -2219,7 +2227,7 @@ class VeilCallMediaController implements CallMediaController {
     _statsTimer = null;
     _controlPollTimer?.cancel();
     _controlPollTimer = null;
-    _lastRxAt = null;
+    _mediaReceiveActivity.reset();
     _lastRxPkts = 0;
     _lastNativeRxCount = 0;
     _audioReceiveActivity.reset();
