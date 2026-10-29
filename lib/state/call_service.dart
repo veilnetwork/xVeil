@@ -84,6 +84,9 @@ const Duration kCallP2PCandidateRetry = Duration(seconds: 10);
 /// jitter over the durable channel never drops a still-live call.
 const Duration kCallLivenessTimeout = Duration(seconds: 20);
 
+/// Bound the local engine recheck before declaring a cached outage terminal.
+const Duration kCallLivenessSnapshotTimeout = Duration(seconds: 2);
+
 /// The callee can accept before the caller receives its durable answer. Until
 /// the first post-connect signal or media packet comes back, allow the same
 /// control-plane tail as ringing. Once the peer is confirmed, the normal
@@ -210,6 +213,10 @@ abstract class CallMediaController {
   /// the call is alive even if the (flakier) durable signaling heartbeat is
   /// delayed — signaling silence alone must not drop a call that's clearly up.
   DateTime? get lastMediaRxAt => null;
+
+  /// Recheck this call's accepted media independently of its periodic cache.
+  /// Null means unavailable; callers still apply the normal liveness deadline.
+  Future<DateTime?> readLatestMediaRxAt() async => null;
 
   /// Whether the engine can measure accepted audio RTP independently of video
   /// and RTCP. Legacy engines keep the aggregate liveness behavior.
@@ -469,6 +476,7 @@ class CallService {
   CallTransportKind? _outgoingProposal;
   bool _directSessionUnavailable = false;
   int _mediaOperationEpoch = 0;
+  Object? _livenessProbeToken;
   ({NodeId peer, String callId, Future<void> future})? _relayFallbackFlight;
   ({String callId, DateTime until})? _relayCandidateRetry;
 
@@ -2449,33 +2457,16 @@ class CallService {
       // the durable signaling heartbeat is only a backstop for the pre-media
       // (connecting) window — it must never, on its own, drop a call whose
       // media is plainly flowing (the durable channel is exactly what's flaky).
-      DateTime? alive = _lastPeerSignalAt;
-      final rx = _media?.lastMediaRxAt;
-      if (rx != null) {
-        _peerConfirmedAfterConnect = true;
-        if (alive == null || rx.isAfter(alive)) alive = rx;
-      }
+      final alive = _latestPeerActivity();
       final timeout = _peerConfirmedAfterConnect
           ? kCallLivenessTimeout
           : kCallStartupLivenessTimeout;
       if (alive != null && _now().difference(alive) > timeout) {
-        // Peer went silent on BOTH media and signaling → tell them (harmless if
-        // already gone), then end locally so the UI leaves instead of hanging.
-        devLog(
-          () =>
-              'xVeil[call]: liveness timeout call=${c.callId} '
-              'confirmed=$_peerConfirmedAfterConnect silence='
-              '${_now().difference(alive!).inSeconds}s',
-        );
-        unawaited(
-          _sendControl(
-            c.peer,
-            c.callId,
-            CallSignalType.end,
-            CallEndReason.timeout,
-          ),
-        );
-        _end(CallEndReason.timeout, origin: CallEndOrigin.livenessTimeout);
+        if (_livenessProbeToken == null) {
+          final token = Object();
+          _livenessProbeToken = token;
+          unawaited(_confirmLivenessTimeout(c, token));
+        }
         return;
       }
       final receiveNeedsRepair =
@@ -2526,7 +2517,71 @@ class CallService {
     });
   }
 
+  DateTime? _latestPeerActivity({DateTime? freshMedia}) {
+    DateTime? alive = _lastPeerSignalAt;
+    for (final rx in [_media?.lastMediaRxAt, freshMedia]) {
+      if (rx == null) continue;
+      _peerConfirmedAfterConnect = true;
+      if (alive == null || rx.isAfter(alive)) alive = rx;
+    }
+    return alive;
+  }
+
+  Future<void> _confirmLivenessTimeout(Call call, Object token) async {
+    try {
+      DateTime? fresh;
+      try {
+        fresh = await _media?.readLatestMediaRxAt().timeout(
+          kCallLivenessSnapshotTimeout,
+          onTimeout: () => null,
+        );
+      } catch (_) {
+        // Unavailable telemetry is not proof of life or a new deadline.
+      }
+      final cur = _current;
+      if (_disposed ||
+          !identical(_livenessProbeToken, token) ||
+          cur == null ||
+          !cur.isLive ||
+          cur.callId != call.callId ||
+          cur.peer != call.peer ||
+          cur.peerDevice != call.peerDevice) {
+        return;
+      }
+      final now = _now();
+      if (fresh != null &&
+          (fresh.isAfter(now) || fresh.isBefore(cur.startedAt))) {
+        fresh = null;
+      }
+      // A peer signal or periodic media sample may have arrived while the
+      // snapshot was pending. Decide from the current evidence, not the tick.
+      final alive = _latestPeerActivity(freshMedia: fresh);
+      final timeout = _peerConfirmedAfterConnect
+          ? kCallLivenessTimeout
+          : kCallStartupLivenessTimeout;
+      if (alive == null || now.difference(alive) <= timeout) return;
+      devLog(
+        () =>
+            'xVeil[call]: liveness timeout call=${cur.callId} '
+            'confirmed=$_peerConfirmedAfterConnect silence='
+            '${now.difference(alive).inSeconds}s',
+      );
+      unawaited(
+        _sendControl(
+          cur.peer,
+          cur.callId,
+          CallSignalType.end,
+          CallEndReason.timeout,
+        ),
+      );
+      _end(CallEndReason.timeout, origin: CallEndOrigin.livenessTimeout);
+    } finally {
+      if (identical(_livenessProbeToken, token)) _livenessProbeToken = null;
+    }
+  }
+
   void _cancelHeartbeat() {
+    _livenessProbeToken = null;
     _directAdmissionTimer?.cancel();
     _directAdmissionTimer = null;
     _heartbeatTimer?.cancel();

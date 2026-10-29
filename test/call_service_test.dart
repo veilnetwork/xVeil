@@ -1148,6 +1148,137 @@ void main() {
       posture: CallPosture.direct,
     );
 
+    ({CallService svc, _FakeMessaging wire, _SnapshotMedia media}) snapshotCall(
+      FakeAsync async,
+      String id,
+      Future<DateTime?> Function() read,
+    ) {
+      final wire = _FakeMessaging();
+      final media = _SnapshotMedia()
+        ..openedTransport = CallTransportKind.relay
+        ..rxAt = clock.now()
+        ..readSnapshot = read;
+      final svc = CallService(wire, now: () => clock.now(), media: media)
+        ..start();
+      wire.onCallSignal!(peer, offer(id));
+      svc.accept();
+      async.flushMicrotasks();
+      wire.onCallSignal!(
+        peer,
+        CallSignal(callId: id, type: CallSignalType.health),
+      );
+      expect(svc.current?.status, CallStatus.active);
+      return (svc: svc, wire: wire, media: media);
+    }
+
+    test('native liveness keeps healthy media with a stale periodic cache', () {
+      fakeAsync((async) {
+        final t = snapshotCall(async, 'live-snapshot', () async => clock.now());
+        try {
+          async.elapse(const Duration(seconds: 30));
+          async.flushMicrotasks();
+          expect(t.svc.current?.status, CallStatus.active);
+          expect(t.media.snapshotReads, greaterThan(0));
+          final stopped = clock.now();
+          t.media.readSnapshot = () async => stopped;
+          async.elapse(const Duration(seconds: 25));
+          async.flushMicrotasks();
+          expect(
+            t.svc.current,
+            isNull,
+            reason: 'old snapshots cannot renew life',
+          );
+        } finally {
+          t.svc.dispose();
+          async.flushMicrotasks();
+        }
+      });
+    });
+
+    test(
+      'native liveness rechecks a signal received while its snapshot waits',
+      () {
+        fakeAsync((async) {
+          final gate = Completer<DateTime?>();
+          final t = snapshotCall(
+            async,
+            'signal-during-snapshot',
+            () => gate.future,
+          );
+          try {
+            async.elapse(const Duration(seconds: 25));
+            async.flushMicrotasks();
+            expect(t.media.snapshotReads, 1);
+            expect(t.svc.current?.status, CallStatus.active);
+            t.wire.onCallSignal!(
+              peer,
+              CallSignal(
+                callId: 'signal-during-snapshot',
+                type: CallSignalType.health,
+              ),
+            );
+            gate.complete(null);
+            async.flushMicrotasks();
+            expect(t.svc.current?.status, CallStatus.active);
+          } finally {
+            t.svc.dispose();
+            async.flushMicrotasks();
+          }
+        });
+      },
+    );
+
+    test('native liveness bounds a snapshot that never completes', () {
+      fakeAsync((async) {
+        final gate = Completer<DateTime?>();
+        final t = snapshotCall(async, 'snapshot-timeout', () => gate.future);
+        try {
+          async.elapse(const Duration(seconds: 25));
+          async.flushMicrotasks();
+          expect(t.media.snapshotReads, 1);
+          expect(t.svc.current?.status, CallStatus.active);
+          async.elapse(const Duration(seconds: 2));
+          async.flushMicrotasks();
+          expect(t.svc.current, isNull);
+          gate.complete(clock.now());
+          async.flushMicrotasks();
+          expect(
+            t.svc.current,
+            isNull,
+            reason: 'late reads cannot revive a call',
+          );
+        } finally {
+          t.svc.dispose();
+          async.flushMicrotasks();
+        }
+      });
+    });
+
+    test('native liveness old snapshot cannot end a replacement call', () {
+      fakeAsync((async) {
+        final gate = Completer<DateTime?>();
+        final t = snapshotCall(async, 'old-snapshot', () => gate.future);
+        try {
+          async.elapse(const Duration(seconds: 25));
+          async.flushMicrotasks();
+          expect(t.media.snapshotReads, 1);
+          t.svc.hangup();
+          async.flushMicrotasks();
+          t.wire.onCallSignal!(peer, offer('replacement-snapshot'));
+          t.svc.accept();
+          async.flushMicrotasks();
+          expect(t.svc.current?.callId, 'replacement-snapshot');
+          gate.complete(null);
+          async.flushMicrotasks();
+          expect(t.svc.current?.callId, 'replacement-snapshot');
+          expect(t.svc.current?.status, CallStatus.active);
+        } finally {
+          t.svc.dispose();
+          async.flushMicrotasks();
+        }
+      });
+    });
+
     test('fresh growing audio buffer reports before the five-second beat', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();
@@ -6528,5 +6659,15 @@ class _FailOnceDirectSwitchMedia extends _FakeMedia {
     if (canCommit != null && !await canCommit()) return false;
     openedTransport = transport;
     return true;
+  }
+}
+
+class _SnapshotMedia extends _FakeMedia {
+  Future<DateTime?> Function()? readSnapshot;
+  int snapshotReads = 0;
+  @override
+  Future<DateTime?> readLatestMediaRxAt() async {
+    snapshotReads++;
+    return readSnapshot == null ? null : await readSnapshot!();
   }
 }
