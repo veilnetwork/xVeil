@@ -1,0 +1,69 @@
+{
+  "base_app_commit": "86d3913a",
+  "base_sdk_commit": "77070335",
+  "sdk_commit": "d19923f57484b955a68dd656d10d7e106c7d1c26",
+  "source_sha256": {
+    "crates/veil-onion-stream/src/driver.rs": "ba4ca89633461c7a06867d511590e51acd7a2c4355c838517c5720f82b94e386",
+    "crates/veil-onion-stream/tests/driver_fairness.rs": "ab91c941c1c0e96dca1b095f53786828b3bdf7091618cd4e49a2de35ca55bff1"
+  },
+  "tests": {
+    "initial_reproducing_tests": 4,
+    "initial_passed": 3,
+    "initial_failed": 1,
+    "initial_compile_error_counted_as_reproduction": false,
+    "stream_passed": 161,
+    "ffi_passed": 326,
+    "ffi_ignored": 2,
+    "ffi_features": [
+      "node-embedded",
+      "production-seeds",
+      "packet-tunnel"
+    ],
+    "ffi_default_features": false,
+    "ffi_child_run_included_in_parent_count": true,
+    "new_tests": 3,
+    "clippy_passed": true,
+    "format_check_passed": true
+  },
+  "controlled": {
+    "due_data_rto_serviced_during_continuously_ready_input": true,
+    "dropped_data_retransmitted_during_ready_input": true,
+    "local_abort_priority_preserved": true,
+    "later_cross_thread_app_write_progresses": true,
+    "previous_paced_ack_and_reverse_data_tests_passed": true,
+    "inbound_batch_limit": 256,
+    "app_command_batch_limit": 8,
+    "send_buffer_high_water_bytes": 4194304,
+    "fin_stops_command_batch": true,
+    "protocol_timers_checked_after_each_bounded_turn": true,
+    "pacing_refill_still_owned_by_poll_transmit": true
+  },
+  "production": {
+    "rto_values_changed": false,
+    "reordering_window_changed": false,
+    "relay_priority_changed": false,
+    "wire_protocol_changed": false,
+    "c_abi_changed": false,
+    "test_hooks_added": false
+  },
+  "native_candidate_installed": false,
+  "physical_candidate_tested": false,
+  "all_file_pause_causes_closed": false,
+  "external_target": {
+    "mount_verified_before_and_during_builds": true,
+    "mount_lost": false
+  },
+  "new_stand_apps_started": false,
+  "cleanup": {
+    "retired_groups_with_reused_system_pgid": 0,
+    "android_package_processes": 0,
+    "recorded_owned_groups_checked": 236,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false,
+    "owned_vm_forwards_remaining": 0
+  },
+  "pushed": false,
+  "released": false
+}
