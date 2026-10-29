@@ -1,0 +1,32 @@
+{
+  "baseline_sdk": "bdd149c4",
+  "fixed_sdk": "2511c796",
+  "certificate_walk_concurrency": 4,
+  "per_walk_replica_limit_unchanged": 8,
+  "global_pending_limit_unchanged": true,
+  "regression_baseline": {"passed": 1, "failed": 3, "ignored": 0},
+  "regression_fixed_resolver_suite": {"passed": 51, "failed": 0, "ignored": 0},
+  "synthetic_silent_replica": {
+    "instances": 16,
+    "physical_devices": false,
+    "local_signed_values_present": true,
+    "step_timeout_seconds": 3,
+    "existing_ordinary_source_budget_seconds": 30,
+    "baseline_finishes_within_budget": false,
+    "fixed_finishes_within_budget": true,
+    "fixed_elapsed_virtual_seconds": 18,
+    "fixed_verified_certificates": 16,
+    "pending_after_completion_or_cancellation": 0,
+    "measures_full_ipc_or_delivery": false
+  },
+  "runtime_unit": {"passed": 745, "failed": 0, "ignored": 11},
+  "ffi_unit": {"passed": 326, "failed": 0, "ignored": 2},
+  "ffi_doctest": {"passed": 0, "failed": 0, "ignored": 5},
+  "clippy_runtime_lib_tests_warnings_denied": true,
+  "rustfmt_and_diff_check": true,
+  "physical_one_way_failure_attribution": "not_established",
+  "physical_qualification": false,
+  "external_mount_verified_and_monitored": true,
+  "app_or_public_relay_changes_during_validation": false,
+  "push_or_release": false
+}
