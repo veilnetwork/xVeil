@@ -1,0 +1,98 @@
+{
+  "base_app_commit": "0d3fe7f6",
+  "sdk_commit": "4857bebc",
+  "hidden_volume_commit": "1ea2366f",
+  "tested_lib_inventory_sha256": "c41b3ba7410949ba610c391726a221d19cefc69b9e3fc619a08701c625d03cbb",
+  "native_tests": {
+    "passed": 196,
+    "ignored_existing": 5,
+    "new_tests": 6,
+    "pre_fix_missing_relay_copy_reproduced": true,
+    "clippy_all_features_all_targets_passed": true,
+    "format_passed": true
+  },
+  "physical": {
+    "roles": {
+      "A": "Android identity X",
+      "B": "Mac identity X",
+      "C": "Mac identity Y"
+    },
+    "online": "all",
+    "phone_network": "Wi-Fi",
+    "messages": 18,
+    "large_body_chars": 12300,
+    "large_origins": [
+      "A",
+      "C"
+    ],
+    "all_visible_seconds": 53.7,
+    "group_chunks_empty_seconds": 122.6,
+    "edit_seconds": 9.6,
+    "delete_seconds": 14.6,
+    "same_order": true,
+    "large_bodies_exact": true,
+    "duplicates": 0,
+    "mixed_topology_qualified": false,
+    "both_native_sessions_direct": true,
+    "native_receipts_from_C": {
+      "A": {
+        "native_chat_receipts_distinct": 6,
+        "native_chat_receipts_total": 6,
+        "log_dropped": 0
+      },
+      "B": {
+        "native_chat_receipts_distinct": 6,
+        "native_chat_receipts_total": 6,
+        "log_dropped": 0
+      }
+    },
+    "outbox_after_mutations_before_mode_restore": {
+      "A": {
+        "total": 0,
+        "kinds": {}
+      },
+      "B": {
+        "total": 1,
+        "kinds": {
+          "p2p": 1
+        }
+      },
+      "C": {
+        "total": 0,
+        "kinds": {}
+      }
+    },
+    "anonymous_modes_restored": true,
+    "native_test_hooks": false,
+    "test_low_difficulty": false
+  },
+  "cold_readback": {
+    "histories_equal": true,
+    "order_equal": true,
+    "rows_by_role": {
+      "A": 1707,
+      "B": 1707,
+      "C": 1707
+    },
+    "surviving_fixture_rows_each": 17,
+    "delivered_outgoing_by_role": {
+      "A": 11,
+      "B": 11,
+      "C": 6
+    }
+  },
+  "mixed_physical_path_proven": false,
+  "speedup_proven": false,
+  "cleanup": {
+    "retired_groups_with_reused_system_pgid": 0,
+    "android_package_processes": 0,
+    "recorded_owned_groups_checked": 187,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false,
+    "owned_vm_forwards_remaining": 0
+  },
+  "pushed": false,
+  "released": false
+}
