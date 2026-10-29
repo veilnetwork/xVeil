@@ -1,0 +1,200 @@
+{
+  "schema_version": 1,
+  "sdk_fix": "205ba520",
+  "frozen_frontend": "f389116a",
+  "red_checks": {
+    "handshake_regressions_failed_on_previous_implementation": 2,
+    "linger_admission_regressions_failed_with_noop_trait_scaffold": 1,
+    "driver_notification_checks_failed_with_noop_trait_scaffold": 2,
+    "initial_unqualified_filter_executed_zero_tests": true
+  },
+  "test_profiles": {
+    "stream": {
+      "passed": 167,
+      "ignored": 0
+    },
+    "ffi_production_flags": {
+      "passed": 326,
+      "ignored": 2
+    },
+    "ffi_with_circuit_fixtures": {
+      "passed": 383,
+      "ignored": 11,
+      "test_low_difficulty": true
+    },
+    "profiles_overlap_and_must_not_be_added": true,
+    "child_processes_not_added_to_parent_totals": true,
+    "stream_clippy_passed": true
+  },
+  "native_build": {
+    "sdk": "205ba52017d4aa75acb7ce60169e4d6d797e6e3b",
+    "source_clean": true,
+    "features": [
+      "node-embedded",
+      "production-seeds",
+      "packet-tunnel"
+    ],
+    "default_features": false,
+    "test_hooks": false,
+    "test_low_difficulty": false,
+    "mac_sha256": "d3048d81b6fbfe72bb555cdaf2231fffb2693ed2835d2258c30d01fe4077f6a9",
+    "android_sha256": "b264ed5420ef0adb2e7850efa04665d0589077045f0119c461a5541367c15386"
+  },
+  "candidate_artifacts": {
+    "baseline_apk_sha256": "843db3172564729028b79500d21c4a7ae655ffc1ea07098de209eb4920bc0ed7",
+    "candidate_apk_sha256": "ef5192e50a38fcca3e3f84e1a7191c454992ec727f61199ffb45fe7cb0f2d79c",
+    "android_native_sha256": "b264ed5420ef0adb2e7850efa04665d0589077045f0119c461a5541367c15386",
+    "mac_native_sha256": "56d5fa3427626a7d37266a540ed68ceee38aa5485de811412fc27bfafe0b5eb1",
+    "other_apk_entries_unchanged": true,
+    "same_signing_certificate": true,
+    "mac_other_artifacts_unchanged": true
+  },
+  "physical": {
+    "file_bytes": 3145979,
+    "mac_bulk_active_limit": 1,
+    "mac_limit_confirmed_in_native_log": true,
+    "inter_file_pause_seconds": 1,
+    "final_observation_seconds": 25,
+    "warmup_seconds": 30,
+    "runs": [
+      {
+        "sample": 0,
+        "receiver": "phone",
+        "bytes": 3145979,
+        "seconds": 13.639,
+        "first_piece_seconds": 4.55,
+        "max_gap_after_first_seconds": 1.306,
+        "progress_samples": 12,
+        "sha256_matches": true
+      },
+      {
+        "sample": 0,
+        "receiver": "peer",
+        "bytes": 3145979,
+        "seconds": 15.627,
+        "first_piece_seconds": 2.522,
+        "max_gap_after_first_seconds": 3.026,
+        "progress_samples": 31,
+        "sha256_matches": true
+      },
+      {
+        "sample": 1,
+        "receiver": "phone",
+        "bytes": 3145979,
+        "seconds": 7.93,
+        "first_piece_seconds": 2.386,
+        "max_gap_after_first_seconds": 1.124,
+        "progress_samples": 7,
+        "sha256_matches": true
+      },
+      {
+        "sample": 1,
+        "receiver": "peer",
+        "bytes": 3145979,
+        "seconds": 12.595,
+        "first_piece_seconds": 3.023,
+        "max_gap_after_first_seconds": 1.511,
+        "progress_samples": 25,
+        "sha256_matches": true
+      }
+    ],
+    "endpoint_numeric_summaries": {
+      "mac": {
+        "driver_samples": 90,
+        "streams_observed": 4,
+        "omitted_summaries_at_stream_cap": 0,
+        "longest_observed_stream_span_ms": 17911,
+        "streams_with_out_of_order_data": 2,
+        "streams_with_rto_events": 1,
+        "established_zero_window_samples": 0,
+        "small_flight_rto_samples": 2,
+        "small_flight_rto_with_buffered_incoming_data_samples": 0,
+        "small_pending_rto_samples": 0,
+        "observed_maxima": {
+          "blocked_age": 2,
+          "wb_total": 329,
+          "inflight": 147903,
+          "cwnd": 154193,
+          "rwnd": 8388608,
+          "pending": 170908,
+          "segs": 89,
+          "consec_rto": 2,
+          "read_buf": 8525,
+          "oo": 62,
+          "oo_bytes": 109364,
+          "srtt": 589,
+          "rttvar": 233,
+          "rto": 4000,
+          "reo_wnd": 990,
+          "rack_rtt": 759,
+          "rto_skipped_sacked": 1049,
+          "sack_rto_refreshes": 0
+        },
+        "samples_are_not_packet_loss_attribution": true
+      },
+      "android": {
+        "driver_samples": 100,
+        "streams_observed": 4,
+        "omitted_summaries_at_stream_cap": 0,
+        "longest_observed_stream_span_ms": 41148,
+        "streams_with_out_of_order_data": 2,
+        "streams_with_rto_events": 1,
+        "established_zero_window_samples": 0,
+        "small_flight_rto_samples": 0,
+        "small_flight_rto_with_buffered_incoming_data_samples": 0,
+        "small_pending_rto_samples": 5,
+        "observed_maxima": {
+          "blocked_age": 0,
+          "wb_total": 192,
+          "inflight": 133199,
+          "cwnd": 216591,
+          "rwnd": 8388608,
+          "pending": 208630,
+          "segs": 75,
+          "consec_rto": 6,
+          "read_buf": 53342,
+          "oo": 30,
+          "oo_bytes": 58414,
+          "srtt": 661,
+          "rttvar": 358,
+          "rto": 10000,
+          "reo_wnd": 707,
+          "rack_rtt": 448,
+          "rto_skipped_sacked": 1049,
+          "sack_rto_refreshes": 0
+        },
+        "samples_are_not_packet_loss_attribution": true
+      }
+    },
+    "android_samples_during_downloads": 20,
+    "all_observed_android_states_awake_foreground_screen_on_charging_doze_active": true,
+    "system_battery_saver_setting": 0,
+    "single_circuit_capacity_isolated_only_in_native_unit_test": true
+  },
+  "cleanup": {
+    "peer_settings_restored": true,
+    "phone_settings_restored": true,
+    "debug_property_restored": true,
+    "phone_exited": true,
+    "forward_removed": true,
+    "series_exit_code": 0,
+    "series_completed": true,
+    "candidate_mac_exited": true,
+    "baseline_ownership_restored": true,
+    "baseline_qa_restored": true,
+    "restored_installed_hash_verified": true,
+    "qa_exited": true,
+    "mac_exited": true,
+    "logcat_exited": true,
+    "peer_api_port_free": true,
+    "phone_api_port_free": true,
+    "own_shell_fixtures_removed": true,
+    "own_app_fixtures_removed": true,
+    "all_guarded_commands_finished": true,
+    "external_mount_still_distinct": true
+  },
+  "controlled_performance_comparison": false,
+  "all_causes_of_file_pauses_resolved": false,
+  "former_3550ms_wait_attributed_to_specific_lookup": false,
+  "push_release_or_relay_changes": false
+}
