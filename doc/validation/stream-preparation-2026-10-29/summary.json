@@ -1,0 +1,505 @@
+{
+  "schema_version": 1,
+  "sdk_fix": "0c5e5f57",
+  "sdk_instrumented": "d6fa5efa",
+  "red_regression_failed_before_fix": true,
+  "test_results": {
+    "runtime": {
+      "passed": 738,
+      "ignored": 11
+    },
+    "stream": {
+      "passed": 169,
+      "ignored": 0
+    },
+    "ffi": {
+      "passed": 326,
+      "ignored": 2
+    },
+    "analyzer": {
+      "passed": 5
+    },
+    "runtime_and_stream_clippy_passed": true,
+    "ignored_and_child_processes_not_counted_as_passed": true
+  },
+  "native_build": {
+    "sdk": "d6fa5efa271faa6762d56906f09611852ea0bb3d",
+    "source_clean": true,
+    "features": [
+      "node-embedded",
+      "production-seeds",
+      "packet-tunnel"
+    ],
+    "default_features": false,
+    "test_low_difficulty": false,
+    "native_test_hooks": false,
+    "mac_sha256": "55f29748119ed40e11f2baf9e1e597d3126cded999337b55103ef6baf1967144",
+    "android_sha256": "8535ad3c472609cd3263d56d5029ef4c8cde79697a8ac12ff00c291a11b4577f"
+  },
+  "frozen_frontend": "f389116a",
+  "candidate_artifacts": {
+    "baseline_apk_sha256": "843db3172564729028b79500d21c4a7ae655ffc1ea07098de209eb4920bc0ed7",
+    "candidate_apk_sha256": "258dbe4fe038eb438356a20aaec3788eb810e8b2843c8cf795f5859d520ed7d2",
+    "android_native_sha256": "8535ad3c472609cd3263d56d5029ef4c8cde79697a8ac12ff00c291a11b4577f",
+    "mac_native_sha256": "f81c7f060945a121bf567bd3b92949bfbf46804cc02f31f6971b203bc59d9cf0",
+    "other_apk_entries_unchanged": true,
+    "same_signing_certificate": true,
+    "mac_other_artifacts_unchanged": true
+  },
+  "physical": {
+    "file_bytes": 3145979,
+    "inter_file_pause_seconds": 5,
+    "final_observation_seconds": 25,
+    "warmup_seconds": 30,
+    "runs": [
+      {
+        "sample": 0,
+        "receiver": "phone",
+        "bytes": 3145979,
+        "seconds": 22.243,
+        "first_piece_seconds": 3.472,
+        "max_gap_after_first_seconds": 3.313,
+        "progress_samples": 20,
+        "sha256_matches": true
+      },
+      {
+        "sample": 0,
+        "receiver": "peer",
+        "bytes": 3145979,
+        "seconds": 12.1,
+        "first_piece_seconds": 3.532,
+        "max_gap_after_first_seconds": 1.009,
+        "progress_samples": 24,
+        "sha256_matches": true
+      },
+      {
+        "sample": 1,
+        "receiver": "phone",
+        "bytes": 3145979,
+        "seconds": 37.739,
+        "first_piece_seconds": 4.587,
+        "max_gap_after_first_seconds": 5.539,
+        "progress_samples": 34,
+        "sha256_matches": true
+      },
+      {
+        "sample": 1,
+        "receiver": "peer",
+        "bytes": 3145979,
+        "seconds": 11.595,
+        "first_piece_seconds": 3.03,
+        "max_gap_after_first_seconds": 1.508,
+        "progress_samples": 23,
+        "sha256_matches": true
+      },
+      {
+        "sample": 2,
+        "receiver": "phone",
+        "bytes": 3145979,
+        "seconds": 12.577,
+        "first_piece_seconds": 3.483,
+        "max_gap_after_first_seconds": 1.128,
+        "progress_samples": 11,
+        "sha256_matches": true
+      },
+      {
+        "sample": 2,
+        "receiver": "peer",
+        "bytes": 3145979,
+        "seconds": 11.095,
+        "first_piece_seconds": 3.028,
+        "max_gap_after_first_seconds": 2.015,
+        "progress_samples": 22,
+        "sha256_matches": true
+      },
+      {
+        "sample": 3,
+        "receiver": "phone",
+        "bytes": 3145979,
+        "seconds": 77.24,
+        "first_piece_seconds": 3.511,
+        "max_gap_after_first_seconds": 10.124,
+        "progress_samples": 69,
+        "sha256_matches": true
+      },
+      {
+        "sample": 3,
+        "receiver": "peer",
+        "bytes": 3145979,
+        "seconds": 7.567,
+        "first_piece_seconds": 2.519,
+        "max_gap_after_first_seconds": 0.506,
+        "progress_samples": 15,
+        "sha256_matches": true
+      },
+      {
+        "sample": 4,
+        "receiver": "phone",
+        "bytes": 3145979,
+        "seconds": 90.62,
+        "first_piece_seconds": 7.964,
+        "max_gap_after_first_seconds": 15.613,
+        "progress_samples": 81,
+        "sha256_matches": true
+      },
+      {
+        "sample": 4,
+        "receiver": "peer",
+        "bytes": 3145979,
+        "seconds": 11.604,
+        "first_piece_seconds": 4.031,
+        "max_gap_after_first_seconds": 1.01,
+        "progress_samples": 23,
+        "sha256_matches": true
+      }
+    ],
+    "median_download_seconds_by_receiver": {
+      "phone": 37.739,
+      "peer": 11.595
+    },
+    "metrics": {
+      "mac": {
+        "mux_scopes_observed": 1,
+        "mux_totals": {
+          "received": 24398,
+          "routed": 24398,
+          "inbox_full": 0,
+          "inbox_full_data": 0,
+          "inbox_full_ack": 0,
+          "inbox_full_control": 0,
+          "inbox_closed": 0,
+          "unknown": 0,
+          "invalid": 0,
+          "accept_full": 0,
+          "accepted": 5
+        },
+        "preparation_stages": {
+          "circuit_open/result1/local0/address0": {
+            "samples": 3,
+            "median_ms": 0,
+            "max_ms": 0
+          },
+          "receiver_ads/result1/local0/address0": {
+            "samples": 10,
+            "median_ms": 3505.0,
+            "max_ms": 3509
+          },
+          "receiver_ads/result1/local0/address2": {
+            "samples": 118,
+            "median_ms": 0.0,
+            "max_ms": 686
+          }
+        },
+        "outbound_preparation": {
+          "resolve_ms": {
+            "samples": 118,
+            "median_ms": 0.0,
+            "max_ms": 686
+          },
+          "circuit_open_ms": {
+            "samples": 3,
+            "median_ms": 0,
+            "max_ms": 0
+          },
+          "confirm_ms": {
+            "samples": 3,
+            "median_ms": 157,
+            "max_ms": 583
+          },
+          "publish_ms": {
+            "samples": 3,
+            "median_ms": 0,
+            "max_ms": 0
+          }
+        },
+        "omitted_at_observation_cap": 0,
+        "observed_snapshots_not_complete_packet_loss_accounting": true,
+        "stage_durations_overlap_and_must_not_be_added": true
+      },
+      "android": {
+        "mux_scopes_observed": 1,
+        "mux_totals": {
+          "received": 19093,
+          "routed": 19093,
+          "inbox_full": 0,
+          "inbox_full_data": 0,
+          "inbox_full_ack": 0,
+          "inbox_full_control": 0,
+          "inbox_closed": 0,
+          "unknown": 0,
+          "invalid": 0,
+          "accept_full": 0,
+          "accepted": 5
+        },
+        "preparation_stages": {
+          "circuit_open/result0/local0/address0": {
+            "samples": 3,
+            "median_ms": 1,
+            "max_ms": 1
+          },
+          "circuit_open/result1/local0/address0": {
+            "samples": 35,
+            "median_ms": 1,
+            "max_ms": 5
+          },
+          "directory_warm/result1/local0/address0": {
+            "samples": 3,
+            "median_ms": 1,
+            "max_ms": 1
+          },
+          "directory_warm_lock/result1/local0/address0": {
+            "samples": 3,
+            "median_ms": 0,
+            "max_ms": 0
+          },
+          "receiver_ads/result1/local0/address0": {
+            "samples": 10,
+            "median_ms": 20.0,
+            "max_ms": 3526
+          },
+          "receiver_ads/result1/local0/address2": {
+            "samples": 89,
+            "median_ms": 6,
+            "max_ms": 447
+          },
+          "relay_directory/result1/local1/address0": {
+            "samples": 3,
+            "median_ms": 0,
+            "max_ms": 0
+          }
+        },
+        "outbound_preparation": {
+          "resolve_ms": {
+            "samples": 95,
+            "median_ms": 7,
+            "max_ms": 3526
+          },
+          "circuit_open_ms": {
+            "samples": 30,
+            "median_ms": 2.0,
+            "max_ms": 5
+          },
+          "confirm_ms": {
+            "samples": 30,
+            "median_ms": 79.5,
+            "max_ms": 242
+          },
+          "publish_ms": {
+            "samples": 30,
+            "median_ms": 0.0,
+            "max_ms": 0
+          }
+        },
+        "omitted_at_observation_cap": 0,
+        "observed_snapshots_not_complete_packet_loss_accounting": true,
+        "stage_durations_overlap_and_must_not_be_added": true
+      }
+    },
+    "driver_observations": {
+      "mac": {
+        "driver_samples": 516,
+        "streams_observed": 10,
+        "omitted_summaries_at_stream_cap": 0,
+        "longest_observed_stream_span_ms": 91075,
+        "streams_with_out_of_order_data": 9,
+        "streams_with_rto_events": 1,
+        "established_zero_window_samples": 0,
+        "small_flight_rto_samples": 1,
+        "small_flight_rto_with_buffered_incoming_data_samples": 0,
+        "small_pending_rto_samples": 0,
+        "observed_maxima": {
+          "blocked_age": 120,
+          "wb_total": 234,
+          "inflight": 275024,
+          "cwnd": 352322,
+          "rwnd": 8388608,
+          "pending": 261432,
+          "segs": 139,
+          "consec_rto": 1,
+          "read_buf": 26455,
+          "oo": 50,
+          "oo_bytes": 92987,
+          "srtt": 6026,
+          "rttvar": 2360,
+          "rto": 10000,
+          "reo_wnd": 2304,
+          "rack_rtt": 5987,
+          "rto_skipped_sacked": 1003,
+          "sack_rto_refreshes": 1
+        },
+        "samples_are_not_packet_loss_attribution": true
+      },
+      "android": {
+        "driver_samples": 520,
+        "streams_observed": 10,
+        "omitted_summaries_at_stream_cap": 0,
+        "longest_observed_stream_span_ms": 91338,
+        "streams_with_out_of_order_data": 6,
+        "streams_with_rto_events": 4,
+        "established_zero_window_samples": 0,
+        "small_flight_rto_samples": 42,
+        "small_flight_rto_with_buffered_incoming_data_samples": 35,
+        "small_pending_rto_samples": 3,
+        "observed_maxima": {
+          "blocked_age": 506,
+          "wb_total": 652,
+          "inflight": 141736,
+          "cwnd": 163127,
+          "rwnd": 8388608,
+          "pending": 242729,
+          "segs": 73,
+          "consec_rto": 2,
+          "read_buf": 105583,
+          "oo": 92,
+          "oo_bytes": 101367,
+          "srtt": 528,
+          "rttvar": 274,
+          "rto": 8000,
+          "reo_wnd": 763,
+          "rack_rtt": 2081,
+          "rto_skipped_sacked": 1290,
+          "sack_rto_refreshes": 1
+        },
+        "samples_are_not_packet_loss_attribution": true
+      }
+    },
+    "stage_source_counts": {
+      "mac": {
+        "primary_records": 131,
+        "auxiliary_records": 131,
+        "auxiliary_copy_excluded": true
+      },
+      "android": {
+        "primary_records": 146,
+        "auxiliary_records": 0,
+        "auxiliary_copy_excluded": false
+      }
+    },
+    "mac_bulk_active_limit_observed": 2,
+    "rt_trace_enabled_during_test": true,
+    "battery": {
+      "samples": 123,
+      "all_qa_resumed": true,
+      "all_mWakefulness": true,
+      "all_mState": true,
+      "all_mLightState": true,
+      "all_mScreenOn": true,
+      "all_mCharging": true
+    },
+    "slow_successful_outbound_identity_resolve_ms": 3526,
+    "mac_mailbox_only_identity_stream_misses": 10
+  },
+  "relay_window_observations": [
+    {
+      "relay": "R1",
+      "window_lines": 337,
+      "capture_begins_before_window": true,
+      "capture_ends_after_window": true,
+      "shed_samples": 8,
+      "shed_max": {
+        "tx_queue": 0,
+        "outbox": 0
+      },
+      "far_responder_events": 0,
+      "ban_event_lines": 0,
+      "violation_event_lines": 0
+    },
+    {
+      "relay": "R2",
+      "window_lines": 330,
+      "capture_begins_before_window": true,
+      "capture_ends_after_window": true,
+      "shed_samples": 8,
+      "shed_max": {
+        "tx_queue": 0,
+        "outbox": 0
+      },
+      "far_responder_events": 0,
+      "ban_event_lines": 0,
+      "violation_event_lines": 0
+    },
+    {
+      "relay": "R3",
+      "window_lines": 315,
+      "capture_begins_before_window": true,
+      "capture_ends_after_window": true,
+      "shed_samples": 9,
+      "shed_max": {
+        "tx_queue": 0,
+        "outbox": 0
+      },
+      "far_responder_events": 0,
+      "ban_event_lines": 0,
+      "violation_event_lines": 0
+    },
+    {
+      "relay": "R4",
+      "window_lines": 1322,
+      "capture_begins_before_window": true,
+      "capture_ends_after_window": true,
+      "shed_samples": 8,
+      "shed_max": {
+        "tx_queue": 0,
+        "outbox": 0
+      },
+      "far_responder_events": 0,
+      "ban_event_lines": 0,
+      "violation_event_lines": 0
+    },
+    {
+      "relay": "R5",
+      "window_lines": 1255,
+      "capture_begins_before_window": true,
+      "capture_ends_after_window": true,
+      "shed_samples": 8,
+      "shed_max": {
+        "tx_queue": 0,
+        "outbox": 0
+      },
+      "far_responder_events": 0,
+      "ban_event_lines": 0,
+      "violation_event_lines": 0
+    },
+    {
+      "relay": "R6",
+      "window_lines": 1771,
+      "capture_begins_before_window": true,
+      "capture_ends_after_window": true,
+      "shed_samples": 8,
+      "shed_max": {
+        "tx_queue": 0,
+        "outbox": 0
+      },
+      "far_responder_events": 0,
+      "ban_event_lines": 0,
+      "violation_event_lines": 0
+    }
+  ],
+  "cleanup": {
+    "peer_trace_disabled": true,
+    "phone_trace_disabled": true,
+    "peer_settings_restored": true,
+    "phone_settings_restored": true,
+    "debug_property_restored": true,
+    "phone_exited": true,
+    "forward_removed": true,
+    "series_exit_code": 0,
+    "series_completed": true,
+    "candidate_mac_exited": true,
+    "baseline_ownership_restored": true,
+    "baseline_qa_restored": true,
+    "restored_installed_hash_verified": true,
+    "qa_exited": true,
+    "mac_exited": true,
+    "logcat_exited": true,
+    "peer_api_port_free": true,
+    "phone_api_port_free": true,
+    "shell_fixtures_removed": true,
+    "app_fixtures_removed": true,
+    "external_mount_still_distinct": true
+  },
+  "controlled_performance_comparison": false,
+  "cold_unknown_branch_physically_isolated": false,
+  "all_file_pause_causes_fixed": false,
+  "push_release_or_server_changes": false
+}
