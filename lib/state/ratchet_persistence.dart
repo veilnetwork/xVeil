@@ -120,8 +120,17 @@ class RatchetPersistence {
   /// See [kRatchetFlushCoalesce]. Zero: every flush writes before it returns.
   final Duration _coalesce;
 
-  /// When the last flush STARTED, for the coalescing window.
+  /// When a flush last entered the coalescing schedule. The per-container
+  /// transaction gate may delay the actual snapshot beyond that window.
   DateTime? _lastFlushAt;
+
+  /// A coalesced snapshot still at the tail of the container transaction gate.
+  /// Requests made before it starts can share its fresh export only if no
+  /// intervening transaction (including another binder's) was queued after it.
+  /// Clear this at gate entry, never at completion, so a later state change
+  /// cannot join an export that has already read older key material.
+  Future<int>? _queuedCoalescedFlush;
+  Future<void>? _queuedCoalescedTail;
 
   /// The one flush scheduled for the end of the window, if any. Cancelled by
   /// [saveAll] before shutdown so it cannot touch a closed node or container.
@@ -405,17 +414,29 @@ class RatchetPersistence {
       _trailingTimer?.cancel();
       _trailingTimer = null;
       _lastFlushAt = at;
-      return _flushNow(why);
+      return _flushNow(why, coalesceQueued: true);
     }
     _trailingTimer ??= Timer(_coalesce - at.difference(last), () {
       _trailingTimer = null;
       _lastFlushAt = DateTime.now();
-      unawaited(_flushNow('$why (batched)').catchError((Object _) => 0));
+      unawaited(
+        _flushNow(
+          '$why (batched)',
+          coalesceQueued: true,
+        ).catchError((Object _) => 0),
+      );
     });
     return Future.value(0);
   }
 
-  Future<int> _flushNow(String why) {
+  Future<int> _flushNow(String why, {bool coalesceQueued = false}) {
+    if (coalesceQueued) {
+      final pending = _queuedCoalescedFlush;
+      if (pending != null &&
+          identical(_queuedCoalescedTail, _gates[_storage])) {
+        return pending;
+      }
+    }
     // Debug-only, and tagged at the ENTRY rather than at the three call sites
     // that are easy to find: a caller nobody grepped for shows up as 'unknown'
     // instead of not showing up at all, which is the whole reason the idle
@@ -426,7 +447,12 @@ class RatchetPersistence {
     // itself takes 8 ms. Waiting behind another transaction and doing the work
     // are different defects with different fixes, so time them apart.
     final waited = Stopwatch()..start();
-    return _exclusive(() async {
+    late final Future<int> scheduled;
+    scheduled = _exclusive(() async {
+      if (coalesceQueued && identical(_queuedCoalescedFlush, scheduled)) {
+        _queuedCoalescedFlush = null;
+        _queuedCoalescedTail = null;
+      }
       final gateMs = waited.elapsedMilliseconds;
       final work = Stopwatch()..start();
       try {
@@ -446,6 +472,11 @@ class RatchetPersistence {
         rethrow;
       }
     });
+    if (coalesceQueued) {
+      _queuedCoalescedFlush = scheduled;
+      _queuedCoalescedTail = _gates[_storage];
+    }
+    return scheduled;
   }
 
   Future<int> _flush() async {
