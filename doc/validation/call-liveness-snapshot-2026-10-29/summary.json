@@ -1,0 +1,60 @@
+{
+  "base_app_commit": "ef0c4636",
+  "sdk_commit": "d19923f57484b955a68dd656d10d7e106c7d1c26",
+  "source_sha256": {
+    "lib/state/call_service.dart": "dbcade78f39bd5e99928049100dc8f6e71ec8c6b4f3d965cddd5adb5bdf3e9b0",
+    "lib/state/veil_call_media.dart": "d0217cb4667c762a17b4d1cbf264d1c56090abeaa558b978d84cbf3df1123ba7",
+    "lib/state/call_media_receive_activity.dart": "802eb88c3d73326d8e1aeef0541faae4b8c4a25490c03c09d6d35fc9f7e343dc",
+    "test/call_service_test.dart": "3bd1ef887d3f4f849ab26748dc2b554f84821d1b4b8bfd5f8cbe389fe8eb1446",
+    "test/call_media_receive_activity_test.dart": "f3eb0869560a6211b228c9847dd5122e5cbe4725575ea4088c0dd9f82eb8f7a6"
+  },
+  "tests": {
+    "diagnostic_passed": 258,
+    "default_passed": 258,
+    "counts_overlap": true,
+    "files": 7,
+    "new_tests": 10,
+    "initial_red_failures": 4,
+    "initial_red_tests": 4,
+    "analysis_files": 5,
+    "analysis_issues": 0
+  },
+  "controlled": {
+    "stale_periodic_cache_independent_live_engine": true,
+    "old_snapshot_does_not_renew_life": true,
+    "incoming_signal_while_read_pending_wins": true,
+    "pending_snapshot_budget_seconds": 2,
+    "late_result_cannot_revive_ended_call": true,
+    "retired_check_cannot_end_replacement_call": true,
+    "worker_failure_cannot_rebase_counter_floor": true,
+    "lower_counter_cannot_renew_life": true,
+    "new_engine_reset_allows_smaller_counter": true,
+    "legacy_worker_flag_omission_supported": true,
+    "malformed_snapshot_unavailable": true
+  },
+  "ordinary_liveness_deadline_changed": false,
+  "startup_liveness_deadline_changed": false,
+  "snapshot_timestamp_is_last_packet_arrival": false,
+  "native_abi_changed": false,
+  "wire_protocol_changed": false,
+  "anonymous_report_fields_changed": false,
+  "production_test_hooks_added": false,
+  "physical_candidate_installed": false,
+  "physical_candidate_tested": false,
+  "old_25_second_failure_cause_proven": false,
+  "all_open_cases_closed": false,
+  "rust_builds": false,
+  "new_stand_apps_started": false,
+  "pushed": false,
+  "released": false,
+  "cleanup": {
+    "retired_groups_with_reused_system_pgid": 0,
+    "android_package_processes": 0,
+    "recorded_owned_groups_checked": 242,
+    "recorded_owned_groups_remaining": 1,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false,
+    "owned_vm_forwards_remaining": 0
+  }
+}
