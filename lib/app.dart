@@ -19,6 +19,7 @@ import 'state/group_service_providers.dart';
 import 'state/group_call_service.dart';
 import 'state/p2p_endpoint_service.dart';
 import 'state/locale_controller.dart';
+import 'state/model_exchange_service.dart';
 import 'state/theme_controller.dart';
 import 'theme/app_theme.dart';
 
@@ -108,6 +109,9 @@ class _GroupBridge extends ConsumerWidget {
     ref.watch(resumeReconnectProvider);
     ref.watch(cloudServiceProvider);
     ref.watch(cloudCapabilityServiceProvider);
+    // A contact's live inventory question must be answered without opening
+    // Settings first. The provider follows the active identity's own pipeline.
+    ref.watch(modelExchangeServiceProvider);
     ref.watch(callLogRecorderProvider);
     return const SizedBox.shrink();
   }

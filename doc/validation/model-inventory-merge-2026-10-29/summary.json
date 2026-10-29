@@ -1,0 +1,88 @@
+{
+  "base_app_commit": "d2351c00",
+  "sdk_commit": "4857bebc",
+  "hidden_volume_commit": "1ea2366f",
+  "tested_lib_inventory_sha256": "ce08615187b4bf16de38a590bab62b8980e2ffac5a76c8d6f6ae7b642b120890",
+  "tests": {
+    "diagnostics_enabled_passed": 430,
+    "diagnostics_disabled_passed": 430,
+    "counts_overlap": true,
+    "files": 15,
+    "new_tests": 14,
+    "initial_service_red_failures": 11,
+    "initial_service_red_tests": 12,
+    "cold_app_responder_red_failures": 1,
+    "analysis_issues": 0
+  },
+  "controlled": {
+    "union_of_device_catalogs": true,
+    "identical_advertised_metadata_deduplicated": true,
+    "different_sizes_preserved": true,
+    "deterministic_cap_across_reply_order": 32,
+    "pending_contact_cap_during_wait": 64,
+    "immutable_published_snapshots": true,
+    "refresh_and_expiry_discard_old_cache": true,
+    "per_question_answer_window": true,
+    "no_new_requests_after_dispose": true,
+    "cold_app_starts_responder_without_settings": true
+  },
+  "physical": {
+    "roles": {
+      "A": "Android identity X",
+      "B": "Mac identity X",
+      "C": "Mac identity Y"
+    },
+    "mac_clients_share_host": true,
+    "online": "all",
+    "phone_network": "Wi-Fi",
+    "phone_aot_profile": true,
+    "mac_debug": true,
+    "anonymous_during_test": false,
+    "native_test_hooks": false,
+    "test_low_difficulty": false,
+    "actual_discovery_sheet_used": true,
+    "catalog": {
+      "cold_responders_before_opening_settings": {
+        "A": true,
+        "B": true
+      },
+      "first": {
+        "aa → ab": 1,
+        "ac → ad": 0
+      },
+      "combined": {
+        "aa → ab": 1,
+        "ac → ad": 1
+      },
+      "after_duplicate": {
+        "aa → ab": 1,
+        "ac → ad": 1
+      },
+      "only_inventory_fixture_files": true
+    },
+    "no_translation_inference_tested": true,
+    "history_counts": {
+      "B": 1829,
+      "C": 1829,
+      "A": 1829
+    },
+    "history_order_and_bodies_equal": true,
+    "fixture_files_created_and_removed": 10,
+    "reply_preferences_changed": false,
+    "modes_restored": true,
+    "no_conversation_changes_relative_to_prior_cycle": true
+  },
+  "native_libraries_changed": false,
+  "cleanup": {
+    "retired_groups_with_reused_system_pgid": 0,
+    "android_package_processes": 0,
+    "recorded_owned_groups_checked": 219,
+    "recorded_owned_groups_remaining": 0,
+    "owned_mac_executable_processes": 0,
+    "android_qa_process_present": false,
+    "owned_adb_forward_present": false,
+    "owned_vm_forwards_remaining": 0
+  },
+  "pushed": false,
+  "released": false
+}
