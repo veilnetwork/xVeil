@@ -58,6 +58,13 @@ already queued by an older client; this change does not reconstruct an old
 orphaned tail. Mixed-version post-commit crashes retain the previous limitation.
 The corresponding shared-document chunk protocol is unchanged.
 
+A [later sender-side fix](../mixed-group-slice-acks-2026-10-30/README.md) retains
+all opted-in payloads until every legacy per-slice ACK has arrived, then uses
+the same atomic retirement. This removes the partial-ACK orphan for that sender
+mode in the legacy ACK model. It does not reconstruct pre-existing orphaned
+payloads, change queued a:0 transfers, prove arbitrary old receiver durability,
+or qualify old/new physical binaries.
+
 The first physical attempt used an additional synthetic 12,300-character text
 fixture. It failed at message storage with `HvException.PayloadTooLarge` before
 qualification completed. That run is not counted as a passing delivery check;
