@@ -1368,7 +1368,7 @@
     }
   ],
   "completion_note": "59/60 intact and complete in both; identical existing retry-budget reset in 20% loss, BBR=true, seed=9; not counted as passed",
-  "physical_validation_of_fix": false,
+  "physical_validation_of_fix": true,
   "attribution_of_49s_or_33percent": false,
   "provenance": {
     "baseline": {
@@ -1383,5 +1383,7 @@
     "final_a_matches_a1_a2": true,
     "final_b_matches_before_trimming": true
   },
-  "candidate_sdk": "c96bd930878187ae5dc9b5c0f1261f6d2508c4e4"
+  "candidate_sdk": "c96bd930878187ae5dc9b5c0f1261f6d2508c4e4",
+  "physical_evidence": "physical-summary.json",
+  "physical_validation_scope": "QA Mac/Android Wi-Fi, 14 files, anonymous routes; no controlled baseline route comparison or qualification of all 33% reports"
 }

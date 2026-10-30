@@ -1,0 +1,1150 @@
+{
+  "sdk": "c96bd930878187ae5dc9b5c0f1261f6d2508c4e4",
+  "active_devices": 2,
+  "phone_transport": "Wi-Fi",
+  "routing": "anonymous streams, contact P2P denied for test and restored",
+  "payload_bytes": 232787386,
+  "completed_files": 14,
+  "total_retired_endpoints": 28,
+  "same_dart_snapshot_for_all_series": true,
+  "native_features": [
+    "node-embedded",
+    "production-seeds",
+    "packet-tunnel"
+  ],
+  "test_low_difficulty": false,
+  "native_test_hooks": false,
+  "mac_native_sha256": "cfcc11ed8fa7a1f6f38ed2216c1fba31d5031e5062c19eb72bd9bbb3ebe456c3",
+  "android_native_stripped_sha256": "287854561274712f33e709be4821179825c5937f223fa8d1d6f717cce8e8050f",
+  "series": [
+    {
+      "runs": [
+        {
+          "sample": 0,
+          "direction": "Android -> Mac",
+          "seconds": 6.58,
+          "bytes": 3145979,
+          "sha256_matches": true,
+          "rx_samples": 13,
+          "tx_samples": 12,
+          "rx_max_sample_interval_ms": 770,
+          "rx_max_observed_prefix_advance_interval_ms": 770,
+          "rx_samples_waiting_for_gap": 0,
+          "rx_max_out_of_order_bytes_during_same_prefix": 0,
+          "tx_recovery_samples": 1,
+          "tx_max_sampled_consecutive_rto": 0,
+          "tx_max_sampled_srtt_ms": 177,
+          "tx_max_sampled_rack_rtt_ms": 174,
+          "tx_min_sampled_cwnd_bytes": 113611,
+          "clock_origin_after_api_start_ms": 129,
+          "observed_bbr_probes": []
+        },
+        {
+          "sample": 0,
+          "direction": "Mac -> Android",
+          "seconds": 5.661,
+          "bytes": 3145979,
+          "sha256_matches": true,
+          "rx_samples": 11,
+          "tx_samples": 11,
+          "rx_max_sample_interval_ms": 567,
+          "rx_max_observed_prefix_advance_interval_ms": 567,
+          "rx_samples_waiting_for_gap": 0,
+          "rx_max_out_of_order_bytes_during_same_prefix": 0,
+          "tx_recovery_samples": 1,
+          "tx_max_sampled_consecutive_rto": 0,
+          "tx_max_sampled_srtt_ms": 256,
+          "tx_max_sampled_rack_rtt_ms": 221,
+          "tx_min_sampled_cwnd_bytes": 59544,
+          "clock_origin_after_api_start_ms": 333,
+          "observed_bbr_probes": []
+        },
+        {
+          "sample": 1,
+          "direction": "Android -> Mac",
+          "seconds": 7.101,
+          "bytes": 3145979,
+          "sha256_matches": true,
+          "rx_samples": 11,
+          "tx_samples": 11,
+          "rx_max_sample_interval_ms": 511,
+          "rx_max_observed_prefix_advance_interval_ms": 511,
+          "rx_samples_waiting_for_gap": 0,
+          "rx_max_out_of_order_bytes_during_same_prefix": 0,
+          "tx_recovery_samples": 1,
+          "tx_max_sampled_consecutive_rto": 0,
+          "tx_max_sampled_srtt_ms": 146,
+          "tx_max_sampled_rack_rtt_ms": 122,
+          "tx_min_sampled_cwnd_bytes": 98083,
+          "clock_origin_after_api_start_ms": 63,
+          "observed_bbr_probes": []
+        },
+        {
+          "sample": 1,
+          "direction": "Mac -> Android",
+          "seconds": 6.796,
+          "bytes": 3145979,
+          "sha256_matches": true,
+          "rx_samples": 11,
+          "tx_samples": 11,
+          "rx_max_sample_interval_ms": 729,
+          "rx_max_observed_prefix_advance_interval_ms": 729,
+          "rx_samples_waiting_for_gap": 0,
+          "rx_max_out_of_order_bytes_during_same_prefix": 0,
+          "tx_recovery_samples": 0,
+          "tx_max_sampled_consecutive_rto": 0,
+          "tx_max_sampled_srtt_ms": 159,
+          "tx_max_sampled_rack_rtt_ms": 178,
+          "tx_min_sampled_cwnd_bytes": 97359,
+          "clock_origin_after_api_start_ms": 261,
+          "observed_bbr_probes": []
+        },
+        {
+          "sample": 2,
+          "direction": "Android -> Mac",
+          "seconds": 12.166,
+          "bytes": 3145979,
+          "sha256_matches": true,
+          "rx_samples": 24,
+          "tx_samples": 24,
+          "rx_max_sample_interval_ms": 530,
+          "rx_max_observed_prefix_advance_interval_ms": 1014,
+          "rx_samples_waiting_for_gap": 1,
+          "rx_max_out_of_order_bytes_during_same_prefix": 45586,
+          "tx_recovery_samples": 2,
+          "tx_max_sampled_consecutive_rto": 0,
+          "tx_max_sampled_srtt_ms": 291,
+          "tx_max_sampled_rack_rtt_ms": 307,
+          "tx_min_sampled_cwnd_bytes": 97102,
+          "clock_origin_after_api_start_ms": 69,
+          "observed_bbr_probes": []
+        },
+        {
+          "sample": 2,
+          "direction": "Mac -> Android",
+          "seconds": 6.834,
+          "bytes": 3145979,
+          "sha256_matches": true,
+          "rx_samples": 11,
+          "tx_samples": 10,
+          "rx_max_sample_interval_ms": 1027,
+          "rx_max_observed_prefix_advance_interval_ms": 1027,
+          "rx_samples_waiting_for_gap": 0,
+          "rx_max_out_of_order_bytes_during_same_prefix": 0,
+          "tx_recovery_samples": 1,
+          "tx_max_sampled_consecutive_rto": 0,
+          "tx_max_sampled_srtt_ms": 145,
+          "tx_max_sampled_rack_rtt_ms": 118,
+          "tx_min_sampled_cwnd_bytes": 68669,
+          "clock_origin_after_api_start_ms": 359,
+          "observed_bbr_probes": []
+        },
+        {
+          "sample": 3,
+          "direction": "Android -> Mac",
+          "seconds": 8.118,
+          "bytes": 3145979,
+          "sha256_matches": true,
+          "rx_samples": 13,
+          "tx_samples": 14,
+          "rx_max_sample_interval_ms": 584,
+          "rx_max_observed_prefix_advance_interval_ms": 584,
+          "rx_samples_waiting_for_gap": 0,
+          "rx_max_out_of_order_bytes_during_same_prefix": 0,
+          "tx_recovery_samples": 1,
+          "tx_max_sampled_consecutive_rto": 0,
+          "tx_max_sampled_srtt_ms": 179,
+          "tx_max_sampled_rack_rtt_ms": 194,
+          "tx_min_sampled_cwnd_bytes": 100142,
+          "clock_origin_after_api_start_ms": 85,
+          "observed_bbr_probes": []
+        },
+        {
+          "sample": 3,
+          "direction": "Mac -> Android",
+          "seconds": 14.623,
+          "bytes": 3145979,
+          "sha256_matches": true,
+          "rx_samples": 24,
+          "tx_samples": 27,
+          "rx_max_sample_interval_ms": 1104,
+          "rx_max_observed_prefix_advance_interval_ms": 1608,
+          "rx_samples_waiting_for_gap": 0,
+          "rx_max_out_of_order_bytes_during_same_prefix": 0,
+          "tx_recovery_samples": 0,
+          "tx_max_sampled_consecutive_rto": 0,
+          "tx_max_sampled_srtt_ms": 355,
+          "tx_max_sampled_rack_rtt_ms": 407,
+          "tx_min_sampled_cwnd_bytes": 98604,
+          "clock_origin_after_api_start_ms": 386,
+          "observed_bbr_probes": []
+        },
+        {
+          "sample": 4,
+          "direction": "Android -> Mac",
+          "seconds": 10.654,
+          "bytes": 3145979,
+          "sha256_matches": true,
+          "rx_samples": 21,
+          "tx_samples": 21,
+          "rx_max_sample_interval_ms": 629,
+          "rx_max_observed_prefix_advance_interval_ms": 629,
+          "rx_samples_waiting_for_gap": 0,
+          "rx_max_out_of_order_bytes_during_same_prefix": 0,
+          "tx_recovery_samples": 2,
+          "tx_max_sampled_consecutive_rto": 0,
+          "tx_max_sampled_srtt_ms": 391,
+          "tx_max_sampled_rack_rtt_ms": 421,
+          "tx_min_sampled_cwnd_bytes": 76945,
+          "clock_origin_after_api_start_ms": 121,
+          "observed_bbr_probes": []
+        },
+        {
+          "sample": 4,
+          "direction": "Mac -> Android",
+          "seconds": 7.906,
+          "bytes": 3145979,
+          "sha256_matches": true,
+          "rx_samples": 15,
+          "tx_samples": 15,
+          "rx_max_sample_interval_ms": 543,
+          "rx_max_observed_prefix_advance_interval_ms": 543,
+          "rx_samples_waiting_for_gap": 0,
+          "rx_max_out_of_order_bytes_during_same_prefix": 0,
+          "tx_recovery_samples": 1,
+          "tx_max_sampled_consecutive_rto": 0,
+          "tx_max_sampled_srtt_ms": 225,
+          "tx_max_sampled_rack_rtt_ms": 310,
+          "tx_min_sampled_cwnd_bytes": 97589,
+          "clock_origin_after_api_start_ms": 390,
+          "observed_bbr_probes": []
+        }
+      ],
+      "closures": [
+        {
+          "endpoint": "android",
+          "linger": true,
+          "eof": true,
+          "fin": [
+            true,
+            true,
+            true
+          ],
+          "sampled_consecutive_rto": 0
+        },
+        {
+          "endpoint": "mac",
+          "linger": true,
+          "eof": true,
+          "fin": [
+            true,
+            true,
+            true
+          ],
+          "sampled_consecutive_rto": 0
+        },
+        {
+          "endpoint": "android",
+          "linger": true,
+          "eof": true,
+          "fin": [
+            true,
+            true,
+            true
+          ],
+          "sampled_consecutive_rto": 0
+        },
+        {
+          "endpoint": "mac",
+          "linger": true,
+          "eof": true,
+          "fin": [
+            true,
+            true,
+            true
+          ],
+          "sampled_consecutive_rto": 0
+        },
+        {
+          "endpoint": "android",
+          "linger": true,
+          "eof": true,
+          "fin": [
+            true,
+            true,
+            true
+          ],
+          "sampled_consecutive_rto": 0
+        },
+        {
+          "endpoint": "mac",
+          "linger": true,
+          "eof": true,
+          "fin": [
+            true,
+            true,
+            true
+          ],
+          "sampled_consecutive_rto": 0
+        },
+        {
+          "endpoint": "android",
+          "linger": true,
+          "eof": true,
+          "fin": [
+            true,
+            true,
+            true
+          ],
+          "sampled_consecutive_rto": 0
+        },
+        {
+          "endpoint": "mac",
+          "linger": true,
+          "eof": true,
+          "fin": [
+            true,
+            true,
+            true
+          ],
+          "sampled_consecutive_rto": 0
+        },
+        {
+          "endpoint": "android",
+          "linger": true,
+          "eof": true,
+          "fin": [
+            true,
+            true,
+            true
+          ],
+          "sampled_consecutive_rto": 0
+        },
+        {
+          "endpoint": "mac",
+          "linger": true,
+          "eof": true,
+          "fin": [
+            true,
+            true,
+            true
+          ],
+          "sampled_consecutive_rto": 0
+        },
+        {
+          "endpoint": "android",
+          "linger": true,
+          "eof": true,
+          "fin": [
+            true,
+            true,
+            true
+          ],
+          "sampled_consecutive_rto": 0
+        },
+        {
+          "endpoint": "mac",
+          "linger": true,
+          "eof": true,
+          "fin": [
+            true,
+            true,
+            true
+          ],
+          "sampled_consecutive_rto": 0
+        },
+        {
+          "endpoint": "android",
+          "linger": true,
+          "eof": true,
+          "fin": [
+            true,
+            true,
+            true
+          ],
+          "sampled_consecutive_rto": 0
+        },
+        {
+          "endpoint": "mac",
+          "linger": true,
+          "eof": true,
+          "fin": [
+            true,
+            true,
+            true
+          ],
+          "sampled_consecutive_rto": 0
+        },
+        {
+          "endpoint": "android",
+          "linger": true,
+          "eof": true,
+          "fin": [
+            true,
+            true,
+            true
+          ],
+          "sampled_consecutive_rto": 0
+        },
+        {
+          "endpoint": "mac",
+          "linger": true,
+          "eof": true,
+          "fin": [
+            true,
+            true,
+            true
+          ],
+          "sampled_consecutive_rto": 0
+        },
+        {
+          "endpoint": "android",
+          "linger": true,
+          "eof": true,
+          "fin": [
+            true,
+            true,
+            true
+          ],
+          "sampled_consecutive_rto": 0
+        },
+        {
+          "endpoint": "mac",
+          "linger": true,
+          "eof": true,
+          "fin": [
+            true,
+            true,
+            true
+          ],
+          "sampled_consecutive_rto": 0
+        },
+        {
+          "endpoint": "android",
+          "linger": true,
+          "eof": true,
+          "fin": [
+            true,
+            true,
+            true
+          ],
+          "sampled_consecutive_rto": 0
+        },
+        {
+          "endpoint": "mac",
+          "linger": true,
+          "eof": true,
+          "fin": [
+            true,
+            true,
+            true
+          ],
+          "sampled_consecutive_rto": 0
+        }
+      ],
+      "mux": {
+        "android": {
+          "sample_count": 146,
+          "first": {
+            "received": 1,
+            "routed": 1,
+            "inbox_full": 0,
+            "inbox_closed": 0,
+            "unknown": 0,
+            "invalid": 0
+          },
+          "last": {
+            "received": 18506,
+            "routed": 18506,
+            "inbox_full": 0,
+            "inbox_closed": 0,
+            "unknown": 0,
+            "invalid": 0
+          },
+          "max_inbox_full": 0,
+          "max_inbox_closed": 0,
+          "max_unknown": 0,
+          "max_invalid": 0
+        },
+        "mac": {
+          "sample_count": 166,
+          "first": {
+            "received": 1,
+            "routed": 1,
+            "inbox_full": 0,
+            "inbox_closed": 0,
+            "unknown": 0,
+            "invalid": 0
+          },
+          "last": {
+            "received": 18363,
+            "routed": 18363,
+            "inbox_full": 0,
+            "inbox_closed": 0,
+            "unknown": 0,
+            "invalid": 0
+          },
+          "max_inbox_full": 0,
+          "max_inbox_closed": 0,
+          "max_unknown": 0,
+          "max_invalid": 0
+        }
+      },
+      "clock_offset_uncertainty_ms": 46.63,
+      "warning": "Observed prefix intervals include sampling; not assertions of continuous network silence. Stream matching uses local origin clocks and raw IDs only privately.",
+      "size_label": "3 MiB",
+      "fully_retired_endpoints": 20,
+      "restored_and_closed": true
+    },
+    {
+      "runs": [
+        {
+          "sample": 0,
+          "direction": "Android -> Mac",
+          "seconds": 26.378,
+          "bytes": 33554683,
+          "sha256_matches": true,
+          "rx_samples": 50,
+          "tx_samples": 50,
+          "rx_max_sample_interval_ms": 1077,
+          "rx_max_observed_prefix_advance_interval_ms": 1077,
+          "rx_samples_waiting_for_gap": 0,
+          "rx_max_out_of_order_bytes_during_same_prefix": 0,
+          "tx_recovery_samples": 2,
+          "tx_max_sampled_consecutive_rto": 0,
+          "tx_max_sampled_srtt_ms": 187,
+          "tx_max_sampled_rack_rtt_ms": 157,
+          "tx_min_sampled_cwnd_bytes": 121405,
+          "clock_origin_after_api_start_ms": 113,
+          "observed_bbr_probes": []
+        },
+        {
+          "sample": 0,
+          "direction": "Mac -> Android",
+          "seconds": 24.557,
+          "bytes": 33554683,
+          "sha256_matches": true,
+          "rx_samples": 47,
+          "tx_samples": 47,
+          "rx_max_sample_interval_ms": 521,
+          "rx_max_observed_prefix_advance_interval_ms": 521,
+          "rx_samples_waiting_for_gap": 0,
+          "rx_max_out_of_order_bytes_during_same_prefix": 0,
+          "tx_recovery_samples": 0,
+          "tx_max_sampled_consecutive_rto": 0,
+          "tx_max_sampled_srtt_ms": 155,
+          "tx_max_sampled_rack_rtt_ms": 185,
+          "tx_min_sampled_cwnd_bytes": 103080,
+          "clock_origin_after_api_start_ms": 405,
+          "observed_bbr_probes": []
+        }
+      ],
+      "closures": [
+        {
+          "endpoint": "android",
+          "linger": true,
+          "eof": true,
+          "fin": [
+            true,
+            true,
+            true
+          ],
+          "sampled_consecutive_rto": 0
+        },
+        {
+          "endpoint": "mac",
+          "linger": true,
+          "eof": true,
+          "fin": [
+            true,
+            true,
+            true
+          ],
+          "sampled_consecutive_rto": 0
+        },
+        {
+          "endpoint": "android",
+          "linger": true,
+          "eof": true,
+          "fin": [
+            true,
+            true,
+            true
+          ],
+          "sampled_consecutive_rto": 0
+        },
+        {
+          "endpoint": "mac",
+          "linger": true,
+          "eof": true,
+          "fin": [
+            true,
+            true,
+            true
+          ],
+          "sampled_consecutive_rto": 0
+        }
+      ],
+      "mux": {
+        "android": {
+          "sample_count": 95,
+          "first": {
+            "received": 1,
+            "routed": 1,
+            "inbox_full": 0,
+            "inbox_closed": 0,
+            "unknown": 0,
+            "invalid": 0
+          },
+          "last": {
+            "received": 33596,
+            "routed": 33596,
+            "inbox_full": 0,
+            "inbox_closed": 0,
+            "unknown": 0,
+            "invalid": 0
+          },
+          "max_inbox_full": 0,
+          "max_inbox_closed": 0,
+          "max_unknown": 0,
+          "max_invalid": 0
+        },
+        "mac": {
+          "sample_count": 96,
+          "first": {
+            "received": 1,
+            "routed": 1,
+            "inbox_full": 0,
+            "inbox_closed": 0,
+            "unknown": 0,
+            "invalid": 0
+          },
+          "last": {
+            "received": 36719,
+            "routed": 36719,
+            "inbox_full": 0,
+            "inbox_closed": 0,
+            "unknown": 0,
+            "invalid": 0
+          },
+          "max_inbox_full": 0,
+          "max_inbox_closed": 0,
+          "max_unknown": 0,
+          "max_invalid": 0
+        }
+      },
+      "clock_offset_uncertainty_ms": 33.25,
+      "warning": "Observed prefix intervals include sampling; not assertions of continuous network silence. Stream matching uses local origin clocks and raw IDs only privately.",
+      "size_label": "32 MiB",
+      "fully_retired_endpoints": 4,
+      "restored_and_closed": true
+    },
+    {
+      "runs": [
+        {
+          "sample": 0,
+          "direction": "Android -> Mac",
+          "seconds": 111.366,
+          "bytes": 67109115,
+          "sha256_matches": true,
+          "rx_samples": 209,
+          "tx_samples": 209,
+          "rx_max_sample_interval_ms": 5509,
+          "rx_max_observed_prefix_advance_interval_ms": 5509,
+          "rx_samples_waiting_for_gap": 0,
+          "rx_max_out_of_order_bytes_during_same_prefix": 0,
+          "tx_recovery_samples": 1,
+          "tx_max_sampled_consecutive_rto": 0,
+          "tx_max_sampled_srtt_ms": 276,
+          "tx_max_sampled_rack_rtt_ms": 329,
+          "tx_min_sampled_cwnd_bytes": 98665,
+          "clock_origin_after_api_start_ms": 240,
+          "observed_bbr_probes": [
+            {
+              "first_true_ms": 42490,
+              "last_true_ms": 42490,
+              "duration_bracket_ms": 1019,
+              "exit_observed": true
+            },
+            {
+              "first_true_ms": 81912,
+              "last_true_ms": 81912,
+              "duration_bracket_ms": 1043,
+              "exit_observed": true
+            }
+          ]
+        },
+        {
+          "sample": 0,
+          "direction": "Mac -> Android",
+          "seconds": 96.82,
+          "bytes": 67109115,
+          "sha256_matches": true,
+          "rx_samples": 182,
+          "tx_samples": 187,
+          "rx_max_sample_interval_ms": 968,
+          "rx_max_observed_prefix_advance_interval_ms": 968,
+          "rx_samples_waiting_for_gap": 0,
+          "rx_max_out_of_order_bytes_during_same_prefix": 0,
+          "tx_recovery_samples": 0,
+          "tx_max_sampled_consecutive_rto": 0,
+          "tx_max_sampled_srtt_ms": 132,
+          "tx_max_sampled_rack_rtt_ms": 157,
+          "tx_min_sampled_cwnd_bytes": 124754,
+          "clock_origin_after_api_start_ms": 374,
+          "observed_bbr_probes": [
+            {
+              "first_true_ms": 74157,
+              "last_true_ms": 74157,
+              "duration_bracket_ms": 1002,
+              "exit_observed": true
+            }
+          ]
+        }
+      ],
+      "closures": [
+        {
+          "endpoint": "android",
+          "linger": true,
+          "eof": true,
+          "fin": [
+            true,
+            true,
+            true
+          ],
+          "sampled_consecutive_rto": 0
+        },
+        {
+          "endpoint": "mac",
+          "linger": true,
+          "eof": true,
+          "fin": [
+            true,
+            true,
+            true
+          ],
+          "sampled_consecutive_rto": 0
+        },
+        {
+          "endpoint": "android",
+          "linger": true,
+          "eof": true,
+          "fin": [
+            true,
+            true,
+            true
+          ],
+          "sampled_consecutive_rto": 0
+        },
+        {
+          "endpoint": "mac",
+          "linger": true,
+          "eof": true,
+          "fin": [
+            true,
+            true,
+            true
+          ],
+          "sampled_consecutive_rto": 0
+        }
+      ],
+      "mux": {
+        "android": {
+          "sample_count": 389,
+          "first": {
+            "received": 1,
+            "routed": 1,
+            "inbox_full": 0,
+            "inbox_closed": 0,
+            "unknown": 0,
+            "invalid": 0
+          },
+          "last": {
+            "received": 79348,
+            "routed": 79348,
+            "inbox_full": 0,
+            "inbox_closed": 0,
+            "unknown": 0,
+            "invalid": 0
+          },
+          "max_inbox_full": 0,
+          "max_inbox_closed": 0,
+          "max_unknown": 0,
+          "max_invalid": 0
+        },
+        "mac": {
+          "sample_count": 394,
+          "first": {
+            "received": 1,
+            "routed": 1,
+            "inbox_full": 0,
+            "inbox_closed": 0,
+            "unknown": 0,
+            "invalid": 0
+          },
+          "last": {
+            "received": 68275,
+            "routed": 68275,
+            "inbox_full": 0,
+            "inbox_closed": 0,
+            "unknown": 0,
+            "invalid": 0
+          },
+          "max_inbox_full": 0,
+          "max_inbox_closed": 0,
+          "max_unknown": 0,
+          "max_invalid": 0
+        }
+      },
+      "clock_offset_uncertainty_ms": 32.53,
+      "warning": "Observed prefix intervals include sampling; not assertions of continuous network silence. Stream matching uses local origin clocks and raw IDs only privately.",
+      "size_label": "64 MiB",
+      "fully_retired_endpoints": 4,
+      "restored_and_closed": true
+    }
+  ],
+  "all_original_apps_restored_and_owned_processes_closed": true,
+  "all_settings_forwards_and_ownership_restored": true,
+  "controlled_comparison_with_baseline": false,
+  "all_33percent_causes_closed": false,
+  "initial_native_sampling_gap": {
+    "receiver": "Mac",
+    "file_bytes": 67109115,
+    "first_engine_ms": 596,
+    "next_engine_ms": 6102,
+    "sample_interval_ms": 5506,
+    "native_prefix_advance_bytes": 4,
+    "attribution": "unresolved; driver observation gap, not proof of complete network silence"
+  },
+  "endurance_preparation_stages": [
+    {
+      "endpoint": "android",
+      "records": [
+        {
+          "stage": "receiver_ads",
+          "elapsed_ms": 1,
+          "result": 1,
+          "local": 0,
+          "address_kind": 2,
+          "count": 5
+        },
+        {
+          "stage": "circuit_open",
+          "elapsed_ms": 1,
+          "result": 1,
+          "local": 0,
+          "address_kind": 0,
+          "count": 1
+        },
+        {
+          "stage": "circuit_open",
+          "elapsed_ms": 1,
+          "result": 1,
+          "local": 0,
+          "address_kind": 0,
+          "count": 1
+        },
+        {
+          "stage": "circuit_open",
+          "elapsed_ms": 1,
+          "result": 1,
+          "local": 0,
+          "address_kind": 0,
+          "count": 1
+        },
+        {
+          "stage": "receiver_ads",
+          "elapsed_ms": 3,
+          "result": 1,
+          "local": 0,
+          "address_kind": 2,
+          "count": 5
+        },
+        {
+          "stage": "circuit_open",
+          "elapsed_ms": 3,
+          "result": 1,
+          "local": 0,
+          "address_kind": 0,
+          "count": 1
+        },
+        {
+          "stage": "circuit_open",
+          "elapsed_ms": 4,
+          "result": 1,
+          "local": 0,
+          "address_kind": 0,
+          "count": 1
+        },
+        {
+          "stage": "circuit_open",
+          "elapsed_ms": 4,
+          "result": 1,
+          "local": 0,
+          "address_kind": 0,
+          "count": 1
+        },
+        {
+          "stage": "circuit_open",
+          "elapsed_ms": 2,
+          "result": 1,
+          "local": 0,
+          "address_kind": 0,
+          "count": 1
+        },
+        {
+          "stage": "circuit_open",
+          "elapsed_ms": 2,
+          "result": 1,
+          "local": 0,
+          "address_kind": 0,
+          "count": 1
+        },
+        {
+          "stage": "receiver_ads",
+          "elapsed_ms": 3528,
+          "result": 1,
+          "local": 0,
+          "address_kind": 0,
+          "count": 18
+        },
+        {
+          "stage": "circuit_open",
+          "elapsed_ms": 1,
+          "result": 1,
+          "local": 0,
+          "address_kind": 0,
+          "count": 1
+        },
+        {
+          "stage": "circuit_open",
+          "elapsed_ms": 1,
+          "result": 1,
+          "local": 0,
+          "address_kind": 0,
+          "count": 1
+        },
+        {
+          "stage": "circuit_open",
+          "elapsed_ms": 1,
+          "result": 1,
+          "local": 0,
+          "address_kind": 0,
+          "count": 1
+        },
+        {
+          "stage": "receiver_ads",
+          "elapsed_ms": 166,
+          "result": 1,
+          "local": 0,
+          "address_kind": 2,
+          "count": 8
+        },
+        {
+          "stage": "circuit_open",
+          "elapsed_ms": 1,
+          "result": 1,
+          "local": 0,
+          "address_kind": 0,
+          "count": 1
+        },
+        {
+          "stage": "circuit_open",
+          "elapsed_ms": 3,
+          "result": 1,
+          "local": 0,
+          "address_kind": 0,
+          "count": 1
+        },
+        {
+          "stage": "circuit_open",
+          "elapsed_ms": 1,
+          "result": 1,
+          "local": 0,
+          "address_kind": 0,
+          "count": 1
+        },
+        {
+          "stage": "receiver_ads",
+          "elapsed_ms": 6,
+          "result": 1,
+          "local": 0,
+          "address_kind": 2,
+          "count": 8
+        },
+        {
+          "stage": "receiver_ads",
+          "elapsed_ms": 5,
+          "result": 1,
+          "local": 0,
+          "address_kind": 2,
+          "count": 8
+        },
+        {
+          "stage": "receiver_ads",
+          "elapsed_ms": 7,
+          "result": 1,
+          "local": 0,
+          "address_kind": 2,
+          "count": 8
+        },
+        {
+          "stage": "receiver_ads",
+          "elapsed_ms": 9,
+          "result": 1,
+          "local": 0,
+          "address_kind": 2,
+          "count": 8
+        },
+        {
+          "stage": "receiver_ads",
+          "elapsed_ms": 8,
+          "result": 1,
+          "local": 0,
+          "address_kind": 2,
+          "count": 8
+        },
+        {
+          "stage": "receiver_ads",
+          "elapsed_ms": 8,
+          "result": 1,
+          "local": 0,
+          "address_kind": 2,
+          "count": 8
+        },
+        {
+          "stage": "receiver_ads",
+          "elapsed_ms": 6,
+          "result": 1,
+          "local": 0,
+          "address_kind": 2,
+          "count": 8
+        },
+        {
+          "stage": "receiver_ads",
+          "elapsed_ms": 5,
+          "result": 1,
+          "local": 0,
+          "address_kind": 2,
+          "count": 8
+        },
+        {
+          "stage": "receiver_ads",
+          "elapsed_ms": 6,
+          "result": 1,
+          "local": 0,
+          "address_kind": 2,
+          "count": 8
+        },
+        {
+          "stage": "receiver_ads",
+          "elapsed_ms": 9,
+          "result": 1,
+          "local": 0,
+          "address_kind": 2,
+          "count": 8
+        },
+        {
+          "stage": "receiver_ads",
+          "elapsed_ms": 3,
+          "result": 1,
+          "local": 0,
+          "address_kind": 2,
+          "count": 8
+        },
+        {
+          "stage": "circuit_open",
+          "elapsed_ms": 1,
+          "result": 1,
+          "local": 0,
+          "address_kind": 0,
+          "count": 1
+        },
+        {
+          "stage": "circuit_open",
+          "elapsed_ms": 4,
+          "result": 1,
+          "local": 0,
+          "address_kind": 0,
+          "count": 1
+        }
+      ]
+    },
+    {
+      "endpoint": "mac",
+      "records": [
+        {
+          "stage": "receiver_ads",
+          "elapsed_ms": 277,
+          "result": 1,
+          "local": 0,
+          "address_kind": 2,
+          "count": 8
+        },
+        {
+          "stage": "circuit_open",
+          "elapsed_ms": 0,
+          "result": 1,
+          "local": 0,
+          "address_kind": 0,
+          "count": 1
+        },
+        {
+          "stage": "circuit_open",
+          "elapsed_ms": 0,
+          "result": 1,
+          "local": 0,
+          "address_kind": 0,
+          "count": 1
+        },
+        {
+          "stage": "circuit_open",
+          "elapsed_ms": 0,
+          "result": 1,
+          "local": 0,
+          "address_kind": 0,
+          "count": 1
+        },
+        {
+          "stage": "receiver_ads",
+          "elapsed_ms": 3540,
+          "result": 1,
+          "local": 0,
+          "address_kind": 0,
+          "count": 14
+        },
+        {
+          "stage": "circuit_open",
+          "elapsed_ms": 0,
+          "result": 1,
+          "local": 0,
+          "address_kind": 0,
+          "count": 1
+        },
+        {
+          "stage": "circuit_open",
+          "elapsed_ms": 0,
+          "result": 1,
+          "local": 0,
+          "address_kind": 0,
+          "count": 1
+        },
+        {
+          "stage": "circuit_open",
+          "elapsed_ms": 0,
+          "result": 1,
+          "local": 0,
+          "address_kind": 0,
+          "count": 1
+        }
+      ]
+    }
+  ],
+  "preparation_attribution_note": "File-only collector missed stdout/stderr stage records; recovered from preserved complete logs. No common runtime/FFI call ID; not causal attribution of initial delay.",
+  "test_payload_cleanup": {
+    "synthetic_payload_files_removed": 21,
+    "bytes_reclaimed": 349181079,
+    "sha256_verified_before_removal": true,
+    "native_binaries_and_raw_logs_retained": true
+  }
+}
