@@ -771,7 +771,13 @@ extension _MessagingContentPull on MessagingService {
           'xVeil[content]: manifest ref resolved for '
           '${cid.substring(0, 12)} — resuming the parked download',
     );
-    await _beginDownloadWithManifest(peer, cid, m, sink, _fetchSavePath[cid]);
+    await _beginDownloadWithManifest(
+      peer,
+      cid,
+      m,
+      sink,
+      _fetchSavePath[cid]?.path,
+    );
   }
 
   Future<void> _runSwarmPullThenFallback(
@@ -2064,7 +2070,7 @@ extension _MessagingContentPull on MessagingService {
         try {
           await sink.close();
         } catch (_) {}
-        _fetchSavePath.remove(cid);
+        _forgetFetchSavePath(cid);
       }
       if (!ok &&
           !_cancelledDownloads.contains(cid) &&
@@ -2217,7 +2223,7 @@ extension _MessagingContentPull on MessagingService {
           // detected and answered with content-GONE instead of a false offer.
         } catch (_) {}
       }
-      _fetchSavePath.remove(m.contentId);
+      _forgetFetchSavePath(m.contentId);
       devLog(
         () =>
             'xVeil[content]: COMPLETE ${m.contentId.substring(0, 12)} '
@@ -2355,7 +2361,7 @@ extension _MessagingContentPull on MessagingService {
       // UNENCRYPTED-to-file: the bytes are on the user's disk, NOT in the app —
       // so no offer→downloaded flip; just finalise the file, ack (we received
       // it), and tell the UI where it landed.
-      final savedPath = _fetchSavePath.remove(f.contentId);
+      final savedPath = _forgetFetchSavePath(f.contentId);
       try {
         await sink.close();
       } catch (e) {

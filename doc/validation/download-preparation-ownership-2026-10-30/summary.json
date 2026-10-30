@@ -1,0 +1,51 @@
+{
+  "baseline_app": "0b3ee48a",
+  "baseline_tests_failed": 10,
+  "baseline_control_tests_passed": 2,
+  "baseline_matrix_cases": 12,
+  "entrypoints": [
+    "downloadContent",
+    "downloadContentFromAny",
+    "downloadContentToFile",
+    "downloadContentToFileFromAny"
+  ],
+  "interleaving_actions": [
+    "cancel",
+    "replace destination",
+    "clear pending registry"
+  ],
+  "same_path_cleanup_tests_added": 4,
+  "related_tests_passed": 124,
+  "related_tests_ignored": 0,
+  "native_regression_tests_passed": 3,
+  "native_regression_tests_ignored": 0,
+  "native_new_tests_this_cycle": 0,
+  "flutter_analyze_issues": 0,
+  "preparation_guard_persisted": false,
+  "durable_schema_changed": false,
+  "wire_protocol_changed": false,
+  "original_dispose_test_return_expectation_changed": {
+    "old": "started",
+    "new": "noOffer",
+    "late_stream_abort_and_shutdown_deadline_preserved": true,
+    "durable_intent_recovery_check_added": true
+  },
+  "intermediate_sync_callback_compile_failure_corrected": true,
+  "all_payload_generations_qualified": false,
+  "physical_device_run": false,
+  "gui_stand_apps_started": false,
+  "native_library_rebuilt": false,
+  "native_owned_process_groups_exited": true,
+  "original_33_percent_report_closed": false,
+  "push_or_release": false,
+  "changed_source_sha256": {
+    "lib/state/messaging_core.dart": "246d914646f543e938231fae84cff18e1b98e80033ffe3a77e97f1cf50ba21e5",
+    "lib/state/messaging_download_resume.dart": "10e3b0ecf08f707bc5fda1b9fe02ff178bc75110ed2b0bec8d10f747dbc992ac",
+    "lib/state/messaging_content_pull.dart": "0fc036410583802f5f9236483c6780fae5293e71601b8181139c01b68bf89754",
+    "lib/state/messaging_content_receive.dart": "8915a1b03c534b9f11b9f4a4d6c6c3c077a79353f4b598c803970d2d56913398",
+    "lib/state/messaging_content_availability.dart": "0280da5f508f8b96a81114819c47694d46cbb0dd033e5922dae5f079e51c8093",
+    "test/download_resume_persistence_test.dart": "049000f11fc7405ed6da6b6a40cfb65b59bb5092326f7b9b11ff1bda2b5a5af2",
+    "test/content_stream_transfer_test.dart": "80ac09bb7b744ea7a34aaeb1ecba2fb4f9df023c6aff88bafed4edc4ff5c619f"
+  },
+  "hidden_volume_library_sha256": "3b2eacc819b307125cafe01665ebbaec5ee6ed9d3b3d5d96bc5d5b26a50f79e7"
+}

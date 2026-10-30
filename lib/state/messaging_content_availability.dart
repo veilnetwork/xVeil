@@ -128,13 +128,13 @@ class _MessagingContentAvailability {
   ) {
     if (_owner._cancelledDownloads.contains(contentId)) {
       if (sink != null) _closeLater(sink);
-      _owner._fetchSavePath.remove(contentId);
+      _owner._forgetFetchSavePath(contentId);
       return ContentDownloadResult.noOffer;
     }
     final sources = _owner._uniquePeers(peers);
     if (sources.isEmpty) {
       if (sink != null) _closeLater(sink);
-      _owner._fetchSavePath.remove(contentId);
+      _owner._forgetFetchSavePath(contentId);
       return ContentDownloadResult.noOffer;
     }
     devLog(
@@ -149,7 +149,7 @@ class _MessagingContentAvailability {
       _pendingTimers.remove(contentId);
       final parked = _pending.remove(contentId);
       if (parked != null) _closeLater(parked);
-      _owner._fetchSavePath.remove(contentId);
+      _owner._forgetFetchSavePath(contentId);
       devLog(
         () =>
             'xVeil[content]: re-advertise TIMED OUT for '
@@ -525,7 +525,7 @@ class _MessagingContentAvailability {
     _owner._completePendingDownload(contentId);
     await discardPending(contentId);
     await _owner._contentFetching.discard(contentId);
-    _owner._fetchSavePath.remove(contentId);
+    _owner._forgetFetchSavePath(contentId);
     if (!_owner._contentFailed.isClosed) {
       _owner._contentFailed.add(contentId);
     }
