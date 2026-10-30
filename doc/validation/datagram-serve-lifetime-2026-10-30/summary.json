@@ -1,0 +1,18 @@
+{
+  "baseline_app_commit": "509ea91a",
+  "sdk_changed": false,
+  "production_source_sha256": {
+    "lib/state/messaging_content_server.dart": "66d6a96b1ed58b3a41f4d5129b7b55178998c628da81431d68439d7ed8bc6ff3"
+  },
+  "baseline_scenarios_failed": 3,
+  "baseline_controls_passed": 2,
+  "candidate_scenarios_passed": 5,
+  "related_suite_passed": 163,
+  "focused_scenarios_included_in_related_suite": true,
+  "analyze_issues": 0,
+  "physical_validation": false,
+  "apps_started": false,
+  "push_or_release": false,
+  "all_33percent_causes_closed": false,
+  "native_stream_transport_changed": false
+}

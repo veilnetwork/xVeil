@@ -133,23 +133,6 @@ extension _MessagingContentServer on MessagingService {
     );
     unawaited(
       _serveAuthorizedPieces(peer, m, served, gaps)
-          // A serve that never finishes holds [_servingNow] forever, and every
-          // later request for this content is answered with "a serve is already
-          // in flight, skipping" — so one hung serve stops the transfer for
-          // good, while ordinary messages to the same peer keep flowing and
-          // hide it. Observed exactly so: "-> serving", then not one chunk, no
-          // DONE, no FAILED, and a 240 KB file that never arrived in 180 s.
-          //
-          // The bound is deliberately generous — it is a stuck-serve release,
-          // not a throughput limit — and the receiver re-requests anyway, so
-          // the cost of releasing early is one repeated window.
-          .timeout(
-            MessagingService._serveAbandonTimeout,
-            onTimeout: () => throw TimeoutException(
-              'serve made no progress',
-              MessagingService._serveAbandonTimeout,
-            ),
-          )
           .then(
             (_) => devLog(
               () =>
@@ -175,21 +158,58 @@ extension _MessagingContentServer on MessagingService {
     _ServedContent live,
     Map<int, List<int>?> gaps,
   ) async {
-    final record =
-        live.sourceRecord ??
-        _parseServedRecord(
-          await _storage.getSetting('served:${manifest.contentId}'),
+    // Bound discovery/verification, not the lifetime of a progressing serve.
+    // Future.timeout does not cancel its input: a late result must release an
+    // owned descriptor and must never enter the payload loop after its slot
+    // was handed to a retry.
+    var preparationExpired = false;
+    Future<({ServeSource? source, bool owned, bool available})>
+    prepare() async {
+      final record =
+          live.sourceRecord ??
+          _parseServedRecord(
+            await _storage.getSetting('served:${manifest.contentId}'),
+          );
+      final selected = await _selectServedSource(
+        manifest.contentId,
+        manifest,
+        live,
+        record,
+      );
+      return (
+        source: selected.source,
+        owned: selected.owned,
+        available:
+            selected.source != null ||
+            await _storage.hasFile(manifest.contentId),
+      );
+    }
+
+    final selected = await prepare()
+        .then((selected) async {
+          if (preparationExpired && selected.owned) {
+            try {
+              await selected.source!.close().timeout(_serveStepTimeout);
+            } catch (_) {}
+          }
+          return selected;
+        })
+        .timeout(
+          MessagingService._serveAbandonTimeout,
+          onTimeout: () {
+            preparationExpired = true;
+            throw TimeoutException(
+              'serve source preparation stuck',
+              MessagingService._serveAbandonTimeout,
+            );
+          },
         );
-    final selected = await _selectServedSource(
-      manifest.contentId,
-      manifest,
-      live,
-      record,
-    );
     try {
-      if (selected.source == null &&
-          !await _storage.hasFile(manifest.contentId)) {
-        await _contentAvailability.replyContentGone(peer, manifest.contentId);
+      if (_disposed) return;
+      if (!selected.available) {
+        await _contentAvailability
+            .replyContentGone(peer, manifest.contentId)
+            .timeout(_serveStepTimeout);
         return;
       }
       if (selected.source == null) {
@@ -208,7 +228,7 @@ extension _MessagingContentServer on MessagingService {
     } finally {
       if (selected.owned) {
         try {
-          await selected.source!.close();
+          await selected.source!.close().timeout(_serveStepTimeout);
         } catch (_) {}
       }
     }
@@ -268,7 +288,8 @@ extension _MessagingContentServer on MessagingService {
       // whole big file nobody is fetching (the receiver logs "pieceChunk DROPPED"
       // for every late chunk) — wasted bandwidth + log spam.
       final cur = _serving[m.contentId];
-      if (cur == null ||
+      if (_disposed ||
+          cur == null ||
           _now().difference(cur.servedAt) >
               MessagingService._serveAbandonTimeout) {
         devLog(
@@ -312,7 +333,9 @@ extension _MessagingContentServer on MessagingService {
                   );
         } catch (e) {
           if (e is _SourceAccessRevoked) {
-            await _contentAvailability.replyContentGone(peer, m.contentId);
+            await _contentAvailability
+                .replyContentGone(peer, m.contentId)
+                .timeout(_serveStepTimeout);
             return;
           }
           devLog(
@@ -321,6 +344,7 @@ extension _MessagingContentServer on MessagingService {
                 '${m.contentId.substring(0, 12)} p$p c$c: $e',
           );
         }
+        if (_disposed) return;
         readMicros += sw.elapsedMicroseconds - readAt;
         if (data != null) batch.add((p: p, c: c, data: data));
       }
@@ -345,7 +369,7 @@ extension _MessagingContentServer on MessagingService {
     }
     // The chunks deferred their ratchet writes; discharge them once, here,
     // before this serve counts as finished.
-    await _persistRatchet('serve');
+    await _persistRatchet('serve').timeout(_serveStepTimeout);
     devLog(
       () =>
           'xVeil[content]: serve TIMING ${m.contentId.substring(0, 12)} — '
@@ -358,13 +382,9 @@ extension _MessagingContentServer on MessagingService {
   /// Bound on ONE step of a serve — a single chunk read, or a single chunk
   /// send.
   ///
-  /// The outer abandon timeout stops a hung serve from costing the file, but
-  /// it cannot say WHAT hung: the loop reads and sends with nothing bounding
-  /// either, so a stall inside a batch looks the same whichever half caused
-  /// it. These name themselves instead.
-  ///
-  /// Generous: a step this slow is already pathological, and the receiver
-  /// re-requests whatever a released serve leaves behind.
+  /// Payload reads and sends have their own bound. The preparation timeout
+  /// above ends before this loop starts, so slow-but-progressing files can keep
+  /// their exclusive slot while the receiver continues re-requesting them.
   static const _serveStepTimeout = Duration(seconds: 15);
 
   /// One chunk on the wire, bounded, so a send that never returns is reported
