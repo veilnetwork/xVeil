@@ -1,0 +1,22 @@
+{
+  "baseline_app_commit": "cd68c689",
+  "sdk_changed": false,
+  "baseline_scenarios_failed": 6,
+  "candidate_scenarios_passed": 6,
+  "related_suite_passed": 221,
+  "related_suite_files": 13,
+  "focused_scenarios_included_in_related_suite": true,
+  "analyze_issues": 0,
+  "production_sha256": "c8ed6a2a79e82f95562c25a31b48503bfbb814caa51d38d3bfe3b9324f6d7b63",
+  "test_sha256": "b4ba8aa85fa95dd8dfeb679bef3823bb28d9a8c72cb88c9b0f10ac8a11cb69d8",
+  "max_volatile_ack_transfer_states": 128,
+  "max_bitmap_bytes_excluding_keys_objects": 67584,
+  "receiver_legacy_ack_behavior_exercised": true,
+  "old_receiver_binary_executed": false,
+  "physical_validation": false,
+  "legacy_queued_a0_slice_retirement_preserved": true,
+  "already_orphaned_tail_reconstructed": false,
+  "new_durable_schema_or_wire": false,
+  "apps_started": false,
+  "push_or_release": false
+}

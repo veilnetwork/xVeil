@@ -7,6 +7,29 @@ typedef _OutboxRedrive = ({
   bool contactIdentity,
 });
 
+class _GroupSliceAcks {
+  _GroupSliceAcks(this.count)
+    : _known = Uint8List((count + 7) >> 3),
+      _acknowledged = Uint8List((count + 7) >> 3);
+  final int count;
+  final Uint8List _known;
+  final Uint8List _acknowledged;
+  int ackCount = 0;
+
+  bool knows(int index) =>
+      index >= 0 &&
+      index < count &&
+      (_known[index >> 3] & (1 << (index & 7))) != 0;
+  void noteKnown(int index) => _known[index >> 3] |= 1 << (index & 7);
+  void noteAck(int index) {
+    final mask = 1 << (index & 7);
+    if ((_acknowledged[index >> 3] & mask) == 0) {
+      _acknowledged[index >> 3] |= mask;
+      ackCount++;
+    }
+  }
+}
+
 /// A flush owns a snapshot, not a lease to send rows after their ACK. Track
 /// changes even while that snapshot is being read. Nothing survives the pass.
 class _OutboxFlushSnapshot {
@@ -100,6 +123,13 @@ class _MessagingOutbox {
   /// next to the hundreds of frames the cap it feeds is measured in.
   final Map<String, int> _pendingByPeer = {};
   final Set<String> _pendingKeys = {};
+
+  // Older receivers reply to an opted-in transfer with individual ACKs.
+  // Keep ALL durable payloads until every slice is acknowledged: removing one
+  // made a receiver restart leave an unreconstructable, retrying tail. Only
+  // volatile progress is needed; losing it resends the complete durable copy.
+  final _groupSliceAcks = <String, _GroupSliceAcks>{};
+  static const _maxGroupSliceAckTransfers = 128;
 
   /// Whether [_pendingByPeer] has ever been filled from the store.
   ///
@@ -334,6 +364,14 @@ class _MessagingOutbox {
   /// Persist before a first contact attempt; no network work starts here.
   Future<void> enqueue(NodeId peer, String frameId, Uint8List wire) async {
     await _owner._storage.enqueueOutboxFrame(frameId, peer.hex, wire);
+    final tid = _MessagingReplication._canonicalChunkTransfer(frameId);
+    final progress = tid == null ? null : _groupSliceAcks[_key(peer.hex, tid)];
+    if (progress != null) {
+      final part = _optedGroupSlice(frameId, wire);
+      if (part != null && part.count == progress.count) {
+        progress.noteKnown(part.index);
+      }
+    }
     // Manual retries replace the same durable row, rather than adding one.
     if (_pendingKeys.add(_key(peer.hex, frameId))) {
       _pendingByPeer[peer.hex] = (_pendingByPeer[peer.hex] ?? 0) + 1;
@@ -1304,20 +1342,21 @@ class _MessagingOutbox {
     unawaited(_retirePersisted(peerHex, frameId));
   }
 
-  Future<void> retireGroupTransfer(
+  Future<bool> retireGroupTransfer(
     NodeId source,
     String tid, {
     required bool ownDeviceAck,
+    int? requireSliceCount,
   }) async {
-    if (_owner._disposed) return;
+    if (_owner._disposed) return false;
     final destination = NodeId.fromHex(tid.split(':').last);
     if (source != destination &&
         !(ownDeviceAck &&
             (await _owner.isOwnDevice?.call(destination) ?? false))) {
-      return;
+      return false;
     }
     final pending = await _owner._storage.pendingOutboxFrames();
-    if (_owner._disposed) return;
+    if (_owner._disposed) return false;
     final ids = <String>[];
     for (final frame in pending) {
       if (frame.peerHex != destination.hex ||
@@ -1330,6 +1369,10 @@ class _MessagingOutbox {
         final part = parseGroupEntryChunk(envelope.body);
         if (part.transferAck &&
             part.transferId == tid &&
+            (requireSliceCount == null ||
+                (part.count == requireSliceCount &&
+                    part.index >= 0 &&
+                    part.index < requireSliceCount)) &&
             frame.frameId == 'grpc:$tid:${part.index}') {
           ids.add(frame.frameId);
         }
@@ -1337,7 +1380,10 @@ class _MessagingOutbox {
         /* malformed queued data cannot consume another namespace */
       }
     }
-    if (ids.isEmpty) return;
+    if (ids.isEmpty ||
+        (requireSliceCount != null && ids.length != requireSliceCount)) {
+      return false;
+    }
     void invalidate() {
       for (final id in ids) {
         _flushSnapshot?.invalidate(_key(destination.hex, id));
@@ -1369,11 +1415,105 @@ class _MessagingOutbox {
         }
       }
     }
+    if (retired.isNotEmpty) _groupSliceAcks.remove(_key(destination.hex, tid));
+    return retired.isNotEmpty;
+  }
+
+  static ({String tid, int index, int count})? _optedGroupSlice(
+    String frameId,
+    Uint8List wire,
+  ) {
+    final tid = _MessagingReplication._canonicalChunkTransfer(frameId);
+    if (tid == null) return null;
+    try {
+      final env = WireEnvelope.decode(wire);
+      if (env.kind != WireKind.groupEntryChunk) return null;
+      final part = parseGroupEntryChunk(env.body);
+      if (!part.transferAck ||
+          part.transferId != tid ||
+          part.count <= 0 ||
+          part.count > _kMaxGroupReasmChunks ||
+          part.index < 0 ||
+          part.index >= part.count ||
+          frameId != 'grpc:$tid:${part.index}') {
+        return null;
+      }
+      return (tid: tid, index: part.index, count: part.count);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Returns true when an individual ACK belongs to an opted-in transfer and
+  /// was handled as transfer progress instead of deleting its recovery bytes.
+  Future<bool> _collectGroupSliceAck(String peerHex, String frameId) async {
+    final tid = _MessagingReplication._canonicalChunkTransfer(frameId);
+    if (tid == null || tid.split(':').last != peerHex) return false;
+    final index = int.tryParse(frameId.substring(frameId.lastIndexOf(':') + 1));
+    if (index == null || frameId != 'grpc:$tid:$index') return false;
+    final key = _key(peerHex, tid);
+    var progress = _groupSliceAcks[key];
+    if (progress == null || !progress.knows(index)) {
+      // Usually one scan, at the first legacy ACK. Later enqueues update the
+      // known set too, so a receiver that ACKs during enqueue need not make
+      // every ACK decode the whole transfer again.
+      final pending = await _owner._storage.pendingOutboxFrames();
+      if (_owner._disposed) return true;
+      ({String tid, int index, int count})? target;
+      for (final frame in pending) {
+        if (frame.peerHex == peerHex && frame.frameId == frameId) {
+          target = _optedGroupSlice(frame.frameId, frame.wire);
+          break;
+        }
+      }
+      if (target == null) return false;
+      progress = _groupSliceAcks[key];
+      if (progress == null) {
+        if (_groupSliceAcks.length >= _maxGroupSliceAckTransfers) {
+          _groupSliceAcks.remove(_groupSliceAcks.keys.first);
+        }
+        progress = _GroupSliceAcks(target.count);
+        _groupSliceAcks[key] = progress;
+      }
+      if (progress.count != target.count) return true;
+      for (final frame in pending) {
+        if (frame.peerHex != peerHex ||
+            !frame.frameId.startsWith('grpc:$tid:')) {
+          continue;
+        }
+        final part = _optedGroupSlice(frame.frameId, frame.wire);
+        if (part != null && part.count == progress.count) {
+          progress.noteKnown(part.index);
+        }
+      }
+    }
+    if (!progress.knows(index)) return true;
+    progress.noteAck(index);
+    if (progress.ackCount == progress.count) {
+      // A final authoritative scan also refuses pre-upgrade orphaned tails or
+      // an ACK racing rows that have not all become durable yet.
+      await retireGroupTransfer(
+        NodeId.fromHex(peerHex),
+        tid,
+        ownDeviceAck: false,
+        requireSliceCount: progress.count,
+      );
+    }
+    return true;
   }
 
   Future<void> _retirePersisted(String peerHex, String frameId) async {
     final key = _key(peerHex, frameId);
+    // Preserve synchronous flush invalidation even when chunk ACK handling
+    // must await its first authoritative metadata read.
     _flushSnapshot?.invalidate(key);
+    if (_MessagingReplication._canonicalChunkTransfer(frameId) != null) {
+      if (_sendingUnpersisted.contains(key)) {
+        _ackedWhileUnpersisted.add(key);
+        return;
+      }
+      if (await _collectGroupSliceAck(peerHex, frameId)) return;
+    }
     if (_sendingUnpersisted.contains(key)) {
       // The row is still being written. Remember the ACK so the sender retires
       // it the moment it exists — otherwise this call deletes nothing and the
@@ -1399,6 +1539,7 @@ class _MessagingOutbox {
   }
 
   void dispose() {
+    _groupSliceAcks.clear();
     _flushSnapshot?.cancel();
     _activeLivePeers.clear();
     for (final timer in _fastCallRetryTimers.values) {

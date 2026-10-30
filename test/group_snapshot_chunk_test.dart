@@ -7,6 +7,7 @@ import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
+import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
@@ -85,6 +86,36 @@ class _Link implements VeilTransport {
 SpaceOpener _memOpener() {
   final store = FakeKvLogStore();
   return ({required password, required bool create}) => store;
+}
+
+class _AckSpyStorage extends HiddenVolumeStorage {
+  _AckSpyStorage() : super(_memOpener());
+  int singleCalls = 0, batchCalls = 0, reads = 0;
+  final batchEntered = Completer<void>();
+  final releaseBatch = Completer<void>();
+
+  @override
+  Future<List<OutboxFrame>> pendingOutboxFrames() {
+    reads++;
+    return super.pendingOutboxFrames();
+  }
+
+  @override
+  Future<void> ackOutboxFrame(String frameId, {required String fromPeerHex}) {
+    singleCalls++;
+    return super.ackOutboxFrame(frameId, fromPeerHex: fromPeerHex);
+  }
+
+  @override
+  Future<List<String>> ackOutboxFrames(
+    Iterable<String> frameIds, {
+    required String fromPeerHex,
+  }) async {
+    batchCalls++;
+    if (!batchEntered.isCompleted) batchEntered.complete();
+    await releaseBatch.future;
+    return super.ackOutboxFrames(frameIds, fromPeerHex: fromPeerHex);
+  }
 }
 
 Future<void> _settle() async {
@@ -896,9 +927,9 @@ void main() {
       List<WireEnvelope> chunks,
     })
   >
-  queuedSender() async {
+  queuedSender({HiddenVolumeStorage? storage}) async {
     final link = _Link(a);
-    final store = HiddenVolumeStorage(_memOpener());
+    final store = storage ?? HiddenVolumeStorage(_memOpener());
     await store.open(password: 'source', createIfMissing: true);
     await store.upsertContact(
       Contact(nodeId: b, status: ContactStatus.accepted),
@@ -913,6 +944,230 @@ void main() {
     expect(chunks.length, greaterThan(2));
     return (service: service, store: store, link: link, chunks: chunks);
   }
+
+  test(
+    'mixed-version partial slice ACK keeps the complete recovery copy',
+    () async {
+      final source = await queuedSender();
+      source.link.inject(
+        b,
+        WireEnvelope.ack(source.chunks.first.frameId!).encode(),
+      );
+      await _settle();
+      expect(
+        await source.store.pendingOutboxFrames(),
+        hasLength(source.chunks.length),
+        reason:
+            'one legacy ACK must not erase bytes needed after receiver restart',
+      );
+      // Both processes restart, losing the receiver assembly and any volatile
+      // sender ACK progress. The retained wire payloads must still reconstruct
+      // the exact bundle, not just its unacknowledged tail.
+      await source.service.dispose();
+      final resumed = MessagingService(source.link, source.store)..start();
+      addTearDown(resumed.dispose);
+      final remaining = await source.store.pendingOutboxFrames();
+      final bodies =
+          remaining
+              .map(
+                (row) =>
+                    parseGroupEntryChunk(WireEnvelope.decode(row.wire).body),
+              )
+              .toList()
+            ..sort((l, r) => l.index.compareTo(r.index));
+      expect(utf8.decode([for (final part in bodies) ...part.data]), bundle);
+      for (final row in remaining) {
+        source.link.inject(b, WireEnvelope.ack(row.frameId).encode());
+        await _settle();
+      }
+      expect(await source.store.pendingOutboxFrames(), isEmpty);
+    },
+  );
+
+  test(
+    'mixed-version duplicate and unrelated slice ACKs cannot complete a transfer',
+    () async {
+      final source = await queuedSender();
+      final other = _id(3);
+      await source.store.upsertContact(
+        Contact(nodeId: other, status: ContactStatus.accepted),
+      );
+      for (final frame in source.chunks) {
+        source.link.inject(other, WireEnvelope.ack(frame.frameId!).encode());
+        await _settle();
+      }
+      for (final frame in source.chunks.take(source.chunks.length - 1)) {
+        for (var repeat = 0; repeat < 2; repeat++) {
+          source.link.inject(b, WireEnvelope.ack(frame.frameId!).encode());
+          await _settle();
+        }
+      }
+      expect(
+        await source.store.pendingOutboxFrames(),
+        hasLength(source.chunks.length),
+      );
+      source.link.inject(
+        b,
+        WireEnvelope.ack(source.chunks.last.frameId!).encode(),
+      );
+      await _settle();
+      expect(await source.store.pendingOutboxFrames(), isEmpty);
+    },
+  );
+
+  test(
+    'mixed-version legacy receiver restart can reconstruct the retained copy',
+    () async {
+      final source = await queuedSender();
+      tB
+        ..peer = source.link
+        ..passLimit = 1;
+      var applies = 0;
+      mB.onGroupEntry = (_, json) async {
+        expect(json, bundle);
+        await sB.putSetting('mixed-committed-fixture', 'committed');
+        applies++;
+        return true;
+      };
+      Uint8List legacyDecode(WireEnvelope env) {
+        // An old receiver ignores the additive a:1 field. Exercise the actual
+        // legacy receive/ACK branch, without claiming an old binary was run.
+        final part = parseGroupEntryChunk(env.body);
+        return groupEntryChunkEnvelope(
+          transferId: part.transferId,
+          index: part.index,
+          count: part.count,
+          data: part.data,
+        ).withFrameId(env.frameId!).encode();
+      }
+
+      for (final env in source.chunks) {
+        tB.inject(a, legacyDecode(env));
+        await _settle();
+      }
+      expect(applies, 1);
+      expect(
+        await source.store.pendingOutboxFrames(),
+        hasLength(source.chunks.length),
+      );
+      await mB.dispose();
+      final link = _Link(b)..peer = source.link;
+      final receiver = MessagingService(link, sB)..start();
+      addTearDown(receiver.dispose);
+      receiver.onGroupEntry = (_, json) async {
+        expect(await sB.getSetting('mixed-committed-fixture'), 'committed');
+        expect(json, bundle);
+        applies++;
+        return true;
+      };
+      for (final row in await source.store.pendingOutboxFrames()) {
+        link.inject(a, legacyDecode(WireEnvelope.decode(row.wire)));
+        await _settle();
+      }
+      expect(applies, 2);
+      expect(await source.store.pendingOutboxFrames(), isEmpty);
+    },
+  );
+
+  test(
+    'mixed-version final slice ACK retires atomically and preserves another transfer',
+    () async {
+      final storage = _AckSpyStorage();
+      final source = await queuedSender(storage: storage);
+      await source.service.sendGroupSnapshot(b, 'aa11', '$bundle ');
+      storage.reads = 0;
+      try {
+        for (final env in source.chunks.take(source.chunks.length - 1)) {
+          source.link.inject(b, WireEnvelope.ack(env.frameId!).encode());
+          await _settle();
+        }
+        expect(storage.singleCalls, 0);
+        expect(storage.batchCalls, 0);
+        expect(
+          storage.reads,
+          1,
+          reason: 'partial ACKs share one metadata scan',
+        );
+        source.link.inject(
+          b,
+          WireEnvelope.ack(source.chunks.last.frameId!).encode(),
+        );
+        await storage.batchEntered.future.timeout(const Duration(seconds: 20));
+        expect(
+          storage.reads,
+          2,
+          reason: 'the final ACK makes one authoritative scan',
+        );
+        expect(
+          await storage.pendingOutboxFrames(),
+          hasLength(2 * source.chunks.length),
+          reason: 'no row may disappear before the atomic commit',
+        );
+        storage.releaseBatch.complete();
+        await _settle();
+        final remaining = await storage.pendingOutboxFrames();
+        expect(remaining, hasLength(source.chunks.length));
+        final oldIds = source.chunks.map((env) => env.frameId).toSet();
+        expect(remaining.every((row) => !oldIds.contains(row.frameId)), isTrue);
+        expect(storage.singleCalls, 0);
+        expect(storage.batchCalls, 1);
+      } finally {
+        if (!storage.releaseBatch.isCompleted) storage.releaseBatch.complete();
+      }
+    },
+  );
+
+  test(
+    'mixed-version own-identity slice ACKs require a verified target',
+    () async {
+      final source = await queuedSender();
+      source.service.isOwnDevice = (peer) async => peer == a;
+      for (final env in source.chunks) {
+        source.link.inject(a, WireEnvelope.ack(env.frameId!).encode());
+        await _settle();
+      }
+      expect(
+        await source.store.pendingOutboxFrames(),
+        hasLength(source.chunks.length),
+      );
+      source.service.isOwnDevice = (peer) async => peer == a || peer == b;
+      for (final env in source.chunks.take(source.chunks.length - 1)) {
+        source.link.inject(a, WireEnvelope.ack(env.frameId!).encode());
+        await _settle();
+      }
+      expect(
+        await source.store.pendingOutboxFrames(),
+        hasLength(source.chunks.length),
+      );
+      source.link.inject(
+        a,
+        WireEnvelope.ack(source.chunks.last.frameId!).encode(),
+      );
+      await _settle();
+      expect(await source.store.pendingOutboxFrames(), isEmpty);
+    },
+  );
+
+  test(
+    'mixed-version orphan tail cannot stand in for a complete acknowledgement',
+    () async {
+      final source = await queuedSender();
+      // Model a pre-upgrade tail whose acknowledged bytes were already erased.
+      // New volatile accounting must not invent the missing slice's ACK.
+      await source.store.ackOutboxFrame(
+        source.chunks.first.frameId!,
+        fromPeerHex: b.hex,
+      );
+      for (final env in source.chunks.skip(1)) {
+        source.link.inject(b, WireEnvelope.ack(env.frameId!).encode());
+        await _settle();
+      }
+      expect(
+        await source.store.pendingOutboxFrames(),
+        hasLength(source.chunks.length - 1),
+      );
+    },
+  );
 
   test(
     'lost transfer ACK leaves all slices recoverable after receiver restart',
@@ -996,7 +1251,7 @@ void main() {
   );
 
   test(
-    'transfer ACK stays destination-bound and legacy ACK stays slice-bound',
+    'transfer ACK stays destination-bound and a slice ACK retains opted-in bytes',
     () async {
       final source = await queuedSender();
       final tid = parseGroupEntryChunk(source.chunks.first.body).transferId;
@@ -1017,8 +1272,8 @@ void main() {
       await _settle();
       expect(
         await source.store.pendingOutboxFrames(),
-        hasLength(source.chunks.length - 1),
-        reason: 'legacy per-slice ACK must never imply the complete transfer',
+        hasLength(source.chunks.length),
+        reason: 'one slice ACK must retain the complete recovery copy',
       );
       source.link.inject(
         b,
@@ -1077,6 +1332,13 @@ void main() {
       expect(
         resent.every((e) => !parseGroupEntryChunk(e.body).transferAck),
         isTrue,
+      );
+      source.link.inject(b, WireEnvelope.ack(resent.first.frameId!).encode());
+      await _settle();
+      expect(
+        await source.store.pendingOutboxFrames(),
+        hasLength(source.chunks.length - 1),
+        reason: 'an actually legacy queued transfer keeps per-slice retirement',
       );
       mB.onGroupEntry = (_, _) async => true;
       tB.peer = source.link;
