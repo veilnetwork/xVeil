@@ -1,0 +1,161 @@
+{
+  "schema": "xveil-validation/inbound-carrier-budget-1",
+  "date": "2026-10-31",
+  "status": "unusable-carrier-self-lookups-fixed-cold-delivery-open",
+  "ffi_stream_tests": {
+    "passed": 39,
+    "ignored": 0,
+    "filtered_out": 297,
+    "production_features": true,
+    "test_low_difficulty": false
+  },
+  "red_tests_before_fix": 1,
+  "zero_test_attempt_excluded": true,
+  "release_test_sentinel_absent": true,
+  "release_library_sha256": "8b6dd80b793d9e059cdf47a49b33331ae835a8c031f5b8159395e189dedf231a",
+  "series": [
+    {
+      "max_visible_ms": [
+        8041,
+        3081,
+        2472,
+        3500
+      ],
+      "self_rendezvous_lookups": 224,
+      "self_rendezvous_admitted_frames": 1792,
+      "all_candidate_admitted_frames": 4304,
+      "metadata_repeat_events": 204,
+      "phase": "A1",
+      "all_messages_once": true,
+      "nodes_stopped": 12,
+      "listeners_released": 12,
+      "host_exited": true
+    },
+    {
+      "max_visible_ms": [
+        5346,
+        3626,
+        3213,
+        3264
+      ],
+      "self_rendezvous_lookups": 0,
+      "self_rendezvous_admitted_frames": 0,
+      "all_candidate_admitted_frames": 2392,
+      "metadata_repeat_events": 82,
+      "phase": "B1",
+      "all_messages_once": true,
+      "nodes_stopped": 12,
+      "listeners_released": 12,
+      "host_exited": true
+    },
+    {
+      "max_visible_ms": [
+        8126,
+        2529,
+        2101,
+        3684
+      ],
+      "self_rendezvous_lookups": 224,
+      "self_rendezvous_admitted_frames": 1784,
+      "all_candidate_admitted_frames": 4264,
+      "metadata_repeat_events": 187,
+      "phase": "A2",
+      "all_messages_once": true,
+      "nodes_stopped": 12,
+      "listeners_released": 12,
+      "host_exited": true
+    },
+    {
+      "max_visible_ms": [
+        4517,
+        2558,
+        2647,
+        2915
+      ],
+      "self_rendezvous_lookups": 0,
+      "self_rendezvous_admitted_frames": 0,
+      "all_candidate_admitted_frames": 2408,
+      "metadata_repeat_events": 83,
+      "phase": "B2",
+      "all_messages_once": true,
+      "nodes_stopped": 12,
+      "listeners_released": 12,
+      "host_exited": true
+    },
+    {
+      "max_visible_ms": [
+        8299,
+        2711,
+        1638,
+        3010
+      ],
+      "self_rendezvous_lookups": 224,
+      "self_rendezvous_admitted_frames": 1776,
+      "all_candidate_admitted_frames": 4256,
+      "metadata_repeat_events": 164,
+      "phase": "A3",
+      "all_messages_once": true,
+      "nodes_stopped": 12,
+      "listeners_released": 12,
+      "host_exited": true
+    },
+    {
+      "max_visible_ms": [
+        5297,
+        2308,
+        2155,
+        2705
+      ],
+      "self_rendezvous_lookups": 0,
+      "self_rendezvous_admitted_frames": 0,
+      "all_candidate_admitted_frames": 2392,
+      "metadata_repeat_events": 84,
+      "phase": "B3",
+      "all_messages_once": true,
+      "nodes_stopped": 12,
+      "listeners_released": 12,
+      "host_exited": true
+    }
+  ],
+  "first_message_median_ms": {
+    "control": 8126,
+    "candidate": 5297
+  },
+  "scope": {
+    "one_mac": true,
+    "one_jit_host": true,
+    "tcp_loopback": true,
+    "full_mesh": true,
+    "nodes": 12,
+    "same_identity_keys": true,
+    "random_instances_each_run": true,
+    "fresh_containers": true,
+    "dht_all_nodes": true,
+    "all_leaf": true,
+    "onion_relays": 0,
+    "epoch_encryption": false,
+    "paired_contact_handshake": false
+  },
+  "positive_check": {
+    "core_anonymity_relays": 3,
+    "leaf_nodes": 9,
+    "confirmed_leaf_inbound_pools": 9,
+    "confirmed_nodes": 12,
+    "all_messages_once": true,
+    "message_max_visible_ms": [
+      5523,
+      4034,
+      3329,
+      2841
+    ],
+    "nodes_stopped": 12,
+    "listeners_released": 12,
+    "host_exited": true,
+    "mixed_into_ab": false
+  },
+  "production_relays_changed": false,
+  "phones_changed": false,
+  "push": false,
+  "release": false,
+  "sdk_commit": "8783c645f539cf28f887cdb743db76da34157fa1"
+}
