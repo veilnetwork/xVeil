@@ -1,0 +1,187 @@
+{
+  "baseline_diagnostic_sdk": "9f3affd9",
+  "fixed_sdk": "07802a08",
+  "synthetic_regressions": {
+    "baseline_failed": 2,
+    "fixed_passed": 2,
+    "lost_first_final_ack_control": true,
+    "app_keeps_writer_alive": true,
+    "app_does_not_call_finish_or_drop_before_observation": true,
+    "virtual_clock": true
+  },
+  "stream_suite": {
+    "passed": 223,
+    "failed": 0,
+    "ignored": 0
+  },
+  "ffi_unit": {
+    "passed": 328,
+    "failed": 0,
+    "ignored": 2
+  },
+  "ffi_doctest": {
+    "passed": 0,
+    "failed": 0,
+    "ignored": 5
+  },
+  "clippy_both_packages_lib_tests_warnings_denied": true,
+  "rustfmt_and_diff_check": true,
+  "physical_before": {
+    "sdk": "9f3affd9",
+    "files": 10,
+    "payload_bytes_each": 3145979,
+    "sha256_all_match": true,
+    "directions": {
+      "android_to_mac": {
+        "count": 5,
+        "minimum_seconds": 6.561,
+        "median_seconds": 11.662,
+        "maximum_seconds": 17.198,
+        "download_seconds": [
+          17.198,
+          11.662,
+          7.597,
+          12.155,
+          6.561
+        ]
+      },
+      "mac_to_android": {
+        "count": 5,
+        "minimum_seconds": 6.801,
+        "median_seconds": 6.842,
+        "maximum_seconds": 49.435,
+        "download_seconds": [
+          28.246,
+          6.801,
+          49.435,
+          6.801,
+          6.842
+        ]
+      }
+    },
+    "endpoints": {
+      "android": {
+        "retiring_records": 10,
+        "retired_records": 10,
+        "fin_complete_eof_linger_retirements": 9,
+        "eof_retirements_without_requested_fin": 1,
+        "observed_streams_with_rto": 0,
+        "max_observed_rto_ms": 2000,
+        "mux_counters": {
+          "unknown": 11,
+          "inbox_full": 0,
+          "inbox_closed": 0,
+          "invalid": 0
+        }
+      },
+      "mac": {
+        "retiring_records": 10,
+        "retired_records": 10,
+        "fin_complete_eof_linger_retirements": 9,
+        "eof_retirements_without_requested_fin": 0,
+        "observed_streams_with_rto": 3,
+        "max_observed_rto_ms": 10000,
+        "mux_counters": {
+          "unknown": 0,
+          "inbox_full": 0,
+          "inbox_closed": 0,
+          "invalid": 0
+        }
+      }
+    },
+    "qa_restored_and_hash_verified": true,
+    "started_app_processes_exited": true
+  },
+  "captured_causal_case": {
+    "source_endpoint": "android",
+    "source_eof": true,
+    "source_phase": "Established",
+    "source_local_fin_requested_sent_acked": [
+      false,
+      false,
+      false
+    ],
+    "source_linger": false,
+    "source_queued_payload_bytes": 0,
+    "unknown_data_duplicates": 5,
+    "unknown_fin_duplicates": 5,
+    "all_unknown_data_bytes": 8,
+    "data_end_relative_to_source_receive_next": -1,
+    "fin_relative_to_source_receive_next": -1,
+    "unknown_cells_have_no_sid_route": true,
+    "peer_retry_count_at_retirement": 6,
+    "peer_inflight_bytes_at_retirement": 9,
+    "peer_eof": false
+  },
+  "physical_after": {
+    "sdk": "07802a08",
+    "files": 10,
+    "payload_bytes_each": 3145979,
+    "sha256_all_match": true,
+    "directions": {
+      "android_to_mac": {
+        "count": 5,
+        "minimum_seconds": 7.086,
+        "median_seconds": 8.63,
+        "maximum_seconds": 12.668,
+        "download_seconds": [
+          8.63,
+          7.597,
+          7.086,
+          10.141,
+          12.668
+        ]
+      },
+      "mac_to_android": {
+        "count": 5,
+        "minimum_seconds": 6.782,
+        "median_seconds": 8.047,
+        "maximum_seconds": 11.328,
+        "download_seconds": [
+          7.935,
+          8.047,
+          11.328,
+          9.057,
+          6.782
+        ]
+      }
+    },
+    "endpoints": {
+      "android": {
+        "retiring_records": 10,
+        "retired_records": 10,
+        "fin_complete_eof_linger_retirements": 10,
+        "eof_retirements_without_requested_fin": 0,
+        "observed_streams_with_rto": 0,
+        "max_observed_rto_ms": 2000,
+        "mux_counters": {
+          "unknown": 0,
+          "inbox_full": 0,
+          "inbox_closed": 0,
+          "invalid": 0
+        }
+      },
+      "mac": {
+        "retiring_records": 10,
+        "retired_records": 10,
+        "fin_complete_eof_linger_retirements": 10,
+        "eof_retirements_without_requested_fin": 0,
+        "observed_streams_with_rto": 0,
+        "max_observed_rto_ms": 2000,
+        "mux_counters": {
+          "unknown": 0,
+          "inbox_full": 0,
+          "inbox_closed": 0,
+          "invalid": 0
+        }
+      }
+    },
+    "qa_restored_and_hash_verified": true,
+    "started_app_processes_exited": true
+  },
+  "fixed_route_or_timing_A_B_control": false,
+  "all_file_pause_causes_closed": false,
+  "external_mount_verified_and_monitored": true,
+  "public_relay_changes": false,
+  "push_or_release": false
+}
