@@ -1,0 +1,42 @@
+{
+  "sdk": "21fe5130",
+  "baseline": "201b14eb",
+  "mechanism": "independent bounded confirmation and publication after all receive feeds start",
+  "confirmation_concurrency_cap": 8,
+  "red": {
+    "run": 1,
+    "failed": 1,
+    "uses_time_threshold": false
+  },
+  "production_features": {
+    "passed": 331,
+    "ignored": 2,
+    "test_low_difficulty": false
+  },
+  "circuit_fixtures": {
+    "passed": 368,
+    "ignored": 10,
+    "test_low_difficulty": true
+  },
+  "clippy": "passed",
+  "physical_file_qualification": false,
+  "phone_available": false,
+  "applications_started": false,
+  "relay_changes": false,
+  "push": false,
+  "release": false,
+  "open_cases": [
+    "file offer missing for 120 seconds",
+    "stream reconnect gap recovery",
+    "delivery latency",
+    "unexpected call ending around 25 seconds"
+  ],
+  "native_builds": {
+    "macos_arm64": "passed",
+    "android_arm64_api21": "passed",
+    "default_features": false,
+    "test_low_difficulty": false,
+    "native_test_hooks": false,
+    "selected_artifact_sha256_verified": true
+  }
+}
