@@ -1,0 +1,95 @@
+{
+  "sdk": "76d9db45",
+  "test_results": {
+    "red_started_feeds": 1,
+    "expected_feeds": 2,
+    "green_real_ingress_received": true,
+    "ffi_passed": 366,
+    "ffi_ignored": 10,
+    "clippy_clean": true
+  },
+  "relay_observation": {
+    "services_read": 6,
+    "services_with_circuit_samples": 3,
+    "circuit_sample_counts": [
+      69,
+      72,
+      70
+    ],
+    "missing_to_test_phone": 29,
+    "unknown_counter_growth_on_observed_relays": 0,
+    "cell_to_stream_join_available": false
+  },
+  "replacement_android": {
+    "new_isolated_qa_profile": true,
+    "contact_request_accepted": true,
+    "file_offer_observation_seconds": 120,
+    "file_offer_seen": false,
+    "qualified_file_transfers": 0,
+    "network_interruption_tests_run": false,
+    "message_probes": [
+      {
+        "phase": "ordinary-first",
+        "source": "Mac",
+        "target": "Android",
+        "api_ok": true,
+        "arrived_within_window": true,
+        "seconds": 8.372
+      },
+      {
+        "phase": "ordinary-first",
+        "source": "Android",
+        "target": "Mac",
+        "api_ok": true,
+        "arrived_within_window": true,
+        "seconds": 0.577
+      },
+      {
+        "phase": "anonymous",
+        "source": "Mac",
+        "target": "Android",
+        "api_ok": true,
+        "arrived_within_window": false,
+        "seconds": 10.885
+      },
+      {
+        "phase": "anonymous",
+        "source": "Android",
+        "target": "Mac",
+        "api_ok": true,
+        "arrived_within_window": true,
+        "seconds": 0.553
+      },
+      {
+        "phase": "ordinary-again",
+        "source": "Mac",
+        "target": "Android",
+        "api_ok": true,
+        "arrived_within_window": true,
+        "seconds": 1.231
+      },
+      {
+        "phase": "ordinary-again",
+        "source": "Android",
+        "target": "Mac",
+        "api_ok": true,
+        "arrived_within_window": false,
+        "seconds": 10.236
+      }
+    ],
+    "cleanup": {
+      "old_qa_container_hash_unchanged_during_file_and_routing_tests": true,
+      "original_profile_pointer_restored": true,
+      "original_qa_apk_hash_verified": true,
+      "qa_phone_process_absent": true,
+      "owned_mac_processes_absent": true,
+      "api_ports_free": true,
+      "qa_forward_removed": true,
+      "synthetic_certificate_removed_from_downloads": true,
+      "main_phone_package_untouched": true
+    }
+  },
+  "original_user_report_closed": false,
+  "files_speedup_claimed": false,
+  "production_relay_changes": false
+}
