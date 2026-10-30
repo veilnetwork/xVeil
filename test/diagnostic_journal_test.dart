@@ -30,7 +30,7 @@ void main() {
     expect(journal.toJson()['events'], isEmpty);
     expect(journal.toJson()['last_evidence'], isEmpty);
   });
-  test('operator circuit correlation never enters anonymous reports', () {
+  test('operator circuit and DHT correlation never enters anonymous reports', () {
     final journal = DiagnosticJournal(enabled: true);
     final native = <String, Object?>{
       'audio_rx_pkts': 12,
@@ -40,6 +40,12 @@ void main() {
       'data_seq': 987654321,
       'circuit_trace': _PrivateValue(),
       'raw_log': 'anonymity.circuit.trace.egress private-log-line',
+      'qtag': 'private-dht-query-fingerprint',
+      'walk_tag': 'private-dht-walk-fingerprint',
+      'op': 314159265,
+      'lookup': 271828182,
+      'local': 'private-node-prefix',
+      'dht_trace': _PrivateValue(),
       'ranges': [
         {'sid': 'private-stream', 'offset': 123456789},
       ],
@@ -57,6 +63,11 @@ void main() {
       '123456789',
       '987654321',
       'trace.egress',
+      'qtag',
+      'walk_tag',
+      '314159265',
+      '271828182',
+      'dht_trace',
     ]) {
       expect(report, isNot(contains(forbidden)));
     }
