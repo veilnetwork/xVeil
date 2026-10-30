@@ -1,0 +1,176 @@
+{
+  "sdk": "df6edab1",
+  "app_source": "cf9ffe7f",
+  "phone_network": "wifi",
+  "android_flutter_mode": "profile_aot",
+  "mac_flutter_mode": "jit",
+  "active_identities": 2,
+  "active_devices": 2,
+  "sibling_mac_kept_offline": true,
+  "calls_started": false,
+  "directions": {
+    "android_to_mac": {
+      "transfers": 5,
+      "bytes_each": 3145979,
+      "sha256_all_match": true,
+      "download_seconds": {
+        "minimum": 9.122,
+        "median": 12.138,
+        "maximum": 33.952
+      },
+      "offer_visible_seconds": {
+        "minimum": 1.176,
+        "median": 1.574,
+        "maximum": 2.117
+      },
+      "runs": [
+        {
+          "ordinal": 1,
+          "download_seconds": 9.122,
+          "offer_visible_seconds": 1.815,
+          "first_verified_write_seconds": 3.043,
+          "max_verified_write_gap_seconds": 1.018
+        },
+        {
+          "ordinal": 2,
+          "download_seconds": 11.607,
+          "offer_visible_seconds": 1.176,
+          "first_verified_write_seconds": 3.024,
+          "max_verified_write_gap_seconds": 1.012
+        },
+        {
+          "ordinal": 3,
+          "download_seconds": 12.138,
+          "offer_visible_seconds": 2.117,
+          "first_verified_write_seconds": 3.028,
+          "max_verified_write_gap_seconds": 1.022
+        },
+        {
+          "ordinal": 4,
+          "download_seconds": 28.854,
+          "offer_visible_seconds": 1.319,
+          "first_verified_write_seconds": 6.581,
+          "max_verified_write_gap_seconds": 3.551
+        },
+        {
+          "ordinal": 5,
+          "download_seconds": 33.952,
+          "offer_visible_seconds": 1.574,
+          "first_verified_write_seconds": 6.083,
+          "max_verified_write_gap_seconds": 3.043
+        }
+      ]
+    },
+    "mac_to_android": {
+      "transfers": 5,
+      "bytes_each": 3145979,
+      "sha256_all_match": true,
+      "download_seconds": {
+        "minimum": 6.798,
+        "median": 9.075,
+        "maximum": 37.042
+      },
+      "offer_visible_seconds": {
+        "minimum": 0.916,
+        "median": 1.013,
+        "maximum": 3.724
+      },
+      "runs": [
+        {
+          "ordinal": 1,
+          "download_seconds": 6.798,
+          "offer_visible_seconds": 1.013,
+          "first_verified_write_seconds": 2.344,
+          "max_verified_write_gap_seconds": 1.133
+        },
+        {
+          "ordinal": 2,
+          "download_seconds": 6.831,
+          "offer_visible_seconds": 0.916,
+          "first_verified_write_seconds": 3.463,
+          "max_verified_write_gap_seconds": 1.147
+        },
+        {
+          "ordinal": 3,
+          "download_seconds": 37.042,
+          "offer_visible_seconds": 3.724,
+          "first_verified_write_seconds": 4.577,
+          "max_verified_write_gap_seconds": 5.606
+        },
+        {
+          "ordinal": 4,
+          "download_seconds": 14.559,
+          "offer_visible_seconds": 0.987,
+          "first_verified_write_seconds": 5.663,
+          "max_verified_write_gap_seconds": 2.206
+        },
+        {
+          "ordinal": 5,
+          "download_seconds": 9.075,
+          "offer_visible_seconds": 1.085,
+          "first_verified_write_seconds": 2.339,
+          "max_verified_write_gap_seconds": 1.138
+        }
+      ]
+    }
+  },
+  "driver_observations": {
+    "android": {
+      "driver_samples": 311,
+      "streams_observed": 10,
+      "streams_with_rto_events": 2,
+      "established_zero_window_samples": 0,
+      "small_pending_rto_samples": 5,
+      "max_rto_ms": 10000,
+      "max_srtt_ms": 1062,
+      "large_receive_observations": 5,
+      "max_observed_large_prefix_gap_ms": 1063,
+      "max_observed_large_head_gap_span_ms": 540
+    },
+    "mac": {
+      "driver_samples": 315,
+      "streams_observed": 10,
+      "streams_with_rto_events": 2,
+      "established_zero_window_samples": 0,
+      "small_pending_rto_samples": 10,
+      "max_rto_ms": 10000,
+      "max_srtt_ms": 813,
+      "large_receive_observations": 5,
+      "max_observed_large_prefix_gap_ms": 1375,
+      "max_observed_large_head_gap_span_ms": 0
+    }
+  },
+  "driver_gaps_are_sampled_prefix_progress_not_network_silence": true,
+  "slow_send_records": 10,
+  "slow_send_records_with_nonzero_family_metrics": 0,
+  "max_slow_send_total_ms": 4257,
+  "source_of_prior_120_second_offer_failure": "not_established",
+  "controlled_A_B_comparison": false,
+  "transfer_power_samples": 70,
+  "all_transfer_power_samples_foreground_awake_charging_doze_active": true,
+  "ipc_unit": {
+    "passed": 193,
+    "failed": 0,
+    "ignored": 5
+  },
+  "ffi_unit": {
+    "passed": 326,
+    "failed": 0,
+    "ignored": 2
+  },
+  "ffi_doctest": {
+    "passed": 0,
+    "failed": 0,
+    "ignored": 5
+  },
+  "ipc_clippy_lib_tests_warnings_denied": true,
+  "native_artifacts_built_with_production_features": true,
+  "native_timing_marker_verified": true,
+  "unchanged_dart_sources_and_zip_payloads_verified": true,
+  "qa_apk_restored_and_hash_verified": true,
+  "started_app_processes_exited": true,
+  "api_ports_freed": true,
+  "public_relay_updates": false,
+  "push_or_release": false,
+  "rto_events_attributed_to_each_file": false
+}
