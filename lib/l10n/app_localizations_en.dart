@@ -7396,8 +7396,12 @@ class AppL10nEn extends AppL10n {
   String get devicesSendNoTargets => 'No linked device to send to yet';
 
   @override
+  String get networkBackgroundSetupFailed =>
+      'Could not finish setting up background operation. Check it in the network settings.';
+
+  @override
   String get networkBackgroundOfferBody =>
-      'Without this Android stops xVeil the moment its screen goes off: the node stops, messages stop arriving, and the app still looks fine. Some phones (Xiaomi, Samsung) also hide an “Autostart” switch in the app\'s own settings that has to be on as well.\n\nYou can turn this on later at any time: Settings → Overlay network → Run in the background.';
+      'Keep receiving messages when xVeil is in the background. Allow enables a foreground service with a persistent notification and additional battery use. Android may also ask to remove battery restrictions. Some phones need Autostart enabled in their app settings.\n\nYou can change this later: Settings → Overlay network → Run in the background.';
 
   @override
   String get networkBackgroundNeverAsk => 'Don\'t ask again';
