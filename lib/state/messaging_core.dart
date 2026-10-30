@@ -3210,7 +3210,7 @@ class MessagingService {
       _signal();
       return ContentDownloadResult.started;
     }
-    _cancelledDownloads.remove(contentId);
+    _downloadResume.beginUserRequest(contentId);
     devLog(() => 'xVeil[content]: user download ${contentId.substring(0, 12)}');
     if (!await _recordPendingDownload(
       contentId,
@@ -3322,7 +3322,7 @@ class MessagingService {
       return ContentDownloadResult.started;
     }
     if (userInitiated) {
-      _cancelledDownloads.remove(contentId);
+      _downloadResume.beginUserRequest(contentId);
     } else if (_cancelledDownloads.contains(contentId)) {
       return ContentDownloadResult.noOffer;
     }
@@ -3441,7 +3441,7 @@ class MessagingService {
     required Future<void> Function(int offset, Uint8List bytes) write,
     required Future<void> Function() close,
   }) async {
-    _cancelledDownloads.remove(contentId);
+    _downloadResume.beginUserRequest(contentId);
     final sink = (write: write, close: close, read: null);
     _fetchSavePath[contentId] = savedPath;
     devLog(
@@ -3544,7 +3544,7 @@ class MessagingService {
     bool userInitiated = true,
   }) async {
     if (userInitiated) {
-      _cancelledDownloads.remove(contentId);
+      _downloadResume.beginUserRequest(contentId);
     } else if (_cancelledDownloads.contains(contentId)) {
       return ContentDownloadResult.noOffer;
     }
