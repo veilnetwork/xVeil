@@ -1,0 +1,126 @@
+{
+  "schema": "xveil-validation/reload-live-dht-1",
+  "date": "2026-10-31",
+  "status": "own-bundle-loss-fixed-delivery-latency-open",
+  "series": [
+    {
+      "max_visible_ms": [
+        8106,
+        2734,
+        2255,
+        3320
+      ],
+      "own_document_count": 6,
+      "own_registry_count": 6,
+      "own_cert_count": 6,
+      "all_messages_once": true,
+      "nodes_stopped": 12,
+      "listeners_released": 12,
+      "host_exited": true,
+      "phase": "A1"
+    },
+    {
+      "max_visible_ms": [
+        8788,
+        3568,
+        1842,
+        3191
+      ],
+      "own_document_count": 12,
+      "own_registry_count": 12,
+      "own_cert_count": 12,
+      "all_messages_once": true,
+      "nodes_stopped": 12,
+      "listeners_released": 12,
+      "host_exited": true,
+      "phase": "B1"
+    },
+    {
+      "max_visible_ms": [
+        9430,
+        2919,
+        2112,
+        2833
+      ],
+      "own_document_count": 4,
+      "own_registry_count": 4,
+      "own_cert_count": 4,
+      "all_messages_once": true,
+      "nodes_stopped": 12,
+      "listeners_released": 12,
+      "host_exited": true,
+      "phase": "A2"
+    },
+    {
+      "max_visible_ms": [
+        7858,
+        2845,
+        1681,
+        3503
+      ],
+      "own_document_count": 12,
+      "own_registry_count": 12,
+      "own_cert_count": 12,
+      "all_messages_once": true,
+      "nodes_stopped": 12,
+      "listeners_released": 12,
+      "host_exited": true,
+      "phase": "B2"
+    },
+    {
+      "max_visible_ms": [
+        8449,
+        3325,
+        2927,
+        3407
+      ],
+      "own_document_count": 6,
+      "own_registry_count": 6,
+      "own_cert_count": 6,
+      "all_messages_once": true,
+      "nodes_stopped": 12,
+      "listeners_released": 12,
+      "host_exited": true,
+      "phase": "A3"
+    },
+    {
+      "max_visible_ms": [
+        7840,
+        3169,
+        2771,
+        2562
+      ],
+      "own_document_count": 12,
+      "own_registry_count": 12,
+      "own_cert_count": 12,
+      "all_messages_once": true,
+      "nodes_stopped": 12,
+      "listeners_released": 12,
+      "host_exited": true,
+      "phase": "B3"
+    }
+  ],
+  "median_first_message_ms": {
+    "control": 8449,
+    "candidate": 7858
+  },
+  "runtime_tests": {
+    "passed": 769,
+    "ignored": 11
+  },
+  "red_tests_before_fix": 2,
+  "one_mac": true,
+  "one_jit_host": true,
+  "dht_all_nodes": true,
+  "public_onion_relays": false,
+  "phone": false,
+  "same_fixture_in_all_phases": true,
+  "source_fixtures_seeded_contacts": false,
+  "network_record_mutation_by_fixture": false,
+  "admin_snapshots_untruncated": true,
+  "background_own_rendezvous_lookups_in_control": 224,
+  "background_own_rendezvous_admitted_query_frames_in_control": 1784,
+  "push": false,
+  "release": false,
+  "sdk_commit": "7fd82ebdba81f7e3c98fdba12021c99bd12688cf"
+}
