@@ -1,0 +1,167 @@
+{
+  "schema": "xveil-validation/1",
+  "compatibility_deferred_by_user": true,
+  "metadata_prefetch_in_final": false,
+  "metadata_prefetch_decision": "held back after worse cold-delivery times in the loopback stand; causal mechanism not established",
+  "metadata_prefetch_model_only_ms": {
+    "baseline": 18000,
+    "held_candidate": 15000,
+    "final_retains_baseline": 18000
+  },
+  "metadata_candidate_tests": {
+    "red_passed": 0,
+    "red_failed": 4,
+    "focused_passed": 55,
+    "runtime_passed": 751,
+    "runtime_ignored": 11
+  },
+  "cancellation_tests": {
+    "red_passed": 1,
+    "red_failed": 2,
+    "green_runtime_passed": 751,
+    "green_runtime_ignored": 11,
+    "new_tests": 4,
+    "cancelled_real_lookups": 32
+  },
+  "native_series": [
+    {
+      "phase": "current-latency",
+      "metadata_prefetch": false,
+      "max_visible_ms_by_message": [
+        7887,
+        3948,
+        2896,
+        2855
+      ],
+      "nodes": 12,
+      "messages": 4,
+      "converged": true,
+      "logical_duplicates": 0,
+      "native_send_records": 401,
+      "max_native_send_ms": 6395,
+      "nodes_stopped": true,
+      "host_process_exited": true,
+      "cleanup_errors": []
+    },
+    {
+      "phase": "candidate-latency",
+      "metadata_prefetch": true,
+      "max_visible_ms_by_message": [
+        12624,
+        2578,
+        2429,
+        2648
+      ],
+      "nodes": 12,
+      "messages": 4,
+      "converged": true,
+      "logical_duplicates": 0,
+      "native_send_records": 401,
+      "max_native_send_ms": 6655,
+      "nodes_stopped": true,
+      "host_process_exited": true,
+      "cleanup_errors": []
+    },
+    {
+      "phase": "baseline-after-latency",
+      "metadata_prefetch": false,
+      "max_visible_ms_by_message": [
+        8219,
+        2440,
+        2473,
+        3621
+      ],
+      "nodes": 12,
+      "messages": 4,
+      "converged": true,
+      "logical_duplicates": 0,
+      "native_send_records": 402,
+      "max_native_send_ms": 9004,
+      "nodes_stopped": true,
+      "host_process_exited": true,
+      "cleanup_errors": []
+    },
+    {
+      "phase": "candidate-repeat-2",
+      "metadata_prefetch": true,
+      "max_visible_ms_by_message": [
+        11943,
+        4203,
+        2736,
+        2782
+      ],
+      "nodes": 12,
+      "messages": 4,
+      "converged": true,
+      "logical_duplicates": 0,
+      "native_send_records": 402,
+      "max_native_send_ms": 6445,
+      "nodes_stopped": true,
+      "host_process_exited": true,
+      "cleanup_errors": []
+    },
+    {
+      "phase": "candidate-repeat-3",
+      "metadata_prefetch": true,
+      "max_visible_ms_by_message": [
+        9127,
+        3214,
+        1934,
+        3228
+      ],
+      "nodes": 12,
+      "messages": 4,
+      "converged": true,
+      "logical_duplicates": 0,
+      "native_send_records": 404,
+      "max_native_send_ms": 6640,
+      "nodes_stopped": true,
+      "host_process_exited": true,
+      "cleanup_errors": []
+    },
+    {
+      "phase": "baseline-repeat-3",
+      "metadata_prefetch": false,
+      "max_visible_ms_by_message": [
+        8449,
+        2261,
+        2447,
+        3491
+      ],
+      "nodes": 12,
+      "messages": 4,
+      "converged": true,
+      "logical_duplicates": 0,
+      "native_send_records": 403,
+      "max_native_send_ms": 7090,
+      "nodes_stopped": true,
+      "host_process_exited": true,
+      "cleanup_errors": []
+    },
+    {
+      "phase": "final-cancellation-fix",
+      "metadata_prefetch": false,
+      "max_visible_ms_by_message": [
+        9264,
+        2964,
+        3064,
+        3047
+      ],
+      "nodes": 12,
+      "messages": 4,
+      "converged": true,
+      "logical_duplicates": 0,
+      "nodes_stopped": true,
+      "host_process_exited": true,
+      "cleanup_errors": []
+    }
+  ],
+  "limits": [
+    "single Mac; JIT host",
+    "legacy group without membership epoch encryption",
+    "loopback TCP; no onion relays",
+    "fixed 12 synthetic identities, fresh stores for every run",
+    "rt_trace enabled in each compared run",
+    "no physical phone or provider qualification"
+  ]
+}

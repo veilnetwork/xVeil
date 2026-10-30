@@ -1,0 +1,67 @@
+{
+  "schema": "xveil-validation/1",
+  "scope": "mixed-version compatibility deferred by explicit user instruction; not a release gate",
+  "old_app": "v0.13.93",
+  "old_sdk": "09bf0da3",
+  "new_app": "2edb8dc3",
+  "new_sdk_dart": "3b891089",
+  "new_native_core": "08b67a6e",
+  "native_loopback": true,
+  "separate_old_new_processes": true,
+  "group_epoch_encryption": false,
+  "paired_contact_fixtures": true,
+  "ordinary_dependency_resolution": "current cached non-SDK packages",
+  "cases": {
+    "all-current": {
+      "visible_from_low": 12,
+      "visible_from_high": 12,
+      "all_messages_visible_members": 12,
+      "reachable_from_low": 12,
+      "reachable_from_high": 12,
+      "logical_duplicates": 0,
+      "source_call_ms": [
+        659,
+        736
+      ],
+      "observed_convergence_ms": [
+        5354,
+        6606
+      ],
+      "clean": true
+    },
+    "one-old-before": {
+      "visible_from_low": 6,
+      "visible_from_high": 12,
+      "all_messages_visible_members": 6,
+      "reachable_from_low": 6,
+      "reachable_from_high": 12,
+      "logical_duplicates": 0,
+      "source_call_ms": [
+        1158,
+        1036
+      ],
+      "observed_convergence_ms": [
+        21846,
+        3807
+      ],
+      "clean": true
+    },
+    "one-new-before": {
+      "visible_from_low": 6,
+      "visible_from_high": 6,
+      "all_messages_visible_members": 0,
+      "reachable_from_low": 6,
+      "reachable_from_high": 6,
+      "logical_duplicates": 0,
+      "source_call_ms": [
+        798,
+        1066
+      ],
+      "observed_convergence_ms": [
+        23772,
+        22308
+      ],
+      "clean": true
+    }
+  }
+}
