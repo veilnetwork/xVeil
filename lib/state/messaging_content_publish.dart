@@ -260,13 +260,13 @@ extension _MessagingContentPublish on MessagingService {
   /// path), the file is gone, or its bytes changed (contentId mismatch).
   Future<ContentManifest?> _rebuildManifestFromServedRecord(
     String cid,
-    _ServedRecord rec,
-  ) async {
-    final opener = sourceOpener;
+    _ServedRecord rec, {
+    ServeSource? openedSource,
+  }) async {
     final size = rec.size;
     final pieceSize = rec.pieceSize;
-    if (opener == null || size == null || pieceSize == null) return null;
-    final src = await opener(rec.path);
+    if (size == null || pieceSize == null) return null;
+    final src = openedSource ?? await sourceOpener?.call(rec.path);
     if (src == null) return null;
     try {
       final m = await ContentManifest.fromReader(
@@ -299,9 +299,13 @@ extension _MessagingContentPublish on MessagingService {
       );
       return null;
     } finally {
-      try {
-        await src.close();
-      } catch (_) {}
+      // A serve verifies the very handle it will keep, not a temporary handle
+      // followed by another pathname lookup. Other callers own this open here.
+      if (openedSource == null) {
+        try {
+          await src.close();
+        } catch (_) {}
+      }
     }
   }
 
@@ -321,11 +325,12 @@ extension _MessagingContentPublish on MessagingService {
   /// so the verdict is cached against the file's size and mtime and re-taken
   /// as soon as either moves.
   ///
-  /// DETECTION, NOT PREVENTION. Dart offers no `openat`, no `O_NOFOLLOW` and no
-  /// `fstat`, so there is no way from here to bind the check and the open to
-  /// the same descriptor; this project has hit that wall before and chose
-  /// detection deliberately. What this does close is the case that needed no
-  /// timing at all.
+  /// The serve path hashes its actual open handle and retains it after the
+  /// check; it must not close a verified file and reopen its name. Name-to-
+  /// handle binding is still detection, not an atomic filesystem guarantee:
+  /// Dart has no `openat`, `O_NOFOLLOW` or `fstat`. Stamps bracket the open and
+  /// check, and a changed stamp refuses the name. In-place changes that evade
+  /// the stamp, or later writes through the same inode, remain a limitation.
   ///
   /// The cache key used to be size and mtime, both writable by whoever can
   /// write the file — so the detector could be defeated outright by `truncate`
@@ -335,9 +340,13 @@ extension _MessagingContentPublish on MessagingService {
   /// gets to choose.
   Future<bool> _servedSourceStillMatches(
     String cid,
-    _ServedRecord rec,
-  ) async {
-    final stamp = await veilSourceStamp(rec.path);
+    _ServedRecord rec, {
+    ServeSource? openedSource,
+    VeilSourceStamp? openedStamp,
+  }) async {
+    final stamp = openedSource == null
+        ? await veilSourceStamp(rec.path)
+        : openedStamp;
     if (stamp != null) {
       final cached = _contentServing.servedVerdicts[cid];
       // All four, identity first. Matching size and mtime is what an attacker
@@ -351,31 +360,59 @@ extension _MessagingContentPublish on MessagingService {
       }
     }
     final pending = _contentServing.servedVerifications[cid];
-    if (pending != null) return pending;
-    final run = _verifyServedSource(cid, rec, stamp);
-    _contentServing.servedVerifications[cid] = run;
+    if (stamp != null &&
+        pending != null &&
+        pending.path == rec.path &&
+        pending.stamp == stamp) {
+      final ok = await pending.result;
+      return ok && stamp == await veilSourceStamp(rec.path);
+    }
+    final run = _verifyServedSource(
+      cid,
+      rec,
+      stamp,
+      openedSource: openedSource,
+    );
+    // Only a named, stamped object can share a verdict across independent
+    // handles. A different generation/path, or an unstattable source, must be
+    // checked for itself; never overwrite another check's cleanup ownership.
+    if (stamp == null || pending != null) return run;
+    _contentServing.servedVerifications[cid] = (
+      path: rec.path,
+      stamp: stamp,
+      result: run,
+    );
     try {
       return await run;
     } finally {
-      _contentServing.servedVerifications.remove(cid);
+      if (identical(_contentServing.servedVerifications[cid]?.result, run)) {
+        _contentServing.servedVerifications.remove(cid);
+      }
     }
   }
 
   Future<bool> _verifyServedSource(
     String cid,
     _ServedRecord rec,
-    VeilSourceStamp? before,
-  ) async {
+    VeilSourceStamp? before, {
+    ServeSource? openedSource,
+  }) async {
     // A rebuild that returns non-null has already compared contentIds. It also
     // re-persists `mf:$cid`, so the pass costs at most one extra read even on
     // the missing-manifest path that would otherwise hash again right after.
-    final ok = (await _rebuildManifestFromServedRecord(cid, rec)) != null;
+    final ok =
+        (await _rebuildManifestFromServedRecord(
+          cid,
+          rec,
+          openedSource: openedSource,
+        )) !=
+        null;
 
     // Only cache a verdict this file can be held to. Two ways it cannot be:
     //
     //  * the file moved under the hashing pass — the stamp then describes
     //    something other than what was read (and the pass itself is already
-    //    suspect, which is why the answer stands but is not remembered);
+    //    suspect: refuse that name rather than merely avoiding the cache);
     //  * its mtime is younger than the coarsest filesystem tick, so a LATER
     //    write could still land under the SAME stamp and the verdict would
     //    never be re-taken.
@@ -383,7 +420,8 @@ extension _MessagingContentPublish on MessagingService {
     // Skipping the cache costs a re-hash. Caching a stamp that cannot change
     // costs correctness, which is the whole point of the check.
     final after = await veilSourceStamp(rec.path);
-    if (before == null || after == null || before != after) return ok;
+    if (before != after) return false;
+    if (before == null || after == null) return ok;
     final settledFor = DateTime.now().millisecondsSinceEpoch - after.mtimeMs;
     if (settledFor < _MessagingContentServing.stampSettleMs) return ok;
     _contentServing.noteServedVerdict(cid, after, ok);
@@ -436,15 +474,40 @@ extension _MessagingContentPublish on MessagingService {
     final opener = sourceOpener;
     if (opener == null) return null;
     if (!await _servedSourceStillAuthorized(cid, rec)) return null;
-    if (!await _servedSourceStillMatches(cid, rec)) {
-      devLog(
-        () =>
-            'xVeil[content]: durable source ${rec.path} no longer holds '
-            '${cid.substring(0, 12)} — refusing to serve it',
-      );
-      return null;
+    final before = await veilSourceStamp(rec.path);
+    final source = await opener(rec.path);
+    if (source == null) return null;
+    var transferred = false;
+    try {
+      final opened = await veilSourceStamp(rec.path);
+      if (before != opened) return null;
+      if (!await _servedSourceStillMatches(
+        cid,
+        rec,
+        openedSource: source,
+        openedStamp: opened,
+      )) {
+        devLog(
+          () =>
+              'xVeil[content]: durable source ${rec.path} no longer holds '
+              '${cid.substring(0, 12)} — refusing to serve it',
+        );
+        return null;
+      }
+      if (_disposed ||
+          opened != await veilSourceStamp(rec.path) ||
+          !await _servedSourceStillAuthorized(cid, rec)) {
+        return null;
+      }
+      transferred = true;
+      return source;
+    } finally {
+      if (!transferred) {
+        try {
+          await source.close();
+        } catch (_) {}
+      }
     }
-    return opener(rec.path);
   }
 
   Future<void> _persistServeManifest(ContentManifest manifest) async {

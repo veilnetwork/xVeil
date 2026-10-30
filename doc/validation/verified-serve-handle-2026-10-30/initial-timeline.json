@@ -1,0 +1,49 @@
+{
+  "source": "previous QA SDK c96bd930, before this Dart fix",
+  "clock": "relative to each download API start; Android logcat corrected with measured device/host clock offset",
+  "events": [
+    {
+      "direction": "Android -> Mac",
+      "endpoint": "Android",
+      "event": "source_rehash_finished",
+      "after_api_start_ms": 6219
+    },
+    {
+      "direction": "Android -> Mac",
+      "endpoint": "Mac",
+      "event": "request_started",
+      "after_api_start_ms": 251
+    },
+    {
+      "direction": "Android -> Mac",
+      "endpoint": "Mac",
+      "event": "request_written",
+      "after_api_start_ms": 891
+    },
+    {
+      "direction": "Android -> Mac",
+      "endpoint": "Mac",
+      "event": "waiting_manifest",
+      "after_api_start_ms": 5895
+    },
+    {
+      "direction": "Mac -> Android",
+      "endpoint": "Android",
+      "event": "request_started",
+      "after_api_start_ms": 426
+    },
+    {
+      "direction": "Mac -> Android",
+      "endpoint": "Android",
+      "event": "request_written",
+      "after_api_start_ms": 614
+    },
+    {
+      "direction": "Mac -> Android",
+      "endpoint": "Mac",
+      "event": "source_rehash_finished",
+      "after_api_start_ms": 1760
+    }
+  ],
+  "limit": "No start timestamp for the source hashing pass; these events do not attribute the whole interval to hashing."
+}
