@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/data/serve_source.dart' show VeilPlainFileSink;
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
@@ -190,6 +192,28 @@ class _HeldFileLookupStorage extends HiddenVolumeStorage {
   }
 }
 
+class _ObservedResumeStorage extends HiddenVolumeStorage {
+  _ObservedResumeStorage(super.opener);
+  void Function(Uint8List)? onRegistryWrite;
+  void Function()? onForbiddenRead;
+
+  @override
+  Future<void> storeFile(String id, Uint8List bytes, {String? name}) async {
+    await super.storeFile(id, bytes, name: name);
+    if (id == 'download-resume.registry.v1') onRegistryWrite?.call(bytes);
+  }
+
+  @override
+  Future<bool> hasFile(String id) async {
+    final forbidden = onForbiddenRead;
+    if (forbidden != null) {
+      forbidden();
+      throw StateError('container already closed');
+    }
+    return super.hasFile(id);
+  }
+}
+
 void _shrinkResumeDelays(MessagingService m) {
   m.downloadResumeStartDelay = const Duration(milliseconds: 200);
   m.downloadResumeBackoffBase = const Duration(milliseconds: 200);
@@ -301,6 +325,221 @@ void main() {
       expect(await mB.pendingAutoResumeContentIds(), contains(cid));
     },
   );
+
+  for (final action in [
+    'cancel',
+    'cancel and replace',
+    'replace',
+    'clear',
+    'dispose',
+  ]) {
+    test(
+      'a delayed resume opener cannot revive its destination after $action',
+      () async {
+        await mB.dispose();
+        final observed = _ObservedResumeStorage(_mem());
+        await observed.open(password: 'b', createIfMissing: true);
+        await observed.upsertContact(
+          Contact(nodeId: a, status: ContactStatus.accepted),
+        );
+        sB = observed;
+        mB = _makeService(tB, sB)..start();
+        final cid = await offerToB(_rnd(4096, 85), 'late-destination.bin');
+        cutLink();
+        const oldPath = '/virtual/old-destination.bin';
+        const newPath = '/virtual/new-destination.bin';
+        await mB.downloadContentToFile(
+          a,
+          cid,
+          oldPath,
+          write: (_, _) async {},
+          close: () async {},
+        );
+        await mB.dispose();
+        final entered = Completer<void>();
+        final opened = Completer<VeilPlainFileSink?>();
+        var closes = 0;
+        var writes = 0;
+        final settled = Completer<String>();
+        void settle(String outcome) {
+          if (!settled.isCompleted) settled.complete(outcome);
+        }
+
+        mB = _makeService(tB, sB)
+          ..downloadResumeStartDelay = Duration.zero
+          ..plainFileSinkOpener = (_, {bool resume = false}) {
+            entered.complete();
+            return opened.future;
+          };
+        mB.start();
+        await entered.future.timeout(const Duration(seconds: 10));
+        if (action.startsWith('cancel')) await mB.cancelContentDownload(cid);
+        if (action.contains('replace')) {
+          await mB.downloadContentToFile(
+            a,
+            cid,
+            newPath,
+            write: (_, _) async {},
+            close: () async {},
+          );
+        }
+        if (action == 'clear') await mB.clearPendingDownloads();
+        if (action == 'dispose') {
+          await mB.dispose();
+          observed.onForbiddenRead = () => settle('read after shutdown');
+        }
+        observed.onRegistryWrite = (bytes) {
+          final entries = jsonDecode(utf8.decode(bytes)) as List;
+          if (entries.any((e) => e['path'] == oldPath)) {
+            settle('old path revived');
+          }
+        };
+        opened.complete((
+          write: (_, _) async {
+            writes++;
+          },
+          close: () async {
+            closes++;
+            settle('closed');
+          },
+          read: null,
+        ));
+        try {
+          expect(
+            await settled.future.timeout(const Duration(seconds: 10)),
+            'closed',
+          );
+          expect(closes, 1);
+          expect(writes, 0);
+        } finally {
+          observed.onRegistryWrite = null;
+          observed.onForbiddenRead = null;
+        }
+        await mB.dispose();
+        mB = _makeService(tB, sB);
+        final pending = await mB.pendingAutoResumeContentIds();
+        if (action.contains('replace')) {
+          expect(pending, contains(cid));
+          final registry =
+              jsonDecode(
+                    utf8.decode(
+                      (await sB.loadFile('download-resume.registry.v1'))!,
+                    ),
+                  )
+                  as List;
+          expect(registry.single['path'], newPath);
+        } else if (action == 'dispose') {
+          expect(
+            pending,
+            contains(cid),
+            reason: 'shutdown preserves the request',
+          );
+        } else {
+          expect(pending, isNot(contains(cid)));
+        }
+      },
+      timeout: const Timeout(Duration(minutes: 1)),
+    );
+  }
+
+  for (final oldResult in ['sink', 'null', 'exception']) {
+    test(
+      'a late $oldResult opener cannot release a replacement resume slot',
+      () async {
+        await mB.dispose();
+        final observed = _ObservedResumeStorage(_mem());
+        await observed.open(password: 'b', createIfMissing: true);
+        sB = observed;
+        cutLink();
+        const oldPath = '/virtual/slot-old.bin';
+        const newPath = '/virtual/slot-new.bin';
+        final cid = _id(86).hex;
+        mB = _makeService(tB, sB);
+        expect(
+          await mB.downloadContentToFileFromAny(
+            const [],
+            cid,
+            oldPath,
+            write: (_, _) async {},
+            close: () async {},
+          ),
+          ContentDownloadResult.noOffer,
+        );
+        final oldEntered = Completer<void>();
+        final newEntered = Completer<void>();
+        final oldOpen = Completer<VeilPlainFileSink?>();
+        final newOpen = Completer<VeilPlainFileSink?>();
+        var opens = 0;
+        mB.downloadResumeStartDelay = Duration.zero;
+        mB.plainFileSinkOpener = (_, {bool resume = false}) {
+          opens++;
+          if (opens == 1) {
+            oldEntered.complete();
+            return oldOpen.future;
+          }
+          expect(opens, 2);
+          newEntered.complete();
+          return newOpen.future;
+        };
+        mB.start();
+        await oldEntered.future.timeout(const Duration(seconds: 10));
+        await mB.cancelContentDownload(cid);
+        expect(
+          await mB.downloadContentToFileFromAny(
+            const [],
+            cid,
+            newPath,
+            write: (_, _) async {},
+            close: () async {},
+          ),
+          ContentDownloadResult.noOffer,
+        );
+        await mB.reconcileOnConnect();
+        await newEntered.future.timeout(const Duration(seconds: 10));
+        var replacementWrites = 0;
+        observed.onRegistryWrite = (bytes) {
+          final entries = jsonDecode(utf8.decode(bytes)) as List;
+          if (entries.any((e) => e['path'] == newPath)) replacementWrites++;
+        };
+        var oldCloses = 0;
+        if (oldResult == 'sink') {
+          oldOpen.complete((
+            write: (_, _) async => fail('retired sink received bytes'),
+            close: () async {
+              oldCloses++;
+            },
+            read: null,
+          ));
+        } else if (oldResult == 'null') {
+          oldOpen.complete(null);
+        } else {
+          oldOpen.completeError(StateError('late retired opener failure'));
+        }
+        // Drain the old continuation and its finally before releasing the new
+        // opener. No network-speed threshold determines this interleaving.
+        await Future<void>.delayed(Duration.zero);
+        final newClosed = Completer<void>();
+        newOpen.complete((
+          write: (_, _) async {},
+          close: () async {
+            if (!newClosed.isCompleted) newClosed.complete();
+          },
+          read: null,
+        ));
+        await newClosed.future.timeout(const Duration(seconds: 10));
+        observed.onRegistryWrite = null;
+        expect(
+          replacementWrites,
+          1,
+          reason:
+              'the current attempt must still hand off, not just close as stale',
+        );
+        expect(oldCloses, oldResult == 'sink' ? 1 : 0);
+        expect(opens, 2);
+      },
+      timeout: const Timeout(Duration(minutes: 1)),
+    );
+  }
 
   for (final throwsOnOpen in [false, true]) {
     test('temporary destination ${throwsOnOpen ? 'exception' : 'refusal'} '
