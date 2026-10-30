@@ -1,0 +1,144 @@
+{
+  "native_series": {
+    "mac_sdk": "bcd06f4a",
+    "android_sdk": "5c392c4c",
+    "relay_temporary_sdk": "bcd06f4a",
+    "front_end_deliberately_frozen": true,
+    "before_late_runner_fix": true,
+    "cases": [
+      {
+        "case": "control-to-phone",
+        "source": "Mac",
+        "receiver": "Android",
+        "bytes": 3145979,
+        "sha256_matches": true,
+        "seconds": 37.638,
+        "first_verified_part_seconds": 35.464,
+        "max_verified_part_interval_seconds": 1.107,
+        "progress_samples": 34,
+        "interrupted": false,
+        "radios_off_at_seconds": null,
+        "radios_restored_at_seconds": null
+      },
+      {
+        "case": "flap-to-phone",
+        "source": "Mac",
+        "receiver": "Android",
+        "bytes": 33554683,
+        "sha256_matches": true,
+        "seconds": 59.345,
+        "first_verified_part_seconds": 1.184,
+        "max_verified_part_interval_seconds": 21.871,
+        "progress_samples": 54,
+        "interrupted": true,
+        "radios_off_at_seconds": 10.175,
+        "radios_restored_at_seconds": 18.958
+      }
+    ]
+  },
+  "attribution": {
+    "missing_rows": 24,
+    "unique_observed_cid_sequence_joins": 24,
+    "joined_data_rows": 24,
+    "non_data_or_no_source": 0,
+    "ambiguous_joins": 0,
+    "missing_return_mapping": 0,
+    "duplicate_sink_rows": 0,
+    "maximum_joined_local_handler_us": 356,
+    "scoped_trace_rows": 61447,
+    "scope_is_test_phone_only": true,
+    "cross_hop_link_witness_present": false
+  },
+  "receive_progress": [
+    {
+      "stream_label": 1,
+      "samples": 11,
+      "longest_prefix_stall_with_oo_ms": 0,
+      "largest_oo_bytes_in_stall": 0,
+      "missing_data_rows": 0,
+      "missing_rows_covering_a_stalled_prefix": 0,
+      "max_local_blocked_age_ms": 3537,
+      "max_rto_ms": 2000,
+      "max_consecutive_rto": 0
+    },
+    {
+      "stream_label": 2,
+      "samples": 9,
+      "longest_prefix_stall_with_oo_ms": 0,
+      "largest_oo_bytes_in_stall": 0,
+      "missing_data_rows": 0,
+      "missing_rows_covering_a_stalled_prefix": 0,
+      "max_local_blocked_age_ms": 0,
+      "max_rto_ms": 2000,
+      "max_consecutive_rto": 0
+    },
+    {
+      "stream_label": 3,
+      "samples": 110,
+      "longest_prefix_stall_with_oo_ms": 14290,
+      "largest_oo_bytes_in_stall": 79280,
+      "missing_data_rows": 24,
+      "missing_rows_covering_a_stalled_prefix": 1,
+      "max_local_blocked_age_ms": 19891,
+      "max_rto_ms": 2000,
+      "max_consecutive_rto": 1
+    }
+  ],
+  "late_runner_fix": {
+    "sdk": "4de50051",
+    "regression_red": {
+      "passed": 0,
+      "failed": 1
+    },
+    "runtime_tests": {
+      "passed": 747,
+      "ignored": 11
+    },
+    "session_tests": {
+      "passed": 671,
+      "ignored": 8
+    },
+    "ffi_tests": {
+      "passed": 331,
+      "ignored": 2
+    },
+    "clippy_warnings_denied": true,
+    "physical_effect_not_qualified": true
+  },
+  "diagnostic_validation": {
+    "anonymity_tests": {
+      "passed": 342,
+      "ignored": 1
+    },
+    "dispatcher_tests": {
+      "passed": 287,
+      "ignored": 0
+    },
+    "default_build_trace_disabled_test_passed": true,
+    "flutter_privacy_tests_passed": 15,
+    "artifact_verifier_tests_passed": 1,
+    "linux_binary_run_in_container": true,
+    "linux_external_target_separate": true,
+    "windows_anonymity_feature_cross_check_passed": true,
+    "physical_windows_test": false
+  },
+  "cleanup": {
+    "qa_process_absent": true,
+    "baseline_apk_independently_verified": true,
+    "profile_pointer_independently_restored": true,
+    "owned_metadata_exactly_restored": true,
+    "verified_synthetic_local_bytes_removed": 36700662,
+    "operator_key_and_policy_files_removed": true,
+    "relay_1_original_loaded_and_config_unchanged": true,
+    "relay_2_original_loaded_and_config_unchanged": true,
+    "relay_3_original_loaded_and_config_unchanged": true,
+    "relay_4_original_loaded_and_config_unchanged": true,
+    "relay_5_original_loaded_and_config_unchanged": true,
+    "relay_6_original_loaded_and_config_unchanged": true,
+    "all_owned_ports_available": true,
+    "owned_mac_process_independently_absent": true,
+    "all_relay_timers_and_policies_independently_absent": true
+  },
+  "push": false,
+  "release": false
+}

@@ -10,6 +10,38 @@ class _PrivateValue {
 }
 
 void main() {
+  test('operator circuit correlation never enters anonymous reports', () {
+    final journal = DiagnosticJournal(enabled: true);
+    final native = <String, Object?>{
+      'audio_rx_pkts': 12,
+      'token': 'private-circuit-token',
+      'prefix': 'private-envelope-prefix',
+      'origin_cid': 123456789,
+      'data_seq': 987654321,
+      'circuit_trace': _PrivateValue(),
+      'raw_log': 'anonymity.circuit.trace.egress private-log-line',
+      'ranges': [
+        {'sid': 'private-stream', 'offset': 123456789},
+      ],
+    };
+    journal.recordMediaStats(native);
+    journal.recordBackgroundState(native);
+    journal.recordVideoDelivery(native);
+    final report = jsonEncode(journal.toJson());
+    expect(report, contains('audioRxPackets'));
+    for (final forbidden in [
+      'private-',
+      'circuit_trace',
+      'origin_cid',
+      'data_seq',
+      '123456789',
+      '987654321',
+      'trace.egress',
+    ]) {
+      expect(report, isNot(contains(forbidden)));
+    }
+  });
+
   test('audio evidence is coarse, bounded and retained after the call', () {
     final journal = DiagnosticJournal(enabled: true, capacity: 1);
     journal.recordMediaStats({
