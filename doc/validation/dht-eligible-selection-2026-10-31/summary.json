@@ -1,0 +1,178 @@
+{
+  "confirmed_fixes": [
+    "filter_eligible_contacts_before_closest_k",
+    "replication_session_fallback_respects_no_dht_service"
+  ],
+  "old_code_regressions_failed": 4,
+  "tests": {
+    "veil_dht": 202,
+    "veil_dispatcher": 286,
+    "veil_node_runtime": 770,
+    "ignored": 11
+  },
+  "prior_carrier_trace_decomposition": [
+    {
+      "phase": "carrier-candidate-1",
+      "first_callback_ms": 272,
+      "last_visible_ms": 5346,
+      "last_receiver_chain": [
+        {
+          "receiver": 4,
+          "from": 0,
+          "first_callback_ms": 272,
+          "visible_ms": 420,
+          "callback_to_visible_ms": 148
+        },
+        {
+          "receiver": 2,
+          "from": 4,
+          "first_callback_ms": 921,
+          "visible_ms": 1273,
+          "callback_to_visible_ms": 352
+        },
+        {
+          "receiver": 5,
+          "from": 2,
+          "first_callback_ms": 1928,
+          "visible_ms": 2508,
+          "callback_to_visible_ms": 580
+        },
+        {
+          "receiver": 10,
+          "from": 5,
+          "first_callback_ms": 3309,
+          "visible_ms": 3809,
+          "callback_to_visible_ms": 500
+        },
+        {
+          "receiver": 6,
+          "from": 10,
+          "first_callback_ms": 4502,
+          "visible_ms": 5346,
+          "callback_to_visible_ms": 844
+        }
+      ],
+      "system_trace_complete": true
+    },
+    {
+      "phase": "carrier-candidate-2",
+      "first_callback_ms": 247,
+      "last_visible_ms": 4517,
+      "last_receiver_chain": [
+        {
+          "receiver": 1,
+          "from": 0,
+          "first_callback_ms": 560,
+          "visible_ms": 779,
+          "callback_to_visible_ms": 219
+        },
+        {
+          "receiver": 5,
+          "from": 1,
+          "first_callback_ms": 1799,
+          "visible_ms": 2368,
+          "callback_to_visible_ms": 569
+        },
+        {
+          "receiver": 10,
+          "from": 5,
+          "first_callback_ms": 3042,
+          "visible_ms": 3290,
+          "callback_to_visible_ms": 248
+        },
+        {
+          "receiver": 9,
+          "from": 10,
+          "first_callback_ms": 4175,
+          "visible_ms": 4517,
+          "callback_to_visible_ms": 342
+        }
+      ],
+      "system_trace_complete": true
+    },
+    {
+      "phase": "carrier-candidate-3",
+      "first_callback_ms": 284,
+      "last_visible_ms": 5297,
+      "last_receiver_chain": [
+        {
+          "receiver": 4,
+          "from": 0,
+          "first_callback_ms": 284,
+          "visible_ms": 430,
+          "callback_to_visible_ms": 146
+        },
+        {
+          "receiver": 2,
+          "from": 4,
+          "first_callback_ms": 960,
+          "visible_ms": 1294,
+          "callback_to_visible_ms": 334
+        },
+        {
+          "receiver": 5,
+          "from": 2,
+          "first_callback_ms": 2006,
+          "visible_ms": 2795,
+          "callback_to_visible_ms": 789
+        },
+        {
+          "receiver": 10,
+          "from": 5,
+          "first_callback_ms": 3209,
+          "visible_ms": 3754,
+          "callback_to_visible_ms": 545
+        },
+        {
+          "receiver": 7,
+          "from": 10,
+          "first_callback_ms": 4565,
+          "visible_ms": 5297,
+          "callback_to_visible_ms": 732
+        }
+      ],
+      "system_trace_complete": true
+    }
+  ],
+  "no_claim_of_5_second_latency_elimination": true,
+  "native_qualification": [
+    {
+      "phase": "eligible-final-all-serving",
+      "dht_servers": 12,
+      "leaf_nodes": 12,
+      "max_visible_ms": [
+        5237,
+        2643,
+        2714,
+        3006
+      ],
+      "converged_messages": 4,
+      "logical_duplicates": 0,
+      "stopped_nodes": 12,
+      "released_listeners": 12,
+      "host_exited": true,
+      "confirmed_leaf_inbound_circuits": null,
+      "library_sha256": "a1602876c739c3c21bc92b7b0746d39c23c19c7d75a45105a3587dcb2ab5b0f1"
+    },
+    {
+      "phase": "eligible-final-core-only",
+      "dht_servers": 3,
+      "leaf_nodes": 9,
+      "max_visible_ms": [
+        8140,
+        2522,
+        2713,
+        3249
+      ],
+      "converged_messages": 4,
+      "logical_duplicates": 0,
+      "stopped_nodes": 12,
+      "released_listeners": 12,
+      "host_exited": true,
+      "confirmed_leaf_inbound_circuits": 9,
+      "library_sha256": "a1602876c739c3c21bc92b7b0746d39c23c19c7d75a45105a3587dcb2ab5b0f1"
+    }
+  ],
+  "earlier_control_used_for_latency_comparison": false,
+  "source_manifest_matches_final_tree": true
+}
