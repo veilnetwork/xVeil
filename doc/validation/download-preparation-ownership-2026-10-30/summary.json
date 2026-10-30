@@ -47,5 +47,21 @@
     "test/download_resume_persistence_test.dart": "049000f11fc7405ed6da6b6a40cfb65b59bb5092326f7b9b11ff1bda2b5a5af2",
     "test/content_stream_transfer_test.dart": "80ac09bb7b744ea7a34aaeb1ecba2fb4f9df023c6aff88bafed4edc4ff5c619f"
   },
-  "hidden_volume_library_sha256": "3b2eacc819b307125cafe01665ebbaec5ee6ed9d3b3d5d96bc5d5b26a50f79e7"
+  "hidden_volume_library_sha256": "3b2eacc819b307125cafe01665ebbaec5ee6ed9d3b3d5d96bc5d5b26a50f79e7",
+  "qa_build": {
+    "source_app": "48a2d436e820fc9760ca781801783bffa519b392",
+    "source_sdk": "c96bd930878187ae5dc9b5c0f1261f6d2508c4e4",
+    "dart_plugin_source_sdk": "ea7e838819b70ab3f866711cc3142b76e83e9f15",
+    "native_sdk_deliberately_frozen": true,
+    "android_aot": true,
+    "native_test_hooks": false,
+    "test_low_difficulty": false,
+    "mac_native_sha256": "369737fdf536d0021ec48cb4760ea945fe89cb01de70fafa12b015316ac8e6d6",
+    "android_native_sha256": "287854561274712f33e709be4821179825c5937f223fa8d1d6f717cce8e8050f",
+    "android_aot_sha256": "404a3dfea946d4a2727bcc654c4d36652e27aa296cf027ac484001e1a8f13a6f",
+    "mac_kernel_sha256": "657e2d6af5ff734705a52211ab54cfb8bac74b26a990d908a1cd1eb44cbf039b",
+    "mac_jit_built": true,
+    "installed_or_launched": false,
+    "owned_build_group_exited": true
+  }
 }
