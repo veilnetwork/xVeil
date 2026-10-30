@@ -239,7 +239,12 @@ class _MessagingGroupContent {
     if (previous?.source != null) {
       _owner._retireServeSourceForContent(cid, previous!.source!);
     }
-    _owner._serving[cid] = (manifest: m, source: null, servedAt: _owner._now());
+    _owner._serving[cid] = (
+      manifest: m,
+      source: null,
+      sourceRecord: null,
+      servedAt: _owner._now(),
+    );
     _owner._evictServing();
     _owner._ensureContentTimer();
     devLog(
@@ -279,6 +284,19 @@ class _MessagingGroupContent {
       await close();
       throw ArgumentError.value(size, 'size', 'must be positive');
     }
+    if (sourcePath == null && sourceRoots.isNotEmpty) {
+      await close();
+      throw ArgumentError('delegated source requires a path');
+    }
+    final _ServedRecord? sourceRecord = sourcePath == null
+        ? null
+        : (
+            path: sourcePath,
+            size: size,
+            pieceSize: MessagingService.adaptivePieceSize(size),
+            name: name,
+            roots: List<String>.unmodifiable(sourceRoots),
+          );
     final source = (read: read, close: close);
     final ContentManifest manifest;
     try {
@@ -289,6 +307,13 @@ class _MessagingGroupContent {
         chunkBytes: MessagingService._contentChunkBytes,
         readRange: read,
       );
+      if (sourceRecord != null &&
+          !await _owner._servedSourceStillAuthorized(
+            manifest.contentId,
+            sourceRecord,
+          )) {
+        throw _SourceAccessRevoked();
+      }
       await persistRequiredGroupManifest(manifest);
     } catch (_) {
       await close();
@@ -306,7 +331,7 @@ class _MessagingGroupContent {
             'name': name,
             // The grant this offer was made under. Recorded so a later reopen
             // can ask whether it still holds instead of assuming it does.
-            if (sourceRoots.isNotEmpty) 'roots': sourceRoots,
+            if (sourceRecord!.roots.isNotEmpty) 'roots': sourceRecord.roots,
           }),
         );
       } catch (e) {
@@ -330,6 +355,7 @@ class _MessagingGroupContent {
       _owner._serving[cid] = (
         manifest: manifest,
         source: activePrevious,
+        sourceRecord: previous?.sourceRecord,
         servedAt: _owner._now(),
       );
     } else {
@@ -340,6 +366,7 @@ class _MessagingGroupContent {
       _owner._serving[cid] = (
         manifest: manifest,
         source: source,
+        sourceRecord: sourceRecord,
         servedAt: _owner._now(),
       );
     }
