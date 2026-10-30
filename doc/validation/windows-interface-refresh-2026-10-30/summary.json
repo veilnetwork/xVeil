@@ -1,0 +1,32 @@
+{
+  "baseline_sdk": "c96bd930",
+  "sdk_commit": "ea7e838819b70ab3f866711cc3142b76e83e9f15",
+  "app_baseline": "0c543691",
+  "source_hashes": {
+    "Cargo.lock": "989a04a6576022a761010b011d4f6729a68a6723afb92ad27cb54fae3caa60d2",
+    "crates/veil-util/Cargo.toml": "9e61b90a9a191bf82a1a6c3af99ae948e6ccc074c52fcdd61937883311903c60",
+    "crates/veil-util/src/diagnostic_clock.rs": "869c5c42d2350ac77897df18aba77a7a242d455a70b273864cd431edf8503121",
+    "crates/veil-util/src/lib.rs": "bce9ce983ca1cbcab57c9b78abaf272131e0ee9df6b24f7be314442bcfc7022f",
+    "crates/veil-util/src/outbound_interface.rs": "c161ba0cbf68022b9285d6edbdf00a6dc96029482193f70a2dd3e86335c7af02",
+    "crates/veil-vpn-helper/Cargo.toml": "38ce13efa1a63ad7146fa6c836e90032c167b5db8e98563207826d14aedc93a9",
+    "crates/veil-vpn-helper/src/windows.rs": "ff05169e29166fbdfba9b2c23497da417b2493d01a7cbfa7704dc00fb3888744"
+  },
+  "host_util_tests_passed": 72,
+  "host_helper_tests_passed": 11,
+  "existing_doctests_ignored": 2,
+  "new_policy_tests_in_util_count": 8,
+  "native_windows_test_compiled_but_not_executed": 1,
+  "host_clippy_passed": true,
+  "windows_util_all_targets_clippy_passed": true,
+  "windows_runtime_production_seeds_cross_check_passed": true,
+  "windows_helper_cross_check_passed": true,
+  "cross_check_target": "x86_64-pc-windows-gnu",
+  "external_mount_verified_continuously": true,
+  "external_mount_lost": false,
+  "actual_windows_execution": false,
+  "original_win10_one_way_report_closed": false,
+  "active_own_vpn_underlay_handover_closed": false,
+  "stand_apps_started": false,
+  "sdk_binaries_installed": false,
+  "push_or_release": false
+}
