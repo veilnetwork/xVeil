@@ -184,8 +184,8 @@ bool runtimeDirMustBePrivate() => Platform.isMacOS || Platform.isLinux;
 /// socket the app drives the node through, and the app IPC socket it talks to
 /// it over.
 ///
-/// Two platforms cannot use a Unix domain socket and take authenticated
-/// loopback TCP instead, for unrelated reasons:
+/// Platforms or runtime paths that cannot use Unix domain sockets take
+/// authenticated loopback TCP instead:
 ///
 ///  * **iOS** — application-container paths exceed `sockaddr_un`'s `SUN_LEN` on
 ///    both physical devices and the Simulator, so the bind fails on a path the
@@ -197,6 +197,9 @@ bool runtimeDirMustBePrivate() => Platform.isMacOS || Platform.isLinux;
 ///    build could not compose a config, let alone start a node, and said so
 ///    only as a TOML column number. veil's own `veil-cfg` already answers
 ///    `tcp://127.0.0.1:0` for `not(unix)`; this had been overriding it.
+///  * **Long Unix paths** — Android adopted storage adds a volume identifier
+///    before the app sandbox. Count the actual socket path in UTF-8 bytes,
+///    including room for its NUL, rather than assuming app-private means short.
 ///
 /// TCP and not a named pipe, on Windows, for three independent reasons:
 /// `veil_node_start_deferred` rejects a `pipe://` endpoint outright, the Dart
@@ -205,10 +208,24 @@ bool runtimeDirMustBePrivate() => Platform.isMacOS || Platform.isLinux;
 ///
 /// Pure and platform-named rather than reading [Platform] itself, so every
 /// branch is reachable from a test on one host.
-LocalEndpointPlan localEndpointPlanFor(String operatingSystem) =>
-    LocalEndpointPlan(
-      loopbackTcp: operatingSystem == 'ios' || operatingSystem == 'windows',
-    );
+LocalEndpointPlan localEndpointPlanFor(
+  String operatingSystem, {
+  String? runtimeDir,
+}) {
+  // sockaddr_un.sun_path: Linux/Android 108, Darwin 104, including NUL.
+  final maxPathBytes = switch (operatingSystem) {
+    'android' || 'linux' => 107,
+    _ => 103,
+  };
+  final pathTooLong =
+      runtimeDir != null &&
+      (utf8.encode('$runtimeDir/admin.sock').length > maxPathBytes ||
+          utf8.encode('$runtimeDir/app.sock').length > maxPathBytes);
+  return LocalEndpointPlan(
+    loopbackTcp:
+        operatingSystem == 'ios' || operatingSystem == 'windows' || pathTooLong,
+  );
+}
 
 /// The local-endpoint shape [localEndpointPlanFor] picked, resolved against a
 /// runtime directory.
@@ -2555,7 +2572,10 @@ class RealVeilStack {
     required bool serveDht,
   }) async {
     final runtimeDir = lease.path;
-    final endpoints = localEndpointPlanFor(Platform.operatingSystem);
+    final endpoints = localEndpointPlanFor(
+      Platform.operatingSystem,
+      runtimeDir: runtimeDir,
+    );
     final ipcSock = endpoints.ipcSocket(runtimeDir);
     final ipcEndpoint = endpoints.ipcEndpoint(runtimeDir);
     final adminEndpoint = endpoints.adminEndpoint(runtimeDir);
