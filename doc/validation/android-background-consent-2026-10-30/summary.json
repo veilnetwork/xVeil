@@ -121,5 +121,16 @@
     "lib/features/home/home_shell.dart": "8229f58343b6fee45691d42832d9b3e5794a11b3ae79474fe34811abf9a61cb3",
     "lib/state/background_node_controller.dart": "b9c67bb0725a9f3e26ceff80621dc1aa1395c5a69857490b640912a87b09824a",
     "test/background_permission_offer_test.dart": "e2582c166044c456f53bcfc3fb17687f65c3f35df72f5001ac84e95b29ab6d43"
+  },
+  "fixed_offer_build": {
+    "source_app": "4768b9d2e1868327097f4d8dafdb88ac765270e1",
+    "source_sdk": "c96bd930878187ae5dc9b5c0f1261f6d2508c4e4",
+    "dart_plugin_source_sdk": "ea7e838819b70ab3f866711cc3142b76e83e9f15",
+    "native_sdk_deliberately_frozen": true,
+    "android_aot": true,
+    "native_test_hooks": false,
+    "test_low_difficulty": false,
+    "android_and_mac_builds_passed": true,
+    "not_installed_system_screen_locked": true
   }
 }
