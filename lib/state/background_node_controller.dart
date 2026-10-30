@@ -4,7 +4,7 @@ import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 import 'providers.dart';
 import '../core/diagnostic_journal.dart';
 
-const _kBackgroundNodeKey = 'keep_node_background';
+const kKeepNodeBackgroundPrefKey = 'keep_node_background';
 
 /// The two platform calls this controller makes, behind a seam.
 ///
@@ -52,7 +52,7 @@ class BackgroundNodeController extends Notifier<bool> {
   Future<void> _load() async {
     try {
       final prefs = await ref.read(prefsProvider.future);
-      if (!_userSet) state = prefs.getBool(_kBackgroundNodeKey) ?? false;
+      if (!_userSet) state = prefs.getBool(kKeepNodeBackgroundPrefKey) ?? false;
     } catch (_) {
       // No prefs (tests) — safe default off.
     }
@@ -77,7 +77,7 @@ class BackgroundNodeController extends Notifier<bool> {
     // exemption is missing.
     try {
       final prefs = await ref.read(prefsProvider.future);
-      await prefs.setBool(_kBackgroundNodeKey, value);
+      await prefs.setBool(kKeepNodeBackgroundPrefKey, value);
     } catch (_) {
       // Persist best-effort.
     }
