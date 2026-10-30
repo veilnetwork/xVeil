@@ -19,6 +19,7 @@ import 'package:xveil/data/vpn/vpn_backend.dart';
 import 'package:xveil/data/vpn/vpn_routing_policy.dart';
 import 'package:xveil/data/transport/bootstrap_invite.dart';
 import 'package:xveil/data/node/fake_node_controller.dart';
+import 'package:xveil/data/node/node_controller.dart';
 import 'package:xveil/data/veil_stack.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/identity.dart';
@@ -1971,6 +1972,56 @@ void _onboardingOpenFailureTests() {
 }
 
 void _runtimeBaseTeardownTests() {
+  test(
+    'a failed deniable node boot reaches the anonymous error report',
+    () async {
+      final dir = Directory.systemTemp.createTempSync('xveil-boot-journal-');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final c = ProviderContainer(
+        overrides: [
+          deniableBootProvider.overrideWithValue(
+            DeniableBootConfig(
+              runtimeDir: dir.path,
+              listenPort: 9000,
+              storePath: '${dir.path}/fixture-store',
+            ),
+          ),
+        ],
+      );
+      addTearDown(c.dispose);
+      final ctrl = c.read(appControllerProvider.notifier);
+      ctrl.debugDeniableStackStarter = (_) async => throw StateError(
+        'PRIVATE_BOOT_DETAIL /private/PRIVATE_RUNTIME/admin.sock',
+      );
+      await _settle(c);
+      await ctrl.completeOnboarding(
+        displayName: 'Fixture',
+        password: 'pw',
+        mode: StorageMode.hiddenSpace,
+      );
+      expect(c.read(nodeBootStateProvider)?.phase, NodePhase.error);
+      final report =
+          jsonDecode(
+                errorJournal.toJson(
+                  platform: 'android',
+                  osVersion: 'unknown',
+                  appVersion: 'fixture',
+                  phase: 'settings',
+                  includeTimestamps: false,
+                ),
+              )
+              as Map;
+      expect(
+        (report['errors'] as List).where(
+          (entry) => entry['kind'] == 'node-start',
+        ),
+        isNotEmpty,
+      );
+      expect(jsonEncode(report), isNot(contains('PRIVATE_')));
+      await ctrl.lock();
+    },
+  );
+
   /// Drive a real `lock()` with `runtimeDir` pointed at [dir].
   ///
   /// The deniable boot below reaches `_ensureRealStack`, and with the native

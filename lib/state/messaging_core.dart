@@ -1,6 +1,7 @@
 import 'package:meta/meta.dart' show visibleForTesting;
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show FileSystemException, OSError;
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart' as crypto;

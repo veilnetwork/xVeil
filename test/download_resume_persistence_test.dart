@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -33,6 +34,18 @@ class _HeldStorage extends HiddenVolumeStorage {
     : super(({required password, required bool create}) => kv);
   Completer<void>? entered, release;
   Completer<void>? lookupEntered, lookupRelease;
+  Object? readFailure;
+  StackTrace? readFailureStack;
+  @override
+  Future<Uint8List?> loadFile(String id, {int? maxBytes}) {
+    if (id == registry && readFailure != null) {
+      final stack = readFailureStack;
+      if (stack != null) Error.throwWithStackTrace(readFailure!, stack);
+      throw readFailure!;
+    }
+    return super.loadFile(id, maxBytes: maxBytes);
+  }
+
   @override
   Future<bool> hasFile(String id) async {
     final gate = lookupRelease;
@@ -348,6 +361,13 @@ void main() {
         );
         expect(transport.sends, 0);
         expect(await s.loadFile(registry), before);
+        final failure = errorJournal.entries.lastWhere(
+          (entry) => entry.kind == 'download-resume-read',
+        );
+        expect(
+          failure.type,
+          missing ? '_IncompleteDownloadResumeRegistry' : 'FormatException',
+        );
         // A transient read failure is not cached as a new empty registry.
         await s.storeFile(registry, Uint8List.fromList(utf8.encode('[]')));
         await service.downloadContent(peer, cid(9));
@@ -356,6 +376,43 @@ void main() {
       },
     );
   }
+
+  test('resume read keeps errno and drops private exception data', () async {
+    await service.downloadContent(peer, cid(1));
+    final before = await s.loadFile(registry);
+    await restart();
+    s.readFailure = const FileSystemException(
+      'PRIVATE_SOURCE_BYTES',
+      '/private/PRIVATE_DESTINATION',
+      OSError('PRIVATE_OS_MESSAGE', 13),
+    );
+    s.readFailureStack = StackTrace.fromString(
+      '#0 fixture (package:xveil/data/storage/hidden_volume_storage.dart:10:2)\n'
+      '#1 private (/private/PRIVATE_SOURCE.dart:20:3)',
+    );
+    final sent = transport.sends;
+    await expectLater(service.downloadContent(peer, cid(2)), throwsStateError);
+    expect(transport.sends, sent);
+    final failure = errorJournal.entries.lastWhere(
+      (entry) => entry.kind == 'download-resume-read',
+    );
+    expect(failure.type, 'FileSystemException');
+    expect(failure.numericCode, 13);
+    expect(failure.frames, [
+      'package:xveil/data/storage/hidden_volume_storage.dart:10:2',
+    ]);
+    expect(failure.message, isNot(contains('PRIVATE_')));
+    expect(jsonEncode(failure.toJson()), isNot(contains('PRIVATE_')));
+    s.readFailure = null;
+    s.readFailureStack = null;
+    expect(await s.loadFile(registry), before);
+    await service.downloadContent(peer, cid(3));
+    await restart();
+    expect(
+      await service.pendingAutoResumeContentIds(),
+      unorderedEquals([cid(1), cid(3)]),
+    );
+  });
 
   test(
     'cancel during a held intent write cannot start a late plaintext pull',
