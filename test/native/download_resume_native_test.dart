@@ -6,6 +6,8 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/data/serve_source.dart'
+    show VeilPlainFileSink, veilPlainFileSinkOpener;
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/hv_kv_log_store.dart';
 import 'package:xveil/data/storage/hv_native.dart';
@@ -24,6 +26,97 @@ class _OfflineTransport extends LoopbackTransport {
 }
 
 void main() {
+  test(
+    'a late destination handle closes after the real container has shut down',
+    () async {
+      expect(ensureHiddenVolumeLoaded(), true);
+      final dir = await Directory.systemTemp.createTemp('xveil-late-sink-');
+      HiddenVolumeStorage openStorage() => HiddenVolumeStorage(
+        hvSpaceOpener('${dir.path}/store.hv', argon: hv.ArgonPreset.min),
+      );
+      final transport = _OfflineTransport();
+      var storage = openStorage();
+      MessagingService? service;
+      final cid = '43' * 32;
+      final peer = NodeId(Uint8List(32)..fillRange(0, 32, 0xbb));
+      final opened = Completer<VeilPlainFileSink?>();
+      var deliveredHandle = false;
+      VeilPlainFileSink? lateSink;
+      try {
+        expect(
+          await storage.open(password: 'fixture', createIfMissing: true),
+          true,
+        );
+        await storage.upsertContact(
+          Contact(nodeId: peer, status: ContactStatus.accepted),
+        );
+        service = MessagingService(transport, storage, plainFileStream: true);
+        await service.downloadContentToFile(
+          peer,
+          cid,
+          '${dir.path}/saved.bin',
+          write: (_, _) async {},
+          close: () async {},
+        );
+        await service.dispose();
+        final entered = Completer<void>();
+        service = MessagingService(transport, storage, plainFileStream: true)
+          ..downloadResumeStartDelay = Duration.zero
+          ..plainFileSinkOpener = (_, {bool resume = false}) {
+            entered.complete();
+            return opened.future;
+          };
+        service.start();
+        await entered.future.timeout(const Duration(seconds: 10));
+        await service.dispose();
+        await storage.close();
+        final closed = Completer<void>();
+        var closes = 0;
+        var writes = 0;
+        lateSink = await veilPlainFileSinkOpener(
+          '${dir.path}/saved.bin',
+          resume: true,
+        );
+        expect(lateSink, isNotNull);
+        final actualSink = lateSink!;
+        deliveredHandle = true;
+        opened.complete((
+          write: (offset, bytes) async {
+            writes++;
+            await actualSink.write(offset, bytes);
+          },
+          close: () async {
+            closes++;
+            await actualSink.close();
+            if (!closed.isCompleted) closed.complete();
+          },
+          read: actualSink.read,
+        ));
+        await closed.future.timeout(const Duration(seconds: 10));
+        expect(closes, 1);
+        expect(writes, 0);
+        lateSink = null; // the late continuation closed the real file handles
+        expect(await File('${dir.path}/saved.bin').length(), 0);
+        storage = openStorage();
+        expect(await storage.open(password: 'fixture'), true);
+        service = MessagingService(transport, storage, plainFileStream: true);
+        expect(
+          await service.pendingAutoResumeContentIds(),
+          [cid],
+          reason: 'shutdown is not cancellation',
+        );
+      } finally {
+        if (!deliveredHandle) opened.complete(null);
+        await lateSink?.close();
+        await service?.dispose();
+        if (storage.isOpen) await storage.close();
+        await transport.dispose();
+        await dir.delete(recursive: true);
+      }
+    },
+    skip: Platform.environment['XVEIL_NATIVE_DOWNLOAD_RESUME'] != '1',
+  );
+
   test(
     'a refused destination retains its intent across a real container reopen',
     () async {
