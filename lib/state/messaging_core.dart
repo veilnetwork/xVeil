@@ -3665,12 +3665,11 @@ class MessagingService {
   //   - when an offer/manifest for a pending content id arrives (sender came
   //     back online);
   //   - after each contentDownloadFailed, with exponential backoff.
-  // The encrypted tier resumes at PIECE granularity for free (verified pieces
-  // persist in the blob store and the swarm skips them). A plain-file download
-  // resumes at the received offset within a session; across a restart it
-  // restarts from byte 0 into the same destination (the file sink keeps no
-  // durable piece bookkeeping — and on sandboxed macOS the NSSavePanel grant
-  // does not survive the restart anyway, in which case the record is dropped).
+  // The encrypted tier resumes at PIECE granularity (verified pieces persist
+  // in the blob store). A plain-file restart hash-verifies existing destination
+  // pieces without separate piece bookkeeping. A destination that cannot reopen
+  // retains its intent through bounded retries, then parks; a lost sandbox grant
+  // may require the user to select a destination again.
 
   /// Tunable delays (tests shrink these; production keeps the defaults).
   Duration get downloadResumeStartDelay => _downloadResume.startDelay;

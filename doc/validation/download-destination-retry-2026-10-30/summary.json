@@ -1,0 +1,34 @@
+{
+  "baseline_app": "0e59f6ac",
+  "red_tests_failed": 1,
+  "red_control_tests_passed": 1,
+  "related_tests_passed": 100,
+  "native_real_container_tests_passed": 2,
+  "native_real_container_tests_skipped": 0,
+  "new_destination_tests_in_related_count": 3,
+  "new_destination_tests_in_native_count": 1,
+  "maximum_destination_open_attempts_before_parking": 8,
+  "partial_destination_bytes": 262144,
+  "complete_test_file_bytes": 700000,
+  "successful_recovery_variants": [
+    "null opener",
+    "throwing opener"
+  ],
+  "explicit_cancel_remains_durable": true,
+  "flutter_analyze_issues": 0,
+  "test_transport": "in-process reliable-stream loopback and offline control transport",
+  "native_storage": "real hidden-volume ffi with prebuilt library verified by sha256",
+  "hidden_volume_library_sha256": "3b2eacc819b307125cafe01665ebbaec5ee6ed9d3b3d5d96bc5d5b26a50f79e7",
+  "new_retry_limits_or_protocol": false,
+  "original_33_percent_case_closed": false,
+  "sandbox_permission_reacquisition_implemented": false,
+  "network_routes_or_relay_timing_qualified": false,
+  "gui_stand_apps_started_for_this_file_fix": false,
+  "push_or_release": false,
+  "changed_source_sha256": {
+    "lib/state/messaging_download_resume.dart": "057ae1c38765d0254db0e1835229db4e227d58dde55b73415d68d940bb3dfe49",
+    "lib/state/messaging_core.dart": "dd35457f6401ac84d7a93299bf91d476d73f9adbd656eb5339d6379e56600bd4",
+    "test/download_auto_resume_test.dart": "6710e344e243bad0c55071836d4b4b02f99f37019b90896302a1bb6a0bf8eda2",
+    "test/native/download_resume_native_test.dart": "28eec193fe60314040a6e3bfc00584e7e82a065d849fc8c3a1e175a16bfc518a"
+  }
+}

@@ -302,6 +302,102 @@ void main() {
     },
   );
 
+  for (final throwsOnOpen in [false, true]) {
+    test('temporary destination ${throwsOnOpen ? 'exception' : 'refusal'} '
+        'preserves resume intent and verified bytes across restart', () async {
+      final data = _rnd(700000, 83);
+      final cid = await offerToB(data, 'destination-recovery.bin');
+      final dir = await Directory.systemTemp.createTemp('xveil-sink-recovery-');
+      addTearDown(() => dir.delete(recursive: true));
+      final path = '${dir.path}/download.bin';
+      // One verified 256-KiB piece survived an earlier interrupted run.
+      const pieceSize = 256 * 1024;
+      await File(path).writeAsBytes(data.sublist(0, pieceSize), flush: true);
+      cutLink();
+      await mB.downloadContentToFile(
+        a,
+        cid,
+        path,
+        write: (_, _) async {},
+        close: () async {},
+      );
+      expect(await mB.pendingAutoResumeContentIds(), contains(cid));
+      await mB.dispose();
+
+      final refused = Completer<void>();
+      mB = _makeService(tB, sB)
+        ..downloadResumeStartDelay = Duration.zero
+        ..plainFileSinkOpener = (path, {bool resume = false}) async {
+          expect(resume, isTrue);
+          refused.complete();
+          if (throwsOnOpen) {
+            throw StateError('temporary destination unavailable');
+          }
+          return null;
+        };
+      mB.start();
+      await refused.future.timeout(const Duration(seconds: 10));
+      // Settle the continuation after the opener, then dispose drains the
+      // durable write chain. No network-duration threshold is under test.
+      await Future<void>.delayed(Duration.zero);
+      await mB.dispose();
+      mB = _makeService(tB, sB);
+      expect(
+        await mB.pendingAutoResumeContentIds(),
+        contains(cid),
+        reason: 'failure to open a destination is neither success nor cancel',
+      );
+      expect(await File(path).readAsBytes(), data.sublist(0, pieceSize));
+
+      healLink();
+      _shrinkResumeDelays(mB);
+      final received = mB.contentReceived.firstWhere((e) => e.contentId == cid);
+      mB.start();
+      final event = await received.timeout(const Duration(seconds: 20));
+      expect(event.savedToPath, path);
+      expect(await File(path).readAsBytes(), data);
+      await mB.dispose();
+      mB = _makeService(tB, sB);
+      expect(await mB.pendingAutoResumeContentIds(), isNot(contains(cid)));
+    }, timeout: const Timeout(Duration(minutes: 1)));
+  }
+
+  test('an inaccessible destination parks after bounded retries and still '
+      'supports explicit cancellation', () async {
+    final data = _rnd(4096, 84);
+    final cid = await offerToB(data, 'unavailable-destination.bin');
+    cutLink();
+    await mB.downloadContentToFile(
+      a,
+      cid,
+      '/virtual/unavailable.bin',
+      write: (_, _) async {},
+      close: () async {},
+    );
+    await mB.dispose();
+    var attempts = 0;
+    final eightAttempts = Completer<void>();
+    mB = _makeService(tB, sB)
+      ..downloadResumeStartDelay = Duration.zero
+      ..downloadResumeBackoffBase = const Duration(milliseconds: 1)
+      ..downloadResumeBackoffCap = const Duration(milliseconds: 1)
+      ..plainFileSinkOpener = (path, {bool resume = false}) async {
+        attempts++;
+        if (attempts == 8) eightAttempts.complete();
+        return null;
+      };
+    mB.start();
+    await eightAttempts.future.timeout(const Duration(seconds: 10));
+    // Many complete retry periods: a parked destination must stay idle.
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    expect(attempts, 8);
+    expect(await mB.pendingAutoResumeContentIds(), contains(cid));
+    await mB.cancelContentDownload(cid);
+    await mB.dispose();
+    mB = _makeService(tB, sB);
+    expect(await mB.pendingAutoResumeContentIds(), isNot(contains(cid)));
+  });
+
   test('encrypted download interrupted by shutdown auto-resumes on the next '
       'service start (durable pending registry)', () async {
     final data = _rnd(500000, 11);
