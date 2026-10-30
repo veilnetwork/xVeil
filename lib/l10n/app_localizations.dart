@@ -12902,10 +12902,16 @@ abstract class AppL10n {
   /// **'No linked device to send to yet'**
   String get devicesSendNoTargets;
 
-  /// Body of the start-up offer to exempt the app from battery optimisation. Says what breaks without it and where to find the switch later, because the offer can be dismissed for good.
+  /// No description provided for @networkBackgroundSetupFailed.
   ///
   /// In en, this message translates to:
-  /// **'Without this Android stops xVeil the moment its screen goes off: the node stops, messages stop arriving, and the app still looks fine. Some phones (Xiaomi, Samsung) also hide an “Autostart” switch in the app\'s own settings that has to be on as well.\n\nYou can turn this on later at any time: Settings → Overlay network → Run in the background.'**
+  /// **'Could not finish setting up background operation. Check it in the network settings.'**
+  String get networkBackgroundSetupFailed;
+
+  /// Explains explicit consent to the foreground service, its visible notification and battery cost, the separate OS exemption, and where to change the choice later.
+  ///
+  /// In en, this message translates to:
+  /// **'Keep receiving messages when xVeil is in the background. Allow enables a foreground service with a persistent notification and additional battery use. Android may also ask to remove battery restrictions. Some phones need Autostart enabled in their app settings.\n\nYou can change this later: Settings → Overlay network → Run in the background.'**
   String get networkBackgroundOfferBody;
 
   /// Dismisses the start-up background-permission offer permanently. The setting itself stays reachable in Settings → Overlay network.

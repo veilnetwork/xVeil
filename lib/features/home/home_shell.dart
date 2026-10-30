@@ -27,6 +27,7 @@ import '../settings/storage_settings_screen.dart'
     show CompactPasswordDialog, fmtBytes;
 import '../../domain/storage_compaction_policy.dart';
 import '../../state/app_controller.dart';
+import '../../state/background_node_controller.dart';
 
 /// The main authenticated surface. Chats and Communities are real tabs:
 /// switching keeps the bottom bar and highlights the active destination —
@@ -71,13 +72,17 @@ class _HomeShellState extends ConsumerState<HomeShell> {
       // are about a commit already past and wait on the storage screen, where
       // nobody is interrupted by news they cannot act on.
       unawaited(maybeWarnHardeningSync(context, ref));
-      // The same argument, one layer down the stack. Without the battery
-      // exemption Android stops the node as soon as the screen goes off, and
-      // the app goes on reporting itself ready — so an install that never
-      // grants it is a messenger that silently receives nothing whenever it is
-      // not in front of you. Asked once, dismissible for good, and the body
-      // says where the switch lives afterwards.
-      unawaited(maybeOfferBackgroundPermission(context));
+      // An OS battery exemption does not enable the visible background service.
+      // Ask for that choice explicitly, respecting a previous opt-out.
+      unawaited(
+        maybeOfferBackgroundPermission(
+          context,
+          enableBackground: () async {
+            if (!mounted) return;
+            await ref.read(backgroundNodeProvider.notifier).set(true);
+          },
+        ),
+      );
       // Once a day at most, and silent unless there is something to say. The
       // check itself decides whether to ask at all — see [checkIfDue] — so
       // calling it on every launch costs nothing on the days it declines.

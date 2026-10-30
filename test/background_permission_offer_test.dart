@@ -1,108 +1,245 @@
-// When the app asks to be exempted from battery optimisation, and when it
-// must not.
-//
-// The exemption is not a nicety. The background node runs inside a foreground
-// service, and from Android 12 the platform refuses `startForeground()` for an
-// app it does not consider eligible — which an app without the exemption stops
-// being the moment it is backgrounded. Measured on a phone doing nothing
-// unusual: let the screen switch off and the node is gone, no sessions with any
-// seed, nothing delivered, while the app still reports itself ready. So the
-// question is worth asking once at start-up.
-//
-// Which is exactly why the answers have to be separated. "Later" and "don't ask
-// again" are different answers from different people, and an offer that cannot
-// be silenced becomes a nag while one that silences itself too easily removes
-// the feature by accident.
+import 'dart:async';
 
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:xveil/features/network/background_permission_offer.dart';
+import 'package:xveil/l10n/app_localizations.dart';
+import 'package:xveil/state/background_node_controller.dart';
 
 void main() {
   group('shouldOfferBackgroundPermission', () {
-    test('asks when the exemption is missing and nobody has silenced it', () {
+    test('an OS exemption alone does not enable the background node', () {
       expect(
         shouldOfferBackgroundPermission(
           onAndroid: true,
-          exempt: false,
+          exempt: true,
           suppressed: false,
         ),
         isTrue,
       );
     });
 
-    test('says nothing once the exemption is granted', () {
-      expect(
-        shouldOfferBackgroundPermission(
-          onAndroid: true,
-          exempt: true,
-          suppressed: false,
-        ),
-        isFalse,
-      );
-    });
-
-    test('says nothing after "don\'t ask again"', () {
-      expect(
-        shouldOfferBackgroundPermission(
-          onAndroid: true,
-          exempt: false,
-          suppressed: true,
-        ),
-        isFalse,
-      );
-    });
-
-    // Every other platform either has no such setting or expresses it
-    // differently; asking there would be a dialog about a switch that does not
-    // exist.
-    test('never asks off Android, whatever the other answers are', () {
-      for (final exempt in [true, false]) {
-        for (final suppressed in [true, false]) {
-          expect(
-            shouldOfferBackgroundPermission(
-              onAndroid: false,
-              exempt: exempt,
-              suppressed: suppressed,
-            ),
-            isFalse,
-            reason: 'exempt=$exempt suppressed=$suppressed',
-          );
+    test('only offers unfinished setup without an explicit opt-out', () {
+      for (final android in [false, true]) {
+        for (final exempt in [false, true]) {
+          for (final suppressed in [false, true]) {
+            for (final enabled in <bool?>[null, false, true]) {
+              final expected =
+                  android &&
+                  !suppressed &&
+                  (enabled == null || (enabled && !exempt));
+              expect(
+                shouldOfferBackgroundPermission(
+                  onAndroid: android,
+                  exempt: exempt,
+                  suppressed: suppressed,
+                  backgroundEnabled: enabled,
+                ),
+                expected,
+                reason:
+                    'android=$android exempt=$exempt '
+                    'suppressed=$suppressed enabled=$enabled',
+              );
+            }
+          }
         }
       }
     });
+  });
 
-    // Suppression must not be mistaken for consent. Someone who dismissed the
-    // start-up offer has said nothing about whether they want the exemption —
-    // they may grant it from the Network screen the next day — so the two must
-    // stay separate keys and separate questions.
-    test('a granted exemption and a silenced offer are independent', () {
-      expect(
-        shouldOfferBackgroundPermission(
-          onAndroid: true,
-          exempt: true,
-          suppressed: true,
+  Future<Future<void> Function()> mountOffer(
+    WidgetTester tester, {
+    required Future<void> Function() enable,
+    required Future<void> Function() request,
+    required Future<void> Function() settings,
+  }) async {
+    late BuildContext home;
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
+        locale: const Locale('en'),
+        home: Scaffold(
+          body: Builder(
+            builder: (context) {
+              home = context;
+              return const SizedBox();
+            },
+          ),
         ),
-        isFalse,
+      ),
+    );
+    final done = showBackgroundPermissionOffer(
+      home,
+      enableBackground: enable,
+      requestExemption: request,
+      openSettings: settings,
+    );
+    await tester.pumpAndSettle();
+    return () => done;
+  }
+
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  testWidgets(
+    'Allow persists the real node choice before requesting exemption',
+    (tester) async {
+      final container = ProviderContainer();
+      Object? enableError;
+      bool? persistedAtRequest;
+      bool? stateAtRequest;
+      addTearDown(container.dispose);
+      var requested = false;
+      var settings = false;
+      final done = await mountOffer(
+        tester,
+        enable: () async {
+          try {
+            await container.read(backgroundNodeProvider.notifier).set(true);
+          } catch (e) {
+            enableError = e;
+            rethrow;
+          }
+        },
+        request: () async {
+          final prefs = await SharedPreferences.getInstance();
+          persistedAtRequest = prefs.getBool(kKeepNodeBackgroundPrefKey);
+          stateAtRequest = container.read(backgroundNodeProvider);
+          requested = true;
+        },
+        settings: () async {
+          settings = true;
+        },
       );
-      // The pair that matters: silenced, and still not exempt. The app stays
-      // quiet — and that is precisely why the dialog body has to name where the
-      // switch lives, because nothing will bring it up again.
       expect(
-        shouldOfferBackgroundPermission(
-          onAndroid: true,
-          exempt: false,
-          suppressed: true,
+        (await SharedPreferences.getInstance()).getBool(
+          kKeepNodeBackgroundPrefKey,
         ),
-        isFalse,
+        isNull,
       );
+      await tester.tap(find.text('Allow'));
+      await tester.pumpAndSettle();
+      await done();
+      expect(enableError, isNull);
+      expect(persistedAtRequest, isTrue);
+      expect(stateAtRequest, isTrue);
+      expect(requested, isTrue);
+      expect(settings, isFalse);
+    },
+  );
+
+  testWidgets('OS request waits for enabling; dismissing cannot enable twice', (
+    tester,
+  ) async {
+    final enabled = Completer<void>();
+    var calls = 0;
+    var requested = false;
+    final done = await mountOffer(
+      tester,
+      enable: () {
+        calls++;
+        return enabled.future;
+      },
+      request: () async {
+        requested = true;
+      },
+      settings: () async {},
+    );
+    await tester.tap(find.text('Allow'));
+    await tester.pumpAndSettle();
+    expect(calls, 1);
+    expect(requested, isFalse);
+    expect(find.byType(AlertDialog), findsNothing);
+    enabled.complete();
+    await tester.pumpAndSettle();
+    await done();
+    expect(requested, isTrue);
+    expect(calls, 1);
+  });
+
+  for (final action in ['Later', "Don't ask again", 'App settings']) {
+    testWidgets('$action never opts into the background service', (
+      tester,
+    ) async {
+      var enabled = false;
+      var requested = false;
+      var settings = false;
+      final done = await mountOffer(
+        tester,
+        enable: () async {
+          enabled = true;
+        },
+        request: () async {
+          requested = true;
+        },
+        settings: () async {
+          settings = true;
+        },
+      );
+      await tester.tap(find.text(action));
+      await tester.pumpAndSettle();
+      await done();
+      expect(enabled, isFalse);
+      expect(requested, isFalse);
+      expect(settings, action == 'App settings');
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getBool(kKeepNodeBackgroundPrefKey), isNull);
+      expect(await backgroundOfferSuppressed(), action == "Don't ask again");
     });
+  }
+
+  testWidgets('barrier dismissal does not change either choice', (
+    tester,
+  ) async {
+    var called = false;
+    final done = await mountOffer(
+      tester,
+      enable: () async {
+        called = true;
+      },
+      request: () async {
+        called = true;
+      },
+      settings: () async {
+        called = true;
+      },
+    );
+    await tester.tapAt(const Offset(5, 5));
+    await tester.pumpAndSettle();
+    await done();
+    expect(called, isFalse);
+    expect(await backgroundOfferSuppressed(), isFalse);
   });
 
-  // The key is app-wide on purpose: one installed app, one OS setting. An
-  // identity-scoped key would ask the same question about the same switch again
-  // under a second identity.
-  test('the suppression key is not identity-scoped', () {
-    expect(kBackgroundOfferSuppressedPrefKey, isNot(contains('identity')));
-    expect(kBackgroundOfferSuppressedPrefKey, endsWith('.v1'));
-  });
+  testWidgets(
+    'a failed start surfaces a fixed message without exception data',
+    (tester) async {
+      var requested = false;
+      final done = await mountOffer(
+        tester,
+        enable: () async {
+          throw StateError('private-path-and-identity');
+        },
+        request: () async {
+          requested = true;
+        },
+        settings: () async {},
+      );
+      await tester.tap(find.text('Allow'));
+      await tester.pumpAndSettle();
+      await done();
+      expect(requested, isFalse);
+      expect(find.textContaining('private-path-and-identity'), findsNothing);
+      expect(
+        find.text(
+          'Could not finish setting up background operation. '
+          'Check it in the network settings.',
+        ),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    },
+  );
 }
