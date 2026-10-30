@@ -99,7 +99,7 @@
   "platform_and_controller_tests_passed": 16,
   "red_baseline_policy_failures": 1,
   "flutter_analyze_issues": 0,
-  "fixed_offer_physically_qualified": false,
+  "fixed_offer_physically_qualified": true,
   "original_sleep_report_closed": false,
   "original_qa_apk_hash_restored": true,
   "qa_apps_exited": true,
@@ -131,6 +131,47 @@
     "native_test_hooks": false,
     "test_low_difficulty": false,
     "android_and_mac_builds_passed": true,
-    "not_installed_system_screen_locked": true
-  }
+    "initially_waited_for_manual_system_unlock": true
+  },
+  "fixed_offer_ui_results": {
+    "offer_visible_with_existing_os_exemption": true,
+    "pre": {
+      "process_alive": true,
+      "foreground_service": false,
+      "daemon_wakelock": false,
+      "qa_resumed": true,
+      "system_unlocked": true
+    },
+    "preference_persisted_by_ui": true,
+    "post": {
+      "process_alive": true,
+      "foreground_service": true,
+      "daemon_wakelock": true,
+      "qa_resumed": true,
+      "system_unlocked": true
+    },
+    "restart": {
+      "process_alive": true,
+      "foreground_service": true,
+      "daemon_wakelock": true,
+      "qa_resumed": true,
+      "system_unlocked": true
+    },
+    "no_repeat_offer_after_restart": true,
+    "passed": true
+  },
+  "fixed_offer_ui_cleanup": {
+    "gracefully_locked": true,
+    "phone_exited": true,
+    "forward_removed": true,
+    "preferences_exactly_restored": true,
+    "original_apk": {
+      "installed_hash_verified": true
+    },
+    "whitelist_unchanged": true,
+    "api_port_free": true
+  },
+  "earlier_harness_attempts_not_counted_as_passed": 3,
+  "baseline_active_wake_lock_snapshots_rechecked": 48,
+  "baseline_active_wake_lock_recheck_all_held": true
 }
