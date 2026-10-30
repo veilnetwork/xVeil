@@ -400,9 +400,12 @@ class _StreamLink
   bool refuseDeviceProofCheck = false;
   @override
   bool peerDeviceProofAllowed(Uint8List identity, Uint8List device) {
-    if (refuseDeviceProofCheck) throw StateError('fixture verifier unavailable');
+    if (refuseDeviceProofCheck) {
+      throw StateError('fixture verifier unavailable');
+    }
     return deviceProofActive;
   }
+
   final NodeId _me;
   NodeId get nodeIdSync => _me;
   final _in = StreamController<InboundMessage>.broadcast();
@@ -709,7 +712,14 @@ void main() {
     return cid;
   }
 
-  for (final mode in ['revoked', 'record-lost', 'stored-copy', 'moved', 'changed', 'mid-read']) {
+  for (final mode in [
+    'revoked',
+    'record-lost',
+    'stored-copy',
+    'moved',
+    'changed',
+    'mid-read',
+  ]) {
     test('live source stream preserves its policy: $mode', () async {
       final dir = await Directory.systemTemp.createTemp('xveil-live-source');
       addTearDown(() => dir.delete(recursive: true));
@@ -724,33 +734,45 @@ void main() {
       mA.sourceOpener = veilSourceOpener;
       mA.servedSourceAuthorizer = (_, _) async => granted;
       final cid = await mA.registerGroupContentStreaming(
-        'delegated.bin', bytes.length,
+        'delegated.bin',
+        bytes.length,
         (offset, length) async {
           liveReads++;
           return Uint8List.sublistView(bytes, offset, offset + length);
         },
-        close: () async {}, sourcePath: file.path,
+        close: () async {},
+        sourcePath: file.path,
         sourceRoots: delegated ? [dir.path] : const [],
       );
       if (mode == 'record-lost') await sA.putSetting('served:$cid', '');
       Future<Uint8List> pull() async {
         final stream = (await tB.openStream(a))!;
         try {
-          await stream.write(Uint8List(48)..setAll(0, [
-            for (var i = 0; i < cid.length; i += 2)
-              int.parse(cid.substring(i, i + 2), radix: 16),
-          ]));
+          await stream.write(
+            Uint8List(48)..setAll(0, [
+              for (var i = 0; i < cid.length; i += 2)
+                int.parse(cid.substring(i, i + 2), radix: 16),
+            ]),
+          );
           final all = BytesBuilder(copy: false);
           while (true) {
-            final next = await stream.read().timeout(const Duration(seconds: 20));
+            final next = await stream.read().timeout(
+              const Duration(seconds: 20),
+            );
             if (next.isEmpty) break;
             all.add(next);
           }
           return all.takeBytes();
-        } finally { await stream.close(); }
+        } finally {
+          await stream.close();
+        }
       }
-      expect(_containsSlice(await pull(), original), isTrue,
-          reason: 'the active source must serve the original bytes');
+
+      expect(
+        _containsSlice(await pull(), original),
+        isTrue,
+        reason: 'the active source must serve the original bytes',
+      );
       final readsBefore = liveReads;
       if (mode == 'stored-copy') await sA.storeFile(cid, original);
       if (mode == 'moved') await file.delete();
@@ -777,14 +799,24 @@ void main() {
       final result = await pull();
       if (mode == 'stored-copy') {
         expect(_containsSlice(result, original), isTrue);
-        expect(liveReads, readsBefore,
-            reason: 'a stored copy must not read the now-ungranted original');
+        expect(
+          liveReads,
+          readsBefore,
+          reason: 'a stored copy must not read the now-ungranted original',
+        );
       } else if (mode == 'moved') {
-        expect(_containsSlice(result, original), isTrue,
-            reason: 'a valid live source survives a missing picker path');
+        expect(
+          _containsSlice(result, original),
+          isTrue,
+          reason: 'a valid live source survives a missing picker path',
+        );
       } else {
-        expect(_containsSlice(result, bytes), isFalse,
-            reason: 'failed durable verification cannot authorize raw RAM fallback');
+        expect(
+          _containsSlice(result, bytes),
+          isFalse,
+          reason:
+              'failed durable verification cannot authorize raw RAM fallback',
+        );
       }
     });
   }
@@ -1373,7 +1405,8 @@ void main() {
     expect(sw.elapsed, lessThan(const Duration(milliseconds: 500)));
     expect(
       await pending.timeout(const Duration(seconds: 1)),
-      ContentDownloadResult.started,
+      ContentDownloadResult.noOffer,
+      reason: 'disposal retires the pending preparation, not a new transfer',
     );
 
     await Future<void>.delayed(const Duration(milliseconds: 350));
@@ -1389,6 +1422,11 @@ void main() {
       contentPacing: Duration.zero,
       plainFileStream: true,
     )..start();
+    expect(
+      await mB.pendingAutoResumeContentIds(),
+      contains(cid),
+      reason: 'shutdown preserves the durable request for the next service',
+    );
   });
 
   test(
@@ -2055,35 +2093,38 @@ void main() {
       expect(_containsSlice(received.takeBytes(), data), isFalse);
     },
   );
-  test('a contact\'s DEVICE is served the file its identity was offered', () async {
-    // Veil answers every anonymous stream at the opener's device address, so
-    // the serving side sees B's device, not B. Measured on the stand as
-    // `stream-serve DENIED … (not accepted, no group grant)` for every pull
-    // between two identities with their own device keys.
-    final bDevice = _id(0x2D);
-    tB.anonStreamSrc = bDevice;
+  test(
+    'a contact\'s DEVICE is served the file its identity was offered',
+    () async {
+      // Veil answers every anonymous stream at the opener's device address, so
+      // the serving side sees B's device, not B. Measured on the stand as
+      // `stream-serve DENIED … (not accepted, no group grant)` for every pull
+      // between two identities with their own device keys.
+      final bDevice = _id(0x2D);
+      tB.anonStreamSrc = bDevice;
 
-    // CONTROL: A has never seen B's device prove whose it is — a stranger's
-    // id, and the serve is refused.
-    final first = _rnd(90000, 91);
-    final firstCid = await advertiseFromA(first, name: 'unproven-device.bin');
-    await mB.downloadContent(a, firstCid);
-    await Future<void>.delayed(const Duration(seconds: 3));
-    expect(await sB.loadFile(firstCid), isNull);
+      // CONTROL: A has never seen B's device prove whose it is — a stranger's
+      // id, and the serve is refused.
+      final first = _rnd(90000, 91);
+      final firstCid = await advertiseFromA(first, name: 'unproven-device.bin');
+      await mB.downloadContent(a, firstCid);
+      await Future<void>.delayed(const Duration(seconds: 3));
+      expect(await sB.loadFile(firstCid), isNull);
 
-    // B's frames now name the device they come from, which is how A learns
-    // the pair; the same pull is then served.
-    tB.srcDevice = bDevice;
-    await mB.sendText(a, 'hello from my device');
-    await Future<void>.delayed(const Duration(milliseconds: 200));
-    expect(mA.identityOfDevice(bDevice), b);
-    final data = _rnd(90000, 92);
-    final cid = await advertiseFromA(data, name: 'proven-device.bin');
-    final got = mB.contentReceived.first;
-    expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
-    await got.timeout(const Duration(seconds: 20));
-    expect(await sB.loadFile(cid), data);
-  });
+      // B's frames now name the device they come from, which is how A learns
+      // the pair; the same pull is then served.
+      tB.srcDevice = bDevice;
+      await mB.sendText(a, 'hello from my device');
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(mA.identityOfDevice(bDevice), b);
+      final data = _rnd(90000, 92);
+      final cid = await advertiseFromA(data, name: 'proven-device.bin');
+      final got = mB.contentReceived.first;
+      expect(await mB.downloadContent(a, cid), ContentDownloadResult.started);
+      await got.timeout(const Duration(seconds: 20));
+      expect(await sB.loadFile(cid), data);
+    },
+  );
 
   test('a pull goes to the DEVICE that offered the file', () async {
     // An identity publishes its stream address under ONE of its devices, so a
@@ -2247,9 +2288,9 @@ void main() {
     // ...and no chat with the sibling appeared for it: the file belongs to
     // the conversation its message is in, not to the device it came from.
     expect(
-      (await sB.loadMessages(a.hex)).where(
-        (m) => (m.fileContentId ?? m.fileId) == cid,
-      ),
+      (await sB.loadMessages(
+        a.hex,
+      )).where((m) => (m.fileContentId ?? m.fileId) == cid),
       isEmpty,
     );
   });
@@ -2262,33 +2303,36 @@ void main() {
     final cid = await advertiseFromA(data, name: 'not-opened.bin');
     await Future<void>.delayed(const Duration(milliseconds: 300));
     expect(await sB.loadFile(cid), isNull, reason: 'nobody downloaded it');
-    final sent = (await sA.loadMessages(b.hex)).where(
-      (m) => (m.fileContentId ?? m.fileId) == cid,
-    );
+    final sent = (await sA.loadMessages(
+      b.hex,
+    )).where((m) => (m.fileContentId ?? m.fileId) == cid);
     expect(sent, isNotEmpty);
     expect(sent.first.status, MessageStatus.delivered);
   });
 
-  test('an offer from a contact\'s DEVICE is acknowledged at that device', () async {
-    // Addressed to the identity, the ack lands wherever routing points; a
-    // sibling that sent the offer keeps re-sending it.
-    final aDevice = _id(0x1E);
-    tB.routes[aDevice.hex] = tA;
-    tA.srcDevice = aDevice;
-    final data = _rnd(90000, 97);
-    final cid = await advertiseFromA(data, name: 'ack-the-device.bin');
-    await Future<void>.delayed(const Duration(milliseconds: 300));
-    final msgId = (await sA.loadMessages(
-      b.hex,
-    )).firstWhere((m) => (m.fileContentId ?? m.fileId) == cid).id;
-    final ackWire = WireEnvelope.ack(msgId).encode();
-    final ackedTo = [
-      for (var i = 0; i < tB.sentPayloads.length; i++)
-        if (_sameBytes(tB.sentPayloads[i], ackWire)) tB.sentTo[i],
-    ];
-    expect(ackedTo, contains(aDevice.hex));
-    expect(ackedTo, isNot(contains(a.hex)));
-  });
+  test(
+    'an offer from a contact\'s DEVICE is acknowledged at that device',
+    () async {
+      // Addressed to the identity, the ack lands wherever routing points; a
+      // sibling that sent the offer keeps re-sending it.
+      final aDevice = _id(0x1E);
+      tB.routes[aDevice.hex] = tA;
+      tA.srcDevice = aDevice;
+      final data = _rnd(90000, 97);
+      final cid = await advertiseFromA(data, name: 'ack-the-device.bin');
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      final msgId = (await sA.loadMessages(
+        b.hex,
+      )).firstWhere((m) => (m.fileContentId ?? m.fileId) == cid).id;
+      final ackWire = WireEnvelope.ack(msgId).encode();
+      final ackedTo = [
+        for (var i = 0; i < tB.sentPayloads.length; i++)
+          if (_sameBytes(tB.sentPayloads[i], ackWire)) tB.sentTo[i],
+      ];
+      expect(ackedTo, contains(aDevice.hex));
+      expect(ackedTo, isNot(contains(a.hex)));
+    },
+  );
 
   test('a text to a contact not yet accepted is refused out loud', () async {
     // The chat screen offers no composer here, but the API and the debug hook
@@ -4679,6 +4723,7 @@ void main() {
       reason: 'resume stream must reconstruct the original bytes intact',
     );
   });
+
   /// A RETRY MUST BE SERVED, OR A LOST CHUNK IS A LOST FILE.
   ///
   /// The re-request frame id is `creq:<contentId>` — stable per content, on
@@ -4692,48 +4737,52 @@ void main() {
   /// devices then made were answered with `re-ack … already stashed` instead of
   /// bytes. The sender still held the file and was simply never asked again in
   /// a way it would act on. Nothing on either side reported a fault.
-  test('a REPEATED content request is served again, not re-acked away', () async {
-    final data = _rnd(48 * 1024, 77);
-    final cid = await advertiseFromA(data, name: 'retry-me.bin');
+  test(
+    'a REPEATED content request is served again, not re-acked away',
+    () async {
+      final data = _rnd(48 * 1024, 77);
+      final cid = await advertiseFromA(data, name: 'retry-me.bin');
 
-    // Built by hand so the SECOND request is byte-identical to the first,
-    // which is exactly what a retry is.
-    Uint8List request() => pieceRequestEnvelope(contentId: cid, indices: [0])
-        .withFrameId('creq:$cid')
-        .encode();
+      // Built by hand so the SECOND request is byte-identical to the first,
+      // which is exactly what a retry is.
+      Uint8List request() => pieceRequestEnvelope(
+        contentId: cid,
+        indices: [0],
+      ).withFrameId('creq:$cid').encode();
 
-    Future<int> chunksServed() async {
-      tA.sentPayloads.clear();
-      await mA.deliverInbound(
-        InboundMessage(
-          src: b,
-          payload: request(),
-          provenance: SenderProvenance.sessionPeer,
-        ),
-      );
-      await Future<void>.delayed(const Duration(milliseconds: 250));
-      var n = 0;
-      for (final payload in tA.sentPayloads) {
-        try {
-          if (WireEnvelope.decode(payload).kind == WireKind.pieceChunk) n++;
-        } catch (_) {}
+      Future<int> chunksServed() async {
+        tA.sentPayloads.clear();
+        await mA.deliverInbound(
+          InboundMessage(
+            src: b,
+            payload: request(),
+            provenance: SenderProvenance.sessionPeer,
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+        var n = 0;
+        for (final payload in tA.sentPayloads) {
+          try {
+            if (WireEnvelope.decode(payload).kind == WireKind.pieceChunk) n++;
+          } catch (_) {}
+        }
+        return n;
       }
-      return n;
-    }
 
-    expect(
-      await chunksServed(),
-      greaterThan(0),
-      reason: 'the premise: the first request IS served',
-    );
-    expect(
-      await chunksServed(),
-      greaterThan(0),
-      reason:
-          'the retry was dropped as a duplicate and only re-acked, so a '
-          'transfer that lost a chunk could never ask again',
-    );
-  });
+      expect(
+        await chunksServed(),
+        greaterThan(0),
+        reason: 'the premise: the first request IS served',
+      );
+      expect(
+        await chunksServed(),
+        greaterThan(0),
+        reason:
+            'the retry was dropped as a duplicate and only re-acked, so a '
+            'transfer that lost a chunk could never ask again',
+      );
+    },
+  );
 
   /// NOT SERVING IT RIGHT NOW IS NOT THE SAME AS NOT HAVING IT.
   ///
@@ -4746,89 +4795,97 @@ void main() {
   /// Measured on the stand (2026-09-21): after the sender restarted it still
   /// reported `hasBlob:true` for the content and still refused every request
   /// for it with `pieceRequest for UNSERVED … (ignored)`.
-  test('a piece request after the sender restarted is served from disk', () async {
-    final workdir = await Directory.systemTemp.createTemp('xveil-piece-src');
-    addTearDown(() => workdir.delete(recursive: true));
-    await mB.setFileDownloadPolicy(
-      mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
-    );
-    mA.sourceOpener = veilSourceOpener;
+  test(
+    'a piece request after the sender restarted is served from disk',
+    () async {
+      final workdir = await Directory.systemTemp.createTemp('xveil-piece-src');
+      addTearDown(() => workdir.delete(recursive: true));
+      await mB.setFileDownloadPolicy(
+        mB.fileDownloadPolicy.copyWith(autoMaxBytes: 0),
+      );
+      mA.sourceOpener = veilSourceOpener;
 
-    final bytes = _rnd(40 * 1024, 91);
-    await File('${workdir.path}/restarted.bin').writeAsBytes(bytes);
-    await mA.sendFileStreaming(
-      b,
-      'restarted.bin',
-      bytes.length,
-      (o, l) async => Uint8List.sublistView(bytes, o, o + l),
-      close: () async {},
-      sourcePath: '${workdir.path}/restarted.bin',
-    );
-    await Future<void>.delayed(const Duration(milliseconds: 120));
-    final cid = ContentManifest.fromBytes('restarted.bin', bytes).contentId;
+      final bytes = _rnd(40 * 1024, 91);
+      await File('${workdir.path}/restarted.bin').writeAsBytes(bytes);
+      await mA.sendFileStreaming(
+        b,
+        'restarted.bin',
+        bytes.length,
+        (o, l) async => Uint8List.sublistView(bytes, o, o + l),
+        close: () async {},
+        sourcePath: '${workdir.path}/restarted.bin',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+      final cid = ContentManifest.fromBytes('restarted.bin', bytes).contentId;
 
-    // Restart the sender: the serve registry is gone, the container is not.
-    await mA.dispose();
-    final mA2 =
-        MessagingService(
-            tA,
-            sA,
-            contentPacing: Duration.zero,
-            plainFileStream: true,
-          )
-          ..sourceOpener = veilSourceOpener
-          ..start();
-    addTearDown(mA2.dispose);
+      // Restart the sender: the serve registry is gone, the container is not.
+      await mA.dispose();
+      final mA2 =
+          MessagingService(
+              tA,
+              sA,
+              contentPacing: Duration.zero,
+              plainFileStream: true,
+            )
+            ..sourceOpener = veilSourceOpener
+            ..start();
+      addTearDown(mA2.dispose);
 
-    tA.sentPayloads.clear();
-    await mA2.deliverInbound(
-      InboundMessage(
-        src: b,
-        payload: pieceRequestEnvelope(contentId: cid, indices: [0])
-            .withFrameId('creq:$cid')
-            .encode(),
-        provenance: SenderProvenance.sessionPeer,
-      ),
-    );
-    await Future<void>.delayed(const Duration(milliseconds: 400));
+      tA.sentPayloads.clear();
+      await mA2.deliverInbound(
+        InboundMessage(
+          src: b,
+          payload: pieceRequestEnvelope(
+            contentId: cid,
+            indices: [0],
+          ).withFrameId('creq:$cid').encode(),
+          provenance: SenderProvenance.sessionPeer,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 400));
 
-    var chunks = 0;
-    for (final payload in tA.sentPayloads) {
-      try {
-        if (WireEnvelope.decode(payload).kind == WireKind.pieceChunk) chunks++;
-      } catch (_) {}
-    }
-    expect(
-      chunks,
-      greaterThan(0),
-      reason:
-          'the sender still held the file and still refused to serve it, '
-          'because the only record it consulted lives in RAM',
-    );
+      var chunks = 0;
+      for (final payload in tA.sentPayloads) {
+        try {
+          if (WireEnvelope.decode(payload).kind == WireKind.pieceChunk) {
+            chunks++;
+          }
+        } catch (_) {}
+      }
+      expect(
+        chunks,
+        greaterThan(0),
+        reason:
+            'the sender still held the file and still refused to serve it, '
+            'because the only record it consulted lives in RAM',
+      );
 
-    // CONTROL: content this device genuinely does not hold is still refused,
-    // or "re-open from disk" would become "serve anything anyone names".
-    tA.sentPayloads.clear();
-    const unknown =
-        '0000000000000000000000000000000000000000000000000000000000000001';
-    await mA2.deliverInbound(
-      InboundMessage(
-        src: b,
-        payload: pieceRequestEnvelope(contentId: unknown, indices: [0])
-            .withFrameId('creq:$unknown')
-            .encode(),
-        provenance: SenderProvenance.sessionPeer,
-      ),
-    );
-    await Future<void>.delayed(const Duration(milliseconds: 300));
-    for (final payload in tA.sentPayloads) {
-      try {
-        expect(
-          WireEnvelope.decode(payload).kind,
-          isNot(WireKind.pieceChunk),
-          reason: 'a request for content we never had was answered with bytes',
-        );
-      } catch (_) {}
-    }
-  });
+      // CONTROL: content this device genuinely does not hold is still refused,
+      // or "re-open from disk" would become "serve anything anyone names".
+      tA.sentPayloads.clear();
+      const unknown =
+          '0000000000000000000000000000000000000000000000000000000000000001';
+      await mA2.deliverInbound(
+        InboundMessage(
+          src: b,
+          payload: pieceRequestEnvelope(
+            contentId: unknown,
+            indices: [0],
+          ).withFrameId('creq:$unknown').encode(),
+          provenance: SenderProvenance.sessionPeer,
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      for (final payload in tA.sentPayloads) {
+        try {
+          expect(
+            WireEnvelope.decode(payload).kind,
+            isNot(WireKind.pieceChunk),
+            reason:
+                'a request for content we never had was answered with bytes',
+          );
+        } catch (_) {}
+      }
+    },
+  );
 }
