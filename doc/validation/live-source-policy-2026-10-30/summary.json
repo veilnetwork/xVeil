@@ -1,0 +1,68 @@
+{
+  "baseline_app_commit": "0e3f1852a99d2fd72cd28fffabf70eb9e34dad7c",
+  "sdk_unchanged": "c96bd930878187ae5dc9b5c0f1261f6d2508c4e4",
+  "source_sha256": {
+    "lib/state/messaging_content_availability.dart": "e6cb2e1ce26447196e980cd68b8e5c1d3cf06c6af95813c70d56478b3e53e376",
+    "lib/state/messaging_content_publish.dart": "dac11711a9abff1d17f3d3f1246dd42cb4a0846deb88b7007c295dba62ead577",
+    "lib/state/messaging_content_pull.dart": "ca82850cf3d1dd4cf9b9736e29aaea3f857cdea558453fd6427777cdcc872449",
+    "lib/state/messaging_content_server.dart": "658f793fd41ddb46c284e495325d36459cded878c129bdabe919fecd0381fff8",
+    "lib/state/messaging_content_serving.dart": "3e3486cc7c3edd3a6250cdbcdbdc69dc63d2246671dc9d55a4a55550175893cb",
+    "lib/state/messaging_group_content.dart": "a77dbc19ed8843f0ecb78520a6408699b19684bf5c27406f79f1897a022dd19e"
+  },
+  "baseline_scenarios_failed": 9,
+  "baseline_moved_live_source_control_passed": 1,
+  "candidate_scenarios_passed": 10,
+  "scenarios_are_not_independent_vulnerability_count": true,
+  "related_suite_passed": 158,
+  "api_filtered_suite_passed": 28,
+  "focused_scenarios_included_in_related_suite": true,
+  "analyze_issues": 0,
+  "physical_validation": false,
+  "apps_started": false,
+  "push_or_release": false,
+  "initial_5_5s_delay_closed": false,
+  "all_33percent_causes_closed": false,
+  "scenarios": [
+    {
+      "transport": "datagram",
+      "mode": "revoked, durable record present"
+    },
+    {
+      "transport": "datagram",
+      "mode": "revoked, durable record write failed"
+    },
+    {
+      "transport": "datagram",
+      "mode": "revoked during live read, opener unavailable"
+    },
+    {
+      "transport": "stream",
+      "mode": "revoked, live cache present"
+    },
+    {
+      "transport": "stream",
+      "mode": "revoked, durable record erased"
+    },
+    {
+      "transport": "stream",
+      "mode": "revoked original, independent stored copy remains readable without source read"
+    },
+    {
+      "transport": "stream",
+      "mode": "missing personal picker path, valid live bytes remain readable"
+    },
+    {
+      "transport": "stream",
+      "mode": "changed durable source and changed live bytes rejected"
+    },
+    {
+      "transport": "stream",
+      "mode": "revoked during owned source read"
+    },
+    {
+      "transport": "registration",
+      "mode": "caller clears mutable roots while contact lookup awaits; delegation marker retained and denied send closes source"
+    }
+  ],
+  "registration_permission_snapshot_before_first_await": true
+}

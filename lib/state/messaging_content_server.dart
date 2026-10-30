@@ -29,42 +29,29 @@ extension _MessagingContentServer on MessagingService {
       final record = _parseServedRecord(
         await _storage.getSetting('served:$cid'),
       );
-      ServeSource? source;
-      if (record != null) {
-        source = await _openVerifiedServedSource(cid, record);
-        // The `mf:` blob is the first casualty of a bloated store, and the
-        // served record carries the hashing params — same fallback the stream
-        // serve makes rather than answering UNSERVED.
-        manifest ??= await _rebuildManifestFromServedRecord(cid, record);
+      if (manifest == null &&
+          record != null &&
+          await _servedSourceStillAuthorized(cid, record)) {
+        manifest = await _rebuildManifestFromServedRecord(cid, record);
       }
       if (manifest == null ||
-          (source == null && !await _storage.hasFile(cid))) {
-        devLog(
-          () =>
-              'xVeil[content]: pieceRequest for UNSERVED '
-              '${cid.substring(0, 12)} <- ${peer.short} (ignored)',
-        );
+          (record == null && !await _storage.hasFile(cid))) {
         return;
       }
-      // Whoever wins a race here writes an equivalent entry: same manifest,
-      // and a source that was verified against the same content id.
+      // Restore metadata; the detached serve selects and owns its own handle.
+      // No verified descriptor is leaked or reopened solely for rehydration.
       _serving[cid] = (
         manifest: manifest,
-        source: source,
+        source: null,
+        sourceRecord: record,
         servedAt: _now(),
-      );
-      devLog(
-        () =>
-            'xVeil[content]: re-opened ${cid.substring(0, 12)} from disk for '
-            '${peer.short} — it survived the restart, the serve registry did '
-            'not',
       );
       _onPieceRequest(peer, req);
     } catch (error) {
       devLog(
         () =>
-            'xVeil[content]: could not re-open ${cid.substring(0, 12)} for '
-            '${peer.short}: $error',
+            'xVeil[content]: could not re-open '
+            '${cid.substring(0, 12)} for ${peer.short}: $error',
       );
     }
   }
@@ -97,6 +84,7 @@ extension _MessagingContentServer on MessagingService {
     _serving[req.contentId] = (
       manifest: served.manifest,
       source: served.source,
+      sourceRecord: served.sourceRecord,
       servedAt: _now(),
     );
     if (_servingNow.contains(req.contentId)) {
@@ -144,7 +132,7 @@ extension _MessagingContentServer on MessagingService {
       (a, b) => a + (b?.length ?? m.chunkCount(0)),
     );
     unawaited(
-      _serveChunks(peer, m, served.source, gaps)
+      _serveAuthorizedPieces(peer, m, served, gaps)
           // A serve that never finishes holds [_servingNow] forever, and every
           // later request for this content is answered with "a serve is already
           // in flight, skipping" — so one hung serve stops the transfer for
@@ -179,6 +167,51 @@ extension _MessagingContentServer on MessagingService {
           })
           .whenComplete(() => _servingNow.remove(req.contentId)),
     );
+  }
+
+  Future<void> _serveAuthorizedPieces(
+    NodeId peer,
+    ContentManifest manifest,
+    _ServedContent live,
+    Map<int, List<int>?> gaps,
+  ) async {
+    final record =
+        live.sourceRecord ??
+        _parseServedRecord(
+          await _storage.getSetting('served:${manifest.contentId}'),
+        );
+    final selected = await _selectServedSource(
+      manifest.contentId,
+      manifest,
+      live,
+      record,
+    );
+    try {
+      if (selected.source == null &&
+          !await _storage.hasFile(manifest.contentId)) {
+        await _contentAvailability.replyContentGone(peer, manifest.contentId);
+        return;
+      }
+      if (selected.source == null) {
+        final previous = _serving[manifest.contentId]?.source;
+        if (previous != null) {
+          _retireServeSourceForContent(manifest.contentId, previous);
+        }
+        _serving[manifest.contentId] = (
+          manifest: manifest,
+          source: null,
+          sourceRecord: null,
+          servedAt: _now(),
+        );
+      }
+      await _serveChunks(peer, manifest, selected.source, gaps);
+    } finally {
+      if (selected.owned) {
+        try {
+          await selected.source!.close();
+        } catch (_) {}
+      }
+    }
   }
 
   /// Drop served manifests idle past their TTL, then — if still over the
@@ -278,6 +311,10 @@ extension _MessagingContentServer on MessagingService {
                     ),
                   );
         } catch (e) {
+          if (e is _SourceAccessRevoked) {
+            await _contentAvailability.replyContentGone(peer, m.contentId);
+            return;
+          }
           devLog(
             () =>
                 'xVeil[content]: serve read failed '
@@ -512,23 +549,10 @@ extension _MessagingContentServer on MessagingService {
       ServeSource? source;
       var canReadStoredBlob = false;
       final live = _serving[cid];
-      if (live != null) {
-        manifest = live.manifest;
-        // Prefer a per-stream file handle when we persisted the source path.
-        // A repeated send of the same bytes has the same contentId and replaces
-        // the shared live source; if this stream borrowed that shared handle, the
-        // replacement could close it mid-transfer ("File closed"). A reopened
-        // handle is independent and is closed in this method's finally.
-        if (sourceOpener != null) {
-          final rec = _parseServedRecord(
-            await _storage.getSetting('served:$cid'),
-          );
-          if (rec != null) {
-            source = durable = await _openVerifiedServedSource(cid, rec);
-          }
-        }
-        source ??= live.source;
-      }
+      final record =
+          live?.sourceRecord ??
+          _parseServedRecord(await _storage.getSetting('served:$cid'));
+      manifest = live?.manifest;
       if (manifest == null) {
         final mfBytes = await _storage.loadFile('mf:$cid');
         if (mfBytes != null) {
@@ -537,24 +561,18 @@ extension _MessagingContentServer on MessagingService {
           );
         }
       }
-      if (source == null && sourceOpener != null) {
-        final rec = _parseServedRecord(
-          await _storage.getSetting('served:$cid'),
-        );
-        if (rec != null) {
-          source = durable = await _openVerifiedServedSource(cid, rec);
-        }
-      }
       // No mf: blob (its persist is the first casualty of a bloated store —
       // IndexFull) but the served: record carries the hashing params: rebuild
       // the manifest from the source file instead of answering UNSERVED.
       if (manifest == null) {
-        final rec = _parseServedRecord(
-          await _storage.getSetting('served:$cid'),
-        );
-        if (rec != null) {
-          manifest = await _rebuildManifestFromServedRecord(cid, rec);
+        if (record != null && await _servedSourceStillAuthorized(cid, record)) {
+          manifest = await _rebuildManifestFromServedRecord(cid, record);
         }
+      }
+      if (manifest != null) {
+        final selected = await _selectServedSource(cid, manifest, live, record);
+        source = selected.source;
+        if (selected.owned) durable = source;
       }
       if (source == null && manifest != null) {
         canReadStoredBlob = await _storage.hasFile(cid);
@@ -596,9 +614,16 @@ extension _MessagingContentServer on MessagingService {
       final m = manifest; // promoted non-null (closures need a final)
       final src = source;
       if (src == null) {
+        final previous = _serving[cid]?.source;
+        if (previous != null) _retireServeSourceForContent(cid, previous);
         // Warm the manifest for repeated swarm pulls. A null source means the
         // bytes are served from this identity's verified stored blob.
-        _serving[cid] = (manifest: m, source: null, servedAt: _now());
+        _serving[cid] = (
+          manifest: m,
+          source: null,
+          sourceRecord: null,
+          servedAt: _now(),
+        );
         _evictServing();
       }
       _bulkStreamLog(
@@ -711,6 +736,9 @@ extension _MessagingContentServer on MessagingService {
       );
     } catch (e) {
       failed = true;
+      if (e is _SourceAccessRevoked && activeCid != null) {
+        await _contentAvailability.replyContentGone(peer, activeCid);
+      }
       devLog(() => 'xVeil[content]: stream-serve failed <- ${peer.short}: $e');
     } finally {
       final cid = activeCid;

@@ -145,6 +145,7 @@ extension _MessagingContentPublish on MessagingService {
     NodeId dst,
     ContentManifest manifest, {
     ServeSource? source,
+    _ServedRecord? sourceRecord,
   }) async {
     final cid = manifest.contentId;
     final serveManifest = _baseContentManifest(manifest);
@@ -156,7 +157,12 @@ extension _MessagingContentPublish on MessagingService {
     } else if (prev?.source != null && source == null) {
       _retireServeSourceForContent(cid, prev!.source!);
     }
-    _serving[cid] = (manifest: serveManifest, source: source, servedAt: _now());
+    _serving[cid] = (
+      manifest: serveManifest,
+      source: source,
+      sourceRecord: sourceRecord,
+      servedAt: _now(),
+    );
     await _persistServeManifest(serveManifest);
     _evictServing();
     _ensureContentTimer();
@@ -510,6 +516,70 @@ extension _MessagingContentPublish on MessagingService {
     }
   }
 
+  ServeSource _guardServedReads(
+    String cid,
+    ServeSource source,
+    _ServedRecord? record,
+  ) {
+    if (record == null || record.roots.isEmpty) return source;
+    Future<Uint8List> read(int offset, int length) async {
+      if (_disposed || !await _servedSourceStillAuthorized(cid, record)) {
+        throw _SourceAccessRevoked();
+      }
+      final bytes = await source.read(offset, length);
+      if (_disposed || !await _servedSourceStillAuthorized(cid, record)) {
+        throw _SourceAccessRevoked();
+      }
+      return bytes;
+    }
+
+    return (read: read, close: source.close);
+  }
+
+  Future<({ServeSource? source, bool owned})> _selectServedSource(
+    String cid,
+    ContentManifest manifest,
+    _ServedContent? live,
+    _ServedRecord? record,
+  ) async {
+    const absent = (source: null, owned: false);
+    if (record != null && !await _servedSourceStillAuthorized(cid, record)) {
+      return absent;
+    }
+    if (sourceOpener != null && record != null) {
+      final opened = await _openVerifiedServedSource(cid, record);
+      if (opened != null) {
+        return (source: _guardServedReads(cid, opened, record), owned: true);
+      }
+      // A picker path may expire while its original live handle remains valid.
+      // Verify THAT source before borrowing it; an unsuccessful durable check
+      // must not become permission to send a changed or unauthorized source.
+      final fallback = live?.source;
+      if (fallback == null) return absent;
+      final guarded = _guardServedReads(cid, fallback, record);
+      try {
+        final checked = await ContentManifest.fromReader(
+          name: manifest.name,
+          size: manifest.size,
+          pieceSize: manifest.pieceSize,
+          chunkBytes: manifest.chunkBytes,
+          readRange: guarded.read,
+        );
+        if (checked.contentId != cid ||
+            !await _servedSourceStillAuthorized(cid, record)) {
+          return absent;
+        }
+      } catch (_) {
+        return absent;
+      }
+      return (source: guarded, owned: false);
+    }
+    final source = live?.source;
+    return source == null
+        ? absent
+        : (source: _guardServedReads(cid, source, record), owned: false);
+  }
+
   Future<void> _persistServeManifest(ContentManifest manifest) async {
     try {
       await _storage.storeFile(
@@ -790,11 +860,25 @@ extension _MessagingContentPublish on MessagingService {
     String? sourcePath,
     List<String> sourceRoots = const [],
   }) async {
+    final sourceRootSnapshot = List<String>.unmodifiable(sourceRoots);
     final contact = await _storage.getContact(dst);
     if (contact == null || contact.status != ContactStatus.accepted) {
       await close(); // not serving this peer → release the handle now
       return null;
     }
+    if (sourcePath == null && sourceRootSnapshot.isNotEmpty) {
+      await close();
+      throw ArgumentError('delegated source requires a path');
+    }
+    final _ServedRecord? liveRecord = sourcePath == null
+        ? null
+        : (
+            path: sourcePath,
+            size: size,
+            pieceSize: MessagingService.adaptivePieceSize(size),
+            name: name,
+            roots: sourceRootSnapshot,
+          );
     // The recipient will pull from us shortly — open our serve pool now, in
     // parallel with the piece hashing below.
     _warmStreamPeer(dst);
@@ -815,6 +899,10 @@ extension _MessagingContentPublish on MessagingService {
         chunkBytes: MessagingService._contentChunkBytes,
         readRange: read,
       );
+      if (liveRecord != null &&
+          !await _servedSourceStillAuthorized(base.contentId, liveRecord)) {
+        throw _SourceAccessRevoked();
+      }
       devLog(
         () =>
             'xVeil[content]: stream-send hashed "$name" '
@@ -923,7 +1011,7 @@ extension _MessagingContentPublish on MessagingService {
             'name': name,
             // The grant this offer was made under. Recorded so a later reopen
             // can ask whether it still holds instead of assuming it does.
-            if (sourceRoots.isNotEmpty) 'roots': sourceRoots,
+            if (liveRecord!.roots.isNotEmpty) 'roots': liveRecord.roots,
           }),
         );
       } catch (e) {
@@ -956,10 +1044,20 @@ extension _MessagingContentPublish on MessagingService {
       // using the previous source/path; replacing it mid-flight can close or
       // invalidate the stream's file handle on Android file_picker cache paths.
       await close();
-      await _advertiseStored(dst, m, source: activeSource);
+      await _advertiseStored(
+        dst,
+        m,
+        source: activeSource,
+        sourceRecord: activeExisting?.sourceRecord,
+      );
     } else {
       // Register the live source + advertise — NO stored copy.
-      await _advertiseStored(dst, m, source: (read: read, close: close));
+      await _advertiseStored(
+        dst,
+        m,
+        source: (read: read, close: close),
+        sourceRecord: liveRecord,
+      );
     }
     devLog(
       () =>

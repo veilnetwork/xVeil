@@ -387,9 +387,17 @@ class _MessagingContentAvailability {
   Future<void> onContentReoffer(NodeId peer, String contentId) async {
     final served = _owner._serving[contentId];
     if (served != null) {
+      final record = served.sourceRecord;
+      if (record != null &&
+          !await _owner._servedSourceStillAuthorized(contentId, record) &&
+          !await _owner._storage.hasFile(contentId)) {
+        await replyContentGone(peer, contentId);
+        return;
+      }
       _owner._serving[contentId] = (
         manifest: served.manifest,
         source: served.source,
+        sourceRecord: served.sourceRecord,
         servedAt: _owner._now(),
       );
       devLog(
@@ -454,6 +462,7 @@ class _MessagingContentAvailability {
       _owner._serving[contentId] = (
         manifest: manifest,
         source: source,
+        sourceRecord: record,
         servedAt: _owner._now(),
       );
       _owner._evictServing();
@@ -533,6 +542,7 @@ class _MessagingContentAvailability {
   }
 
   Future<void> replyContentGone(NodeId peer, String contentId) async {
+    if (_owner._disposed) return;
     try {
       if (await _owner._storage.hasFile(contentId)) return;
       devLog(
