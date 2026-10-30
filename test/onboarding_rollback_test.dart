@@ -11,6 +11,7 @@ import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/domain/identity.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/providers.dart';
+import 'package:xveil/core/diagnostic_journal.dart';
 
 /// Onboarding's rollback covered ONE step — the one that had not opened
 /// anything yet. Everything after it (the profile write, the preference writes,
@@ -125,6 +126,7 @@ void main() {
   late SharedPreferencesStorePlatform original;
 
   setUp(() {
+    diagnosticJournal.clear();
     original = SharedPreferencesStorePlatform.instance;
     SharedPreferences.setMockInitialValues({});
   });
@@ -187,6 +189,10 @@ void main() {
     );
     expect(h.storage.isOpen, isFalse);
     expect(h.container.read(appControllerProvider).phase, AppPhase.onboarding);
+    if (kDiagnosticReportEnabled) {
+      final evidence = diagnosticJournal.toJson()['last_evidence'] as Map;
+      expect((evidence['onboardingFailed'] as Map)['values'], {'state': 3});
+    }
   });
 
   test('a failure AFTER the preference writes takes the onboarded marker back '

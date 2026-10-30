@@ -20,6 +20,10 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 f'import {json.dumps(journal.as_uri())};\n'
                 'void main() {\n'
                 '  diagnosticJournal.record(DiagnosticEvent.startup);\n'
+                "  diagnosticJournal.recordMediaStats({'audio_input_level_band': 2, "
+                "'audio_output_level_band': 4, 'device': 'PRIVATE_CANARY'});\n"
+                "  diagnosticJournal.recordBackgroundState({'serviceForeground': true, "
+                "'wakeLockHeld': false, 'notification': 'PRIVATE_CANARY'});\n"
                 '  print(jsonEncode(diagnosticJournal.toJson()));\n'
                 '}\n'
             )
@@ -35,6 +39,19 @@ class DiagnosticArtifactTest(unittest.TestCase):
                     self.assertIn(b'xveil-diagnostics/1', data)
                     report = json.loads(subprocess.check_output([str(executable)], text=True))
                     self.assertEqual(report['enabled'], enabled)
+                    self.assertNotIn('PRIVATE_CANARY', json.dumps(report))
+                    if enabled:
+                        evidence = report['last_evidence']
+                        self.assertEqual(evidence['mediaSample']['values'], {
+                            'audioInputLevelBand': 2, 'audioOutputLevelBand': 4,
+                        })
+                        self.assertEqual(evidence['backgroundSnapshot']['values'], {
+                            'supported': 1, 'success': 1,
+                            'serviceForeground': 1, 'wakeLockHeld': 0,
+                        })
+                    else:
+                        self.assertEqual(report['events'], [])
+                        self.assertEqual(report['last_evidence'], {})
                     gate = subprocess.run(
                         [sys.executable, str(root / 'scripts/verify-diagnostic-artifact.py'),
                          str(executable)], capture_output=True, text=True,

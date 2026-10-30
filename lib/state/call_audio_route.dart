@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../domain/call_signal.dart';
+import '../core/diagnostic_journal.dart';
 
 enum CallAudioRoute { earpiece, speaker, external }
 
@@ -14,12 +15,17 @@ enum CallAudioRoute { earpiece, speaker, external }
 /// the route stays in place across camera changes until release or an explicit
 /// user selection. Reapplying a default can disconnect Android's audio devices.
 class CallAudioRouter {
-  CallAudioRouter({MethodChannel? channel, bool? hasNativePhoneRoute})
-    : _channel = channel ?? const MethodChannel('xveil/call_audio_route'),
-      _hasNativePhoneRoute =
-          hasNativePhoneRoute ?? (Platform.isAndroid || Platform.isIOS);
+  CallAudioRouter({
+    MethodChannel? channel,
+    bool? hasNativePhoneRoute,
+    DiagnosticJournal? diagnostics,
+  }) : _channel = channel ?? const MethodChannel('xveil/call_audio_route'),
+       _diagnostics = diagnostics ?? diagnosticJournal,
+       _hasNativePhoneRoute =
+           hasNativePhoneRoute ?? (Platform.isAndroid || Platform.isIOS);
 
   final MethodChannel _channel;
+  final DiagnosticJournal _diagnostics;
   final bool _hasNativePhoneRoute;
   bool _routeEstablished = false;
   final ValueNotifier<CallAudioRoute> route = ValueNotifier(
@@ -44,36 +50,55 @@ class CallAudioRouter {
     CallAudioRoute next, {
     bool preferExternal = false,
   }) async {
-    if (!_hasNativePhoneRoute) {
-      route.value = next;
-      _routeEstablished = true;
-      return true;
-    }
+    var success = false;
+    var code = 0;
     try {
-      final result = await _channel.invokeMethod<Object?>('setRoute', {
-        'speaker': next == CallAudioRoute.speaker,
-        if (preferExternal) 'preferExternal': true,
-      });
-      // Android reports the effective route; iOS and older hosts return bool.
-      if (result is String) {
-        for (final candidate in CallAudioRoute.values) {
-          if (candidate.name == result) {
-            route.value = candidate;
-            _routeEstablished = true;
-            return true;
-          }
-        }
-        return false;
-      }
-      if (result == true) {
+      if (!_hasNativePhoneRoute) {
         route.value = next;
         _routeEstablished = true;
+        success = true;
+        return true;
       }
-      return result == true;
-    } on PlatformException {
-      return false;
-    } on MissingPluginException {
-      return false;
+      try {
+        final result = await _channel.invokeMethod<Object?>('setRoute', {
+          'speaker': next == CallAudioRoute.speaker,
+          if (preferExternal) 'preferExternal': true,
+        });
+        // Android reports the effective route; iOS and older hosts return bool.
+        if (result is String) {
+          for (final candidate in CallAudioRoute.values) {
+            if (candidate.name == result) {
+              route.value = candidate;
+              _routeEstablished = true;
+              success = true;
+              return true;
+            }
+          }
+          return false;
+        }
+        if (result == true) {
+          route.value = next;
+          _routeEstablished = true;
+          success = true;
+        }
+        return result == true;
+      } on PlatformException {
+        code = 1;
+        return false;
+      } on MissingPluginException {
+        code = 2;
+        return false;
+      }
+    } finally {
+      _diagnostics.record(
+        DiagnosticEvent.audioRoute,
+        values: {
+          DiagnosticMetric.supported: _hasNativePhoneRoute ? 1 : 0,
+          DiagnosticMetric.success: success ? 1 : 0,
+          DiagnosticMetric.state: route.value.index,
+          DiagnosticMetric.code: code,
+        },
+      );
     }
   }
 
