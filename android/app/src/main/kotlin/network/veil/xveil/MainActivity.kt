@@ -44,7 +44,7 @@ class MainActivity : FlutterFragmentActivity() {
     private val secureScreenChannelName = "xveil/secure_screen"
     private val micRequestCode = 0x4D49 // 'MI'
     private var screenConsentToken: String? = null
-    private var pending: MethodChannel.Result? = null
+    private var mediaPermissions = createMediaPermissionQueue()
     private var pendingScreenCapture: MethodChannel.Result? = null
     private var callActionChannel: MethodChannel? = null
     private var pipEventsChannel: MethodChannel? = null
@@ -61,6 +61,8 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        mediaPermissions.close()
+        mediaPermissions = createMediaPermissionQueue()
         documentExport?.dispose()
         documentExport = DocumentExport(this, flutterEngine.dartExecutor.binaryMessenger)
         nativeCallCamera = NativeCallCamera(this, flutterEngine.renderer)
@@ -418,6 +420,7 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     override fun onDestroy() {
+        mediaPermissions.close()
         documentExport?.dispose()
         setCallNetworkActive(false)
         releaseCallAudioRoute()
@@ -713,18 +716,17 @@ class MainActivity : FlutterFragmentActivity() {
         ContextCompat.checkSelfPermission(this, permFor(type)) ==
             PackageManager.PERMISSION_GRANTED
 
+    private fun createMediaPermissionQueue() = MediaPermissionQueue(
+        granted = { permission ->
+            ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+        },
+        launch = { permission ->
+            ActivityCompat.requestPermissions(this, arrayOf(permission), micRequestCode)
+        },
+    )
+
     private fun request(type: String, result: MethodChannel.Result) {
-        if (granted(type)) {
-            result.success(true)
-            return
-        }
-        if (pending != null) {
-            // A request is already in flight; don't stack the system dialog.
-            result.success(false)
-            return
-        }
-        pending = result
-        ActivityCompat.requestPermissions(this, arrayOf(permFor(type)), micRequestCode)
+        mediaPermissions.request(permFor(type)) { ok -> result.success(ok) }
     }
 
     /**
@@ -775,14 +777,18 @@ class MainActivity : FlutterFragmentActivity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == micRequestCode) {
-            val ok = grantResults.isNotEmpty() &&
-                grantResults[0] == PackageManager.PERMISSION_GRANTED
-            pending?.success(ok)
-            pending = null
+            val permission = mediaPermissions.activePermission
+            val index = permissions.indexOf(permission)
+            val ok = index >= 0 && index < grantResults.size &&
+                grantResults[index] == PackageManager.PERMISSION_GRANTED &&
+                permission != null &&
+                ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+            mediaPermissions.complete(ok)
         }
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        mediaPermissions.close()
         documentExport?.dispose()
         documentExport = null
         nativeCallCamera?.stop()

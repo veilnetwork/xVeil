@@ -1409,21 +1409,27 @@ class VeilCallMediaController implements CallMediaController {
     // short shared preflight window. The futures keep running after the bound,
     // so a prompt can still complete while the call comes up.
     final permissionRequests = <Future<void>>[];
+    Future<bool>? cameraPermission;
     if (call.media.audio) {
       permissionRequests.add(
-        MacMediaPermissions.requestMicrophone().then(
-          (granted) =>
-              devLog(() => 'xVeil[call-media]: mic permission=$granted'),
+        AndroidCallForegroundService.activateWhenMicrophoneGranted(
+          MacMediaPermissions.requestMicrophone().then((granted) {
+            devLog(() => 'xVeil[call-media]: mic permission=$granted');
+            return granted;
+          }),
+          isCurrent: () =>
+              _mediaEpoch == epoch &&
+              _activeCall?.callId == call.callId &&
+              _microphoneState.belongsToCall(call.callId),
         ),
       );
     }
     if (call.media.video) {
-      permissionRequests.add(
-        MacMediaPermissions.requestCamera().then(
-          (granted) =>
-              devLog(() => 'xVeil[call-media]: camera permission=$granted'),
-        ),
-      );
+      cameraPermission = MacMediaPermissions.requestCamera().then((granted) {
+        devLog(() => 'xVeil[call-media]: camera permission=$granted');
+        return granted;
+      });
+      permissionRequests.add(cameraPermission.then<void>((_) {}));
     }
     if (permissionRequests.isNotEmpty) {
       await Future.wait(permissionRequests).timeout(
@@ -1931,7 +1937,13 @@ class VeilCallMediaController implements CallMediaController {
         if (Platform.isAndroid) {
           // Do not hold the call FSM in `connecting` while camera permission or
           // device opening completes; the receive pipeline is already mounted.
-          unawaited(_startAndroidCam(engine, highQuality: highQuality));
+          unawaited(_cameraState.startWhenGranted(
+            callId: call.callId,
+            permission: cameraPermission ?? Future<bool>.value(false),
+            isCurrent: () => _mediaEpoch == epoch && _engine == engine &&
+                _activeCall?.callId == call.callId,
+            start: () => _startAndroidCam(engine, highQuality: highQuality),
+          ));
         } else {
           try {
             engine.startCamera(
