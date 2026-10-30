@@ -63,5 +63,8 @@
     "mac_jit_built": true,
     "installed_or_launched": false,
     "owned_build_group_exited": true
-  }
+  },
+  "physical_followup_report": "../file-reconnect-physical-2026-10-30/README.md",
+  "physical_followup_normal_and_network_recovery_files_passed": 4,
+  "physical_followup_cancel_or_replace_interleavings_injected": false
 }
