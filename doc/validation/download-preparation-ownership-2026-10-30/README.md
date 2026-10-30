@@ -76,6 +76,20 @@ lifecycle. Проверки внутри работающих payload workers, �
 самого backend до возврата await, local-export cancellation и UI-обработка
 устаревшего результата требуют отдельной квалификации. Нельзя считать этим
 раундом закрытыми все payload race conditions или весь случай «33%».
-Production AOT, Android/Windows и реальные реле в этом раунде не запускались.
+Физическое поведение Android/Windows и реальные реле в этом раунде не проверялись.
 Тестовые группы процессов завершены, native-фикстуры удалены. GUI-стенд не
 запускался. Коммит без подписи; push/релиза нет.
+
+## Проверка сборки
+
+Из чистого `48a2d436` затем успешно собраны QA Android profile/AOT и Mac JIT.
+Каждый lib source скопирован из этого checkout с проверкой SHA-256; SDK/plugin
+source checkout — `ea7e8388`. Native намеренно зафиксирован на проверенных
+библиотеках `c96bd930`; в проверенных runtime/FFI/stream/plugin путях разницы
+между ними нет. Native source не подменяется заявлением «собран последний SDK».
+Сверены FFI и прочие native libraries в APK, AOT/kernel, подпись Mac и набор
+источников. Networking production, native test hooks/пониженной PoW нет;
+существующий UI debug hook включён только в QA defines. Это profile-сборка,
+не публикация production release. Установка и физическая серия ещё не выполнены.
+Собственная группа сборки завершена; основное приложение и установленный QA APK
+не менялись. Данные артефактов без адресов/ключей внесены в summary.json.
