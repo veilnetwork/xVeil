@@ -1,0 +1,60 @@
+{
+  "schema": "xveil-validation/1",
+  "native_sdk": "08b67a6e",
+  "android_profile_aot": true,
+  "separate_synthetic_package": true,
+  "tests": {
+    "flutter_passed": 278,
+    "kotlin_checks_passed": 9,
+    "dart_analysis": "no issues"
+  },
+  "first_call_before_camera_gate": {
+    "active_seconds": 99,
+    "runtime_prompts": 2,
+    "android_video_sent_frames": 0,
+    "typed_microphone_service_active": true
+  },
+  "after_camera_gate": {
+    "active_seconds": 98.365,
+    "runtime_prompts": 2,
+    "grants_via_real_os_dialogs": true,
+    "typed_microphone_service_active": true,
+    "unexpected_end": false,
+    "media_counters": {
+      "Mac": {
+        "route": "p2p",
+        "local_frames": 2968,
+        "sent_video_frames": 2725,
+        "received_video_frames": 2549,
+        "displayed_remote_frames": 2547
+      },
+      "Android": {
+        "route": "p2p",
+        "local_frames": 2776,
+        "sent_video_frames": 2549,
+        "received_video_frames": 2725,
+        "displayed_remote_frames": 2721
+      }
+    }
+  },
+  "limits": {
+    "microphones_muted": true,
+    "audible_audio_not_qualified": true,
+    "late_microphone_capture_not_qualified": true,
+    "historical_25_second_end_not_attributed": true,
+    "mac_frontend_frozen": true,
+    "no_windows10_or_other_oem_qualification": true
+  },
+  "cleanup": {
+    "owned_android_and_mac_processes_exited": true,
+    "isolated_package_uninstalled": true,
+    "owned_forward_removed": true,
+    "api_and_stand_ports_free": true,
+    "synthetic_certificate_removed": true,
+    "typed_mic_service_absent_after_hangup": true,
+    "existing_apps_and_containers_not_replaced": true,
+    "old_qa_restoration_independently_verified": true,
+    "no_ratchet_rollback": true,
+    "no_relay_changes": true
+  }
+}
