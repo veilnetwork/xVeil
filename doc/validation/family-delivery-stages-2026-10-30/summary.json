@@ -1,0 +1,190 @@
+{
+  "schema": "xveil-validation/1",
+  "sdk": "5c392c4cc21bd868578515f17c814ba3302d2c80",
+  "source_app": "48a2d436e820fc9760ca781801783bffa519b392",
+  "dart_plugin_source_sdk": "ea7e838819b70ab3f866711cc3142b76e83e9f15",
+  "native_only_repack": true,
+  "production_seeds": true,
+  "test_low_difficulty": false,
+  "native_test_hooks": false,
+  "real_sovereign_onboarding": true,
+  "new_qa_profile": true,
+  "file_integrity": {
+    "passed": 4,
+    "attempted": 4
+  },
+  "cases": [
+    {
+      "case": "control-to-phone",
+      "source": "Mac",
+      "receiver": "Android",
+      "bytes": 3145979,
+      "sha256_matches": true,
+      "seconds": 4.531,
+      "first_verified_part_seconds": 1.211,
+      "max_verified_part_interval_seconds": 1.108,
+      "progress_samples": 4,
+      "interrupted": false,
+      "radios_off_at_seconds": null,
+      "radios_restored_at_seconds": null
+    },
+    {
+      "case": "control-to-mac",
+      "source": "Android",
+      "receiver": "Mac",
+      "bytes": 3145979,
+      "sha256_matches": true,
+      "seconds": 7.561,
+      "first_verified_part_seconds": 2.017,
+      "max_verified_part_interval_seconds": 1.008,
+      "progress_samples": 15,
+      "interrupted": false,
+      "radios_off_at_seconds": null,
+      "radios_restored_at_seconds": null
+    },
+    {
+      "case": "flap-to-phone",
+      "source": "Mac",
+      "receiver": "Android",
+      "bytes": 33554683,
+      "sha256_matches": true,
+      "seconds": 60.937,
+      "first_verified_part_seconds": 1.202,
+      "max_verified_part_interval_seconds": 21.035,
+      "progress_samples": 55,
+      "interrupted": true,
+      "radios_off_at_seconds": 11.424,
+      "radios_restored_at_seconds": 20.473
+    },
+    {
+      "case": "flap-to-mac",
+      "source": "Android",
+      "receiver": "Mac",
+      "bytes": 33554683,
+      "sha256_matches": true,
+      "seconds": 95.597,
+      "first_verified_part_seconds": 1.514,
+      "max_verified_part_interval_seconds": 17.271,
+      "progress_samples": 189,
+      "interrupted": true,
+      "radios_off_at_seconds": 13.232,
+      "radios_restored_at_seconds": 21.428
+    }
+  ],
+  "offer_visibility_seconds": {
+    "control-to-phone": 0.894,
+    "control-to-mac": 0.635,
+    "flap-to-phone": 1.052,
+    "flap-to-mac": 0.892
+  },
+  "current_payload_idle": {
+    "observed": true,
+    "timeout_ms": 20000,
+    "bytes_at_timeout": 12007013,
+    "expected_bytes": 33554683,
+    "eventual_download_sha_matches": true
+  },
+  "sampled_static_receive_prefix_with_out_of_order_ms": 15468,
+  "endpoint_inbox_full": {
+    "Mac": 0,
+    "Android": 0
+  },
+  "android_late_unknown_ack_rows": 19,
+  "all_observed_unknown_acks_follow_retirement": true,
+  "phone_power_samples": {
+    "count": 17,
+    "awake": 17,
+    "doze_active": 17,
+    "service_foreground": 17
+  },
+  "relay_observations": [
+    {
+      "relay_alias": 1,
+      "available": true,
+      "selected_rows": 41,
+      "missing_to_test_phone_log_rows": 0,
+      "same_window_case_counts": {},
+      "not_packet_or_stream_attribution": true
+    },
+    {
+      "relay_alias": 2,
+      "available": true,
+      "selected_rows": 35,
+      "missing_to_test_phone_log_rows": 0,
+      "same_window_case_counts": {},
+      "not_packet_or_stream_attribution": true
+    },
+    {
+      "relay_alias": 3,
+      "available": true,
+      "selected_rows": 90,
+      "missing_to_test_phone_log_rows": 0,
+      "same_window_case_counts": {},
+      "not_packet_or_stream_attribution": true
+    },
+    {
+      "relay_alias": 4,
+      "available": true,
+      "selected_rows": 298,
+      "missing_to_test_phone_log_rows": 132,
+      "same_window_case_counts": {
+        "flap-to-phone": 132
+      },
+      "not_packet_or_stream_attribution": true
+    },
+    {
+      "relay_alias": 5,
+      "available": true,
+      "selected_rows": 177,
+      "missing_to_test_phone_log_rows": 1,
+      "same_window_case_counts": {
+        "flap-to-mac": 1
+      },
+      "not_packet_or_stream_attribution": true
+    },
+    {
+      "relay_alias": 6,
+      "available": true,
+      "selected_rows": 189,
+      "missing_to_test_phone_log_rows": 0,
+      "same_window_case_counts": {},
+      "not_packet_or_stream_attribution": true
+    }
+  ],
+  "relay_same_host_order": [
+    {
+      "relay_alias": 4,
+      "case": "flap-to-phone",
+      "missing_log_rows": 132,
+      "phone_session_open_rows": 1,
+      "next_open_after_last_missing_seconds": 2.297
+    },
+    {
+      "relay_alias": 5,
+      "case": "flap-to-mac",
+      "missing_log_rows": 1,
+      "phone_session_open_rows": 1,
+      "next_open_after_last_missing_seconds": 2.892
+    }
+  ],
+  "tests": {
+    "ipc_passed": 197,
+    "ipc_ignored": 5,
+    "clippy": "passed",
+    "native_macos_arm64": "built",
+    "native_android_arm64_api21": "built"
+  },
+  "cleanup": {
+    "owned_groups_exited": true,
+    "phone_qa_exited": true,
+    "baseline_qa_apk_hash_verified": true,
+    "original_profile_selection_restored": true,
+    "old_qa_container_hash_unchanged": true,
+    "synthetic_files_removed": 6,
+    "synthetic_bytes_removed_after_sha": 110101986,
+    "main_phone_application_untouched": true
+  },
+  "relay_access": "read-only",
+  "push": false,
+  "release": false
+}
