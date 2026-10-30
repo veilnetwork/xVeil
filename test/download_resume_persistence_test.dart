@@ -32,6 +32,18 @@ class _HeldStorage extends HiddenVolumeStorage {
   _HeldStorage(FakeKvLogStore kv)
     : super(({required password, required bool create}) => kv);
   Completer<void>? entered, release;
+  Completer<void>? lookupEntered, lookupRelease;
+  @override
+  Future<bool> hasFile(String id) async {
+    final gate = lookupRelease;
+    if (gate != null) {
+      lookupRelease = null;
+      lookupEntered!.complete();
+      await gate.future;
+    }
+    return super.hasFile(id);
+  }
+
   @override
   Future<void> storeFile(String id, Uint8List bytes, {String? name}) async {
     if (id == registry && release != null) {
@@ -79,6 +91,7 @@ void main() {
   });
   tearDown(() async {
     s.release?.complete();
+    s.lookupRelease?.complete();
     await service.dispose();
     await transport.dispose();
     await s.close();
@@ -87,6 +100,156 @@ void main() {
   Future<void> restart() async {
     await service.dispose();
     service = MessagingService(transport, s, plainFileStream: true);
+  }
+
+  for (final entry in ['store', 'store-any', 'file', 'file-any']) {
+    for (final action in ['cancel', 'replace', 'clear']) {
+      test('a suspended $entry preparation cannot survive $action', () async {
+        const oldPath = '/virtual/preparation-old.bin';
+        const newPath = '/virtual/preparation-new.bin';
+        final contentId = cid(99);
+        var oldCloses = 0;
+        var oldWrites = 0;
+        s.lookupEntered = Completer<void>();
+        final gate = Completer<void>();
+        s.lookupRelease = gate;
+        Future<ContentDownloadResult> old;
+        switch (entry) {
+          case 'store':
+            old = service.downloadContent(peer, contentId);
+          case 'store-any':
+            old = service.downloadContentFromAny(const [], contentId);
+          case 'file':
+            old = service.downloadContentToFile(
+              peer,
+              contentId,
+              oldPath,
+              write: (_, _) async {
+                oldWrites++;
+              },
+              close: () async {
+                oldCloses++;
+              },
+            );
+          default:
+            old = service.downloadContentToFileFromAny(
+              const [],
+              contentId,
+              oldPath,
+              write: (_, _) async {
+                oldWrites++;
+              },
+              close: () async {
+                oldCloses++;
+              },
+            );
+        }
+        await s.lookupEntered!.future;
+        try {
+          if (action == 'cancel') {
+            await service.cancelContentDownload(contentId);
+          }
+          if (action == 'clear') await service.clearPendingDownloads();
+          if (action == 'replace') {
+            expect(
+              await service.downloadContentToFileFromAny(
+                const [],
+                contentId,
+                newPath,
+                write: (_, _) async {},
+                close: () async {},
+              ),
+              ContentDownloadResult.noOffer,
+            );
+          }
+        } finally {
+          gate.complete();
+        }
+        await old;
+        final encoded = await s.loadFile(registry);
+        final entries = encoded == null
+            ? []
+            : jsonDecode(utf8.decode(encoded)) as List;
+        if (action == 'replace') {
+          expect(entries.single['path'], newPath);
+          expect(entries.single['mode'], 'file');
+        } else {
+          expect(entries, isEmpty);
+        }
+        expect(
+          transport.sends,
+          0,
+          reason: 'the obsolete request must not seek a reoffer',
+        );
+        expect(oldWrites, 0);
+        if (entry.startsWith('file')) expect(oldCloses, 1);
+      });
+    }
+  }
+
+  for (final anySource in [false, true]) {
+    for (final closeFails in [false, true]) {
+      test(
+        'retired ${anySource ? 'swarm' : 'direct'} sink cleanup preserves '
+        'a new request to the same path (close failure=$closeFails)',
+        () async {
+          final contentId = cid(100);
+          const path = '/virtual/same-destination.bin';
+          s.lookupEntered = Completer<void>();
+          final gate = Completer<void>();
+          s.lookupRelease = gate;
+          var oldCloses = 0;
+          Future<void> oldClose() async {
+            oldCloses++;
+            if (closeFails) throw StateError('private cleanup failure');
+          }
+
+          final old = anySource
+              ? service.downloadContentToFileFromAny(
+                  const [],
+                  contentId,
+                  path,
+                  write: (_, _) async {},
+                  close: oldClose,
+                )
+              : service.downloadContentToFile(
+                  peer,
+                  contentId,
+                  path,
+                  write: (_, _) async {},
+                  close: oldClose,
+                );
+          await s.lookupEntered!.future;
+          var newCloses = 0;
+          expect(
+            await service.downloadContentToFile(
+              peer,
+              contentId,
+              path,
+              write: (_, _) async {},
+              close: () async {
+                newCloses++;
+              },
+            ),
+            ContentDownloadResult.requestedReoffer,
+          );
+          gate.complete();
+          expect(await old, ContentDownloadResult.noOffer);
+          expect(oldCloses, 1);
+          expect(
+            newCloses,
+            0,
+            reason: 'the replacement still owns its pending sink',
+          );
+          expect(
+            await service.cancelContentDownload(contentId),
+            path,
+            reason: 'stale cleanup cannot erase an identical replacement path',
+          );
+          expect(newCloses, 1);
+        },
+      );
+    }
   }
 
   test('no request leaves before its resume intent is committed', () async {

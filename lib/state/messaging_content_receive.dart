@@ -106,7 +106,7 @@ extension _MessagingContentReceive on MessagingService {
               m,
               retryPeers,
               sink,
-              _fetchSavePath[m.contentId] ?? m.contentId,
+              _fetchSavePath[m.contentId]?.path ?? m.contentId,
             )) {
           return;
         }

@@ -1,5 +1,30 @@
 part of 'messaging_core.dart';
 
+/// Ownership of one asynchronous download preparation, before its setup call
+/// returns. This is independent of a CID's cancel latch, which a retry clears.
+class _DownloadPreparationRetired implements Exception {
+  const _DownloadPreparationRetired();
+}
+
+class _DownloadPreparation {
+  _DownloadPreparation(this.token, this.isCurrent, this.finish);
+  final Object token;
+  final bool Function() isCurrent;
+  final void Function() finish;
+
+  Future<T> wait<T>(Future<T> Function() operation) async {
+    if (!isCurrent()) throw const _DownloadPreparationRetired();
+    try {
+      final value = await operation();
+      if (!isCurrent()) throw const _DownloadPreparationRetired();
+      return value;
+    } catch (_) {
+      if (!isCurrent()) throw const _DownloadPreparationRetired();
+      rethrow;
+    }
+  }
+}
+
 /// Durable auto-resume state machine for interrupted content downloads.
 ///
 /// The byte-transfer engine owns manifests, ranges and sinks. This collaborator
@@ -25,6 +50,7 @@ class _MessagingDownloadResume {
   // Identity tokens fence resumptions still awaiting an external opener/read.
   // A stale continuation may close its own sink, never retire a newer slot.
   final Map<String, Object> _inFlight = {};
+  final Map<String, Object> _preparations = {};
   final Set<String> _parked = {};
   final Set<String> _persistedManifests = {};
   final Map<String, int> _activePullCount = {};
@@ -50,15 +76,44 @@ class _MessagingDownloadResume {
   /// A new explicit request supersedes any suspended auto-resume preparation.
   void beginUserRequest(String contentId) {
     _inFlight.remove(contentId);
+    _preparations.remove(contentId);
     _owner._cancelledDownloads.remove(contentId);
+  }
+
+  _DownloadPreparation? prepare(
+    String contentId, {
+    required bool userInitiated,
+  }) {
+    if (_owner._disposed) return null;
+    if (userInitiated) {
+      beginUserRequest(contentId);
+    } else if (_owner._cancelledDownloads.contains(contentId) ||
+        _preparations.containsKey(contentId)) {
+      return null; // an explicit preparation already owns this content
+    }
+    final token = Object();
+    _preparations[contentId] = token;
+    return _DownloadPreparation(
+      token,
+      () =>
+          !_owner._disposed &&
+          !_owner._cancelledDownloads.contains(contentId) &&
+          identical(_preparations[contentId], token),
+      () {
+        if (identical(_preparations[contentId], token)) {
+          _preparations.remove(contentId);
+        }
+      },
+    );
   }
 
   Future<String?> cancel(String contentId) async {
     _inFlight.remove(contentId);
+    _preparations.remove(contentId);
     _owner._cancelledDownloads.add(contentId);
     _owner._contentAvailability.cancelRetryReoffers(contentId);
     _owner._clearGroupPullSources(contentId);
-    final savedPath = _owner._fetchSavePath.remove(contentId);
+    final savedPath = _owner._forgetFetchSavePath(contentId);
     final parkedSink = _owner._contentAvailability.takePending(contentId);
     final fetch = _owner._contentFetching.take(contentId);
 
@@ -88,6 +143,7 @@ class _MessagingDownloadResume {
 
   Future<int> clearPending() async {
     _inFlight.clear();
+    _preparations.clear();
     final pending = await _pendingDownloads();
     if (_pendingReadFailed) {
       throw StateError('Download resume state unavailable');
@@ -164,10 +220,13 @@ class _MessagingDownloadResume {
   }
 
   Future<void> _mutatePending(
-    void Function(Map<String, _PendingDownload> map) mutate,
-  ) {
+    void Function(Map<String, _PendingDownload> map) mutate, {
+    bool Function()? isCurrent,
+  }) {
     final write = _writeChain.then((_) async {
+      if (isCurrent != null && !isCurrent()) return;
       final current = await _pendingDownloads();
+      if (isCurrent != null && !isCurrent()) return;
       if (_pendingReadFailed) {
         throw StateError('Download resume state unavailable');
       }
@@ -217,8 +276,11 @@ class _MessagingDownloadResume {
     required String mode,
     String? savedPath,
     required Iterable<NodeId> peers,
+    required bool Function() isCurrent,
   }) async {
-    if (_owner._disposed || _owner._cancelledDownloads.contains(contentId)) {
+    if (!isCurrent() ||
+        _owner._disposed ||
+        _owner._cancelledDownloads.contains(contentId)) {
       return;
     }
     final peerHexes = [for (final peer in peers) peer.hex];
@@ -236,7 +298,8 @@ class _MessagingDownloadResume {
         peers: {...?prior?.peers, ...peerHexes}.toList(growable: false),
         requestedAt: prior?.requestedAt ?? DateTime.now(),
       );
-    });
+    }, isCurrent: isCurrent);
+    if (!isCurrent()) return;
     final offered = _owner._offered[contentId];
     if (offered != null) {
       unawaited(_owner._persistServeManifest(offered.manifest));
@@ -646,6 +709,7 @@ class _MessagingDownloadResume {
 
   Future<void> dispose() async {
     _inFlight.clear();
+    _preparations.clear();
     for (final timer in _timers.values) {
       timer.cancel();
     }
