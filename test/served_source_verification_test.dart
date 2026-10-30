@@ -42,6 +42,7 @@ class _Link implements VeilTransport {
   final _in = StreamController<InboundMessage>.broadcast();
   _Link? peer;
   bool dropManifestOnce = false;
+  Completer<void>? firstChunk;
 
   /// Every piece of content this side put on the wire, by content id.
   ///
@@ -76,6 +77,7 @@ class _Link implements VeilTransport {
     if (env.kind == WireKind.pieceChunk) {
       final frame = parsePieceChunk(env.body);
       (sentChunks[frame.contentId] ??= []).add(frame.data);
+      if (firstChunk?.isCompleted == false) firstChunk!.complete();
     }
     peer?._in.add(
       InboundMessage(
@@ -297,6 +299,167 @@ void main() {
       reason: 'and the peer ends up with nothing under that content id',
     );
   }, timeout: const Timeout(Duration(seconds: 90)));
+
+  test(
+    'the source verified for a durable serve is the handle actually served',
+    () async {
+      final original = _rnd(120000, 301);
+      final replacement = _rnd(120000, 302);
+      final (cid, file) = await durableOffer('reopen.bin', original);
+      final planted = File('${workdir.path}/reopen-replacement.bin');
+      await planted.writeAsBytes(replacement);
+      await mA.dispose();
+
+      var opens = 0;
+      var swapped = false;
+      Future<VeilServeSource?> swapOnFirstClose(String path) async {
+        opens++;
+        final source = await veilSourceOpener(path);
+        if (source == null) return null;
+        return (
+          read: source.read,
+          close: () async {
+            await source.close();
+            if (!swapped) {
+              swapped = true;
+              await planted.rename(file.path);
+            }
+          },
+        );
+      }
+
+      final restarted = MessagingService(
+        tA,
+        sA,
+        contentReRequestInterval: const Duration(milliseconds: 120),
+        contentPacing: Duration.zero,
+      )..sourceOpener = swapOnFirstClose;
+      restarted.start();
+      addTearDown(restarted.dispose);
+      tA.firstChunk = Completer<void>();
+      final received = mB.contentReceived.first;
+      // A failing assertion still tears down the event stream.
+      received.ignore();
+      expect(
+        await mB.downloadContent(a, cid),
+        ContentDownloadResult.requestedReoffer,
+      );
+      await tA.firstChunk!.future.timeout(const Duration(seconds: 20));
+      expect(
+        tA.sentChunks[cid]!.any((chunk) => _isSliceOf(chunk, replacement)),
+        isFalse,
+        reason:
+            'verification closed one handle, then served a replacement by name',
+      );
+      await received.timeout(const Duration(seconds: 20));
+      expect(await sB.loadFile(cid), original);
+      expect(
+        opens,
+        1,
+        reason: 'the verified handle must be retained for serving',
+      );
+      expect(
+        swapped,
+        isFalse,
+        reason: 'the source must still be owned by serving',
+      );
+    },
+  );
+
+  test(
+    'an observed source replacement during verification is refused',
+    () async {
+      final original = _rnd(120000, 303);
+      final file = File('${workdir.path}/during-hash.bin');
+      await file.writeAsBytes(original);
+      final planted = File('${workdir.path}/during-hash-replacement.bin');
+      await planted.writeAsBytes(_rnd(original.length, 304));
+      await planted.setLastModified(DateTime.utc(2001, 1, 1));
+      final cid = await mA.registerGroupContentStreaming(
+        'during-hash.bin',
+        original.length,
+        (offset, length) async =>
+            Uint8List.sublistView(original, offset, offset + length),
+        close: () async {},
+        sourcePath: file.path,
+      );
+      var swapped = false;
+      mA.sourceOpener = (path) async {
+        // A pinned snapshot keeps the old source readable on platforms which
+        // do not permit renaming over a live OS file handle.
+        final snapshot = await File(path).readAsBytes();
+        return (
+          read: (offset, length) async {
+            final bytes = Uint8List.sublistView(snapshot, offset, offset + length);
+            if (!swapped) {
+              swapped = true;
+              await planted.rename(file.path);
+            }
+            return bytes;
+          },
+          close: () async {},
+        );
+      };
+      expect(
+        await mA.verifiedGroupContentSourcePath(cid),
+        isNull,
+        reason: 'the verified descriptor no longer describes the returned name',
+      );
+      expect(swapped, isTrue);
+    },
+  );
+
+  test('a new file generation does not inherit an older in-flight verdict',
+      () async {
+    final original = _rnd(120000, 305);
+    final file = File('${workdir.path}/pending.bin');
+    await file.writeAsBytes(original);
+    final replacement = File('${workdir.path}/pending-replacement.bin');
+    await replacement.writeAsBytes(original);
+    await replacement.setLastModified(DateTime.utc(2001, 1, 1));
+    final cid = await mA.registerGroupContentStreaming(
+      'pending.bin', original.length,
+      (offset, length) async =>
+          Uint8List.sublistView(original, offset, offset + length),
+      close: () async {}, sourcePath: file.path,
+    );
+    final firstRead = Completer<void>();
+    final secondRead = Completer<void>();
+    final releaseFirst = Completer<void>();
+    var opens = 0;
+    mA.sourceOpener = (path) async {
+      final generation = ++opens;
+      final snapshot = await File(path).readAsBytes();
+      return (
+        read: (offset, length) async {
+          if (generation == 1) {
+            if (!firstRead.isCompleted) firstRead.complete();
+            await releaseFirst.future;
+          } else if (!secondRead.isCompleted) {
+            secondRead.complete();
+          }
+          return Uint8List.sublistView(snapshot, offset, offset + length);
+        },
+        close: () async {},
+      );
+    };
+    final first = mA.verifiedGroupContentSourcePath(cid);
+    first.ignore();
+    try {
+      await firstRead.future.timeout(const Duration(seconds: 20));
+      await replacement.rename(file.path);
+      final second = mA.verifiedGroupContentSourcePath(cid);
+      second.ignore();
+      await secondRead.future.timeout(const Duration(seconds: 20));
+      expect(await second, file.path,
+          reason: 'the identical replacement must get its own valid check');
+    } finally {
+      if (!releaseFirst.isCompleted) releaseFirst.complete();
+    }
+    expect(await first, isNull,
+        reason: 'the older check observed the name change and must refuse it');
+    expect(opens, 2);
+  });
 
   test(
     'the verdict is cached, and not one moment past the file it was about',
