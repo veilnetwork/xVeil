@@ -501,6 +501,7 @@ class VeilCallMediaController implements CallMediaController {
   static String get _speakerPreferenceKey =>
       'call.playout.speaker.${Platform.operatingSystem}';
   final _microphoneState = CallMicrophoneState();
+  CallMicrophonePermission? _microphonePermission;
   final _cameraState = CallCameraState();
   VeilMediaEngine? _engine;
   int? _chan;
@@ -1410,23 +1411,33 @@ class VeilCallMediaController implements CallMediaController {
     // so a prompt can still complete while the call comes up.
     final permissionRequests = <Future<void>>[];
     Future<bool>? cameraPermission;
+    _microphonePermission = null;
     if (call.media.audio) {
-      permissionRequests.add(
-        AndroidCallForegroundService.activateWhenMicrophoneGranted(
-          MacMediaPermissions.requestMicrophone().then((granted) {
-            devLog(() => 'xVeil[call-media]: mic permission=$granted');
-            return granted;
-          }),
-          isCurrent: () =>
-              _mediaEpoch == epoch &&
-              _activeCall?.callId == call.callId &&
-              _microphoneState.belongsToCall(call.callId),
-        ),
+      diagnosticJournal.recordMediaPermission(video: false);
+      final microphonePermission = MacMediaPermissions.requestMicrophone().then(
+        (granted) async {
+          devLog(() => 'xVeil[call-media]: mic permission=$granted');
+          diagnosticJournal.recordMediaPermission(video: false, granted: granted);
+          await AndroidCallForegroundService.activateWhenMicrophoneGranted(
+            Future<bool>.value(granted),
+            isCurrent: () =>
+                _mediaEpoch == epoch &&
+                _activeCall?.callId == call.callId &&
+                _microphoneState.belongsToCall(call.callId),
+          );
+          return granted;
+        },
       );
+      if (Platform.isAndroid) {
+        _microphonePermission = CallMicrophonePermission(microphonePermission);
+      }
+      permissionRequests.add(microphonePermission.then<void>((_) {}));
     }
     if (call.media.video) {
+      diagnosticJournal.recordMediaPermission(video: true);
       cameraPermission = MacMediaPermissions.requestCamera().then((granted) {
         devLog(() => 'xVeil[call-media]: camera permission=$granted');
+        diagnosticJournal.recordMediaPermission(video: true, granted: granted);
         return granted;
       });
       permissionRequests.add(cameraPermission.then<void>((_) {}));
@@ -1889,8 +1900,13 @@ class VeilCallMediaController implements CallMediaController {
     // Establish the initial privacy posture before the ADM is started. The
     // native engine now keeps physical capture stopped while muted, so an
     // Android endpoint configured mic-off neither opens AudioRecord briefly
-    // nor burns capture/Opus CPU just to encode silence.
-    engine.setMicMuted(_microphoneState.mutedForCall(call.callId));
+    // nor burns capture/Opus CPU just to encode silence. A pending Android
+    // permission also keeps capture stopped while the receive path starts.
+    final microphonePermission = _microphonePermission;
+    final requestedMuted = _microphoneState.mutedForCall(call.callId);
+    engine.setMicMuted(
+      microphonePermission?.captureMuted(requestedMuted) ?? requestedMuted,
+    );
     // Select communication/headset routing before opening the physical streams.
     await callAudioRouter.useDefaultFor(call.media);
     final audioOk = engine.startAudio(send: true, recv: true);
@@ -1904,6 +1920,38 @@ class VeilCallMediaController implements CallMediaController {
     // (for example when Android refuses capture behind the lock screen).
     // CallService owns teardown and reports the failed media start.
     if (call.media.audio && !audioOk) return false;
+    if (microphonePermission != null) {
+      unawaited(
+        microphonePermission.applyWhenGranted(
+          isCurrent: () =>
+              _mediaEpoch == epoch &&
+              _engine == engine &&
+              _activeCall?.callId == call.callId &&
+              _microphoneState.belongsToCall(call.callId),
+          isMuted: () => _microphoneState.mutedForCall(call.callId),
+          apply: (muted) {
+            if (!engine.trySetMicMuted(muted)) {
+              diagnosticJournal.record(
+                DiagnosticEvent.audioStart,
+                values: {
+                  DiagnosticMetric.success: 0,
+                  if (!muted) DiagnosticMetric.audioCaptureStartResult: 0,
+                },
+              );
+              devLog(
+                () => 'xVeil[call-media]: microphone capture refused after grant',
+              );
+              return;
+            }
+            devLog(
+              () => 'xVeil[call-media]: microphone grant applied captureMuted=$muted',
+            );
+          },
+        ).catchError((Object error) {
+          devLog(() => 'xVeil[call-media]: microphone grant capture failed: $error');
+        }),
+      );
+    }
     var videoOk = false;
     // VP8 video over the same veil channel when the call requests video/screen.
     // Capture/render wiring lands with the platform capturer; the pipeline is
@@ -2219,6 +2267,7 @@ class VeilCallMediaController implements CallMediaController {
     if (clearActiveCall) {
       _routeHandovers = 0;
       _activeCall = null;
+      _microphonePermission = null;
       _bitrateAdapter = null;
       if (clearMicrophoneState) {
         _microphoneState.clear();
@@ -2362,7 +2411,7 @@ class VeilCallMediaController implements CallMediaController {
             (paused) => _setVideoSendPausedForAudio(engine, paused),
           );
         }
-        _engine?.setMicMuted(muted);
+        _engine?.setMicMuted(_microphonePermission?.captureMuted(muted) ?? muted);
       }
     } catch (_) {}
   }
