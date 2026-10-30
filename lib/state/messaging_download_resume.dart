@@ -584,13 +584,11 @@ class _MessagingDownloadResume {
     final path = intent.savedPath!;
     final sink = await plainFileSinkOpener(path, resume: true);
     if (sink == null) {
-      devLog(
-        () =>
-            'xVeil[content]: auto-resume cannot reopen $path — '
-            'dropping the pending plain-file download',
-      );
-      complete(contentId);
-      return;
+      // A vanished mount or temporarily unavailable save-panel grant is not
+      // completion or cancellation. Keep the durable destination and verified
+      // bytes; the caller applies the same bounded retry/parking policy as for
+      // an opener that throws. A new user-selected path can replace this intent.
+      throw StateError('Download destination unavailable');
     }
     final result = await _owner.downloadContentToFileFromAny(
       peers,

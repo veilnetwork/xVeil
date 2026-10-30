@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -23,6 +24,75 @@ class _OfflineTransport extends LoopbackTransport {
 }
 
 void main() {
+  test(
+    'a refused destination retains its intent across a real container reopen',
+    () async {
+      expect(ensureHiddenVolumeLoaded(), true);
+      final dir = await Directory.systemTemp.createTemp('xveil-sink-registry-');
+      HiddenVolumeStorage openStorage() => HiddenVolumeStorage(
+        hvSpaceOpener('${dir.path}/store.hv', argon: hv.ArgonPreset.min),
+      );
+      final transport = _OfflineTransport();
+      var storage = openStorage();
+      MessagingService? service;
+      final contentId = '42' * 32;
+      final peer = NodeId(Uint8List(32)..fillRange(0, 32, 0xbb));
+      try {
+        expect(
+          await storage.open(password: 'fixture', createIfMissing: true),
+          true,
+        );
+        await storage.upsertContact(
+          Contact(nodeId: peer, status: ContactStatus.accepted),
+        );
+        service = MessagingService(transport, storage, plainFileStream: true);
+        expect(
+          await service.downloadContentToFile(
+            peer,
+            contentId,
+            '${dir.path}/saved.bin',
+            write: (_, _) async {},
+            close: () async {},
+          ),
+          ContentDownloadResult.requestedReoffer,
+        );
+        await service.dispose();
+        await storage.close();
+        storage = openStorage();
+        expect(await storage.open(password: 'fixture'), true);
+        final refused = Completer<void>();
+        service = MessagingService(transport, storage, plainFileStream: true)
+          ..downloadResumeStartDelay = Duration.zero
+          ..plainFileSinkOpener = (_, {bool resume = false}) async {
+            refused.complete();
+            return null;
+          };
+        service.start();
+        await refused.future.timeout(const Duration(seconds: 10));
+        await Future<void>.delayed(Duration.zero);
+        await service.dispose();
+        await storage.close();
+        storage = openStorage();
+        expect(await storage.open(password: 'fixture'), true);
+        service = MessagingService(transport, storage, plainFileStream: true);
+        expect(await service.pendingAutoResumeContentIds(), [contentId]);
+        await service.cancelContentDownload(contentId);
+        await service.dispose();
+        await storage.close();
+        storage = openStorage();
+        expect(await storage.open(password: 'fixture'), true);
+        service = MessagingService(transport, storage, plainFileStream: true);
+        expect(await service.pendingAutoResumeContentIds(), isEmpty);
+      } finally {
+        await service?.dispose();
+        if (storage.isOpen) await storage.close();
+        await transport.dispose();
+        await dir.delete(recursive: true);
+      }
+    },
+    skip: Platform.environment['XVEIL_NATIVE_DOWNLOAD_RESUME'] != '1',
+  );
+
   test(
     'all requested downloads survive a real container reopen',
     () async {
