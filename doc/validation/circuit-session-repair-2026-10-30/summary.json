@@ -1,0 +1,796 @@
+{
+  "sdk_commits": [
+    "2721fbee",
+    "b1c06af2"
+  ],
+  "phases": [
+    {
+      "sdk": "2721fbee",
+      "files": [
+        {
+          "case": "control-to-phone",
+          "source": "Mac",
+          "receiver": "Android",
+          "bytes": 3145979,
+          "sha256_matches": true,
+          "seconds": 13.523,
+          "first_verified_part_seconds": 3.515,
+          "max_verified_part_interval_seconds": 1.154,
+          "progress_samples": 12,
+          "interrupted": false,
+          "radios_off_at_seconds": null,
+          "radios_restored_at_seconds": null
+        },
+        {
+          "case": "control-to-mac",
+          "source": "Android",
+          "receiver": "Mac",
+          "bytes": 3145979,
+          "sha256_matches": true,
+          "seconds": 8.577,
+          "first_verified_part_seconds": 3.527,
+          "max_verified_part_interval_seconds": 0.506,
+          "progress_samples": 17,
+          "interrupted": false,
+          "radios_off_at_seconds": null,
+          "radios_restored_at_seconds": null
+        },
+        {
+          "case": "flap-to-phone",
+          "source": "Mac",
+          "receiver": "Android",
+          "bytes": 33554683,
+          "sha256_matches": true,
+          "seconds": 109.348,
+          "first_verified_part_seconds": 3.464,
+          "max_verified_part_interval_seconds": 15.86,
+          "progress_samples": 97,
+          "interrupted": true,
+          "radios_off_at_seconds": 38.584,
+          "radios_restored_at_seconds": 47.699
+        },
+        {
+          "case": "flap-to-mac",
+          "source": "Android",
+          "receiver": "Mac",
+          "bytes": 33554683,
+          "sha256_matches": true,
+          "seconds": 66.477,
+          "first_verified_part_seconds": 5.042,
+          "max_verified_part_interval_seconds": 29.398,
+          "progress_samples": 131,
+          "interrupted": true,
+          "radios_off_at_seconds": 19.899,
+          "radios_restored_at_seconds": 28.122
+        }
+      ],
+      "native": {
+        "runs": [
+          {
+            "case": "control-to-phone",
+            "streams": [
+              {
+                "stream_alias": 1,
+                "observed_receiver_prefix_bytes": 3146960,
+                "receiver_samples": 24,
+                "sender_samples": 24,
+                "max_receiver_sample_interval_seconds": 0.59,
+                "max_observed_prefix_advance_interval_seconds": 0.59,
+                "largest_prefix_intervals": [
+                  {
+                    "seconds": 0.59,
+                    "start_from_api_seconds": 12.149,
+                    "end_from_api_seconds": 12.739
+                  },
+                  {
+                    "seconds": 0.549,
+                    "start_from_api_seconds": 4.884,
+                    "end_from_api_seconds": 5.433
+                  },
+                  {
+                    "seconds": 0.541,
+                    "start_from_api_seconds": 10.073,
+                    "end_from_api_seconds": 10.614
+                  }
+                ],
+                "samples_with_same_prefix_and_oo_bytes": 0,
+                "max_sampled_consecutive_rto": 0,
+                "max_sampled_srtt_ms": 348,
+                "max_sampled_rto_ms": 2000
+              }
+            ]
+          },
+          {
+            "case": "control-to-mac",
+            "streams": [
+              {
+                "stream_alias": 1,
+                "observed_receiver_prefix_bytes": 3146960,
+                "receiver_samples": 14,
+                "sender_samples": 15,
+                "max_receiver_sample_interval_seconds": 0.529,
+                "max_observed_prefix_advance_interval_seconds": 0.529,
+                "largest_prefix_intervals": [
+                  {
+                    "seconds": 0.529,
+                    "start_from_api_seconds": 2.398,
+                    "end_from_api_seconds": 2.927
+                  },
+                  {
+                    "seconds": 0.525,
+                    "start_from_api_seconds": 7.957,
+                    "end_from_api_seconds": 8.482
+                  },
+                  {
+                    "seconds": 0.513,
+                    "start_from_api_seconds": 5.439,
+                    "end_from_api_seconds": 5.951
+                  }
+                ],
+                "samples_with_same_prefix_and_oo_bytes": 0,
+                "max_sampled_consecutive_rto": 0,
+                "max_sampled_srtt_ms": 181,
+                "max_sampled_rto_ms": 2000
+              }
+            ]
+          },
+          {
+            "case": "flap-to-phone",
+            "streams": [
+              {
+                "stream_alias": 1,
+                "observed_receiver_prefix_bytes": 33563089,
+                "receiver_samples": 206,
+                "sender_samples": 184,
+                "max_receiver_sample_interval_seconds": 1.372,
+                "max_observed_prefix_advance_interval_seconds": 14.343,
+                "largest_prefix_intervals": [
+                  {
+                    "seconds": 14.343,
+                    "start_from_api_seconds": 39.774,
+                    "end_from_api_seconds": 54.117
+                  },
+                  {
+                    "seconds": 1.372,
+                    "start_from_api_seconds": 91.731,
+                    "end_from_api_seconds": 93.103
+                  },
+                  {
+                    "seconds": 1.095,
+                    "start_from_api_seconds": 38.679,
+                    "end_from_api_seconds": 39.774
+                  }
+                ],
+                "samples_with_same_prefix_and_oo_bytes": 0,
+                "max_sampled_consecutive_rto": 4,
+                "max_sampled_srtt_ms": 325,
+                "max_sampled_rto_ms": 10000
+              }
+            ]
+          },
+          {
+            "case": "flap-to-mac",
+            "streams": [
+              {
+                "stream_alias": 1,
+                "observed_receiver_prefix_bytes": 11655009,
+                "receiver_samples": 38,
+                "sender_samples": 61,
+                "max_receiver_sample_interval_seconds": 6.829,
+                "max_observed_prefix_advance_interval_seconds": 3.371,
+                "largest_prefix_intervals": [
+                  {
+                    "seconds": 3.371,
+                    "start_from_api_seconds": 0.546,
+                    "end_from_api_seconds": 3.917
+                  },
+                  {
+                    "seconds": 1.127,
+                    "start_from_api_seconds": 19.68,
+                    "end_from_api_seconds": 20.807
+                  },
+                  {
+                    "seconds": 0.561,
+                    "start_from_api_seconds": 18.114,
+                    "end_from_api_seconds": 18.675
+                  }
+                ],
+                "samples_with_same_prefix_and_oo_bytes": 0,
+                "max_sampled_consecutive_rto": 3,
+                "max_sampled_srtt_ms": 1889,
+                "max_sampled_rto_ms": 10000
+              },
+              {
+                "stream_alias": 2,
+                "observed_receiver_prefix_bytes": 22024785,
+                "receiver_samples": 40,
+                "sender_samples": 40,
+                "max_receiver_sample_interval_seconds": 0.726,
+                "max_observed_prefix_advance_interval_seconds": 0.726,
+                "largest_prefix_intervals": [
+                  {
+                    "seconds": 0.726,
+                    "start_from_api_seconds": 54.669,
+                    "end_from_api_seconds": 55.395
+                  },
+                  {
+                    "seconds": 0.511,
+                    "start_from_api_seconds": 47.118,
+                    "end_from_api_seconds": 47.629
+                  },
+                  {
+                    "seconds": 0.51,
+                    "start_from_api_seconds": 48.128,
+                    "end_from_api_seconds": 48.639
+                  }
+                ],
+                "samples_with_same_prefix_and_oo_bytes": 0,
+                "max_sampled_consecutive_rto": 0,
+                "max_sampled_srtt_ms": 472,
+                "max_sampled_rto_ms": 1000
+              }
+            ]
+          }
+        ],
+        "closures": [
+          {
+            "endpoint": "Android",
+            "linger": true,
+            "eof": true,
+            "fin": [
+              true,
+              true,
+              true
+            ],
+            "sampled_consecutive_rto": 0
+          },
+          {
+            "endpoint": "Mac",
+            "linger": true,
+            "eof": true,
+            "fin": [
+              true,
+              true,
+              true
+            ],
+            "sampled_consecutive_rto": 0
+          },
+          {
+            "endpoint": "Android",
+            "linger": true,
+            "eof": true,
+            "fin": [
+              true,
+              true,
+              true
+            ],
+            "sampled_consecutive_rto": 0
+          },
+          {
+            "endpoint": "Mac",
+            "linger": true,
+            "eof": true,
+            "fin": [
+              true,
+              true,
+              true
+            ],
+            "sampled_consecutive_rto": 0
+          },
+          {
+            "endpoint": "Android",
+            "linger": true,
+            "eof": true,
+            "fin": [
+              true,
+              true,
+              true
+            ],
+            "sampled_consecutive_rto": 0
+          },
+          {
+            "endpoint": "Mac",
+            "linger": true,
+            "eof": true,
+            "fin": [
+              true,
+              true,
+              true
+            ],
+            "sampled_consecutive_rto": 0
+          },
+          {
+            "endpoint": "Android",
+            "linger": false,
+            "eof": false,
+            "fin": [
+              false,
+              false,
+              false
+            ],
+            "sampled_consecutive_rto": 0
+          },
+          {
+            "endpoint": "Mac",
+            "linger": false,
+            "eof": false,
+            "fin": [
+              false,
+              false,
+              false
+            ],
+            "sampled_consecutive_rto": 0
+          },
+          {
+            "endpoint": "Android",
+            "linger": true,
+            "eof": true,
+            "fin": [
+              true,
+              true,
+              true
+            ],
+            "sampled_consecutive_rto": 0
+          },
+          {
+            "endpoint": "Mac",
+            "linger": true,
+            "eof": true,
+            "fin": [
+              true,
+              true,
+              true
+            ],
+            "sampled_consecutive_rto": 0
+          }
+        ],
+        "mux_final": {
+          "Android": {
+            "received": 39621,
+            "routed": 39621,
+            "inbox_full": 0,
+            "inbox_closed": 0,
+            "unknown": 0,
+            "invalid": 0
+          },
+          "Mac": {
+            "received": 33085,
+            "routed": 33083,
+            "inbox_full": 0,
+            "inbox_closed": 0,
+            "unknown": 2,
+            "invalid": 0
+          }
+        },
+        "clock_uncertainty_ms": 33.022,
+        "clock_offset_change_ms": 22.15,
+        "warning": "Stream aliases matched by isolated download windows and >512 KiB prefix movement, not formal CID join. Advance intervals include sampling and are not proof of continuous network silence."
+      },
+      "late_unknown_frames": [
+        {
+          "kind": "ack",
+          "private_stream_match": true,
+          "after_retire_seconds": 0.129
+        },
+        {
+          "kind": "ack",
+          "private_stream_match": true,
+          "after_retire_seconds": 0.134
+        }
+      ],
+      "timeouts_joined_by_private_cid": [
+        {
+          "case": "flap-to-phone",
+          "matched_payload_timeouts": 0,
+          "has_20_second_timeout": false
+        },
+        {
+          "case": "flap-to-mac",
+          "matched_payload_timeouts": 1,
+          "has_20_second_timeout": true
+        }
+      ],
+      "cleanup_verified": true
+    },
+    {
+      "sdk": "b1c06af2",
+      "files": [
+        {
+          "case": "control-to-phone",
+          "source": "Mac",
+          "receiver": "Android",
+          "bytes": 3145979,
+          "sha256_matches": true,
+          "seconds": 6.77,
+          "first_verified_part_seconds": 2.339,
+          "max_verified_part_interval_seconds": 1.121,
+          "progress_samples": 6,
+          "interrupted": false,
+          "radios_off_at_seconds": null,
+          "radios_restored_at_seconds": null
+        },
+        {
+          "case": "control-to-mac",
+          "source": "Android",
+          "receiver": "Mac",
+          "bytes": 3145979,
+          "sha256_matches": true,
+          "seconds": 5.548,
+          "first_verified_part_seconds": 2.525,
+          "max_verified_part_interval_seconds": 0.506,
+          "progress_samples": 11,
+          "interrupted": false,
+          "radios_off_at_seconds": null,
+          "radios_restored_at_seconds": null
+        },
+        {
+          "case": "flap-to-phone",
+          "source": "Mac",
+          "receiver": "Android",
+          "bytes": 33554683,
+          "sha256_matches": true,
+          "seconds": 71.962,
+          "first_verified_part_seconds": 2.346,
+          "max_verified_part_interval_seconds": 21.287,
+          "progress_samples": 64,
+          "interrupted": true,
+          "radios_off_at_seconds": 19.356,
+          "radios_restored_at_seconds": 28.365
+        },
+        {
+          "case": "flap-to-mac",
+          "source": "Android",
+          "receiver": "Mac",
+          "bytes": 33554683,
+          "sha256_matches": true,
+          "seconds": 76.997,
+          "first_verified_part_seconds": 5.045,
+          "max_verified_part_interval_seconds": 26.583,
+          "progress_samples": 152,
+          "interrupted": true,
+          "radios_off_at_seconds": 20.847,
+          "radios_restored_at_seconds": 29.085
+        }
+      ],
+      "native": {
+        "runs": [
+          {
+            "case": "control-to-phone",
+            "streams": [
+              {
+                "stream_alias": 1,
+                "observed_receiver_prefix_bytes": 3146956,
+                "receiver_samples": 13,
+                "sender_samples": 12,
+                "max_receiver_sample_interval_seconds": 0.517,
+                "max_observed_prefix_advance_interval_seconds": 0.517,
+                "largest_prefix_intervals": [
+                  {
+                    "seconds": 0.517,
+                    "start_from_api_seconds": 5.921,
+                    "end_from_api_seconds": 6.438
+                  },
+                  {
+                    "seconds": 0.511,
+                    "start_from_api_seconds": 4.409,
+                    "end_from_api_seconds": 4.92
+                  },
+                  {
+                    "seconds": 0.507,
+                    "start_from_api_seconds": 1.395,
+                    "end_from_api_seconds": 1.902
+                  }
+                ],
+                "samples_with_same_prefix_and_oo_bytes": 0,
+                "max_sampled_consecutive_rto": 0,
+                "max_sampled_srtt_ms": 216,
+                "max_sampled_rto_ms": 2000
+              }
+            ]
+          },
+          {
+            "case": "control-to-mac",
+            "streams": [
+              {
+                "stream_alias": 1,
+                "observed_receiver_prefix_bytes": 3146956,
+                "receiver_samples": 8,
+                "sender_samples": 8,
+                "max_receiver_sample_interval_seconds": 0.533,
+                "max_observed_prefix_advance_interval_seconds": 0.533,
+                "largest_prefix_intervals": [
+                  {
+                    "seconds": 0.533,
+                    "start_from_api_seconds": 4.579,
+                    "end_from_api_seconds": 5.111
+                  },
+                  {
+                    "seconds": 0.531,
+                    "start_from_api_seconds": 3.047,
+                    "end_from_api_seconds": 3.578
+                  },
+                  {
+                    "seconds": 0.505,
+                    "start_from_api_seconds": 2.044,
+                    "end_from_api_seconds": 2.548
+                  }
+                ],
+                "samples_with_same_prefix_and_oo_bytes": 0,
+                "max_sampled_consecutive_rto": 0,
+                "max_sampled_srtt_ms": 92,
+                "max_sampled_rto_ms": 2000
+              }
+            ]
+          },
+          {
+            "case": "flap-to-phone",
+            "streams": [
+              {
+                "stream_alias": 1,
+                "observed_receiver_prefix_bytes": 12269554,
+                "receiver_samples": 70,
+                "sender_samples": 43,
+                "max_receiver_sample_interval_seconds": 1.188,
+                "max_observed_prefix_advance_interval_seconds": 1.188,
+                "largest_prefix_intervals": [
+                  {
+                    "seconds": 1.188,
+                    "start_from_api_seconds": 19.27,
+                    "end_from_api_seconds": 20.458
+                  },
+                  {
+                    "seconds": 0.844,
+                    "start_from_api_seconds": 1.315,
+                    "end_from_api_seconds": 2.159
+                  },
+                  {
+                    "seconds": 0.534,
+                    "start_from_api_seconds": 17.229,
+                    "end_from_api_seconds": 17.763
+                  }
+                ],
+                "samples_with_same_prefix_and_oo_bytes": 32,
+                "max_sampled_consecutive_rto": 4,
+                "max_sampled_srtt_ms": 213,
+                "max_sampled_rto_ms": 10000
+              },
+              {
+                "stream_alias": 2,
+                "observed_receiver_prefix_bytes": 21504465,
+                "receiver_samples": 63,
+                "sender_samples": 63,
+                "max_receiver_sample_interval_seconds": 0.591,
+                "max_observed_prefix_advance_interval_seconds": 0.591,
+                "largest_prefix_intervals": [
+                  {
+                    "seconds": 0.591,
+                    "start_from_api_seconds": 71.092,
+                    "end_from_api_seconds": 71.683
+                  },
+                  {
+                    "seconds": 0.54,
+                    "start_from_api_seconds": 65.967,
+                    "end_from_api_seconds": 66.507
+                  },
+                  {
+                    "seconds": 0.536,
+                    "start_from_api_seconds": 69.03,
+                    "end_from_api_seconds": 69.566
+                  }
+                ],
+                "samples_with_same_prefix_and_oo_bytes": 0,
+                "max_sampled_consecutive_rto": 0,
+                "max_sampled_srtt_ms": 219,
+                "max_sampled_rto_ms": 1000
+              }
+            ]
+          },
+          {
+            "case": "flap-to-mac",
+            "streams": [
+              {
+                "stream_alias": 1,
+                "observed_receiver_prefix_bytes": 33563089,
+                "receiver_samples": 100,
+                "sender_samples": 124,
+                "max_receiver_sample_interval_seconds": 7.898,
+                "max_observed_prefix_advance_interval_seconds": 14.421,
+                "largest_prefix_intervals": [
+                  {
+                    "seconds": 14.421,
+                    "start_from_api_seconds": 21.797,
+                    "end_from_api_seconds": 36.219
+                  },
+                  {
+                    "seconds": 6.73,
+                    "start_from_api_seconds": 40.88,
+                    "end_from_api_seconds": 47.611
+                  },
+                  {
+                    "seconds": 4.154,
+                    "start_from_api_seconds": 36.726,
+                    "end_from_api_seconds": 40.88
+                  }
+                ],
+                "samples_with_same_prefix_and_oo_bytes": 1,
+                "max_sampled_consecutive_rto": 3,
+                "max_sampled_srtt_ms": 2017,
+                "max_sampled_rto_ms": 10000
+              }
+            ]
+          }
+        ],
+        "closures": [
+          {
+            "endpoint": "Android",
+            "linger": true,
+            "eof": true,
+            "fin": [
+              true,
+              true,
+              true
+            ],
+            "sampled_consecutive_rto": 0
+          },
+          {
+            "endpoint": "Mac",
+            "linger": true,
+            "eof": true,
+            "fin": [
+              true,
+              true,
+              true
+            ],
+            "sampled_consecutive_rto": 0
+          },
+          {
+            "endpoint": "Android",
+            "linger": true,
+            "eof": true,
+            "fin": [
+              true,
+              true,
+              true
+            ],
+            "sampled_consecutive_rto": 0
+          },
+          {
+            "endpoint": "Mac",
+            "linger": true,
+            "eof": true,
+            "fin": [
+              true,
+              true,
+              true
+            ],
+            "sampled_consecutive_rto": 0
+          },
+          {
+            "endpoint": "Android",
+            "linger": false,
+            "eof": false,
+            "fin": [
+              false,
+              false,
+              false
+            ],
+            "sampled_consecutive_rto": 0
+          },
+          {
+            "endpoint": "Mac",
+            "linger": false,
+            "eof": false,
+            "fin": [
+              false,
+              false,
+              false
+            ],
+            "sampled_consecutive_rto": 4
+          },
+          {
+            "endpoint": "Android",
+            "linger": true,
+            "eof": true,
+            "fin": [
+              true,
+              true,
+              true
+            ],
+            "sampled_consecutive_rto": 0
+          },
+          {
+            "endpoint": "Mac",
+            "linger": true,
+            "eof": true,
+            "fin": [
+              true,
+              true,
+              true
+            ],
+            "sampled_consecutive_rto": 0
+          },
+          {
+            "endpoint": "Android",
+            "linger": true,
+            "eof": true,
+            "fin": [
+              true,
+              true,
+              true
+            ],
+            "sampled_consecutive_rto": 0
+          },
+          {
+            "endpoint": "Mac",
+            "linger": true,
+            "eof": true,
+            "fin": [
+              true,
+              true,
+              true
+            ],
+            "sampled_consecutive_rto": 0
+          }
+        ],
+        "mux_final": {
+          "Android": {
+            "received": 42364,
+            "routed": 42362,
+            "inbox_full": 0,
+            "inbox_closed": 0,
+            "unknown": 2,
+            "invalid": 0
+          },
+          "Mac": {
+            "received": 43214,
+            "routed": 43214,
+            "inbox_full": 0,
+            "inbox_closed": 0,
+            "unknown": 0,
+            "invalid": 0
+          }
+        },
+        "clock_uncertainty_ms": 50.779,
+        "clock_offset_change_ms": -19.957,
+        "warning": "Stream aliases matched by isolated download windows and >512 KiB prefix movement, not formal CID join. Advance intervals include sampling and are not proof of continuous network silence."
+      },
+      "late_unknown_frames": [
+        {
+          "kind": "ack",
+          "private_stream_match": true,
+          "after_retire_seconds": 0.197
+        },
+        {
+          "kind": "ack",
+          "private_stream_match": true,
+          "after_retire_seconds": 0.284
+        }
+      ],
+      "timeouts_joined_by_private_cid": [
+        {
+          "case": "flap-to-phone",
+          "matched_payload_timeouts": 1,
+          "has_20_second_timeout": true
+        },
+        {
+          "case": "flap-to-mac",
+          "matched_payload_timeouts": 0,
+          "has_20_second_timeout": false
+        }
+      ],
+      "cleanup_verified": true
+    }
+  ],
+  "post_restore_gap": {
+    "post_restore_samples_with_oo_bytes": 17,
+    "first_seconds_from_api": 28.56,
+    "last_seconds_from_api": 36.717,
+    "distinct_receive_prefixes": 1,
+    "min_oo_bytes": 26426,
+    "max_oo_bytes": 26426
+  },
+  "total_files": 8,
+  "all_payload_hashes_match": true,
+  "route_controlled_aba": false,
+  "original_user_case_closed": false
+}
