@@ -1,0 +1,30 @@
+{
+  "baseline_app_commit": "384f69ffed72dda8d48e675ad2a7fbdce926a08a",
+  "sdk_unchanged": "c96bd930878187ae5dc9b5c0f1261f6d2508c4e4",
+  "regressions_red_before": 2,
+  "regressions_green_after": 2,
+  "related_suite_passed": 131,
+  "final_source_verification_suite_passed": 11,
+  "repeated_suite_is_subset_not_added": false,
+  "analyze_issues": 0,
+  "new_regressions": [
+    "the source verified for a durable serve is the handle actually served",
+    "an observed source replacement during verification is refused"
+  ],
+  "test_transport": "in-memory datagrams with real local source files; second fixture snapshots the opened bytes for portable rename behavior",
+  "first_test_requires_successful_original_payload_delivery": true,
+  "first_test_requires_source_open_count": 1,
+  "second_test_requires_changed_source_path_refused": true,
+  "candidate_source_sha256": {
+    "lib/state/messaging_content_publish.dart": "7545d04ea37ff3f608447906468dbc5648384d589ade94fe91d830334f89cf8e",
+    "lib/state/messaging_content_serving.dart": "eaf9a27173ca0794bba9a172f44e08a8ac01bb1c6d881ed91259904455f53fa8"
+  },
+  "physical_validation_of_this_dart_change": false,
+  "source_full_hash_removed": false,
+  "attribution_of_all_5_5_seconds": false,
+  "all_33percent_causes_closed": false,
+  "apps_started": false,
+  "push_or_release": false,
+  "final_suite_overlap_with_related_suite": 10,
+  "additional_positive_generation_check": "a new file generation does not inherit an older in-flight verdict"
+}

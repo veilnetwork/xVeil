@@ -61,11 +61,12 @@ class _MessagingContentServing {
   /// `MessagingService._servedSourceStillMatches`, which owns the meaning;
   /// this only holds the answer. Insertion order is drop order.
   final Map<String, ({int deviceId, int inode, int size, int mtimeMs, bool ok})>
-      servedVerdicts = {};
+  servedVerdicts = {};
 
   /// Checks in progress, so a range-parallel pull that opens several serve
-  /// streams for one contentId shares ONE hashing pass.
-  final Map<String, Future<bool>> servedVerifications = {};
+  /// streams for the SAME named file generation share ONE hashing pass.
+  final Map<String, ({String path, VeilSourceStamp stamp, Future<bool> result})>
+  servedVerifications = {};
 
   void noteServedVerdict(String contentId, VeilSourceStamp stamp, bool ok) {
     // Re-insert so the freshest verdict is also the youngest entry.
