@@ -1,0 +1,116 @@
+{
+  "schema": "xveil-validation/1",
+  "baseline_xveil": "2b5a666a",
+  "native_core_sdk": "08b67a6e",
+  "native_libraries_unchanged": true,
+  "sdk_dart_addition": "trySetMicMuted",
+  "flutter_tests_passed": 310,
+  "native_ffi_smoke_passed": true,
+  "aot_diagnostic_opt_in_and_privacy_passed": true,
+  "certificate": {
+    "file_matches_shown_certificate": true,
+    "written_bytes": 3146,
+    "native_callback_observed": true,
+    "dart_result_observed": true,
+    "ceremony_finally_observed": true,
+    "continued_after_scrolling_to_button": true,
+    "production_export_code_changed": false,
+    "previous_busy_claim_supported": false
+  },
+  "calls": {
+    "mic-baseline-ready": {
+      "observed_seconds": 39.042,
+      "final_active": false,
+      "runtime_prompts": 2,
+      "active_before_grant": false,
+      "phone_media_start_failure": true
+    },
+    "mic-candidate": {
+      "observed_seconds": 89.529,
+      "final_active": true,
+      "runtime_prompts": 2,
+      "active_before_grant": true,
+      "phone_media_start_failure": false,
+      "endpoints": {
+        "Android": {
+          "route": "p2p",
+          "microphone_requested": true,
+          "audio_rx_packets": 0,
+          "video_sent_frames": 1918,
+          "video_received_frames": 1823
+        },
+        "Mac": {
+          "route": "p2p",
+          "microphone_requested": false,
+          "audio_rx_packets": 1187,
+          "video_sent_frames": 1824,
+          "video_received_frames": 1918
+        }
+      }
+    },
+    "mic-candidate-muted": {
+      "observed_seconds": 39.618,
+      "final_active": true,
+      "runtime_prompts": 2,
+      "active_before_grant": true,
+      "phone_media_start_failure": false,
+      "endpoints": {
+        "Android": {
+          "route": "p2p",
+          "microphone_requested": false,
+          "audio_rx_packets": 0,
+          "video_sent_frames": 419,
+          "video_received_frames": 853
+        },
+        "Mac": {
+          "route": "p2p",
+          "microphone_requested": false,
+          "audio_rx_packets": 0,
+          "video_sent_frames": 854,
+          "video_received_frames": 419
+        }
+      }
+    }
+  },
+  "limits": {
+    "audible_speech_not_evaluated": true,
+    "historical_25_second_event_not_attributed": true,
+    "no_windows_or_other_oem_qualification": true,
+    "physical_permission_denial_not_qualified": true,
+    "no_relay_or_file_reconnect_tests_this_cycle": true
+  },
+  "cleanup": {
+    "owned_phone_and_mac_processes_exited": true,
+    "microphone_service_absent_after_hangup": true,
+    "isolated_package_uninstalled": true,
+    "own_certificate_and_ui_dump_removed": true,
+    "owned_forward_and_ports_released": true,
+    "port_check_listener_and_reuse_bind": true,
+    "initial_nonreuse_bind_hit_time_wait": true,
+    "original_qa_apk_and_prefs_verified": true,
+    "shared_stand_metadata_unchanged": true,
+    "radio_and_whitelist_unchanged": true,
+    "existing_user_apps_untouched": true,
+    "no_container_or_ratchet_rollback": true,
+    "qa_export_instrumentation_absent_from_final_apk": true,
+    "own_build_and_dart_tool_removed": true,
+    "baseline_and_candidate_apks_kept": true,
+    "no_relay_changes": true,
+    "owned_source_clone_removed": true,
+    "diagnostic_release_apk_kept": true
+  },
+  "sdk_dart_revision": "3b891089",
+  "diagnostic_artifact": {
+    "passed": true,
+    "release_mode": true,
+    "structured_instrumentation_verified": true,
+    "raw_dart_log_sink_absent": true,
+    "debug_api_disabled": true,
+    "private_debug_signer_verified": true,
+    "distributed": false,
+    "hardware_tested_variant": "separate private profile stand APK",
+    "profile_attempts_rejected": true,
+    "unchecked_intermediate_success_metadata_retracted": true,
+    "source_clone_and_build_removed": true
+  }
+}

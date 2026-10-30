@@ -39,6 +39,8 @@ enum DiagnosticEvent {
   backgroundSnapshot,
   audioRoute,
   preferenceStoreFallback,
+  microphonePermission,
+  cameraPermission,
 }
 
 enum DiagnosticMetric {
@@ -181,6 +183,18 @@ class DiagnosticJournal {
     );
   }
 
+  /// Only an OS decision category; no rationale, URI, label or OS error text.
+  void recordMediaPermission({required bool video, bool? granted}) {
+    record(
+      video
+          ? DiagnosticEvent.cameraPermission
+          : DiagnosticEvent.microphonePermission,
+      values: {
+        DiagnosticMetric.state: granted == null ? -1 : (granted ? 1 : 0),
+      },
+    );
+  }
+
   /// OS flags are boolean-only; volume is a bounded percentage. Do not
   /// stringify, recurse or export native keys from a newer/malformed plugin.
   void recordBackgroundState(Map<Object?, Object?>? state) {
@@ -240,6 +254,8 @@ class DiagnosticJournal {
     DiagnosticEvent.onboardingSession,
     DiagnosticEvent.onboardingFailed,
     DiagnosticEvent.preferenceStoreFallback,
+    DiagnosticEvent.microphonePermission,
+    DiagnosticEvent.cameraPermission,
   };
 
   /// Source-controller state, sampled after applying the current observation.

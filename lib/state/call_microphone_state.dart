@@ -25,3 +25,27 @@ class CallMicrophoneState {
     _micOn = false;
   }
 }
+
+/// A runtime permission can outlive the bounded call-start preflight. Until
+/// its real answer arrives, the audio engine may receive but must not capture.
+class CallMicrophonePermission {
+  CallMicrophonePermission(Future<bool> permission) {
+    result = permission.then((granted) {
+      _granted = granted;
+      return granted;
+    });
+  }
+
+  bool _granted = false;
+  late final Future<bool> result;
+
+  bool captureMuted(bool requestedMuted) => !_granted || requestedMuted;
+
+  Future<void> applyWhenGranted({
+    required bool Function() isCurrent,
+    required bool Function() isMuted,
+    required void Function(bool muted) apply,
+  }) async {
+    if (await result && isCurrent()) apply(isMuted());
+  }
+}

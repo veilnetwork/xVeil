@@ -20,6 +20,9 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 f'import {json.dumps(journal.as_uri())};\n'
                 'void main() {\n'
                 '  diagnosticJournal.record(DiagnosticEvent.startup);\n'
+                '  diagnosticJournal.recordMediaPermission(video: false);\n'
+                '  diagnosticJournal.recordMediaPermission(video: false, granted: true);\n'
+                '  diagnosticJournal.recordMediaPermission(video: true, granted: false);\n'
                 "  diagnosticJournal.recordMediaStats({'audio_input_level_band': 2, "
                 "'audio_output_level_band': 4, 'device': 'PRIVATE_CANARY'});\n"
                 "  diagnosticJournal.recordBackgroundState({'serviceForeground': true, "
@@ -42,6 +45,8 @@ class DiagnosticArtifactTest(unittest.TestCase):
                     self.assertNotIn('PRIVATE_CANARY', json.dumps(report))
                     if enabled:
                         evidence = report['last_evidence']
+                        self.assertEqual(evidence['microphonePermission']['values'], {'state': 1})
+                        self.assertEqual(evidence['cameraPermission']['values'], {'state': 0})
                         self.assertEqual(evidence['mediaSample']['values'], {
                             'audioInputLevelBand': 2, 'audioOutputLevelBand': 4,
                         })

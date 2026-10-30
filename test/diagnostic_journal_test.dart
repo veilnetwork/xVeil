@@ -10,6 +10,26 @@ class _PrivateValue {
 }
 
 void main() {
+  test('permission evidence keeps only pending/denied/granted categories', () {
+    final journal = DiagnosticJournal(enabled: true, capacity: 1);
+    journal.recordMediaPermission(video: false);
+    final pending = (journal.toJson()['events'] as List).single as Map;
+    expect(pending['values'], {'state': -1});
+    journal.recordMediaPermission(video: false, granted: true);
+    journal.recordMediaPermission(video: true, granted: false);
+    journal.record(DiagnosticEvent.transportSent);
+    final evidence = journal.toJson()['last_evidence'] as Map;
+    expect((evidence['microphonePermission'] as Map)['values'], {'state': 1});
+    expect((evidence['cameraPermission'] as Map)['values'], {'state': 0});
+  });
+
+  test('disabled permission instrumentation retains nothing', () {
+    final journal = DiagnosticJournal(enabled: false);
+    journal.recordMediaPermission(video: false, granted: true);
+    journal.recordMediaPermission(video: true, granted: false);
+    expect(journal.toJson()['events'], isEmpty);
+    expect(journal.toJson()['last_evidence'], isEmpty);
+  });
   test('operator circuit correlation never enters anonymous reports', () {
     final journal = DiagnosticJournal(enabled: true);
     final native = <String, Object?>{
