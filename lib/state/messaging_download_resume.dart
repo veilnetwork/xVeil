@@ -6,6 +6,13 @@ class _DownloadPreparationRetired implements Exception {
   const _DownloadPreparationRetired();
 }
 
+/// The layout claims a durable registry, but a complete copy is unavailable.
+/// Source-owned type/message only: no CID, destination, bytes or exception text.
+class _IncompleteDownloadResumeRegistry extends StateError {
+  _IncompleteDownloadResumeRegistry()
+    : super('Download resume registry is incomplete');
+}
+
 class _DownloadPreparation {
   _DownloadPreparation(this.token, this.isCurrent, this.finish);
   final Object token;
@@ -172,11 +179,30 @@ class _MessagingDownloadResume {
     );
   }
 
-  void _report(String kind) => errorJournal.record(
-    kind: kind,
-    error: StateError('Download resume state could not be saved or read'),
-    atMs: DateTime.now().millisecondsSinceEpoch,
-  );
+  void _report(String kind, {Object? cause, StackTrace? stack}) {
+    const message = 'Download resume state could not be saved or read';
+    // Keep useful failure categories/errno without retaining the original
+    // FormatException.source or filesystem message/path, even in the RAM UI.
+    final Object safeError = switch (cause) {
+      _IncompleteDownloadResumeRegistry() =>
+        _IncompleteDownloadResumeRegistry(),
+      FormatException() => const FormatException(message),
+      FileSystemException(:final osError) => FileSystemException(
+        message,
+        null,
+        osError == null
+            ? null
+            : OSError('operation refused', osError.errorCode),
+      ),
+      _ => StateError(message),
+    };
+    errorJournal.record(
+      kind: kind,
+      error: safeError,
+      stack: stack,
+      atMs: DateTime.now().millisecondsSinceEpoch,
+    );
+  }
 
   Future<Map<String, _PendingDownload>> _loadPending() async {
     final map = <String, _PendingDownload>{};
@@ -187,19 +213,21 @@ class _MessagingDownloadResume {
       if (stored == null &&
           (_layoutMarked ||
               await _owner._storage.hasFile(_pendingDownloadsFile))) {
-        throw StateError('Pending download registry is incomplete');
+        throw _IncompleteDownloadResumeRegistry();
       }
       final raw = stored == null ? legacy : utf8.decode(stored);
       if (raw != null && raw.isNotEmpty) {
         final decoded = jsonDecode(raw);
         if (decoded is! List) {
-          throw StateError('Invalid pending download registry');
+          throw const FormatException('Invalid pending download registry');
         }
         for (final entry in decoded) {
           final pending = entry is Map<String, dynamic>
               ? _PendingDownload.fromJson(entry)
               : null;
-          if (pending == null) throw StateError('Invalid pending download');
+          if (pending == null) {
+            throw const FormatException('Invalid pending download');
+          }
           if (DateTime.now().difference(pending.requestedAt) >
               const Duration(days: 14)) {
             continue;
@@ -209,12 +237,12 @@ class _MessagingDownloadResume {
       }
       _pendingReadFailed = false;
       return _pendingCache = map;
-    } catch (_) {
+    } catch (error, stack) {
       // Leave the durable bytes intact. Background readers can stay idle, but
       // a new request must not overwrite an unreadable registry with an empty
       // one. Do not cache this failure: the next request may recover the read.
       _pendingReadFailed = true;
-      _report('download-resume-read');
+      _report('download-resume-read', cause: error, stack: stack);
       return {};
     }
   }
@@ -249,10 +277,10 @@ class _MessagingDownloadResume {
           // JSON value; cancellation must not resurrect it as a fallback.
           await _owner._storage.putSetting(_pendingDownloadsKey, _fileLayout);
           _layoutMarked = true;
-        } catch (_) {
+        } catch (error, stack) {
           // The authoritative file is already committed. Retry marker cleanup
           // on the next mutation without misreporting that commit as lost.
-          _report('download-resume-layout');
+          _report('download-resume-layout', cause: error, stack: stack);
         }
       }
       _emitResuming(map.keys.toSet());
@@ -348,8 +376,8 @@ class _MessagingDownloadResume {
 
   void complete(String contentId) {
     unawaited(
-      _removePending(contentId).catchError((Object _) {
-        _report('download-resume-write');
+      _removePending(contentId).catchError((Object error, StackTrace stack) {
+        _report('download-resume-write', cause: error, stack: stack);
       }),
     );
   }
