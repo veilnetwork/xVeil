@@ -24,7 +24,9 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 '  diagnosticJournal.recordMediaPermission(video: false, granted: true);\n'
                 '  diagnosticJournal.recordMediaPermission(video: true, granted: false);\n'
                 "  diagnosticJournal.recordMediaStats({'audio_input_level_band': 2, "
-                "'audio_output_level_band': 4, 'device': 'PRIVATE_CANARY'});\n"
+                "'audio_output_level_band': 4, 'device': 'PRIVATE_CANARY', "
+                "'qtag': 'PRIVATE_CANARY', 'walk_tag': 'PRIVATE_CANARY', "
+                "'op': 314159265, 'local': 'PRIVATE_CANARY'});\n"
                 "  diagnosticJournal.recordBackgroundState({'serviceForeground': true, "
                 "'wakeLockHeld': false, 'notification': 'PRIVATE_CANARY'});\n"
                 '  print(jsonEncode(diagnosticJournal.toJson()));\n'
@@ -43,6 +45,7 @@ class DiagnosticArtifactTest(unittest.TestCase):
                     report = json.loads(subprocess.check_output([str(executable)], text=True))
                     self.assertEqual(report['enabled'], enabled)
                     self.assertNotIn('PRIVATE_CANARY', json.dumps(report))
+                    self.assertNotIn('314159265', json.dumps(report))
                     if enabled:
                         evidence = report['last_evidence']
                         self.assertEqual(evidence['microphonePermission']['values'], {'state': 1})
