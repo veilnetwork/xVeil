@@ -1,0 +1,194 @@
+{
+  "schema": "xveil-validation/delivery-dht-budget-1",
+  "status": "partial-delivery-latency-remains-open",
+  "date": "2026-10-31",
+  "scope": {
+    "nodes": 12,
+    "one_mac": true,
+    "one_host_process": true,
+    "jit_flutter": true,
+    "tcp_loopback": true,
+    "dht": true,
+    "fresh_containers": true,
+    "same_identity_keys": true,
+    "random_device_instances_each_run": true,
+    "production_pow": true,
+    "membership_epoch_encryption": false,
+    "paired_contact_handshake": false,
+    "public_relays": false,
+    "phone": false
+  },
+  "native_series": [
+    {
+      "phase": "A1",
+      "max_visible_ms": [
+        9787,
+        2559,
+        2478,
+        3288
+      ],
+      "messages": 4,
+      "all_nodes_received_exactly_once": true,
+      "owned_host_exited": true,
+      "nodes_stopped": 12,
+      "listeners_released": 12
+    },
+    {
+      "phase": "B1",
+      "max_visible_ms": [
+        7995,
+        1912,
+        2451,
+        3346
+      ],
+      "messages": 4,
+      "all_nodes_received_exactly_once": true,
+      "owned_host_exited": true,
+      "nodes_stopped": 12,
+      "listeners_released": 12
+    },
+    {
+      "phase": "A2",
+      "max_visible_ms": [
+        8154,
+        2968,
+        2655,
+        3229
+      ],
+      "messages": 4,
+      "all_nodes_received_exactly_once": true,
+      "owned_host_exited": true,
+      "nodes_stopped": 12,
+      "listeners_released": 12
+    },
+    {
+      "phase": "B2",
+      "max_visible_ms": [
+        7073,
+        2417,
+        1625,
+        2363
+      ],
+      "messages": 4,
+      "all_nodes_received_exactly_once": true,
+      "owned_host_exited": true,
+      "nodes_stopped": 12,
+      "listeners_released": 12
+    },
+    {
+      "phase": "A3",
+      "max_visible_ms": [
+        8638,
+        2493,
+        2148,
+        2707
+      ],
+      "messages": 4,
+      "all_nodes_received_exactly_once": true,
+      "owned_host_exited": true,
+      "nodes_stopped": 12,
+      "listeners_released": 12
+    },
+    {
+      "phase": "B3",
+      "max_visible_ms": [
+        8083,
+        2888,
+        1719,
+        3293
+      ],
+      "messages": 4,
+      "all_nodes_received_exactly_once": true,
+      "owned_host_exited": true,
+      "nodes_stopped": 12,
+      "listeners_released": 12
+    }
+  ],
+  "first_message_median_ms": {
+    "control": 8638,
+    "candidate": 7995
+  },
+  "raw_correlated_control_timeouts": {
+    "total": 141,
+    "without_observed_post_decode_processing": 113,
+    "forwarded_without_observed_local_value": 28,
+    "sampled_rate_refusal_matches": 7,
+    "observed_local_value_but_timeout": 0
+  },
+  "general_retry_rejected": {
+    "events_in_one_capture": 2007,
+    "events_outside_send_key_material_key_set": 1781,
+    "included": false
+  },
+  "key_material_retry": [
+    {
+      "retry_outcomes": {
+        "accepted": 185
+      },
+      "repeated_queries_with_value_reply": 101,
+      "reply_elapsed_ms_min": 500,
+      "reply_elapsed_ms_max": 750
+    },
+    {
+      "retry_outcomes": {
+        "accepted": 148
+      },
+      "repeated_queries_with_value_reply": 62,
+      "reply_elapsed_ms_min": 503,
+      "reply_elapsed_ms_max": 749
+    },
+    {
+      "retry_outcomes": {
+        "accepted": 171,
+        "locally_queued": 1
+      },
+      "repeated_queries_with_value_reply": 98,
+      "reply_elapsed_ms_min": 504,
+      "reply_elapsed_ms_max": 752
+    }
+  ],
+  "tests": {
+    "rust_dispatcher": {
+      "passed": 286,
+      "ignored": 0
+    },
+    "rust_ipc": {
+      "passed": 199,
+      "ignored": 5
+    },
+    "rust_runtime": {
+      "passed": 767,
+      "ignored": 11
+    },
+    "rust_session": {
+      "passed": 671,
+      "ignored": 8
+    },
+    "flutter": {
+      "passed": 24
+    },
+    "aot_privacy_gate": {
+      "passed": 1
+    },
+    "document_burst_red_before_fix": 3,
+    "late_local_document_red_before_fix": 1
+  },
+  "push": false,
+  "release": false,
+  "final_native_qualification": {
+    "max_visible_ms": [
+      9150,
+      2903,
+      2614,
+      2742
+    ],
+    "all_nodes_received_exactly_once": true,
+    "owned_host_exited": true,
+    "nodes_stopped": 12,
+    "listeners_released": 12,
+    "library_sha256": "893960a617f21194cd424e31dc5aa6109fb843634dadb859f49233d566d4c94b",
+    "late_local_document_comparison": true,
+    "mixed_into_earlier_comparison": false
+  },
+  "sdk_commit": "b5fdc90834b4feebf964540755e8c68af7841444"
+}
