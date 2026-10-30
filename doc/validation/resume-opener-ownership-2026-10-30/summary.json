@@ -1,0 +1,45 @@
+{
+  "baseline_app": "2ffccc93",
+  "baseline_tests_failed": 4,
+  "baseline_control_tests_passed": 1,
+  "related_tests_passed": 108,
+  "related_tests_ignored": 0,
+  "new_delayed_opener_tests_in_related_count": 8,
+  "native_storage_tests_passed": 3,
+  "native_storage_tests_ignored": 0,
+  "new_native_storage_tests_in_native_count": 1,
+  "native_final_test_uses_real_plain_file_sink": true,
+  "native_close_calls": 1,
+  "native_write_calls": 0,
+  "native_pending_intent_survives_reopen": true,
+  "source_prepare_fence": "per-active-resume identity token",
+  "invalidating_actions": [
+    "explicit replacement request",
+    "cancel",
+    "clear pending registry",
+    "service disposal"
+  ],
+  "late_opener_variants_qualified": [
+    "sink",
+    "null",
+    "exception"
+  ],
+  "token_is_not_persisted": true,
+  "native_library_rebuilt": false,
+  "native_owned_process_groups_exited": true,
+  "flutter_analyze_issues": 0,
+  "physical_android_run": false,
+  "gui_stand_apps_started": false,
+  "network_relay_timing_qualified": false,
+  "wire_protocol_or_mailbox_policy_changed": false,
+  "original_33_percent_report_closed": false,
+  "all_post_handoff_transfer_races_closed": false,
+  "push_or_release": false,
+  "changed_source_sha256": {
+    "lib/state/messaging_download_resume.dart": "944b7f0e9f9de5c5e5bd9805d189693909fb82f1b4ab9e2cc577869a8d84da00",
+    "lib/state/messaging_core.dart": "d30e00445bbdf70a1e0de8abb47884318e8c7b93b07856bdaa5c21f829818604",
+    "test/download_auto_resume_test.dart": "9da7717348d25ea62fb7aa08495548ce12c2f6af0d295e48e4aa5741d244b18f",
+    "test/native/download_resume_native_test.dart": "917fcc283060d9ca8d866cd822ac3ef8f4b1b3824a4530219ce3e5838aac4823"
+  },
+  "hidden_volume_library_sha256": "3b2eacc819b307125cafe01665ebbaec5ee6ed9d3b3d5d96bc5d5b26a50f79e7"
+}

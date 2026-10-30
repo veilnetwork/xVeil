@@ -22,7 +22,9 @@ class _MessagingDownloadResume {
   final Map<String, Timer> _timers = {};
   final Map<String, int> _attempts = {};
   final Map<String, DateTime> _progressAt = {};
-  final Set<String> _inFlight = {};
+  // Identity tokens fence resumptions still awaiting an external opener/read.
+  // A stale continuation may close its own sink, never retire a newer slot.
+  final Map<String, Object> _inFlight = {};
   final Set<String> _parked = {};
   final Set<String> _persistedManifests = {};
   final Map<String, int> _activePullCount = {};
@@ -45,7 +47,14 @@ class _MessagingDownloadResume {
 
   Stream<Set<String>> get resuming => _resuming.stream;
 
+  /// A new explicit request supersedes any suspended auto-resume preparation.
+  void beginUserRequest(String contentId) {
+    _inFlight.remove(contentId);
+    _owner._cancelledDownloads.remove(contentId);
+  }
+
   Future<String?> cancel(String contentId) async {
+    _inFlight.remove(contentId);
     _owner._cancelledDownloads.add(contentId);
     _owner._contentAvailability.cancelRetryReoffers(contentId);
     _owner._clearGroupPullSources(contentId);
@@ -60,7 +69,7 @@ class _MessagingDownloadResume {
     // an immediate re-tap is allowed to start a new transfer.
     final deadline = DateTime.now().add(const Duration(seconds: 2));
     while (((_activePullCount[contentId] ?? 0) > 0 ||
-            _inFlight.contains(contentId)) &&
+            _inFlight.containsKey(contentId)) &&
         DateTime.now().isBefore(deadline)) {
       await Future<void>.delayed(const Duration(milliseconds: 20));
     }
@@ -78,6 +87,7 @@ class _MessagingDownloadResume {
   }
 
   Future<int> clearPending() async {
+    _inFlight.clear();
     final pending = await _pendingDownloads();
     if (_pendingReadFailed) {
       throw StateError('Download resume state unavailable');
@@ -375,8 +385,13 @@ class _MessagingDownloadResume {
   }
 
   /// Whether any recorded holder is still a source we may pull from.
-  Future<bool> _anyEligibleSource(List<NodeId> peers, String contentId) async {
+  Future<bool> _anyEligibleSource(
+    List<NodeId> peers,
+    String contentId,
+    bool Function() isCurrent,
+  ) async {
     for (final peer in peers) {
+      if (!isCurrent()) return false;
       if (await _owner._eligiblePullSource(peer, contentId)) return true;
     }
     return false;
@@ -450,7 +465,7 @@ class _MessagingDownloadResume {
     _timers[contentId]?.cancel();
     _timers[contentId] = Timer(delay, () {
       _timers.remove(contentId);
-      if (_inFlight.contains(contentId)) {
+      if (_inFlight.containsKey(contentId)) {
         _schedule(contentId, after: const Duration(seconds: 30));
       } else {
         unawaited(_resume(contentId));
@@ -466,19 +481,30 @@ class _MessagingDownloadResume {
 
   Future<void> _resume(String contentId) async {
     resumeTicks++;
-    if (_owner._disposed || !_inFlight.add(contentId)) return;
+    if (_owner._disposed || _inFlight.containsKey(contentId)) return;
+    final attempt = Object();
+    _inFlight[contentId] = attempt;
+    bool isCurrent() =>
+        !_owner._disposed &&
+        !_owner._cancelledDownloads.contains(contentId) &&
+        identical(_inFlight[contentId], attempt);
     final short = contentId.length >= 12
         ? contentId.substring(0, 12)
         : contentId;
     try {
       final intent = (await _pendingDownloads())[contentId];
-      if (intent == null || _owner._cancelledDownloads.contains(contentId)) {
-        return;
+      if (intent == null || !isCurrent()) return;
+      var completed = await _owner._storage.hasFile(contentId);
+      if (!isCurrent()) return;
+      if (!completed) {
+        completed = await _owner.isContentUnavailable(contentId);
+        if (!isCurrent()) return;
       }
-      if (await _owner._storage.hasFile(contentId) ||
-          await _owner.isContentUnavailable(contentId) ||
-          (intent.mode == _PendingDownload.modeFile &&
-              await _owner.contentSavedPath(contentId) != null)) {
+      if (!completed && intent.mode == _PendingDownload.modeFile) {
+        completed = await _owner.contentSavedPath(contentId) != null;
+        if (!isCurrent()) return;
+      }
+      if (completed) {
         complete(contentId);
         return;
       }
@@ -509,7 +535,11 @@ class _MessagingDownloadResume {
       // Park instead. The un-parking path already exists and is the right one:
       // it waits for something to actually happen — an offer, or an inbound
       // frame from a recorded holder — rather than for a clock.
-      if (peers.isNotEmpty && !await _anyEligibleSource(peers, contentId)) {
+      final eligible =
+          peers.isEmpty ||
+          await _anyEligibleSource(peers, contentId, isCurrent);
+      if (!isCurrent()) return;
+      if (!eligible) {
         _parked.add(contentId);
         diagnosticJournal.record(
           DiagnosticEvent.downloadParked,
@@ -526,6 +556,7 @@ class _MessagingDownloadResume {
       }
       if (_owner._offered[contentId] == null && peers.isNotEmpty) {
         final manifest = await loadPersistedManifest(contentId);
+        if (!isCurrent()) return;
         if (manifest != null) {
           for (final peer in peers) {
             _owner._contentAvailability.rememberManifest(peer, manifest);
@@ -552,7 +583,7 @@ class _MessagingDownloadResume {
       }
       if (intent.mode == _PendingDownload.modeFile &&
           intent.savedPath != null) {
-        await _resumePlainFile(intent, peers);
+        await _resumePlainFile(intent, peers, isCurrent);
       } else {
         await _owner.downloadContentFromAny(
           peers,
@@ -561,6 +592,8 @@ class _MessagingDownloadResume {
         );
       }
     } catch (error, stack) {
+      // A late failure belongs to the retired attempt, not the replacement.
+      if (!isCurrent()) return;
       if (kDiagnosticReportEnabled) {
         errorJournal.record(
           kind: 'download-resume',
@@ -572,17 +605,24 @@ class _MessagingDownloadResume {
       devLog(() => 'xVeil[content]: auto-resume $short failed: $error');
       _schedule(contentId, backoff: true);
     } finally {
-      _inFlight.remove(contentId);
+      if (identical(_inFlight[contentId], attempt)) _inFlight.remove(contentId);
     }
   }
 
   Future<void> _resumePlainFile(
     _PendingDownload intent,
     List<NodeId> peers,
+    bool Function() isCurrent,
   ) async {
     final contentId = intent.contentId;
     final path = intent.savedPath!;
     final sink = await plainFileSinkOpener(path, resume: true);
+    if (!isCurrent()) {
+      // Openers cannot be cancelled. Retain ownership of their late handle,
+      // but never give an obsolete destination back to the download engine.
+      await sink?.close();
+      return;
+    }
     if (sink == null) {
       // A vanished mount or temporarily unavailable save-panel grant is not
       // completion or cancellation. Keep the durable destination and verified
@@ -605,6 +645,7 @@ class _MessagingDownloadResume {
   }
 
   Future<void> dispose() async {
+    _inFlight.clear();
     for (final timer in _timers.values) {
       timer.cancel();
     }
