@@ -1,0 +1,39 @@
+{
+  "baseline_sdk": "df6edab1",
+  "fixed_sdk": "34299cb6",
+  "regression_baseline": {"passed": 0, "failed": 2, "ignored": 0},
+  "regression_fixed": {"passed": 2, "failed": 0, "ignored": 0},
+  "real_c_read_write_close": true,
+  "peer_releases_eof_only_after_fin": true,
+  "busy_writer_case_uses_the_native_writer_mutex": true,
+  "clean_eof_all_queued_bytes_and_arc_release_verified": true,
+  "synchronous_c_close_does_not_wait_for_busy_writer": true,
+  "existing_explicit_abort_semantics_unchanged": true,
+  "ffi_unit": {"passed": 328, "failed": 0, "ignored": 2},
+  "ffi_doctest": {"passed": 0, "failed": 0, "ignored": 5},
+  "selected_driver_integration": {
+    "close_handoff": 5,
+    "close_linger": 2,
+    "queued_writes": 2,
+    "reset_backpressure": 4,
+    "failed": 0,
+    "ignored": 0
+  },
+  "ffi_clippy_lib_tests_warnings_denied": true,
+  "rustfmt_and_diff_check": true,
+  "external_mount_verified_and_monitored": true,
+  "xveil_normal_wrapper_already_calls_finish": true,
+  "physical_file_pause_attribution": "not_established",
+  "previous_physical_series_rto_classification": {
+    "sdk": "df6edab1",
+    "distinct_logical_streams_with_rto": 3,
+    "distinct_logical_streams_with_fin_requested_and_pending_eight_bytes_at_rto": 3,
+    "distinct_logical_streams_with_bulk_rto": 1,
+    "bulk_and_tail_events_can_belong_to_the_same_stream": true,
+    "identifiers_or_raw_text_exported": false
+  },
+  "apps_or_relays_started_during_cycle": false,
+  "physical_install_or_qualification_of_fix": false,
+  "owned_test_processes_exited": true,
+  "push_or_release": false
+}
