@@ -709,6 +709,86 @@ void main() {
     return cid;
   }
 
+  for (final mode in ['revoked', 'record-lost', 'stored-copy', 'moved', 'changed', 'mid-read']) {
+    test('live source stream preserves its policy: $mode', () async {
+      final dir = await Directory.systemTemp.createTemp('xveil-live-source');
+      addTearDown(() => dir.delete(recursive: true));
+      var bytes = _rnd(16000, 402);
+      final original = Uint8List.fromList(bytes);
+      final file = File('${dir.path}/delegated.bin');
+      await file.writeAsBytes(bytes);
+      await file.setLastModified(DateTime.utc(2020, 1, 1));
+      var granted = true;
+      var liveReads = 0;
+      final delegated = mode != 'moved' && mode != 'changed';
+      mA.sourceOpener = veilSourceOpener;
+      mA.servedSourceAuthorizer = (_, _) async => granted;
+      final cid = await mA.registerGroupContentStreaming(
+        'delegated.bin', bytes.length,
+        (offset, length) async {
+          liveReads++;
+          return Uint8List.sublistView(bytes, offset, offset + length);
+        },
+        close: () async {}, sourcePath: file.path,
+        sourceRoots: delegated ? [dir.path] : const [],
+      );
+      if (mode == 'record-lost') await sA.putSetting('served:$cid', '');
+      Future<Uint8List> pull() async {
+        final stream = (await tB.openStream(a))!;
+        try {
+          await stream.write(Uint8List(48)..setAll(0, [
+            for (var i = 0; i < cid.length; i += 2)
+              int.parse(cid.substring(i, i + 2), radix: 16),
+          ]));
+          final all = BytesBuilder(copy: false);
+          while (true) {
+            final next = await stream.read().timeout(const Duration(seconds: 20));
+            if (next.isEmpty) break;
+            all.add(next);
+          }
+          return all.takeBytes();
+        } finally { await stream.close(); }
+      }
+      expect(_containsSlice(await pull(), original), isTrue,
+          reason: 'the active source must serve the original bytes');
+      final readsBefore = liveReads;
+      if (mode == 'stored-copy') await sA.storeFile(cid, original);
+      if (mode == 'moved') await file.delete();
+      if (mode == 'changed') {
+        bytes = _rnd(original.length, 403);
+        await file.writeAsBytes(bytes);
+        await file.setLastModified(DateTime.utc(2021, 1, 1));
+      }
+      granted = mode == 'mid-read';
+      if (mode == 'mid-read') {
+        mA.sourceOpener = (path) async {
+          final source = await veilSourceOpener(path);
+          if (source == null) return null;
+          return (
+            read: (offset, length) async {
+              final data = await source.read(offset, length);
+              granted = false;
+              return data;
+            },
+            close: source.close,
+          );
+        };
+      }
+      final result = await pull();
+      if (mode == 'stored-copy') {
+        expect(_containsSlice(result, original), isTrue);
+        expect(liveReads, readsBefore,
+            reason: 'a stored copy must not read the now-ungranted original');
+      } else if (mode == 'moved') {
+        expect(_containsSlice(result, original), isTrue,
+            reason: 'a valid live source survives a missing picker path');
+      } else {
+        expect(_containsSlice(result, bytes), isFalse,
+            reason: 'failed durable verification cannot authorize raw RAM fallback');
+      }
+    });
+  }
+
   for (final mode in ['cold', 'never', 'silent', 'cancel']) {
     test(
       'stream readiness separates connection from manifest timeout: $mode',

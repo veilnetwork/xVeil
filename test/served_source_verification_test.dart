@@ -43,6 +43,7 @@ class _Link implements VeilTransport {
   _Link? peer;
   bool dropManifestOnce = false;
   Completer<void>? firstChunk;
+  void Function(WireEnvelope)? observe;
 
   /// Every piece of content this side put on the wire, by content id.
   ///
@@ -70,6 +71,7 @@ class _Link implements VeilTransport {
     bool anonymous = false,
   }) async {
     final env = WireEnvelope.decode(payload);
+    observe?.call(env);
     if (env.kind == WireKind.contentManifest && dropManifestOnce) {
       dropManifestOnce = false;
       return; // the offer's manifest is "lost" → the receiver must reoffer
@@ -94,6 +96,15 @@ class _Link implements VeilTransport {
   Future<List<PeerInfo>> peers() async => const [];
   @override
   Future<void> dispose() async => _in.close();
+}
+
+class _NoDurableSourceStorage extends HiddenVolumeStorage {
+  _NoDurableSourceStorage() : super(_mem());
+  @override
+  Future<void> putSetting(String key, String value) async {
+    if (key.startsWith('served:')) throw StateError('durable source unavailable');
+    await super.putSetting(key, value);
+  }
 }
 
 SpaceOpener _mem() {
@@ -306,24 +317,33 @@ void main() {
       final original = _rnd(120000, 301);
       final replacement = _rnd(120000, 302);
       final (cid, file) = await durableOffer('reopen.bin', original);
+      await file.setLastModified(DateTime.now().add(const Duration(hours: 1)));
       final planted = File('${workdir.path}/reopen-replacement.bin');
       await planted.writeAsBytes(replacement);
       await mA.dispose();
 
       var opens = 0;
       var swapped = false;
+      final reads = <int, int>{};
+      final closed = <int>[];
+      final servingClosed = Completer<void>();
       Future<VeilServeSource?> swapOnFirstClose(String path) async {
-        opens++;
+        final handle = ++opens;
         final source = await veilSourceOpener(path);
         if (source == null) return null;
         return (
-          read: source.read,
+          read: (offset, length) async {
+            reads[handle] = (reads[handle] ?? 0) + 1;
+            return source.read(offset, length);
+          },
           close: () async {
             await source.close();
+            closed.add(handle);
             if (!swapped) {
               swapped = true;
               await planted.rename(file.path);
             }
+            if (handle == 2 && !servingClosed.isCompleted) servingClosed.complete();
           },
         );
       }
@@ -353,16 +373,12 @@ void main() {
       );
       await received.timeout(const Duration(seconds: 20));
       expect(await sB.loadFile(cid), original);
-      expect(
-        opens,
-        1,
-        reason: 'the verified handle must be retained for serving',
-      );
-      expect(
-        swapped,
-        isFalse,
-        reason: 'the source must still be owned by serving',
-      );
+      await servingClosed.future.timeout(const Duration(seconds: 20));
+      expect(opens, 2, reason: 'independent reoffer and datagram leases');
+      expect(reads[2], greaterThan(1),
+          reason: 'the datagram lease is verified, then read for serving');
+      expect(closed, [2], reason: 'the live reoffer lease remains owned');
+      expect(swapped, isTrue, reason: 'replacement occurs only after serving');
     },
   );
 
@@ -460,6 +476,85 @@ void main() {
         reason: 'the older check observed the name change and must refuse it');
     expect(opens, 2);
   });
+
+  test('registration retains delegated roots across the first await', () async {
+    final bytes = _rnd(16000, 404);
+    final file = File('${workdir.path}/mutable-roots.bin');
+    await file.writeAsBytes(bytes);
+    final roots = <String>[workdir.path];
+    var closed = 0;
+    mA.servedSourceAuthorizer = (_, _) async => false;
+    final send = mA.sendFileStreaming(
+      b, 'mutable-roots.bin', bytes.length,
+      (offset, length) async =>
+          Uint8List.sublistView(bytes, offset, offset + length),
+      close: () async { closed++; }, sourcePath: file.path, sourceRoots: roots,
+    );
+    // Revocation changes the caller's collection while contact lookup yields.
+    // It must not turn a delegated send into a personal, ungated source.
+    roots.clear();
+    await expectLater(send, throwsA(predicate<Object>(
+      (error) => error.toString() == 'source access revoked')));
+    expect(closed, 1);
+  });
+
+  for (final mode in ['durable', 'unpersisted', 'mid-read']) {
+    test('live delegated datagrams stop after root revoke: $mode',
+        () async {
+      final durable = mode != 'unpersisted';
+      if (!durable) {
+        await mA.dispose();
+        sA = _NoDurableSourceStorage();
+        await sA.open(password: 'a', createIfMissing: true);
+        await sA.upsertContact(Contact(nodeId: b, status: ContactStatus.accepted));
+        mA = MessagingService(tA, sA, contentPacing: Duration.zero)
+          ..sourceOpener = countingOpener
+          ..start();
+      }
+      var granted = true;
+      var revokeOnRead = false;
+      mA.servedSourceAuthorizer = (_, _) async => granted;
+      final bytes = _rnd(16000, 401);
+      final file = File('${workdir.path}/live-delegated.bin');
+      await file.writeAsBytes(bytes);
+      Future<String> register(String name) => mA.registerGroupContentStreaming(
+        name, bytes.length,
+        (offset, length) async {
+          if (revokeOnRead) granted = false;
+          return Uint8List.sublistView(bytes, offset, offset + length);
+        },
+        close: () async {}, sourcePath: file.path, sourceRoots: [workdir.path],
+      );
+      final control = await register('allowed.bin');
+      final denied = await register('denied.bin');
+      if (!durable) expect(await sA.getSetting('served:$denied'), isNull);
+      Future<WireKind> request(String cid) async {
+        final terminal = Completer<WireKind>();
+        tA.observe = (env) {
+          if (!terminal.isCompleted &&
+              ((env.kind == WireKind.pieceChunk &&
+                    parsePieceChunk(env.body).contentId == cid) ||
+               (env.kind == WireKind.contentGone && env.body == cid))) {
+            terminal.complete(env.kind);
+          }
+        };
+        await tB.send(a, pieceRequestEnvelope(
+          contentId: cid, indices: [0],
+        ).encode());
+        return terminal.future.timeout(const Duration(seconds: 20));
+      }
+      expect(await request(control), WireKind.pieceChunk);
+      if (mode == 'mid-read') {
+        mA.sourceOpener = null;
+        revokeOnRead = true;
+      } else {
+        granted = false;
+      }
+      expect(await request(denied), WireKind.contentGone,
+          reason: 'a live RAM source must not outlive its folder grant');
+      expect(tA.sentChunks[denied] ?? const <Uint8List>[], isEmpty);
+    });
+  }
 
   test(
     'the verdict is cached, and not one moment past the file it was about',
@@ -561,15 +656,17 @@ void main() {
 
     // THE CONTROL: while the grant holds, the offer serves.
     expect(await mA.verifiedGroupContentSourcePath(cid!), file.path);
-    expect(asked, hasLength(1));
-    expect(asked.single.$1, file.path);
+    expect(asked, isNotEmpty);
+    expect(asked.every((q) => q.$1 == file.path &&
+        q.$2.length == 1 && q.$2.single == workdir.path), isTrue);
     expect(
-      asked.single.$2,
+      asked.last.$2,
       [workdir.path],
       reason: 'the authorizer was handed the path and the recorded grant',
     );
 
     // …and the moment it does not, it stops. No restart, no cache expiry.
+    final previousChecks = asked.length;
     granted = false;
     expect(
       await mA.verifiedGroupContentSourcePath(cid),
@@ -578,7 +675,8 @@ void main() {
           'the offer kept serving out of a folder that is no longer granted — '
           'the record was acting as its own authorization',
     );
-    expect(asked, hasLength(2), reason: 'the answer must not be cached');
+    expect(asked.length, greaterThan(previousChecks),
+        reason: 'the authorization must be checked again');
   });
 
   test('a GROUP offer stops serving when the grant that authorized it goes '
@@ -619,14 +717,12 @@ void main() {
 
     // THE CONTROL: while the grant holds, the offer serves.
     expect(await mA.verifiedGroupContentSourcePath(cid), file.path);
-    expect(
-      asked,
-      hasLength(1),
-      reason: 'the reopen never asked — the record was not delegated',
-    );
-    expect(asked.single.$1, file.path);
-    expect(asked.single.$2, [workdir.path]);
+    expect(asked, isNotEmpty);
+    expect(asked.every((q) => q.$1 == file.path &&
+        q.$2.length == 1 && q.$2.single == workdir.path), isTrue);
+    expect(asked.last.$2, [workdir.path]);
 
+    final previousChecks = asked.length;
     granted = false;
     expect(
       await mA.verifiedGroupContentSourcePath(cid),
@@ -635,7 +731,8 @@ void main() {
           'the group offer kept reading out of a folder that is no longer '
           'granted',
     );
-    expect(asked, hasLength(2), reason: 'the answer must not be cached');
+    expect(asked.length, greaterThan(previousChecks),
+        reason: 'the authorization must be checked again');
   });
 
   test('a group file the user picked here is not gated either', () async {
