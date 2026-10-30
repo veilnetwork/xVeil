@@ -2450,7 +2450,12 @@ extension _MessagingContentPull on MessagingService {
       );
     }
     await _persistServeManifest(m);
-    _serving[m.contentId] = (manifest: m, source: null, servedAt: _now());
+    _serving[m.contentId] = (
+      manifest: m,
+      source: null,
+      sourceRecord: null,
+      servedAt: _now(),
+    );
     _evictServing();
     _ensureContentTimer();
     _signal();

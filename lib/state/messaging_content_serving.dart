@@ -3,6 +3,7 @@ part of 'messaging_core.dart';
 typedef _ServedContent = ({
   ContentManifest manifest,
   ServeSource? source,
+  _ServedRecord? sourceRecord,
   DateTime servedAt,
 });
 
@@ -19,6 +20,11 @@ typedef _ServedRecord = ({
   String? name,
   List<String> roots,
 });
+
+class _SourceAccessRevoked implements Exception {
+  @override
+  String toString() => 'source access revoked';
+}
 
 /// Owns sender-side content manifests and every live [ServeSource] handle.
 ///
