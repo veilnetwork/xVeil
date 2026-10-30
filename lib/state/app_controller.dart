@@ -2998,6 +2998,12 @@ class AppController extends Notifier<AppState> {
       // A node-boot failure must not trap the user — but it must NOT be hidden
       // behind a fake "connected" either: surface it honestly (the network
       // screen shows this state + a non-blocking notice) and in the log.
+      errorJournal.record(
+        kind: 'node-start',
+        error: e,
+        stack: st,
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
       ref.read(nodeBootStateProvider.notifier).state = NodeStatus(
         phase: NodePhase.error,
         message: 'node failed to start: $e',

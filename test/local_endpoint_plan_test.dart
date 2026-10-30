@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/veil_stack.dart';
 
@@ -12,6 +14,44 @@ import 'package:xveil/data/veil_stack.dart';
 void main() {
   const runtimeDir = r'C:\Users\me\AppData\Local\Temp\xveil-rt-1';
   const posixDir = '/tmp/xveil-rt-1';
+
+  test('Android adopted-storage runtime uses authenticated TCP anchors', () {
+    const dir =
+        '/mnt/expand/00000000-0000-0000-0000-000000000000/user/0/'
+        'network.veil.xveil/files/xveil-rt-4528/rt-2d31a2b3';
+    expect(utf8.encode('$dir/admin.sock').length, greaterThan(107));
+    final plan = localEndpointPlanFor('android', runtimeDir: dir);
+    expect(plan.loopbackTcp, isTrue);
+    expect(plan.adminEndpoint(dir), 'tcp://127.0.0.1:0?runtime_dir=$dir');
+    expect(plan.ipcEndpoint(dir), 'tcp://127.0.0.1:0?runtime_dir=$dir');
+    expect(plan.adminSocket(dir), '$dir/admin.anchor');
+    expect(plan.ipcSocket(dir), '$dir/ipc.anchor');
+  });
+
+  test('Unix path limits include the terminator and count encoded bytes', () {
+    for (final (os, maxBytes) in [
+      ('android', 107),
+      ('linux', 107),
+      ('macos', 103),
+    ]) {
+      final atLimit = '/${'a' * (maxBytes - '/admin.sock'.length - 1)}';
+      expect(utf8.encode('$atLimit/admin.sock').length, maxBytes);
+      expect(
+        localEndpointPlanFor(os, runtimeDir: atLimit).loopbackTcp,
+        isFalse,
+      );
+      expect(
+        localEndpointPlanFor(os, runtimeDir: '${atLimit}a').loopbackTcp,
+        isTrue,
+      );
+    }
+    final unicodeDir = '/tmp/${'я' * 60}';
+    expect('$unicodeDir/admin.sock'.length, lessThan(107));
+    expect(
+      localEndpointPlanFor('android', runtimeDir: unicodeDir).loopbackTcp,
+      isTrue,
+    );
+  });
 
   group('platforms without a Unix domain socket', () {
     test('Windows takes loopback TCP with anchor sidecars', () {
