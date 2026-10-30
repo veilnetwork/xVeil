@@ -3206,62 +3206,85 @@ class MessagingService {
     NodeId peer,
     String contentId,
   ) async {
-    if (await _storage.hasFile(contentId)) {
-      _signal();
-      return ContentDownloadResult.started;
-    }
-    _downloadResume.beginUserRequest(contentId);
-    devLog(() => 'xVeil[content]: user download ${contentId.substring(0, 12)}');
-    if (!await _recordPendingDownload(
-      contentId,
-      mode: _PendingDownload.modeStore,
-      peers: [peer],
-    )) {
+    final preparation = _downloadResume.prepare(contentId, userInitiated: true);
+    if (preparation == null) {
       return ContentDownloadResult.noOffer;
     }
-    // Multi-device: in parallel, ask my OTHER devices for the bytes over the
-    // membership pull (no-op unless this cid is a mirrored attachment). The
-    // conversation peer may be unreachable — or, for a mirrored OUTGOING
-    // file, may never have had the blob at all.
-    unawaited(deviceContentPull?.call(contentId));
-    _warmStreamPeer(peer, contentId: contentId);
-    // An explicit user retry overrides a terminal "gone" mark — if the bytes
-    // are still gone everywhere, the next reoffer round re-marks it.
-    unawaited(_clearContentGone(contentId));
-    _markContentDownloadStarted(contentId);
-    final retryPeers = await _contentSourcePeers(
-      preferred: peer,
-      contentId: contentId,
-    );
-    final offered = _offered[contentId];
-    if (offered != null &&
-        await _pullSwarmStream(peer, contentId, offered.manifest, retryPeers)) {
-      return ContentDownloadResult.started;
-    }
-    final offeredRef = _offeredRefs[contentId];
-    if (offeredRef != null &&
-        await _beginFetchFromManifestRef(
-          _offerRefPeer(offeredRef, preferred: peer),
+    try {
+      if (await preparation.wait(() => _storage.hasFile(contentId))) {
+        _signal();
+        return ContentDownloadResult.started;
+      }
+      devLog(
+        () => 'xVeil[content]: user download ${contentId.substring(0, 12)}',
+      );
+      if (!await preparation.wait(
+        () => _recordPendingDownload(
           contentId,
-          offeredRef.ref,
-          null,
-          null,
-        )) {
+          preparation: preparation,
+          mode: _PendingDownload.modeStore,
+          peers: [peer],
+        ),
+      )) {
+        return ContentDownloadResult.noOffer;
+      }
+      // Multi-device: in parallel, ask my OTHER devices for the bytes over the
+      // membership pull (no-op unless this cid is a mirrored attachment). The
+      // conversation peer may be unreachable — or, for a mirrored OUTGOING
+      // file, may never have had the blob at all.
+      unawaited(deviceContentPull?.call(contentId));
+      _warmStreamPeer(peer, contentId: contentId);
+      // An explicit user retry overrides a terminal "gone" mark — if the bytes
+      // are still gone everywhere, the next reoffer round re-marks it.
+      unawaited(_clearContentGone(contentId));
+      _markContentDownloadStarted(contentId);
+      final retryPeers = await preparation.wait(
+        () => _contentSourcePeers(preferred: peer, contentId: contentId),
+      );
+      final offered = _offered[contentId];
+      if (offered != null &&
+          await preparation.wait(
+            () =>
+                _pullSwarmStream(peer, contentId, offered.manifest, retryPeers),
+          )) {
+        return ContentDownloadResult.started;
+      }
+      final offeredRef = _offeredRefs[contentId];
+      if (offeredRef != null &&
+          await preparation.wait(
+            () => _beginFetchFromManifestRef(
+              _offerRefPeer(offeredRef, preferred: peer),
+              contentId,
+              offeredRef.ref,
+              null,
+              null,
+            ),
+          )) {
+        return ContentDownloadResult.started;
+      }
+      // Legacy reliable STREAM fallback for encrypted/in-store downloads: it can
+      // resume across known sources after a partial payload. Keep this path, but
+      // do not pre-probe the manifest here; the probe consumes a stream open and
+      // can mask the very first failure that this fallback is meant to survive.
+      if (await preparation.wait(
+        () => _pullStream(peer, contentId, null, retryPeers: retryPeers),
+      )) {
+        return ContentDownloadResult.started;
+      }
+      // Datagram fallback (transport has no streams — e.g. a loopback fake).
+      if (offered == null) {
+        return _requestReofferFromAny(retryPeers, contentId, null);
+      }
+      await preparation.wait(
+        () =>
+            _beginFetch(_offerPeer(offered, preferred: peer), offered.manifest),
+      );
       return ContentDownloadResult.started;
+    } on _DownloadPreparationRetired {
+      return ContentDownloadResult.noOffer;
+    } finally {
+      preparation.finish();
     }
-    // Legacy reliable STREAM fallback for encrypted/in-store downloads: it can
-    // resume across known sources after a partial payload. Keep this path, but
-    // do not pre-probe the manifest here; the probe consumes a stream open and
-    // can mask the very first failure that this fallback is meant to survive.
-    if (await _pullStream(peer, contentId, null, retryPeers: retryPeers)) {
-      return ContentDownloadResult.started;
-    }
-    // Datagram fallback (transport has no streams — e.g. a loopback fake).
-    if (offered == null) {
-      return _requestReofferFromAny(retryPeers, contentId, null);
-    }
-    await _beginFetch(_offerPeer(offered, preferred: peer), offered.manifest);
-    return ContentDownloadResult.started;
   }
 
   /// Swarm/group download primitive: fetch [contentId] from the first eligible
@@ -3317,115 +3340,148 @@ class MessagingService {
     String contentId, {
     bool userInitiated = true,
   }) async {
-    if (await _storage.hasFile(contentId)) {
-      _signal();
-      return ContentDownloadResult.started;
-    }
-    if (userInitiated) {
-      _downloadResume.beginUserRequest(contentId);
-    } else if (_cancelledDownloads.contains(contentId)) {
-      return ContentDownloadResult.noOffer;
-    }
-    final offered = _offered[contentId];
-    final offeredRef = _offeredRefs[contentId];
-    final storedSources = await _storedContentSourcePeers(contentId);
-    final sources = _filterGoneSources(
+    final preparation = _downloadResume.prepare(
       contentId,
-      await _withSiblingsForOwnIdentity(
-        _uniquePeers([
-          ...peers,
-          if (offered != null) ...offered.peers.values,
-          if (offeredRef != null) ...offeredRef.peers.values,
-          ...storedSources,
-        ]),
-      ),
+      userInitiated: userInitiated,
     );
-    final seen = <String>{};
-    var attempted = 0;
-    _markContentDownloadStarted(contentId);
-    if (!await _recordPendingDownload(
-      contentId,
-      mode: _PendingDownload.modeStore,
-      peers: sources,
-    )) {
+    if (preparation == null) {
       return ContentDownloadResult.noOffer;
     }
-    if (offered != null) {
-      // A fresh advertisement identifies peers that actually answered with
-      // this content. Start the range swarm from those holders only; mixing
-      // every merely-eligible group member back in here would put offline
-      // non-holders ahead of the live announcer and recreate the timeout the
-      // holder hint is meant to avoid. The blind candidate loop below remains
-      // the compatibility fallback if every advertised holder fails.
-      final advertisedSources = _uniquePeers(offered.peers.values);
-      if (advertisedSources.isNotEmpty &&
-          await _pullSwarmPiecesToCompletion(
-            advertisedSources,
-            offered.manifest,
+    try {
+      if (await preparation.wait(() => _storage.hasFile(contentId))) {
+        _signal();
+        return ContentDownloadResult.started;
+      }
+      final offered = _offered[contentId];
+      final offeredRef = _offeredRefs[contentId];
+      final storedSources = await preparation.wait(
+        () => _storedContentSourcePeers(contentId),
+      );
+      final sources = _filterGoneSources(
+        contentId,
+        await preparation.wait(
+          () => _withSiblingsForOwnIdentity(
+            _uniquePeers([
+              ...peers,
+              if (offered != null) ...offered.peers.values,
+              if (offeredRef != null) ...offeredRef.peers.values,
+              ...storedSources,
+            ]),
+          ),
+        ),
+      );
+      final seen = <String>{};
+      var attempted = 0;
+      _markContentDownloadStarted(contentId);
+      if (!await preparation.wait(
+        () => _recordPendingDownload(
+          contentId,
+          preparation: preparation,
+          mode: _PendingDownload.modeStore,
+          peers: sources,
+        ),
+      )) {
+        return ContentDownloadResult.noOffer;
+      }
+      if (offered != null) {
+        // A fresh advertisement identifies peers that actually answered with
+        // this content. Start the range swarm from those holders only; mixing
+        // every merely-eligible group member back in here would put offline
+        // non-holders ahead of the live announcer and recreate the timeout the
+        // holder hint is meant to avoid. The blind candidate loop below remains
+        // the compatibility fallback if every advertised holder fails.
+        final advertisedSources = _uniquePeers(offered.peers.values);
+        if (advertisedSources.isNotEmpty &&
+            await preparation.wait(
+              () => _pullSwarmPiecesToCompletion(
+                advertisedSources,
+                offered.manifest,
+              ),
+            )) {
+          return ContentDownloadResult.started;
+        }
+      }
+      if (offeredRef != null &&
+          sources.isNotEmpty &&
+          await preparation.wait(
+            () => _beginFetchFromManifestRef(
+              _offerRefPeer(offeredRef, preferred: sources.first),
+              contentId,
+              offeredRef.ref,
+              null,
+              null,
+            ),
           )) {
         return ContentDownloadResult.started;
       }
-    }
-    if (offeredRef != null &&
-        sources.isNotEmpty &&
-        await _beginFetchFromManifestRef(
-          _offerRefPeer(offeredRef, preferred: sources.first),
+      // No live offer survived (the common group-reseed case after a requester
+      // restart). Probe every authorized candidate in parallel for the manifest
+      // instead of spending one full native stream-open timeout per offline or
+      // non-holding member. The probe asks for one payload byte, validates the
+      // content-addressed manifest, and closes; the first real holder wins.
+      final discovered = await preparation.wait(
+        () async => _raceManifestHeaders(
+          await preparation.wait(
+            () => _eligiblePullSources(sources, contentId),
+          ),
           contentId,
-          offeredRef.ref,
-          null,
-          null,
+        ),
+      );
+      if (discovered != null) {
+        seen.add(discovered.$1.hex);
+        attempted++;
+        _rememberOfferedManifest(discovered.$1, discovered.$2);
+        devLog(
+          () =>
+              'xVeil[content]: swarm manifest race '
+              '${contentId.substring(0, 12)} won by ${discovered.$1.short}',
+        );
+        final ok = await preparation.wait(
+          () => _pullStreamToCompletion(discovered.$1, contentId),
+        );
+        if (ok == true ||
+            await preparation.wait(() => _storage.hasFile(contentId))) {
+          return ContentDownloadResult.started;
+        }
+      }
+      for (final peer in sources) {
+        if (!seen.add(peer.hex)) continue;
+        if (!await preparation.wait(
+          () => _eligiblePullSource(peer, contentId),
         )) {
-      return ContentDownloadResult.started;
-    }
-    // No live offer survived (the common group-reseed case after a requester
-    // restart). Probe every authorized candidate in parallel for the manifest
-    // instead of spending one full native stream-open timeout per offline or
-    // non-holding member. The probe asks for one payload byte, validates the
-    // content-addressed manifest, and closes; the first real holder wins.
-    final discovered = await _raceManifestHeaders(
-      await _eligiblePullSources(sources, contentId),
-      contentId,
-    );
-    if (discovered != null) {
-      seen.add(discovered.$1.hex);
-      attempted++;
-      _rememberOfferedManifest(discovered.$1, discovered.$2);
-      devLog(
-        () =>
-            'xVeil[content]: swarm manifest race '
-            '${contentId.substring(0, 12)} won by ${discovered.$1.short}',
-      );
-      final ok = await _pullStreamToCompletion(discovered.$1, contentId);
-      if (ok == true || await _storage.hasFile(contentId)) {
-        return ContentDownloadResult.started;
-      }
-    }
-    for (final peer in sources) {
-      if (!seen.add(peer.hex)) continue;
-      if (!await _eligiblePullSource(peer, contentId)) continue;
-      attempted++;
-      devLog(
-        () =>
-            'xVeil[content]: swarm download '
-            '${contentId.substring(0, 12)} trying ${peer.short}',
-      );
-      final ok = await _pullStreamToCompletion(peer, contentId);
-      if (ok == true || await _storage.hasFile(contentId)) {
-        return ContentDownloadResult.started;
+          continue;
+        }
+        attempted++;
+        devLog(
+          () =>
+              'xVeil[content]: swarm download '
+              '${contentId.substring(0, 12)} trying ${peer.short}',
+        );
+        final ok = await preparation.wait(
+          () => _pullStreamToCompletion(peer, contentId),
+        );
+        if (ok == true ||
+            await preparation.wait(() => _storage.hasFile(contentId))) {
+          return ContentDownloadResult.started;
+        }
+        devLog(
+          () =>
+              'xVeil[content]: swarm source failed '
+              '${contentId.substring(0, 12)} <- ${peer.short}',
+        );
       }
       devLog(
         () =>
-            'xVeil[content]: swarm source failed '
-            '${contentId.substring(0, 12)} <- ${peer.short}',
+            'xVeil[content]: swarm download failed '
+            '${contentId.substring(0, 12)} sources=$attempted',
       );
+      if (!_contentFailed.isClosed) _contentFailed.add(contentId);
+      return ContentDownloadResult.noOffer;
+    } on _DownloadPreparationRetired {
+      return ContentDownloadResult.noOffer;
+    } finally {
+      preparation.finish();
     }
-    devLog(
-      () =>
-          'xVeil[content]: swarm download failed '
-          '${contentId.substring(0, 12)} sources=$attempted',
-    );
-    if (!_contentFailed.isClosed) _contentFailed.add(contentId);
-    return ContentDownloadResult.noOffer;
   }
 
   /// The user opted to download an OFFERED file UNENCRYPTED, straight to a
@@ -3441,87 +3497,124 @@ class MessagingService {
     required Future<void> Function(int offset, Uint8List bytes) write,
     required Future<void> Function() close,
   }) async {
-    _downloadResume.beginUserRequest(contentId);
-    final sink = (write: write, close: close, read: null);
-    _fetchSavePath[contentId] = savedPath;
-    devLog(
-      () =>
-          'xVeil[content]: user download-to-file (unencrypted) '
-          '${contentId.substring(0, 12)} -> $savedPath',
-    );
-    _warmStreamPeer(peer, contentId: contentId);
-    unawaited(_clearContentGone(contentId));
-    _markContentDownloadStarted(contentId);
-    if (await _storage.hasFile(contentId)) {
-      return await _exportStoredContentToSink(contentId, sink, savedPath)
-          ? ContentDownloadResult.started
-          : ContentDownloadResult.noOffer;
-    }
-    if (!await _recordPendingDownload(
-      contentId,
-      mode: _PendingDownload.modeFile,
-      savedPath: savedPath,
-      peers: [peer],
-      failedClose: close,
-    )) {
+    Future<void>? closing;
+    Future<void> closeSink() => closing ??= Future<void>.sync(close);
+
+    final preparation = _downloadResume.prepare(contentId, userInitiated: true);
+    if (preparation == null) {
+      await closeSink();
       return ContentDownloadResult.noOffer;
     }
-    final retryPeers = await _contentSourcePeers(
-      preferred: peer,
-      contentId: contentId,
-    );
-    // A save during auto-download can export that verified copy when ready.
-    // Join before opening a plaintext stream, which would download it twice.
-    final activeFetch = _contentFetching.active(contentId);
-    if (activeFetch != null && activeFetch.sink == null) {
-      await _beginFetch(activeFetch.peer, activeFetch.manifest, sink: sink);
-      return ContentDownloadResult.started;
-    }
-    final offered = _offered[contentId];
-    if (offered != null) {
-      if (_plainFileStream &&
-          await _pullSwarmStreamToFile(
+    try {
+      final sink = (write: write, close: closeSink, read: null);
+      _fetchSavePath[contentId] = (path: savedPath, owner: preparation.token);
+      devLog(
+        () =>
+            'xVeil[content]: user download-to-file (unencrypted) '
+            '${contentId.substring(0, 12)} -> $savedPath',
+      );
+      _warmStreamPeer(peer, contentId: contentId);
+      unawaited(_clearContentGone(contentId));
+      _markContentDownloadStarted(contentId);
+      if (await preparation.wait(() => _storage.hasFile(contentId))) {
+        return await preparation.wait(
+              () => _exportStoredContentToSink(contentId, sink, savedPath),
+            )
+            ? ContentDownloadResult.started
+            : ContentDownloadResult.noOffer;
+      }
+      if (!await preparation.wait(
+        () => _recordPendingDownload(
+          contentId,
+          preparation: preparation,
+          mode: _PendingDownload.modeFile,
+          savedPath: savedPath,
+          peers: [peer],
+          failedClose: closeSink,
+        ),
+      )) {
+        return ContentDownloadResult.noOffer;
+      }
+      final retryPeers = await preparation.wait(
+        () => _contentSourcePeers(preferred: peer, contentId: contentId),
+      );
+      // A save during auto-download can export that verified copy when ready.
+      // Join before opening a plaintext stream, which would download it twice.
+      final activeFetch = _contentFetching.active(contentId);
+      if (activeFetch != null && activeFetch.sink == null) {
+        await preparation.wait(
+          () => _beginFetch(activeFetch.peer, activeFetch.manifest, sink: sink),
+        );
+        return ContentDownloadResult.started;
+      }
+      final offered = _offered[contentId];
+      if (offered != null) {
+        if (_plainFileStream &&
+            await preparation.wait(
+              () => _pullSwarmStreamToFile(
+                _offerPeer(offered, preferred: peer),
+                contentId,
+                offered.manifest,
+                retryPeers,
+                sink,
+                savedPath,
+              ),
+            )) {
+          return ContentDownloadResult.started;
+        }
+        await preparation.wait(
+          () => _beginFetch(
             _offerPeer(offered, preferred: peer),
-            contentId,
             offered.manifest,
-            retryPeers,
-            sink,
-            savedPath,
+            sink: sink,
+          ),
+        );
+        return ContentDownloadResult.started;
+      }
+      final offeredRef = _offeredRefs[contentId];
+      if (offeredRef != null &&
+          await preparation.wait(
+            () => _beginFetchFromManifestRef(
+              _offerRefPeer(offeredRef, preferred: peer),
+              contentId,
+              offeredRef.ref,
+              sink,
+              savedPath,
+            ),
           )) {
         return ContentDownloadResult.started;
       }
-      await _beginFetch(
-        _offerPeer(offered, preferred: peer),
-        offered.manifest,
-        sink: sink,
-      );
-      return ContentDownloadResult.started;
-    }
-    final offeredRef = _offeredRefs[contentId];
-    if (offeredRef != null &&
-        await _beginFetchFromManifestRef(
-          _offerRefPeer(offeredRef, preferred: peer),
+      // The caller knows the sender and content id, but the one-shot manifest/ref
+      // announcement may have been lost. Probe the manifest from a reliable stream
+      // and then use the parallel range/swarm path before parking a plaintext save
+      // behind the lossy reoffer control path.
+      if (await preparation.wait(
+        () => _beginFetchFromStreamManifest(
+          peer,
           contentId,
-          offeredRef.ref,
           sink,
-          savedPath,
-        )) {
-      return ContentDownloadResult.started;
+          savedPath: savedPath,
+          peers: retryPeers,
+        ),
+      )) {
+        return ContentDownloadResult.started;
+      }
+      return _requestReofferFromAny(retryPeers, contentId, sink);
+    } on _DownloadPreparationRetired {
+      return ContentDownloadResult.noOffer;
+    } catch (_) {
+      await closeSink();
+      _forgetFetchSavePath(contentId, owner: preparation.token);
+      rethrow;
+    } finally {
+      if (!preparation.isCurrent()) {
+        try {
+          await closeSink();
+        } catch (_) {}
+        _forgetFetchSavePath(contentId, owner: preparation.token);
+      }
+      preparation.finish();
     }
-    // The caller knows the sender and content id, but the one-shot manifest/ref
-    // announcement may have been lost. Probe the manifest from a reliable stream
-    // and then use the parallel range/swarm path before parking a plaintext save
-    // behind the lossy reoffer control path.
-    if (await _beginFetchFromStreamManifest(
-      peer,
-      contentId,
-      sink,
-      savedPath: savedPath,
-      peers: retryPeers,
-    )) {
-      return ContentDownloadResult.started;
-    }
-    return _requestReofferFromAny(retryPeers, contentId, sink);
   }
 
   /// Swarm/group variant of [downloadContentToFile]: write verified plaintext
@@ -3543,99 +3636,140 @@ class MessagingService {
     Future<Uint8List?> Function(int offset, int length)? read,
     bool userInitiated = true,
   }) async {
-    if (userInitiated) {
-      _downloadResume.beginUserRequest(contentId);
-    } else if (_cancelledDownloads.contains(contentId)) {
+    Future<void>? closing;
+    Future<void> closeSink() => closing ??= Future<void>.sync(close);
+
+    final preparation = _downloadResume.prepare(
+      contentId,
+      userInitiated: userInitiated,
+    );
+    if (preparation == null) {
+      await closeSink();
       return ContentDownloadResult.noOffer;
     }
-    final sink = (write: write, close: close, read: read);
-    _fetchSavePath[contentId] = savedPath;
-    devLog(
-      () =>
-          'xVeil[content]: user download-to-file-any (unencrypted) '
-          '${contentId.substring(0, 12)} -> $savedPath',
-    );
-    _markContentDownloadStarted(contentId);
-    if (await _storage.hasFile(contentId)) {
-      return await _exportStoredContentToSink(contentId, sink, savedPath)
-          ? ContentDownloadResult.started
-          : ContentDownloadResult.noOffer;
-    }
-    final offered = _offered[contentId];
-    final offeredRef = _offeredRefs[contentId];
-    final sources = _filterGoneSources(
-      contentId,
-      await _withSiblingsForOwnIdentity(
-        _uniquePeers([
-          ...peers,
-          if (offered != null) ...offered.peers.values,
-          if (offeredRef != null) ...offeredRef.peers.values,
-          ...await _storedContentSourcePeers(contentId),
-        ]),
-      ),
-    );
-    if (!await _recordPendingDownload(
-      contentId,
-      mode: _PendingDownload.modeFile,
-      savedPath: savedPath,
-      peers: sources,
-      failedClose: close,
-    )) {
-      return ContentDownloadResult.noOffer;
-    }
-    final activeFetch = _contentFetching.active(contentId);
-    if (activeFetch != null && activeFetch.sink == null) {
-      await _beginFetch(activeFetch.peer, activeFetch.manifest, sink: sink);
-      return ContentDownloadResult.started;
-    }
-    if (offered != null) {
-      if (sources.isEmpty && offered.peers.isEmpty) {
-        return _requestReofferFromAny(sources, contentId, sink);
-      }
-      final preferred = sources.isNotEmpty
-          ? sources.first
-          : offered.peers.values.first;
-      if (_plainFileStream &&
-          await _pullSwarmStreamToFile(
-            preferred,
-            contentId,
-            offered.manifest,
-            sources,
-            sink,
-            savedPath,
-          )) {
-        return ContentDownloadResult.started;
-      }
-      await _beginFetch(
-        _offerPeer(offered, preferred: preferred),
-        offered.manifest,
-        sink: sink,
+    try {
+      final sink = (write: write, close: closeSink, read: read);
+      _fetchSavePath[contentId] = (path: savedPath, owner: preparation.token);
+      devLog(
+        () =>
+            'xVeil[content]: user download-to-file-any (unencrypted) '
+            '${contentId.substring(0, 12)} -> $savedPath',
       );
-      return ContentDownloadResult.started;
-    }
-    if (offeredRef != null) {
-      if (sources.isNotEmpty &&
-          await _beginFetchFromManifestRef(
-            _offerRefPeer(offeredRef, preferred: sources.first),
-            contentId,
-            offeredRef.ref,
-            sink,
-            savedPath,
-          )) {
-        return ContentDownloadResult.started;
+      _markContentDownloadStarted(contentId);
+      if (await preparation.wait(() => _storage.hasFile(contentId))) {
+        return await preparation.wait(
+              () => _exportStoredContentToSink(contentId, sink, savedPath),
+            )
+            ? ContentDownloadResult.started
+            : ContentDownloadResult.noOffer;
       }
-    }
-    if (sources.isNotEmpty &&
-        await _beginFetchFromStreamManifest(
-          sources.first,
+      final offered = _offered[contentId];
+      final offeredRef = _offeredRefs[contentId];
+      final sources = _filterGoneSources(
+        contentId,
+        await preparation.wait(
+          () async => _withSiblingsForOwnIdentity(
+            _uniquePeers([
+              ...peers,
+              if (offered != null) ...offered.peers.values,
+              if (offeredRef != null) ...offeredRef.peers.values,
+              ...await preparation.wait(
+                () => _storedContentSourcePeers(contentId),
+              ),
+            ]),
+          ),
+        ),
+      );
+      if (!await preparation.wait(
+        () => _recordPendingDownload(
           contentId,
-          sink,
+          preparation: preparation,
+          mode: _PendingDownload.modeFile,
           savedPath: savedPath,
           peers: sources,
-        )) {
-      return ContentDownloadResult.started;
+          failedClose: closeSink,
+        ),
+      )) {
+        return ContentDownloadResult.noOffer;
+      }
+      final activeFetch = _contentFetching.active(contentId);
+      if (activeFetch != null && activeFetch.sink == null) {
+        await preparation.wait(
+          () => _beginFetch(activeFetch.peer, activeFetch.manifest, sink: sink),
+        );
+        return ContentDownloadResult.started;
+      }
+      if (offered != null) {
+        if (sources.isEmpty && offered.peers.isEmpty) {
+          return _requestReofferFromAny(sources, contentId, sink);
+        }
+        final preferred = sources.isNotEmpty
+            ? sources.first
+            : offered.peers.values.first;
+        if (_plainFileStream &&
+            await preparation.wait(
+              () => _pullSwarmStreamToFile(
+                preferred,
+                contentId,
+                offered.manifest,
+                sources,
+                sink,
+                savedPath,
+              ),
+            )) {
+          return ContentDownloadResult.started;
+        }
+        await preparation.wait(
+          () => _beginFetch(
+            _offerPeer(offered, preferred: preferred),
+            offered.manifest,
+            sink: sink,
+          ),
+        );
+        return ContentDownloadResult.started;
+      }
+      if (offeredRef != null) {
+        if (sources.isNotEmpty &&
+            await preparation.wait(
+              () => _beginFetchFromManifestRef(
+                _offerRefPeer(offeredRef, preferred: sources.first),
+                contentId,
+                offeredRef.ref,
+                sink,
+                savedPath,
+              ),
+            )) {
+          return ContentDownloadResult.started;
+        }
+      }
+      if (sources.isNotEmpty &&
+          await preparation.wait(
+            () => _beginFetchFromStreamManifest(
+              sources.first,
+              contentId,
+              sink,
+              savedPath: savedPath,
+              peers: sources,
+            ),
+          )) {
+        return ContentDownloadResult.started;
+      }
+      return _requestReofferFromAny(sources, contentId, sink);
+    } on _DownloadPreparationRetired {
+      return ContentDownloadResult.noOffer;
+    } catch (_) {
+      await closeSink();
+      _forgetFetchSavePath(contentId, owner: preparation.token);
+      rethrow;
+    } finally {
+      if (!preparation.isCurrent()) {
+        try {
+          await closeSink();
+        } catch (_) {}
+        _forgetFetchSavePath(contentId, owner: preparation.token);
+      }
+      preparation.finish();
     }
-    return _requestReofferFromAny(sources, contentId, sink);
   }
 
   /// Surface user intent immediately. The stream path may spend seconds opening
@@ -3716,6 +3850,7 @@ class MessagingService {
   Future<bool> _recordPendingDownload(
     String contentId, {
     required String mode,
+    required _DownloadPreparation preparation,
     String? savedPath,
     required Iterable<NodeId> peers,
     Future<void> Function()? failedClose,
@@ -3726,12 +3861,11 @@ class MessagingService {
         mode: mode,
         savedPath: savedPath,
         peers: peers,
+        isCurrent: preparation.isCurrent,
       );
-      if (_disposed || _cancelledDownloads.contains(contentId)) {
+      if (!preparation.isCurrent()) {
         if (failedClose != null) {
-          if (_fetchSavePath[contentId] == savedPath) {
-            _fetchSavePath.remove(contentId);
-          }
+          _forgetFetchSavePath(contentId, owner: preparation.token);
           try {
             await failedClose();
           } catch (_) {}
@@ -3740,15 +3874,20 @@ class MessagingService {
       }
       return true;
     } catch (_) {
+      if (!preparation.isCurrent()) {
+        _forgetFetchSavePath(contentId, owner: preparation.token);
+        try {
+          await failedClose?.call();
+        } catch (_) {}
+        return false;
+      }
       errorJournal.record(
         kind: 'download-resume-write',
         error: StateError('Download request could not be saved'),
         atMs: DateTime.now().millisecondsSinceEpoch,
       );
       if (failedClose != null) {
-        if (_fetchSavePath[contentId] == savedPath) {
-          _fetchSavePath.remove(contentId);
-        }
+        _forgetFetchSavePath(contentId, owner: preparation.token);
         try {
           await failedClose();
         } catch (_) {}
@@ -3843,7 +3982,16 @@ class MessagingService {
 
   /// Destination paths for in-flight unencrypted-to-file downloads (so the
   /// completion event can report where the plaintext file landed).
-  final Map<String, String> _fetchSavePath = {};
+  final Map<String, ({String path, Object owner})> _fetchSavePath = {};
+
+  String? _forgetFetchSavePath(String contentId, {Object? owner}) {
+    final destination = _fetchSavePath[contentId];
+    if (destination == null ||
+        (owner != null && !identical(destination.owner, owner))) {
+      return null;
+    }
+    return _fetchSavePath.remove(contentId)?.path;
+  }
 
   /// The plaintext path an UNENCRYPTED download of [contentId] was saved to —
   /// the UI OPENS it on tap instead of re-offering (it isn't in the app store).
@@ -3893,7 +4041,7 @@ class MessagingService {
         }
         await sink.close();
         await _storage.putSetting('saved:$contentId', savedPath);
-        _fetchSavePath.remove(contentId);
+        _forgetFetchSavePath(contentId);
         if (!_contentReceived.isClosed) {
           _contentReceived.add((
             contentId: contentId,
@@ -3922,7 +4070,7 @@ class MessagingService {
       await sink.write(0, bytes);
       await sink.close();
       await _storage.putSetting('saved:$contentId', savedPath);
-      _fetchSavePath.remove(contentId);
+      _forgetFetchSavePath(contentId);
       if (!_contentProgress.isClosed) {
         _contentProgress.add((
           contentId: contentId,
@@ -3944,7 +4092,7 @@ class MessagingService {
       try {
         await sink.close();
       } catch (_) {}
-      _fetchSavePath.remove(contentId);
+      _forgetFetchSavePath(contentId);
       if (!_contentFailed.isClosed) _contentFailed.add(contentId);
       return false;
     }
@@ -3954,7 +4102,7 @@ class MessagingService {
     if (!_contentAvailability.hasPending(contentId)) return false;
     final sink = _contentAvailability.takePending(contentId);
     if (sink == null) return false;
-    final savedPath = _fetchSavePath[contentId];
+    final savedPath = _fetchSavePath[contentId]?.path;
     if (savedPath == null) {
       try {
         await sink.close();
