@@ -36,6 +36,9 @@ enum DiagnosticEvent {
   modelInventorySent,
   modelInventoryFailed,
   modelInventoryReceived,
+  backgroundSnapshot,
+  audioRoute,
+  preferenceStoreFallback,
 }
 
 enum DiagnosticMetric {
@@ -92,6 +95,21 @@ enum DiagnosticMetric {
   videoDeliveryKbps,
   videoProbeIntervalMs,
   origin,
+  supported,
+  serviceForeground,
+  wakeLockHeld,
+  interactive,
+  powerSave,
+  deviceIdle,
+  batteryExempt,
+  backgroundRestricted,
+  audioInputLevelBand,
+  audioOutputLevelBand,
+  audioCaptureStartResult,
+  audioPlayoutStartResult,
+  speakerMuted,
+  callVolumePercent,
+  systemMicMuted,
 }
 
 /// Bounded process-local evidence. Monotonic offsets, never wall-clock time,
@@ -110,6 +128,7 @@ class DiagnosticJournal {
   final _counts = <DiagnosticEvent, int>{};
   final _lastAt = <DiagnosticEvent, int>{};
   Map<String, Object>? _lastCallEnd;
+  final _lastEvidence = <DiagnosticEvent, Map<String, Object>>{};
   int _dropped = 0;
 
   void record(
@@ -137,6 +156,7 @@ class DiagnosticJournal {
     // copy the report. Keep one identifier-free terminal cause until the next
     // call ends, the journal is cleared, or this process exits.
     if (event == DiagnosticEvent.callEnded) _lastCallEnd = row;
+    if (_retainedEvidence.contains(event)) _lastEvidence[event] = row;
     if (_events.length > capacity) {
       _events.removeFirst();
       _dropped++;
@@ -152,10 +172,75 @@ class DiagnosticJournal {
       values: {
         for (final entry in _mediaFields.entries)
           if (stats[entry.key] case final num number) entry.value: number,
+        for (final entry in _audioDiscreteFields.entries)
+          if (stats[entry.key] case final int number)
+            if (number >= entry.value.$2 && number <= entry.value.$3)
+              entry.value.$1: number,
       },
       minInterval: const Duration(seconds: 5),
     );
   }
+
+  /// OS flags are boolean-only; volume is a bounded percentage. Do not
+  /// stringify, recurse or export native keys from a newer/malformed plugin.
+  void recordBackgroundState(Map<Object?, Object?>? state) {
+    record(
+      DiagnosticEvent.backgroundSnapshot,
+      values: {
+        DiagnosticMetric.supported: state == null ? 0 : 1,
+        DiagnosticMetric.success: 1,
+        if (state != null)
+          for (final entry in _backgroundFields.entries)
+            if (state[entry.key] case final bool value)
+              entry.value: value ? 1 : 0,
+        if (state?['callVolumePercent'] case final int volume)
+          if (volume >= 0 && volume <= 100)
+            DiagnosticMetric.callVolumePercent: volume,
+      },
+    );
+  }
+
+  static const _backgroundFields = {
+    'serviceForeground': DiagnosticMetric.serviceForeground,
+    'wakeLockHeld': DiagnosticMetric.wakeLockHeld,
+    'interactive': DiagnosticMetric.interactive,
+    'powerSave': DiagnosticMetric.powerSave,
+    'deviceIdle': DiagnosticMetric.deviceIdle,
+    'batteryExempt': DiagnosticMetric.batteryExempt,
+    'backgroundRestricted': DiagnosticMetric.backgroundRestricted,
+    'systemMicMuted': DiagnosticMetric.systemMicMuted,
+  };
+
+  static const _audioDiscreteFields = {
+    'audio_input_level_band': (DiagnosticMetric.audioInputLevelBand, -1, 5),
+    'audio_output_level_band': (DiagnosticMetric.audioOutputLevelBand, -1, 5),
+    'audio_capture_start_result': (
+      DiagnosticMetric.audioCaptureStartResult,
+      -1,
+      1,
+    ),
+    'audio_playout_start_result': (
+      DiagnosticMetric.audioPlayoutStartResult,
+      -1,
+      1,
+    ),
+    'speaker_muted': (DiagnosticMetric.speakerMuted, 0, 1),
+  };
+
+  // Busy network traffic must not erase the last audio/OS/setup evidence while
+  // the user navigates to export. Fixed cardinality, process-local only.
+  static const _retainedEvidence = {
+    DiagnosticEvent.mediaSample,
+    DiagnosticEvent.audioStart,
+    DiagnosticEvent.audioRoute,
+    DiagnosticEvent.backgroundSnapshot,
+    DiagnosticEvent.backgroundService,
+    DiagnosticEvent.onboardingBegin,
+    DiagnosticEvent.containerOpen,
+    DiagnosticEvent.onboardingSession,
+    DiagnosticEvent.onboardingFailed,
+    DiagnosticEvent.preferenceStoreFallback,
+  };
 
   /// Source-controller state, sampled after applying the current observation.
   /// Phase codes: startup=0, drain=1, cruise=2, probe=3. No history, peer maps
@@ -242,6 +327,13 @@ class DiagnosticJournal {
     'counts': {
       for (final entry in _counts.entries) entry.key.name: entry.value,
     },
+    'last_evidence': {
+      for (final entry in _lastEvidence.entries)
+        entry.key.name: {
+          ...entry.value,
+          'values': {...entry.value['values'] as Map},
+        },
+    },
     if (_lastCallEnd case final last?)
       'last_call_end': {
         ...last,
@@ -262,6 +354,7 @@ class DiagnosticJournal {
     _counts.clear();
     _lastAt.clear();
     _lastCallEnd = null;
+    _lastEvidence.clear();
     _dropped = 0;
     _clock.reset();
   }

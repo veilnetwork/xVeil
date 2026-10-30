@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 
 import '../../core/error_journal.dart';
 import '../../core/diagnostic_journal.dart';
+import '../../core/diagnostic_background.dart';
 import '../../l10n/app_localizations.dart';
 
 /// Version of the running build.
@@ -46,6 +47,8 @@ Future<void> copyErrorReport(
   required String phase,
 }) async {
   final l = AppL10n.of(context);
+  await sampleDiagnosticBackgroundState();
+  if (!context.mounted) return;
   final count = errorJournal.entries.length;
   final report = buildErrorReport(phase: phase);
   await Clipboard.setData(ClipboardData(text: report));
@@ -92,6 +95,8 @@ Future<void> saveErrorReport(
   required String phase,
 }) async {
   final l = AppL10n.of(context);
+  await sampleDiagnosticBackgroundState();
+  if (!context.mounted) return;
   final bytes = Uint8List.fromList(utf8.encode(buildErrorReport(phase: phase)));
   try {
     final path = await FilePicker.saveFile(

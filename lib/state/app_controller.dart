@@ -453,6 +453,10 @@ class AppController extends Notifier<AppState> {
         'storage.open refused the onboarding password; nothing was written',
       );
     }
+    // Source-owned diagnostic stages: 1 existing-identity guard, 2 profile,
+    // 3 onboarding marker, 4 storage-mode preference, 5 credential/settings,
+    // 6 session boot. No profile name, password or exception message.
+    var onboardingStage = 1;
     // From here the container is OPEN, and every remaining step can fail. The
     // rollback used to cover only the step above — the one that had not opened
     // anything yet — so a profile write, a preference write or a node boot that
@@ -489,6 +493,7 @@ class AppController extends Notifier<AppState> {
         throw const ContainerAlreadyHasAnIdentity();
       }
       ref.read(screenLockProvider.notifier).rememberPassword(password);
+      onboardingStage = 2;
       final profile = UserProfile(displayName: displayName);
       await storage.saveProfile(profile);
 
@@ -499,9 +504,11 @@ class AppController extends Notifier<AppState> {
       // left this install marked "onboarded" only in RAM: the next launch shows
       // first-run setup again, over a container that already exists, and the
       // storage mode the user chose is gone with it.
+      onboardingStage = 3;
       if (!await prefs.setBool(_onboardedKey(), true)) {
         throw StateError('preference store refused the onboarding marker');
       }
+      onboardingStage = 4;
       if (!await prefs.setString(_kStorageModeKey, mode.name)) {
         throw StateError('preference store refused the storage mode');
       }
@@ -512,6 +519,7 @@ class AppController extends Notifier<AppState> {
       // lives in the container, and during the ceremony there was no container
       // to put it in. Written before the session so the devices screen reads
       // the settled answer on its first load rather than a stale false.
+      onboardingStage = 5;
       if (recoveryCertificateSaved) {
         await storage.putSetting(kRecoveryCertificateSavedSetting, '1');
       }
@@ -527,10 +535,14 @@ class AppController extends Notifier<AppState> {
           name: 'sovereign-credential',
         );
       }
+      onboardingStage = 6;
       await _enterSession(profile);
       diagnosticJournal.record(DiagnosticEvent.onboardingSession);
     } catch (e, st) {
-      diagnosticJournal.record(DiagnosticEvent.onboardingFailed);
+      diagnosticJournal.record(
+        DiagnosticEvent.onboardingFailed,
+        values: {DiagnosticMetric.state: onboardingStage},
+      );
       devLog(() => 'xVeil[onboarding]: FAILED, rolling back: $e\n$st');
       errorJournal.record(
         kind: 'onboarding',
