@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/log.dart';
 import '../core/diagnostic_journal.dart';
+import '../core/diagnostic_background.dart';
 import 'group_service_providers.dart';
 import 'messaging_providers.dart';
 import 'providers.dart';
@@ -45,6 +46,7 @@ class _ResumeReconnectObserver with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    unawaited(sampleDiagnosticBackgroundState());
     diagnosticJournal.record(
       DiagnosticEvent.lifecycle,
       values: {DiagnosticMetric.state: state.index},

@@ -2,9 +2,53 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/state/call_audio_route.dart';
+import 'package:xveil/core/diagnostic_journal.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test(
+    'route reports contain an outcome and category, never a device label',
+    () async {
+      const channel = MethodChannel('xveil/test_route_diagnostics');
+      var reply = 0;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (_) async {
+            if (reply == 0) return 'external';
+            throw PlatformException(
+              code: 'private-headset-name',
+              message: 'private user',
+            );
+          });
+      addTearDown(
+        () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null),
+      );
+      final journal = DiagnosticJournal(enabled: true);
+      final router = CallAudioRouter(
+        channel: channel,
+        hasNativePhoneRoute: true,
+        diagnostics: journal,
+      );
+      expect(await router.useDefaultFor(const CallMedia(audio: true)), isTrue);
+      reply = 1;
+      expect(await router.setRoute(CallAudioRoute.speaker), isFalse);
+      final rows = journal.toJson()['events'] as List;
+      expect((rows.first as Map)['values'], {
+        'supported': 1,
+        'success': 1,
+        'state': CallAudioRoute.external.index,
+        'code': 0,
+      });
+      expect((rows.last as Map)['values'], {
+        'supported': 1,
+        'success': 0,
+        'state': CallAudioRoute.external.index,
+        'code': 1,
+      });
+      expect(journal.toJson().toString(), isNot(contains('private')));
+    },
+  );
 
   test(
     'camera upgrades keep audio route; a new video call uses speaker',

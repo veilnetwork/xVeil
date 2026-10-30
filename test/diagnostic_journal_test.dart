@@ -10,6 +10,48 @@ class _PrivateValue {
 }
 
 void main() {
+  test('audio evidence is coarse, bounded and retained after the call', () {
+    final journal = DiagnosticJournal(enabled: true, capacity: 1);
+    journal.recordMediaStats({
+      'audio_input_level_band': 2,
+      'audio_output_level_band': 4,
+      'audio_capture_start_result': 0,
+      'audio_playout_start_result': 1,
+      'speaker_muted': 0,
+      'audio_level': 12345,
+      'total_input_energy': 123456789,
+      'device_name': _PrivateValue(),
+    });
+    journal.record(DiagnosticEvent.transportReceived);
+    final row =
+        (journal.toJson()['last_evidence'] as Map)['mediaSample'] as Map;
+    expect(row['values'], {
+      'audioInputLevelBand': 2,
+      'audioOutputLevelBand': 4,
+      'audioCaptureStartResult': 0,
+      'audioPlayoutStartResult': 1,
+      'speakerMuted': 0,
+    });
+    expect(jsonEncode(journal.toJson()), isNot(contains('12345')));
+    for (final value in <Object?>[
+      -2,
+      6,
+      1793000000000,
+      2.5,
+      'secret',
+      _PrivateValue(),
+    ]) {
+      final malformed = DiagnosticJournal(enabled: true);
+      malformed.recordMediaStats({
+        'audio_input_level_band': value,
+        'audio_output_level_band': value,
+      });
+      expect(
+        ((malformed.toJson()['events'] as List).single as Map)['values'],
+        isEmpty,
+      );
+    }
+  });
   test(
     'last call end survives traffic-ring eviction without retaining identifiers',
     () {

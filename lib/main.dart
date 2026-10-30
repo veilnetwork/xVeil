@@ -39,6 +39,7 @@ import 'state/providers.dart';
 import 'state/translate_ffi.dart' show kRequiredSymbols, openTranslateLibrary;
 import 'state/storage_preferences.dart';
 import 'package:xveil/core/error_journal.dart';
+import 'package:xveil/core/diagnostic_journal.dart';
 import 'package:xveil/core/log.dart';
 
 /// The profile this launch resolved to. Declared beside [AppProfiles.directory]
@@ -159,11 +160,20 @@ Future<void> _bootAndRunApp() async {
   activeProfile = await installProfilePreferencesOrFallback(
     supportDir: () async => (await getApplicationSupportDirectory()).path,
     args: launchArguments,
-    onError: (e, st) => devLog(
-      () =>
-          'xVeil[prefs]: profile preference install failed, running on an '
-          'in-memory store for this session: $e\n$st',
-    ),
+    onError: (e, st) {
+      diagnosticJournal.record(DiagnosticEvent.preferenceStoreFallback);
+      errorJournal.record(
+        kind: 'preference-store-fallback',
+        error: e,
+        stack: st,
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      devLog(
+        () =>
+            'xVeil[prefs]: profile preference install failed, running on an '
+            'in-memory store for this session: $e\n$st',
+      );
+    },
   );
 
   // Whether the translation engine is reachable, answered once at startup.

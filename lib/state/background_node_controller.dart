@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 
 import 'providers.dart';
 import '../core/diagnostic_journal.dart';
+import '../core/diagnostic_background.dart';
 
 const kKeepNodeBackgroundPrefKey = 'keep_node_background';
 
@@ -146,6 +149,9 @@ class BackgroundNodeController extends Notifier<bool> {
           DiagnosticMetric.nodeUp: nodeUp ? 1 : 0,
         },
       );
+      // start() returning means the intent was accepted, not that Android has
+      // completed onStartCommand. Later lifecycle/export snapshots confirm it.
+      unawaited(sampleDiagnosticBackgroundState());
     }
   }
 }
