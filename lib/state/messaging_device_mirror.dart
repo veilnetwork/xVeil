@@ -291,7 +291,7 @@ class _MessagingDeviceMirror {
   /// Fires when a message's TEXT is replaced HERE — by this person editing
   /// their own, or by the peer editing theirs. Never fired for an edit applied
   /// FROM a sibling.
-  void Function(
+  FutureOr<void> Function(
     NodeId peer,
     String msgId,
     String body,

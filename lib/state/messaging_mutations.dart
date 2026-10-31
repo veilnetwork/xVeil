@@ -105,7 +105,12 @@ class _MessagingMutations {
       });
     }
     final publish = publisher ?? _owner.onMessageDeleted;
-    if (pending.mirrorPending && publish != null) {
+    if (pending.mirrorPending &&
+        publish != null &&
+        identical(publish, _owner.onMessageDeleted)) {
+      // A provider can be replaced while the tombstone is committing. Never
+      // call its closed publisher or substitute a different owner here. Leave
+      // the durable obligation for a fresh retry under the current binding.
       await attempt(() async {
         await publish(peer, id);
         // A binding replacement may represent a new device-group owner. Keep
@@ -243,7 +248,7 @@ class _MessagingMutations {
       );
       // Only the device the peer reached heard this. The others keep showing
       // the text the sender replaced.
-      _owner._deviceMirror.onMessageEdited?.call(
+      await _owner._deviceMirror.onMessageEdited?.call(
         peer,
         id,
         envelope.body,
@@ -439,7 +444,7 @@ class _MessagingMutations {
     );
     // My other devices hold their own copy and hear no `edit:` — that frame
     // goes to the PEER. Without this they show the superseded text for good.
-    _owner._deviceMirror.onMessageEdited?.call(
+    await _owner._deviceMirror.onMessageEdited?.call(
       NodeId.fromHex(message.conversationId),
       messageId,
       trimmed,

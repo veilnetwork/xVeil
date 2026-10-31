@@ -641,7 +641,7 @@ extension _MessagingInboundDispatch on MessagingService {
             seq: pending!.seq,
             customEmoji: pending.customEmoji,
           );
-          _deviceMirror.onMessageEdited?.call(
+          await _deviceMirror.onMessageEdited?.call(
             m.src,
             id,
             body,

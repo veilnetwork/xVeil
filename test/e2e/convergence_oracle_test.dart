@@ -31,6 +31,7 @@ DeviceStateSnapshot _device(
   List<String> conversation = const ['m1', 'm2'],
   int members = 2,
   int epoch = 0,
+  bool messageLogIsState = false,
 }) => DeviceStateSnapshot(
   label: label,
   deviceGroupIdHex: group,
@@ -39,9 +40,73 @@ DeviceStateSnapshot _device(
   conversationMessageIds: conversation,
   memberCount: members,
   epoch: epoch,
+  messageLogIsState: messageLogIsState,
 );
 
 void main() {
+  test(
+    'sovereign state rows can be sparse without losing the expected message',
+    () {
+      final a = _device(
+        'A',
+        rows: [_msg(_a, 1), _msg(_a, 3)],
+        messageLogIsState: true,
+        conversation: ['expected'],
+      );
+      final b = _device(
+        'B',
+        rows: [_msg(_a, 1), _msg(_a, 3)],
+        messageLogIsState: true,
+        conversation: ['expected'],
+      );
+      expect(
+        convergenceOf(
+          a,
+          b,
+          requireConversationAgreement: true,
+          expectedConversationMessageIds: ['expected'],
+        ).agree,
+        isTrue,
+      );
+    },
+  );
+
+  test('two sparse logs that both lose the expected message still fail', () {
+    final verdict = convergenceOf(
+      _device('A', messageLogIsState: true, conversation: []),
+      _device('B', messageLogIsState: true, conversation: []),
+      requireConversationAgreement: true,
+      expectedConversationMessageIds: ['expected'],
+    );
+    expect(verdict.agree, isFalse);
+    expect(verdict.describe(), contains('does not hold expected'));
+  });
+
+  test(
+    'state-log metadata must agree and cannot excuse control gaps or duplicates',
+    () {
+      expect(
+        convergenceOf(
+          _device('A', messageLogIsState: true),
+          _device('B'),
+        ).agree,
+        isFalse,
+      );
+      for (final rows in [
+        [_ctl(_a, 1), _ctl(_a, 3)],
+        [_msg(_a, 1), _msg(_a, 1)],
+      ]) {
+        expect(
+          convergenceOf(
+            _device('A', messageLogIsState: true, rows: rows),
+            _device('B', messageLogIsState: true, rows: rows),
+          ).agree,
+          isFalse,
+        );
+      }
+    },
+  );
+
   group('the oracle accepts a genuinely converged pair', () {
     test('identical readings agree', () {
       final verdict = convergenceOf(_device('A'), _device('B'));

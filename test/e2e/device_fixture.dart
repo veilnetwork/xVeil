@@ -603,6 +603,7 @@ class E2eDevice {
       deviceGroupIdHex: gidHex,
       bundleDigest: sha256.convert(utf8.encode(lines.join('\n'))).toString(),
       rows: rows,
+      messageLogIsState: bundle.manifest.isSovereignDevice,
       memberCount: state?.members.length ?? 0,
       epoch: state?.epoch ?? 0,
       conversationMessageIds: conversationPeer == null

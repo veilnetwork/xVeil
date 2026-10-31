@@ -178,6 +178,76 @@ void main() {
     await storage.close();
   });
 
+  test('local edit completes only after its device event is durable', () async {
+    await target(direction: MessageDirection.outgoing);
+    final entered = Completer<void>(), release = Completer<void>();
+    service.onMessageEdited = (p, id, text, emoji) async {
+      expect(p, peer);
+      expect(id, 'target');
+      expect(text, 'edited');
+      entered.complete();
+      await release.future;
+    };
+    var completed = false;
+    final pending = service.editOwnMessage('target', 'edited').then((_) {
+      completed = true;
+    });
+    try {
+      await entered.future;
+      await pumpEventQueue();
+      expect(completed, isFalse);
+    } finally {
+      release.complete();
+      await pending;
+    }
+    expect(completed, isTrue);
+  });
+
+  test('incoming edit ACK waits for its durable device event', () async {
+    await target();
+    final entered = Completer<void>(), release = Completer<void>();
+    service.onMessageEdited = (p, id, text, emoji) async {
+      entered.complete();
+      await release.future;
+    };
+    final pending = receive(frame('edit'), fid: 'device-edit');
+    try {
+      await entered.future;
+      await pumpEventQueue();
+      expect(link.acks, isNot(contains('device-edit')));
+    } finally {
+      release.complete();
+      await pending;
+    }
+    expect(link.acks, contains('device-edit'));
+  });
+
+  test(
+    'a replaced delete publisher leaves its durable intent for the current binding',
+    () async {
+      await target(direction: MessageDirection.outgoing);
+      var oldCalls = 0, newCalls = 0;
+      service.onMessageDeleted = (peer, id) {
+        oldCalls++;
+        throw StateError('old binding closed');
+      };
+      await service.retryPendingMessageDeletions();
+      storage.held = 'delete';
+      final pending = service.deleteMessageLocally('target');
+      await storage.entered.future;
+      service.onMessageDeleted = (peer, id) {
+        newCalls++;
+      };
+      storage.release.complete();
+      await pending;
+      await service.retryPendingMessageDeletions();
+      expect(oldCalls, 0);
+      expect(newCalls, 1);
+      expect(await body(), isNull);
+      expect(await storage.pendingMessageDeletions(), isEmpty);
+    },
+  );
+
   for (final kind in ['edit', 'delete', 'clear']) {
     test('$kind ACK waits until storage completes', () async {
       await target();
