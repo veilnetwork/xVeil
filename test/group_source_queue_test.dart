@@ -24,6 +24,7 @@ class _Link extends LoopbackTransport {
   int active = 0, maxActive = 0;
   bool hold = true;
   bool failGroups = false;
+  Future<void> Function(WireEnvelope)? afterGroupSend;
 
   @override
   Stream<InboundMessage> messages() => input.stream;
@@ -46,6 +47,7 @@ class _Link extends LoopbackTransport {
           await release.future;
         }
         sent.add(wire);
+        await afterGroupSend?.call(wire);
       } finally {
         active--;
       }
@@ -83,6 +85,21 @@ class _FailedOutbox extends HiddenVolumeStorage {
     String peer,
     Uint8List wire,
   ) async => throw StateError('fixture persistence refusal');
+}
+
+class _DeferredBatchRetirement extends HiddenVolumeStorage {
+  _DeferredBatchRetirement(super.opener);
+  final entered = Completer<void>(), release = Completer<void>();
+
+  @override
+  Future<List<String>> ackOutboxFrames(
+    Iterable<String> frameIds, {
+    required String fromPeerHex,
+  }) async {
+    entered.complete();
+    await release.future;
+    return super.ackOutboxFrames(frameIds, fromPeerHex: fromPeerHex);
+  }
 }
 
 Future<({HiddenVolumeStorage store, _Link link, MessagingService service})>
@@ -169,6 +186,267 @@ void main() {
       },
     );
   }
+
+  for (final chunked in [false, true]) {
+    test(
+      'confirmed queued sync work is not sent after lane release (chunked=$chunked)',
+      () async {
+        final r = await _rig();
+        await r.service.sendGroupSnapshot(
+          _id(2),
+          'ab' * 32,
+          '{"held":true}',
+          awaitInitialSend: false,
+        );
+        await r.link.entered.future;
+        await r.service.sendGroupSnapshot(
+          _id(2),
+          'ab' * 32,
+          jsonEncode({'queued': 'x' * (chunked ? 7000 : 10)}),
+          awaitInitialSend: false,
+        );
+        final rows = await r.store.pendingOutboxFrames();
+        final queued = rows.where((row) {
+          final env = WireEnvelope.decode(row.wire);
+          return chunked
+              ? env.kind == WireKind.groupEntryChunk
+              : env.body.contains('queued');
+        }).toList();
+        expect(queued.length, chunked ? greaterThan(1) : 1);
+        final ackId = chunked
+            ? 'grpa:${parseGroupEntryChunk(WireEnvelope.decode(queued.first.wire).body).transferId}'
+            : queued.single.frameId;
+        await r.service.deliverInbound(
+          InboundMessage(
+            src: _id(2),
+            provenance: SenderProvenance.sessionPeer,
+            payload: WireEnvelope.ack(ackId).encode(),
+          ),
+        );
+        await _until(
+          () async => (await r.store.pendingOutboxFrames()).length == 1,
+        );
+        expect(await r.store.pendingOutboxFrames(), hasLength(1));
+        final drained = Completer<void>();
+        r.link.afterGroupSend = (env) async {
+          if (env.body == '{"barrier":true}') drained.complete();
+        };
+        await r.service.sendGroupSnapshot(
+          _id(2),
+          'ab' * 32,
+          '{"barrier":true}',
+          awaitInitialSend: false,
+        );
+        r.link.release.complete();
+        await drained.future.timeout(const Duration(seconds: 2));
+        expect(r.link.sent.map((env) => env.body), [
+          '{"held":true}',
+          '{"barrier":true}',
+        ]);
+      },
+    );
+  }
+
+  test('an Outbox retry ACK cancels its waiting first sync attempt', () async {
+    var now = DateTime.now();
+    final r = await _rig(now: () => now);
+    await r.service.sendGroupSnapshot(
+      _id(2),
+      'ab' * 32,
+      '{"held":true}',
+      awaitInitialSend: false,
+    );
+    await r.link.entered.future;
+    await r.service.sendGroupSnapshot(
+      _id(2),
+      'ab' * 32,
+      '{"retry":true}',
+      awaitInitialSend: false,
+    );
+    r.link.afterGroupSend = (env) async {
+      if (env.body != '{"retry":true}') return;
+      await r.service.deliverInbound(
+        InboundMessage(
+          src: _id(2),
+          provenance: SenderProvenance.sessionPeer,
+          payload: WireEnvelope.ack(env.frameId!).encode(),
+        ),
+      );
+    };
+    now = now.add(const Duration(seconds: 21));
+    await r.service.debugFlushOutboxFrames();
+    await _until(() async => (await r.store.pendingOutboxFrames()).length == 1);
+    expect(await r.store.pendingOutboxFrames(), hasLength(1));
+    expect(
+      r.link.sent.where((env) => env.body == '{"retry":true}'),
+      hasLength(1),
+    );
+    final drained = Completer<void>();
+    r.link.afterGroupSend = (env) async {
+      if (env.body == '{"barrier":true}') drained.complete();
+    };
+    await r.service.sendGroupSnapshot(
+      _id(2),
+      'ab' * 32,
+      '{"barrier":true}',
+      awaitInitialSend: false,
+    );
+    r.link.release.complete();
+    await drained.future.timeout(const Duration(seconds: 2));
+    expect(
+      r.link.sent.where((env) => env.body == '{"retry":true}'),
+      hasLength(1),
+    );
+  });
+
+  for (final chunked in [false, true]) {
+    test(
+      'another accepted peer cannot cancel queued work (chunked=$chunked)',
+      () async {
+        final r = await _rig();
+        await r.store.upsertContact(
+          Contact(nodeId: _id(3), status: ContactStatus.accepted),
+        );
+        await r.service.sendGroupSnapshot(
+          _id(2),
+          'ab' * 32,
+          '{"held":true}',
+          awaitInitialSend: false,
+        );
+        await r.link.entered.future;
+        await r.service.sendGroupSnapshot(
+          _id(2),
+          'ab' * 32,
+          jsonEncode({'queued': 'x' * (chunked ? 7000 : 10)}),
+          awaitInitialSend: false,
+        );
+        final rows = await r.store.pendingOutboxFrames();
+        final queued = rows
+            .where((row) => row.frameId != rows.first.frameId)
+            .toList();
+        final ackId = chunked
+            ? 'grpa:${parseGroupEntryChunk(WireEnvelope.decode(queued.first.wire).body).transferId}'
+            : queued.single.frameId;
+        await r.service.deliverInbound(
+          InboundMessage(
+            src: _id(3),
+            provenance: SenderProvenance.sessionPeer,
+            payload: WireEnvelope.ack(ackId).encode(),
+          ),
+        );
+        expect(await r.store.pendingOutboxFrames(), hasLength(rows.length));
+        final drained = Completer<void>();
+        r.link.afterGroupSend = (env) async {
+          if (env.frameId == queued.last.frameId) drained.complete();
+        };
+        r.link.release.complete();
+        await drained.future.timeout(const Duration(seconds: 2));
+        expect(
+          r.link.sent.map((env) => env.frameId).toSet(),
+          rows.map((row) => row.frameId).toSet(),
+        );
+      },
+    );
+  }
+
+  test(
+    'slice ACK skips only its waiting attempt and retains the full durable copy',
+    () async {
+      var now = DateTime.now();
+      final r = await _rig(now: () => now);
+      await r.service.sendGroupSnapshot(
+        _id(2),
+        'ab' * 32,
+        '{"held":true}',
+        awaitInitialSend: false,
+      );
+      await r.link.entered.future;
+      await r.service.sendGroupSnapshot(
+        _id(2),
+        'ab' * 32,
+        jsonEncode({'queued': 'x' * 7000}),
+        awaitInitialSend: false,
+      );
+      final rows = await r.store.pendingOutboxFrames();
+      final chunks = rows
+          .where((row) => row.frameId.startsWith('grpc:'))
+          .toList();
+      await r.service.deliverInbound(
+        InboundMessage(
+          src: _id(2),
+          provenance: SenderProvenance.sessionPeer,
+          payload: WireEnvelope.ack(chunks.first.frameId).encode(),
+        ),
+      );
+      // A legacy slice ACK does not prove durable apply of the whole bundle.
+      expect(await r.store.pendingOutboxFrames(), hasLength(rows.length));
+      final drained = Completer<void>();
+      r.link.afterGroupSend = (env) async {
+        if (env.frameId == chunks.last.frameId) drained.complete();
+      };
+      r.link.release.complete();
+      await drained.future.timeout(const Duration(seconds: 2));
+      expect(
+        r.link.sent.any((env) => env.frameId == chunks.first.frameId),
+        isFalse,
+      );
+      r.link.afterGroupSend = null;
+      now = now.add(const Duration(seconds: 21));
+      await r.service.debugFlushOutboxFrames();
+      expect(
+        r.link.sent.any((env) => env.frameId == chunks.first.frameId),
+        isTrue,
+      );
+      expect(await r.store.pendingOutboxFrames(), hasLength(rows.length));
+    },
+  );
+
+  test('transfer cancellation waits for durable atomic retirement', () async {
+    final store = _DeferredBatchRetirement(FakeHvContainer().passwordOpener);
+    final r = await _rig(supplied: store);
+    addTearDown(() {
+      if (!store.release.isCompleted) store.release.complete();
+    });
+    await r.service.sendGroupSnapshot(
+      _id(2),
+      'ab' * 32,
+      '{"held":true}',
+      awaitInitialSend: false,
+    );
+    await r.link.entered.future;
+    await r.service.sendGroupSnapshot(
+      _id(2),
+      'ab' * 32,
+      jsonEncode({'queued': 'x' * 7000}),
+      awaitInitialSend: false,
+    );
+    final rows = await store.pendingOutboxFrames();
+    final chunks = rows
+        .where((row) => row.frameId.startsWith('grpc:'))
+        .toList();
+    final tid = parseGroupEntryChunk(
+      WireEnvelope.decode(chunks.first.wire).body,
+    ).transferId;
+    final ack = r.service.deliverInbound(
+      InboundMessage(
+        src: _id(2),
+        provenance: SenderProvenance.sessionPeer,
+        payload: WireEnvelope.ack('grpa:$tid').encode(),
+      ),
+    );
+    await store.entered.future;
+    expect(await store.pendingOutboxFrames(), hasLength(rows.length));
+    final drained = Completer<void>();
+    r.link.afterGroupSend = (env) async {
+      if (env.frameId == chunks.last.frameId) drained.complete();
+    };
+    r.link.release.complete();
+    await drained.future.timeout(const Duration(seconds: 2));
+    expect(r.link.sent, hasLength(rows.length));
+    store.release.complete();
+    await ack;
+    expect(await store.pendingOutboxFrames(), hasLength(1));
+  });
 
   test('repeated pending snapshots share one initial attempt', () async {
     final r = await _rig();

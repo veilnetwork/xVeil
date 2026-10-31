@@ -1,0 +1,74 @@
+{
+  "schema": "xveil-validation/group-source-retirement/1",
+  "date": "2026-10-31",
+  "base_commit": "2608ce6fbb008eb02cacfee36f38c91463c59cd6",
+  "sdk_commit": "c46d94db41a27e2ee01cdb56396506dad62730bf",
+  "source_sha256": {
+    "lib/state/messaging_group_source.dart": "939b1d4908e87237ec9f2003239ed79cf8aa569bee1e69597e8fb782f4eccaca",
+    "lib/state/messaging_outbox.dart": "c8e7289cfac72f439b318857c07510c8260a1cb503a6b60e248f47fd71a4a14f",
+    "lib/state/post_receipt_queue.dart": "a14faf1a59b31dcd883b764473437f0086f9b945b78476be090729b1948913c5",
+    "test/group_source_queue_test.dart": "f9ca47ca665dfe5cb25e0eea23624448de1435166ad27da5dea85e7c86d51cb1",
+    "test/post_receipt_queue_test.dart": "fd0eabdacdc04ee57ddaf18fe5f9e7d95abc5c08de7daaeb491f2f531494b0e0"
+  },
+  "confirmed_defect": "queued initial group-sync attempts survive retirement of the same peer/frame by ACK",
+  "baseline_controls": {
+    "selected_failed": 4,
+    "model": "held recipient lane, authenticated ACK including actual Outbox retry"
+  },
+  "fix": {
+    "cancel_only_waiting_jobs": true,
+    "active_future_join_unchanged": true,
+    "bounded_queue_scan_max_jobs": 128,
+    "single_ack_stops_waiting_attempt_before_storage_retirement": true,
+    "transfer_ack_cancel_after_atomic_storage_retirement": true,
+    "partial_slice_ack_retains_full_durable_copy": true,
+    "no_ack_tombstone_map_added": true,
+    "wire_or_crypto_changes": false
+  },
+  "tests": {
+    "scoped_passed": 701,
+    "scoped_skipped": 3,
+    "analyzer_clean": true,
+    "final_focused_passed": 28,
+    "final_focused_skipped": 0
+  },
+  "native_overlay": {
+    "nodes": 12,
+    "local_tcp_only": true,
+    "public_discovery": false,
+    "dht_participation": true,
+    "membership_epoch_encryption": false,
+    "native_signatures": true,
+    "encrypted_stores": true,
+    "ratchet_persistence": true,
+    "peer_authorization_persistence": true,
+    "separate_processes": false,
+    "converged": true,
+    "released_listeners": 12,
+    "cleanup_errors": [],
+    "nodes_stopped": true,
+    "completed_samples": 4,
+    "timing_dropped": 0,
+    "sdk_sha256": "3ecdfb936433f7f72072222d57624a4fb50702dd9494ba77ca343bebf373c34d",
+    "all_four_messages_exactly_once_on_all_nodes": true,
+    "host_process_exited": true
+  },
+  "native_single_run_max_visibility_ms": [
+    3382,
+    1288,
+    1637,
+    2051
+  ],
+  "end_to_end_speedup_established": false,
+  "minute_catchup_cause_established": false,
+  "physical_phone_series_this_cycle": false,
+  "scope_limits": [
+    "already active send not canceled",
+    "ACK racing before queue insertion not covered",
+    "new snapshot publication after prior retirement is allowed",
+    "minute-long catch-up remains open"
+  ],
+  "sdk_rebuilt": false,
+  "push": false,
+  "release": false
+}
