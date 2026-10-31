@@ -11,6 +11,8 @@ import 'package:xveil/core/ids.dart';
 import 'package:xveil/crypto/blake3.dart';
 import 'package:xveil/data/node/space_discovery_transport.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
+import 'package:xveil/data/storage/file_store.dart';
+import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/transport/bootstrap_invite.dart';
 import 'package:xveil/data/transport/veil_mailbox.dart';
@@ -458,7 +460,20 @@ class _DeviceGroupReadGatedStorage extends HiddenVolumeStorage {
 
 /// Pauses one group bundle write after it is durable but before the caller can
 /// run its post-save relationship guard.
-class _PostWriteGatedStorage extends HiddenVolumeStorage {
+// These fixtures model individual-store and half-written-header backends.
+// Paired publication faults are tested at the actual commit boundary in
+// file_store_pair_test.dart, rather than bypassing their storeFile hooks.
+mixin _IndividualFixtureWrites on HiddenVolumeStorage {
+  @override
+  Future<bool> tryStoreFilePair(
+    StoredFileWrite prerequisite,
+    StoredFileWrite publication, {
+    List<String> retireHints = const [],
+  }) async => false;
+}
+
+class _PostWriteGatedStorage extends HiddenVolumeStorage
+    with _IndividualFixtureWrites {
   _PostWriteGatedStorage()
     : super(
         ({required Uint8List password, required bool create}) =>
@@ -498,7 +513,8 @@ class _PostWriteGatedStorage extends HiddenVolumeStorage {
   }
 }
 
-class _ControlledGroupWriteStorage extends HiddenVolumeStorage {
+class _ControlledGroupWriteStorage extends HiddenVolumeStorage
+    with _IndividualFixtureWrites {
   _ControlledGroupWriteStorage()
     : super(
         ({required Uint8List password, required bool create}) =>
@@ -542,7 +558,8 @@ class _ControlledGroupWriteStorage extends HiddenVolumeStorage {
 /// INCOMPLETE" (storage.dart), and `storeFile` is not atomic to readers.
 /// While [gate] is armed, a group bundle write parks and reads of that same
 /// key see the half-written state.
-class _HalfWrittenBundleStorage extends HiddenVolumeStorage {
+class _HalfWrittenBundleStorage extends HiddenVolumeStorage
+    with _IndividualFixtureWrites {
   _HalfWrittenBundleStorage()
     : super(
         ({required Uint8List password, required bool create}) =>
@@ -610,7 +627,8 @@ class _CountingGroupReadStorage extends HiddenVolumeStorage {
   }
 }
 
-class _HeldGroupHeaderStorage extends HiddenVolumeStorage {
+class _HeldGroupHeaderStorage extends HiddenVolumeStorage
+    with _IndividualFixtureWrites {
   _HeldGroupHeaderStorage()
     : super(
         ({required Uint8List password, required bool create}) =>
@@ -8737,12 +8755,13 @@ void main() {
     // Inline, every save rewrote the whole history: one post to a
     // 259-message group wrote ~195 KB on each device on the stand.
     late _CountingStorage storage;
+    late _CommitCountingStore raw;
     late GroupService svc;
     late NodeId gid;
 
     setUp(() async {
-      final store = FakeKvLogStore();
-      storage = _CountingStorage(({required password, required bool create}) => store);
+      raw = _CommitCountingStore();
+      storage = _CountingStorage(({required password, required bool create}) => raw);
       await storage.open(password: 'pw', createIfMissing: true);
       svc = GroupService(storage, _FakeSigner(owner));
       gid = await svc.createGroup('Segmented');
@@ -8754,6 +8773,20 @@ void main() {
       }
     });
     tearDown(() => svc.dispose());
+
+    test('an append stages its new segment and header in one data commit',
+        () async {
+      final before =
+          (await svc.load(gid))!.messages.map(groupMessageHash).toList();
+      raw.commits = 0;
+      expect(await svc.postMessage(gid, 'paired append', broadcast: false), isTrue);
+      expect(raw.commits, 2,
+          reason: 'new segment data and header data need one shared stage');
+      final after = (await svc.load(gid))!;
+      expect(after.messages.take(before.length).map(groupMessageHash), before);
+      expect((await svc.messagesOf(gid)).last.body, 'paired append');
+    });
+
 
     test('one more message writes the header and the tail, not the history',
         () async {
@@ -27978,8 +28011,38 @@ void main() {
 
 /// Counts what goes through [storeFile], so a test can say how much one save
 /// wrote.
+class _CommitCountingStore extends FakeKvLogStore {
+  int commits = 0;
+  @override
+  int commit(List<KvLogOp> ops) {
+    commits++;
+    return super.commit(ops);
+  }
+}
+
 class _CountingStorage extends HiddenVolumeStorage {
   _CountingStorage(super.opener);
+
+  @override
+  Future<bool> tryStoreFilePair(
+    StoredFileWrite prerequisite,
+    StoredFileWrite publication, {
+    List<String> retireHints = const [],
+  }) async {
+    final handled = await super.tryStoreFilePair(
+      prerequisite,
+      publication,
+      retireHints: retireHints
+          .where((id) => !blockedDeletes.contains(id))
+          .toList(),
+    );
+    if (handled) {
+      storedBytes += prerequisite.bytes.length + publication.bytes.length;
+      storedIds.addAll([prerequisite.id, publication.id]);
+    }
+    return handled;
+  }
+
   int storedBytes = 0;
   final storedIds = <String>[];
   final deletedIds = <String>[];

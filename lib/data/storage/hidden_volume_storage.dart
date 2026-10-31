@@ -99,7 +99,8 @@ class HiddenVolumeStorage
         PreMaintenanceAnchorSource,
         AtomicRatchetSnapshotReservations,
         StoredFileBatchReader,
-        StoredFilePresenceReader {
+        StoredFilePresenceReader,
+        StoredFilePairWriter {
   /// Default (SYNC opener) — the in-memory fake, tests, and any path not yet
   /// given its own worker. The sync opener is lifted to async (run INLINE on
   /// the calling isolate) internally, so behaviour is unchanged; only the
@@ -1119,6 +1120,53 @@ class HiddenVolumeStorage
       await AsyncFileStore(
         _as,
       ).storeFile(fileId, bytes, name: name, retireHints: inVolume);
+    });
+  }
+
+  @override
+  Future<bool> tryStoreFilePair(
+    StoredFileWrite prerequisite,
+    StoredFileWrite publication, {
+    List<String> retireHints = const [],
+  }) {
+    if (prerequisite.id == publication.id ||
+        retireHints.contains(prerequisite.id) ||
+        retireHints.contains(publication.id)) {
+      throw ArgumentError('paired files cannot replace or retire each other');
+    }
+    if (prerequisite.bytes.isEmpty ||
+        publication.bytes.isEmpty ||
+        prerequisite.bytes.length > StoredFilePairWriter.maxBytes ||
+        publication.bytes.length >
+            StoredFilePairWriter.maxBytes - prerequisite.bytes.length) {
+      return Future.value(false);
+    }
+    StoredFileWrite snapshot(StoredFileWrite file) => StoredFileWrite(
+      file.id,
+      Uint8List.fromList(file.bytes),
+      name: file.name,
+    );
+    final first = snapshot(prerequisite), second = snapshot(publication);
+    final hints = retireHints.take(64).toSet();
+    return _fileSerialized(() async {
+      // A tiered file must use ordinary key scrub/ciphertext cleanup, even
+      // when its metadata cannot be decoded. Never erase only half a tier.
+      for (final id in [first.id, second.id]) {
+        if (await _as.get(Ns.settings, _sk('ondisk:$id')) != null) return false;
+      }
+      final inVolume = <String>[];
+      for (final id in hints) {
+        try {
+          if (await _as.get(Ns.settings, _sk('ondisk:$id')) == null) {
+            inVolume.add(id);
+          }
+        } catch (_) {
+          // Optional retirement; the group caller still performs cleanup.
+        }
+      }
+      return AsyncFileStore(
+        _as,
+      ).tryStoreFilePair(first, second, retireHints: inVolume);
     });
   }
 

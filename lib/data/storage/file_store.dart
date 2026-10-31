@@ -28,6 +28,26 @@ abstract interface class StoredFilePresenceReader {
   Future<List<bool>> hasFiles(List<String> fileIds);
 }
 
+/// A small prerequisite file and the file which publishes its reference.
+/// False means unsupported, without writes; callers retain their ordinary
+/// prerequisite-first path. A failed commit may leave unreferenced staged
+/// data; a lost final reply may already have published both complete files.
+abstract interface class StoredFilePairWriter {
+  static const maxBytes = 62 * 3800;
+  Future<bool> tryStoreFilePair(
+    StoredFileWrite prerequisite,
+    StoredFileWrite publication, {
+    List<String> retireHints = const [],
+  });
+}
+
+class StoredFileWrite {
+  const StoredFileWrite(this.id, this.bytes, {this.name});
+  final String id;
+  final Uint8List bytes;
+  final String? name;
+}
+
 /// Storage chunk size: one [Ns.fileChunks] log record. The store seals each
 /// record's batch into a single 4 KiB container chunk, whose usable payload
 /// (after nonce/tag/header) is PAYLOAD_CAP ≈ 4040 bytes — and the batch is zstd-
@@ -676,6 +696,121 @@ class AsyncFileStore {
   Future<int> _nextLogId() async {
     final raw = await _store.get(Ns.settings, _k('file_next_log'));
     return raw == null ? 1 : (int.tryParse(utf8.decode(raw)) ?? 1);
+  }
+
+  /// Co-stage a new immutable prerequisite and a small publication file.
+  /// The caller serializes file writers, as for [storeFile]. Never append and
+  /// delete records in one transaction: publish references and retire the old
+  /// runs only after all new bytes are durable. Existing prerequisites, large
+  /// headers, streamed layouts and a due orphan sweep use the ordinary path.
+  Future<bool> tryStoreFilePair(
+    StoredFileWrite prerequisite,
+    StoredFileWrite publication, {
+    List<String> retireHints = const [],
+  }) async {
+    if (prerequisite.id == publication.id ||
+        retireHints.contains(prerequisite.id) ||
+        retireHints.contains(publication.id)) {
+      throw ArgumentError('paired files cannot replace or retire each other');
+    }
+    if (prerequisite.bytes.isEmpty ||
+        publication.bytes.isEmpty ||
+        prerequisite.bytes.length > StoredFilePairWriter.maxBytes ||
+        publication.bytes.length >
+            StoredFilePairWriter.maxBytes - prerequisite.bytes.length) {
+      return false;
+    }
+    if (await _store.get(Ns.settings, _k('file:${prerequisite.id}')) != null) {
+      return false;
+    }
+    final raw = await _store.get(Ns.settings, _k('file:${publication.id}'));
+    final metadata = raw == null
+        ? null
+        : jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
+    if (metadata?['streamed'] == true) return false;
+    final oldRuns = metadata == null
+        ? const <_RecordSegment>[]
+        : _fileSegments(metadata);
+    final oldCount = oldRuns.fold<int>(0, (n, run) => n + run.count);
+    // Two manifests and GC must fit the publication operation budget.
+    if (oldCount > _kChunksPerCommit - 3) return false;
+    if (metadata != null && metadata['size'] == publication.bytes.length) {
+      final prior = await _loadFileFromMetadata(publication.id, metadata);
+      if (prior != null && _sameBytes(prior, publication.bytes)) return false;
+    }
+    final first = chunkBytes(
+      prerequisite.bytes,
+      transferId: prerequisite.id,
+      maxChunk: _maxRecord,
+    );
+    final second = chunkBytes(
+      publication.bytes,
+      transferId: publication.id,
+      maxChunk: _maxRecord,
+    );
+    final chunks = [...first, ...second];
+    // Reserve one operation each for the allocator and GC. Adjacent partial
+    // chunks can make this count one larger than ceil(totalBytes/maxRecord).
+    if (chunks.length + 2 > _kChunksPerCommit) return false;
+    final base = await _nextLogId();
+    if (base < 1 || base > _kMaxDartLogId - chunks.length) {
+      throw StateError('file log allocator exhausted');
+    }
+    final gc = await _gcState();
+    if (gc.shouldSweep(chunks.length, base)) return false;
+    final publish = <KvLogOp>[
+      for (final id in _recordIds(oldRuns)) DeleteLogOp(Ns.fileChunks, id),
+      for (final (file, start, count) in [
+        (prerequisite, base, first.length),
+        (publication, base + first.length, second.length),
+      ])
+        PutOp(
+          Ns.settings,
+          _k('file:${file.id}'),
+          _k(
+            jsonEncode({
+              'name': file.name,
+              'size': file.bytes.length,
+              'segments': [
+                [start, count],
+              ],
+            }),
+          ),
+        ),
+    ];
+    publish.addAll(
+      await _retirementOps(
+        retireHints.take(64).toSet(),
+        _kChunksPerCommit - publish.length - 1,
+      ),
+    );
+    final retired = publish.whereType<DeleteLogOp>().length;
+    final data = <KvLogOp>[
+      for (var i = 0; i < chunks.length; i++)
+        AppendLogOp(Ns.fileChunks, base + i, chunks[i].data),
+      // Reserve IDs WITH the staged bytes. A failed publication or lost
+      // staging reply must not reuse its orphan IDs or double-count them.
+      PutOp(Ns.settings, _k('file_next_log'), _k('${base + chunks.length}')),
+    ];
+    final staged = gc.afterWrite(appended: chunks.length);
+    final complete = staged.afterWrite(deleted: retired);
+    if (retired == 0 && data.length + publish.length + 1 <= _kChunksPerCommit) {
+      await _store.commit([
+        ...data,
+        ...publish,
+        PutOp(Ns.settings, _k(_kChunkGcKey), complete.encode()),
+      ]);
+    } else {
+      await _store.commit([
+        ...data,
+        PutOp(Ns.settings, _k(_kChunkGcKey), staged.encode()),
+      ]);
+      await _store.commit([
+        ...publish,
+        PutOp(Ns.settings, _k(_kChunkGcKey), complete.encode()),
+      ]);
+    }
+    return true;
   }
 
   /// Persist [bytes] under [fileId]; returns [fileId]. The chunks are appended
