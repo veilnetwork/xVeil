@@ -33,7 +33,11 @@ import '../domain/clear_request.dart';
 import '../crypto/blake3.dart';
 import '../data/node/embedded_node.dart';
 import '../data/storage/file_store.dart'
-    show StoredFileBatchReader, StoredFilePresenceReader;
+    show
+        StoredFileBatchReader,
+        StoredFilePresenceReader,
+        StoredFilePairWriter,
+        StoredFileWrite;
 import '../domain/data_transfer.dart';
 import '../domain/chat.dart'
     show
@@ -6655,12 +6659,30 @@ class GroupService implements ArchiveGroups {
       for (final seg in segments)
         if (previous.live.contains(seg.key)) seg.key,
     ]);
+    final gone = {...previous.pending, ...dropped}.difference(live);
+    final missing = [
+      for (final seg in segments)
+        if (!present.contains(seg.key)) seg,
+    ];
+    final headerBytes = Uint8List.fromList(utf8.encode(json));
+    final paired =
+        missing.length == 1 &&
+        _storage is StoredFilePairWriter &&
+        await (_storage as StoredFilePairWriter).tryStoreFilePair(
+          StoredFileWrite(
+            missing.single.key,
+            Uint8List.fromList(utf8.encode(missing.single.json)),
+            name: 'group-segment',
+          ),
+          StoredFileWrite(key, headerBytes, name: 'group'),
+          retireHints: gone.toList(),
+        );
     for (final seg in segments) {
       // Content-addressed: a key the stored header already names holds these
       // very bytes — if it is still there. Asked, not assumed: a wholesale
       // erase of the file store does not tell this cache, and a header naming
       // a segment that is gone refuses to load for good.
-      if (present.contains(seg.key)) {
+      if (paired || present.contains(seg.key)) {
         continue;
       }
       await _storage.storeFile(
@@ -6669,13 +6691,14 @@ class GroupService implements ArchiveGroups {
         name: 'group-segment',
       );
     }
-    final gone = {...previous.pending, ...dropped}.difference(live);
-    await _storage.storeFile(
-      key,
-      Uint8List.fromList(utf8.encode(json)),
-      name: 'group',
-      retireHints: gone.toList(),
-    );
+    if (!paired) {
+      await _storage.storeFile(
+        key,
+        headerBytes,
+        name: 'group',
+        retireHints: gone.toList(),
+      );
+    }
     // Left over by a save that did not get to its deletes, and what this
     // header just replaced. Hints are optional: always finish the cleanup.
     final failed = <String>{};

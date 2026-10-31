@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:xveil/data/storage/file_store.dart';
+
 import 'timed_native_store.dart';
 import 'timed_veil_transport.dart';
 
@@ -73,6 +75,20 @@ class TimedGroupFileStorage extends TimedOutboxStorage {
   @override
   Future<bool> hasFile(String fileId) =>
       _time('has', fileId, () => super.hasFile(fileId));
+  @override
+  Future<bool> tryStoreFilePair(
+    StoredFileWrite prerequisite,
+    StoredFileWrite publication, {
+    List<String> retireHints = const [],
+  }) => _time(
+    'storePair',
+    publication.id,
+    () => super.tryStoreFilePair(
+      prerequisite,
+      publication,
+      retireHints: retireHints,
+    ),
+  );
   @override
   Future<List<bool>> hasFiles(List<String> ids) => _time(
     'hasBatch',
