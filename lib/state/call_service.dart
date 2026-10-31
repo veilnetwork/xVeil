@@ -154,6 +154,10 @@ abstract class CallMediaController {
   /// channel + start the audio engine). Returns true if media is up.
   Future<bool> start(Call call);
 
+  /// Capture was unavailable but native playout started successfully. Reflect
+  /// the effective mute locally and to the peer when promoting the call.
+  bool get startedWithoutMicrophone => false;
+
   /// The route the media engine actually opened. It must equal the negotiated
   /// route, except for the explicitly permitted direct P2P → non-onion relay
   /// fallback. Null until a channel is open.
@@ -1066,6 +1070,14 @@ class CallService {
     if (c == null || !c.isLive || c.micOn == on) return;
     _set(c.copyWith(micOn: on)); // reflect immediately; the UI watches Call
     await _media?.setMicMuted(!on);
+    final current = _current;
+    if (on &&
+        _media?.startedWithoutMicrophone == true &&
+        current != null &&
+        current.callId == c.callId &&
+        current.isLive) {
+      _set(current.copyWith(micOn: false));
+    }
     await _announceCapture();
   }
 
@@ -2745,6 +2757,7 @@ class CallService {
       }
     }
     if (ok) {
+      final micOn = cur.micOn && !media.startedWithoutMicrophone;
       final actualTransport = media.activeTransport;
       if (actualTransport != null && actualTransport != cur.transport) {
         if (cur.transport == CallTransportKind.p2p &&
@@ -2754,8 +2767,10 @@ class CallService {
           final relayed = cur.copyWith(
             status: CallStatus.active,
             transport: CallTransportKind.relay,
+            micOn: micOn,
           );
           _set(relayed);
+          if (micOn != cur.micOn) unawaited(_announceCapture());
           unawaited(_announceRelayFallback(relayed));
           unawaited(_checkLateP2P());
           return;
@@ -2777,7 +2792,8 @@ class CallService {
         _end(CallEndReason.error, origin: CallEndOrigin.routeMismatch);
         return;
       }
-      _set(cur.copyWith(status: CallStatus.active));
+      _set(cur.copyWith(status: CallStatus.active, micOn: micOn));
+      if (micOn != cur.micOn) unawaited(_announceCapture());
       unawaited(_checkLateP2P());
       return;
     }
