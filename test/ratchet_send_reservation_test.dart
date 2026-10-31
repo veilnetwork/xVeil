@@ -646,6 +646,34 @@ void _hostPublicationTests() {
       expect(node.allowed, 0);
     });
 
+    test('retry after a lost reservation reply attempts the rollback anchor', () async {
+      storage.failAfterCommit = true;
+      await expectLater(owner.reserveBeforePublish(peer), throwsStateError);
+      expect(await storage.getSetting(ratchetReservationKey(key)), isNotNull);
+      expect(node.allowed, 0);
+      expect(storage.anchors, 0);
+      storage.failAfterCommit = false;
+      final entered = Completer<void>();
+      storage.anchorEntered = entered;
+      storage.anchorHold = Completer<void>();
+      final retry = owner.reserveBeforePublish(peer);
+      try {
+        await entered.future;
+        expect(storage.anchors, 1,
+            reason: 'marks read back after an uncertain commit have no witness '
+                'that the rollback anchor was attempted');
+        expect(node.allowed, 0);
+        expect(() => node.seal(key), throwsStateError);
+      } finally {
+        storage.anchorHold!.complete();
+        storage.anchorHold = null;
+        await retry;
+      }
+      expect(node.seal(key), 31);
+      await owner.reserveBeforePublish(peer);
+      expect(storage.anchors, 1, reason: 'a warm cache hit needs no new attempt');
+    });
+
     test('a covered guarded send does not wait for another reservation', () async {
       await owner.reserveBeforePublish(peer);
       final allowed = node.allowed;

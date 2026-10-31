@@ -25,6 +25,19 @@
 2. **Следом:** оставшаяся multi-device матрица, длительный offline,
    revoke / split-brain / crash. Непройденные проверки не считаются дефектами.
 
+[Раунд ratchet I/O / anchor retry](../ratchet-io-anchor-retry-2026-10-31/README.md)
+подтвердил пропуск anchor attempt после потерянного ответа успешной записи
+резерва: retry выдавал floor из fresh disk marks при `wrote=false`.
+Теперь attempt обязателен перед permit и в этом случае; held-anchor gate
+проверяет запрет native seal, warm cache не делает лишних попыток. 255 unit /
+security + 4 native ABI прошли, 0 skipped. Два native stand: 8 сообщений всем
+12 без дублей. Это не заявляется ускорением. Профиль: 300 отдельных reservation
+writes и 409 snapshot writes; 303 новых sending-chain id, 0 расширений
+наблюдавшейся цепи. Для 246/300 резервов подходящая цепь уже была в предыдущем
+сохранённом snapshot. Следующая проверка — атомарное сохранение snapshot и
+его резерва (ещё не реализовано), с прежними commit/anchor/permit гарантиями.
+Долгая доставка и multi-device матрица остаются открытыми. Без push/релиза.
+
 [Раунд готового ratchet-резерва](../ratchet-reservation-queue-2026-10-31/README.md)
 подтвердил gate-тестом блокировку уже обеспеченного отправления чужим I/O.
 Активный native guard теперь допускает read-only reuse durable marks до
