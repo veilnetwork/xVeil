@@ -8904,6 +8904,72 @@ void main() {
       expect(await storage.hasFile(stray), isFalse);
     });
 
+    test('replaying the same snapshot does not rewrite a cleaned header', () async {
+      final key = 'group:${gid.hex}';
+      final before = (await storage.loadFile(key))!;
+      final header = jsonDecode(utf8.decode(before)) as Map;
+      expect(header['gd'], isNotEmpty);
+      for (final retired in header['gd'] as List) {
+        expect(await storage.hasFile(retired as String), isFalse);
+      }
+      final snapshot = svc.snapshotJson((await svc.load(gid))!);
+      storage.deletedIds.clear();
+      for (var n = 0; n < 3; n++) {
+        expect(await svc.ingestSnapshot(snapshot), isTrue);
+        final after = (await storage.loadFile(key))!;
+        expect((jsonDecode(utf8.decode(after)) as Map)..remove('gd'),
+            Map.of(header)..remove('gd'));
+        expect(after, before,
+            reason: 'clearing already-completed cleanup rewrites the journal');
+      }
+      expect(storage.deletedIds, isEmpty,
+          reason: 'retaining the descriptor must not retry completed deletes');
+
+      final restarted = GroupService(storage, _FakeSigner(owner));
+      addTearDown(restarted.dispose);
+      expect(await restarted.ingestSnapshot(snapshot), isTrue);
+      expect(await storage.loadFile(key), before);
+      expect((await restarted.messagesOf(gid)), hasLength(300));
+      storage.deletedIds.clear();
+      expect(await restarted.ingestSnapshot(snapshot), isTrue);
+      expect(storage.deletedIds, isEmpty);
+    });
+
+    test('stable cleanup descriptors still retry failed deletions', () async {
+      final key = 'group:${gid.hex}';
+      final old = jsonDecode(utf8.decode((await storage.loadFile(key))!)) as Map;
+      final retired = (old['gs'] as List).last as String;
+      storage.blockedDeletes.add(retired);
+      expect(await svc.postMessage(gid, 'replacement', broadcast: false), isTrue);
+      expect(await storage.hasFile(retired), isTrue);
+      final before = (await storage.loadFile(key))!;
+      final snapshot = svc.snapshotJson((await svc.load(gid))!);
+      for (var n = 0; n < 2; n++) {
+        storage.deletedIds.clear();
+        expect(await svc.ingestSnapshot(snapshot), isTrue);
+        expect(storage.deletedIds, [retired]);
+        expect(await storage.hasFile(retired), isTrue);
+        expect(await storage.loadFile(key), before);
+      }
+      storage.blockedDeletes.clear();
+      expect(await svc.ingestSnapshot(snapshot), isTrue);
+      expect(await storage.hasFile(retired), isFalse);
+      storage.deletedIds.clear();
+      expect(await svc.ingestSnapshot(snapshot), isTrue);
+      expect(storage.deletedIds, isEmpty);
+      expect(await storage.loadFile(key), before);
+
+      // A new history revision replaces the descriptor rather than accumulating
+      // completed cleanup forever. A restart must still read the whole journal.
+      expect(await svc.postMessage(gid, 'next revision', broadcast: false), isTrue);
+      final next = jsonDecode(utf8.decode((await storage.loadFile(key))!)) as Map;
+      expect(next['gd'], hasLength(1));
+      expect(next['gd'], isNot(contains(retired)));
+      final restarted = GroupService(storage, _FakeSigner(owner));
+      addTearDown(restarted.dispose);
+      expect(await restarted.messagesOf(gid), hasLength(302));
+    });
+
     test('a load that a save overtakes reads the new header, not a refusal',
         () async {
       // Measured on the stand: every device log refused to load again and
@@ -27654,6 +27720,7 @@ class _CountingStorage extends HiddenVolumeStorage {
   int storedBytes = 0;
   final storedIds = <String>[];
   final deletedIds = <String>[];
+  final blockedDeletes = <String>{};
   final segmentReads = <String, int>{};
   Completer<void>? segmentReadGate;
   bool failSegmentRead = false;
@@ -27681,6 +27748,9 @@ class _CountingStorage extends HiddenVolumeStorage {
   @override
   Future<void> deleteStoredFile(String fileId) {
     deletedIds.add(fileId);
+    if (blockedDeletes.contains(fileId)) {
+      throw StateError('injected segment deletion failure');
+    }
     return super.deleteStoredFile(fileId);
   }
 
