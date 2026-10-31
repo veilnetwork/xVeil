@@ -16,6 +16,89 @@ import 'package:xveil/state/messaging.dart';
 import 'package:xveil/state/veil_call_media.dart';
 
 void main() {
+  for (final on in [false, true]) {
+    for (final throws in [false, true]) {
+      test(
+        'native mic on=$on refusal preserves advertised posture (throws=$throws)',
+        () async {
+          final wire = _FakeMessaging();
+          final media = _FakeMedia();
+          final svc = CallService(wire, media: media)..start();
+          addTearDown(svc.dispose);
+          wire.onCallSignal!(NodeId.fromHex('d' * 64), _diagnosticOffer());
+          await pumpEventQueue();
+          await svc.accept();
+          await pumpEventQueue();
+          if (on) await svc.setMicEnabled(false);
+          media.micOperation = (_) async {
+            if (throws) throw StateError('private device failure');
+            return false;
+          };
+          await svc.setMicEnabled(on);
+          await pumpEventQueue();
+          expect(svc.current?.status, CallStatus.active);
+          expect(svc.current?.micOn, !on);
+          expect(wire.sent.last.capture?.audio, !on);
+          media.micOperation = (_) async => true;
+          await svc.setMicEnabled(on);
+          await pumpEventQueue();
+          expect(svc.current?.micOn, on);
+          expect(wire.sent.last.capture?.audio, on);
+        },
+      );
+    }
+  }
+
+  test('an older mic failure cannot undo a newer failed unmute', () async {
+    final wire = _FakeMessaging();
+    final media = _FakeMedia();
+    final svc = CallService(wire, media: media)..start();
+    addTearDown(svc.dispose);
+    wire.onCallSignal!(NodeId.fromHex('d' * 64), _diagnosticOffer());
+    await pumpEventQueue();
+    await svc.accept();
+    await pumpEventQueue();
+    final oldMute = Completer<bool>();
+    media.micOperation = (muted) =>
+        muted ? oldMute.future : Future.value(false);
+    final old = svc.setMicEnabled(false);
+    await svc.setMicEnabled(true);
+    await pumpEventQueue();
+    expect(svc.current?.micOn, isFalse);
+    final sent = wire.sent.length;
+    oldMute.complete(false);
+    await old;
+    await pumpEventQueue();
+    expect(svc.current?.micOn, isFalse);
+    expect(
+      wire.sent,
+      hasLength(sent),
+      reason: 'stale result must not reannounce capture',
+    );
+  });
+
+  test('a mic result after hangup cannot reannounce capture', () async {
+    final wire = _FakeMessaging();
+    final media = _FakeMedia();
+    final svc = CallService(wire, media: media)..start();
+    addTearDown(svc.dispose);
+    wire.onCallSignal!(NodeId.fromHex('d' * 64), _diagnosticOffer());
+    await pumpEventQueue();
+    await svc.accept();
+    await pumpEventQueue();
+    final pending = Completer<bool>();
+    media.micOperation = (_) => pending.future;
+    final muted = svc.setMicEnabled(false);
+    await svc.hangup();
+    await pumpEventQueue();
+    final sent = wire.sent.length;
+    pending.complete(false);
+    await muted;
+    await pumpEventQueue();
+    expect(svc.current, isNull);
+    expect(wire.sent, hasLength(sent));
+  });
+
   test('working receive-only startup marks mic off locally and to the peer', () async {
     final wire = _FakeMessaging();
     final media = _FakeMedia()..startedWithoutMicrophone = true;
@@ -6298,6 +6381,11 @@ CallSignal _diagnosticOffer() => CallSignal(
 );
 
 class _FakeMedia extends CallMediaController {
+  Future<bool> Function(bool)? micOperation;
+  @override
+  Future<bool> setMicMuted(bool muted) async =>
+      await micOperation?.call(muted) ?? true;
+
   @override
   bool startedWithoutMicrophone = false;
   final List<bool> peerAudioCapture = [];

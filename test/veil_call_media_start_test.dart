@@ -45,7 +45,8 @@ class _Engine implements VeilMediaEngine {
   final bool nativeStarted;
   final int capture;
   final int playout;
-  final bool muteAccepted;
+  bool muteAccepted;
+  bool throwOnMute = false;
   final mutes = <bool>[];
   bool disposed = false;
   bool rejectVideoAdmission = false;
@@ -84,6 +85,7 @@ class _Engine implements VeilMediaEngine {
   @override
   bool trySetMicMuted(bool muted) {
     mutes.add(muted);
+    if (throwOnMute) throw StateError('device disappeared');
     return muteAccepted;
   }
 
@@ -119,6 +121,73 @@ Call _call({bool video = false}) => Call(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  for (final unmute in [false, true]) {
+    test(
+      'refused ${unmute ? "unmute" : "mute"} does not reopen capture on route rebuild',
+      () async {
+        final first = _Engine(nativeStarted: true, capture: 1);
+        final replacement = _Engine(nativeStarted: true, capture: 1);
+        var creates = 0;
+        final controller = VeilCallMediaController(
+          _Transport(),
+          engineFactory:
+              ({required veilChan, required localId, required peerId}) =>
+                  creates++ == 0 ? first : replacement,
+        );
+        try {
+          expect(await controller.start(_call()), isTrue);
+          if (unmute) expect(await controller.setMicMuted(true), isTrue);
+          first.muteAccepted = false;
+          expect(await controller.setMicMuted(!unmute), isFalse);
+          expect(await controller.start(_call()), isTrue);
+          expect(first.disposed, isTrue);
+          expect(replacement.mutes.first, isTrue);
+        } finally {
+          await controller.stop();
+        }
+      },
+    );
+  }
+
+  for (final muted in [true, false]) {
+    for (final throws in [false, true]) {
+      test(
+        'mid-call mute=$muted reports device refusal (throws=$throws)',
+        () async {
+          final engine = _Engine(nativeStarted: true, capture: 1);
+          final controller = VeilCallMediaController(
+            _Transport(),
+            engineFactory:
+                ({required veilChan, required localId, required peerId}) =>
+                    engine,
+          );
+          try {
+            expect(await controller.start(_call()), isTrue);
+            if (!muted) await controller.setMicMuted(true);
+            engine.muteAccepted = false;
+            engine.throwOnMute = throws;
+            // Dynamic dispatch lets the same regression run against the previous
+            // void-returning API and demonstrate its missing failure result.
+            final dynamic media = controller;
+            expect(await media.setMicMuted(muted), isFalse);
+          expect(controller.startedWithoutMicrophone, !muted);
+            expect(
+              engine.disposed,
+              isFalse,
+              reason: 'working receive audio stays up',
+            );
+            engine.muteAccepted = true;
+            engine.throwOnMute = false;
+            expect(await media.setMicMuted(muted), isTrue);
+          expect(controller.startedWithoutMicrophone, isFalse);
+          } finally {
+            await controller.stop();
+          }
+        },
+      );
+    }
+  }
 
   test(
     'real controller keeps an audio-only call with working output and failed capture',

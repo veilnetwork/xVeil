@@ -20,6 +20,8 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 f'import {json.dumps(journal.as_uri())};\n'
                 'void main() {\n'
                 '  diagnosticJournal.record(DiagnosticEvent.startup);\n'
+                '  diagnosticJournal.record(DiagnosticEvent.microphoneControl, values: {\n'
+                '    DiagnosticMetric.enabled: 1, DiagnosticMetric.success: 0});\n'
                 '  diagnosticJournal.recordMediaPermission(video: false);\n'
                 '  diagnosticJournal.recordMediaPermission(video: false, granted: true);\n'
                 '  diagnosticJournal.recordMediaPermission(video: true, granted: false);\n'
@@ -56,6 +58,9 @@ class DiagnosticArtifactTest(unittest.TestCase):
                     self.assertNotIn('314159265', json.dumps(report))
                     if enabled:
                         evidence = report['last_evidence']
+                        self.assertEqual(evidence['microphoneControl']['values'], {
+                            'enabled': 1, 'success': 0,
+                        })
                         self.assertEqual(evidence['audioStart']['values'], {
                             'success': 0, 'audioCaptureStartResult': 1,
                             'audioPlayoutStartResult': 0,
