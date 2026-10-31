@@ -401,6 +401,12 @@ openSealedCallMediaChannel({
 bool shouldStartInitialCallCamera(Call call) =>
     call.media.video && call.cameraOn;
 
+typedef CallMediaEngineFactory = VeilMediaEngine? Function({
+  required int veilChan,
+  required Uint8List localId,
+  required Uint8List peerId,
+});
+
 /// The real [CallMediaController]: opens a veil media datagram channel to the
 /// call peer and drives the libwebrtc audio engine (libveil_media.dylib) over
 /// it. Per-packet RTP/RTCP flows native↔native (the C++ Transport shim calls
@@ -409,7 +415,12 @@ bool shouldStartInitialCallCamera(Call call) =>
 /// SSRCs are derived from the node ids inside the engine, so both ends agree
 /// without extra negotiation. One engine per live call; [stop] is idempotent.
 class VeilCallMediaController implements CallMediaController {
-  VeilCallMediaController(this._transport);
+  VeilCallMediaController(
+    this._transport, {
+    CallMediaEngineFactory? engineFactory,
+  }) : _engineFactory = engineFactory ?? VeilMediaEngine.create;
+
+  final CallMediaEngineFactory _engineFactory;
 
   // Sealing remains unconditional v3 behavior. v5 also needs native accepted
   // audio counters and playout estimates from the independent feedback ABI.
@@ -1529,7 +1540,7 @@ class VeilCallMediaController implements CallMediaController {
     }
     _activeCall = call.copyWith(transport: transport);
     final highQuality = transport != CallTransportKind.onion;
-    final engine = VeilMediaEngine.create(
+    final engine = _engineFactory(
       veilChan: chan,
       localId: localId,
       peerId: peerId,
@@ -1913,10 +1924,10 @@ class VeilCallMediaController implements CallMediaController {
     );
     // Select communication/headset routing before opening the physical streams.
     await callAudioRouter.useDefaultFor(call.media);
-    final audioOk = engine.startAudio(send: true, recv: true);
+    final nativeAudioOk = engine.startAudio(send: true, recv: true);
     final audioStart = callAudioStartState(
-      started: audioOk,
-      stats: audioOk ? const {} : engine.getStats(),
+      started: nativeAudioOk,
+      stats: nativeAudioOk ? const {} : engine.getStats(),
     );
     _startedWithoutMicrophone = false;
     if (audioStart == CallAudioStartState.receiveOnly) {
@@ -1930,13 +1941,16 @@ class VeilCallMediaController implements CallMediaController {
         () => 'xVeil[call-media]: capture unavailable; receiving audio with mic off',
       );
     }
+    // Every exit below, including audio-only calls and deferred video, must
+    // use the usable session result rather than the combined native result.
+    final audioOk = audioStart != CallAudioStartState.failed;
     diagnosticJournal.record(
       DiagnosticEvent.audioStart,
       values: {
         DiagnosticMetric.success: audioStart != CallAudioStartState.failed ? 1 : 0,
       },
     );
-    devLog(() => 'xVeil[call-media]: startAudio=$audioOk');
+    devLog(() => 'xVeil[call-media]: startAudio=$nativeAudioOk usable=$audioOk');
     // An unavailable output or unknown startup failure still prevents a live
     // audio session. Only the positively measured capture-only failure above
     // permits receive-only audio, with mute reflected in CallService.
