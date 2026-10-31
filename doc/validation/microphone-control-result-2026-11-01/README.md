@@ -52,6 +52,10 @@ cause of the owner's Poco → Windows no-audio report. Late permission callbacks
 are a separate path; this change does not assert that every asynchronous input
 failure is already reflected by the UI. No native SDK/engine change or new pin.
 
+Follow-up: [late permission/capture callbacks](../late-microphone-permission-2026-11-01/README.md)
+are now connected to call-scoped mic-off notification with stale-generation
+guards and peer announcement. This extends the earlier synchronous fix.
+
 ## Phone check
 
 Poco is present and authorized in ADB. The system policy initially inspected

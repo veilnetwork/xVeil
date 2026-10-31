@@ -36,15 +36,35 @@ void main() {
   test('denial leaves native capture muted', () async {
     final permission = CallMicrophonePermission(Future<bool>.value(false));
     var applied = false;
+    var denied = false;
     await permission.applyWhenGranted(
       isCurrent: () => true,
       isMuted: () => false,
       apply: (_) {
         applied = true;
       },
+      onDenied: () => denied = true,
     );
     expect(applied, isFalse);
+    expect(denied, isTrue);
     expect(permission.captureMuted(false), isTrue);
+  });
+
+  test('denial callback cannot outlive the capture generation', () async {
+    final answer = Completer<bool>();
+    final permission = CallMicrophonePermission(answer.future);
+    var current = true;
+    var denied = false;
+    final pending = permission.applyWhenGranted(
+      isCurrent: () => current,
+      isMuted: () => false,
+      apply: (_) => fail('denial must not open capture'),
+      onDenied: () => denied = true,
+    );
+    current = false;
+    answer.complete(false);
+    await pending;
+    expect(denied, isFalse);
   });
 
   for (final choice in [true, false]) {

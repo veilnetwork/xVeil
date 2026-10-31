@@ -45,7 +45,14 @@ class CallMicrophonePermission {
     required bool Function() isCurrent,
     required bool Function() isMuted,
     required void Function(bool muted) apply,
+    void Function()? onDenied,
   }) async {
-    if (await result && isCurrent()) apply(isMuted());
+    final granted = await result;
+    if (!isCurrent()) return;
+    if (granted) {
+      apply(isMuted());
+    } else {
+      onDenied?.call();
+    }
   }
 }
