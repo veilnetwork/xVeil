@@ -420,8 +420,8 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   // The same message, different words. Keyed by the message so the fold holds
   // the latest text rather than one row per change of mind.
   messaging.onMessageEdited = (peer, msgId, body, customEmoji) {
-    if (peer == service.selfId) return;
-    tasks.start(() async {
+    if (peer == service.selfId) return Future<void>.value();
+    return tasks.runRequired(() async {
       if (await service.isMyDevice(peer)) return;
       if (await service.deviceGroupIdHex() == null) return;
       // Read the current winning value with its own revision. A delayed

@@ -32,11 +32,16 @@
 ///   2. NO DUPLICATES — one `(author, signing device, seq)` appears once. The class of defect
 ///      this catches has been seen live twice (`one-file-two-rows`): the same
 ///      logical row landing twice under two keys;
-///   3. NO GAPS — each signing device's `seq` chain is contiguous. This is the
+///   3. NO GAPS for logs that promise contiguous counters. This is the
 ///      per-writer frontier the campaign had to introduce (`9cbe6a4`): a flat
 ///      frontier collapsed several writers' chains into one and lost rows in
 ///      the middle, which a digest comparison alone cannot see when BOTH
-///      devices lost the same rows.
+///      devices lost the same rows. Sovereign device messages instead form a
+///      compactable LWW state log; their signed rows deliberately have no hash
+///      chain, and author counters can advance on another signing device.
+///      Numeric holes alone cannot prove loss there. Scenarios must assert
+///      their expected logical data, optionally throughout convergence via
+///      `expectedConversationMessageIds`, in addition to comparing shared rows.
 ///
 /// Parts 2 and 3 are checked per device, not between devices. That is on
 /// purpose: two devices that are identically broken still fail, because the
@@ -108,6 +113,7 @@ class DeviceStateSnapshot {
     this.conversationMessageIds = const [],
     this.memberCount = 0,
     this.epoch = 0,
+    this.messageLogIsState = false,
     this.notes = const {},
   });
 
@@ -134,6 +140,10 @@ class DeviceStateSnapshot {
 
   final int memberCount;
   final int epoch;
+
+  /// Set by the fixture from the sovereign-device manifest. Its message rows
+  /// are a compactable LWW state log, not a contiguous append-only history.
+  final bool messageLogIsState;
 
   /// Free-form diagnostics the fixture wants carried into a failure message
   /// (queue depths, last-seen ages). Never compared.
@@ -174,6 +184,7 @@ ConvergenceVerdict convergenceOf(
   DeviceStateSnapshot b, {
   bool requireDeviceGroup = true,
   bool requireConversationAgreement = false,
+  List<String>? expectedConversationMessageIds,
 }) {
   final reasons = <String>[];
 
@@ -181,9 +192,29 @@ ConvergenceVerdict convergenceOf(
   for (final device in [a, b]) {
     reasons.addAll(_duplicateReasons(device));
     reasons.addAll(_gapReasons(device));
+    if (expectedConversationMessageIds != null) {
+      final expected = expectedConversationMessageIds.toSet();
+      for (final id in expected) {
+        final reason = exactlyOnce(device, id);
+        if (reason != null) reasons.add(reason);
+      }
+      final unexpected = device.conversationMessageIds.toSet().difference(
+        expected,
+      );
+      if (unexpected.isNotEmpty) {
+        reasons.add(
+          '${device.label} has unexpected conversation rows: ${_list(unexpected.toList())}',
+        );
+      }
+    }
   }
 
   // --- between devices ------------------------------------------------------
+  if (a.messageLogIsState != b.messageLogIsState) {
+    reasons.add(
+      'message log semantics differ between ${a.label} and ${b.label}',
+    );
+  }
   if (requireDeviceGroup &&
       (a.deviceGroupIdHex == null || b.deviceGroupIdHex == null)) {
     reasons.add(
@@ -278,6 +309,7 @@ List<String> _duplicateReasons(DeviceStateSnapshot device) {
 List<String> _gapReasons(DeviceStateSnapshot device) {
   final chains = <String, List<int>>{};
   for (final row in device.rows) {
+    if (device.messageLogIsState && row.kind == 'msg') continue;
     chains
         .putIfAbsent('${row.kind}/${row.authorHex}/${row.writerHex}', () => [])
         .add(row.seq);
