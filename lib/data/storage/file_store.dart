@@ -403,7 +403,11 @@ class FileStore {
     final metadata = metadataRaw == null
         ? null
         : jsonDecode(utf8.decode(metadataRaw)) as Map<String, dynamic>;
-    final prior = metadata == null ? null : loadFile(fileId);
+    // Different recorded lengths cannot be a byte-identical no-op. Avoid
+    // loading an old payload just to discover that, especially a streamed one.
+    final prior = metadata != null && metadata['size'] == bytes.length
+        ? _loadFileFromMetadata(metadata)
+        : null;
     if (prior != null && _sameBytes(prior, bytes)) return fileId;
     final priorIds = metadata == null
         ? const <int>[]
@@ -549,6 +553,12 @@ class FileStore {
     final raw = _store.get(Ns.settings, _k('file:$fileId'));
     if (raw == null) return null;
     final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
+    return _loadFileFromMetadata(m);
+  }
+
+  // Reuse a manifest only within this operation. Every call still reads the
+  // actual chunk bytes; a missing record must force repair rather than a no-op.
+  Uint8List? _loadFileFromMetadata(Map<String, dynamic> m) {
     final out = BytesBuilder(copy: false);
     for (final id in _recordIds(_fileSegments(m))) {
       final chunk = _store.readLog(Ns.fileChunks, id);
@@ -685,11 +695,15 @@ class AsyncFileStore {
     var metadata = metadataRaw == null
         ? null
         : jsonDecode(utf8.decode(metadataRaw)) as Map<String, dynamic>;
-    final prior = metadata == null ? null : await loadFile(fileId);
+    // Read bytes only when equality is possible. Equal lengths still require
+    // the ordinary durable-byte comparison; size alone never authorizes a no-op.
+    final prior = metadata != null && metadata['size'] == bytes.length
+        ? await _loadFileFromMetadata(fileId, metadata)
+        : null;
     if (prior != null && _sameBytes(prior, bytes)) return fileId;
     var priorPurge = const <KvLogOp>[];
     if (metadata?['streamed'] == true) {
-      priorPurge = await deleteFileOps(fileId);
+      priorPurge = await _deleteFileOpsFromMetadata(fileId, metadata!);
       metadata = null;
     }
     final priorIds = metadata == null
@@ -811,6 +825,13 @@ class AsyncFileStore {
     final raw = await _store.get(Ns.settings, _k('file:$fileId'));
     if (raw == null) return const [];
     final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
+    return _deleteFileOpsFromMetadata(fileId, m);
+  }
+
+  Future<List<KvLogOp>> _deleteFileOpsFromMetadata(
+    String fileId,
+    Map<String, dynamic> m,
+  ) async {
     final ops = <KvLogOp>[];
     if (m['streamed'] == true) {
       // A STREAMED blob is a set of per-piece record-runs (see storeFilePiece) —
@@ -936,6 +957,15 @@ class AsyncFileStore {
     final raw = await _store.get(Ns.settings, _k('file:$fileId'));
     if (raw == null) return null;
     final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
+    return _readFileRangeFromMetadata(fileId, m, offset, length);
+  }
+
+  Future<Uint8List?> _readFileRangeFromMetadata(
+    String fileId,
+    Map<String, dynamic> m,
+    int offset,
+    int length,
+  ) async {
     if (m['streamed'] != true) {
       return _readRecordIdsRange(
         _recordIds(_fileSegments(m)),
@@ -1049,12 +1079,22 @@ class AsyncFileStore {
     final raw = await _store.get(Ns.settings, _k('file:$fileId'));
     if (raw == null) return null;
     final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
+    return _loadFileFromMetadata(fileId, m, maxBytes: maxBytes);
+  }
+
+  // The caller already fetched this manifest. Do not enqueue another worker
+  // RPC for the same metadata before comparing the durable chunk bytes.
+  Future<Uint8List?> _loadFileFromMetadata(
+    String fileId,
+    Map<String, dynamic> m, {
+    int? maxBytes,
+  }) async {
     if (maxBytes != null) {
       final size = m['size'];
       if (size is! int || size > maxBytes) return null;
     }
     if (m['streamed'] == true) {
-      return readFileRange(fileId, 0, m['size'] as int);
+      return _readFileRangeFromMetadata(fileId, m, 0, m['size'] as int);
     }
     final out = BytesBuilder(copy: false);
     final ids = _recordIds(_fileSegments(m));
