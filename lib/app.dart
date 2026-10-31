@@ -15,6 +15,7 @@ import 'state/cloud_capability_service.dart';
 import 'state/cloud_service.dart';
 import 'state/device_sync_bridge.dart';
 import 'state/resume_reconnect.dart';
+import 'state/network_reconnect.dart';
 import 'state/group_service_providers.dart';
 import 'state/group_call_service.dart';
 import 'state/p2p_endpoint_service.dart';
@@ -107,6 +108,7 @@ class _GroupBridge extends ConsumerWidget {
     // journal recorder itself (calls are journaled even without a journal UI).
     ref.watch(deviceSyncBridgeProvider);
     ref.watch(resumeReconnectProvider);
+    ref.watch(networkReconnectProvider);
     ref.watch(cloudServiceProvider);
     ref.watch(cloudCapabilityServiceProvider);
     // A contact's live inventory question must be answered without opening
