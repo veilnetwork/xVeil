@@ -1,0 +1,251 @@
+{
+  "schema": "xveil-host-authorization-batch-validation/1",
+  "baseline_revision": "73e80657",
+  "frozen_sdk_revision": "081bb6d1",
+  "unit_tests": 146,
+  "native_tests": 3,
+  "tests_skipped": 0,
+  "new_regression_original_commits": 11,
+  "new_regression_candidate_commits": 1,
+  "commit_operation_limit": 64,
+  "one_document_crosses_commits": false,
+  "native_ack_before_full_publication": false,
+  "polling_policy_changed": false,
+  "polling_only_model_wait_ms": 999,
+  "public_network": false,
+  "different_identities": 12,
+  "multi_device_qualification": false,
+  "epoch_encryption": false,
+  "single_host": true,
+  "separate_processes": false,
+  "ab_runs": [
+    {
+      "variant": "control",
+      "phase": "auth-control-1",
+      "visible_ms": [
+        4440,
+        2116,
+        2137,
+        2624
+      ],
+      "checkpoint_calls": 44,
+      "authorization_commits": 64,
+      "non_layout_ops": 64,
+      "max_commit_ops": 2,
+      "replace_median_ms": 148.4375,
+      "replace_max_ms": 488.18,
+      "sum_commit_ms": 3655.67,
+      "nodes_stopped": true,
+      "released_listeners": 12,
+      "cleanup_errors": []
+    },
+    {
+      "variant": "control",
+      "phase": "auth-control-2",
+      "visible_ms": [
+        4230,
+        2690,
+        1582,
+        2682
+      ],
+      "checkpoint_calls": 40,
+      "authorization_commits": 64,
+      "non_layout_ops": 64,
+      "max_commit_ops": 2,
+      "replace_median_ms": 159.2145,
+      "replace_max_ms": 508.24,
+      "sum_commit_ms": 3332.448,
+      "nodes_stopped": true,
+      "released_listeners": 12,
+      "cleanup_errors": []
+    },
+    {
+      "variant": "control",
+      "phase": "auth-control-3",
+      "visible_ms": [
+        4874,
+        2440,
+        2071,
+        2561
+      ],
+      "checkpoint_calls": 40,
+      "authorization_commits": 64,
+      "non_layout_ops": 64,
+      "max_commit_ops": 2,
+      "replace_median_ms": 162.5565,
+      "replace_max_ms": 437.3,
+      "sum_commit_ms": 3645.231,
+      "nodes_stopped": true,
+      "released_listeners": 12,
+      "cleanup_errors": []
+    },
+    {
+      "variant": "candidate",
+      "phase": "auth-candidate-1",
+      "visible_ms": [
+        4399,
+        2504,
+        2165,
+        2862
+      ],
+      "checkpoint_calls": 40,
+      "authorization_commits": 40,
+      "non_layout_ops": 64,
+      "max_commit_ops": 5,
+      "replace_median_ms": 140.5845,
+      "replace_max_ms": 278.53,
+      "sum_commit_ms": 1823.487,
+      "nodes_stopped": true,
+      "released_listeners": 12,
+      "cleanup_errors": []
+    },
+    {
+      "variant": "candidate",
+      "phase": "auth-candidate-2",
+      "visible_ms": [
+        4067,
+        2585,
+        2429,
+        2694
+      ],
+      "checkpoint_calls": 40,
+      "authorization_commits": 40,
+      "non_layout_ops": 64,
+      "max_commit_ops": 4,
+      "replace_median_ms": 125.2385,
+      "replace_max_ms": 374.147,
+      "sum_commit_ms": 2061.71,
+      "nodes_stopped": true,
+      "released_listeners": 12,
+      "cleanup_errors": []
+    },
+    {
+      "variant": "candidate",
+      "phase": "auth-candidate-3",
+      "visible_ms": [
+        3965,
+        2585,
+        2178,
+        2911
+      ],
+      "checkpoint_calls": 41,
+      "authorization_commits": 41,
+      "non_layout_ops": 64,
+      "max_commit_ops": 4,
+      "replace_median_ms": 102.426,
+      "replace_max_ms": 284.473,
+      "sum_commit_ms": 1713.936,
+      "nodes_stopped": true,
+      "released_listeners": 12,
+      "cleanup_errors": []
+    }
+  ],
+  "medians_visible_ms": {
+    "control": [
+      4440,
+      2440,
+      2071,
+      2624
+    ],
+    "candidate": [
+      4067,
+      2585,
+      2178,
+      2862
+    ]
+  },
+  "checkpoint_timing_observations": {
+    "control": {
+      "flush_to_export_median_ms": 0.1475,
+      "flush_to_export_max_ms": 400.028,
+      "replace_median_ms": 158.7835,
+      "replace_max_ms": 508.24,
+      "replace_to_ack_max_ms": 0.093
+    },
+    "candidate": {
+      "flush_to_export_median_ms": 0.15,
+      "flush_to_export_max_ms": 190.372,
+      "replace_median_ms": 121.59,
+      "replace_max_ms": 374.147,
+      "replace_to_ack_max_ms": 0.09
+    }
+  },
+  "warm_aba_runs": [
+    {
+      "variant": "control",
+      "phase": "auth-warm-control-1",
+      "visible_ms": [
+        4489,
+        3222,
+        2164,
+        2682,
+        3231,
+        2983,
+        3489,
+        3568
+      ],
+      "checkpoint_calls": 41,
+      "authorization_commits": 64,
+      "non_layout_ops": 64,
+      "max_commit_ops": 2,
+      "replace_median_ms": 185.68,
+      "replace_max_ms": 476.04,
+      "sum_commit_ms": 3896.415,
+      "nodes_stopped": true,
+      "released_listeners": 12,
+      "cleanup_errors": []
+    },
+    {
+      "variant": "candidate",
+      "phase": "auth-warm-candidate-1",
+      "visible_ms": [
+        3968,
+        3173,
+        2174,
+        2741,
+        2583,
+        3049,
+        4017,
+        3038
+      ],
+      "checkpoint_calls": 40,
+      "authorization_commits": 40,
+      "non_layout_ops": 64,
+      "max_commit_ops": 4,
+      "replace_median_ms": 132.684,
+      "replace_max_ms": 392.137,
+      "sum_commit_ms": 2352.777,
+      "nodes_stopped": true,
+      "released_listeners": 12,
+      "cleanup_errors": []
+    },
+    {
+      "variant": "control",
+      "phase": "auth-warm-control-2",
+      "visible_ms": [
+        4441,
+        2267,
+        2504,
+        3103,
+        2932,
+        2877,
+        3253,
+        3382
+      ],
+      "checkpoint_calls": 40,
+      "authorization_commits": 64,
+      "non_layout_ops": 64,
+      "max_commit_ops": 2,
+      "replace_median_ms": 190.596,
+      "replace_max_ms": 533.058,
+      "sum_commit_ms": 3732.154,
+      "nodes_stopped": true,
+      "released_listeners": 12,
+      "cleanup_errors": []
+    }
+  ],
+  "steady_samples_have_no_authorization_commits": true,
+  "all_48_messages_visible_once_on_all_12": true,
+  "overall_delivery_speedup_proven": false,
+  "push_or_release": false
+}

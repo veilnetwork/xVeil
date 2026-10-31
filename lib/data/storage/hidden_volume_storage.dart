@@ -1442,6 +1442,9 @@ class HiddenVolumeStorage
   // the layout marker. File/cache purges do not touch this namespace.
   static const _peerAuthorizationTag = 0x50;
   static const _peerAuthorizationChunkBytes = 1024;
+  // Include the layout marker in this budget. Whole documents (including
+  // obsolete tails) must stay in one transaction, never a flat split of ops.
+  static const _peerAuthorizationOpsPerCommit = 64;
   static final _peerAuthorizationHeader = Uint8List.fromList([
     _peerAuthorizationTag,
   ]);
@@ -1549,6 +1552,27 @@ class HiddenVolumeStorage
       final previous = {
         for (final e in await _loadPeerAuthorization()) e.peer: e,
       };
+      var pending = <KvLogOp>[];
+      Future<void> flush() async {
+        if (pending.isEmpty) return;
+        final ops = pending;
+        pending = <KvLogOp>[];
+        await _as.commit([
+          PutOp(Ns.ratchet, _peerAuthorizationHeader, _peerAuthorizationLayout),
+          ...ops,
+        ]);
+      }
+
+      Future<void> queueWholeDocument(List<KvLogOp> ops) async {
+        if (ops.length + 1 > _peerAuthorizationOpsPerCommit) {
+          throw const CorruptPeerAuthorizationState();
+        }
+        if (pending.length + ops.length + 1 > _peerAuthorizationOpsPerCommit) {
+          await flush();
+        }
+        pending.addAll(ops);
+      }
+
       final wanted = snapshot.map((e) => e.peer).toSet();
       // These absences come from the authoritative native snapshot after host
       // restore. Its bounded policy only evicts entries without revocations.
@@ -1556,7 +1580,7 @@ class HiddenVolumeStorage
       // cannot leave more peers than the restore budget permits.
       for (final prior in previous.values) {
         if (wanted.contains(prior.peer)) continue;
-        await _as.commit([
+        await queueWholeDocument([
           for (
             var i = 0;
             i < _peerAuthorizationChunks(prior.document.length);
@@ -1565,6 +1589,9 @@ class HiddenVolumeStorage
             DeleteOp(Ns.ratchet, _peerAuthorizationKey(prior.peer, i)),
         ]);
       }
+      // Finish evictions before adding replacements: every committed prefix
+      // remains within the restore budget, even after a failed later batch.
+      await flush();
       for (final entry in snapshot) {
         final prior = previous[entry.peer];
         if (_bytesEqual(prior?.document, entry.document)) continue;
@@ -1578,8 +1605,7 @@ class HiddenVolumeStorage
         ByteData.sublistView(stream).setUint32(0, entry.document.length);
         stream.setRange(4, stream.length, entry.document);
         final count = _peerAuthorizationChunks(entry.document.length);
-        await _as.commit([
-          PutOp(Ns.ratchet, _peerAuthorizationHeader, _peerAuthorizationLayout),
+        await queueWholeDocument([
           for (var i = 0; i < count; i++)
             PutOp(
               Ns.ratchet,
@@ -1599,6 +1625,9 @@ class HiddenVolumeStorage
               DeleteOp(Ns.ratchet, _peerAuthorizationKey(entry.peer, i)),
         ]);
       }
+      // The caller may ACK only after ALL batches have committed. A failure
+      // leaves complete old/new documents and the native revision pending.
+      await flush();
     });
   }
 
