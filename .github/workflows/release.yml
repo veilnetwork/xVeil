@@ -35,6 +35,10 @@ name: release
 # xveil_native_deps.py makes the same choice in the same order, so a laptop and
 # CI cannot disagree about which engine they are building against.
 #
+# Release engines must also match the native media source digest recorded by
+# the producer. An unchanged ABI is not evidence that a prebuilt carries the
+# current microphone or device-module fixes; rebuild and repin when it changes.
+#
 # Whichever route delivers it, the engine is then checked against the symbols
 # Dart looks up, from OUTSIDE the branch that fetched it — the copy this
 # replaced was twelve commits behind and would have failed at dlsym on the
@@ -110,6 +114,8 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
+      - name: Native media provenance guard regressions
+        run: python3 -m unittest discover -s scripts -p test_verify_media_provenance.py
 
   android:
     name: android APKs
@@ -445,6 +451,7 @@ jobs:
             got="$(sha256sum "$dest/libveil_media.so" | cut -d' ' -f1)"
             [ -n "$want" ] || { echo "::error::$asset.provenance carries no sha256 line — it is not the record it claims to be"; exit 1; }
             [ "$want" = "$got" ] || { echo "::error::the downloaded $abi engine is not the one its provenance describes (recorded $want, got $got)"; exit 1; }
+            python3 scripts/verify-media-provenance.py --provenance "$prov"
             # The name says which ABI; the file says which ABI. A published
             # asset that disagrees with its own name would install cleanly and
             # fail at dlopen on a device, which is the last place to find out.
@@ -720,6 +727,7 @@ jobs:
             got="$(sha256sum "$dest/libveil_media.so" | cut -d' ' -f1)"
             [ -n "$want" ] || { echo "::error::$ASSET.provenance carries no sha256 line — it is not the record it claims to be"; exit 1; }
             [ "$want" = "$got" ] || { echo "::error::the downloaded engine is not the one its provenance describes (recorded $want, got $got)"; exit 1; }
+            python3 scripts/verify-media-provenance.py --provenance "$prov"
             echo "sha256 matches the published provenance"
           elif [ -n "${ENGINE_RUN:-}" ]; then
             echo "engine: run artifact $ENGINE_RUN — the EXPIRING route"
@@ -1001,6 +1009,7 @@ jobs:
             got="$(sha256sum "$dest/veil_media.dll" | cut -d' ' -f1)"
             [ -n "$want" ] || { echo "::error::$ASSET.provenance carries no sha256 line — it is not the record it claims to be"; exit 1; }
             [ "$want" = "$got" ] || { echo "::error::the downloaded engine is not the one its provenance describes (recorded $want, got $got)"; exit 1; }
+            python3 scripts/verify-media-provenance.py --provenance "$prov"
             # Windows is the one platform where this job does NOT re-run the
             # symbol gate: check-media-symbols.sh reads a PE with objdump, and
             # a windows-latest runner has no objdump to read it with — the
