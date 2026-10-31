@@ -4,6 +4,7 @@
 An unchanged ABI cannot detect an old implementation. Producers record a digest
 of the native source tree alongside the binary SHA; release consumers check both.
 CRLF is normalized to LF so Windows checkout policy does not change the digest.
+Paths are ordered by their case-sensitive POSIX spelling on every platform.
 """
 import argparse
 import hashlib
@@ -12,7 +13,8 @@ import re
 
 
 def source_digest(source: Path) -> str:
-    files = sorted(p for p in source.rglob('*') if p.is_file())
+    files = sorted((p for p in source.rglob('*') if p.is_file()),
+                   key=lambda p: p.relative_to(source).as_posix())
     if not files:
         raise ValueError('native media source tree is empty')
     digest = hashlib.sha256(b'xveil-media-source-v1\0')

@@ -10,6 +10,21 @@ spec.loader.exec_module(media)
 
 
 class MediaProvenanceTest(unittest.TestCase):
+    def test_path_ordering_is_independent_of_host_platform(self):
+        # pathlib orders Windows paths case-insensitively. Reproduce that
+        # ordering on this host rather than waiting for a Windows publisher.
+        class WindowsOrderedPath(type(Path())):
+            def __lt__(self, other):
+                return str(self).casefold() < str(other).casefold()
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory)
+            (source / 'Z.cc').write_bytes(b'int start();\n')
+            (source / 'a.h').write_bytes(b'int stop();\n')
+            windows_source = WindowsOrderedPath(directory)
+            self.assertIsInstance(next(windows_source.rglob('*')), WindowsOrderedPath)
+            self.assertEqual(media.source_digest(source), media.source_digest(windows_source))
+
     def test_unchanged_abi_does_not_accept_old_implementation(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
