@@ -13,6 +13,7 @@ import 'package:meta/meta.dart' show visibleForTesting;
 
 import '../core/ids.dart';
 import '../crypto/blake3.dart';
+import '../crypto/verification_cache_digest.dart';
 import '../data/node/embedded_node.dart';
 import '../domain/group.dart';
 import '../domain/group_call.dart';
@@ -115,6 +116,9 @@ bool _verifyAuthored({
   int atUnixSecs = 0,
   DynamicLibrary? lib,
 }) {
+  // Every caller here verifies Ed25519. Reject malformed shapes before a
+  // cache lookup, not only inside the native verifier after a cache miss.
+  if (publicKey.length != 32 || signature.length != 64) return false;
   // Never throws: this is the `verify` a fold is handed, and a throw out of it
   // would take the whole log down with one bad row.
   try {
@@ -150,6 +154,7 @@ bool _verifyAuthoredCached({
     signature: signature,
     atUnixSecs: atUnixSecs,
     document: document,
+    lib: lib,
   );
   final now = debugVerdictClock();
   final cached = _verdicts[key];
@@ -213,17 +218,30 @@ String _verdictKey({
   required Uint8List signature,
   required int atUnixSecs,
   required Uint8List? document,
+  DynamicLibrary? lib,
 }) {
-  final at = ByteData(8)..setUint64(0, atUnixSecs);
-  final builder = BytesBuilder(copy: false)
-    ..add(author.bytes)
-    ..add(publicKey)
-    ..add(signature)
-    ..add(at.buffer.asUint8List())
-    ..add(blake3Hash(message))
-    ..addByte(document == null ? 0 : 1);
-  if (document != null) builder.add(_documentHash(document));
-  return base64Encode(blake3Hash(builder.takeBytes()));
+  // This is only an isolate-local cache index. Protocol identities and
+  // document fingerprints retain their BLAKE3 representation; validity,
+  // document/window binding and the native verifier below are unchanged.
+  // Recomputing the pure-Dart BLAKE3 over every retained payload was a hot
+  // path even when its signature verdict was already cached.
+  final digest = VerificationCacheDigest.forLibrary(lib);
+  final fields = ByteData(32)
+    ..setUint64(0, publicKey.length)
+    ..setUint64(8, signature.length)
+    ..setUint64(16, atUnixSecs)
+    ..setUint64(24, message.length);
+  return base64Encode(
+    digest.hashParts([
+      author.bytes,
+      fields.buffer.asUint8List(),
+      publicKey,
+      signature,
+      message,
+      Uint8List.fromList([document == null ? 0 : 1]),
+      if (document != null) _documentHash(document),
+    ]),
+  );
 }
 
 /// A document's hash, remembered against the document object itself.
