@@ -1,0 +1,185 @@
+{
+  "date": "2026-10-31",
+  "source": {
+    "xveil": "fbfe9b4e99e162241b2c3d5e82c7458933bd0924",
+    "veil": "c46d94db41a27e2ee01cdb56396506dad62730bf"
+  },
+  "scope": {
+    "A": "macOS current Dart/SDK; retained QA Runner and plugins",
+    "B": "Android ARM64 profile/AOT current Dart/SDK; retained native media/HV",
+    "C": "second macOS process, different identity",
+    "A_B_same_identity": true,
+    "distinct_device_ids": 3,
+    "production_network": true,
+    "anonymous_mode": false,
+    "routes_pinned": false,
+    "diagnostic_logging": true,
+    "speed_AB": false
+  },
+  "artifacts": {
+    "android": {
+      "apk_sha256": "08aa11ef95fc4693b0ba7ad171c91250e1e8ed8d9a48d06641bfadcbed51625c",
+      "native_sha256": "398724abab60fa1b9dcb540cb17ed090c9aa1e4f6a9bc62ce410b5b98006e879",
+      "aot_sha256": "1e55a74703d550a4d08e76f03b8ccf6aacd7fff673116e5ae982c78211735134",
+      "aot": true,
+      "same_signer": true,
+      "retained_six_native_libraries": true
+    },
+    "mac": {
+      "mac": {
+        "packaged_sdk_sha256": "3ecdfb936433f7f72072222d57624a4fb50702dd9494ba77ca343bebf373c34d",
+        "kernel_sha256": "82da6c0f122a9b7416c1a0a85e9048f7c14a6abae5375ae60370531186775a82",
+        "codesign_verified": true
+      },
+      "peer": {
+        "packaged_sdk_sha256": "3ecdfb936433f7f72072222d57624a4fb50702dd9494ba77ca343bebf373c34d",
+        "kernel_sha256": "6bebf632904fb80293193daf67b52db2667dd8f6cad243dd259280b333b23dec",
+        "codesign_verified": true
+      }
+    }
+  },
+  "online": {
+    "sent": 6,
+    "visibleOnAll": 6,
+    "duplicates": false,
+    "idsAndOrderEqual": true,
+    "observedMs": [
+      {
+        "mac": 794,
+        "peer": 890,
+        "phone": 3577
+      },
+      {
+        "mac": 813,
+        "peer": 1412,
+        "phone": 2211
+      },
+      {
+        "phone": 887,
+        "peer": 3535,
+        "mac": 6349
+      },
+      {
+        "mac": 956,
+        "peer": 1670,
+        "phone": 5984
+      },
+      {
+        "mac": 833,
+        "peer": 877,
+        "phone": 2853
+      },
+      {
+        "phone": 880,
+        "peer": 3475,
+        "mac": 4233
+      }
+    ]
+  },
+  "offline": {
+    "B_stopped_at_least_seconds": 300,
+    "C_stopped_at_B_return": true,
+    "A_online": true,
+    "original_messages": 3,
+    "eventual": {
+      "expected": 3,
+      "counts": {
+        "mac": 3,
+        "peer": 3,
+        "phone": 3
+      },
+      "sameIdsAndOrder": true,
+      "uniqueIds": true,
+      "complete": true
+    },
+    "C_restarted_before_eventual_convergence": true,
+    "expanded_observer_ms": 120178,
+    "original_messages_observed_by_expanded_observer": 0
+  },
+  "backlog": {
+    "sent": 100,
+    "source_acceptance_ms": 44935,
+    "eventual": {
+      "expected": 100,
+      "counts": {
+        "mac": 100,
+        "peer": 100,
+        "phone": 100
+      },
+      "sameIdsAndOrder": true,
+      "uniqueIds": true,
+      "complete": true
+    },
+    "expanded_observer_ms": 120178,
+    "observed_on_B_after_expanded_observer": 19,
+    "observation_window_rows": 250
+  },
+  "concurrent": {
+    "sent": 20,
+    "visibleOnRoles": [
+      "peer",
+      "mac",
+      "phone"
+    ],
+    "counts": {
+      "peer": 20,
+      "mac": 20,
+      "phone": 20
+    },
+    "sameIdsAndOrder": true,
+    "uniqueIds": true,
+    "bodySetExact": true,
+    "observationMs": {
+      "peer": 125631,
+      "mac": 127778,
+      "phone": 209944
+    }
+  },
+  "combined": {
+    "sent": 129,
+    "counts": {
+      "mac": 129,
+      "phone": 129,
+      "peer": 129
+    },
+    "idsAndOrderEqual": true,
+    "uniqueIds": true
+  },
+  "profile": {
+    "diagnostic_only": true,
+    "enabled_after_initial_backlog_experiment": true,
+    "main_isolate_samples": 14781,
+    "inclusiveTicks": {
+      "_validMessageFor": 2410,
+      "_verdictKey": 1467,
+      "_messagesOfBundle": 2337,
+      "_writeLogFile": 252
+    },
+    "not_percent_of_wall_time": true
+  },
+  "not_executed": [
+    "forced restart during incomplete sync (guard found all 100 already recovered)",
+    "both source devices offline at B return",
+    "calls/files/new device/revoke/split-brain/full crash matrix",
+    "hour/day offline",
+    "Windows 10/mobile-provider qualification"
+  ],
+  "cleanup": {
+    "mac_stopped": true,
+    "peer_stopped": true,
+    "phone_stopped": true,
+    "android_rollback": {
+      "installed_hash_verified": true,
+      "optional_cloud_scan_actions": 1
+    },
+    "phone_still_stopped": true,
+    "hook_forward_removed": true,
+    "vm_forward_removed": true,
+    "mac_ports_rebindable": true,
+    "runtimes_removed": true,
+    "main_android_package_untouched": true,
+    "qa_profile_data_retained": true
+  },
+  "push": false,
+  "release": false
+}
