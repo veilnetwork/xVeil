@@ -306,7 +306,7 @@ class RatchetPersistence {
   }
 
   Future<void> _reserveForKeys(List<Uint8List> keys) async {
-    var wrote = false;
+    var needsAnchorAttempt = false;
     final permits =
         <(Uint8List, List<RatchetSendPosition>, List<RatchetSendPosition>)>[];
     for (final key in keys) {
@@ -328,6 +328,10 @@ class RatchetPersistence {
         await _storage.getSetting(ratchetReservationKey(key)),
       );
       if (covers(marks)) {
+        // A fresh read can be the successful side of a lost commit reply.
+        // There is no process witness that its anchor was attempted; do that
+        // before installing a native floor, just as after a new write.
+        needsAnchorAttempt = true;
         _reserved[_hex(key)] = marks;
         permits.add((key, marks, live));
         continue;
@@ -360,7 +364,7 @@ class RatchetPersistence {
       );
       _reserved[_hex(key)] = marks;
       permits.add((key, marks, live));
-      wrote = true;
+      needsAnchorAttempt = true;
     }
     // The anchor moves with the reservation, and this is the only place it
     // can honestly move.
@@ -375,7 +379,7 @@ class RatchetPersistence {
     // AFTER the reservation, so the recorded commit is one the reservation is
     // already part of. Before would name a commit that does not yet permit
     // the ciphertext this reservation is about to allow.
-    if (wrote) {
+    if (needsAnchorAttempt) {
       final storage = _storage;
       if (storage is RollbackAnchorReader &&
           !await (storage as RollbackAnchorReader).advanceRollbackAnchor()) {
@@ -384,7 +388,7 @@ class RatchetPersistence {
         // ability to notice a restore that lands after this point.
         devLog(
           () =>
-              'xVeil[ratchet]: reservation written but the rollback anchor '
+              'xVeil[ratchet]: reservation durable but the rollback anchor '
               'did not move — a restore after this point may not be noticed',
         );
       }
