@@ -10,6 +10,15 @@ bumps may change behaviour a user notices.
 
 ### Fixed
 
+- Save anonymous diagnostic reports through the document-export writer and
+  report success only after writing and completing the document. Cover desktop
+  path-only save pickers, cancellation and write failures.
+- Bound and peer-scope delivery receipt caches, including mailbox suppression.
+  Retire retry state for terminal/deleted messages and stop retrying a message
+  in the pass that marks it failed.
+- Complete the Spanish background-setup error translation and repair the
+  default test gate for native file-lifecycle qualification.
+
 - Retry authenticated content reoffers while awaiting their receipt, using a
   bounded budget and the same frame ID. Avoid a full timeout when a restart
   drops the first request/proof or its ACK; stop on cancellation or blocking.

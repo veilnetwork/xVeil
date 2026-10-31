@@ -48,6 +48,7 @@ import '../domain/space_recommendation.dart';
 import '../domain/space_join_request.dart';
 import '../domain/space_public_feed_transport.dart';
 import 'inbound_admission.dart';
+import 'delivery_ack_cache.dart';
 import 'post_receipt_queue.dart';
 import 'mailbox_service.dart' show MailboxSink;
 import 'ratchet_persistence.dart';

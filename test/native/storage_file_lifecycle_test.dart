@@ -36,11 +36,12 @@ class _HeldNativeStore extends TimedNativeStore {
 }
 
 void main() {
+  final nativePath = Platform.environment['XVEIL_HV_DYLIB'];
   for (final erase in [false, true]) {
     test(
       'native accepted files settle before ${erase ? 'erase' : 'close/reopen'}',
       () async {
-        expect(ensureHiddenVolumeLoaded(), isTrue);
+        expect(ensureHiddenVolumeLoaded(dylibPath: nativePath), isTrue);
         final dir = await Directory.systemTemp.createTemp(
           'xveil-native-file-life-',
         );
@@ -146,6 +147,9 @@ void main() {
           await dir.delete(recursive: true);
         }
       },
+      skip: nativePath == null || nativePath.isEmpty
+          ? 'set XVEIL_HV_DYLIB to a verified libhidden_volume_ffi'
+          : false,
     );
   }
 }

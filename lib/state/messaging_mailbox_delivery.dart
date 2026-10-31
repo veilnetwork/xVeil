@@ -128,9 +128,10 @@ class _MessagingMailboxDelivery {
   /// `mailbox_deposit_gate.dart`.
   Duration ackGrace = Duration.zero;
 
-  void noteAcknowledged(String id) => _gate.noteAcknowledged(id);
+  void noteAcknowledged(String peer, String id) =>
+      _gate.noteAcknowledged(peer, id);
 
-  bool acknowledged(String id) => _gate.acknowledged(id);
+  bool acknowledged(String peer, String id) => _gate.acknowledged(peer, id);
 
   bool get paused => _paused;
 
@@ -388,7 +389,7 @@ class _MessagingMailboxDelivery {
     if (awaitAck) {
       if (!shouldDeposit(
         id: id,
-        acknowledged: acknowledged(id),
+        acknowledged: acknowledged(peer.hex, id),
         isCallSignal: false,
       )) {
         devLog(
@@ -402,7 +403,7 @@ class _MessagingMailboxDelivery {
         await Future<void>.delayed(ackGrace);
         if (!shouldDeposit(
           id: id,
-          acknowledged: acknowledged(id),
+          acknowledged: acknowledged(peer.hex, id),
           isCallSignal: false,
         )) {
           devLog(
@@ -465,8 +466,7 @@ class _MessagingMailboxDelivery {
     // frames sealing at once, all eleven out of time at [stashDeadline] with
     // nothing deposited, and every other deposit deferred behind them. Nothing
     // awaits between this check and the add below.
-    if (background &&
-        (_paused || _inFlight.length >= _maxBackgroundStashes)) {
+    if (background && (_paused || _inFlight.length >= _maxBackgroundStashes)) {
       _noteDeferred(peer, id);
       return false;
     }
