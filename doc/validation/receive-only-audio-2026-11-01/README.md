@@ -106,10 +106,12 @@ The Mac app did not exit after SIGTERM and was forcibly closed after media
 teardown; its process and all three owned ports were verified absent/free.
 Separate QA profiles are retained for subsequent tests.
 
-Next useful work without the phone: integrate similarly bounded Windows mixer
-state into opt-in anonymous diagnostics. The read-only stand probe above is an
-external observation, **not yet** a feature of exported application reports.
-Existing native startup/level/mute metrics remain available in diagnostic builds.
+Follow-up: [bounded Windows mixer diagnostics](../windows-audio-output-diagnostics-2026-11-01/README.md)
+are now integrated into opt-in application reports and verified through a real
+post-call clipboard export. Separate in-call/export snapshots retain app and
+endpoint volume/mute without device names or IDs. Immediate failed-start
+capture/playout outcomes also survive calls ending before the first stats tick.
+This improves diagnosis; the owner's phone-to-Windows cause remains unknown.
 
 Private logs, audio-device names, addresses, keys and identity material are not
 included in this document. No push or release is part of this work cycle.
