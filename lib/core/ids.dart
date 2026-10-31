@@ -19,6 +19,19 @@ String mintShortId([Random? random]) {
       .substring(0, 6);
 }
 
+/// Lowercase, zero-padded byte encoding shared by node IDs and writer keys.
+/// Keys need not have the 32-byte node-id length. Recompute on each call:
+/// callers can mutate a Uint8List after an earlier encoding.
+String hexOfBytes(Uint8List bytes) {
+  final units = Uint8List(bytes.length * 2);
+  for (var i = 0; i < bytes.length; i++) {
+    final b = bytes[i];
+    units[i * 2] = NodeId._hexDigits[b >> 4];
+    units[i * 2 + 1] = NodeId._hexDigits[b & 0x0f];
+  }
+  return String.fromCharCodes(units);
+}
+
 /// A 32-byte veil node identity (BLAKE3 of the signing public key).
 ///
 /// Wrapped in a value type so equality/hashing work as map keys and the
@@ -62,15 +75,7 @@ class NodeId {
   /// `padLeft`: ids are compared and keyed by this string all over a group
   /// read, and that per-byte form was a fifth of one (profiled on the stand).
   /// Not cached — [bytes] is a plain list its holders can write into.
-  String get hex {
-    final units = Uint8List(bytes.length * 2);
-    for (var i = 0; i < bytes.length; i++) {
-      final b = bytes[i];
-      units[i * 2] = _hexDigits[b >> 4];
-      units[i * 2 + 1] = _hexDigits[b & 0x0f];
-    }
-    return String.fromCharCodes(units);
-  }
+  String get hex => hexOfBytes(bytes);
 
   static final Uint8List _hexDigits = Uint8List.fromList(
     '0123456789abcdef'.codeUnits,
