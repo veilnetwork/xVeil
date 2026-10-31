@@ -380,22 +380,119 @@ class RatchetPersistence {
     // already part of. Before would name a commit that does not yet permit
     // the ciphertext this reservation is about to allow.
     if (needsAnchorAttempt) {
-      final storage = _storage;
-      if (storage is RollbackAnchorReader &&
-          !await (storage as RollbackAnchorReader).advanceRollbackAnchor()) {
-        // Not fatal, and not silent: the reservation IS durable, so nothing
-        // published is unaccounted for. What is weaker is the next launch's
-        // ability to notice a restore that lands after this point.
-        devLog(
-          () =>
-              'xVeil[ratchet]: reservation durable but the rollback anchor '
-              'did not move — a restore after this point may not be noticed',
-        );
-      }
+      await _attemptReservationAnchor();
     }
     // Authorize only after the committed marks and anchor attempt. In-flight
     // IPC tasks can resume as soon as the native floor is installed.
     for (final (key, marks, live) in permits) {
+      _permitCommittedPositions(key, marks, live);
+    }
+  }
+
+  Future<void> _attemptReservationAnchor() async {
+    final storage = _storage;
+    if (storage is RollbackAnchorReader &&
+        !await (storage as RollbackAnchorReader).advanceRollbackAnchor()) {
+      // A durable reservation remains valid; the external rollback witness
+      // is best effort, and a failed attempt must remain visible.
+      devLog(
+        () =>
+            'xVeil[ratchet]: reservation durable but the rollback anchor '
+            'did not move — a restore after this point may not be noticed',
+      );
+    }
+  }
+
+  Future<void> _saveRatchetSnapshots(List<RatchetStateEntry> entries) async {
+    final guard = _publicationGuard;
+    final epoch = _publicationEpoch;
+    bool currentOwner() {
+      if (guard == null ||
+          epoch == null ||
+          _publicationClosing ||
+          _publicationRetired ||
+          _publicationEpoch != epoch) {
+        return false;
+      }
+      final state = guard.hostPublicationState(epoch);
+      return state == RatchetPublicationState.idle ||
+          state == RatchetPublicationState.needsReservation;
+    }
+
+    if (_storage is! AtomicRatchetSnapshotReservations || !currentOwner()) {
+      await _storage.saveRatchetStates(entries);
+      return;
+    }
+    final paired = <RatchetStateEntry>[];
+    final plans = <(Uint8List, List<RatchetSendPosition>)>[];
+    for (final entry in entries) {
+      // Interpret opaque exported state only through native's validated ABI.
+      final positions = _native.storedSendPositions(
+        entry.conversationKey,
+        entry.blob,
+      );
+      final held = _reserved[_hex(entry.conversationKey)];
+      if (positions.isEmpty ||
+          held != null &&
+              positions.every(
+                (at) => held.any(
+                  (m) => _sameKey(m.chain, at.chain) && at.next < m.next,
+                ),
+              )) {
+        paired.add(entry);
+        continue;
+      }
+      final marks = decodeRatchetReservations(
+        await _storage.getSetting(ratchetReservationKey(entry.conversationKey)),
+      );
+      final live = _native.sendPositions(entry.conversationKey);
+      // Old marks disappear only in the same commit that replaces their
+      // stored snapshot, and only if the live native store has retired them.
+      marks.removeWhere(
+        (m) =>
+            ![...positions, ...live].any((at) => _sameKey(m.chain, at.chain)),
+      );
+      for (final at in positions) {
+        final i = marks.indexWhere((m) => _sameKey(m.chain, at.chain));
+        if (i >= 0 && at.next < marks[i].next) continue;
+        final mark = RatchetSendPosition(at.chain, at.next + reserveAhead);
+        if (i < 0) {
+          marks.add(mark);
+        } else {
+          marks[i] = mark;
+        }
+      }
+      paired.add(
+        RatchetStateEntry(
+          entry.conversationKey,
+          entry.blob,
+          sendReservation: encodeRatchetReservations(marks),
+        ),
+      );
+      plans.add((entry.conversationKey, marks));
+    }
+    if (!currentOwner()) {
+      await _storage.saveRatchetStates(entries);
+      return;
+    }
+    try {
+      await _storage.saveRatchetStates(paired);
+    } on RatchetSnapshotReservationTooLarge {
+      // Only this known budget refusal permits a fallback. An I/O error may
+      // have committed a prefix and must keep every new permit/dirty ACK held.
+      await _storage.saveRatchetStates(entries);
+      if (currentOwner()) {
+        await _reserveForKeys([for (final plan in plans) plan.$1]);
+      }
+      return;
+    }
+    if (plans.isEmpty || !currentOwner()) return;
+    await _attemptReservationAnchor();
+    if (!currentOwner()) return;
+    for (final (key, marks) in plans) {
+      final live = _native.sendPositions(key);
+      if (live.isEmpty) continue;
+      _reserved[_hex(key)] = marks;
       _permitCommittedPositions(key, marks, live);
     }
   }
@@ -534,7 +631,7 @@ class RatchetPersistence {
       final exportMs = step.elapsedMilliseconds - exportAt;
       if (entries.isNotEmpty) {
         final saveAt = Stopwatch()..start();
-        await _storage.saveRatchetStates(entries);
+        await _saveRatchetSnapshots(entries);
         // Every send flushes before it reports success, so this write sits on
         // the critical path of a file serve — 50 chunks, 50 flushes. Measured
         // at ~8 ms each, which is what ruled the container OUT as the reason a

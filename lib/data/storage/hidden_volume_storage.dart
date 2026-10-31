@@ -87,7 +87,11 @@ Future<AsyncKvLogStore?> _noOpener({
 /// ANR). The public API is unchanged: it was already `Future`-returning and
 /// callers already `await`.
 class HiddenVolumeStorage
-    implements Storage, RollbackAnchorReader, PreMaintenanceAnchorSource {
+    implements
+        Storage,
+        RollbackAnchorReader,
+        PreMaintenanceAnchorSource,
+        AtomicRatchetSnapshotReservations {
   /// Default (SYNC opener) — the in-memory fake, tests, and any path not yet
   /// given its own worker. The sync opener is lifted to async (run INLINE on
   /// the calling isolate) internally, so behaviour is unchanged; only the
@@ -1827,39 +1831,18 @@ class HiddenVolumeStorage
       });
 
   @override
-  Future<void> saveRatchetStates(
-    List<RatchetStateEntry> entries,
-  ) => _withRatchetIo(() async {
-    if (entries.isEmpty) return;
-    await _recoverRatchetCleanup();
-    var pending = <KvLogOp>[];
-    var pendingChunks = <String, int>{};
-    var pendingSaves = 0;
-    Future<void> flush() async {
-      if (pending.isEmpty) return;
-      final ops = pending;
-      pending = <KvLogOp>[];
-      final committedChunks = pendingChunks;
-      pendingChunks = <String, int>{};
-      final count = min(
-        _ratchetSavesSinceScrub! + pendingSaves,
-        _kRatchetSavesPerScrub,
-      );
-      await _as.commit([...ops, _ratchetBudgetOp(count)]);
-      for (final entry in committedChunks.entries) {
-        _rememberRatchetChunks(entry.key, entry.value);
-      }
-      _ratchetSavesSinceScrub = count;
-      pendingSaves = 0;
-      await _recoverRatchetCleanup();
-    }
-
+  Future<void> saveRatchetStates(List<RatchetStateEntry> entries) async {
+    final paired = entries.any((entry) => entry.sendReservation != null);
+    final snapshots = <RatchetStateEntry>[];
+    // Paired state and marks describe one immutable publication. Freeze them
+    // before the worker/gate can yield; ordinary legacy saves retain their
+    // existing buffer ownership contract.
     for (final entry in entries) {
       if (entry.conversationKey.length != kRatchetKeyLen) {
         throw ArgumentError.value(
           entry.conversationKey.length,
           'conversationKey',
-          'a conversation key is exactly $kRatchetKeyLen bytes',
+          'a conversation key is exactly 64 bytes',
         );
       }
       if (entry.blob.isEmpty || entry.blob.length > kRatchetMaxStateLen) {
@@ -1869,58 +1852,122 @@ class HiddenVolumeStorage
           'implausible ratchet state length',
         );
       }
-      final stream = Uint8List(4 + entry.blob.length);
-      stream[0] = (entry.blob.length >> 24) & 0xff;
-      stream[1] = (entry.blob.length >> 16) & 0xff;
-      stream[2] = (entry.blob.length >> 8) & 0xff;
-      stream[3] = entry.blob.length & 0xff;
-      stream.setRange(4, stream.length, entry.blob);
-
-      final chunks = _ratchetChunkCount(entry.blob.length);
-      final ops = <KvLogOp>[];
-      for (var i = 0; i < chunks; i++) {
-        final start = i * _kRatchetChunkBytes;
-        final end = start + _kRatchetChunkBytes < stream.length
-            ? start + _kRatchetChunkBytes
-            : stream.length;
-        ops.add(
-          PutOp(
-            Ns.ratchet,
-            _ratchetRecordKey(entry.conversationKey, i),
-            Uint8List.sublistView(stream, start, end),
-          ),
-        );
+      final reservation = entry.sendReservation;
+      if (reservation != null) {
+        if (utf8.encode(reservation).length > 2048) {
+          throw const RatchetSnapshotReservationTooLarge();
+        }
+        if (_ratchetChunkCount(entry.blob.length) + 2 > _kRatchetOpsPerCommit) {
+          throw const RatchetSnapshotReservationTooLarge();
+        }
       }
-      // A shrinking session (skipped keys got claimed) leaves records past the
-      // new tail. Left behind, the NEXT read would stop at the length prefix
-      // and never notice them — but a later, longer save would then reuse them
-      // as if they were its own, splicing bytes from two points in the chain.
-      final cacheKey = base64Encode(entry.conversationKey);
-      final priorChunks =
-          pendingChunks[cacheKey] ??
-          await _ratchetStoredChunkCount(entry.conversationKey, useCache: true);
-      for (var i = chunks; i < priorChunks; i++) {
-        ops.add(
-          DeleteOp(Ns.ratchet, _ratchetRecordKey(entry.conversationKey, i)),
-        );
-      }
-      // Conversations are whole or absent: never let one straddle two commits,
-      // however large it is, or a crash between them restores a session whose
-      // halves came from different points in the chain.
-      if (pending.isNotEmpty &&
-          pending.length + ops.length + 1 > _kRatchetOpsPerCommit) {
-        await flush();
-      }
-      pending.addAll(ops);
-      pendingChunks[cacheKey] = chunks;
-      pendingSaves++;
-      if (pending.length + 1 >= _kRatchetOpsPerCommit ||
-          _ratchetSavesSinceScrub! + pendingSaves >= _kRatchetSavesPerScrub) {
-        await flush();
-      }
+      snapshots.add(
+        paired
+            ? RatchetStateEntry(
+                Uint8List.fromList(entry.conversationKey),
+                Uint8List.fromList(entry.blob),
+                sendReservation: reservation,
+              )
+            : entry,
+      );
     }
-    await flush();
-  });
+    await _withRatchetIo(() async {
+      if (snapshots.isEmpty) return;
+      await _recoverRatchetCleanup();
+      var pending = <KvLogOp>[];
+      var pendingChunks = <String, int>{};
+      var pendingSaves = 0;
+      Future<void> flush() async {
+        if (pending.isEmpty) return;
+        final ops = pending;
+        pending = <KvLogOp>[];
+        final committedChunks = pendingChunks;
+        pendingChunks = <String, int>{};
+        final count = min(
+          _ratchetSavesSinceScrub! + pendingSaves,
+          _kRatchetSavesPerScrub,
+        );
+        await _as.commit([...ops, _ratchetBudgetOp(count)]);
+        for (final entry in committedChunks.entries) {
+          _rememberRatchetChunks(entry.key, entry.value);
+        }
+        _ratchetSavesSinceScrub = count;
+        pendingSaves = 0;
+        await _recoverRatchetCleanup();
+      }
+
+      for (final entry in snapshots) {
+        final stream = Uint8List(4 + entry.blob.length);
+        stream[0] = (entry.blob.length >> 24) & 0xff;
+        stream[1] = (entry.blob.length >> 16) & 0xff;
+        stream[2] = (entry.blob.length >> 8) & 0xff;
+        stream[3] = entry.blob.length & 0xff;
+        stream.setRange(4, stream.length, entry.blob);
+
+        final chunks = _ratchetChunkCount(entry.blob.length);
+        final ops = <KvLogOp>[];
+        for (var i = 0; i < chunks; i++) {
+          final start = i * _kRatchetChunkBytes;
+          final end = start + _kRatchetChunkBytes < stream.length
+              ? start + _kRatchetChunkBytes
+              : stream.length;
+          ops.add(
+            PutOp(
+              Ns.ratchet,
+              _ratchetRecordKey(entry.conversationKey, i),
+              Uint8List.sublistView(stream, start, end),
+            ),
+          );
+        }
+        // A shrinking session (skipped keys got claimed) leaves records past the
+        // new tail. Left behind, the NEXT read would stop at the length prefix
+        // and never notice them — but a later, longer save would then reuse them
+        // as if they were its own, splicing bytes from two points in the chain.
+        final cacheKey = base64Encode(entry.conversationKey);
+        final priorChunks =
+            pendingChunks[cacheKey] ??
+            await _ratchetStoredChunkCount(
+              entry.conversationKey,
+              useCache: true,
+            );
+        for (var i = chunks; i < priorChunks; i++) {
+          ops.add(
+            DeleteOp(Ns.ratchet, _ratchetRecordKey(entry.conversationKey, i)),
+          );
+        }
+        final reservation = entry.sendReservation;
+        if (reservation != null) {
+          ops.add(
+            PutOp(
+              Ns.settings,
+              _sk('set:${ratchetReservationSettingKey(entry.conversationKey)}'),
+              _sk(reservation),
+            ),
+          );
+          // Old tails count too. Signal a bounded optimization fallback rather
+          // than silently omitting the reservation or splitting the entry.
+          if (ops.length + 1 > _kRatchetOpsPerCommit) {
+            throw const RatchetSnapshotReservationTooLarge();
+          }
+        }
+        // Conversations are whole or absent: never let one straddle two commits,
+        // however large it is, or a crash between them restores a session whose
+        // halves came from different points in the chain.
+        if (pending.isNotEmpty &&
+            pending.length + ops.length + 1 > _kRatchetOpsPerCommit) {
+          await flush();
+        }
+        pending.addAll(ops);
+        pendingChunks[cacheKey] = chunks;
+        pendingSaves++;
+        if (pending.length + 1 >= _kRatchetOpsPerCommit ||
+            _ratchetSavesSinceScrub! + pendingSaves >= _kRatchetSavesPerScrub) {
+          await flush();
+        }
+      }
+      await flush();
+    });
+  }
 
   @override
   Future<int> forgetRatchetStates(

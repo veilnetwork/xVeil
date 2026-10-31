@@ -770,13 +770,23 @@ const int kRatchetMaxStateLen = 1024 * 1024;
 /// and consumed by `veil_ratchet_import`, and nothing between the two may look
 /// inside it.
 final class RatchetStateEntry {
-  const RatchetStateEntry(this.conversationKey, this.blob);
+  const RatchetStateEntry(
+    this.conversationKey,
+    this.blob, {
+    this.sendReservation,
+  });
 
   /// 64 bytes; see [kRatchetKeyLen].
   final Uint8List conversationKey;
 
   /// The exported session. EVERY BYTE IS KEY MATERIAL.
   final Uint8List blob;
+
+  /// Optional encoded sending floor, committed WITH this snapshot by
+  /// [AtomicRatchetSnapshotReservations]. This is metadata, not a permit:
+  /// the host still attempts its rollback anchor before native publication.
+  /// Writers without that capability must not be handed paired entries.
+  final String? sendReservation;
 
   /// The peer's node id — the 32 bytes in the middle of the key.
   ///
@@ -788,6 +798,21 @@ final class RatchetStateEntry {
     kRatchetKeyPeerNodeOffset + 32,
   );
 }
+
+/// Capability of [Storage.saveRatchetStates]: each paired entry is atomic,
+/// including its reservation setting. Earlier complete entries may survive a
+/// later failure; return does not itself grant any native publication floor.
+abstract interface class AtomicRatchetSnapshotReservations {}
+
+/// A paired entry exceeds the bounded transaction budget. The caller may
+/// retry unpaired snapshots through the original separate-reservation path.
+final class RatchetSnapshotReservationTooLarge implements Exception {
+  const RatchetSnapshotReservationTooLarge();
+}
+
+/// Canonical settings key shared by snapshot writers and recovery readers.
+String ratchetReservationSettingKey(Uint8List conversationKey) =>
+    'ratchet_reserve:${[for (final b in conversationKey) b.toRadixString(16).padLeft(2, '0')].join()}';
 
 /// Storage-owned half of a global MediaObject reachability scan.
 final class SharedContentReferenceSnapshot {
