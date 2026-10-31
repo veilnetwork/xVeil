@@ -18,7 +18,14 @@ class _RecordingStore extends FakeKvLogStore {
   final commits = <List<KvLogOp>>[];
   final reads = <String>[];
   String? failRead;
+  int recordReads = 0;
   bool rejectPublication = false;
+
+  @override
+  Uint8List? readLog(int namespace, int logId) {
+    if (namespace == Ns.fileChunks) recordReads++;
+    return super.readLog(namespace, logId);
+  }
   bool losePublicationReply = false;
 
   @override
@@ -55,6 +62,67 @@ Map _gc(_RecordingStore raw) =>
         as Map;
 
 void main() {
+  test(
+    'streamed whole reads and identical stores reuse one manifest',
+    () async {
+      final raw = _RecordingStore();
+      final files = AsyncFileStore(SyncWrappedAsyncKvLogStore(raw));
+      final bytes = _bytes(6000);
+      for (var index = 0; index < 2; index++) {
+        await files.storeFilePiece(
+          'stream',
+          index,
+          2,
+          3000,
+          6000,
+          Uint8List.sublistView(bytes, index * 3000, (index + 1) * 3000),
+        );
+      }
+      raw.reads.clear();
+      expect(await files.loadFile('stream'), bytes);
+      expect(raw.reads.where((key) => key == 'file:stream'), hasLength(1));
+      raw.reads.clear();
+      raw.commits.clear();
+      await files.storeFile('stream', bytes);
+      expect(raw.reads.where((key) => key == 'file:stream'), hasLength(1));
+      expect(raw.commits, isEmpty);
+      raw.reads.clear();
+      raw.recordReads = 0;
+      expect(await files.loadFile('stream', maxBytes: 5999), isNull);
+      expect(
+        raw.recordReads,
+        0,
+        reason: 'size ceiling still precedes data reads',
+      );
+      expect(raw.reads.where((key) => key == 'file:stream'), hasLength(1));
+    },
+  );
+
+  test(
+    'a resized streamed replacement never reads the prior payload',
+    () async {
+      final raw = _RecordingStore();
+      final files = AsyncFileStore(SyncWrappedAsyncKvLogStore(raw));
+      for (var index = 0; index < 2; index++) {
+        await files.storeFilePiece(
+          'stream',
+          index,
+          2,
+          3000,
+          6000,
+          _bytes(3000),
+        );
+      }
+      raw.reads.clear();
+      raw.recordReads = 0;
+      final replacement = _bytes(7000);
+      await files.storeFile('stream', replacement);
+      expect(raw.recordReads, 0);
+      expect(raw.reads.where((key) => key == 'file:stream'), hasLength(1));
+      expect(await files.loadFile('stream'), replacement);
+    },
+  );
+
   for (final asynchronous in [false, true]) {
     group(asynchronous ? 'async' : 'sync', () {
       late _RecordingStore raw;
@@ -75,6 +143,54 @@ void main() {
 
       Future<Uint8List?> read(String id) async =>
           asynchronous ? await async.loadFile(id) : sync.loadFile(id);
+
+      test(
+        're-store reads its manifest once and still verifies stored bytes',
+        () async {
+          final original = _bytes(6000);
+          await write('journal', original);
+          final changed = Uint8List.fromList(original);
+          changed[0] ^= 1;
+          var priorLength = original.length;
+          for (final replacement in [original, changed, _bytes(7000)]) {
+            raw.reads.clear();
+            raw.recordReads = 0;
+            await write('journal', replacement);
+            expect(
+              raw.reads.where((key) => key == 'file:journal'),
+              hasLength(1),
+            );
+            expect(
+              raw.recordReads,
+              replacement.length == priorLength ? greaterThan(0) : 0,
+              reason:
+                  'equal sizes need actual bytes; different sizes cannot be equal',
+            );
+            priorLength = replacement.length;
+            expect(await read('journal'), replacement);
+          }
+        },
+      );
+
+      test(
+        'a repeated write repairs missing old bytes before reporting success',
+        () async {
+          final original = _bytes(6000);
+          await write('journal', original);
+          raw.commit([DeleteLogOp(Ns.fileChunks, 2)]);
+          expect(await read('journal'), isNull);
+          raw.reads.clear();
+          raw.commits.clear();
+          await write('journal', original);
+          expect(raw.reads.where((key) => key == 'file:journal'), hasLength(1));
+          expect(
+            raw.commits,
+            isNotEmpty,
+            reason: 'a missing chunk cannot be treated as a no-op',
+          );
+          expect(await read('journal'), original);
+        },
+      );
 
       test('small creates and empty replacements publish atomically', () async {
         var previousLength = 0;

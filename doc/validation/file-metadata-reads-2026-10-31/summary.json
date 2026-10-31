@@ -1,0 +1,182 @@
+{
+  "schema": "xveil-validation/file-metadata-reads/1",
+  "date": "2026-10-31",
+  "base_commit": "7c4396606a8a095ef9cdb2de6ba8491be705b0ea",
+  "sdk_commit": "c46d94db41a27e2ee01cdb56396506dad62730bf",
+  "source_sha256": {
+    "lib/data/storage/file_store.dart": "c564f1e7dab221dcbed3239e4e4082dc3d0a0870f4565cd23de57990c35796a3",
+    "test/file_store_atomic_publication_test.dart": "3360e5a37a4eee1d4d93e5a57344336571f571b2aae51bb02395819bbc07df93",
+    "test/native/file_store_metadata_read_test.dart": "e3e96b3711925c5e977149d3e3d68100f3e957d858949788585d1223daab8845"
+  },
+  "fix": {
+    "manifest_reused_only_within_operation": true,
+    "cross_operation_cache": false,
+    "same_size_noop_requires_full_durable_byte_comparison": true,
+    "different_size_forces_real_replacement_without_old_payload_read": true,
+    "streamed_manifest_reused_for_read_and_purge": true,
+    "size_guard_before_data_read": true,
+    "publication_commit_order_unchanged": true,
+    "wire_crypto_or_ratchet_changes": false
+  },
+  "tests": {
+    "baseline_selected_failed": 6,
+    "file_scoped_passed": 37,
+    "final_scoped_passed": 617,
+    "final_scoped_skipped": 3,
+    "native_passed": 6,
+    "native_skipped": 0,
+    "analyzer_clean": true,
+    "initial_native_command_failed_before_tests": "objective_c native asset code-sign preparation",
+    "initial_native_tests_credited": 0,
+    "successful_native_command_run_after_other_Flutter_commands_finished": true
+  },
+  "native_ABA": {
+    "worker_backed": true,
+    "fresh_container_each_phase": true,
+    "new_facade_each_operation": true,
+    "source_restored_after_control": true,
+    "hidden_volume_library_sha256": "3b2eacc819b307125cafe01665ebbaec5ee6ed9d3b3d5d96bc5d5b26a50f79e7",
+    "phases": {
+      "baseline_a1": {
+        "samples": [
+          {
+            "bytes": 2,
+            "repeats": 100,
+            "manifest_rpcs": 200,
+            "body_batch_rpcs": 100,
+            "commits": 0,
+            "us": 30161
+          },
+          {
+            "bytes": 6000,
+            "repeats": 100,
+            "manifest_rpcs": 200,
+            "body_batch_rpcs": 100,
+            "commits": 0,
+            "us": 39091
+          },
+          {
+            "bytes": 64000,
+            "repeats": 100,
+            "manifest_rpcs": 200,
+            "body_batch_rpcs": 100,
+            "commits": 0,
+            "us": 257666
+          }
+        ],
+        "worker_backed": true,
+        "resize": {
+          "manifest_rpcs": 2,
+          "body_batch_rpcs": 1,
+          "commits": 2
+        }
+      },
+      "candidate_b": {
+        "samples": [
+          {
+            "bytes": 2,
+            "repeats": 100,
+            "manifest_rpcs": 100,
+            "body_batch_rpcs": 100,
+            "commits": 0,
+            "us": 21267
+          },
+          {
+            "bytes": 6000,
+            "repeats": 100,
+            "manifest_rpcs": 100,
+            "body_batch_rpcs": 100,
+            "commits": 0,
+            "us": 31496
+          },
+          {
+            "bytes": 64000,
+            "repeats": 100,
+            "manifest_rpcs": 100,
+            "body_batch_rpcs": 100,
+            "commits": 0,
+            "us": 249505
+          }
+        ],
+        "worker_backed": true,
+        "resize": {
+          "manifest_rpcs": 1,
+          "body_batch_rpcs": 0,
+          "commits": 2
+        }
+      },
+      "baseline_a2": {
+        "samples": [
+          {
+            "bytes": 2,
+            "repeats": 100,
+            "manifest_rpcs": 200,
+            "body_batch_rpcs": 100,
+            "commits": 0,
+            "us": 31158
+          },
+          {
+            "bytes": 6000,
+            "repeats": 100,
+            "manifest_rpcs": 200,
+            "body_batch_rpcs": 100,
+            "commits": 0,
+            "us": 38659
+          },
+          {
+            "bytes": 64000,
+            "repeats": 100,
+            "manifest_rpcs": 200,
+            "body_batch_rpcs": 100,
+            "commits": 0,
+            "us": 259239
+          }
+        ],
+        "worker_backed": true,
+        "resize": {
+          "manifest_rpcs": 2,
+          "body_batch_rpcs": 1,
+          "commits": 2
+        }
+      }
+    },
+    "counts_are_manifest_and_body_RPCS_only": true,
+    "overall_delivery_speedup_established": false
+  },
+  "native_overlay": {
+    "nodes": 12,
+    "local_tcp_only": true,
+    "public_discovery": false,
+    "dht_participation": true,
+    "membership_epoch_encryption": false,
+    "native_signatures": true,
+    "encrypted_stores": true,
+    "ratchet_persistence": true,
+    "peer_authorization_persistence": true,
+    "separate_processes": false,
+    "converged": true,
+    "released_listeners": 12,
+    "cleanup_errors": [],
+    "nodes_stopped": true,
+    "completed_samples": 4,
+    "timing_dropped": 0,
+    "all_four_messages_exactly_once": true
+  },
+  "cleanup": {
+    "native_host_process_exited": true,
+    "native_listeners_released": 12,
+    "fixture_worker_teardown_passed": true,
+    "phone_untouched": true,
+    "relays_untouched": true,
+    "rust_not_rebuilt": true,
+    "production_QA_probes_added": false
+  },
+  "remaining": [
+    "repeat processing of old deltas",
+    "group journal read and mutation gate costs",
+    "end-to-end catchup and startup latency",
+    "remaining multi-device matrix"
+  ],
+  "push": false,
+  "release": false
+}
