@@ -1,14 +1,13 @@
 import 'dart:io';
 import 'dart:convert';
 
-import 'package:file_picker/file_picker.dart';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/error_journal.dart';
 import '../../core/diagnostic_journal.dart';
 import '../../core/diagnostic_background.dart';
+import '../../core/document_export.dart';
 import '../../l10n/app_localizations.dart';
 
 /// Version of the running build.
@@ -98,19 +97,26 @@ Future<void> saveErrorReport(
   await sampleDiagnosticBackgroundState();
   if (!context.mounted) return;
   final bytes = Uint8List.fromList(utf8.encode(buildErrorReport(phase: phase)));
+  ExportDocument? document;
   try {
-    final path = await FilePicker.saveFile(
-      dialogTitle: l.settingsSaveDiagnostics,
-      fileName: 'xveil-diagnostics.json',
-      type: FileType.custom,
-      allowedExtensions: ['json'],
-      bytes: bytes,
-    );
-    if (path == null || !context.mounted) return;
+    document = await openExportDocument('xveil-diagnostics.json');
+    if (document == null) return;
+    if (!context.mounted) {
+      await document.abort();
+      return;
+    }
+    await document.write(bytes);
+    await document.finish();
+    if (!context.mounted) return;
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(l.settingsDiagnosticsSaved)));
   } catch (error, stack) {
+    try {
+      await document?.abort();
+    } catch (_) {
+      // The original export failure remains observable; cleanup is best effort.
+    }
     errorJournal.record(
       kind: 'diagnostic-export',
       error: error,

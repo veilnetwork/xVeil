@@ -33,7 +33,7 @@ class _MessagingMessageDelivery {
 
   /// Session early-cancel and ACK dedup. Durable delivered status remains the
   /// source of truth across restart.
-  final Set<String> _delivered = {};
+  final _delivered = DeliveryAckCache();
 
   /// Per-peer reconnect probe throttle. Give-up itself is per message below.
   final Map<String, DateTime> _lastReconnectAt = {};
@@ -47,11 +47,13 @@ class _MessagingMessageDelivery {
   Duration get retryInterval => _retryInterval;
 
   /// Stop retrying immediately, reset the peer's recovery throttle and return
-  /// whether this is the first ACK for the message in this process.
+  /// whether this ACK is absent from the bounded session receipt window.
   bool noteAck(String peerHex, String messageId) {
-    _retryBackoff.remove(messageId);
+    if (_retryBackoff[messageId]?.peer == peerHex) {
+      _retryBackoff.remove(messageId);
+    }
     _lastReconnectAt.remove(peerHex);
-    final first = _delivered.add(messageId);
+    final first = _delivered.remember(peerHex, messageId);
     if (first) diagnosticJournal.record(DiagnosticEvent.messageAcknowledged);
     return first;
   }
@@ -125,6 +127,15 @@ class _MessagingMessageDelivery {
   Future<void> _runConversationPass() async {
     if (_owner._disposed || _owner.backgroundStashPaused) return;
     final conversations = await _owner._storage.loadConversations();
+    final accepted = {
+      for (final conversation in conversations)
+        if (conversation.peer.status == ContactStatus.accepted)
+          conversation.peer.nodeId.hex,
+    };
+    _retryBackoff.removeWhere((_, value) => !accepted.contains(value.peer));
+    _lastNudgeAt.removeWhere((peer, _) => !accepted.contains(peer));
+    _lastHeardAt.removeWhere((peer, _) => !accepted.contains(peer));
+    _lastReconnectAt.removeWhere((peer, _) => !accepted.contains(peer));
     var next = 0;
     Object? firstError;
     StackTrace? firstStack;
@@ -160,7 +171,21 @@ class _MessagingMessageDelivery {
     final messages = await _owner._storage.loadMessages(conversation.id);
     if (_owner._disposed || _owner.backgroundStashPaused) return;
     // Runs before unresolved-peer backoff so dead identities still terminate.
-    await _maybeReconnect(peer, messages);
+    final failed = await _maybeReconnect(peer, messages);
+    final retryable = {
+      for (final message in messages)
+        if (message.direction == MessageDirection.outgoing &&
+            !message.reflectedEdit &&
+            message.status == MessageStatus.sent &&
+            !failed.contains(message.id) &&
+            !_delivered.contains(peer.hex, message.id))
+          message.id,
+    };
+    // A deleted or terminal message no longer owns retry state. Keep the
+    // cleanup scoped to this conversation: other peer lanes run concurrently.
+    _retryBackoff.removeWhere(
+      (id, value) => value.peer == peer.hex && !retryable.contains(id),
+    );
     if (_owner._disposed ||
         _owner.backgroundStashPaused ||
         _activeMessageSends.containsKey(peer.hex)) {
@@ -171,7 +196,8 @@ class _MessagingMessageDelivery {
       if (message.direction != MessageDirection.outgoing ||
           message.reflectedEdit ||
           message.status != MessageStatus.sent ||
-          _delivered.contains(message.id)) {
+          failed.contains(message.id) ||
+          _delivered.contains(peer.hex, message.id)) {
         continue;
       }
 
@@ -268,15 +294,19 @@ class _MessagingMessageDelivery {
 
   /// Re-introduce a peer that may have forgotten us, and give each old message
   /// its own terminal deadline so new traffic cannot keep stale work alive.
-  Future<void> _maybeReconnect(NodeId peer, List<Message> messages) async {
+  Future<Set<String>> _maybeReconnect(
+    NodeId peer,
+    List<Message> messages,
+  ) async {
     final now = _owner._now();
     var failedAny = false;
+    final failed = <String>{};
     var anyTrying = false;
     for (final message in messages) {
       if (message.direction != MessageDirection.outgoing ||
           message.reflectedEdit ||
           message.status != MessageStatus.sent ||
-          _delivered.contains(message.id) ||
+          _delivered.contains(peer.hex, message.id) ||
           now.difference(message.timestamp) <= _reconnectThreshold) {
         continue;
       }
@@ -286,6 +316,7 @@ class _MessagingMessageDelivery {
           message.id,
           MessageStatus.failed,
         );
+        failed.add(message.id);
         failedAny = true;
       } else {
         anyTrying = true;
@@ -299,10 +330,12 @@ class _MessagingMessageDelivery {
           _owner._outbox.hasLiveEntry(peer.hex, reconnectFrameId)) {
         _owner._retireOutboxFrame(peer.hex, reconnectFrameId);
       }
-      return;
+      return failed;
     }
     final last = _lastReconnectAt[peer.hex];
-    if (last != null && now.difference(last) < _reconnectInterval) return;
+    if (last != null && now.difference(last) < _reconnectInterval) {
+      return failed;
+    }
     _lastReconnectAt[peer.hex] = now;
     _owner._mailboxDelivery.removeStashed(reconnectFrameId);
     await _owner.sendDurable(
@@ -311,5 +344,6 @@ class _MessagingMessageDelivery {
       const WireEnvelope.reconnect(''),
     );
     devLog(() => 'xVeil[reconnect]: -> ${peer.short}');
+    return failed;
   }
 }

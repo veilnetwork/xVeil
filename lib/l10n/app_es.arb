@@ -2143,6 +2143,7 @@
   "callBatteryAllowTitle": "¿Mantener las llamadas en segundo plano?",
   "callBatteryAllowBody": "Algunos teléfonos cortan la llamada cuando sales de xVeil. Permítele ignorar la optimización de batería para que las llamadas sigan en segundo plano.",
   "networkBackgroundLater": "Más tarde",
+  "networkBackgroundSetupFailed": "No se pudo completar la configuración del funcionamiento en segundo plano. Revísala en los ajustes de red.",
   "peersTitle": "Pares conectados",
   "peersSectionActive": "Activos",
   "peersSectionInactive": "Inactivos",

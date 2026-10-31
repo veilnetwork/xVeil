@@ -757,7 +757,7 @@ extension _MessagingInboundDispatch on MessagingService {
             // write, not on receipt. That is what lets the mailbox deposit be
             // skipped: a relay copy of something already on the recipient's
             // disk is pure cost.
-            _mailboxDelivery.noteAcknowledged(ackId);
+            _mailboxDelivery.noteAcknowledged(m.src.hex, ackId);
           }
         }
       case WireKind.edit:
