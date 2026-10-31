@@ -1,0 +1,79 @@
+{
+  "schema": "xveil-validation/file-read-session/1",
+  "date": "2026-10-31",
+  "base_commit": "b2988ea70474c7130138914cbf84e7963f51bf53",
+  "sdk_commit": "c46d94db41a27e2ee01cdb56396506dad62730bf",
+  "source_sha256": {
+    "lib/data/storage/hidden_volume_storage.dart": "a96734b2c74d54f1a9427e0d7099e23c9f2e8840571802faae3ef8b265223bee",
+    "test/storage_file_read_session_test.dart": "c6fa21c05e68a981858ee1d378e252298dd3e344c6b921e8848fd0c49c47e760",
+    "test/native/storage_file_read_session_test.dart": "9448a367be115d435085989514ccdf9244f36210685846c9953110db4afad8ae"
+  },
+  "baseline_storage_sha256": "95cbf156362c436da4354ae653caf030d94eda39afffb99c09859280b340e178",
+  "confirmed": "old read can continue against a replacement backing storage after awaiting on-disk metadata",
+  "fix": {
+    "same_backing_store_captured": true,
+    "same_blob_tier_captured": true,
+    "maintenance_epoch_checked": true,
+    "recheck_before_result": true,
+    "no_write_queue_for_reads": true,
+    "no_extra_worker_RPCS": true,
+    "no_extra_commits": true,
+    "wire_change": false,
+    "SDK_change": false
+  },
+  "tests": {
+    "baseline_unit_failed": 5,
+    "final_unit_session_passed": 8,
+    "final_scoped_passed": 663,
+    "final_scoped_skipped": 3,
+    "analyzer_clean": true,
+    "native_worker_baseline_failed": 2,
+    "native_worker_candidate_passed": 2,
+    "native_final_passed": 5,
+    "source_restored_after_native_control": true,
+    "first_scoped_invocation_bad_test_path_not_credited_as_success": true
+  },
+  "native_library_sha256": "3b2eacc819b307125cafe01665ebbaec5ee6ed9d3b3d5d96bc5d5b26a50f79e7",
+  "native_overlay": {
+    "nodes": 12,
+    "local_tcp_only": true,
+    "public_discovery": false,
+    "dht_participation": true,
+    "membership_epoch_encryption": false,
+    "native_signatures": true,
+    "encrypted_stores": true,
+    "ratchet_persistence": true,
+    "peer_authorization_persistence": true,
+    "separate_processes": false,
+    "converged": true,
+    "released_listeners": 12,
+    "cleanup_errors": [],
+    "nodes_stopped": true,
+    "completed_samples": 4,
+    "timing_dropped": 0
+  },
+  "cleanup": {
+    "native_host_process_exited": true,
+    "native_containers_closed_and_temporary_directories_removed_by_finally": true,
+    "Android_unchanged": true,
+    "relays_unchanged": true,
+    "no_GUI_apps_started": true
+  },
+  "limits": {
+    "GUI_identity_switch_qualified": false,
+    "network_exfiltration_demonstrated": false,
+    "historical_user_complaint_root_cause_proved": false,
+    "delivery_latency_fixed": false,
+    "multi_device_matrix_complete": false
+  },
+  "push": false,
+  "release": false,
+  "prior_capture_analysis": {
+    "capture": "previous 100-message A/B/C recovery before C return",
+    "groupEntry_callback_records": 156,
+    "groupEntry_callback_unique_frame_ids": 112,
+    "groupEntry_dispatch_records": 100,
+    "groupEntry_dispatch_unique_frame_ids": 100,
+    "frame_id_dedup_alone_cannot_remove_observed_ingest_work": true
+  }
+}
