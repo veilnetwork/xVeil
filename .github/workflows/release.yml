@@ -884,6 +884,10 @@ jobs:
         with:
           arch: ${{ matrix.msvc_arch }}
 
+      - name: Audio diagnostic helper native tests
+        shell: pwsh
+        run: ./scripts/test-windows-audio-probe.ps1
+
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         if: ${{ !matrix.flutter_from_git }}
         with:
@@ -1136,6 +1140,7 @@ jobs:
         run: |
           set -euo pipefail
           root=build/windows/${{ matrix.arch }}/runner/Release
+          [ -s "$root/xveil_audio_probe.exe" ] || { echo "::error::audio diagnostic helper is missing"; exit 1; }
           psk="$root/data/flutter_assets/assets/prod/obfs4_psk.b64"
           [ -s "$psk" ] || { echo "::error::no bundled PSK at $psk — the bundle cannot reach the production network"; exit 1; }
           engine="$(find "$root" -name veil_media.dll | head -1)"

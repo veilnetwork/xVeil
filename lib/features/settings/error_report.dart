@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../../core/error_journal.dart';
 import '../../core/diagnostic_journal.dart';
 import '../../core/diagnostic_background.dart';
+import '../../core/diagnostic_audio_output.dart';
 import '../../core/document_export.dart';
 import '../../l10n/app_localizations.dart';
 
@@ -47,6 +48,7 @@ Future<void> copyErrorReport(
 }) async {
   final l = AppL10n.of(context);
   await sampleDiagnosticBackgroundState();
+  await diagnosticAudioOutput.sample();
   if (!context.mounted) return;
   final count = errorJournal.entries.length;
   final report = buildErrorReport(phase: phase);
@@ -95,6 +97,7 @@ Future<void> saveErrorReport(
 }) async {
   final l = AppL10n.of(context);
   await sampleDiagnosticBackgroundState();
+  await diagnosticAudioOutput.sample();
   if (!context.mounted) return;
   final bytes = Uint8List.fromList(utf8.encode(buildErrorReport(phase: phase)));
   ExportDocument? document;

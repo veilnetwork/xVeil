@@ -12,6 +12,7 @@ import 'package:veil_flutter/veil_ffi.dart' show MediaPacketSource;
 
 import '../core/log.dart';
 import '../core/diagnostic_journal.dart';
+import '../core/diagnostic_audio_output.dart';
 import '../core/ids.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import '../domain/call.dart';
@@ -1644,6 +1645,13 @@ class VeilCallMediaController implements CallMediaController {
         final now = DateTime.now();
         _mediaReceiveActivity.observe(stats, now);
         diagnosticJournal.recordMediaStats(stats);
+        unawaited(
+          diagnosticAudioOutput.sample(
+            duringCall: true,
+            stillCurrent: () =>
+                _engine == engine && _activeCall?.callId == call.callId,
+          ),
+        );
         final channel = _chan;
         if (channel != null) {
           _refreshAudioFraming(engine, channel, stats: stats);
@@ -1925,32 +1933,36 @@ class VeilCallMediaController implements CallMediaController {
     // Select communication/headset routing before opening the physical streams.
     await callAudioRouter.useDefaultFor(call.media);
     final nativeAudioOk = engine.startAudio(send: true, recv: true);
+    final startupStats = nativeAudioOk
+        ? const <String, dynamic>{}
+        : engine.getStats();
     final audioStart = callAudioStartState(
       started: nativeAudioOk,
-      stats: nativeAudioOk ? const {} : engine.getStats(),
+      stats: startupStats,
     );
     _startedWithoutMicrophone = false;
     if (audioStart == CallAudioStartState.receiveOnly) {
       // A desktop without an input device must still hear its caller. Keep
       // only the proven working output, and expose the actual mute posture.
-      if (!engine.trySetMicMuted(true)) return false;
+      if (!engine.trySetMicMuted(true)) {
+        diagnosticJournal.recordAudioStart(success: false, stats: startupStats);
+        return false;
+      }
       _microphoneState.setMuted(true);
       _activeCall = call.copyWith(micOn: false);
       _startedWithoutMicrophone = true;
       devLog(
-        () => 'xVeil[call-media]: capture unavailable; receiving audio with mic off',
+        () =>
+            'xVeil[call-media]: capture unavailable; receiving audio with mic off',
       );
     }
     // Every exit below, including audio-only calls and deferred video, must
     // use the usable session result rather than the combined native result.
     final audioOk = audioStart != CallAudioStartState.failed;
-    diagnosticJournal.record(
-      DiagnosticEvent.audioStart,
-      values: {
-        DiagnosticMetric.success: audioStart != CallAudioStartState.failed ? 1 : 0,
-      },
+    diagnosticJournal.recordAudioStart(success: audioOk, stats: startupStats);
+    devLog(
+      () => 'xVeil[call-media]: startAudio=$nativeAudioOk usable=$audioOk',
     );
-    devLog(() => 'xVeil[call-media]: startAudio=$nativeAudioOk usable=$audioOk');
     // An unavailable output or unknown startup failure still prevents a live
     // audio session. Only the positively measured capture-only failure above
     // permits receive-only audio, with mute reflected in CallService.

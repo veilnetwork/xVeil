@@ -9,6 +9,7 @@ import 'package:veil_media/veil_media.dart';
 
 import '../core/ids.dart';
 import '../core/log.dart';
+import '../core/diagnostic_audio_output.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import '../domain/group_call.dart';
 import '../domain/call_signal.dart';
@@ -806,6 +807,12 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       );
     }
     _latestNativeStats = Map.unmodifiable(stats);
+    unawaited(
+      diagnosticAudioOutput.sample(
+        duringCall: true,
+        stillCurrent: () => _engine == expected,
+      ),
+    );
     _latestNativeStatsAt = now;
     var audioRecovered = false;
     final recoveries = stats['audio_latency_recovery_count'];

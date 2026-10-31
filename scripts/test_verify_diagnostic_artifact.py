@@ -29,6 +29,14 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 "'op': 314159265, 'local': 'PRIVATE_CANARY'});\n"
                 "  diagnosticJournal.recordBackgroundState({'serviceForeground': true, "
                 "'wakeLockHeld': false, 'notification': 'PRIVATE_CANARY'});\n"
+                "  diagnosticJournal.recordAudioOutputState({'schema': 'xveil-audio-output/1', "
+                "'success': true, 'sessionState': 1, 'outputVolumePercent': 56, "
+                "'appVolumePercent': 100, 'outputMuted': false, 'appMuted': false, "
+                "'pid': 314159265, 'deviceId': 'PRIVATE_CANARY', "
+                "'path': 'PRIVATE_CANARY'}, duringCall: true);\n"
+                "  diagnosticJournal.recordAudioStart(success: false, stats: {"
+                "'audio_capture_start_result': 1, 'audio_playout_start_result': 0, "
+                "'deviceId': 'PRIVATE_CANARY', 'path': 'PRIVATE_CANARY'});\n"
                 '  print(jsonEncode(diagnosticJournal.toJson()));\n'
                 '}\n'
             )
@@ -48,6 +56,15 @@ class DiagnosticArtifactTest(unittest.TestCase):
                     self.assertNotIn('314159265', json.dumps(report))
                     if enabled:
                         evidence = report['last_evidence']
+                        self.assertEqual(evidence['audioStart']['values'], {
+                            'success': 0, 'audioCaptureStartResult': 1,
+                            'audioPlayoutStartResult': 0,
+                        })
+                        self.assertEqual(evidence['callAudioOutput']['values'], {
+                            'supported': 1, 'success': 1, 'appAudioSessionState': 1,
+                            'outputVolumePercent': 56, 'appOutputVolumePercent': 100,
+                            'outputMuted': 0, 'appOutputMuted': 0,
+                        })
                         self.assertEqual(evidence['microphonePermission']['values'], {'state': 1})
                         self.assertEqual(evidence['cameraPermission']['values'], {'state': 0})
                         self.assertEqual(evidence['mediaSample']['values'], {

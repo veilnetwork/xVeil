@@ -1,6 +1,17 @@
 cmake_minimum_required(VERSION 3.14)
 project(runner LANGUAGES CXX)
 
+# Read-only, bounded helper; called only by opt-in Dart diagnostics. Keeping
+# device COM queries out of the Flutter process prevents a bad driver from
+# blocking the call/UI thread. No elevation, files or network access.
+add_executable(xveil_audio_probe WIN32
+  "audio_output_probe.cpp"
+  "audio_output_probe_main.cpp"
+)
+apply_standard_settings(xveil_audio_probe)
+target_compile_definitions(xveil_audio_probe PRIVATE "NOMINMAX")
+target_link_libraries(xveil_audio_probe PRIVATE "ole32.lib")
+
 # Define the application target. To change its name, change BINARY_NAME in the
 # top-level CMakeLists.txt, not the value here, or `flutter run` will no longer
 # work.
@@ -16,6 +27,7 @@ add_executable(${BINARY_NAME} WIN32
   "Runner.rc"
   "runner.exe.manifest"
 )
+add_dependencies(${BINARY_NAME} xveil_audio_probe)
 
 # Apply the standard set of build settings. This can be removed for applications
 # that need different build settings.
