@@ -7492,7 +7492,7 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get networkBackgroundSetupFailed =>
-      'Could not finish setting up background operation. Check it in the network settings.';
+      'No se pudo completar la configuración del funcionamiento en segundo plano. Revísala en los ajustes de red.';
 
   @override
   String get networkBackgroundOfferBody =>

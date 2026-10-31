@@ -24,16 +24,18 @@ library;
 class MailboxDepositGate {
   static const cap = 512;
 
-  final _acked = <String>{};
+  final _acked = <(String, String)>{};
 
   int get size => _acked.length;
 
-  void noteAcknowledged(String id) {
+  void noteAcknowledged(String peer, String id) {
+    final key = (peer, id);
+    _acked.remove(key);
     if (_acked.length >= cap) _acked.remove(_acked.first);
-    _acked.add(id);
+    _acked.add(key);
   }
 
-  bool acknowledged(String id) => _acked.contains(id);
+  bool acknowledged(String peer, String id) => _acked.contains((peer, id));
 }
 
 /// Call lifecycle control — an offer, answer or cancel whose only value is
