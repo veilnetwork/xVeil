@@ -11,6 +11,12 @@ class _MessagingMessageDelivery {
 
   final MessagingService _owner;
 
+  // Coalesce timer/reconnect/manual passes. A later caller starts no duplicate
+  // jobs and need not wait behind another caller's unfinished journal write.
+  Future<void>? _conversationPass;
+  final Map<String, Object> _activeMessageSends = {};
+  static const _retryPeerLanes = 4;
+
   /// Per-message live-resend backoff. The outbox flush fires every 3s, but
   /// re-sending every un-acked message on every tick becomes an onion/FFI storm
   /// under persistent loss. The first retry remains immediate; later retries
@@ -105,99 +111,158 @@ class _MessagingMessageDelivery {
     ]);
   }
 
-  Future<void> _flushConversations() async {
-    // Background chat work waits while a call owns the latency budget.
-    if (_owner.backgroundStashPaused) return;
+  Future<void> _flushConversations() {
+    final pending = _conversationPass;
+    if (pending != null) return Future<void>.value();
+    late final Future<void> work;
+    work = _runConversationPass().whenComplete(() {
+      if (identical(_conversationPass, work)) _conversationPass = null;
+    });
+    _conversationPass = work;
+    return work;
+  }
+
+  Future<void> _runConversationPass() async {
+    if (_owner._disposed || _owner.backgroundStashPaused) return;
     final conversations = await _owner._storage.loadConversations();
-    for (final conversation in conversations) {
-      if (conversation.peer.status != ContactStatus.accepted) continue;
-      final peer = conversation.peer.nodeId;
-      _owner._sendSyncBestEffort(peer);
-      final messages = await _owner._storage.loadMessages(conversation.id);
-      // Runs before unresolved-peer backoff so dead identities still terminate.
-      await _maybeReconnect(peer, messages);
-      for (final message in messages) {
-        if (message.direction != MessageDirection.outgoing ||
-            message.reflectedEdit ||
-            message.status != MessageStatus.sent ||
-            _delivered.contains(message.id)) {
-          continue;
+    var next = 0;
+    Object? firstError;
+    StackTrace? firstStack;
+    Future<void> worker() async {
+      while (!_owner._disposed &&
+          !_owner.backgroundStashPaused &&
+          next < conversations.length) {
+        final conversation = conversations[next++];
+        if (conversation.peer.status != ContactStatus.accepted) continue;
+        try {
+          await _retryConversation(conversation);
+        } catch (error, stack) {
+          // A damaged history for one contact must not skip every later one.
+          // Keep the failure observable after all other admitted jobs finish.
+          firstError ??= error;
+          firstStack ??= stack;
         }
-
-        final now = DateTime.now();
-        final backoff = _retryBackoff[message.id];
-        if (backoff != null && now.isBefore(backoff.nextAt)) continue;
-
-        // The conversation row becomes visible before its required device-log
-        // commit. A timer/reconnect retry must respect the same durable boundary
-        // as the initial send, including repair after an interrupted write.
-        if (!await _owner._deviceMirror.prepareStoredRetry(peer, message)) {
-          continue;
-        }
-
-        final count = (backoff?.count ?? 0) + 1;
-        // Clamp the shift: an unbounded count eventually wraps the delay to 0.
-        final delayMs =
-            (_retryInterval.inMilliseconds * (1 << (count - 1).clamp(0, 10)))
-                .clamp(0, _maxRetryBackoff.inMilliseconds);
-        _retryBackoff[message.id] = (
-          count: count,
-          nextAt: now.add(Duration(milliseconds: delayMs)),
-          peer: peer.hex,
-        );
-
-        // A file message re-drives its OFFER — the manifest naming the content,
-        // the same frame the original send built and deposited. The bytes are
-        // never re-driven: the recipient pulls them on its own terms, and
-        // re-pushing them on a 3s tick is the cost that used to justify
-        // dropping file messages from this loop altogether. A message with no
-        // manifest to offer (a small inline file, whose bytes ARE the send)
-        // yields null and is skipped, so that cost cannot reappear here.
-        //
-        // Preserve the original timestamp and author sequence so retry and
-        // gap-fill fold into the same convergent event on the recipient.
-        diagnosticJournal.record(
-          DiagnosticEvent.messageRetry,
-          values: {DiagnosticMetric.attempt: count},
-          minInterval: const Duration(seconds: 1),
-        );
-        final Uint8List wire;
-        if (message.isFile) {
-          final offer = await _owner._fileOfferRetryFrame(message);
-          if (offer == null) continue;
-          wire = offer;
-        } else {
-          final recommendation = parseSpaceRecommendationMessage(message.body);
-          wire =
-              (recommendation == null
-                      ? WireEnvelope.message(
-                          message.body,
-                          id: message.id,
-                          sentAtMs: message.timestamp.millisecondsSinceEpoch,
-                          seq: message.seq,
-                          replyTo: message.replyToId,
-                          forwardedFrom: message.forwardedFrom,
-                          customEmoji: message.customEmoji,
-                        )
-                      : WireEnvelope.spaceRecommendation(
-                          recommendation,
-                          id: message.id,
-                          sentAtMs: message.timestamp.millisecondsSinceEpoch,
-                          seq: message.seq,
-                        ))
-                  .encode();
-        }
-        devLog(
-          () =>
-              'xVeil[timeline]: retry id=${message.id} '
-              't=${DateTime.now().millisecondsSinceEpoch}',
-        );
-        // Only the initial send creates a one-shot reply circuit. Retrying that
-        // setup every three seconds was the dominant circuit-build load.
-        // Bound this live retry so one unreachable peer does not hold every
-        // later conversation's retry behind its dial.
-        await _owner._outbox.boundedLiveLeg(_owner._send(peer, wire));
       }
+    }
+
+    await Future.wait<void>([
+      for (var i = 0; i < conversations.length && i < _retryPeerLanes; i++)
+        worker(),
+    ]);
+    if (firstError != null) {
+      Error.throwWithStackTrace(firstError!, firstStack!);
+    }
+  }
+
+  Future<void> _retryConversation(Conversation conversation) async {
+    final peer = conversation.peer.nodeId;
+    _owner._sendSyncBestEffort(peer);
+    final messages = await _owner._storage.loadMessages(conversation.id);
+    if (_owner._disposed || _owner.backgroundStashPaused) return;
+    // Runs before unresolved-peer backoff so dead identities still terminate.
+    await _maybeReconnect(peer, messages);
+    if (_owner._disposed ||
+        _owner.backgroundStashPaused ||
+        _activeMessageSends.containsKey(peer.hex)) {
+      return;
+    }
+    for (final message in messages) {
+      if (_owner._disposed || _owner.backgroundStashPaused) return;
+      if (message.direction != MessageDirection.outgoing ||
+          message.reflectedEdit ||
+          message.status != MessageStatus.sent ||
+          _delivered.contains(message.id)) {
+        continue;
+      }
+
+      final now = DateTime.now();
+      final backoff = _retryBackoff[message.id];
+      if (backoff != null && now.isBefore(backoff.nextAt)) continue;
+
+      // The conversation row becomes visible before its required device-log
+      // commit. A timer/reconnect retry must respect the same durable boundary
+      // as the initial send, including repair after an interrupted write.
+      if (!await _owner._deviceMirror.prepareStoredRetry(peer, message)) {
+        continue;
+      }
+
+      if (_owner._disposed || _owner.backgroundStashPaused) return;
+
+      final count = (backoff?.count ?? 0) + 1;
+      // Clamp the shift: an unbounded count eventually wraps the delay to 0.
+      final delayMs =
+          (_retryInterval.inMilliseconds * (1 << (count - 1).clamp(0, 10)))
+              .clamp(0, _maxRetryBackoff.inMilliseconds);
+      _retryBackoff[message.id] = (
+        count: count,
+        nextAt: now.add(Duration(milliseconds: delayMs)),
+        peer: peer.hex,
+      );
+
+      // A file message re-drives its OFFER — the manifest naming the content,
+      // the same frame the original send built and deposited. The bytes are
+      // never re-driven: the recipient pulls them on its own terms, and
+      // re-pushing them on a 3s tick is the cost that used to justify
+      // dropping file messages from this loop altogether. A message with no
+      // manifest to offer (a small inline file, whose bytes ARE the send)
+      // yields null and is skipped, so that cost cannot reappear here.
+      //
+      // Preserve the original timestamp and author sequence so retry and
+      // gap-fill fold into the same convergent event on the recipient.
+      diagnosticJournal.record(
+        DiagnosticEvent.messageRetry,
+        values: {DiagnosticMetric.attempt: count},
+        minInterval: const Duration(seconds: 1),
+      );
+      final Uint8List wire;
+      if (message.isFile) {
+        final offer = await _owner._fileOfferRetryFrame(message);
+        if (offer == null) continue;
+        wire = offer;
+      } else {
+        final recommendation = parseSpaceRecommendationMessage(message.body);
+        wire =
+            (recommendation == null
+                    ? WireEnvelope.message(
+                        message.body,
+                        id: message.id,
+                        sentAtMs: message.timestamp.millisecondsSinceEpoch,
+                        seq: message.seq,
+                        replyTo: message.replyToId,
+                        forwardedFrom: message.forwardedFrom,
+                        customEmoji: message.customEmoji,
+                      )
+                    : WireEnvelope.spaceRecommendation(
+                        recommendation,
+                        id: message.id,
+                        sentAtMs: message.timestamp.millisecondsSinceEpoch,
+                        seq: message.seq,
+                      ))
+                .encode();
+      }
+      devLog(
+        () =>
+            'xVeil[timeline]: retry id=${message.id} '
+            't=${DateTime.now().millisecondsSinceEpoch}',
+      );
+      // Only the initial send creates a one-shot reply circuit. Retrying that
+      // setup every three seconds was the dominant circuit-build load.
+      // Bound this live retry so one unreachable peer does not hold every
+      // later conversation's retry behind its dial.
+      if (_owner._disposed || _owner.backgroundStashPaused) return;
+      final lease = Object();
+      _activeMessageSends[peer.hex] = lease;
+      var settled = false;
+      final live = _owner._send(peer, wire).whenComplete(() {
+        settled = true;
+        if (identical(_activeMessageSends[peer.hex], lease)) {
+          _activeMessageSends.remove(peer.hex);
+        }
+      });
+      await _owner._outbox.boundedLiveLeg(live);
+      // A deadline stops waiting, not the transport. Do not stack the next
+      // message or a later pass on this contact until the actual send settles.
+      if (!settled) return;
     }
   }
 
