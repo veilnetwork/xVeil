@@ -83,6 +83,13 @@ class _Store extends SyncWrappedAsyncKvLogStore {
   }
 }
 
+class _NotifyingNative extends _Native
+    implements PeerAuthorizationChangeSource {
+  final changes = StreamController<void>.broadcast(sync: true);
+  @override
+  Stream<void> get peerAuthorizationChanges => changes.stream;
+}
+
 class _RecordingStore extends _Store {
   _RecordingStore(super.raw);
   final commits = <List<KvLogOp>>[];
@@ -102,6 +109,177 @@ class _RecordingStore extends _Store {
 }
 
 void main() {
+  test(
+    'authorization hints checkpoint before the polling tick and coalesce',
+    () {
+      fakeAsync((clock) {
+        final native = _NotifyingNative();
+        final io = _Store(FakeKvLogStore());
+        final owner = PeerAuthorizationPersistence(
+          native: native,
+          storage: HiddenVolumeStorage.fromAsyncStore(io),
+        );
+        owner.restore([]);
+        owner.start();
+        clock.flushMicrotasks();
+        native.acks.clear();
+        final exports = native.exports;
+        final reads = native.reads;
+        final entered = io.entered = Completer<void>();
+        final release = io.release = Completer<void>();
+        native.observe(_entry(1));
+        native.changes.add(null);
+        clock.flushMicrotasks();
+        expect(
+          entered.isCompleted,
+          isTrue,
+          reason: 'a native wake must not wait for the 1-second poll',
+        );
+        expect(native.acks, isEmpty, reason: 'the commit is still blocked');
+        native.observe(_entry(1, fill: 9));
+        for (var n = 0; n < 200; n++) {
+          native.changes.add(null);
+        }
+        clock.flushMicrotasks();
+        expect(native.exports - exports, 1);
+        release.complete();
+        clock.flushMicrotasks();
+        expect(native.acks, [2, 3]);
+        expect(
+          native.exports - exports,
+          2,
+          reason: 'the revision learned during I/O needs its own checkpoint',
+        );
+        expect(
+          native.reads - reads,
+          2,
+          reason: 'the burst must not queue 200 flush operations',
+        );
+        owner.close();
+        clock.flushMicrotasks();
+        native.changes.close();
+        clock.flushMicrotasks();
+      });
+    },
+  );
+
+  test('notifier startup catches state learned before subscribing', () {
+    fakeAsync((clock) {
+      final native = _NotifyingNative();
+      final owner = PeerAuthorizationPersistence(
+        native: native,
+        storage: HiddenVolumeStorage.fromStore(FakeKvLogStore()),
+      );
+      owner.restore([]);
+      native.observe(_entry(1));
+      native.changes.add(
+        null,
+      ); // No listener yet; the hint is intentionally lost.
+      owner.start();
+      clock.flushMicrotasks();
+      expect(native.acks, [2]);
+      owner.close();
+      clock.flushMicrotasks();
+      native.changes.close();
+      clock.flushMicrotasks();
+    });
+  });
+
+  test('failed wake checkpoint waits for the bounded polling retry', () {
+    fakeAsync((clock) {
+      final native = _NotifyingNative();
+      final io = _Store(FakeKvLogStore());
+      final owner = PeerAuthorizationPersistence(
+        native: native,
+        storage: HiddenVolumeStorage.fromAsyncStore(io),
+      );
+      owner.restore([]);
+      owner.start();
+      clock.flushMicrotasks();
+      native.acks.clear();
+      final before = native.exports;
+      native.observe(_entry(1));
+      io.fail = true;
+      native.changes.add(null);
+      clock.flushMicrotasks();
+      expect(native.acks, isEmpty);
+      expect(native.exports, before + 1);
+      io.fail = false;
+      for (var n = 0; n < 200; n++) {
+        native.changes.add(null);
+      }
+      clock.flushMicrotasks();
+      expect(
+        native.exports,
+        before + 1,
+        reason: 'a hint burst must not busy-retry failed storage',
+      );
+      clock.elapse(const Duration(seconds: 1));
+      expect(native.acks, [2]);
+      owner.close();
+      clock.flushMicrotasks();
+      native.changes.close();
+      clock.flushMicrotasks();
+    });
+  });
+
+  test('close joins a hinted checkpoint and ignores later notifications', () async {
+    final native = _NotifyingNative();
+    final raw = FakeKvLogStore();
+    final io = _Store(raw);
+    final owner = PeerAuthorizationPersistence(
+      native: native,
+      storage: HiddenVolumeStorage.fromAsyncStore(io),
+    );
+    owner.restore([]);
+    owner.start();
+    await owner.flush();
+    native.acks.clear();
+    final entered = io.entered = Completer<void>();
+    final release = io.release = Completer<void>();
+    native.observe(_entry(1));
+    native.changes.add(null);
+    await entered.future;
+    var closed = false;
+    final closing = owner.close().then((_) => closed = true);
+    native.observe(_entry(1, fill: 9));
+    native.changes.add(null);
+    expect(closed, isFalse);
+    expect(native.acks, isEmpty);
+    release.complete();
+    await closing;
+    expect(native.acks, [2, 3]);
+    final reads = native.reads, committed = raw.commitSeq();
+    native.observe(_entry(2));
+    native.changes.add(null);
+    await Future<void>.value();
+    expect(native.reads, reads);
+    expect(raw.commitSeq(), committed);
+    await owner.close();
+    await native.changes.close();
+  });
+
+  test('polling recovers a missed wake after the notification stream ends', () {
+    fakeAsync((clock) {
+      final native = _NotifyingNative();
+      final owner = PeerAuthorizationPersistence(
+        native: native,
+        storage: HiddenVolumeStorage.fromStore(FakeKvLogStore()),
+      );
+      owner.restore([]);
+      owner.start();
+      clock.flushMicrotasks();
+      native.changes.close();
+      clock.flushMicrotasks();
+      native.acks.clear();
+      native.observe(_entry(1));
+      clock.elapse(const Duration(seconds: 1));
+      expect(native.acks, [2]);
+      owner.close();
+      clock.flushMicrotasks();
+    });
+  });
+
   test('polling-only owner waits for the next checkpoint tick', () {
     fakeAsync((clock) {
       final native = _Native();
