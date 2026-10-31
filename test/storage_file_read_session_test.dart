@@ -48,12 +48,20 @@ Future<Object?> _read(HiddenVolumeStorage s, String method) => switch (method) {
   'range' => s.readFileRange('shared', 0, 2),
   'size' => s.fileSize('shared'),
   'presence' => s.hasFile('shared'),
+  'presenceBatch' => s.hasFiles(['shared', 'missing']),
   'batch' => s.loadFiles(['shared'], maxBytesPerFile: 16),
   _ => throw ArgumentError(method),
 };
 
 void main() {
-  for (final method in ['load', 'range', 'size', 'presence', 'batch']) {
+  for (final method in [
+    'load',
+    'range',
+    'size',
+    'presence',
+    'presenceBatch',
+    'batch',
+  ]) {
     test('$method read cannot continue into a replacement identity', () async {
       final rawA = FakeKvLogStore(), rawB = FakeKvLogStore();
       FileStore(rawA).storeFile('shared', Uint8List.fromList([1, 2, 3]));
@@ -99,6 +107,28 @@ void main() {
       held.release.complete();
       await check;
       expect(await storage.loadFile('shared'), [9, 8]);
+    },
+  );
+
+  test(
+    'presence batch cannot publish metadata captured before erase',
+    () async {
+      final raw = FakeKvLogStore();
+      FileStore(raw).storeFile('shared', Uint8List.fromList([1, 2, 3]));
+      final held = _HeldMetadata(raw);
+      final storage = HiddenVolumeStorage.fromAsyncStore(held);
+      addTearDown(storage.close);
+      held.holdKey = 'file:shared';
+      held.hold = true;
+      final pending = expectLater(
+        storage.hasFiles(['shared']),
+        throwsStateError,
+      );
+      await held.entered.future;
+      await storage.eraseSpace();
+      held.release.complete();
+      await pending;
+      expect(await storage.hasFiles(['shared']), [false]);
     },
   );
 
