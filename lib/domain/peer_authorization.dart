@@ -102,6 +102,12 @@ abstract interface class PeerAuthorizationStateHandle {
   void acknowledgePeerAuthorization(int revision);
 }
 
+/// Optional process-local wake hint. It conveys neither documents nor rights;
+/// consumers must export and durably checkpoint the actual native state.
+abstract interface class PeerAuthorizationChangeSource {
+  Stream<void> get peerAuthorizationChanges;
+}
+
 /// A current-document fence, not a way to establish ownership from a claim.
 abstract interface class PeerDeviceAuthorizationHandle {
   bool peerDeviceProofAllowed(Uint8List identity, Uint8List device);

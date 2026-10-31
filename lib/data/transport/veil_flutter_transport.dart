@@ -1573,6 +1573,14 @@ class VeilFlutterTransport
         .map((e) => e.sessionCount ?? 0);
   }
 
+  /// Empty, process-local checkpoint wake hints from this runtime. A malformed
+  /// hint is ignored; a missed one is covered by the owner's periodic backstop.
+  Stream<void> get peerAuthorizationChanges => _client
+      .events()
+      .where((e) =>
+          e.kind == VeilEventKind.peerAuthorizationChanged && e.payload.isEmpty)
+      .map((_) {});
+
   @override
   Future<List<PeerInfo>> peers() async {
     final raw = await _client.peers();

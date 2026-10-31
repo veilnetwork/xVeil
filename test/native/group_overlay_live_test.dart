@@ -124,6 +124,7 @@ class _Member {
     );
     await ratchet.restore();
     transport = await VeilFlutterTransport.connect(app);
+    nativeRatchet!.bindPeerAuthorizationEvents(transport!.peerAuthorizationChanges);
     expect(await transport!.nodeId(), id);
     messaging = MessagingService(transport!, storage!, anonymous: false)
       ..ratchet = ratchet;
