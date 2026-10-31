@@ -30,48 +30,57 @@ void main() {
     expect(journal.toJson()['events'], isEmpty);
     expect(journal.toJson()['last_evidence'], isEmpty);
   });
-  test('operator circuit and DHT correlation never enters anonymous reports', () {
-    final journal = DiagnosticJournal(enabled: true);
-    final native = <String, Object?>{
-      'audio_rx_pkts': 12,
-      'token': 'private-circuit-token',
-      'prefix': 'private-envelope-prefix',
-      'origin_cid': 123456789,
-      'data_seq': 987654321,
-      'circuit_trace': _PrivateValue(),
-      'raw_log': 'anonymity.circuit.trace.egress private-log-line',
-      'qtag': 'private-dht-query-fingerprint',
-      'walk_tag': 'private-dht-walk-fingerprint',
-      'op': 314159265,
-      'lookup': 271828182,
-      'local': 'private-node-prefix',
-      'dht_trace': _PrivateValue(),
-      'ranges': [
-        {'sid': 'private-stream', 'offset': 123456789},
-      ],
-    };
-    journal.recordMediaStats(native);
-    journal.recordBackgroundState(native);
-    journal.recordVideoDelivery(native);
-    final report = jsonEncode(journal.toJson());
-    expect(report, contains('audioRxPackets'));
-    for (final forbidden in [
-      'private-',
-      'circuit_trace',
-      'origin_cid',
-      'data_seq',
-      '123456789',
-      '987654321',
-      'trace.egress',
-      'qtag',
-      'walk_tag',
-      '314159265',
-      '271828182',
-      'dht_trace',
-    ]) {
-      expect(report, isNot(contains(forbidden)));
-    }
-  });
+  test(
+    'operator circuit and DHT correlation never enters anonymous reports',
+    () {
+      final journal = DiagnosticJournal(enabled: true);
+      final native = <String, Object?>{
+        'audio_rx_pkts': 12,
+        'token': 'private-circuit-token',
+        'prefix': 'private-envelope-prefix',
+        'origin_cid': 123456789,
+        'data_seq': 987654321,
+        'circuit_trace': _PrivateValue(),
+        'raw_log': 'anonymity.circuit.trace.egress private-log-line',
+        'qtag': 'private-dht-query-fingerprint',
+        'walk_tag': 'private-dht-walk-fingerprint',
+        'op': 314159265,
+        'lookup': 271828182,
+        'local': 'private-node-prefix',
+        'dht_trace': _PrivateValue(),
+        'duplicate_trace':
+            'dht.query.duplicate_drop local=private-node walk_tag=private-walk',
+        'process_duplicates': 123456789,
+        'ranges': [
+          {'sid': 'private-stream', 'offset': 123456789},
+        ],
+      };
+      journal.recordMediaStats(native);
+      journal.recordBackgroundState(native);
+      journal.recordVideoDelivery(native);
+      final report = jsonEncode(journal.toJson());
+      expect(report, contains('audioRxPackets'));
+      for (final forbidden in [
+        'private-',
+        'circuit_trace',
+        'origin_cid',
+        'data_seq',
+        '123456789',
+        '987654321',
+        'trace.egress',
+        'qtag',
+        'walk_tag',
+        '314159265',
+        '271828182',
+        'dht_trace',
+        'duplicate_trace',
+        'duplicate_drop',
+        'process_duplicates',
+      ]) {
+        expect(report, isNot(contains(forbidden)));
+      }
+    },
+  );
 
   test('audio evidence is coarse, bounded and retained after the call', () {
     final journal = DiagnosticJournal(enabled: true, capacity: 1);
