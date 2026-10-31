@@ -1,0 +1,154 @@
+{
+  "median_visible_ms": {
+    "control": [
+      4282,
+      2454,
+      2005,
+      2629
+    ],
+    "candidate": [
+      4301,
+      2373,
+      2115,
+      2738
+    ]
+  },
+  "messages": 24,
+  "nodes_per_run": 12,
+  "group_file_commits": {
+    "control": 180,
+    "candidate": 144
+  },
+  "compatibility_qualified": false,
+  "android_qualified": false,
+  "windows_qualified": false,
+  "aot_qualified": false,
+  "full_patch_ab": false,
+  "runs": [
+    {
+      "variant": "control",
+      "run": 1,
+      "visible_ms": [
+        4480,
+        2480,
+        2005,
+        2617
+      ],
+      "group_file_commits": 180,
+      "released_listeners": 12,
+      "visible_events": 44,
+      "cleanup_errors": []
+    },
+    {
+      "variant": "candidate",
+      "run": 1,
+      "visible_ms": [
+        4408,
+        2368,
+        2115,
+        2984
+      ],
+      "group_file_commits": 144,
+      "released_listeners": 12,
+      "visible_events": 44,
+      "cleanup_errors": []
+    },
+    {
+      "variant": "control",
+      "run": 2,
+      "visible_ms": [
+        4100,
+        2454,
+        1981,
+        2699
+      ],
+      "group_file_commits": 180,
+      "released_listeners": 12,
+      "visible_events": 44,
+      "cleanup_errors": []
+    },
+    {
+      "variant": "candidate",
+      "run": 2,
+      "visible_ms": [
+        4301,
+        2956,
+        2093,
+        2246
+      ],
+      "group_file_commits": 144,
+      "released_listeners": 12,
+      "visible_events": 44,
+      "cleanup_errors": []
+    },
+    {
+      "variant": "control",
+      "run": 3,
+      "visible_ms": [
+        4282,
+        2429,
+        2849,
+        2629
+      ],
+      "group_file_commits": 180,
+      "released_listeners": 12,
+      "visible_events": 44,
+      "cleanup_errors": []
+    },
+    {
+      "variant": "candidate",
+      "run": 3,
+      "visible_ms": [
+        4253,
+        2373,
+        2176,
+        2738
+      ],
+      "group_file_commits": 144,
+      "released_listeners": 12,
+      "visible_events": 44,
+      "cleanup_errors": []
+    }
+  ],
+  "tests": {
+    "app_unique_passed": 668,
+    "native_file_store_passed": 3,
+    "initial_skips": 3,
+    "initial_skips_run_separately_passed": 3
+  },
+  "overall_latency_improvement_proven": false,
+  "final_qualification": [
+    {
+      "stage": "range guard",
+      "visible_ms": [
+        4507,
+        2858,
+        2121,
+        2216
+      ],
+      "group_file_commits": 144,
+      "visible_events": 44,
+      "released_listeners": 12,
+      "cleanup_errors": []
+    },
+    {
+      "stage": "final bounds",
+      "visible_ms": [
+        4290,
+        2780,
+        1630,
+        2806
+      ],
+      "group_file_commits": 144,
+      "visible_events": 44,
+      "released_listeners": 12,
+      "cleanup_errors": []
+    }
+  ],
+  "total_stands": 8,
+  "total_messages": 32,
+  "final_suite_app_passed": 668,
+  "final_suite_skipped": 0,
+  "ab_precedes_final_malformed_metadata_hardening": true,
+  "final_stand_overlapped_unit_tests": true
+}

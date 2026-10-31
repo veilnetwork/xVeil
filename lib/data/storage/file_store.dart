@@ -655,11 +655,19 @@ class AsyncFileStore {
   /// are published in a FINAL commit so the file is readable only once every
   /// chunk is durable. Throws [ArgumentError] for a blob over
   /// [kMaxStoredFileBytes] (callers pre-check + surface a friendly error).
+  /// At most 64 [retireHints] are considered, and only whole in-volume files
+  /// whose complete deletion fits the final publication's 64-op budget.
+  /// Hints never replace the caller's explicit post-publication cleanup.
   Future<String> storeFile(
     String fileId,
     Uint8List bytes, {
     String? name,
+    List<String> retireHints = const [],
   }) async {
+    if (retireHints.contains(fileId)) {
+      throw ArgumentError('a file cannot retire itself');
+    }
+    final hints = retireHints.take(64).toSet();
     final chunks = bytes.isEmpty
         ? const <FileChunk>[]
         : chunkBytes(bytes, transferId: fileId, maxChunk: _maxRecord);
@@ -719,6 +727,9 @@ class AsyncFileStore {
           _k('${nextBase + chunks.length}'),
         ),
     ];
+    publication.addAll(
+      await _retirementOps(hints, _kChunksPerCommit - publication.length - 1),
+    );
     // A small creation can publish chunks and metadata atomically. The store
     // forbids append_log + delete_log in the same namespace/transaction, so a
     // nonempty replacement retains its chunk-then-publication sequence. Empty
@@ -750,14 +761,47 @@ class AsyncFileStore {
         PutOp(Ns.settings, _k(_kChunkGcKey), gc.encode()),
       ]);
     }
-    gc = gc.afterWrite(
-      deleted: priorIds.length + priorPurge.whereType<DeleteLogOp>().length,
-    );
+    gc = gc.afterWrite(deleted: retiredChunks);
     await _store.commit([
       ...publication,
       PutOp(Ns.settings, _k(_kChunkGcKey), gc.encode()),
     ]);
     return fileId;
+  }
+
+  Future<List<KvLogOp>> _retirementOps(Set<String> hints, int budget) async {
+    final ops = <KvLogOp>[];
+    for (final id in hints) {
+      if (budget < 1) break;
+      try {
+        final raw = await _store.get(Ns.settings, _k('file:$id'));
+        if (raw == null) continue;
+        final metadata = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
+        // Piece maps may require arbitrarily many reads. Leave streamed
+        // files, oversized runs and malformed metadata to explicit cleanup.
+        if (metadata['streamed'] == true) continue;
+        final segments = _fileSegments(metadata);
+        final records = segments.fold<int>(0, (n, run) => n + run.count);
+        // Reserve metadata without adding to an untrusted legacy count:
+        // MAX_I64 + 1 wraps before the budget comparison on the Dart VM.
+        if (records >= budget) continue;
+        if (segments.any(
+          (run) => run.base > _kMaxDartLogId - run.count + 1,
+        )) {
+          continue;
+        }
+        ops.addAll([
+          for (final record in _recordIds(segments))
+            DeleteLogOp(Ns.fileChunks, record),
+          DeleteOp(Ns.settings, _k('file:$id')),
+        ]);
+        budget -= records + 1;
+      } catch (_) {
+        // Planning is optional and has no writes. Publication failures below
+        // still propagate: retrying a failed commit must not invent success.
+      }
+    }
+    return ops;
   }
 
   /// The ops that purge a stored file (see [FileStore.deleteFileOps]). Reads the

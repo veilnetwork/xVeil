@@ -1078,12 +1078,37 @@ class HiddenVolumeStorage
   );
 
   @override
-  Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) =>
-      // Serialize against other stores so the multi-commit read-base/bump-last
-      // sequence can't interleave and collide chunk log-ids (see [_fileGate]).
-      _fileSerialized(
-        () => AsyncFileStore(_as).storeFile(fileId, bytes, name: name),
-      );
+  Future<void> storeFile(
+    String fileId,
+    Uint8List bytes, {
+    String? name,
+    List<String> retireHints = const [],
+  }) {
+    if (retireHints.contains(fileId)) {
+      throw ArgumentError('a file cannot retire itself');
+    }
+    final hints = retireHints.take(64).toSet();
+    // Serialize against other stores so the multi-commit read-base/bump-last
+    // sequence can't interleave and collide chunk log-ids (see [_fileGate]).
+    return _fileSerialized(() async {
+      final inVolume = <String>[];
+      for (final id in hints) {
+        try {
+          // Presence, not successful decoding: an on-disk key must go through
+          // deleteStoredFile's key scrub and ciphertext cleanup even if its
+          // metadata is malformed. Never retire only half of a tiered file.
+          if (await _as.get(Ns.settings, _sk('ondisk:$id')) == null) {
+            inVolume.add(id);
+          }
+        } catch (_) {
+          // This hint is optional. The caller still retries explicit cleanup.
+        }
+      }
+      await AsyncFileStore(
+        _as,
+      ).storeFile(fileId, bytes, name: name, retireHints: inVolume);
+    });
+  }
 
   // ── Large-file tier (Phase B) ────────────────────────────────────────────
   // A blob at/above [_kOnDiskTierMinBytes] can't fit the hidden-volume index

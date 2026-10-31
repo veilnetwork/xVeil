@@ -56,7 +56,12 @@ class FakeSettingStorage implements Storage {
   Future<String?> getSetting(String key) async => settings[key];
 
   @override
-  Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) async {
+  Future<void> storeFile(
+    String fileId,
+    Uint8List bytes, {
+    String? name,
+    List<String> retireHints = const [],
+  }) async {
     files[fileId] = Uint8List.fromList(bytes);
   }
 

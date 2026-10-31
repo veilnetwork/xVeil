@@ -482,8 +482,13 @@ class _PostWriteGatedStorage extends HiddenVolumeStorage {
   }
 
   @override
-  Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) async {
-    await super.storeFile(fileId, bytes, name: name);
+  Future<void> storeFile(
+    String fileId,
+    Uint8List bytes, {
+    String? name,
+    List<String> retireHints = const [],
+  }) async {
+    await super.storeFile(fileId, bytes, name: name, retireHints: retireHints);
     if (gateNextGroupWrite && fileId.startsWith('group:')) {
       gateNextGroupWrite = false;
       entered.complete();
@@ -509,7 +514,12 @@ class _ControlledGroupWriteStorage extends HiddenVolumeStorage {
   }
 
   @override
-  Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) async {
+  Future<void> storeFile(
+    String fileId,
+    Uint8List bytes, {
+    String? name,
+    List<String> retireHints = const [],
+  }) async {
     if (fileId.startsWith('group:')) {
       groupWriteAttempts++;
       final release = callWriteRelease;
@@ -523,7 +533,7 @@ class _ControlledGroupWriteStorage extends HiddenVolumeStorage {
         throw StateError('injected group bundle write failure');
       }
     }
-    await super.storeFile(fileId, bytes, name: name);
+    await super.storeFile(fileId, bytes, name: name, retireHints: retireHints);
   }
 }
 
@@ -551,13 +561,18 @@ class _HalfWrittenBundleStorage extends HiddenVolumeStorage {
   bool gateIndexOnly = false;
 
   @override
-  Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) async {
+  Future<void> storeFile(
+    String fileId,
+    Uint8List bytes, {
+    String? name,
+    List<String> retireHints = const [],
+  }) async {
     final held = gate;
     final gatable = gateIndexOnly
         ? fileId == 'groups.index'
         : fileId.startsWith('group:') || fileId == 'groups.index';
     if (held == null || !gatable) {
-      return super.storeFile(fileId, bytes, name: name);
+      return super.storeFile(fileId, bytes, name: name, retireHints: retireHints);
     }
     _incomplete.add(fileId);
     try {
@@ -566,7 +581,7 @@ class _HalfWrittenBundleStorage extends HiddenVolumeStorage {
         failOnRelease = false;
         throw StateError('injected failure while a reader waits');
       }
-      await super.storeFile(fileId, bytes, name: name);
+      await super.storeFile(fileId, bytes, name: name, retireHints: retireHints);
     } finally {
       _incomplete.remove(fileId);
     }
@@ -611,7 +626,12 @@ class _HeldGroupHeaderStorage extends HiddenVolumeStorage {
   Completer<void>? headerWriteEntered, headerWriteRelease;
 
   @override
-  Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) async {
+  Future<void> storeFile(
+    String fileId,
+    Uint8List bytes, {
+    String? name,
+    List<String> retireHints = const [],
+  }) async {
     final held = fileId == heldKey ? headerWriteRelease : null;
     if (held != null) {
       headerWriteRelease = null;
@@ -622,7 +642,7 @@ class _HeldGroupHeaderStorage extends HiddenVolumeStorage {
       failNextHeaderWrite = false;
       throw StateError('injected device header write failure');
     }
-    await super.storeFile(fileId, bytes, name: name);
+    await super.storeFile(fileId, bytes, name: name, retireHints: retireHints);
   }
 
   @override
@@ -27755,10 +27775,24 @@ class _CountingStorage extends HiddenVolumeStorage {
   }
 
   @override
-  Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) {
+  Future<void> storeFile(
+    String fileId,
+    Uint8List bytes, {
+    String? name,
+    List<String> retireHints = const [],
+  }) {
     storedBytes += bytes.length;
     storedIds.add(fileId);
-    return super.storeFile(fileId, bytes, name: name);
+    return super.storeFile(
+      fileId,
+      bytes,
+      name: name,
+      // Model a backend declining these optional atomic deletions. Explicit
+      // cleanup still fails below and exercises the durable retry descriptor.
+      retireHints: retireHints
+          .where((id) => !blockedDeletes.contains(id))
+          .toList(),
+    );
   }
 }
 

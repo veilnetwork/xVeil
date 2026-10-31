@@ -16,7 +16,18 @@ Uint8List _bytes(int length) {
 
 class _RecordingStore extends FakeKvLogStore {
   final commits = <List<KvLogOp>>[];
+  final reads = <String>[];
+  String? failRead;
   bool rejectPublication = false;
+  bool losePublicationReply = false;
+
+  @override
+  Uint8List? get(int namespace, Uint8List key) {
+    final name = utf8.decode(key);
+    reads.add(name);
+    if (name == failRead) throw StateError('injected read failure');
+    return super.get(namespace, key);
+  }
 
   @override
   int commit(List<KvLogOp> ops) {
@@ -27,7 +38,15 @@ class _RecordingStore extends FakeKvLogStore {
         )) {
       throw StateError('injected publication failure');
     }
-    return super.commit(ops);
+    final sequence = super.commit(ops);
+    if (losePublicationReply &&
+        ops.whereType<PutOp>().any(
+          (op) => utf8.decode(op.key).startsWith('file:'),
+        )) {
+      losePublicationReply = false;
+      throw StateError('injected lost commit reply');
+    }
+    return sequence;
   }
 }
 
@@ -158,6 +177,224 @@ void main() {
       );
     });
   }
+
+  test(
+    'async replacement retires a small obsolete file in its publication',
+    () async {
+      final raw = _RecordingStore();
+      final store = AsyncFileStore(SyncWrappedAsyncKvLogStore(raw));
+      await store.storeFile('header', _bytes(100));
+      await store.storeFile('old-tail', _bytes(9000));
+      await store.storeFile('new-tail', _bytes(12000));
+      raw.commits.clear();
+      await store.storeFile(
+        'header',
+        _bytes(200),
+        retireHints: ['old-tail', 'old-tail', 'unknown'],
+      );
+      expect(raw.commits, hasLength(2));
+      expect(await store.loadFile('header'), _bytes(200));
+      expect(await store.loadFile('new-tail'), _bytes(12000));
+      expect(await store.loadFile('old-tail'), isNull);
+      expect(await store.deleteFileOps('old-tail'), isEmpty);
+      expect(_gc(raw)['live'], raw.count(Ns.fileChunks));
+      expect(raw.commits.last, hasLength(8));
+    },
+  );
+
+  test(
+    'retirement failure preserves the old header and every referenced file',
+    () async {
+      final raw = _RecordingStore();
+      final store = AsyncFileStore(SyncWrappedAsyncKvLogStore(raw));
+      await store.storeFile('header', _bytes(100));
+      await store.storeFile('old-tail', _bytes(9000));
+      await store.storeFile('new-tail', _bytes(12000));
+      final oldMeta = raw.get(Ns.settings, _key('file:old-tail'));
+      raw.rejectPublication = true;
+      raw.commits.clear();
+      await expectLater(
+        store.storeFile('header', _bytes(200), retireHints: ['old-tail']),
+        throwsStateError,
+      );
+      expect(raw.commits, hasLength(2));
+      expect(await store.loadFile('header'), _bytes(100));
+      expect(await store.loadFile('old-tail'), _bytes(9000));
+      expect(await store.loadFile('new-tail'), _bytes(12000));
+      expect(raw.get(Ns.settings, _key('file:old-tail')), oldMeta);
+      expect(_gc(raw)['live'], raw.count(Ns.fileChunks));
+      raw.rejectPublication = false;
+      await store.storeFile('header', _bytes(200), retireHints: ['old-tail']);
+      expect(await store.loadFile('header'), _bytes(200));
+      expect(await store.loadFile('old-tail'), isNull);
+      expect(
+        _gc(raw)['live'],
+        raw.count(Ns.fileChunks) + 1,
+        reason:
+            'the existing failed-publication retry reuses one orphan id; '
+            'GC remains a conservative overestimate, not an undercount',
+      );
+    },
+  );
+
+  test(
+    'a lost publication reply leaves a complete retryable new state',
+    () async {
+      final raw = _RecordingStore();
+      final store = AsyncFileStore(SyncWrappedAsyncKvLogStore(raw));
+      await store.storeFile('header', _bytes(100));
+      await store.storeFile('old-tail', _bytes(9000));
+      await store.storeFile('new-tail', _bytes(12000));
+      raw.losePublicationReply = true;
+      await expectLater(
+        store.storeFile('header', _bytes(200), retireHints: ['old-tail']),
+        throwsStateError,
+      );
+      // New facade over the same durable store; no retained in-memory plans.
+      final retry = AsyncFileStore(SyncWrappedAsyncKvLogStore(raw));
+      expect(await retry.loadFile('header'), _bytes(200));
+      expect(await retry.loadFile('old-tail'), isNull);
+      expect(await retry.loadFile('new-tail'), _bytes(12000));
+      raw.commits.clear();
+      await retry.storeFile('header', _bytes(200), retireHints: ['old-tail']);
+      expect(raw.commits, isEmpty);
+      expect(await retry.deleteFileOps('old-tail'), isEmpty);
+      expect(_gc(raw)['live'], raw.count(Ns.fileChunks));
+    },
+  );
+
+  test('retirement budget admits whole files including all metadata', () async {
+    for (final count in [59, 60]) {
+      final raw = _RecordingStore();
+      final store = AsyncFileStore(SyncWrappedAsyncKvLogStore(raw));
+      await store.storeFile('header', _bytes(100));
+      await store.storeFile('tail', _bytes(count * 3800));
+      await store.storeFile('small', _bytes(1000));
+      raw.commits.clear();
+      await store.storeFile(
+        'header',
+        _bytes(200),
+        retireHints: ['tail', 'small'],
+      );
+      expect(raw.commits, hasLength(2));
+      expect(raw.commits.last.length, lessThanOrEqualTo(64));
+      if (count == 59) {
+        expect(raw.commits.last, hasLength(64));
+        expect(await store.loadFile('tail'), isNull);
+        expect(await store.loadFile('small'), _bytes(1000));
+      } else {
+        expect(await store.loadFile('tail'), _bytes(count * 3800));
+        expect(await store.loadFile('small'), isNull);
+      }
+      expect(_gc(raw)['live'], raw.count(Ns.fileChunks));
+      for (final ops in raw.commits) {
+        expect(
+          ops.whereType<AppendLogOp>().isNotEmpty &&
+              ops.whereType<DeleteLogOp>().isNotEmpty,
+          isFalse,
+        );
+      }
+    }
+  });
+
+  test(
+    'optional retirement skips invalid, streamed and unreadable files',
+    () async {
+      final raw = _RecordingStore();
+      final store = AsyncFileStore(SyncWrappedAsyncKvLogStore(raw));
+      await store.storeFile('header', _bytes(100));
+      await store.storeFile('unreadable', _bytes(200));
+      await store.storeFilePiece('stream', 0, 1, 100, 100, _bytes(100));
+      raw.commit([
+        PutOp(Ns.settings, _key('file:bad'), _key('not-json')),
+        PutOp(
+          Ns.settings,
+          _key('file:huge'),
+          _key('{"base":1,"count":1099511627776}'),
+        ),
+      PutOp(
+        Ns.settings,
+        _key('file:overflow'),
+        _key('{"base":9223372036854775807,"count":2}'),
+      ),
+      PutOp(
+        Ns.settings,
+        _key('file:max-count'),
+        _key('{"base":1,"count":9223372036854775807}'),
+      ),
+      ]);
+      raw.failRead = 'file:unreadable';
+      raw.reads.clear();
+      await store.storeFile(
+        'header',
+        _bytes(300),
+      retireHints: ['bad', 'huge', 'overflow', 'max-count', 'stream', 'unreadable'],
+      );
+      expect(raw.reads.where((key) => key.startsWith('filepiece:')), isEmpty);
+      raw.failRead = null;
+      expect(await store.loadFile('header'), _bytes(300));
+      expect(await store.loadFile('unreadable'), _bytes(200));
+      expect(await store.loadFile('stream'), _bytes(100));
+      expect(raw.get(Ns.settings, _key('file:bad')), _key('not-json'));
+      expect(raw.get(Ns.settings, _key('file:huge')), isNotNull);
+    expect(raw.get(Ns.settings, _key('file:overflow')), isNotNull);
+    expect(raw.get(Ns.settings, _key('file:max-count')), isNotNull);
+    },
+  );
+
+  test(
+    'at most 64 hints are read and an unchanged file defers cleanup',
+    () async {
+      final raw = _RecordingStore();
+      final store = AsyncFileStore(SyncWrappedAsyncKvLogStore(raw));
+      await store.storeFile('tail', _bytes(100));
+      final hints = [for (var n = 0; n < 80; n++) 'missing-$n', 'tail'];
+      raw.reads.clear();
+      await store.storeFile('header', _bytes(200), retireHints: hints);
+      expect(
+        raw.reads.where((key) => key.startsWith('file:missing-')),
+        hasLength(64),
+      );
+      expect(await store.loadFile('tail'), _bytes(100));
+      raw.commits.clear();
+      await store.storeFile('header', _bytes(200), retireHints: ['tail']);
+      expect(
+        raw.commits,
+        isEmpty,
+        reason: 'same bytes do not force a publication',
+      );
+      expect(await store.loadFile('tail'), _bytes(100));
+      final cleanup = await store.deleteFileOps('tail');
+      expect(
+        cleanup,
+        isNotEmpty,
+        reason: 'caller must finish deferred cleanup',
+      );
+      raw.commit(cleanup);
+      expect(await store.loadFile('tail'), isNull);
+      await expectLater(
+        store.storeFile('header', _bytes(200), retireHints: ['header']),
+        throwsArgumentError,
+      );
+    },
+  );
+
+  test(
+    'creation with retirement keeps append and delete commits separate',
+    () async {
+      final raw = _RecordingStore();
+      final store = AsyncFileStore(SyncWrappedAsyncKvLogStore(raw));
+      await store.storeFile('old', _bytes(100));
+      raw.commits.clear();
+      await store.storeFile('new', _bytes(200), retireHints: ['old']);
+      expect(raw.commits, hasLength(2));
+      expect(raw.commits.first.whereType<DeleteLogOp>(), isEmpty);
+      expect(raw.commits.last.whereType<AppendLogOp>(), isEmpty);
+      expect(await store.loadFile('old'), isNull);
+      expect(await store.loadFile('new'), _bytes(200));
+      expect(_gc(raw)['live'], raw.count(Ns.fileChunks));
+    },
+  );
 
   test(
     'streamed replacements retain old pieces until final publication',

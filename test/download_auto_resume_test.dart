@@ -198,8 +198,13 @@ class _ObservedResumeStorage extends HiddenVolumeStorage {
   void Function()? onForbiddenRead;
 
   @override
-  Future<void> storeFile(String id, Uint8List bytes, {String? name}) async {
-    await super.storeFile(id, bytes, name: name);
+  Future<void> storeFile(
+    String id,
+    Uint8List bytes, {
+    String? name,
+    List<String> retireHints = const [],
+  }) async {
+    await super.storeFile(id, bytes, name: name, retireHints: retireHints);
     if (id == 'download-resume.registry.v1') onRegistryWrite?.call(bytes);
   }
 
