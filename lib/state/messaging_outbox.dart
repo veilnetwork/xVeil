@@ -1403,6 +1403,7 @@ class _MessagingOutbox {
     }
     // Change volatile accounting only after the all-or-none storage commit.
     for (final id in retired) {
+      _owner._replication._cancelQueuedGroupFrame(destination.hex, id);
       _owner._mailboxDelivery.removeStashed(id);
       final key = _key(destination.hex, id);
       _liveBackoff.remove(key);
@@ -1507,6 +1508,10 @@ class _MessagingOutbox {
     // Preserve synchronous flush invalidation even when chunk ACK handling
     // must await its first authoritative metadata read.
     _flushSnapshot?.invalidate(key);
+    // Another live/retry copy may have earned this ACK while its first attempt
+    // was still waiting behind a different frame. Do not send that stale copy.
+    // Storage failure still leaves the durable row for the ordinary retry.
+    _owner._replication._cancelQueuedGroupFrame(peerHex, frameId);
     if (_MessagingReplication._canonicalChunkTransfer(frameId) != null) {
       if (_sendingUnpersisted.contains(key)) {
         _ackedWhileUnpersisted.add(key);
