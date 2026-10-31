@@ -63,6 +63,20 @@ abstract interface class AsyncLogBatchReader {
   Future<List<Uint8List>?> readLogBatch(int namespace, List<int> logIds);
 }
 
+/// Ordered metadata reads in one worker request. Missing keys keep their null
+/// positions; this does not enumerate a namespace or retain a read cache.
+abstract interface class AsyncKvBatchReader {
+  static const maxKeys = 64;
+  Future<List<Uint8List?>> getBatch(int namespace, List<Uint8List> keys);
+}
+
+List<Uint8List> _snapshotReadKeys(List<Uint8List> keys) {
+  if (keys.length > AsyncKvBatchReader.maxKeys) {
+    throw ArgumentError.value(keys.length, 'keys', 'batch exceeds limit');
+  }
+  return [for (final key in keys) Uint8List.fromList(key)];
+}
+
 List<Uint8List>? _readLogBatch(
   KvLogStore store,
   int namespace,
@@ -88,7 +102,11 @@ List<Uint8List>? _readLogBatch(
 /// keys — are worker-backed now (audit XV-14); this is the degraded path, not
 /// the default one.
 class SyncWrappedAsyncKvLogStore
-    implements AsyncKvLogStore, CommitAnchorSource, AsyncLogBatchReader {
+    implements
+        AsyncKvLogStore,
+        CommitAnchorSource,
+        AsyncLogBatchReader,
+        AsyncKvBatchReader {
   SyncWrappedAsyncKvLogStore(this._inner);
 
   final KvLogStore _inner;
@@ -103,13 +121,16 @@ class SyncWrappedAsyncKvLogStore
   Future<Uint8List?> get(int namespace, Uint8List key) async =>
       _inner.get(namespace, key);
   @override
+  Future<List<Uint8List?>> getBatch(int namespace, List<Uint8List> keys) async {
+    final requested = _snapshotReadKeys(keys);
+    return [for (final key in requested) await get(namespace, key)];
+  }
+
+  @override
   Future<Uint8List?> readLog(int namespace, int logId) async =>
       _inner.readLog(namespace, logId);
   @override
-  Future<List<Uint8List>?> readLogBatch(
-    int namespace,
-    List<int> logIds,
-  ) async {
+  Future<List<Uint8List>?> readLogBatch(int namespace, List<int> logIds) async {
     if (logIds.length > AsyncLogBatchReader.maxRecords) {
       throw ArgumentError.value(logIds.length, 'logIds', 'batch exceeds limit');
     }
@@ -123,6 +144,7 @@ class SyncWrappedAsyncKvLogStore
     }
     return records;
   }
+
   @override
   Future<List<KvLogEntry>> iterLogRange({
     required int namespace,
@@ -253,6 +275,12 @@ class _GetReq extends _Req {
   const _GetReq(this.namespace, this.key, super.reply);
   final int namespace;
   final Uint8List key;
+}
+
+class _GetBatchReq extends _Req {
+  const _GetBatchReq(this.namespace, this.keys, super.reply);
+  final int namespace;
+  final List<Uint8List> keys;
 }
 
 class _ReadLogReq extends _Req {
@@ -412,6 +440,17 @@ void _workerEntry(_OpenConfig cfg) {
         run(() => store.commit(ops));
       case _GetReq(:final namespace, :final key):
         run(() => store.get(namespace, key));
+      case _GetBatchReq(:final namespace, :final keys):
+        run(() {
+          if (keys.length > AsyncKvBatchReader.maxKeys) {
+            throw ArgumentError.value(
+              keys.length,
+              'keys',
+              'batch exceeds limit',
+            );
+          }
+          return [for (final key in keys) store.get(namespace, key)];
+        });
       case _ReadLogReq(:final namespace, :final logId):
         run(() => store.readLog(namespace, logId));
       case _ReadLogBatchReq(:final namespace, :final logIds):
@@ -487,7 +526,11 @@ void _workerEntry(_OpenConfig cfg) {
 /// owns the real [HvKvLogStore]. One instance == one worker == one container
 /// handle. Drop with [close].
 class WorkerKvLogStore
-    implements AsyncKvLogStore, CommitAnchorSource, AsyncLogBatchReader {
+    implements
+        AsyncKvLogStore,
+        CommitAnchorSource,
+        AsyncLogBatchReader,
+        AsyncKvBatchReader {
   WorkerKvLogStore._(this._isolate, this._toWorker, this._watch);
 
   /// Assemble a store over a worker that is ALREADY up.
@@ -666,6 +709,15 @@ class WorkerKvLogStore
   @override
   Future<Uint8List?> get(int namespace, Uint8List key) =>
       _call<Uint8List?>((reply) => _GetReq(namespace, key, reply));
+  @override
+  Future<List<Uint8List?>> getBatch(int namespace, List<Uint8List> keys) async {
+    final requested = _snapshotReadKeys(keys);
+    if (requested.isEmpty) return const <Uint8List?>[];
+    return _call<List<Uint8List?>>(
+      (reply) => _GetBatchReq(namespace, requested, reply),
+    );
+  }
+
   @override
   Future<Uint8List?> readLog(int namespace, int logId) =>
       _call<Uint8List?>((reply) => _ReadLogReq(namespace, logId, reply));

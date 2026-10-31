@@ -9047,6 +9047,16 @@ void main() {
       expect(await storage.loadFile(key), isNotNull);
     });
 
+    test('a valid segment above the batch ceiling uses the original reader', () async {
+      final body = 'z' * (192 * 1024);
+      expect(await svc.postMessage(gid, body, broadcast: false), isTrue);
+      final loaded = await svc.load(gid);
+      expect(loaded, isNotNull);
+      expect(loaded!.messages, hasLength(301));
+      expect(loaded.messages.last.body, body);
+      expect((await svc.messagesOf(gid)).last.body, body);
+    });
+
     test('a missing segment refuses the load rather than dropping its rows',
         () async {
       final key = 'group:${gid.hex}';
@@ -27959,8 +27969,7 @@ class _CountingStorage extends HiddenVolumeStorage {
   /// save in the middle of a load.
   Future<void> Function(String fileId)? beforeLoadFile;
 
-  @override
-  Future<Uint8List?> loadFile(String fileId, {int? maxBytes}) async {
+  Future<void> _beforeRead(String fileId) async {
     if (fileId.contains(':s:')) {
       segmentReads.update(fileId, (n) => n + 1, ifAbsent: () => 1);
       await segmentReadGate?.future;
@@ -27971,7 +27980,18 @@ class _CountingStorage extends HiddenVolumeStorage {
       beforeLoadFile = null;
       await hook(fileId);
     }
+  }
+
+  @override
+  Future<Uint8List?> loadFile(String fileId, {int? maxBytes}) async {
+    await _beforeRead(fileId);
     return super.loadFile(fileId, maxBytes: maxBytes);
+  }
+
+  @override
+  Future<List<Uint8List>?> loadFiles(List<String> ids, {required int maxBytesPerFile}) async {
+    for (final id in ids) { await _beforeRead(id); }
+    return super.loadFiles(ids, maxBytesPerFile: maxBytesPerFile);
   }
 
   @override

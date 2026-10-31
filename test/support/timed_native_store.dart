@@ -19,9 +19,15 @@ const authorizationFlushTimingKey = #xveilStandAuthorizationFlush;
 // reads and rollback-anchor capabilities: dropping either would change the
 // measured production path. Only counts, categories and timings are recorded.
 class TimedNativeStore
-    implements AsyncKvLogStore, AsyncLogBatchReader, CommitAnchorSource {
+    implements
+        AsyncKvLogStore,
+        AsyncLogBatchReader,
+        CommitAnchorSource,
+        AsyncKvBatchReader {
   TimedNativeStore(this.inner, this.clock, this.observe) {
-    if (inner is! AsyncLogBatchReader || inner is! CommitAnchorSource) {
+    if (inner is! AsyncLogBatchReader ||
+        inner is! AsyncKvBatchReader ||
+        inner is! CommitAnchorSource) {
       throw StateError(
         'native timing requires batch reads and rollback anchors',
       );
@@ -83,6 +89,20 @@ class TimedNativeStore
   @override
   Future<Uint8List?> get(int namespace, Uint8List key) =>
       _time('kv.get', () => inner.get(namespace, key), namespaces: [namespace]);
+  @override
+  Future<List<Uint8List?>> getBatch(int namespace, List<Uint8List> keys) =>
+      _time(
+        'kv.getBatch',
+        () async {
+          if (keys.length > AsyncKvBatchReader.maxKeys) {
+            throw ArgumentError('metadata batch exceeds limit');
+          }
+          final requested = [for (final key in keys) Uint8List.fromList(key)];
+          return (inner as AsyncKvBatchReader).getBatch(namespace, requested);
+        },
+        namespaces: [namespace],
+        operations: keys.length,
+      );
   @override
   Future<Uint8List?> readLog(int namespace, int logId) => _time(
     'kv.readLog',
