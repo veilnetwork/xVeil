@@ -8,6 +8,8 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
+## [0.13.94] — 2026-10-31
+
 ### Fixed
 
 - Recheck asynchronous device-family certificate results against current
@@ -57,6 +59,20 @@ bumps may change behaviour a user notices.
   recovery and a subsequent restart on retained macOS/Android profiles.
 - Include bounded video controller state in anonymous diagnostic AOT reports
   while keeping detailed stand history disabled in product builds.
+
+### Dependencies and qualification
+
+- Use Veil 0.11.47 and unchanged hidden-volume 2.6.4. Require media engines
+  rebuilt from the current native source before publishing application bundles.
+- Four isolated process scenarios verified device revocation with online,
+  offline and warm-cache recipients. Separate crash/reconnect and four-process
+  partition scenarios converged in the revision-scoped validation record.
+- Slow large-backlog catch-up remains a known issue: the last physical series
+  recovered 100/100 messages in 106 seconds with matching IDs/order and no
+  duplicates. Full multi-device and long-offline qualification is incomplete.
+- Historical call termination, file-stall, Windows and speech-volume reports
+  remain deferred until recurrence; this release does not claim their causes
+  have been established. Anonymous diagnostics are available for follow-up.
 
 ## [0.13.93] — 2026-10-26
 
