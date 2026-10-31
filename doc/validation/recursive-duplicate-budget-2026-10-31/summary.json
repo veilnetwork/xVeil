@@ -1,0 +1,135 @@
+{
+  "schema": "xveil-recursive-duplicate-validation/1",
+  "date": "2026-10-31",
+  "control_sdk": "516ac549",
+  "verdict": "duplicate charging fixed; overall delivery latency remains open",
+  "production_queries_per_second": 5,
+  "production_query_burst": 20,
+  "early_duplicate_action": "discard without reply or forwarding; no insertion, expiry refresh or cleanup",
+  "unknown_queries_metered_before_decode": true,
+  "native_runs": [
+    {
+      "phase": "duplicate-core-control-1",
+      "max_visible_ms": [
+        4454,
+        2575,
+        2527,
+        3052
+      ],
+      "app_replica_branch_timeouts": 30,
+      "confirmed_leaf_inbound_circuits": 9,
+      "host_exited": true,
+      "released_listeners": 12
+    },
+    {
+      "phase": "duplicate-core-control-2",
+      "max_visible_ms": [
+        7470,
+        3096,
+        2553,
+        3247
+      ],
+      "app_replica_branch_timeouts": 42,
+      "confirmed_leaf_inbound_circuits": 9,
+      "host_exited": true,
+      "released_listeners": 12
+    },
+    {
+      "phase": "duplicate-core-control-3",
+      "max_visible_ms": [
+        7362,
+        2772,
+        3146,
+        3239
+      ],
+      "app_replica_branch_timeouts": 27,
+      "confirmed_leaf_inbound_circuits": 9,
+      "host_exited": true,
+      "released_listeners": 12
+    },
+    {
+      "phase": "duplicate-core-candidate-1",
+      "max_visible_ms": [
+        4471,
+        2346,
+        2998,
+        3468
+      ],
+      "app_replica_branch_timeouts": 29,
+      "confirmed_leaf_inbound_circuits": 9,
+      "host_exited": true,
+      "released_listeners": 12
+    },
+    {
+      "phase": "duplicate-core-candidate-2",
+      "max_visible_ms": [
+        4555,
+        2271,
+        2607,
+        3051
+      ],
+      "app_replica_branch_timeouts": 25,
+      "confirmed_leaf_inbound_circuits": 9,
+      "host_exited": true,
+      "released_listeners": 12
+    },
+    {
+      "phase": "duplicate-core-candidate-3",
+      "max_visible_ms": [
+        4466,
+        2240,
+        3066,
+        2892
+      ],
+      "app_replica_branch_timeouts": 38,
+      "confirmed_leaf_inbound_circuits": 9,
+      "host_exited": true,
+      "released_listeners": 12
+    }
+  ],
+  "all_dht_positive_max_visible_ms": [
+    5131,
+    2838,
+    3661,
+    2688
+  ],
+  "all_runs_messages_once": true,
+  "stand_runs": 7,
+  "messages_per_stand": 4,
+  "nodes_per_stand": 12,
+  "rust_tests": {
+    "dispatcher_passed": 289,
+    "ipc_passed": 196,
+    "runtime_passed": 778,
+    "session_passed": 671,
+    "total_passed": 1934,
+    "ignored": 24
+  },
+  "diagnostic_tests_passed": 13,
+  "external_mount_lost": false,
+  "phone_changed": false,
+  "production_relays_changed": false,
+  "pushed": false,
+  "released": false,
+  "limitations": [
+    "one Mac and JIT host",
+    "native TCP full mesh",
+    "legacy group without membership epoch encryption",
+    "out-of-band roster",
+    "fresh instance keys and unfixed route ordering",
+    "no multi-device matrix qualification"
+  ],
+  "control_visibility_medians_ms": [
+    7362,
+    2772,
+    2553,
+    3239
+  ],
+  "candidate_visibility_medians_ms": [
+    4471,
+    2271,
+    2998,
+    3051
+  ],
+  "candidate_sdk": "081bb6d1"
+}
