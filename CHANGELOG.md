@@ -12,6 +12,12 @@ bumps may change behaviour a user notices.
 
 ### Fixed
 
+- Await durable publication of message edits to the device log before returning
+  success or acknowledging an incoming edit. Closing immediately after editing
+  can no longer interrupt that publication after the API reported completion.
+- Keep a pending deletion's durable synchronization obligation when its device
+  publisher is replaced during storage work; retry under the current binding
+  instead of invoking the closed owner.
 - Recheck asynchronous device-family certificate results against current
   revocations. Propagate verified device revocations on newly accepted sessions
   and preserve their durable authorization evidence under cache pressure.

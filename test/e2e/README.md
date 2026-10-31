@@ -150,12 +150,21 @@ single defect being caught, and nothing downstream notices. So the oracle:
    is minted per recipient and a receipt records the LOCAL moment a row arrived.
    An oracle that hashed those would call every healthy pair divergent;
 2. **no duplicates** — one `(author, seq)` per chain, per device;
-3. **no gaps** — each writer's `seq` chain is contiguous, checked **per writer**
-   (the flat frontier that collapsed several writers into one is what `9cbe6a4`
-   had to fix).
+3. **no numeric gaps for contiguous logs** — checked per signing writer for
+   append-only rows. Sovereign device messages are compactable LWW state, not
+   a contiguous history: author counters can advance on another device, and
+   superseded rows may disappear. Production explicitly writes no hash chain
+   for these state rows. The fixture obtains this distinction from the trusted
+   manifest; duplicate checks and control-chain gap checks always remain.
+4. **expected conversation data** — scenarios may pass the complete expected
+   message-ID list, checked throughout convergence. Cases 3/8 and 20 do so;
+   both devices losing the same expected message, duplicates, or unexpected
+   rows still fail, including when their state-log digests are identical.
 
-2 and 3 are checked per device rather than between them, because two devices
-that are identically broken are not a converged pair.
+These checks run per device as well as between devices. A sparse state-log
+snapshot alone cannot prove completeness of unseen historical events; the case
+must name the expected logical data. Numeric density is not a substitute for
+that expectation and must not diagnose legitimate state rows as lost messages.
 
 ---
 
