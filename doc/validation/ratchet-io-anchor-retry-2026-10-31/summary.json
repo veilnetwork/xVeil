@@ -1,0 +1,89 @@
+{
+  "profiles": {
+    "ratchet-io-baseline-1": {
+      "ratchet.reservation.write": {
+        "count": 311,
+        "median_ms": 47.794,
+        "max_ms": 220.746,
+        "total_ms": 18338.704
+      },
+      "ratchet.reservation.anchor": {
+        "count": 263,
+        "median_ms": 0.013,
+        "max_ms": 0.137,
+        "total_ms": 4.118
+      },
+      "ratchet.snapshot.write": {
+        "count": 406,
+        "median_ms": 52.722,
+        "max_ms": 252.085,
+        "total_ms": 24923.33
+      },
+      "writes_per_anchor_histogram": {
+        "5": 1,
+        "1": 245,
+        "4": 12,
+        "2": 2,
+        "3": 3
+      },
+      "maximum_batched_write_saving": 48,
+      "visible_ms": [
+        4322,
+        2984,
+        2177,
+        2724
+      ]
+    },
+    "ratchet-io-positions-final-1": {
+      "ratchet.reservation.write": {
+        "count": 300,
+        "median_ms": 48.620000000000005,
+        "max_ms": 265.156,
+        "total_ms": 18462.087
+      },
+      "ratchet.reservation.anchor": {
+        "count": 254,
+        "median_ms": 0.014,
+        "max_ms": 0.518,
+        "total_ms": 4.861
+      },
+      "ratchet.snapshot.write": {
+        "count": 409,
+        "median_ms": 49.214,
+        "max_ms": 224.33,
+        "total_ms": 23992.264
+      },
+      "writes_per_anchor_histogram": {
+        "5": 2,
+        "1": 236,
+        "4": 10,
+        "3": 2,
+        "2": 4
+      },
+      "maximum_batched_write_saving": 46,
+      "visible_ms": [
+        4418,
+        2606,
+        2162,
+        2529
+      ],
+      "position_changes": {
+        "new_chain": 303,
+        "changed_chain_in_prior_snapshot": 246,
+        "prior_snapshot_could_cover_position": 246
+      },
+      "all_changed_chains_eligible_writes": 246
+    }
+  },
+  "unit_security_passed": 255,
+  "native_abi_passed": 4,
+  "final_skipped": 0,
+  "stand_count": 2,
+  "messages": 8,
+  "anchor_retry_fixed": true,
+  "snapshot_reservation_folding_implemented": false,
+  "latency_improvement_proven": false,
+  "external_anchor_write_physically_qualified": false,
+  "sdk_changed": false,
+  "multi_device_qualified": false
+}
