@@ -44,6 +44,7 @@ enum DiagnosticEvent {
   networkChange,
   callAudioOutput,
   audioOutputSnapshot,
+  microphoneControl,
 }
 
 enum DiagnosticMetric {
@@ -353,6 +354,7 @@ class DiagnosticJournal {
     DiagnosticEvent.networkChange,
     DiagnosticEvent.callAudioOutput,
     DiagnosticEvent.audioOutputSnapshot,
+    DiagnosticEvent.microphoneControl,
   };
 
   /// Source-controller state, sampled after applying the current observation.

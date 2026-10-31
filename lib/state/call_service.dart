@@ -154,8 +154,8 @@ abstract class CallMediaController {
   /// channel + start the audio engine). Returns true if media is up.
   Future<bool> start(Call call);
 
-  /// Capture was unavailable but native playout started successfully. Reflect
-  /// the effective mute locally and to the peer when promoting the call.
+  /// Input was unavailable at startup or a later unmute failed. Reflect the
+  /// effective mute locally/to the peer until capture can successfully resume.
   bool get startedWithoutMicrophone => false;
 
   /// The route the media engine actually opened. It must equal the negotiated
@@ -171,9 +171,9 @@ abstract class CallMediaController {
   /// Tear down any running media session. Idempotent.
   Future<void> stop();
 
-  /// Mute/unmute the local mic mid-call (stop/resume transmitting). No-op if no
-  /// media session is running.
-  Future<void> setMicMuted(bool muted) async {}
+  /// Apply mic intent, or remember it while media is opening. False means the
+  /// live native operation was refused; the UI must not announce it as applied.
+  Future<bool> setMicMuted(bool muted) async => true;
 
   /// Enable/disable the local camera mid-call (start/stop capturing + sending
   /// video). No-op if no media session is running or the call has no video.
@@ -460,6 +460,7 @@ class CallService {
   Timer? _directAdmissionTimer;
   bool _directAdmissionCheckBusy = false;
   StreamSubscription<void>? _screenShareStoppedSub;
+  int _microphoneOperationEpoch = 0;
   StreamSubscription<CallSignal>? _peerHealthSub;
   DateTime? _lastRegularHealthAt;
   DateTime? _peerCompactReadyUntil;
@@ -1068,15 +1069,29 @@ class CallService {
   Future<void> setMicEnabled(bool on) async {
     final c = _current;
     if (c == null || !c.isLive || c.micOn == on) return;
+    final operation = ++_microphoneOperationEpoch;
     _set(c.copyWith(micOn: on)); // reflect immediately; the UI watches Call
-    await _media?.setMicMuted(!on);
+    bool? accepted;
+    try {
+      accepted = await _media?.setMicMuted(!on);
+    } catch (_) {
+      accepted = false;
+    }
     final current = _current;
+    if (_disposed ||
+        current == null ||
+        !current.isLive ||
+        current.callId != c.callId ||
+        operation != _microphoneOperationEpoch) {
+      return;
+    }
+    if (accepted == false) {
+      _set(current.copyWith(micOn: c.micOn));
+    }
     if (on &&
         _media?.startedWithoutMicrophone == true &&
-        current != null &&
-        current.callId == c.callId &&
-        current.isLive) {
-      _set(current.copyWith(micOn: false));
+        _current?.micOn == true) {
+      _set(_current!.copyWith(micOn: false));
     }
     await _announceCapture();
   }

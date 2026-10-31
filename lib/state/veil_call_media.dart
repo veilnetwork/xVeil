@@ -2436,7 +2436,7 @@ class VeilCallMediaController implements CallMediaController {
   }
 
   @override
-  Future<void> setMicMuted(bool muted) async {
+  Future<bool> setMicMuted(bool muted) async {
     final changed = muted != _microphoneState.muted;
     if (changed) {
       _peerAudioPlayout.invalidateMeasurement();
@@ -2467,14 +2467,51 @@ class VeilCallMediaController implements CallMediaController {
           // A successful retry (including one during startup) supersedes the
           // old capture failure; the FSM must not remute a now-working input.
           _startedWithoutMicrophone = false;
-        } else if (!captureMuted &&
-            applied == false &&
-            _startedWithoutMicrophone) {
-          _engine?.trySetMicMuted(true);
-          _microphoneState.setMuted(true);
+        } else if (applied == false) {
+          if (!captureMuted) {
+            // A failed unmute may already have changed native intent before
+            // capture failed. Close that intent again and preserve receive.
+            _microphoneState.setMuted(true);
+            _startedWithoutMicrophone = true;
+            try {
+              engine?.trySetMicMuted(true);
+            } catch (_) {}
+          }
+          diagnosticJournal.record(
+            DiagnosticEvent.microphoneControl,
+            values: {
+              DiagnosticMetric.enabled: muted ? 0 : 1,
+              DiagnosticMetric.success: 0,
+            },
+          );
+          return false;
         }
       }
-    } catch (_) {}
+    } catch (_) {
+      if (!muted) {
+        _microphoneState.setMuted(true);
+        _startedWithoutMicrophone = true;
+        try {
+          _engine?.trySetMicMuted(true);
+        } catch (_) {}
+      }
+      diagnosticJournal.record(
+        DiagnosticEvent.microphoneControl,
+        values: {
+          DiagnosticMetric.enabled: muted ? 0 : 1,
+          DiagnosticMetric.success: 0,
+        },
+      );
+      return false;
+    }
+    diagnosticJournal.record(
+      DiagnosticEvent.microphoneControl,
+      values: {
+        DiagnosticMetric.enabled: muted ? 0 : 1,
+        DiagnosticMetric.success: 1,
+      },
+    );
+    return true;
   }
 
   Future<void> _loadDevicePreferences() async {
