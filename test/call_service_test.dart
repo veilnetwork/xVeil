@@ -16,6 +16,33 @@ import 'package:xveil/state/messaging.dart';
 import 'package:xveil/state/veil_call_media.dart';
 
 void main() {
+  test('working receive-only startup marks mic off locally and to the peer', () async {
+    final wire = _FakeMessaging();
+    final media = _FakeMedia()..startedWithoutMicrophone = true;
+    final svc = CallService(wire, media: media)..start();
+    addTearDown(svc.dispose);
+    wire.onCallSignal!(NodeId.fromHex('d' * 64), _diagnosticOffer());
+    await pumpEventQueue();
+    await svc.accept();
+    await pumpEventQueue();
+    expect(svc.current?.status, CallStatus.active);
+    expect(svc.current?.micOn, isFalse);
+    final captures = wire.sent.where((row) => row.capture != null);
+    expect(captures, isNotEmpty);
+    expect(captures.last.capture!.audio, isFalse);
+
+    await svc.setMicEnabled(true);
+    await pumpEventQueue();
+    expect(svc.current?.micOn, isFalse,
+        reason: 'an unavailable input cannot be advertised as transmitting');
+    media.startedWithoutMicrophone = false;
+    await svc.setMicEnabled(true);
+    await pumpEventQueue();
+    expect(svc.current?.micOn, isTrue,
+        reason: 'a later successful microphone retry remains available');
+    expect(wire.sent.last.capture?.audio, isTrue);
+  });
+
   test(
     'terminal call diagnostics retain reason after the live slot clears',
     () async {
@@ -6271,6 +6298,8 @@ CallSignal _diagnosticOffer() => CallSignal(
 );
 
 class _FakeMedia extends CallMediaController {
+  @override
+  bool startedWithoutMicrophone = false;
   final List<bool> peerAudioCapture = [];
 
   @override
