@@ -7907,6 +7907,11 @@ void main() {
       final bobStorage = FakeHvContainer().storage();
       await bobStorage.open(password: 'pw', createIfMissing: true);
       final bobService = GroupService(bobStorage, _FakeSigner(bob));
+      final incoming = <String>[];
+      final sub = bobService.incoming.listen(
+        (event) => incoming.add(event.message.body),
+      );
+      addTearDown(sub.cancel);
       expect(
         await bobService.ingestSnapshot(
           ownerService.snapshotJson(base, recipient: bob),
@@ -7924,6 +7929,8 @@ void main() {
       );
       expect(await bobService.messagesOf(groupId), isEmpty);
       expect((await bobService.load(groupId))!.messages, hasLength(1));
+      await Future<void>.delayed(Duration.zero);
+      expect(incoming, isEmpty);
 
       expect(
         await bobService.ingestSnapshot(
@@ -7938,6 +7945,21 @@ void main() {
         (await bobService.messagesOf(groupId)).map((message) => message.body),
         ['zero', 'one'],
       );
+      await Future<void>.delayed(Duration.zero);
+      expect(incoming, ['zero', 'one']);
+      // Parsed snapshot copies must not notify again even though they are
+      // different Dart objects from the retained, already accepted rows.
+      expect(
+        await bobService.ingestSnapshot(
+          ownerService.snapshotJson(
+            base.copyWith(messages: rows),
+            recipient: bob,
+          ),
+        ),
+        isTrue,
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(incoming, ['zero', 'one']);
     },
   );
 
@@ -11852,6 +11874,62 @@ void main() {
       await service.dispose();
       await store.close();
     });
+
+    test(
+      'ingest freshness does not hash unrelated accepted legacy payloads',
+      () async {
+        final rows = [
+          for (var i = 0; i < 120; i++) row(i, author: i.isEven ? owner : bob),
+        ];
+        service.view = base.copyWith(messages: rows);
+        final got = <String>[];
+        final sub = service.incoming.listen(
+          (event) => got.add(event.message.body),
+        );
+        addTearDown(sub.cancel);
+        final incoming = row(121, author: bob, body: 'new remote row');
+        expect(
+          await service.ingestSnapshot(
+            jsonEncode({
+              'm': base.manifest.toJson(),
+              'c': const [],
+              'g': [incoming.toJson()],
+            }),
+          ),
+          isTrue,
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(got, ['new remote row']);
+        expect(
+          rows.map((message) => message.canonicalCalls),
+          everyElement(0),
+          reason: 'old accepted rows only establish the notification baseline',
+        );
+        expect(
+          rows.map((message) => signer.checks[message.ref] ?? 0),
+          everyElement(greaterThan(0)),
+          reason: 'this optimization must not cache old authorization',
+        );
+        // Subsequent reads use actual saved bytes, not the overridden view.
+        service.view = null;
+        expect(
+          (await service.load(base.manifest.groupId))!.messages,
+          hasLength(121),
+        );
+        expect(
+          await service.ingestSnapshot(
+            jsonEncode({
+              'm': base.manifest.toJson(),
+              'c': const [],
+              'g': [incoming.toJson()],
+            }),
+          ),
+          isTrue,
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(got, ['new remote row']);
+      },
+    );
 
     test(
       'unique legacy slots need no fork hashes and still reverify every row',
