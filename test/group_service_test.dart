@@ -8773,6 +8773,30 @@ void main() {
               '(${storage.storedBytes} of $whole bytes)');
     });
 
+    test('saving a grown journal batches live-segment presence checks', () async {
+      final before = (await svc.load(gid))!;
+      final files = await _groupFiles(storage, gid);
+      expect(files.length, greaterThan(3));
+      storage.singlePresenceChecks = 0;
+
+      expect(
+        await svc.postMessage(gid, 'batched append', broadcast: false),
+        isTrue,
+      );
+
+      expect(
+        storage.singlePresenceChecks,
+        0,
+        reason: 'per-segment worker requests hold the group gate',
+      );
+      final after = (await svc.load(gid))!;
+      expect(
+        after.messages.take(before.messages.length).map(groupMessageHash),
+        before.messages.map(groupMessageHash),
+      );
+      expect((await svc.messagesOf(gid)).last.body, 'batched append');
+    });
+
     test('a build from before segments refuses the header, not empties it',
         () async {
       // Such a build reads messages as `d['g'] as List?`. Absent, the group
@@ -27963,6 +27987,13 @@ class _CountingStorage extends HiddenVolumeStorage {
   final segmentReads = <String, int>{};
   Completer<void>? segmentReadGate;
   bool failSegmentRead = false;
+  int singlePresenceChecks = 0;
+
+  @override
+  Future<bool> hasFile(String fileId) {
+    if (fileId.contains(':s:')) singlePresenceChecks++;
+    return super.hasFile(fileId);
+  }
 
 
   /// Called before each file read, once per arming; a test uses it to run a

@@ -32,7 +32,8 @@ import '../domain/clear_policy.dart';
 import '../domain/clear_request.dart';
 import '../crypto/blake3.dart';
 import '../data/node/embedded_node.dart';
-import '../data/storage/file_store.dart' show StoredFileBatchReader;
+import '../data/storage/file_store.dart'
+    show StoredFileBatchReader, StoredFilePresenceReader;
 import '../domain/data_transfer.dart';
 import '../domain/chat.dart'
     show
@@ -6650,12 +6651,16 @@ class GroupService implements ArchiveGroups {
     // Obsolete segments may be scrubbed in the header's publication commit;
     // all remaining deletes happen after it. A failed publication therefore
     // leaves the old header and every segment it needs intact.
+    final present = await _presentStoredSegments([
+      for (final seg in segments)
+        if (previous.live.contains(seg.key)) seg.key,
+    ]);
     for (final seg in segments) {
       // Content-addressed: a key the stored header already names holds these
       // very bytes — if it is still there. Asked, not assumed: a wholesale
       // erase of the file store does not tell this cache, and a header naming
       // a segment that is gone refuses to load for good.
-      if (previous.live.contains(seg.key) && await _storage.hasFile(seg.key)) {
+      if (present.contains(seg.key)) {
         continue;
       }
       await _storage.storeFile(
@@ -6686,6 +6691,30 @@ class GroupService implements ArchiveGroups {
     // [gone] and is not rewritten for a delete that went through, so the
     // stored list is stale from here on; this is the one that is not.
     _segmentIndex[key] = (live: live, pending: failed, recorded: recorded);
+  }
+
+  Future<Set<String>> _presentStoredSegments(List<String> keys) async {
+    final present = <String>{};
+    for (
+      var start = 0;
+      start < keys.length;
+      start += StoredFilePresenceReader.maxFiles
+    ) {
+      final wave = keys.sublist(
+        start,
+        min(start + StoredFilePresenceReader.maxFiles, keys.length),
+      );
+      final found = _storage is StoredFilePresenceReader
+          ? await (_storage as StoredFilePresenceReader).hasFiles(wave)
+          : [for (final key in wave) await _storage.hasFile(key)];
+      if (found.length != wave.length) {
+        throw StateError('group segment presence batch length mismatch');
+      }
+      for (var i = 0; i < wave.length; i++) {
+        if (found[i]) present.add(wave[i]);
+      }
+    }
+    return present;
   }
 
   /// The file id of a message segment, less the `group:` prefix.
