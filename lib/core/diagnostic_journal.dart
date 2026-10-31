@@ -42,6 +42,8 @@ enum DiagnosticEvent {
   microphonePermission,
   cameraPermission,
   networkChange,
+  callAudioOutput,
+  audioOutputSnapshot,
 }
 
 enum DiagnosticMetric {
@@ -113,6 +115,14 @@ enum DiagnosticMetric {
   speakerMuted,
   callVolumePercent,
   systemMicMuted,
+  appAudioSessionState,
+  outputVolumePercent,
+  outputMuted,
+  appOutputVolumePercent,
+  appOutputMuted,
+  outputIsDefault,
+  outputIsCommunicationsDefault,
+  outputDefaultsSame,
 }
 
 /// Bounded process-local evidence. Monotonic offsets, never wall-clock time,
@@ -226,6 +236,67 @@ class DiagnosticJournal {
     'systemMicMuted': DiagnosticMetric.systemMicMuted,
   };
 
+  /// Only fixed protocol fields; no COM IDs, labels, paths or process IDs.
+  /// Separate call/export evidence prevents a post-call empty session snapshot
+  /// from overwriting the mixer state observed during the reported call.
+  void recordAudioOutputState(
+    Map<Object?, Object?>? state, {
+    bool duringCall = false,
+    bool failed = false,
+  }) {
+    final known = state?['schema'] == 'xveil-audio-output/1';
+    final sessionState = state?['sessionState'];
+    final validState =
+        sessionState is int && sessionState >= 0 && sessionState <= 2;
+    final single = known && validState && sessionState == 1;
+    bool volumeValid(String key) =>
+        state?[key] is int &&
+        (state![key] as int) >= 0 &&
+        (state[key] as int) <= 100;
+    final complete =
+        known &&
+        validState &&
+        state?['success'] == true &&
+        (!single ||
+            (volumeValid('outputVolumePercent') &&
+                volumeValid('appVolumePercent') &&
+                state?['outputMuted'] is bool &&
+                state?['appMuted'] is bool));
+    record(
+      duringCall
+          ? DiagnosticEvent.callAudioOutput
+          : DiagnosticEvent.audioOutputSnapshot,
+      values: {
+        DiagnosticMetric.supported: known ? 1 : 0,
+        DiagnosticMetric.success: !failed && complete ? 1 : 0,
+        if (known) ...{
+          for (final entry in _audioOutputBooleans.entries)
+            if (single || entry.key == 'defaultOutputsSame')
+              if (state?[entry.key] case final bool value)
+                entry.value: value ? 1 : 0,
+          for (final entry in _audioOutputNumbers.entries)
+            if (single || entry.key == 'sessionState')
+              if (state?[entry.key] case final int value)
+                if (value >= 0 && value <= entry.value.$2)
+                  entry.value.$1: value,
+        },
+      },
+    );
+  }
+
+  static const _audioOutputBooleans = {
+    'outputMuted': DiagnosticMetric.outputMuted,
+    'appMuted': DiagnosticMetric.appOutputMuted,
+    'usesDefaultOutput': DiagnosticMetric.outputIsDefault,
+    'usesCommunicationsOutput': DiagnosticMetric.outputIsCommunicationsDefault,
+    'defaultOutputsSame': DiagnosticMetric.outputDefaultsSame,
+  };
+  static const _audioOutputNumbers = {
+    'sessionState': (DiagnosticMetric.appAudioSessionState, 2),
+    'outputVolumePercent': (DiagnosticMetric.outputVolumePercent, 100),
+    'appVolumePercent': (DiagnosticMetric.appOutputVolumePercent, 100),
+  };
+
   static const _audioDiscreteFields = {
     'audio_input_level_band': (DiagnosticMetric.audioInputLevelBand, -1, 5),
     'audio_output_level_band': (DiagnosticMetric.audioOutputLevelBand, -1, 5),
@@ -241,6 +312,28 @@ class DiagnosticJournal {
     ),
     'speaker_muted': (DiagnosticMetric.speakerMuted, 0, 1),
   };
+
+  /// A failed start can end before the periodic media sample. Keep the two
+  /// device outcomes immediately; never copy the rest of a native snapshot.
+  void recordAudioStart({
+    required bool success,
+    Map<String, dynamic> stats = const {},
+  }) {
+    record(
+      DiagnosticEvent.audioStart,
+      values: {
+        DiagnosticMetric.success: success ? 1 : 0,
+        for (final entry in const {
+          'audio_capture_start_result':
+              DiagnosticMetric.audioCaptureStartResult,
+          'audio_playout_start_result':
+              DiagnosticMetric.audioPlayoutStartResult,
+        }.entries)
+          if (stats[entry.key] case final int value)
+            if (value >= -1 && value <= 1) entry.value: value,
+      },
+    );
+  }
 
   // Busy network traffic must not erase the last audio/OS/setup evidence while
   // the user navigates to export. Fixed cardinality, process-local only.
@@ -258,6 +351,8 @@ class DiagnosticJournal {
     DiagnosticEvent.microphonePermission,
     DiagnosticEvent.cameraPermission,
     DiagnosticEvent.networkChange,
+    DiagnosticEvent.callAudioOutput,
+    DiagnosticEvent.audioOutputSnapshot,
   };
 
   /// Source-controller state, sampled after applying the current observation.
