@@ -3051,6 +3051,9 @@ class RealVeilStack {
     required EmbeddedNode? embeddedNode,
     required String? identityDir,
   }) async {
+    if (ratchetState is FfiRatchetStateHandle) {
+      ratchetState.bindPeerAuthorizationEvents(transport.peerAuthorizationChanges);
+    }
     final seedsToRegister = runtimeBootstrapPeers ?? bootstrapPeers;
     final registeredSeeds = await registerRuntimeBootstrapPeers(
       seedsToRegister,

@@ -1,0 +1,192 @@
+{
+  "schema": "xveil-authorization-local-wake-validation/1",
+  "sdk_baseline": "081bb6d1",
+  "sdk_candidate": "c46d94db",
+  "dart_tests_passed": 171,
+  "native_tests_passed": 3,
+  "rust_main_tests_passed": 2150,
+  "rust_tests_ignored": 18,
+  "ignored_counted_as_passed": false,
+  "local_ipc_event_kind": 6,
+  "event_payload_bytes": 0,
+  "c_function_abi_fingerprint_changed": false,
+  "native_ack_before_durable_checkpoint": false,
+  "pending_hint_jobs_max": 1,
+  "active_hint_jobs_max": 1,
+  "production_poll_seconds": 1,
+  "native_stand_participants": 12,
+  "distinct_identities": 12,
+  "multi_device_qualification": false,
+  "single_host": true,
+  "separate_processes": false,
+  "epoch_encryption": false,
+  "runs": [
+    {
+      "phase": "wake-control-1",
+      "visible_ms": [
+        4296,
+        2455,
+        2344,
+        2706
+      ],
+      "checkpoint_calls": 40,
+      "authorization_commits": 40,
+      "non_layout_ops": 64,
+      "max_commit_ops": 4,
+      "replace_median_ms": 126.741,
+      "replace_max_ms": 344.645,
+      "sum_commit_ms": 2005.481,
+      "nodes_stopped": true,
+      "released_listeners": 12,
+      "cleanup_errors": [],
+      "variant": "control",
+      "wake_events": 0,
+      "next_version_read_median_ms": null,
+      "next_version_read_max_ms": null
+    },
+    {
+      "phase": "wake-candidate-1",
+      "visible_ms": [
+        4259,
+        2607,
+        2357,
+        3437
+      ],
+      "checkpoint_calls": 40,
+      "authorization_commits": 40,
+      "non_layout_ops": 64,
+      "max_commit_ops": 4,
+      "replace_median_ms": 131.1215,
+      "replace_max_ms": 271.043,
+      "sum_commit_ms": 2138.579,
+      "nodes_stopped": true,
+      "released_listeners": 12,
+      "cleanup_errors": [],
+      "variant": "candidate",
+      "wake_events": 64,
+      "next_version_read_median_ms": 59.5775,
+      "next_version_read_max_ms": 270.682
+    },
+    {
+      "phase": "wake-control-2",
+      "visible_ms": [
+        4223,
+        2471,
+        1728,
+        2942
+      ],
+      "checkpoint_calls": 40,
+      "authorization_commits": 40,
+      "non_layout_ops": 64,
+      "max_commit_ops": 4,
+      "replace_median_ms": 132.92849999999999,
+      "replace_max_ms": 262.063,
+      "sum_commit_ms": 1986.519,
+      "nodes_stopped": true,
+      "released_listeners": 12,
+      "cleanup_errors": [],
+      "variant": "control",
+      "wake_events": 0,
+      "next_version_read_median_ms": null,
+      "next_version_read_max_ms": null
+    },
+    {
+      "phase": "wake-candidate-2",
+      "visible_ms": [
+        4179,
+        2475,
+        2627,
+        2721
+      ],
+      "checkpoint_calls": 40,
+      "authorization_commits": 40,
+      "non_layout_ops": 64,
+      "max_commit_ops": 4,
+      "replace_median_ms": 153.254,
+      "replace_max_ms": 366.854,
+      "sum_commit_ms": 2201.382,
+      "nodes_stopped": true,
+      "released_listeners": 12,
+      "cleanup_errors": [],
+      "variant": "candidate",
+      "wake_events": 64,
+      "next_version_read_median_ms": 83.495,
+      "next_version_read_max_ms": 328.546
+    },
+    {
+      "phase": "wake-control-3",
+      "visible_ms": [
+        4002,
+        2750,
+        2063,
+        2838
+      ],
+      "checkpoint_calls": 39,
+      "authorization_commits": 39,
+      "non_layout_ops": 64,
+      "max_commit_ops": 5,
+      "replace_median_ms": 120.957,
+      "replace_max_ms": 352.146,
+      "sum_commit_ms": 2332.054,
+      "nodes_stopped": true,
+      "released_listeners": 12,
+      "cleanup_errors": [],
+      "variant": "control",
+      "wake_events": 0,
+      "next_version_read_median_ms": null,
+      "next_version_read_max_ms": null
+    },
+    {
+      "phase": "wake-candidate-3",
+      "visible_ms": [
+        4394,
+        2879,
+        2406,
+        2278
+      ],
+      "checkpoint_calls": 39,
+      "authorization_commits": 39,
+      "non_layout_ops": 64,
+      "max_commit_ops": 5,
+      "replace_median_ms": 134.917,
+      "replace_max_ms": 399.565,
+      "sum_commit_ms": 2148.621,
+      "nodes_stopped": true,
+      "released_listeners": 12,
+      "cleanup_errors": [],
+      "variant": "candidate",
+      "wake_events": 64,
+      "next_version_read_median_ms": 71.886,
+      "next_version_read_max_ms": 396.426
+    }
+  ],
+  "medians_visible_ms": {
+    "control": [
+      4223,
+      2471,
+      2063,
+      2838
+    ],
+    "candidate": [
+      4259,
+      2607,
+      2406,
+      2721
+    ]
+  },
+  "overall_delivery_speedup_proven": false,
+  "no_periodic_profile": {
+    "test_only_poll_seconds": 3600,
+    "wake_events": 64,
+    "all_four_messages_visible_once": true,
+    "explicit_flush_paths_excluded": false
+  },
+  "stand_messages_visible_once_total": 36,
+  "hosts_stopped": 9,
+  "released_listeners_per_host": 12,
+  "push_or_release": false,
+  "ab_before_final_bind_catchup": true,
+  "final_bind_catchup_qualified": true,
+  "final_binding_startup_wakes": 12,
+  "final_data_window_wakes": 64
+}

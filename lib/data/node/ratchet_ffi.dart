@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:math' show max, min;
@@ -548,6 +549,7 @@ class FfiRatchetStateHandle
         RatchetStateHandle,
         RatchetPublicationGuard,
         PeerAuthorizationStateHandle,
+        PeerAuthorizationChangeSource,
         PeerDeviceAuthorizationHandle {
   FfiRatchetStateHandle(this._handle, this._dl);
   int? _ownedPublicationEpoch;
@@ -623,6 +625,35 @@ class FfiRatchetStateHandle
   final Pointer<Void> _handle;
   final DynamicLibrary _dl;
   bool _closed = false;
+  final _authorizationChanges = StreamController<void>.broadcast(sync: true);
+  StreamSubscription<void>? _authorizationEventSource;
+
+  @override
+  Stream<void> get peerAuthorizationChanges => _authorizationChanges.stream;
+
+  /// Bind this handle to its own runtime transport's local wake hints. Hints
+  /// never carry authorization; the persistence owner exports this handle.
+  void bindPeerAuthorizationEvents(Stream<void> source) {
+    if (_closed) throw StateError('Native authorization handle is closed');
+    if (_authorizationEventSource != null) {
+      throw StateError('Native authorization wake source already bound');
+    }
+    _authorizationEventSource = source.listen(
+      (_) {
+        if (!_closed) _authorizationChanges.add(null);
+      },
+      onError: (Object _, StackTrace _) {
+        if (!_closed && _authorizationChanges.hasListener) {
+          _authorizationChanges.addError(
+            StateError('Authorization wake source unavailable'),
+          );
+        }
+      },
+    );
+    // The persistence listener starts before transport binding. Catch a revision
+    // learned in that interval, even if its original IPC hint was missed.
+    _authorizationChanges.add(null);
+  }
 
   /// Release the IPC connection. Idempotent.
   ///
@@ -642,6 +673,10 @@ class FfiRatchetStateHandle
       }
     }
     _closed = true;
+    final events = _authorizationEventSource;
+    _authorizationEventSource = null;
+    if (events != null) unawaited(events.cancel());
+    unawaited(_authorizationChanges.close());
     _dl.lookupFunction<_CloseNative, _CloseDart>('veil_close')(_handle);
   }
 

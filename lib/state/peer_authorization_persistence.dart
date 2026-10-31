@@ -22,6 +22,9 @@ class PeerAuthorizationPersistence {
   final Duration pollEvery;
   Future<void> _tail = Future<void>.value();
   Timer? _timer;
+  StreamSubscription<void>? _changes;
+  Future<void>? _checkpointPump;
+  bool _checkpointRequested = false, _wakeFailed = false;
   int? _savedRevision;
   bool _closed = false;
   bool _restored = false;
@@ -45,16 +48,56 @@ class PeerAuthorizationPersistence {
       throw ArgumentError.value(pollEvery, 'pollEvery');
     }
     _timer = Timer.periodic(pollEvery, (_) {
-      unawaited(
-        flush().catchError((Object error, StackTrace stack) {
-          errorJournal.record(
-            kind: 'peer-authorization-persist',
-            atMs: DateTime.now().millisecondsSinceEpoch,
-            error: StateError('Encrypted authorization checkpoint failed'),
-          );
-        }),
-      );
+      // Backstop for a missed notification, and bounded retry after I/O failure.
+      _wakeFailed = false;
+      _requestCheckpoint();
     });
+    final native = _native;
+    if (native is PeerAuthorizationChangeSource) {
+      try {
+        _changes = (native as PeerAuthorizationChangeSource)
+            .peerAuthorizationChanges
+            .listen(
+              (_) => _requestCheckpoint(),
+              onError: (Object _, StackTrace _) => _recordFailure(),
+            );
+      } catch (_) {
+        _recordFailure(); // Polling remains available if subscription fails.
+      }
+      // Subscribe first, then catch anything learned before the listener existed.
+      _requestCheckpoint();
+    }
+  }
+
+  void _recordFailure() => errorJournal.record(
+    kind: 'peer-authorization-persist',
+    atMs: DateTime.now().millisecondsSinceEpoch,
+    error: StateError('Encrypted authorization checkpoint failed'),
+  );
+
+  void _requestCheckpoint() {
+    if (_closed || _wakeFailed) return;
+    _checkpointRequested = true;
+    _checkpointPump ??= _pumpCheckpoints();
+  }
+
+  Future<void> _pumpCheckpoints() async {
+    try {
+      while (!_closed && _checkpointRequested) {
+        _checkpointRequested = false;
+        try {
+          await flush();
+        } catch (_) {
+          // A burst of hints must not turn a failed disk into a busy retry loop.
+          _wakeFailed = true;
+          _checkpointRequested = false;
+          _recordFailure();
+          break;
+        }
+      }
+    } finally {
+      _checkpointPump = null;
+    }
   }
 
   Future<void> flush() {
@@ -87,8 +130,23 @@ class PeerAuthorizationPersistence {
     _closed = true;
     _timer?.cancel();
     _timer = null;
-    return _closing = _tail.then((_) async {
-      if (_restored) await _flush();
-    });
+    _checkpointRequested = false;
+    final done = Completer<void>();
+    _closing = done.future;
+    final changes = _changes;
+    _changes = null;
+    final pump = _checkpointPump;
+    unawaited(() async {
+      try {
+        await changes?.cancel();
+        await pump;
+        await _tail;
+        if (_restored) await _flush();
+        done.complete();
+      } catch (error, stack) {
+        done.completeError(error, stack);
+      }
+    }());
+    return done.future;
   }
 }

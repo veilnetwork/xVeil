@@ -365,6 +365,11 @@ void main() {
               ),
             ]),
           );
+          // Binding must catch state that already existed before the event
+          // stream was attached, even when the source has no queued hint.
+          final bindingWake = handle.peerAuthorizationChanges.first;
+          handle.bindPeerAuthorizationEvents(const Stream<void>.empty());
+          await bindingWake.timeout(const Duration(seconds: 5));
           handle.acknowledgePeerAuthorization(
             handle.peerAuthorizationVersion(),
           );
