@@ -29,6 +29,7 @@ import 'call_media_receive_activity.dart';
 import 'call_audio_source_pressure.dart';
 import 'call_audio_framing.dart';
 import 'call_microphone_state.dart';
+import 'call_audio_start_state.dart';
 import 'call_camera_state.dart';
 import 'desktop_screen_capture_start.dart';
 import 'call_peer_audio_playout.dart';
@@ -501,6 +502,9 @@ class VeilCallMediaController implements CallMediaController {
   static String get _speakerPreferenceKey =>
       'call.playout.speaker.${Platform.operatingSystem}';
   final _microphoneState = CallMicrophoneState();
+  bool _startedWithoutMicrophone = false;
+  @override
+  bool get startedWithoutMicrophone => _startedWithoutMicrophone;
   CallMicrophonePermission? _microphonePermission;
   final _cameraState = CallCameraState();
   VeilMediaEngine? _engine;
@@ -1910,16 +1914,35 @@ class VeilCallMediaController implements CallMediaController {
     // Select communication/headset routing before opening the physical streams.
     await callAudioRouter.useDefaultFor(call.media);
     final audioOk = engine.startAudio(send: true, recv: true);
+    final audioStart = callAudioStartState(
+      started: audioOk,
+      stats: audioOk ? const {} : engine.getStats(),
+    );
+    _startedWithoutMicrophone = false;
+    if (audioStart == CallAudioStartState.receiveOnly) {
+      // A desktop without an input device must still hear its caller. Keep
+      // only the proven working output, and expose the actual mute posture.
+      if (!engine.trySetMicMuted(true)) return false;
+      _microphoneState.setMuted(true);
+      _activeCall = call.copyWith(micOn: false);
+      _startedWithoutMicrophone = true;
+      devLog(
+        () => 'xVeil[call-media]: capture unavailable; receiving audio with mic off',
+      );
+    }
     diagnosticJournal.record(
       DiagnosticEvent.audioStart,
-      values: {DiagnosticMetric.success: audioOk ? 1 : 0},
+      values: {
+        DiagnosticMetric.success: audioStart != CallAudioStartState.failed ? 1 : 0,
+      },
     );
     devLog(() => 'xVeil[call-media]: startAudio=$audioOk');
-    // A mounted video pipeline does not make a failed audio device usable.
-    // Otherwise an audio/video call becomes active with no outgoing voice
-    // (for example when Android refuses capture behind the lock screen).
-    // CallService owns teardown and reports the failed media start.
-    if (call.media.audio && !audioOk) return false;
+    // An unavailable output or unknown startup failure still prevents a live
+    // audio session. Only the positively measured capture-only failure above
+    // permits receive-only audio, with mute reflected in CallService.
+    if (call.media.audio && audioStart == CallAudioStartState.failed) {
+      return false;
+    }
     if (microphonePermission != null) {
       unawaited(
         microphonePermission.applyWhenGranted(
@@ -2266,6 +2289,7 @@ class VeilCallMediaController implements CallMediaController {
     _androidScreen?.rebindFrameSink(null);
     if (clearActiveCall) {
       _routeHandovers = 0;
+      _startedWithoutMicrophone = false;
       _activeCall = null;
       _microphonePermission = null;
       _bitrateAdapter = null;
@@ -2411,7 +2435,18 @@ class VeilCallMediaController implements CallMediaController {
             (paused) => _setVideoSendPausedForAudio(engine, paused),
           );
         }
-        _engine?.setMicMuted(_microphonePermission?.captureMuted(muted) ?? muted);
+        final captureMuted = _microphonePermission?.captureMuted(muted) ?? muted;
+        final applied = _engine?.trySetMicMuted(captureMuted);
+        if (!captureMuted && applied == true) {
+          // A successful retry (including one during startup) supersedes the
+          // old capture failure; the FSM must not remute a now-working input.
+          _startedWithoutMicrophone = false;
+        } else if (!captureMuted &&
+            applied == false &&
+            _startedWithoutMicrophone) {
+          _engine?.trySetMicMuted(true);
+          _microphoneState.setMuted(true);
+        }
       }
     } catch (_) {}
   }
