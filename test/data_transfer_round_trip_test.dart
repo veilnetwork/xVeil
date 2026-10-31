@@ -120,7 +120,12 @@ class _Space implements Storage {
   Future<bool> hasFile(String fileId) async => files.containsKey(fileId);
 
   @override
-  Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) async =>
+  Future<void> storeFile(
+    String fileId,
+    Uint8List bytes, {
+    String? name,
+    List<String> retireHints = const [],
+  }) async =>
       files[fileId] = bytes;
 
   // Present because the sovereign credential is read through it. Without the

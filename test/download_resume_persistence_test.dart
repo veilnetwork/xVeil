@@ -58,14 +58,19 @@ class _HeldStorage extends HiddenVolumeStorage {
   }
 
   @override
-  Future<void> storeFile(String id, Uint8List bytes, {String? name}) async {
+  Future<void> storeFile(
+    String id,
+    Uint8List bytes, {
+    String? name,
+    List<String> retireHints = const [],
+  }) async {
     if (id == registry && release != null) {
       final gate = release!;
       release = null;
       entered!.complete();
       await gate.future;
     }
-    return super.storeFile(id, bytes, name: name);
+    return super.storeFile(id, bytes, name: name, retireHints: retireHints);
   }
 }
 
