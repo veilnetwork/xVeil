@@ -230,8 +230,38 @@ class RatchetPersistence {
   ///
   /// Cheap by design: only when a reservation runs out, or the chain moves
   /// under it, does anything reach the container.
-  Future<void> reserveBeforePublish(NodeId peer) =>
-      _exclusive(() => _reserveBeforePublish(peer));
+  Future<void> reserveBeforePublish(NodeId peer) async {
+    final guard = _publicationGuard;
+    final epoch = _publicationEpoch;
+    if (guard != null &&
+        epoch != null &&
+        !_publicationClosing &&
+        !_publicationRetired &&
+        !_degraded) {
+      final state = guard.hostPublicationState(epoch);
+      if ((state == RatchetPublicationState.idle ||
+              state == RatchetPublicationState.needsReservation) &&
+          _keysFor(peer).every((key) {
+            final live = _native.sendPositions(key);
+            if (live.isEmpty) return true;
+            final marks = _reserved[_hex(key)];
+            return marks != null &&
+                live.every(
+                  (at) => marks.any(
+                    (m) => _sameKey(m.chain, at.chain) && at.next < m.next,
+                  ),
+                );
+          })) {
+        // Read-only reuse of marks already committed by this owner. Waiting
+        // behind an unrelated snapshot/reservation cannot make them safer.
+        // Native checks the current chain, position and attachment again at
+        // key consumption; a concurrent rotation still holds the ciphertext.
+        // A first conversation has no keys yet and uses that same native gate.
+        return;
+      }
+    }
+    await _exclusive(() => _reserveBeforePublish(peer));
+  }
 
   /// This peer's conversation keys, read fresh.
   ///
