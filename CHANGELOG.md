@@ -62,8 +62,12 @@ bumps may change behaviour a user notices.
 
 ### Dependencies and qualification
 
-- Use Veil 0.11.47 and unchanged hidden-volume 2.6.4. Require media engines
-  rebuilt from the current native source before publishing application bundles.
+- Use Veil 0.11.47, unchanged hidden-volume 2.6.4 and media engines from
+  `engine-2026.10.31.2`. Verify the binary checksum, native source digest and
+  exports; canonicalize source ordering across Windows, Linux and macOS.
+- Refresh Veil compression bindings for RUSTSEC-2026-0418/0410 without adding
+  audit exceptions. The reported environments differ from the shipped native
+  runtime; see the Veil release notes for their conditions.
 - Four isolated process scenarios verified device revocation with online,
   offline and warm-cache recipients. Separate crash/reconnect and four-process
   partition scenarios converged in the revision-scoped validation record.
