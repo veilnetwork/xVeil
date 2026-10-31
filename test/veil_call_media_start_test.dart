@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +9,7 @@ import 'package:xveil/data/transport/veil_flutter_transport.dart';
 import 'package:xveil/domain/call.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/state/veil_call_media.dart';
+import 'package:xveil/state/call_microphone_state.dart';
 
 NodeId _id(int value) => NodeId(Uint8List.fromList(List.filled(32, value)));
 
@@ -104,8 +106,8 @@ class _Engine implements VeilMediaEngine {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-Call _call({bool video = false}) => Call(
-  callId: 'receive-only-start',
+Call _call({bool video = false, String callId = 'receive-only-start'}) => Call(
+  callId: callId,
   peer: _id(2),
   direction: CallDirection.incoming,
   media: CallMedia(audio: true, video: video),
@@ -122,6 +124,134 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
+  for (final outcome in [
+    'denied',
+    'capture-refused',
+    'capture-threw',
+    'permission-threw',
+  ]) {
+    test(
+      'late microphone $outcome disables capture posture without stopping receive',
+      () async {
+        final permission = Completer<bool>();
+        final engine = _Engine(nativeStarted: true, capture: 1);
+        final controller = VeilCallMediaController(
+          _Transport(),
+          engineFactory:
+              ({required veilChan, required localId, required peerId}) =>
+                  engine,
+          microphonePermissionFactory: (_) =>
+              CallMicrophonePermission(permission.future),
+        );
+        final unavailable = <String>[];
+        final sub = controller.microphoneUnavailable.listen(unavailable.add);
+        try {
+          expect(await controller.start(_call()), isTrue);
+          expect(
+            engine.mutes.last,
+            isTrue,
+            reason: 'pending permission gates capture',
+          );
+          engine.muteAccepted = outcome != 'capture-refused';
+          engine.throwOnMute = outcome == 'capture-threw';
+          if (outcome == 'permission-threw') {
+            permission.completeError(
+              StateError('private permission provider failure'),
+            );
+          } else {
+            permission.complete(outcome != 'denied');
+          }
+          await pumpEventQueue();
+          expect(controller.startedWithoutMicrophone, isTrue);
+          expect(unavailable, ['receive-only-start']);
+          expect(engine.disposed, isFalse);
+        if (outcome == 'capture-refused' || outcome == 'capture-threw') {
+          engine.muteAccepted = true;
+          engine.throwOnMute = false;
+          expect(await controller.setMicMuted(false), isTrue);
+          expect(controller.startedWithoutMicrophone, isFalse);
+          expect(engine.mutes.last, isFalse);
+        }
+        } finally {
+          await controller.stop();
+          await sub.cancel();
+        }
+      },
+    );
+  }
+
+  for (final end in ['stop', 'new-call', 'new-engine']) {
+    test('late denial cannot affect $end', () async {
+      final permission = Completer<bool>();
+      final first = _Engine(nativeStarted: true, capture: 1);
+      final replacement = _Engine(nativeStarted: true, capture: 1);
+      var creates = 0;
+      var requests = 0;
+      final controller = VeilCallMediaController(
+        _Transport(),
+        engineFactory:
+            ({required veilChan, required localId, required peerId}) =>
+                creates++ == 0 ? first : replacement,
+        microphonePermissionFactory: (_) => CallMicrophonePermission(
+          requests++ == 0 ? permission.future : Future.value(true),
+        ),
+      );
+      final unavailable = <String>[];
+      final sub = controller.microphoneUnavailable.listen(unavailable.add);
+      try {
+        expect(await controller.start(_call()), isTrue);
+        if (end == 'stop') {
+          await controller.stop();
+        } else {
+          expect(
+            await controller.start(
+              _call(callId: end == 'new-call' ? 'new' : 'receive-only-start'),
+            ),
+            isTrue,
+          );
+        }
+        final calls = first.mutes.length;
+        permission.complete(false);
+        await pumpEventQueue();
+        expect(first.mutes, hasLength(calls));
+        expect(unavailable, isEmpty);
+        expect(controller.startedWithoutMicrophone, isFalse);
+      } finally {
+        await controller.stop();
+        await sub.cancel();
+      }
+    });
+  }
+
+  test(
+    'late successful grant keeps receive active and permits later mute retry',
+    () async {
+      final permission = Completer<bool>();
+      final engine = _Engine(nativeStarted: true, capture: 1);
+      final controller = VeilCallMediaController(
+        _Transport(),
+        engineFactory:
+            ({required veilChan, required localId, required peerId}) => engine,
+        microphonePermissionFactory: (_) =>
+            CallMicrophonePermission(permission.future),
+      );
+      final unavailable = <String>[];
+      final sub = controller.microphoneUnavailable.listen(unavailable.add);
+      try {
+        expect(await controller.start(_call()), isTrue);
+        permission.complete(true);
+        await pumpEventQueue();
+        expect(engine.mutes.last, isFalse);
+        expect(controller.startedWithoutMicrophone, isFalse);
+        expect(unavailable, isEmpty);
+        expect(await controller.setMicMuted(true), isTrue);
+        expect(await controller.setMicMuted(false), isTrue);
+      } finally {
+        await controller.stop();
+        await sub.cancel();
+      }
+    },
+  );
   for (final unmute in [false, true]) {
     test(
       'refused ${unmute ? "unmute" : "mute"} does not reopen capture on route rebuild',
