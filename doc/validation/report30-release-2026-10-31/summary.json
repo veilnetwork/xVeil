@@ -1,0 +1,107 @@
+{
+  "schema": "xveil-release-validation/1",
+  "application_source_commit": "e30ed503",
+  "sdk_source_commit": "a1ec4e308dabae235202d2889f80629956d45b3f",
+  "report_findings": 17,
+  "release_status": "local_validation_complete_native_artifact_pipeline_pending",
+  "planned_versions": {
+    "veil": "0.11.47",
+    "xveil": "0.13.94+113",
+    "hidden_volume": "2.6.4 (unchanged)"
+  },
+  "tests": {
+    "flutter": {
+      "passed": 6762,
+      "skipped": 217,
+      "failed": 0
+    },
+    "dispatcher": {
+      "passed": 290,
+      "failed": 0
+    },
+    "runtime": {
+      "passed": 784,
+      "ignored": 11,
+      "failed": 0
+    },
+    "onion_stream": {
+      "passed": 116,
+      "failed": 0
+    },
+    "decoder_sweep": {
+      "passed": 3
+    },
+    "media_source_guard": {
+      "passed": 3
+    },
+    "analyzer": "no_issues"
+  },
+  "native_process_scenarios": [
+    {
+      "scenario": "revoke_offline_C",
+      "sdk": "a1ec4e30",
+      "passed": true
+    },
+    {
+      "scenario": "revoke_online_C",
+      "sdk": "a1ec4e30",
+      "passed": true
+    },
+    {
+      "scenario": "first_send_from_returned_C",
+      "sdk": "a1ec4e30",
+      "passed": true
+    },
+    {
+      "scenario": "revoke_warm_C_transport_partition",
+      "sdk": "a1ec4e30",
+      "passed": true
+    },
+    {
+      "scenario": "sender_crash_reconnect",
+      "sdk": "7da65d9c",
+      "passed": true
+    },
+    {
+      "scenario": "four_process_split_brain_convergence",
+      "sdk": "7da65d9c",
+      "passed": true,
+      "first_converged_ms": 19959,
+      "stable_ms": 10005
+    }
+  ],
+  "known_remaining": [
+    "Slow large-backlog catch-up: last physical 100/100 at 106.071 seconds; correctness converged.",
+    "File-backed full-snapshot floor IO and mesh receive allocation remain optimization work.",
+    "Repeated seal budget availability risk has no reproduced application failure; not claimed fixed.",
+    "Full local rollback has no independent witness; historical orphaned transport fragments remain a limitation.",
+    "The full 63-case matrix, long offline/OEM and physical Windows 10 are not qualified by this cycle."
+  ],
+  "deferred_until_recurrence": [
+    "historical_25s_call",
+    "historical_120s_offer",
+    "historical_33pct_file_stall",
+    "Windows_delivery_audio_onboarding",
+    "quiet_speech",
+    "OEM_sleep"
+  ],
+  "mixed_version_qualification_required": false,
+  "artifact_gate": {
+    "pinned_engine": "engine-2026.10.25",
+    "sidecars_checked": 7,
+    "all_native_sources_differ": true,
+    "rebuild_and_repin_required": true,
+    "media_source_sha256": "0fa28d9e71e7d81f36f4f4a205151af9c259dd6f7910ac511dae3e7d49a2d9a8"
+  },
+  "cleanup": {
+    "remaining_stand_processes": 0,
+    "generated_directories_removed": 10,
+    "logical_gib_removed": 9.84
+  },
+  "publication": {
+    "pushed": false,
+    "tagged": false,
+    "released": false,
+    "production_servers_changed": false
+  }
+}
