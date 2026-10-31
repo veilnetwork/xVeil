@@ -55,6 +55,27 @@ void main() {
     });
   });
 
+  test(
+    'writer-key hex keeps the existing byte format without a node-id length limit',
+    () {
+      for (final length in [0, 1, 31, 32, 33, 1312]) {
+        final bytes = Uint8List.fromList(List.generate(length, (i) => i % 256));
+        final reference = bytes
+            .map((byte) => byte.toRadixString(16).padLeft(2, '0'))
+            .join();
+        expect(hexOfBytes(bytes), reference);
+      }
+      final bytes = Uint8List.fromList([0, 1, 15, 16, 127, 128, 254, 255]);
+      expect(hexOfBytes(bytes), '00010f107f80feff');
+      bytes[0] = 255;
+      expect(
+        hexOfBytes(bytes),
+        'ff010f107f80feff',
+        reason: 'encoding must not retain stale mutable key bytes',
+      );
+    },
+  );
+
   test('a JSON object survives a round trip through jsonEncode', () {
     // Pins the shape `_saveSeen` writes. CloudService materialises the seen-
     // revision map with jsonEncode(Map), while the loader accepted only a
