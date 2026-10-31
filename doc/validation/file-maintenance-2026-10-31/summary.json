@@ -1,0 +1,186 @@
+{
+  "schema": "xveil-validation/file-maintenance/1",
+  "date": "2026-10-31",
+  "base_commit": "402dd4f840f3ce65c74a502a656fc6aeaca48d80",
+  "sdk_commit": "c46d94db41a27e2ee01cdb56396506dad62730bf",
+  "fixed": {
+    "queued_file_jobs_crossing_close_open": true,
+    "queued_file_jobs_resurrecting_after_erase": true,
+    "file_jobs_bind_to_accepted_session": true,
+    "new_file_jobs_refused_during_maintenance": true,
+    "accepted_file_jobs_finish_before_close_erase": true,
+    "queue_recovers_after_failed_file_job": true,
+    "fence_recovers_after_failed_erase": true,
+    "baseline_red_scenarios": 3,
+    "gui_switch_with_network_download_reproduced": false
+  },
+  "tests": {
+    "new_unit_scenarios": 5,
+    "scoped_passed": 513,
+    "identity_app_controller_on_disk_passed": 94,
+    "native_worker_backed_passed": 2,
+    "analyzer_clean": true,
+    "native_uses_two_fixture_containers": true,
+    "native_reopen_verifies_durable_state": true,
+    "native_inline_development_run_not_added_to_total": true
+  },
+  "physical": {
+    "devices": 3,
+    "A_B_same_identity": true,
+    "C_other_identity": true,
+    "mac_frontend_fixed_at_baseline": true,
+    "android_profile_aot_current_with_external_probes": true,
+    "messages": 10,
+    "A_online_C_offline_during_recovery": true,
+    "B_complete_before_C_return": true,
+    "first_full_observation_ms": 63876,
+    "poll_seconds_approximately": 10,
+    "all_three_equal_ids_order_no_duplicates": true,
+    "end_to_end_speedup_established": false,
+    "repeats_5_minute_100_message_case": false,
+    "both_A_C_offline_case": false,
+    "io": {
+      "file_operations": 90,
+      "gated_operations": 90,
+      "ring_dropped": 0,
+      "paths": {
+        "stored": 29,
+        "unchanged": 61,
+        "failed": 0
+      },
+      "kinds": {
+        "header": {
+          "operations": 14,
+          "median_stage_ms": {
+            "chunks": 0.03,
+            "metadata": 1.477,
+            "prior": 41.906,
+            "plan": 3.959,
+            "writes": 91.913
+          },
+          "max_stage_ms": {
+            "chunks": 0.081,
+            "metadata": 117.484,
+            "prior": 244.9,
+            "plan": 113.805,
+            "writes": 148.14
+          },
+          "commit_count": 28,
+          "median_commit_ms": 45.591,
+          "max_commit_ms": 89.946,
+          "gate_median_ms": 0.083,
+          "gate_max_ms": 119.135
+        },
+        "segment": {
+          "operations": 15,
+          "median_stage_ms": {
+            "chunks": 0.016,
+            "metadata": 1.469,
+            "prior": 0.006,
+            "plan": 20.917,
+            "writes": 76.744
+          },
+          "max_stage_ms": {
+            "chunks": 0.047,
+            "metadata": 19.462,
+            "prior": 0.011,
+            "plan": 139.39,
+            "writes": 115.084
+          },
+          "commit_count": 15,
+          "median_commit_ms": 76.712,
+          "max_commit_ms": 115.042,
+          "gate_median_ms": 0.043,
+          "gate_max_ms": 43.787
+        },
+        "other": {
+          "operations": 61,
+          "median_stage_ms": {
+            "chunks": 0.011,
+            "metadata": 8.109,
+            "prior": 37.401,
+            "plan": 0.0,
+            "writes": 0.007
+          },
+          "max_stage_ms": {
+            "chunks": 0.06,
+            "metadata": 306.124,
+            "prior": 519.107,
+            "plan": 0.0,
+            "writes": 0.016
+          },
+          "commit_count": 0,
+          "median_commit_ms": null,
+          "max_commit_ms": null,
+          "gate_median_ms": 0.046,
+          "gate_max_ms": 255.954
+        }
+      },
+      "ingest": {
+        "frames": 13,
+        "save_median_ms": 765.467,
+        "save_max_ms": 1358.929
+      }
+    }
+  },
+  "measurement_limits": [
+    "direct AsyncFileStore.storeFile commits only, not global storage commits",
+    "commit duration is worker RPC await, not pure fsync",
+    "timings from separate non-A/B route-variable series",
+    "61 unchanged two-byte file operations have no source-service attribution",
+    "prior 3.32 second save peaks not attributed"
+  ],
+  "provenance": {
+    "source_binding": {
+      "all_product_library_sources_match_snapshot": true,
+      "all_QA_library_sources_match_snapshot": true,
+      "only_declared_QA_files_changed": true,
+      "qa_changed_files": [
+        "lib/data/storage/file_store.dart",
+        "lib/data/storage/hidden_volume_storage.dart",
+        "lib/state/group_service.dart"
+      ],
+      "storage_product_sha256": "95cbf156362c436da4354ae653caf030d94eda39afffb99c09859280b340e178",
+      "storage_qa_sha256": "b991eb46d17d664caae35028316b246e8d8bc5da6dc6a0b7e63a0f7e3f454447",
+      "group_product_sha256": "91180924335f8369073119806049f83f1639504d40cf91914b84a6aa25c2bd3a",
+      "file_store_product_sha256": "5c7a3cc38e879139bf06bc49cb843baee633640217dc6ed0664353ed42b81ed6",
+      "no_QA_stage_markers_in_product": true
+    },
+    "candidate_android": {
+      "apk_sha256": "fa36dd27ead04387b6ecf4025deeba1119da3b1f32b57faad0084a62bc839614",
+      "native_sha256": "398724abab60fa1b9dcb540cb17ed090c9aa1e4f6a9bc62ce410b5b98006e879",
+      "aot_sha256": "9687dc256767b70ad7145a1a7a7074d9723428d4009f46e4a21c829929017f53",
+      "aot": true,
+      "retained_six_native_libraries": true,
+      "same_signer": true
+    },
+    "native_sdk_unchanged": true,
+    "rust_rebuilt": false,
+    "external_flutter_outputs_mount_watchdog": true,
+    "qa_probes_outside_repository": true,
+    "main_android_package_untouched": true
+  },
+  "cleanup": {
+    "all_stand_processes_exited": true,
+    "original_phone_QA_apk_sha_verified": true,
+    "phone_stopped": true,
+    "own_forward_absent": true,
+    "mac_ports_rebindable": true,
+    "runtimes_removed": true,
+    "profile_data_retained": true,
+    "main_android_package_untouched": true,
+    "redundant_apk_bytes_removed": 166874751,
+    "external_flutter_output_removed": true,
+    "external_flutter_logical_bytes_removed": 858516429,
+    "redundant_native_input_bytes_removed": 52265800,
+    "candidate_and_original_QA_APKs_retained": true
+  },
+  "push": false,
+  "release": false,
+  "open": [
+    "slow delivery/catch-up",
+    "pre-ingest Outbox/retry and worker RPC attribution",
+    "source of unchanged two-byte file operations",
+    "remaining multi-device matrix"
+  ]
+}
