@@ -190,7 +190,8 @@ class VeilFlutterTransport
         RealtimeInboundTransport,
         StreamTransport,
         P2PStreamTransport,
-        CallMediaChannelOpener {
+        CallMediaChannelOpener,
+        NetworkChangeTransport {
   VeilFlutterTransport._(
     this._socketPath,
     this._nodeId,
@@ -225,6 +226,27 @@ class VeilFlutterTransport
   final VeilClient _realtimeClient;
   final VeilClient _mediaClient;
   final VeilClient _mailboxClient;
+
+  @override
+  Future<void> networkChanged(NetworkAttachment attachment) async {
+    if (_disposing) return;
+    // A fresh control connection cannot queue behind a mailbox resolve or a
+    // media sender's writer lock. The node owns reconnecting its existing
+    // peers: do not add public seeds or bypass this identity's routing policy.
+    final client = await VeilClient.connect(_socketPath);
+    try {
+      if (_disposing) return;
+      await client.notifyNetworkChanged(switch (attachment) {
+        NetworkAttachment.unknown => NetworkKind.unknown,
+        NetworkAttachment.wifi => NetworkKind.wifi,
+        NetworkAttachment.cellular => NetworkKind.cellular,
+        NetworkAttachment.ethernet => NetworkKind.ethernet,
+        NetworkAttachment.offline => NetworkKind.offline,
+      });
+    } finally {
+      await client.close();
+    }
+  }
   final AppHandle _app;
   // Sender-only binding with the same chat app identity. A file's remote
   // open receipt holds the FFI AppSender mutex, so it needs its own sender
