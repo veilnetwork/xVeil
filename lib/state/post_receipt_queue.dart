@@ -51,6 +51,16 @@ class PostReceiptQueue {
     return job.done.future;
   }
 
+  /// Forget waiting work that is no longer needed. An active transport future
+  /// keeps its lane and budget until it actually settles.
+  bool cancelPending(String key) {
+    final job = _jobs[key];
+    if (job == null || !_waiting.remove(job)) return false;
+    _release(job);
+    _pump();
+    return true;
+  }
+
   void _pump() {
     while (!_closed && _active.length < maxConcurrent && _waiting.isNotEmpty) {
       _ReceiptJob? ready;

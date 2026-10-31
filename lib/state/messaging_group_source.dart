@@ -4,6 +4,20 @@ part of 'messaging_core.dart';
 /// can be created inside serialized inbound handling: waiting for their live
 /// legs there blocks unrelated incoming chat for every response fragment.
 extension _GroupSourceSending on _MessagingReplication {
+  String _groupSourceKey(int epoch, String peerHex, String frameId) =>
+      crypto.sha256.convert(utf8.encode('$epoch|$peerHex|$frameId')).toString();
+
+  void _cancelQueuedGroupFrame(String peerHex, String frameId) {
+    // ACK ids are untrusted. Only bounded source IDs can own queue work.
+    if (frameId.length > 340 ||
+        (!frameId.startsWith('grp:') && !frameId.startsWith('grpc:'))) {
+      return;
+    }
+    _owner._groupSourceQueue.cancelPending(
+      _groupSourceKey(_groupEpoch, peerHex, frameId),
+    );
+  }
+
   Future<void> _sendStoredGroupFrame(
     NodeId destination,
     String frameId,
@@ -32,9 +46,7 @@ extension _GroupSourceSending on _MessagingReplication {
     final bytes = 512 + 6 * frameId.length + 2 * wire.length;
     final key = bytes > queue.maxBytes
         ? 'oversized'
-        : crypto.sha256
-              .convert(utf8.encode('$epoch|${peer.hex}|$frameId'))
-              .toString();
+        : _groupSourceKey(epoch, peer.hex, frameId);
     final dropped = queue.dropped;
     final done = queue.submit(
       key: key,
