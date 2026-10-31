@@ -1,0 +1,146 @@
+{
+  "baseline_root_commit": "6fe8b42f",
+  "confirmed_mechanism": "conversation retries awaited complete control outbox flush",
+  "default_control_live_leg_deadline_ms": 10000,
+  "fix": "join independent control and conversation jobs with Future.wait; wait for both on failure",
+  "red_cases": 2,
+  "regression_cases": 4,
+  "checks_passed": 309,
+  "checks_skipped": 0,
+  "final_targeted_checks_passed": 4,
+  "analyze": "no issues",
+  "native_functional": {
+    "nodes": 12,
+    "messages": 4,
+    "converged": true,
+    "host_stopped": true,
+    "released_listeners": 12,
+    "cleanup_errors": [],
+    "timing_dropped": 0,
+    "directly_qualifies_control_vs_message_gate": false,
+    "single_mac_jit": true,
+    "epoch_encryption": false
+  },
+  "rejected_file_metadata_probe": {
+    "shipped": false,
+    "comparison": "only file_store.dart differs; all other lib and support files and native libraries frozen",
+    "runs": [
+      {
+        "variant": "a",
+        "run": 1,
+        "visible_ms": [
+          3372,
+          1358,
+          1896,
+          1980
+        ],
+        "get_calls": 7283,
+        "group_header_gets": 986,
+        "host_stopped": true,
+        "released_listeners": 12,
+        "cleanup_errors": []
+      },
+      {
+        "variant": "b",
+        "run": 1,
+        "visible_ms": [
+          3771,
+          1823,
+          2673,
+          2498
+        ],
+        "get_calls": 7108,
+        "group_header_gets": 771,
+        "host_stopped": true,
+        "released_listeners": 12,
+        "cleanup_errors": []
+      },
+      {
+        "variant": "a",
+        "run": 2,
+        "visible_ms": [
+          3896,
+          1676,
+          1497,
+          2138
+        ],
+        "get_calls": 7241,
+        "group_header_gets": 975,
+        "host_stopped": true,
+        "released_listeners": 12,
+        "cleanup_errors": []
+      },
+      {
+        "variant": "b",
+        "run": 2,
+        "visible_ms": [
+          3358,
+          1669,
+          1515,
+          2257
+        ],
+        "get_calls": 7079,
+        "group_header_gets": 774,
+        "host_stopped": true,
+        "released_listeners": 12,
+        "cleanup_errors": []
+      },
+      {
+        "variant": "a",
+        "run": 3,
+        "visible_ms": [
+          3944,
+          1684,
+          1671,
+          2320
+        ],
+        "get_calls": 7295,
+        "group_header_gets": 978,
+        "host_stopped": true,
+        "released_listeners": 12,
+        "cleanup_errors": []
+      },
+      {
+        "variant": "b",
+        "run": 3,
+        "visible_ms": [
+          4096,
+          1544,
+          1501,
+          2631
+        ],
+        "get_calls": 7018,
+        "group_header_gets": 772,
+        "host_stopped": true,
+        "released_listeners": 12,
+        "cleanup_errors": []
+      }
+    ],
+    "medians": {
+      "a": {
+        "visible_ms": [
+          3896,
+          1676,
+          1671,
+          2138
+        ],
+        "get_calls": 7283,
+        "group_header_gets": 978
+      },
+      "b": {
+        "visible_ms": [
+          3771,
+          1669,
+          1515,
+          2498
+        ],
+        "get_calls": 7079,
+        "group_header_gets": 772
+      }
+    },
+    "every_fourth_message_slower": true
+  },
+  "source_sha256": "e1969732625b777fbdaa28c6f572e99f6147602a005db9602e8e579b70336825",
+  "native_sdk_commit": "c46d94db",
+  "no_push_or_release": true
+}
