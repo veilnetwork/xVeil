@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
@@ -82,7 +83,193 @@ class _Store extends SyncWrappedAsyncKvLogStore {
   }
 }
 
+class _RecordingStore extends _Store {
+  _RecordingStore(super.raw);
+  final commits = <List<KvLogOp>>[];
+  int? failCommit;
+  Future<void> Function()? afterCommit;
+
+  @override
+  Future<int> commit(List<KvLogOp> ops) async {
+    commits.add(List.of(ops));
+    if (commits.length == failCommit) {
+      throw StateError('injected authorization batch failure');
+    }
+    final result = await super.commit(ops);
+    await afterCommit?.call();
+    return result;
+  }
+}
+
 void main() {
+  test('polling-only owner waits for the next checkpoint tick', () {
+    fakeAsync((clock) {
+      final native = _Native();
+      final owner = PeerAuthorizationPersistence(
+        native: native,
+        storage: HiddenVolumeStorage.fromStore(FakeKvLogStore()),
+        pollEvery: const Duration(seconds: 1),
+      );
+      owner.restore([]);
+      var primed = false;
+      owner.flush().then((_) => primed = true);
+      clock.flushMicrotasks();
+      expect(primed, isTrue);
+      native.acks.clear();
+      owner.start();
+      clock.elapse(const Duration(milliseconds: 1));
+      native.observe(_entry(1));
+      clock.elapse(const Duration(milliseconds: 998));
+      expect(
+        native.acks,
+        isEmpty,
+        reason: 'instant storage cannot remove the wait for a polling tick',
+      );
+      clock.elapse(const Duration(milliseconds: 1));
+      expect(native.acks, [2]);
+      var closed = false;
+      owner.close().then((_) => closed = true);
+      clock.flushMicrotasks();
+      expect(closed, isTrue);
+      final reads = native.reads;
+      clock.elapse(const Duration(seconds: 2));
+      expect(native.reads, reads);
+    });
+  });
+
+  test('small authorization snapshots share one bounded commit', () async {
+    final raw = FakeKvLogStore();
+    final io = _RecordingStore(raw);
+    final storage = HiddenVolumeStorage.fromAsyncStore(io);
+    final entries = [for (var n = 1; n <= 11; n++) _entry(n)];
+    await storage.replacePeerAuthorization(entries);
+    expect(
+      io.commits,
+      hasLength(1),
+      reason: 'independent documents need not pay one commit apiece',
+    );
+    expect(io.commits.single.length, lessThanOrEqualTo(64));
+    expect(
+      (await storage.loadPeerAuthorization()).map((e) => e.peer),
+      unorderedEquals(entries.map((e) => e.peer)),
+    );
+    final committed = raw.commitSeq();
+    await storage.replacePeerAuthorization(entries);
+    expect(raw.commitSeq(), committed, reason: 'unchanged snapshot is a no-op');
+  });
+
+  test('bounded authorization batches never split a document', () async {
+    final raw = FakeKvLogStore();
+    final io = _RecordingStore(raw);
+    final storage = HiddenVolumeStorage.fromAsyncStore(io);
+    final entries = [
+      for (var n = 1; n <= 20; n++)
+        _entry(n, length: PeerAuthorizationEntry.maxDocumentBytes),
+    ];
+    await storage.replacePeerAuthorization(entries);
+    expect(io.commits.length, greaterThan(1));
+    final batchOf = <String, int>{};
+    final chunkCount = <String, int>{};
+    for (var n = 0; n < io.commits.length; n++) {
+      final ops = io.commits[n];
+      expect(ops.length, lessThanOrEqualTo(64));
+      for (final op in ops.whereType<PutOp>()) {
+        if (op.key.length != 35) continue;
+        final peer = base64Encode(op.key.sublist(1, 33));
+        expect(
+          batchOf.putIfAbsent(peer, () => n),
+          n,
+          reason: 'one document crossed a durable batch boundary',
+        );
+        chunkCount.update(peer, (v) => v + 1, ifAbsent: () => 1);
+      }
+    }
+    expect(batchOf, hasLength(20));
+    expect(chunkCount.values, everyElement(17));
+    expect(
+      (await storage.loadPeerAuthorization()).map((e) => e.document),
+      everyElement(entries.first.document),
+    );
+  });
+
+  test(
+    'authorization eviction stays below restore budget after every commit',
+    () async {
+      final raw = FakeKvLogStore();
+      final io = _RecordingStore(raw);
+      final storage = HiddenVolumeStorage.fromAsyncStore(io);
+      final cap = PeerAuthorizationEntry.maxEntries;
+      await storage.replacePeerAuthorization([
+        for (var n = 1; n <= cap; n++) _entry(n, length: 10),
+      ]);
+      io.commits.clear();
+      io.afterCommit = () async {
+        final reopened = HiddenVolumeStorage.fromStore(raw);
+        expect(
+          (await reopened.loadPeerAuthorization()).length,
+          lessThanOrEqualTo(cap),
+        );
+      };
+      final replacement = [
+        for (var n = cap + 1; n <= cap * 2; n++) _entry(n, length: 10),
+      ];
+      await storage.replacePeerAuthorization(replacement);
+      expect(
+        io.commits.map((ops) => ops.length),
+        everyElement(lessThanOrEqualTo(64)),
+      );
+      expect(
+        (await storage.loadPeerAuthorization()).map((e) => e.peer),
+        unorderedEquals(replacement.map((e) => e.peer)),
+      );
+    },
+  );
+
+  test(
+    'failed authorization batch retains whole documents and withholds ACK',
+    () async {
+      final raw = FakeKvLogStore();
+      final io = _RecordingStore(raw);
+      final storage = HiddenVolumeStorage.fromAsyncStore(io);
+      final old = [for (var n = 1; n <= 80; n++) _entry(n, length: 4500)];
+      await storage.replacePeerAuthorization(old);
+      final native = _Native();
+      final owner = PeerAuthorizationPersistence(
+        native: native,
+        storage: storage,
+      );
+      owner.restore(old);
+      native.entries = [for (var n = 1; n <= 80; n++) _entry(n, fill: 9)];
+      native.revision++;
+      io.commits.clear();
+      io.failCommit = 2;
+      await expectLater(owner.flush(), throwsStateError);
+      expect(native.acks, isEmpty);
+      final recovered = await HiddenVolumeStorage.fromStore(
+        raw,
+      ).loadPeerAuthorization();
+      expect(recovered, hasLength(80));
+      for (final e in recovered) {
+        expect(
+          e.document,
+          anyOf(
+            equals(old.first.document),
+            equals(native.entries.first.document),
+          ),
+          reason: 'a document was left between versions',
+        );
+      }
+      io.failCommit = null;
+      await owner.flush();
+      expect(native.acks, [2]);
+      expect(
+        (await storage.loadPeerAuthorization()).map((e) => e.document),
+        everyElement(native.entries.first.document),
+      );
+      await owner.close();
+    },
+  );
+
   test('bounded chunks survive reopen and coexist with ratchet keys', () async {
     final raw = FakeKvLogStore();
     final storage = HiddenVolumeStorage.fromStore(raw);
@@ -119,7 +306,8 @@ void main() {
     expect(
       raw.count(Ns.ratchet),
       4,
-      reason: 'auth layout, cleanup budget, auth head and ratchet head; old tails removed',
+      reason:
+          'auth layout, cleanup budget, auth head and ratchet head; old tails removed',
     );
     expect(
       (await reopened.loadPeerAuthorization()).single.document,
