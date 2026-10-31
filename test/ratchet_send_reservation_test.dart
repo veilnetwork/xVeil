@@ -270,6 +270,23 @@ class _ReservationStorage extends HiddenVolumeStorage {
   bool failAfterCommit = false;
   int writes = 0;
   int anchors = 0;
+  int pairedSaves = 0;
+  Future<void> Function()? beforePairedSave;
+  Future<void> Function()? afterPairedSave;
+  bool declinePaired = false;
+  @override
+  Future<void> saveRatchetStates(List<RatchetStateEntry> entries) async {
+    if (entries.any((entry) => entry.sendReservation != null)) {
+      pairedSaves++;
+      if (declinePaired) throw const RatchetSnapshotReservationTooLarge();
+      await beforePairedSave?.call();
+      await super.saveRatchetStates(entries);
+      await afterPairedSave?.call();
+    } else {
+      await super.saveRatchetStates(entries);
+    }
+  }
+
   @override
   Future<void> putSetting(String key, String value) async {
     if (key.startsWith('ratchet_reserve:')) {
@@ -630,6 +647,13 @@ void _hostPublicationTests() {
       for (var i = 0; i < 31; i++) {
         node.seal(key);
       }
+      // These cases start with an existing durable session and test the
+      // standalone reservation path. Persist it before attaching the owner;
+      // a guarded flush now proactively reserves new snapshot chains.
+      await storage.saveRatchetStates([
+        RatchetStateEntry(key, node.export(key)!),
+      ]);
+      node.ackDirty([key], node.stateVersion());
       owner = RatchetPersistence(native: node, storage: storage);
       await owner.flush(now: true);
     });
@@ -646,91 +670,306 @@ void _hostPublicationTests() {
       expect(node.allowed, 0);
     });
 
-    test('retry after a lost reservation reply attempts the rollback anchor', () async {
-      storage.failAfterCommit = true;
-      await expectLater(owner.reserveBeforePublish(peer), throwsStateError);
-      expect(await storage.getSetting(ratchetReservationKey(key)), isNotNull);
+    test(
+      'a guarded snapshot prepares its reservation without a separate precheck',
+      () async {
+        node.rotate(key, 81);
+        await owner.flush(now: true);
+        expect(storage.pairedSaves, 1);
+        expect(storage.writes, 0);
+        expect(node.seal(key), 0);
+      },
+    );
+
+    test(
+      'snapshot reservation waits for commit and anchor before permit',
+      () async {
+        node.rotate(key, 81);
+        final committed = Completer<void>();
+        final allowCommitReply = Completer<void>();
+        storage.afterPairedSave = () async {
+          committed.complete();
+          await allowCommitReply.future;
+        };
+        final anchorEntered = Completer<void>();
+        storage.anchorEntered = anchorEntered;
+        storage.anchorHold = Completer<void>();
+        final work = owner.flush(now: true);
+        try {
+          await committed.future;
+          expect(storage.pairedSaves, 1);
+          expect(node.allowed, 0);
+          expect(node.peekDirty(32).keys, isNotEmpty);
+          expect(() => node.seal(key), throwsStateError);
+          expect(
+            await storage.getSetting(ratchetReservationKey(key)),
+            isNotNull,
+          );
+          allowCommitReply.complete();
+          await anchorEntered.future;
+          expect(node.allowed, 0);
+          expect(node.peekDirty(32).keys, isNotEmpty);
+          expect(() => node.seal(key), throwsStateError);
+        } finally {
+          if (!allowCommitReply.isCompleted) allowCommitReply.complete();
+          storage.anchorHold!.complete();
+          storage.anchorHold = null;
+          await work;
+        }
+        expect(node.peekDirty(32).keys, isEmpty);
+        expect(node.seal(key), 0);
+        expect(storage.writes, 0, reason: 'no separate setting write');
+      },
+    );
+
+    test(
+      'snapshot preparation preserves a higher durable reservation',
+      () async {
+        node.rotate(key, 81);
+        await storage.putSetting(
+          ratchetReservationKey(key),
+          encodeRatchetReservations([
+            RatchetSendPosition(node.sendPosition(key)!.chain, 100),
+          ]),
+        );
+        await owner.flush(now: true);
+        expect(
+          decodeRatchetReservations(
+            (await storage.getSetting(ratchetReservationKey(key)))!,
+          ).single.next,
+          100,
+        );
+        expect(node.seal(key), 0);
+      },
+    );
+
+    test('paired budget refusal uses the separate reservation path', () async {
+      node.rotate(key, 81);
+      storage.declinePaired = true;
+      await owner.flush(now: true);
+      expect(storage.pairedSaves, 1);
+      expect(storage.writes, 1);
+      expect(storage.anchors, 1);
+      expect(node.peekDirty(32).keys, isEmpty);
+      expect(node.seal(key), 0);
+    });
+
+    test(
+      'failed paired save holds the native floor and dirty acknowledgement',
+      () async {
+        node.rotate(key, 81);
+        storage.beforePairedSave = () async {
+          throw StateError('paired write failed');
+        };
+        await expectLater(owner.flush(now: true), throwsStateError);
+        expect(
+          storage.writes,
+          0,
+          reason: 'I/O failure must not use the budget fallback',
+        );
+        expect(node.allowed, 0);
+        expect(node.peekDirty(32).keys, isNotEmpty);
+        expect(() => node.seal(key), throwsStateError);
+        storage.beforePairedSave = null;
+        await owner.flush(now: true);
+        expect(node.seal(key), 0);
+      },
+    );
+
+    test(
+      'a rotation during paired IO cannot reuse the exported chain permit',
+      () async {
+        node.rotate(key, 81);
+        storage.beforePairedSave = () async {
+          node.rotate(key, 82);
+        };
+        await owner.flush(now: true);
+        expect(node.allowed, 0);
+        expect(() => node.seal(key), throwsStateError);
+        expect(node.peekDirty(32).keys, isNotEmpty);
+        final saved = await storage.loadRatchetState(key);
+        expect(node.storedSendPositions(key, saved!).single.chain.first, 81);
+        storage.beforePairedSave = null;
+        await owner.flush(now: true);
+        expect(
+          node
+              .storedSendPositions(key, (await storage.loadRatchetState(key))!)
+              .single
+              .chain
+              .first,
+          82,
+        );
+        expect(node.seal(key), 0);
+      },
+    );
+
+    test('a replaced owner grants no permit after paired IO', () async {
+      node.rotate(key, 81);
+      final previous = owner;
+      storage.afterPairedSave = () async {
+        owner = RatchetPersistence(native: node, storage: storage);
+      };
+      await previous.flush(now: true);
       expect(node.allowed, 0);
       expect(storage.anchors, 0);
-      storage.failAfterCommit = false;
-      final entered = Completer<void>();
-      storage.anchorEntered = entered;
-      storage.anchorHold = Completer<void>();
-      final retry = owner.reserveBeforePublish(peer);
-      try {
-        await entered.future;
-        expect(storage.anchors, 1,
-            reason: 'marks read back after an uncertain commit have no witness '
-                'that the rollback anchor was attempted');
-        expect(node.allowed, 0);
-        expect(() => node.seal(key), throwsStateError);
-      } finally {
-        storage.anchorHold!.complete();
-        storage.anchorHold = null;
-        await retry;
-      }
-      expect(node.seal(key), 31);
-      await owner.reserveBeforePublish(peer);
-      expect(storage.anchors, 1, reason: 'a warm cache hit needs no new attempt');
-    });
-
-    test('a covered guarded send does not wait for another reservation', () async {
-      await owner.reserveBeforePublish(peer);
-      final allowed = node.allowed;
-      final foreign = _convKey(local: 1, peerNode: 3);
-      node.rotate(foreign, 77);
-      expect(() => node.seal(foreign), throwsStateError);
-      final entered = Completer<void>();
-      storage.entered = entered;
-      storage.hold = Completer<void>();
-      final blocked = owner.reserveBeforePublish(
-        NodeId(Uint8List.fromList(List.filled(32, 3))),
-      );
-      await entered.future;
-      var finished = false;
-      final covered = owner.reserveBeforePublish(peer).then((_) {
-        finished = true;
-      });
-      try {
-        // Event-loop barrier, not a timing bound. The foreign commit remains
-        // gated throughout; a cached durable reservation needs no storage I/O.
-        await Future<void>.delayed(Duration.zero);
-        expect(finished, isTrue);
-        expect(node.allowed, allowed, reason: 'no new permission is installed');
-        expect(node.seal(key), 31);
-        expect(() => node.seal(foreign), throwsStateError);
-      } finally {
-        storage.hold!.complete();
-        storage.hold = null;
-        await Future.wait([blocked, covered]);
-      }
-      expect(node.seal(foreign), 0);
-    });
-
-    test('cached marks do not grant a native floor before the anchor attempt', () async {
       expect(() => node.seal(key), throwsStateError);
-      final entered = Completer<void>();
-      storage.anchorEntered = entered;
-      storage.anchorHold = Completer<void>();
-      final reserving = owner.reserveBeforePublish(peer);
-      await entered.future;
-      var finished = false;
-      final covered = owner.reserveBeforePublish(peer).then((_) {
-        finished = true;
-      });
-      try {
-        await Future<void>.delayed(Duration.zero);
-        expect(finished, isTrue);
+      storage.afterPairedSave = null;
+      await previous.close();
+      expect(node.active, isTrue);
+      await owner.reserveBeforePublish(peer);
+      expect(
+        storage.anchors,
+        1,
+        reason: 'successor must witness the durable readback',
+      );
+      expect(node.seal(key), 0);
+    });
+
+    test('closing during paired IO never reopens publication', () async {
+      node.rotate(key, 81);
+      Future<int>? closing;
+      storage.afterPairedSave = () async {
+        closing = owner.close();
+      };
+      await owner.flush(now: true);
+      await closing;
+      expect(node.active, isFalse);
+      expect(node.allowed, 0);
+      expect(storage.anchors, 0);
+      expect(() => node.seal(key), throwsStateError);
+      expect(await storage.loadRatchetState(key), isNotNull);
+    });
+
+    test(
+      'a lost paired reply leaves permits held until an anchored retry',
+      () async {
+        node.rotate(key, 81);
+        storage.afterPairedSave = () async {
+          throw StateError('lost paired reply');
+        };
+        await expectLater(owner.flush(now: true), throwsStateError);
         expect(await storage.getSetting(ratchetReservationKey(key)), isNotNull);
         expect(node.allowed, 0);
+        expect(storage.anchors, 0);
+        expect(node.peekDirty(32).keys, isNotEmpty);
         expect(() => node.seal(key), throwsStateError);
-      } finally {
-        storage.anchorHold!.complete();
-        storage.anchorHold = null;
-        await Future.wait([reserving, covered]);
-      }
-      expect(node.seal(key), 31);
-    });
+        storage.afterPairedSave = null;
+        await owner.flush(now: true);
+        expect(storage.anchors, 1);
+        expect(storage.writes, 0);
+        expect(node.seal(key), 0);
+      },
+    );
+
+    test(
+      'retry after a lost reservation reply attempts the rollback anchor',
+      () async {
+        storage.failAfterCommit = true;
+        await expectLater(owner.reserveBeforePublish(peer), throwsStateError);
+        expect(await storage.getSetting(ratchetReservationKey(key)), isNotNull);
+        expect(node.allowed, 0);
+        expect(storage.anchors, 0);
+        storage.failAfterCommit = false;
+        final entered = Completer<void>();
+        storage.anchorEntered = entered;
+        storage.anchorHold = Completer<void>();
+        final retry = owner.reserveBeforePublish(peer);
+        try {
+          await entered.future;
+          expect(
+            storage.anchors,
+            1,
+            reason:
+                'marks read back after an uncertain commit have no witness '
+                'that the rollback anchor was attempted',
+          );
+          expect(node.allowed, 0);
+          expect(() => node.seal(key), throwsStateError);
+        } finally {
+          storage.anchorHold!.complete();
+          storage.anchorHold = null;
+          await retry;
+        }
+        expect(node.seal(key), 31);
+        await owner.reserveBeforePublish(peer);
+        expect(
+          storage.anchors,
+          1,
+          reason: 'a warm cache hit needs no new attempt',
+        );
+      },
+    );
+
+    test(
+      'a covered guarded send does not wait for another reservation',
+      () async {
+        await owner.reserveBeforePublish(peer);
+        final allowed = node.allowed;
+        final foreign = _convKey(local: 1, peerNode: 3);
+        node.rotate(foreign, 77);
+        expect(() => node.seal(foreign), throwsStateError);
+        final entered = Completer<void>();
+        storage.entered = entered;
+        storage.hold = Completer<void>();
+        final blocked = owner.reserveBeforePublish(
+          NodeId(Uint8List.fromList(List.filled(32, 3))),
+        );
+        await entered.future;
+        var finished = false;
+        final covered = owner.reserveBeforePublish(peer).then((_) {
+          finished = true;
+        });
+        try {
+          // Event-loop barrier, not a timing bound. The foreign commit remains
+          // gated throughout; a cached durable reservation needs no storage I/O.
+          await Future<void>.delayed(Duration.zero);
+          expect(finished, isTrue);
+          expect(
+            node.allowed,
+            allowed,
+            reason: 'no new permission is installed',
+          );
+          expect(node.seal(key), 31);
+          expect(() => node.seal(foreign), throwsStateError);
+        } finally {
+          storage.hold!.complete();
+          storage.hold = null;
+          await Future.wait([blocked, covered]);
+        }
+        expect(node.seal(foreign), 0);
+      },
+    );
+
+    test(
+      'cached marks do not grant a native floor before the anchor attempt',
+      () async {
+        expect(() => node.seal(key), throwsStateError);
+        final entered = Completer<void>();
+        storage.anchorEntered = entered;
+        storage.anchorHold = Completer<void>();
+        final reserving = owner.reserveBeforePublish(peer);
+        await entered.future;
+        var finished = false;
+        final covered = owner.reserveBeforePublish(peer).then((_) {
+          finished = true;
+        });
+        try {
+          await Future<void>.delayed(Duration.zero);
+          expect(finished, isTrue);
+          expect(
+            await storage.getSetting(ratchetReservationKey(key)),
+            isNotNull,
+          );
+          expect(node.allowed, 0);
+          expect(() => node.seal(key), throwsStateError);
+        } finally {
+          storage.anchorHold!.complete();
+          storage.anchorHold = null;
+          await Future.wait([reserving, covered]);
+        }
+        expect(node.seal(key), 31);
+      },
+    );
 
     for (final change in ['rotation', 'exhaustion', 'sibling']) {
       test('a $change cannot reuse a covered reservation fast path', () async {
