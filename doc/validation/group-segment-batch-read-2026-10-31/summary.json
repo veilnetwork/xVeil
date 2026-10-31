@@ -1,0 +1,401 @@
+{
+  "schema": "xveil-validation/group-segment-batch-read/1",
+  "date": "2026-10-31",
+  "base_commit": "61a24dc674c1ffd1266d8185cfbcb7500d2c1f3b",
+  "sdk_commit": "c46d94db41a27e2ee01cdb56396506dad62730bf",
+  "source_sha256": {
+    "lib/data/storage/async_kv_log_store.dart": "dcb7661fc4fdd629ebab36faf9f912d4cb9cd2945c6c51f4402039ea82156ff7",
+    "lib/data/storage/file_store.dart": "76b6f255bdb8d7bfc4d43b8972d5d1fa72bb96482461b2597588047a277fdcbf",
+    "lib/data/storage/hidden_volume_storage.dart": "03444fed90a9f961a7eb4b6d9a7d45f1933836491186514e37ae117b6553178a",
+    "lib/state/group_service.dart": "bac12bc900f0ade7a790533536d8ed8e96e578db8bff5ffb0a30a2b93cf1063c",
+    "test/group_service_test.dart": "afcaa06b67284d73ee32dd30e393206db4812592cdf93dd25bea3f9733c06f6c",
+    "test/stored_file_batch_read_test.dart": "825e3bc0b9e3bfec5c9fa6b76b3bf952682b22c33b21f82cd21d9e926e2553af",
+    "test/storage_file_read_session_test.dart": "a6f735fd1188db4d9c85584a44e29c3ce540ff450dbad37e4f551d10ea43f367",
+    "test/support/timed_native_store.dart": "e9b8bb8ade0f5e0526b4fbffbd01176cd2b5f9ef10542cc0d1f860f5acae6249",
+    "test/support/timed_group_storage.dart": "65cc032d1de816da2d46dd68620f139666c2e21666fbd6c99635a1c2276295a8",
+    "test/native/group_segment_batch_read_test.dart": "7ba64627183a8621b1efb8a115e5bbc5c5c33d230f8584e69ac87fa8ce7b5528"
+  },
+  "fix": {
+    "metadata_RPC_batching": true,
+    "individual_KV_lookups_not_eliminated": true,
+    "files_per_wave": 8,
+    "group_prefetch_bytes_per_file": 131072,
+    "large_missing_or_unavailable_batch_uses_original_reader": true,
+    "no_cross_read_cache": true,
+    "unchanged_validation_and_ACK_barriers": true,
+    "storage_session_pinned": true,
+    "wire_change": false,
+    "SDK_change": false,
+    "intermediate_max_int_budget_overflow_caught_before_install": true
+  },
+  "tests": {
+    "scoped_passed": 638,
+    "scoped_skipped": 3,
+    "analyzer_clean": true,
+    "native_safety_passed": 5,
+    "native_IO_test_baseline_budget_red": true,
+    "native_IO_test_final_candidates_pass": true,
+    "candidate_source_restored": true,
+    "test_timing_adapter_requires_KV_batch_support": true
+  },
+  "native_control": {
+    "real_worker": true,
+    "real_signature_rows_verified_outside_load_timer": true,
+    "baseline_A1": [
+      {
+        "rows": 128,
+        "segments": 9,
+        "repeats": 20,
+        "rpc_counts": {
+          "kv.get": 400,
+          "kv.readLogBatch": 200
+        },
+        "us": 604044
+      },
+      {
+        "rows": 256,
+        "segments": 18,
+        "repeats": 20,
+        "rpc_counts": {
+          "kv.get": 760,
+          "kv.readLogBatch": 380
+        },
+        "us": 1165454
+      }
+    ],
+    "candidate_B": [
+      {
+        "rows": 128,
+        "segments": 9,
+        "repeats": 20,
+        "rpc_counts": {
+          "kv.get": 40,
+          "kv.readLogBatch": 200,
+          "kv.getBatch": 80
+        },
+        "us": 586247
+      },
+      {
+        "rows": 256,
+        "segments": 18,
+        "repeats": 20,
+        "rpc_counts": {
+          "kv.get": 40,
+          "kv.readLogBatch": 380,
+          "kv.getBatch": 120
+        },
+        "us": 1136795
+      }
+    ],
+    "baseline_A2": [
+      {
+        "rows": 128,
+        "segments": 9,
+        "repeats": 20,
+        "rpc_counts": {
+          "kv.get": 400,
+          "kv.readLogBatch": 200
+        },
+        "us": 605726
+      },
+      {
+        "rows": 256,
+        "segments": 18,
+        "repeats": 20,
+        "rpc_counts": {
+          "kv.get": 760,
+          "kv.readLogBatch": 380
+        },
+        "us": 1173371
+      }
+    ],
+    "candidate_restored": [
+      {
+        "rows": 128,
+        "segments": 9,
+        "repeats": 20,
+        "rpc_counts": {
+          "kv.get": 40,
+          "kv.readLogBatch": 200,
+          "kv.getBatch": 80
+        },
+        "us": 582100
+      },
+      {
+        "rows": 256,
+        "segments": 18,
+        "repeats": 20,
+        "rpc_counts": {
+          "kv.get": 40,
+          "kv.readLogBatch": 380,
+          "kv.getBatch": 120
+        },
+        "us": 1129662
+      }
+    ],
+    "KV_lookups_unchanged_payload_RPC_counts_unchanged": true,
+    "overall_delivery_speedup_established": false
+  },
+  "native_overlay": {
+    "nodes": 12,
+    "local_tcp_only": true,
+    "public_discovery": false,
+    "dht_participation": true,
+    "membership_epoch_encryption": false,
+    "native_signatures": true,
+    "encrypted_stores": true,
+    "ratchet_persistence": true,
+    "peer_authorization_persistence": true,
+    "separate_processes": false,
+    "converged": true,
+    "released_listeners": 12,
+    "cleanup_errors": [],
+    "nodes_stopped": true,
+    "completed_samples": 4,
+    "timing_dropped": 0,
+    "host_process_exited": true
+  },
+  "physical": {
+    "topology": "A Mac and B Android same identity; C second Mac another identity",
+    "all_roles_current_Dart": true,
+    "android_profile_AOT": true,
+    "mac_current_Dart_JIT_frozen_Runner_plugins": true,
+    "SDK_libraries_frozen": true,
+    "previous_hundred_messages_present_on_all_three_before_run": true,
+    "A_sent": 98,
+    "C_sent": 2,
+    "offline_minimum_seconds": 300,
+    "offline_until_B_ready_seconds": 357.6,
+    "A_online_C_offline_until_after_B_full_observation": true,
+    "observations": [
+      {
+        "ms": 126,
+        "visible": 0
+      },
+      {
+        "ms": 11178,
+        "visible": 0
+      },
+      {
+        "ms": 21487,
+        "visible": 1
+      },
+      {
+        "ms": 31984,
+        "visible": 2
+      },
+      {
+        "ms": 42460,
+        "visible": 4
+      },
+      {
+        "ms": 53174,
+        "visible": 5
+      },
+      {
+        "ms": 63485,
+        "visible": 15
+      },
+      {
+        "ms": 73947,
+        "visible": 40
+      },
+      {
+        "ms": 84693,
+        "visible": 55
+      },
+      {
+        "ms": 94956,
+        "visible": 94
+      },
+      {
+        "ms": 106071,
+        "visible": 100
+      }
+    ],
+    "first_full_observation_ms": 106071,
+    "all_three_complete": true,
+    "same_ids_order": true,
+    "duplicates": 0,
+    "stage_capture": {
+      "captures": 11,
+      "unique_lines": 2602,
+      "max_reported_ring_dropped": 0,
+      "deduplicated_by_exact_timestamped_line": true,
+      "queue_wait_ms_from_dispatch_timer": {
+        "groupEntry": {
+          "dispatch_start": {
+            "n": 13,
+            "median_ms": 48912.773,
+            "max_ms": 87853.077
+          },
+          "ratchet_done": {
+            "n": 13,
+            "median_ms": 3.109,
+            "max_ms": 212.491
+          }
+        },
+        "groupEntryChunk": {
+          "dispatch_start": {
+            "n": 103,
+            "median_ms": 44658.909,
+            "max_ms": 86962.044
+          },
+          "ratchet_done": {
+            "n": 103,
+            "median_ms": 0.439,
+            "max_ms": 2140.869
+          }
+        }
+      },
+      "ingest_count": 19,
+      "zero_fresh_ingests": 7,
+      "ingest_stages": {
+        "parse": {
+          "n": 19,
+          "median_ms": 1.172,
+          "max_ms": 6.151
+        },
+        "deletion_check": {
+          "n": 19,
+          "median_ms": 30.583,
+          "max_ms": 484.986
+        },
+        "existing": {
+          "n": 19,
+          "median_ms": 0.549,
+          "max_ms": 1562.327
+        },
+        "accepted_before": {
+          "n": 19,
+          "median_ms": 87.96,
+          "max_ms": 175.565
+        },
+        "control_keys": {
+          "n": 19,
+          "median_ms": 13.814,
+          "max_ms": 70.344
+        },
+        "merge_rows": {
+          "n": 19,
+          "median_ms": 3.715,
+          "max_ms": 147.103
+        },
+        "accepted_after": {
+          "n": 19,
+          "median_ms": 71.165,
+          "max_ms": 134.241
+        },
+        "posts_reactions": {
+          "n": 19,
+          "median_ms": 1.16,
+          "max_ms": 7.746
+        },
+        "save": {
+          "n": 19,
+          "median_ms": 1322.863,
+          "max_ms": 8221.839
+        },
+        "prime_admission": {
+          "n": 19,
+          "median_ms": 7.877,
+          "max_ms": 10.79
+        },
+        "notifications": {
+          "n": 19,
+          "median_ms": 9.443,
+          "max_ms": 543.161
+        }
+      },
+      "adopted_delta_load": {
+        "wait_us": {
+          "n": 15,
+          "median_ms": 2651.99,
+          "max_ms": 4704.303
+        },
+        "load_us": {
+          "n": 15,
+          "median_ms": 1121.256,
+          "max_ms": 2798.608
+        }
+      },
+      "capture_window_ends_at_first_full_visibility": true,
+      "ingest_rows_min": 335,
+      "ingest_rows_max": 412,
+      "ingest_input_max": 52
+    },
+    "network_routes_pinned": false,
+    "historical_backlog_and_incoming_frame_mix_not_matched": true,
+    "causal_speedup_not_claimed": true,
+    "no_both_A_C_offline_new_pairing_revoke_days_offline_crash_or_call_qualification": true,
+    "APK_sha256": "ab1030258c3ac313b43c2888e69ad1daa15b9e61023ebe21df8eb3fd25c25a69",
+    "mac_artifacts": {
+      "mac": {
+        "sdk_input_sha256": "3ecdfb936433f7f72072222d57624a4fb50702dd9494ba77ca343bebf373c34d",
+        "packaged_sdk_sha256": "3ecdfb936433f7f72072222d57624a4fb50702dd9494ba77ca343bebf373c34d",
+        "kernel_sha256": "58fdb97df3153914be819b82d54bfca1f8d3536b37bf4c04ab4f50ef8e02b04c",
+        "runner_shell_frozen_from": "previous QA shell",
+        "current_dart": true,
+        "codesign_verified": true
+      },
+      "peer": {
+        "sdk_input_sha256": "3ecdfb936433f7f72072222d57624a4fb50702dd9494ba77ca343bebf373c34d",
+        "packaged_sdk_sha256": "3ecdfb936433f7f72072222d57624a4fb50702dd9494ba77ca343bebf373c34d",
+        "kernel_sha256": "2f383afa1c3d6907a6d03af2e50b7ce2913a3cd779cd28c5c0ba80e8e87e5fe2",
+        "runner_shell_frozen_from": "previous QA shell",
+        "current_dart": true,
+        "codesign_verified": true
+      }
+    },
+    "asset_verification": {
+      "mac": {
+        "all_assets_verified": true,
+        "files": 30,
+        "source_symlinks_resolved": true
+      },
+      "peer": {
+        "all_assets_verified": true,
+        "files": 30,
+        "source_symlinks_resolved": true
+      }
+    },
+    "cleanup": {
+      "mac_stopped": true,
+      "peer_stopped": true,
+      "phone_stopped": true,
+      "android_rollback": {
+        "installed_hash_verified": true,
+        "optional_cloud_scan_actions": 0
+      },
+      "phone_still_stopped": true,
+      "hook_forward_removed": true,
+      "mac_ports_rebindable": true,
+      "runtimes_removed": true,
+      "main_android_package_untouched": true,
+      "qa_profile_data_retained": true
+    },
+    "native_library_SHA256": {
+      "android_unstripped_sha256": "cfa49440e32af769632918ff11c2b932360817955556e25087153b564c046e9b",
+      "android_stripped_sha256": "398724abab60fa1b9dcb540cb17ed090c9aa1e4f6a9bc62ce410b5b98006e879",
+      "mac_sha256": "3ecdfb936433f7f72072222d57624a4fb50702dd9494ba77ca343bebf373c34d",
+      "fresh_android_target": false,
+      "reused_verified_sdk": true
+    }
+  },
+  "remaining": [
+    "high catch-up latency",
+    "repeat processing and durable save cost",
+    "remaining full multi-device matrix"
+  ],
+  "push": false,
+  "release": false,
+  "artifact_cleanup": {
+    "independent_process_checks": {
+      "mac_not_running": true,
+      "peer_not_running": true,
+      "QA_phone_not_running": true
+    },
+    "own_intermediate_logical_bytes_removed": 1107547833,
+    "sources_candidate_rollback_and_evidence_retained": true
+  }
+}

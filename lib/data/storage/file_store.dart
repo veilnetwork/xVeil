@@ -9,6 +9,17 @@ import '../../domain/file_transfer.dart';
 import 'async_kv_log_store.dart';
 import 'kv_log_store.dart';
 
+/// A bounded whole-file read for journal segments. Null on the first missing,
+/// incomplete or over-ceiling file, without reading later payloads. Metadata
+/// for at most [maxFiles] files can be prefetched; no result survives the call.
+abstract interface class StoredFileBatchReader {
+  static const maxFiles = 8;
+  Future<List<Uint8List>?> loadFiles(
+    List<String> fileIds, {
+    required int maxBytesPerFile,
+  });
+}
+
 /// Storage chunk size: one [Ns.fileChunks] log record. The store seals each
 /// record's batch into a single 4 KiB container chunk, whose usable payload
 /// (after nonce/tag/header) is PAYLOAD_CAP ≈ 4040 bytes — and the batch is zstd-
@@ -1082,22 +1093,68 @@ class AsyncFileStore {
     return _loadFileFromMetadata(fileId, m, maxBytes: maxBytes);
   }
 
+  Future<List<Uint8List>?> loadFiles(
+    List<String> fileIds, {
+    required int maxBytesPerFile,
+  }) async {
+    if (fileIds.length > StoredFileBatchReader.maxFiles ||
+        maxBytesPerFile < 0) {
+      throw ArgumentError('invalid bounded file read');
+    }
+    final requested = List<String>.of(fileIds);
+    if (requested.isEmpty) return const <Uint8List>[];
+    final reader = _store;
+    final keys = [for (final id in requested) _k('file:$id')];
+    final metadata = reader is AsyncKvBatchReader
+        ? await (reader as AsyncKvBatchReader).getBatch(Ns.settings, keys)
+        : [for (final key in keys) await reader.get(Ns.settings, key)];
+    if (metadata.length != requested.length) {
+      throw StateError('file metadata batch length mismatch');
+    }
+    final result = <Uint8List>[];
+    for (var i = 0; i < requested.length; i++) {
+      final raw = metadata[i];
+      if (raw == null) return null;
+      final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
+      final bytes = await _loadFileFromMetadata(
+        requested[i],
+        m,
+        maxBytes: maxBytesPerFile,
+        maxRecordCount: min(maxBytesPerFile, _kMaxDartLogId - 1) + 1,
+      );
+      if (bytes == null) return null;
+      result.add(bytes);
+    }
+    return result;
+  }
+
   // The caller already fetched this manifest. Do not enqueue another worker
   // RPC for the same metadata before comparing the durable chunk bytes.
   Future<Uint8List?> _loadFileFromMetadata(
     String fileId,
     Map<String, dynamic> m, {
     int? maxBytes,
+    int? maxRecordCount,
   }) async {
     if (maxBytes != null) {
       final size = m['size'];
-      if (size is! int || size > maxBytes) return null;
+      if (size is! int || size < 0 || size > maxBytes) return null;
     }
     if (m['streamed'] == true) {
       return _readFileRangeFromMetadata(fileId, m, 0, m['size'] as int);
     }
     final out = BytesBuilder(copy: false);
-    final ids = _recordIds(_fileSegments(m));
+    final segments = _fileSegments(m);
+    if (maxRecordCount != null) {
+      // Bound metadata expansion on the prefetch path too. Unusual legacy
+      // layouts can use the caller's ordinary single-file fallback instead.
+      var remaining = maxRecordCount;
+      for (final segment in segments) {
+        if (segment.count > remaining) return null;
+        remaining -= segment.count;
+      }
+    }
+    final ids = _recordIds(segments);
     final reader = _store;
     if (reader is AsyncLogBatchReader) {
       // Group journals load many small records. One isolate round trip per
@@ -1115,6 +1172,7 @@ class AsyncFileStore {
         );
         if (chunks == null || chunks.length != end - start) return null;
         for (final chunk in chunks) {
+          if (maxBytes != null && out.length + chunk.length > maxBytes) return null;
           out.add(chunk);
         }
       }
@@ -1122,6 +1180,7 @@ class AsyncFileStore {
       for (final id in ids) {
         final chunk = await reader.readLog(Ns.fileChunks, id);
         if (chunk == null) return null;
+        if (maxBytes != null && out.length + chunk.length > maxBytes) return null;
         out.add(chunk);
       }
     }

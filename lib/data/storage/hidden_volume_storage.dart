@@ -97,7 +97,8 @@ class HiddenVolumeStorage
         Storage,
         RollbackAnchorReader,
         PreMaintenanceAnchorSource,
-        AtomicRatchetSnapshotReservations {
+        AtomicRatchetSnapshotReservations,
+        StoredFileBatchReader {
   /// Default (SYNC opener) — the in-memory fake, tests, and any path not yet
   /// given its own worker. The sync opener is lifted to async (run INLINE on
   /// the calling isolate) internally, so behaviour is unchanged; only the
@@ -1165,6 +1166,10 @@ class HiddenVolumeStorage
     AsyncKvLogStore? store,
   }) async {
     final raw = await (store ?? _as).get(Ns.settings, _sk('ondisk:$cid'));
+    return _decodeOdMeta(raw);
+  }
+
+  Map<String, dynamic>? _decodeOdMeta(Uint8List? raw) {
     if (raw == null) return null;
     try {
       return jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
@@ -1264,6 +1269,50 @@ class HiddenVolumeStorage
     }
     return AsyncFileStore(session.store).loadFile(fileId, maxBytes: maxBytes);
   });
+
+  @override
+  Future<List<Uint8List>?> loadFiles(
+    List<String> fileIds, {
+    required int maxBytesPerFile,
+  }) async {
+    if (fileIds.length > StoredFileBatchReader.maxFiles ||
+        maxBytesPerFile < 0) {
+      throw ArgumentError('invalid bounded file read');
+    }
+    final requested = List<String>.of(fileIds);
+    return _readFileSession((session) async {
+      if (requested.isEmpty) return const <Uint8List>[];
+      Future<List<Uint8List>?> individually() async {
+        final result = <Uint8List>[];
+        for (final id in requested) {
+          _checkFileReadSession(session);
+          final bytes = await loadFile(id, maxBytes: maxBytesPerFile);
+          if (bytes == null) return null;
+          result.add(bytes);
+        }
+        return result;
+      }
+
+      final reader = session.store;
+      if (reader is! AsyncKvBatchReader) return individually();
+      final metadata = await (reader as AsyncKvBatchReader).getBatch(
+        Ns.settings,
+        [for (final id in requested) _sk('ondisk:$id')],
+      );
+      _checkFileReadSession(session);
+      if (metadata.length != requested.length) {
+        throw StateError('file tier metadata batch length mismatch');
+      }
+      // Mixed/on-disk batches keep the existing tier precedence and bounded
+      // whole-file reader. Journal segments normally all live in the volume.
+      if (metadata.any((raw) => _decodeOdMeta(raw) != null)) {
+        return individually();
+      }
+      return AsyncFileStore(
+        reader,
+      ).loadFiles(requested, maxBytesPerFile: maxBytesPerFile);
+    });
+  }
 
   @override
   Future<void> deleteStoredFile(String fileId) => _fileSerialized(() async {

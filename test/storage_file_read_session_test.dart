@@ -48,11 +48,12 @@ Future<Object?> _read(HiddenVolumeStorage s, String method) => switch (method) {
   'range' => s.readFileRange('shared', 0, 2),
   'size' => s.fileSize('shared'),
   'presence' => s.hasFile('shared'),
+  'batch' => s.loadFiles(['shared'], maxBytesPerFile: 16),
   _ => throw ArgumentError(method),
 };
 
 void main() {
-  for (final method in ['load', 'range', 'size', 'presence']) {
+  for (final method in ['load', 'range', 'size', 'presence', 'batch']) {
     test('$method read cannot continue into a replacement identity', () async {
       final rawA = FakeKvLogStore(), rawB = FakeKvLogStore();
       FileStore(rawA).storeFile('shared', Uint8List.fromList([1, 2, 3]));
@@ -132,7 +133,14 @@ void main() {
     final storage = HiddenVolumeStorage.fromAsyncStore(held);
     addTearDown(storage.close);
     storage.useOnDiskTier(Directory('${directory.path}/a'), minBytes: 1);
-    await storage.storeFile('shared', Uint8List.fromList([1, 2, 3]));
+    await storage.storeFilePiece(
+      'shared',
+      0,
+      1,
+      3,
+      3,
+      Uint8List.fromList([1, 2, 3]),
+    );
     held.hold = true;
     final check = expectLater(storage.loadFile('shared'), throwsStateError);
     await held.entered.future;
