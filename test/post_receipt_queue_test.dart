@@ -168,6 +168,52 @@ void main() {
   );
 
   test(
+    'canceling waiting work frees both budgets and resolves coalesced waiters',
+    () async {
+      final queue = PostReceiptQueue(maxJobs: 2, maxBytes: 12);
+      final release = Completer<void>();
+      final active = queue.submit(
+        key: 'active',
+        bytes: 6,
+        send: () => release.future,
+      );
+      final waiting = queue.submit(
+        key: 'waiting',
+        bytes: 6,
+        send: () async => fail('canceled work'),
+      );
+      final duplicate = queue.submit(
+        key: 'waiting',
+        bytes: 6,
+        send: () async => fail('coalesced work'),
+      );
+      expect(identical(waiting, duplicate), isTrue);
+      expect(queue.cancelPending('active'), isFalse);
+      expect(queue.cancelPending('waiting'), isTrue);
+      expect(queue.cancelPending('waiting'), isFalse);
+      await Future.wait([waiting, duplicate]);
+      expect(queue.pendingJobs, 1);
+      expect(queue.pendingBytes, 6);
+      var replacementSent = false;
+      final replacement = queue.submit(
+        key: 'waiting',
+        bytes: 6,
+        send: () async {
+          replacementSent = true;
+        },
+      );
+      expect(queue.dropped, 0);
+      release.complete();
+      await Future.wait([active, replacement]);
+      expect(replacementSent, isTrue);
+      expect(queue.pendingJobs, 0);
+      expect(queue.pendingBytes, 0);
+      await queue.close();
+      expect(queue.cancelPending('waiting'), isFalse);
+    },
+  );
+
+  test(
     'an oversized receipt does not retain a job or call its sender',
     () async {
       final queue = PostReceiptQueue(maxBytes: 4);
