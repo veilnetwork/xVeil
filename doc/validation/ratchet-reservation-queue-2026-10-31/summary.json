@@ -1,0 +1,229 @@
+{
+  "poll_probe": {
+    "poll_comparison": [
+      {
+        "variant": "control",
+        "run": 1,
+        "visible_ms": [
+          4108,
+          2721,
+          2304,
+          2685
+        ]
+      },
+      {
+        "variant": "probe",
+        "run": 1,
+        "visible_ms": [
+          4334,
+          2995,
+          1703,
+          3214
+        ]
+      },
+      {
+        "variant": "control",
+        "run": 2,
+        "visible_ms": [
+          4391,
+          3019,
+          2052,
+          2780
+        ]
+      },
+      {
+        "variant": "probe",
+        "run": 2,
+        "visible_ms": [
+          3957,
+          1999,
+          2049,
+          2599
+        ]
+      },
+      {
+        "variant": "control",
+        "run": 3,
+        "visible_ms": [
+          4197,
+          3021,
+          2521,
+          2412
+        ]
+      },
+      {
+        "variant": "probe",
+        "run": 3,
+        "visible_ms": [
+          4180,
+          2689,
+          2408,
+          3261
+        ]
+      }
+    ],
+    "medians": {
+      "control": [
+        4197,
+        3019,
+        2304,
+        2685
+      ],
+      "probe": [
+        4180,
+        2689,
+        2049,
+        3214
+      ]
+    },
+    "not_shipped": true,
+    "production_poll_ms": 200
+  },
+  "gate_ab": {
+    "runs": [
+      {
+        "variant": "control",
+        "run": 1,
+        "visible_ms": [
+          4019,
+          2662,
+          2311,
+          2680
+        ],
+        "reserve_calls": 400,
+        "reserve_median_ms": 80.825,
+        "reserve_p95_ms": 597.764,
+        "reserve_max_ms": 1041.536,
+        "reserve_under_1ms": 94,
+        "group_file_commits": 144,
+        "host_stopped": true,
+        "released_listeners": 12,
+        "cleanup_errors": []
+      },
+      {
+        "variant": "candidate",
+        "run": 1,
+        "visible_ms": [
+          4197,
+          2449,
+          1746,
+          2734
+        ],
+        "reserve_calls": 403,
+        "reserve_median_ms": 67.63,
+        "reserve_p95_ms": 688.802,
+        "reserve_max_ms": 1245.857,
+        "reserve_under_1ms": 146,
+        "group_file_commits": 144,
+        "host_stopped": true,
+        "released_listeners": 12,
+        "cleanup_errors": []
+      },
+      {
+        "variant": "control",
+        "run": 2,
+        "visible_ms": [
+          4392,
+          3002,
+          2045,
+          2623
+        ],
+        "reserve_calls": 401,
+        "reserve_median_ms": 89.965,
+        "reserve_p95_ms": 654.733,
+        "reserve_max_ms": 1099.996,
+        "reserve_under_1ms": 100,
+        "group_file_commits": 144,
+        "host_stopped": true,
+        "released_listeners": 12,
+        "cleanup_errors": []
+      },
+      {
+        "variant": "candidate",
+        "run": 2,
+        "visible_ms": [
+          4075,
+          2379,
+          1810,
+          2661
+        ],
+        "reserve_calls": 403,
+        "reserve_median_ms": 64.692,
+        "reserve_p95_ms": 729.065,
+        "reserve_max_ms": 1072.417,
+        "reserve_under_1ms": 149,
+        "group_file_commits": 144,
+        "host_stopped": true,
+        "released_listeners": 12,
+        "cleanup_errors": []
+      },
+      {
+        "variant": "control",
+        "run": 3,
+        "visible_ms": [
+          4546,
+          2839,
+          2087,
+          2644
+        ],
+        "reserve_calls": 404,
+        "reserve_median_ms": 75.3715,
+        "reserve_p95_ms": 673.328,
+        "reserve_max_ms": 1219.43,
+        "reserve_under_1ms": 110,
+        "group_file_commits": 144,
+        "host_stopped": true,
+        "released_listeners": 12,
+        "cleanup_errors": []
+      },
+      {
+        "variant": "candidate",
+        "run": 3,
+        "visible_ms": [
+          4195,
+          2658,
+          1477,
+          2567
+        ],
+        "reserve_calls": 400,
+        "reserve_median_ms": 65.8515,
+        "reserve_p95_ms": 822.716,
+        "reserve_max_ms": 1418.933,
+        "reserve_under_1ms": 150,
+        "group_file_commits": 144,
+        "host_stopped": true,
+        "released_listeners": 12,
+        "cleanup_errors": []
+      }
+    ],
+    "visible_medians": {
+      "control": [
+        4392,
+        2839,
+        2087,
+        2644
+      ],
+      "candidate": [
+        4195,
+        2449,
+        1746,
+        2661
+      ]
+    },
+    "messages": 24,
+    "nodes_per_run": 12,
+    "poll_ms": 200
+  },
+  "unit_passed": 254,
+  "native_abi_passed": 4,
+  "skipped_in_final_checks": 0,
+  "total_stands": 12,
+  "messages": 48,
+  "universal_latency_improvement_proven": false,
+  "tail_improvement_proven": false,
+  "sdk_changed": false,
+  "aot_qualified": false,
+  "android_qualified": false,
+  "windows_qualified": false,
+  "multi_device_qualified": false
+}
