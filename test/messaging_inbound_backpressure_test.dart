@@ -251,8 +251,14 @@ void main() {
       await tA.send(b, post);
     }
     await _pump();
-    expect(mB.inboundAdmission.queuedFrames, 2);
-    expect(mB.inboundAdmission.coalescedFrames, 198);
+    // The fragment lane stays parked, but ordinary chat now completes before
+    // that apply is released. The repeated copies still produce one row.
+    expect(mB.inboundAdmission.queuedFrames, 1);
+    expect(snapshots, 1);
+    expect(
+      (await sB.loadMessages(a.hex)).where((m) => m.id == 'fresh-after-replays'),
+      hasLength(1),
+    );
     for (var n = 0; n < 2; n++) {
       await tA.send(
         b,
@@ -260,7 +266,11 @@ void main() {
       );
     }
     await _pump();
-    expect(mB.inboundAdmission.queuedFrames, 4);
+    expect(mB.inboundAdmission.queuedFrames, 1);
+    expect(
+      (await sB.loadMessages(a.hex)).where((m) => m.body == 'legacy repeated text'),
+      hasLength(2),
+    );
     stall.complete();
     await _pump(100);
     expect(snapshots, 1);
