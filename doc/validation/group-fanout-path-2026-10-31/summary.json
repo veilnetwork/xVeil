@@ -1,0 +1,506 @@
+{
+  "schema": "xveil-group-fanout-validation/1",
+  "date": "2026-10-31",
+  "control_frontend": "4559d456",
+  "native_sdk": "081bb6d1",
+  "verdict": "slow/failing recipient isolation fixed for data delta; overall latency still open",
+  "max_callback_jobs_per_data_broadcast": 4,
+  "control_fanout_changed": false,
+  "packet_filters_changed": false,
+  "series": [
+    {
+      "phase": "fanout-control-1",
+      "max_visible_ms": [
+        4516,
+        2723,
+        2091,
+        3046
+      ],
+      "critical_path_totals_ms": [
+        {
+          "sample": 0,
+          "hops": 3,
+          "last_visible_ms": 4516.808,
+          "totals_ms": {
+            "durable_enqueue": 170.12300000000002,
+            "queue_or_preflight": 263.602,
+            "send_handoff_to_callback": 1501.1000000000001,
+            "receiver_pipeline_before_group": 675.0179999999999,
+            "group_handling_until_next_step": 1753.284,
+            "origin_before_enqueue": 153.681
+          }
+        },
+        {
+          "sample": 1,
+          "hops": 2,
+          "last_visible_ms": 2723.57,
+          "totals_ms": {
+            "durable_enqueue": 133.555,
+            "queue_or_preflight": 733.748,
+            "send_handoff_to_callback": 13.587,
+            "receiver_pipeline_before_group": 191.732,
+            "group_handling_until_next_step": 1193.6390000000001,
+            "origin_before_enqueue": 457.309
+          }
+        },
+        {
+          "sample": 2,
+          "hops": 2,
+          "last_visible_ms": 2091.597,
+          "totals_ms": {
+            "durable_enqueue": 38.248,
+            "queue_or_preflight": 387.531,
+            "send_handoff_to_callback": 5.314,
+            "receiver_pipeline_before_group": 157.784,
+            "group_handling_until_next_step": 1331.121,
+            "origin_before_enqueue": 171.599
+          }
+        },
+        {
+          "sample": 3,
+          "hops": 3,
+          "last_visible_ms": 3046.191,
+          "totals_ms": {
+            "durable_enqueue": 180.713,
+            "queue_or_preflight": 497.64500000000004,
+            "send_handoff_to_callback": 35.021,
+            "receiver_pipeline_before_group": 214.274,
+            "group_handling_until_next_step": 1844.864,
+            "origin_before_enqueue": 273.674
+          }
+        }
+      ],
+      "wire_phase_counts": {
+        "wire_enqueue_start": 202,
+        "wire_enqueue_end": 202,
+        "wire_send_start": 202,
+        "wire_send_end": 202,
+        "wire_rx": 202
+      },
+      "wire_copies": 202,
+      "nodes_stopped": true,
+      "released_listeners": 12,
+      "timing_dropped": 0
+    },
+    {
+      "phase": "fanout-control-2",
+      "max_visible_ms": [
+        5121,
+        2204,
+        2402,
+        3118
+      ],
+      "critical_path_totals_ms": [
+        {
+          "sample": 0,
+          "hops": 3,
+          "last_visible_ms": 5121.61,
+          "totals_ms": {
+            "durable_enqueue": 134.193,
+            "queue_or_preflight": 109.51700000000001,
+            "send_handoff_to_callback": 1943.1840000000002,
+            "receiver_pipeline_before_group": 921.415,
+            "group_handling_until_next_step": 1847.932,
+            "origin_before_enqueue": 165.369
+          }
+        },
+        {
+          "sample": 1,
+          "hops": 2,
+          "last_visible_ms": 2204.76,
+          "totals_ms": {
+            "durable_enqueue": 49.947,
+            "queue_or_preflight": 601.962,
+            "send_handoff_to_callback": 16.317999999999998,
+            "receiver_pipeline_before_group": 104.01400000000001,
+            "group_handling_until_next_step": 1139.844,
+            "origin_before_enqueue": 292.675
+          }
+        },
+        {
+          "sample": 2,
+          "hops": 2,
+          "last_visible_ms": 2402.235,
+          "totals_ms": {
+            "durable_enqueue": 112.92099999999999,
+            "queue_or_preflight": 295.356,
+            "send_handoff_to_callback": 7.901999999999999,
+            "receiver_pipeline_before_group": 52.711999999999996,
+            "group_handling_until_next_step": 1754.971,
+            "origin_before_enqueue": 178.373
+          }
+        },
+        {
+          "sample": 3,
+          "hops": 3,
+          "last_visible_ms": 3118.181,
+          "totals_ms": {
+            "durable_enqueue": 191.111,
+            "queue_or_preflight": 625.258,
+            "send_handoff_to_callback": 56.68000000000001,
+            "receiver_pipeline_before_group": 191.389,
+            "group_handling_until_next_step": 1744.6260000000002,
+            "origin_before_enqueue": 309.117
+          }
+        }
+      ],
+      "wire_phase_counts": {
+        "wire_enqueue_start": 202,
+        "wire_enqueue_end": 202,
+        "wire_send_start": 202,
+        "wire_send_end": 202,
+        "wire_rx": 202
+      },
+      "wire_copies": 202,
+      "nodes_stopped": true,
+      "released_listeners": 12,
+      "timing_dropped": 0
+    },
+    {
+      "phase": "fanout-control-3",
+      "max_visible_ms": [
+        4413,
+        2108,
+        2841,
+        3173
+      ],
+      "critical_path_totals_ms": [
+        {
+          "sample": 0,
+          "hops": 3,
+          "last_visible_ms": 4413.435,
+          "totals_ms": {
+            "durable_enqueue": 118.57900000000001,
+            "queue_or_preflight": 162.821,
+            "send_handoff_to_callback": 1370.9579999999999,
+            "receiver_pipeline_before_group": 702.264,
+            "group_handling_until_next_step": 1905.494,
+            "origin_before_enqueue": 153.319
+          }
+        },
+        {
+          "sample": 1,
+          "hops": 2,
+          "last_visible_ms": 2108.577,
+          "totals_ms": {
+            "durable_enqueue": 248.569,
+            "queue_or_preflight": 332.315,
+            "send_handoff_to_callback": 8.527,
+            "receiver_pipeline_before_group": 121.709,
+            "group_handling_until_next_step": 1134.444,
+            "origin_before_enqueue": 263.013
+          }
+        },
+        {
+          "sample": 2,
+          "hops": 2,
+          "last_visible_ms": 2841.895,
+          "totals_ms": {
+            "durable_enqueue": 62.054,
+            "queue_or_preflight": 606.0509999999999,
+            "send_handoff_to_callback": 20.754,
+            "receiver_pipeline_before_group": 132.452,
+            "group_handling_until_next_step": 1840.73,
+            "origin_before_enqueue": 179.854
+          }
+        },
+        {
+          "sample": 3,
+          "hops": 3,
+          "last_visible_ms": 3173.832,
+          "totals_ms": {
+            "durable_enqueue": 192.313,
+            "queue_or_preflight": 397.90799999999996,
+            "send_handoff_to_callback": 29.467,
+            "receiver_pipeline_before_group": 145.773,
+            "group_handling_until_next_step": 1885.1670000000001,
+            "origin_before_enqueue": 523.204
+          }
+        }
+      ],
+      "wire_phase_counts": {
+        "wire_enqueue_start": 202,
+        "wire_enqueue_end": 202,
+        "wire_send_start": 202,
+        "wire_send_end": 202,
+        "wire_rx": 202
+      },
+      "wire_copies": 202,
+      "nodes_stopped": true,
+      "released_listeners": 12,
+      "timing_dropped": 0
+    },
+    {
+      "phase": "fanout-candidate-1",
+      "max_visible_ms": [
+        4425,
+        2684,
+        1879,
+        2892
+      ],
+      "critical_path_totals_ms": [
+        {
+          "sample": 0,
+          "hops": 4,
+          "last_visible_ms": 4425.69,
+          "totals_ms": {
+            "durable_enqueue": 297.55199999999996,
+            "queue_or_preflight": 13.012,
+            "send_handoff_to_callback": 2225.5910000000003,
+            "receiver_pipeline_before_group": 535.3539999999999,
+            "group_handling_until_next_step": 1281.751,
+            "origin_before_enqueue": 72.43
+          }
+        },
+        {
+          "sample": 1,
+          "hops": 2,
+          "last_visible_ms": 2684.41,
+          "totals_ms": {
+            "durable_enqueue": 84.644,
+            "queue_or_preflight": 791.865,
+            "send_handoff_to_callback": 30.865000000000002,
+            "receiver_pipeline_before_group": 132.56,
+            "group_handling_until_next_step": 1124.1879999999999,
+            "origin_before_enqueue": 520.288
+          }
+        },
+        {
+          "sample": 2,
+          "hops": 2,
+          "last_visible_ms": 1879.145,
+          "totals_ms": {
+            "durable_enqueue": 292.779,
+            "queue_or_preflight": 271.599,
+            "send_handoff_to_callback": 49.090999999999994,
+            "receiver_pipeline_before_group": 76.432,
+            "group_handling_until_next_step": 1022.625,
+            "origin_before_enqueue": 166.619
+          }
+        },
+        {
+          "sample": 3,
+          "hops": 3,
+          "last_visible_ms": 2892.858,
+          "totals_ms": {
+            "durable_enqueue": 367.068,
+            "queue_or_preflight": 625.581,
+            "send_handoff_to_callback": 18.396,
+            "receiver_pipeline_before_group": 91.76700000000001,
+            "group_handling_until_next_step": 1608.723,
+            "origin_before_enqueue": 181.323
+          }
+        }
+      ],
+      "wire_phase_counts": {
+        "wire_enqueue_start": 202,
+        "wire_enqueue_end": 202,
+        "wire_send_start": 202,
+        "wire_send_end": 202,
+        "wire_rx": 202
+      },
+      "wire_copies": 202,
+      "nodes_stopped": true,
+      "released_listeners": 12,
+      "timing_dropped": 0
+    },
+    {
+      "phase": "fanout-candidate-2",
+      "max_visible_ms": [
+        4308,
+        2208,
+        2037,
+        2889
+      ],
+      "critical_path_totals_ms": [
+        {
+          "sample": 0,
+          "hops": 3,
+          "last_visible_ms": 4308.365,
+          "totals_ms": {
+            "durable_enqueue": 377.74399999999997,
+            "queue_or_preflight": 14.282,
+            "send_handoff_to_callback": 2021.476,
+            "receiver_pipeline_before_group": 555.424,
+            "group_handling_until_next_step": 1260.037,
+            "origin_before_enqueue": 79.402
+          }
+        },
+        {
+          "sample": 1,
+          "hops": 2,
+          "last_visible_ms": 2208.941,
+          "totals_ms": {
+            "durable_enqueue": 215.52200000000002,
+            "queue_or_preflight": 696.562,
+            "send_handoff_to_callback": 18.666,
+            "receiver_pipeline_before_group": 94.922,
+            "group_handling_until_next_step": 713.819,
+            "origin_before_enqueue": 469.45
+          }
+        },
+        {
+          "sample": 2,
+          "hops": 2,
+          "last_visible_ms": 2037.176,
+          "totals_ms": {
+            "durable_enqueue": 253.15099999999998,
+            "queue_or_preflight": 215.511,
+            "send_handoff_to_callback": 185.147,
+            "receiver_pipeline_before_group": 105.352,
+            "group_handling_until_next_step": 1066.487,
+            "origin_before_enqueue": 211.528
+          }
+        },
+        {
+          "sample": 3,
+          "hops": 3,
+          "last_visible_ms": 2889.919,
+          "totals_ms": {
+            "durable_enqueue": 497.991,
+            "queue_or_preflight": 496.511,
+            "send_handoff_to_callback": 19.759999999999998,
+            "receiver_pipeline_before_group": 144.627,
+            "group_handling_until_next_step": 1378.809,
+            "origin_before_enqueue": 352.221
+          }
+        }
+      ],
+      "wire_phase_counts": {
+        "wire_enqueue_start": 202,
+        "wire_enqueue_end": 202,
+        "wire_send_start": 202,
+        "wire_send_end": 202,
+        "wire_rx": 202
+      },
+      "wire_copies": 202,
+      "nodes_stopped": true,
+      "released_listeners": 12,
+      "timing_dropped": 0
+    },
+    {
+      "phase": "fanout-candidate-3",
+      "max_visible_ms": [
+        4896,
+        2520,
+        2607,
+        2868
+      ],
+      "critical_path_totals_ms": [
+        {
+          "sample": 0,
+          "hops": 3,
+          "last_visible_ms": 4896.775,
+          "totals_ms": {
+            "durable_enqueue": 324.44100000000003,
+            "queue_or_preflight": 13.078,
+            "send_handoff_to_callback": 2461.4210000000003,
+            "receiver_pipeline_before_group": 807.953,
+            "group_handling_until_next_step": 1211.769,
+            "origin_before_enqueue": 78.113
+          }
+        },
+        {
+          "sample": 1,
+          "hops": 2,
+          "last_visible_ms": 2520.923,
+          "totals_ms": {
+            "durable_enqueue": 91.90899999999999,
+            "queue_or_preflight": 195.927,
+            "send_handoff_to_callback": 62.706,
+            "receiver_pipeline_before_group": 232.462,
+            "group_handling_until_next_step": 1800.605,
+            "origin_before_enqueue": 137.314
+          }
+        },
+        {
+          "sample": 2,
+          "hops": 2,
+          "last_visible_ms": 2607.029,
+          "totals_ms": {
+            "durable_enqueue": 378.131,
+            "queue_or_preflight": 340.352,
+            "send_handoff_to_callback": 59.644999999999996,
+            "receiver_pipeline_before_group": 229.26000000000002,
+            "group_handling_until_next_step": 1476.288,
+            "origin_before_enqueue": 123.353
+          }
+        },
+        {
+          "sample": 3,
+          "hops": 3,
+          "last_visible_ms": 2868.615,
+          "totals_ms": {
+            "durable_enqueue": 493.78700000000003,
+            "queue_or_preflight": 596.6800000000001,
+            "send_handoff_to_callback": 41.116,
+            "receiver_pipeline_before_group": 182.122,
+            "group_handling_until_next_step": 1363.98,
+            "origin_before_enqueue": 190.93
+          }
+        }
+      ],
+      "wire_phase_counts": {
+        "wire_enqueue_start": 202,
+        "wire_enqueue_end": 202,
+        "wire_send_start": 202,
+        "wire_send_end": 202,
+        "wire_rx": 202
+      },
+      "wire_copies": 202,
+      "nodes_stopped": true,
+      "released_listeners": 12,
+      "timing_dropped": 0
+    }
+  ],
+  "tests": {
+    "exit_code": 0,
+    "passed": 472,
+    "ignored": 0,
+    "files": [
+      "test/group_service_test.dart",
+      "test/group_snapshot_chunk_test.dart",
+      "test/group_overlay_topology_test.dart",
+      "test/group_receipt_queue_test.dart",
+      "test/group_source_queue_test.dart",
+      "test/post_receipt_queue_test.dart",
+      "test/removed_member_notice_test.dart",
+      "test/group_epoch_test.dart"
+    ]
+  },
+  "analyzer": "no issues",
+  "path_attribution": {
+    "qualified_paths": 24,
+    "exact_microsecond_partition": true,
+    "all_copies_single_attempt": true,
+    "copies_per_run": 202,
+    "failed_end_events": 0,
+    "wire_order_guarantee_required": false
+  },
+  "limitations": [
+    "one Mac/JIT host with shared storage",
+    "local TCP full mesh; all nodes serve DHT",
+    "legacy group without epoch encryption; out-of-band roster",
+    "fresh instance keys and varying group delivery trees",
+    "slow/failing recipient faults are deterministic unit cases, not physical network fault injection",
+    "control-update latency and multi-device matrix not qualified"
+  ],
+  "phone_changed": false,
+  "production_relays_changed": false,
+  "native_library_changed": false,
+  "pushed": false,
+  "released": false,
+  "control_visibility_medians_ms": [
+    4516,
+    2204,
+    2402,
+    3118
+  ],
+  "candidate_visibility_medians_ms": [
+    4425,
+    2520,
+    2037,
+    2889
+  ],
+  "production_source_sha256": "ed385819cb73e00a1bc32cf5a6c54509fccfbdfc2c443bda78249ea1ed18785f"
+}
