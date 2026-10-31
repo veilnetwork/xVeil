@@ -18380,20 +18380,26 @@ class GroupService implements ArchiveGroups {
     final messages = [...(existing?.messages ?? const <GroupMessage>[])];
     final messageReceipts = <String, int>{...?existing?.messageReceipts};
     final postReceipts = <String, int>{...?existing?.postReceipts};
-    final acceptedMessageHashesBefore = existing == null
-        ? <String>{}
-        : {
-            for (final message in _acceptedMessagesWithinLifecycle(
-              existing,
-              foldControlLog(
-                owner: existing.manifest.owner,
-                entries: existing.control,
-                verify: (entry) => _validControlFor(existing.manifest, entry),
-                initialName: existing.manifest.name,
-              ).state,
-            ))
-              groupMessageHash(message),
-          };
+    // Merging appends new row objects and keeps the existing ones in place;
+    // exact repeats are refused below by their full signed digest. Remember
+    // the accepted objects for notification freshness rather than hashing
+    // every old payload solely for this local before/after comparison. Both
+    // views still validate signatures, scoped chains and lifecycle boundaries.
+    // This set belongs to this ingest only, never a later read or sync vector.
+    final acceptedMessagesBefore = Set<GroupMessage>.identity()
+      ..addAll(
+        existing == null
+            ? const <GroupMessage>[]
+            : _acceptedMessagesWithinLifecycle(
+                existing,
+                foldControlLog(
+                  owner: existing.manifest.owner,
+                  entries: existing.control,
+                  verify: (entry) => _validControlFor(existing.manifest, entry),
+                  initialName: existing.manifest.name,
+                ).state,
+              ),
+      );
     final posts = [...(existing?.posts ?? const <SpacePost>[])];
     final reactions = [...(existing?.reactions ?? const <GroupReaction>[])];
     final publicComments = [
@@ -18768,7 +18774,7 @@ class GroupService implements ArchiveGroups {
             !(message.authorPubKey.isEmpty
                 ? message.author == _signer.selfId
                 : _listEquals(message.authorPubKey, _signer.selfPubKey)) &&
-            !acceptedMessageHashesBefore.contains(groupMessageHash(message)),
+            !acceptedMessagesBefore.contains(message),
       ),
     );
     for (final post in inPosts) {
