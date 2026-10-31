@@ -21560,6 +21560,36 @@ class GroupService implements ArchiveGroups {
     onlyTo: onlyTo,
   );
 
+  /// Recipient callbacks are independent for data deltas. Keep only four
+  /// active; join all of them and preserve the first error after healthy peers
+  /// have had their durable send opportunity. Control fanout stays serial.
+  Future<void> _sendDataDeltaPeers(
+    List<NodeId> peers,
+    Future<void> Function(NodeId) send,
+  ) async {
+    var next = 0;
+    Object? failure;
+    StackTrace? failureStack;
+    Future<void> worker() async {
+      while (next < peers.length) {
+        final peer = peers[next++];
+        try {
+          await send(peer);
+        } catch (error, stack) {
+          if (failure == null) {
+            failure = error;
+            failureStack = stack;
+          }
+        }
+      }
+    }
+
+    await Future.wait<void>([
+      for (var i = 0; i < 4 && i < peers.length; i++) worker(),
+    ]);
+    if (failure != null) Error.throwWithStackTrace(failure!, failureStack!);
+  }
+
   Future<int> _broadcastDelta(
     NodeId groupId, {
     List<ControlEntry> control = const [],
@@ -21703,8 +21733,8 @@ class GroupService implements ArchiveGroups {
     if (deltaId != null) _rememberOverlayDelta(deltaId);
     var n = 0;
     try {
-      for (final peer in peers) {
-        if (exclude.contains(peer)) continue;
+      Future<void> sendTo(NodeId peer) async {
+        if (exclude.contains(peer)) return;
         final audience = myDevices.contains(peer) ? _signer.selfId : peer;
         final epochEnvelopes = _epochEnvelopesFor(
           b,
@@ -21839,6 +21869,14 @@ class GroupService implements ArchiveGroups {
         // in this run. One it missed is carried by the next serve regardless.
         sentDocs.addAll(docs.keys);
         n++;
+      }
+
+      if (control.isEmpty) {
+        await _sendDataDeltaPeers(peers, sendTo);
+      } else {
+        for (final peer in peers) {
+          await sendTo(peer);
+        }
       }
       for (final target in departed) {
         // Manifest + the signed control rows, and nothing else. No epoch

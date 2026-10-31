@@ -4260,6 +4260,184 @@ void main() {
     },
   );
 
+  group('group data fanout isolates recipient waits', () {
+    late GroupService service;
+    late NodeId gid;
+    late GroupMessage row;
+    Future<void> Function(NodeId, String)? send;
+    final peers = [for (var i = 21; i < 26; i++) _id(i)];
+
+    setUp(() async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      service = GroupService(
+        storage,
+        _FakeSigner(owner),
+        send: (peer, _, wire) async {
+          final sink = send;
+          if (sink != null) await sink(peer, wire);
+        },
+      );
+      gid = await service.createGroup('independent recipients');
+      for (final peer in peers) {
+        expect(
+          await service.addControlOp(
+            gid,
+            ControlOp.addMember,
+            target: peer,
+            role: GroupRole.member,
+          ),
+          isTrue,
+        );
+      }
+      expect(await service.postMessage(gid, 'seed', broadcast: false), isTrue);
+      row = (await service.load(gid))!.messages.single;
+    });
+    tearDown(() async {
+      send = null;
+      await service.dispose();
+    });
+
+    test(
+      'one blocked peer cannot block the others; at most four jobs run',
+      () async {
+        final release = Completer<void>();
+        final started = <NodeId>[];
+        var active = 0, peak = 0;
+        send = (peer, _) async {
+          started.add(peer);
+          active++;
+          if (active > peak) peak = active;
+          try {
+            await release.future;
+          } finally {
+            active--;
+          }
+        };
+        final sending = service.broadcastDelta(gid, messages: [row]);
+        try {
+          for (var i = 0; i < 40 && started.length < 4; i++) {
+            await Future<void>.delayed(Duration.zero);
+          }
+          expect(
+            started.length,
+            4,
+            reason: 'a blocked first target must not serialize every target',
+          );
+          expect(peak, 4, reason: 'the fifth target must remain bounded');
+        } finally {
+          release.complete();
+          await sending;
+        }
+        expect(started.toSet(), peers.toSet());
+        expect(started, hasLength(5));
+        expect(active, 0);
+      },
+    );
+
+    test(
+      'one error still serves healthy peers and joins them before rejecting',
+      () async {
+        final release = Completer<void>();
+        final failure = StateError('one target refused');
+        final attempted = <NodeId>[];
+        final delivered = <NodeId>[];
+        send = (peer, _) async {
+          attempted.add(peer);
+          if (attempted.length == 1) throw failure;
+          await release.future;
+          delivered.add(peer);
+        };
+        var settled = false;
+        Object? caught;
+        final sending = service
+            .broadcastDelta(gid, messages: [row])
+            .then<void>(
+              (_) {
+                settled = true;
+              },
+              onError: (Object error, StackTrace _) {
+                caught = error;
+                settled = true;
+              },
+            );
+        try {
+          for (var i = 0; i < 40 && attempted.length < 5; i++) {
+            await Future<void>.delayed(Duration.zero);
+          }
+          expect(attempted.toSet(), peers.toSet());
+          expect(
+            settled,
+            isFalse,
+            reason: 'active recipients must not outlive the returned failure',
+          );
+        } finally {
+          release.complete();
+          await sending;
+        }
+        expect(caught, same(failure));
+        expect(delivered.toSet(), peers.toSet().difference({attempted.first}));
+      },
+    );
+
+    test('successive posts converge after inverse delivery', () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final receiver = GroupService(storage, _FakeSigner(peers.first));
+      addTearDown(receiver.dispose);
+      expect(
+        await receiver.ingestSnapshot(
+          service.snapshotJson((await service.load(gid))!),
+        ),
+        isTrue,
+      );
+      final release = Completer<void>();
+      final firstDone = Completer<void>(), secondDone = Completer<void>();
+      final wires = <({NodeId peer, String body, String wire})>[];
+      var firstCount = 0, secondCount = 0;
+      send = (peer, wire) async {
+        final decoded = jsonDecode(wire) as Map;
+        final body = ((decoded['g'] as List).single as Map)['body'] as String;
+        wires.add((peer: peer, body: body, wire: wire));
+        if (body == 'first ordered') {
+          await release.future;
+          if (++firstCount == 5) firstDone.complete();
+        } else if (body == 'second ordered' && ++secondCount == 5) {
+          secondDone.complete();
+        }
+      };
+      expect(await service.postMessage(gid, 'first ordered'), isTrue);
+      try {
+        expect(await service.postMessage(gid, 'second ordered'), isTrue);
+        await secondDone.future;
+      } finally {
+        release.complete();
+      }
+      await firstDone.future;
+      final target = wires.where((x) => x.peer == peers.first).toList();
+      expect(target, hasLength(2));
+      expect(
+        await receiver.ingestGroupEntry(
+          owner,
+          target.singleWhere((x) => x.body == 'second ordered').wire,
+        ),
+        isTrue,
+      );
+      expect(
+        await receiver.ingestGroupEntry(
+          owner,
+          target.singleWhere((x) => x.body == 'first ordered').wire,
+        ),
+        isTrue,
+      );
+      expect((await receiver.messagesOf(gid)).map((m) => m.body), [
+        'seed',
+        'first ordered',
+        'second ordered',
+      ]);
+    });
+  });
+
   test('XOR neighbour selection is deterministic, unique, and capped at k', () {
     final self = _id(1);
     final peers = [_id(7), _id(2), _id(5), _id(3), _id(0), _id(3)];
