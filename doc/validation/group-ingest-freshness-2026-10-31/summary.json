@@ -1,0 +1,164 @@
+{
+  "schema": "xveil-validation/group-ingest-freshness/1",
+  "date": "2026-10-31",
+  "base_commit": "90e5ae5ae10c82cb2ed2ec409a0ee7d091c2d734",
+  "sdk_commit": "c46d94db41a27e2ee01cdb56396506dad62730bf",
+  "fix": {
+    "old_legacy_rows": 120,
+    "incoming_new_rows": 1,
+    "old_extra_canonical_calls": 180,
+    "candidate_extra_canonical_calls": 0,
+    "red_on_baseline": true,
+    "signature_chain_fork_checks_preserved": true,
+    "identity_set_lifetime": "one ingest",
+    "protocol_digest_dedup_preserved": true,
+    "durable_apply_before_notifications_preserved": true
+  },
+  "tests": {
+    "final_scoped_passed": 432,
+    "final_scoped_skipped": 0,
+    "targeted_passed": 11,
+    "analyzer_clean": true,
+    "native_overlay_passed": 1
+  },
+  "physical": {
+    "devices": 3,
+    "same_identity_roles": [
+      "A",
+      "B"
+    ],
+    "other_identity_role": "C",
+    "distinct_device_ids": 3,
+    "mac_code_fixed_at_baseline": true,
+    "android_profile_aot": true,
+    "same_forward_only_profiles": true,
+    "messages_per_phase": 22,
+    "both_phases_complete_on_B_before_C_return": true,
+    "A_online_during_B_catchup": true,
+    "C_offline_during_B_catchup": true,
+    "same_ids_order_no_duplicates": true,
+    "baseline_first_full_observation_ms": 63961,
+    "candidate_first_full_observation_ms": 91115,
+    "poll_interval_seconds_approximately": 10,
+    "end_to_end_speedup_established": false,
+    "route_fixed": false,
+    "includes_five_minute_100_message_case": false,
+    "includes_both_A_C_offline_case": false,
+    "baseline": {
+      "completed_frames": 12,
+      "stored_row_range": [
+        359,
+        374
+      ],
+      "input_device_events": 96,
+      "fresh_device_events": 84,
+      "frames_without_fresh": 0,
+      "median_stage_ms": {
+        "parse": 1.042,
+        "deletion_check": 2.267,
+        "existing": 0.513,
+        "accepted_before": 232.143,
+        "control_keys": 11.198,
+        "merge_rows": 3.096,
+        "accepted_after": 128.994,
+        "posts_reactions": 1.175,
+        "save": 876.508,
+        "prime_admission": 7.114,
+        "notifications": 5.205
+      },
+      "max_save_ms": 3054.717,
+      "separate_load_samples": 11,
+      "separate_load_median_ms": 609.582,
+      "ring_dropped": 0
+    },
+    "candidate": {
+      "completed_frames": 26,
+      "stored_row_range": [
+        359,
+        363
+      ],
+      "input_device_events": 139,
+      "fresh_device_events": 43,
+      "frames_without_fresh": 22,
+      "median_stage_ms": {
+        "parse": 1.26,
+        "deletion_check": 14.398,
+        "existing": 0.553,
+        "accepted_before": 107.141,
+        "control_keys": 11.616,
+        "merge_rows": 0.922,
+        "accepted_after": 92.453,
+        "posts_reactions": 1.082,
+        "save": 520.229,
+        "prime_admission": 7.263,
+        "notifications": 0.013
+      },
+      "max_save_ms": 3321.631,
+      "separate_load_samples": 23,
+      "separate_load_median_ms": 962.437,
+      "ring_dropped": 0
+    },
+    "no_fresh_is_not_proof_of_exact_duplicate": true
+  },
+  "native_overlay": {
+    "nodes": 12,
+    "local_tcp_only": true,
+    "public_discovery": false,
+    "dht_participation": true,
+    "membership_epoch_encryption": false,
+    "native_signatures": true,
+    "encrypted_stores": true,
+    "ratchet_persistence": true,
+    "peer_authorization_persistence": true,
+    "separate_processes": false,
+    "converged": true,
+    "released_listeners": 12,
+    "cleanup_errors": [],
+    "nodes_stopped": true,
+    "completed_samples": 4,
+    "timing_dropped": 0
+  },
+  "provenance": {
+    "source_binding": {
+      "root_group_sha256": "91180924335f8369073119806049f83f1639504d40cf91914b84a6aa25c2bd3a",
+      "qa_group_sha256": "c104b96dbac18a38ea1ae0c3bddc6a6153fa5b9c8301c0cb91b8060cbc5a1cbd",
+      "only_QA_insertions_beyond_root": true,
+      "prod_has_no_QA_stage_probes": true
+    },
+    "candidate_android": {
+      "apk_sha256": "44d79c46ad8654f2be9a6efbdcf6cf4c2a0a3d703a3230d1bd60565bd1ae633e",
+      "native_sha256": "398724abab60fa1b9dcb540cb17ed090c9aa1e4f6a9bc62ce410b5b98006e879",
+      "aot_sha256": "61287e2521e0b7d6daa20da20dc80fc26727a5f3e5b45b457f6a80d34206edcd",
+      "aot": true,
+      "retained_six_native_libraries": true,
+      "same_signer": true
+    },
+    "sdk_rebuilt": false,
+    "native_sdk_unchanged": true,
+    "qa_probes_outside_repository": true,
+    "root_production_has_no_stage_probes": true,
+    "mac_runner_plugins_frozen": true,
+    "external_build_mount_watchdog": true,
+    "qa_source_snapshot_matches": true
+  },
+  "cleanup": {
+    "all_stand_processes_exited": true,
+    "mac_ports_rebindable": true,
+    "phone_original_qa_apk_sha_verified": true,
+    "phone_stopped": true,
+    "own_phone_forward_absent": true,
+    "runtimes_removed": true,
+    "removed_redundant_apk_bytes": 166878723,
+    "profile_data_retained": true,
+    "main_android_package_untouched": true
+  },
+  "rejected_benchmark_attempts_counted": false,
+  "push": false,
+  "release": false,
+  "open": [
+    "slow delivery and history catch-up",
+    "storage gate/read/commit attribution",
+    "non-fresh frame merge/dedup attribution",
+    "remaining multi-device matrix"
+  ]
+}
