@@ -40,6 +40,12 @@ const _outboxScanPageSize = 256;
 
 Uint8List _sk(String key) => Uint8List.fromList(utf8.encode(key));
 
+typedef _FileReadSession = ({
+  AsyncKvLogStore store,
+  OnDiskBlobStore? blobs,
+  int epoch,
+});
+
 final RegExp _sharedContentIdPattern = RegExp(r'^[0-9a-f]{64}$');
 
 bool _bytesEqual(List<int>? a, List<int> b) {
@@ -1154,8 +1160,11 @@ class HiddenVolumeStorage
   Uint8List _randomBytes(int n) =>
       Uint8List.fromList(List.generate(n, (_) => _blobRand.nextInt(256)));
 
-  Future<Map<String, dynamic>?> _odMeta(String cid) async {
-    final raw = await _as.get(Ns.settings, _sk('ondisk:$cid'));
+  Future<Map<String, dynamic>?> _odMeta(
+    String cid, {
+    AsyncKvLogStore? store,
+  }) async {
+    final raw = await (store ?? _as).get(Ns.settings, _sk('ondisk:$cid'));
     if (raw == null) return null;
     try {
       return jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
@@ -1226,10 +1235,15 @@ class HiddenVolumeStorage
   }
 
   @override
-  Future<Uint8List?> loadFile(String fileId, {int? maxBytes}) async {
-    final meta = await _odMeta(fileId);
+  Future<Uint8List?> loadFile(
+    String fileId, {
+    int? maxBytes,
+  }) => _readFileSession((session) async {
+    final meta = await _odMeta(fileId, store: session.store);
+    _checkFileReadSession(session);
     if (meta != null) {
-      if (_blobs == null) return null;
+      final blobs = session.blobs;
+      if (blobs == null) return null;
       final size = meta['sz'] as int;
       // Whole-file read — large-file callers should STREAM via [readFileRange]
       // instead (this holds the whole blob in RAM). Used for small/medium blobs.
@@ -1239,7 +1253,7 @@ class HiddenVolumeStorage
       // a size it was handed by a sender cannot do this: the sender chooses
       // whether to include one (audit report8).
       if (maxBytes != null && size > maxBytes) return null;
-      return _blobs!.readRange(
+      return blobs.readRange(
         meta['fn'] as String,
         base64.decode(meta['k'] as String),
         0,
@@ -1248,8 +1262,8 @@ class HiddenVolumeStorage
         size,
       );
     }
-    return AsyncFileStore(_as).loadFile(fileId, maxBytes: maxBytes);
-  }
+    return AsyncFileStore(session.store).loadFile(fileId, maxBytes: maxBytes);
+  });
 
   @override
   Future<void> deleteStoredFile(String fileId) => _fileSerialized(() async {
@@ -1263,14 +1277,15 @@ class HiddenVolumeStorage
   });
 
   @override
-  Future<bool> hasFile(String fileId) async {
-    final meta = await _odMeta(fileId);
+  Future<bool> hasFile(String fileId) => _readFileSession((session) async {
+    final meta = await _odMeta(fileId, store: session.store);
+    _checkFileReadSession(session);
     if (meta != null) {
       // Piece presence comes from the FILESYSTEM (atomic per-piece files) —
       // the old per-piece `st` index list in the meta row meant one padded
       // commit per received piece AND capped the piece count at the ~4 KB
       // chunk payload (~700 pieces). Old metas may still carry `st`; ignored.
-      final blobs = _blobs;
+      final blobs = session.blobs;
       if (blobs == null) return false;
       // The recorded piece count is the layout's, so it is also the only range
       // that counts. Passing it turns `>=` from "are there enough files in the
@@ -1280,8 +1295,8 @@ class HiddenVolumeStorage
       return await blobs.piecesPresent(meta['fn'] as String, expected) >=
           expected;
     }
-    return AsyncFileStore(_as).hasFile(fileId);
-  }
+    return AsyncFileStore(session.store).hasFile(fileId);
+  });
 
   @override
   Future<void> storeFilePiece(
@@ -1396,35 +1411,37 @@ class HiddenVolumeStorage
   }
 
   @override
-  Future<int?> fileSize(String fileId) async {
-    final meta = await _odMeta(fileId);
+  Future<int?> fileSize(String fileId) => _readFileSession((session) async {
+    final meta = await _odMeta(fileId, store: session.store);
+    _checkFileReadSession(session);
     if (meta != null) {
       final size = meta['sz'];
       return size is int ? size : null;
     }
-    return AsyncFileStore(_as).fileSize(fileId);
-  }
+    return AsyncFileStore(session.store).fileSize(fileId);
+  });
 
   @override
-  Future<Uint8List?> readFileRange(
-    String fileId,
-    int offset,
-    int length,
-  ) async {
-    final meta = await _odMeta(fileId);
-    if (meta != null) {
-      if (_blobs == null) return null;
-      return _blobs!.readRange(
-        meta['fn'] as String,
-        base64.decode(meta['k'] as String),
-        offset,
-        length,
-        meta['ps'] as int,
-        meta['sz'] as int,
-      );
-    }
-    return AsyncFileStore(_as).readFileRange(fileId, offset, length);
-  }
+  Future<Uint8List?> readFileRange(String fileId, int offset, int length) =>
+      _readFileSession((session) async {
+        final meta = await _odMeta(fileId, store: session.store);
+        _checkFileReadSession(session);
+        if (meta != null) {
+          final blobs = session.blobs;
+          if (blobs == null) return null;
+          return blobs.readRange(
+            meta['fn'] as String,
+            base64.decode(meta['k'] as String),
+            offset,
+            length,
+            meta['ps'] as int,
+            meta['sz'] as int,
+          );
+        }
+        return AsyncFileStore(
+          session.store,
+        ).readFileRange(fileId, offset, length);
+      });
 
   // --- Ratchet sessions ----------------------------------------------------
   //
@@ -5263,6 +5280,33 @@ class HiddenVolumeStorage
   // SEPARATE from _scanGate so a multi-MiB store never blocks message scans.
   Future<void> _fileGate = Future<void>.value();
   int _fileIoFences = 0;
+  int _fileReadEpoch = 0;
+
+  // Reads stay concurrent: putting a large download ahead of journal reads on
+  // the write gate would create another head-of-line wait. Pin the backing
+  // space and blob tier instead, and reject results invalidated by maintenance.
+  // In particular, never reacquire _as after the on-disk metadata await: an
+  // older identity's request could otherwise read the newly opened identity.
+  Future<T> _readFileSession<T>(
+    Future<T> Function(_FileReadSession session) read,
+  ) async {
+    final session = (store: _as, blobs: _blobs, epoch: _fileReadEpoch);
+    _checkFileReadSession(session);
+    final result = await read(session);
+    _checkFileReadSession(session);
+    return result;
+  }
+
+  void _checkFileReadSession(_FileReadSession session) {
+    if (!identical(session.store, _store) ||
+        !identical(session.blobs, _blobs) ||
+        session.epoch != _fileReadEpoch ||
+        _closePending != null ||
+        _convSequenceFences > 0 ||
+        _fileIoFences > 0) {
+      throw StateError('file storage session changed or is closing or erasing');
+    }
+  }
 
   Future<T> _fileSerialized<T>(Future<T> Function() body) {
     // Maintenance begins at the conversation fence, before it reaches the
@@ -5289,6 +5333,7 @@ class HiddenVolumeStorage
 
   Future<T> _drainFileIo<T>(Future<T> Function() body) async {
     _fileIoFences++;
+    _fileReadEpoch++;
     try {
       final result = _fileGate.then((_) => body());
       _fileGate = result.then<void>((_) {}, onError: (_) {});
