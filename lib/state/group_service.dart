@@ -8710,16 +8710,18 @@ class GroupService implements ArchiveGroups {
   Future<GroupState?> stateOf(NodeId groupId) async {
     final b = await load(groupId);
     if (b == null) return null;
-    return foldControlLog(
-      owner: b.manifest.owner,
-      entries: b.control,
-      verify: (e) => _validControlFor(b.manifest, e),
-      initialName: b.manifest.name,
-      initialDescription: b.manifest.description ?? '',
-      initialAvatarContentId: b.manifest.avatarContentId,
-      initialCoverContentId: b.manifest.coverContentId,
-    ).state;
+    return _stateOfBundle(b);
   }
+
+  GroupState _stateOfBundle(GroupBundle b) => foldControlLog(
+    owner: b.manifest.owner,
+    entries: b.control,
+    verify: (e) => _validControlFor(b.manifest, e),
+    initialName: b.manifest.name,
+    initialDescription: b.manifest.description ?? '',
+    initialAvatarContentId: b.manifest.avatarContentId,
+    initialCoverContentId: b.manifest.coverContentId,
+  ).state;
 
   /// A fresh opaque id for a custom role or participant group. Callers may
   /// stage a complete policy locally, but only [replaceSpaceAccessPolicy]
@@ -15670,6 +15672,8 @@ class GroupService implements ArchiveGroups {
   Future<bool> ingestGroupEntry(NodeId peer, String json) async {
     final adoptedDelta = await _tryIngestAdoptedDeviceDelta(peer, json);
     if (adoptedDelta != null) return adoptedDelta;
+    final heldDelta = await _tryIngestHeldGroupDelta(peer, json);
+    if (heldDelta != null) return heldDelta;
     json = await _restoreOmittedManifest(json);
     Map? decoded;
     try {
@@ -15834,6 +15838,10 @@ class GroupService implements ArchiveGroups {
       peer, json, fromStranger: true,
     );
     if (adoptedDelta != null) return adoptedDelta;
+    final heldDelta = await _tryIngestHeldGroupDelta(
+      peer, json, fromStranger: true,
+    );
+    if (heldDelta != null) return heldDelta;
     // The admission/merge path restores a compact manifest too, but the
     // overlay relay below needs that same restored wire document. Decoding
     // the original mid/mh-only frame silently stopped every stranger hop.
@@ -17035,6 +17043,21 @@ class GroupService implements ArchiveGroups {
   /// group AND the peer is a current member per OUR fold. The admission the
   /// wire layer asks before spending reassembly RAM on a stranger's chunks.
   Future<bool> allowStrangerGroupSync(NodeId peer, String gidHex) async {
+    return _allowStrangerGroupSync(
+      peer,
+      gidHex,
+      pending: await pendingDeviceAdoption(),
+    );
+  }
+
+  /// Shared policy, with an optional journal view owned by the group's mutation
+  /// gate. No public caller can supply a bundle as an authorization witness.
+  Future<bool> _allowStrangerGroupSync(
+    NodeId peer,
+    String gidHex, {
+    required DeviceLinkToken? pending,
+    GroupBundle? loadedBundle,
+  }) async {
     // THE CEREMONY IS THE EXCEPTION, and leaving it out cost a linking flow.
     //
     // Every other caller asks this about a group we already hold. Device
@@ -17056,7 +17079,6 @@ class GroupService implements ArchiveGroups {
     // it as a pending admission of its own accord. Allowing the transfer it
     // already agreed to receive tells a stranger nothing: anyone who did not
     // mint that token gets the same "no" as before.
-    final pending = await pendingDeviceAdoption();
     if (pending != null &&
         _isPendingSource(pending, peer) &&
         pending.groupId.hex == gidHex) {
@@ -17087,7 +17109,12 @@ class GroupService implements ArchiveGroups {
     } catch (_) {
       return false;
     }
-    final st = await stateOf(gid);
+    if (loadedBundle != null && loadedBundle.manifest.groupId != gid) {
+      return false;
+    }
+    final st = loadedBundle == null
+        ? await stateOf(gid)
+        : _stateOfBundle(loadedBundle);
     return st != null &&
         SpaceAcl(st).allows(peer, SpacePermission.distributeContent);
   }
@@ -18041,6 +18068,97 @@ class GroupService implements ArchiveGroups {
     } catch (_) {
       return false;
     }
+  }
+
+  /// Restore a held ordinary group's compact, data-only delta from the SAME
+  /// journal view used by its merge. A separate pre-gate load both reread the
+  /// encrypted history and could restore a manifest superseded while waiting.
+  /// Missing/corrupt journals refuse; this path never materializes a group.
+  /// Device ceremonies/markers and control snapshots retain their own routes.
+  Future<bool?> _tryIngestHeldGroupDelta(
+    NodeId peer,
+    String json, {
+    bool fromStranger = false,
+  }) async {
+    if (!json.contains('"mid":')) return null;
+    final Map<String, dynamic> wire;
+    try {
+      final value = jsonDecode(json);
+      if (value is! Map<String, dynamic>) return null;
+      wire = value;
+    } catch (_) {
+      return null;
+    }
+    final id = wire['mid'], hash = wire['mh'];
+    if (wire['m'] != null ||
+        wire['tx'] != null ||
+        wire['sreq'] == 1 ||
+        wire['creq'] == 1 ||
+        id is! String ||
+        hash is! String ||
+        wire['c'] is! List ||
+        (wire['c'] as List).isNotEmpty) {
+      return null;
+    }
+    final NodeId gid;
+    try {
+      gid = NodeId.fromHex(id);
+    } catch (_) {
+      return false;
+    }
+    Map<String, dynamic>? restored;
+    final accepted = await _serialized<bool?>(gid, () async {
+      // Even a held ordinary group can be named by a pending token. Preserve
+      // that ceremony's source/manifest binding instead of treating its frame
+      // as ordinary traffic. The normal ingress below performs the pinned check.
+      final pending = await pendingDeviceAdoption();
+      if (pending != null &&
+          pending.groupId == gid &&
+          _isPendingSource(pending, peer)) {
+        return null;
+      }
+      final GroupBundle? held;
+      try {
+        held = await load(gid);
+      } catch (_) {
+        return false;
+      }
+      if (held == null) return false;
+      if (held.manifest.isSovereignDevice ||
+          held.manifest.name == kDeviceGroupName) {
+        return null;
+      }
+      if (held.manifest.groupId != gid || manifestHash(held.manifest) != hash) {
+        return false;
+      }
+      // Check after waiting for prior mutations, never reuse a pre-gate grant.
+      if (fromStranger &&
+          !await _allowStrangerGroupSync(
+            peer,
+            id,
+            pending: pending,
+            loadedBundle: held,
+          )) {
+        return false;
+      }
+      await learnPeerDocuments(wire['docs']);
+      final resolved = {...wire, 'm': held.manifest.toJson()};
+      restored = resolved;
+      return _ingestSnapshot(
+        jsonEncode(resolved),
+        fromOwnDevice: fromStranger && await isMyDeviceOrMaster(peer),
+        sender: peer,
+        loadedBundle: held,
+      );
+    });
+    final appliedWire = restored;
+    if (accepted == true && appliedWire != null) {
+      // Release the mutation gate before transport work, as for full snapshots.
+      // Receipt and relay still reload their own current authorization view.
+      await _acknowledgeSpaceReceipt(peer, appliedWire);
+      await _relayOverlayDelta(peer, appliedWire);
+    }
+    return accepted;
   }
 
   /// An already-adopted device delta needs one journal view: restore its

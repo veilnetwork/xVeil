@@ -1,0 +1,214 @@
+{
+  "schema": "xveil-group-held-view-validation/1",
+  "date": "2026-10-31",
+  "control_frontend": "9bb1c645",
+  "native_sdk": "081bb6d1",
+  "native_library_changed": false,
+  "verdict": "redundant journal reads eliminated; overall delivery latency still open",
+  "loads_per_compact_ingest": {
+    "contact_before": 2,
+    "stranger_before": 3,
+    "after": 1
+  },
+  "native_completed_frame_load_counts": {
+    "control": [
+      4,
+      5
+    ],
+    "candidate": [
+      2,
+      3
+    ]
+  },
+  "series": [
+    {
+      "phase": "group-shared-baseline-1",
+      "max_visible_ms": [
+        4566,
+        2394,
+        3277,
+        2922
+      ],
+      "completed_frames": 201,
+      "load_count_histogram": {
+        "5": 44,
+        "4": 157
+      },
+      "median_group_receive_ms": 442.0,
+      "max_group_receive_ms": 1899.7,
+      "median_load_union_ms": 189.2,
+      "median_kv_union_ms": 434.9,
+      "timing_dropped": 0,
+      "all_messages_once": true,
+      "host_exited": true,
+      "released_listeners": 12
+    },
+    {
+      "phase": "group-shared-baseline-2",
+      "max_visible_ms": [
+        4294,
+        3040,
+        1763,
+        2544
+      ],
+      "completed_frames": 200,
+      "load_count_histogram": {
+        "5": 44,
+        "4": 156
+      },
+      "median_group_receive_ms": 434.5,
+      "max_group_receive_ms": 1866.5,
+      "median_load_union_ms": 166.9,
+      "median_kv_union_ms": 422.1,
+      "timing_dropped": 0,
+      "all_messages_once": true,
+      "host_exited": true,
+      "released_listeners": 12
+    },
+    {
+      "phase": "group-shared-baseline-3",
+      "max_visible_ms": [
+        4355,
+        2924,
+        2388,
+        2976
+      ],
+      "completed_frames": 193,
+      "load_count_histogram": {
+        "5": 44,
+        "4": 149
+      },
+      "median_group_receive_ms": 469.2,
+      "max_group_receive_ms": 1709.1,
+      "median_load_union_ms": 196.8,
+      "median_kv_union_ms": 458.2,
+      "timing_dropped": 0,
+      "all_messages_once": true,
+      "host_exited": true,
+      "released_listeners": 12
+    },
+    {
+      "phase": "group-shared-candidate-1",
+      "max_visible_ms": [
+        4271,
+        2368,
+        2141,
+        2670
+      ],
+      "completed_frames": 201,
+      "load_count_histogram": {
+        "3": 44,
+        "2": 157
+      },
+      "median_group_receive_ms": 441.0,
+      "max_group_receive_ms": 1564.6,
+      "median_load_union_ms": 126.9,
+      "median_kv_union_ms": 433.0,
+      "timing_dropped": 0,
+      "all_messages_once": true,
+      "host_exited": true,
+      "released_listeners": 12
+    },
+    {
+      "phase": "group-shared-candidate-2",
+      "max_visible_ms": [
+        4676,
+        2305,
+        2641,
+        2969
+      ],
+      "completed_frames": 194,
+      "load_count_histogram": {
+        "3": 44,
+        "2": 150
+      },
+      "median_group_receive_ms": 427.7,
+      "max_group_receive_ms": 1862.5,
+      "median_load_union_ms": 134.7,
+      "median_kv_union_ms": 416.7,
+      "timing_dropped": 0,
+      "all_messages_once": true,
+      "host_exited": true,
+      "released_listeners": 12
+    },
+    {
+      "phase": "group-shared-candidate-3",
+      "max_visible_ms": [
+        4326,
+        2718,
+        2993,
+        3398
+      ],
+      "completed_frames": 199,
+      "load_count_histogram": {
+        "3": 44,
+        "2": 155
+      },
+      "median_group_receive_ms": 384.8,
+      "max_group_receive_ms": 1626.4,
+      "median_load_union_ms": 117.9,
+      "median_kv_union_ms": 381.3,
+      "timing_dropped": 0,
+      "all_messages_once": true,
+      "host_exited": true,
+      "released_listeners": 12
+    }
+  ],
+  "final_byte_source_smoke": {
+    "phase": "group-held-final-smoke",
+    "max_visible_ms": [
+      4322,
+      3698,
+      2204,
+      3383
+    ],
+    "completed_frames": 196,
+    "load_count_histogram": {
+      "3": 44,
+      "2": 152
+    },
+    "median_group_receive_ms": 378.7,
+    "max_group_receive_ms": 2328.3,
+    "median_load_union_ms": 105.2,
+    "median_kv_union_ms": 366.1,
+    "timing_dropped": 0,
+    "all_messages_once": true,
+    "host_exited": true,
+    "released_listeners": 12
+  },
+  "tests": {
+    "passed": 448,
+    "ignored": 0,
+    "native_credentials_included": 3,
+    "new_regression_cases": 8,
+    "analyzer": "no issues"
+  },
+  "pre_guard_and_separate_admission_prototypes_excluded": true,
+  "series_followed_only_by_lint_changes_and_final_source_smoke": true,
+  "phone_changed": false,
+  "relays_changed": false,
+  "released": false,
+  "pushed": false,
+  "limitations": [
+    "one Mac, JIT host and shared storage contention",
+    "native TCP full mesh",
+    "all nodes serve DHT",
+    "legacy group without epoch encryption",
+    "out-of-band roster",
+    "fresh instance keys; no fixed per-message route",
+    "nested operation timings overlap and are not summed",
+    "multi-device matrix not qualified"
+  ],
+  "baseline_visibility_medians_ms": [
+    4355,
+    2924,
+    2388,
+    2922
+  ],
+  "candidate_visibility_medians_ms": [
+    4326,
+    2368,
+    2641,
+    2969
+  ]
+}
