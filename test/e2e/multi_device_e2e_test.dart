@@ -48,6 +48,7 @@ void main() {
     E2eDevice y, {
     NodeId? conversationPeer,
     bool requireConversationAgreement = false,
+    List<String>? expectedConversationMessageIds,
     required String what,
   }) async {
     await waitUntil(
@@ -55,6 +56,7 @@ void main() {
         await x.snapshot(conversationPeer: conversationPeer),
         await y.snapshot(conversationPeer: conversationPeer),
         requireConversationAgreement: requireConversationAgreement,
+        expectedConversationMessageIds: expectedConversationMessageIds,
       ).agree,
       what: what,
       describe: () async {
@@ -64,6 +66,7 @@ void main() {
           a,
           b,
           requireConversationAgreement: requireConversationAgreement,
+          expectedConversationMessageIds: expectedConversationMessageIds,
         ).describe();
       },
       timeout: const Duration(minutes: 3),
@@ -74,6 +77,7 @@ void main() {
       a,
       b,
       requireConversationAgreement: requireConversationAgreement,
+      expectedConversationMessageIds: expectedConversationMessageIds,
     );
     expect(
       verdict.agree,
@@ -94,6 +98,9 @@ void main() {
 
       await f.linkDevice(master: f.a, target: f.b);
       await f.introduce(f.c, f.a);
+      final baselineIds = [
+        for (final row in await f.a.conversationRows(f.c.identityNodeId)) row.id,
+      ];
 
       const body = 'case-3-8 from C to identity X';
       await f.c.messaging.sendText(f.a.identityNodeId, body);
@@ -133,6 +140,7 @@ void main() {
         conversationPeer: f.c.identityNodeId,
         requireConversationAgreement: true,
         what: 'A and B must agree after receiving one message from C',
+        expectedConversationMessageIds: [...baselineIds, messageId],
       );
     }, skip: gate.skip);
 
@@ -817,6 +825,9 @@ void main() {
 
         await f.linkDevice(master: f.a, target: f.b);
         await f.introduce(f.a, f.c);
+        final baselineIds = [
+          for (final row in await f.a.conversationRows(f.c.identityNodeId)) row.id,
+        ];
 
         const original = 'case-20 the row both devices will change';
         const edited = 'case-20 EDITED on A';
@@ -846,6 +857,12 @@ void main() {
         // other's change until both are up again.
         await f.b.stop();
         await f.a.messaging.editOwnMessage(idOnA, edited);
+        expect(
+          (await f.a.groups!.deviceSyncState())[(DeviceSyncKind.msgEdit, idOnA)]
+              ?.payload['body'],
+          edited,
+          reason: 'the conflicting edit must be durable before A goes offline',
+        );
         await f.a.stop();
         await f.b.start();
         await f.b.messaging.deleteMessageLocally(idOnB);
@@ -881,6 +898,7 @@ void main() {
           conversationPeer: f.c.identityNodeId,
           requireConversationAgreement: true,
           what: 'A and B to converge after the edit/delete split',
+          expectedConversationMessageIds: baselineIds,
         );
         expect(onA.conversationMessageIds, isNot(contains(idOnA)));
         expect(onB.conversationMessageIds, isNot(contains(idOnB)));

@@ -501,7 +501,8 @@ class MessagingService {
   }) => _deviceMirror.applyDelete(peer: peer, msgId: msgId);
 
   /// Receives a text replaced HERE, for projection to the other devices.
-  void Function(
+  /// Editing and incoming ACKs await durable local publication, not networking.
+  FutureOr<void> Function(
     NodeId peer,
     String msgId,
     String body,
@@ -510,7 +511,7 @@ class MessagingService {
   get onMessageEdited => _deviceMirror.onMessageEdited;
 
   set onMessageEdited(
-    void Function(
+    FutureOr<void> Function(
       NodeId peer,
       String msgId,
       String body,
