@@ -419,9 +419,18 @@ class VeilCallMediaController implements CallMediaController {
   VeilCallMediaController(
     this._transport, {
     CallMediaEngineFactory? engineFactory,
-  }) : _engineFactory = engineFactory ?? VeilMediaEngine.create;
+    CallMicrophonePermission? Function(Future<bool>)? microphonePermissionFactory,
+  }) : _engineFactory = engineFactory ?? VeilMediaEngine.create,
+       _microphonePermissionFactory =
+           microphonePermissionFactory ?? _platformMicrophonePermission;
 
   final CallMediaEngineFactory _engineFactory;
+  final CallMicrophonePermission? Function(Future<bool>)
+  _microphonePermissionFactory;
+
+  static CallMicrophonePermission? _platformMicrophonePermission(
+    Future<bool> result,
+  ) => Platform.isAndroid ? CallMicrophonePermission(result) : null;
 
   // Sealing remains unconditional v3 behavior. v5 also needs native accepted
   // audio counters and playout estimates from the independent feedback ABI.
@@ -435,10 +444,14 @@ class VeilCallMediaController implements CallMediaController {
 
   final VeilFlutterTransport _transport;
   final _peerHealth = StreamController<CallSignal>.broadcast();
+  final _microphoneUnavailable = StreamController<String>.broadcast();
   Timer? _controlPollTimer;
 
   @override
   Stream<CallSignal> get peerHealth => _peerHealth.stream;
+
+  @override
+  Stream<String> get microphoneUnavailable => _microphoneUnavailable.stream;
 
   @override
   bool get canReceiveEphemeralHealth =>
@@ -1444,9 +1457,7 @@ class VeilCallMediaController implements CallMediaController {
           return granted;
         },
       );
-      if (Platform.isAndroid) {
-        _microphonePermission = CallMicrophonePermission(microphonePermission);
-      }
+      _microphonePermission = _microphonePermissionFactory(microphonePermission);
       permissionRequests.add(microphonePermission.then<void>((_) {}));
     }
     if (call.media.video) {
@@ -1970,34 +1981,50 @@ class VeilCallMediaController implements CallMediaController {
       return false;
     }
     if (microphonePermission != null) {
+      bool isCurrent() =>
+          _mediaEpoch == epoch &&
+          _engine == engine &&
+          _activeCall?.callId == call.callId &&
+          _microphoneState.belongsToCall(call.callId);
+      void unavailable() {
+        if (!isCurrent()) return;
+        final requestedMuted = _microphoneState.mutedForCall(call.callId);
+        _microphoneState.setMuted(true);
+        _activeCall = _activeCall!.copyWith(micOn: false);
+        _startedWithoutMicrophone = true;
+        try {
+          engine.trySetMicMuted(true);
+        } catch (_) {}
+        diagnosticJournal.record(
+          DiagnosticEvent.microphoneControl,
+          values: {
+            DiagnosticMetric.enabled: requestedMuted ? 0 : 1,
+            DiagnosticMetric.success: 0,
+          },
+        );
+        _microphoneUnavailable.add(call.callId);
+      }
       unawaited(
         microphonePermission.applyWhenGranted(
-          isCurrent: () =>
-              _mediaEpoch == epoch &&
-              _engine == engine &&
-              _activeCall?.callId == call.callId &&
-              _microphoneState.belongsToCall(call.callId),
+          isCurrent: isCurrent,
           isMuted: () => _microphoneState.mutedForCall(call.callId),
+          onDenied: unavailable,
           apply: (muted) {
             if (!engine.trySetMicMuted(muted)) {
-              diagnosticJournal.record(
-                DiagnosticEvent.audioStart,
-                values: {
-                  DiagnosticMetric.success: 0,
-                  if (!muted) DiagnosticMetric.audioCaptureStartResult: 0,
-                },
-              );
+              unavailable();
               devLog(
                 () => 'xVeil[call-media]: microphone capture refused after grant',
               );
               return;
             }
+            if (!muted) _startedWithoutMicrophone = false;
             devLog(
               () => 'xVeil[call-media]: microphone grant applied captureMuted=$muted',
             );
           },
-        ).catchError((Object error) {
-          devLog(() => 'xVeil[call-media]: microphone grant capture failed: $error');
+        ).catchError((Object _) {
+          unavailable();
+          devLog(() => 'xVeil[call-media]: microphone grant capture failed');
         }),
       );
     }

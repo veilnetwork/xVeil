@@ -16,6 +16,97 @@ import 'package:xveil/state/messaging.dart';
 import 'package:xveil/state/veil_call_media.dart';
 
 void main() {
+  test(
+    'late local microphone failure updates UI and peer without ending call',
+    () async {
+      final wire = _FakeMessaging();
+      final media = _FakeMedia();
+      final svc = CallService(wire, media: media)..start();
+      addTearDown(() async {
+        svc.dispose();
+        await media.microphoneFailures.close();
+      });
+      wire.onCallSignal!(NodeId.fromHex('d' * 64), _diagnosticOffer());
+      await pumpEventQueue();
+      await svc.accept();
+      await pumpEventQueue();
+      expect(svc.current?.micOn, isTrue);
+      media.startedWithoutMicrophone = true;
+      media.microphoneFailures.add(svc.current!.callId);
+      await pumpEventQueue();
+      expect(svc.current?.status, CallStatus.active);
+      expect(svc.current?.micOn, isFalse);
+      expect(wire.sent.last.capture?.audio, isFalse);
+      media.startedWithoutMicrophone = false;
+      await svc.setMicEnabled(true);
+      await pumpEventQueue();
+      expect(svc.current?.micOn, isTrue);
+      expect(wire.sent.last.capture?.audio, isTrue);
+      // An already queued event from before this retry is no longer authoritative.
+      final sent = wire.sent.length;
+      media.microphoneFailures.add(svc.current!.callId);
+      await pumpEventQueue();
+      expect(svc.current?.micOn, isTrue);
+      expect(wire.sent, hasLength(sent));
+    },
+  );
+
+  test(
+    'local microphone failure invalidates a pending optimistic mute result',
+    () async {
+      final wire = _FakeMessaging();
+      final media = _FakeMedia();
+      final svc = CallService(wire, media: media)..start();
+      addTearDown(() async {
+        svc.dispose();
+        await media.microphoneFailures.close();
+      });
+      wire.onCallSignal!(NodeId.fromHex('d' * 64), _diagnosticOffer());
+      await pumpEventQueue();
+      await svc.accept();
+      await pumpEventQueue();
+      final pending = Completer<bool>();
+      media.micOperation = (_) => pending.future;
+      final mute = svc.setMicEnabled(false);
+      media.startedWithoutMicrophone = true;
+      media.microphoneFailures.add(svc.current!.callId);
+      await pumpEventQueue();
+      expect(svc.current?.micOn, isFalse);
+      expect(wire.sent.last.capture?.audio, isFalse);
+      final sent = wire.sent.length;
+      pending.complete(false);
+      await mute;
+      await pumpEventQueue();
+      expect(svc.current?.micOn, isFalse);
+      expect(wire.sent, hasLength(sent));
+    },
+  );
+
+  for (final phase in ['other-call', 'ended', 'disposed']) {
+    test('local microphone event cannot affect $phase', () async {
+      final wire = _FakeMessaging();
+      final media = _FakeMedia();
+      final svc = CallService(wire, media: media)..start();
+      addTearDown(media.microphoneFailures.close);
+      if (phase != 'disposed') addTearDown(svc.dispose);
+      wire.onCallSignal!(NodeId.fromHex('d' * 64), _diagnosticOffer());
+      await pumpEventQueue();
+      await svc.accept();
+      await pumpEventQueue();
+      final id = svc.current!.callId;
+      if (phase == 'ended') await svc.hangup();
+      if (phase == 'disposed') svc.dispose();
+      await pumpEventQueue();
+      final sent = wire.sent.length;
+      media.startedWithoutMicrophone = true;
+      media.microphoneFailures.add(
+        phase == 'other-call' ? 'different-call' : id,
+      );
+      await pumpEventQueue();
+      expect(svc.current?.micOn, phase == 'other-call' ? isTrue : isNull);
+      expect(wire.sent, hasLength(sent));
+    });
+  }
   for (final on in [false, true]) {
     for (final throws in [false, true]) {
       test(
@@ -6381,6 +6472,10 @@ CallSignal _diagnosticOffer() => CallSignal(
 );
 
 class _FakeMedia extends CallMediaController {
+  final microphoneFailures = StreamController<String>.broadcast();
+  @override
+  Stream<String> get microphoneUnavailable => microphoneFailures.stream;
+
   Future<bool> Function(bool)? micOperation;
   @override
   Future<bool> setMicMuted(bool muted) async =>

@@ -158,6 +158,11 @@ abstract class CallMediaController {
   /// effective mute locally/to the peer until capture can successfully resume.
   bool get startedWithoutMicrophone => false;
 
+  /// Call-scoped local input failure, e.g. a permission resolved after start.
+  /// Producers must reject stale engine callbacks; the FSM also checks call id
+  /// and current unavailable state so an old event cannot undo a working retry.
+  Stream<String> get microphoneUnavailable => const Stream<String>.empty();
+
   /// The route the media engine actually opened. It must equal the negotiated
   /// route, except for the explicitly permitted direct P2P → non-onion relay
   /// fallback. Null until a channel is open.
@@ -460,6 +465,7 @@ class CallService {
   Timer? _directAdmissionTimer;
   bool _directAdmissionCheckBusy = false;
   StreamSubscription<void>? _screenShareStoppedSub;
+  StreamSubscription<String>? _microphoneUnavailableSub;
   int _microphoneOperationEpoch = 0;
   StreamSubscription<CallSignal>? _peerHealthSub;
   DateTime? _lastRegularHealthAt;
@@ -765,6 +771,21 @@ class CallService {
       if (_current?.screenOn == true) {
         unawaited(setScreenShareEnabled(false));
       }
+    });
+    _microphoneUnavailableSub = _media?.microphoneUnavailable.listen((callId) {
+      final call = _current;
+      if (_disposed ||
+          call == null ||
+          !call.isLive ||
+          call.callId != callId ||
+          !_media.startedWithoutMicrophone) {
+        return;
+      }
+      // Invalidate an earlier pending toggle even if its optimistic UI already
+      // says off: a later false result must not restore an obsolete mic-on.
+      ++_microphoneOperationEpoch;
+      _set(call.copyWith(micOn: false));
+      unawaited(_announceCapture());
     });
   }
 
@@ -2948,6 +2969,8 @@ class CallService {
     _messaging.backgroundStashPaused = false;
     unawaited(_screenShareStoppedSub?.cancel());
     _screenShareStoppedSub = null;
+    unawaited(_microphoneUnavailableSub?.cancel());
+    _microphoneUnavailableSub = null;
     unawaited(_peerHealthSub?.cancel());
     _peerHealthSub = null;
     if (_media == null) {
