@@ -264,6 +264,8 @@ class _ReservationStorage extends HiddenVolumeStorage {
     : super(({required password, required bool create}) => FakeKvLogStore());
   Completer<void>? hold;
   Completer<void>? entered;
+  Completer<void>? anchorHold;
+  Completer<void>? anchorEntered;
   bool fail = false;
   bool failAfterCommit = false;
   int writes = 0;
@@ -286,6 +288,9 @@ class _ReservationStorage extends HiddenVolumeStorage {
   @override
   Future<bool> advanceRollbackAnchor() async {
     anchors++;
+    anchorEntered?.complete();
+    anchorEntered = null;
+    await anchorHold?.future;
     return true;
   }
 }
@@ -301,6 +306,36 @@ void main() {
       ({required password, required bool create}) => FakeKvLogStore(),
     );
     await storage.open(password: 'pw', createIfMissing: true);
+  });
+
+  test('unguarded stores keep the serialized reservation contract', () async {
+    final backing = _ReservationStorage();
+    await backing.open(password: 'pw', createIfMissing: true);
+    addTearDown(backing.close);
+    final node = _Node()..rotate(key, 78);
+    final binder = RatchetPersistence(native: node, storage: backing);
+    addTearDown(binder.close);
+    await binder.reserveBeforePublish(peer);
+    node.rotate(_convKey(local: 1, peerNode: 3), 79);
+    final entered = Completer<void>();
+    backing.entered = entered;
+    backing.hold = Completer<void>();
+    final blocked = binder.reserveBeforePublish(
+      NodeId(Uint8List.fromList(List.filled(32, 3))),
+    );
+    await entered.future;
+    var finished = false;
+    final covered = binder.reserveBeforePublish(peer).then((_) {
+      finished = true;
+    });
+    try {
+      await Future<void>.delayed(Duration.zero);
+      expect(finished, isFalse);
+    } finally {
+      backing.hold!.complete();
+      backing.hold = null;
+      await Future.wait([blocked, covered]);
+    }
   });
 
   test(
@@ -609,6 +644,112 @@ void _hostPublicationTests() {
       await Future<void>.delayed(const Duration(milliseconds: 450));
       expect(storage.writes, 0);
       expect(node.allowed, 0);
+    });
+
+    test('a covered guarded send does not wait for another reservation', () async {
+      await owner.reserveBeforePublish(peer);
+      final allowed = node.allowed;
+      final foreign = _convKey(local: 1, peerNode: 3);
+      node.rotate(foreign, 77);
+      expect(() => node.seal(foreign), throwsStateError);
+      final entered = Completer<void>();
+      storage.entered = entered;
+      storage.hold = Completer<void>();
+      final blocked = owner.reserveBeforePublish(
+        NodeId(Uint8List.fromList(List.filled(32, 3))),
+      );
+      await entered.future;
+      var finished = false;
+      final covered = owner.reserveBeforePublish(peer).then((_) {
+        finished = true;
+      });
+      try {
+        // Event-loop barrier, not a timing bound. The foreign commit remains
+        // gated throughout; a cached durable reservation needs no storage I/O.
+        await Future<void>.delayed(Duration.zero);
+        expect(finished, isTrue);
+        expect(node.allowed, allowed, reason: 'no new permission is installed');
+        expect(node.seal(key), 31);
+        expect(() => node.seal(foreign), throwsStateError);
+      } finally {
+        storage.hold!.complete();
+        storage.hold = null;
+        await Future.wait([blocked, covered]);
+      }
+      expect(node.seal(foreign), 0);
+    });
+
+    test('cached marks do not grant a native floor before the anchor attempt', () async {
+      expect(() => node.seal(key), throwsStateError);
+      final entered = Completer<void>();
+      storage.anchorEntered = entered;
+      storage.anchorHold = Completer<void>();
+      final reserving = owner.reserveBeforePublish(peer);
+      await entered.future;
+      var finished = false;
+      final covered = owner.reserveBeforePublish(peer).then((_) {
+        finished = true;
+      });
+      try {
+        await Future<void>.delayed(Duration.zero);
+        expect(finished, isTrue);
+        expect(await storage.getSetting(ratchetReservationKey(key)), isNotNull);
+        expect(node.allowed, 0);
+        expect(() => node.seal(key), throwsStateError);
+      } finally {
+        storage.anchorHold!.complete();
+        storage.anchorHold = null;
+        await Future.wait([reserving, covered]);
+      }
+      expect(node.seal(key), 31);
+    });
+
+    for (final change in ['rotation', 'exhaustion', 'sibling']) {
+      test('a $change cannot reuse a covered reservation fast path', () async {
+        await owner.reserveBeforePublish(peer);
+        final foreign = _convKey(local: 1, peerNode: 3);
+        node.rotate(foreign, 77);
+        final entered = Completer<void>();
+        storage.entered = entered;
+        storage.hold = Completer<void>();
+        final blocked = owner.reserveBeforePublish(
+          NodeId(Uint8List.fromList(List.filled(32, 3))),
+        );
+        await entered.future;
+        var changedKey = key;
+        if (change == 'rotation') {
+          node.rotate(key, 78);
+        } else if (change == 'sibling') {
+          changedKey = _convKey(local: 1, peerNode: 2, peerInstance: 7);
+          node.rotate(changedKey, 79);
+        } else {
+          for (var n = 0; n < RatchetPersistence.reserveAhead; n++) {
+            node.seal(key);
+          }
+        }
+        expect(() => node.seal(changedKey), throwsStateError);
+        var finished = false;
+        final demand = owner.reserveBeforePublish(peer).then((_) {
+          finished = true;
+        });
+        try {
+          await Future<void>.delayed(Duration.zero);
+          expect(finished, isFalse);
+          expect(() => node.seal(changedKey), throwsStateError);
+        } finally {
+          storage.hold!.complete();
+          storage.hold = null;
+          await Future.wait([blocked, demand]);
+        }
+        expect(node.seal(changedKey), change == 'exhaustion' ? 63 : 0);
+      });
+    }
+
+    test('cached marks do not outlive a retired native owner', () async {
+      await owner.reserveBeforePublish(peer);
+      node.endHostPublication(node.epoch);
+      await expectLater(owner.reserveBeforePublish(peer), throwsStateError);
+      expect(() => node.seal(key), throwsStateError);
     });
 
     test(
