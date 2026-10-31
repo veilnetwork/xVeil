@@ -32,6 +32,7 @@ import '../domain/clear_policy.dart';
 import '../domain/clear_request.dart';
 import '../crypto/blake3.dart';
 import '../data/node/embedded_node.dart';
+import '../data/storage/file_store.dart' show StoredFileBatchReader;
 import '../domain/data_transfer.dart';
 import '../domain/chat.dart'
     show
@@ -6709,6 +6710,29 @@ class GroupService implements ArchiveGroups {
   // completion; a later read must observe deletion, corruption and repair.
   final Map<String, Future<({Object? json})?>> _segmentReads = {};
 
+  // Exact bounded waves only; evicted on completion. Parsed JSON is shared
+  // while an identical read is active, never signatures or accepted views.
+  final Map<String, Future<List<Object?>?>> _segmentBatchReads = {};
+
+  Future<List<Object?>?> _readMessageSegmentBatch(List<String> keys) =>
+      _segmentBatchReads.putIfAbsent(
+        jsonEncode(keys),
+        () =>
+            Future<List<Object?>?>.sync(() async {
+              final bytes = await (_storage as StoredFileBatchReader).loadFiles(
+                keys,
+                maxBytesPerFile: 2 * _kSegmentTargetBytes,
+              );
+              if (bytes == null) return null;
+              if (bytes.length != keys.length) {
+                throw StateError('message segment batch length mismatch');
+              }
+              return [for (final raw in bytes) jsonDecode(utf8.decode(raw))];
+            }).whenComplete(() {
+              _segmentBatchReads.remove(jsonEncode(keys));
+            }),
+      );
+
   Future<({Object? json})?> _readMessageSegment(String key) =>
       _segmentReads.putIfAbsent(
         key,
@@ -6794,16 +6818,40 @@ class GroupService implements ArchiveGroups {
     final key = _key(groupId);
     final live = _segmentKeys(raw, key);
     final rows = <Object?>[];
-    for (final k in raw) {
-      if (k is! String || !live.contains(k)) continue;
-      final segment = await _readMessageSegment(k);
-      if (segment == null) {
-        return 'message segment ${k.substring(k.length - 8)} named by the '
-            'header is missing';
+    final keys = [
+      for (final k in raw)
+        if (k is String && live.contains(k)) k,
+    ];
+    for (
+      var start = 0;
+      start < keys.length;
+      start += StoredFileBatchReader.maxFiles
+    ) {
+      final end = min(start + StoredFileBatchReader.maxFiles, keys.length);
+      final wave = keys.sublist(start, end);
+      final batch = _storage is StoredFileBatchReader
+          ? await _readMessageSegmentBatch(wave)
+          : null;
+      if (batch != null) {
+        for (final list in batch) {
+          if (list is! List) return 'message segment is not a list';
+          rows.addAll(list);
+        }
+        continue;
       }
-      final list = segment.json;
-      if (list is! List) return 'message segment is not a list';
-      rows.addAll(list);
+      // Missing/incomplete or unusually large segments use the original
+      // sequential path. It identifies the actual gap and preserves support
+      // for valid legacy segments above the bounded prefetch ceiling.
+      for (final k in wave) {
+        final segment = await _readMessageSegment(k);
+        if (segment == null) {
+          return 'message segment ${k.substring(k.length - 8)} named by the '
+              'header is missing';
+        }
+        final list = segment.json;
+        if (list is! List) return 'message segment is not a list';
+        rows.addAll(list);
+      }
     }
     d['g'] = rows;
     // ONLY where this process has not yet saved the bundle. After its own
