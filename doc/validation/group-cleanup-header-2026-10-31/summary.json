@@ -1,0 +1,633 @@
+{
+  "schema": "xveil-group-cleanup-header-validation/1",
+  "baseline_revision": "05c64c0c",
+  "frozen_sdk_revision": "081bb6d1",
+  "test_passed": 483,
+  "test_skipped": 0,
+  "public_network": false,
+  "single_host": true,
+  "separate_processes": false,
+  "distinct_identities": 12,
+  "multi_device_qualification": false,
+  "epoch_encryption": false,
+  "out_of_band_roster": true,
+  "runs": [
+    {
+      "phase": "retirement-control-1",
+      "variant": "control",
+      "visible_ms": [
+        4215,
+        2424,
+        2497,
+        2650
+      ],
+      "group_file_commits": 244,
+      "header_publications": 80,
+      "file_operations": [
+        {
+          "operation": "group_file.delete.segment",
+          "commits": 1,
+          "count": 36
+        },
+        {
+          "operation": "group_file.has.segment",
+          "commits": 0,
+          "count": 157
+        },
+        {
+          "operation": "group_file.load.header",
+          "commits": 0,
+          "count": 571
+        },
+        {
+          "operation": "group_file.load.segment",
+          "commits": 0,
+          "count": 553
+        },
+        {
+          "operation": "group_file.store.header",
+          "commits": 0,
+          "count": 124
+        },
+        {
+          "operation": "group_file.store.header",
+          "commits": 2,
+          "count": 80
+        },
+        {
+          "operation": "group_file.store.segment",
+          "commits": 1,
+          "count": 48
+        }
+      ],
+      "critical_paths": [
+        {
+          "sample": 0,
+          "group_handling_ms": 1243.462,
+          "file_call_union_overlap_ms": 851.125,
+          "by_operation_ms": {
+            "group_file.load.header": 344.208,
+            "group_file.store.segment": 175.739,
+            "group_file.store.header": 319.02,
+            "group_file.load.segment": 12.158
+          }
+        },
+        {
+          "sample": 1,
+          "group_handling_ms": 884.796,
+          "file_call_union_overlap_ms": 744.739,
+          "by_operation_ms": {
+            "group_file.load.header": 18.734,
+            "group_file.load.segment": 32.308,
+            "group_file.store.segment": 140.075,
+            "group_file.store.header": 419.207,
+            "group_file.delete.segment": 134.415
+          }
+        },
+        {
+          "sample": 2,
+          "group_handling_ms": 1758.002,
+          "file_call_union_overlap_ms": 1158.551,
+          "by_operation_ms": {
+            "group_file.load.header": 318.674,
+            "group_file.load.segment": 101.757,
+            "group_file.store.segment": 116.365,
+            "group_file.store.header": 425.711,
+            "group_file.delete.segment": 196.044
+          }
+        },
+        {
+          "sample": 3,
+          "group_handling_ms": 1409.1979999999999,
+          "file_call_union_overlap_ms": 1172.048,
+          "by_operation_ms": {
+            "group_file.load.header": 113.739,
+            "group_file.load.segment": 220.436,
+            "group_file.store.segment": 284.379,
+            "group_file.store.header": 395.335,
+            "group_file.delete.segment": 158.159
+          }
+        }
+      ],
+      "all_nodes_stopped": true,
+      "listeners_released": 12
+    },
+    {
+      "phase": "retirement-control-2",
+      "variant": "control",
+      "visible_ms": [
+        4278,
+        2828,
+        2145,
+        2710
+      ],
+      "group_file_commits": 244,
+      "header_publications": 80,
+      "file_operations": [
+        {
+          "operation": "group_file.delete.segment",
+          "commits": 1,
+          "count": 36
+        },
+        {
+          "operation": "group_file.has.segment",
+          "commits": 0,
+          "count": 157
+        },
+        {
+          "operation": "group_file.load.header",
+          "commits": 0,
+          "count": 579
+        },
+        {
+          "operation": "group_file.load.segment",
+          "commits": 0,
+          "count": 560
+        },
+        {
+          "operation": "group_file.store.header",
+          "commits": 0,
+          "count": 125
+        },
+        {
+          "operation": "group_file.store.header",
+          "commits": 2,
+          "count": 80
+        },
+        {
+          "operation": "group_file.store.segment",
+          "commits": 1,
+          "count": 48
+        }
+      ],
+      "critical_paths": [
+        {
+          "sample": 0,
+          "group_handling_ms": 1489.5729999999999,
+          "file_call_union_overlap_ms": 892.703,
+          "by_operation_ms": {
+            "group_file.load.header": 98.518,
+            "group_file.store.segment": 221.843,
+            "group_file.store.header": 535.565,
+            "group_file.load.segment": 36.777
+          }
+        },
+        {
+          "sample": 1,
+          "group_handling_ms": 1148.691,
+          "file_call_union_overlap_ms": 921.173,
+          "by_operation_ms": {
+            "group_file.load.header": 243.687,
+            "group_file.load.segment": 84.816,
+            "group_file.store.segment": 101.557,
+            "group_file.store.header": 259.565,
+            "group_file.delete.segment": 231.548
+          }
+        },
+        {
+          "sample": 2,
+          "group_handling_ms": 1346.9470000000001,
+          "file_call_union_overlap_ms": 604.437,
+          "by_operation_ms": {
+            "group_file.load.header": 47.821,
+            "group_file.load.segment": 93.071,
+            "group_file.store.segment": 134.914,
+            "group_file.store.header": 230.331,
+            "group_file.delete.segment": 98.3
+          }
+        },
+        {
+          "sample": 3,
+          "group_handling_ms": 1420.384,
+          "file_call_union_overlap_ms": 1145.705,
+          "by_operation_ms": {
+            "group_file.load.header": 244.882,
+            "group_file.load.segment": 315.331,
+            "group_file.store.segment": 175.295,
+            "group_file.store.header": 273.843,
+            "group_file.delete.segment": 136.354
+          }
+        }
+      ],
+      "all_nodes_stopped": true,
+      "listeners_released": 12
+    },
+    {
+      "phase": "retirement-control-3",
+      "variant": "control",
+      "visible_ms": [
+        4254,
+        2957,
+        2251,
+        2863
+      ],
+      "group_file_commits": 244,
+      "header_publications": 80,
+      "file_operations": [
+        {
+          "operation": "group_file.delete.segment",
+          "commits": 1,
+          "count": 36
+        },
+        {
+          "operation": "group_file.has.segment",
+          "commits": 0,
+          "count": 158
+        },
+        {
+          "operation": "group_file.load.header",
+          "commits": 0,
+          "count": 591
+        },
+        {
+          "operation": "group_file.load.segment",
+          "commits": 0,
+          "count": 570
+        },
+        {
+          "operation": "group_file.store.header",
+          "commits": 0,
+          "count": 125
+        },
+        {
+          "operation": "group_file.store.header",
+          "commits": 2,
+          "count": 80
+        },
+        {
+          "operation": "group_file.store.segment",
+          "commits": 1,
+          "count": 48
+        }
+      ],
+      "critical_paths": [
+        {
+          "sample": 0,
+          "group_handling_ms": 1371.911,
+          "file_call_union_overlap_ms": 838.045,
+          "by_operation_ms": {
+            "group_file.load.header": 143.978,
+            "group_file.store.segment": 159.851,
+            "group_file.store.header": 467.603,
+            "group_file.load.segment": 66.613
+          }
+        },
+        {
+          "sample": 1,
+          "group_handling_ms": 1441.085,
+          "file_call_union_overlap_ms": 1013.737,
+          "by_operation_ms": {
+            "group_file.load.header": 56.047,
+            "group_file.load.segment": 91.116,
+            "group_file.store.segment": 253.268,
+            "group_file.store.header": 452.034,
+            "group_file.delete.segment": 161.272
+          }
+        },
+        {
+          "sample": 2,
+          "group_handling_ms": 1324.1219999999998,
+          "file_call_union_overlap_ms": 874.362,
+          "by_operation_ms": {
+            "group_file.load.header": 64.831,
+            "group_file.load.segment": 92.706,
+            "group_file.store.segment": 316.806,
+            "group_file.store.header": 244.957,
+            "group_file.delete.segment": 155.062
+          }
+        },
+        {
+          "sample": 3,
+          "group_handling_ms": 1662.746,
+          "file_call_union_overlap_ms": 1060.694,
+          "by_operation_ms": {
+            "group_file.load.header": 171.035,
+            "group_file.load.segment": 134.325,
+            "group_file.store.segment": 116.059,
+            "group_file.store.header": 501.009,
+            "group_file.delete.segment": 138.266
+          }
+        }
+      ],
+      "all_nodes_stopped": true,
+      "listeners_released": 12
+    },
+    {
+      "phase": "retirement-candidate-1",
+      "variant": "candidate",
+      "visible_ms": [
+        4800,
+        1837,
+        2115,
+        2419
+      ],
+      "group_file_commits": 180,
+      "header_publications": 48,
+      "file_operations": [
+        {
+          "operation": "group_file.delete.segment",
+          "commits": 1,
+          "count": 36
+        },
+        {
+          "operation": "group_file.has.segment",
+          "commits": 0,
+          "count": 157
+        },
+        {
+          "operation": "group_file.load.header",
+          "commits": 0,
+          "count": 578
+        },
+        {
+          "operation": "group_file.load.segment",
+          "commits": 0,
+          "count": 559
+        },
+        {
+          "operation": "group_file.store.header",
+          "commits": 0,
+          "count": 157
+        },
+        {
+          "operation": "group_file.store.header",
+          "commits": 2,
+          "count": 48
+        },
+        {
+          "operation": "group_file.store.segment",
+          "commits": 1,
+          "count": 48
+        }
+      ],
+      "critical_paths": [
+        {
+          "sample": 0,
+          "group_handling_ms": 1169.608,
+          "file_call_union_overlap_ms": 909.276,
+          "by_operation_ms": {
+            "group_file.load.header": 42.111,
+            "group_file.store.segment": 271.946,
+            "group_file.store.header": 573.306,
+            "group_file.load.segment": 21.913
+          }
+        },
+        {
+          "sample": 1,
+          "group_handling_ms": 1120.3719999999998,
+          "file_call_union_overlap_ms": 805.211,
+          "by_operation_ms": {
+            "group_file.load.header": 90.624,
+            "group_file.load.segment": 138.594,
+            "group_file.store.segment": 183.037,
+            "group_file.store.header": 237.435,
+            "group_file.delete.segment": 155.521
+          }
+        },
+        {
+          "sample": 2,
+          "group_handling_ms": 1030.155,
+          "file_call_union_overlap_ms": 809.196,
+          "by_operation_ms": {
+            "group_file.load.header": 279.45,
+            "group_file.load.segment": 24.726,
+            "group_file.store.segment": 147.25,
+            "group_file.store.header": 203.876,
+            "group_file.delete.segment": 153.894
+          }
+        },
+        {
+          "sample": 3,
+          "group_handling_ms": 1111.821,
+          "file_call_union_overlap_ms": 798.519,
+          "by_operation_ms": {
+            "group_file.load.header": 104.388,
+            "group_file.load.segment": 48.241,
+            "group_file.store.segment": 180.626,
+            "group_file.store.header": 363.47,
+            "group_file.delete.segment": 101.794
+          }
+        }
+      ],
+      "all_nodes_stopped": true,
+      "listeners_released": 12
+    },
+    {
+      "phase": "retirement-candidate-2",
+      "variant": "candidate",
+      "visible_ms": [
+        4450,
+        2248,
+        2538,
+        3155
+      ],
+      "group_file_commits": 180,
+      "header_publications": 48,
+      "file_operations": [
+        {
+          "operation": "group_file.delete.segment",
+          "commits": 1,
+          "count": 36
+        },
+        {
+          "operation": "group_file.has.segment",
+          "commits": 0,
+          "count": 158
+        },
+        {
+          "operation": "group_file.load.header",
+          "commits": 0,
+          "count": 587
+        },
+        {
+          "operation": "group_file.load.segment",
+          "commits": 0,
+          "count": 567
+        },
+        {
+          "operation": "group_file.store.header",
+          "commits": 0,
+          "count": 158
+        },
+        {
+          "operation": "group_file.store.header",
+          "commits": 2,
+          "count": 48
+        },
+        {
+          "operation": "group_file.store.segment",
+          "commits": 1,
+          "count": 48
+        }
+      ],
+      "critical_paths": [
+        {
+          "sample": 0,
+          "group_handling_ms": 1218.678,
+          "file_call_union_overlap_ms": 762.343,
+          "by_operation_ms": {
+            "group_file.load.header": 39.276,
+            "group_file.store.segment": 354.65,
+            "group_file.store.header": 351.71,
+            "group_file.load.segment": 16.707
+          }
+        },
+        {
+          "sample": 1,
+          "group_handling_ms": 1297.411,
+          "file_call_union_overlap_ms": 1135.767,
+          "by_operation_ms": {
+            "group_file.load.header": 25.849,
+            "group_file.load.segment": 42.546,
+            "group_file.store.segment": 232.302,
+            "group_file.store.header": 677.894,
+            "group_file.delete.segment": 157.176
+          }
+        },
+        {
+          "sample": 2,
+          "group_handling_ms": 1271.831,
+          "file_call_union_overlap_ms": 960.166,
+          "by_operation_ms": {
+            "group_file.load.header": 14.75,
+            "group_file.load.segment": 32.878,
+            "group_file.store.segment": 162.805,
+            "group_file.store.header": 499.25,
+            "group_file.delete.segment": 250.483
+          }
+        },
+        {
+          "sample": 3,
+          "group_handling_ms": 1887.2869999999998,
+          "file_call_union_overlap_ms": 1267.719,
+          "by_operation_ms": {
+            "group_file.load.header": 291.146,
+            "group_file.load.segment": 172.167,
+            "group_file.store.segment": 154.99,
+            "group_file.store.header": 331.968,
+            "group_file.delete.segment": 317.448
+          }
+        }
+      ],
+      "all_nodes_stopped": true,
+      "listeners_released": 12
+    },
+    {
+      "phase": "retirement-candidate-3",
+      "variant": "candidate",
+      "visible_ms": [
+        4351,
+        3002,
+        1750,
+        2753
+      ],
+      "group_file_commits": 180,
+      "header_publications": 48,
+      "file_operations": [
+        {
+          "operation": "group_file.delete.segment",
+          "commits": 1,
+          "count": 36
+        },
+        {
+          "operation": "group_file.has.segment",
+          "commits": 0,
+          "count": 157
+        },
+        {
+          "operation": "group_file.load.header",
+          "commits": 0,
+          "count": 581
+        },
+        {
+          "operation": "group_file.load.segment",
+          "commits": 0,
+          "count": 562
+        },
+        {
+          "operation": "group_file.store.header",
+          "commits": 0,
+          "count": 156
+        },
+        {
+          "operation": "group_file.store.header",
+          "commits": 2,
+          "count": 48
+        },
+        {
+          "operation": "group_file.store.segment",
+          "commits": 1,
+          "count": 48
+        }
+      ],
+      "critical_paths": [
+        {
+          "sample": 0,
+          "group_handling_ms": 1006.5240000000001,
+          "file_call_union_overlap_ms": 721.208,
+          "by_operation_ms": {
+            "group_file.load.header": 74.59,
+            "group_file.store.segment": 174.951,
+            "group_file.store.header": 454.136,
+            "group_file.load.segment": 17.531
+          }
+        },
+        {
+          "sample": 1,
+          "group_handling_ms": 1183.262,
+          "file_call_union_overlap_ms": 1059.667,
+          "by_operation_ms": {
+            "group_file.load.header": 53.65,
+            "group_file.load.segment": 45.758,
+            "group_file.store.segment": 174.734,
+            "group_file.store.header": 467.884,
+            "group_file.delete.segment": 317.641
+          }
+        },
+        {
+          "sample": 2,
+          "group_handling_ms": 599.15,
+          "file_call_union_overlap_ms": 494.922,
+          "by_operation_ms": {
+            "group_file.load.header": 9.297,
+            "group_file.load.segment": 37.483,
+            "group_file.store.segment": 123.488,
+            "group_file.store.header": 246.209,
+            "group_file.delete.segment": 78.445
+          }
+        },
+        {
+          "sample": 3,
+          "group_handling_ms": 1303.335,
+          "file_call_union_overlap_ms": 1129.192,
+          "by_operation_ms": {
+            "group_file.load.header": 111.062,
+            "group_file.load.segment": 13.354,
+            "group_file.store.segment": 150.881,
+            "group_file.store.header": 629.706,
+            "group_file.delete.segment": 224.189
+          }
+        }
+      ],
+      "all_nodes_stopped": true,
+      "listeners_released": 12
+    }
+  ],
+  "medians_visible_ms": {
+    "control": [
+      4254,
+      2828,
+      2251,
+      2710
+    ],
+    "candidate": [
+      4450,
+      2248,
+      2115,
+      2753
+    ]
+  },
+  "overall_delivery_speedup_proven": false,
+  "header_rewrite_defect_fixed": true,
+  "push_or_release": false
+}

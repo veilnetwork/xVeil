@@ -6617,6 +6617,17 @@ class GroupService implements ArchiveGroups {
     final previous = await _storedSegmentsOf(key);
     final live = {for (final seg in segments) seg.key};
     final dropped = previous.live.difference(live);
+    // Keep an already-published cleanup descriptor stable while the segments
+    // stay the same. Removing a completed descriptor is not a state change:
+    // it made the next duplicate snapshot pay for two header commits. The
+    // exact retry set remains separate below. Once a segment changes, discard
+    // completed history and publish only this replacement and failed deletes.
+    final sameSegments = dropped.isEmpty && live.length == previous.live.length;
+    final recorded = {
+      if (sameSegments) ...previous.recorded,
+      ...dropped,
+      ...previous.pending,
+    }.difference(live);
     final json = jsonEncode({
       ...header,
       // NOT A LIST, on purpose. A build from before segments reads messages as
@@ -6628,8 +6639,7 @@ class GroupService implements ArchiveGroups {
       'gs': [for (final seg in segments) seg.key],
       // Segments this header replaced: deleted right after it is written, and
       // named here so a crash in between leaves them for the next save.
-      if (dropped.isNotEmpty || previous.pending.isNotEmpty)
-        'gd': [...dropped, ...previous.pending.difference(live)],
+      if (recorded.isNotEmpty) 'gd': recorded.toList(),
     });
     // Hint first: a crash between the two writes may only claim MORE than
     // the stored blob (e.g. a retention row the old blob lacks), which makes
@@ -6673,7 +6683,7 @@ class GroupService implements ArchiveGroups {
     // Only what is still there. The header just written names every one of
     // [gone] and is not rewritten for a delete that went through, so the
     // stored list is stale from here on; this is the one that is not.
-    _segmentIndex[key] = (live: live, pending: failed);
+    _segmentIndex[key] = (live: live, pending: failed, recorded: recorded);
   }
 
   /// The file id of a message segment, less the `group:` prefix.
@@ -6682,10 +6692,14 @@ class GroupService implements ArchiveGroups {
   /// Rows per segment are packed up to this many encoded bytes.
   static const int _kSegmentTargetBytes = 64 * 1024;
 
-  /// Per bundle key: the segments its stored header names, and those it still
-  /// lists as pending deletion.
-  final Map<String, ({Set<String> live, Set<String> pending})> _segmentIndex =
-      {};
+  /// Per bundle key: live segments, deletes still needing a retry, and the
+  /// cleanup descriptor in the last published header. The descriptor may name
+  /// completed deletes; those are retried only once after a process restart.
+  final Map<
+    String,
+    ({Set<String> live, Set<String> pending, Set<String> recorded})
+  >
+  _segmentIndex = {};
 
   // Cloud, device sync and list readers can load the same journal at once.
   // Share the JSON parse as well as an unfinished read. The parsed rows stay
@@ -6737,9 +6751,8 @@ class GroupService implements ArchiveGroups {
   }
 
   /// What the stored header of [bundleKey] names, read once per process.
-  Future<({Set<String> live, Set<String> pending})> _storedSegmentsOf(
-    String bundleKey,
-  ) async {
+  Future<({Set<String> live, Set<String> pending, Set<String> recorded})>
+  _storedSegmentsOf(String bundleKey) async {
     final known = _segmentIndex[bundleKey];
     if (known != null) return known;
     var live = <String>{}, pending = <String>{};
@@ -6755,7 +6768,11 @@ class GroupService implements ArchiveGroups {
     } catch (_) {
       // Unreadable header: nothing is known to delete, which only costs space.
     }
-    return _segmentIndex[bundleKey] = (live: live, pending: pending);
+    return _segmentIndex[bundleKey] = (
+      live: live,
+      pending: pending,
+      recorded: pending,
+    );
   }
 
   /// Segment keys from a header field — only keys under this bundle's own
@@ -6795,7 +6812,8 @@ class GroupService implements ArchiveGroups {
     // lived a day), and a load that read the header just before a save
     // overtook it would put the OLD segment list back, orphaning the new ones
     // at the next save.
-    _segmentIndex[key] ??= (live: live, pending: _segmentKeys(d['gd'], key));
+    final recorded = _segmentKeys(d['gd'], key);
+    _segmentIndex[key] ??= (live: live, pending: recorded, recorded: recorded);
     return null;
   }
 
