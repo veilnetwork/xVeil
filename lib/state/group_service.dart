@@ -12891,7 +12891,7 @@ class GroupService implements ArchiveGroups {
   /// chain they always had, rather than each becoming a chain of its own.
   static String _writerSuffix(Uint8List authorPubKey) => authorPubKey.isEmpty
       ? ''
-      : '|dev:${authorPubKey.map((b) => b.toRadixString(16).padLeft(2, '0')).join()}';
+      : '|dev:${hexOfBytes(authorPubKey)}';
 
   String _messageChainScope(SpaceManifest manifest, GroupMessage message) {
     final channel = manifest.isSpace
@@ -13093,17 +13093,26 @@ class GroupService implements ArchiveGroups {
     NodeId author,
     String scope, {
     SpaceRetentionCut? cut,
+  }) => _acceptedScopedMessageChain(
+    canonical.where(
+      (message) =>
+          message.author == author &&
+          _messageChainScope(manifest, message) == scope,
+    ),
+    cut: cut,
+  );
+
+  // Only rows already verified, canonicalized and partitioned by this same
+  // synchronous view. No result survives a read or an authorization change.
+  List<GroupMessage> _acceptedScopedMessageChain(
+    Iterable<GroupMessage> scoped, {
+    SpaceRetentionCut? cut,
   }) {
     final authored =
-        canonical
-            .where(
-              (message) =>
-                  message.author == author &&
-                  _messageChainScope(manifest, message) == scope &&
-                  // Rows at or below an accepted cut are retention-retired;
-                  // a straggler copy must not fork the re-anchored chain.
-                  (cut == null || message.seq > cut.throughSeq),
-            )
+        scoped
+            // Rows at or below an accepted cut are retention-retired;
+            // a straggler copy must not fork the re-anchored chain.
+            .where((message) => cut == null || message.seq > cut.throughSeq)
             .toList()
           ..sort((left, right) => left.seq.compareTo(right.seq));
     final accepted = <GroupMessage>[];
@@ -13145,21 +13154,15 @@ class GroupService implements ArchiveGroups {
     Map<String, SpaceRetentionCut> retentionCuts = const {},
   }) {
     final canonical = _canonicalMessageRows(manifest, input);
-    final chains = <String, ({NodeId author, String scope})>{};
+    final chains = <String, List<GroupMessage>>{};
     for (final message in canonical) {
       final scope = _messageChainScope(manifest, message);
-      chains['$scope|${message.author.hex}'] = (
-        author: message.author,
-        scope: scope,
-      );
+      (chains['$scope|${message.author.hex}'] ??= []).add(message);
     }
     final accepted = <GroupMessage>[
       for (final chain in chains.entries)
-        ..._acceptedCanonicalMessageChain(
-          manifest,
-          canonical,
-          chain.value.author,
-          chain.value.scope,
+        ..._acceptedScopedMessageChain(
+          chain.value,
           cut: retentionCuts[chain.key],
         ),
     ];

@@ -715,6 +715,13 @@ class _HashWorkMessage extends GroupMessage {
   });
 
   int canonicalCalls = 0;
+  int writerKeyReads = 0;
+
+  @override
+  Uint8List get authorPubKey {
+    writerKeyReads++;
+    return super.authorPubKey;
+  }
 
   @override
   Uint8List canonicalBytes() {
@@ -11836,16 +11843,18 @@ void main() {
       NodeId? author,
       String? body,
       int signature = 0,
+      Uint8List? writerKey,
+      String prevHash = '',
     }) => _HashWorkMessage(
       groupId: base.manifest.groupId,
       author: author ?? owner,
       seq: seq,
-      prevHash: '',
+      prevHash: prevHash,
       body: body ?? 'legacy-$seq',
       policyVersion: 1,
       createdAtMs: 1000 + seq,
       signature: Uint8List.fromList(List.filled(64, signature)),
-      authorPubKey: (author ?? owner).bytes,
+      authorPubKey: writerKey ?? (author ?? owner).bytes,
     );
 
     Future<List<GroupMessage>> read(List<GroupMessage> rows) {
@@ -11874,6 +11883,128 @@ void main() {
       await service.dispose();
       await store.close();
     });
+
+    test(
+      'chain partition work stays linear as one identity adds writers',
+      () async {
+        final samples = <Map<String, int>>[];
+        const repeats = 20;
+        for (final count in [128, 256]) {
+          for (final writers in [1, 2, 8, 16]) {
+            final rows = [
+              for (var i = 0; i < count; i++)
+                row(i, writerKey: _id(80 + i % writers).bytes),
+            ];
+            for (var warmup = 0; warmup < 2; warmup++) {
+              await read(rows);
+            }
+            for (final message in rows) {
+              message.writerKeyReads = 0;
+            }
+            signer.checks.clear();
+            final clock = Stopwatch()..start();
+            for (var repeat = 0; repeat < repeats; repeat++) {
+              final visible = await read(rows);
+              expect(
+                visible.map((message) => message.seq),
+                List.generate(count, (i) => i),
+              );
+            }
+            samples.add({
+              'rows': count,
+              'writers': writers,
+              'repeats': repeats,
+              'writer_key_reads': rows.fold<int>(
+                0,
+                (n, message) => n + message.writerKeyReads,
+              ),
+              'signature_checks': signer.checks.values.fold<int>(
+                0,
+                (n, value) => n + value,
+              ),
+              'us': clock.elapsedMicroseconds,
+            });
+            expect(
+              rows.map((message) => signer.checks[message.ref] ?? 0),
+              everyElement(greaterThanOrEqualTo(repeats)),
+            );
+          }
+        }
+        final evidence = Platform.environment['GROUP_CHAIN_WORK_EVIDENCE'];
+        if (evidence != null) {
+          await File(evidence).writeAsString(jsonEncode({'samples': samples}));
+        }
+        for (final count in [128, 256]) {
+          final sameRows = samples.where((s) => s['rows'] == count).toList();
+          expect(
+            sameRows.map((s) => s['writer_key_reads']),
+            everyElement(sameRows.first['writer_key_reads']),
+            reason:
+                'partitioning must not rescan every row for every physical writer',
+          );
+        }
+        final first = samples.first;
+        expect(
+          samples.last['writer_key_reads'],
+          first['writer_key_reads']! * 2,
+          reason:
+              'doubling the journal must double partition work, independent of writer count',
+        );
+      },
+    );
+
+    test(
+      'partitioned writers keep independent strict gaps forks and retention anchors',
+      () async {
+        final keyA = _id(80).bytes, keyB = _id(81).bytes;
+        final a0 = row(0, body: 'a0', writerKey: keyA);
+        final b0 = row(0, body: 'b0', writerKey: keyB);
+        final a2 = row(
+          2,
+          body: 'a2',
+          writerKey: keyA,
+          prevHash: groupMessageHash(a0),
+        );
+        final b2 = row(
+          2,
+          body: 'b2',
+          writerKey: keyB,
+          prevHash: groupMessageHash(b0),
+        );
+        expect((await read([a2, b2, b0])).map((m) => m.body), ['b0', 'b2']);
+        expect(
+          (await read([a2, b2, b0, a0])).map((m) => m.body),
+          unorderedEquals(['a0', 'a2', 'b0', 'b2']),
+        );
+        final fork = row(0, body: 'fork-a', writerKey: keyA);
+        expect((await read([a2, b2, b0, a0, fork])).map((m) => m.body), [
+          'b0',
+          'b2',
+        ]);
+        final cut = SpaceRetentionCut(
+          scope: 'group|clear|dev:${'50' * 32}',
+          author: owner,
+          throughSeq: 0,
+          throughHash: groupMessageHash(a0),
+          throughCreatedAtMs: a0.createdAtMs,
+        );
+        service.view = base.copyWith(
+          messages: [a2, b2, b0],
+          retentionCuts: {retentionCutKey(cut.scope, owner): cut},
+        );
+        expect(
+          (await service.messagesOf(base.manifest.groupId)).map((m) => m.body),
+          unorderedEquals(['a2', 'b0', 'b2']),
+        );
+        signer.rejectedBodies.add('b0');
+        expect(
+          (await service.messagesOf(base.manifest.groupId)).map((m) => m.body),
+          ['a2'],
+          reason:
+              'a changed verifier must still invalidate the next view and its strict suffix',
+        );
+      },
+    );
 
     test(
       'ingest freshness does not hash unrelated accepted legacy payloads',
