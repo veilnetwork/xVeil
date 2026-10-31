@@ -74,6 +74,12 @@ class TimedGroupFileStorage extends TimedOutboxStorage {
   Future<bool> hasFile(String fileId) =>
       _time('has', fileId, () => super.hasFile(fileId));
   @override
+  Future<List<bool>> hasFiles(List<String> ids) => _time(
+    'hasBatch',
+    ids.isEmpty ? '' : ids.first,
+    () => super.hasFiles(ids),
+  );
+  @override
   Future<void> deleteStoredFile(String fileId) =>
       _time('delete', fileId, () => super.deleteStoredFile(fileId));
 }

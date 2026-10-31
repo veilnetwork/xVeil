@@ -20,6 +20,14 @@ abstract interface class StoredFileBatchReader {
   });
 }
 
+/// Ordered, uncached presence checks with the same completeness rules as
+/// `hasFile`. Batching metadata avoids one worker round trip per old journal
+/// segment during a save; it does not read or validate the file's payload.
+abstract interface class StoredFilePresenceReader {
+  static const maxFiles = 32;
+  Future<List<bool>> hasFiles(List<String> fileIds);
+}
+
 /// Storage chunk size: one [Ns.fileChunks] log record. The store seals each
 /// record's batch into a single 4 KiB container chunk, whose usable payload
 /// (after nonce/tag/header) is PAYLOAD_CAP ≈ 4040 bytes — and the batch is zstd-
@@ -873,6 +881,27 @@ class AsyncFileStore {
   /// answers false (it is still an offer being fetched).
   Future<bool> hasFile(String fileId) async {
     final raw = await _store.get(Ns.settings, _k('file:$fileId'));
+    return _hasFileFromMetadata(raw);
+  }
+
+  Future<List<bool>> hasFiles(List<String> fileIds) async {
+    if (fileIds.length > StoredFilePresenceReader.maxFiles) {
+      throw ArgumentError('file presence batch exceeds limit');
+    }
+    final requested = List<String>.of(fileIds);
+    if (requested.isEmpty) return const <bool>[];
+    final reader = _store;
+    final keys = [for (final id in requested) _k('file:$id')];
+    final metadata = reader is AsyncKvBatchReader
+        ? await (reader as AsyncKvBatchReader).getBatch(Ns.settings, keys)
+        : [for (final key in keys) await reader.get(Ns.settings, key)];
+    if (metadata.length != requested.length) {
+      throw StateError('file presence metadata batch length mismatch');
+    }
+    return [for (final raw in metadata) _hasFileFromMetadata(raw)];
+  }
+
+  bool _hasFileFromMetadata(Uint8List? raw) {
     if (raw == null) return false;
     final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
     if (m['streamed'] == true) {

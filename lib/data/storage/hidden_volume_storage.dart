@@ -98,7 +98,8 @@ class HiddenVolumeStorage
         RollbackAnchorReader,
         PreMaintenanceAnchorSource,
         AtomicRatchetSnapshotReservations,
-        StoredFileBatchReader {
+        StoredFileBatchReader,
+        StoredFilePresenceReader {
   /// Default (SYNC opener) — the in-memory fake, tests, and any path not yet
   /// given its own worker. The sync opener is lifted to async (run INLINE on
   /// the calling isolate) internally, so behaviour is unchanged; only the
@@ -1330,22 +1331,68 @@ class HiddenVolumeStorage
     final meta = await _odMeta(fileId, store: session.store);
     _checkFileReadSession(session);
     if (meta != null) {
-      // Piece presence comes from the FILESYSTEM (atomic per-piece files) —
-      // the old per-piece `st` index list in the meta row meant one padded
-      // commit per received piece AND capped the piece count at the ~4 KB
-      // chunk payload (~700 pieces). Old metas may still carry `st`; ignored.
-      final blobs = session.blobs;
-      if (blobs == null) return false;
-      // The recorded piece count is the layout's, so it is also the only range
-      // that counts. Passing it turns `>=` from "are there enough files in the
-      // directory" into "did every piece of THIS blob arrive" — an extra p999
-      // used to make up for a missing p3.
-      final expected = meta['pc'] as int;
-      return await blobs.piecesPresent(meta['fn'] as String, expected) >=
-          expected;
+      return _hasOnDiskFile(session, meta);
     }
     return AsyncFileStore(session.store).hasFile(fileId);
   });
+
+  @override
+  Future<List<bool>> hasFiles(List<String> fileIds) async {
+    if (fileIds.length > StoredFilePresenceReader.maxFiles) {
+      throw ArgumentError('file presence batch exceeds limit');
+    }
+    final requested = List<String>.of(fileIds);
+    return _readFileSession((session) async {
+      if (requested.isEmpty) return const <bool>[];
+      final reader = session.store;
+      if (reader is! AsyncKvBatchReader) {
+        final result = <bool>[];
+        for (final id in requested) {
+          // Preserve the ordinary tier precedence on stores without batching.
+          // A replacement space cannot be queried by the previous request.
+          _checkFileReadSession(session);
+          result.add(await hasFile(id));
+        }
+        return result;
+      }
+      final metadata = await (reader as AsyncKvBatchReader).getBatch(
+        Ns.settings,
+        [for (final id in requested) _sk('ondisk:$id')],
+      );
+      _checkFileReadSession(session);
+      if (metadata.length != requested.length) {
+        throw StateError('file presence tier batch length mismatch');
+      }
+      final disk = [for (final raw in metadata) _decodeOdMeta(raw)];
+      final volume = [
+        for (var i = 0; i < requested.length; i++)
+          if (disk[i] == null) requested[i],
+      ];
+      final inVolume = await AsyncFileStore(reader).hasFiles(volume);
+      _checkFileReadSession(session);
+      var next = 0;
+      return [
+        for (final meta in disk)
+          if (meta == null)
+            inVolume[next++]
+          else
+            await _hasOnDiskFile(session, meta),
+      ];
+    });
+  }
+
+  Future<bool> _hasOnDiskFile(
+    _FileReadSession session,
+    Map<String, dynamic> meta,
+  ) async {
+    // Presence comes from atomic piece files, not the obsolete `st` metadata
+    // list. Extra out-of-range files cannot make up for a missing piece.
+    final blobs = session.blobs;
+    if (blobs == null) return false;
+    final expected = meta['pc'] as int;
+    return await blobs.piecesPresent(meta['fn'] as String, expected) >=
+        expected;
+  }
 
   @override
   Future<void> storeFilePiece(
