@@ -2097,10 +2097,16 @@ class MessagingService {
   /// let concurrent pre-consent intros each read the stored count below the cap
   /// in [_capPreConsentIntros] and both store — busting [kMaxPreConsentIntros]
   /// (an unbounded-greeting hole on a victim's device) — and more generally
-  /// raced the consent gate / id-dedup check-then-act sequences. We process at
-  /// most one frame at a time. [_handleInbound] is fully try/catch-guarded so
-  /// the chained future never rejects and the queue can't be poisoned.
+  /// raced the consent gate / id-dedup check-then-act sequences. Ordinary
+  /// frames remain serial; group fragments have their own serial lane below.
   Future<void> _inboundChain = Future<void>.value();
+
+  // A completed small delta can spend seconds loading/applying its journal.
+  // Do not park every fragment of a newer catch-up snapshot behind that work.
+  // Fragments retain the SAME admission budget, ratchet checkpoint and ACK
+  // boundary. GroupService serializes actual bundle mutations by group and
+  // rechecks admission before applying a reassembled snapshot.
+  Future<void> _groupChunkInboundChain = Future<void>.value();
 
   // Re-encrypting a repeated frame can still advance the native ratchet. Keep
   // its normal checkpoint request without adding another full dispatch
@@ -2148,7 +2154,15 @@ class MessagingService {
       minInterval: const Duration(seconds: 1),
     );
     final receipts = <Future<void>>[];
-    final next = _inboundChain.then(
+    var groupChunk = false;
+    try {
+      groupChunk =
+          WireEnvelope.decode(m.payload).kind == WireKind.groupEntryChunk;
+    } catch (_) {
+      // Malformed ordinary frames retain their existing serialized refusal.
+    }
+    final lane = groupChunk ? _groupChunkInboundChain : _inboundChain;
+    final next = lane.then(
       (_) => _handleInbound(
         m,
         onReceipt: (done) {
@@ -2156,7 +2170,11 @@ class MessagingService {
         },
       ),
     );
-    _inboundChain = next;
+    if (groupChunk) {
+      _groupChunkInboundChain = next;
+    } else {
+      _inboundChain = next;
+    }
     // Keep explicit delivery callers' original settlement semantics, but
     // release serialized durable dispatch before the receipt transport waits.
     // The live listener does not await transport settlement. Release its
@@ -4487,7 +4505,7 @@ class MessagingService {
   /// [MultiIdentitySession.disposeAll] closes the container they write into —
   /// so an un-awaited chain is a write into a closing store. Every handler
   /// leaves immediately on `_disposed`, so what is actually waited for is the
-  /// single frame already past that check.
+  /// frames already past that check, at most one per lane.
   ///
   /// BOUNDED: a handler parked on a transport call must not hold the teardown
   /// — and with it the container's exclusive lock — open indefinitely. Past
@@ -4499,6 +4517,7 @@ class MessagingService {
     try {
       await Future.wait([
         _inboundChain,
+        _groupChunkInboundChain,
         _realtimeControl.inboundChain,
         ?_coalescedRatchetFlush,
       ]).timeout(const Duration(seconds: 3));
