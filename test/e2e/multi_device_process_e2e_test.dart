@@ -273,15 +273,16 @@ void main() {
             );
           }
           final old = await rows(b, ci);
-          if (old.any(
-            (m) =>
-                m['body'] == 'process-to-revoked-identity' ||
-                m['body'] == 'process-after-revoke-control',
-          )) {
-            violations.putIfAbsent(
-              'old B received post-revoke data',
-              () => observe.elapsedMilliseconds,
-            );
+          for (final body in [
+            'process-to-revoked-identity',
+            'process-after-revoke-control',
+          ]) {
+            if (old.any((m) => m['body'] == body)) {
+              violations.putIfAbsent(
+                'old B received $body',
+                () => observe.elapsedMilliseconds,
+              );
+            }
           }
           if ((await rows(
             c,

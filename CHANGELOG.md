@@ -10,6 +10,25 @@ bumps may change behaviour a user notices.
 
 ### Fixed
 
+- Recheck asynchronous device-family certificate results against current
+  revocations. Propagate verified device revocations on newly accepted sessions
+  and preserve their durable authorization evidence under cache pressure.
+- Keep file operations within their original identity session, including close
+  and erase. Preserve download intents across temporary destination failures
+  and prevent cancelled resume work from restoring an obsolete destination.
+- Reduce multi-device catch-up work by caching verified rows correctly,
+  batching journal metadata reads and avoiding repeated history hashing.
+  Keep snapshot fragments moving past slow ordinary ingress work and isolate
+  retries to different peers. Slow large-backlog recovery remains under review.
+- Coordinate Android microphone/camera permission requests and keep incoming
+  audio active while awaiting microphone permission. Enable the foreground
+  service when granting background operation instead of only requesting the
+  system exemption.
+- Start nodes under long Android adopted-storage paths using authenticated
+  loopback IPC when a pathname Unix socket would exceed the platform limit.
+- Require prebuilt media engines to match the native source digest as well as
+  their binary checksum and exported ABI. Rebuild engines when native audio
+  implementation changes even if its symbol names are unchanged.
 - Save anonymous diagnostic reports through the document-export writer and
   report success only after writing and completing the document. Cover desktop
   path-only save pickers, cancellation and write failures.

@@ -405,6 +405,8 @@ jobs:
           # the webrtc.lib actually inside this DLL.
           $m = Get-Content -Raw (Join-Path $env:WEBRTC_BUILD 'veil-webrtc-sdk.json') | ConvertFrom-Json
           New-Item -ItemType Directory -Force -Path provenance | Out-Null
+          $mediaSourceSha = (& python scripts/verify-media-provenance.py)
+          if ($LASTEXITCODE -ne 0) { throw 'native media source digest failed' }
           $lines = @(
             "asset:           veil_media-${{ matrix.target }}.dll"
             "installs-as:     veil_media.dll"
@@ -419,6 +421,7 @@ jobs:
             "clang:           $($m.clang_revision)"
             "xveil-commit:    $env:GITHUB_SHA"
             "veil-submodule:  $veil"
+            "media-source-sha256: $mediaSourceSha"
             "workflow:        webrtc-windows.yml (job: engine-windows)"
             "run:             $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
             "stripped:        $stripped"
