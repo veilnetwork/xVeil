@@ -113,5 +113,10 @@ endpoint volume/mute without device names or IDs. Immediate failed-start
 capture/playout outcomes also survive calls ending before the first stats tick.
 This improves diagnosis; the owner's phone-to-Windows cause remains unknown.
 
+The next local round also fixes [refused mid-call microphone controls](../microphone-control-result-2026-11-01/README.md):
+failure now reaches the FSM, previous posture is restored, and stale results
+cannot overwrite newer intent. Working receive audio is retained. This is a
+separately confirmed code defect, not attribution of the original phone report.
+
 Private logs, audio-device names, addresses, keys and identity material are not
 included in this document. No push or release is part of this work cycle.
