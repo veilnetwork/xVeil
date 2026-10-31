@@ -96,8 +96,16 @@ class _MessagingMessageDelivery {
   /// Re-drive durable control frames, reconciliation beacons and ordinary
   /// messages. Public callers continue to use [MessagingService.flushOutbox].
   Future<void> flush() async {
-    // Control frames are independent of conversation message state.
-    await _owner._flushOutboxFrames();
+    // Both jobs have their own durable state and admission rules. A control
+    // read or live-leg deadline must not defer unrelated conversation retries.
+    // Join both even on failure, so a finished pass owns no detached work.
+    await Future.wait<void>([
+      _owner._flushOutboxFrames(),
+      _flushConversations(),
+    ]);
+  }
+
+  Future<void> _flushConversations() async {
     // Background chat work waits while a call owns the latency budget.
     if (_owner.backgroundStashPaused) return;
     final conversations = await _owner._storage.loadConversations();
