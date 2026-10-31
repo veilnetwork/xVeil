@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:xveil/core/ids.dart';
@@ -7,6 +8,9 @@ import 'package:xveil/data/storage/rollback_anchor.dart';
 import 'package:xveil/state/ratchet_persistence.dart';
 
 typedef NativeTiming = void Function(Map<String, Object?> values);
+
+// Synthetic, process-local correlation only. Never contains a group/node ID.
+const groupTimingFrameKey = #xveilStandGroupFrame;
 
 // A passive test adapter around the actual worker RPCs. Preserve both batch
 // reads and rollback-anchor capabilities: dropping either would change the
@@ -31,6 +35,7 @@ class TimedNativeStore
     int? operations,
   }) async {
     final start = clock.elapsedMicroseconds;
+    final groupFrame = Zone.current[groupTimingFrameKey];
     try {
       return await body();
     } finally {
@@ -40,6 +45,7 @@ class TimedNativeStore
         'duration_us': clock.elapsedMicroseconds - start,
         'namespaces': namespaces,
         'operations': ?operations,
+        if (groupFrame is int) 'group_frame': groupFrame,
       });
     }
   }
