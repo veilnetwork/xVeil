@@ -28,7 +28,12 @@ import '../../core/secret_wipe.dart';
 import '../../domain/peer_authorization.dart';
 import '../native_libs.dart' show processLibFor;
 import '../storage/storage.dart'
-    show kRatchetKeyLen, kRatchetMaxStateLen, RatchetStateEntry, Storage;
+    show
+        kRatchetKeyLen,
+        kRatchetMaxStateLen,
+        RatchetStateEntry,
+        Storage,
+        ratchetReservationSettingKey;
 
 part 'ratchet_publication_ffi.dart';
 
@@ -1326,7 +1331,7 @@ Future<void> dropRejectedRatchetStates(
 /// what the send path writes, and a format known in two places is a format
 /// that drifts.
 String ratchetReservationKey(Uint8List conversationKey) =>
-    'ratchet_reserve:${[for (final b in conversationKey) b.toRadixString(16).padLeft(2, '0')].join()}';
+    ratchetReservationSettingKey(conversationKey);
 
 /// At most the union of the durable and live snapshots: two positions each.
 const kRatchetReservationMaxChains = 2 * veilRatchetMaxSendPositions;

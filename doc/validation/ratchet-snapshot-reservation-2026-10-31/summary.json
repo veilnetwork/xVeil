@@ -1,0 +1,192 @@
+{
+  "runs": [
+    {
+      "variant": "baseline",
+      "run": 1,
+      "visible_ms": [
+        4122,
+        3039,
+        2397,
+        2955
+      ],
+      "separate_reservation_writes": 302,
+      "snapshot_writes": 400,
+      "paired_snapshot_entries": 0,
+      "anchor_attempts": 260,
+      "native_commits": 1381,
+      "mixed_snapshot_setting_commits": 0,
+      "group_file_commits": 144,
+      "timing_dropped": 0,
+      "host_stopped": true,
+      "released_listeners": 12,
+      "cleanup_errors": []
+    },
+    {
+      "variant": "candidate",
+      "run": 1,
+      "visible_ms": [
+        3704,
+        1579,
+        1632,
+        2611
+      ],
+      "separate_reservation_writes": 55,
+      "snapshot_writes": 363,
+      "paired_snapshot_entries": 295,
+      "anchor_attempts": 252,
+      "native_commits": 1095,
+      "mixed_snapshot_setting_commits": 209,
+      "group_file_commits": 144,
+      "timing_dropped": 0,
+      "host_stopped": true,
+      "released_listeners": 12,
+      "cleanup_errors": []
+    },
+    {
+      "variant": "baseline",
+      "run": 2,
+      "visible_ms": [
+        4178,
+        2629,
+        2383,
+        2874
+      ],
+      "separate_reservation_writes": 307,
+      "snapshot_writes": 396,
+      "paired_snapshot_entries": 0,
+      "anchor_attempts": 261,
+      "native_commits": 1380,
+      "mixed_snapshot_setting_commits": 0,
+      "group_file_commits": 144,
+      "timing_dropped": 0,
+      "host_stopped": true,
+      "released_listeners": 12,
+      "cleanup_errors": []
+    },
+    {
+      "variant": "candidate",
+      "run": 2,
+      "visible_ms": [
+        3980,
+        1968,
+        1714,
+        2359
+      ],
+      "separate_reservation_writes": 69,
+      "snapshot_writes": 367,
+      "paired_snapshot_entries": 273,
+      "anchor_attempts": 253,
+      "native_commits": 1120,
+      "mixed_snapshot_setting_commits": 201,
+      "group_file_commits": 144,
+      "timing_dropped": 0,
+      "host_stopped": true,
+      "released_listeners": 12,
+      "cleanup_errors": []
+    },
+    {
+      "variant": "baseline",
+      "run": 3,
+      "visible_ms": [
+        4141,
+        2932,
+        1918,
+        2643
+      ],
+      "separate_reservation_writes": 301,
+      "snapshot_writes": 399,
+      "paired_snapshot_entries": 0,
+      "anchor_attempts": 259,
+      "native_commits": 1384,
+      "mixed_snapshot_setting_commits": 0,
+      "group_file_commits": 144,
+      "timing_dropped": 0,
+      "host_stopped": true,
+      "released_listeners": 12,
+      "cleanup_errors": []
+    },
+    {
+      "variant": "candidate",
+      "run": 3,
+      "visible_ms": [
+        3707,
+        1475,
+        2173,
+        2297
+      ],
+      "separate_reservation_writes": 40,
+      "snapshot_writes": 356,
+      "paired_snapshot_entries": 295,
+      "anchor_attempts": 232,
+      "native_commits": 1077,
+      "mixed_snapshot_setting_commits": 204,
+      "group_file_commits": 144,
+      "timing_dropped": 0,
+      "host_stopped": true,
+      "released_listeners": 12,
+      "cleanup_errors": []
+    }
+  ],
+  "medians": {
+    "baseline": {
+      "visible_ms": [
+        4141,
+        2932,
+        2383,
+        2874
+      ],
+      "separate_reservation_writes": 302,
+      "snapshot_writes": 399,
+      "paired_snapshot_entries": 0,
+      "anchor_attempts": 260,
+      "native_commits": 1381,
+      "mixed_snapshot_setting_commits": 0
+    },
+    "candidate": {
+      "visible_ms": [
+        3707,
+        1579,
+        1714,
+        2359
+      ],
+      "separate_reservation_writes": 55,
+      "snapshot_writes": 363,
+      "paired_snapshot_entries": 295,
+      "anchor_attempts": 252,
+      "native_commits": 1095,
+      "mixed_snapshot_setting_commits": 204
+    }
+  },
+  "baseline_owner_commit": "4a1145ba",
+  "common_backend": "candidate storage with unpaired calls in baseline",
+  "comparison": "only owner helper differs, all other lib and support hashes frozen",
+  "messages": 24,
+  "nodes": 12,
+  "old_version_compatibility_tested": false,
+  "native_sdk_commit": "c46d94db",
+  "external_rollback_anchor_configured": false,
+  "checks": {
+    "passed": 286,
+    "skipped": 0,
+    "analyze": "no issues",
+    "native_state_abi_tests": 4,
+    "native_paired_storage_tests": 3
+  },
+  "production_poll_ms": 200,
+  "reserve_ahead": 32,
+  "no_push_or_release": true,
+  "source_provenance": {
+    "baseline_owner_sha256": "a0ec0035040dbd990637517c79adddddfbe49f70136cfba79f5ba564fc834723",
+    "candidate_owner_sha256": "8c01112e43770075bc4bd0b7d8b4d8ad60d615a8fcda09653e5f3b4dba0b10b3",
+    "fixture_sha256": "59b02e71d60fd7b9bd93252c9336f31f0a221d4b59daab65a6abb8bdd264efdf",
+    "veil_library_sha256": "3ecdfb936433f7f72072222d57624a4fb50702dd9494ba77ca343bebf373c34d",
+    "hidden_volume_library_sha256": "3b2eacc819b307125cafe01665ebbaec5ee6ed9d3b3d5d96bc5d5b26a50f79e7",
+    "common_source_file_count": 567,
+    "common_source_manifest_sha256": "0a99375e01300b888bc00f58d9bfebe90af7129e43253f15911aa8bf6e9de004",
+    "common_changed_backend_sha256": {
+      "lib/data/node/ratchet_ffi.dart": "44f411740d8ccc23708b171ce80fc21233bafb168086d1cee669550c31deeb59",
+      "lib/data/storage/storage.dart": "0d2ccf68a6c24e0c59a6db635872a78015199b42fd85fb6cf960ed13805e67d6",
+      "lib/data/storage/hidden_volume_storage.dart": "1f3144bf9442406920970a384b22359d75cda0382cfa8a1b74578eee90a4ffaf"
+    }
+  }
+}
