@@ -160,6 +160,14 @@ class PeerInfo {
   );
 }
 
+/// Coarse OS attachment only; never an SSID, IP address or interface name.
+enum NetworkAttachment { unknown, wifi, cellular, ethernet, offline }
+
+/// Optional control plane for a transport backed by a running local node.
+abstract interface class NetworkChangeTransport {
+  Future<void> networkChanged(NetworkAttachment attachment);
+}
+
 /// Port over the veil overlay network's messaging surface.
 ///
 /// The real adapter wraps `veil_flutter`'s `VeilClient`/`AppHandle`

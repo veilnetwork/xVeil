@@ -10,6 +10,20 @@ class _PrivateValue {
 }
 
 void main() {
+  test('handover evidence retains only coarse state and outcome', () {
+    final journal = DiagnosticJournal(enabled: true, capacity: 1);
+    journal.record(DiagnosticEvent.networkChange, values: {
+      DiagnosticMetric.state: 2,
+      DiagnosticMetric.success: 1,
+      DiagnosticMetric.durationMs: 7,
+    });
+    journal.record(DiagnosticEvent.transportSent);
+    final evidence = journal.toJson()['last_evidence'] as Map;
+    expect((evidence['networkChange'] as Map)['values'], {
+      'state': 2, 'success': 1, 'durationMs': 7,
+    });
+  });
+
   test('permission evidence keeps only pending/denied/granted categories', () {
     final journal = DiagnosticJournal(enabled: true, capacity: 1);
     journal.recordMediaPermission(video: false);

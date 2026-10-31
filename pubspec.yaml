@@ -106,6 +106,8 @@ dependencies:
   # runtime until live-node wiring lands.
   veil_flutter:
     path: third_party/veil/flutter/veil_flutter
+  # OS network changes must wake the running node even while the UI stays open.
+  connectivity_plus: ^6.1.5
   # Call media engine (audio/video/screen over veil): Dart control surface for
   # libveil_media.dylib (codec-stripped libwebrtc), loaded via process().
   veil_media:

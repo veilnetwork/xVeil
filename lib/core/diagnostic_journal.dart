@@ -41,6 +41,7 @@ enum DiagnosticEvent {
   preferenceStoreFallback,
   microphonePermission,
   cameraPermission,
+  networkChange,
 }
 
 enum DiagnosticMetric {
@@ -256,6 +257,7 @@ class DiagnosticJournal {
     DiagnosticEvent.preferenceStoreFallback,
     DiagnosticEvent.microphonePermission,
     DiagnosticEvent.cameraPermission,
+    DiagnosticEvent.networkChange,
   };
 
   /// Source-controller state, sampled after applying the current observation.
