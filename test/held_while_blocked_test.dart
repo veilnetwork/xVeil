@@ -50,11 +50,16 @@ class _FailHeldStorage extends HiddenVolumeStorage {
   bool failHeldWrite = false;
 
   @override
-  Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) {
+  Future<void> storeFile(
+    String fileId,
+    Uint8List bytes, {
+    String? name,
+    List<String> retireHints = const [],
+  }) {
     if (failHeldWrite && fileId.startsWith('held-while-blocked:')) {
       throw StateError('held file write failed');
     }
-    return super.storeFile(fileId, bytes, name: name);
+    return super.storeFile(fileId, bytes, name: name, retireHints: retireHints);
   }
 }
 

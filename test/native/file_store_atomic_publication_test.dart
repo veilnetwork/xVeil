@@ -19,10 +19,21 @@ Uint8List _bytes(int size) {
 class _CountingNativeStore extends HvKvLogStore {
   _CountingNativeStore(super.space);
   final sizes = <int>[];
+  bool rejectHeader = false;
 
   @override
   int commit(List<KvLogOp> ops) {
     sizes.add(ops.length);
+    if (rejectHeader &&
+        ops.whereType<PutOp>().any(
+          (op) => utf8.decode(op.key) == 'file:header',
+        )) {
+      // Real native transaction rejection, including already-staged deletes.
+      return super.commit([
+        ...ops,
+        PutOp(Ns.settings, _key('invalid'), _bytes(8000)),
+      ]);
+    }
     return super.commit(ops);
   }
 }
@@ -112,4 +123,64 @@ void main() {
           : 'set XVEIL_HV_DYLIB to the production hidden-volume library',
     );
   }
+
+  test(
+    'native retirement is atomic through rejection, reopen and retry',
+    () async {
+      final directory = Directory.systemTemp.createTempSync(
+        'xveil-file-retire-',
+      );
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final path = '${directory.path}/fixture.hv';
+      final password = _key('fixture-password');
+      var raw = _CountingNativeStore(
+        hv.HvSpace.create(
+          path: path,
+          password: password,
+          argon: hv.ArgonPreset.light,
+        ),
+      );
+      addTearDown(() => raw.close());
+      AsyncFileStore store() => AsyncFileStore(SyncWrappedAsyncKvLogStore(raw));
+      await store().storeFile('header', _bytes(100));
+      await store().storeFile('old', _bytes(9000));
+      await store().storeFile('next', _bytes(12000));
+      raw.rejectHeader = true;
+      await expectLater(
+        store().storeFile('header', _bytes(200), retireHints: ['old']),
+        throwsA(isA<hv.HvException>()),
+      );
+      raw.close();
+      raw = _CountingNativeStore(
+        hv.HvSpace.open(path: path, password: password),
+      );
+      expect(await store().loadFile('header'), _bytes(100));
+      expect(await store().loadFile('old'), _bytes(9000));
+      expect(await store().loadFile('next'), _bytes(12000));
+      expect(raw.get(Ns.settings, _key('invalid')), isNull);
+      raw.sizes.clear();
+      await store().storeFile('header', _bytes(200), retireHints: ['old']);
+      expect(raw.sizes, [2, 8]);
+      expect(await store().deleteFileOps('old'), isEmpty);
+      raw.close();
+      raw = _CountingNativeStore(
+        hv.HvSpace.open(path: path, password: password),
+      );
+      expect(await store().loadFile('header'), _bytes(200));
+      expect(await store().loadFile('old'), isNull);
+      expect(await store().loadFile('next'), _bytes(12000));
+      final accounting =
+          jsonDecode(utf8.decode(raw.get(Ns.settings, _key('file_chunk_gc'))!))
+              as Map;
+      expect(
+        accounting['live'],
+        raw.count(Ns.fileChunks) + 1,
+        reason: 'existing failed-publication retries conservatively count '
+            'the reused orphan id twice',
+      );
+    },
+    skip: (Platform.environment['XVEIL_HV_DYLIB']?.isNotEmpty ?? false)
+        ? false
+        : 'set XVEIL_HV_DYLIB to the production hidden-volume library',
+  );
 }

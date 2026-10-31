@@ -44,13 +44,18 @@ class _Publication extends HiddenVolumeStorage {
   Completer<void>? entered, release;
   int committed = 0;
   @override
-  Future<void> storeFile(String id, Uint8List bytes, {String? name}) async {
+  Future<void> storeFile(
+    String id,
+    Uint8List bytes, {
+    String? name,
+    List<String> retireHints = const [],
+  }) async {
     if (id.startsWith('rx2:')) {
       entered?.complete();
       await release?.future;
       if (refuseBefore) throw StateError('injected full container');
     }
-    await super.storeFile(id, bytes, name: name);
+    await super.storeFile(id, bytes, name: name, retireHints: retireHints);
     if (id.startsWith('rx2:')) {
       committed++;
       if (refuseAfter) throw StateError('injected interruption after commit');

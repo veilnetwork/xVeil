@@ -48,8 +48,16 @@ class TimedGroupFileStorage extends TimedOutboxStorage {
   }
 
   @override
-  Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) =>
-      _time('store', fileId, () => super.storeFile(fileId, bytes, name: name));
+  Future<void> storeFile(
+    String fileId,
+    Uint8List bytes, {
+    String? name,
+    List<String> retireHints = const [],
+  }) => _time(
+    'store',
+    fileId,
+    () => super.storeFile(fileId, bytes, name: name, retireHints: retireHints),
+  );
   @override
   Future<Uint8List?> loadFile(String fileId, {int? maxBytes}) =>
       _time('load', fileId, () => super.loadFile(fileId, maxBytes: maxBytes));

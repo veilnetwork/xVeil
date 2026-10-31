@@ -25,6 +25,21 @@
 2. **Следом:** оставшаяся multi-device матрица, длительный offline,
    revoke / split-brain / crash. Непройденные проверки не считаются дефектами.
 
+[Раунд атомарной очистки](../group-atomic-retirement-2026-10-31/README.md)
+объединил полное удаление небольшого заменённого сегмента с публикацией header.
+Hints ограничены 64 ops вместе с metadata/GC; streamed/on-disk/крупные файлы
+остались прежнему cleanup. Descriptor и обязательные повторы сохранены,
+отказ commit и потеря ответа на успешный commit проверены. 668 тестов
+приложения + 3 native file-store прошли на финальных исходниках, 0 skipped.
+В шести native stand все 24 сообщения у всех 12 ровно по одному разу;
+group-file commits **180 → 144 (−20%)**. Медианы A/B **4282/4301,
+2454/2373, 2005/2115, 2629/2738 мс** не показывают общего ускорения.
+A/B изолирует planner; HVS prefilter одинаков в обеих фазах. После hardening
+legacy metadata ещё 8 сообщений прошли в двух functional stand (всего 32);
+финальный stand не считается сравнением скорости. Остаток —
+холодный handoff→callback и очереди/preflight/обработка следующих копий.
+Долгая доставка и multi-device матрица остаются открытыми. Без push/релиза.
+
 [Раунд локального wake](../authorization-local-wake-2026-10-31/README.md)
 добавил пустое IPC-уведомление о новой verified revision. Оно запускает
 checkpoint, но не заменяет durable ACK. Burst объединяется; I/O failure,

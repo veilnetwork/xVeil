@@ -611,7 +611,18 @@ abstract interface class Storage {
   Future<int> purgeMessageLog();
 
   /// Persist a file deniably inside the container under [fileId].
-  Future<void> storeFile(String fileId, Uint8List bytes, {String? name});
+  /// [retireHints] names obsolete files that may be scrubbed atomically with
+  /// publication. Callers must prove no other logical reference needs them.
+  /// This is a bounded optimization, not a cleanup receipt: implementations
+  /// may ignore any hint. The caller must still [deleteStoredFile] every
+  /// obsolete file after publication and retain its usual retry descriptor.
+  /// [fileId] itself must not be a hint.
+  Future<void> storeFile(
+    String fileId,
+    Uint8List bytes, {
+    String? name,
+    List<String> retireHints = const [],
+  });
 
   /// Load a previously stored file, or null if unknown / incomplete.
   ///

@@ -6645,10 +6645,10 @@ class GroupService implements ArchiveGroups {
     // the stored blob (e.g. a retention row the old blob lacks), which makes
     // maintenance load the bundle — never skip one it must enforce.
     await _writeGroupKindHint(b.manifest.groupId.hex, _computeGroupKindHint(b));
-    // ORDER IS THE ATOMICITY. New segments first: until the header names them
-    // nothing reads them. Then the header. Only then are the old segments
-    // removed — a crash anywhere before that leaves the old header pointing
-    // at segments that still exist.
+    // New segments first: until the header names them nothing reads them.
+    // Obsolete segments may be scrubbed in the header's publication commit;
+    // all remaining deletes happen after it. A failed publication therefore
+    // leaves the old header and every segment it needs intact.
     for (final seg in segments) {
       // Content-addressed: a key the stored header already names holds these
       // very bytes — if it is still there. Asked, not assumed: a wholesale
@@ -6663,14 +6663,15 @@ class GroupService implements ArchiveGroups {
         name: 'group-segment',
       );
     }
+    final gone = {...previous.pending, ...dropped}.difference(live);
     await _storage.storeFile(
       key,
       Uint8List.fromList(utf8.encode(json)),
       name: 'group',
+      retireHints: gone.toList(),
     );
     // Left over by a save that did not get to its deletes, and what this
-    // header just replaced.
-    final gone = {...previous.pending, ...dropped}.difference(live);
+    // header just replaced. Hints are optional: always finish the cleanup.
     final failed = <String>{};
     for (final k in gone) {
       try {
