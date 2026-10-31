@@ -22,10 +22,11 @@ void main() {
   group('the acknowledgement ledger', () {
     test('remembers what the recipient confirmed storing', () {
       final d = MailboxDepositGate();
-      expect(d.acknowledged('m1'), isFalse);
-      d.noteAcknowledged('m1');
-      expect(d.acknowledged('m1'), isTrue);
-      expect(d.acknowledged('m2'), isFalse);
+      expect(d.acknowledged('peer', 'm1'), isFalse);
+      d.noteAcknowledged('peer', 'm1');
+      expect(d.acknowledged('peer', 'm1'), isTrue);
+      expect(d.acknowledged('other-peer', 'm1'), isFalse);
+      expect(d.acknowledged('peer', 'm2'), isFalse);
     });
 
     // It answers one question once, inside a grace window measured in seconds.
@@ -33,11 +34,11 @@ void main() {
     test('stays bounded', () {
       final d = MailboxDepositGate();
       for (var i = 0; i < 1000; i++) {
-        d.noteAcknowledged('m$i');
+        d.noteAcknowledged('peer', 'm$i');
       }
       expect(d.size, lessThanOrEqualTo(MailboxDepositGate.cap));
       // The newest are the ones a pending deposit could still be waiting on.
-      expect(d.acknowledged('m999'), isTrue);
+      expect(d.acknowledged('peer', 'm999'), isTrue);
     });
   });
 

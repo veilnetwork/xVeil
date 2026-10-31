@@ -20,6 +20,7 @@ class _Link implements VeilTransport {
   final _inbound = StreamController<InboundMessage>.broadcast();
   _Link? peer;
   bool drop = false;
+  final sent = <WireEnvelope>[];
 
   @override
   Future<NodeId> nodeId() async => _me;
@@ -36,6 +37,7 @@ class _Link implements VeilTransport {
     Uint8List payload, {
     bool anonymous = false,
   }) async {
+    sent.add(WireEnvelope.decode(payload));
     if (drop) return;
     peer?._inbound.add(
       InboundMessage(
@@ -74,6 +76,64 @@ Future<void> _settle() async {
 }
 
 void main() {
+  test('another contact cannot suppress the real recipient ACK', () async {
+    final a = _id(1), b = _id(2), other = _id(3);
+    final transport = _Link(a)..drop = true;
+    final storage = HiddenVolumeStorage(_memOpener());
+    await storage.open(password: 'fixture', createIfMissing: true);
+    for (final peer in [b, other]) {
+      await storage.upsertContact(
+        Contact(nodeId: peer, status: ContactStatus.accepted),
+      );
+    }
+    final service = MessagingService(transport, storage)..start();
+    addTearDown(service.dispose);
+    await service.sendText(b, 'recipient scoped receipt');
+    final id = (await storage.loadMessages(b.hex)).single.id;
+    transport.inject(other, WireEnvelope.ack(id).encode());
+    await _settle();
+    expect(
+      (await storage.loadMessages(b.hex)).single.status,
+      MessageStatus.sent,
+    );
+    transport.inject(b, WireEnvelope.ack(id).encode());
+    await _settle();
+    expect(
+      (await storage.loadMessages(b.hex)).single.status,
+      MessageStatus.delivered,
+    );
+  });
+
+  test(
+    'the give-up pass does not send the newly failed message again',
+    () async {
+      final a = _id(1), b = _id(2);
+      var clock = DateTime.utc(2026);
+      final transport = _Link(a)..drop = true;
+      final storage = HiddenVolumeStorage(_memOpener());
+      await storage.open(password: 'fixture', createIfMissing: true);
+      await storage.upsertContact(
+        Contact(nodeId: b, status: ContactStatus.accepted),
+      );
+      final service = MessagingService(transport, storage, now: () => clock)
+        ..start();
+      addTearDown(service.dispose);
+      await service.sendText(b, 'expire before retry');
+      await _settle();
+      transport.sent.clear();
+      clock = clock.add(const Duration(minutes: 91));
+      await service.flushOutbox();
+      expect(
+        (await storage.loadMessages(b.hex)).single.status,
+        MessageStatus.failed,
+      );
+      expect(
+        transport.sent.where((frame) => frame.kind == WireKind.message),
+        isEmpty,
+      );
+    },
+  );
+
   test('a reconnect from a peer that FORGOT us surfaces as a pending intro '
       '(Case-A re-establish)', () async {
     final a = _id(1), b = _id(2);

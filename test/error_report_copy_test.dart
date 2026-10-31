@@ -1,10 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data' show BytesBuilder;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/error_journal.dart';
+import 'package:xveil/core/document_export.dart';
 import 'package:xveil/core/diagnostic_journal.dart';
 import 'package:xveil/domain/call.dart';
 import 'package:xveil/domain/call_signal.dart';
@@ -163,14 +165,27 @@ void main() {
   ) async {
     Uint8List? savedBytes;
     String? suggested;
-    const channel = MethodChannel('miguelruivo.flutter.plugins.filepicker');
+    const channel = documentExportChannel;
+    final sink = BytesBuilder(copy: false);
+    var finished = false;
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(channel, (call) async {
       final args = call.arguments as Map;
-      savedBytes = args['bytes'] as Uint8List?;
-      suggested = args['fileName'] as String?;
-      return '/private/tmp/user-chosen-report.json';
+      switch (call.method) {
+        case 'open':
+          suggested = args['name'] as String?;
+          return {'id': 'fixture-diagnostic-export'};
+        case 'write':
+          sink.add(args['bytes'] as Uint8List);
+          return null;
+        case 'finish':
+          savedBytes = sink.toBytes();
+          finished = true;
+          return null;
+        default:
+          throw StateError('unexpected document export operation');
+      }
     });
     addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
     errorJournal.record(
@@ -199,6 +214,7 @@ void main() {
     await tester.tap(find.text('save'));
     await tester.pumpAndSettle();
     expect(suggested, 'xveil-diagnostics.json');
+    expect(finished, isTrue);
     expect(savedBytes, isNotNull);
     final report = utf8.decode(savedBytes!);
     final error = ((jsonDecode(report) as Map)['errors'] as List).single as Map;
@@ -212,5 +228,29 @@ void main() {
     ]) {
       expect(report, isNot(contains(secret)));
     }
+  });
+  test('LAN pairing exception text never enters an anonymous report', () {
+    errorJournal.clear();
+    errorJournal.record(
+      kind: 'pairing',
+      error: StateError(
+        'pairing peer unreachable: ${const SocketException("private host", address: null, port: 45731)} 192.168.51.77 private-lan-host',
+      ),
+      atMs: 1,
+    );
+    final report = buildErrorReport(phase: 'settings');
+    for (final secret in [
+      '192.168.51.77',
+      'private-lan-host',
+      '45731',
+      'private host',
+      'pairing peer unreachable',
+    ]) {
+      expect(report, isNot(contains(secret)));
+    }
+    expect(
+      ((jsonDecode(report) as Map)['errors'] as List).single['type'],
+      'StateError',
+    );
   });
 }

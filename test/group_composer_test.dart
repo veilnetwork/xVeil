@@ -381,7 +381,7 @@ void main() {
     expect(find.byKey(const ValueKey('group-sync-settings')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('group-sync-settings')));
     await tester.pumpAndSettle();
-    expect(find.text('XOR neighbours: 5'), findsOneWidget);
+    expect(find.text('Neighbours: 5'), findsOneWidget);
     final slider = tester.widget<Slider>(
       find.byKey(const ValueKey('group-sync-neighbors-slider')),
     );
