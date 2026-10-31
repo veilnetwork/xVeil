@@ -316,6 +316,7 @@ jobs:
           so=third_party/veil/flutter/veil_media/linux/libveil_media.so
           manifest="$WEBRTC_BUILD/veil-webrtc-sdk.json"
           field() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get(sys.argv[2],""))' "$manifest" "$1"; }
+          media_source_sha="$(python3 scripts/verify-media-provenance.py)"
           mkdir -p provenance
           {
             echo "asset:           libveil_media-${{ matrix.target }}.so"
@@ -331,6 +332,7 @@ jobs:
             echo "clang:           $(field clang_revision)"
             echo "xveil-commit:    $GITHUB_SHA"
             echo "veil-submodule:  $(git -C third_party/veil rev-parse HEAD)"
+            echo "media-source-sha256: $media_source_sha"
             echo "workflow:        webrtc-linux.yml (job: engine)"
             echo "run:             $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
             echo "stripped:        $([ "$KEEP_SYMBOLS" = "true" ] && echo no || echo yes)"
@@ -520,6 +522,7 @@ jobs:
           so="$GITHUB_WORKSPACE/engine-out/libveil_media.so"
           manifest="$WEBRTC_BUILD/veil-webrtc-sdk.json"
           field() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get(sys.argv[2],""))' "$manifest" "$1"; }
+          media_source_sha="$(python3 scripts/verify-media-provenance.py)"
           mkdir -p provenance
           {
             echo "asset:           libveil_media-${{ matrix.target }}.so"
@@ -535,6 +538,7 @@ jobs:
             echo "clang:           $(field clang_revision)"
             echo "xveil-commit:    $GITHUB_SHA"
             echo "veil-submodule:  $(git -C third_party/veil rev-parse HEAD)"
+            echo "media-source-sha256: $media_source_sha"
             echo "workflow:        webrtc-linux.yml (job: engine-android)"
             echo "run:             $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
             echo "stripped:        $([ "$KEEP_SYMBOLS" = "true" ] && echo no || echo yes)"
