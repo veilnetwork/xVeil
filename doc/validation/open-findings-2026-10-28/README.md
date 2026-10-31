@@ -25,6 +25,20 @@
 2. **Следом:** оставшаяся multi-device матрица, длительный offline,
    revoke / split-brain / crash. Непройденные проверки не считаются дефектами.
 
+[Раунд атомарного snapshot + резерва](../ratchet-snapshot-reservation-2026-10-31/README.md)
+реализовал найденную возможность убрать отдельную транзакцию после сохранения
+новой sending chain. Snapshot, marks и очистка хвоста коммитятся вместе;
+floor — после commit и anchor attempt, с проверкой владельца и живых цепей.
+Отказы/потерянные ответы, rotation/supersession/close во время записи,
+whole-entry budget и native reopen проверены. 286 тестов прошли, 0 skipped;
+analyze без замечаний. В трёх локальных native A/B-парах медианы четырёх
+сообщений всем 12: **4141/2932/2383/2874 → 3707/1579/1714/2359 мс**;
+native commit **1381 → 1095**, отдельные резервы **302 → 55** (медианы).
+24 сообщения у всех 12 ровно один раз, процессы/порты очищены. Не каждый
+индивидуальный замер быстрее; это ограниченный Mac/JIT/TCP стенд, не проверка
+телефона или multi-device. Остаток — group handling и холодный native путь.
+Без push/релиза.
+
 [Раунд ratchet I/O / anchor retry](../ratchet-io-anchor-retry-2026-10-31/README.md)
 подтвердил пропуск anchor attempt после потерянного ответа успешной записи
 резерва: retry выдавал floor из fresh disk marks при `wrote=false`.
