@@ -62,6 +62,15 @@ class TimedGroupFileStorage extends TimedOutboxStorage {
   Future<Uint8List?> loadFile(String fileId, {int? maxBytes}) =>
       _time('load', fileId, () => super.loadFile(fileId, maxBytes: maxBytes));
   @override
+  Future<List<Uint8List>?> loadFiles(
+    List<String> ids, {
+    required int maxBytesPerFile,
+  }) => _time(
+    'loadBatch',
+    ids.isEmpty ? '' : ids.first,
+    () => super.loadFiles(ids, maxBytesPerFile: maxBytesPerFile),
+  );
+  @override
   Future<bool> hasFile(String fileId) =>
       _time('has', fileId, () => super.hasFile(fileId));
   @override
