@@ -3714,8 +3714,9 @@ class HiddenVolumeStorage
   }
 
   @override
-  Future<void> eraseSpace() =>
-      _drainConvSequenceWrites(() => _drainRatchetIo(_eraseSpace));
+  Future<void> eraseSpace() => _drainConvSequenceWrites(
+    () => _drainRatchetIo(() => _drainFileIo(_eraseSpace)),
+  );
 
   Future<void> _eraseSpace() async {
     _ratchetCommittedChunks.clear();
@@ -5261,10 +5262,40 @@ class HiddenVolumeStorage
   // same base and write colliding chunk log-ids, corrupting both blobs. Kept
   // SEPARATE from _scanGate so a multi-MiB store never blocks message scans.
   Future<void> _fileGate = Future<void>.value();
+  int _fileIoFences = 0;
+
   Future<T> _fileSerialized<T>(Future<T> Function() body) {
-    final result = _fileGate.then((_) => body());
+    // Maintenance begins at the conversation fence, before it reaches the
+    // file gate. Refuse new producers immediately, but finish accepted work
+    // against the same space before closing or erasing it.
+    if (_closePending != null ||
+        _convSequenceFences > 0 ||
+        _fileIoFences > 0) {
+      return Future<T>.error(StateError('file storage is closing or erasing'));
+    }
+    final session = _store;
+    if (session == null) {
+      return Future<T>.error(StateError('file storage is locked'));
+    }
+    final result = _fileGate.then((_) {
+      if (!identical(session, _store)) {
+        throw StateError('storage session changed before file operation');
+      }
+      return body();
+    });
     _fileGate = result.then((_) {}, onError: (_) {});
     return result;
+  }
+
+  Future<T> _drainFileIo<T>(Future<T> Function() body) async {
+    _fileIoFences++;
+    try {
+      final result = _fileGate.then((_) => body());
+      _fileGate = result.then<void>((_) {}, onError: (_) {});
+      return await result;
+    } finally {
+      _fileIoFences--;
+    }
   }
 
   // Reserve a small durable window before handing out any global log ids.
@@ -5925,10 +5956,11 @@ class HiddenVolumeStorage
     final pending = _closePending;
     if (pending != null) return pending;
     late final Future<void> closing;
-    closing = _drainConvSequenceWrites(() => _drainRatchetIo(_close))
-        .whenComplete(() {
-          if (identical(_closePending, closing)) _closePending = null;
-        });
+    closing = _drainConvSequenceWrites(
+      () => _drainRatchetIo(() => _drainFileIo(_close)),
+    ).whenComplete(() {
+      if (identical(_closePending, closing)) _closePending = null;
+    });
     _closePending = closing;
     return closing;
   }
