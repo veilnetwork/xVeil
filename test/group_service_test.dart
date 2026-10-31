@@ -8861,6 +8861,262 @@ void main() {
     });
   });
 
+  group('a compact chat delta restores from its locked merge view', () {
+    late GroupService source, target;
+    late _HeldGroupHeaderStorage targetStorage;
+    late NodeId gid;
+    late Map<String, dynamic> delta;
+
+    setUp(() async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      targetStorage = _HeldGroupHeaderStorage();
+      await targetStorage.open(password: 'pw', createIfMissing: true);
+      source = GroupService(storage, _FakeSigner(owner));
+      target = GroupService(targetStorage, _FakeSigner(bob));
+      gid = await source.createGroup('One merge view');
+      expect(
+        await source.addControlOp(
+          gid,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      await source.postMessage(gid, 'retained history', broadcast: false);
+      expect(
+        await target.ingestSnapshot(
+          source.snapshotJson((await source.load(gid))!, recipient: bob),
+        ),
+        isTrue,
+      );
+      await source.postMessage(gid, 'compact incoming', broadcast: false);
+      final bundle = (await source.load(gid))!;
+      delta = {
+        'mid': gid.hex,
+        'mh': GroupService.manifestHash(bundle.manifest),
+        'c': <Object?>[],
+        'g': [bundle.messages.last.toJson()],
+        'r': <Object?>[],
+      };
+      targetStorage.heldKey = 'group:${gid.hex}';
+      targetStorage.headerReads = 0;
+    });
+    tearDown(() async {
+      await source.dispose();
+      await target.dispose();
+    });
+
+    for (final strangerIngress in [false, true]) {
+      test(
+        'one merge read, with separate admission for stranger=$strangerIngress',
+        () async {
+          expect(
+            await target.receiveGroupFrame(
+              owner,
+              jsonEncode(delta),
+              fromStranger: strangerIngress,
+            ),
+            isTrue,
+          );
+          expect(
+            targetStorage.headerReads,
+          1,
+            reason:
+              'restore, membership admission and merge share one locked view',
+          );
+          expect(
+            (await target.load(gid))!.messages.map((m) => m.body),
+            containsAll(['retained history', 'compact incoming']),
+          );
+        },
+      );
+    }
+
+    test(
+      'waiting for a local write keeps both local and incoming rows',
+      () async {
+        targetStorage.headerWriteEntered = Completer<void>();
+        final release = Completer<void>();
+        targetStorage.headerWriteRelease = release;
+        final local = target.postMessage(
+          gid,
+          'local survives',
+          broadcast: false,
+        );
+        await targetStorage.headerWriteEntered!.future;
+        var finished = false;
+        final incoming = target
+            .receiveGroupFrame(owner, jsonEncode(delta))
+            .then((value) {
+              finished = true;
+              return value;
+            });
+        try {
+          await Future<void>.delayed(Duration.zero);
+          expect(finished, isFalse);
+        } finally {
+          release.complete();
+        }
+        expect(await local, isTrue);
+        expect(await incoming, isTrue);
+        expect(
+          (await target.load(gid))!.messages.map((m) => m.body),
+          containsAll([
+            'retained history',
+            'local survives',
+            'compact incoming',
+          ]),
+        );
+      },
+    );
+
+    test('failed journal read refuses and remains retryable', () async {
+      targetStorage.failRead = true;
+      expect(await target.receiveGroupFrame(owner, jsonEncode(delta)), isFalse);
+      targetStorage.failRead = false;
+      expect(await target.receiveGroupFrame(owner, jsonEncode(delta)), isTrue);
+      expect(
+        (await target.load(gid))!.messages.map((m) => m.body),
+        containsAll(['retained history', 'compact incoming']),
+      );
+    });
+
+    test(
+      'a queued revoke is applied before admitting the compact sender',
+      () async {
+        expect(
+          await source.addControlOp(
+            gid,
+            ControlOp.setRole,
+            target: bob,
+            role: GroupRole.admin,
+          ),
+          isTrue,
+        );
+        expect(
+          await source.addControlOp(
+            gid,
+            ControlOp.addMember,
+            target: carol,
+            role: GroupRole.member,
+          ),
+          isTrue,
+        );
+        final seed = source.snapshotJson((await source.load(gid))!);
+        expect(await target.ingestSnapshot(seed), isTrue);
+        final peerStorage = FakeHvContainer().storage();
+        await peerStorage.open(password: 'pw', createIfMissing: true);
+        final peer = GroupService(peerStorage, _FakeSigner(carol));
+        addTearDown(peer.dispose);
+        expect(await peer.ingestSnapshot(seed), isTrue);
+        expect(
+          await peer.postMessage(gid, 'must not be admitted', broadcast: false),
+          isTrue,
+        );
+        final row = (await peer.load(gid))!.messages.last;
+        final wire = jsonEncode({
+          ...delta,
+          'g': [row.toJson()],
+        });
+
+        targetStorage.headerWriteEntered = Completer<void>();
+        final release = Completer<void>();
+        targetStorage.headerWriteRelease = release;
+        final revoke = target.addControlOp(
+          gid,
+          ControlOp.removeMember,
+          target: carol,
+        );
+        await targetStorage.headerWriteEntered!.future;
+        final incoming = target.receiveGroupFrame(
+          carol,
+          wire,
+          fromStranger: true,
+        );
+        try {
+          await Future<void>.delayed(Duration.zero);
+        } finally {
+          release.complete();
+        }
+        expect(await revoke, isTrue);
+        expect(await incoming, isFalse);
+        expect(
+          (await target.load(gid))!.messages.map((m) => m.body),
+          isNot(contains('must not be admitted')),
+        );
+      },
+    );
+
+    test('matching pending ceremony still pins its promised manifest', () async {
+      final invite = BootstrapInvite(
+        publicKey: Uint8List.fromList(List.filled(32, 91)),
+        nonce: Uint8List.fromList([1, 2, 3, 4]),
+      );
+      final token = DeviceLinkToken(
+        groupId: gid,
+        source: invite.nodeId,
+        sourceInvite: invite,
+        manifestHash: Uint8List(32),
+        expiresAtMs: DateTime.now().millisecondsSinceEpoch + 60000,
+      );
+      expect(await target.prepareDeviceAdoption(token), isTrue);
+      expect(
+        await target.receiveGroupFrame(invite.nodeId, jsonEncode(delta)),
+        isFalse,
+        reason:
+            'a scoped pending admission must not become ordinary compact ingest',
+      );
+      expect((await target.load(gid))!.messages.map((m) => m.body), [
+        'retained history',
+      ]);
+      expect(await target.pendingDeviceAdoption(), isNotNull);
+    });
+
+    test('missing journal segment refuses without replacing history', () async {
+      final header =
+          jsonDecode(
+                utf8.decode(
+                  (await targetStorage.loadFile('group:${gid.hex}'))!,
+                ),
+              )
+              as Map;
+      final segment = (header['gs'] as List).first as String;
+      final original = (await targetStorage.loadFile(segment))!;
+      await targetStorage.deleteStoredFile(segment);
+      expect(await target.receiveGroupFrame(owner, jsonEncode(delta)), isFalse);
+      await targetStorage.storeFile(segment, original);
+      expect((await target.load(gid))!.messages.map((m) => m.body), [
+        'retained history',
+      ]);
+    });
+
+    test(
+      'wrong manifest or nonmember cannot apply or relay compact rows',
+      () async {
+        expect(
+          await target.receiveGroupFrame(
+            owner,
+            jsonEncode({...delta, 'mh': '0' * 32}),
+          ),
+          isFalse,
+        );
+        expect(
+          await target.receiveGroupFrame(
+            stranger,
+            jsonEncode(delta),
+            fromStranger: true,
+          ),
+          isFalse,
+        );
+        expect((await target.load(gid))!.messages.map((m) => m.body), [
+          'retained history',
+        ]);
+      },
+    );
+  });
+
   group('an adopted device delta restores its manifest inside the merge', () {
     late GroupService source, target;
     late _HeldGroupHeaderStorage targetStorage;
