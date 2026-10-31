@@ -1,0 +1,227 @@
+{
+  "schema": "xveil-validation/verdict-cache-digest/1",
+  "date": "2026-10-31",
+  "base_commit": "0d5b27cf17428ab2f5dd5fedaceee9ee408b32e5",
+  "sdk_commit": "c46d94db41a27e2ee01cdb56396506dad62730bf",
+  "fixed": {
+    "malformed_ed25519_cache_hit": true,
+    "red_on_exact_baseline": true,
+    "remote_exploit_established": false,
+    "network_callers_already_shape_guarded": true
+  },
+  "cache_digest": {
+    "algorithm": "SHA-256",
+    "native_symbol": "veil_sha256",
+    "fallback": "Dart chunked SHA-256",
+    "protocol_hashes_unchanged": true,
+    "native_copies_wiped": true
+  },
+  "microbench": {
+    "pairs": 3,
+    "order": [
+      "A/B",
+      "B/A",
+      "A/B"
+    ],
+    "warmup": 200,
+    "measured_calls": 3000,
+    "native_verifications_per_row_with_fill": 1,
+    "aot": [
+      {
+        "payload_bytes": 128,
+        "baseline_us": 8405,
+        "candidate_us": 5250
+      },
+      {
+        "payload_bytes": 512,
+        "baseline_us": 15015,
+        "candidate_us": 8229
+      },
+      {
+        "payload_bytes": 2048,
+        "baseline_us": 44862,
+        "candidate_us": 21605
+      },
+      {
+        "payload_bytes": 16384,
+        "baseline_us": 326409,
+        "candidate_us": 146779
+      }
+    ],
+    "jit": [
+      {
+        "payload_bytes": 128,
+        "baseline_us": 18071,
+        "candidate_us": 17554
+      },
+      {
+        "payload_bytes": 512,
+        "baseline_us": 20096,
+        "candidate_us": 12360
+      },
+      {
+        "payload_bytes": 2048,
+        "baseline_us": 57333,
+        "candidate_us": 16183
+      },
+      {
+        "payload_bytes": 16384,
+        "baseline_us": 418617,
+        "candidate_us": 95618
+      }
+    ]
+  },
+  "physical": {
+    "roles": [
+      "A Mac identity X",
+      "B Android identity X",
+      "C Mac identity Y"
+    ],
+    "device_ids_distinct": 3,
+    "attempted": 103,
+    "phone_offline_seconds_at_least": 300,
+    "source100_acceptance_ms": 175186,
+    "phone_at_120934_ms": {
+      "backlog": 24,
+      "of": 100,
+      "early": 0,
+      "of_early": 3
+    },
+    "A_online_C_offline_during_initial_recovery": true,
+    "complete_before_C_return": false,
+    "final_counts": {
+      "A": 103,
+      "B": 103,
+      "C": 103
+    },
+    "same_ids_order": true,
+    "duplicates": false,
+    "end_to_end_speedup_established": false
+  },
+  "android_read_aba": {
+    "source_devices_stopped": true,
+    "same_forward_only_profile": true,
+    "samples_per_stage": 4,
+    "stored_visible_messages": 364,
+    "control_entries": 3,
+    "all103_persisted_across_restarts": true,
+    "app_ingress_ring_lines_per_stage": 0,
+    "ring_dropped_per_stage": 0,
+    "median_ms": {
+      "A1": {
+        "load": 228.5,
+        "load_again": 160.0,
+        "stateOf": 163.0,
+        "messagesOf": 304.0,
+        "reactionsOf": 535.0
+      },
+      "B": {
+        "load": 248.5,
+        "load_again": 204.0,
+        "stateOf": 235.5,
+        "messagesOf": 319.5,
+        "reactionsOf": 484.0
+      },
+      "A2": {
+        "load": 228.5,
+        "load_again": 225.0,
+        "stateOf": 252.0,
+        "messagesOf": 430.0,
+        "reactionsOf": 561.5
+      }
+    },
+    "consistent_full_read_speedup": false
+  },
+  "sender_app_control": {
+    "stages": {
+      "A1": {
+        "measured_messages": 6,
+        "acceptance_ms": [
+          186,
+          338,
+          438,
+          252,
+          416,
+          395
+        ],
+        "median_ms": 366.5
+      },
+      "B": {
+        "measured_messages": 6,
+        "acceptance_ms": [
+          209,
+          236,
+          375,
+          245,
+          405,
+          372
+        ],
+        "median_ms": 308.5
+      },
+      "A2": {
+        "measured_messages": 6,
+        "acceptance_ms": [
+          167,
+          296,
+          440,
+          256,
+          449,
+          254
+        ],
+        "median_ms": 276.0
+      }
+    },
+    "delivered_and_receipted": 18,
+    "additional_warm_messages": 3,
+    "phone_offline": true,
+    "same_forward_only_profile": true,
+    "receiver_code_fixed": true,
+    "receiver_restarted_between_phases": true,
+    "continuous_aba": false,
+    "initial_driver_local_port_failures": 1,
+    "no_repeat100_burst": true,
+    "consistent_regression_or_speedup_established": false,
+    "initial_driver_unattributed_interruptions": 1
+  },
+  "tests": {
+    "scoped_passed": 404,
+    "scoped_skipped": 0,
+    "targeted_after_default_loader_assertions_passed": 6,
+    "analyzer_clean": true
+  },
+  "provenance": {
+    "group_source_sha256": "d135ad395f967bd34732d4daccb40782af79bdf63c948cddea4299be6489153c",
+    "digest_source_sha256": "d532cac8386e7071dae266876ea9106135e3402fe00353e98511e286d0655f73",
+    "mac_sdk_sha256": "3ecdfb936433f7f72072222d57624a4fb50702dd9494ba77ca343bebf373c34d",
+    "android_sdk_sha256": "398724abab60fa1b9dcb540cb17ed090c9aa1e4f6a9bc62ce410b5b98006e879",
+    "android_apk_sha256": "e3dfea3c7f2dffc0ecd4a4697d7f6d72cc5d0d810d1f2d2a69e42ff3bf1f7ac2",
+    "android_aot_sha256": "55a6ff5c4bea3a295053d9416ab0469843ece6569a39d366d2c0427f784cf9e9",
+    "android_same_signer": true,
+    "six_frozen_native_libraries": true,
+    "mac_current_dart_frozen_runner_plugins": true,
+    "rust_rebuilt": false
+  },
+  "cleanup": {
+    "all_stand_processes_exited": true,
+    "mac_ports_rebindable": true,
+    "phone_original_qa_apk_sha_verified": true,
+    "phone_stopped": true,
+    "own_phone_forward_absent": true,
+    "runtimes_removed": true,
+    "removed_redundant_apk_bytes": 166865163,
+    "profile_data_retained": true
+  },
+  "push": false,
+  "release": false,
+  "open": [
+    "slow catch-up/ingress queues",
+    "remaining multi-device matrix"
+  ],
+  "not_qualified": [
+    "Windows",
+    "original problematic provider",
+    "full revoke/split-brain/crash matrix",
+    "full new macOS release build",
+    "audible volume"
+  ]
+}
