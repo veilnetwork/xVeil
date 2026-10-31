@@ -47,9 +47,14 @@ class _RefusingStorage extends HiddenVolumeStorage {
   }
 
   @override
-  Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) async {
+  Future<void> storeFile(
+    String fileId,
+    Uint8List bytes, {
+    String? name,
+    List<String> retireHints = const [],
+  }) async {
     if (refuseWrites) throw StateError('injected publication failure');
-    await super.storeFile(fileId, bytes, name: name);
+    await super.storeFile(fileId, bytes, name: name, retireHints: retireHints);
   }
 }
 
@@ -73,12 +78,17 @@ class _HeldPublication extends HiddenVolumeStorage {
   final entered = Completer<void>();
   final release = Completer<void>();
   @override
-  Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) async {
+  Future<void> storeFile(
+    String fileId,
+    Uint8List bytes, {
+    String? name,
+    List<String> retireHints = const [],
+  }) async {
     if (!entered.isCompleted) {
       entered.complete();
       await release.future;
     }
-    await super.storeFile(fileId, bytes, name: name);
+    await super.storeFile(fileId, bytes, name: name, retireHints: retireHints);
   }
 }
 

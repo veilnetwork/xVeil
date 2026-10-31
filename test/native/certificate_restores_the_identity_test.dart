@@ -44,7 +44,12 @@ class _Mem implements Storage {
   @override
   Future<String?> getSetting(String k) async => settings[k];
   @override
-  Future<void> storeFile(String id, Uint8List b, {String? name}) async =>
+  Future<void> storeFile(
+    String id,
+    Uint8List b, {
+    String? name,
+    List<String> retireHints = const [],
+  }) async =>
       files[id] = Uint8List.fromList(b);
   @override
   Future<Uint8List?> loadFile(String id, {int? maxBytes}) async => files[id];

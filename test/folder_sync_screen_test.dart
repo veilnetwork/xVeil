@@ -20,7 +20,12 @@ class _FileOnlyStorage implements Storage {
   final files = <String, Uint8List>{};
 
   @override
-  Future<void> storeFile(String fileId, Uint8List bytes, {String? name}) async {
+  Future<void> storeFile(
+    String fileId,
+    Uint8List bytes, {
+    String? name,
+    List<String> retireHints = const [],
+  }) async {
     files[fileId] = bytes;
   }
 
