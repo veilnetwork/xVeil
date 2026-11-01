@@ -419,12 +419,17 @@ class VeilCallMediaController implements CallMediaController {
   VeilCallMediaController(
     this._transport, {
     CallMediaEngineFactory? engineFactory,
+    Future<void>? audioProcessingReady,
     CallMicrophonePermission? Function(Future<bool>)? microphonePermissionFactory,
-  }) : _engineFactory = engineFactory ?? VeilMediaEngine.create,
+  }) : // Public constructor parameter, private stored readiness gate.
+       // ignore: prefer_initializing_formals
+       _audioProcessingReady = audioProcessingReady,
+       _engineFactory = engineFactory ?? VeilMediaEngine.create,
        _microphonePermissionFactory =
            microphonePermissionFactory ?? _platformMicrophonePermission;
 
   final CallMediaEngineFactory _engineFactory;
+  final Future<void>? _audioProcessingReady;
   final CallMicrophonePermission? Function(Future<bool>)
   _microphonePermissionFactory;
 
@@ -1544,6 +1549,15 @@ class VeilCallMediaController implements CallMediaController {
     }
     if (transport != CallTransportKind.onion &&
         !await _configureRouteProbes(chan, call, transport)) {
+      _transport.closeMediaChannel(chan);
+      return false;
+    }
+    // The identity's saved off-choice must reach the very first capture
+    // frame, including a call immediately after unlocking the container.
+    // This wait precedes the existing cancellation guard and native creation.
+    try {
+      if (_audioProcessingReady != null) await _audioProcessingReady;
+    } catch (_) {
       _transport.closeMediaChannel(chan);
       return false;
     }

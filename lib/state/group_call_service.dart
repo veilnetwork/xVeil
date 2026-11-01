@@ -1188,11 +1188,17 @@ final groupCallServiceProvider = Provider<GroupCallService?>((ref) {
   if (groups == null) return null;
   final directCalls = ref.watch(callServiceProvider);
   final transport = ref.read(veilTransportProvider);
+  final audioProcessing =
+      transport is VeilFlutterTransport &&
+          VeilGroupCallMediaController.isSupportedPlatform
+      ? ref.watch(callNoiseSuppressionProvider)
+      : null;
   final media =
       transport is VeilFlutterTransport &&
           VeilGroupCallMediaController.isSupportedPlatform
       ? VeilGroupCallMediaController(
           VeilGroupMediaChannelTransport(transport),
+          audioProcessingReady: audioProcessing!.ready,
           roomMediaSecret: (call) => groups.groupCallMediaSecret(
             groupId: call.groupId,
             channelId: call.channelId,
@@ -1203,9 +1209,7 @@ final groupCallServiceProvider = Provider<GroupCallService?>((ref) {
         )
       : null;
   if (media != null) {
-    final detach = ref
-        .watch(callNoiseSuppressionProvider)
-        .bind(media, media.setNoiseSuppression);
+    final detach = audioProcessing!.bind(media, media.setNoiseSuppression);
     ref.onDispose(detach);
   }
   final service = GroupCallService(

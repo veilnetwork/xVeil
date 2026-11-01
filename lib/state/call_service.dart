@@ -3036,13 +3036,17 @@ final callServiceProvider = Provider<CallService>((ref) {
   // Media plane: drive the libwebrtc engine over veil when the concrete
   // embedded transport is available (macOS/desktop with libveil_media.dylib).
   final transport = ref.read(veilTransportProvider);
+  final audioProcessing = transport is VeilFlutterTransport
+      ? ref.watch(callNoiseSuppressionProvider)
+      : null;
   final media = transport is VeilFlutterTransport
-      ? VeilCallMediaController(transport)
+      ? VeilCallMediaController(
+          transport,
+          audioProcessingReady: audioProcessing!.ready,
+        )
       : null;
   if (media != null) {
-    final detach = ref
-        .watch(callNoiseSuppressionProvider)
-        .bind(media, media.setNoiseSuppression);
+    final detach = audioProcessing!.bind(media, media.setNoiseSuppression);
     ref.onDispose(detach);
   }
   final svc = CallService(

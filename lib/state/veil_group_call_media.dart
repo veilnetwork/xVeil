@@ -10,6 +10,7 @@ import 'package:veil_media/veil_media.dart';
 import '../core/ids.dart';
 import '../core/log.dart';
 import '../core/diagnostic_audio_output.dart';
+import '../core/diagnostic_journal.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import '../domain/group_call.dart';
 import '../domain/call_signal.dart';
@@ -332,6 +333,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     this._transport, {
     required GroupCallMediaSecretResolver roomMediaSecret,
     this._engineFactory = NativeGroupAudioEngine.create,
+    Future<void>? audioProcessingReady,
     Future<bool> Function()? requestMicrophone,
     Future<bool> Function()? requestCamera,
     bool? desktopScreenCaptureSupported,
@@ -342,6 +344,9 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
        // GroupCallService.
        // ignore: prefer_initializing_formals
        _roomMediaSecret = roomMediaSecret,
+       // Public constructor parameter, private stored readiness gate.
+       // ignore: prefer_initializing_formals
+       _audioProcessingReady = audioProcessingReady,
        _requestMicrophone = requestMicrophone ?? _defaultMicPermission,
        _requestCamera = requestCamera ?? _defaultCameraPermission,
        _desktopScreenCaptureSupported =
@@ -370,6 +375,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   final GroupMediaChannelTransport _transport;
   final GroupCallMediaSecretResolver _roomMediaSecret;
   final GroupAudioEngineFactory _engineFactory;
+  final Future<void>? _audioProcessingReady;
   final Future<bool> Function() _requestMicrophone;
   final Future<bool> Function() _requestCamera;
   // The injected engine's screen capability can differ from the test host.
@@ -505,6 +511,13 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     final localId = await _transport.localNodeId();
     _localNode = NodeId(localId);
     _localIdHex = _localNode!.hex;
+    // Bindings load the local choice asynchronously. Do not start capture
+    // with defaults and apply a saved off-choice after the first samples.
+    try {
+      if (_audioProcessingReady != null) await _audioProcessingReady;
+    } catch (_) {
+      return false;
+    }
     final engine = _engineFactory(localId);
     if (engine == null) return false;
     if (engine.supportsNoiseSuppression &&
@@ -535,6 +548,18 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
         await callAudioRouter.useDefaultFor(call.media);
       }
       final audioReady = !call.media.audio || engine.startAudio();
+      if (diagnosticJournal.enabled && call.media.audio) {
+        Map<String, dynamic> startupStats = const {};
+        try {
+          startupStats = engine.getStats();
+        } catch (_) {
+          // No engine error text, peer map or device label is copied.
+        }
+        diagnosticJournal.recordAudioStart(
+          success: audioReady,
+          stats: startupStats,
+        );
+      }
       var videoReady = !(call.media.video || call.media.screen);
       if (!videoReady) {
         videoReady = await _startVideoLocked(
@@ -834,6 +859,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       );
     }
     _latestNativeStats = Map.unmodifiable(stats);
+    diagnosticJournal.recordMediaStats(stats);
     unawaited(
       diagnosticAudioOutput.sample(
         duringCall: true,
