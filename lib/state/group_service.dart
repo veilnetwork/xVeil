@@ -6085,13 +6085,13 @@ class GroupService implements ArchiveGroups {
       // gives a set that exists. Measured on the stand: every device log
       // refused to load again and again while it was being written, and a
       // refused load reads to its caller as "no such group".
-      var missing = await _joinSegments(groupId, d);
+      var missing = await _joinSameHeaderSegments(groupId, raw, d);
       for (var retry = 0; missing != null && retry < 3; retry++) {
         final again = await _loadBundleRaw(groupId);
         if (again == null || again == raw) break;
         raw = again;
         d = jsonDecode(again) as Map<String, dynamic>;
-        missing = await _joinSegments(groupId, d);
+        missing = await _joinSameHeaderSegments(groupId, raw, d);
       }
       if (missing != null) {
         _loadRefused(groupId, missing);
@@ -6568,6 +6568,7 @@ class GroupService implements ArchiveGroups {
     // A read begun before this write cannot answer for a subsequent reader.
     // Its completion also must not remove a newer read's shared future.
     _bundleReads.remove(key);
+    _joinedSegmentReads.remove(key);
     _bundleWrites[key] = write;
     try {
       await write;
@@ -6860,6 +6861,54 @@ class GroupService implements ArchiveGroups {
       for (final k in raw)
         if (k is String && k.startsWith('$bundleKey:s:')) k,
   };
+
+  /// Put the messages of a segmented header back where [load] expects them.
+  /// Share only an unfinished acquisition for exactly the same header bytes.
+  /// Per-wave sharing alone repeated early waves when a late reader arrived
+  /// while an earlier reader was still waiting for the final segments.
+  final Map<
+    String,
+    ({String raw, Future<({String? missing, List<Object?> rows})> read})
+  > _joinedSegmentReads = {};
+
+  Future<String?> _joinSameHeaderSegments(
+    NodeId groupId,
+    String raw,
+    Map<String, dynamic> target,
+  ) async {
+    if (target['gs'] is! List) return null;
+    final key = _key(groupId);
+    // _loadBundleRaw bypasses shared reads after a write-wait timeout. Keep
+    // that potentially incomplete view out of the joined acquisition too.
+    if (_bundleWrites.containsKey(key)) return _joinSegments(groupId, target);
+    var pending = _joinedSegmentReads[key];
+    if (pending == null || pending.raw != raw) {
+      late final Future<({String? missing, List<Object?> rows})> read;
+      read = Future<({String? missing, List<Object?> rows})>.sync(() async {
+        final missing = await _joinSegments(groupId, target);
+        return (
+          missing: missing,
+          rows: missing == null
+              ? List<Object?>.unmodifiable(target['g'] as List)
+              : const <Object?>[],
+        );
+      }).whenComplete(() {
+        if (identical(_joinedSegmentReads[key]?.read, read)) {
+          _joinedSegmentReads.remove(key);
+        }
+      });
+      pending = (raw: raw, read: read);
+      _joinedSegmentReads[key] = pending;
+    }
+    final result = await pending.read;
+    if (result.missing == null) {
+      // Each caller owns its list and constructs/validates its domain objects
+      // normally. Parsed segment rows were already private, shared JSON; no
+      // accepted bundle, signature verdict or key authorization is cached.
+      target['g'] = List<Object?>.of(result.rows);
+    }
+    return result.missing;
+  }
 
   /// Put the messages of a segmented header back where [load] expects them.
   /// Null when done, else why not: a segment the header names cannot be read,
@@ -8289,6 +8338,7 @@ class GroupService implements ArchiveGroups {
           );
           final files = await _bundleFileKeys(spaceId);
           _bundleReads.remove(_key(spaceId));
+          _joinedSegmentReads.remove(_key(spaceId));
           // Header first: a segment without a header is unreachable, a header
           // without its segments would refuse to load.
           for (final k in files) {
@@ -8296,6 +8346,7 @@ class GroupService implements ArchiveGroups {
           }
           _segmentIndex.remove(_key(spaceId));
           _bundleReads.remove(_key(spaceId));
+          _joinedSegmentReads.remove(_key(spaceId));
           await _clearGroupKindHint(spaceId.hex);
           return true;
         });
@@ -22249,6 +22300,7 @@ class GroupService implements ArchiveGroups {
       if (!pending.completer.isCompleted) pending.completer.complete(null);
     }
     _bundleReads.clear();
+    _joinedSegmentReads.clear();
     _pendingPublicFeedObjects.clear();
     _publicFeedServeQuotas.clear();
     _publicMediaServeQuotas.clear();
