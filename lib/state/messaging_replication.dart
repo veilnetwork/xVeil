@@ -214,23 +214,34 @@ class _MessagingReplication {
             "deviceServe=${payload?['sn'] != null}";
       });
     }
+    final pending = <({String frameId, WireEnvelope envelope})>[];
     for (var i = 0; i < count; i++) {
       final start = i * _groupChunkBytes;
       final end = start + _groupChunkBytes < bytes.length
           ? start + _groupChunkBytes
           : bytes.length;
-      await _sendStoredGroupFrame(
-        dst,
-        'grpc:$tid:$i',
-        groupEntryChunkEnvelope(
-          transferId: tid,
-          index: i,
-          count: count,
-          data: Uint8List.sublistView(bytes, start, end),
-          transferAck: transferAck,
-        ),
-        awaitInitialSend: awaitInitialSend,
+      final frameId = 'grpc:$tid:$i';
+      final envelope = groupEntryChunkEnvelope(
+        transferId: tid,
+        index: i,
+        count: count,
+        data: Uint8List.sublistView(bytes, start, end),
+        transferAck: transferAck,
       );
+      if (awaitInitialSend) {
+        await _sendStoredGroupFrame(
+          dst,
+          frameId,
+          envelope,
+          awaitInitialSend: true,
+        );
+      } else {
+        pending.add((frameId: frameId, envelope: envelope));
+        if (pending.length == 8 || i == count - 1) {
+          await _sendStoredGroupFrames(dst, pending);
+          pending.clear();
+        }
+      }
     }
   }
 

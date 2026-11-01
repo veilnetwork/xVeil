@@ -16,6 +16,19 @@ int _request = 0;
 bool _observedInvalidSnapshot = false;
 final _statuses = <String, Map<String, int>>{};
 final _storageTimings = <String, Map<String, dynamic>>{};
+final _positions = <String, Map<String, Map<String, dynamic>>>{};
+bool get _withPositions =>
+    Platform.environment['XVEIL_E2E_STORAGE_POSITIONS'] == '1';
+
+Future<void> _positionEvidence(String label, String stage) async {
+  final dir = Platform.environment['XVEIL_E2E_EVIDENCE_DIR'];
+  if (!_withPositions || dir == null) return;
+  await Directory(dir).create(recursive: true);
+  await File(
+    '$dir/initial-$label-$stage-private.json',
+  ).writeAsString(jsonEncode(_positions[label]));
+}
+
 Future<List<String>> _ids(
   ProcessDevice device,
   String peer,
@@ -31,6 +44,7 @@ Future<List<String>> _ids(
       'prefix': '',
       'bodyPrefix': bodyPrefix,
       'includeIds': true,
+      if (_withPositions) 'includePositions': true,
       if (Platform.environment['XVEIL_E2E_STORAGE_TIMING'] == '1') ...{
         'storageTiming': true,
         'resetStorageTiming': resetStorageTiming,
@@ -48,6 +62,14 @@ Future<List<String>> _ids(
       if (value['nonce'] != nonce) return false;
       ids = List<String>.from(value['ids'] as List);
       count = value['count'] as int;
+      if (_withPositions) {
+        final raw = Map<String, dynamic>.from(value['positions'] as Map);
+        expect(raw, hasLength(count!));
+        _positions[device.label] = {
+          for (final entry in raw.entries)
+            entry.key: Map<String, dynamic>.from(entry.value as Map),
+        };
+      }
       _statuses[device.label] = Map<String, int>.from(
         value['statusCounts'] as Map,
       );
@@ -79,6 +101,7 @@ void main() {
       _observedInvalidSnapshot = false;
       _statuses.clear();
       _storageTimings.clear();
+      _positions.clear();
       final baseRows = int.parse(
         Platform.environment['XVEIL_E2E_BACKLOG_BASE_ROWS'] ?? '2000',
       );
@@ -124,24 +147,74 @@ void main() {
         await _ids(a, ci, 'backlog-base-', resetStorageTiming: true);
         await _ids(b, ci, 'backlog-base-', resetStorageTiming: true);
       }
+      final expectedPositions = _positions['A'];
+      if (_withPositions) expect(expectedPositions, hasLength(baseRows));
+      await _positionEvidence('A', 'before-link');
       await base.linkProcesses(a, b);
       var initialBCount = 0;
+      int? initialCountCompleteMs;
+      var initialOrderMismatchObservations = 0;
+      var initialPositionMismatchObservations = 0;
+      var initialOrderMatches = false, initialPositionsMatch = false;
       final initialHistory = Stopwatch()..start();
-      await waitUntil(
-        () async {
-          initialBCount = (await _ids(b, ci, 'backlog-base-')).length;
-          E2eLog.line(
-            'BACKLOG_INITIAL count=$initialBCount '
-            'elapsedMs=${initialHistory.elapsedMilliseconds}',
-          );
-          return initialBCount == baseRows;
-        },
-        what: 'new sibling B has the entire initial history',
-        describe: () => 'stored=$initialBCount expected=$baseRows',
-        timeout: const Duration(minutes: 6),
-        interval: const Duration(seconds: 5),
-      );
-      initialHistory.stop();
+      try {
+        await waitUntil(
+          () async {
+            final got = await _ids(b, ci, 'backlog-base-');
+            initialBCount = got.length;
+            final complete = initialBCount == baseRows;
+            initialOrderMatches =
+                complete &&
+                List.generate(
+                  baseRows,
+                  (i) => got[i] == expectedBase[i],
+                ).every((matches) => matches);
+            final held = _positions['B'];
+            initialPositionsMatch =
+                !_withPositions ||
+                (held != null &&
+                    expectedPositions!.entries.every(
+                      (entry) =>
+                          held[entry.key]?['orderAuthor'] ==
+                              entry.value['orderAuthor'] &&
+                          held[entry.key]?['orderSeq'] ==
+                              entry.value['orderSeq'],
+                    ));
+            if (complete) {
+              initialCountCompleteMs ??= initialHistory.elapsedMilliseconds;
+              if (!initialOrderMatches) initialOrderMismatchObservations++;
+              if (!initialPositionsMatch) initialPositionMismatchObservations++;
+              if ((!initialOrderMatches || !initialPositionsMatch) &&
+                  initialOrderMismatchObservations +
+                          initialPositionMismatchObservations <=
+                      2) {
+                await _positionEvidence('B', 'first-full-mismatch');
+              }
+            }
+            E2eLog.line(
+              'BACKLOG_INITIAL count=$initialBCount '
+              'elapsedMs=${initialHistory.elapsedMilliseconds} '
+              'orderMatch=$initialOrderMatches positionsMatch=$initialPositionsMatch '
+              'delivered=${_statuses['B']?['delivered']}',
+            );
+            return complete &&
+                initialOrderMatches &&
+                initialPositionsMatch &&
+                _statuses['B']?['delivered'] == baseRows;
+          },
+          what:
+              'new sibling B converges initial history IDs, order and delivery',
+          describe: () =>
+              'stored=$initialBCount expected=$baseRows '
+              'order=$initialOrderMatches positions=$initialPositionsMatch '
+              'delivered=${_statuses['B']?['delivered']}',
+          timeout: const Duration(minutes: 6),
+          interval: const Duration(seconds: 5),
+        );
+      } finally {
+        initialHistory.stop();
+        await _positionEvidence('B', 'last-observed');
+      }
       expect(await _ids(b, ci, 'backlog-base-'), expectedBase);
       final initialBStatuses = Map<String, int>.of(_statuses['B']!);
       final initialLog = await File(b.logPath).readAsString();
@@ -174,6 +247,7 @@ void main() {
       );
 
       if (migrationOnly) {
+        expect(await _ids(a, ci, 'backlog-base-'), expectedBase);
         expect(await _ids(c, ai, 'backlog-base-'), expectedBase);
         if (Platform.environment['XVEIL_E2E_STORAGE_TIMING'] == '1') {
           await _ids(a, ci, 'backlog-base-');
@@ -191,6 +265,12 @@ void main() {
               'migrationOnly': true,
               'baseRows': baseRows,
               'initialHistoryMs': initialHistory.elapsedMilliseconds,
+              'initialCountCompleteMs': initialCountCompleteMs,
+              'initialOrderMismatchObservations':
+                  initialOrderMismatchObservations,
+              'initialPositionMismatchObservations':
+                  initialPositionMismatchObservations,
+              'initialPositionsCompared': _withPositions,
               'initialBStatuses': initialBStatuses,
               'completedHistoryRetries': completedHistoryRetries,
               'convergedIdsAndOrder': true,
