@@ -8423,6 +8423,46 @@ void main() {
     );
   });
 
+  test('device compaction retains completed-history status for a fresh reader', () async {
+    for (final reversed in [false, true]) {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      addTearDown(storage.close);
+      final svc = GroupService(storage, _FakeSigner(owner));
+      addTearDown(svc.dispose);
+      await svc.linkDevice(bob, sovereign: sovereign, broadcastSnapshot: false);
+      final row = Message(
+        id: 'completed-history', conversationId: bob.hex,
+        direction: MessageDirection.outgoing, body: 'completed earlier',
+        timestamp: DateTime.now(), status: MessageStatus.sent,
+        ordering: (author: owner.hex, seq: 7),
+      );
+      final states = [MessageStatus.sent, MessageStatus.failed, MessageStatus.delivered];
+      for (final status in reversed ? states.reversed : states) {
+        expect(await svc.postDeviceEvent(
+          deviceMirrorOf(bob.hex, row.copyWith(status: status)).event,
+        ), isTrue);
+      }
+      await svc.postDeviceEvent(DeviceSyncEvent(
+        kind: DeviceSyncKind.settingSet, key: 'after-completion',
+        tsMs: row.timestamp.millisecondsSinceEpoch, payload: const {'v': 'head'},
+      ));
+      final gid = NodeId.fromHex((await svc.deviceGroupIdHex())!);
+      await svc.compactStateLogs(gid);
+      final fresh = GroupService(storage, _FakeSigner(owner));
+      addTearDown(fresh.dispose);
+      final retained = (await fresh.load(gid))!.messages
+          .map((m) => DeviceSyncEvent.fromBody(m.body))
+          .whereType<DeviceSyncEvent>()
+          .where((e) => e.key == row.id).toList();
+      expect(retained, hasLength(1));
+      expect(retained.single.payload['st'], 'delivered');
+      expect(retained.single.tsMs, row.timestamp.millisecondsSinceEpoch);
+      expect((await fresh.deviceSyncState())[(DeviceSyncKind.msgMirror, row.id)]!
+          .payload['st'], 'delivered');
+    }
+  });
+
   test('device compaction preserves a repaired message position for a fresh reader', () async {
     for (final reversed in [false, true]) {
       final storage = FakeHvContainer().storage();

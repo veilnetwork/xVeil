@@ -42,6 +42,153 @@ class _HeldStorage extends HiddenVolumeStorage {
 }
 
 void main() {
+  for (final status in [MessageStatus.delivered, MessageStatus.failed]) {
+    test(
+      'terminal history is never exposed as a retry job: ${status.name}',
+      () async {
+        final storage = _HeldStorage(FakeHvContainer().passwordOpener);
+        await storage.open(password: 'fixture', createIfMissing: true);
+        final peer = _id(2), link = _Link();
+        await storage.upsertContact(
+          Contact(nodeId: peer, status: ContactStatus.accepted),
+        );
+        final service = MessagingService(link, storage);
+        final applying = service.applyMirroredMessage(
+          peer: peer,
+          msgId: 'old-${status.name}',
+          direction: MessageDirection.outgoing,
+          status: status,
+          body: 'already completed elsewhere',
+          tsMs: DateTime.now().millisecondsSinceEpoch,
+          author: _id(3).hex,
+          seq: 1,
+        );
+        try {
+          await storage.entered.future;
+          expect((await storage.loadMessages(peer.hex)).single.status, status);
+          await service.flushOutbox();
+          expect(
+            link.posts,
+            isEmpty,
+            reason:
+                'even a retry racing append completion must see terminal status',
+          );
+        } finally {
+          storage.release.complete();
+          await applying;
+          await service.dispose();
+          await storage.close();
+        }
+      },
+    );
+  }
+
+  test(
+    'delivered history repairs an existing sent copy without replacing its contents',
+    () async {
+      final storage = HiddenVolumeStorage(FakeHvContainer().passwordOpener);
+      await storage.open(password: 'fixture', createIfMissing: true);
+      final peer = _id(2), link = _Link();
+      await storage.upsertContact(
+        Contact(nodeId: peer, status: ContactStatus.accepted),
+      );
+      final service = MessagingService(link, storage);
+      addTearDown(() async {
+        await service.dispose();
+        await storage.close();
+      });
+      final at = DateTime.now().millisecondsSinceEpoch;
+      await service.applyMirroredMessage(
+        peer: peer,
+        msgId: 'held',
+        direction: MessageDirection.outgoing,
+        body: 'original',
+        tsMs: at,
+        author: _id(3).hex,
+        seq: 1,
+      );
+      expect(
+        await service.applyMirroredMessage(
+          peer: peer,
+          msgId: 'held',
+          direction: MessageDirection.outgoing,
+          status: MessageStatus.delivered,
+          body: 'must not replace original',
+          tsMs: at + 100,
+        ),
+        isTrue,
+      );
+      final held = (await storage.loadMessages(peer.hex)).single;
+      expect(held.status, MessageStatus.delivered);
+      expect(held.body, 'original');
+      expect(held.timestamp.millisecondsSinceEpoch, at);
+      expect(held.author, _id(3).hex);
+      expect(held.seq, 1);
+      expect(
+        await service.applyMirroredMessage(
+          peer: peer,
+          msgId: 'held',
+          direction: MessageDirection.outgoing,
+          status: MessageStatus.failed,
+          body: 'stale failure',
+          tsMs: at + 200,
+        ),
+        isFalse,
+      );
+      expect(
+        (await storage.loadMessages(peer.hex)).single.status,
+        MessageStatus.delivered,
+      );
+      await service.flushOutbox();
+      expect(link.posts, isEmpty);
+      await storage.deleteMessage(peer.hex, 'held');
+      expect(
+        await service.applyMirroredMessage(
+          peer: peer,
+          msgId: 'held',
+          direction: MessageDirection.outgoing,
+          status: MessageStatus.delivered,
+          body: 'deleted',
+          tsMs: at,
+        ),
+        isFalse,
+      );
+      expect(await storage.loadMessages(peer.hex), isEmpty);
+    },
+  );
+
+  test('outgoing completion does not change a same-id incoming row', () async {
+    final storage = HiddenVolumeStorage(FakeHvContainer().passwordOpener);
+    await storage.open(password: 'fixture', createIfMissing: true);
+    final service = MessagingService(_Link(), storage);
+    addTearDown(() async {
+      await service.dispose();
+      await storage.close();
+    });
+    final peer = _id(2), at = DateTime.now().millisecondsSinceEpoch;
+    await service.applyMirroredMessage(
+      peer: peer,
+      msgId: 'incoming',
+      direction: MessageDirection.incoming,
+      body: 'received',
+      tsMs: at,
+    );
+    expect(
+      await service.applyMirroredMessage(
+        peer: peer,
+        msgId: 'incoming',
+        direction: MessageDirection.outgoing,
+        status: MessageStatus.delivered,
+        body: 'wrong direction',
+        tsMs: at,
+      ),
+      isFalse,
+    );
+    final held = (await storage.loadMessages(peer.hex)).single;
+    expect(held.direction, MessageDirection.incoming);
+    expect(held.body, 'received');
+  });
+
   test(
     'background retry defers an unfinished own-device journal commit',
     () async {

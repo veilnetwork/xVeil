@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/node/embedded_node.dart';
 import 'package:xveil/debug/soak_hook.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/peer_authorization.dart';
 
 import 'device_fixture.dart';
@@ -122,6 +123,13 @@ void main() {
                   'count': messages.length,
                   if (request['includeIds'] == true)
                     'ids': [for (final message in messages) message.id],
+                  if (request['includeIds'] == true)
+                    'statusCounts': {
+                      for (final status in MessageStatus.values)
+                        status.name: messages
+                            .where((m) => m.status == status)
+                            .length,
+                    },
                   'reflectedEdits': messages
                       .where((message) => message.reflectedEdit)
                       .length,
