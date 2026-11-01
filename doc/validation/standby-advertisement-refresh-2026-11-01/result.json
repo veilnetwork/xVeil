@@ -1,0 +1,23 @@
+{
+  "schema": "xveil-standby-advertisement-refresh/1",
+  "sdk": "eb644a83",
+  "confirmedMechanismFixed": true,
+  "coldQuicLatencyResolved": false,
+  "mobileHandoverResolved": false,
+  "physicalQualificationPerformed": false,
+  "hotStandbyDefaultEnabled": false,
+  "tests": {
+    "baselineRefreshPassed": 0,
+    "baselineRefreshFailed": 3,
+    "sessionPassed": 683,
+    "sessionIgnored": 8,
+    "runtimeHandshakePassed": 22,
+    "runtimeHandshakeFilteredOut": 784,
+    "newRegressionTestsIncludedInSessionTotal": 4
+  },
+  "standAppsStarted": 0,
+  "productionChanged": false,
+  "testnetChanged": false,
+  "phoneOrWindowsChanged": false,
+  "pushedOrReleased": false
+}
