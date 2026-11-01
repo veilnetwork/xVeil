@@ -18,6 +18,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
+import com.veil.veil_flutter.CallScreenActivity
 import com.veil.veil_flutter.CallActionCapability
 import io.flutter.plugin.common.MethodChannel
 
@@ -27,7 +28,7 @@ import io.flutter.plugin.common.MethodChannel
  * RECORD_AUDIO runtime grant before the veil audio engine opens an AAudio
  * capture stream. Camera maps to CAMERA for the video path.
  */
-class MainActivity : FlutterFragmentActivity() {
+class MainActivity : FlutterFragmentActivity(), CallScreenActivity.Host {
     private val channelName = "xveil/media_permissions"
     private val pipChannelName = "xveil/pip"
     private val pipEventsChannelName = "xveil/pip_events"
@@ -61,6 +62,26 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        CallScreenActivity.attachHost(this)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "xveil/call_screen").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "allowed" -> result.success(CallScreenActivity.fullScreenAllowed(this))
+                "request" -> {
+                    try {
+                        if (Build.VERSION.SDK_INT >= 34) {
+                            startActivity(Intent(android.provider.Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                                android.net.Uri.parse("package:$packageName")))
+                        } else {
+                            startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, packageName))
+                        }
+                        result.success(true)
+                    } catch (_: Exception) { result.success(false) }
+                }
+                else -> result.notImplemented()
+            }
+        }
+        CallScreenActivity.detachHost(this)
         mediaPermissions.close()
         mediaPermissions = createMediaPermissionQueue()
         documentExport?.dispose()
@@ -760,14 +781,17 @@ class MainActivity : FlutterFragmentActivity() {
         return mapOf("action" to action, "session" to session)
     }
 
-    private fun deliverCallAction(intent: Intent?) {
-        val action = callActionFrom(intent) ?: return
+    override fun dispatchCallScreenAction(intent: Intent): Boolean = deliverCallAction(intent)
+
+    private fun deliverCallAction(intent: Intent?): Boolean {
+        val action = callActionFrom(intent) ?: return false
         val channel = callActionChannel
         if (channel == null) {
             pendingCallAction = action
         } else {
             channel.invokeMethod("callAction", action)
         }
+        return true
     }
 
     override fun onRequestPermissionsResult(

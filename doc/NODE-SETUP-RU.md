@@ -1,6 +1,8 @@
 # Свой узел Veil: от установки до проверки
 
 Это руководство для владельца Linux-сервера (Debian/Ubuntu с systemd).
+Для HTTPS/WebSocket-входа через nginx, без Docker, используйте
+[отдельную пошаговую инструкцию Debian + nginx](NODE-DEBIAN-NGINX-RU.md).
 Команды управления сверены с текущим `veil-cli` в репозитории. Для macOS и
 Windows также есть [общая инструкция установки CLI](../third_party/veil/docs/ru/install.md).
 Отдельный маршрут для Windows приведён в конце этого документа.
@@ -161,12 +163,12 @@ sudo -u veil /usr/local/bin/veil-cli -c /var/lib/veil/node.toml bootstrap invite
 ```
 
 Приглашение использует **первый** listener; проверьте адрес через
-`bootstrap decode 'veil:bootstrap?...'` перед отправкой. Оно должно содержать
+`bootstrap decode --uri 'veil:bootstrap?...'` перед отправкой. Оно должно содержать
 доступный внешний адрес, а не `0.0.0.0` или loopback. В xVeil откройте
 «Сеть» и добавьте точку входа через приглашение/QR. Для второго CLI-узла:
 
 ```sh
-veil-cli -c /path/to/second-node.toml bootstrap join 'veil:bootstrap?...'
+veil-cli -c /path/to/second-node.toml bootstrap join --uri 'veil:bootstrap?...'
 # Если второй узел уже работает, перечитайте его конфиг:
 veil-cli -c /path/to/second-node.toml node reload
 ```

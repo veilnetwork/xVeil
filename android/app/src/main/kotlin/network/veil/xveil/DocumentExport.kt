@@ -71,7 +71,8 @@ class DocumentExport(owner: Activity, messenger: BinaryMessenger) {
                     putExtra(Intent.EXTRA_TITLE, name)
                     addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
                 }, REQUEST_CODE)
-            } catch (_: Exception) { pending = null; error(result, "open") }
+            } catch (_: SecurityException) { pending = null; error(result, "permission") }
+            catch (_: Exception) { pending = null; error(result, "open") }
             return
         }
         val session = current
@@ -105,6 +106,7 @@ class DocumentExport(owner: Activity, messenger: BinaryMessenger) {
         working++
         io.execute {
             var succeeded = false
+            var denied = false
             try {
                 check(!session.aborted.get())
                 val out = checkNotNull(session.output)
@@ -116,14 +118,15 @@ class DocumentExport(owner: Activity, messenger: BinaryMessenger) {
                     session.committed = true
                 }
                 succeeded = true
-            } catch (_: Exception) { discard(session) }
+            } catch (_: SecurityException) { denied = true; discard(session) }
+            catch (_: Exception) { discard(session) }
             main.post {
                 working--
                 session.busy = false
                 if (!succeeded || call.method == "finish") {
                     if (current === session) current = null
                 }
-                if (succeeded) result.success(null) else error(result, call.method)
+                if (succeeded) result.success(null) else error(result, if (denied) "permission" else call.method)
                 settleDisposed()
             }
         }
@@ -144,10 +147,12 @@ class DocumentExport(owner: Activity, messenger: BinaryMessenger) {
         io.execute {
             val session = Session(uri, null)
             var succeeded = false
+            var denied = false
             try {
                 session.output = checkNotNull(resolver.openOutputStream(uri, "w"))
                 succeeded = true
-            } catch (_: Exception) { discard(session) }
+            } catch (_: SecurityException) { denied = true; discard(session) }
+            catch (_: Exception) { discard(session) }
             main.post {
                 working--
                 if (disposed || pending !== result) {
@@ -156,7 +161,7 @@ class DocumentExport(owner: Activity, messenger: BinaryMessenger) {
                 } else {
                     pending = null
                     if (succeeded) { current = session; result.success(mapOf("id" to session.id)) }
-                    else error(result, "open")
+                    else error(result, if (denied) "permission" else "open")
                 }
                 settleDisposed()
             }

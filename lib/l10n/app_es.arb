@@ -3192,5 +3192,17 @@
   "startupUnlockBlocked": "El acceso por patrón está bloqueado tras varios intentos. Introduce la contraseña y vuelve a configurar el acceso rápido.",
   "startupUnlockFailed": "No se pudo desbloquear. Comprueba el patrón o la confirmación del sistema; espera tras varios fallos. Puedes introducir la contraseña del contenedor.",
   "wipeLeftQuickUnlock": "acceso rápido guardado en el sistema",
-  "startupUnlockSaveFailed": "Los ajustes de bloqueo se guardaron, pero no se pudo configurar el acceso rápido del sistema. La contraseña del contenedor sigue funcionando."
+  "startupUnlockSaveFailed": "Los ajustes de bloqueo se guardaron, pero no se pudo configurar el acceso rápido del sistema. La contraseña del contenedor sigue funcionando.",
+  "chatFileSavePermissionDenied": "No hay permiso para escribir aquí. Elige otra carpeta o permite el acceso en el selector de archivos del sistema.",
+  "chatFileSavedToChosenFolder": "Archivo guardado en la ubicación elegida",
+  "chatFileDownloadedInApp": "Descargado en la carpeta de la aplicación. Usa «Guardar como» para elegir una carpeta en Archivos.",
+  "chatFileSaveAs": "Guardar como",
+  "callLockScreenTitle": "Llamadas en la pantalla de bloqueo",
+  "callLockScreenAllowed": "Se permiten llamadas a pantalla completa. Activa también las notificaciones y el nodo en segundo plano.",
+  "callLockScreenPermissionHint": "Permite llamadas a pantalla completa en los ajustes del sistema. Comprueba que las notificaciones de llamadas estén activadas.",
+  "callLockScreenSettingsFailed": "No se pudieron abrir los ajustes. Permite las notificaciones a pantalla completa de xVeil en Android.",
+  "inviteShareTab": "Compartir",
+  "inviteAddTab": "Añadir",
+  "inviteShowLink": "Mostrar enlace de contacto",
+  "inviteNotReady": "Tu QR aparecerá cuando el nodo esté listo. Puedes añadir un contacto en la pestaña Añadir."
 }

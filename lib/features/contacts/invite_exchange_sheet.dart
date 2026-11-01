@@ -48,6 +48,7 @@ class InviteExchangeSheet extends StatefulWidget {
 class _InviteExchangeSheetState extends State<InviteExchangeSheet> {
   final _paste = TextEditingController();
   String? _error;
+  bool _sharing = true;
 
   @override
   void dispose() {
@@ -103,154 +104,175 @@ class _InviteExchangeSheetState extends State<InviteExchangeSheet> {
   Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final scheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        24,
-        24,
-        24,
-        24 + MediaQuery.of(context).viewInsets.bottom,
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              l.inviteAddContact,
-              style: Theme.of(context).textTheme.titleLarge,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            if (widget.myInvite != null) ...[
-              Text(
-                l.inviteShowToContact,
-                style: Theme.of(context).textTheme.labelMedium,
-                textAlign: TextAlign.center,
+    return DefaultTabController(
+      length: 2,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          24,
+          24,
+          24,
+          24 + MediaQuery.of(context).viewInsets.bottom,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TabBar(
+                onTap: (index) => setState(() => _sharing = index == 0),
+                tabs: [
+                  Tab(text: l.inviteShareTab),
+                  Tab(text: l.inviteAddTab),
+                ],
               ),
-              const SizedBox(height: 12),
-              Center(
-                child: Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: QrImageView(
-                    data: widget.myInvite!,
-                    size: 180,
-                    // Errors (e.g. data too long) render inline, never throw.
-                    errorStateBuilder: (_, _) => SizedBox(
-                      width: 180,
-                      height: 180,
-                      child: Center(child: Text(l.inviteTooLarge)),
-                    ),
-                  ),
+              const SizedBox(height: 16),
+              if (_sharing && widget.myInvite == null) Text(l.inviteNotReady),
+              if (_sharing && widget.myInvite != null) ...[
+                Text(
+                  l.inviteShowToContact,
+                  style: Theme.of(context).textTheme.labelMedium,
+                  textAlign: TextAlign.center,
                 ),
-              ),
-              const SizedBox(height: 12),
-              // The raw link, so it works on desktop (no camera) — selectable +
-              // copyable.
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: scheme.surfaceContainerHighest,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: SelectableText(
-                  widget.myInvite!,
-                  style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
-                ),
-              ),
-              const SizedBox(height: 4),
-              Center(
-                child: TextButton.icon(
-                  onPressed: () async {
-                    await Clipboard.setData(
-                      ClipboardData(text: widget.myInvite!),
+                const SizedBox(height: 12),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final qrSize = (constraints.maxWidth - 24).clamp(
+                      100.0,
+                      240.0,
                     );
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(
-                        context,
-                      ).showSnackBar(SnackBar(content: Text(l.inviteCopied)));
-                    }
-                  },
-                  icon: const Icon(Icons.copy, size: 18),
-                  label: Text(l.inviteCopyMine),
-                ),
-              ),
-              // Identity details — your node_id (what others address you by; it is
-              // the BLAKE3 of the public key the invite already encodes), plus the
-              // raw public key / nonce / algorithm, readable + copyable.
-              Builder(
-                builder: (context) {
-                  BootstrapInvite? id;
-                  try {
-                    id = BootstrapInvite.parse(widget.myInvite!);
-                  } catch (_) {}
-                  if (id == null) return const SizedBox.shrink();
-                  return Theme(
-                    data: Theme.of(
-                      context,
-                    ).copyWith(dividerColor: Colors.transparent),
-                    child: ExpansionTile(
-                      tilePadding: EdgeInsets.zero,
-                      childrenPadding: const EdgeInsets.only(bottom: 8),
-                      title: Text(
-                        l.identityDetails,
-                        style: Theme.of(context).textTheme.labelLarge,
-                      ),
-                      children: [
-                        _idRow(context, 'node_id', id.nodeId.hex),
-                        _idRow(
-                          context,
-                          l.identityPublicKey,
-                          base64.encode(id.publicKey),
+                    return Center(
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
                         ),
-                        _idRow(context, 'nonce', base64.encode(id.nonce)),
-                        _idRow(context, l.identityAlgo, id.algo),
-                      ],
-                    ),
-                  );
-                },
-              ),
-              const Divider(height: 32),
-            ],
-            Text(
-              l.invitePasteTheirs,
-              style: Theme.of(context).textTheme.labelMedium,
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _paste,
-              minLines: 1,
-              maxLines: 3,
-              decoration: InputDecoration(
-                hintText: 'veil:bootstrap?…',
-                // WHAT it takes. The hint shows one accepted form and the
-                // field takes three; a person holding an @name had no way to
-                // learn that from here, and pasting one bare got them
-                // "invalid invite" from the parser that never saw it.
-                //
-                // A bare node id is deliberately NOT listed: `_add` hands
-                // anything without a leading @ to the invite parser, which
-                // refuses it. The string that used to sit unused here
-                // promised exactly that, which is why it was not wired up.
-                helperText: l.inviteAcceptsHint,
-                errorText: _error,
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.qr_code_scanner),
-                  tooltip: l.inviteScanTooltip,
-                  onPressed: _scan,
+                        child: QrImageView(
+                          data: widget.myInvite!,
+                          size: qrSize,
+                          // Errors (e.g. data too long) render inline, never throw.
+                          errorStateBuilder: (_, _) => SizedBox(
+                            width: qrSize,
+                            height: qrSize,
+                            child: Center(child: Text(l.inviteTooLarge)),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
                 ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            FilledButton(
-              onPressed: _add,
-              style: FilledButton.styleFrom(backgroundColor: scheme.primary),
-              child: Text(l.inviteAddButton),
-            ),
-          ],
+                const SizedBox(height: 12),
+                // The raw link, so it works on desktop (no camera) — selectable +
+                // copyable.
+                ExpansionTile(
+                  key: const ValueKey('invite-link'),
+                  title: Text(l.inviteShowLink),
+                  tilePadding: EdgeInsets.zero,
+                  childrenPadding: const EdgeInsets.all(10),
+                  children: [
+                    SelectableText(
+                      widget.myInvite!,
+                      style: const TextStyle(
+                        fontFamily: 'monospace',
+                        fontSize: 11,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Center(
+                  child: TextButton.icon(
+                    onPressed: () async {
+                      await Clipboard.setData(
+                        ClipboardData(text: widget.myInvite!),
+                      );
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(
+                          context,
+                        ).showSnackBar(SnackBar(content: Text(l.inviteCopied)));
+                      }
+                    },
+                    icon: const Icon(Icons.copy, size: 18),
+                    label: Text(l.inviteCopyMine),
+                  ),
+                ),
+                // Identity details — your node_id (what others address you by; it is
+                // the BLAKE3 of the public key the invite already encodes), plus the
+                // raw public key / nonce / algorithm, readable + copyable.
+                Builder(
+                  builder: (context) {
+                    BootstrapInvite? id;
+                    try {
+                      id = BootstrapInvite.parse(widget.myInvite!);
+                    } catch (_) {}
+                    if (id == null) return const SizedBox.shrink();
+                    return Theme(
+                      data: Theme.of(
+                        context,
+                      ).copyWith(dividerColor: Colors.transparent),
+                      child: ExpansionTile(
+                        tilePadding: EdgeInsets.zero,
+                        childrenPadding: const EdgeInsets.only(bottom: 8),
+                        title: Text(
+                          l.identityDetails,
+                          style: Theme.of(context).textTheme.labelLarge,
+                        ),
+                        children: [
+                          _idRow(context, 'node_id', id.nodeId.hex),
+                          _idRow(
+                            context,
+                            l.identityPublicKey,
+                            base64.encode(id.publicKey),
+                          ),
+                          _idRow(context, 'nonce', base64.encode(id.nonce)),
+                          _idRow(context, l.identityAlgo, id.algo),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ],
+              if (!_sharing) ...[
+                Text(
+                  l.invitePasteTheirs,
+                  style: Theme.of(context).textTheme.labelMedium,
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _paste,
+                  minLines: 1,
+                  maxLines: 3,
+                  decoration: InputDecoration(
+                    hintText: 'veil:bootstrap?…',
+                    // WHAT it takes. The hint shows one accepted form and the
+                    // field takes three; a person holding an @name had no way to
+                    // learn that from here, and pasting one bare got them
+                    // "invalid invite" from the parser that never saw it.
+                    //
+                    // A bare node id is deliberately NOT listed: `_add` hands
+                    // anything without a leading @ to the invite parser, which
+                    // refuses it. The string that used to sit unused here
+                    // promised exactly that, which is why it was not wired up.
+                    helperText: l.inviteAcceptsHint,
+                    errorText: _error,
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.qr_code_scanner),
+                      tooltip: l.inviteScanTooltip,
+                      onPressed: _scan,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: _add,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: scheme.primary,
+                  ),
+                  child: Text(l.inviteAddButton),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );
