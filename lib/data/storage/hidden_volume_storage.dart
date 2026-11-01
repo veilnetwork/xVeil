@@ -79,6 +79,11 @@ class _PendingOutboxAcks {
   late final Future<void> result;
 }
 
+class _PositionedMessageAppends {
+  final payloads = <Uint8List>[];
+  late final Future<void> result;
+}
+
 /// Opener for [HiddenVolumeStorage.fromStore], where the store is already open
 /// and [HiddenVolumeStorage.open] is never called.
 Future<AsyncKvLogStore?> _noOpener({
@@ -2216,11 +2221,53 @@ class HiddenVolumeStorage
   }
 
   @override
-  Future<Message> appendMessage(Message message) => _withConvSequence(
-    message.conversationId,
-    message.author ?? message.conversationId,
-    () => _appendMessage(message),
-  );
+  Future<Message> appendMessage(Message message) async {
+    if (_store == null || _convSequenceFences > 0) {
+      throw StateError('storage is closing or locked');
+    }
+    // History/wire rows already own their sequence. Coalesce only bounded,
+    // inline payloads; local allocation and fragmented records keep their
+    // existing per-author transaction path and are barriers to this batch.
+    if (message.author != null &&
+        message.seq != null &&
+        message.body.length <= _messageInlineBytes &&
+        (message.thumb?.length ?? 0) <= _messageInlineBytes) {
+      final frozen = message.copyWith(
+        customEmoji: List.unmodifiable(message.customEmoji),
+      );
+      final payload = _sk(_encodeMessage(frozen));
+      if (payload.length <= _messageInlineBytes) {
+        final key = (message.conversationId, message.author!);
+        final pending = _positionedMessageAppends[key];
+        if (pending != null && pending.payloads.length < 16) {
+          pending.payloads.add(payload);
+          await pending.result;
+          return frozen;
+        }
+        final batch = _PositionedMessageAppends()..payloads.add(payload);
+        batch.result =
+            _withConvSequence(key.$1, key.$2, () async {
+              // Seal before any I/O. Later arrivals need the next sequence turn.
+              if (identical(_positionedMessageAppends[key], batch)) {
+                _positionedMessageAppends.remove(key);
+              }
+              await _commitPositionedMessageBatch(batch.payloads);
+            }).whenComplete(() {
+              if (identical(_positionedMessageAppends[key], batch)) {
+                _positionedMessageAppends.remove(key);
+              }
+            });
+        _positionedMessageAppends[key] = batch;
+        await batch.result;
+        return frozen;
+      }
+    }
+    return _withConvSequence(
+      message.conversationId,
+      message.author ?? message.conversationId,
+      () => _appendMessage(message),
+    );
+  }
 
   Future<Message> _appendMessage(Message message) async {
     // Bind (author, seq): the author is the message originator (set by the
@@ -5375,6 +5422,8 @@ class HiddenVolumeStorage
   // already have their own nonblocking allocator; they do not protect this
   // per-(conversation, author) cursor from two callers reading the same value.
   final _convSequenceTails = <(String, String), Future<void>>{};
+  final _positionedMessageAppends =
+      <(String, String), _PositionedMessageAppends>{};
   int _convSequenceFences = 0;
 
   Future<T> _withConvSequence<T>(
@@ -5388,6 +5437,8 @@ class HiddenVolumeStorage
       return Future.error(StateError('storage is closing or locked'));
     }
     final key = (conversation, author);
+    // An edit, clear, local allocation or large row must retain its own turn.
+    _positionedMessageAppends.remove(key);
     final previous = _convSequenceTails[key] ?? Future<void>.value();
     final result = previous.then((_) {
       if (!identical(session, _store)) {
@@ -5710,6 +5761,45 @@ class HiddenVolumeStorage
         ),
       );
     }
+    await _publishMessageOps(store, messageOps, namespaces, logId, lastId);
+    return logId;
+  });
+
+  // Already-positioned inline posts consume only internal global ids, never
+  // author sequence numbers. The whole bounded set and all shard markers are
+  // durable before any append future completes.
+  Future<void> _commitPositionedMessageBatch(List<Uint8List> payloads) =>
+      _trackLogWrite((store) async {
+        final first = await _allocLogIds(
+          store,
+          count: payloads.length,
+          maximum: Ns.messageLogShardCapacity,
+        );
+        await _ensureMessageLogNamespacesLoaded();
+        final namespaces = <int>{};
+        final ops = <KvLogOp>[];
+        for (var i = 0; i < payloads.length; i++) {
+          final id = first + i;
+          final ns = Ns.messageLogNamespaceFor(id);
+          namespaces.add(ns);
+          ops.add(AppendLogOp(ns, id, payloads[i]));
+        }
+        await _publishMessageOps(
+          store,
+          ops,
+          namespaces,
+          first,
+          first + payloads.length - 1,
+        );
+      });
+
+  Future<void> _publishMessageOps(
+    AsyncKvLogStore store,
+    List<KvLogOp> messageOps,
+    Set<int> namespaces,
+    int logId,
+    int lastId,
+  ) async {
     // Join earlier first-use publications before claiming any new shard.
     // Register one shared flight for all newly touched shards, so a crossing
     // record publishes every fragment and discovery marker in the same commit.
@@ -5754,8 +5844,7 @@ class HiddenVolumeStorage
     }
     _noteLogCommit(store, logId, message: true);
     if (lastId != logId) _noteLogCommit(store, lastId, message: true);
-    return logId;
-  });
+  }
 
   /// Composite key for the scan maps: a conversation + a message id, joined by
   /// the Unit Separator (U+001F). `conv` is a server-authenticated 64-hex node id
