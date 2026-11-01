@@ -1,0 +1,84 @@
+{
+  "schema": "xveil-registry-retirement-validation/1",
+  "outcome": {
+    "forcedUnregisterNoLongerDependsOnProducerClones": true,
+    "ordinaryReplacementPinnedSendPreserved": true,
+    "networkHandoverAudioPauseStillOpen": true,
+    "originalSingleConnectedNodeCaseQualified": false,
+    "audibleSpeechQualified": false
+  },
+  "tests": {
+    "session": {
+      "passed": 677,
+      "ignored": 8
+    },
+    "sessionIntegration": {
+      "passed": 119,
+      "ignored": 1
+    },
+    "ffi": {
+      "passed": 334,
+      "ignored": 2
+    },
+    "retainedProducerTestsInSessionSuite": 3,
+    "unchangedValidRedRegressions": 2,
+    "supersededReplacementAssertionWasNotAValidDefect": true
+  },
+  "activeHandover": {
+    "schema": "xveil-handover-observation/1",
+    "requiredObservationSeconds": 40,
+    "endpoints": {
+      "phone": {
+        "preconditionVerified": true,
+        "samplesAfterCut": 40,
+        "observationSeconds": 41.687,
+        "coverageVerified": true,
+        "missingOrNonActiveSamples": 0,
+        "firstCallLostAfterCutMs": null,
+        "callSurvivalVerified": true,
+        "freshAudioAtEnd": true,
+        "allSampledAudioFresh": false,
+        "maxSampledAudioPayloadAgeWithinEpochMs": 4053,
+        "continuousAudioGapUpperBoundMs": null
+      },
+      "windows": {
+        "preconditionVerified": true,
+        "samplesAfterCut": 40,
+        "observationSeconds": 41.697,
+        "coverageVerified": true,
+        "missingOrNonActiveSamples": 0,
+        "firstCallLostAfterCutMs": null,
+        "callSurvivalVerified": true,
+        "freshAudioAtEnd": true,
+        "allSampledAudioFresh": false,
+        "maxSampledAudioPayloadAgeWithinEpochMs": 6347,
+        "continuousAudioGapUpperBoundMs": null
+      }
+    },
+    "callSurvivalVerified": true,
+    "qualityObservationQualified": false
+  },
+  "immediateAfterCut": {
+    "incomingAfterPlaceSeconds": 1.085,
+    "firstSampledFreshRxAfterCutSeconds": {
+      "phone": 19.857,
+      "windows": 19.869
+    },
+    "fiveConsecutiveFreshSamplesAfterCutSeconds": 24.118,
+    "bothEndpointsQualified": true
+  },
+  "teardown": {
+    "baselineQaApkRestored": true,
+    "phoneQaStopped": true,
+    "mainPhoneProcessUnchanged": true,
+    "phoneNetworkSettingsRestored": true,
+    "ownAdbForwardAbsent": true,
+    "ownSshAndListenerAbsent": true,
+    "noMacStandStarted": true,
+    "windowsQaAndTasksStopped": true,
+    "windowsListenerAbsentVerified": true,
+    "relayBinariesAndConfigChanged": false,
+    "pushed": false,
+    "released": false
+  }
+}
