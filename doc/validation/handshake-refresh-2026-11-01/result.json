@@ -1,0 +1,1647 @@
+{
+  "schema": "xveil-validation/handshake-refresh/1",
+  "sdkTrace": "9c994f7f",
+  "sdkFix": "5339aa6df47d3b72da8954edce66d7d14935d632",
+  "macSignedFfiSha256": "c864cbf2598d25b33a7b5cb14eafac8564acb316aa302af52dfb1110837b0af9",
+  "linuxCandidateSha256": "3cfe1e8fd57e2f7c806ee5e90d6ccfa8f4abe2e7439a3ff4e0aebbb63edf81e4",
+  "tests": {
+    "red": {
+      "passed": 0,
+      "failed": 1
+    },
+    "greenTargeted": {
+      "passed": 1
+    },
+    "runtime": {
+      "passed": 791,
+      "ignored": 11
+    }
+  },
+  "baseline": [
+    {
+      "attempt": 1,
+      "bothSidesObservedSeconds": 2.774,
+      "stableGateSeconds": 6.267,
+      "qualified": true,
+      "remoteAbsentAfterStop": true
+    },
+    {
+      "attempt": 2,
+      "bothSidesObservedSeconds": 2.675,
+      "stableGateSeconds": 5.947,
+      "qualified": true,
+      "remoteAbsentAfterStop": true
+    },
+    {
+      "attempt": 3,
+      "bothSidesObservedSeconds": 14.789,
+      "stableGateSeconds": 18.501,
+      "qualified": true,
+      "remoteAbsentAfterStop": true
+    },
+    {
+      "attempt": 4,
+      "bothSidesObservedSeconds": 14.239,
+      "stableGateSeconds": 18.817,
+      "qualified": true,
+      "remoteAbsentAfterStop": true
+    },
+    {
+      "attempt": 5,
+      "bothSidesObservedSeconds": 40.031,
+      "stableGateSeconds": 43.045,
+      "qualified": true,
+      "remoteAbsentAfterStop": true
+    },
+    {
+      "attempt": 6,
+      "bothSidesObservedSeconds": 2.94,
+      "stableGateSeconds": 5.968,
+      "qualified": true,
+      "remoteAbsentAfterStop": true
+    }
+  ],
+  "candidate": [
+    {
+      "attempt": 1,
+      "bothSidesObservedSeconds": 24.922,
+      "stableGateSeconds": 27.971,
+      "qualified": true,
+      "remoteAbsentAfterStop": true
+    },
+    {
+      "attempt": 2,
+      "bothSidesObservedSeconds": 24.513,
+      "stableGateSeconds": 27.919,
+      "qualified": true,
+      "remoteAbsentAfterStop": true
+    },
+    {
+      "attempt": 3,
+      "bothSidesObservedSeconds": 24.792,
+      "stableGateSeconds": 28.198,
+      "qualified": true,
+      "remoteAbsentAfterStop": true
+    },
+    {
+      "attempt": 4,
+      "bothSidesObservedSeconds": 1.426,
+      "stableGateSeconds": 4.905,
+      "qualified": true,
+      "remoteAbsentAfterStop": true
+    },
+    {
+      "attempt": 5,
+      "bothSidesObservedSeconds": 1.372,
+      "stableGateSeconds": 4.835,
+      "qualified": true,
+      "remoteAbsentAfterStop": true
+    },
+    {
+      "attempt": 6,
+      "bothSidesObservedSeconds": 24.517,
+      "stableGateSeconds": 27.958,
+      "qualified": true,
+      "remoteAbsentAfterStop": true
+    }
+  ],
+  "appAddedMetadataSpans": {
+    "baseline": [
+      {
+        "attempt": 1,
+        "spans": [
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              },
+              {
+                "rx": true,
+                "msg": 0,
+                "ms": 82
+              },
+              {
+                "rx": false,
+                "msg": 1,
+                "ms": 82
+              },
+              {
+                "rx": true,
+                "msg": 1,
+                "ms": 82
+              },
+              {
+                "rx": false,
+                "msg": 2,
+                "ms": 82
+              },
+              {
+                "rx": true,
+                "msg": 2,
+                "ms": 185
+              },
+              {
+                "rx": false,
+                "msg": 3,
+                "ms": 185
+              },
+              {
+                "rx": true,
+                "msg": 3,
+                "ms": 192
+              },
+              {
+                "rx": false,
+                "msg": 15,
+                "ms": 192
+              },
+              {
+                "rx": true,
+                "msg": 15,
+                "ms": 267
+              },
+              {
+                "rx": false,
+                "msg": 4,
+                "ms": 267
+              },
+              {
+                "rx": true,
+                "msg": 4,
+                "ms": 274
+              },
+              {
+                "rx": false,
+                "msg": 5,
+                "ms": 274
+              },
+              {
+                "rx": true,
+                "msg": 5,
+                "ms": 364
+              }
+            ],
+            "ok": true,
+            "elapsedMs": 364,
+            "quic": {
+              "udp_sent": 41,
+              "udp_received": 37,
+              "stream_sent": 19,
+              "stream_received": 19,
+              "acknowledgments": 12,
+              "lost": 0,
+              "pto": 0,
+              "in_flight": 4101,
+              "retained": 2712
+            }
+          }
+        ]
+      },
+      {
+        "attempt": 2,
+        "spans": [
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              }
+            ]
+          },
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              },
+              {
+                "rx": true,
+                "msg": 0,
+                "ms": 65
+              },
+              {
+                "rx": false,
+                "msg": 1,
+                "ms": 65
+              },
+              {
+                "rx": true,
+                "msg": 1,
+                "ms": 65
+              },
+              {
+                "rx": false,
+                "msg": 2,
+                "ms": 65
+              },
+              {
+                "rx": true,
+                "msg": 2,
+                "ms": 128
+              },
+              {
+                "rx": false,
+                "msg": 3,
+                "ms": 128
+              },
+              {
+                "rx": true,
+                "msg": 3,
+                "ms": 133
+              },
+              {
+                "rx": false,
+                "msg": 15,
+                "ms": 134
+              },
+              {
+                "rx": true,
+                "msg": 15,
+                "ms": 187
+              },
+              {
+                "rx": false,
+                "msg": 4,
+                "ms": 187
+              },
+              {
+                "rx": true,
+                "msg": 4,
+                "ms": 200
+              },
+              {
+                "rx": false,
+                "msg": 5,
+                "ms": 200
+              },
+              {
+                "rx": true,
+                "msg": 5,
+                "ms": 255
+              }
+            ],
+            "ok": true,
+            "elapsedMs": 255,
+            "quic": {
+              "udp_sent": 40,
+              "udp_received": 34,
+              "stream_sent": 18,
+              "stream_received": 16,
+              "acknowledgments": 11,
+              "lost": 0,
+              "pto": 0,
+              "in_flight": 2754,
+              "retained": 2543
+            }
+          }
+        ]
+      },
+      {
+        "attempt": 3,
+        "spans": [
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              },
+              {
+                "rx": true,
+                "msg": 0,
+                "ms": 62
+              },
+              {
+                "rx": false,
+                "msg": 1,
+                "ms": 62
+              },
+              {
+                "rx": true,
+                "msg": 1,
+                "ms": 62
+              },
+              {
+                "rx": false,
+                "msg": 2,
+                "ms": 62
+              },
+              {
+                "rx": true,
+                "msg": 2,
+                "ms": 136
+              },
+              {
+                "rx": false,
+                "msg": 3,
+                "ms": 136
+              },
+              {
+                "rx": true,
+                "msg": 3,
+                "ms": 143
+              },
+              {
+                "rx": false,
+                "msg": 15,
+                "ms": 143
+              }
+            ]
+          },
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              }
+            ],
+            "ok": false,
+            "elapsedMs": 10001,
+            "quic": {
+              "udp_sent": 30,
+              "udp_received": 18,
+              "stream_sent": 3,
+              "stream_received": 0,
+              "acknowledgments": 2,
+              "lost": 0,
+              "pto": 6,
+              "in_flight": 5675,
+              "retained": 2388
+            }
+          },
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              },
+              {
+                "rx": true,
+                "msg": 0,
+                "ms": 137
+              },
+              {
+                "rx": false,
+                "msg": 1,
+                "ms": 137
+              },
+              {
+                "rx": true,
+                "msg": 1,
+                "ms": 139
+              },
+              {
+                "rx": false,
+                "msg": 2,
+                "ms": 139
+              },
+              {
+                "rx": true,
+                "msg": 2,
+                "ms": 262
+              },
+              {
+                "rx": false,
+                "msg": 3,
+                "ms": 262
+              },
+              {
+                "rx": true,
+                "msg": 3,
+                "ms": 274
+              },
+              {
+                "rx": false,
+                "msg": 15,
+                "ms": 274
+              },
+              {
+                "rx": true,
+                "msg": 15,
+                "ms": 382
+              },
+              {
+                "rx": false,
+                "msg": 4,
+                "ms": 382
+              },
+              {
+                "rx": true,
+                "msg": 4,
+                "ms": 395
+              },
+              {
+                "rx": false,
+                "msg": 5,
+                "ms": 395
+              },
+              {
+                "rx": true,
+                "msg": 5,
+                "ms": 509
+              }
+            ],
+            "ok": true,
+            "elapsedMs": 509,
+            "quic": {
+              "udp_sent": 42,
+              "udp_received": 33,
+              "stream_sent": 19,
+              "stream_received": 16,
+              "acknowledgments": 14,
+              "lost": 0,
+              "pto": 0,
+              "in_flight": 4095,
+              "retained": 2696
+            }
+          }
+        ]
+      },
+      {
+        "attempt": 4,
+        "spans": [
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              }
+            ]
+          },
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              }
+            ],
+            "ok": false,
+            "elapsedMs": 10003,
+            "quic": {
+              "udp_sent": 30,
+              "udp_received": 17,
+              "stream_sent": 2,
+              "stream_received": 0,
+              "acknowledgments": 2,
+              "lost": 0,
+              "pto": 6,
+              "in_flight": 5436,
+              "retained": 2187
+            }
+          },
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              },
+              {
+                "rx": true,
+                "msg": 0,
+                "ms": 62
+              },
+              {
+                "rx": false,
+                "msg": 1,
+                "ms": 62
+              },
+              {
+                "rx": true,
+                "msg": 1,
+                "ms": 62
+              },
+              {
+                "rx": false,
+                "msg": 2,
+                "ms": 62
+              },
+              {
+                "rx": true,
+                "msg": 2,
+                "ms": 138
+              },
+              {
+                "rx": false,
+                "msg": 3,
+                "ms": 138
+              },
+              {
+                "rx": true,
+                "msg": 3,
+                "ms": 140
+              },
+              {
+                "rx": false,
+                "msg": 15,
+                "ms": 140
+              },
+              {
+                "rx": true,
+                "msg": 15,
+                "ms": 193
+              },
+              {
+                "rx": false,
+                "msg": 4,
+                "ms": 193
+              },
+              {
+                "rx": true,
+                "msg": 4,
+                "ms": 202
+              },
+              {
+                "rx": false,
+                "msg": 5,
+                "ms": 202
+              },
+              {
+                "rx": true,
+                "msg": 5,
+                "ms": 263
+              }
+            ],
+            "ok": true,
+            "elapsedMs": 264,
+            "quic": {
+              "udp_sent": 42,
+              "udp_received": 38,
+              "stream_sent": 19,
+              "stream_received": 18,
+              "acknowledgments": 13,
+              "lost": 0,
+              "pto": 0,
+              "in_flight": 4471,
+              "retained": 2947
+            }
+          }
+        ]
+      },
+      {
+        "attempt": 5,
+        "spans": [
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              }
+            ]
+          },
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              }
+            ],
+            "ok": false,
+            "elapsedMs": 10002,
+            "quic": {
+              "udp_sent": 21,
+              "udp_received": 11,
+              "stream_sent": 3,
+              "stream_received": 0,
+              "acknowledgments": 1,
+              "lost": 0,
+              "pto": 5,
+              "in_flight": 6313,
+              "retained": 2428
+            }
+          },
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              }
+            ],
+            "ok": false,
+            "elapsedMs": 10000,
+            "quic": {
+              "udp_sent": 25,
+              "udp_received": 13,
+              "stream_sent": 3,
+              "stream_received": 0,
+              "acknowledgments": 2,
+              "lost": 0,
+              "pto": 6,
+              "in_flight": 6858,
+              "retained": 2673
+            }
+          },
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              }
+            ],
+            "ok": false,
+            "elapsedMs": 10001,
+            "quic": {
+              "udp_sent": 30,
+              "udp_received": 15,
+              "stream_sent": 2,
+              "stream_received": 0,
+              "acknowledgments": 1,
+              "lost": 0,
+              "pto": 5,
+              "in_flight": 5127,
+              "retained": 2160
+            }
+          },
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              },
+              {
+                "rx": true,
+                "msg": 0,
+                "ms": 89
+              },
+              {
+                "rx": false,
+                "msg": 1,
+                "ms": 89
+              },
+              {
+                "rx": true,
+                "msg": 1,
+                "ms": 89
+              },
+              {
+                "rx": false,
+                "msg": 2,
+                "ms": 89
+              },
+              {
+                "rx": true,
+                "msg": 2,
+                "ms": 170
+              },
+              {
+                "rx": false,
+                "msg": 3,
+                "ms": 170
+              },
+              {
+                "rx": true,
+                "msg": 3,
+                "ms": 177
+              },
+              {
+                "rx": false,
+                "msg": 15,
+                "ms": 177
+              },
+              {
+                "rx": true,
+                "msg": 15,
+                "ms": 253
+              },
+              {
+                "rx": false,
+                "msg": 4,
+                "ms": 253
+              },
+              {
+                "rx": true,
+                "msg": 4,
+                "ms": 262
+              },
+              {
+                "rx": false,
+                "msg": 5,
+                "ms": 262
+              },
+              {
+                "rx": true,
+                "msg": 5,
+                "ms": 327
+              }
+            ],
+            "ok": true,
+            "elapsedMs": 327,
+            "quic": {
+              "udp_sent": 42,
+              "udp_received": 35,
+              "stream_sent": 20,
+              "stream_received": 16,
+              "acknowledgments": 13,
+              "lost": 0,
+              "pto": 0,
+              "in_flight": 4357,
+              "retained": 2968
+            }
+          }
+        ]
+      },
+      {
+        "attempt": 6,
+        "spans": [
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              },
+              {
+                "rx": true,
+                "msg": 0,
+                "ms": 129
+              },
+              {
+                "rx": false,
+                "msg": 1,
+                "ms": 129
+              },
+              {
+                "rx": true,
+                "msg": 1,
+                "ms": 129
+              },
+              {
+                "rx": false,
+                "msg": 2,
+                "ms": 129
+              },
+              {
+                "rx": true,
+                "msg": 2,
+                "ms": 180
+              },
+              {
+                "rx": false,
+                "msg": 3,
+                "ms": 180
+              },
+              {
+                "rx": true,
+                "msg": 3,
+                "ms": 184
+              },
+              {
+                "rx": false,
+                "msg": 15,
+                "ms": 184
+              }
+            ]
+          },
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              },
+              {
+                "rx": true,
+                "msg": 0,
+                "ms": 57
+              },
+              {
+                "rx": false,
+                "msg": 1,
+                "ms": 57
+              },
+              {
+                "rx": true,
+                "msg": 1,
+                "ms": 57
+              },
+              {
+                "rx": false,
+                "msg": 2,
+                "ms": 57
+              },
+              {
+                "rx": true,
+                "msg": 2,
+                "ms": 110
+              },
+              {
+                "rx": false,
+                "msg": 3,
+                "ms": 110
+              },
+              {
+                "rx": true,
+                "msg": 3,
+                "ms": 117
+              },
+              {
+                "rx": false,
+                "msg": 15,
+                "ms": 117
+              },
+              {
+                "rx": true,
+                "msg": 15,
+                "ms": 168
+              },
+              {
+                "rx": false,
+                "msg": 4,
+                "ms": 168
+              },
+              {
+                "rx": true,
+                "msg": 4,
+                "ms": 175
+              },
+              {
+                "rx": false,
+                "msg": 5,
+                "ms": 175
+              },
+              {
+                "rx": true,
+                "msg": 5,
+                "ms": 226
+              }
+            ],
+            "ok": true,
+            "elapsedMs": 226,
+            "quic": {
+              "udp_sent": 40,
+              "udp_received": 34,
+              "stream_sent": 18,
+              "stream_received": 16,
+              "acknowledgments": 12,
+              "lost": 0,
+              "pto": 0,
+              "in_flight": 4324,
+              "retained": 2935
+            }
+          }
+        ]
+      }
+    ],
+    "candidate": [
+      {
+        "attempt": 1,
+        "spans": [
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              }
+            ],
+            "ok": false,
+            "elapsedMs": 10001,
+            "quic": {
+              "udp_sent": 32,
+              "udp_received": 18,
+              "stream_sent": 3,
+              "stream_received": 0,
+              "acknowledgments": 2,
+              "lost": 0,
+              "pto": 5,
+              "in_flight": 5850,
+              "retained": 2864
+            }
+          },
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              }
+            ],
+            "ok": false,
+            "elapsedMs": 9792,
+            "quic": {
+              "udp_sent": 29,
+              "udp_received": 15,
+              "stream_sent": 3,
+              "stream_received": 0,
+              "acknowledgments": 2,
+              "lost": 0,
+              "pto": 6,
+              "in_flight": 5923,
+              "retained": 3048
+            }
+          },
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              },
+              {
+                "rx": true,
+                "msg": 0,
+                "ms": 61
+              },
+              {
+                "rx": false,
+                "msg": 1,
+                "ms": 61
+              },
+              {
+                "rx": true,
+                "msg": 1,
+                "ms": 61
+              },
+              {
+                "rx": false,
+                "msg": 2,
+                "ms": 61
+              },
+              {
+                "rx": true,
+                "msg": 2,
+                "ms": 120
+              },
+              {
+                "rx": false,
+                "msg": 3,
+                "ms": 120
+              },
+              {
+                "rx": true,
+                "msg": 3,
+                "ms": 130
+              },
+              {
+                "rx": false,
+                "msg": 15,
+                "ms": 131
+              },
+              {
+                "rx": true,
+                "msg": 15,
+                "ms": 176
+              },
+              {
+                "rx": false,
+                "msg": 4,
+                "ms": 177
+              },
+              {
+                "rx": true,
+                "msg": 4,
+                "ms": 190
+              },
+              {
+                "rx": false,
+                "msg": 5,
+                "ms": 190
+              },
+              {
+                "rx": true,
+                "msg": 5,
+                "ms": 231
+              }
+            ],
+            "ok": true,
+            "elapsedMs": 231,
+            "quic": {
+              "udp_sent": 41,
+              "udp_received": 36,
+              "stream_sent": 19,
+              "stream_received": 18,
+              "acknowledgments": 12,
+              "lost": 0,
+              "pto": 0,
+              "in_flight": 4370,
+              "retained": 2975
+            }
+          }
+        ]
+      },
+      {
+        "attempt": 2,
+        "spans": [
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              }
+            ],
+            "ok": false,
+            "elapsedMs": 10003,
+            "quic": {
+              "udp_sent": 21,
+              "udp_received": 9,
+              "stream_sent": 3,
+              "stream_received": 0,
+              "acknowledgments": 2,
+              "lost": 0,
+              "pto": 6,
+              "in_flight": 7058,
+              "retained": 2873
+            }
+          },
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              }
+            ],
+            "ok": false,
+            "elapsedMs": 10004,
+            "quic": {
+              "udp_sent": 33,
+              "udp_received": 18,
+              "stream_sent": 3,
+              "stream_received": 0,
+              "acknowledgments": 2,
+              "lost": 0,
+              "pto": 5,
+              "in_flight": 5668,
+              "retained": 2682
+            }
+          },
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              },
+              {
+                "rx": true,
+                "msg": 0,
+                "ms": 68
+              },
+              {
+                "rx": false,
+                "msg": 1,
+                "ms": 68
+              },
+              {
+                "rx": true,
+                "msg": 1,
+                "ms": 68
+              },
+              {
+                "rx": false,
+                "msg": 2,
+                "ms": 68
+              },
+              {
+                "rx": true,
+                "msg": 2,
+                "ms": 121
+              },
+              {
+                "rx": false,
+                "msg": 3,
+                "ms": 121
+              },
+              {
+                "rx": true,
+                "msg": 3,
+                "ms": 125
+              },
+              {
+                "rx": false,
+                "msg": 15,
+                "ms": 125
+              },
+              {
+                "rx": true,
+                "msg": 15,
+                "ms": 183
+              },
+              {
+                "rx": false,
+                "msg": 4,
+                "ms": 183
+              },
+              {
+                "rx": true,
+                "msg": 4,
+                "ms": 186
+              },
+              {
+                "rx": false,
+                "msg": 5,
+                "ms": 186
+              },
+              {
+                "rx": true,
+                "msg": 5,
+                "ms": 234
+              }
+            ],
+            "ok": true,
+            "elapsedMs": 234,
+            "quic": {
+              "udp_sent": 40,
+              "udp_received": 35,
+              "stream_sent": 18,
+              "stream_received": 17,
+              "acknowledgments": 13,
+              "lost": 0,
+              "pto": 0,
+              "in_flight": 2401,
+              "retained": 2220
+            }
+          }
+        ]
+      },
+      {
+        "attempt": 3,
+        "spans": [
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              }
+            ],
+            "ok": false,
+            "elapsedMs": 10002,
+            "quic": {
+              "udp_sent": 30,
+              "udp_received": 18,
+              "stream_sent": 3,
+              "stream_received": 0,
+              "acknowledgments": 2,
+              "lost": 0,
+              "pto": 6,
+              "in_flight": 6315,
+              "retained": 3034
+            }
+          },
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              }
+            ],
+            "ok": false,
+            "elapsedMs": 10002,
+            "quic": {
+              "udp_sent": 30,
+              "udp_received": 16,
+              "stream_sent": 3,
+              "stream_received": 0,
+              "acknowledgments": 2,
+              "lost": 0,
+              "pto": 5,
+              "in_flight": 5369,
+              "retained": 2384
+            }
+          },
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              },
+              {
+                "rx": true,
+                "msg": 0,
+                "ms": 70
+              },
+              {
+                "rx": false,
+                "msg": 1,
+                "ms": 71
+              },
+              {
+                "rx": true,
+                "msg": 1,
+                "ms": 73
+              },
+              {
+                "rx": false,
+                "msg": 2,
+                "ms": 73
+              },
+              {
+                "rx": true,
+                "msg": 2,
+                "ms": 140
+              },
+              {
+                "rx": false,
+                "msg": 3,
+                "ms": 140
+              },
+              {
+                "rx": true,
+                "msg": 3,
+                "ms": 153
+              },
+              {
+                "rx": false,
+                "msg": 15,
+                "ms": 153
+              },
+              {
+                "rx": true,
+                "msg": 15,
+                "ms": 223
+              },
+              {
+                "rx": false,
+                "msg": 4,
+                "ms": 223
+              },
+              {
+                "rx": true,
+                "msg": 4,
+                "ms": 230
+              },
+              {
+                "rx": false,
+                "msg": 5,
+                "ms": 230
+              },
+              {
+                "rx": true,
+                "msg": 5,
+                "ms": 290
+              }
+            ],
+            "ok": true,
+            "elapsedMs": 290,
+            "quic": {
+              "udp_sent": 40,
+              "udp_received": 34,
+              "stream_sent": 19,
+              "stream_received": 16,
+              "acknowledgments": 12,
+              "lost": 0,
+              "pto": 0,
+              "in_flight": 4485,
+              "retained": 2961
+            }
+          }
+        ]
+      },
+      {
+        "attempt": 4,
+        "spans": [
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              },
+              {
+                "rx": true,
+                "msg": 0,
+                "ms": 63
+              },
+              {
+                "rx": false,
+                "msg": 1,
+                "ms": 63
+              },
+              {
+                "rx": true,
+                "msg": 1,
+                "ms": 63
+              },
+              {
+                "rx": false,
+                "msg": 2,
+                "ms": 63
+              },
+              {
+                "rx": true,
+                "msg": 2,
+                "ms": 132
+              },
+              {
+                "rx": false,
+                "msg": 3,
+                "ms": 132
+              },
+              {
+                "rx": true,
+                "msg": 3,
+                "ms": 139
+              },
+              {
+                "rx": false,
+                "msg": 15,
+                "ms": 139
+              },
+              {
+                "rx": true,
+                "msg": 15,
+                "ms": 184
+              },
+              {
+                "rx": false,
+                "msg": 4,
+                "ms": 184
+              },
+              {
+                "rx": true,
+                "msg": 4,
+                "ms": 202
+              },
+              {
+                "rx": false,
+                "msg": 5,
+                "ms": 202
+              },
+              {
+                "rx": true,
+                "msg": 5,
+                "ms": 236
+              }
+            ],
+            "ok": true,
+            "elapsedMs": 236,
+            "quic": {
+              "udp_sent": 42,
+              "udp_received": 35,
+              "stream_sent": 20,
+              "stream_received": 17,
+              "acknowledgments": 13,
+              "lost": 0,
+              "pto": 0,
+              "in_flight": 4180,
+              "retained": 2789
+            }
+          }
+        ]
+      },
+      {
+        "attempt": 5,
+        "spans": [
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              },
+              {
+                "rx": true,
+                "msg": 0,
+                "ms": 81
+              },
+              {
+                "rx": false,
+                "msg": 1,
+                "ms": 81
+              },
+              {
+                "rx": true,
+                "msg": 1,
+                "ms": 83
+              },
+              {
+                "rx": false,
+                "msg": 2,
+                "ms": 83
+              },
+              {
+                "rx": true,
+                "msg": 2,
+                "ms": 166
+              },
+              {
+                "rx": false,
+                "msg": 3,
+                "ms": 166
+              },
+              {
+                "rx": true,
+                "msg": 3,
+                "ms": 178
+              },
+              {
+                "rx": false,
+                "msg": 15,
+                "ms": 178
+              },
+              {
+                "rx": true,
+                "msg": 15,
+                "ms": 254
+              },
+              {
+                "rx": false,
+                "msg": 4,
+                "ms": 254
+              },
+              {
+                "rx": true,
+                "msg": 4,
+                "ms": 279
+              },
+              {
+                "rx": false,
+                "msg": 5,
+                "ms": 279
+              },
+              {
+                "rx": true,
+                "msg": 5,
+                "ms": 334
+              }
+            ],
+            "ok": true,
+            "elapsedMs": 334,
+            "quic": {
+              "udp_sent": 42,
+              "udp_received": 35,
+              "stream_sent": 19,
+              "stream_received": 17,
+              "acknowledgments": 13,
+              "lost": 0,
+              "pto": 0,
+              "in_flight": 4543,
+              "retained": 3027
+            }
+          }
+        ]
+      },
+      {
+        "attempt": 6,
+        "spans": [
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              }
+            ],
+            "ok": false,
+            "elapsedMs": 10002,
+            "quic": {
+              "udp_sent": 22,
+              "udp_received": 13,
+              "stream_sent": 2,
+              "stream_received": 0,
+              "acknowledgments": 2,
+              "lost": 0,
+              "pto": 6,
+              "in_flight": 6350,
+              "retained": 2206
+            }
+          },
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              }
+            ],
+            "ok": false,
+            "elapsedMs": 10002,
+            "quic": {
+              "udp_sent": 22,
+              "udp_received": 12,
+              "stream_sent": 2,
+              "stream_received": 0,
+              "acknowledgments": 1,
+              "lost": 0,
+              "pto": 5,
+              "in_flight": 5983,
+              "retained": 2117
+            }
+          },
+          {
+            "frames": [
+              {
+                "rx": false,
+                "msg": 0,
+                "ms": 0
+              },
+              {
+                "rx": true,
+                "msg": 0,
+                "ms": 70
+              },
+              {
+                "rx": false,
+                "msg": 1,
+                "ms": 70
+              },
+              {
+                "rx": true,
+                "msg": 1,
+                "ms": 70
+              },
+              {
+                "rx": false,
+                "msg": 2,
+                "ms": 70
+              },
+              {
+                "rx": true,
+                "msg": 2,
+                "ms": 134
+              },
+              {
+                "rx": false,
+                "msg": 3,
+                "ms": 135
+              },
+              {
+                "rx": true,
+                "msg": 3,
+                "ms": 136
+              },
+              {
+                "rx": false,
+                "msg": 15,
+                "ms": 137
+              },
+              {
+                "rx": true,
+                "msg": 15,
+                "ms": 185
+              },
+              {
+                "rx": false,
+                "msg": 4,
+                "ms": 185
+              },
+              {
+                "rx": true,
+                "msg": 4,
+                "ms": 188
+              },
+              {
+                "rx": false,
+                "msg": 5,
+                "ms": 188
+              },
+              {
+                "rx": true,
+                "msg": 5,
+                "ms": 247
+              }
+            ],
+            "ok": true,
+            "elapsedMs": 247,
+            "quic": {
+              "udp_sent": 41,
+              "udp_received": 34,
+              "stream_sent": 20,
+              "stream_received": 16,
+              "acknowledgments": 13,
+              "lost": 0,
+              "pto": 0,
+              "in_flight": 4119,
+              "retained": 2730
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "teardown": {
+    "qualifiedMacBoots": 12,
+    "observerInterruptedExcluded": 1,
+    "ownedMacProcessesExited": 13,
+    "testServicesStopped": 6,
+    "productionPreserved": 6,
+    "testPortsReleased": 6,
+    "testBinariesRestoredPerPhase": 2,
+    "traceUnitDefinitionsRestoredPerPhase": 2,
+    "ownSshMasterExited": true,
+    "phoneChanged": false,
+    "windowsChanged": false,
+    "p2pPolicyChanged": false
+  },
+  "overallLatencyResolved": false,
+  "causalSpeedImprovementProven": false,
+  "pushed": false,
+  "released": false
+}
