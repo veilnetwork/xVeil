@@ -10,17 +10,81 @@ class _PrivateValue {
 }
 
 void main() {
+  test('call phases survive busy media events until the report is copied', () {
+    final journal = DiagnosticJournal(enabled: true, capacity: 2);
+    for (final phase in [1, 2, 3]) {
+      journal.record(
+        DiagnosticEvent.callState,
+        values: {DiagnosticMetric.state: phase, DiagnosticMetric.direction: 0},
+      );
+    }
+    for (var i = 0; i < 50; i++) {
+      journal.record(DiagnosticEvent.transportSent);
+    }
+    final report = journal.toJson();
+    final evidence = [
+      ...report['events'] as List,
+      ...?report['call_state_history'] as List?,
+    ];
+    final phases = evidence
+        .where((row) => (row as Map)['event'] == 'callState')
+        .map((row) => ((row as Map)['values'] as Map)['state']);
+    expect(
+      phases,
+      [1, 2, 3],
+      reason:
+          'a later Settings export must distinguish waiting for an answer from active media',
+    );
+  });
+
+  test('retained call state history is bounded and exported as copies', () {
+    final journal = DiagnosticJournal(enabled: true, capacity: 1);
+    for (var i = 0; i < 50; i++) {
+      journal.record(
+        DiagnosticEvent.callState,
+        values: {DiagnosticMetric.state: i % 4},
+      );
+    }
+    final history = journal.toJson()['call_state_history'] as List;
+    expect(history, hasLength(12));
+    expect(history.map((e) => ((e as Map)['values'] as Map)['state']), [
+      for (var i = 38; i < 50; i++) i % 4,
+    ]);
+    ((history.first as Map)['values'] as Map)['state'] = 999;
+    history.clear();
+    final again = journal.toJson()['call_state_history'] as List;
+    expect(again, hasLength(12));
+    expect(((again.first as Map)['values'] as Map)['state'], 2);
+    expect(journal.toJson()['events'] as List, hasLength(1));
+  });
+
+  test('clearing or disabling diagnostics leaves no retained call history', () {
+    final disabled = DiagnosticJournal(enabled: false);
+    disabled.record(DiagnosticEvent.callState);
+    expect(disabled.toJson().containsKey('call_state_history'), isFalse);
+    final journal = DiagnosticJournal(enabled: true);
+    journal.record(DiagnosticEvent.callState);
+    journal.clear();
+    expect(journal.toJson().containsKey('call_state_history'), isFalse);
+    expect(journal.toJson()['counts'], isEmpty);
+  });
+
   test('handover evidence retains only coarse state and outcome', () {
     final journal = DiagnosticJournal(enabled: true, capacity: 1);
-    journal.record(DiagnosticEvent.networkChange, values: {
-      DiagnosticMetric.state: 2,
-      DiagnosticMetric.success: 1,
-      DiagnosticMetric.durationMs: 7,
-    });
+    journal.record(
+      DiagnosticEvent.networkChange,
+      values: {
+        DiagnosticMetric.state: 2,
+        DiagnosticMetric.success: 1,
+        DiagnosticMetric.durationMs: 7,
+      },
+    );
     journal.record(DiagnosticEvent.transportSent);
     final evidence = journal.toJson()['last_evidence'] as Map;
     expect((evidence['networkChange'] as Map)['values'], {
-      'state': 2, 'success': 1, 'durationMs': 7,
+      'state': 2,
+      'success': 1,
+      'durationMs': 7,
     });
   });
 
