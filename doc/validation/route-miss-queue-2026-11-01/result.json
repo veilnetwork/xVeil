@@ -1,0 +1,99 @@
+{
+  "schema": "xveil-route-miss-queue/1",
+  "date": "2026-11-01",
+  "sdkCommit": "4f9c85f2",
+  "confirmedFixedMechanisms": [
+    "serial_route_miss_head_of_line",
+    "ready_route_waiter_registration",
+    "unrelated_route_notification_budget"
+  ],
+  "concurrentLookupCap": 4,
+  "integrationTests": {
+    "routing": 124,
+    "dispatcher": 299,
+    "runtime": 785,
+    "ipc": 200,
+    "ignored": 16
+  },
+  "calls": [
+    {
+      "mode": "relay",
+      "incomingSeconds": 1.366,
+      "strictFreshRxQualified": false,
+      "endpoints": {
+        "mac": {
+          "samples": 17,
+          "staleRxSamples": 3,
+          "maxRxAgeMs": 3443,
+          "allSameActiveCallAndTransport": true
+        },
+        "phone": {
+          "samples": 17,
+          "staleRxSamples": 0,
+          "maxRxAgeMs": 59,
+          "allSameActiveCallAndTransport": true
+        }
+      },
+      "phase": "after_seed_attachment"
+    },
+    {
+      "mode": "relay",
+      "incomingSeconds": 1.446,
+      "strictFreshRxQualified": true,
+      "endpoints": {
+        "mac": {
+          "samples": 14,
+          "staleRxSamples": 0,
+          "maxRxAgeMs": 333,
+          "allSameActiveCallAndTransport": true
+        },
+        "phone": {
+          "samples": 14,
+          "staleRxSamples": 0,
+          "maxRxAgeMs": 32,
+          "allSameActiveCallAndTransport": true
+        }
+      },
+      "phase": "after_seed_attachment"
+    },
+    {
+      "mode": "relay",
+      "incomingSeconds": 1.42,
+      "strictFreshRxQualified": true,
+      "endpoints": {
+        "mac": {
+          "samples": 16,
+          "staleRxSamples": 0,
+          "maxRxAgeMs": 307,
+          "allSameActiveCallAndTransport": true
+        },
+        "phone": {
+          "samples": 16,
+          "staleRxSamples": 0,
+          "maxRxAgeMs": 49,
+          "allSameActiveCallAndTransport": true
+        }
+      },
+      "phase": "after_seed_attachment"
+    }
+  ],
+  "messagesOnWarmSessions": [
+    {
+      "direction": "mac->phone",
+      "observedOnceWithMatchingId": true,
+      "observedSeconds": 1.135
+    },
+    {
+      "direction": "phone->mac",
+      "observedOnceWithMatchingId": true,
+      "observedSeconds": 1.163
+    }
+  ],
+  "thirdBootSeedSessionOpenedSeconds": 58.69,
+  "thirdInitialCallGate45SecondsPassed": false,
+  "allObservedDelaysExplained": false,
+  "humanSpeechAudibilityQualified": false,
+  "oldVersionsQualified": false,
+  "productionChanged": false,
+  "pushOrRelease": false
+}
