@@ -59,15 +59,18 @@ Future<List<String>> _ids(
 
 void main() {
   final gate = E2eGate.read();
+  final migrationOnly = Platform.environment['XVEIL_E2E_MIGRATION_ONLY'] == '1';
   test(
-    'isolated A/B/C: 100 offline mirrors after five minutes with aged history',
+    migrationOnly
+        ? 'isolated A/B/C: initial history migration only'
+        : 'isolated A/B/C: 100 offline mirrors after five minutes with aged history',
     () async {
       _observedInvalidSnapshot = false;
       _statuses.clear();
       final baseRows = int.parse(
         Platform.environment['XVEIL_E2E_BACKLOG_BASE_ROWS'] ?? '2000',
       );
-      expect(baseRows, inInclusiveRange(0, 3000));
+      expect(baseRows, inInclusiveRange(migrationOnly ? 1 : 0, 3000));
       final f = await ProcessFleet.start(gate);
       addTearDown(f.dispose);
       final a = f.a, b = f.b, c = f.c;
@@ -153,6 +156,31 @@ void main() {
       E2eLog.line(
         'BACKLOG_BASE_READY=$baseRows elapsedMs=${seed.elapsedMilliseconds}',
       );
+
+      if (migrationOnly) {
+        expect(await _ids(c, ai, 'backlog-base-'), expectedBase);
+        expect(_observedInvalidSnapshot, isFalse);
+        final evidence = Platform.environment['XVEIL_E2E_EVIDENCE_DIR'];
+        if (evidence != null) {
+          await Directory(evidence).create(recursive: true);
+          await File('$evidence/migration-summary.json').writeAsString(
+            jsonEncode({
+              'migrationOnly': true,
+              'baseRows': baseRows,
+              'initialHistoryMs': initialHistory.elapsedMilliseconds,
+              'initialBStatuses': initialBStatuses,
+              'completedHistoryRetries': completedHistoryRetries,
+              'convergedIdsAndOrder': true,
+              'invalidSnapshotObserved': _observedInvalidSnapshot,
+              'offlineScenarioExecuted': false,
+            }),
+          );
+        }
+        E2eLog.line(
+          'MIGRATION_ONLY rows=$baseRows elapsedMs=${initialHistory.elapsedMilliseconds}',
+        );
+        return;
+      }
 
       await b.stop();
       final offline = Stopwatch()..start();

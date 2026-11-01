@@ -154,18 +154,13 @@ class _MessagingMutations {
   final Set<String> _completedDeletes = {};
 
   Future<bool> hasMessage(NodeId peer, String id) async {
-    final messages = await _owner._storage.loadMessages(peer.hex);
-    return messages.any((message) => message.id == id);
+    return await _findInConversation(peer.hex, id) != null;
   }
 
   /// True only when [id] is a message the authenticated [peer] sent us.
   Future<bool> isIncomingFrom(NodeId peer, String id) async {
-    for (final message in await _owner._storage.loadMessages(peer.hex)) {
-      if (message.id == id) {
-        return message.direction == MessageDirection.incoming;
-      }
-    }
-    return false;
+    final message = await _findInConversation(peer.hex, id);
+    return message?.direction == MessageDirection.incoming;
   }
 
   String _key(NodeId peer, String id, bool incomingOnly) =>
@@ -510,13 +505,10 @@ class _MessagingMutations {
     return null;
   }
 
+  // A per-ID check must not project and sort the whole history for every
+  // mirror or mutation. Storage applies the same live-row/status overlays.
   Future<Message?> _findInConversation(
     String conversationId,
     String messageId,
-  ) async {
-    for (final message in await _owner._storage.loadMessages(conversationId)) {
-      if (message.id == messageId) return message;
-    }
-    return null;
-  }
+  ) => _owner._storage.loadMessageById(conversationId, messageId);
 }
