@@ -1,0 +1,113 @@
+{
+  "schema": "xveil-session-close-validation/1",
+  "outcome": {
+    "outboxEofWaitFixed": true,
+    "networkHandoverAudioPauseStillOpen": true,
+    "originalSingleConnectedNodeCaseQualified": false,
+    "audibleSpeechQualified": false
+  },
+  "tests": {
+    "red": {
+      "passed": 1,
+      "failed": 2
+    },
+    "session": {
+      "passed": 674,
+      "ignored": 8
+    },
+    "sessionIntegration": {
+      "passed": 119,
+      "ignored": 1
+    },
+    "ffi": {
+      "passed": 334,
+      "ignored": 2
+    },
+    "preciseOutboxRegression": {
+      "passed": 3
+    }
+  },
+  "beforeFixReceiverCapture": {
+    "selectedControls": [
+      {
+        "attemptOrdinal": 7,
+        "controlSequence": 4,
+        "localRelayQueueAdmissions": 1,
+        "transportQueueAcceptances": 1,
+        "matchingRelayRecordsObserved": 0
+      },
+      {
+        "attemptOrdinal": 11,
+        "controlSequence": 4,
+        "localRelayQueueAdmissions": 1,
+        "transportQueueAcceptances": 1,
+        "matchingRelayRecordsObserved": 0
+      },
+      {
+        "attemptOrdinal": 12,
+        "controlSequence": 1,
+        "localRelayQueueAdmissions": 2,
+        "transportQueueAcceptances": 2,
+        "matchingRelayRecordsObserved": 3
+      }
+    ],
+    "selectedReceiverRejectCounters": {
+      "decodeRejected": 0,
+      "ineligible": 0,
+      "violations": 0,
+      "rateLimited": 0,
+      "unexpected": 0
+    },
+    "receiverCounterScope": "selected peer rows; not complete packet accounting"
+  },
+  "fixedActiveHandover": {
+    "schema": "xveil-handover-observation/1",
+    "requiredObservationSeconds": 40,
+    "endpoints": {
+      "phone": {
+        "preconditionVerified": true,
+        "samplesAfterCut": 40,
+        "observationSeconds": 41.784,
+        "coverageVerified": true,
+        "missingOrNonActiveSamples": 0,
+        "firstCallLostAfterCutMs": null,
+        "callSurvivalVerified": true,
+        "freshAudioAtEnd": true,
+        "allSampledAudioFresh": false,
+        "maxSampledAudioPayloadAgeWithinEpochMs": 14265,
+        "continuousAudioGapUpperBoundMs": null
+      },
+      "windows": {
+        "preconditionVerified": true,
+        "samplesAfterCut": 40,
+        "observationSeconds": 41.793,
+        "coverageVerified": true,
+        "missingOrNonActiveSamples": 0,
+        "firstCallLostAfterCutMs": null,
+        "callSurvivalVerified": true,
+        "freshAudioAtEnd": true,
+        "allSampledAudioFresh": false,
+        "maxSampledAudioPayloadAgeWithinEpochMs": 14338,
+        "continuousAudioGapUpperBoundMs": null
+      }
+    },
+    "callSurvivalVerified": true,
+    "qualityObservationQualified": false
+  },
+  "fixedImmediateAfterCut": {
+    "incomingAfterPlaceSeconds": 1.107,
+    "incomingAfterWifiDisableSeconds": 1.203,
+    "qualificationAfterWifiDisableSeconds": 10.393,
+    "bothEndpointsFreshAudioForFiveConsecutiveSamples": true
+  },
+  "teardown": {
+    "relaysRestoredAndHealthy": 6,
+    "baselineQaApkRestored": true,
+    "phoneSettingsRestored": true,
+    "mainPhoneProcessUnchanged": true,
+    "qaAppsTasksForwardsAndTunnelAbsent": true,
+    "macStandStarted": false,
+    "pushed": false,
+    "released": false
+  }
+}
