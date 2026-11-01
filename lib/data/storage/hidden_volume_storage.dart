@@ -72,6 +72,13 @@ class _MessageLogEntry {
   final Uint8List payload;
 }
 
+class _PendingOutboxAcks {
+  _PendingOutboxAcks(this.peer);
+  final String peer;
+  final ids = <String>{};
+  late final Future<void> result;
+}
+
 /// Opener for [HiddenVolumeStorage.fromStore], where the store is already open
 /// and [HiddenVolumeStorage.open] is never called.
 Future<AsyncKvLogStore?> _noOpener({
@@ -4816,8 +4823,12 @@ class HiddenVolumeStorage
   _outboxById = {};
   bool _outboxLoaded = false;
   Future<void> _outboxGate = Future<void>.value();
+  _PendingOutboxAcks? _pendingOutboxAcks;
 
   Future<T> _outboxSerialized<T>(Future<T> Function() body) {
+    // An intervening enqueue/read/maintenance call is an ordering barrier.
+    // In particular an ACK before re-enqueue must not absorb an ACK after it.
+    _pendingOutboxAcks = null;
     final result = _outboxGate.then((_) => body());
     _outboxGate = result.then((_) {}, onError: (_) {});
     return result;
@@ -5148,42 +5159,36 @@ class HiddenVolumeStorage
   /// contact who knew the id — `reconnect:`/`accept:` ids are derived from the
   /// peer, and `gcr:` ids are shared across holders — ACK a frame addressed to
   /// someone else and stop its delivery (audit XV-02).
-  Future<void> ackOutboxFrame(
-    String frameId, {
-    required String fromPeerHex,
-  }) => _outboxSerialized(() async {
-    if (!await _ensureOutboxLoadedCritical()) return;
-    final item = _outboxById[frameId];
-    if (item == null) return;
-    if (item.frame.peerHex != fromPeerHex) {
-      devLog(
-        () =>
-            'xVeil[durable]: ignoring ack for fid=$frameId from '
-            '${fromPeerHex.substring(0, fromPeerHex.length.clamp(0, 8))} — '
-            'frame is addressed elsewhere',
-      );
-      return;
+  Future<void> ackOutboxFrame(String frameId, {required String fromPeerHex}) {
+    final pending = _pendingOutboxAcks;
+    if (pending != null &&
+        pending.peer == fromPeerHex &&
+        pending.ids.length < 64) {
+      pending.ids.add(frameId);
+      return pending.result;
     }
-    await _as.commit([
-      for (final logId in item.logIds) DeleteLogOp(Ns.outbox, logId),
-      DeleteOp(Ns.outboxIndex, _outboxIndexKey(frameId)),
-    ]);
-    _outboxById.remove(frameId);
-    if (_outboxById.isEmpty) {
-      // Also drops pre-index ack/enqueue debris. Logical retirement was already
-      // atomic above, so failed wholesale cleanup cannot resurrect the frame.
-      try {
-        await _as.eraseNamespace(Ns.outbox);
-        await _as.eraseNamespace(Ns.outboxIndex);
-      } catch (_) {}
-    }
-  });
+    final batch = _PendingOutboxAcks(fromPeerHex)..ids.add(frameId);
+    batch.result = _outboxSerialized(() async {
+      // Seal before the first await: arrivals during commit need another turn.
+      if (identical(_pendingOutboxAcks, batch)) _pendingOutboxAcks = null;
+      await _ackOutboxFramesCritical(batch.ids, fromPeerHex: batch.peer);
+    });
+    _pendingOutboxAcks = batch;
+    return batch.result;
+  }
 
   @override
   Future<List<String>> ackOutboxFrames(
     Iterable<String> frameIds, {
     required String fromPeerHex,
-  }) => _outboxSerialized(() async {
+  }) => _outboxSerialized(
+    () => _ackOutboxFramesCritical(frameIds, fromPeerHex: fromPeerHex),
+  );
+
+  Future<List<String>> _ackOutboxFramesCritical(
+    Iterable<String> frameIds, {
+    required String fromPeerHex,
+  }) async {
     if (!await _ensureOutboxLoadedCritical()) {
       throw StateError('durable outbox could not be loaded');
     }
@@ -5222,7 +5227,7 @@ class HiddenVolumeStorage
       }
     } catch (_) {}
     return ids;
-  });
+  }
 
   @override
   Future<List<OutboxFrame>> pendingOutboxFrames() =>
