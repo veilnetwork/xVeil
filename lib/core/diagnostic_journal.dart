@@ -127,6 +127,7 @@ enum DiagnosticMetric {
   audioAecEnabled,
   audioNsEnabled,
   audioAgcEnabled,
+  audioTargetDelayMs,
 }
 
 /// Bounded process-local evidence. Monotonic offsets, never wall-clock time,
@@ -332,6 +333,8 @@ class DiagnosticJournal {
 
   static const _audioDiscreteFields = {
     ..._audioStartFields,
+    // Receiver reserve, not network RTT or a user-selected send interval.
+    'audio_jb_target_ms': (DiagnosticMetric.audioTargetDelayMs, -1, 60000),
     'audio_input_level_band': (DiagnosticMetric.audioInputLevelBand, -1, 5),
     'audio_output_level_band': (DiagnosticMetric.audioOutputLevelBand, -1, 5),
     'speaker_muted': (DiagnosticMetric.speakerMuted, 0, 1),
