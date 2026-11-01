@@ -65,6 +65,34 @@ Map<String, dynamic> _sourceStats(List<NodeId> peers, {int delay = 100}) => {
 };
 
 void main() {
+  test('group capture waits for stored processing choice', () async {
+    final self = _id(1), peer = _id(2);
+    final ready = Completer<void>();
+    final transport = _StartingGroupTransport(self);
+    final engine = _FakeEngine();
+    var creates = 0;
+    final controller = VeilGroupCallMediaController(transport,
+      roomMediaSecret: _room(),
+      audioProcessingReady: ready.future,
+      engineFactory: (_) { creates++; return engine; },
+      requestMicrophone: () async => true,
+      networkActivity: CallNetworkActivity(setActive: (_) async => true),
+    );
+    final start = controller.start(_call(self, [peer]));
+    try {
+      await transport.starting.future;
+      await Future<void>.delayed(Duration.zero);
+      expect(creates, 0);
+      controller.setNoiseSuppression(false);
+      ready.complete();
+      expect(await start, isTrue);
+      expect(engine.noiseSuppression, [false]);
+    } finally {
+      if (!ready.isCompleted) ready.complete();
+      await start;
+      await controller.stop();
+    }
+  });
   test(
     'group noise choice survives live changes and replacement without accepting a refusal',
     () async {
@@ -2743,6 +2771,16 @@ class _LinkedSdkTransport implements VeilFlutterTransport {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _StartingGroupTransport extends _FakeTransport {
+  _StartingGroupTransport(super.self);
+  final starting = Completer<void>();
+  @override
+  Future<Uint8List> localNodeId() async {
+    starting.complete();
+    return self.bytes;
+  }
 }
 
 class _FakeTransport implements GroupMediaChannelTransport {

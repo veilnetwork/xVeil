@@ -124,6 +124,9 @@ enum DiagnosticMetric {
   outputIsDefault,
   outputIsCommunicationsDefault,
   outputDefaultsSame,
+  audioAecEnabled,
+  audioNsEnabled,
+  audioAgcEnabled,
 }
 
 /// Bounded process-local evidence. Monotonic offsets, never wall-clock time,
@@ -309,9 +312,12 @@ class DiagnosticJournal {
     'appVolumePercent': (DiagnosticMetric.appOutputVolumePercent, 100),
   };
 
-  static const _audioDiscreteFields = {
-    'audio_input_level_band': (DiagnosticMetric.audioInputLevelBand, -1, 5),
-    'audio_output_level_band': (DiagnosticMetric.audioOutputLevelBand, -1, 5),
+  // Read actual native configuration; absent fields in older libraries remain
+  // absent. A stored intent is not evidence that processing was enabled.
+  static const _audioStartFields = {
+    'audio_aec_enabled': (DiagnosticMetric.audioAecEnabled, -1, 1),
+    'audio_ns_enabled': (DiagnosticMetric.audioNsEnabled, -1, 1),
+    'audio_agc_enabled': (DiagnosticMetric.audioAgcEnabled, -1, 1),
     'audio_capture_start_result': (
       DiagnosticMetric.audioCaptureStartResult,
       -1,
@@ -322,6 +328,12 @@ class DiagnosticJournal {
       -1,
       1,
     ),
+  };
+
+  static const _audioDiscreteFields = {
+    ..._audioStartFields,
+    'audio_input_level_band': (DiagnosticMetric.audioInputLevelBand, -1, 5),
+    'audio_output_level_band': (DiagnosticMetric.audioOutputLevelBand, -1, 5),
     'speaker_muted': (DiagnosticMetric.speakerMuted, 0, 1),
   };
 
@@ -335,14 +347,10 @@ class DiagnosticJournal {
       DiagnosticEvent.audioStart,
       values: {
         DiagnosticMetric.success: success ? 1 : 0,
-        for (final entry in const {
-          'audio_capture_start_result':
-              DiagnosticMetric.audioCaptureStartResult,
-          'audio_playout_start_result':
-              DiagnosticMetric.audioPlayoutStartResult,
-        }.entries)
+        for (final entry in _audioStartFields.entries)
           if (stats[entry.key] case final int value)
-            if (value >= -1 && value <= 1) entry.value: value,
+            if (value >= entry.value.$2 && value <= entry.value.$3)
+              entry.value.$1: value,
       },
     );
   }

@@ -28,6 +28,7 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 '  diagnosticJournal.recordMediaPermission(video: false, granted: true);\n'
                 '  diagnosticJournal.recordMediaPermission(video: true, granted: false);\n'
                 "  diagnosticJournal.recordMediaStats({'audio_input_level_band': 2, "
+                "'audio_aec_enabled': 1, 'audio_ns_enabled': 1, 'audio_agc_enabled': 1, "
                 "'audio_output_level_band': 4, 'device': 'PRIVATE_CANARY', "
                 "'qtag': 'PRIVATE_CANARY', 'walk_tag': 'PRIVATE_CANARY', "
                 "'op': 314159265, 'local': 'PRIVATE_CANARY'});\n"
@@ -40,6 +41,7 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 "'path': 'PRIVATE_CANARY'}, duringCall: true);\n"
                 "  diagnosticJournal.recordAudioStart(success: false, stats: {"
                 "'audio_capture_start_result': 1, 'audio_playout_start_result': 0, "
+                "'audio_aec_enabled': 1, 'audio_ns_enabled': 0, 'audio_agc_enabled': 1, "
                 "'deviceId': 'PRIVATE_CANARY', 'path': 'PRIVATE_CANARY'});\n"
                 '  print(jsonEncode(diagnosticJournal.toJson()));\n'
                 '}\n'
@@ -70,6 +72,7 @@ class DiagnosticArtifactTest(unittest.TestCase):
                         self.assertEqual(evidence['audioStart']['values'], {
                             'success': 0, 'audioCaptureStartResult': 1,
                             'audioPlayoutStartResult': 0,
+                            'audioAecEnabled': 1, 'audioNsEnabled': 0, 'audioAgcEnabled': 1,
                         })
                         self.assertEqual(evidence['callAudioOutput']['values'], {
                             'supported': 1, 'success': 1, 'appAudioSessionState': 1,
@@ -80,6 +83,7 @@ class DiagnosticArtifactTest(unittest.TestCase):
                         self.assertEqual(evidence['cameraPermission']['values'], {'state': 0})
                         self.assertEqual(evidence['mediaSample']['values'], {
                             'audioInputLevelBand': 2, 'audioOutputLevelBand': 4,
+                            'audioAecEnabled': 1, 'audioNsEnabled': 1, 'audioAgcEnabled': 1,
                         })
                         self.assertEqual(evidence['backgroundSnapshot']['values'], {
                             'supported': 1, 'success': 1,

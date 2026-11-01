@@ -37,6 +37,18 @@ class _Transport implements VeilFlutterTransport {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+class _OpeningTransport extends _Transport {
+  final opened = Completer<void>();
+  @override
+  Future<int> openMediaChannel(Uint8List peer, {
+    required Uint8List txKey, required Uint8List rxKey,
+    bool direct = false, bool relay = false,
+  }) async {
+    opened.complete();
+    return 42;
+  }
+}
+
 class _Engine implements VeilMediaEngine {
   @override
   bool get supportsNoiseSuppression => true;
@@ -146,6 +158,40 @@ class _LivenessEngine extends _Engine {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  for (final cancel in [false, true]) {
+    test('capture waits for stored processing choice; cancel=$cancel', () async {
+      final ready = Completer<void>();
+      final transport = _OpeningTransport();
+      final engine = _Engine(nativeStarted: true, capture: 1);
+      var creates = 0;
+      final controller = VeilCallMediaController(transport,
+        audioProcessingReady: ready.future,
+        engineFactory: ({required veilChan, required localId, required peerId}) {
+          creates++;
+          return engine;
+        },
+      );
+      final start = controller.start(_call());
+      try {
+        await transport.opened.future;
+        // Yield one event-loop turn so the immediate route/permission futures
+        // drain. The held storage gate, not elapsed time, controls readiness.
+        await Future<void>.delayed(Duration.zero);
+        expect(creates, 0);
+        if (cancel) await controller.stop();
+        controller.setNoiseSuppression(false);
+        ready.complete();
+        expect(await start, !cancel);
+        expect(creates, cancel ? 0 : 1);
+        if (!cancel) expect(engine.noiseSuppression, [false]);
+      } finally {
+        if (!ready.isCompleted) ready.complete();
+        await start;
+        await controller.stop();
+      }
+    });
+  }
 
   test(
     'noise choice survives live toggles and engine rebuild; refusal is not remembered',
