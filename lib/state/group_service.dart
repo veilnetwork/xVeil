@@ -21286,7 +21286,22 @@ class GroupService implements ArchiveGroups {
   /// its contentId as a real attachment ref, which puts the cid into
   /// [referencedContentIds] — that is what authorizes my other devices'
   /// membership pull of the bytes. The event body stays the JSON codec.
-  Future<bool> postDeviceEvent(DeviceSyncEvent e, {MediaObject? attachment}) {
+  Future<bool> postDeviceEvent(DeviceSyncEvent e, {MediaObject? attachment}) =>
+      _queueDeviceEvents([(event: e, attachment: attachment)]).single;
+
+  /// Enqueue one bounded set before waking the existing durable drainer. This
+  /// lets history replay share load/save work without reporting success before
+  /// commit, changing row order or bypassing live events already in the queue.
+  Future<List<bool>> postDeviceEvents(
+    List<({DeviceSyncEvent event, MediaObject? attachment})> events,
+  ) => Future.wait(_queueDeviceEvents(events));
+
+  List<Future<bool>> _queueDeviceEvents(
+    List<({DeviceSyncEvent event, MediaObject? attachment})> events,
+  ) {
+    if (events.length > kDevicePostBatch) {
+      throw ArgumentError.value(events.length, 'events', 'device post batch exceeds limit');
+    }
     // NOT AFTER DISPOSE. `dispose()` says what it is for in its own words —
     // "hosts must call this before replacing/closing the active identity so a
     // stale group feed cannot survive an identity switch" — and the writes
@@ -21294,15 +21309,19 @@ class GroupService implements ArchiveGroups {
     // switch went on posting to the device group of the identity the user had
     // left (report21 X21-H2). `false` is what this already returns when it
     // cannot post, so callers need no new case.
-    if (_disposed) return Future.value(false);
-    _deviceOutgoingCtl.add(e);
-    final done = Completer<bool>();
-    _devicePostQueue.add((event: e, attachment: attachment, done: done));
-    if (!_devicePostDraining) {
+    if (_disposed) return [for (final _ in events) Future.value(false)];
+    final pending = <Future<bool>>[];
+    for (final item in events) {
+      _deviceOutgoingCtl.add(item.event);
+      final done = Completer<bool>();
+      _devicePostQueue.add((event: item.event, attachment: item.attachment, done: done));
+      pending.add(done.future);
+    }
+    if (pending.isNotEmpty && !_devicePostDraining) {
       _devicePostDrain = _drainDevicePosts();
       unawaited(_devicePostDrain);
     }
-    return done.future;
+    return pending;
   }
 
   /// Device events waiting for the drainer, in the order they were posted.

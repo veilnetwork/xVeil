@@ -7721,6 +7721,81 @@ void main() {
     expect(svc.isDisposed, isTrue);
   });
 
+  test('history batch shares one durable save and preserves queued order', () async {
+    final storage = _ControlledGroupWriteStorage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    addTearDown(storage.close);
+    final svc = GroupService(storage, _FakeSigner(owner));
+    addTearDown(svc.dispose);
+    await svc.linkDevice(bob, sovereign: sovereign, broadcastSnapshot: false);
+    DeviceSyncEvent row(String key, int stamp) => DeviceSyncEvent(
+      kind: DeviceSyncKind.settingSet, key: key, tsMs: stamp,
+      payload: {'v': key},
+    );
+    storage.resetGroupWriteAttempts();
+    for (var i = 0; i < 25; i++) {
+      expect(await svc.postDeviceEvent(row('sequential-$i', i + 1)), isTrue);
+    }
+    final sequentialWrites = storage.groupWriteAttempts;
+    expect(sequentialWrites, 50,
+        reason: 'control: each row writes its segment and header separately');
+
+    storage.resetGroupWriteAttempts();
+    final entered = Completer<void>(), release = Completer<void>();
+    storage.callWriteEntered = entered;
+    storage.callWriteRelease = release;
+    var done = false;
+    final bulk = svc.postDeviceEvents([
+      for (var i = 0; i < 25; i++)
+        (event: row('batch-$i', i + 100), attachment: null),
+    ]).then((results) { done = true; return results; });
+    await entered.future;
+    expect(done, isFalse, reason: 'no success while the durable write is held');
+    // A live update queued during history must follow the batch, and win LWW.
+    final later = svc.postDeviceEvent(row('batch-0', 1000));
+    release.complete();
+    expect(await bulk, List.filled(25, true));
+    expect(await later, isTrue);
+    expect(storage.groupWriteAttempts, 4,
+        reason: 'two segment/header saves: history batch, then live update');
+    final gid = NodeId.fromHex((await svc.deviceGroupIdHex())!);
+    final events = (await svc.load(gid))!.messages
+        .map((m) => DeviceSyncEvent.fromBody(m.body))
+        .whereType<DeviceSyncEvent>()
+        .where((e) => e.key.startsWith('batch-')).toList();
+    expect(events.map((e) => e.key), [
+      for (var i = 0; i < 25; i++) 'batch-$i', 'batch-0',
+    ]);
+    expect((await svc.deviceSyncState())[
+        (DeviceSyncKind.settingSet, 'batch-0')]!.tsMs, 1000);
+  });
+
+  test('failed history batch has no published rows and rejects oversized input', () async {
+    final storage = _ControlledGroupWriteStorage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    addTearDown(storage.close);
+    final svc = GroupService(storage, _FakeSigner(owner));
+    addTearDown(svc.dispose);
+    await svc.linkDevice(bob, sovereign: sovereign, broadcastSnapshot: false);
+    final rows = [for (var i = 0; i < 25; i++) (
+      event: DeviceSyncEvent(kind: DeviceSyncKind.settingSet,
+        key: 'failed-$i', tsMs: i + 1, payload: {'v': i}),
+      attachment: null,
+    )];
+    storage.failNextGroupWrite = true;
+    expect(await svc.postDeviceEvents(rows), List.filled(25, false));
+    expect((await svc.deviceSyncState()).keys
+        .where((key) => key.$2.startsWith('failed-')), isEmpty);
+    final writes = storage.groupWriteAttempts;
+    expect(() => svc.postDeviceEvents([
+      for (var i = 0; i <= GroupService.kDevicePostBatch; i++) rows.first,
+    ]), throwsArgumentError);
+    expect(storage.groupWriteAttempts, writes);
+    expect(await svc.postDeviceEvents([]), isEmpty);
+    await svc.dispose();
+    expect(await svc.postDeviceEvents(rows), List.filled(25, false));
+  });
+
   test('postDeviceEvent: concurrent fire-and-forget emits ALL land '
       '(regression: two unawaited posts raced the group log read-modify-write '
       'and the later save dropped the earlier append — caught in the brick-4 '

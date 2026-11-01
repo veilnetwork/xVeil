@@ -760,6 +760,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       ),
       post: (event, {attachment}) =>
           svc.postDeviceEvent(event, attachment: attachment),
+      postBatch: svc.postDeviceEvents,
       isOwnDevice: svc.isMyDeviceOrMaster,
       cancelled: () =>
           bridgeGone || !identical(ref.read(groupServiceProvider), svc),
