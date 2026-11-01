@@ -1,0 +1,126 @@
+{
+  "schema": "xveil-linear-testnet-validation/1",
+  "date": "2026-11-01",
+  "clients": {
+    "C1": "macOS",
+    "C2": "Android Blackview",
+    "network": "testnet",
+    "phoneDefaultNetwork": "Wi-Fi"
+  },
+  "topology": {
+    "schema": "xveil-linear-core-topology/1",
+    "servers": 6,
+    "bidirectionalEdges": [
+      [
+        1,
+        2
+      ],
+      [
+        2,
+        3
+      ],
+      [
+        3,
+        4
+      ],
+      [
+        4,
+        5
+      ],
+      [
+        5,
+        6
+      ]
+    ],
+    "directedEdges": 10,
+    "unexpectedActivePeers": 0,
+    "productionPreserved": true,
+    "clientsChecked": 2,
+    "scope": "snapshot graph only; media transit is not qualified"
+  },
+  "cases": [
+    {
+      "policy": "denied",
+      "result": "failed_before_media",
+      "samples": 176,
+      "observationSeconds": 91.105,
+      "incomingObserved": false
+    },
+    {
+      "policy": "allowAll_after_restart",
+      "result": "failed_before_media",
+      "samples": 174,
+      "observationSeconds": 90.327,
+      "incomingObserved": false
+    }
+  ],
+  "allowedNativeWildcardListenersVerified": true,
+  "opaqueTransit": {
+    "sameOpaqueWitnessesPhoneS6S5S4": 145,
+    "forwardedFromS4ForTheseWitnesses": 0,
+    "rowsByCore": {
+      "S1": {
+        "forward:dispatch_enter": 2,
+        "forward:dispatch_return": 2,
+        "forward:transport_selected": 2
+      },
+      "S2": {
+        "forward:dispatch_enter": 2,
+        "forward:dispatch_return": 2,
+        "forward:transport_selected": 2
+      },
+      "S3": {
+        "forward:dispatch_enter": 2,
+        "forward:dispatch_return": 2,
+        "forward:transport_selected": 2
+      },
+      "S4": {
+        "recursive:dispatch_enter": 427,
+        "recursive:dispatch_return": 427,
+        "forward:dispatch_enter": 2,
+        "forward:dispatch_return": 2,
+        "forward:transport_selected": 2
+      },
+      "S5": {
+        "forward:dispatch_enter": 429,
+        "forward:dispatch_return": 429,
+        "recursive:transport_selected": 427,
+        "forward:transport_selected": 2
+      },
+      "S6": {
+        "forward:dispatch_enter": 429,
+        "forward:dispatch_return": 429,
+        "forward:transport_selected": 429
+      }
+    },
+    "scope": "bounded captured opaque payloads, not a per-call-send IPC identifier"
+  },
+  "source": {
+    "clientSdkBase": "87912f6c6450c02d172a2c2e0867d2b90e02cf13",
+    "coreTraceSourceSha256": "d05c6bae8c8df148f84706d4397dea12eb16689c357d80a257465f4e496a68e8",
+    "coreTraceElfSha256": "721f16a618eeb4e593bf55b10e6cfdadf7954efd0e94965a23b9c48e04a6eeeb",
+    "laterDispatcherChange": "cfg(test) fixture only",
+    "frontend": "frozen prior QA AOT/JIT; not whole current frontend",
+    "traceSourceCommit": "89ef6a2b"
+  },
+  "checks": {
+    "traceRed": {
+      "failed": 1,
+      "passed": 0
+    },
+    "traceFinalPassed": 5,
+    "dispatcherPolicyPassed": 1,
+    "reputationPolicyPassed": 1,
+    "flutterPrivacyPassed": 17,
+    "oracleNegativeControls": 6
+  },
+  "cleanup": {
+    "testCoreServicesStopped": 6,
+    "testCorePortsReleased": 6,
+    "productionPidBinaryConfigPreserved": 6,
+    "ownedClientsStopped": true,
+    "ownAndroidPackageRemovedAfterPrivateBackup": true,
+    "phoneNetworkSettingsPreserved": true
+  },
+  "status": "NETLINE-01 open; P2P and full six-server media not qualified"
+}
