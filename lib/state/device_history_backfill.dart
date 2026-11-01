@@ -24,7 +24,7 @@ import 'dart:typed_data';
 
 import '../core/ids.dart';
 import '../data/storage/storage.dart';
-import '../domain/chat.dart' show Message;
+import '../domain/chat.dart' show Message, MessageDirection, MessageStatus;
 import '../domain/device_history_ask.dart';
 import '../domain/device_sync.dart';
 import '../domain/inline_custom_emoji.dart';
@@ -98,6 +98,13 @@ DeviceMessageMirror deviceMirrorOf(
           'peer': peerHex,
           'dir': message.direction.name,
           'body': message.body,
+          // A history copy must not turn a completed send into a retry job.
+          // Pending sends retain the legacy default and can still be rescued
+          // by a sibling. Later live transitions use the separate msgStatus.
+          if (message.direction == MessageDirection.outgoing &&
+              (message.status == MessageStatus.delivered ||
+                  message.status == MessageStatus.failed))
+            'st': message.status.name,
           if (message.reflectedEdit) 'er': true,
           if (message.replyToId != null) 'r': message.replyToId,
           if (message.forwardedFrom != null) 'fw': message.forwardedFrom,
@@ -126,6 +133,10 @@ DeviceMessageMirror deviceMirrorOf(
         'peer': peerHex,
         'dir': message.direction.name,
         'body': message.body,
+        if (message.direction == MessageDirection.outgoing &&
+            (message.status == MessageStatus.delivered ||
+                message.status == MessageStatus.failed))
+          'st': message.status.name,
         if (message.reflectedEdit) 'er': true,
         if (message.replyToId != null) 'r': message.replyToId,
         if (message.forwardedFrom != null) 'fw': message.forwardedFrom,

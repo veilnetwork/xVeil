@@ -38,6 +38,76 @@ Iterable<List<T>> _permutations<T>(List<T> items) sync* {
 
 void main() {
   test(
+    'delivery precedence stays transitive across payloads and provenance',
+    () {
+      final events = <DeviceSyncEvent>[
+        for (final verified in [null, false, true])
+          for (final stamp in [1000, 2000])
+            for (final status in [null, 'failed', 'delivered'])
+              DeviceSyncEvent(
+                kind: DeviceSyncKind.msgMirror,
+                key: 'same-id',
+                tsMs: stamp,
+                payload: {
+                  ..._mirror(verified: verified, at: stamp).payload,
+                  'st': ?status,
+                  'body': '$verified/$stamp/$status',
+                },
+              ),
+      ];
+      for (final a in events) {
+        for (final b in events) {
+          if (!isNewerDeviceSync(a, b)) continue;
+          expect(isNewerDeviceSync(b, a), isFalse);
+          for (final c in events) {
+            if (isNewerDeviceSync(b, c)) {
+              expect(isNewerDeviceSync(a, c), isTrue);
+            }
+          }
+        }
+      }
+    },
+  );
+
+  test(
+    'same-position terminal delivery evidence survives compaction in every order',
+    () {
+      final pending = _mirror(verified: true);
+      DeviceSyncEvent withStatus(String status) => DeviceSyncEvent(
+        kind: pending.kind,
+        key: pending.key,
+        tsMs: pending.tsMs,
+        payload: {...pending.payload, 'st': status},
+      );
+      final failed = withStatus('failed'), delivered = withStatus('delivered');
+      for (final order in _permutations([pending, failed, delivered])) {
+        expect(
+          foldDeviceSync(order)[(pending.kind, pending.key)],
+          same(delivered),
+        );
+      }
+      final canonicalPending = _mirror(verified: true, at: 2000);
+      expect(
+        isNewerDeviceSync(canonicalPending, delivered),
+        isTrue,
+        reason: 'delivery metadata must not change the message time ordering',
+      );
+      final provisional = _mirror(verified: false);
+      final provisionalDelivered = DeviceSyncEvent(
+        kind: provisional.kind,
+        key: provisional.key,
+        tsMs: 3000,
+        payload: {...provisional.payload, 'st': 'delivered'},
+      );
+      expect(
+        isNewerDeviceSync(provisionalDelivered, pending),
+        isFalse,
+        reason: 'delivery evidence cannot grant original-position authority',
+      );
+    },
+  );
+
+  test(
     'verified position wins over later legacy and provisional copies in every order',
     () {
       final canonical = _mirror(verified: true);

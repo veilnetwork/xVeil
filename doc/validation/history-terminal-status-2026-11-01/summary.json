@@ -1,0 +1,85 @@
+{
+  "schema": "xveil-history-terminal-status/1",
+  "platform": "macos-host-native-jit",
+  "baseline": {
+    "head": "1cecdb78",
+    "BRetryAttempts": 9640,
+    "BDistinctRetriedMessages": 1968,
+    "sourceAckLoggedBeforeFirstBRetry": 1968,
+    "sourceAckTimestampIsBeforeStatusCommit": true
+  },
+  "candidate": {
+    "nativeTestsPassed": 1,
+    "initialRows": 2000,
+    "allInitialRowsDurablyDeliveredOnABeforeLink": true,
+    "initialHistoryFirstCompleteObservationMs": 77949,
+    "initialBStatuses": {
+      "sending": 0,
+      "sent": 0,
+      "delivered": 2000,
+      "failed": 0
+    },
+    "oldHistoryRetryAttemptsWholeRun": 0,
+    "backlogRows": 100,
+    "offlineUntilReadyMs": 310206,
+    "COnlineDuringRecovery": false,
+    "AOnlineDuringRecovery": true,
+    "readyMsFromLaunch": 9279,
+    "firstCompleteObservationMsFromReady": 10316,
+    "firstCompleteObservationMsFromLaunch": 19596,
+    "samples": [
+      {
+        "elapsedMs": 104,
+        "fromLaunchMs": 9384,
+        "count": 0,
+        "queryMs": 104,
+        "complete": 0
+      },
+      {
+        "elapsedMs": 5211,
+        "fromLaunchMs": 14490,
+        "count": 75,
+        "queryMs": 104,
+        "complete": 0
+      },
+      {
+        "elapsedMs": 10316,
+        "fromLaunchMs": 19596,
+        "count": 100,
+        "queryMs": 103,
+        "complete": 1
+      }
+    ],
+    "all2100IdsAndOrderEqualAfterCReturn": true,
+    "duplicateOrCountMismatchObserved": false,
+    "totalSeconds": 601.408
+  },
+  "confirmedResidualLiveCopies": {
+    "totalBRetryAttempts": 375,
+    "distinctBRetryIds": 96,
+    "allRetryIdsBelongToThe100LaterLiveCopies": true,
+    "oldHistoryRetryIdsInWholeRun": 0,
+    "sourceAckBeforeFirstBRetryForNewCopies": 96
+  },
+  "verification": {
+    "scopedTestsPassed": 521,
+    "additionalCompactionTestsPassed": 1,
+    "skipped": 3,
+    "analyzerIssues": 0,
+    "redCodecAndFoldTestsFailedOnBaseline": 2
+  },
+  "cleanup": {
+    "ownedPidsChecked": 10,
+    "portsChecked": 9,
+    "remainingOwnedProcesses": 0,
+    "remainingListeners": 0,
+    "remainingRuntimeRoots": 0
+  },
+  "limits": [
+    "Two separate native runs, not a controlled A/B/A speedup measurement",
+    "Host native/JIT, not Android/AOT qualification",
+    "375 retries of 96 later live copies remain active; their cause is unproven",
+    "No attribution of the exact old 25-message delay to this mechanism alone",
+    "Complete multi-device matrix and physical network handover/audio remain incomplete"
+  ]
+}

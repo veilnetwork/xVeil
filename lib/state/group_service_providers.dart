@@ -504,6 +504,18 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     final direction = event.payload['dir'] == 'outgoing'
         ? MessageDirection.outgoing
         : MessageDirection.incoming;
+    final rawStatus = event.payload['st'];
+    MessageStatus? initialStatus;
+    if (rawStatus != null) {
+      initialStatus = switch (rawStatus) {
+        'delivered' => MessageStatus.delivered,
+        'failed' => MessageStatus.failed,
+        _ => null,
+      };
+      if (initialStatus == null || direction != MessageDirection.outgoing) {
+        return;
+      }
+    }
     if (peerHex is! String ||
         body is! String ||
         peerHex == service.selfId.hex ||
@@ -530,6 +542,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
       peer: NodeId.fromHex(peerHex),
       msgId: event.key,
       direction: direction,
+      status: initialStatus,
       body: body,
       tsMs: event.tsMs,
       fileContentId: contentId is String && contentId.isNotEmpty

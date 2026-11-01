@@ -547,6 +547,22 @@ class _MessagingDeviceMirror {
       return false;
     }
     if (await _owner._hasMessage(peer, msgId)) {
+      // A legacy copy may already exist as `sent`. Completion evidence from
+      // an authenticated sibling repairs its status without changing content,
+      // time or provenance. A failed snapshot cannot undo a newer retry.
+      var deliveryChanged = false;
+      if (status == MessageStatus.delivered &&
+          direction == MessageDirection.outgoing) {
+        final held = await _owner._storage.loadMessageById(peer.hex, msgId);
+        if (held?.direction == MessageDirection.outgoing) {
+          deliveryChanged = await _owner._storage.markMessageStatus(
+            peer.hex,
+            msgId,
+            MessageStatus.delivered,
+          );
+          if (deliveryChanged) _owner._signal();
+        }
+      }
       // An own echo from the contact may win the race with this authenticated
       // device mirror. Its locally allocated position is provisional. Accept
       // the original physical-device position, WITHOUT replacing content or
@@ -558,12 +574,12 @@ class _MessagingDeviceMirror {
           seq == null ||
           !isAcceptableWireSeq(seq) ||
           !RegExp(r'^[0-9a-f]{64}$').hasMatch(author)) {
-        return false;
+        return deliveryChanged;
       }
       final self = await _owner._selfHex();
       if (author != self &&
           !await _owner._isSiblingDevice(NodeId.fromHex(author))) {
-        return false;
+        return deliveryChanged;
       }
       final held = await _owner._storage.loadMessageById(peer.hex, msgId);
       final identity = await _owner.selfIdentityHex?.call();
@@ -575,7 +591,7 @@ class _MessagingDeviceMirror {
               (identity != null &&
                   identity != self &&
                   held.author == identity))) {
-        return false;
+        return deliveryChanged;
       }
       final changed = await _owner._storage.adoptMessageOrdering(
         peer.hex,
@@ -586,7 +602,7 @@ class _MessagingDeviceMirror {
         seq: seq,
       );
       if (changed) _owner._signal();
-      return changed;
+      return changed || deliveryChanged;
     }
     if (await _owner._storage.isMessageDeleted(peer.hex, msgId)) return false;
     // A BLOCK IS A DECISION, and a sibling does not get to overrule it.

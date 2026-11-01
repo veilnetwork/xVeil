@@ -32,6 +32,8 @@ enum DeviceSyncKind {
   /// the status it was stored with and never moves. Reported by the owner:
   /// a message sent from one device stayed on one tick on the other while the
   /// sender showed two.
+  /// A history mirror can include an already known terminal initial status;
+  /// subsequent transitions still use this independent, freshly stamped key.
   msgStatus,
 
   /// A message DELETED, keyed by the message id.
@@ -333,7 +335,24 @@ bool _newer(DeviceSyncEvent a, DeviceSyncEvent b) {
     if (rank != 0) return rank > 0;
   }
   if (a.tsMs != b.tsMs) return a.tsMs > b.tsMs;
+  // The original message time cannot change just because a replay knows its
+  // delivery outcome. Preserve that initial terminal evidence on compaction.
+  // This is a global tuple component, not a pair-dependent comparison: order
+  // remains transitive across different payloads/provenance/timestamps.
+  if (a.kind == DeviceSyncKind.msgMirror && b.kind == a.kind) {
+    final status = _mirrorDeliveryRank(a).compareTo(_mirrorDeliveryRank(b));
+    if (status != 0) return status > 0;
+  }
   return jsonEncode(a.payload).compareTo(jsonEncode(b.payload)) > 0;
+}
+
+int _mirrorDeliveryRank(DeviceSyncEvent event) {
+  if (event.payload['dir'] != 'outgoing') return 0;
+  return switch (event.payload['st']) {
+    'delivered' => 2,
+    'failed' => 1,
+    _ => 0,
+  };
 }
 
 int _mirrorPositionRank(DeviceSyncEvent event) {

@@ -14,6 +14,7 @@ import 'multi_device_process_e2e_test.dart' as base;
 // Unlike /messages' deliberately bounded tail, this verifies all history IDs.
 int _request = 0;
 bool _observedInvalidSnapshot = false;
+final _statuses = <String, Map<String, int>>{};
 Future<List<String>> _ids(
   ProcessDevice device,
   String peer,
@@ -41,6 +42,9 @@ Future<List<String>> _ids(
       if (value['nonce'] != nonce) return false;
       ids = List<String>.from(value['ids'] as List);
       count = value['count'] as int;
+      _statuses[device.label] = Map<String, int>.from(
+        value['statusCounts'] as Map,
+      );
       return true;
     },
     what: '${device.label} returns its current stored history IDs',
@@ -59,6 +63,7 @@ void main() {
     'isolated A/B/C: 100 offline mirrors after five minutes with aged history',
     () async {
       _observedInvalidSnapshot = false;
+      _statuses.clear();
       final baseRows = int.parse(
         Platform.environment['XVEIL_E2E_BACKLOG_BASE_ROWS'] ?? '2000',
       );
@@ -90,6 +95,16 @@ void main() {
         interval: const Duration(seconds: 5),
       );
       expect(await _ids(c, ai, 'backlog-base-'), expectedBase);
+      await waitUntil(
+        () async {
+          await _ids(a, ci, 'backlog-base-');
+          return _statuses['A']?['delivered'] == baseRows;
+        },
+        what:
+            'A has durable delivery confirmation for the entire initial history',
+        timeout: const Duration(minutes: 2),
+        interval: const Duration(seconds: 2),
+      );
       await base.linkProcesses(a, b);
       var initialBCount = 0;
       final initialHistory = Stopwatch()..start();
@@ -109,6 +124,32 @@ void main() {
       );
       initialHistory.stop();
       expect(await _ids(b, ci, 'backlog-base-'), expectedBase);
+      final initialBStatuses = Map<String, int>.of(_statuses['B']!);
+      final initialLog = await File(b.logPath).readAsString();
+      expect(
+        initialLog,
+        contains('[timeline]:'),
+        reason: 'the passive retry observer must actually be enabled',
+      );
+      final completedIds = expectedBase.toSet();
+      final completedHistoryRetries = RegExp(r'\[timeline\]: retry id=(\S+) ')
+          .allMatches(initialLog)
+          .where((match) => completedIds.contains(match.group(1)))
+          .length;
+      E2eLog.line(
+        'BACKLOG_INITIAL_COMPLETED_HISTORY_RETRIES=$completedHistoryRetries',
+      );
+      expect(
+        completedHistoryRetries,
+        0,
+        reason: 'all source rows were delivered before linking B',
+      );
+      expect(
+        initialBStatuses['delivered'],
+        baseRows,
+        reason:
+            'completed history must not be reintroduced as outgoing retry work',
+      );
       E2eLog.line(
         'BACKLOG_BASE_READY=$baseRows elapsedMs=${seed.elapsedMilliseconds}',
       );
@@ -182,6 +223,8 @@ void main() {
             jsonEncode({
               'baseRows': baseRows,
               'initialHistoryMs': initialHistory.elapsedMilliseconds,
+              'initialBStatuses': initialBStatuses,
+              'initialBCompletedHistoryRetries': completedHistoryRetries,
               'backlogRows': 100,
               'offlineUntilReadyMs': offline.elapsedMilliseconds,
               'readyMsFromLaunch': readyMs,
