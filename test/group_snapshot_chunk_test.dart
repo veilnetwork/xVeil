@@ -1785,6 +1785,43 @@ void main() {
     },
   );
 
+  test('backpressure retains the complete copy of a partially received transfer', () async {
+    final transport = _Link(a)..peer = tB;
+    tB.peer = transport;
+    transport.passLimit = 1;
+    final storage = HiddenVolumeStorage(_memOpener());
+    await storage.open(password: 'partial', createIfMissing: true);
+    await storage.upsertContact(Contact(nodeId: b, status: ContactStatus.accepted));
+    var source = MessagingService(transport, storage)..start();
+    addTearDown(() async {
+      await source.dispose(); await storage.close(); await transport.dispose();
+    });
+    var applied = 0;
+    mB.onGroupEntry = (peer, value) async {
+      expect(peer, a); expect(value, bundle); applied++; return true;
+    };
+    await source.sendGroupSnapshot(b, 'ab' * 32, bundle);
+    await _settle();
+    expect(applied, 0);
+    final original = (await storage.pendingOutboxFrames()).where((f) => f.frameId.startsWith('grpc:')).toList();
+    expect(original.length, greaterThan(1));
+    await source.dispose();
+    await Future.wait([for (var i = original.length; i < 256; i++)
+      storage.enqueueOutboxFrame('grp:filler-$i', b.hex, WireEnvelope.groupEntry('filler').encode())]);
+    source = MessagingService(transport, storage)..start();
+    await source.sendGroupSnapshot(b, 'ab' * 32, 'refused-while-full');
+    await pumpEventQueue();
+    final held = (await storage.pendingOutboxFrames()).where((f) => f.frameId.startsWith('grpc:')).toList();
+    expect(held.map((f) => f.frameId), unorderedEquals(original.map((f) => f.frameId)));
+    // Retry only bytes that still exist in the durable copy after the cap.
+    transport.passLimit = null;
+    for (final frame in held) { tB.inject(a, frame.wire); }
+    await _settle(); await pumpEventQueue();
+    expect(applied, 1);
+    expect((await storage.pendingOutboxFrames()).where((f) => f.frameId.startsWith('grpc:')), isEmpty,
+        reason: 'only receiver completion may retire the complete opted-in copy');
+  });
+
   test('a destination whose queue is not draining stops being fed', () async {
     // Replication fans every change out to every member, so a member that never
     // acknowledges accumulates one batch per change with no end. Measured on
@@ -1821,6 +1858,8 @@ void main() {
     // The frames already queued are UNTOUCHED — this is back-pressure, not a
     // purge, and losing them is exactly what must not happen.
     expect(pending, greaterThan(200));
+    await pumpEventQueue();
+    expect((await s.storage.pendingOutboxFrames()), hasLength(pending));
   });
 
   test('a peer that drains is fed again', () async {
@@ -1885,12 +1924,10 @@ void main() {
     );
   });
 
-  test('the cap releases queued STATE but never an event frame', () async {
-    // Once we have decided not to queue more state for a peer, the state
-    // already queued is equally moot — the peer asks for what it is missing
-    // when it returns. Events are different: an ack or a call signal that is
-    // dropped is gone, nothing recomputes it. On the stand this is the
-    // difference between letting go of 9.6 MB and losing a message receipt.
+  test('explicit replication purge releases STATE but never an event frame', () async {
+    // Explicit discard remains narrower than removing a peer: state can be
+    // recovered by asking, while events cannot. Merely reaching the admission
+    // cap is not permission to perform this discard.
     final s = await sender(a, [b]);
     for (var i = 0; i < 300; i++) {
       await s.storage.enqueueOutboxFrame(
@@ -1911,7 +1948,7 @@ void main() {
       WireEnvelope.p2pEndpoints('{}').encode(),
     );
 
-    await s.messaging.sendGroupSnapshot(b, 'aa11', 'trips-the-cap');
+    await s.messaging.dropReplicationBacklogFor(b);
     await pumpEventQueue();
 
     final left = (await s.storage.pendingOutboxFrames())

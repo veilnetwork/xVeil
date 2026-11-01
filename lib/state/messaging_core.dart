@@ -2521,12 +2521,10 @@ class MessagingService {
 
   /// Let go of replicated state queued for a peer that has stopped listening.
   ///
-  /// Called when the back-pressure cap trips, and justified by the same fact:
-  /// once we have decided not to queue MORE state for a peer, the state already
-  /// queued is equally moot, because the peer will ask for what it is missing
-  /// when it comes back (`nudgeGroupSyncAll`, every app start). Keeping it only
-  /// pays for a container that grows and a flush that walks it — on the stand,
-  /// 9.6 MB and 3473 frames against a device wiped four days earlier.
+  /// Explicit discard only: reaching the admission cap is not evidence that
+  /// the peer stopped listening and must not invoke this purge. Fresh partial
+  /// transfers need their complete retry copy until the receiver commits.
+  /// Normal housekeeping uses the outbox's existing age-based state expiry.
   ///
   /// Deliberately narrower than [dropPendingFramesFor]: that one is for a
   /// device removed from the group and drops everything. This one runs while
