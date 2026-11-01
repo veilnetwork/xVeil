@@ -1,0 +1,75 @@
+{
+  "schema": "xveil-validation/canonical-quic-lifetime/1",
+  "sdkCommit": "cc908a508156899bf78bae7d0b81598a0b727611",
+  "macSignedFfiSha256": "17c92e7cb51dcb9129ace4b57688c59b92343156dad92d25e799e3c8f5306733",
+  "serverSdk": "4f9c85f2",
+  "runtimeTests": {
+    "passed": 789,
+    "ignored": 11
+  },
+  "sessionTestsBeforeFinalRuntimeGuardExtension": {
+    "passed": 679,
+    "ignored": 8
+  },
+  "redTests": {
+    "original": {
+      "passed": 0,
+      "failed": 2
+    },
+    "inboundPrefixIntermediate": {
+      "passed": 0,
+      "failed": 1
+    }
+  },
+  "releaseBuildPassed": true,
+  "externalMountWatchdogPassed": true,
+  "physical": {
+    "scope": "Mac and two isolated test nodes; no phone or calls",
+    "boots": [
+      {
+        "attempt": 1,
+        "firstLocalActiveSnapshotSeconds": 0.58,
+        "localThreeSecondGateSeconds": 3.838,
+        "remoteCanonicalQualification": false
+      },
+      {
+        "attempt": 2,
+        "firstLocalActiveSnapshotSeconds": 0.583,
+        "localThreeSecondGateSeconds": 31.105,
+        "remoteCanonicalQualification": false
+      },
+      {
+        "attempt": 3,
+        "firstLocalActiveSnapshotSeconds": 11.538,
+        "localThreeSecondGateSeconds": 19.195,
+        "remoteCanonicalQualification": false
+      },
+      {
+        "attempt": 4,
+        "firstLocalActiveSnapshotSeconds": 37.345,
+        "localThreeSecondGateSeconds": 40.641,
+        "remoteCanonicalQualification": false
+      }
+    ],
+    "remoteCanonicalQualificationMeaning": "Not independently qualified for each boot; local gates are not end-to-end readiness proof",
+    "observedServerCanonicalLifetimesSeconds": [
+      36.037,
+      36.553
+    ],
+    "fullPrior58SecondDelayReproduced": false,
+    "globalLatencyImprovementProven": false,
+    "shutdownResidualOpen": true
+  },
+  "teardown": {
+    "allOwnedMacPidsExited": true,
+    "ownedRuntimeDirectoriesRemoved": 4,
+    "testServicesStopped": 6,
+    "productionUnchanged": 6,
+    "testPortsReleased": 6,
+    "originalTestConfigsRestored": true,
+    "rollbackTimerStopped": true,
+    "qaP2pPolicyRestored": "allowAll",
+    "phoneChanged": false
+  },
+  "published": false
+}
