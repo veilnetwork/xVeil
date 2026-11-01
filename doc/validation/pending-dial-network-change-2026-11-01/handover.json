@@ -1,0 +1,34 @@
+{
+  "schema": "xveil-handover-observation/1",
+  "requiredObservationSeconds": 40,
+  "endpoints": {
+    "phone": {
+      "preconditionVerified": true,
+      "samplesAfterCut": 40,
+      "observationSeconds": 41.585,
+      "coverageVerified": true,
+      "missingOrNonActiveSamples": 0,
+      "firstCallLostAfterCutMs": null,
+      "callSurvivalVerified": true,
+      "freshAudioAtEnd": true,
+      "allSampledAudioFresh": false,
+      "maxSampledAudioPayloadAgeWithinEpochMs": 15499,
+      "continuousAudioGapUpperBoundMs": null
+    },
+    "windows": {
+      "preconditionVerified": true,
+      "samplesAfterCut": 40,
+      "observationSeconds": 41.595,
+      "coverageVerified": true,
+      "missingOrNonActiveSamples": 0,
+      "firstCallLostAfterCutMs": null,
+      "callSurvivalVerified": true,
+      "freshAudioAtEnd": true,
+      "allSampledAudioFresh": false,
+      "maxSampledAudioPayloadAgeWithinEpochMs": 14486,
+      "continuousAudioGapUpperBoundMs": null
+    }
+  },
+  "callSurvivalVerified": true,
+  "qualityObservationQualified": false
+}

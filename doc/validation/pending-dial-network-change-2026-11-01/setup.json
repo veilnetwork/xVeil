@@ -1,0 +1,28 @@
+{
+  "schema": "xveil-post-switch-setup-observation/1",
+  "scope": "sampled_call_states_not_audibility_or_network_reachability",
+  "endpoints": {
+    "phone": {
+      "sampleCount": 30,
+      "missingOrUnexpectedCallSamplesAfterRoleStart": 0,
+      "foreignCallSamples": 0,
+      "coverageVerified": true,
+      "firstSampledFreshRxAfterCutMs": 11642,
+      "lastFiveSamplesFresh": true,
+      "freshTailPacketCounterProgressObserved": true
+    },
+    "windows": {
+      "sampleCount": 30,
+      "missingOrUnexpectedCallSamplesAfterRoleStart": 0,
+      "foreignCallSamples": 0,
+      "coverageVerified": true,
+      "firstSampledFreshRxAfterCutMs": 8526,
+      "lastFiveSamplesFresh": true,
+      "freshTailPacketCounterProgressObserved": true
+    }
+  },
+  "callerLastDialingSampleAfterCalleeAcceptMs": 6214,
+  "callerFirstConnectingOrActiveSampleAfterCalleeAcceptMs": 7260,
+  "callerFirstFreshRxAfterFirstConnectingObservationMs": 4177,
+  "sampledSetupQualified": true
+}
