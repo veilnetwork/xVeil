@@ -8866,6 +8866,53 @@ void main() {
     }
   });
 
+  test('timed-out bundle write reads do not share the joined acquisition', () async {
+    final backing = FakeKvLogStore();
+    final storage = _HeldCountingHeaderStorage(({required password, required bool create}) => backing);
+    await storage.open(password: 'pw', createIfMissing: true);
+    final reader = GroupService(storage, _FakeSigner(owner));
+    addTearDown(reader.dispose);
+    final gid = await reader.createGroup('pending writer');
+    for (var i = 0; i < 128; i++) {
+      expect(await reader.postMessage(gid, 'row-$i:${'x' * 4096}', broadcast: false), isTrue);
+    }
+    final keys = (await _groupFiles(storage, gid)).skip(1).toList();
+    expect(keys.length, greaterThan(8));
+    reader.bundleWriteWait = Duration.zero;
+    storage.heldHeader = 'group:${gid.hex}';
+    final write = reader.postMessage(gid, 'pending publication', broadcast: false);
+    await storage.headerEntered.future;
+    storage.segmentReads.clear();
+    final entered = Completer<void>(), release = Completer<void>(), lateHeader = Completer<void>();
+    Future<void> before(String id) async {
+      if (id == keys[8]) { entered.complete(); await release.future; }
+      else { storage.beforeLoadFile = before; }
+    }
+    storage.beforeLoadFile = before;
+    final first = reader.load(gid);
+    Future<GroupBundle?>? second;
+    try {
+      await entered.future;
+      storage.beforeLoadFile = (id) async {
+        expect(id, 'group:${gid.hex}'); lateHeader.complete();
+      };
+      second = reader.load(gid);
+      await lateHeader.future;
+      await Future<void>.delayed(Duration.zero);
+    } finally {
+      storage.beforeLoadFile = null;
+      release.complete();
+      await first;
+      if (second != null) await second;
+      storage.headerRelease.complete();
+      expect(await write, isTrue);
+    }
+    expect([for (final key in keys.take(8)) storage.segmentReads[key]], everyElement(2),
+        reason: 'a timeout view must not enter the shared acquisition');
+    expect((await reader.load(gid))!.messages.last.body, 'pending publication');
+    await storage.close();
+  });
+
   group('a group keeps its messages in segments', () {
     // Inline, every save rewrote the whole history: one post to a
     // 259-message group wrote ~195 KB on each device on the stand.
@@ -9021,6 +9068,146 @@ void main() {
         await storage.storeFile(first, saved);
         expect((await svc.load(gid))!.messages, hasLength(300));
       }
+    });
+
+    test('late readers share completed waves until segment acquisition ends', () async {
+      for (var i = 0; i < 9; i++) {
+        expect(await svc.postMessage(gid, 'wide-$i:${'z' * 65536}', broadcast: false), isTrue);
+      }
+      final keys = (await _groupFiles(storage, gid)).skip(1).toList();
+      expect(keys.length, greaterThan(8));
+      storage.segmentReads.clear();
+      final entered = Completer<void>(), release = Completer<void>();
+      final secondHeader = Completer<void>();
+      Future<void> before(String id) async {
+        if (id == keys[8]) {
+          entered.complete();
+          await release.future;
+        } else {
+          storage.beforeLoadFile = before;
+        }
+      }
+      storage.beforeLoadFile = before;
+      final first = svc.load(gid);
+      Future<GroupBundle?>? second;
+      try {
+        await entered.future;
+        storage.beforeLoadFile = (id) async {
+          expect(id, 'group:${gid.hex}');
+          secondHeader.complete();
+        };
+        second = svc.load(gid);
+        await secondHeader.future;
+        // Drain microtasks, not a wall-clock performance threshold: the late
+        // reader reaches the held acquisition before releasing its last wave.
+        await Future<void>.delayed(Duration.zero);
+      } finally {
+        storage.beforeLoadFile = null;
+        release.complete();
+      }
+      final views = await Future.wait([first, second]);
+      expect(views, everyElement(isNotNull));
+      expect(views.map((v) => v!.messages.length), [309, 309]);
+      expect(storage.segmentReads.values, everyElement(1));
+      expect(identical(views[0]!.messages, views[1]!.messages), isFalse);
+      final heldSignature = Uint8List.fromList(views[1]!.messages.first.signature);
+      views[0]!.messages.first.signature[0] ^= 1;
+      expect(views[1]!.messages.first.signature, heldSignature);
+      storage.segmentReads.clear();
+      expect((await svc.load(gid))!.messages, hasLength(309));
+      expect(storage.segmentReads.values, everyElement(1), reason: 'completed acquisitions must not persist as a read cache');
+    });
+
+    test('changed header does not join an older held segment acquisition', () async {
+      for (var i = 0; i < 9; i++) {
+        expect(await svc.postMessage(gid, 'wide-$i:${'z' * 65536}', broadcast: false), isTrue);
+      }
+      final keys = (await _groupFiles(storage, gid)).skip(1).toList();
+      expect(keys.length, greaterThan(8));
+      final entered = Completer<void>(), release = Completer<void>();
+      Future<void> before(String id) async {
+        if (id == keys[8]) {
+          entered.complete();
+          await release.future;
+        } else {
+          storage.beforeLoadFile = before;
+        }
+      }
+      storage.beforeLoadFile = before;
+      final pending = svc.load(gid);
+      try {
+        await entered.future;
+        final writer = GroupService(storage, _FakeSigner(owner));
+        try {
+          expect(await writer.postMessage(gid, 'new revision', broadcast: false), isTrue);
+        } finally {
+          await writer.dispose();
+        }
+        // This timeout is a deadlock guard, not a latency assertion. The old
+        // acquisition stays blocked while the new header must be readable.
+        final fresh = await svc.load(gid).timeout(const Duration(seconds: 5));
+        expect(fresh!.messages.last.body, 'new revision');
+        expect(fresh.messages, hasLength(310));
+      } finally {
+        storage.beforeLoadFile = null;
+        release.complete();
+        expect(await pending, isNotNull);
+      }
+      expect((await svc.load(gid))!.messages.last.body, 'new revision');
+    });
+
+    test('old acquisition completion cannot evict a newer pending header read', () async {
+      for (var i = 0; i < 9; i++) {
+        expect(await svc.postMessage(gid, 'wide-$i:${'z' * 65536}', broadcast: false), isTrue);
+      }
+      final oldKeys = (await _groupFiles(storage, gid)).skip(1).toList();
+      final oldEntered = Completer<void>(), oldRelease = Completer<void>();
+      Future<void> beforeOld(String id) async {
+        if (id == oldKeys[8]) {
+          oldEntered.complete(); await oldRelease.future;
+        } else { storage.beforeLoadFile = beforeOld; }
+      }
+      storage.beforeLoadFile = beforeOld;
+      final old = svc.load(gid);
+      Future<GroupBundle?>? current, late;
+      final newEntered = Completer<void>(), newRelease = Completer<void>();
+      try {
+        await oldEntered.future;
+        final writer = GroupService(storage, _FakeSigner(owner));
+        try {
+          expect(await writer.postMessage(gid, 'next header', broadcast: false), isTrue);
+        } finally { await writer.dispose(); }
+        final keys = (await _groupFiles(storage, gid)).skip(1).toList();
+        expect(keys.length, greaterThan(oldKeys.length));
+        storage.segmentReads.clear();
+        Future<void> beforeNew(String id) async {
+          if (id == keys.last) {
+            newEntered.complete(); await newRelease.future;
+          } else { storage.beforeLoadFile = beforeNew; }
+        }
+        storage.beforeLoadFile = beforeNew;
+        current = svc.load(gid);
+        await newEntered.future;
+        oldRelease.complete();
+        expect(await old, isNotNull);
+        final lateHeader = Completer<void>();
+        storage.beforeLoadFile = (id) async {
+          expect(id, 'group:${gid.hex}'); lateHeader.complete();
+        };
+        late = svc.load(gid);
+        await lateHeader.future;
+        await Future<void>.delayed(Duration.zero);
+      } finally {
+        storage.beforeLoadFile = null;
+        if (!oldRelease.isCompleted) oldRelease.complete();
+        newRelease.complete();
+        await old;
+        if (current != null) await current;
+        if (late != null) await late;
+      }
+      expect((await current)!.messages.last.body, 'next header');
+      expect((await late)!.messages.last.body, 'next header');
+      expect([for (final key in oldKeys.take(8)) storage.segmentReads[key]], everyElement(1));
     });
 
     test('sharing segment JSON does not share signature verdicts', () async {
@@ -28238,4 +28425,17 @@ Future<List<String>> _groupFiles(HiddenVolumeStorage storage, NodeId gid) async 
   final key = 'group:${gid.hex}';
   final header = jsonDecode(utf8.decode((await storage.loadFile(key))!)) as Map;
   return [key, ...((header['gs'] as List?) ?? const []).cast<String>()];
+}
+
+class _HeldCountingHeaderStorage extends _CountingStorage with _IndividualFixtureWrites {
+  _HeldCountingHeaderStorage(super.opener);
+  String? heldHeader;
+  final headerEntered = Completer<void>(), headerRelease = Completer<void>();
+  @override
+  Future<void> storeFile(String id, Uint8List bytes, {String? name, List<String> retireHints = const []}) async {
+    if (id == heldHeader) {
+      heldHeader = null; headerEntered.complete(); await headerRelease.future;
+    }
+    await super.storeFile(id, bytes, name: name, retireHints: retireHints);
+  }
 }

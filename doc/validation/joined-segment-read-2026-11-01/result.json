@@ -1,0 +1,345 @@
+{
+  "schema": "xveil-joined-segment-read/1",
+  "initialRed": {
+    "passed": 0,
+    "failed": 1,
+    "reason": "first eight segment reads duplicated for a late reader"
+  },
+  "intermediateWriteTimeoutRed": {
+    "passed": 0,
+    "failed": 1,
+    "reason": "new joined scope must preserve bypass after write-wait timeout"
+  },
+  "nativeAba": [
+    {
+      "schema": "xveil-joined-read/1",
+      "rows": 128,
+      "segments": 9,
+      "sequential": {
+        "repeats": 12,
+        "us": 376424,
+        "rpc": {
+          "kv.get": 24,
+          "kv.readLogBatch": 120,
+          "kv.getBatch": 48
+        }
+      },
+      "staggeredPairs": {
+        "repeats": 12,
+        "us": 707729,
+        "rpc": {
+          "kv.get": 48,
+          "kv.readLogBatch": 240,
+          "kv.getBatch": 96
+        }
+      },
+      "independentViewsAndFreshDamageRepairVerified": true,
+      "phase": "a1"
+    },
+    {
+      "schema": "xveil-joined-read/1",
+      "rows": 128,
+      "segments": 9,
+      "sequential": {
+        "repeats": 12,
+        "us": 363489,
+        "rpc": {
+          "kv.get": 24,
+          "kv.readLogBatch": 120,
+          "kv.getBatch": 48
+        }
+      },
+      "staggeredPairs": {
+        "repeats": 12,
+        "us": 357745,
+        "rpc": {
+          "kv.get": 48,
+          "kv.readLogBatch": 132,
+          "kv.getBatch": 48
+        }
+      },
+      "independentViewsAndFreshDamageRepairVerified": true,
+      "phase": "b"
+    },
+    {
+      "schema": "xveil-joined-read/1",
+      "rows": 128,
+      "segments": 9,
+      "sequential": {
+        "repeats": 12,
+        "us": 371838,
+        "rpc": {
+          "kv.get": 24,
+          "kv.readLogBatch": 120,
+          "kv.getBatch": 48
+        }
+      },
+      "staggeredPairs": {
+        "repeats": 12,
+        "us": 686046,
+        "rpc": {
+          "kv.get": 48,
+          "kv.readLogBatch": 240,
+          "kv.getBatch": 96
+        }
+      },
+      "independentViewsAndFreshDamageRepairVerified": true,
+      "phase": "a2"
+    }
+  ],
+  "finalScopedTests": {
+    "passed": 400,
+    "skipped": 3
+  },
+  "migration": {
+    "phases": [
+      {
+        "phase": "a1",
+        "migrationOnly": true,
+        "baseRows": 2000,
+        "initialHistoryMs": 51503,
+        "initialCountCompleteMs": 46372,
+        "initialOrderMismatchObservations": 1,
+        "initialPositionMismatchObservations": 1,
+        "initialPositionsCompared": true,
+        "initialBStatuses": {
+          "sending": 0,
+          "sent": 0,
+          "delivered": 2000,
+          "failed": 0
+        },
+        "completedHistoryRetries": 0,
+        "convergedIdsAndOrder": true,
+        "invalidSnapshotObserved": false,
+        "offlineScenarioExecuted": false,
+        "fileScopes": {
+          "A": {
+            "windowUs": 71210715,
+            "headerLoads": {
+              "count": 498,
+              "awaitUs": 9686834,
+              "maxAwaitUs": 170495,
+              "startedBeforeWindow": 0
+            },
+            "segmentBatchLoads": {
+              "count": 459,
+              "awaitUs": 19692264,
+              "maxAwaitUs": 258685,
+              "startedBeforeWindow": 0
+            },
+            "segmentPayloadRpc": {
+              "count": 1770,
+              "awaitUs": 13972316,
+              "maxAwaitUs": 71383,
+              "startedBeforeWindow": 0
+            }
+          },
+          "B": {
+            "windowUs": 59715713,
+            "headerLoads": {
+              "count": 511,
+              "awaitUs": 2083124,
+              "maxAwaitUs": 76814,
+              "startedBeforeWindow": 0
+            },
+            "segmentBatchLoads": {
+              "count": 500,
+              "awaitUs": 8228514,
+              "maxAwaitUs": 234973,
+              "startedBeforeWindow": 0
+            },
+            "segmentPayloadRpc": {
+              "count": 2007,
+              "awaitUs": 6504605,
+              "maxAwaitUs": 67814,
+              "startedBeforeWindow": 0
+            }
+          }
+        },
+        "cleanup": {
+          "ownedPidsChecked": 18,
+          "portsChecked": 18,
+          "livePids": [],
+          "remainingListeners": [],
+          "runtimeRootRemoved": true,
+          "frozenFilesVerified": 568,
+          "nativeArtifactsUnchanged": true,
+          "hiddenVolumeUnchanged": true,
+          "sdkClean": true,
+          "portsReusedByOtherPids": 0
+        }
+      },
+      {
+        "phase": "b",
+        "migrationOnly": true,
+        "baseRows": 2000,
+        "initialHistoryMs": 46649,
+        "initialCountCompleteMs": 46648,
+        "initialOrderMismatchObservations": 0,
+        "initialPositionMismatchObservations": 0,
+        "initialPositionsCompared": true,
+        "initialBStatuses": {
+          "sending": 0,
+          "sent": 0,
+          "delivered": 2000,
+          "failed": 0
+        },
+        "completedHistoryRetries": 0,
+        "convergedIdsAndOrder": true,
+        "invalidSnapshotObserved": false,
+        "offlineScenarioExecuted": false,
+        "fileScopes": {
+          "A": {
+            "windowUs": 65447649,
+            "headerLoads": {
+              "count": 402,
+              "awaitUs": 9911784,
+              "maxAwaitUs": 576288,
+              "startedBeforeWindow": 0
+            },
+            "segmentBatchLoads": {
+              "count": 367,
+              "awaitUs": 17995977,
+              "maxAwaitUs": 207608,
+              "startedBeforeWindow": 0
+            },
+            "segmentPayloadRpc": {
+              "count": 1397,
+              "awaitUs": 12689193,
+              "maxAwaitUs": 75255,
+              "startedBeforeWindow": 0
+            }
+          },
+          "B": {
+            "windowUs": 53564932,
+            "headerLoads": {
+              "count": 401,
+              "awaitUs": 1813256,
+              "maxAwaitUs": 95556,
+              "startedBeforeWindow": 0
+            },
+            "segmentBatchLoads": {
+              "count": 383,
+              "awaitUs": 7057080,
+              "maxAwaitUs": 186045,
+              "startedBeforeWindow": 0
+            },
+            "segmentPayloadRpc": {
+              "count": 1592,
+              "awaitUs": 5328829,
+              "maxAwaitUs": 61220,
+              "startedBeforeWindow": 0
+            }
+          }
+        },
+        "cleanup": {
+          "ownedPidsChecked": 18,
+          "portsChecked": 20,
+          "livePids": [],
+          "remainingListeners": [],
+          "runtimeRootRemoved": true,
+          "frozenFilesVerified": 568,
+          "nativeArtifactsUnchanged": true,
+          "hiddenVolumeUnchanged": true,
+          "sdkClean": true,
+          "portsReusedByOtherPids": 0
+        }
+      },
+      {
+        "phase": "a2",
+        "migrationOnly": true,
+        "baseRows": 2000,
+        "initialHistoryMs": 72408,
+        "initialCountCompleteMs": 72408,
+        "initialOrderMismatchObservations": 0,
+        "initialPositionMismatchObservations": 0,
+        "initialPositionsCompared": true,
+        "initialBStatuses": {
+          "sending": 0,
+          "sent": 0,
+          "delivered": 2000,
+          "failed": 0
+        },
+        "completedHistoryRetries": 0,
+        "convergedIdsAndOrder": true,
+        "invalidSnapshotObserved": false,
+        "offlineScenarioExecuted": false,
+        "fileScopes": {
+          "A": {
+            "windowUs": 92855822,
+            "headerLoads": {
+              "count": 1285,
+              "awaitUs": 11810175,
+              "maxAwaitUs": 570428,
+              "startedBeforeWindow": 0
+            },
+            "segmentBatchLoads": {
+              "count": 1244,
+              "awaitUs": 28189478,
+              "maxAwaitUs": 572597,
+              "startedBeforeWindow": 0
+            },
+            "segmentPayloadRpc": {
+              "count": 4905,
+              "awaitUs": 21441839,
+              "maxAwaitUs": 87278,
+              "startedBeforeWindow": 0
+            }
+          },
+          "B": {
+            "windowUs": 81112609,
+            "headerLoads": {
+              "count": 1322,
+              "awaitUs": 3554826,
+              "maxAwaitUs": 117785,
+              "startedBeforeWindow": 0
+            },
+            "segmentBatchLoads": {
+              "count": 1306,
+              "awaitUs": 15395444,
+              "maxAwaitUs": 297637,
+              "startedBeforeWindow": 0
+            },
+            "segmentPayloadRpc": {
+              "count": 5182,
+              "awaitUs": 12781510,
+              "maxAwaitUs": 97160,
+              "startedBeforeWindow": 0
+            }
+          }
+        },
+        "cleanup": {
+          "ownedPidsChecked": 18,
+          "portsChecked": 21,
+          "livePids": [],
+          "remainingListeners": [],
+          "runtimeRootRemoved": true,
+          "frozenFilesVerified": 568,
+          "nativeArtifactsUnchanged": true,
+          "hiddenVolumeUnchanged": true,
+          "sdkClean": true,
+          "portsReusedByOtherPids": 0
+        }
+      }
+    ],
+    "reverseControl": "passed",
+    "otherFrozenFilesSame": 567,
+    "nativeArtifactsSame": true,
+    "hiddenVolumeSame": true,
+    "baselineFrozenFilesIdentical": 568,
+    "unresolvedTail": {
+      "missingMessages": 25,
+      "firstObservedCount1975Ms": 46854,
+      "lastObservedCount1975Ms": 62187,
+      "laterCount1982Ms": 67296,
+      "convergedMs": 72408,
+      "causeKnown": false
+    }
+  },
+  "wholeDeliverySpeedupProven": false,
+  "pushOrRelease": false,
+  "nativeCleanup": {
+    "ownedProcessGroupsExited": 3,
+    "temporaryNativeContainersRemoved": true
+  }
+}
