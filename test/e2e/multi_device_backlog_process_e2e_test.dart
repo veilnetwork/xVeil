@@ -172,6 +172,16 @@ void main() {
       );
       expect(await _ids(c, ai, 'backlog-offline-'), expected);
       await waitUntil(
+        () async {
+          await _ids(a, ci, 'backlog-offline-');
+          return _statuses['A']?['delivered'] == 100;
+        },
+        what:
+            'A has durable delivery confirmation for all 100 offline messages',
+        timeout: const Duration(minutes: 2),
+        interval: const Duration(seconds: 2),
+      );
+      await waitUntil(
         () => offline.elapsed >= const Duration(minutes: 5),
         what: 'B stays offline for at least five real minutes',
         describe: () => 'offlineMs=${offline.elapsedMilliseconds}',
@@ -190,28 +200,37 @@ void main() {
       final recovery = Stopwatch()..start();
       final samples = <Map<String, int>>[];
       var recovered = false;
+      int? allDeliveryObservedAt;
       final evidence = Platform.environment['XVEIL_E2E_EVIDENCE_DIR'];
       try {
         await waitUntil(
           () async {
             final query = Stopwatch()..start();
             final found = await _ids(b, ci, 'backlog-offline-');
-            final complete =
+            final idsComplete =
                 found.length == 100 && equals(expected).matches(found, {});
+            final delivered = _statuses['B']?['delivered'] ?? 0;
+            final complete = idsComplete && delivered == 100;
             samples.add({
               'elapsedMs': recovery.elapsedMilliseconds,
               'fromLaunchMs': launched.elapsedMilliseconds,
               'count': found.length,
               'queryMs': query.elapsedMilliseconds,
+              'delivered': delivered,
+              'idsComplete': idsComplete ? 1 : 0,
               'complete': complete ? 1 : 0,
             });
             E2eLog.line(
-              'BACKLOG_RECOVERY count=${found.length} elapsedMs=${recovery.elapsedMilliseconds} queryMs=${query.elapsedMilliseconds}',
+              'BACKLOG_RECOVERY count=${found.length} elapsedMs=${recovery.elapsedMilliseconds} queryMs=${query.elapsedMilliseconds} delivered=$delivered',
             );
             if (found.length > 100) _observedInvalidSnapshot = true;
+            if (complete) {
+              allDeliveryObservedAt = DateTime.now().millisecondsSinceEpoch;
+            }
             return complete;
           },
-          what: 'B recovers all 100 outgoing mirrors with C offline',
+          what:
+              'B recovers all 100 outgoing mirrors AND delivery states with C offline',
           timeout: const Duration(minutes: 5),
           interval: const Duration(seconds: 5),
         );
@@ -231,6 +250,10 @@ void main() {
               'recovered': recovered,
               if (recovered)
                 'firstCompleteObservationMs': samples.last['elapsedMs'],
+              if (samples.any((s) => s['idsComplete'] == 1))
+                'firstCompleteIdsObservationMs': samples.firstWhere(
+                  (s) => s['idsComplete'] == 1,
+                )['elapsedMs'],
               'samples': samples,
             }),
           );
@@ -241,6 +264,35 @@ void main() {
       expect(await _ids(c, ai, 'backlog-offline-'), expected);
       expect(await _ids(c, ai, 'backlog-base-'), expectedBase);
       expect(await _ids(a, ci, 'backlog-offline-'), expected);
+      final finalLog = await File(b.logPath).readAsString();
+      final liveIds = expected.toSet();
+      final retries = RegExp(r'\[timeline\]: retry id=(\S+) t=(\d+)')
+          .allMatches(finalLog)
+          .where((m) => liveIds.contains(m.group(1)))
+          .toList();
+      final lateRetries = retries
+          .where((m) => int.parse(m.group(2)!) > allDeliveryObservedAt!)
+          .length;
+      E2eLog.line(
+        'BACKLOG_LIVE_COPY_RETRIES=${retries.length} AFTER_DELIVERED=$lateRetries',
+      );
+      expect(
+        lateRetries,
+        0,
+        reason: 'observed durable delivery must stop later retry attempts',
+      );
+      if (evidence != null) {
+        await File('$evidence/live-copy-retries.json').writeAsString(
+          jsonEncode({
+            'retryAttempts': retries.length,
+            'distinctRetriedMessages': retries
+                .map((m) => m.group(1))
+                .toSet()
+                .length,
+            'attemptsAfterAllDeliveryObserved': lateRetries,
+          }),
+        );
+      }
       expect(
         _observedInvalidSnapshot,
         isFalse,

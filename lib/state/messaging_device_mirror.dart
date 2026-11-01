@@ -338,16 +338,19 @@ class _MessagingDeviceMirror {
   /// siblings already bounded and is a no-op here.
   /// Write a sibling's report of how far one of our messages has got.
   ///
-  /// Silent when the message is not here yet: the mirror that carries it and
-  /// the status ride the same log, so the next fold replay applies this once
-  /// the message exists. Never fires [onMessageStatusChanged] — an event from
-  /// the device group must not loop back into it.
+  /// A delivery can arrive before its mirror, or during append. Remember it
+  /// before awaiting storage so append can commit the terminal state instead
+  /// of exposing another retry job. The signed device journal/history remain
+  /// the durable sources after eviction/restart. Never publishes back.
   Future<void> applyMessageStatus({
     required NodeId peer,
     required String msgId,
     required MessageStatus status,
   }) async {
     if (_owner._disposed) return;
+    if (status == MessageStatus.delivered) {
+      _owner._messageDelivery.noteMirroredDelivery(peer.hex, msgId);
+    }
     try {
       await _owner._storage.markMessageStatus(peer.hex, msgId, status);
     } catch (e) {
@@ -551,7 +554,8 @@ class _MessagingDeviceMirror {
       // an authenticated sibling repairs its status without changing content,
       // time or provenance. A failed snapshot cannot undo a newer retry.
       var deliveryChanged = false;
-      if (status == MessageStatus.delivered &&
+      if ((status == MessageStatus.delivered ||
+              _owner._messageDelivery.hasMirroredDelivery(peer.hex, msgId)) &&
           direction == MessageDirection.outgoing) {
         final held = await _owner._storage.loadMessageById(peer.hex, msgId);
         if (held?.direction == MessageDirection.outgoing) {
@@ -633,6 +637,14 @@ class _MessagingDeviceMirror {
         return false;
       }
     }
+    final initialStatus =
+        direction == MessageDirection.outgoing &&
+            _owner._messageDelivery.hasMirroredDelivery(peer.hex, msgId)
+        ? MessageStatus.delivered
+        : status ??
+              (direction == MessageDirection.outgoing && !reflectedEdit
+                  ? MessageStatus.sent
+                  : MessageStatus.delivered);
     await _owner._storage.appendMessage(
       Message(
         id: msgId,
@@ -642,11 +654,7 @@ class _MessagingDeviceMirror {
         timestamp: DateTime.fromMillisecondsSinceEpoch(
           messageTsOnReceipt(tsMs, _owner._now().millisecondsSinceEpoch),
         ),
-        status:
-            status ??
-            (direction == MessageDirection.outgoing && !reflectedEdit
-                ? MessageStatus.sent
-                : MessageStatus.delivered),
+        status: initialStatus,
         fileContentId: fileContentId,
         fileName: fileName,
         fileSize: fileSize,
@@ -661,6 +669,17 @@ class _MessagingDeviceMirror {
         reflectedEdit: reflectedEdit,
       ),
     );
+    // The constructor may have run before the receipt arrived while append
+    // was pending. Finish its durable status before reporting the apply done.
+    if (direction == MessageDirection.outgoing &&
+        initialStatus != MessageStatus.delivered &&
+        _owner._messageDelivery.hasMirroredDelivery(peer.hex, msgId)) {
+      await _owner._storage.markMessageStatus(
+        peer.hex,
+        msgId,
+        MessageStatus.delivered,
+      );
+    }
     // An erase or an edit that got here FIRST is spent now, exactly as the wire
     // path spends a peer's unsend that outran its post: store, then apply, so
     // the row never shows the superseded text and an erased id is refused if it
