@@ -3204,5 +3204,8 @@
   "inviteShareTab": "Compartir",
   "inviteAddTab": "Añadir",
   "inviteShowLink": "Mostrar enlace de contacto",
-  "inviteNotReady": "Tu QR aparecerá cuando el nodo esté listo. Puedes añadir un contacto en la pestaña Añadir."
+  "inviteNotReady": "Tu QR aparecerá cuando el nodo esté listo. Puedes añadir un contacto en la pestaña Añadir.",
+  "callNoiseSuppression": "Supresión de ruido del micrófono",
+  "callNoiseSuppressionHint": "Reduce el ruido de fondo del micrófono. La cancelación de eco sigue activada.",
+  "callNoiseSuppressionFailed": "No se pudo cambiar la supresión de ruido."
 }

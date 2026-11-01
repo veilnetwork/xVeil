@@ -168,6 +168,8 @@ abstract interface class GroupAudioEngine {
   bool startAudio();
   bool stopAudio();
   void setMicMuted(bool muted);
+  bool get supportsNoiseSuppression => false;
+  bool setNoiseSuppression(bool enabled) => false;
   int peerRxPackets(NodeId peer);
   Map<String, dynamic> getStats() => const {};
   bool get supportsAudioBudget => false;
@@ -233,6 +235,12 @@ class NativeGroupAudioEngine implements GroupAudioEngine {
 
   @override
   void setMicMuted(bool muted) => _engine.setMicMuted(muted);
+
+  @override
+  bool get supportsNoiseSuppression => _engine.supportsNoiseSuppression;
+  @override
+  bool setNoiseSuppression(bool enabled) =>
+      _engine.setNoiseSuppression(enabled);
 
   @override
   int peerRxPackets(NodeId peer) => _engine.peerRxPackets(peer.bytes);
@@ -344,6 +352,20 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   // Keep this in sync with the platforms that bundle the group-engine ABI.
   static bool get isSupportedPlatform =>
       supportsNativeGroupMedia(Platform.operatingSystem);
+
+  bool _noiseSuppressionEnabled = true;
+  bool setNoiseSuppression(bool enabled) {
+    final engine = _engine;
+    if (engine != null) {
+      try {
+        if (!engine.setNoiseSuppression(enabled)) return false;
+      } catch (_) {
+        return false;
+      }
+    }
+    _noiseSuppressionEnabled = enabled;
+    return true;
+  }
 
   final GroupMediaChannelTransport _transport;
   final GroupCallMediaSecretResolver _roomMediaSecret;
@@ -485,6 +507,11 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     _localIdHex = _localNode!.hex;
     final engine = _engineFactory(localId);
     if (engine == null) return false;
+    if (engine.supportsNoiseSuppression &&
+        !engine.setNoiseSuppression(_noiseSuppressionEnabled)) {
+      engine.dispose();
+      return false;
+    }
     _engine = engine;
     try {
       await _networkActivity.acquire(_networkActivityOwner);

@@ -38,6 +38,17 @@ class _Transport implements VeilFlutterTransport {
 }
 
 class _Engine implements VeilMediaEngine {
+  @override
+  bool get supportsNoiseSuppression => true;
+  final noiseSuppression = <bool>[];
+  bool rejectNoiseSuppression = false;
+  @override
+  bool setNoiseSuppression(bool enabled) {
+    if (rejectNoiseSuppression) return false;
+    noiseSuppression.add(enabled);
+    return true;
+  }
+
   _Engine({
     this.nativeStarted = false,
     this.capture = 0,
@@ -137,6 +148,36 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   test(
+    'noise choice survives live toggles and engine rebuild; refusal is not remembered',
+    () async {
+      final engines = [
+        _Engine(nativeStarted: true, capture: 1),
+        _Engine(nativeStarted: true, capture: 1),
+      ];
+      var creates = 0;
+      final controller = VeilCallMediaController(
+        _Transport(),
+        engineFactory:
+            ({required veilChan, required localId, required peerId}) =>
+                engines[creates++],
+      );
+      try {
+        expect(controller.setNoiseSuppression(false), isTrue);
+        expect(await controller.start(_call()), isTrue);
+        expect(engines[0].noiseSuppression, [false]);
+        expect(controller.setNoiseSuppression(true), isTrue);
+        engines[0].rejectNoiseSuppression = true;
+        expect(controller.setNoiseSuppression(false), isFalse);
+        expect(await controller.start(_call()), isTrue);
+        expect(engines[0].disposed, isTrue);
+        expect(engines[1].noiseSuppression, [true]);
+      } finally {
+        await controller.stop();
+      }
+    },
+  );
+
+  test(
     'same-call engine rebuild preserves the last real liveness receipt',
     () async {
       final engines = [
@@ -224,13 +265,13 @@ void main() {
           expect(controller.startedWithoutMicrophone, isTrue);
           expect(unavailable, ['receive-only-start']);
           expect(engine.disposed, isFalse);
-        if (outcome == 'capture-refused' || outcome == 'capture-threw') {
-          engine.muteAccepted = true;
-          engine.throwOnMute = false;
-          expect(await controller.setMicMuted(false), isTrue);
-          expect(controller.startedWithoutMicrophone, isFalse);
-          expect(engine.mutes.last, isFalse);
-        }
+          if (outcome == 'capture-refused' || outcome == 'capture-threw') {
+            engine.muteAccepted = true;
+            engine.throwOnMute = false;
+            expect(await controller.setMicMuted(false), isTrue);
+            expect(controller.startedWithoutMicrophone, isFalse);
+            expect(engine.mutes.last, isFalse);
+          }
         } finally {
           await controller.stop();
           await sub.cancel();
@@ -360,7 +401,7 @@ void main() {
             // void-returning API and demonstrate its missing failure result.
             final dynamic media = controller;
             expect(await media.setMicMuted(muted), isFalse);
-          expect(controller.startedWithoutMicrophone, !muted);
+            expect(controller.startedWithoutMicrophone, !muted);
             expect(
               engine.disposed,
               isFalse,
@@ -369,7 +410,7 @@ void main() {
             engine.muteAccepted = true;
             engine.throwOnMute = false;
             expect(await media.setMicMuted(muted), isTrue);
-          expect(controller.startedWithoutMicrophone, isFalse);
+            expect(controller.startedWithoutMicrophone, isFalse);
           } finally {
             await controller.stop();
           }

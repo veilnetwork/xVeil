@@ -12,6 +12,7 @@ import '../domain/call.dart';
 import '../domain/call_signal.dart';
 import 'messaging.dart';
 import 'call_slot.dart';
+import 'call_noise_suppression.dart';
 import 'call_audio_feedback_schedule.dart';
 import 'group_service_providers.dart';
 import 'p2p_endpoint_service.dart';
@@ -3038,6 +3039,12 @@ final callServiceProvider = Provider<CallService>((ref) {
   final media = transport is VeilFlutterTransport
       ? VeilCallMediaController(transport)
       : null;
+  if (media != null) {
+    final detach = ref
+        .watch(callNoiseSuppressionProvider)
+        .bind(media, media.setNoiseSuppression);
+    ref.onDispose(detach);
+  }
   final svc = CallService(
     messaging,
     media: media,

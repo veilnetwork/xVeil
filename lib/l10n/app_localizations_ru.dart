@@ -8008,4 +8008,15 @@ class AppL10nRu extends AppL10n {
   @override
   String get inviteNotReady =>
       'Ваш QR появится, когда узел будет готов. Чужой контакт можно добавить во вкладке «Добавить».';
+
+  @override
+  String get callNoiseSuppression => 'Шумоподавление микрофона';
+
+  @override
+  String get callNoiseSuppressionHint =>
+      'Уменьшает фоновый шум микрофона. Эхоподавление остаётся включённым.';
+
+  @override
+  String get callNoiseSuppressionFailed =>
+      'Не удалось изменить шумоподавление.';
 }

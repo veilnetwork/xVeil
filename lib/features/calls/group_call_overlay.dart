@@ -12,6 +12,7 @@ import '../../domain/group.dart';
 import '../../domain/group_call.dart';
 import '../../domain/group_policy.dart';
 import '../../l10n/app_localizations.dart';
+import '../../state/call_noise_suppression.dart';
 import '../../state/app_controller.dart';
 import '../../state/call_audio_route.dart';
 import '../../state/call_service.dart' show CallMediaDevice;
@@ -223,6 +224,7 @@ class _GroupCallOverlayState extends ConsumerState<GroupCallOverlay> {
             children: [
               room,
               CallDevicePickerPanel(
+                noiseSuppression: ref.watch(callNoiseSuppressionProvider),
                 devices: devices,
                 onDismiss: () => setState(() => _screenDevices = null),
                 onSelect: (device) => unawaited(_selectScreen(calls, device)),

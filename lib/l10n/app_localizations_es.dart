@@ -8039,4 +8039,15 @@ class AppL10nEs extends AppL10n {
   @override
   String get inviteNotReady =>
       'Tu QR aparecerá cuando el nodo esté listo. Puedes añadir un contacto en la pestaña Añadir.';
+
+  @override
+  String get callNoiseSuppression => 'Supresión de ruido del micrófono';
+
+  @override
+  String get callNoiseSuppressionHint =>
+      'Reduce el ruido de fondo del micrófono. La cancelación de eco sigue activada.';
+
+  @override
+  String get callNoiseSuppressionFailed =>
+      'No se pudo cambiar la supresión de ruido.';
 }

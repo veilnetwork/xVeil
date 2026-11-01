@@ -7940,4 +7940,15 @@ class AppL10nEn extends AppL10n {
   @override
   String get inviteNotReady =>
       'Your contact QR will appear when the node is ready. You can add someone in the Add tab.';
+
+  @override
+  String get callNoiseSuppression => 'Microphone noise suppression';
+
+  @override
+  String get callNoiseSuppressionHint =>
+      'Reduce background noise in your microphone. Echo cancellation stays on.';
+
+  @override
+  String get callNoiseSuppressionFailed =>
+      'Could not change noise suppression.';
 }
