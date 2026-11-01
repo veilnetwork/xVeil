@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:xveil/data/node/node_controller.dart';
 import 'package:xveil/data/transport/bootstrap_invite.dart';
 import 'package:xveil/data/transport/loopback_transport.dart';
@@ -25,9 +26,14 @@ class _Connectivity implements Connectivity {
 
 class _Transport extends LoopbackTransport implements NetworkChangeTransport {
   final observed = <NetworkAttachment>[];
+  int failures = 0;
   @override
   Future<void> networkChanged(NetworkAttachment attachment) async {
     observed.add(attachment);
+    if (failures > 0) {
+      failures--;
+      throw StateError('transient IPC outage');
+    }
   }
 }
 
@@ -52,6 +58,138 @@ Future<void> _flush() => Future<void>.delayed(Duration.zero);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('handover retries a transient failure without another OS event', () {
+    fakeAsync((clock) {
+      final changes = StreamController<List<ConnectivityResult>>(sync: true);
+      var attempts = 0;
+      final observer = NetworkReconnect(
+        current: () async => [ConnectivityResult.wifi],
+        changes: changes.stream,
+        notify: (_, _) async {
+          if (++attempts == 1) throw StateError('transient IPC outage');
+        },
+      );
+      unawaited(observer.start());
+      clock.flushMicrotasks();
+      expect(attempts, 1);
+      clock.elapse(const Duration(seconds: 1));
+      clock.flushMicrotasks();
+      expect(attempts, 2);
+      clock.elapse(const Duration(minutes: 1));
+      expect(attempts, 2, reason: 'successful notification must stop retries');
+      unawaited(observer.dispose());
+      unawaited(changes.close());
+      clock.flushMicrotasks();
+      expect(clock.pendingTimers, isEmpty);
+    });
+  });
+
+  test('failed handover backs off, and disposal cancels its retry', () {
+    fakeAsync((clock) {
+      final changes = StreamController<List<ConnectivityResult>>(sync: true);
+      final attempts = <int>[];
+      final observer = NetworkReconnect(
+        current: () async => [ConnectivityResult.wifi],
+        changes: changes.stream,
+        notify: (_, _) async {
+          attempts.add(clock.elapsed.inSeconds);
+          throw StateError('node unavailable');
+        },
+      );
+      unawaited(observer.start());
+      clock.flushMicrotasks();
+      clock.elapse(const Duration(seconds: 91));
+      expect(attempts, [0, 1, 3, 7, 15, 31, 61, 91]);
+      expect(clock.pendingTimers, hasLength(1));
+      unawaited(observer.dispose());
+      unawaited(changes.close());
+      clock.flushMicrotasks();
+      clock.elapse(const Duration(minutes: 2));
+      expect(attempts, hasLength(8));
+      expect(clock.pendingTimers, isEmpty);
+    });
+  });
+
+  test('a newer attachment supersedes a pending retry generation', () {
+    fakeAsync((clock) {
+      final changes = StreamController<List<ConnectivityResult>>(sync: true);
+      final kinds = <NetworkAttachment>[];
+      final generations = <int>[];
+      final gate = Completer<void>();
+      final observer = NetworkReconnect(
+        current: () async => [ConnectivityResult.wifi],
+        changes: changes.stream,
+        notify: (kind, generation) async {
+          kinds.add(kind);
+          generations.add(generation);
+          if (kinds.length == 1) throw StateError('node unavailable');
+          await gate.future;
+        },
+      );
+      unawaited(observer.start());
+      clock.flushMicrotasks();
+      changes.add([ConnectivityResult.mobile]);
+      clock.flushMicrotasks();
+      clock.elapse(const Duration(seconds: 2));
+      expect(kinds, [NetworkAttachment.wifi, NetworkAttachment.cellular]);
+      expect(generations, [1, 2]);
+      expect(clock.pendingTimers, isEmpty);
+      gate.complete();
+      clock.flushMicrotasks();
+      clock.elapse(const Duration(minutes: 1));
+      expect(kinds, hasLength(2));
+      unawaited(observer.dispose());
+      unawaited(changes.close());
+      clock.flushMicrotasks();
+    });
+  });
+
+  test('fanout retries only failed identities in the same generation', () {
+    fakeAsync((clock) {
+      final connectivity = _Connectivity();
+      final a = _Transport();
+      final b = _Transport()..failures = 1;
+      final stackA = _stack(a), stackB = _stack(b);
+      final container = ProviderContainer(
+        overrides: [
+          networkConnectivityProvider.overrideWithValue(connectivity),
+          realStackProvider.overrideWith((_) => stackA),
+          sessionProvider.overrideWith(
+            (_) => _Session({'a': stackA, 'b': stackB}),
+          ),
+        ],
+      );
+      container.read(networkReconnectProvider);
+      clock.flushMicrotasks();
+      expect(a.observed, [NetworkAttachment.wifi]);
+      expect(b.observed, [NetworkAttachment.wifi]);
+      clock.elapse(const Duration(seconds: 1));
+      expect(a.observed, [NetworkAttachment.wifi]);
+      expect(b.observed, [NetworkAttachment.wifi, NetworkAttachment.wifi]);
+      connectivity.changes.add([ConnectivityResult.mobile]);
+      clock.flushMicrotasks();
+      connectivity.changes.add([ConnectivityResult.wifi]);
+      clock.flushMicrotasks();
+      expect(a.observed, [
+        NetworkAttachment.wifi,
+        NetworkAttachment.cellular,
+        NetworkAttachment.wifi,
+      ]);
+      expect(b.observed, [
+        NetworkAttachment.wifi,
+        NetworkAttachment.wifi,
+        NetworkAttachment.cellular,
+        NetworkAttachment.wifi,
+      ]);
+      container.dispose();
+      unawaited(connectivity.changes.close());
+      unawaited(a.dispose());
+      unawaited(b.dispose());
+      clock.flushMicrotasks();
+      expect(clock.pendingTimers, isEmpty);
+    });
+  });
 
   test(
     'attachment categories match the SDK priority without network details',
@@ -91,7 +229,7 @@ void main() {
       final observer = NetworkReconnect(
         current: () async => [ConnectivityResult.wifi],
         changes: changes.stream,
-        notify: (kind) async => observed.add(kind),
+        notify: (kind, _) async => observed.add(kind),
       );
       await observer.start();
       changes.add([ConnectivityResult.mobile]);
@@ -112,7 +250,7 @@ void main() {
       final observer = NetworkReconnect(
         current: () => initial.future,
         changes: changes.stream,
-        notify: (kind) async => observed.add(kind),
+        notify: (kind, _) async => observed.add(kind),
       );
       final starting = observer.start();
       changes.add([ConnectivityResult.mobile]);
@@ -132,7 +270,7 @@ void main() {
     final observer = NetworkReconnect(
       current: () async => [ConnectivityResult.wifi],
       changes: changes.stream,
-      notify: (kind) async {
+      notify: (kind, _) async {
         observed.add(kind);
         await gate.future;
       },
@@ -159,7 +297,7 @@ void main() {
       final observer = NetworkReconnect(
         current: () async => [ConnectivityResult.wifi],
         changes: changes.stream,
-        notify: (kind) async {
+        notify: (kind, _) async {
           observed.add(kind);
           if (observed.length == 1) await gate.future;
         },
@@ -183,7 +321,7 @@ void main() {
     final observer = NetworkReconnect(
       current: () async => [ConnectivityResult.wifi],
       changes: changes.stream,
-      notify: (kind) async {
+      notify: (kind, _) async {
         observed.add(kind);
         if (observed.length == 1) await gate.future;
       },
@@ -206,7 +344,7 @@ void main() {
       final observer = NetworkReconnect(
         current: () async => [ConnectivityResult.wifi],
         changes: changes.stream,
-        notify: (_) async {
+        notify: (_, _) async {
           if (++attempts == 1) throw StateError('synthetic');
         },
       );
@@ -230,7 +368,7 @@ void main() {
       final observer = NetworkReconnect(
         current: () => initial.future,
         changes: changes.stream,
-        notify: (kind) async {
+        notify: (kind, _) async {
           observed.add(kind);
           await gate.future;
         },

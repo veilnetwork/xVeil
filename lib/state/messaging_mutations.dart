@@ -442,14 +442,6 @@ class _MessagingMutations {
       trimmed,
       customEmoji: customEmoji,
     );
-    // My other devices hold their own copy and hear no `edit:` — that frame
-    // goes to the PEER. Without this they show the superseded text for good.
-    await _owner._deviceMirror.onMessageEdited?.call(
-      NodeId.fromHex(message.conversationId),
-      messageId,
-      trimmed,
-      customEmoji,
-    );
     _owner._signal();
     final destination = NodeId.fromHex(message.conversationId);
     // A compact value-specific ID distinguishes concurrent revisions without
@@ -466,16 +458,45 @@ class _MessagingMutations {
         )
         .toString()
         .substring(0, 32);
-    await _owner.sendDurable(
-      destination,
-      'edit:$operation',
-      WireEnvelope.edit(
-        messageId,
-        trimmed,
-        seq: editSeq,
-        customEmoji: customEmoji,
+    Object? failure;
+    StackTrace? failureTrace;
+    Future<void> attempt(Future<void> Function() action) async {
+      try {
+        await action();
+      } catch (error, trace) {
+        failure ??= error;
+        failureTrace ??= trace;
+      }
+    }
+
+    // Preserve the peer obligation before waiting for sibling publication.
+    // Network I/O can proceed independently after the durable enqueue.
+    await attempt(
+      () => _owner.sendDurable(
+        destination,
+        'edit:$operation',
+        WireEnvelope.edit(
+          messageId,
+          trimmed,
+          seq: editSeq,
+          customEmoji: customEmoji,
+        ),
+        awaitLive: false,
       ),
     );
+    // My other devices hold their own copy and hear no `edit:` — that frame
+    // goes to the PEER. Keep awaiting their durable publication as before.
+    // Try both independent effects even if either persistence step fails, and
+    // report failure rather than claiming that sibling publication succeeded.
+    await attempt(() async {
+      await _owner._deviceMirror.onMessageEdited?.call(
+        destination,
+        messageId,
+        trimmed,
+        customEmoji,
+      );
+    });
+    if (failure != null) Error.throwWithStackTrace(failure!, failureTrace!);
   }
 
   Future<Message?> _find(String messageId) async {
