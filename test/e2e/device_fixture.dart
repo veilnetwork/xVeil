@@ -73,6 +73,8 @@ import 'package:xveil/state/messaging_core.dart';
 import 'package:xveil/state/messaging_providers.dart';
 import 'package:xveil/state/providers.dart';
 
+import '../support/message_apply_census.dart';
+import '../support/timed_native_store.dart';
 import 'convergence_oracle.dart';
 import 'e2e_env.dart';
 import 'relay_cluster.dart';
@@ -270,6 +272,7 @@ class E2eDevice {
   ProviderContainer? _container;
   ProviderSubscription<void>? _bridgeSubscription;
   HiddenVolumeStorage? _storage;
+  MessageApplyCensus? _messageApplyCensus;
   RealVeilStack? _stack;
   NodeId? _nodeId;
   NodeId? _identityId;
@@ -279,6 +282,12 @@ class E2eDevice {
   ProviderContainer get container => _requireUp(_container, 'container');
   HiddenVolumeStorage get storage => _requireUp(_storage, 'storage');
   RealVeilStack get stack => _requireUp(_stack, 'stack');
+
+  Map<String, Object>? messageApplyCensus({bool reset = false}) {
+    final census = _messageApplyCensus;
+    if (reset) census?.reset();
+    return census?.snapshot();
+  }
 
   /// Run [body] IN THIS BOOT'S ZONE — used for every provider read.
   ///
@@ -342,9 +351,31 @@ class E2eDevice {
           await Process.run('chmod', ['700', '${dir.path}/runtime']);
         }
 
-        final storage = HiddenVolumeStorage.async(
-          workerSpaceOpener('${dir.path}/store.hv'),
-        )..useOnDiskTier(Directory('${dir.path}/blobs'));
+        final opener = workerSpaceOpener('${dir.path}/store.hv');
+        final census = Platform.environment['XVEIL_E2E_STORAGE_TIMING'] == '1'
+            ? MessageApplyCensus()
+            : null;
+        _messageApplyCensus = census;
+        final storage =
+            (census == null
+                  ? HiddenVolumeStorage.async(opener)
+                  : CountedMessageStorage(({
+                      required password,
+                      required create,
+                    }) async {
+                      final inner = await opener(
+                        password: password,
+                        create: create,
+                      );
+                      return inner == null
+                          ? null
+                          : TimedNativeStore(
+                              inner,
+                              census.clock,
+                              census.observeRpc,
+                            );
+                    }, census))
+              ..useOnDiskTier(Directory('${dir.path}/blobs'));
         if (!await storage.open(password: password, createIfMissing: true)) {
           _fail('could not unlock its container');
         }
