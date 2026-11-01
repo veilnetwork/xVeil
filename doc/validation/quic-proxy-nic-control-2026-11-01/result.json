@@ -1,0 +1,68 @@
+{
+  "schema": "xveil-quic-proxy-nic-control/1",
+  "clientSdk": "026dd915",
+  "serverSdk": "c8bdfd97",
+  "deliveryCodeChanged": false,
+  "coldLatencyResolved": false,
+  "causalSpeedupProven": false,
+  "fullSixServerLineQualified": false,
+  "phoneOrWindowsQualified": false,
+  "phases": [
+    {
+      "phase": "proxy_with_nic",
+      "secondsFromNodeReady": [
+        37.595,
+        38.322
+      ],
+      "activeHeld3s": true,
+      "remoteAbsentAtFirstPostLockQuery": true
+    },
+    {
+      "phase": "obfs4_control",
+      "secondsFromNodeReady": [
+        1.515,
+        1.53,
+        1.534
+      ],
+      "activeHeld3s": true,
+      "remoteAbsentAtFirstPostLockQuery": true
+    }
+  ],
+  "nic": {
+    "pcapRecords": 1008,
+    "kernelCaptureDrops": 0,
+    "serverRxSamplesMatched": 39,
+    "serverRxSamplesTotal": 39,
+    "serverTxSamplesMatched": 32,
+    "serverTxSamplesTotal": 32,
+    "failedAttempts": [
+      {
+        "proxyOutgoing": 33,
+        "matchedAtNic": 4,
+        "shortOutgoing": 29,
+        "shortMatchedAtNic": 0
+      },
+      {
+        "proxyOutgoing": 32,
+        "matchedAtNic": 4,
+        "shortOutgoing": 28,
+        "shortMatchedAtNic": 0
+      }
+    ],
+    "uniqueHealthyControl": {
+      "proxyOutgoing": 110,
+      "matchedAtNic": 110,
+      "shortOutgoing": 99,
+      "shortMatchedAtNic": 99
+    }
+  },
+  "teardown": {
+    "ownAppsExited": 5,
+    "temporaryRuntimesRemoved": 5,
+    "proxyAndHasherExited": true,
+    "captureExited": true,
+    "sshObserversExited": true,
+    "testServicesStoppedAfterEachSeries": 6,
+    "productionUnchangedAfterEachSeries": 6
+  }
+}
