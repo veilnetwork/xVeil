@@ -11,6 +11,7 @@ import 'package:xveil/domain/call_log.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/state/call_service.dart';
 import 'package:xveil/state/call_media_route_operations.dart';
+import 'package:xveil/state/call_media_receive_activity.dart';
 import 'package:xveil/state/call_slot.dart';
 import 'package:xveil/state/messaging.dart';
 import 'package:xveil/state/veil_call_media.dart';
@@ -205,17 +206,24 @@ void main() {
     expect(captures, isNotEmpty);
     expect(captures.last.capture!.audio, isFalse);
 
-    await svc.setMicEnabled(true);
-    await pumpEventQueue();
-    expect(svc.current?.micOn, isFalse,
-        reason: 'an unavailable input cannot be advertised as transmitting');
-    media.startedWithoutMicrophone = false;
-    await svc.setMicEnabled(true);
-    await pumpEventQueue();
-    expect(svc.current?.micOn, isTrue,
-        reason: 'a later successful microphone retry remains available');
-    expect(wire.sent.last.capture?.audio, isTrue);
-  });
+      await svc.setMicEnabled(true);
+      await pumpEventQueue();
+      expect(
+        svc.current?.micOn,
+        isFalse,
+        reason: 'an unavailable input cannot be advertised as transmitting',
+      );
+      media.startedWithoutMicrophone = false;
+      await svc.setMicEnabled(true);
+      await pumpEventQueue();
+      expect(
+        svc.current?.micOn,
+        isTrue,
+        reason: 'a later successful microphone retry remains available',
+      );
+      expect(wire.sent.last.capture?.audio, isTrue);
+    },
+  );
 
   test(
     'terminal call diagnostics retain reason after the live slot clears',
@@ -2056,6 +2064,50 @@ void main() {
       });
     });
 
+    test(
+      'repair retains the real receipt but does not extend its deadline',
+      () {
+        fakeAsync((async) {
+          final wire = _FakeMessaging();
+          final media = _ReceiveHistoryMedia();
+          final svc = CallService(wire, now: () => clock.now(), media: media)
+            ..start();
+          wire.onCallSignal!(peer, offer('repair-history'));
+          svc.accept();
+          async.flushMicrotasks();
+          media.receipts.observe({
+            'rx_pkts': 1,
+            'worker_stalled': 0,
+          }, clock.now());
+          async.elapse(const Duration(seconds: 9));
+          media.receipts.observe({
+            'rx_pkts': 2,
+            'worker_stalled': 0,
+          }, clock.now());
+          async.elapse(const Duration(seconds: 1));
+          media.receipts.reset(preserveLastRxAt: true);
+          media.receiveRepairing = true;
+          // The peer was last heard at t=9; a local rebuild at t=10 neither
+          // deletes that evidence nor supplies a newer t=10 proof of life.
+          async.elapse(const Duration(seconds: 15));
+          async.flushMicrotasks();
+          expect(
+            svc.current?.status,
+            CallStatus.active,
+            reason: 't=25 is only 16 seconds since the real receipt',
+          );
+          async.elapse(const Duration(seconds: 5));
+          async.flushMicrotasks();
+          expect(
+            svc.current,
+            isNull,
+            reason: 't=30 exceeds the unchanged 20-second deadline from t=9',
+          );
+          svc.dispose();
+        });
+      },
+    );
+
     test('inbound heartbeats keep the call alive past the timeout', () {
       fakeAsync((async) {
         final fake = _FakeMessaging();
@@ -2742,6 +2794,75 @@ void main() {
         });
       },
     );
+
+    for (final mode in ['first report', 'unmute', 'new receive session']) {
+      test('late first capture report preserves established audio ($mode)', () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _FakeMedia()
+            ..liveDirectAdmission = true
+            ..audioTelemetry = true;
+          final svc = CallService(
+            fake,
+            now: () => clock.now(),
+            media: media,
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) async => true,
+          )..start();
+          fake.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: 'late-capture',
+              type: CallSignalType.offer,
+              media: CallMedia(audio: true, video: true),
+              posture: CallPosture.direct,
+              transport: CallTransportProposal(CallTransportKind.p2p),
+            ),
+          );
+          svc.accept();
+          async.flushMicrotasks();
+          expect(svc.current?.status, CallStatus.active);
+          expect(svc.current?.peerCapture, isNull);
+          media.audioRxAt = clock.now();
+          void capture(bool audio) => fake.onCallSignal!(
+            peer,
+            CallSignal(
+              callId: 'late-capture',
+              type: CallSignalType.health,
+              capture: CallMedia(audio: audio, video: true),
+              sentAtMs: clock.now().millisecondsSinceEpoch,
+            ),
+          );
+          if (mode == 'unmute') capture(false);
+          async.elapse(const Duration(seconds: 1));
+          if (mode == 'new receive session') {
+            media.receiveStartedAt = clock.now();
+          }
+          // Audio was received before this first capture report. When the
+          // network changes between them, no later packet can validate the
+          // existing session again. A first report is not evidence of unmute.
+          capture(true);
+          for (var i = 0; i < 5; i++) {
+            media.rxAt = clock.now(); // parent / video remain healthy
+            async.elapse(const Duration(seconds: 1));
+            async.flushMicrotasks();
+          }
+          expect(
+            media.switches,
+            mode == 'first report' ? [CallTransportKind.relay] : isEmpty,
+          );
+          expect(svc.current?.status, CallStatus.active);
+          expect(svc.current?.callId, 'late-capture');
+          expect(
+            media.liveDirectAdmission,
+            isTrue,
+            reason: 'parent admission must not hide the audio outage',
+          );
+          svc.dispose();
+          async.flushMicrotasks();
+        });
+      });
+    }
 
     for (final mode in [
       'stopped',
@@ -6872,6 +6993,17 @@ class _FailOnceDirectSwitchMedia extends _FakeMedia {
     openedTransport = transport;
     return true;
   }
+}
+
+class _ReceiveHistoryMedia extends _FakeMedia {
+  final receipts = CallMediaReceiveActivity();
+
+  @override
+  DateTime? get lastMediaRxAt => receipts.lastRxAt;
+
+  @override
+  Future<DateTime?> readLatestMediaRxAt() async =>
+      receiveRepairing ? null : receipts.lastRxAt;
 }
 
 class _SnapshotMedia extends _FakeMedia {
