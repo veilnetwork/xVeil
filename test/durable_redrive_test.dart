@@ -319,6 +319,53 @@ void main() {
       )).firstWhere((m) => m.body == body).id;
     }
 
+    test('an unanswered call transition retries promptly after route recovery '
+        'even after the fast retry ladder is exhausted', () async {
+      final frameId = 'call:handover:answer:${b.hex}';
+      final wire = WireEnvelope.callSignal(
+        CallSignal(
+          callId: 'handover',
+          type: CallSignalType.answer,
+          sentAtMs: clock.millisecondsSinceEpoch,
+        ).encode(),
+      ).withFrameId(frameId).encode();
+      final received = <CallSignal>[];
+      mB.onCallSignal = (peer, signal) {
+        if (peer == a) received.add(signal);
+      };
+      // Restore a real durable row, as after restart or the initial fast
+      // retries. Transport admission succeeds while the obsolete route drops
+      // every copy; only B's actual receipt/ACK can complete this transition.
+      await sA.enqueueOutboxFrame(frameId, b.hex, wire);
+      tA.peer = null;
+      for (var attempt = 0; attempt < 7; attempt++) {
+        if (attempt > 0) clock = clock.add(const Duration(seconds: 8));
+        await mA.debugFlushOutboxFrames();
+        await _settle();
+      }
+      expect(tA.sentFrameIds.where((id) => id == frameId).length, 7);
+      expect((await sA.pendingOutboxFrames()).map((f) => f.frameId),
+          contains(frameId));
+      expect(received, isEmpty);
+
+      tA.peer = tB;
+      clock = clock.add(const Duration(seconds: 3));
+      await mA.debugFlushOutboxFrames();
+      await _settle();
+      expect(await sA.pendingOutboxFrames(), isEmpty,
+          reason: 'a healed call route must not wait another 16 seconds '
+              'for its next attempt; B must receive and ACK the same row');
+      final afterAck = tA.sentFrameIds.where((id) => id == frameId).length;
+      expect(afterAck, 8);
+      expect(received.map((signal) => signal.callId), ['handover']);
+      expect(received.single.type, CallSignalType.answer);
+      clock = clock.add(const Duration(seconds: 3));
+      await mA.debugFlushOutboxFrames();
+      await _settle();
+      expect(tA.sentFrameIds.where((id) => id == frameId).length, afterAck,
+          reason: 'the real receipt must retire further attempts');
+    });
+
     test('EDIT lost on first attempt is re-driven, applied once, and the ack '
         'retires it', () async {
       final id = await seed('meet at noon');
