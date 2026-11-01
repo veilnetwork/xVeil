@@ -1,0 +1,75 @@
+{
+  "schema": "xveil-message-point-lookup/1",
+  "pointLookupMechanismFixed": true,
+  "overallCatchupLatencyResolved": false,
+  "globalSpeedupProven": false,
+  "tests": {
+    "oldFixturePassed": 0,
+    "oldFixtureFailed": 5,
+    "scopedPassed": 259,
+    "nativeFixturePassed": 5,
+    "nativeMigrationPassed": 1,
+    "analysisClean": true
+  },
+  "nativeABA": [
+    {
+      "phase": "native-a1",
+      "baseRows": 2000,
+      "workerBacked": true,
+      "mirrors": 100,
+      "fullReads": 100,
+      "projectedRows": 204950,
+      "pointReads": 0,
+      "elapsedUs": 2131404
+    },
+    {
+      "phase": "native-b2",
+      "baseRows": 2000,
+      "workerBacked": true,
+      "mirrors": 100,
+      "fullReads": 0,
+      "projectedRows": 0,
+      "pointReads": 100,
+      "elapsedUs": 1893346
+    },
+    {
+      "phase": "native-a2",
+      "baseRows": 2000,
+      "workerBacked": true,
+      "mirrors": 100,
+      "fullReads": 100,
+      "projectedRows": 204950,
+      "pointReads": 0,
+      "elapsedUs": 2072355
+    }
+  ],
+  "migration": {
+    "migrationOnly": true,
+    "baseRows": 2000,
+    "initialHistoryMs": 77121,
+    "initialBStatuses": {
+      "sending": 0,
+      "sent": 0,
+      "delivered": 2000,
+      "failed": 0
+    },
+    "completedHistoryRetries": 0,
+    "convergedIdsAndOrder": true,
+    "invalidSnapshotObserved": false,
+    "offlineScenarioExecuted": false
+  },
+  "migrationTotalSeconds": 269.56,
+  "migrationNativeControlSdk": "f7a4fb97",
+  "cumulativeSdkQualified": false,
+  "androidOrWindowsQualified": false,
+  "cleanup": {
+    "ownPidsChecked": 15,
+    "portsChecked": 14,
+    "liveProcesses": 0,
+    "remainingListeners": 0,
+    "runtimeRemoved": true,
+    "nativeFixtureDirectoriesRemoved": true,
+    "frozenDartFilesVerified": 565
+  },
+  "pushedOrReleased": false
+}
