@@ -119,6 +119,10 @@ void main() {
               await response.writeAsString(
                 jsonEncode({
                   'nonce': request['nonce'],
+                  if (request['storageTiming'] == true)
+                    'storageTiming': device!.messageApplyCensus(
+                      reset: request['resetStorageTiming'] == true,
+                    ),
                   if (authorization.isNotEmpty) 'authorization': authorization,
                   'count': messages.length,
                   if (request['includeIds'] == true)

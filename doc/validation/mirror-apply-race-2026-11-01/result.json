@@ -1,0 +1,425 @@
+{
+  "schema": "xveil-mirror-apply-validation/1",
+  "deterministicRed": {
+    "passed": 3,
+    "failed": 2,
+    "failures": [
+      "duplicate_raw_post",
+      "delivered_overwritten_by_sent"
+    ]
+  },
+  "unitQualification": {
+    "scopedPassed": 276,
+    "finalRaceAndCensusPassed": 10
+  },
+  "frozenOldSdkMigration": {
+    "sdk": "f7a4fb97",
+    "rows": 2000,
+    "firstCompleteObservationMs": 102971,
+    "convergedIdsAndOrder": true,
+    "delivered": 2000,
+    "oldMessageRetries": 0,
+    "receiverAppendCompleted": 2001,
+    "receiverDuplicateCompletedInWindow": 0,
+    "offlineScenarioExecuted": false,
+    "ownedPidsChecked": 15,
+    "portsChecked": 13,
+    "runtimeRootRemoved": true
+  },
+  "counters": "test-only, completed waits overlap; namespace buckets inclusive",
+  "currentSdkMigration": {
+    "sdk": "eb644a83",
+    "rows": 2000,
+    "firstCompleteObservationMs": 103068,
+    "convergedIdsAndOrder": true,
+    "delivered": 2000,
+    "oldMessageRetries": 0,
+    "offlineScenarioExecuted": false,
+    "sourceUnchangedDuringRun": true,
+    "durationSeconds": 295.344,
+    "cleanup": {
+      "ownedPidsChecked": 18,
+      "portsChecked": 18,
+      "livePids": [],
+      "remainingListeners": [],
+      "runtimeRootRemoved": true,
+      "frozenFilesVerified": 568,
+      "nativeArtifactsUnchanged": true,
+      "hiddenVolumeUnchanged": true,
+      "sdkClean": true
+    },
+    "storageTimingResetBeforeLink": [
+      "A",
+      "B"
+    ],
+    "storageTiming": {
+      "A": {
+        "schema": "xveil-test-message-apply-census/1",
+        "windowUs": 122210935,
+        "appendStarted": 0,
+        "appendCompleted": 0,
+        "appendFailed": 0,
+        "duplicateCompletedInWindow": 0,
+        "appendActive": 0,
+        "appendMaxActive": 0,
+        "appendAwaitUs": 0,
+        "appendMaxAwaitUs": 0,
+        "appendCompletedFromEarlierStarts": 0,
+        "trackedKeys": 0,
+        "keyLimitReached": false,
+        "rpcCompleted": {
+          "kv.commit.other": {
+            "count": 2366,
+            "awaitUs": 81460233,
+            "maxAwaitUs": 572044,
+            "startedBeforeWindow": 0
+          },
+          "kv.erase": {
+            "count": 4,
+            "awaitUs": 476,
+            "maxAwaitUs": 155,
+            "startedBeforeWindow": 0
+          },
+          "kv.get": {
+            "count": 10270,
+            "awaitUs": 66060350,
+            "maxAwaitUs": 566888,
+            "startedBeforeWindow": 0
+          },
+          "kv.getBatch": {
+            "count": 2949,
+            "awaitUs": 10640993,
+            "maxAwaitUs": 591960,
+            "startedBeforeWindow": 0
+          },
+          "kv.iterLogRange": {
+            "count": 120,
+            "awaitUs": 2569200,
+            "maxAwaitUs": 154383,
+            "startedBeforeWindow": 0
+          },
+          "kv.keys": {
+            "count": 6,
+            "awaitUs": 127622,
+            "maxAwaitUs": 75228,
+            "startedBeforeWindow": 0
+          },
+          "kv.readLogBatch": {
+            "count": 7030,
+            "awaitUs": 33854689,
+            "maxAwaitUs": 611300,
+            "startedBeforeWindow": 0
+          },
+          "kv.scrub": {
+            "count": 3,
+            "awaitUs": 1775209,
+            "maxAwaitUs": 611316,
+            "startedBeforeWindow": 0
+          }
+        },
+        "rpcNamespacesCompleted": {
+          "kv.commit.fileChunks": {
+            "count": 297,
+            "awaitUs": 9253653,
+            "maxAwaitUs": 101642,
+            "startedBeforeWindow": 0
+          },
+          "kv.commit.outbox": {
+            "count": 1070,
+            "awaitUs": 38359088,
+            "maxAwaitUs": 572044,
+            "startedBeforeWindow": 0
+          },
+          "kv.commit.outboxIndex": {
+            "count": 1070,
+            "awaitUs": 38359088,
+            "maxAwaitUs": 572044,
+            "startedBeforeWindow": 0
+          },
+          "kv.commit.ratchet": {
+            "count": 439,
+            "awaitUs": 16475665,
+            "maxAwaitUs": 144578,
+            "startedBeforeWindow": 0
+          },
+          "kv.commit.settings": {
+            "count": 972,
+            "awaitUs": 30727248,
+            "maxAwaitUs": 145134,
+            "startedBeforeWindow": 0
+          },
+          "kv.erase.outbox": {
+            "count": 2,
+            "awaitUs": 291,
+            "maxAwaitUs": 155,
+            "startedBeforeWindow": 0
+          },
+          "kv.erase.outboxIndex": {
+            "count": 2,
+            "awaitUs": 185,
+            "maxAwaitUs": 109,
+            "startedBeforeWindow": 0
+          },
+          "kv.get.contacts": {
+            "count": 3043,
+            "awaitUs": 35491566,
+            "maxAwaitUs": 545346,
+            "startedBeforeWindow": 0
+          },
+          "kv.get.ratchet": {
+            "count": 76,
+            "awaitUs": 1267859,
+            "maxAwaitUs": 139359,
+            "startedBeforeWindow": 0
+          },
+          "kv.get.settings": {
+            "count": 7151,
+            "awaitUs": 29300925,
+            "maxAwaitUs": 566888,
+            "startedBeforeWindow": 0
+          },
+          "kv.getBatch.settings": {
+            "count": 2949,
+            "awaitUs": 10640993,
+            "maxAwaitUs": 591960,
+            "startedBeforeWindow": 0
+          },
+          "kv.iterLogRange.callLog": {
+            "count": 2,
+            "awaitUs": 35479,
+            "maxAwaitUs": 24193,
+            "startedBeforeWindow": 0
+          },
+          "kv.iterLogRange.messageLog": {
+            "count": 118,
+            "awaitUs": 2533721,
+            "maxAwaitUs": 154383,
+            "startedBeforeWindow": 0
+          },
+          "kv.keys.ratchet": {
+            "count": 1,
+            "awaitUs": 199,
+            "maxAwaitUs": 199,
+            "startedBeforeWindow": 0
+          },
+          "kv.keys.settings": {
+            "count": 5,
+            "awaitUs": 127423,
+            "maxAwaitUs": 75228,
+            "startedBeforeWindow": 0
+          },
+          "kv.readLogBatch.fileChunks": {
+            "count": 7030,
+            "awaitUs": 33854689,
+            "maxAwaitUs": 611300,
+            "startedBeforeWindow": 0
+          }
+        }
+      },
+      "B": {
+        "schema": "xveil-test-message-apply-census/1",
+        "windowUs": 110593641,
+        "appendStarted": 2001,
+        "appendCompleted": 2001,
+        "appendFailed": 0,
+        "duplicateCompletedInWindow": 0,
+        "appendActive": 0,
+        "appendMaxActive": 26,
+        "appendAwaitUs": 811114832,
+        "appendMaxAwaitUs": 1279751,
+        "appendCompletedFromEarlierStarts": 0,
+        "trackedKeys": 2001,
+        "keyLimitReached": false,
+        "rpcCompleted": {
+          "kv.commit.messageLog": {
+            "count": 2149,
+            "awaitUs": 62046625,
+            "maxAwaitUs": 212856,
+            "startedBeforeWindow": 0
+          },
+          "kv.commit.other": {
+            "count": 1033,
+            "awaitUs": 31909668,
+            "maxAwaitUs": 112075,
+            "startedBeforeWindow": 0
+          },
+          "kv.count": {
+            "count": 1,
+            "awaitUs": 720,
+            "maxAwaitUs": 720,
+            "startedBeforeWindow": 0
+          },
+          "kv.erase": {
+            "count": 2,
+            "awaitUs": 90197,
+            "maxAwaitUs": 61843,
+            "startedBeforeWindow": 0
+          },
+          "kv.get": {
+            "count": 10712,
+            "awaitUs": 85016838,
+            "maxAwaitUs": 233720,
+            "startedBeforeWindow": 0
+          },
+          "kv.getBatch": {
+            "count": 2864,
+            "awaitUs": 10731199,
+            "maxAwaitUs": 70023,
+            "startedBeforeWindow": 0
+          },
+          "kv.iterLogRange": {
+            "count": 721,
+            "awaitUs": 12030583,
+            "maxAwaitUs": 207721,
+            "startedBeforeWindow": 0
+          },
+          "kv.keys": {
+            "count": 19,
+            "awaitUs": 143675,
+            "maxAwaitUs": 35193,
+            "startedBeforeWindow": 0
+          },
+          "kv.readLogBatch": {
+            "count": 6814,
+            "awaitUs": 32195609,
+            "maxAwaitUs": 142211,
+            "startedBeforeWindow": 0
+          },
+          "kv.scrub": {
+            "count": 3,
+            "awaitUs": 572837,
+            "maxAwaitUs": 233722,
+            "startedBeforeWindow": 0
+          }
+        },
+        "rpcNamespacesCompleted": {
+          "kv.commit.contacts": {
+            "count": 1,
+            "awaitUs": 57209,
+            "maxAwaitUs": 57209,
+            "startedBeforeWindow": 0
+          },
+          "kv.commit.fileChunks": {
+            "count": 293,
+            "awaitUs": 7977505,
+            "maxAwaitUs": 93596,
+            "startedBeforeWindow": 0
+          },
+          "kv.commit.messageLog": {
+            "count": 2149,
+            "awaitUs": 62046625,
+            "maxAwaitUs": 212856,
+            "startedBeforeWindow": 0
+          },
+          "kv.commit.outbox": {
+            "count": 2,
+            "awaitUs": 97915,
+            "maxAwaitUs": 52390,
+            "startedBeforeWindow": 0
+          },
+          "kv.commit.outboxIndex": {
+            "count": 2,
+            "awaitUs": 97915,
+            "maxAwaitUs": 52390,
+            "startedBeforeWindow": 0
+          },
+          "kv.commit.ratchet": {
+            "count": 407,
+            "awaitUs": 14816781,
+            "maxAwaitUs": 112075,
+            "startedBeforeWindow": 0
+          },
+          "kv.commit.settings": {
+            "count": 902,
+            "awaitUs": 27629756,
+            "maxAwaitUs": 101943,
+            "startedBeforeWindow": 0
+          },
+          "kv.count.outbox": {
+            "count": 1,
+            "awaitUs": 720,
+            "maxAwaitUs": 720,
+            "startedBeforeWindow": 0
+          },
+          "kv.erase.outbox": {
+            "count": 1,
+            "awaitUs": 61843,
+            "maxAwaitUs": 61843,
+            "startedBeforeWindow": 0
+          },
+          "kv.erase.outboxIndex": {
+            "count": 1,
+            "awaitUs": 28354,
+            "maxAwaitUs": 28354,
+            "startedBeforeWindow": 0
+          },
+          "kv.get.contacts": {
+            "count": 1932,
+            "awaitUs": 29837999,
+            "maxAwaitUs": 143662,
+            "startedBeforeWindow": 0
+          },
+          "kv.get.ratchet": {
+            "count": 31,
+            "awaitUs": 182674,
+            "maxAwaitUs": 28131,
+            "startedBeforeWindow": 0
+          },
+          "kv.get.settings": {
+            "count": 8749,
+            "awaitUs": 54996165,
+            "maxAwaitUs": 233720,
+            "startedBeforeWindow": 0
+          },
+          "kv.getBatch.settings": {
+            "count": 2864,
+            "awaitUs": 10731199,
+            "maxAwaitUs": 70023,
+            "startedBeforeWindow": 0
+          },
+          "kv.iterLogRange.callLog": {
+            "count": 1,
+            "awaitUs": 7771,
+            "maxAwaitUs": 7771,
+            "startedBeforeWindow": 0
+          },
+          "kv.iterLogRange.messageLog": {
+            "count": 720,
+            "awaitUs": 12022812,
+            "maxAwaitUs": 207721,
+            "startedBeforeWindow": 0
+          },
+          "kv.keys.outboxIndex": {
+            "count": 1,
+            "awaitUs": 227,
+            "maxAwaitUs": 227,
+            "startedBeforeWindow": 0
+          },
+          "kv.keys.ratchet": {
+            "count": 4,
+            "awaitUs": 1363,
+            "maxAwaitUs": 795,
+            "startedBeforeWindow": 0
+          },
+          "kv.keys.settings": {
+            "count": 14,
+            "awaitUs": 142085,
+            "maxAwaitUs": 35193,
+            "startedBeforeWindow": 0
+          },
+          "kv.readLogBatch.fileChunks": {
+            "count": 6814,
+            "awaitUs": 32195609,
+            "maxAwaitUs": 142211,
+            "startedBeforeWindow": 0
+          }
+        }
+      }
+    }
+  },
+  "limitations": [
+    "No end-to-end speedup claim",
+    "Not complete offline/revoke/split-brain/crash matrix",
+    "No user Windows/Android or production server changes"
+  ]
+}

@@ -504,7 +504,75 @@ class _MessagingDeviceMirror {
     return until != null && until > _owner._now().millisecondsSinceEpoch;
   }
 
+  // Active work only, not a cache of completed applies. A live mirror and a
+  // folded/history copy can both see a missing row before append is visible.
+  // Serialize their complete read/modify/write turn without blocking another
+  // (conversation, message) key. Failure releases the next retry too.
+  final _mirrorApplyTails = <(String, String), Future<void>>{};
+
   Future<bool> applyMessage({
+    String? author,
+    int? seq,
+    bool? positionVerified,
+    bool reflectedEdit = false,
+    String? replyToId,
+    String? forwardedFrom,
+    required NodeId peer,
+    required String msgId,
+    required MessageDirection direction,
+    required String body,
+    required int tsMs,
+    // Outgoing rows default to `sent`; a caller that KNOWS the peer holds the
+    // message says so, or the outbox re-sends it.
+    MessageStatus? status,
+    String? fileContentId,
+    String? fileName,
+    int? fileSize,
+    String? thumb,
+    List<InlineCustomEmoji> customEmoji = const [],
+  }) {
+    if (_owner._disposed) return Future<bool>.value(false);
+    // Keep the admission's owner, not the one present after a queued write.
+    final binding = _owner.groupBindingsOwner;
+    final key = (peer.hex, msgId);
+    final previous = _mirrorApplyTails[key] ?? Future<void>.value();
+    final result = previous.then<bool>((_) {
+      if (_owner._disposed || !identical(binding, _owner.groupBindingsOwner)) {
+        return false;
+      }
+      return _applyMessage(
+        binding: binding,
+        author: author,
+        seq: seq,
+        positionVerified: positionVerified,
+        reflectedEdit: reflectedEdit,
+        replyToId: replyToId,
+        forwardedFrom: forwardedFrom,
+        peer: peer,
+        msgId: msgId,
+        direction: direction,
+        body: body,
+        tsMs: tsMs,
+        status: status,
+        fileContentId: fileContentId,
+        fileName: fileName,
+        fileSize: fileSize,
+        thumb: thumb,
+        customEmoji: customEmoji,
+      );
+    });
+    late final Future<void> settled;
+    settled = result.then<void>((_) {}, onError: (_) {}).whenComplete(() {
+      if (identical(_mirrorApplyTails[key], settled)) {
+        _mirrorApplyTails.remove(key);
+      }
+    });
+    _mirrorApplyTails[key] = settled;
+    return result;
+  }
+
+  Future<bool> _applyMessage({
+    required Object? binding,
     String? author,
     int? seq,
     bool? positionVerified,
@@ -533,7 +601,6 @@ class _MessagingDeviceMirror {
     // carried the chat back, and the device ended up with an unanswerable
     // "pending" contact that was ITSELF.
     if (_owner._disposed) return false;
-    final binding = _owner.groupBindingsOwner;
     if (await _owner._isSiblingDevice(peer) ||
         _owner._disposed ||
         !identical(binding, _owner.groupBindingsOwner)) {
