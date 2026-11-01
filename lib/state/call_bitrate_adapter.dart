@@ -916,6 +916,16 @@ class CallBitrateAdapter {
     // recovery. Healthy incoming audio can earn a sparse video probe; growing
     // beyond that floor still needs fresh video reports from every receiver.
     if (!sendAudioExpected) {
+      final reserveCredit =
+          requireAudioReceivePlayout &&
+              requiredReports == 1 &&
+              (audioReceiveDelayMs == null || audioReceiveTargetDelayMs != null)
+          ? CallAudioPlayoutReserve.creditMs(receiveDelay, receiveTarget)
+          : 0;
+      final pressureDelay = CallAudioPlayoutReserve.pressureDelayMs(
+        receiveDelay,
+        reserveCredit,
+      );
       final incomingHealthy =
           !receiveRequested ||
           (receive.expected &&
@@ -923,7 +933,13 @@ class CallBitrateAdapter {
               receive.ageMs! >= 0 &&
               receive.ageMs! < audioReceiveRecoverMs &&
               (!requireAudioReceivePlayout ||
-                  (receiveDelay != null && receiveDelay < playoutRecoverMs)));
+                  (pressureDelay != null &&
+                      pressureDelay < playoutRecoverMs &&
+                      CallAudioPlayoutReserve.targetAllowsGrowth(
+                        receiveTarget,
+                        reserveCredit,
+                        recoverMs: playoutRecoverMs,
+                      ))));
       final drops = effectiveDrops;
       final newDrops = _lastTxDrops != null && drops > _lastTxDrops!;
       if (!networkLoss.video &&
@@ -1613,16 +1629,13 @@ class CallBitrateAdapter {
         txLossPct == 0;
     // The decoder has already compensated this arrival jitter. Do not
     // grant ordinary ladder growth: only fresh causal video ACKs may spend
-    // the existing bounded probe, on a stable RTT route and with both audio
-    // directions measured. Legacy, partial and merely requested reserves do
+    // the existing bounded probe, on a stable RTT route and with all expected
+    // audio directions measured. A deliberately muted/absent mic is not
+    // missing feedback. Legacy, partial and merely requested reserves do
     // not qualify. Loss, growth, repair holds and source pressure still win.
     _deliveryJitterProbeEligible =
         _delivery.supported &&
         measuredPlayoutPathHealthy &&
-        sendAudioExpected &&
-        receiveAudioExpected &&
-        requirePeerAudioPlayout &&
-        requireAudioReceivePlayout &&
         (peerReserveCredit > 0 || receiveReserveCredit > 0) &&
         !jitterGood &&
         (rttGood || highBaselineRttWarning) &&
