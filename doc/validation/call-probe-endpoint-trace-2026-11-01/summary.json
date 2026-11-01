@@ -1,0 +1,132 @@
+{
+  "schema": "xveil-endpoint-probe-validation/1",
+  "productionBase": "15791454",
+  "productionChanged": false,
+  "physical": {
+    "schema": "xveil-handover-observation/1",
+    "requiredObservationSeconds": 40,
+    "endpoints": {
+      "phone": {
+        "preconditionVerified": true,
+        "samplesAfterCut": 40,
+        "observationSeconds": 41.655,
+        "coverageVerified": true,
+        "missingOrNonActiveSamples": 0,
+        "firstCallLostAfterCutMs": null,
+        "callSurvivalVerified": true,
+        "freshAudioAtEnd": true,
+        "allSampledAudioFresh": false,
+        "maxSampledAudioPayloadAgeWithinEpochMs": 11358,
+        "continuousAudioGapUpperBoundMs": null
+      },
+      "windows": {
+        "preconditionVerified": true,
+        "samplesAfterCut": 40,
+        "observationSeconds": 41.666,
+        "coverageVerified": true,
+        "missingOrNonActiveSamples": 0,
+        "firstCallLostAfterCutMs": null,
+        "callSurvivalVerified": true,
+        "freshAudioAtEnd": true,
+        "allSampledAudioFresh": false,
+        "maxSampledAudioPayloadAgeWithinEpochMs": 14685,
+        "continuousAudioGapUpperBoundMs": null
+      }
+    },
+    "callSurvivalVerified": true,
+    "qualityObservationQualified": false
+  },
+  "nativeCapture": {
+    "schema": "xveil-media-probe-capture/1",
+    "endpoints": {
+      "phone": {
+        "sampleRecords": 39,
+        "stages": {
+          "direct_send": 4,
+          "relay_send": 2,
+          "received": 27,
+          "feedback_send": 6,
+          "onion_send_begin": 0,
+          "onion_send_end": 0
+        },
+        "probeBegins": 13,
+        "begunAttemptsWithFreshMatchingReply": 11,
+        "begunAttemptsWithLateMatchingReply": 0,
+        "begunAttemptsWithCancelledMatchingReply": 0,
+        "unrelatedReplyObservations": 10,
+        "initial60ByteRelaySamples": 2,
+        "initialSamplesWithLocalRelayQueueWitness": 2,
+        "initialSamplesObservedAtOtherEndpoint": 0,
+        "initialSamplesNotObservedAtOtherEndpoint": 2,
+        "reportedConsoleDropNotices": 0
+      },
+      "windows": {
+        "sampleRecords": 28,
+        "stages": {
+          "direct_send": 9,
+          "relay_send": 8,
+          "received": 10,
+          "feedback_send": 1,
+          "onion_send_begin": 0,
+          "onion_send_end": 0
+        },
+        "probeBegins": 26,
+        "begunAttemptsWithFreshMatchingReply": 14,
+        "begunAttemptsWithLateMatchingReply": 0,
+        "begunAttemptsWithCancelledMatchingReply": 0,
+        "unrelatedReplyObservations": 7,
+        "initial60ByteRelaySamples": 0,
+        "initialSamplesWithLocalRelayQueueWitness": 0,
+        "initialSamplesObservedAtOtherEndpoint": 0,
+        "initialSamplesNotObservedAtOtherEndpoint": 0,
+        "reportedConsoleDropNotices": 0
+      }
+    },
+    "absenceProvesNetworkLoss": false,
+    "oneWayLatencyQualified": false,
+    "consoleCaptureCompletenessVerified": false
+  },
+  "phoneLocalNetworkChange": {
+    "eventKinds": [
+      "Cellular"
+    ],
+    "failedCandidateStartsAfterEventMs": [
+      6011,
+      14916
+    ],
+    "laterQualifiedCandidateStartAfterEventMs": 24742
+  },
+  "lateRelayQualificationMs": 347.063,
+  "oldLauncherControl": {
+    "explicitNativeTraceEnabled": true,
+    "nativeRecordsPresent": true,
+    "runnerFixJustified": false
+  },
+  "verification": {
+    "newPythonTestsPassed": 9,
+    "existingHandoverAnalyzerTestsPassed": 8,
+    "flutterRerun": false,
+    "rustRebuilt": false
+  },
+  "artifacts": {
+    "phoneApkSha256": "af7398cf39c0746892b6773d70cbc81b46db6b0153abe9cab94517bf5bf958dd",
+    "phoneInstalledArtifactVerified": true,
+    "windowsAotSha256": "abd4c4621163e8e3e34961652fb8b964f3bfc97493e12ca459d2e82334fef2aa",
+    "windowsNativeMatchesPublished": true
+  },
+  "cleanup": {
+    "phoneQaStopped": true,
+    "phoneSettingsRestored": true,
+    "ownForwardRemoved": true,
+    "mainPhonePidUnchanged": true,
+    "ownedTraceStopped": true,
+    "traceDisabled": true,
+    "noMacStandStarted": true,
+    "windowsQaStopped": true,
+    "windowsTasksAbsent": true,
+    "windowsListenerAbsent": true,
+    "sshTunnelStopped": true,
+    "localHookListenersAbsent": true
+  },
+  "published": false
+}
