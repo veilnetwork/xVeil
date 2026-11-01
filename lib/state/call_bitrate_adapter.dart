@@ -1,3 +1,4 @@
+import 'call_audio_playout_reserve.dart';
 import 'call_video_delivery_model.dart';
 import 'call_audio_receive_activity.dart';
 import 'call_audio_buffer_window.dart';
@@ -261,6 +262,7 @@ class CallBitrateAdapter {
       'startup_recovery': _startupRecovery,
       'startup_ramp_sample_healthy': _startupRampSampleHealthy,
       'rtt_probe_eligible': _deliveryRttProbeEligible,
+      'jitter_probe_eligible': _deliveryJitterProbeEligible,
       'startup_good_streak_after': _startupGoodStreak,
       'growth_pause_transient': _growthSampleTransient,
       'ramp_recovery_needed': _rampNeedsRecovery,
@@ -277,6 +279,9 @@ class CallBitrateAdapter {
   bool _growthSampleHealthy = false, _rampNeedsRecovery = false;
   bool _startupRampSampleHealthy = false;
   bool _deliveryRttProbeEligible = false;
+  bool _deliveryJitterProbeEligible = false;
+  bool get _deliveryTransportProbeEligible =>
+      _deliveryRttProbeEligible || _deliveryJitterProbeEligible;
   bool _growthSampleTransient = false;
   int _rampRecoverySamples = 0;
   int _lastGrowthObservation = -1;
@@ -345,7 +350,7 @@ class CallBitrateAdapter {
     } else {
       if (!_growthSampleHealthy &&
           !_growthSampleTransient &&
-          !_deliveryRttProbeEligible &&
+          !_deliveryTransportProbeEligible &&
           (desired.maxBitrateKbps > previous.maxBitrateKbps ||
               desired.maxFps > previous.maxFps)) {
         _rampNeedsRecovery = true;
@@ -495,6 +500,7 @@ class CallBitrateAdapter {
     _growthSampleHealthy = false;
     _startupRampSampleHealthy = false;
     _deliveryRttProbeEligible = false;
+    _deliveryJitterProbeEligible = false;
     _growthSampleTransient = false;
   }
 
@@ -510,6 +516,7 @@ class CallBitrateAdapter {
     _growthSampleHealthy = false;
     _startupRampSampleHealthy = false;
     _deliveryRttProbeEligible = false;
+    _deliveryJitterProbeEligible = false;
     _growthSampleTransient = false;
     _rampRecoverySamples = 0;
     _lastGrowthObservation = -1;
@@ -630,8 +637,11 @@ class CallBitrateAdapter {
     bool sendAudioExpected = true,
     bool requireAudioReceivePlayout = false,
     int? audioReceiveDelayMs,
+    int? audioReceiveTargetDelayMs,
     bool audioInterrupted = false,
     int? peerAudioDelayMs,
+    int? peerCurrentAudioDelayMs,
+    int? peerTargetAudioDelayMs,
     bool requirePeerAudioPlayout = false,
     bool receiveAudioExpected = false,
     ({bool expected, int? ageMs})? audioReceiveQuality,
@@ -652,14 +662,50 @@ class CallBitrateAdapter {
         (receive.ageMs == null ||
             receive.ageMs! < 0 ||
             receive.ageMs! >= audioReceiveRecoverMs);
+    bool valid(int? value) => value != null && value >= 0 && value <= 60000;
+    final hasCurrent =
+        valid(peerAudioDelayMs) &&
+        valid(peerCurrentAudioDelayMs) &&
+        peerCurrentAudioDelayMs! <= peerAudioDelayMs!;
+    final currentPeer = hasCurrent ? peerCurrentAudioDelayMs : peerAudioDelayMs;
+    final peerCredit = hasCurrent
+        ? CallAudioPlayoutReserve.creditMs(currentPeer, peerTargetAudioDelayMs)
+        : 0;
+    final peerDelay = CallAudioPlayoutReserve.pressureDelayMs(
+      currentPeer,
+      peerCredit,
+    );
     final playoutUnproven =
         requirePeerAudioPlayout &&
-        (peerAudioDelayMs == null || peerAudioDelayMs >= playoutRecoverMs);
+        (peerDelay == null ||
+            peerDelay >= playoutRecoverMs ||
+            !CallAudioPlayoutReserve.targetAllowsGrowth(
+              peerTargetAudioDelayMs,
+              peerCredit,
+              recoverMs: playoutRecoverMs,
+            ));
     final receiveDelay = audioReceiveDelayMs ?? _nativeReceiveDelay(stats);
+    final receiveTarget =
+        audioReceiveTargetDelayMs ??
+        CallAudioReceiveActivity.nativeTargetDelay(stats);
+    final receiveCredit =
+        audioReceiveDelayMs == null || audioReceiveTargetDelayMs != null
+        ? CallAudioPlayoutReserve.creditMs(receiveDelay, receiveTarget)
+        : 0;
+    final receivePressureDelay = CallAudioPlayoutReserve.pressureDelayMs(
+      receiveDelay,
+      receiveCredit,
+    );
     final receivePlayoutUnproven =
         requireAudioReceivePlayout &&
         (receiveAudioExpected || (audioReceiveQuality?.expected ?? false)) &&
-        (receiveDelay == null || receiveDelay >= playoutRecoverMs);
+        (receivePressureDelay == null ||
+            receivePressureDelay >= playoutRecoverMs ||
+            !CallAudioPlayoutReserve.targetAllowsGrowth(
+              receiveTarget,
+              receiveCredit,
+              recoverMs: playoutRecoverMs,
+            ));
     if (receiveUnproven ||
         playoutUnproven ||
         receivePlayoutUnproven ||
@@ -763,6 +809,7 @@ class CallBitrateAdapter {
     _growthSampleHealthy = false;
     _startupRampSampleHealthy = false;
     _deliveryRttProbeEligible = false;
+    _deliveryJitterProbeEligible = false;
     _growthSampleTransient = false;
     _growthSampleAt = sampledAt;
     // Require a distinct peer report during this earned recovery period,
@@ -1008,6 +1055,7 @@ class CallBitrateAdapter {
       peerAudioDelayMs: peerAudioDelayMs,
       peerCurrentAudioDelayMs: peerCurrentAudioDelayMs,
       peerTargetAudioDelayMs: peerTargetAudioDelayMs,
+      peerAudioTargetCoherent: requiredReports == 1,
       peerAudioSampleSequence: peerAudioSampleSequence,
       peerAudioBufferGrowing: peerAudioBufferGrowing,
       requirePeerAudioPlayout: requirePeerAudioPlayout && sendAudioExpected,
@@ -1017,6 +1065,9 @@ class CallBitrateAdapter {
           requireAudioReceivePlayout && receiveRequested,
       audioReceiveDelayMs: receiveDelay,
       audioReceiveTargetDelayMs: receiveTarget,
+      audioReceiveTargetCoherent:
+          requiredReports == 1 &&
+          (audioReceiveDelayMs == null || audioReceiveTargetDelayMs != null),
       missingAudioReceiverFeedback: !growthFeedbackAvailable,
       audioInterrupted: audioInterrupted,
       videoLossObserved: videoLoss || _delivery.queuePressure,
@@ -1043,7 +1094,7 @@ class CallBitrateAdapter {
               (maxBitrateKbps: baseBitrateKbps, maxFps: baseFps.toDouble()),
               sampledAt ?? DateTime.now(),
               healthy:
-                  (_growthSampleHealthy || _deliveryRttProbeEligible) &&
+                  (_growthSampleHealthy || _deliveryTransportProbeEligible) &&
                   !sourceBudgetPressured &&
                   !_sourceFloor &&
                   !_sourcePause &&
@@ -1051,7 +1102,7 @@ class CallBitrateAdapter {
                   _appliedPause != true &&
                   videoSendExpected &&
                   !_delivery.queuePressure,
-              probeOnly: _deliveryRttProbeEligible,
+              probeOnly: _deliveryTransportProbeEligible,
             );
       _growthAllowed = next != null;
       if (next != null) {
@@ -1126,6 +1177,7 @@ class CallBitrateAdapter {
     bool requireAudioReceivePlayout = false,
     int? audioReceiveDelayMs,
     int? audioReceiveTargetDelayMs,
+    bool audioReceiveTargetCoherent = true,
     bool audioInterrupted = false,
     bool videoLossObserved = false,
     bool audioNetworkLossObserved = false,
@@ -1146,6 +1198,7 @@ class CallBitrateAdapter {
     int? peerAudioDelayMs,
     int? peerCurrentAudioDelayMs,
     int? peerTargetAudioDelayMs,
+    bool peerAudioTargetCoherent = true,
     int? peerAudioSampleSequence,
     bool? peerAudioBufferGrowing,
     bool requirePeerAudioPlayout = false,
@@ -1158,6 +1211,7 @@ class CallBitrateAdapter {
     _growthSampleHealthy = false;
     _startupRampSampleHealthy = false;
     _deliveryRttProbeEligible = false;
+    _deliveryJitterProbeEligible = false;
     _growthSampleTransient = false;
     _growthSampleAt = sampledAt;
     final freshPeerSample =
@@ -1201,17 +1255,43 @@ class CallBitrateAdapter {
     final peerTarget = requirePeerAudioPlayout
         ? validTargetDelay(peerTargetAudioDelayMs, currentPeerDelay)
         : null;
+    final peerReserveCredit = hasCurrentPeerDelay && peerAudioTargetCoherent
+        ? CallAudioPlayoutReserve.creditMs(currentPeerDelay, peerTarget)
+        : 0;
+    final receiveReserveCredit = audioReceiveTargetCoherent
+        ? CallAudioPlayoutReserve.creditMs(audioReceiveDelayMs, receiveTarget)
+        : 0;
+    final peerPressureDelay = CallAudioPlayoutReserve.pressureDelayMs(
+      currentPeerDelay,
+      peerReserveCredit,
+    );
+    final receivePressureDelay = CallAudioPlayoutReserve.pressureDelayMs(
+      audioReceiveDelayMs,
+      receiveReserveCredit,
+    );
     final targetsRecovered =
-        (receiveTarget == null || receiveTarget < playoutRecoverMs) &&
-        (peerTarget == null || peerTarget < playoutRecoverMs);
+        CallAudioPlayoutReserve.targetAllowsGrowth(
+          receiveTarget,
+          receiveReserveCredit,
+          recoverMs: playoutRecoverMs,
+        ) &&
+        CallAudioPlayoutReserve.targetAllowsGrowth(
+          peerTarget,
+          peerReserveCredit,
+          recoverMs: playoutRecoverMs,
+        );
     // Requested targets may withhold producer growth, but are not measured
     // buffer occupancy. A target alone cannot substantiate a video reduction.
     final receiveBufferPressure = _receiveBuffer.observe(
       requireAudioReceivePlayout ? audioReceiveDelayMs : null,
       sampledAt: sampledAt,
+      targetDelayMs: audioReceiveTargetCoherent ? receiveTarget : null,
     );
     final peerBufferPressure = _peerBuffer.observe(
       requirePeerAudioPlayout ? currentPeerDelay : null,
+      targetDelayMs: hasCurrentPeerDelay && peerAudioTargetCoherent
+          ? peerTarget
+          : null,
       sequence: peerAudioSampleSequence,
       sampledAt: sampledAt,
       measuredGrowing: requirePeerAudioPlayout && hasCurrentPeerDelay
@@ -1227,7 +1307,7 @@ class CallBitrateAdapter {
     final pressureSampleCanAdvance =
         !usePlayout ||
         receiveBufferPressure ||
-        (currentPeerDelay != null && currentPeerDelay >= playoutDegradeMs) ||
+        (peerPressureDelay != null && peerPressureDelay >= playoutDegradeMs) ||
         freshPeerSample;
     _bufferPressure = bufferPressure;
     // The growth gate needs a distinct observation in every build mode.
@@ -1285,13 +1365,13 @@ class CallBitrateAdapter {
     final floorBufferFailure =
         (receiveBufferPressure &&
             (floorReceivePressure ||
-                (audioReceiveDelayMs != null &&
-                    audioReceiveDelayMs >= playoutDegradeMs))) ||
+                (receivePressureDelay != null &&
+                    receivePressureDelay >= playoutDegradeMs))) ||
         (peerBufferPressure &&
             peerTrialMeasured &&
             (floorPeerPressure ||
-                (currentPeerDelay != null &&
-                    currentPeerDelay >= playoutDegradeMs)));
+                (peerPressureDelay != null &&
+                    peerPressureDelay >= playoutDegradeMs)));
     final newDrops = _lastTxDrops != null && txDrops > _lastTxDrops!;
     _lastTxDrops = txDrops;
     final newAudioDrops =
@@ -1390,8 +1470,8 @@ class CallBitrateAdapter {
             audioReceiveAgeMs != null &&
             audioReceiveAgeMs >= audioReceivePauseMs) ||
         (requireAudioReceivePlayout &&
-            audioReceiveDelayMs != null &&
-            audioReceiveDelayMs >= playoutDegradeMs);
+            receivePressureDelay != null &&
+            receivePressureDelay >= playoutDegradeMs);
     final receiveGood =
         !requireAudioReceive ||
         (audioReceiveAgeMs != null &&
@@ -1411,7 +1491,7 @@ class CallBitrateAdapter {
     final playoutBad = bufferPressure;
     final playoutGood =
         !requirePeerAudioPlayout ||
-        (currentPeerDelay != null && currentPeerDelay < playoutRecoverMs);
+        (peerPressureDelay != null && peerPressureDelay < playoutRecoverMs);
     if (!feedbackAvailable &&
         !freshMediaLoss &&
         !newDrops &&
@@ -1465,12 +1545,11 @@ class CallBitrateAdapter {
     // a growing/capped buffer or fresh media loss can reduce video.
     // Video-only and legacy calls retain their transport-based ladder.
     final bad = (usePlayout ? bufferPressure : networkBad) || videoStepLoss;
-    final audioHealthyApartFromRtt =
+    final audioPlayoutHealthy =
         targetsRecovered &&
         feedbackAvailable &&
         rttMs > 0 &&
         txLossPct <= 1 &&
-        jitterGood &&
         !freshAudioLoss &&
         !bufferPressure &&
         !missingAudioReceiverFeedback &&
@@ -1479,8 +1558,9 @@ class CallBitrateAdapter {
         !audioInterrupted &&
         receiveGood &&
         (!requireAudioReceivePlayout ||
-            (audioReceiveDelayMs != null &&
-                audioReceiveDelayMs < playoutRecoverMs));
+            (receivePressureDelay != null &&
+                receivePressureDelay < playoutRecoverMs));
+    final audioHealthyApartFromRtt = audioPlayoutHealthy && jitterGood;
     final audioWithinRecoveryLimits = audioHealthyApartFromRtt && rttGood;
     final bufferGrowing =
         _receiveBuffer.growing == true || _peerBuffer.growing == true;
@@ -1495,8 +1575,8 @@ class CallBitrateAdapter {
     // not prove an audio failure that needs another twelve healthy samples.
     // Every expected audio direction must have measured playout; legacy,
     // unknown, congested and idle producers retain the ordinary reset.
-    final measuredAudioPathHealthy =
-        audioHealthyApartFromRtt &&
+    final measuredPlayoutPathHealthy =
+        audioPlayoutHealthy &&
         usePlayout &&
         (!sendAudioExpected || requirePeerAudioPlayout) &&
         (!receiveAudioExpected || requireAudioReceivePlayout) &&
@@ -1506,6 +1586,7 @@ class CallBitrateAdapter {
         !sourceBudgetPressured &&
         videoSendExpected &&
         measuredVideoProgress;
+    final measuredAudioPathHealthy = measuredPlayoutPathHealthy && jitterGood;
     final rttGrowthHold = measuredAudioPathHealthy && !rttGood && !rttBad;
     // A stable long path can cross 400 ms with healthy playout in both
     // directions. Withhold ordinary growth, but let causal decoder ACKs test
@@ -1530,6 +1611,23 @@ class CallBitrateAdapter {
         (rttGrowthHold || relativeRttWarning) &&
         !transientGrowthHeld &&
         txLossPct == 0;
+    // The decoder has already compensated this arrival jitter. Do not
+    // grant ordinary ladder growth: only fresh causal video ACKs may spend
+    // the existing bounded probe, on a stable RTT route and with both audio
+    // directions measured. Legacy, partial and merely requested reserves do
+    // not qualify. Loss, growth, repair holds and source pressure still win.
+    _deliveryJitterProbeEligible =
+        _delivery.supported &&
+        measuredPlayoutPathHealthy &&
+        sendAudioExpected &&
+        receiveAudioExpected &&
+        requirePeerAudioPlayout &&
+        requireAudioReceivePlayout &&
+        (peerReserveCredit > 0 || receiveReserveCredit > 0) &&
+        !jitterGood &&
+        (rttGood || highBaselineRttWarning) &&
+        !transientGrowthHeld &&
+        txLossPct == 0;
     _growthSampleTransient =
         rttGrowthHold ||
         (audioWithinRecoveryLimits &&
@@ -1540,6 +1638,7 @@ class CallBitrateAdapter {
     _bufferInputs?.addAll({
       'buffer_growth_pending': bufferGrowing && !bufferPressure,
       'rtt_growth_hold': rttGrowthHold,
+      'jitter_probe_eligible': _deliveryJitterProbeEligible,
       'relative_rtt_warning': relativeRttWarning,
       'high_baseline_rtt_warning':
           measuredAudioPathHealthy && highBaselineRttWarning,
@@ -1614,12 +1713,12 @@ class CallBitrateAdapter {
         sendRepairAllowsProbe &&
         receiveRepairAllowsProbe &&
         (!requirePeerAudioPlayout ||
-            (currentPeerDelay != null &&
-                currentPeerDelay < playoutRecoverMs)) &&
+            (peerPressureDelay != null &&
+                peerPressureDelay < playoutRecoverMs)) &&
         receiveGood &&
         (!requireAudioReceivePlayout ||
-            (audioReceiveDelayMs != null &&
-                audioReceiveDelayMs < playoutRecoverMs)) &&
+            (receivePressureDelay != null &&
+                receivePressureDelay < playoutRecoverMs)) &&
         rttMs < severeRttMs;
     if (_audioReserve &&
         !freshAudioLoss &&
