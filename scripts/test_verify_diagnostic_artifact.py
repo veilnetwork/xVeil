@@ -20,6 +20,8 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 f'import {json.dumps(journal.as_uri())};\n'
                 'void main() {\n'
                 '  diagnosticJournal.record(DiagnosticEvent.startup);\n'
+                '  diagnosticJournal.record(DiagnosticEvent.callState, values: {\n'
+                '    DiagnosticMetric.state: 2, DiagnosticMetric.direction: 0});\n'
                 '  diagnosticJournal.record(DiagnosticEvent.microphoneControl, values: {\n'
                 '    DiagnosticMetric.enabled: 1, DiagnosticMetric.success: 0});\n'
                 '  diagnosticJournal.recordMediaPermission(video: false);\n'
@@ -57,6 +59,10 @@ class DiagnosticArtifactTest(unittest.TestCase):
                     self.assertNotIn('PRIVATE_CANARY', json.dumps(report))
                     self.assertNotIn('314159265', json.dumps(report))
                     if enabled:
+                        self.assertEqual(len(report['call_state_history']), 1)
+                        self.assertEqual(report['call_state_history'][0]['values'], {
+                            'state': 2, 'direction': 0,
+                        })
                         evidence = report['last_evidence']
                         self.assertEqual(evidence['microphoneControl']['values'], {
                             'enabled': 1, 'success': 0,
@@ -80,6 +86,7 @@ class DiagnosticArtifactTest(unittest.TestCase):
                             'serviceForeground': 1, 'wakeLockHeld': 0,
                         })
                     else:
+                        self.assertNotIn('call_state_history', report)
                         self.assertEqual(report['events'], [])
                         self.assertEqual(report['last_evidence'], {})
                     gate = subprocess.run(

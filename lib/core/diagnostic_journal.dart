@@ -142,6 +142,11 @@ class DiagnosticJournal {
   final _counts = <DiagnosticEvent, int>{};
   final _lastAt = <DiagnosticEvent, int>{};
   Map<String, Object>? _lastCallEnd;
+  // Media traffic can evict the main ring before Settings opens. Retain only
+  // a small phase tail, with the same enum/numeric allowlist and monotonic
+  // offsets. It is process-wide, not an identifier-linked per-call history.
+  static const _callStateHistoryCapacity = 12;
+  final _callStates = ListQueue<Map<String, Object>>();
   final _lastEvidence = <DiagnosticEvent, Map<String, Object>>{};
   int _dropped = 0;
 
@@ -166,6 +171,12 @@ class DiagnosticJournal {
       },
     };
     _events.add(row);
+    if (event == DiagnosticEvent.callState) {
+      _callStates.add(row);
+      if (_callStates.length > _callStateHistoryCapacity) {
+        _callStates.removeFirst();
+      }
+    }
     // A busy transport can fill the ring while the person opens Settings to
     // copy the report. Keep one identifier-free terminal cause until the next
     // call ends, the journal is cleared, or this process exits.
@@ -454,6 +465,14 @@ class DiagnosticJournal {
         ...last,
         'values': {...last['values'] as Map},
       },
+    if (_callStates.isNotEmpty)
+      'call_state_history': [
+        for (final row in _callStates)
+          {
+            ...row,
+            'values': {...row['values'] as Map},
+          },
+      ],
     // Export snapshots; callers cannot mutate the journal through the report.
     'events': [
       for (final e in _events)
@@ -469,6 +488,7 @@ class DiagnosticJournal {
     _counts.clear();
     _lastAt.clear();
     _lastCallEnd = null;
+    _callStates.clear();
     _lastEvidence.clear();
     _dropped = 0;
     _clock.reset();
