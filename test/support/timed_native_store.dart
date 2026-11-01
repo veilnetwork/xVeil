@@ -14,6 +14,21 @@ const groupTimingFrameKey = #xveilStandGroupFrame;
 const groupFileTimingOpKey = #xveilStandGroupFileOperation;
 const authorizationTimingOpKey = #xveilStandAuthorizationOperation;
 const authorizationFlushTimingKey = #xveilStandAuthorizationFlush;
+const storageTimingOperationKey = #xveilStandStorageOperation;
+
+// Exact test-only labels; an arbitrary Zone value cannot become a correlator.
+final storageTimingOperations = Set<String>.unmodifiable({
+  for (final operation in [
+    'load',
+    'loadBatch',
+    'has',
+    'hasBatch',
+    'store',
+    'storePair',
+    'delete',
+  ])
+    for (final kind in ['header', 'segment', 'other']) 'file.$operation.$kind',
+});
 
 // A passive test adapter around the actual worker RPCs. Preserve both batch
 // reads and rollback-anchor capabilities: dropping either would change the
@@ -48,6 +63,7 @@ class TimedNativeStore
     final fileOperation = Zone.current[groupFileTimingOpKey];
     final authorizationOperation = Zone.current[authorizationTimingOpKey];
     final authorizationFlush = Zone.current[authorizationFlushTimingKey];
+    final storageOperation = Zone.current[storageTimingOperationKey];
     try {
       return await body();
     } finally {
@@ -63,6 +79,8 @@ class TimedNativeStore
           'authorization_operation': authorizationOperation,
         if (authorizationFlush is int)
           'authorization_flush': authorizationFlush,
+        if (storageTimingOperations.contains(storageOperation))
+          'storage_operation': storageOperation,
       });
     }
   }

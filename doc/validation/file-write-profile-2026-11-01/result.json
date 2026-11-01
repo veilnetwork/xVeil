@@ -1,0 +1,316 @@
+{
+  "schema": "xveil-file-write-preparation-profile/1",
+  "candidateAccepted": false,
+  "productionChanged": false,
+  "candidateScopedTestsPassed": 164,
+  "finalCensusTestsPassed": 7,
+  "nativeAba": [
+    {
+      "schema": "xveil-file-write-metadata/1",
+      "pair": {
+        "writes": 32,
+        "us": 1165089,
+        "rpc": {
+          "kv.get": 256,
+          "kv.readLogBatch": 32,
+          "kv.commit": 64
+        }
+      },
+      "ordinary": {
+        "writes": 8,
+        "us": 124631,
+        "rpc": {
+          "kv.get": 24,
+          "kv.commit": 8
+        }
+      },
+      "pieces": {
+        "writes": 8,
+        "us": 262995,
+        "rpc": {
+          "kv.get": 32,
+          "kv.commit": 16
+        }
+      },
+      "reopenedBytesAndRetirementMatch": true,
+      "phase": "a1"
+    },
+    {
+      "schema": "xveil-file-write-metadata/1",
+      "pair": {
+        "writes": 32,
+        "us": 1206167,
+        "rpc": {
+          "kv.getBatch": 96,
+          "kv.get": 64,
+          "kv.readLogBatch": 32,
+          "kv.commit": 64
+        }
+      },
+      "ordinary": {
+        "writes": 8,
+        "us": 141577,
+        "rpc": {
+          "kv.get": 8,
+          "kv.getBatch": 8,
+          "kv.commit": 8
+        }
+      },
+      "pieces": {
+        "writes": 8,
+        "us": 280668,
+        "rpc": {
+          "kv.get": 16,
+          "kv.getBatch": 8,
+          "kv.commit": 16
+        }
+      },
+      "reopenedBytesAndRetirementMatch": true,
+      "phase": "b"
+    },
+    {
+      "schema": "xveil-file-write-metadata/1",
+      "pair": {
+        "writes": 32,
+        "us": 1200032,
+        "rpc": {
+          "kv.get": 256,
+          "kv.readLogBatch": 32,
+          "kv.commit": 64
+        }
+      },
+      "ordinary": {
+        "writes": 8,
+        "us": 138777,
+        "rpc": {
+          "kv.get": 24,
+          "kv.commit": 8
+        }
+      },
+      "pieces": {
+        "writes": 8,
+        "us": 285626,
+        "rpc": {
+          "kv.get": 32,
+          "kv.commit": 16
+        }
+      },
+      "reopenedBytesAndRetirementMatch": true,
+      "phase": "a2"
+    }
+  ],
+  "nativeCleanup": {
+    "ownedProcessGroupsExited": 3,
+    "nativeTempDirectoriesRemaining": 0,
+    "productionCandidateRejected": true
+  },
+  "migrationDiagnosticRun": {
+    "migrationOnly": true,
+    "baseRows": 2000,
+    "initialHistoryMs": 51503,
+    "initialCountCompleteMs": 46372,
+    "initialOrderMismatchObservations": 1,
+    "initialPositionMismatchObservations": 1,
+    "initialPositionsCompared": true,
+    "initialBStatuses": {
+      "sending": 0,
+      "sent": 0,
+      "delivered": 2000,
+      "failed": 0
+    },
+    "completedHistoryRetries": 0,
+    "convergedIdsAndOrder": true,
+    "invalidSnapshotObserved": false,
+    "offlineScenarioExecuted": false
+  },
+  "pushOrRelease": false,
+  "migrationFileScopes": {
+    "A": {
+      "windowUs": 71210715,
+      "calls": {
+        "file.delete.segment": {
+          "count": 137,
+          "awaitUs": 1130833,
+          "maxAwaitUs": 83713,
+          "startedBeforeWindow": 0
+        },
+        "file.hasBatch.segment": {
+          "count": 77,
+          "awaitUs": 726287,
+          "maxAwaitUs": 61511,
+          "startedBeforeWindow": 0
+        },
+        "file.load.header": {
+          "count": 498,
+          "awaitUs": 9686834,
+          "maxAwaitUs": 170495,
+          "startedBeforeWindow": 0
+        },
+        "file.load.other": {
+          "count": 28,
+          "awaitUs": 235790,
+          "maxAwaitUs": 65762,
+          "startedBeforeWindow": 0
+        },
+        "file.loadBatch.segment": {
+          "count": 459,
+          "awaitUs": 19692264,
+          "maxAwaitUs": 258685,
+          "startedBeforeWindow": 0
+        },
+        "file.store.header": {
+          "count": 37,
+          "awaitUs": 2446911,
+          "maxAwaitUs": 212929,
+          "startedBeforeWindow": 0
+        },
+        "file.store.other": {
+          "count": 2,
+          "awaitUs": 46921,
+          "maxAwaitUs": 30891,
+          "startedBeforeWindow": 0
+        },
+        "file.store.segment": {
+          "count": 83,
+          "awaitUs": 3655406,
+          "maxAwaitUs": 592407,
+          "startedBeforeWindow": 0
+        },
+        "file.storePair.header": {
+          "count": 58,
+          "awaitUs": 4557112,
+          "maxAwaitUs": 238636,
+          "startedBeforeWindow": 0
+        }
+      },
+      "segmentPayloadRpc": {
+        "count": 1770,
+        "awaitUs": 13972316,
+        "maxAwaitUs": 71383,
+        "startedBeforeWindow": 0
+      }
+    },
+    "B": {
+      "windowUs": 59715713,
+      "calls": {
+        "file.delete.segment": {
+          "count": 138,
+          "awaitUs": 1125313,
+          "maxAwaitUs": 90581,
+          "startedBeforeWindow": 0
+        },
+        "file.has.other": {
+          "count": 1,
+          "awaitUs": 21821,
+          "maxAwaitUs": 21821,
+          "startedBeforeWindow": 0
+        },
+        "file.hasBatch.segment": {
+          "count": 86,
+          "awaitUs": 179434,
+          "maxAwaitUs": 30940,
+          "startedBeforeWindow": 0
+        },
+        "file.load.header": {
+          "count": 511,
+          "awaitUs": 2083124,
+          "maxAwaitUs": 76814,
+          "startedBeforeWindow": 0
+        },
+        "file.load.other": {
+          "count": 411,
+          "awaitUs": 3412152,
+          "maxAwaitUs": 91821,
+          "startedBeforeWindow": 0
+        },
+        "file.loadBatch.segment": {
+          "count": 500,
+          "awaitUs": 8228514,
+          "maxAwaitUs": 234973,
+          "startedBeforeWindow": 0
+        },
+        "file.store.header": {
+          "count": 44,
+          "awaitUs": 1821113,
+          "maxAwaitUs": 137123,
+          "startedBeforeWindow": 0
+        },
+        "file.store.other": {
+          "count": 3,
+          "awaitUs": 53897,
+          "maxAwaitUs": 22039,
+          "startedBeforeWindow": 0
+        },
+        "file.store.segment": {
+          "count": 85,
+          "awaitUs": 2176859,
+          "maxAwaitUs": 61618,
+          "startedBeforeWindow": 0
+        },
+        "file.storePair.header": {
+          "count": 58,
+          "awaitUs": 3198419,
+          "maxAwaitUs": 302187,
+          "startedBeforeWindow": 0
+        }
+      },
+      "segmentPayloadRpc": {
+        "count": 2007,
+        "awaitUs": 6504605,
+        "maxAwaitUs": 67814,
+        "startedBeforeWindow": 0
+      }
+    }
+  },
+  "orderingConvergence": {
+    "rows": 2000,
+    "initialMismatchedPositions": 75,
+    "initialMismatchesProvisional": 75,
+    "allInitiallyMismatchedPositionsConverged": true,
+    "initialMismatchesNowHaveOrderingOverlay": 75,
+    "initialOrderMatches": false,
+    "finalOrderMatches": true
+  },
+  "migrationCleanup": {
+    "ownedPidsChecked": 18,
+    "portsChecked": 18,
+    "livePids": [],
+    "remainingListeners": [],
+    "runtimeRootRemoved": true,
+    "frozenFilesVerified": 568,
+    "nativeArtifactsUnchanged": true,
+    "hiddenVolumeUnchanged": true,
+    "sdkClean": true,
+    "portsReusedByOtherPids": 0
+  },
+  "finalNativeProfilePassed": true,
+  "finalNativeProfile": {
+    "schema": "xveil-file-write-metadata/1",
+    "pair": {
+      "writes": 32,
+      "us": 1106079,
+      "rpc": {
+        "kv.get": 256,
+        "kv.readLogBatch": 32,
+        "kv.commit": 64
+      }
+    },
+    "ordinary": {
+      "writes": 8,
+      "us": 133100,
+      "rpc": {
+        "kv.get": 24,
+        "kv.commit": 8
+      }
+    },
+    "pieces": {
+      "writes": 8,
+      "us": 270978,
+      "rpc": {
+        "kv.get": 32,
+        "kv.commit": 16
+      }
+    },
+    "reopenedBytesAndRetirementMatch": true
+  }
+}
