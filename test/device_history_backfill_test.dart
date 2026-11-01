@@ -88,6 +88,58 @@ void main() {
   const everything = DeviceHistoryAsk(fromDeviceHex: 'aa');
 
   test(
+    'completed outgoing history retains terminal delivery state without moving time',
+    () {
+      for (final status in [MessageStatus.delivered, MessageStatus.failed]) {
+        for (final cid in [null, 'already-offered-file']) {
+          final message = Message(
+            id: 'historical',
+            conversationId: alice.hex,
+            direction: MessageDirection.outgoing,
+            body: 'old outgoing',
+            timestamp: DateTime.fromMillisecondsSinceEpoch(1234),
+            status: status,
+            fileContentId: cid,
+          );
+          final event = deviceMirrorOf(alice.hex, message).event;
+          expect(event.payload['st'], status.name);
+          expect(event.tsMs, 1234);
+        }
+      }
+    },
+  );
+
+  test('pending outgoing copies carry no terminal status claim', () {
+    for (final status in [MessageStatus.sending, MessageStatus.sent]) {
+      final event = deviceMirrorOf(
+        alice.hex,
+        Message(
+          id: 'unfinished',
+          conversationId: alice.hex,
+          direction: MessageDirection.outgoing,
+          body: 'still needs delivery',
+          timestamp: DateTime.fromMillisecondsSinceEpoch(1234),
+          status: status,
+        ),
+      ).event;
+      expect(event.payload, isNot(contains('st')));
+    }
+    final incoming = deviceMirrorOf(
+      alice.hex,
+      Message(
+        id: 'incoming',
+        conversationId: alice.hex,
+        direction: MessageDirection.incoming,
+        body: 'received',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(1234),
+        status: MessageStatus.delivered,
+      ),
+    ).event;
+    expect(incoming.payload, isNot(contains('st')));
+  });
+
+
+  test(
     'bounded durable batches preserve the sequential history and attachments',
     () async {
       for (var i = 0; i < 53; i++) {
