@@ -1,0 +1,67 @@
+{
+  "schema": "xveil-device-history-durable-batch/1",
+  "platform": "macos-host-native-jit",
+  "baseline": {
+    "result": "failed-preparation",
+    "initialRowsRequired": 2000,
+    "initialHistoryTimeoutSeconds": 360,
+    "offlineBacklogStageExecuted": false
+  },
+  "candidate": {
+    "result": "passed",
+    "nativeTestsPassed": 1,
+    "baseRows": 2000,
+    "initialHistoryFirstCompleteObservationMs": 237149,
+    "offlineUntilReadyMs": 311878,
+    "readyMsFromLaunch": 10521,
+    "backlogRows": 100,
+    "firstCompleteObservationMsFromReady": 10419,
+    "firstCompleteObservationMsFromLaunch": 20941,
+    "COnlineDuringRecovery": false,
+    "AOnlineDuringRecovery": true,
+    "all2100IdsAndOrderEqualAfterCReturn": true,
+    "duplicateOrCountMismatchObserved": false,
+    "samples": [
+      {
+        "elapsedMs": 104,
+        "fromLaunchMs": 10626,
+        "count": 0,
+        "queryMs": 104,
+        "complete": 0
+      },
+      {
+        "elapsedMs": 5312,
+        "fromLaunchMs": 15834,
+        "count": 77,
+        "queryMs": 205,
+        "complete": 0
+      },
+      {
+        "elapsedMs": 10419,
+        "fromLaunchMs": 20941,
+        "count": 100,
+        "queryMs": 103,
+        "complete": 1
+      }
+    ],
+    "totalSeconds": 756.708
+  },
+  "scopedTests": {
+    "passed": 483,
+    "skipped": 3,
+    "analyzerIssues": 0
+  },
+  "cleanup": {
+    "ownedPidsChecked": 10,
+    "portsChecked": 9,
+    "remainingOwnedProcesses": 0,
+    "remainingListeners": 0,
+    "remainingRuntimeDirectories": 0
+  },
+  "limits": [
+    "One host-native run, not Android or AOT",
+    "No speedup claim against the earlier 106-second Android observation",
+    "Initial history still had an unattributed 25-message delay",
+    "Long offline, both sources offline and the complete multi-device matrix are not qualified"
+  ]
+}

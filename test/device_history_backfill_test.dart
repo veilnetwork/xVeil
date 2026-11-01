@@ -87,6 +87,227 @@ void main() {
 
   const everything = DeviceHistoryAsk(fromDeviceHex: 'aa');
 
+  test(
+    'bounded durable batches preserve the sequential history and attachments',
+    () async {
+      for (var i = 0; i < 53; i++) {
+        await addMessage(
+          alice,
+          'batch-$i',
+          'row $i',
+          atMs: i + 10,
+          contentId: i == 7 ? 'batch-file' : null,
+        );
+      }
+      await storage.setReadMarker(alice.hex, 90);
+      await storage.appendCallLogEntry(
+        const CallLogEntry(
+          id: 'batch-call',
+          peerHex: 'a1',
+          outgoing: true,
+          video: false,
+          outcome: CallLogOutcome.completed,
+          atMs: 200,
+        ),
+        cap: 100,
+      );
+      final sequential = await replay(everything);
+      final original = List<_Sent>.of(sent);
+      sent.clear();
+      final sizes = <int>[];
+      final batched = await replayHistoryForAsk(
+        ask: everything,
+        storage: storage,
+        post: (_, {attachment}) async =>
+            fail('the batch path must not fall back to one-row posts'),
+        pause: Duration.zero,
+        postBatch: (rows) async {
+          sizes.add(rows.length);
+          sent.addAll(rows);
+          return List.filled(rows.length, true);
+        },
+      );
+      expect(sizes, [25, 25, 9]);
+      expect(
+        sent.map((r) => r.event.toBody()),
+        original.map((r) => r.event.toBody()),
+      );
+      expect(
+        sent.map((r) => r.attachment?.cid),
+        original.map((r) => r.attachment?.cid),
+      );
+      expect(batched.messages, sequential.messages);
+      expect(batched.contacts, sequential.contacts);
+      expect(batched.calls, sequential.calls);
+      expect(batched.readMarks, sequential.readMarks);
+      expect(batched.stoppedEarly, isFalse);
+    },
+  );
+
+  test(
+    'batch progress waits for durable completion and backlog room',
+    () async {
+      for (var i = 0; i < 6; i++) {
+        await addMessage(alice, 'gate-$i', 'row');
+      }
+      final entered = Completer<void>(), commit = Completer<List<bool>>();
+      final roomEntered = Completer<void>(), room = Completer<void>();
+      final progress = <int>[];
+      var calls = 0, finished = false;
+      final replaying =
+          replayHistoryForAsk(
+            ask: DeviceHistoryAsk(fromDeviceHex: 'aa', peers: [alice.hex]),
+            storage: storage,
+            post: post,
+            batch: 5,
+            pause: Duration.zero,
+            onProgress: progress.add,
+            postBatch: (rows) {
+              calls++;
+              if (calls == 1) {
+                entered.complete();
+                return commit.future;
+              }
+              return Future.value(List.filled(rows.length, true));
+            },
+            awaitRoom: () {
+              roomEntered.complete();
+              return room.future;
+            },
+          ).then((r) {
+            finished = true;
+            return r;
+          });
+      await entered.future;
+      expect(progress, isEmpty);
+      expect(finished, isFalse);
+      commit.complete(List.filled(5, true));
+      await roomEntered.future;
+      expect(progress, [1, 2, 3, 4, 5]);
+      expect(calls, 1);
+      expect(finished, isFalse);
+      room.complete();
+      final report = await replaying;
+      expect(calls, 2);
+      expect(report.messages, 6);
+      expect(report.contacts, 1);
+      expect(progress, [1, 2, 3, 4, 5, 6, 7, 8]);
+    },
+  );
+
+  test(
+    'partial batch refusal counts only committed rows and stops later batches',
+    () async {
+      for (var i = 0; i < 8; i++) {
+        await addMessage(alice, 'partial-$i', 'row');
+      }
+      var calls = 0;
+      final progress = <int>[];
+      final report = await replayHistoryForAsk(
+        ask: DeviceHistoryAsk(fromDeviceHex: 'aa', peers: [alice.hex]),
+        storage: storage,
+        post: post,
+        batch: 5,
+        pause: Duration.zero,
+        onProgress: progress.add,
+        postBatch: (rows) async {
+          calls++;
+          return [false, true, true, false, true];
+        },
+      );
+      expect(calls, 1);
+      expect(report.stoppedEarly, isTrue);
+      expect(report.contacts, 0);
+      expect(report.messages, 2);
+      expect(progress, [1, 2, 3]);
+    },
+  );
+
+  test('cancellation discards an unpublished partial batch', () async {
+    await addMessage(alice, 'cancel-buffer', 'row');
+    var cancelled = false, calls = 0;
+    final report = await replayHistoryForAsk(
+      ask: DeviceHistoryAsk(fromDeviceHex: 'aa', peers: [alice.hex]),
+      storage: storage,
+      post: post,
+      pause: Duration.zero,
+      cancelled: () => cancelled,
+      mirrorMessage: (peer, message, files) async {
+        cancelled = true;
+        return deviceMirrorOf(peer, message);
+      },
+      postBatch: (rows) async {
+        calls++;
+        return List.filled(rows.length, true);
+      },
+    );
+    expect(calls, 0);
+    expect(report.contacts, 0);
+    expect(report.messages, 0);
+    expect(report.stoppedEarly, isTrue);
+  });
+
+  test(
+    'cancellation during commit counts committed rows but posts no more',
+    () async {
+      for (var i = 0; i < 8; i++) {
+        await addMessage(alice, 'cancel-commit-$i', 'row');
+      }
+      var cancelled = false, calls = 0;
+      final report = await replayHistoryForAsk(
+        ask: DeviceHistoryAsk(fromDeviceHex: 'aa', peers: [alice.hex]),
+        storage: storage,
+        post: post,
+        batch: 5,
+        pause: Duration.zero,
+        cancelled: () => cancelled,
+        postBatch: (rows) async {
+          calls++;
+          cancelled = true;
+          return List.filled(rows.length, true);
+        },
+      );
+      expect(calls, 1);
+      expect(report.contacts, 1);
+      expect(report.messages, 3);
+      expect(report.stoppedEarly, isTrue);
+    },
+  );
+
+  test(
+    'malformed batch results and batch storage errors are not successes',
+    () async {
+      for (final malformed in [true, false]) {
+        final progress = <int>[];
+        await expectLater(
+          replayHistoryForAsk(
+            ask: everything,
+            storage: storage,
+            post: post,
+            pause: Duration.zero,
+            onProgress: progress.add,
+            postBatch: (_) async {
+              if (malformed) return [];
+              throw StateError('injected commit failure');
+            },
+          ),
+          throwsStateError,
+        );
+        expect(progress, isEmpty);
+      }
+      await expectLater(
+        replayHistoryForAsk(
+          ask: everything,
+          storage: storage,
+          post: post,
+          batch: 0,
+        ),
+        throwsArgumentError,
+      );
+    },
+  );
+
+
   test('a chat with one of my own devices is not handed over', () async {
     // On the receiver it would be a chat with its sibling — or with itself.
     final sibling = _id(0x5B);

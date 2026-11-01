@@ -225,6 +225,10 @@ Future<DeviceHistoryReplay> replayHistoryForAsk({
     MediaObject? attachment,
   })
   post,
+
+  /// Optional bounded durable append. Every result corresponds to its input
+  /// event. A partial refusal counts only committed rows and stops later sets.
+  Future<List<bool>> Function(List<DeviceMessageMirror> events)? postBatch,
   bool Function()? cancelled,
   void Function(int sent)? onProgress,
   int batch = 25,
@@ -248,6 +252,8 @@ Future<DeviceHistoryReplay> replayHistoryForAsk({
   var conversations = 0, messages = 0, contacts = 0, calls = 0, readMarks = 0;
   var sent = 0;
   var stopped = false;
+  if (batch < 1) throw ArgumentError.value(batch, 'batch', 'must be positive');
+  final pending = <({DeviceMessageMirror row, void Function()? accepted})>[];
 
   // See the header: contact rows carry a counter so they can only ever fill a
   // gap. It starts at 1 rather than 0 because a zero timestamp reads as "no
@@ -255,18 +261,61 @@ Future<DeviceHistoryReplay> replayHistoryForAsk({
   var fillOrder = 0;
   int nextFillStamp() => ++fillOrder;
 
-  Future<bool> emit(DeviceSyncEvent e, {MediaObject? attachment}) async {
+  void accepted(void Function()? note) {
+    note?.call();
+    sent++;
+    onProgress?.call(sent);
+  }
+
+  Future<bool> flush() async {
+    if (pending.isEmpty) return !stopped;
+    if (cancelled?.call() ?? false) {
+      stopped = true;
+      pending.clear();
+      return false;
+    }
+    final rows = List.of(pending);
+    pending.clear();
+    final results = await postBatch!(
+      List.unmodifiable([for (final row in rows) row.row]),
+    );
+    if (results.length != rows.length) {
+      throw StateError('history post batch result length mismatch');
+    }
+    for (var i = 0; i < rows.length; i++) {
+      if (results[i]) {
+        accepted(rows[i].accepted);
+      } else {
+        stopped = true;
+      }
+    }
+    return !stopped;
+  }
+
+  Future<bool> emit(
+    DeviceSyncEvent e, {
+    MediaObject? attachment,
+    void Function()? onAccepted,
+  }) async {
     if (cancelled?.call() ?? false) {
       stopped = true;
       return false;
     }
-    if (!await post(e, attachment: attachment)) {
-      stopped = true;
-      return false;
+    if (postBatch != null) {
+      pending.add((
+        row: (event: e, attachment: attachment),
+        accepted: onAccepted,
+      ));
+      if (pending.length < batch) return true;
+      if (!await flush()) return false;
+    } else {
+      if (!await post(e, attachment: attachment)) {
+        stopped = true;
+        return false;
+      }
+      accepted(onAccepted);
     }
-    sent++;
-    onProgress?.call(sent);
-    if (sent % batch == 0) {
+    if (postBatch != null || sent % batch == 0) {
       await Future<void>.delayed(pause);
       await awaitRoom?.call();
     }
@@ -279,6 +328,7 @@ Future<DeviceHistoryReplay> replayHistoryForAsk({
     if (wanted != null && !wanted.contains(peerHex)) continue;
     if (await isOwnDevice?.call(conversation.peer.nodeId) ?? false) continue;
     conversations++;
+    var preferenceAccepted = false;
 
     // THE CONTACT FIRST, and its status as its own key.
     //
@@ -296,6 +346,7 @@ Future<DeviceHistoryReplay> replayHistoryForAsk({
           contactPrefsPayload(conversation.peer),
         ),
       ),
+      onAccepted: () => preferenceAccepted = true,
     )) {
       break;
     }
@@ -306,10 +357,12 @@ Future<DeviceHistoryReplay> replayHistoryForAsk({
         tsMs: nextFillStamp(),
         payload: {'status': conversation.peer.status.name},
       ),
+      onAccepted: () {
+        if (preferenceAccepted) contacts++;
+      },
     )) {
       break;
     }
-    contacts++;
 
     if (ask.readMarks) {
       final readAt = await storage.readMarker(conversation.id);
@@ -324,10 +377,10 @@ Future<DeviceHistoryReplay> replayHistoryForAsk({
             tsMs: readAt,
             payload: const {},
           ),
+          onAccepted: () => readMarks++,
         )) {
           break;
         }
-        readMarks++;
       }
     }
 
@@ -345,11 +398,14 @@ Future<DeviceHistoryReplay> replayHistoryForAsk({
       final mirror = mirrorMessage == null
           ? deviceMirrorOf(peerHex, message, withFileBytes: ask.files)
           : await mirrorMessage(peerHex, message, ask.files);
-      if (!await emit(mirror.event, attachment: mirror.attachment)) {
+      if (!await emit(
+        mirror.event,
+        attachment: mirror.attachment,
+        onAccepted: () => messages++,
+      )) {
         broke = true;
         break;
       }
-      messages++;
     }
     if (broke) break;
   }
@@ -365,13 +421,14 @@ Future<DeviceHistoryReplay> replayHistoryForAsk({
           tsMs: entry.atMs,
           payload: entry.toJson(),
         ),
+        onAccepted: () => calls++,
       )) {
         break;
       }
-      calls++;
     }
   }
 
+  if (!stopped) await flush();
   return DeviceHistoryReplay(
     conversations: conversations,
     messages: messages,
