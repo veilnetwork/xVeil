@@ -44,7 +44,11 @@ void observe(
   CallBitrateAdapter adapter,
   List<({int maxBitrateKbps, double maxFps})> applied,
 })
-_compensatedJitter({int rtt = 110, String failure = 'none'}) {
+_compensatedJitter({
+  int rtt = 110,
+  String failure = 'none',
+  String audio = 'duplex',
+}) {
   final adapter = CallBitrateAdapter(
     baseBitrateKbps: 900,
     baseFps: 60,
@@ -79,7 +83,8 @@ _compensatedJitter({int rtt = 110, String failure = 'none'}) {
         : failure == 'buffer_growth'
         ? (delay - 40).clamp(0, 400)
         : 260;
-    final receiving = failure != 'one_direction';
+    final receiving = audio != 'send';
+    final sending = audio != 'receive';
     final peerKnown = failure != 'missing_audio';
     final nativeRtt = failure == 'rtt_bloat' ? (n <= 8 ? 110 : 600) : rtt;
     final loss = failure == 'audio_loss' ? n * 1000000 : 0;
@@ -87,14 +92,19 @@ _compensatedJitter({int rtt = 110, String failure = 'none'}) {
     final stats = <String, dynamic>{
       'worker_stalled': failure == 'stalled_native' ? 1 : 0,
       'video_worker_stalled': 0,
-      'audio_feedback_reports': peerKnown ? 1 : 0,
+      'audio_feedback_reports': sending && peerKnown ? 1 : 0,
       'video_feedback_reports': 1,
       'rtt_ms': nativeRtt,
+      'video_feedback_rtt_ms': nativeRtt,
+      'video_feedback_jitter_ms': 70,
+      'video_feedback_loss_pct': loss > 0 ? 1 : 0,
       'tx_loss_pct': loss > 0 ? 1 : 0,
       'tx_jitter_ms': 70,
       'audio_loss_report_us': loss,
-      'audio_rx_pkts': n * 50,
-      'audio_rx_native_age_ms': 10,
+      'audio_rx_pkts': receiving && failure != 'missing_receive_audio'
+          ? n * 50
+          : 0,
+      'audio_rx_native_age_ms': failure == 'missing_receive_audio' ? -1 : 10,
       'audio_tx_rtp_drops': drops,
       'tx_drops': drops,
       'video_tx_frames': frames,
@@ -115,14 +125,14 @@ _compensatedJitter({int rtt = 110, String failure = 'none'}) {
     final pressured = source.observe(
       sampledAt: at(n),
       nativeStats: stats,
-      sendExpected: true,
+      sendExpected: sending,
       receiveExpected: receiving,
-      requirePeerPlayout: true,
+      requirePeerPlayout: sending,
       peerDelayMs: peerKnown ? delay : null,
       peerCurrentDelayMs: peerKnown ? delay : null,
       peerTargetDelayMs: peerKnown ? reserve : null,
       peerSampleSequence: n,
-      receiveDelayMs: delay,
+      receiveDelayMs: failure == 'missing_audio' ? null : delay,
       receiveTargetDelayMs: reserve,
       receiveAgeMs: 10,
       interrupted: false,
@@ -133,10 +143,12 @@ _compensatedJitter({int rtt = 110, String failure = 'none'}) {
       stats,
       sampledAt: at(n),
       sourceBudgetPressured: failure == 'source_pressure' || pressured == true,
-      requirePeerAudioPlayout: true,
-      requireAudioReceivePlayout: receiving,
+      sendAudioExpected: sending,
+      requirePeerAudioPlayout: sending,
+      requireAudioReceivePlayout:
+          receiving && failure != 'unmeasured_direction',
       receiveAudioExpected: receiving,
-      audioReceiveDelayMs: delay,
+      audioReceiveDelayMs: failure == 'missing_audio' ? null : delay,
       audioReceiveTargetDelayMs: reserve,
       peerAudioDelayMs: peerKnown ? delay : null,
       peerCurrentAudioDelayMs: peerKnown ? delay : null,
@@ -169,6 +181,46 @@ void main() {
       },
     );
   }
+  for (final audio in ['send', 'receive']) {
+    for (final rtt in [110, 600]) {
+      test(
+        'compensated $audio-only audio permits causal video at ${rtt}ms RTT',
+        () {
+          final result = _compensatedJitter(rtt: rtt, audio: audio);
+          expect(result.adapter.acknowledgedPause, isFalse);
+          expect(result.adapter.acknowledgedTarget!.maxFps, greaterThan(1));
+          for (var n = 1; n < result.applied.length; n++) {
+            final before = result.applied[n - 1], after = result.applied[n];
+            expect(after.maxFps, lessThanOrEqualTo(before.maxFps * 1.25));
+            expect(
+              after.maxBitrateKbps,
+              lessThanOrEqualTo((before.maxBitrateKbps * 1.25).ceil()),
+            );
+          }
+        },
+      );
+    }
+  }
+  for (final audio in ['send', 'receive']) {
+    for (final failure in [
+      'cached_video',
+      'missing_video',
+      'stalled_native',
+      'missing_audio',
+      'unfilled',
+      'unknown_target',
+      'buffer_growth',
+      'rtt_bloat',
+      'source_pressure',
+      'no_reserve',
+      if (audio == 'receive') 'missing_receive_audio',
+    ]) {
+      test('$audio-only trial retains $failure guard', () {
+        final result = _compensatedJitter(audio: audio, failure: failure);
+        expect(result.adapter.acknowledgedTarget!.maxFps, lessThanOrEqualTo(1));
+      });
+    }
+  }
   for (final failure in [
     'cached_video',
     'missing_video',
@@ -180,7 +232,7 @@ void main() {
     'audio_drop',
     'buffer_growth',
     'rtt_bloat',
-    'one_direction',
+    'unmeasured_direction',
     'source_pressure',
     'no_reserve',
   ]) {

@@ -1,0 +1,290 @@
+{
+  "flutterTestsPassed": 506,
+  "analyzerIssues": 0,
+  "ordinaryMediaHasNoTestHookExports": true,
+  "oneWayModelAbaIdentical": true,
+  "oneWayModelAotMatchesJit": true,
+  "oneWayModelBaseline": [
+    {
+      "audio": "duplex",
+      "rttMs": 110,
+      "endFps": 60.0,
+      "paused": false
+    },
+    {
+      "audio": "duplex",
+      "rttMs": 600,
+      "endFps": 60.0,
+      "paused": false
+    },
+    {
+      "audio": "send",
+      "rttMs": 110,
+      "endFps": 1.0,
+      "paused": false
+    },
+    {
+      "audio": "send",
+      "rttMs": 600,
+      "endFps": 1.0,
+      "paused": false
+    },
+    {
+      "audio": "receive",
+      "rttMs": 110,
+      "endFps": 1.0,
+      "paused": false
+    },
+    {
+      "audio": "receive",
+      "rttMs": 600,
+      "endFps": 1.0,
+      "paused": false
+    }
+  ],
+  "oneWayModelCandidate": [
+    {
+      "audio": "duplex",
+      "rttMs": 110,
+      "endFps": 60.0,
+      "paused": false
+    },
+    {
+      "audio": "duplex",
+      "rttMs": 600,
+      "endFps": 60.0,
+      "paused": false
+    },
+    {
+      "audio": "send",
+      "rttMs": 110,
+      "endFps": 60.0,
+      "paused": false
+    },
+    {
+      "audio": "send",
+      "rttMs": 600,
+      "endFps": 60.0,
+      "paused": false
+    },
+    {
+      "audio": "receive",
+      "rttMs": 110,
+      "endFps": 60.0,
+      "paused": false
+    },
+    {
+      "audio": "receive",
+      "rttMs": 600,
+      "endFps": 60.0,
+      "paused": false
+    }
+  ],
+  "codecExperiments": [
+    {
+      "name": "clean-codec-control",
+      "fullGatePassed": true,
+      "audioProcessingScope": "codec-only-tones",
+      "audioProcessingScopeVerified": true,
+      "durationSeconds": 40,
+      "directions": [
+        {
+          "side": 0,
+          "endVideoLimit": {
+            "kbps": 900,
+            "fps": 60.0
+          },
+          "decodedCounterFps": 19.94,
+          "tailContentVerified": true,
+          "audioProtectionSamples": 0,
+          "audioVideoSamples": 20,
+          "toneEdgesMatched": 20,
+          "toneEdgesMissing": 0,
+          "maxToneEdgeMs": 84.17,
+          "quietPcmBlocks": 0,
+          "pcmBlocks": 1999,
+          "audioTargetRangeMs": [
+            40,
+            40
+          ]
+        },
+        {
+          "side": 1,
+          "endVideoLimit": {
+            "kbps": 900,
+            "fps": 60.0
+          },
+          "decodedCounterFps": 13.33,
+          "tailContentVerified": true,
+          "audioProtectionSamples": 0,
+          "audioVideoSamples": 20,
+          "toneEdgesMatched": 20,
+          "toneEdgesMissing": 0,
+          "maxToneEdgeMs": 92.96,
+          "quietPcmBlocks": 0,
+          "pcmBlocks": 1999,
+          "audioTargetRangeMs": [
+            40,
+            40
+          ]
+        }
+      ],
+      "nodeStopResults": [
+        0,
+        0,
+        0
+      ],
+      "remainingFixtureSockets": 0,
+      "policyExited": true,
+      "audioThreadExited": true
+    },
+    {
+      "name": "periodic-pause-current-policy",
+      "fullGatePassed": false,
+      "audioProcessingScope": "codec-only-tones",
+      "audioProcessingScopeVerified": true,
+      "durationSeconds": 70,
+      "directions": [
+        {
+          "side": 0,
+          "endVideoLimit": {
+            "kbps": 900,
+            "fps": 60.0
+          },
+          "decodedCounterFps": 18.23,
+          "tailContentVerified": true,
+          "audioProtectionSamples": 0,
+          "audioVideoSamples": 50,
+          "toneEdgesMatched": 50,
+          "toneEdgesMissing": 0,
+          "maxToneEdgeMs": 334.08,
+          "quietPcmBlocks": 0,
+          "pcmBlocks": 4999,
+          "audioTargetRangeMs": [
+            260,
+            260
+          ]
+        },
+        {
+          "side": 1,
+          "endVideoLimit": {
+            "kbps": 900,
+            "fps": 60.0
+          },
+          "decodedCounterFps": 19.29,
+          "tailContentVerified": true,
+          "audioProtectionSamples": 0,
+          "audioVideoSamples": 50,
+          "toneEdgesMatched": 50,
+          "toneEdgesMissing": 0,
+          "maxToneEdgeMs": 353.56,
+          "quietPcmBlocks": 0,
+          "pcmBlocks": 4999,
+          "audioTargetRangeMs": [
+            260,
+            300
+          ]
+        }
+      ],
+      "nodeStopResults": [
+        0,
+        0,
+        0
+      ],
+      "remainingFixtureSockets": 0,
+      "policyExited": true,
+      "audioThreadExited": true,
+      "impairment": {
+        "profile": "periodic-blind-link-hold",
+        "pauseMs": 250,
+        "periodMs": 1000,
+        "heldPackets": [
+          10910,
+          12525
+        ],
+        "maxAddedMs": [
+          249.9281531199813,
+          249.97266102582216
+        ],
+        "maxPending": 40,
+        "workerStopped": true,
+        "opaqueOnly": true
+      }
+    },
+    {
+      "name": "periodic-pause-pre-reserve-policy",
+      "fullGatePassed": false,
+      "audioProcessingScope": "codec-only-tones",
+      "audioProcessingScopeVerified": true,
+      "durationSeconds": 70,
+      "directions": [
+        {
+          "side": 0,
+          "endVideoLimit": {
+            "kbps": 15,
+            "fps": 1.0
+          },
+          "decodedCounterFps": 0.8,
+          "tailContentVerified": false,
+          "audioProtectionSamples": 44,
+          "audioVideoSamples": 50,
+          "toneEdgesMatched": 50,
+          "toneEdgesMissing": 0,
+          "maxToneEdgeMs": 313.64,
+          "quietPcmBlocks": 0,
+          "pcmBlocks": 4999,
+          "audioTargetRangeMs": [
+            240,
+            240
+          ]
+        },
+        {
+          "side": 1,
+          "endVideoLimit": {
+            "kbps": 15,
+            "fps": 1.0
+          },
+          "decodedCounterFps": 0.75,
+          "tailContentVerified": false,
+          "audioProtectionSamples": 43,
+          "audioVideoSamples": 50,
+          "toneEdgesMatched": 50,
+          "toneEdgesMissing": 0,
+          "maxToneEdgeMs": 313.82,
+          "quietPcmBlocks": 0,
+          "pcmBlocks": 4999,
+          "audioTargetRangeMs": [
+            240,
+            260
+          ]
+        }
+      ],
+      "nodeStopResults": [
+        0,
+        0,
+        0
+      ],
+      "remainingFixtureSockets": 0,
+      "policyExited": true,
+      "audioThreadExited": true,
+      "impairment": {
+        "profile": "periodic-blind-link-hold",
+        "pauseMs": 250,
+        "periodMs": 1000,
+        "heldPackets": [
+          9662,
+          8650
+        ],
+        "maxAddedMs": [
+          249.8313169926405,
+          249.68015309423208
+        ],
+        "maxPending": 35,
+        "workerStopped": true,
+        "opaqueOnly": true
+      }
+    }
+  ],
+  "physicalCellularQualification": false,
+  "speechAudibilityQualification": false
+}

@@ -60,6 +60,8 @@ parser.add_argument('--opaque-frame-capture-event-rate', type=int, default=100,
                     help='Owned-node debug-event sampling budget per peer/second, 1–1000 (default 100); changes no data rate or scheduling')
 parser.add_argument('--directory', type=Path, help='Private stand directory; reuse only a fixture created by this script')
 parser.add_argument('--media', type=Path, required=True)
+parser.add_argument('--codec-only-tones', action='store_true',
+                    help='Explicit codec/transport oracle: disable AEC/NS only in the test-hook engines, retaining AGC; does not qualify speech processing or audibility')
 parser.add_argument('--adaptive-audio', action='store_true', help='Enable the production 209-byte audio framing hint before startup; requires a test-hook media library with the local ANA factory')
 parser.add_argument('--audio-overhead-bytes', type=int, default=209,
                     help='Diagnostic framing estimate for adaptive Opus; default 209 retains production behavior')
@@ -313,6 +315,7 @@ result['reannounce_interval_seconds_override'] = args.reannounce_interval_second
 result['shaper_scope'] = args.shaper_scope
 result['rate_kbps'] = args.rate_kbps
 result['media_sha256'] = hashlib.sha256(media_path.read_bytes()).hexdigest()
+result['audio_processing_scope'] = 'codec-only-tones' if args.codec_only_tones else 'production-defaults'
 result['shaper_process_isolated'] = args.shaper_process
 result['opaque_frame_capture_start_seconds'] = args.opaque_frame_capture_start_seconds if args.opaque_frame_capture else None
 result['opaque_frame_capture_limit'] = args.opaque_frame_capture_limit if args.opaque_frame_capture else None
@@ -444,6 +447,7 @@ try:
     def mf(name,types,ret):
         f=getattr(media,name);f.argtypes=types;f.restype=ret;return f
     create=mf('veil_media_test_dual_overhead_codec_create',[C.c_uint64,P,P,C.c_int,C.c_int],P) if args.video_overhead_bytes else mf('veil_media_test_adaptive_codec_create',[C.c_uint64,P,P,C.c_int],P) if args.adaptive_audio else mf('veil_media_test_duplex_codec_create',[C.c_uint64,P,P],P)
+    codec_only_tones=mf('veil_media_test_use_codec_only_tones',[P],C.c_int) if args.codec_only_tones else None
     video_overhead=mf('veil_media_test_video_transport_overhead',[P],C.c_int) if args.video_overhead_bytes and hasattr(media,'veil_media_test_video_transport_overhead') else None
     query_framing=fn('veil_media_channel_source_packet_cost',[C.c_uint64,C.c_uint8,C.c_size_t],P) if args.live_video_framing else None
     set_video_framing=mf('veil_media_engine_set_video_packet_overhead',[P,C.c_int],C.c_int) if args.live_video_framing else None
@@ -626,6 +630,8 @@ try:
     for i,ch in enumerate(channels):
         e=create(ch,ids[i],ids[1-i],args.audio_overhead_bytes,args.video_overhead_bytes) if args.video_overhead_bytes else create(ch,ids[i],ids[1-i],args.audio_overhead_bytes) if args.adaptive_audio else create(ch,ids[i],ids[1-i])
         assert e;engines.append(e)
+        if codec_only_tones is not None:
+            assert codec_only_tones(e)==0
         if set_packet_size is not None:
             # Audio is already running, but the native setter permits this
             # until video's stream/packetizer is created. Do not rebuild audio.
@@ -942,6 +948,12 @@ try:
                 > x['stats'].get('video_rtcp_tx_pkts', 0)
             for x in samples)
         for side in range(2))
+    expected_dsp = 0 if args.codec_only_tones else 1
+    result['audio_processing_scope_verified'] = all(
+        any(row['side'] == side for row in samples) for side in range(2)) and all(
+        row['stats'].get('audio_aec_enabled') == expected_dsp
+        and row['stats'].get('audio_ns_enabled') == expected_dsp
+        and row['stats'].get('audio_agc_enabled') == 1 for row in samples)
     result['audio_overhead_bytes_override'] = args.audio_overhead_bytes if args.adaptive_audio else None
     result['compact_media'] = args.compact_media
     if args.adaptive_audio:
@@ -1051,6 +1063,7 @@ try:
                 native_driver.stats.deadline_checks >= 2 and
                 native_driver.stats.deadline_misses == 0)
     result['ok'] = result['ok'] and result['audio_rtcp_feedback_verified']
+    result['ok'] = result['ok'] and result['audio_processing_scope_verified']
     if args.decoded_video_trace:
         result['ok']=result['ok'] and result['decoded_video_progress']['tail_content_verified'] and not any(decoded_video_failures)
     result['tone_phase_coverage_verified']=all(phase_coverage)
