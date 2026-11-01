@@ -1,0 +1,93 @@
+{
+  "schema": "xveil-mirror-status-arrival/1",
+  "platform": "macos-host-native-jit",
+  "baseline": {
+    "head": "54190297",
+    "newLiveCopyRetryAttempts": 375,
+    "distinctRetriedNewLiveCopies": 96,
+    "sourceAckBeforeFirstRetryForNewCopies": 96,
+    "individualOldEventsNotRetrospectivelyAttributed": true
+  },
+  "candidate": {
+    "nativeTestsPassed": 1,
+    "initialRows": 2000,
+    "initialHistoryFirstCompleteMs": 72610,
+    "initialBStatuses": {
+      "sending": 0,
+      "sent": 0,
+      "delivered": 2000,
+      "failed": 0
+    },
+    "initialHistoryRetryAttempts": 0,
+    "backlogRows": 100,
+    "offlineUntilReadyMs": 309779,
+    "sourceAll100DeliveryDurablyConfirmedBeforeCOffline": true,
+    "COnlineDuringRecovery": false,
+    "AOnlineDuringRecovery": true,
+    "readyMsFromLaunch": 8878,
+    "firstAllIdsObservedMsFromReady": 10522,
+    "firstAllIdsAndDeliveryObservedMsFromReady": 10522,
+    "firstAllIdsAndDeliveryObservedMsFromLaunch": 19401,
+    "samples": [
+      {
+        "elapsedMs": 310,
+        "fromLaunchMs": 9188,
+        "count": 0,
+        "queryMs": 309,
+        "delivered": 0,
+        "idsComplete": 0,
+        "complete": 0
+      },
+      {
+        "elapsedMs": 5418,
+        "fromLaunchMs": 14297,
+        "count": 78,
+        "queryMs": 105,
+        "delivered": 77,
+        "idsComplete": 0,
+        "complete": 0
+      },
+      {
+        "elapsedMs": 10522,
+        "fromLaunchMs": 19401,
+        "count": 100,
+        "queryMs": 102,
+        "delivered": 100,
+        "idsComplete": 1,
+        "complete": 1
+      }
+    ],
+    "newLiveCopyRetries": {
+      "retryAttempts": 0,
+      "distinctRetriedMessages": 0,
+      "attemptsAfterAllDeliveryObserved": 0
+    },
+    "all2100IdsAndOrderEqualAfterCReturn": true,
+    "duplicateOrCountMismatchObserved": false,
+    "totalSeconds": 592.691
+  },
+  "unitVerification": {
+    "scopedPassed": 579,
+    "additionalPassed": 2,
+    "totalUniquePassed": 581,
+    "skipped": 3,
+    "redFailedOnBaseline": 3,
+    "baselineControlsPassed": 3,
+    "finalAnalyzerIssues": 0
+  },
+  "cleanup": {
+    "ownedPidsChecked": 10,
+    "portsChecked": 9,
+    "remainingOwnedProcesses": 0,
+    "remainingListeners": 0,
+    "remainingRuntimeRoots": 0,
+    "launchSourcesMatchedAtCompletion": true
+  },
+  "limits": [
+    "One native run, no controlled A/B/A latency claim",
+    "Delivery gate is stronger than prior ID-only recovery gate",
+    "Receipt-order bug is reproduced; all 96 old events are not individually attributed",
+    "No phone/AOT or complete multi-device matrix qualification",
+    "Generic failed/sent ordering is outside this positive-delivery fix"
+  ]
+}

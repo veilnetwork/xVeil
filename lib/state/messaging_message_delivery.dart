@@ -35,6 +35,26 @@ class _MessagingMessageDelivery {
   /// source of truth across restart.
   final _delivered = DeliveryAckCache();
 
+  // A trusted sibling can report delivery before this device receives the
+  // mirror. Keep that bounded evidence separate: an ordinary peer's ACK for
+  // an absent row must not authorize a future append's initial status.
+  final _mirroredDelivery = DeliveryAckCache();
+
+  bool hasMirroredDelivery(String peerHex, String messageId) =>
+      _mirroredDelivery.contains(peerHex, messageId);
+
+  void noteMirroredDelivery(String peerHex, String messageId) {
+    _mirroredDelivery.remember(peerHex, messageId);
+    if (_retryBackoff[messageId]?.peer == peerHex) {
+      _retryBackoff.remove(messageId);
+    }
+    _lastReconnectAt.remove(peerHex);
+  }
+
+  bool _hasDeliveryReceipt(String peerHex, String messageId) =>
+      _delivered.contains(peerHex, messageId) ||
+      hasMirroredDelivery(peerHex, messageId);
+
   /// Per-peer reconnect probe throttle. Give-up itself is per message below.
   final Map<String, DateTime> _lastReconnectAt = {};
 
@@ -178,7 +198,7 @@ class _MessagingMessageDelivery {
             !message.reflectedEdit &&
             message.status == MessageStatus.sent &&
             !failed.contains(message.id) &&
-            !_delivered.contains(peer.hex, message.id))
+            !_hasDeliveryReceipt(peer.hex, message.id))
           message.id,
     };
     // A deleted or terminal message no longer owns retry state. Keep the
@@ -197,7 +217,7 @@ class _MessagingMessageDelivery {
           message.reflectedEdit ||
           message.status != MessageStatus.sent ||
           failed.contains(message.id) ||
-          _delivered.contains(peer.hex, message.id)) {
+          _hasDeliveryReceipt(peer.hex, message.id)) {
         continue;
       }
 
@@ -213,6 +233,7 @@ class _MessagingMessageDelivery {
       }
 
       if (_owner._disposed || _owner.backgroundStashPaused) return;
+      if (_hasDeliveryReceipt(peer.hex, message.id)) continue;
 
       final count = (backoff?.count ?? 0) + 1;
       // Clamp the shift: an unbounded count eventually wraps the delay to 0.
@@ -306,7 +327,7 @@ class _MessagingMessageDelivery {
       if (message.direction != MessageDirection.outgoing ||
           message.reflectedEdit ||
           message.status != MessageStatus.sent ||
-          _delivered.contains(peer.hex, message.id) ||
+          _hasDeliveryReceipt(peer.hex, message.id) ||
           now.difference(message.timestamp) <= _reconnectThreshold) {
         continue;
       }
