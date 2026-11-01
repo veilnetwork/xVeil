@@ -3674,5 +3674,17 @@
   "startupUnlockBlocked": "Pattern sign-in is blocked after repeated attempts. Enter the password and configure quick unlock again in Settings.",
   "startupUnlockFailed": "Could not unlock. Check the pattern or system confirmation; wait before retrying after repeated failures. You can always enter the container password.",
   "wipeLeftQuickUnlock": "saved quick sign-in in the OS secure store",
-  "startupUnlockSaveFailed": "Screen lock settings were saved, but OS quick sign-in could not be configured. Your container password still works."
+  "startupUnlockSaveFailed": "Screen lock settings were saved, but OS quick sign-in could not be configured. Your container password still works.",
+  "chatFileSavePermissionDenied": "No permission to write to this location. Choose another folder or allow access in the system file picker.",
+  "chatFileSavedToChosenFolder": "File saved to the location you chose",
+  "chatFileDownloadedInApp": "Downloaded to the app folder. Use “Save as” to choose a folder in Files.",
+  "chatFileSaveAs": "Save as",
+  "callLockScreenTitle": "Calls on the lock screen",
+  "callLockScreenAllowed": "Full-screen calls allowed. Notifications and the background node must also be enabled.",
+  "callLockScreenPermissionHint": "Allow full-screen calls in system settings. Check that incoming call notifications are enabled.",
+  "callLockScreenSettingsFailed": "Could not open settings. Allow full-screen notifications for xVeil in Android settings.",
+  "inviteShareTab": "Share",
+  "inviteAddTab": "Add",
+  "inviteShowLink": "Show contact link",
+  "inviteNotReady": "Your contact QR will appear when the node is ready. You can add someone in the Add tab."
 }

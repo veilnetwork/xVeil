@@ -7965,4 +7965,47 @@ class AppL10nRu extends AppL10n {
   @override
   String get startupUnlockSaveFailed =>
       'Настройки блокировки экрана сохранены, но настроить быстрый вход через хранилище ОС не удалось. Пароль контейнера по-прежнему работает.';
+
+  @override
+  String get chatFileSavePermissionDenied =>
+      'Нет доступа для записи в это место. Выберите другую папку или разрешите доступ в системном окне выбора файла.';
+
+  @override
+  String get chatFileSavedToChosenFolder =>
+      'Файл сохранён в выбранное вами место';
+
+  @override
+  String get chatFileDownloadedInApp =>
+      'Загружено в папку приложения. Нажмите «Сохранить как», чтобы выбрать папку в файловом менеджере.';
+
+  @override
+  String get chatFileSaveAs => 'Сохранить как';
+
+  @override
+  String get callLockScreenTitle => 'Звонки на экране блокировки';
+
+  @override
+  String get callLockScreenAllowed =>
+      'Полноэкранные звонки разрешены. Уведомления и фоновая работа узла тоже должны быть включены.';
+
+  @override
+  String get callLockScreenPermissionHint =>
+      'Разрешите полноэкранные звонки в настройках системы. Проверьте, что уведомления о входящих вызовах включены.';
+
+  @override
+  String get callLockScreenSettingsFailed =>
+      'Не удалось открыть настройки. Разрешите полноэкранные уведомления для xVeil в настройках Android.';
+
+  @override
+  String get inviteShareTab => 'Поделиться';
+
+  @override
+  String get inviteAddTab => 'Добавить';
+
+  @override
+  String get inviteShowLink => 'Показать ссылку контакта';
+
+  @override
+  String get inviteNotReady =>
+      'Ваш QR появится, когда узел будет готов. Чужой контакт можно добавить во вкладке «Добавить».';
 }

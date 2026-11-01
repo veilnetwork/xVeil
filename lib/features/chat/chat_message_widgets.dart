@@ -2196,7 +2196,10 @@ class _Bubble extends ConsumerWidget {
                                   switch (a) {
                                     _FileAffordance.save =>
                                       Icons.download_done_outlined,
-                                    _FileAffordance.open => Icons.open_in_new,
+                                    _FileAffordance.open =>
+                                      Platform.isAndroid || Platform.isIOS
+                                          ? Icons.save_alt
+                                          : Icons.open_in_new,
                                     _FileAffordance.gone =>
                                       Icons.file_download_off_outlined,
                                     _FileAffordance.download =>

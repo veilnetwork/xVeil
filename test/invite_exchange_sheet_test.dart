@@ -14,27 +14,58 @@ const _nodeIdB =
     '75cb65f33601923fe0ee3b5ec039eec6a1a9b5fd066d5854892d95e0f55eea79';
 
 Widget _host(Widget child) => MaterialApp(
-      localizationsDelegates: AppL10n.localizationsDelegates,
-      supportedLocales: AppL10n.supportedLocales,
-      home: Scaffold(body: SingleChildScrollView(child: child)),
-    );
+  localizationsDelegates: AppL10n.localizationsDelegates,
+  supportedLocales: AppL10n.supportedLocales,
+  home: Scaffold(body: SingleChildScrollView(child: child)),
+);
 
 void main() {
   testWidgets('renders my invite as a QR', (tester) async {
-    await tester.pumpWidget(_host(
-      InviteExchangeSheet(myInvite: _inviteA, onAddContact: (_) {}),
-    ));
+    await tester.pumpWidget(
+      _host(InviteExchangeSheet(myInvite: _inviteA, onAddContact: (_) {})),
+    );
     expect(find.byType(QrImageView), findsOneWidget);
     expect(find.text('Copy my invite'), findsOneWidget);
   });
 
-  testWidgets('parsing a pasted invite fires onAddContact with the peer',
-      (tester) async {
-    BootstrapInvite? added;
-    await tester.pumpWidget(_host(
-      InviteExchangeSheet(myInvite: _inviteA, onAddContact: (i) => added = i),
-    ));
+  testWidgets(
+    'share starts active, link is folded, adding survives a tab switch',
+    (tester) async {
+      await tester.pumpWidget(
+        _host(InviteExchangeSheet(myInvite: _inviteA, onAddContact: (_) {})),
+      );
+      expect(find.byType(TextField), findsNothing);
+      expect(find.text(_inviteA), findsNothing);
+      await tester.tap(find.text('Show contact link'));
+      await tester.pumpAndSettle();
+      expect(find.text(_inviteA), findsOneWidget);
+      await tester.tap(find.text('Add'));
+      await tester.pumpAndSettle();
+      expect(find.byType(QrImageView), findsNothing);
+      await tester.enterText(find.byType(TextField), '@fixture');
+      await tester.tap(find.text('Share'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Add'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        '@fixture',
+      );
+    },
+  );
 
+  testWidgets('parsing a pasted invite fires onAddContact with the peer', (
+    tester,
+  ) async {
+    BootstrapInvite? added;
+    await tester.pumpWidget(
+      _host(
+        InviteExchangeSheet(myInvite: _inviteA, onAddContact: (i) => added = i),
+      ),
+    );
+
+    await tester.tap(find.text('Add'));
+    await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), _inviteB);
     final addBtn = find.widgetWithText(FilledButton, 'Add contact');
     await tester.ensureVisible(addBtn);
@@ -48,10 +79,14 @@ void main() {
 
   testWidgets('invalid invite shows an error and does not add', (tester) async {
     var calls = 0;
-    await tester.pumpWidget(_host(
-      InviteExchangeSheet(myInvite: _inviteA, onAddContact: (_) => calls++),
-    ));
+    await tester.pumpWidget(
+      _host(
+        InviteExchangeSheet(myInvite: _inviteA, onAddContact: (_) => calls++),
+      ),
+    );
 
+    await tester.tap(find.text('Add'));
+    await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'not-an-invite');
     final addBtn = find.widgetWithText(FilledButton, 'Add contact');
     await tester.ensureVisible(addBtn);
@@ -63,17 +98,22 @@ void main() {
     expect(find.text('That is not a valid xVeil invite'), findsOneWidget);
   });
 
-  testWidgets('hides the QR section when no invite is ready yet',
-      (tester) async {
-    await tester.pumpWidget(_host(
-      InviteExchangeSheet(myInvite: null, onAddContact: (_) {}),
-    ));
+  testWidgets('hides the QR section when no invite is ready yet', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _host(InviteExchangeSheet(myInvite: null, onAddContact: (_) {})),
+    );
     expect(find.byType(QrImageView), findsNothing);
+    expect(find.byType(TextField), findsNothing);
+    await tester.tap(find.text('Add'));
+    await tester.pumpAndSettle();
     expect(find.text('Paste their invite'), findsOneWidget);
   });
 
-  testWidgets('a veil:peers share routes to onImportPeers, not onAddContact',
-      (tester) async {
+  testWidgets('a veil:peers share routes to onImportPeers, not onAddContact', (
+    tester,
+  ) async {
     List<BootstrapInvite>? imported;
     var contactCalls = 0;
     // Two-entry peers-share built from the known invites' fields.
@@ -81,14 +121,18 @@ void main() {
     final b = BootstrapInvite.parse(_inviteB);
     final shareUri = SharedPeers([a, b]).toUri();
 
-    await tester.pumpWidget(_host(
-      InviteExchangeSheet(
-        myInvite: _inviteA,
-        onAddContact: (_) => contactCalls++,
-        onImportPeers: (p) => imported = p,
+    await tester.pumpWidget(
+      _host(
+        InviteExchangeSheet(
+          myInvite: _inviteA,
+          onAddContact: (_) => contactCalls++,
+          onImportPeers: (p) => imported = p,
+        ),
       ),
-    ));
+    );
 
+    await tester.tap(find.text('Add'));
+    await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), shareUri);
     final addBtn = find.widgetWithText(FilledButton, 'Add contact');
     await tester.ensureVisible(addBtn);
