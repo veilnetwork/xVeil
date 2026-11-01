@@ -34,7 +34,9 @@ class NetworkReconnect {
 
   final Future<List<ConnectivityResult>> Function() current;
   final Stream<List<ConnectivityResult>> changes;
-  final Future<void> Function(NetworkAttachment) notify;
+  // Generation distinguishes wifi -> cellular -> wifi from a retry of the
+  // same observation. Fanout uses it to retry only failed identity nodes.
+  final Future<void> Function(NetworkAttachment, int generation) notify;
   StreamSubscription<List<ConnectivityResult>>? _subscription;
   NetworkAttachment? _desired;
   int _desiredGeneration = 0;
@@ -42,6 +44,8 @@ class NetworkReconnect {
   bool _busy = false;
   bool _disposed = false;
   int _observations = 0;
+  Timer? _retryTimer;
+  int _retrySeconds = 1;
 
   Future<void> start() async {
     if (_disposed || _subscription != null) return;
@@ -64,8 +68,20 @@ class NetworkReconnect {
     if (attachment != _desired) {
       _desired = attachment;
       _desiredGeneration++;
+      _retrySeconds = 1;
     }
+    _retryTimer?.cancel();
+    _retryTimer = null;
     if (!_busy) unawaited(_drain());
+  }
+
+  void _scheduleRetry() {
+    if (_disposed || _retryTimer != null) return;
+    _retryTimer = Timer(Duration(seconds: _retrySeconds), () {
+      _retryTimer = null;
+      if (!_disposed && !_busy) unawaited(_drain());
+    });
+    _retrySeconds = (_retrySeconds * 2).clamp(1, 30);
   }
 
   Future<void> _drain() async {
@@ -77,14 +93,19 @@ class NetworkReconnect {
         final timing = Stopwatch()..start();
         var success = false;
         try {
-          await notify(next);
+          await notify(next, generation);
           _appliedGeneration = generation;
+          _retrySeconds = 1;
           success = true;
         } catch (_) {
           devLog(() => 'xVeil[net]: handover notification failed');
-          // Retain an unapplied state for the next OS observation. A newer
-          // state already waiting must still be attempted now.
-          if (_desiredGeneration == generation) break;
+          // IPC can fail while the node restarts during handover, with no
+          // further OS event forthcoming. Retry with one bounded timer and
+          // no overlapping notifications; a newer observation runs now.
+          if (_desiredGeneration == generation) {
+            _scheduleRetry();
+            break;
+          }
         } finally {
           diagnosticJournal.record(
             DiagnosticEvent.networkChange,
@@ -103,6 +124,8 @@ class NetworkReconnect {
 
   Future<void> dispose() async {
     _disposed = true;
+    _retryTimer?.cancel();
+    _retryTimer = null;
     await _subscription?.cancel();
   }
 }
@@ -113,10 +136,11 @@ final networkConnectivityProvider = Provider<Connectivity>(
 
 final networkReconnectProvider = Provider<void>((ref) {
   final connectivity = ref.watch(networkConnectivityProvider);
+  final applied = Map<NetworkChangeTransport, int>.identity();
   final observer = NetworkReconnect(
     current: connectivity.checkConnectivity,
     changes: connectivity.onConnectivityChanged,
-    notify: (attachment) async {
+    notify: (attachment, generation) async {
       final active = ref.read(realStackProvider);
       final session = ref.read(sessionProvider);
       final transports = <NetworkChangeTransport>{
@@ -128,11 +152,16 @@ final networkReconnectProvider = Provider<void>((ref) {
                 case final NetworkChangeTransport transport)
               transport,
       };
+      applied.removeWhere((transport, _) => !transports.contains(transport));
       // All online identities are separate nodes. Notify each once, including
       // the active identity that is also present in an all-online session.
       await Future.wait([
         for (final transport in transports)
-          transport.networkChanged(attachment),
+          if (applied[transport] != generation)
+            () async {
+              await transport.networkChanged(attachment);
+              applied[transport] = generation;
+            }(),
       ]);
     },
   );
