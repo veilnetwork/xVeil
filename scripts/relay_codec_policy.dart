@@ -141,6 +141,8 @@ Future<void> main() async {
         requireAudioReceivePlayout: true,
         receiveAudioExpected: true,
         peerAudioDelayMs: peer[i].delayMs(now),
+        peerCurrentAudioDelayMs: peer[i].currentDelayMs(now),
+        peerTargetAudioDelayMs: peer[i].targetDelayMs(now),
         requirePeerAudioPlayout: true,
         audioInterrupted: interrupted,
       );

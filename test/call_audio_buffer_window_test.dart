@@ -2,6 +2,28 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/state/call_audio_buffer_window.dart';
 
 void main() {
+  test('adaptive credit never hides sustained raw growth', () {
+    final w = CallAudioBufferWindow();
+    var pressure = false;
+    for (var n = 0; n < 12; n++) {
+      final delay = 160 + n * 20;
+      pressure = w.observe(
+        delay,
+        targetDelayMs: delay - 40,
+        sampledAt: DateTime(2026, 11, 2).add(Duration(seconds: n)),
+      );
+    }
+    expect(w.growing, isTrue);
+    expect(pressure, isTrue);
+  });
+
+  test('cached target changes cannot erase a pressure observation', () {
+    final w = CallAudioBufferWindow();
+    expect(w.observe(520, targetDelayMs: 260, sequence: 10), isTrue);
+    expect(w.observe(520, targetDelayMs: 400, sequence: 10), isTrue);
+    expect(w.observe(100, targetDelayMs: 100, sequence: 9), isTrue);
+    expect(w.observe(320, targetDelayMs: 260, sequence: 11), isFalse);
+  });
   final clocks = Expando<DateTime>();
   bool tick(
     CallAudioBufferWindow window,

@@ -1,4 +1,5 @@
 import 'call_bitrate_adapter.dart';
+import 'call_audio_playout_reserve.dart';
 import 'call_audio_buffer_window.dart';
 import 'call_rtcp_loss.dart';
 import 'call_audio_transient_loss.dart';
@@ -129,20 +130,6 @@ class CallAudioSourcePressure {
     final unknown =
         (peerNeeded && !valid(peerDelay)) ||
         (receiveExpected && (!valid(receiveDelayMs) || !valid(receiveAgeMs)));
-    final peerPressure = _peerBuffer.observe(
-      peerNeeded ? peerDelay : null,
-      sequence: peerSampleSequence,
-      sampledAt: sampledAt,
-      measuredGrowing: peerNeeded && hasCurrentPeerDelay
-          ? peerBufferGrowing
-          : null,
-    );
-    final receivePressure = _receiveBuffer.observe(
-      receiveExpected ? receiveDelayMs : null,
-      sampledAt: sampledAt,
-    );
-    // Competing sources honor fresh audio loss and the video buffer trigger.
-    // Transport estimates or unknown feedback alone cannot cut this budget.
     final peerTarget =
         peerNeeded && valid(peerDelay) && valid(peerTargetDelayMs)
         ? peerTargetDelayMs
@@ -151,6 +138,35 @@ class CallAudioSourcePressure {
         receiveExpected && valid(receiveDelayMs) && valid(receiveTargetDelayMs)
         ? receiveTargetDelayMs
         : null;
+    final peerCredit = hasCurrentPeerDelay
+        ? CallAudioPlayoutReserve.creditMs(peerDelay, peerTarget)
+        : 0;
+    final receiveCredit = CallAudioPlayoutReserve.creditMs(
+      receiveDelayMs,
+      receiveTarget,
+    );
+    final peerPressureDelay = CallAudioPlayoutReserve.pressureDelayMs(
+      peerDelay,
+      peerCredit,
+    );
+    final receivePressureDelay = CallAudioPlayoutReserve.pressureDelayMs(
+      receiveDelayMs,
+      receiveCredit,
+    );
+    final peerPressure = _peerBuffer.observe(
+      peerNeeded ? peerDelay : null,
+      sequence: peerSampleSequence,
+      sampledAt: sampledAt,
+      targetDelayMs: hasCurrentPeerDelay ? peerTarget : null,
+      measuredGrowing: peerNeeded && hasCurrentPeerDelay
+          ? peerBufferGrowing
+          : null,
+    );
+    final receivePressure = _receiveBuffer.observe(
+      receiveExpected ? receiveDelayMs : null,
+      sampledAt: sampledAt,
+      targetDelayMs: receiveTarget,
+    );
     if (_lastTransientSendExpected != sendExpected) {
       _transientLoss.reset();
       _lastTransientSendExpected = sendExpected;
@@ -180,8 +196,12 @@ class CallAudioSourcePressure {
         interrupted ||
         peerPressure ||
         receivePressure ||
-        (peerTarget != null && peerTarget >= playoutDegradeMs) ||
-        (receiveTarget != null && receiveTarget >= playoutDegradeMs);
+        (peerTarget != null &&
+            peerTarget >= playoutDegradeMs &&
+            peerCredit == 0) ||
+        (receiveTarget != null &&
+            receiveTarget >= playoutDegradeMs &&
+            receiveCredit == 0);
     final bad =
         hardBad ||
         (soft.send ?? repeatedTransient) ||
@@ -198,11 +218,22 @@ class CallAudioSourcePressure {
         !unknown &&
         !interrupted &&
         !newDrop &&
-        (peerTarget == null || peerTarget < playoutRecoverMs) &&
-        (receiveTarget == null || receiveTarget < playoutRecoverMs) &&
-        (!peerNeeded || peerDelay! < playoutRecoverMs) &&
+        CallAudioPlayoutReserve.targetAllowsGrowth(
+          peerTarget,
+          peerCredit,
+          recoverMs: playoutRecoverMs,
+        ) &&
+        CallAudioPlayoutReserve.targetAllowsGrowth(
+          receiveTarget,
+          receiveCredit,
+          recoverMs: playoutRecoverMs,
+        ) &&
+        (!peerNeeded ||
+            (peerPressureDelay != null &&
+                peerPressureDelay < playoutRecoverMs)) &&
         (!receiveExpected ||
-            (receiveDelayMs! < playoutRecoverMs &&
+            (receivePressureDelay != null &&
+                receivePressureDelay < playoutRecoverMs &&
                 receiveAgeMs! < CallBitrateAdapter.audioReceiveRecoverMs));
     final durationKnown =
         nativeStats != null &&
