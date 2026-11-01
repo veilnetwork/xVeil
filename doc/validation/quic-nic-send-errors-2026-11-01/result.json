@@ -1,0 +1,107 @@
+{
+  "schema": "xveil-quic-nic-send-validation/1",
+  "coldLatencyResolved": false,
+  "causalSpeedupProven": false,
+  "fullSixServerLineQualified": false,
+  "phoneOrWindowsQualified": false,
+  "phases": [
+    {
+      "phase": "nic",
+      "clientSdk": "c8bdfd97",
+      "serverSdk": "c8bdfd97",
+      "boots": [
+        {
+          "bothActiveSeconds": 11.964,
+          "activeHeld3s": true,
+          "remoteAbsentAtFirstPostLockQuery": true
+        },
+        {
+          "bothActiveSeconds": 13.091,
+          "activeHeld3s": true,
+          "remoteAbsentAtFirstPostLockQuery": true
+        },
+        {
+          "bothActiveSeconds": 1.504,
+          "activeHeld3s": true,
+          "remoteAbsentAtFirstPostLockQuery": true
+        },
+        {
+          "bothActiveSeconds": 12.769,
+          "activeHeld3s": true,
+          "remoteAbsentAtFirstPostLockQuery": true
+        }
+      ]
+    },
+    {
+      "phase": "send_error",
+      "clientSdk": "026dd915",
+      "serverSdk": "c8bdfd97",
+      "boots": [
+        {
+          "bothActiveSeconds": 12.134,
+          "activeHeld3s": true,
+          "remoteAbsentAtFirstPostLockQuery": true
+        },
+        {
+          "bothActiveSeconds": 12.791,
+          "activeHeld3s": true,
+          "remoteAbsentAtFirstPostLockQuery": true
+        },
+        {
+          "bothActiveSeconds": 25.182,
+          "activeHeld3s": true,
+          "remoteAbsentAtFirstPostLockQuery": true
+        }
+      ]
+    },
+    {
+      "phase": "opaque_proxy",
+      "clientSdk": "026dd915",
+      "serverSdk": "c8bdfd97",
+      "boots": [
+        {
+          "bothActiveSeconds": 37.469,
+          "activeHeld3s": true,
+          "remoteAbsentAtFirstPostLockQuery": true
+        },
+        {
+          "bothActiveSeconds": 23.813,
+          "activeHeld3s": true,
+          "remoteAbsentAtFirstPostLockQuery": true
+        }
+      ]
+    }
+  ],
+  "nic": {
+    "pcapRecords": 1614,
+    "kernelCaptureDrops": 0,
+    "serverRxSamplesMatched": 45,
+    "serverRxSamplesTotal": 45,
+    "serverTxSamplesMatched": 46,
+    "serverTxSamplesTotal": 46,
+    "uniquelyMatchedMacFirstStreamTimeouts": 2,
+    "oneRttObservedOnThoseFlows": false
+  },
+  "sendErrorControl": {
+    "localErrorEvents": 0,
+    "boots": 3
+  },
+  "tests": {
+    "runtimePassed": 795,
+    "runtimeIgnored": 11,
+    "transportPassed": 156,
+    "udpObserverPassed": 1,
+    "quinnTracePassed": 2,
+    "privacyPassed": 10,
+    "windowsUdpCompileCheckPassed": true
+  },
+  "teardown": {
+    "qualifiedMacAppsExited": 9,
+    "proxyAndHasherExited": true,
+    "sshObserversExited": true,
+    "captureExited": true,
+    "testServicesStopped": 6,
+    "productionUnchanged": 6,
+    "originalTestBinariesAndUnitsRestored": true
+  }
+}
