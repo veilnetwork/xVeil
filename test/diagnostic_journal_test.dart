@@ -101,6 +101,38 @@ void main() {
     expect((evidence['cameraPermission'] as Map)['values'], {'state': 0});
   });
 
+  test(
+    'receiver reserve exports only a bounded integer, without raw fields',
+    () {
+      for (final value in <Object?>[
+        -1,
+        0,
+        260,
+        400,
+        60000,
+        -2,
+        60001,
+        260.0,
+        true,
+        'private-target',
+      ]) {
+        final journal = DiagnosticJournal(enabled: true);
+        journal.recordMediaStats({
+          'audio_jb_target_ms': value,
+          'device': 'private-device',
+        });
+        final row = (journal.toJson()['events'] as List).single as Map;
+        expect(
+          row['values'],
+          value is int && value >= -1 && value <= 60000
+              ? {'audioTargetDelayMs': value}
+              : isEmpty,
+        );
+        expect(jsonEncode(journal.toJson()), isNot(contains('private-')));
+      }
+    },
+  );
+
   test('disabled permission instrumentation retains nothing', () {
     final journal = DiagnosticJournal(enabled: false);
     journal.recordMediaPermission(video: false, granted: true);

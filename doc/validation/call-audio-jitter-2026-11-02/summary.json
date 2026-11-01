@@ -1,0 +1,117 @@
+{
+  "schema": "xveil-audio-jitter-validation/1",
+  "scope": "local-real-opus-neteq-synthetic-network",
+  "duration_ms": 30000,
+  "warmup_ms": 1500,
+  "ab_a_repeated_baseline_equal": true,
+  "ab_a_rows_per_phase": 36,
+  "project_regression": {
+    "seeds": [
+      197,
+      17,
+      41
+    ],
+    "decoder_runs": 108,
+    "paired_cases": 54
+  },
+  "additional_probe": {
+    "seeds": [
+      17,
+      41,
+      97,
+      401,
+      997
+    ],
+    "paired_cases": 90,
+    "lossless_pairs_with_additional_played_plc": 0
+  },
+  "profiles": {
+    "0": "fixed60ms",
+    "1": "uniform-jitter0to100ms",
+    "2": "uniform-jitter0to200ms",
+    "3": "route-delay-step180ms",
+    "4": "periodic-held250ms-bursts",
+    "5": "jitter0to120ms-and3percent-drop"
+  },
+  "comparisons": [
+    {
+      "packet_ms": 40,
+      "profile": 0,
+      "played_plc_ms": {
+        "before": 0,
+        "after": 0
+      },
+      "queue_p95_ms": {
+        "before": 51,
+        "after": 51
+      }
+    },
+    {
+      "packet_ms": 40,
+      "profile": 2,
+      "played_plc_ms": {
+        "before": 1160,
+        "after": 0
+      },
+      "queue_p95_ms": {
+        "before": 145,
+        "after": 184
+      }
+    },
+    {
+      "packet_ms": 40,
+      "profile": 4,
+      "played_plc_ms": {
+        "before": 4350,
+        "after": 580
+      },
+      "queue_p95_ms": {
+        "before": 164,
+        "after": 283
+      }
+    },
+    {
+      "packet_ms": 60,
+      "profile": 0,
+      "played_plc_ms": {
+        "before": 0,
+        "after": 0
+      },
+      "queue_p95_ms": {
+        "before": 76,
+        "after": 76
+      }
+    },
+    {
+      "packet_ms": 60,
+      "profile": 2,
+      "played_plc_ms": {
+        "before": 500,
+        "after": 0
+      },
+      "queue_p95_ms": {
+        "before": 179,
+        "after": 202
+      }
+    },
+    {
+      "packet_ms": 60,
+      "profile": 4,
+      "played_plc_ms": {
+        "before": 4160,
+        "after": 590
+      },
+      "queue_p95_ms": {
+        "before": 194,
+        "after": 301
+      }
+    }
+  ],
+  "not_qualified": [
+    "original-poco-windows-call",
+    "physical-speech-echo-noise-audibility",
+    "network-handover",
+    "video-quality-under-sustained-high-jitter",
+    "platform-engine-pins"
+  ]
+}

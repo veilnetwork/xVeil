@@ -29,6 +29,7 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 '  diagnosticJournal.recordMediaPermission(video: true, granted: false);\n'
                 "  diagnosticJournal.recordMediaStats({'audio_input_level_band': 2, "
                 "'audio_aec_enabled': 1, 'audio_ns_enabled': 1, 'audio_agc_enabled': 1, "
+                "'audio_jb_target_ms': 260, "
                 "'audio_output_level_band': 4, 'device': 'PRIVATE_CANARY', "
                 "'qtag': 'PRIVATE_CANARY', 'walk_tag': 'PRIVATE_CANARY', "
                 "'op': 314159265, 'local': 'PRIVATE_CANARY'});\n"
@@ -84,6 +85,7 @@ class DiagnosticArtifactTest(unittest.TestCase):
                         self.assertEqual(evidence['mediaSample']['values'], {
                             'audioInputLevelBand': 2, 'audioOutputLevelBand': 4,
                             'audioAecEnabled': 1, 'audioNsEnabled': 1, 'audioAgcEnabled': 1,
+                            'audioTargetDelayMs': 260,
                         })
                         self.assertEqual(evidence['backgroundSnapshot']['values'], {
                             'supported': 1, 'success': 1,
