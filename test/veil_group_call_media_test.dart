@@ -66,6 +66,34 @@ Map<String, dynamic> _sourceStats(List<NodeId> peers, {int delay = 100}) => {
 
 void main() {
   test(
+    'group noise choice survives live changes and replacement without accepting a refusal',
+    () async {
+      final self = _id(1), peer = _id(2);
+      final engines = [_FakeEngine(), _FakeEngine()];
+      var creates = 0;
+      final controller = VeilGroupCallMediaController(
+        _FakeTransport(self),
+        roomMediaSecret: _room(),
+        engineFactory: (_) => engines[creates++],
+        requestMicrophone: () async => true,
+        networkActivity: CallNetworkActivity(setActive: (_) async => true),
+      );
+      try {
+        expect(controller.setNoiseSuppression(false), isTrue);
+        expect(await controller.start(_call(self, [peer])), isTrue);
+        expect(engines[0].noiseSuppression, [false]);
+        expect(controller.setNoiseSuppression(true), isTrue);
+        engines[0].rejectNoiseSuppression = true;
+        expect(controller.setNoiseSuppression(false), isFalse);
+        expect(await controller.start(_call(self, [peer])), isTrue);
+        expect(engines[1].noiseSuppression, [true]);
+      } finally {
+        await controller.stop();
+      }
+    },
+  );
+
+  test(
     'one group concealment cannot bypass video debouncing at the audio floor',
     () {
       fakeAsync((clock) {
@@ -2779,6 +2807,17 @@ class _FakeTransport implements GroupMediaChannelTransport {
 }
 
 class _FakeEngine implements GroupAudioEngine {
+  @override
+  bool get supportsNoiseSuppression => true;
+  final noiseSuppression = <bool>[];
+  bool rejectNoiseSuppression = false;
+  @override
+  bool setNoiseSuppression(bool enabled) {
+    if (rejectNoiseSuppression) return false;
+    noiseSuppression.add(enabled);
+    return true;
+  }
+
   _FakeEngine({
     this.supportsLowRateVideo = true,
     this.supportsVideoSendPause = true,

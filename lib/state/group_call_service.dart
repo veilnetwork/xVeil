@@ -10,6 +10,7 @@ import '../data/transport/veil_flutter_transport.dart';
 import '../domain/call_signal.dart';
 import '../domain/group.dart';
 import '../domain/group_call.dart';
+import 'call_noise_suppression.dart';
 import 'call_service.dart';
 import 'call_slot.dart';
 import 'group_service_providers.dart';
@@ -1187,22 +1188,29 @@ final groupCallServiceProvider = Provider<GroupCallService?>((ref) {
   if (groups == null) return null;
   final directCalls = ref.watch(callServiceProvider);
   final transport = ref.read(veilTransportProvider);
+  final media =
+      transport is VeilFlutterTransport &&
+          VeilGroupCallMediaController.isSupportedPlatform
+      ? VeilGroupCallMediaController(
+          VeilGroupMediaChannelTransport(transport),
+          roomMediaSecret: (call) => groups.groupCallMediaSecret(
+            groupId: call.groupId,
+            channelId: call.channelId,
+            channelEpoch: call.channelEpoch,
+            membershipEpoch: call.membershipEpoch,
+            callId: call.callId,
+          ),
+        )
+      : null;
+  if (media != null) {
+    final detach = ref
+        .watch(callNoiseSuppressionProvider)
+        .bind(media, media.setNoiseSuppression);
+    ref.onDispose(detach);
+  }
   final service = GroupCallService(
     groups,
-    media:
-        transport is VeilFlutterTransport &&
-            VeilGroupCallMediaController.isSupportedPlatform
-        ? VeilGroupCallMediaController(
-            VeilGroupMediaChannelTransport(transport),
-            roomMediaSecret: (call) => groups.groupCallMediaSecret(
-              groupId: call.groupId,
-              channelId: call.channelId,
-              channelEpoch: call.channelEpoch,
-              membershipEpoch: call.membershipEpoch,
-              callId: call.callId,
-            ),
-          )
-        : null,
+    media: media,
     callSlot: ref.read(callSlotProvider),
     otherCallBusy: () => directCalls.current?.isLive ?? false,
   )..start();

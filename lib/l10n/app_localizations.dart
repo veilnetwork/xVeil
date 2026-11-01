@@ -13775,6 +13775,24 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Your contact QR will appear when the node is ready. You can add someone in the Add tab.'**
   String get inviteNotReady;
+
+  /// No description provided for @callNoiseSuppression.
+  ///
+  /// In en, this message translates to:
+  /// **'Microphone noise suppression'**
+  String get callNoiseSuppression;
+
+  /// No description provided for @callNoiseSuppressionHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Reduce background noise in your microphone. Echo cancellation stays on.'**
+  String get callNoiseSuppressionHint;
+
+  /// No description provided for @callNoiseSuppressionFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not change noise suppression.'**
+  String get callNoiseSuppressionFailed;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {
