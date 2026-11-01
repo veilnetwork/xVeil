@@ -127,6 +127,22 @@ void main() {
                   'count': messages.length,
                   if (request['includeIds'] == true)
                     'ids': [for (final message in messages) message.id],
+                  // Private synthetic-stand evidence, never part of the app's
+                  // diagnostic export or HTTP API. No message body is copied.
+                  if (request['includePositions'] == true)
+                    'positions': {
+                      for (final message in messages)
+                        message.id: {
+                          'author': message.author,
+                          'seq': message.seq,
+                          'orderAuthor': message.orderAuthor,
+                          'orderSeq': message.orderSeq,
+                          'orderingOnly': message.ordering != null,
+                          'verified': message.positionVerified,
+                          'timestampMs':
+                              message.timestamp.millisecondsSinceEpoch,
+                        },
+                    },
                   if (request['includeIds'] == true)
                     'statusCounts': {
                       for (final status in MessageStatus.values)

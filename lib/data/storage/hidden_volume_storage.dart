@@ -84,6 +84,16 @@ class _PositionedMessageAppends {
   late final Future<void> result;
 }
 
+typedef _QueuedOutboxFrame = ({OutboxFrame frame, Uint8List payload});
+
+class _PendingOutboxEnqueues {
+  _PendingOutboxEnqueues(this.peer);
+  final String peer;
+  final records = <_QueuedOutboxFrame>[];
+  int bytes = 0;
+  late final Future<void> result;
+}
+
 /// Opener for [HiddenVolumeStorage.fromStore], where the store is already open
 /// and [HiddenVolumeStorage.open] is never called.
 Future<AsyncKvLogStore?> _noOpener({
@@ -4871,11 +4881,13 @@ class HiddenVolumeStorage
   bool _outboxLoaded = false;
   Future<void> _outboxGate = Future<void>.value();
   _PendingOutboxAcks? _pendingOutboxAcks;
+  _PendingOutboxEnqueues? _pendingOutboxEnqueues;
 
   Future<T> _outboxSerialized<T>(Future<T> Function() body) {
     // An intervening enqueue/read/maintenance call is an ordering barrier.
     // In particular an ACK before re-enqueue must not absorb an ACK after it.
     _pendingOutboxAcks = null;
+    _pendingOutboxEnqueues = null;
     final result = _outboxGate.then((_) => body());
     _outboxGate = result.then((_) {}, onError: (_) {});
     return result;
@@ -4892,26 +4904,31 @@ class HiddenVolumeStorage
   // the outbox's JSON/base64 wrapper expands it beyond the event's size.
   static const _outboxMaxPayloadBytes = 1024 * 1024;
 
-  Future<({int logId, List<int> logIds})> _persistOutboxPayload(
-    String frameId,
-    Uint8List payload,
-  ) => _trackLogWrite((store) async {
+  int _outboxPartCount(Uint8List payload) {
     if (payload.length > _outboxMaxPayloadBytes) {
       throw ArgumentError('outbox payload exceeds the storage bound');
     }
-    final partCount = payload.length <= _outboxPartBytes
+    return payload.length <= _outboxPartBytes
         ? 0
         : (payload.length + _outboxPartBytes - 1) ~/ _outboxPartBytes;
-    final logId = await _allocLogIds(store, count: partCount + 1);
-    final ops = <KvLogOp>[];
+  }
+
+  // Shared encoding for a new batch and legacy timestamp rewrites. Index and
+  // every payload part remain in the same atomic transaction and wire format.
+  List<int> _appendOutboxPayloadOps(
+    String frameId,
+    Uint8List payload,
+    int logId,
+    List<KvLogOp> ops,
+  ) {
+    final partCount = _outboxPartCount(payload);
     final logIds = <int>[logId];
-    if (payload.length <= _outboxPartBytes) {
+    if (partCount == 0) {
       ops.add(AppendLogOp(Ns.outbox, logId, payload));
     } else {
-      final count = partCount;
       final first = logId + 1;
-      for (var i = 0; i < count; i++) {
-        final end = ((i + 1) * _outboxPartBytes).clamp(0, payload.length);
+      for (var i = 0; i < partCount; i++) {
+        final end = min((i + 1) * _outboxPartBytes, payload.length);
         ops.add(
           AppendLogOp(
             Ns.outbox,
@@ -4929,7 +4946,7 @@ class HiddenVolumeStorage
             jsonEncode({
               'outboxParts': 1,
               'first': first,
-              'count': count,
+              'count': partCount,
               'length': payload.length,
               'sha256': crypto.sha256.convert(payload).toString(),
             }),
@@ -4937,13 +4954,61 @@ class HiddenVolumeStorage
         ),
       );
     }
-    await store.commit([
-      ...ops,
-      PutOp(Ns.outboxIndex, _outboxIndexKey(frameId), _sk('$logId')),
-    ]);
-    _noteLogCommit(store, logId + partCount);
+    ops.add(PutOp(Ns.outboxIndex, _outboxIndexKey(frameId), _sk('$logId')));
+    return logIds;
+  }
+
+  // Legacy stamp maintenance retains its existing single-record tracking.
+  Future<({int logId, List<int> logIds})> _persistOutboxPayload(
+    String frameId,
+    Uint8List payload,
+  ) => _trackLogWrite((store) async {
+    final count = _outboxPartCount(payload) + 1;
+    final logId = await _allocLogIds(store, count: count);
+    final ops = <KvLogOp>[];
+    final logIds = _appendOutboxPayloadOps(frameId, payload, logId, ops);
+    await store.commit(ops);
+    _noteLogCommit(store, logId + count - 1);
     return (logId: logId, logIds: logIds);
   });
+
+  // Caller owns the outbox lane and tracks the entire admitted operation,
+  // including its queue wait. Each payload/index keeps its existing format.
+  Future<List<({OutboxFrame frame, int logId, List<int> logIds})>>
+  _persistOutboxPayloadsCritical(
+    AsyncKvLogStore store,
+    List<_QueuedOutboxFrame> records,
+  ) async {
+    final counts = [for (final r in records) _outboxPartCount(r.payload) + 1];
+    final total = counts.fold<int>(0, (a, b) => a + b);
+    final first = await _allocLogIds(store, count: total);
+    var cursor = first;
+    final ops = <KvLogOp>[];
+    final persisted = <({OutboxFrame frame, int logId, List<int> logIds})>[];
+    for (var n = 0; n < records.length; n++) {
+      final record = records[n];
+      final logIds = _appendOutboxPayloadOps(
+        record.frame.frameId,
+        record.payload,
+        cursor,
+        ops,
+      );
+      persisted.add((frame: record.frame, logId: cursor, logIds: logIds));
+      cursor += counts[n];
+    }
+    try {
+      await store.commit(ops);
+    } catch (_) {
+      // A lost reply can follow a successful all-or-none commit. Do not keep a
+      // warm cache that hides durable frames (or re-enqueue duplicate payloads).
+      _outboxLoaded = false;
+      _outboxById.clear();
+      _noteLogCommit(store, cursor - 1);
+      rethrow;
+    }
+    _noteLogCommit(store, cursor - 1);
+    return persisted;
+  }
 
   Future<({Uint8List payload, List<int> logIds})?> _readOutboxPayload(
     int logId,
@@ -5169,34 +5234,84 @@ class HiddenVolumeStorage
     String frameId,
     String peerHex,
     Uint8List wire,
-  ) => _outboxSerialized(() async {
-    if (!await _ensureOutboxLoadedCritical()) {
-      throw StateError('durable outbox could not be loaded');
+  ) async {
+    if (_store == null || _convSequenceFences > 0) {
+      throw StateError('storage is closing or locked');
     }
-    if (_outboxById.containsKey(frameId)) return;
+    // Own the caller's bytes before waiting for the outbox lane. Use one stamp
+    // in RAM and on disk; retention measures when this frame was queued.
     final ownedWire = Uint8List.fromList(wire);
-    final frame = OutboxFrame(
-      frameId: frameId,
-      peerHex: peerHex,
-      wire: ownedWire,
-      enqueuedAtMs: DateTime.now().millisecondsSinceEpoch,
+    final stamp = DateTime.now().millisecondsSinceEpoch;
+    final record = (
+      frame: OutboxFrame(
+        frameId: frameId,
+        peerHex: peerHex,
+        wire: ownedWire,
+        enqueuedAtMs: stamp,
+      ),
+      payload: _sk(
+        jsonEncode({
+          'id': frameId,
+          'p': peerHex,
+          'w': base64Encode(ownedWire),
+          't': stamp,
+        }),
+      ),
     );
-    final enqueuedAtMs = DateTime.now().millisecondsSinceEpoch;
-    final payload = jsonEncode({
-      'id': frameId,
-      'p': peerHex,
-      'w': base64.encode(ownedWire),
-      // Stamped so retention can reason about AGE instead of guessing from
-      // failure counts. Additive: a reader without it sees the old shape.
-      't': enqueuedAtMs,
-    });
-    final record = await _persistOutboxPayload(frameId, _sk(payload));
-    _outboxById[frameId] = (
-      frame: frame,
-      logId: record.logId,
-      logIds: record.logIds,
-    );
-  });
+    if (record.payload.length > _outboxMaxPayloadBytes) {
+      throw ArgumentError('outbox payload exceeds the storage bound');
+    }
+    final pending = _pendingOutboxEnqueues;
+    if (pending != null &&
+        pending.peer == peerHex &&
+        pending.records.length < 8 &&
+        pending.bytes + record.payload.length <= 32 * 1024) {
+      pending.records.add(record);
+      pending.bytes += record.payload.length;
+      await pending.result;
+      return;
+    }
+    final batch = _PendingOutboxEnqueues(peerHex)
+      ..records.add(record)
+      ..bytes = record.payload.length;
+    // Track admission, not just the eventual commit. Maintenance must drain an
+    // enqueue already waiting behind another outbox operation on this space.
+    batch.result =
+        _trackLogWrite(
+          (store) => _outboxSerialized(() async {
+            if (identical(_pendingOutboxEnqueues, batch)) {
+              _pendingOutboxEnqueues = null;
+            }
+            if (!identical(store, _store)) {
+              throw StateError('storage session changed before outbox enqueue');
+            }
+            if (!await _ensureOutboxLoadedCritical()) {
+              throw StateError('durable outbox could not be loaded');
+            }
+            final seen = <String>{};
+            final missing = [
+              for (final r in batch.records)
+                if (!_outboxById.containsKey(r.frame.frameId) &&
+                    seen.add(r.frame.frameId))
+                  r,
+            ];
+            if (missing.isEmpty) return;
+            final persisted = await _persistOutboxPayloadsCritical(
+              store,
+              missing,
+            );
+            for (final item in persisted) {
+              _outboxById[item.frame.frameId] = item;
+            }
+          }),
+        ).whenComplete(() {
+          if (identical(_pendingOutboxEnqueues, batch)) {
+            _pendingOutboxEnqueues = null;
+          }
+        });
+    _pendingOutboxEnqueues = batch;
+    await batch.result;
+  }
 
   @override
   /// Retire a durable frame the peer at [fromPeerHex] confirmed.
