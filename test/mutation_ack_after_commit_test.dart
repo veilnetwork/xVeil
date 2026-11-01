@@ -70,6 +70,16 @@ class _Storage extends HiddenVolumeStorage {
   }
 
   @override
+  Future<void> enqueueOutboxFrame(
+    String frameId,
+    String peerHex,
+    Uint8List wire,
+  ) async {
+    await before('outbox');
+    await super.enqueueOutboxFrame(frameId, peerHex, wire);
+  }
+
+  @override
   Future<void> deleteMessage(
     String conversationId,
     String id, {
@@ -203,6 +213,43 @@ void main() {
     expect(completed, isTrue);
   });
 
+  test(
+    'failed edit mirror retains the peer obligation across restart',
+    () async {
+      await target(direction: MessageDirection.outgoing);
+      service.onMessageEdited = (_, _, _, _) async {
+        throw StateError('injected own-device journal refusal');
+      };
+      await expectLater(
+        service.editOwnMessage('target', 'edited'),
+        throwsStateError,
+      );
+      expect(
+        (await storage.loadMessageById(peer.hex, 'target'))!.body,
+        'edited',
+      );
+      Future<void> checkPeerIntent() async {
+        final rows = await storage.pendingOutboxFrames();
+        final edits = rows
+            .where((row) => WireEnvelope.decode(row.wire).kind == WireKind.edit)
+            .toList();
+        expect(
+          edits,
+          hasLength(1),
+          reason: 'mirror failure must not erase the durable peer edit',
+        );
+        expect(edits.single.peerHex, peer.hex);
+        final frame = WireEnvelope.decode(edits.single.wire);
+        expect(frame.id, 'target');
+        expect(frame.body, 'edited');
+      }
+
+      await checkPeerIntent();
+      await restart();
+      await checkPeerIntent();
+    },
+  );
+
   test('incoming edit ACK waits for its durable device event', () async {
     await target();
     final entered = Completer<void>(), release = Completer<void>();
@@ -221,6 +268,23 @@ void main() {
     }
     expect(link.acks, contains('device-edit'));
   });
+
+  test(
+    'peer enqueue refusal still attempts the committed edit mirror',
+    () async {
+      await target(direction: MessageDirection.outgoing);
+      storage.fail = 'outbox';
+      final mirrored = <String>[];
+      service.onMessageEdited = (_, _, text, _) async => mirrored.add(text);
+      await expectLater(
+        service.editOwnMessage('target', 'edited'),
+        throwsStateError,
+      );
+      expect(await body(), 'edited');
+      expect(mirrored, ['edited']);
+      expect(await storage.pendingOutboxFrames(), isEmpty);
+    },
+  );
 
   test(
     'a replaced delete publisher leaves its durable intent for the current binding',
