@@ -238,6 +238,11 @@ class _MessagingOutbox {
   );
   static const _liveResend = Duration(seconds: 20);
   static const _callSignalLiveResend = Duration(milliseconds: 250);
+  // A recovered route must not wait through the ordinary exponential tail
+  // for an answer/end. These transitions expire after two minutes; keep their
+  // retry spacing short beyond the initial fast burst as well. The existing
+  // flush admission, peer lanes, ACK retirement and TTL still bound the work.
+  static const _callSignalResendCap = Duration(seconds: 2);
   static const _fastCallRetryAttempts = 4;
   static const _liveResendCap = Duration(minutes: 10);
 
@@ -540,7 +545,7 @@ class _MessagingOutbox {
           milliseconds: _jittered(
             (_callSignalLiveResend.inMilliseconds *
                     (1 << (count - 1).clamp(0, 10)))
-                .clamp(0, _liveResendCap.inMilliseconds),
+                .clamp(0, _callSignalResendCap.inMilliseconds),
             frameId,
           ),
         );
@@ -885,7 +890,8 @@ class _MessagingOutbox {
     final delayMs = _jittered(
       (baseMs * (1 << (count - 1).clamp(0, 10))).clamp(
         0,
-        _liveResendCap.inMilliseconds,
+        (entry.callSignal ? _callSignalResendCap : _liveResendCap)
+            .inMilliseconds,
       ),
       entry.frame.frameId,
     );

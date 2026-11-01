@@ -1,0 +1,207 @@
+{
+  "schema": "xveil-validation/call-handover-retry/1",
+  "date": "2026-11-01",
+  "status": "partial-fix-netcall-open",
+  "change": {
+    "callControlBackoffCapMs": 2000,
+    "ordinaryBackoffCapMs": 600000,
+    "deliveryDeadlineClaimed": false
+  },
+  "checks": {
+    "relatedTestsPassed": 130,
+    "strengthenedSameCaseRerunPassed": true,
+    "analyzerFiles": 2,
+    "analyzerClean": true,
+    "redGuardObserved": true
+  },
+  "source": {
+    "baseRevision": "0534e1e8",
+    "modifiedProductionFile": "lib/state/messaging_outbox.dart",
+    "productionFileSha256": "0b93130a753598a580410de7a792a14b7379e2a42aee5bbcaa90bd5821f2f7fe",
+    "windowsSourceFilesVerified": 590
+  },
+  "artifacts": {
+    "androidAotSha256": "8bfc74b2c233d4b65435d2ca6afe33d9526279b711c833ce3646c60c9182730c",
+    "androidApkSha256": "3a53e730fe0f09320c2de72a6e39ed2c23de7f711dc273438f4efc22447e3274",
+    "androidInstalledApkVerified": true,
+    "androidNativeSha256": {
+      "libhidden_volume_ffi.so": "7eb1838a6d52087ee15189ee8d5d25ef7357e20d9ec35c08a34a7e08159c6f79",
+      "libveil_media.so": "d4602355043749a6248cc0ed23cae431d00b489c61b7065d625d762971f5407f",
+      "libveilclient_ffi.so": "9d847c9cad9bf7b3efe3c1dfda8762685388b56cac313f92fce490bf2a7bba2a"
+    },
+    "windowsAotSha256": "e5b5d6ccd55d2656c1849b8d7fb9b5dc1b923a504312a10077aa89dce9c2a786",
+    "windowsNativeMatchesPublished": true,
+    "nativeRebuilt": false,
+    "windowsRunnerPluginsRebuilt": false
+  },
+  "physical": {
+    "earlierWindowsQa": {
+      "immediateCall": {
+        "incomingMs": 821,
+        "bothActiveMs": 20049,
+        "endpoints": {
+          "phone": {
+            "finalStatus": "active",
+            "finalRoute": "relay",
+            "lastAudioRxPackets": 129,
+            "lastAudioTxPackets": 71,
+            "inputBand": 0,
+            "outputBand": 1,
+            "captureStartResult": 1,
+            "playoutStartResult": 1
+          },
+          "windows": {
+            "finalStatus": "active",
+            "finalRoute": "relay",
+            "lastAudioRxPackets": 71,
+            "lastAudioTxPackets": 542,
+            "inputBand": 1,
+            "outputBand": 1,
+            "captureStartResult": 1,
+            "playoutStartResult": 1
+          }
+        }
+      },
+      "activeHandover": {
+        "observationAfterDisableMs": 41739,
+        "endpoints": {
+          "phone": {
+            "uniqueCallCount": 1,
+            "allSampledStatesActive": true,
+            "maxAudioPayloadAgeMs": 13437,
+            "finalRoute": "p2p",
+            "finalAudioRxPackets": 740
+          },
+          "windows": {
+            "uniqueCallCount": 1,
+            "allSampledStatesActive": true,
+            "maxAudioPayloadAgeMs": 13804,
+            "finalRoute": "p2p",
+            "finalAudioRxPackets": 200
+          }
+        },
+        "cellularDefaultVerified": true
+      }
+    },
+    "currentWindowsEarlierAndroid": {
+      "immediateCall": {
+        "incomingMs": 772,
+        "bothActiveMs": 2840,
+        "endpoints": {
+          "phone": {
+            "finalStatus": "active",
+            "finalRoute": "p2p",
+            "lastAudioRxPackets": 246,
+            "lastAudioTxPackets": 82,
+            "inputBand": 0,
+            "outputBand": 1,
+            "captureStartResult": 1,
+            "playoutStartResult": 1
+          },
+          "windows": {
+            "finalStatus": "active",
+            "finalRoute": "p2p",
+            "lastAudioRxPackets": 76,
+            "lastAudioTxPackets": 247,
+            "inputBand": 1,
+            "outputBand": 1,
+            "captureStartResult": 1,
+            "playoutStartResult": 1
+          }
+        }
+      },
+      "activeHandover": {
+        "observationAfterDisableMs": 41794,
+        "endpoints": {
+          "phone": {
+            "uniqueCallCount": 1,
+            "allSampledStatesActive": true,
+            "maxAudioPayloadAgeMs": 14475,
+            "finalRoute": "p2p",
+            "finalAudioRxPackets": 492
+          },
+          "windows": {
+            "uniqueCallCount": 1,
+            "allSampledStatesActive": true,
+            "maxAudioPayloadAgeMs": 14743,
+            "finalRoute": "p2p",
+            "finalAudioRxPackets": 65
+          }
+        },
+        "cellularDefaultVerified": true
+      }
+    },
+    "currentBoth": {
+      "immediateCall": {
+        "incomingMs": 829,
+        "bothActiveMs": 5314,
+        "endpoints": {
+          "phone": {
+            "finalStatus": "active",
+            "finalRoute": "relay",
+            "lastAudioRxPackets": 203,
+            "lastAudioTxPackets": 51,
+            "inputBand": 0,
+            "outputBand": 1,
+            "captureStartResult": 1,
+            "playoutStartResult": 1
+          },
+          "windows": {
+            "finalStatus": "active",
+            "finalRoute": "relay",
+            "lastAudioRxPackets": 41,
+            "lastAudioTxPackets": 288,
+            "inputBand": 1,
+            "outputBand": 1,
+            "captureStartResult": 1,
+            "playoutStartResult": 1
+          }
+        }
+      },
+      "activeHandover": {
+        "observationAfterDisableMs": 41829,
+        "endpoints": {
+          "phone": {
+            "uniqueCallCount": 1,
+            "allSampledStatesActive": true,
+            "maxAudioPayloadAgeMs": 12410,
+            "finalRoute": "relay",
+            "finalAudioRxPackets": 676
+          },
+          "windows": {
+            "uniqueCallCount": 1,
+            "allSampledStatesActive": true,
+            "maxAudioPayloadAgeMs": 14715,
+            "finalRoute": "relay",
+            "finalAudioRxPackets": 63
+          }
+        },
+        "cellularDefaultVerified": true
+      }
+    }
+  },
+  "limitations": [
+    "No fixed-route A/B or causal speedup claim",
+    "Exactly one active peer not forced",
+    "No human speech or acoustic loudness qualification",
+    "Windows 11, not Windows 10",
+    "Active-call audio interruption remains reproduced"
+  ],
+  "cleanup": {
+    "phoneSettingsRestored": true,
+    "phoneQaStopped": true,
+    "ownAdbForwardRemoved": true,
+    "mainPhonePidUnchanged": true,
+    "AMacStopped": true,
+    "macForcedStopAfterGrace": true,
+    "macPortsReleased": true,
+    "ownTunnelStopped": true,
+    "localHookPortsReleased": true,
+    "windowsQaStopped": true,
+    "windowsTasksRemoved": true,
+    "windowsHookReleased": true,
+    "publishedNativeUnchanged": true
+  },
+  "pushed": false,
+  "released": false
+}
