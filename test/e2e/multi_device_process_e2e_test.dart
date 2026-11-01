@@ -723,8 +723,16 @@ void main() {
       E2eLog.line(
         'CASE13_FORCE_KILL: ${DateTime.now().difference(started).inMilliseconds}ms from send start',
       );
-      await hasBody(c, ai, 'crash-after-send');
+      final receivedBeforeRestart = (await rows(c, ai)).any(
+        (row) => row['body'] == 'crash-after-send',
+      );
+      E2eLog.line('CASE13_RECEIVER_BEFORE_SENDER_RESTART=$receivedBeforeRestart');
+      // Send success promises local durability/source admission, not a remote
+      // delivery ACK. A kill can discard native work before it leaves A. With
+      // B offline too, C has no source to ask until A returns. Do not make
+      // recovery conditional on delivery while the only durable source is off.
       await a.start();
+      await hasBody(c, ai, 'crash-after-send');
       await b.start();
       await hasBody(b, ci, 'crash-after-send');
       await a.checked(
@@ -745,6 +753,7 @@ void main() {
       await hasBody(b, ci, 'ratchet-after-crash');
       await hasBody(b, ci, 'reply-after-crash');
       final own = await rows(a, ci), sibling = await rows(b, ci);
+      final received = await rows(c, ai);
       for (final body in [
         'crash-after-send',
         'ratchet-after-crash',
@@ -752,6 +761,10 @@ void main() {
       ]) {
         expect(
           sibling.singleWhere((m) => m['body'] == body)['id'],
+          own.singleWhere((m) => m['body'] == body)['id'],
+        );
+        expect(
+          received.singleWhere((m) => m['body'] == body)['id'],
           own.singleWhere((m) => m['body'] == body)['id'],
         );
       }

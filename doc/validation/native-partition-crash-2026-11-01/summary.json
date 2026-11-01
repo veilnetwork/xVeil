@@ -1,0 +1,44 @@
+{
+  "schema": "xveil-native-multidevice-validation/1",
+  "app_source": "0526e40a",
+  "production_code_changed": false,
+  "partition": {
+    "result": "pass",
+    "devices": 4,
+    "identities": 2,
+    "relay_processes": 3,
+    "messages_sent_while_partitioned": 16,
+    "first_complete_observation_ms": 20084,
+    "observed_stable_ms": 10400,
+    "total_recovery_ms": 30485,
+    "total_run_seconds": 131.505,
+    "process_restarts_during_partition_and_heal": 0,
+    "deletion_scope": "local-to-identity"
+  },
+  "sender_crash": {
+    "result": "pass",
+    "baseline_result": "invalid-precondition-timeout",
+    "baseline_stored_outgoing_messages": 1,
+    "baseline_stored_status": "sent",
+    "baseline_kill_ms_from_send_start": 114,
+    "candidate_kill_ms_from_send_start": 96,
+    "receiver_observed_before_restart": false,
+    "cut": "after-send-api-return",
+    "messages_compared_on_all_devices": 3,
+    "total_run_seconds": 92.587
+  },
+  "cleanup": {
+    "owned_process_groups_empty": true,
+    "owned_listeners_absent": true,
+    "fixture_roots_removed": true,
+    "forensic_container_removed": true,
+    "windows_observer_task_removed": true
+  },
+  "limits": [
+    "single-Mac-local-island",
+    "no-full-multi-device-matrix",
+    "no-internal-write-receive-ack-crash-cuts",
+    "no-new-backlog-latency-measurement",
+    "phone-Windows-audio-and-network-handover-unqualified"
+  ]
+}
