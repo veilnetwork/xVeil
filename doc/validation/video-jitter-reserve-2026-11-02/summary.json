@@ -1,0 +1,80 @@
+{
+  "scope": "local policy model and real codec loopback; not physical cellular qualification",
+  "flutterTestsPassed": 481,
+  "analyzerIssues": 0,
+  "model": {
+    "durationSeconds": 40,
+    "rtpJitterMs": 70,
+    "audioCurrentMs": 320,
+    "audioTargetMs": 260,
+    "baselineRepeatIdentical": true,
+    "candidateAotIdentical": true,
+    "cases": [
+      {
+        "rttMs": 110,
+        "baselineFps": 1.0,
+        "baselinePaused": true,
+        "candidateFps": 60.0,
+        "candidatePaused": false,
+        "firstModelGrowthSecond": 12
+      },
+      {
+        "rttMs": 600,
+        "baselineFps": 1.0,
+        "baselinePaused": true,
+        "candidateFps": 60.0,
+        "candidatePaused": false,
+        "firstModelGrowthSecond": 12
+      }
+    ]
+  },
+  "nativeLoopback": {
+    "durationSeconds": 40,
+    "fullGatePassed": false,
+    "transportFrozen": true,
+    "mediaMatchesCurrentSource": true,
+    "currentDartPolicy": true,
+    "syntheticVideoDimensions": [
+      320,
+      240
+    ],
+    "decodedMotionBothDirections": true,
+    "decoderCounterFps": [
+      19.61,
+      13.23
+    ],
+    "audioVideoToneEdges": [
+      {
+        "name": "audio-video",
+        "matched": 20,
+        "missing": 0,
+        "p95_ms": 110.7450001873076,
+        "max_ms": 119.59166661836207
+      },
+      {
+        "name": "audio-video",
+        "matched": 20,
+        "missing": 0,
+        "p95_ms": 118.82008332759142,
+        "max_ms": 123.20645828731358
+      }
+    ],
+    "audioVideoQuietPcmFrames": [
+      734,
+      915
+    ],
+    "audioVideoInterruptionCounts": [
+      0,
+      0
+    ],
+    "audioRtcpVerified": true,
+    "nodeStopResults": [
+      0,
+      0,
+      0
+    ],
+    "remainingFixtureSockets": 0,
+    "policyExited": true,
+    "audioThreadExited": true
+  }
+}

@@ -2191,6 +2191,7 @@ class VeilCallMediaController implements CallMediaController {
     } catch (_) {
       stats = {'worker_stalled': 1};
     }
+    final now = DateTime.now();
     adapter.prepareVideoSend(
       stats,
       sendAudioExpected: call.media.audio && !_microphoneState.muted,
@@ -2201,7 +2202,9 @@ class VeilCallMediaController implements CallMediaController {
               (!_microphoneState.muted &&
                   _peerAudioPlayout.takeInterruption())),
       receiveAudioExpected: call.media.audio && _peerAudioCaptureEnabled,
-      peerAudioDelayMs: _peerAudioPlayout.delayMs(DateTime.now()),
+      peerAudioDelayMs: _peerAudioPlayout.delayMs(now),
+      peerCurrentAudioDelayMs: _peerAudioPlayout.currentDelayMs(now),
+      peerTargetAudioDelayMs: _peerAudioPlayout.targetDelayMs(now),
       requirePeerAudioPlayout:
           call.media.audio &&
           (call.peerProtocolVersion ?? 1) >=

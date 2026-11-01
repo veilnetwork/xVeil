@@ -3211,6 +3211,89 @@ void main() {
     expect(b.level, 0);
   });
   test(
+    'filled adaptive reserve does not cut healthy video or freeze recovery',
+    () {
+      for (final incoming in [false, true]) {
+        final a = direct(), recovering = direct(level: 2);
+        for (var n = 1; n <= 40; n++) {
+          final stats = <String, dynamic>{
+            ...healthy(),
+            'audio_rx_pkts': n * 50,
+            'video_tx_frames': n * 30,
+            if (incoming) 'audio_delay_ms': 320,
+            if (incoming) 'audio_jb_target_ms': 260,
+          };
+          for (final adapter in [a, recovering]) {
+            native(
+              adapter,
+              stats: stats,
+              peerDelay: incoming ? 60 : 320,
+              currentPeerDelay: incoming ? null : 320,
+              peerTargetDelay: incoming ? null : 260,
+              peerSequence: n,
+            );
+          }
+        }
+        expect(a.level, 0);
+        expect(a.audioReserve, isFalse);
+        expect(recovering.level, lessThan(2));
+      }
+    },
+  );
+  test('video admission retains a measured filled reserve', () {
+    final a = direct();
+    a.prepareVideoSend(
+      {...healthy(), 'audio_delay_ms': 320, 'audio_jb_target_ms': 260},
+      receiveAudioExpected: true,
+      requireAudioReceivePlayout: true,
+      requirePeerAudioPlayout: true,
+      peerAudioDelayMs: 320,
+      peerCurrentAudioDelayMs: 320,
+      peerTargetAudioDelayMs: 260,
+    );
+    expect(a.level, 0);
+  });
+
+  test(
+    'native target cannot credit an unrelated delay override or room maximum',
+    () {
+      final override = direct();
+      for (var n = 1; n <= 20; n++) {
+        apply(override);
+        override.onNativeStats(
+          {...healthy(), 'audio_jb_target_ms': 260},
+          sampledAt: nextTime(override),
+          receiveAudioExpected: true,
+          requireAudioReceivePlayout: true,
+          audioReceiveDelayMs: 320,
+          peerAudioDelayMs: 60,
+          peerAudioSampleSequence: n,
+          requirePeerAudioPlayout: true,
+        );
+        apply(override);
+      }
+      expect(override.level, greaterThan(0));
+      final room = direct();
+      for (var n = 1; n <= 20; n++) {
+        native(
+          room,
+          stats: {
+            ...healthy(),
+            'audio_feedback_reports': 2,
+            'video_feedback_reports': 2,
+          },
+          peerDelay: 320,
+          currentPeerDelay: 320,
+          peerTargetDelay: 260,
+          peerSequence: n,
+          audioReceivers: 2,
+          videoReceivers: 2,
+        );
+      }
+      expect(room.level, greaterThan(0));
+    },
+  );
+  test(
     'requested peer buffer withholds growth without changing actual delay',
     () {
       final a = direct(level: 2);

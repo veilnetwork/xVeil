@@ -1,3 +1,5 @@
+import 'call_audio_playout_reserve.dart';
+
 /// Endpoint audio buffer trend. Callers supply only fresh native/peer samples.
 /// A cached peer report cannot fill a window with repeated observations.
 class CallAudioBufferWindow {
@@ -25,6 +27,7 @@ class CallAudioBufferWindow {
     int? sequence,
     bool? measuredGrowing,
     DateTime? sampledAt,
+    int? targetDelayMs,
   }) {
     if (delayMs == null || delayMs < 0 || delayMs > 60000) {
       reset();
@@ -98,7 +101,11 @@ class CallAudioBufferWindow {
         (sampledAt != null && _growthSince != null
             ? sampledAt.difference(_growthSince!) >= growthConfirmation
             : _growthSamples >= 4);
-    _pressure = delayMs >= ceilingMs || confirmed;
+    final reserveCredit = CallAudioPlayoutReserve.creditMs(
+      delayMs,
+      targetDelayMs,
+    );
+    _pressure = delayMs >= ceilingMs + reserveCredit || confirmed;
     return _pressure;
   }
 

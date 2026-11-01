@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/state/call_bitrate_adapter.dart';
 import 'package:xveil/state/call_video_delivery_model.dart';
+import 'package:xveil/state/call_audio_source_pressure.dart';
 
 Map<String, dynamic> report(
   int n, {
@@ -39,7 +40,155 @@ void observe(
   rttMs: rttMs,
 );
 
+({
+  CallBitrateAdapter adapter,
+  List<({int maxBitrateKbps, double maxFps})> applied,
+})
+_compensatedJitter({int rtt = 110, String failure = 'none'}) {
+  final adapter = CallBitrateAdapter(
+    baseBitrateKbps: 900,
+    baseFps: 60,
+    initialLevel: 4,
+  );
+  final source = CallAudioSourcePressure();
+  final applied = <({int maxBitrateKbps, double maxFps})>[];
+  var frames = 0, bytes = 0, lastTimestamp = 0;
+  var frameClock = 0.0;
+  final ticks = failure == 'rtt_bloat' ? 30 : 40;
+  for (var n = 1; n <= ticks; n++) {
+    adapter.applyPendingTarget((_) => true);
+    adapter.applyPendingPause((_) => true);
+    final target = adapter.acknowledgedTarget!;
+    if (adapter.acknowledgedPause != true) frameClock += target.maxFps;
+    if (frameClock.floor() > frames) {
+      frames = frameClock.floor();
+      bytes += target.maxBitrateKbps * 125;
+      lastTimestamp = n * 90000;
+    }
+    final delay = failure == 'unfilled' || failure == 'no_reserve'
+        ? 100
+        : failure == 'unknown_target'
+        ? 520
+        : failure == 'buffer_growth'
+        ? 160 + n * 20
+        : 320;
+    final int? reserve = failure == 'unknown_target'
+        ? 500
+        : failure == 'no_reserve'
+        ? null
+        : failure == 'buffer_growth'
+        ? (delay - 40).clamp(0, 400)
+        : 260;
+    final receiving = failure != 'one_direction';
+    final peerKnown = failure != 'missing_audio';
+    final nativeRtt = failure == 'rtt_bloat' ? (n <= 8 ? 110 : 600) : rtt;
+    final loss = failure == 'audio_loss' ? n * 1000000 : 0;
+    final drops = failure == 'audio_drop' ? n : 0;
+    final stats = <String, dynamic>{
+      'worker_stalled': failure == 'stalled_native' ? 1 : 0,
+      'video_worker_stalled': 0,
+      'audio_feedback_reports': peerKnown ? 1 : 0,
+      'video_feedback_reports': 1,
+      'rtt_ms': nativeRtt,
+      'tx_loss_pct': loss > 0 ? 1 : 0,
+      'tx_jitter_ms': 70,
+      'audio_loss_report_us': loss,
+      'audio_rx_pkts': n * 50,
+      'audio_rx_native_age_ms': 10,
+      'audio_tx_rtp_drops': drops,
+      'tx_drops': drops,
+      'video_tx_frames': frames,
+      if (failure != 'missing_video')
+        'video_delivery_peers': {
+          'p': failure == 'cached_video'
+              ? report(1)
+              : {
+                  ...report(n),
+                  'frames': frames,
+                  'bytes': bytes,
+                  'sent_bytes': bytes,
+                  'timestamp': lastTimestamp,
+                  'sent_timestamp': lastTimestamp,
+                },
+        },
+    };
+    final pressured = source.observe(
+      sampledAt: at(n),
+      nativeStats: stats,
+      sendExpected: true,
+      receiveExpected: receiving,
+      requirePeerPlayout: true,
+      peerDelayMs: peerKnown ? delay : null,
+      peerCurrentDelayMs: peerKnown ? delay : null,
+      peerTargetDelayMs: peerKnown ? reserve : null,
+      peerSampleSequence: n,
+      receiveDelayMs: delay,
+      receiveTargetDelayMs: reserve,
+      receiveAgeMs: 10,
+      interrupted: false,
+      audioTxDrops: drops,
+      audioLossReportUs: loss,
+    );
+    adapter.onNativeStats(
+      stats,
+      sampledAt: at(n),
+      sourceBudgetPressured: failure == 'source_pressure' || pressured == true,
+      requirePeerAudioPlayout: true,
+      requireAudioReceivePlayout: receiving,
+      receiveAudioExpected: receiving,
+      audioReceiveDelayMs: delay,
+      audioReceiveTargetDelayMs: reserve,
+      peerAudioDelayMs: peerKnown ? delay : null,
+      peerCurrentAudioDelayMs: peerKnown ? delay : null,
+      peerTargetAudioDelayMs: peerKnown ? reserve : null,
+      peerAudioSampleSequence: n,
+    );
+    adapter.applyPendingTarget((_) => true);
+    adapter.applyPendingPause((_) => true);
+    applied.add(adapter.acknowledgedTarget!);
+  }
+  return (adapter: adapter, applied: applied);
+}
+
 void main() {
+  for (final rtt in [110, 600]) {
+    test(
+      'filled jitter reserve can fund causal video trials at ${rtt}ms RTT',
+      () {
+        final result = _compensatedJitter(rtt: rtt);
+        expect(result.adapter.acknowledgedTarget!.maxFps, greaterThan(1));
+        expect(result.adapter.acknowledgedPause, isFalse);
+        for (var n = 1; n < result.applied.length; n++) {
+          final previous = result.applied[n - 1], next = result.applied[n];
+          expect(next.maxFps, lessThanOrEqualTo(previous.maxFps * 1.25));
+          expect(
+            next.maxBitrateKbps,
+            lessThanOrEqualTo((previous.maxBitrateKbps * 1.25).ceil()),
+          );
+        }
+      },
+    );
+  }
+  for (final failure in [
+    'cached_video',
+    'missing_video',
+    'stalled_native',
+    'missing_audio',
+    'unfilled',
+    'unknown_target',
+    'audio_loss',
+    'audio_drop',
+    'buffer_growth',
+    'rtt_bloat',
+    'one_direction',
+    'source_pressure',
+    'no_reserve',
+  ]) {
+    test('compensated jitter cannot bypass $failure evidence', () {
+      final result = _compensatedJitter(failure: failure);
+      expect(result.adapter.acknowledgedTarget!.maxFps, lessThanOrEqualTo(1));
+    });
+  }
   test('healthy cruise follows measured RTT after the congestion drain', () {
     final m = CallVideoDeliveryModel();
     observe(m, 1, {'p': report(1)}, rttMs: 100);

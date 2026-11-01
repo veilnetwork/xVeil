@@ -703,4 +703,75 @@ void main() {
       );
     }
   });
+
+  test('a filled adaptive reserve is not persistent source congestion', () {
+    for (final incoming in [false, true]) {
+      final policy = CallAudioSourcePressure();
+      bool? verdict;
+      for (var n = 0; n < 30; n++) {
+        verdict = sample(
+          policy,
+          targetLocal: incoming ? 260 : null,
+          local: incoming ? 320 : 100,
+          targetPeer: incoming ? null : 260,
+          peer: incoming ? 100 : 320,
+          currentPeer: incoming ? null : 320,
+        );
+      }
+      expect(verdict, isFalse);
+      expect(policy.measuredAudioPressure, isFalse);
+      expect(
+        sample(
+          policy,
+          targetLocal: incoming ? 260 : null,
+          local: incoming ? 520 : 100,
+          targetPeer: incoming ? null : 260,
+          peer: incoming ? 100 : 520,
+          currentPeer: incoming ? null : 520,
+        ),
+        isTrue,
+        reason: 'real excess above the reserve still yields producers',
+      );
+    }
+  });
+
+  test(
+    'a target alone, unknown target or missing current cannot earn reserve credit',
+    () {
+      for (final fixture in [
+        (100, 320, true),
+        (520, 500, true),
+        (320, 260, false),
+      ]) {
+        final policy = CallAudioSourcePressure();
+        bool? result;
+        for (var n = 0; n < 30; n++) {
+          result = sample(
+            policy,
+            peer: fixture.$1,
+            targetPeer: fixture.$2,
+            currentPeer: fixture.$3 ? fixture.$1 : null,
+          );
+        }
+        expect(result, isTrue);
+      }
+    },
+  );
+
+  test('fresh audio loss overrides a filled reserve', () {
+    final policy = CallAudioSourcePressure();
+    for (var n = 0; n < 30; n++) {
+      sample(policy, peer: 320, currentPeer: 320, targetPeer: 260);
+    }
+    expect(
+      sample(
+        policy,
+        peer: 320,
+        currentPeer: 320,
+        targetPeer: 260,
+        lossReportUs: 1000,
+      ),
+      isTrue,
+    );
+  });
 }
