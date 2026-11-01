@@ -1,0 +1,198 @@
+{
+  "schema": "xveil-call-receive-history-validation/1",
+  "base": "c663ed754f8bd4ee6d111cdc1b10aa8d14c4826e",
+  "sourceSha256": {
+    "lib/state/call_service.dart": "047ecf8513979137a92764b39844415465ee71407c901e7a4fbf07202db2050d",
+    "lib/state/call_media_receive_activity.dart": "6c0e5f27b126ef853ba096569f51af6fe4c5419bccd2059d7d3400cc5fb610a1",
+    "lib/state/veil_call_media.dart": "4331c17b57ce3333011d26ce0cc84650d69b7cd69db9c33a7469d3a1d75eb2da"
+  },
+  "verification": {
+    "flutterPassed": 261,
+    "pythonPassed": 8,
+    "analyzerFiles": 6,
+    "analyzerClean": true,
+    "redTestsBeforeFix": [
+      "late first capture report",
+      "same-call media controller rebuild"
+    ],
+    "livenessTimeoutSeconds": 20,
+    "timeoutChanged": false
+  },
+  "physical": {
+    "windowsVersion": 11,
+    "rounds": [
+      {
+        "round": 1,
+        "bothFixes": false,
+        "phoneNativeTrace": false,
+        "wifiDefaultBefore": true,
+        "cellularDefaultAfter": true,
+        "observation": {
+          "schema": "xveil-handover-observation/1",
+          "requiredObservationSeconds": 40,
+          "endpoints": {
+            "phone": {
+              "preconditionVerified": true,
+              "samplesAfterCut": 40,
+              "observationSeconds": 41.664,
+              "coverageVerified": true,
+              "missingOrNonActiveSamples": 0,
+              "firstCallLostAfterCutMs": null,
+              "callSurvivalVerified": true,
+              "freshAudioAtEnd": true,
+              "allSampledAudioFresh": false,
+              "maxSampledAudioPayloadAgeWithinEpochMs": 14507,
+              "continuousAudioGapUpperBoundMs": null
+            },
+            "windows": {
+              "preconditionVerified": true,
+              "samplesAfterCut": 40,
+              "observationSeconds": 41.676,
+              "coverageVerified": true,
+              "missingOrNonActiveSamples": 0,
+              "firstCallLostAfterCutMs": null,
+              "callSurvivalVerified": true,
+              "freshAudioAtEnd": true,
+              "allSampledAudioFresh": false,
+              "maxSampledAudioPayloadAgeWithinEpochMs": 14531,
+              "continuousAudioGapUpperBoundMs": null
+            }
+          },
+          "callSurvivalVerified": true,
+          "qualityObservationQualified": false
+        }
+      },
+      {
+        "round": 2,
+        "bothFixes": false,
+        "phoneNativeTrace": true,
+        "wifiDefaultBefore": true,
+        "cellularDefaultAfter": true,
+        "observation": {
+          "schema": "xveil-handover-observation/1",
+          "requiredObservationSeconds": 40,
+          "endpoints": {
+            "phone": {
+              "preconditionVerified": true,
+              "samplesAfterCut": 40,
+              "observationSeconds": 41.725,
+              "coverageVerified": true,
+              "missingOrNonActiveSamples": 23,
+              "firstCallLostAfterCutMs": 18767,
+              "callSurvivalVerified": false,
+              "freshAudioAtEnd": false,
+              "allSampledAudioFresh": false,
+              "maxSampledAudioPayloadAgeWithinEpochMs": 7188,
+              "continuousAudioGapUpperBoundMs": null
+            },
+            "windows": {
+              "preconditionVerified": true,
+              "samplesAfterCut": 40,
+              "observationSeconds": 41.752,
+              "coverageVerified": true,
+              "missingOrNonActiveSamples": 24,
+              "firstCallLostAfterCutMs": 17728,
+              "callSurvivalVerified": false,
+              "freshAudioAtEnd": false,
+              "allSampledAudioFresh": false,
+              "maxSampledAudioPayloadAgeWithinEpochMs": 12665,
+              "continuousAudioGapUpperBoundMs": null
+            }
+          },
+          "callSurvivalVerified": false,
+          "qualityObservationQualified": false
+        }
+      },
+      {
+        "round": 3,
+        "bothFixes": true,
+        "phoneNativeTrace": false,
+        "wifiDefaultBefore": true,
+        "cellularDefaultAfter": true,
+        "observation": {
+          "schema": "xveil-handover-observation/1",
+          "requiredObservationSeconds": 40,
+          "endpoints": {
+            "phone": {
+              "preconditionVerified": true,
+              "samplesAfterCut": 40,
+              "observationSeconds": 41.525,
+              "coverageVerified": true,
+              "missingOrNonActiveSamples": 0,
+              "firstCallLostAfterCutMs": null,
+              "callSurvivalVerified": true,
+              "freshAudioAtEnd": true,
+              "allSampledAudioFresh": false,
+              "maxSampledAudioPayloadAgeWithinEpochMs": 12323,
+              "continuousAudioGapUpperBoundMs": null
+            },
+            "windows": {
+              "preconditionVerified": true,
+              "samplesAfterCut": 40,
+              "observationSeconds": 41.538,
+              "coverageVerified": true,
+              "missingOrNonActiveSamples": 0,
+              "firstCallLostAfterCutMs": null,
+              "callSurvivalVerified": true,
+              "freshAudioAtEnd": true,
+              "allSampledAudioFresh": false,
+              "maxSampledAudioPayloadAgeWithinEpochMs": 12564,
+              "continuousAudioGapUpperBoundMs": null
+            }
+          },
+          "callSurvivalVerified": true,
+          "qualityObservationQualified": false
+        }
+      }
+    ],
+    "additionalAttempt": {
+      "handoverPerformed": false,
+      "reason": "initial-route-and-audio-precondition-not-met",
+      "countedAsPass": false
+    },
+    "fixedRouteAB": false,
+    "liveSpeechQualified": false,
+    "oneActivePeerCaseForced": false,
+    "fullHandoverFixed": false,
+    "physicalRebuildFixQualified": false
+  },
+  "artifacts": {
+    "phone": {
+      "apkSha256": "af7398cf39c0746892b6773d70cbc81b46db6b0153abe9cab94517bf5bf958dd",
+      "aotSha256": "b7fc5719de559922270284984e33fa1cf88fbb9456f9ea4da059b4d11700f2d8",
+      "nativeLibraries": {
+        "libhidden_volume_ffi.so": "7eb1838a6d52087ee15189ee8d5d25ef7357e20d9ec35c08a34a7e08159c6f79",
+        "libveil_media.so": "d4602355043749a6248cc0ed23cae431d00b489c61b7065d625d762971f5407f",
+        "libveilclient_ffi.so": "9d847c9cad9bf7b3efe3c1dfda8762685388b56cac313f92fce490bf2a7bba2a"
+      },
+      "nativeMatchPrior": true,
+      "installedShaMatches": true,
+      "confirmations": 0,
+      "installSeconds": 6.296
+    },
+    "windows": {
+      "sourceFilesVerified": 590,
+      "aotSha256": "abd4c4621163e8e3e34961652fb8b964f3bfc97493e12ca459d2e82334fef2aa",
+      "nativeLibrariesUnchanged": true,
+      "runnerPluginsRebuilt": false
+    },
+    "rustRebuilt": false,
+    "externalMountWatchdogPassed": true
+  },
+  "cleanup": {
+    "phoneQaStopped": true,
+    "phoneSettingsRestored": true,
+    "ownForwardRemoved": true,
+    "mainPhonePidUnchanged": true,
+    "ownedTraceStopped": true,
+    "traceDisabled": true,
+    "noMacStandStarted": true,
+    "windowsQaStopped": true,
+    "windowsTasksRemoved": true,
+    "windowsHookListenerAbsent": true,
+    "windowsListenerCheck": "IPGlobalProperties with failed connection and netstat cross-check",
+    "ownSshTunnelExited": true,
+    "localHookListenersAbsent": true
+  },
+  "published": false
+}

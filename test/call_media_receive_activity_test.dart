@@ -56,6 +56,26 @@ void main() {
     expect(activity.observe({'rx_pkts': 1}, start), start);
   });
 
+  test(
+    'same-call counter rebase keeps history without minting new activity',
+    () {
+      final activity = CallMediaReceiveActivity();
+      activity.observe(stats(100), start);
+      activity.reset(preserveLastRxAt: true);
+      final later = start.add(const Duration(seconds: 15));
+      expect(activity.lastRxAt, start);
+      expect(activity.observe(stats(0), later), start);
+      expect(
+        activity.observe({'rx_pkts': 0, 'worker_stalled': 1}, later),
+        isNull,
+      );
+      expect(activity.lastRxAt, start);
+      expect(activity.observe(stats(1), later), later);
+      activity.reset();
+      expect(activity.lastRxAt, isNull);
+    },
+  );
+
   test('malformed counters are unavailable and preserve the receipt floor', () {
     final activity = CallMediaReceiveActivity();
     activity.observe(stats(10), start);

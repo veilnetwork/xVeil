@@ -1381,6 +1381,12 @@ class VeilCallMediaController implements CallMediaController {
 
   @override
   Future<bool> start(Call call) async {
+    final previousCall = _activeCall;
+    final preserveReceiveHistory =
+        previousCall?.callId == call.callId &&
+        previousCall?.peer == call.peer &&
+        previousCall?.peerIdentity == call.peerIdentity &&
+        previousCall?.peerDevice == call.peerDevice;
     if (!_microphoneState.belongsToCall(call.callId)) {
       _bitrateAdapter = null;
       _peerAudioPlayout = CallPeerAudioPlayout();
@@ -1640,7 +1646,7 @@ class VeilCallMediaController implements CallMediaController {
     // Liveness signal for the call FSM: poll rx_pkts so it can tell the peer's
     // media is still arriving even when the durable signaling heartbeat lags.
     _statsTimer?.cancel();
-    _mediaReceiveActivity.reset();
+    _mediaReceiveActivity.reset(preserveLastRxAt: preserveReceiveHistory);
     _lastRxPkts = 0;
     _audioReceiveActivity.reset();
     _receiveSessionStartedAt = DateTime.now();
@@ -2365,7 +2371,10 @@ class VeilCallMediaController implements CallMediaController {
     _statsTimer = null;
     _controlPollTimer?.cancel();
     _controlPollTimer = null;
-    _mediaReceiveActivity.reset();
+    // Retain the last real receipt across an internal rebuild. Rebase the
+    // counter only after the replacement engine exists in start(): an old
+    // engine still finishing teardown must not replay its count as new life.
+    if (clearActiveCall) _mediaReceiveActivity.reset();
     _lastRxPkts = 0;
     _lastNativeRxCount = 0;
     _audioReceiveActivity.reset();

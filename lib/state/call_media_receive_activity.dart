@@ -21,8 +21,11 @@ class CallMediaReceiveActivity {
     return _lastRxAt;
   }
 
-  void reset() {
+  /// A replacement engine starts its counter at zero, but it cannot revoke
+  /// a receipt already observed in this call or create a newer one. A new
+  /// call uses the default full reset.
+  void reset({bool preserveLastRxAt = false}) {
     _packets = 0;
-    _lastRxAt = null;
+    if (!preserveLastRxAt) _lastRxAt = null;
   }
 }
