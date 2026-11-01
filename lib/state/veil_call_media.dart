@@ -533,6 +533,21 @@ class VeilCallMediaController implements CallMediaController {
   CallMicrophonePermission? _microphonePermission;
   final _cameraState = CallCameraState();
   VeilMediaEngine? _engine;
+  bool _noiseSuppressionEnabled = true;
+
+  bool setNoiseSuppression(bool enabled) {
+    final engine = _engine;
+    if (engine != null) {
+      try {
+        if (!engine.setNoiseSuppression(enabled)) return false;
+      } catch (_) {
+        return false;
+      }
+    }
+    _noiseSuppressionEnabled = enabled;
+    return true;
+  }
+
   int? _chan;
   String? _chanPeer; // hex of the peer _chan was opened for
   CallTransportKind? _chanTransport;
@@ -1637,6 +1652,16 @@ class VeilCallMediaController implements CallMediaController {
             'xVeil[call-media]: compact relay packet_size=$packetSizeOk '
             'enabled=$_compactRelayMedia',
       );
+    }
+    // Older local diagnostic binaries may lack this optional symbol. They can
+    // still receive, but a live UI change must report refusal, not success.
+    if (engine.supportsNoiseSuppression &&
+        !engine.setNoiseSuppression(_noiseSuppressionEnabled)) {
+      engine.dispose();
+      _transport.closeMediaChannel(chan);
+      _chan = null;
+      _chanPeer = null;
+      return false;
     }
     _engine = engine;
     _startControlPolling();

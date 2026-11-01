@@ -3686,5 +3686,8 @@
   "inviteShareTab": "Share",
   "inviteAddTab": "Add",
   "inviteShowLink": "Show contact link",
-  "inviteNotReady": "Your contact QR will appear when the node is ready. You can add someone in the Add tab."
+  "inviteNotReady": "Your contact QR will appear when the node is ready. You can add someone in the Add tab.",
+  "callNoiseSuppression": "Microphone noise suppression",
+  "callNoiseSuppressionHint": "Reduce background noise in your microphone. Echo cancellation stays on.",
+  "callNoiseSuppressionFailed": "Could not change noise suppression."
 }

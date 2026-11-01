@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/call.dart';
 import '../../domain/call_signal.dart';
 import '../../l10n/app_localizations.dart';
+import '../../state/call_noise_suppression.dart';
 import '../../state/app_controller.dart';
 import '../../state/call_audio_route.dart';
 import '../../state/android_camera_capture.dart'
@@ -321,6 +322,7 @@ class _CallOverlayState extends ConsumerState<CallOverlay>
                   ),
                 if (_captureDevices case final devices?)
                   CallDevicePickerPanel(
+                    noiseSuppression: ref.watch(callNoiseSuppressionProvider),
                     devices: devices,
                     onDismiss: () => setState(() {
                       _captureDevices = null;

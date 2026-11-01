@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../state/call_noise_suppression.dart';
+
 import '../../l10n/app_localizations.dart';
 import '../../state/call_audio_route.dart';
 import '../../state/call_service.dart';
@@ -10,8 +12,10 @@ class CallDevicePickerPanel extends StatelessWidget {
     required this.devices,
     required this.onDismiss,
     required this.onSelect,
+    this.noiseSuppression,
   });
 
+  final CallNoiseSuppressionSettings? noiseSuppression;
   final List<CallMediaDevice> devices;
   final VoidCallback onDismiss;
   final ValueChanged<CallMediaDevice> onSelect;
@@ -91,6 +95,42 @@ class CallDevicePickerPanel extends StatelessWidget {
                             key: const ValueKey('call-settings-audio'),
                             padding: const EdgeInsets.only(bottom: 20),
                             children: [
+                              if (noiseSuppression != null)
+                                ListenableBuilder(
+                                  listenable: noiseSuppression!,
+                                  builder: (context, _) {
+                                    final settings = noiseSuppression!;
+                                    return SwitchListTile.adaptive(
+                                      key: const ValueKey(
+                                        'call-noise-suppression',
+                                      ),
+                                      title: Text(l.callNoiseSuppression),
+                                      subtitle: Text(
+                                        l.callNoiseSuppressionHint,
+                                      ),
+                                      value: settings.enabled,
+                                      onChanged:
+                                          !settings.loaded || settings.busy
+                                          ? null
+                                          : (value) async {
+                                              final saved = await settings.set(
+                                                value,
+                                              );
+                                              if (!saved && context.mounted) {
+                                                ScaffoldMessenger.of(
+                                                  context,
+                                                ).showSnackBar(
+                                                  SnackBar(
+                                                    content: Text(
+                                                      l.callNoiseSuppressionFailed,
+                                                    ),
+                                                  ),
+                                                );
+                                              }
+                                            },
+                                    );
+                                  },
+                                ),
                               if (callAudioRouter.supportsPhoneRouting) ...[
                                 _SectionLabel(l.callAudioOutput),
                                 ValueListenableBuilder<CallAudioRoute>(

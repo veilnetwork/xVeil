@@ -1348,3 +1348,14 @@ alert и call-only экран с прежними capability/session барье�
 передаются отдельно в RAM и привязаны к текущему session; в анонимную
 диагностику/notification intents они не добавляются. Размер QR по уточнению
 владельца сохранён — 180 logical px.
+
+## 2026-11-02: software AEC/NS и локальный переключатель
+
+[Подтверждено отсутствие включения AEC/NS в прямых Call-путях](../call-audio-processing-2026-11-02/README.md).
+Render-reference уже проходил через реальный AudioTransportImpl. Включены AEC
+и NS, добавлен live-переключатель NS с локальным зашифрованным сохранением и
+rollback. 333 scoped Flutter tests, 4 FFI checks, реальные APM/DSP и native
+control smoke прошли. В обычной локальной dylib нет test-hook экспортов.
+Это локальное исправление механизма: новые engine pins ещё не выпущены,
+физическое эхо/шум Poco ↔ Windows и пропуски речи остаются активными до проверки.
+Старые deferred-жалобы и остальные сетевые/матричные фронты статус не меняют.
