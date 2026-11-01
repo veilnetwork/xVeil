@@ -116,13 +116,12 @@ class _MessagingReplication {
         () =>
             'xVeil[group]: NOT queueing a $what for ${dst.short} — '
             '${_owner._outbox.pendingFor(dst.hex)} frames already undelivered. '
-            'It will get the current state by asking, when it is back.',
+            'Keeping queued copies; admission resumes as the queue drains.',
       );
-      // And let the queued state go with it. Having decided not to add more,
-      // keeping what is already there buys nothing: the same ask that makes
-      // the refusal safe also makes these redundant. Event frames are left
-      // alone — see `dropReplicationBacklogFor`.
-      unawaited(_owner.dropReplicationBacklogFor(dst));
+      // Admission pressure does not prove that the peer is gone. A cold
+      // linked device can still be consuming these fragments; purging them
+      // here destroys the complete retry copy before its terminal ACK.
+      // Keep queued bytes. The ordinary age-based sweep bounds stale state.
     }
     return true;
   }
