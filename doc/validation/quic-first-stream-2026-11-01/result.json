@@ -1,0 +1,271 @@
+{
+  "schema": "xveil-quic-first-stream-validation/1",
+  "sdk": "c8bdfd97",
+  "coldLatencyResolved": false,
+  "causalSpeedupProven": false,
+  "fullSixServerLineQualified": false,
+  "phoneOrWindowsQualified": false,
+  "tests": {
+    "transportPassed": 156,
+    "runtimePassed": 795,
+    "runtimeIgnored": 11,
+    "privacyPassed": 10
+  },
+  "boots": [
+    {
+      "attempt": 1,
+      "bothActiveSeconds": 38.864,
+      "activeHeld3s": true,
+      "remoteAbsentDuringStopObservation": true,
+      "postStopObservationSeconds": 0.537,
+      "firstStreamSnapshotsInServerWindow": [
+        {
+          "outcome": "stream_timeout",
+          "tlsReadyMs": 84.753,
+          "endMs": 10085.535,
+          "udpRxAtTls": 3,
+          "udpRxAtEnd": 3,
+          "streamRxAtEnd": 0,
+          "ptoAtEnd": 5,
+          "ownMacCiphertextMatches": 0
+        },
+        {
+          "outcome": "stream_timeout",
+          "tlsReadyMs": 63.746,
+          "endMs": 10065.216,
+          "udpRxAtTls": 3,
+          "udpRxAtEnd": 3,
+          "streamRxAtEnd": 0,
+          "ptoAtEnd": 6,
+          "ownMacCiphertextMatches": 1
+        },
+        {
+          "outcome": "ready",
+          "tlsReadyMs": 63.222,
+          "endMs": 70.307,
+          "udpRxAtTls": 3,
+          "udpRxAtEnd": 5,
+          "streamRxAtEnd": 1,
+          "ptoAtEnd": 0,
+          "ownMacCiphertextMatches": 5
+        },
+        {
+          "outcome": "ready",
+          "tlsReadyMs": 56.481,
+          "endMs": 60.633,
+          "udpRxAtTls": 3,
+          "udpRxAtEnd": 6,
+          "streamRxAtEnd": 1,
+          "ptoAtEnd": 0,
+          "ownMacCiphertextMatches": 0
+        }
+      ]
+    },
+    {
+      "attempt": 2,
+      "bothActiveSeconds": 12.499,
+      "activeHeld3s": true,
+      "remoteAbsentDuringStopObservation": true,
+      "postStopObservationSeconds": 0.528,
+      "firstStreamSnapshotsInServerWindow": [
+        {
+          "outcome": "stream_timeout",
+          "tlsReadyMs": 55.709,
+          "endMs": 10057.452,
+          "udpRxAtTls": 2,
+          "udpRxAtEnd": 2,
+          "streamRxAtEnd": 0,
+          "ptoAtEnd": 6,
+          "ownMacCiphertextMatches": 0
+        },
+        {
+          "outcome": "ready",
+          "tlsReadyMs": 92.375,
+          "endMs": 95.397,
+          "udpRxAtTls": 3,
+          "udpRxAtEnd": 4,
+          "streamRxAtEnd": 1,
+          "ptoAtEnd": 0,
+          "ownMacCiphertextMatches": 3
+        },
+        {
+          "outcome": "ready",
+          "tlsReadyMs": 96.393,
+          "endMs": 99.993,
+          "udpRxAtTls": 3,
+          "udpRxAtEnd": 5,
+          "streamRxAtEnd": 1,
+          "ptoAtEnd": 0,
+          "ownMacCiphertextMatches": 1
+        }
+      ]
+    },
+    {
+      "attempt": 3,
+      "bothActiveSeconds": 39.534,
+      "activeHeld3s": true,
+      "remoteAbsentDuringStopObservation": true,
+      "postStopObservationSeconds": 0.521,
+      "firstStreamSnapshotsInServerWindow": [
+        {
+          "outcome": "ready",
+          "tlsReadyMs": 76.205,
+          "endMs": 83.859,
+          "udpRxAtTls": 4,
+          "udpRxAtEnd": 5,
+          "streamRxAtEnd": 1,
+          "ptoAtEnd": 0,
+          "ownMacCiphertextMatches": 3
+        },
+        {
+          "outcome": "ready",
+          "tlsReadyMs": 63.767,
+          "endMs": 72.331,
+          "udpRxAtTls": 3,
+          "udpRxAtEnd": 5,
+          "streamRxAtEnd": 1,
+          "ptoAtEnd": 0,
+          "ownMacCiphertextMatches": 2
+        },
+        {
+          "outcome": "ready",
+          "tlsReadyMs": 57.513,
+          "endMs": 64.746,
+          "udpRxAtTls": 2,
+          "udpRxAtEnd": 5,
+          "streamRxAtEnd": 1,
+          "ptoAtEnd": 0,
+          "ownMacCiphertextMatches": 1
+        }
+      ]
+    },
+    {
+      "attempt": 4,
+      "bothActiveSeconds": null,
+      "activeHeld3s": false,
+      "remoteAbsentDuringStopObservation": null,
+      "postStopObservationSeconds": 0.48,
+      "firstStreamSnapshotsInServerWindow": [
+        {
+          "outcome": "ready",
+          "tlsReadyMs": 80.127,
+          "endMs": 87.973,
+          "udpRxAtTls": 4,
+          "udpRxAtEnd": 5,
+          "streamRxAtEnd": 1,
+          "ptoAtEnd": 0,
+          "ownMacCiphertextMatches": 3
+        },
+        {
+          "outcome": "stream_timeout",
+          "tlsReadyMs": 83.676,
+          "endMs": 10084.398,
+          "udpRxAtTls": 3,
+          "udpRxAtEnd": 3,
+          "streamRxAtEnd": 0,
+          "ptoAtEnd": 5,
+          "ownMacCiphertextMatches": 2
+        },
+        {
+          "outcome": "stream_timeout",
+          "tlsReadyMs": 63.615,
+          "endMs": 10064.624,
+          "udpRxAtTls": 3,
+          "udpRxAtEnd": 3,
+          "streamRxAtEnd": 0,
+          "ptoAtEnd": 6,
+          "ownMacCiphertextMatches": 2
+        }
+      ]
+    },
+    {
+      "attempt": 5,
+      "bothActiveSeconds": 1.533,
+      "activeHeld3s": true,
+      "remoteAbsentDuringStopObservation": true,
+      "postStopObservationSeconds": 0.527,
+      "firstStreamSnapshotsInServerWindow": [
+        {
+          "outcome": "ready",
+          "tlsReadyMs": 58.085,
+          "endMs": 61.569,
+          "udpRxAtTls": 4,
+          "udpRxAtEnd": 5,
+          "streamRxAtEnd": 1,
+          "ptoAtEnd": 0,
+          "ownMacCiphertextMatches": 5
+        },
+        {
+          "outcome": "ready",
+          "tlsReadyMs": 194.797,
+          "endMs": 194.806,
+          "udpRxAtTls": 6,
+          "udpRxAtEnd": 6,
+          "streamRxAtEnd": 1,
+          "ptoAtEnd": 0,
+          "ownMacCiphertextMatches": 1
+        },
+        {
+          "outcome": "ready",
+          "tlsReadyMs": 72.038,
+          "endMs": 75.607,
+          "udpRxAtTls": 3,
+          "udpRxAtEnd": 6,
+          "streamRxAtEnd": 1,
+          "ptoAtEnd": 0,
+          "ownMacCiphertextMatches": 1
+        }
+      ]
+    },
+    {
+      "attempt": 6,
+      "bothActiveSeconds": 1.681,
+      "activeHeld3s": true,
+      "remoteAbsentDuringStopObservation": false,
+      "postStopObservationSeconds": 6.212,
+      "firstStreamSnapshotsInServerWindow": [
+        {
+          "outcome": "stream_timeout",
+          "tlsReadyMs": 72.585,
+          "endMs": 10074.416,
+          "udpRxAtTls": 3,
+          "udpRxAtEnd": 3,
+          "streamRxAtEnd": 0,
+          "ptoAtEnd": 5,
+          "ownMacCiphertextMatches": 0
+        },
+        {
+          "outcome": "ready",
+          "tlsReadyMs": 88.599,
+          "endMs": 91.934,
+          "udpRxAtTls": 3,
+          "udpRxAtEnd": 5,
+          "streamRxAtEnd": 1,
+          "ptoAtEnd": 0,
+          "ownMacCiphertextMatches": 5
+        },
+        {
+          "outcome": "ready",
+          "tlsReadyMs": 124.098,
+          "endMs": 131.343,
+          "udpRxAtTls": 3,
+          "udpRxAtEnd": 6,
+          "streamRxAtEnd": 1,
+          "ptoAtEnd": 0,
+          "ownMacCiphertextMatches": 0
+        }
+      ]
+    }
+  ],
+  "teardown": {
+    "macProcessesExited": 6,
+    "temporaryRuntimesRemoved": 6,
+    "testServicesStopped": 6,
+    "originalTestBinariesVerified": 6,
+    "productionPreserved": 6,
+    "temporaryTraceUnitsRestored": 2,
+    "autoRollbackTimersStopped": 2,
+    "packetCaptureExited": true,
+    "sshObserverExited": true
+  }
+}
