@@ -120,9 +120,68 @@ Call _call({bool video = false, String callId = 'receive-only-start'}) => Call(
   peerMediaKey: generateCallMediaKeyContribution(),
 );
 
+class _LivenessEngine extends _Engine {
+  _LivenessEngine(this.packets) : super(nativeStarted: true, capture: 1);
+  int packets;
+
+  @override
+  Map<String, dynamic> getStats() => {
+    ...super.getStats(),
+    'rx_pkts': packets,
+    'worker_stalled': 0,
+  };
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  test(
+    'same-call engine rebuild preserves the last real liveness receipt',
+    () async {
+      final engines = [
+        _LivenessEngine(100),
+        _LivenessEngine(0),
+        _LivenessEngine(0),
+      ];
+      var creates = 0;
+      final controller = VeilCallMediaController(
+        _Transport(),
+        engineFactory:
+            ({required veilChan, required localId, required peerId}) =>
+                engines[creates++],
+      );
+      final call = _call();
+      try {
+        expect(await controller.start(call), isTrue);
+        final received = await controller.readLatestMediaRxAt();
+        expect(received, isNotNull);
+        expect(await controller.start(call), isTrue);
+        expect(engines.first.disposed, isTrue);
+        expect(
+          controller.lastMediaRxAt,
+          received,
+          reason: 'local repair must not make the last peer activity older',
+        );
+        expect(
+          await controller.readLatestMediaRxAt(),
+          received,
+          reason: 'the replacement has no packets; rebuilding is no new proof',
+        );
+
+        await controller.stop();
+        expect(controller.lastMediaRxAt, isNull);
+        expect(await controller.start(_call(callId: 'another-call')), isTrue);
+        expect(
+          await controller.readLatestMediaRxAt(),
+          isNull,
+          reason: 'a new call must not inherit the prior call receipt',
+        );
+      } finally {
+        await controller.stop();
+      }
+    },
+  );
 
   for (final outcome in [
     'denied',

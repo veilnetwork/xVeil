@@ -2693,7 +2693,38 @@ class CallService {
     // A repeated "mic on" heartbeat must not restart the audio outage clock.
     // A real unmute gets a full startup grace before requesting route repair.
     if (call.peerCapture?.audio == true) {
-      _peerAudioExpectedSince ??= _now();
+      if (_peerAudioExpectedSince == null) {
+        var since = _now();
+        final previous = _current;
+        final media = _media;
+        final audioRx = media?.lastAudioRxAt;
+        // The first capture report can trail actual audio. It describes an
+        // existing sender, not a mute -> unmute transition. Keep that proven
+        // receive history so a network cut before the report does not turn an
+        // established outage back into startup. Different calls, devices and
+        // receive sessions must establish their own audio first.
+        if (previous != null &&
+            previous.callId == call.callId &&
+            previous.peer == call.peer &&
+            previous.peerDevice == call.peerDevice &&
+            previous.status == CallStatus.active &&
+            call.status == CallStatus.active &&
+            previous.peerCapture == null &&
+            previous.media.audio &&
+            call.media.audio &&
+            media?.hasAudioReceiveTelemetry == true &&
+            audioRx != null) {
+          var floor = call.connectedAt ?? call.startedAt;
+          final sessionStart = media?.receiveSessionStartedAt;
+          if (sessionStart != null && sessionStart.isAfter(floor)) {
+            floor = sessionStart;
+          }
+          if (!audioRx.isBefore(floor) && !audioRx.isAfter(since)) {
+            since = audioRx;
+          }
+        }
+        _peerAudioExpectedSince = since;
+      }
     } else {
       _peerAudioExpectedSince = null;
     }
