@@ -1,8 +1,13 @@
+import 'dart:async';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
+import 'package:xveil/data/storage/file_store.dart';
 import 'package:xveil/domain/chat.dart';
+
+import 'timed_native_store.dart';
 
 /// Passive fixture data. No message key, payload, path or exception is exported.
 /// RPC await times can overlap and must not be summed as exclusive disk time.
@@ -25,6 +30,10 @@ class MessageApplyCensus {
   // The fixed labels deliberately discard keys and unknown namespace numbers.
   final _rpcNamespaces =
       <String, ({int count, int wait, int maxWait, int before})>{};
+  final _rpcStorageOperations =
+      <String, ({int count, int wait, int maxWait, int before})>{};
+  final _storageOperations =
+      <String, ({int count, int wait, int maxWait, int before})>{};
 
   void reset() {
     _epoch = nowUs;
@@ -35,6 +44,38 @@ class MessageApplyCensus {
     _completedKeys.clear();
     _rpc.clear();
     _rpcNamespaces.clear();
+    _rpcStorageOperations.clear();
+    _storageOperations.clear();
+  }
+
+  Future<T> fileOperation<T>(
+    String operation,
+    String file,
+    Future<T> Function() body,
+  ) async {
+    final kind = !file.startsWith('group:')
+        ? 'other'
+        : file.contains(':s:')
+        ? 'segment'
+        : 'header';
+    final label = 'file.$operation.$kind';
+    if (!storageTimingOperations.contains(label)) {
+      throw StateError('unknown fixture storage operation');
+    }
+    final start = nowUs;
+    try {
+      return await runZoned(
+        body,
+        zoneValues: {storageTimingOperationKey: label},
+      );
+    } finally {
+      _record(
+        _storageOperations,
+        label,
+        math.max<int>(0, nowUs - math.max<int>(start, _epoch)),
+        start < _epoch,
+      );
+    }
   }
 
   int beginAppend() {
@@ -111,6 +152,16 @@ class MessageApplyCensus {
         : operation;
     final wait = start + duration - math.max<int>(start, _epoch);
     _record(_rpc, label, wait, start < _epoch);
+    final storageOperation = event['storage_operation'];
+    if (storageOperation is String &&
+        storageTimingOperations.contains(storageOperation)) {
+      _record(
+        _rpcStorageOperations,
+        '$storageOperation/$operation',
+        wait,
+        start < _epoch,
+      );
+    }
     if (namespaces is List) {
       for (final category
           in namespaces.whereType<int>().map(_namespace).toSet()) {
@@ -176,12 +227,66 @@ class MessageApplyCensus {
     'keyLimitReached': keyLimitReached,
     'rpcCompleted': _rpcSnapshot(_rpc),
     'rpcNamespacesCompleted': _rpcSnapshot(_rpcNamespaces),
+    'storageOperationsCompleted': _rpcSnapshot(_storageOperations),
+    'rpcStorageOperationsCompleted': _rpcSnapshot(_rpcStorageOperations),
   };
 }
 
 class CountedMessageStorage extends HiddenVolumeStorage {
   CountedMessageStorage(super.opener, this.census) : super.async();
   final MessageApplyCensus census;
+
+  @override
+  Future<void> storeFile(
+    String id,
+    Uint8List bytes, {
+    String? name,
+    List<String> retireHints = const [],
+  }) => census.fileOperation(
+    'store',
+    id,
+    () => super.storeFile(id, bytes, name: name, retireHints: retireHints),
+  );
+
+  @override
+  Future<bool> tryStoreFilePair(
+    StoredFileWrite first,
+    StoredFileWrite second, {
+    List<String> retireHints = const [],
+  }) => census.fileOperation(
+    'storePair',
+    second.id,
+    () => super.tryStoreFilePair(first, second, retireHints: retireHints),
+  );
+
+  @override
+  Future<Uint8List?> loadFile(String id, {int? maxBytes}) => census
+      .fileOperation('load', id, () => super.loadFile(id, maxBytes: maxBytes));
+
+  @override
+  Future<List<Uint8List>?> loadFiles(
+    List<String> ids, {
+    required int maxBytesPerFile,
+  }) => census.fileOperation(
+    'loadBatch',
+    ids.isEmpty ? '' : ids.first,
+    () => super.loadFiles(ids, maxBytesPerFile: maxBytesPerFile),
+  );
+
+  @override
+  Future<bool> hasFile(String id) =>
+      census.fileOperation('has', id, () => super.hasFile(id));
+
+  @override
+  Future<List<bool>> hasFiles(List<String> ids) => census.fileOperation(
+    'hasBatch',
+    ids.isEmpty ? '' : ids.first,
+    () => super.hasFiles(ids),
+  );
+
+  @override
+  Future<void> deleteStoredFile(String id) =>
+      census.fileOperation('delete', id, () => super.deleteStoredFile(id));
 
   @override
   Future<Message> appendMessage(Message message) async {

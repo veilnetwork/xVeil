@@ -1,9 +1,14 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
 
 import 'support/message_apply_census.dart';
+import 'support/timed_native_store.dart';
+import 'package:xveil/data/storage/async_kv_log_store.dart';
+import 'package:xveil/data/storage/fake_kv_log_store.dart';
 
 void main() {
   test(
@@ -151,4 +156,94 @@ void main() {
     census.reset();
     expect(census.snapshot()['rpcNamespacesCompleted'], isEmpty);
   });
+  test(
+    'file attribution keeps only fixed kinds and clips outstanding calls on reset',
+    () async {
+      var now = 0;
+      final census = MessageApplyCensus(nowUs: () => now);
+      final entered = Completer<void>(), release = Completer<void>();
+      final pending = census.fileOperation(
+        'load',
+        'group:PRIVATE_ID',
+        () async {
+          expect(Zone.current[storageTimingOperationKey], 'file.load.header');
+          entered.complete();
+          await release.future;
+          census.observeRpc({
+            'operation': 'kv.get',
+            'start_us': 0,
+            'duration_us': 80,
+            'storage_operation': Zone.current[storageTimingOperationKey],
+          });
+        },
+      );
+      await entered.future;
+      now = 50;
+      census.reset();
+      now = 80;
+      release.complete();
+      await pending;
+      final out = census.snapshot();
+      expect((out['storageOperationsCompleted'] as Map)['file.load.header'], {
+        'count': 1,
+        'awaitUs': 30,
+        'maxAwaitUs': 30,
+        'startedBeforeWindow': 1,
+      });
+      expect(
+        (out['rpcStorageOperationsCompleted']
+            as Map)['file.load.header/kv.get']['awaitUs'],
+        30,
+      );
+      census.observeRpc({
+        'operation': 'kv.get',
+        'start_us': 60,
+        'duration_us': 10,
+        'storage_operation': 'PRIVATE_ZONE',
+      });
+      expect(jsonEncode(census.snapshot()), isNot(contains('PRIVATE_')));
+      census.reset();
+      expect(census.snapshot()['storageOperationsCompleted'], isEmpty);
+      expect(census.snapshot()['rpcStorageOperationsCompleted'], isEmpty);
+    },
+  );
+
+  test(
+    'worker adapter propagates allowed attribution without copying keys',
+    () async {
+      final census = MessageApplyCensus();
+      final events = <Map<String, Object?>>[];
+      final store = TimedNativeStore(
+        SyncWrappedAsyncKvLogStore(FakeKvLogStore()),
+        census.clock,
+        (event) {
+          events.add(event);
+          census.observeRpc(event);
+        },
+      );
+      await census.fileOperation(
+        'hasBatch',
+        'group:PRIVATE_ID:s:PRIVATE_SEGMENT',
+        () async {
+          await store.getBatch(Ns.settings, [
+            Uint8List.fromList(utf8.encode('PRIVATE_KEY')),
+          ]);
+        },
+      );
+      expect(events.single['storage_operation'], 'file.hasBatch.segment');
+      expect(
+        (census.snapshot()['rpcStorageOperationsCompleted']
+            as Map)['file.hasBatch.segment/kv.getBatch']['count'],
+        1,
+      );
+      await runZoned(
+        () => store.get(Ns.settings, Uint8List(0)),
+        zoneValues: {storageTimingOperationKey: 'PRIVATE_ZONE'},
+      );
+      expect(events.last.containsKey('storage_operation'), isFalse);
+      expect(jsonEncode(events), isNot(contains('PRIVATE_')));
+      expect(jsonEncode(census.snapshot()), isNot(contains('PRIVATE_')));
+      await store.close();
+    },
+  );
 }
