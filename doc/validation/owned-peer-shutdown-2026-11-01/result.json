@@ -1,0 +1,126 @@
+{
+  "schema": "xveil-validation/owned-peer-shutdown/1",
+  "sdkCommit": "41d2b4352529c6d85be57f8999246fbb145ed81b",
+  "macSignedFfiSha256": "16781dbe42a00683daa540d3dfc9a94204f4fdd5a567df9a59df3757634267ce",
+  "linuxCandidateSha256": "7a6dc9b51605a452f41764d48e7ee6696f24732013f449b60f3db43e60bf7f36",
+  "confirmedDefect": "Dynamic connector was detached, keeping an established remote socket open after node.stop",
+  "tests": {
+    "authoritativeRed": {
+      "passed": 0,
+      "failed": 1,
+      "assertion": "remote socket remains open after stop"
+    },
+    "greenTargeted": {
+      "passed": 1
+    },
+    "runtime": {
+      "passed": 790,
+      "ignored": 11
+    },
+    "staleShutdownAdmissionCovered": true
+  },
+  "releaseBuilds": {
+    "macFfi": true,
+    "linuxCli": true,
+    "externalMountWatchdogsPassed": true
+  },
+  "physical": {
+    "clientOnly": {
+      "clientSdk": "41d2b435",
+      "serverSdk": "4f9c85f2",
+      "boots": [
+        {
+          "attempt": 1,
+          "firstBothSidesObservedSeconds": 3.622,
+          "bothSidesStableGateSeconds": 6.924,
+          "qualifiedBothSides": true,
+          "remoteSessionAbsentOnFirstPostStopQuery": true,
+          "postStopObservationSeconds": 1.163
+        },
+        {
+          "attempt": 2,
+          "firstBothSidesObservedSeconds": 3.032,
+          "bothSidesStableGateSeconds": 6.09,
+          "qualifiedBothSides": true,
+          "remoteSessionAbsentOnFirstPostStopQuery": true,
+          "postStopObservationSeconds": 1.217
+        },
+        {
+          "attempt": 3,
+          "firstBothSidesObservedSeconds": 2.815,
+          "bothSidesStableGateSeconds": 5.868,
+          "qualifiedBothSides": true,
+          "remoteSessionAbsentOnFirstPostStopQuery": true,
+          "postStopObservationSeconds": 1.087
+        },
+        {
+          "attempt": 4,
+          "firstBothSidesObservedSeconds": 25.662,
+          "bothSidesStableGateSeconds": 30.26,
+          "qualifiedBothSides": true,
+          "remoteSessionAbsentOnFirstPostStopQuery": true,
+          "postStopObservationSeconds": 1.146
+        }
+      ]
+    },
+    "currentPair": {
+      "clientSdk": "41d2b435",
+      "serverSdk": "41d2b435",
+      "boots": [
+        {
+          "attempt": 1,
+          "firstBothSidesObservedSeconds": 13.764,
+          "bothSidesStableGateSeconds": 18.212,
+          "qualifiedBothSides": true,
+          "remoteSessionAbsentOnFirstPostStopQuery": true,
+          "postStopObservationSeconds": 1.086
+        },
+        {
+          "attempt": 2,
+          "firstBothSidesObservedSeconds": 2.848,
+          "bothSidesStableGateSeconds": 5.864,
+          "qualifiedBothSides": true,
+          "remoteSessionAbsentOnFirstPostStopQuery": true,
+          "postStopObservationSeconds": 1.232
+        },
+        {
+          "attempt": 3,
+          "firstBothSidesObservedSeconds": 3.046,
+          "bothSidesStableGateSeconds": 7.404,
+          "qualifiedBothSides": true,
+          "remoteSessionAbsentOnFirstPostStopQuery": true,
+          "postStopObservationSeconds": 1.11
+        },
+        {
+          "attempt": 4,
+          "firstBothSidesObservedSeconds": 2.822,
+          "bothSidesStableGateSeconds": 7.227,
+          "qualifiedBothSides": true,
+          "remoteSessionAbsentOnFirstPostStopQuery": true,
+          "postStopObservationSeconds": 1.21
+        }
+      ]
+    },
+    "qualifiedBoots": 8,
+    "remotePostStopAbsences": 8,
+    "coldHandshakeStillOpen": true,
+    "currentPairObservedOvl1Timeouts": 1,
+    "currentPairFirstBootSessionOpenSeconds": 11.737,
+    "causalLatencyImprovementProven": false,
+    "callsOrHandoverTested": false,
+    "fullSixServerLineTested": false
+  },
+  "teardown": {
+    "ownedMacProcessesExited": 8,
+    "ownedMacRuntimeDirectoriesRemoved": 8,
+    "testServicesStopped": 6,
+    "productionPidBinaryConfigPreserved": 6,
+    "testPortsReleased": 6,
+    "isolatedTestBinariesRestored": 2,
+    "phoneChanged": false,
+    "windowsChanged": false,
+    "p2pPolicyChanged": false
+  },
+  "pushed": false,
+  "released": false
+}
