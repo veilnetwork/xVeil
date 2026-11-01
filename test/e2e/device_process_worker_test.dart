@@ -75,10 +75,16 @@ void main() {
               }
               final peer = request['peer'] as String;
               final prefix = request['prefix'] as String;
+              final bodyPrefix = request['bodyPrefix'] as String?;
               final messages = request['authorizationOnly'] == true
                   ? []
                   : (await device!.storage.loadMessages(peer))
-                        .where((message) => message.id.startsWith(prefix))
+                        .where(
+                          (message) =>
+                              message.id.startsWith(prefix) &&
+                              (bodyPrefix == null ||
+                                  message.body.startsWith(bodyPrefix)),
+                        )
                         .toList();
               final Object? authority = device!.stack.ratchetState;
               final authorization = <String, Object?>{};
@@ -114,6 +120,8 @@ void main() {
                   'nonce': request['nonce'],
                   if (authorization.isNotEmpty) 'authorization': authorization,
                   'count': messages.length,
+                  if (request['includeIds'] == true)
+                    'ids': [for (final message in messages) message.id],
                   'reflectedEdits': messages
                       .where((message) => message.reflectedEdit)
                       .length,
