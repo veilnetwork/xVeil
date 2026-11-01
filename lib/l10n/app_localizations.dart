@@ -13703,6 +13703,78 @@ abstract class AppL10n {
   /// In en, this message translates to:
   /// **'Screen lock settings were saved, but OS quick sign-in could not be configured. Your container password still works.'**
   String get startupUnlockSaveFailed;
+
+  /// No description provided for @chatFileSavePermissionDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'No permission to write to this location. Choose another folder or allow access in the system file picker.'**
+  String get chatFileSavePermissionDenied;
+
+  /// No description provided for @chatFileSavedToChosenFolder.
+  ///
+  /// In en, this message translates to:
+  /// **'File saved to the location you chose'**
+  String get chatFileSavedToChosenFolder;
+
+  /// No description provided for @chatFileDownloadedInApp.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloaded to the app folder. Use “Save as” to choose a folder in Files.'**
+  String get chatFileDownloadedInApp;
+
+  /// No description provided for @chatFileSaveAs.
+  ///
+  /// In en, this message translates to:
+  /// **'Save as'**
+  String get chatFileSaveAs;
+
+  /// No description provided for @callLockScreenTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Calls on the lock screen'**
+  String get callLockScreenTitle;
+
+  /// No description provided for @callLockScreenAllowed.
+  ///
+  /// In en, this message translates to:
+  /// **'Full-screen calls allowed. Notifications and the background node must also be enabled.'**
+  String get callLockScreenAllowed;
+
+  /// No description provided for @callLockScreenPermissionHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Allow full-screen calls in system settings. Check that incoming call notifications are enabled.'**
+  String get callLockScreenPermissionHint;
+
+  /// No description provided for @callLockScreenSettingsFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not open settings. Allow full-screen notifications for xVeil in Android settings.'**
+  String get callLockScreenSettingsFailed;
+
+  /// No description provided for @inviteShareTab.
+  ///
+  /// In en, this message translates to:
+  /// **'Share'**
+  String get inviteShareTab;
+
+  /// No description provided for @inviteAddTab.
+  ///
+  /// In en, this message translates to:
+  /// **'Add'**
+  String get inviteAddTab;
+
+  /// No description provided for @inviteShowLink.
+  ///
+  /// In en, this message translates to:
+  /// **'Show contact link'**
+  String get inviteShowLink;
+
+  /// No description provided for @inviteNotReady.
+  ///
+  /// In en, this message translates to:
+  /// **'Your contact QR will appear when the node is ready. You can add someone in the Add tab.'**
+  String get inviteNotReady;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

@@ -22,10 +22,24 @@ typedef ExportDocumentPicker = Future<ExportDocument?> Function(String name);
 
 /// Deliberately contains no platform exception message, URI, path or filename.
 class DocumentExportException implements Exception {
-  const DocumentExportException(this.stage);
+  const DocumentExportException(this.stage, {this.permissionDenied = false});
   final String stage;
+  final bool permissionDenied;
   @override
   String toString() => 'Document export failed ($stage)';
+}
+
+/// Classify only stable codes. Never retain provider messages, URIs or paths.
+DocumentExportException _failure(String stage, Object error) {
+  final denied = error is DocumentExportException
+      ? error.permissionDenied
+      : error is PlatformException
+      ? error.code == 'document_export_permission'
+      : error is FileSystemException &&
+            (error.osError?.errorCode == 1 ||
+                error.osError?.errorCode == 13 ||
+                (Platform.isWindows && error.osError?.errorCode == 5));
+  return DocumentExportException(stage, permissionDenied: denied);
 }
 
 Future<ExportDocument?> openExportDocument(String name) async {
@@ -43,16 +57,16 @@ Future<ExportDocument?> openExportDocument(String name) async {
         throw const DocumentExportException('open');
       }
       return _NativeExportDocument(id);
-    } catch (_) {
-      throw const DocumentExportException('open');
+    } catch (error) {
+      throw _failure('open', error);
     }
   }
   try {
     final path = await FilePicker.saveFile(fileName: name);
     if (path == null) return null;
     return await _FileExportDocument.open(File(path));
-  } catch (_) {
-    throw const DocumentExportException('open');
+  } catch (error) {
+    throw _failure('open', error);
   }
 }
 
@@ -84,8 +98,8 @@ abstract class _SequentialDocument implements ExportDocument {
         await writeChunk(part);
         offset = end;
       }
-    } catch (_) {
-      throw const DocumentExportException('write');
+    } catch (error) {
+      throw _failure('write', error);
     } finally {
       writing = false;
       drained.complete();
@@ -122,8 +136,8 @@ class _NativeExportDocument extends _SequentialDocument {
     try {
       await documentExportChannel.invokeMethod<void>('finish', {'id': id});
       state = _DocumentState.finished;
-    } catch (_) {
-      throw const DocumentExportException('finish');
+    } catch (error) {
+      throw _failure('finish', error);
     }
   }
 
@@ -136,8 +150,8 @@ class _NativeExportDocument extends _SequentialDocument {
     await activeWrite;
     try {
       await documentExportChannel.invokeMethod<void>('abort', {'id': id});
-    } catch (_) {
-      throw const DocumentExportException('abort');
+    } catch (error) {
+      throw _failure('abort', error);
     }
   }
 }
@@ -193,8 +207,8 @@ class _FileExportDocument extends _SequentialDocument {
         await writingFile.rename(target.path);
       }
       state = _DocumentState.finished;
-    } catch (_) {
-      throw const DocumentExportException('finish');
+    } catch (error) {
+      throw _failure('finish', error);
     }
   }
 

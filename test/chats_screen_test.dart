@@ -537,7 +537,9 @@ void main() {
     await tester.pump();
     await tester.tap(find.byIcon(Icons.person_add_alt_1));
     await tester.pumpAndSettle();
-    expect(find.text('Add a contact'), findsOneWidget);
+    expect(find.text('Share'), findsOneWidget);
+    await tester.tap(find.text('Add'));
+    await tester.pumpAndSettle();
     expect(find.text('Paste their invite'), findsOneWidget);
   });
 

@@ -8,12 +8,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 
 import '../../core/log.dart';
+import '../../core/ids.dart';
+import '../../data/storage/storage.dart';
 import '../../domain/call.dart';
 import '../../domain/group_call.dart';
 import '../../l10n/app_localizations.dart';
 import '../../routing/router.dart' show rootNavigatorKey;
 import '../../state/background_node_controller.dart';
 import '../../state/call_service.dart';
+import '../../state/call_screen_caller.dart';
 import '../../state/call_notification_session.dart';
 import '../../state/group_call_service.dart';
 import '../../state/locale_controller.dart';
@@ -37,6 +40,7 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
 
   Timer? _ringTimer;
   String? _lastServiceKey;
+  String? _callerPresentationSession;
   bool _ownsForegroundService = false;
   bool _videoCallActive = false;
   bool _batteryPromptChecked = false;
@@ -298,7 +302,10 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
             directLive ? call.callId : groupCall!.callId,
             directLive ? call.startedAt : groupCall!.startedAt,
           );
-    if (session == null) _notificationSession.clear();
+    if (session == null) {
+      _notificationSession.clear();
+      _callerPresentationSession = null;
+    }
     final key = directLive
         ? 'direct:$session:${call.status.name}:${call.mediaIdentity.short}:'
               '${directCapture && call.micOn}:${directCapture && call.cameraOn}'
@@ -331,6 +338,9 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
       return;
     }
     _ownsForegroundService = true;
+    final storage = ref.read(storageProvider);
+    final directOwner = ref.read(callServiceProvider);
+    final groupOwner = ref.read(groupCallServiceProvider);
     if (directLive) {
       // The OS shows this in the notification shade, so it has to be in the
       // user's language — it was English in every build. There is no
@@ -362,6 +372,21 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
             call.media.video &&
             !call.media.screen,
       );
+      if (session != null && _callerPresentationSession != session) {
+        _callerPresentationSession = session;
+        unawaited(
+          _publishCaller(
+            storage,
+            call.mediaIdentity,
+            session,
+            () =>
+                identical(ref.read(callServiceProvider), directOwner) &&
+                directOwner.current?.isLive == true &&
+                directOwner.current?.callId == call.callId &&
+                directOwner.current?.startedAt == call.startedAt,
+          ),
+        );
+      }
       return;
     }
     // A live GROUP room needs the same call-grade (microphone|camera)
@@ -390,6 +415,46 @@ class _CallLifecycleBridgeState extends ConsumerState<CallLifecycleBridge>
           groupCall.media.video &&
           !groupCall.media.screen,
     );
+    if (session != null && _callerPresentationSession != session) {
+      _callerPresentationSession = session;
+      unawaited(
+        _publishCaller(
+          storage,
+          groupCall.initiator,
+          session,
+          () =>
+              identical(ref.read(groupCallServiceProvider), groupOwner) &&
+              groupOwner?.current?.isLive == true &&
+              groupOwner?.current?.callId == groupCall.callId &&
+              groupOwner?.current?.startedAt == groupCall.startedAt,
+        ),
+      );
+    }
+  }
+
+  Future<void> _publishCaller(
+    Storage storage,
+    NodeId peer,
+    String session,
+    bool Function() stillCurrent,
+  ) async {
+    bool ours() =>
+        mounted &&
+        identical(ref.read(storageProvider), storage) &&
+        stillCurrent();
+    try {
+      if (!ours()) return;
+      final caller = await loadCallScreenCaller(storage, peer);
+      if (!ours()) return;
+      await VeilBackground.setCallPresentation(
+        callSession: session,
+        callerName: caller.label,
+        avatar: caller.avatar,
+      );
+    } catch (_) {
+      // A closed/unreadable identity keeps the already shown fallback. Caller
+      // data is never added to diagnostics or plaintext preferences.
+    }
   }
 
   Future<void> _enterPip() async {

@@ -7897,4 +7897,47 @@ class AppL10nEn extends AppL10n {
   @override
   String get startupUnlockSaveFailed =>
       'Screen lock settings were saved, but OS quick sign-in could not be configured. Your container password still works.';
+
+  @override
+  String get chatFileSavePermissionDenied =>
+      'No permission to write to this location. Choose another folder or allow access in the system file picker.';
+
+  @override
+  String get chatFileSavedToChosenFolder =>
+      'File saved to the location you chose';
+
+  @override
+  String get chatFileDownloadedInApp =>
+      'Downloaded to the app folder. Use “Save as” to choose a folder in Files.';
+
+  @override
+  String get chatFileSaveAs => 'Save as';
+
+  @override
+  String get callLockScreenTitle => 'Calls on the lock screen';
+
+  @override
+  String get callLockScreenAllowed =>
+      'Full-screen calls allowed. Notifications and the background node must also be enabled.';
+
+  @override
+  String get callLockScreenPermissionHint =>
+      'Allow full-screen calls in system settings. Check that incoming call notifications are enabled.';
+
+  @override
+  String get callLockScreenSettingsFailed =>
+      'Could not open settings. Allow full-screen notifications for xVeil in Android settings.';
+
+  @override
+  String get inviteShareTab => 'Share';
+
+  @override
+  String get inviteAddTab => 'Add';
+
+  @override
+  String get inviteShowLink => 'Show contact link';
+
+  @override
+  String get inviteNotReady =>
+      'Your contact QR will appear when the node is ready. You can add someone in the Add tab.';
 }

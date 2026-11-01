@@ -7996,4 +7996,47 @@ class AppL10nEs extends AppL10n {
   @override
   String get startupUnlockSaveFailed =>
       'Los ajustes de bloqueo se guardaron, pero no se pudo configurar el acceso rápido del sistema. La contraseña del contenedor sigue funcionando.';
+
+  @override
+  String get chatFileSavePermissionDenied =>
+      'No hay permiso para escribir aquí. Elige otra carpeta o permite el acceso en el selector de archivos del sistema.';
+
+  @override
+  String get chatFileSavedToChosenFolder =>
+      'Archivo guardado en la ubicación elegida';
+
+  @override
+  String get chatFileDownloadedInApp =>
+      'Descargado en la carpeta de la aplicación. Usa «Guardar como» para elegir una carpeta en Archivos.';
+
+  @override
+  String get chatFileSaveAs => 'Guardar como';
+
+  @override
+  String get callLockScreenTitle => 'Llamadas en la pantalla de bloqueo';
+
+  @override
+  String get callLockScreenAllowed =>
+      'Se permiten llamadas a pantalla completa. Activa también las notificaciones y el nodo en segundo plano.';
+
+  @override
+  String get callLockScreenPermissionHint =>
+      'Permite llamadas a pantalla completa en los ajustes del sistema. Comprueba que las notificaciones de llamadas estén activadas.';
+
+  @override
+  String get callLockScreenSettingsFailed =>
+      'No se pudieron abrir los ajustes. Permite las notificaciones a pantalla completa de xVeil en Android.';
+
+  @override
+  String get inviteShareTab => 'Compartir';
+
+  @override
+  String get inviteAddTab => 'Añadir';
+
+  @override
+  String get inviteShowLink => 'Mostrar enlace de contacto';
+
+  @override
+  String get inviteNotReady =>
+      'Tu QR aparecerá cuando el nodo esté listo. Puedes añadir un contacto en la pestaña Añadir.';
 }

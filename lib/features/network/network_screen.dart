@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 
 import '../common/shown_cause.dart';
+import '../calls/call_screen_permission.dart';
 import '../../core/error_journal.dart';
 import '../../data/node/dht_participation.dart';
 import '../../data/node/bundled_seeds.dart'
@@ -149,6 +150,7 @@ class NetworkScreen extends ConsumerWidget {
           // Background operation — Android only (a foreground service keeps the
           // node, proxy and delivery alive when backgrounded). Opt-in: it shows
           // a persistent notification, so it's off by default for deniability.
+          if (Platform.isAndroid) const CallScreenPermission(),
           if (Platform.isAndroid)
             Consumer(
               builder: (context, ref, _) {

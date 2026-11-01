@@ -73,7 +73,8 @@ import 'custom_emoji_controller.dart';
 import 'reactors_sheet.dart';
 import 'vnote_preview.dart';
 import 'video_player_screen.dart';
-import '../../domain/file_export.dart';
+import '../../core/document_export.dart';
+import '../../domain/chat_file_export.dart';
 import '../../domain/file_names.dart';
 import '../../domain/media_object.dart' show kInlineImageMaxBytes;
 
@@ -1057,7 +1058,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final saved = await _messaging.contentSavedPath(cid);
     if (saved != null &&
         await _savedFileLooksComplete(saved, expectedSize: m.fileSize)) {
-      await _openSavedFile(saved);
+      if (Platform.isAndroid || Platform.isIOS) {
+        await _exportSavedFile(saved, _safeDownloadName(m.fileName));
+      } else {
+        await _openSavedFile(saved);
+      }
       return;
     }
     if ((m.fileSize ?? 0) > kMaxIncomingFileBytes) {
@@ -1222,32 +1227,47 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
     final name = _safeDownloadName(m.fileName);
     String? dest;
-    if (!Platform.isAndroid && !Platform.isIOS) {
-      dest = await FilePicker.saveFile(fileName: name);
-    } else {
-      // NO PICKER on mobile, so nothing asked before overwriting (audit
-      // XV-17): the desktop branch goes through a save panel that confirms a
-      // collision, but here the name comes straight off the message and
-      // `FileMode.write` TRUNCATES whatever is already there. Two files sharing
-      // a name — common enough for `photo.jpg` — silently destroyed the first.
-      // Pick a free name instead; the desktop path keeps its user-confirmed
-      // overwrite, and the direct-to-destination write the macOS sandbox
-      // requires is untouched.
-      dest = _uncontestedPath(
-        (await getApplicationDocumentsDirectory()).path,
-        name,
-      );
+    late final RandomAccessFile raf;
+    try {
+      if (!Platform.isAndroid && !Platform.isIOS) {
+        dest = await FilePicker.saveFile(fileName: name);
+      } else {
+        // NO PICKER on mobile, so nothing asked before overwriting (audit
+        // XV-17): the desktop branch goes through a save panel that confirms a
+        // collision, but here the name comes straight off the message and
+        // `FileMode.write` TRUNCATES whatever is already there. Two files sharing
+        // a name — common enough for `photo.jpg` — silently destroyed the first.
+        // Pick a free name instead; the desktop path keeps its user-confirmed
+        // overwrite, and the direct-to-destination write the macOS sandbox
+        // requires is untouched.
+        dest = _uncontestedPath(
+          (await getApplicationDocumentsDirectory()).path,
+          name,
+        );
+      }
+      if (dest == null) return; // cancelled
+      // Write STRAIGHT to the chosen path — no `.part-` sibling. On a sandboxed
+      // macOS release build the NSSavePanel grants a read-write exception for the
+      // exact selected path ONLY; a sibling temp file (`dest.part-…`) is outside
+      // the sandbox and its open() fails with "Operation not permitted", which
+      // silently stranded every large-file save (worked in the sandbox-off debug
+      // build, hid the bug). A partial file on failure is cleaned by
+      // _watchDownloadFailure(deletePath: dest).
+      raf = await File(dest).open(mode: FileMode.write);
+    } catch (error) {
+      if (_exportStillOurs()) {
+        final code = error is FileSystemException
+            ? error.osError?.errorCode
+            : null;
+        _snack(
+          code == 1 || code == 13 || (Platform.isWindows && code == 5)
+              ? l.chatFileSavePermissionDenied
+              : l.chatFileSaveFailed,
+        );
+      }
+      return;
     }
-    if (dest == null) return; // cancelled
-    // Write STRAIGHT to the chosen path — no `.part-` sibling. On a sandboxed
-    // macOS release build the NSSavePanel grants a read-write exception for the
-    // exact selected path ONLY; a sibling temp file (`dest.part-…`) is outside
-    // the sandbox and its open() fails with "Operation not permitted", which
-    // silently stranded every large-file save (worked in the sandbox-off debug
-    // build, hid the bug). A partial file on failure is cleaned by
-    // _watchDownloadFailure(deletePath: dest).
-    final raf = await File(dest).open(mode: FileMode.write);
-    if (!mounted) {
+    if (!_exportStillOurs()) {
       await raf.close();
       try {
         await File(dest).delete();
@@ -1263,7 +1283,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     svc.contentReceived
         .firstWhere((e) => e.contentId == cid && e.savedToPath != null)
         .then((e) {
-          if (mounted) _snack('${l.chatFileSaved}: ${e.savedToPath}');
+          if (!mounted || !_exportStillOurs()) return;
+          if (Platform.isAndroid || Platform.isIOS) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(l.chatFileDownloadedInApp),
+                action: SnackBarAction(
+                  label: l.chatFileSaveAs,
+                  onPressed: () =>
+                      unawaited(_exportSavedFile(e.savedToPath!, name)),
+                ),
+              ),
+            );
+          } else {
+            _snack('${l.chatFileSaved}: ${e.savedToPath}');
+          }
         })
         .catchError((_) {
           /* stream closed before completion */
@@ -1298,62 +1332,52 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final key = m.fileId ?? m.fileContentId;
     if (key == null) return;
 
-    // Large file → STREAM it out of the encrypted store chunk by chunk so a
-    // multi-GB blob is never held whole in RAM. Android/iOS file_picker requires
-    // all bytes up front for saveFile (a 128 MiB export can OOM the platform
-    // MethodChannel), so mobile uses the same app-documents destination as the
-    // direct plaintext-download path. Desktop can safely pick an exact path.
-    final size = m.fileSize ?? 0;
-    if (size > kMaxIncomingFileBytes) {
-      final String? dest;
-      if (Platform.isAndroid || Platform.isIOS) {
-        // A free name, not the message's. `openWrite` TRUNCATES, and the name
-        // comes straight off a received message: two files called `photo.jpg`
-        // meant the first one was destroyed without anybody being asked. The
-        // neighbouring download path already picks a free name; this one did
-        // not, and they save into the same directory.
-        dest = _uncontestedPath(
-          (await getApplicationDocumentsDirectory()).path,
-          _safeDownloadName(m.fileName),
-        );
-      } else {
-        dest = await FilePicker.saveFile(
-          fileName: _safeDownloadName(m.fileName),
-        );
-      }
-      if (dest == null) return; // cancelled
-      final storage = _storage;
-      final complete = await writeStreamedFile(
-        file: File(dest),
-        size: size,
-        read: (offset, want) => storage.readFileRange(key, offset, want),
-      );
-      if (mounted) {
-        _snack(complete ? l.chatFileSaved : l.chatFileSaveFailed);
-      }
-      return;
-    }
-
-    final bytes = await _storage.loadFile(key);
-    if (bytes == null) {
-      if (mounted) _snack(l.chatFileSaveFailed);
-      return;
-    }
-    // file_picker 11 writes the supplied bytes on every platform. Android/iOS
-    // require bytes even to open the dialog; their returned document-provider
-    // location is not necessarily a filesystem path dart:io can reopen.
-    final path = await FilePicker.saveFile(
-      fileName: _safeDownloadName(m.fileName),
-      bytes: bytes,
-    );
-    if (path == null) return; // cancelled
+    final storage = _storage;
     try {
-      if (!Platform.isAndroid && !Platform.isIOS) {
-        await File(path).writeAsBytes(bytes);
-      }
-      if (mounted) _snack(l.chatFileSaved);
-    } catch (_) {
-      if (mounted) _snack(l.chatFileSaveFailed);
+      // The offer's size is display metadata; use the actual stored object
+      // length so stale/missing metadata cannot silently truncate an export.
+      final knownSize = await storage.fileSize(key);
+      if (knownSize == null) throw const DocumentExportException('read');
+      final saved = await exportChatFile(
+        name: _safeDownloadName(m.fileName),
+        size: knownSize,
+        read: (offset, want) => storage.readFileRange(key, offset, want),
+        stillOurs: _exportStillOurs,
+      );
+      if (saved && _exportStillOurs()) _snack(l.chatFileSavedToChosenFolder);
+    } catch (error) {
+      if (_exportStillOurs()) _snack(_fileSaveError(l, error));
+    }
+  }
+
+  bool _exportStillOurs() =>
+      mounted && identical(ref.read(storageProvider), _storage);
+
+  String _fileSaveError(AppL10n l, Object error) =>
+      error is DocumentExportException && error.permissionDenied
+      ? l.chatFileSavePermissionDenied
+      : l.chatFileSaveFailed;
+
+  Future<void> _exportSavedFile(String path, String name) async {
+    final l = AppL10n.of(context);
+    RandomAccessFile? source;
+    try {
+      source = await File(path).open();
+      final handle = source;
+      final saved = await exportChatFile(
+        name: name,
+        size: await handle.length(),
+        read: (offset, want) async {
+          await handle.setPosition(offset);
+          return handle.read(want);
+        },
+        stillOurs: _exportStillOurs,
+      );
+      if (saved && _exportStillOurs()) _snack(l.chatFileSavedToChosenFolder);
+    } catch (error) {
+      if (_exportStillOurs()) _snack(_fileSaveError(l, error));
+    } finally {
+      await source?.close();
     }
   }
 
