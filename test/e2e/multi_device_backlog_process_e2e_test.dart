@@ -15,11 +15,13 @@ import 'multi_device_process_e2e_test.dart' as base;
 int _request = 0;
 bool _observedInvalidSnapshot = false;
 final _statuses = <String, Map<String, int>>{};
+final _storageTimings = <String, Map<String, dynamic>>{};
 Future<List<String>> _ids(
   ProcessDevice device,
   String peer,
-  String bodyPrefix,
-) async {
+  String bodyPrefix, {
+  bool resetStorageTiming = false,
+}) async {
   final nonce = '${device.label}-${++_request}';
   final request = File('${device.dir.path}/storage-inspect.new');
   await request.writeAsString(
@@ -29,6 +31,10 @@ Future<List<String>> _ids(
       'prefix': '',
       'bodyPrefix': bodyPrefix,
       'includeIds': true,
+      if (Platform.environment['XVEIL_E2E_STORAGE_TIMING'] == '1') ...{
+        'storageTiming': true,
+        'resetStorageTiming': resetStorageTiming,
+      },
     }),
   );
   await request.rename('${device.dir.path}/storage-inspect.json');
@@ -45,6 +51,11 @@ Future<List<String>> _ids(
       _statuses[device.label] = Map<String, int>.from(
         value['statusCounts'] as Map,
       );
+      if (value['storageTiming'] is Map) {
+        _storageTimings[device.label] = Map<String, dynamic>.from(
+          value['storageTiming'] as Map,
+        );
+      }
       return true;
     },
     what: '${device.label} returns its current stored history IDs',
@@ -67,6 +78,7 @@ void main() {
     () async {
       _observedInvalidSnapshot = false;
       _statuses.clear();
+      _storageTimings.clear();
       final baseRows = int.parse(
         Platform.environment['XVEIL_E2E_BACKLOG_BASE_ROWS'] ?? '2000',
       );
@@ -108,6 +120,10 @@ void main() {
         timeout: const Duration(minutes: 2),
         interval: const Duration(seconds: 2),
       );
+      if (Platform.environment['XVEIL_E2E_STORAGE_TIMING'] == '1') {
+        await _ids(a, ci, 'backlog-base-', resetStorageTiming: true);
+        await _ids(b, ci, 'backlog-base-', resetStorageTiming: true);
+      }
       await base.linkProcesses(a, b);
       var initialBCount = 0;
       final initialHistory = Stopwatch()..start();
@@ -159,6 +175,13 @@ void main() {
 
       if (migrationOnly) {
         expect(await _ids(c, ai, 'backlog-base-'), expectedBase);
+        if (Platform.environment['XVEIL_E2E_STORAGE_TIMING'] == '1') {
+          await _ids(a, ci, 'backlog-base-');
+          for (final label in ['A', 'B']) {
+            expect(_storageTimings[label], isNotNull);
+            expect(_storageTimings[label]!['keyLimitReached'], isFalse);
+          }
+        }
         expect(_observedInvalidSnapshot, isFalse);
         final evidence = Platform.environment['XVEIL_E2E_EVIDENCE_DIR'];
         if (evidence != null) {
@@ -173,6 +196,9 @@ void main() {
               'convergedIdsAndOrder': true,
               'invalidSnapshotObserved': _observedInvalidSnapshot,
               'offlineScenarioExecuted': false,
+              if (_storageTimings.isNotEmpty) 'storageTiming': _storageTimings,
+              if (_storageTimings.isNotEmpty)
+                'storageTimingResetBeforeLink': ['A', 'B'],
             }),
           );
         }
