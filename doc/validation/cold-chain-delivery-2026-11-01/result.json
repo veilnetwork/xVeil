@@ -1,0 +1,82 @@
+{
+  "schema": "xveil-cold-chain-delivery/1",
+  "date": "2026-11-01",
+  "topology": "Mac-S1-S2-S3-S4-S5-S6-Blackview",
+  "coreCommit": "7af77372",
+  "clientCommit": "2152c9f9",
+  "coreDirectedEdges": 10,
+  "unexpectedCorePeers": 0,
+  "contactAcceptObservedSeconds": 24.351,
+  "calls": [
+    {
+      "mode": "relay",
+      "incomingSeconds": 1.378,
+      "acceptedSeconds": 1.43,
+      "lastObservedSeconds": 28.484,
+      "qualified": true,
+      "endpoints": {
+        "mac": {
+          "postQualificationSamples": 20,
+          "maxRxNativeAgeMs": 350,
+          "badRxAgeSamples": 0
+        },
+        "phone": {
+          "postQualificationSamples": 20,
+          "maxRxNativeAgeMs": 56,
+          "badRxAgeSamples": 0
+        }
+      },
+      "coreSnapshotDuringCall": false
+    },
+    {
+      "mode": "p2p",
+      "incomingSeconds": 4.447,
+      "acceptedSeconds": 4.507,
+      "lastObservedSeconds": 31.277,
+      "qualified": true,
+      "endpoints": {
+        "mac": {
+          "postQualificationSamples": 16,
+          "maxRxNativeAgeMs": 292,
+          "badRxAgeSamples": 0
+        },
+        "phone": {
+          "postQualificationSamples": 16,
+          "maxRxNativeAgeMs": 38,
+          "badRxAgeSamples": 0
+        }
+      },
+      "coreSnapshotDuringCall": true
+    },
+    {
+      "mode": "relay",
+      "incomingSeconds": 50.999,
+      "acceptedSeconds": 51.064,
+      "lastObservedSeconds": 77.872,
+      "qualified": true,
+      "endpoints": {
+        "mac": {
+          "postQualificationSamples": 16,
+          "maxRxNativeAgeMs": 347,
+          "badRxAgeSamples": 0
+        },
+        "phone": {
+          "postQualificationSamples": 16,
+          "maxRxNativeAgeMs": 33,
+          "badRxAgeSamples": 0
+        }
+      },
+      "coreSnapshotDuringCall": true
+    }
+  ],
+  "twoWayMessagesEventuallyObservedOnce": true,
+  "twoWayMessagesInitialWindowComplete": false,
+  "coldSetupMaxIncomingSeconds": 50.999,
+  "wholeDefectClosed": false,
+  "windowsOrCellularHandoverQualified": false,
+  "humanSpeechAudibilityQualified": false,
+  "perCellMediaTraceAcrossAllRelays": false,
+  "compatibilityWithOldVersionsQualified": false,
+  "productionRestarted": false,
+  "pushOrRelease": false
+}
