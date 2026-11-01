@@ -1,0 +1,252 @@
+{
+  "schema": "xveil-probe-first-hop-validation/1",
+  "appBase": "b1da1058",
+  "sdkBase": "06eeddf540553c524551e9a1af21c47c3c323e5c",
+  "sdkCandidate": "8e3fe2ce6240dae7e0025d8308a7a186d012a519",
+  "verification": {
+    "redBaselineTestFailedForMissingWitness": true,
+    "nativeSuitePassed": 334,
+    "nativeSuiteIgnored": 2,
+    "flutterPrivacyPassed": 14,
+    "pythonPrivacyPassed": 9,
+    "mountWatchdogPassed": true
+  },
+  "physical": {
+    "schema": "xveil-handover-observation/1",
+    "requiredObservationSeconds": 40,
+    "endpoints": {
+      "phone": {
+        "preconditionVerified": true,
+        "samplesAfterCut": 40,
+        "observationSeconds": 41.544,
+        "coverageVerified": true,
+        "missingOrNonActiveSamples": 0,
+        "firstCallLostAfterCutMs": null,
+        "callSurvivalVerified": true,
+        "freshAudioAtEnd": true,
+        "allSampledAudioFresh": false,
+        "maxSampledAudioPayloadAgeWithinEpochMs": 14453,
+        "continuousAudioGapUpperBoundMs": null
+      },
+      "windows": {
+        "preconditionVerified": true,
+        "samplesAfterCut": 40,
+        "observationSeconds": 41.555,
+        "coverageVerified": true,
+        "missingOrNonActiveSamples": 0,
+        "firstCallLostAfterCutMs": null,
+        "callSurvivalVerified": true,
+        "freshAudioAtEnd": true,
+        "allSampledAudioFresh": false,
+        "maxSampledAudioPayloadAgeWithinEpochMs": 14713,
+        "continuousAudioGapUpperBoundMs": null
+      }
+    },
+    "callSurvivalVerified": true,
+    "qualityObservationQualified": false
+  },
+  "candidateControls": [
+    {
+      "candidateOrdinal": 1,
+      "sourceQueueMaxUs": 112,
+      "localStages": [
+        {
+          "stage": "relay_send",
+          "afterNativeSampleUs": 0
+        },
+        {
+          "stage": "socket_written",
+          "afterNativeSampleUs": 129
+        },
+        {
+          "stage": "daemon_read",
+          "afterNativeSampleUs": 254
+        },
+        {
+          "stage": "handler_enter",
+          "afterNativeSampleUs": 329
+        }
+      ],
+      "relayObservations": 0,
+      "receiverObservations": 0
+    },
+    {
+      "candidateOrdinal": 2,
+      "sourceQueueMaxUs": 182,
+      "localStages": [
+        {
+          "stage": "relay_send",
+          "afterNativeSampleUs": 0
+        },
+        {
+          "stage": "socket_written",
+          "afterNativeSampleUs": 206
+        },
+        {
+          "stage": "daemon_read",
+          "afterNativeSampleUs": 320
+        },
+        {
+          "stage": "handler_enter",
+          "afterNativeSampleUs": 422
+        },
+        {
+          "stage": "relay_queued",
+          "afterNativeSampleUs": 605
+        },
+        {
+          "stage": "relay_queued",
+          "afterNativeSampleUs": 654
+        },
+        {
+          "stage": "budget_admit",
+          "afterNativeSampleUs": 780
+        },
+        {
+          "stage": "child_unavailable",
+          "afterNativeSampleUs": 771
+        }
+      ],
+      "relayObservations": 0,
+      "receiverObservations": 0
+    }
+  ],
+  "capture": {
+    "relayRowCounts": [
+      {
+        "relayOrdinal": 1,
+        "opaqueRows": 2192,
+        "limitNotice": false
+      },
+      {
+        "relayOrdinal": 2,
+        "opaqueRows": 1890,
+        "limitNotice": false
+      },
+      {
+        "relayOrdinal": 3,
+        "opaqueRows": 175,
+        "limitNotice": false
+      },
+      {
+        "relayOrdinal": 4,
+        "opaqueRows": 1254,
+        "limitNotice": false
+      },
+      {
+        "relayOrdinal": 5,
+        "opaqueRows": 161,
+        "limitNotice": false
+      },
+      {
+        "relayOrdinal": 6,
+        "opaqueRows": 275,
+        "limitNotice": false
+      }
+    ],
+    "phoneSamplesMatchingRelayOpaqueWitness": 12,
+    "consoleCompletenessQualified": false,
+    "absenceProvesNetworkLoss": false,
+    "withinHostTransitClockOnly": true,
+    "wireProtocolChanged": false,
+    "relaySchedulingChanged": false,
+    "fileTailsMayContainEarlierProcessRecords": true,
+    "perSinkTailLimitBytes": 67108864
+  },
+  "artifacts": {
+    "apkSha256": "b8807d027beee66f5322be5b06201d621cd02080fcb9150daad3957d4e76fcdd",
+    "ffiSha256": "fdc939638caa79df1011904fd2827a3081f9c55915d1a5a09ece7ca37f7de343",
+    "aotSha256": "b7fc5719de559922270284984e33fa1cf88fbb9456f9ea4da059b4d11700f2d8",
+    "otherZipEntriesUnchanged": true,
+    "metaInfNonSignatureEntriesPreserved": true,
+    "sameSigningCertificate": true,
+    "sdkBase": "06eeddf540553c524551e9a1af21c47c3c323e5c",
+    "sdkMediaSourceSha256": "7c093214f2b9e4d0a7131c9081cfab0f0f5587edf6217aec3535d26e0e5a6722"
+  },
+  "cleanup": {
+    "phone": {
+      "phoneQaStopped": true,
+      "phoneSettingsRestored": true,
+      "ownForwardRemoved": true,
+      "mainPhonePidUnchanged": true,
+      "ownedTraceStopped": true,
+      "traceDisabled": true,
+      "noMacStandStarted": true
+    },
+    "baselineQaApkRestored": true,
+    "relays": [
+      {
+        "healthy": true,
+        "active": true,
+        "loaded_binary_unchanged": true,
+        "config_unchanged": true,
+        "dropin_absent": true,
+        "opaque_trace_disabled": true,
+        "environment_restored": true,
+        "timer_inactive": true,
+        "automatic_restarts": 0
+      },
+      {
+        "healthy": true,
+        "active": true,
+        "loaded_binary_unchanged": true,
+        "config_unchanged": true,
+        "dropin_absent": true,
+        "opaque_trace_disabled": true,
+        "environment_restored": true,
+        "timer_inactive": true,
+        "automatic_restarts": 0
+      },
+      {
+        "healthy": true,
+        "active": true,
+        "loaded_binary_unchanged": true,
+        "config_unchanged": true,
+        "dropin_absent": true,
+        "opaque_trace_disabled": true,
+        "environment_restored": true,
+        "timer_inactive": true,
+        "automatic_restarts": 0
+      },
+      {
+        "healthy": true,
+        "active": true,
+        "loaded_binary_unchanged": true,
+        "config_unchanged": true,
+        "dropin_absent": true,
+        "opaque_trace_disabled": true,
+        "environment_restored": true,
+        "timer_inactive": true,
+        "automatic_restarts": 0
+      },
+      {
+        "healthy": true,
+        "active": true,
+        "loaded_binary_unchanged": true,
+        "config_unchanged": true,
+        "dropin_absent": true,
+        "opaque_trace_disabled": true,
+        "environment_restored": true,
+        "timer_inactive": true,
+        "automatic_restarts": 0
+      },
+      {
+        "healthy": true,
+        "active": true,
+        "loaded_binary_unchanged": true,
+        "config_unchanged": true,
+        "dropin_absent": true,
+        "opaque_trace_disabled": true,
+        "environment_restored": true,
+        "timer_inactive": true,
+        "automatic_restarts": 0
+      }
+    ],
+    "windowsQaStopped": true,
+    "windowsTasksAbsent": true,
+    "windowsListenerAbsent": true,
+    "sshTunnelStopped": true,
+    "localListenersAbsent": true
+  },
+  "published": false
+}

@@ -73,9 +73,10 @@ class ProbeCaptureTest(unittest.TestCase):
         self.assertEqual(result['endpoints']['phone']['probeBegins'], 0)
 
     def test_private_fields_and_unknown_stage_never_enter_output(self):
-        text = cell('relay_send') + cell('PRIVATE_STAGE') + ' token=PRIVATE_TOKEN\n'
+        text = (cell('relay_send').replace('\n', ' opaque_sha256=PRIVATE_DIGEST\n') +
+                cell('PRIVATE_STAGE') + ' token=PRIVATE_TOKEN\n')
         output = json.dumps(summarize(text, cell('received')))
-        for secret in ['aabbccdd00112233', 'PRIVATE_', 'token', 'at_ms']:
+        for secret in ['aabbccdd00112233', 'PRIVATE_', 'token', 'at_ms', 'opaque_sha256']:
             self.assertNotIn(secret, output)
 
 
