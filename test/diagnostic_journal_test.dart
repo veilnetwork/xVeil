@@ -109,6 +109,59 @@ void main() {
     expect(journal.toJson()['last_evidence'], isEmpty);
   });
   test(
+    'APM evidence uses bounded native states, never preference defaults',
+    () {
+      for (final fixture in <(Map<String, dynamic>, Map<String, int>)>[
+        (
+          {
+            'audio_aec_enabled': 1,
+            'audio_ns_enabled': 0,
+            'audio_agc_enabled': 1,
+          },
+          {'audioAecEnabled': 1, 'audioNsEnabled': 0, 'audioAgcEnabled': 1},
+        ),
+        (
+          {
+            'audio_aec_enabled': -1,
+            'audio_ns_enabled': -1,
+            'audio_agc_enabled': -1,
+          },
+          {'audioAecEnabled': -1, 'audioNsEnabled': -1, 'audioAgcEnabled': -1},
+        ),
+        ({}, {}), // An older engine does not prove enabled OR disabled.
+        (
+          {
+            'audio_aec_enabled': true,
+            'audio_ns_enabled': 1.0,
+            'audio_agc_enabled': 2,
+          },
+          {},
+        ),
+        (
+          {
+            'audio_aec_enabled': 'private-canary',
+            'audio_ns_enabled': -2,
+            'audio_agc_enabled': double.nan,
+            'device': 'private-canary',
+          },
+          {},
+        ),
+      ]) {
+        final journal = DiagnosticJournal(enabled: true, capacity: 1);
+        journal.recordAudioStart(success: true, stats: fixture.$1);
+        journal.recordMediaStats(fixture.$1);
+        journal.record(DiagnosticEvent.transportSent);
+        final evidence = journal.toJson()['last_evidence'] as Map;
+        expect((evidence['audioStart'] as Map)['values'], {
+          'success': 1,
+          ...fixture.$2,
+        });
+        expect((evidence['mediaSample'] as Map)['values'], fixture.$2);
+        expect(jsonEncode(journal.toJson()), isNot(contains('private-canary')));
+      }
+    },
+  );
+  test(
     'operator circuit and DHT correlation never enters anonymous reports',
     () {
       final journal = DiagnosticJournal(enabled: true);
