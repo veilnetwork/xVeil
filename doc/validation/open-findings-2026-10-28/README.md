@@ -1411,3 +1411,14 @@ codec-only режим явно отделён от production DSP и речев�
 Попутно исправлено удержание jitter-probe при намеренно одностороннем аудио:
 нужны измерения всех ожидаемых направлений. 506 tests, analyzer и native
 controls прошли, source/binary provenance сохранено; pins/релиза нет.
+
+## 2026-11-03: ступенька media-time и изменение target не равны росту очереди
+
+[Исправлен ещё один механизм снижения видеолимита](../video-growth-2026-11-03/README.md).
+Передаётся версия receiver report с timing target; рост подтверждается также
+raw RTP-time, чтобы уменьшение target или старое постоянное отставание не
+создавали ложную перегрузку. 525 policy/controller + 19 diagnostic tests,
+native compound parser, loader/provenance controls и AOT gates прошли.
+В повторном controlled-jitter прогоне queue-pressure не повторился; снижения
+по persistent-video-loss остались. Полный прежний 200-мс гейт красный, физическая
+слышимость/качество не квалифицированы; pins/публикация не менялись.

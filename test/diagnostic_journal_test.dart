@@ -353,7 +353,12 @@ void main() {
         'private identity': {'audio_rx_pkts': 999},
       },
       'video_delivery_peers': {
-        'private identity': {'frames': 99},
+        'private identity': {
+          'frames': 99,
+          'target_delay_ms': 260,
+          'origin': 1793000000000000,
+          'sample_us': 1793000001000000,
+        },
       },
       'audio_receivers': {
         'private identity': {'audio_rx_pkts': 999},

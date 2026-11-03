@@ -171,8 +171,10 @@ class CallVideoDeliveryModel {
       }
       // WebRTC's current_delay_ms includes its adaptive playout target. A
       // target rising while decoded RTP keeps pace is not a growing backlog.
-      // Compare elapsed receiver time with decoded RTP media time. Clock
-      // offsets cancel; a bounded ten-second window limits clock-rate drift.
+      // Compare elapsed receiver time with decoded RTP media time, accounting
+      // for the target bounded by current delay in the same receiver report.
+      // Filling adaptive playout once is not sustained network queue growth.
+      // Clock offsets cancel; a bounded window limits clock-rate drift.
       // Allow one frame of quantization (important at the one-fps floor).
       if (same && old.frames > 0 && next.frames >= old.frames) {
         final ticks = (next.timestamp - old.timestamp) & 0xffffffff;
@@ -183,27 +185,46 @@ class CallVideoDeliveryModel {
           next.lagWindow = [
             for (final point
                 in old.lagWindow.isEmpty
-                    ? [(old.sample, old.mediaLagUs)]
+                    ? [(old.sample, old.mediaLagUs, old.reportedReserveUs)]
                     : old.lagWindow)
               if (next.sample - point.$1 <= 10000000) point,
-            (next.sample, next.mediaLagUs),
+            (next.sample, next.mediaLagUs, next.reportedReserveUs),
           ];
           next.framePeriodUs = frames > 0 && ticks > 0
               ? mediaUs ~/ frames
               : old.framePeriodUs;
         }
-        final minimumLagUs = next.lagWindow.fold(
-          next.mediaLagUs,
-          (minimum, point) => math.min(minimum, point.$2),
-        );
-        final growing =
-            next.mediaLagUs - minimumLagUs >= 80000 + next.framePeriodUs;
+        final excessLagUs = next.lagWindow.fold(0, (maximum, point) {
+          var lag = next.mediaLagUs - point.$2;
+          // Unknown/unsupported targets retain the raw comparison; do not
+          // turn an older unqualified sample into reserve evidence later.
+          final reserve = next.reportedReserveUs;
+          if (reserve != null && point.$3 != null) lag -= reserve - point.$3!;
+          return math.max(maximum, lag);
+        });
+        final growing = excessLagUs >= 80000 + next.framePeriodUs;
         next.growingSince = growing ? old.growingSince ?? now : null;
-        queuePressure |=
-            next.delay >= 500 ||
-            (next.growingSince != null &&
-                now.difference(next.growingSince!) >=
-                    const Duration(seconds: 3));
+        next.growthStartLagUs = growing
+            ? old.growthStartLagUs ?? next.mediaLagUs
+            : null;
+        final confirmed =
+            next.growingSince != null &&
+            now.difference(next.growingSince!) >= const Duration(seconds: 3);
+        final continuing =
+            next.growthStartLagUs != null &&
+            next.mediaLagUs - next.growthStartLagUs! >=
+                math.max(40000, next.framePeriodUs);
+        if (confirmed && !continuing) {
+          // A stable offset (or a target falling ahead of the render clock)
+          // is not continuing queue growth. Rebase only after fresh reports
+          // confirm the plateau; retain causal ACKs and the hard delay rail.
+          next.lagWindow = [
+            (next.sample, next.mediaLagUs, next.reportedReserveUs),
+          ];
+          next.growingSince = null;
+          next.growthStartLagUs = null;
+        }
+        queuePressure |= next.delay >= 500 || (confirmed && continuing);
       }
       _peers[name] = next;
     }
@@ -284,8 +305,9 @@ class CallVideoDeliveryModel {
       _nextProbe = now.add(const Duration(seconds: 6));
       // Rebase the decoder queue only after draining, not on every report.
       for (final r in _peers.values) {
-        r.lagWindow = [(r.sample, r.mediaLagUs)];
+        r.lagWindow = [(r.sample, r.mediaLagUs, r.reportedReserveUs)];
         r.growingSince = null;
+        r.growthStartLagUs = null;
       }
     } else {
       if (phase != CallVideoDeliveryPhase.startup) {
@@ -325,6 +347,7 @@ class _DeliverySample {
     this.sentBytes,
     this.sentTimestampValid,
     this.at,
+    this.targetDelay,
   );
   final int origin,
       sample,
@@ -337,8 +360,18 @@ class _DeliverySample {
       sentBytes;
   final bool sentTimestampValid;
   final DateTime at;
+  final int? targetDelay;
+  // These are receiver timing estimates, not a packet queue measurement.
+  // Target-only permission is bounded by the reported current delay; the
+  // raw RTP-time continuation guard independently verifies growing backlog.
+  // Larger targets remain on the conservative raw path, below the separate
+  // 500-ms actual-delay ceiling enforced by observe().
+  int? get reportedReserveUs => targetDelay != null && targetDelay! <= 400
+      ? math.min(delay, targetDelay!) * 1000
+      : null;
   int mediaLagUs = 0, framePeriodUs = 0;
-  List<(int, int)> lagWindow = [];
+  int? growthStartLagUs;
+  List<(int, int, int?)> lagWindow = [];
   DateTime? growingSince;
   static _DeliverySample? parse(Object? raw, DateTime now) {
     if (raw is! Map) return null;
@@ -359,6 +392,10 @@ class _DeliverySample {
     if (values.any((v) => v is! int || v < 0)) return null;
     final validClock = raw['sent_timestamp_valid'];
     if (validClock != null && validClock is! bool) return null;
+    final target = raw['target_delay_ms'];
+    if (target != null && (target is! int || target < 0 || target > 60000)) {
+      return null;
+    }
     final v = values.cast<int>();
     if (v[0] == 0 ||
         v[1] < v[0] ||
@@ -380,6 +417,7 @@ class _DeliverySample {
       v[8],
       validClock is bool ? validClock : v[8] > 0,
       now,
+      target as int?,
     );
   }
 }
