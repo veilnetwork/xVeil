@@ -227,6 +227,7 @@ void main() {
   Future<void> seed(
     int count, {
     int bodyBytes = 30,
+    String? messageBody,
     DateTime? at,
     MessageStatus status = MessageStatus.delivered,
   }) async {
@@ -236,7 +237,7 @@ void main() {
           id: 'm${i.toString().padLeft(4, '0')}',
           conversationId: peer.hex,
           direction: MessageDirection.outgoing,
-          body: List.filled(bodyBytes, '${i % 10}').join(),
+          body: messageBody ?? List.filled(bodyBytes, '${i % 10}').join(),
           timestamp: (at ?? DateTime.utc(2020)).add(Duration(seconds: i)),
           status: status,
           author: a.hex,
@@ -626,6 +627,125 @@ void main() {
         (await sb.loadMessages(peer.hex)).map((m) => m.id).toSet(),
         hasLength(17),
       );
+    },
+  );
+
+  for (final escaped in [false, true]) {
+    test(
+      'history pages fit bytes when eight ${escaped ? 'escaped UTF-8' : 'long'} messages do not',
+      () async {
+        net.reverseParts = true;
+        await seed(
+          17,
+          bodyBytes: 20000,
+          messageBody: escaped ? List.filled(4500, '\\"🦉').join() : null,
+        );
+        ma.start();
+        mb.start();
+        await until(
+          () async => await count() == 17 || errorJournal.entries.isNotEmpty,
+        );
+        expect(
+          await count(),
+          17,
+          reason:
+              'a bounded prefix must advance instead of rejecting the whole page',
+        );
+        final source = await sa.loadMessages(peer.hex);
+        final received = await sb.loadMessages(peer.hex);
+        expect(received.map((row) => row.id), source.map((row) => row.id));
+        expect(received.map((row) => row.body), source.map((row) => row.body));
+        expect(
+          received.map((row) => row.orderAuthor),
+          source.map((row) => row.orderAuthor),
+        );
+        expect(
+          received.map((row) => row.orderSeq),
+          source.map((row) => row.orderSeq),
+        );
+        expect(
+          received.every((row) => row.status == MessageStatus.delivered),
+          isTrue,
+        );
+        final replies = <String, Map<int, Map<String, dynamic>>>{};
+        for (final frame in net.history.where(
+          (frame) => frame.from == a && frame.to == b,
+        )) {
+          final body = frame.body;
+          if (body['i'] case final int index) {
+            replies.putIfAbsent(body['id'] as String, () => {})[index] = body;
+          }
+        }
+        var pages = 0;
+        for (final parts in replies.values) {
+          expect(parts.length, parts[0]!['n']);
+          final bytes = BytesBuilder();
+          for (var i = 0; i < parts.length; i++) {
+            bytes.add(base64Decode(parts[i]!['b'] as String));
+          }
+          final payload = bytes.takeBytes();
+          expect(payload.length, lessThanOrEqualTo(64 * 2048));
+          final reply = jsonDecode(utf8.decode(payload)) as Map;
+          if (reply['op'] == 'page') {
+            pages++;
+            expect(reply['events'] as List, hasLength(lessThan(8)));
+          }
+        }
+        expect(pages, greaterThanOrEqualTo(3));
+        expect(errorJournal.entries, isEmpty);
+      },
+    );
+  }
+
+  test(
+    'restart resumes the byte-limited page cursor without replaying its prefix',
+    () async {
+      await seed(17, bodyBytes: 20000);
+      var hold = true, held = false;
+      net.drop = (from, to, body) {
+        if (from == a && body['q'] != null) return true;
+        final query = body['q'];
+        if (hold &&
+            from == b &&
+            query is Map &&
+            query['op'] == 'page' &&
+            query['cursor'] != null) {
+          held = true;
+          return true;
+        }
+        return false;
+      };
+      ma.start();
+      mb.start();
+      await until(() async => held && await count() > 0);
+      final prefix = await sb.loadMessages(peer.hex);
+      expect(prefix.length, inExclusiveRange(0, 8));
+      final saved =
+          jsonDecode(
+                (await sb.getSetting('device.history.cursor.v2:${a.hex}'))!,
+              )
+              as Map;
+      final cursor = [
+        prefix.last.timestamp.millisecondsSinceEpoch,
+        prefix.last.id,
+      ];
+      expect(saved['cursor'], cursor);
+      final before = net.history.length;
+      hold = false;
+      await restartB();
+      await until(() async => await count() == 17);
+      final resumed = net.history
+          .skip(before)
+          .firstWhere(
+            (frame) => frame.from == b && frame.body['q']?['op'] == 'page',
+          );
+      expect(resumed.body['q']['cursor'], cursor);
+      expect(applied, 17);
+      expect(
+        (await sb.loadMessages(peer.hex)).map((row) => row.id),
+        (await sa.loadMessages(peer.hex)).map((row) => row.id),
+      );
+      expect(errorJournal.entries, isEmpty);
     },
   );
 
