@@ -75,6 +75,7 @@ import 'package:xveil/state/providers.dart';
 
 import '../support/message_apply_census.dart';
 import '../support/timed_native_store.dart';
+import '../support/private_history_wire_probe.dart';
 import 'convergence_oracle.dart';
 import 'e2e_env.dart';
 import 'relay_cluster.dart';
@@ -271,6 +272,7 @@ class E2eDevice {
   _BootScope? _boot;
   ProviderContainer? _container;
   ProviderSubscription<void>? _bridgeSubscription;
+  PrivateHistoryWireProbe? _historyWireProbe;
   HiddenVolumeStorage? _storage;
   MessageApplyCensus? _messageApplyCensus;
   RealVeilStack? _stack;
@@ -438,6 +440,19 @@ class E2eDevice {
         // starts listening in its constructor, and the group service attaches
         // every callback (mirror included) in its.
         container.read(messagingServiceProvider);
+        // Attach AFTER the real app listener, before group readiness starts
+        // its first pull. AppHandle.messages caches a broadcast stream; this
+        // never replaces the callback, transport, capability set or consumer.
+        if (Platform.environment['XVEIL_E2E_HISTORY_WIRE_TRACE'] == '1') {
+          final evidence = Platform.environment['XVEIL_E2E_EVIDENCE_DIR'];
+          if (evidence == null) {
+            throw StateError('wire trace needs private evidence');
+          }
+          _historyWireProbe = PrivateHistoryWireProbe(
+            stack.transport.messages(),
+            File('$evidence/history-rx-$label-private.jsonl'),
+          );
+        }
         container.read(callLogRecorderProvider);
         await container.read(groupSignerProvider.future);
         if (container.read(groupServiceProvider) == null) {
@@ -490,13 +505,19 @@ class E2eDevice {
       final container = _container;
       final messaging = container?.read(messagingServiceProvider);
       final bridgeSubscription = _bridgeSubscription;
+      final historyWireProbe = _historyWireProbe;
       final stack = _stack;
       final storage = _storage;
       _container = null;
       _bridgeSubscription = null;
+      _historyWireProbe = null;
       _stack = null;
       _storage = null;
       await teardownLegs('device-$label-stop', [
+        (
+          'close private history observer',
+          () async => historyWireProbe?.close(),
+        ),
         ('dispose app bridge watch', () async => bridgeSubscription?.close()),
         ('dispose providers', () async => container?.dispose()),
         // ProviderContainer.dispose is synchronous; join the service's
