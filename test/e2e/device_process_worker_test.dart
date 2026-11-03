@@ -231,6 +231,21 @@ void main() {
                       .peerDeviceProofAllowed(physical.bytes, physical.bytes);
                 }
               }
+              Map<String, Object>? historyState;
+              if (request['historyBodyPrefix'] case final String bodyPrefix) {
+                final folded = await device!.groups!.deviceSyncState();
+                final askingDevice = request['historyAskingDevice'] as String;
+                final served = int.tryParse(await device!.storage.getSetting(
+                    'device.history.served.v1:$askingDevice') ?? '');
+                historyState = {
+                  'mirrors': folded.values.where((event) =>
+                      event.kind == DeviceSyncKind.msgMirror &&
+                      event.payload['body'] is String &&
+                      (event.payload['body'] as String).startsWith(bodyPrefix))
+                      .length,
+                  'servedRequests': served == null ? 0 : 1,
+                };
+              }
               final response = File('${dir.path}/storage-inspected.new');
               await response.writeAsString(
                 jsonEncode({
@@ -240,6 +255,7 @@ void main() {
                       reset: request['resetStorageTiming'] == true,
                     ),
                   if (authorization.isNotEmpty) 'authorization': authorization,
+                  'historyState': ?historyState,
                   'count': messages.length,
                   // One live-owner snapshot for crash/catch-up assertions;
                   // unlike the HTTP tail this cannot hide earlier duplicates.
