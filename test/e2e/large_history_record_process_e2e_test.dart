@@ -116,10 +116,32 @@ void main() {
 
         final elapsed = Stopwatch()..start();
         await b.start();
+        result['receiverReadySeconds'] = elapsed.elapsedMilliseconds / 1000;
         var held = <Map<String, dynamic>>[];
+        var observedCount = -1;
+        final observations = <Map<String, Object>>[];
+        result['progressObservations'] = observations;
         await waitUntil(
           () async {
             held = await observer.rows(b, ci, baseline);
+            final fresh = held
+                .where((row) => !baseline.contains(row['id']))
+                .toList();
+            final at = elapsed.elapsedMilliseconds / 1000;
+            if (fresh.length != observedCount) {
+              observedCount = fresh.length;
+              observations.add({'seconds': at, 'rows': fresh.length});
+            }
+            if (fresh.isNotEmpty) {
+              result.putIfAbsent('firstNewRowSeconds', () => at);
+            }
+            if (fresh.any(
+              (row) =>
+                  row['id'] == 'record-stand-1' &&
+                  row['body'] == expected['record-stand-1']!['body'],
+            )) {
+              result.putIfAbsent('largeRowSeconds', () => at);
+            }
             return matches(held);
           },
           what: 'B recovers the full oversized event and its following row',
