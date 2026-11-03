@@ -243,6 +243,9 @@ Future<DeviceHistoryReplay> replayHistoryForAsk({
   bool Function()? cancelled,
   void Function(int sent)? onProgress,
   int batch = 25,
+  // With durable batches AND backlog admission, this is the minimum batch
+  // interval: time spent saving/enqueuing already paces the producer. Hosts
+  // without that admission keep the trailing pause after their append.
   Duration pause = const Duration(milliseconds: 150),
   // Awaited at every batch boundary: the replay's real speed limit is how
   // fast the siblings drain what it queues, not a fixed pause. A full copy
@@ -303,6 +306,27 @@ Future<DeviceHistoryReplay> replayHistoryForAsk({
     return !stopped;
   }
 
+  Future<bool> flushPaced() async {
+    if (awaitRoom == null) {
+      if (!await flush()) return false;
+      await Future<void>.delayed(pause);
+      return true;
+    }
+    final interval = Completer<void>();
+    final timer = Timer(pause, interval.complete);
+    try {
+      // postBatch joins both the local save and durable replication admission.
+      // Adding the entire pause afterwards penalizes a slow store twice. A
+      // fast append still waits the remainder, then checks the same room gate.
+      if (!await flush()) return false;
+      await interval.future;
+    } finally {
+      timer.cancel();
+    }
+    await awaitRoom();
+    return true;
+  }
+
   Future<bool> emit(
     DeviceSyncEvent e, {
     MediaObject? attachment,
@@ -318,7 +342,7 @@ Future<DeviceHistoryReplay> replayHistoryForAsk({
         accepted: onAccepted,
       ));
       if (pending.length < batch) return true;
-      if (!await flush()) return false;
+      return flushPaced();
     } else {
       if (!await post(e, attachment: attachment)) {
         stopped = true;
@@ -326,7 +350,7 @@ Future<DeviceHistoryReplay> replayHistoryForAsk({
       }
       accepted(onAccepted);
     }
-    if (postBatch != null || sent % batch == 0) {
+    if (sent % batch == 0) {
       await Future<void>.delayed(pause);
       await awaitRoom?.call();
     }

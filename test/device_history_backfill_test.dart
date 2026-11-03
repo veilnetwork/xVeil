@@ -3,9 +3,11 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fake_async/fake_async.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
+import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/domain/call_log.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/device_history_ask.dart';
@@ -21,6 +23,23 @@ HiddenVolumeStorage _storage() {
   return HiddenVolumeStorage(
     ({required password, required bool create}) => store,
   );
+}
+
+// The pacing tests use values read from the real fake-HV fixture, but create
+// every Future in the fake-clock zone. An already-open storage gate belongs to
+// the parent zone and cannot be advanced by FakeAsync.flushMicrotasks.
+class _HistorySnapshot implements Storage {
+  _HistorySnapshot(this.conversations, this.messages);
+  final List<Conversation> conversations;
+  final Map<String, List<Message>> messages;
+  @override
+  Future<List<Conversation>> loadConversations() async => conversations;
+  @override
+  Future<List<Message>> loadMessages(String conversationId, {int? limit}) async =>
+      messages[conversationId] ?? const [];
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnsupportedError('unexpected history snapshot operation');
 }
 
 /// One sent event, with the attachment reference that went with it.
@@ -195,6 +214,158 @@ void main() {
       expect(batched.stoppedEarly, isFalse);
     },
   );
+
+  for (final commitMs in [40, 500]) {
+    test('durable batch overlaps cadence with a ${commitMs}ms commit', () async {
+      for (var i = 0; i < 3; i++) {
+        await addMessage(alice, 'cadence-$i', 'row');
+      }
+      final view = _HistorySnapshot(await storage.loadConversations(), {
+        alice.hex: await storage.loadMessages(alice.hex),
+      });
+      fakeAsync((async) {
+        final room = Completer<void>();
+        final roomAt = <int>[];
+        var finished = false, committed = false;
+        var commits = 0;
+        replayHistoryForAsk(
+          ask: DeviceHistoryAsk(
+            fromDeviceHex: 'aa',
+            peers: [alice.hex],
+            callLog: false,
+            readMarks: false,
+          ),
+          storage: view,
+          post: post,
+          batch: 5,
+          pause: const Duration(milliseconds: 150),
+          postBatch: (rows) {
+            commits++;
+            return Future.delayed(Duration(milliseconds: commitMs), () {
+              committed = true;
+              return List.filled(rows.length, true);
+            });
+          },
+          awaitRoom: () {
+            roomAt.add(async.elapsed.inMilliseconds);
+            return room.future;
+          },
+        ).then((report) {
+          expect(report.messages, 3);
+          expect(report.stoppedEarly, isFalse);
+          finished = true;
+        });
+        async.flushMicrotasks();
+        expect(
+          commits,
+          1,
+          reason: 'the timed append must actually have started',
+        );
+        final boundaryMs = commitMs > 150 ? commitMs : 150;
+        async.elapse(Duration(milliseconds: boundaryMs - 1));
+        expect(roomAt, isEmpty);
+        async.elapse(const Duration(milliseconds: 1));
+        expect(committed, isTrue);
+        expect(
+          roomAt,
+          [boundaryMs],
+          reason:
+              'durable work consumes the cadence budget instead of adding to it',
+        );
+        expect(
+          finished,
+          isFalse,
+          reason: 'backlog admission is still mandatory',
+        );
+        room.complete();
+        async.flushMicrotasks();
+        expect(finished, isTrue);
+        expect(async.nonPeriodicTimerCount, 0);
+      });
+    });
+  }
+
+  test('a host without backlog admission keeps its trailing pause', () async {
+    for (var i = 0; i < 3; i++) {
+      await addMessage(alice, 'fallback-$i', 'row');
+    }
+    final view = _HistorySnapshot(await storage.loadConversations(), {
+      alice.hex: await storage.loadMessages(alice.hex),
+    });
+    fakeAsync((async) {
+      var finished = false;
+      replayHistoryForAsk(
+        ask: DeviceHistoryAsk(
+          fromDeviceHex: 'aa',
+          peers: [alice.hex],
+          callLog: false,
+          readMarks: false,
+        ),
+        storage: view,
+        post: post,
+        batch: 5,
+        pause: const Duration(milliseconds: 150),
+        postBatch: (rows) => Future.delayed(
+          const Duration(milliseconds: 500),
+          () => List.filled(rows.length, true),
+        ),
+      ).then((_) => finished = true);
+      async.flushMicrotasks();
+      async.elapse(const Duration(milliseconds: 649));
+      expect(finished, isFalse);
+      async.elapse(const Duration(milliseconds: 1));
+      expect(finished, isTrue);
+    });
+  });
+
+  for (final throws in [false, true]) {
+    test('failed paced batch cancels its timer (throws=$throws)', () async {
+      for (var i = 0; i < 3; i++) {
+        await addMessage(alice, 'refused-cadence-$i', 'row');
+      }
+      final view = _HistorySnapshot(await storage.loadConversations(), {
+        alice.hex: await storage.loadMessages(alice.hex),
+      });
+      fakeAsync((async) {
+        var done = false, failed = false, roomCalled = false;
+        replayHistoryForAsk(
+          ask: DeviceHistoryAsk(
+            fromDeviceHex: 'aa',
+            peers: [alice.hex],
+            callLog: false,
+            readMarks: false,
+          ),
+          storage: view,
+          post: post,
+          batch: 5,
+          pause: const Duration(milliseconds: 150),
+          postBatch: (rows) =>
+              Future.delayed(const Duration(milliseconds: 40), () {
+                if (throws) throw StateError('injected batch failure');
+                return List.filled(rows.length, false);
+              }),
+          awaitRoom: () async {
+            roomCalled = true;
+          },
+        ).then(
+          (report) {
+            expect(report.stoppedEarly, isTrue);
+            expect(report.messages, 0);
+            done = true;
+          },
+          onError: (Object _) {
+            failed = true;
+          },
+        );
+        async.flushMicrotasks();
+        async.elapse(const Duration(milliseconds: 40));
+        expect(failed, throws);
+        expect(done, !throws);
+        expect(roomCalled, isFalse);
+        expect(async.nonPeriodicTimerCount, 0);
+      });
+    });
+  }
 
   test(
     'batch progress waits for durable completion and backlog room',
