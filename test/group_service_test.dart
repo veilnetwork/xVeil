@@ -51,6 +51,7 @@ import 'package:xveil/domain/space_retention.dart';
 import 'package:xveil/domain/inline_custom_emoji.dart';
 import 'package:xveil/state/group_crypto.dart';
 import 'package:xveil/state/device_history_backfill.dart' show deviceMirrorOf;
+import 'package:xveil/state/device_sync_bridge.dart' show awaitDeviceHistoryRoom;
 import 'package:xveil/state/group_epoch_service.dart';
 import 'package:xveil/state/group_service_providers.dart';
 import 'package:xveil/state/space_observability.dart';
@@ -12878,6 +12879,177 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 50));
     return (service, signer, gid);
   }
+
+  test(
+    'history room waits on the announced master device, not its registry identity',
+    () async {
+      final (service, _, _) = await heldRouting();
+      service.myDevice = bob;
+      final master = _id(0xDA);
+      expect(
+        await service.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.identityDoc,
+            key: master.hex,
+            tsMs: 445,
+            payload: const {'d': 'ZG9j', 'o': true},
+          ),
+        ),
+        isTrue,
+      );
+      expect(
+        await service.otherDeviceIds(),
+        [owner],
+        reason:
+            'the registry slot must actually differ from the transport target',
+      );
+      expect(await service.addressableOwnDevices(), [master]);
+      final checked = Completer<NodeId>();
+      var pending = 128, done = false, cancelled = false;
+      final waiting = awaitDeviceHistoryRoom(
+        service: service,
+        pendingFramesFor: (peer) {
+          if (!checked.isCompleted) checked.complete(peer);
+          return peer == master ? pending : 0;
+        },
+        cancelled: () => cancelled,
+      ).then((_) => done = true);
+      final first = await checked.future;
+      await Future<void>(() {});
+      final returnedBeforeDrain = done;
+      pending = 0;
+      try {
+        await waiting;
+      } finally {
+        cancelled = true;
+      }
+      expect(first, master);
+      expect(
+        returnedBeforeDrain,
+        isFalse,
+        reason:
+            'a zero count at the identity alias cannot release a full device queue',
+      );
+      expect(done, isTrue);
+    },
+  );
+
+  test('history room follows a replacement master while waiting', () async {
+    final (service, _, _) = await heldRouting();
+    service.myDevice = bob;
+    final checked = Completer<void>();
+    final seen = <NodeId>[];
+    final waiting = awaitDeviceHistoryRoom(
+      service: service,
+      pendingFramesFor: (peer) {
+        seen.add(peer);
+        if (!checked.isCompleted) checked.complete();
+        return peer == owner ? 128 : 0;
+      },
+      cancelled: () => false,
+    );
+    await checked.future;
+    final replacement = _id(0xDB);
+    expect(
+      await service.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.identityDoc,
+          key: replacement.hex,
+          tsMs: 445,
+          payload: const {'d': 'ZG9j', 'o': true},
+        ),
+      ),
+      isTrue,
+    );
+    await waiting;
+    expect(seen.first, owner);
+    expect(
+      seen.last,
+      replacement,
+      reason: 'the old full queue cannot pin a new delivery address',
+    );
+  });
+
+  test('history room drops the queue of a revoked device', () async {
+    final (service, _, _) = await heldRouting();
+    final checked = Completer<void>();
+    final seen = <NodeId>[];
+    final waiting = awaitDeviceHistoryRoom(
+      service: service,
+      pendingFramesFor: (peer) {
+        seen.add(peer);
+        if (!checked.isCompleted) checked.complete();
+        return 128;
+      },
+      cancelled: () => false,
+    );
+    await checked.future;
+    expect(await service.revokeDevice(bob, sovereign: sovereign), isTrue);
+    await waiting;
+    expect(seen, [bob]);
+  });
+
+  test(
+    'history room cancels after a held target read before probing queues',
+    () async {
+      final (service, _, gid) = await heldRouting();
+      service.holdGroup = gid;
+      var cancelled = false, queries = 0;
+      final waiting = awaitDeviceHistoryRoom(
+        service: service,
+        pendingFramesFor: (_) {
+          queries++;
+          return 0;
+        },
+        cancelled: () => cancelled,
+      );
+      await service.captured.future;
+      cancelled = true;
+      service.release.complete();
+      await waiting;
+      expect(queries, 0);
+    },
+  );
+
+  test('history room includes the master omitted from a sovereign registry', () async {
+    final store = FakeHvContainer().storage();
+    await store.open(password: 'pw', createIfMissing: true);
+    addTearDown(store.close);
+    final service = GroupService(store, _FakeSigner(owner))
+      ..myDevice = bob
+      ..documentNodeId = (_) => owner;
+    addTearDown(service.dispose);
+    expect(await service.linkDevice(bob, sovereign: _FakeSovereign(owner),
+      broadcastSnapshot: false), isTrue);
+    final master = _id(0xD8);
+    expect(await service.postDeviceEvent(DeviceSyncEvent(
+      kind: DeviceSyncKind.identityDoc, key: master.hex, tsMs: 500,
+      payload: const {'d': 'ZG9j', 'o': true},
+    )), isTrue);
+    expect(await service.otherDeviceIds(), isEmpty,
+      reason: 'the sovereign authority owner is not a registry delivery target');
+    expect(await service.addressableOwnDevices(), [master]);
+    final checked = Completer<void>();
+    final seen = <NodeId>[];
+    var done = false, pending = 128;
+    final waiting = awaitDeviceHistoryRoom(
+      service: service,
+      pendingFramesFor: (peer) {
+        seen.add(peer);
+        if (!checked.isCompleted) checked.complete();
+        return pending;
+      },
+      cancelled: () => false,
+    ).then((_) => done = true);
+    await Future.any<void>([checked.future, waiting.then<void>((_) {})]);
+    await Future<void>(() {});
+    final returnedBeforeDrain = done;
+    pending = 0;
+    await waiting;
+    expect(seen, isNotEmpty);
+    expect(seen.toSet(), {master});
+    expect(returnedBeforeDrain, isFalse);
+  });
 
   test('explicit delta targets cannot restore a revoked sibling', () async {
     final storage = FakeHvContainer().storage();

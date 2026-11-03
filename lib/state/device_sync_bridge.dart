@@ -51,6 +51,30 @@ import 'signature_policy_controller.dart';
 import 'sticker_device_sync.dart';
 import 'sticker_store.dart';
 
+/// Bound history production by the durable backlog of its current recipients.
+/// Re-resolve after each wait: a master announcement or revoke can change which
+/// queue this replay fills. A disconnected sibling must not stall it forever.
+Future<void> awaitDeviceHistoryRoom({
+  required GroupService service,
+  required int Function(NodeId peer) pendingFramesFor,
+  required bool Function() cancelled,
+}) async {
+  final deadline = DateTime.now().add(const Duration(minutes: 2));
+  while (!cancelled() && DateTime.now().isBefore(deadline)) {
+    // Registry identity slots are not Outbox keys after a master announces
+    // its device address. Use the same current targets as the delta sender.
+    final devices = await service.addressableOwnDevices();
+    if (cancelled()) return;
+    var worst = 0;
+    for (final device in devices) {
+      final pending = pendingFramesFor(device);
+      if (pending > worst) worst = pending;
+    }
+    if (worst < kHistoryReplayBacklogRoom) return;
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+  }
+}
+
 /// Wires the brick-4 sync kinds. Eagerly watched from the app scope (next to
 /// [groupServiceProvider]); rebuilds with the service on identity switch.
 /// The preference fields a contact record puts on the device-sync wire.
@@ -767,18 +791,12 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       // Hold while any sibling's queue is past half the replication cap; a
       // bounded wait, so a sibling that has gone away does not stall the
       // replay for good (the pull picks up what it then misses).
-      awaitRoom: () async {
-        final deadline = DateTime.now().add(const Duration(minutes: 2));
-        while (!bridgeGone && DateTime.now().isBefore(deadline)) {
-          var worst = 0;
-          for (final d in await svc.otherDeviceIds()) {
-            final n = messaging.pendingFramesFor(d);
-            if (n > worst) worst = n;
-          }
-          if (worst < kHistoryReplayBacklogRoom) return;
-          await Future<void>.delayed(const Duration(milliseconds: 500));
-        }
-      },
+      awaitRoom: () => awaitDeviceHistoryRoom(
+        service: svc,
+        pendingFramesFor: messaging.pendingFramesFor,
+        cancelled: () =>
+            bridgeGone || !identical(ref.read(groupServiceProvider), svc),
+      ),
     );
     devLog(
       () =>

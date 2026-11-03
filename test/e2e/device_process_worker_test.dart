@@ -1,6 +1,7 @@
 @Timeout(Duration(hours: 4))
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -12,10 +13,104 @@ import 'package:xveil/debug/soak_hook.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/peer_authorization.dart';
+import 'package:xveil/domain/device_sync.dart';
+import 'package:xveil/state/device_sync_bridge.dart' show awaitDeviceHistoryRoom;
 
 import 'device_fixture.dart';
 import 'e2e_env.dart';
 import '../support/stand_cpu_profile.dart';
+
+// File-controlled synthetic stand probe, never an application HTTP endpoint.
+// Populate the real durable Outbox while the master process is stopped, then
+// ask the exact helper wired into history replay to observe that backlog.
+Future<Map<String, Object>> _historyRoomProbe(
+  E2eDevice device,
+  String operation,
+) async {
+  final groups = device.groups!;
+  final master = await groups.masterDeviceId();
+  final registry = await groups.otherDeviceIds();
+  final targets = await groups.addressableOwnDevices();
+  final ready =
+      master != null &&
+      master != device.deviceNodeId &&
+      targets.contains(master) &&
+      !registry.contains(master);
+  if (operation == 'info') {
+    final state = await groups.deviceSyncState();
+    return {
+      'ready': ready,
+      'masterKnown': master != null,
+      'masterIsSelf': master == device.deviceNodeId,
+      'masterInTargets': targets.contains(master),
+      'masterInRegistry': registry.contains(master),
+      'identityInRegistry': registry.contains(device.identityNodeId),
+      'ownsGroup': await groups.ownsDeviceGroup(),
+      'ownerAnnouncements': state.entries.where((entry) =>
+          entry.key.$1 == DeviceSyncKind.identityDoc &&
+          entry.value.payload['o'] == true).length,
+    };
+  }
+  if (operation != 'fill-and-check' || !ready) {
+    throw StateError('history-room probe prerequisites not satisfied');
+  }
+  final groupId = (await groups.deviceGroupIdHex())!;
+  final bundle = (await groups.load(NodeId.fromHex(groupId)))!;
+  var snapshots = 0;
+  while (device.messaging.pendingFramesFor(master) < 128 && snapshots < 128) {
+    await device.messaging.sendGroupSnapshot(
+      master,
+      groupId,
+      groups.snapshotJson(
+        bundle,
+        recipient: master,
+        ownDevice: true,
+        transferTag: 'room-stand-${snapshots++}',
+      ),
+      awaitInitialSend: false,
+    );
+  }
+  final actualPending = device.messaging.pendingFramesFor(master);
+  final aliasPending = device.messaging.pendingFramesFor(device.identityNodeId);
+  final durablePending = (await device.storage.pendingOutboxFrames())
+      .where((frame) => frame.peerHex == master.hex).length;
+  if (actualPending < 128 || durablePending < 128 || aliasPending >= 128) {
+    throw StateError(
+      'history-room queues do not distinguish the two addresses',
+    );
+  }
+  final checked = Completer<void>();
+  var cancelled = false, returned = false, sawActual = false, sawAlias = false;
+  final waiting = awaitDeviceHistoryRoom(
+    service: groups,
+    pendingFramesFor: (peer) {
+      sawActual |= peer == master;
+      sawAlias |= peer == device.identityNodeId;
+      if (!checked.isCompleted) checked.complete();
+      return device.messaging.pendingFramesFor(peer);
+    },
+    cancelled: () => cancelled,
+  ).then((_) => returned = true);
+  // A sovereign registry may omit the authority owner entirely. The broken
+  // loop then returns without checking even the identity alias.
+  await Future.any<void>([checked.future, waiting.then<void>((_) {})]);
+  await Future<void>(() {});
+  final returnedBeforeCancel = returned;
+  cancelled = true;
+  await waiting;
+  return {
+    'ready': ready,
+    'snapshotsQueued': snapshots,
+    'actualPending': actualPending,
+    'durableActualPending': durablePending,
+    'aliasPending': aliasPending,
+    'registryRecipients': registry.length,
+    'sawActual': sawActual,
+    'sawAlias': sawAlias,
+    'returnedBeforeCancel': returnedBeforeCancel,
+    'cancelledCleanly': returned,
+  };
+}
 
 /// One native node per OS process, driven through the app's existing debug
 /// API. Only the ready/unlock seam is supplied by the fixture. No identity
@@ -73,6 +168,17 @@ void main() {
             if (await inspect.exists()) {
               final request = jsonDecode(await inspect.readAsString()) as Map;
               await inspect.delete();
+              if (request['historyRoom'] case final String operation) {
+                final values = await device!.inZone(
+                  () => _historyRoomProbe(device!, operation),
+                );
+                final response = File('${dir.path}/storage-inspected.new');
+                await response.writeAsString(jsonEncode({
+                  'nonce': request['nonce'], ...values,
+                }));
+                await response.rename('${dir.path}/storage-inspected.json');
+                continue;
+              }
               if (env['XVEIL_E2E_CPU_PROFILE'] == '1' &&
                   request['storageTiming'] == true &&
                   (cpuProfile == null || request['resetStorageTiming'] == true)) {
