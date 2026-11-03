@@ -49,6 +49,7 @@ class PrivateHistoryWireProbe {
       final op = query is Map ? query['op'] : null;
       if (op != null && !const ['list', 'page', 'record'].contains(op)) return;
       final prefix = query is Map ? query['prefix'] : null;
+      final fallbacks = query is Map ? query['prefixFallbacks'] : null;
       _sink.writeln(
         jsonEncode({
           'kind': op == null ? 'part' : 'query',
@@ -57,8 +58,10 @@ class PrivateHistoryWireProbe {
           'bytes': message.payload.length,
           'provenance': message.provenance.name,
           'op': ?op,
-          if (op == 'page' && prefix is Map && prefix['count'] is int)
+          if (op == 'page' && prefix is Map && prefix['count'] is int) ...{
             'prefixRows': prefix['count'],
+            'prefixCandidates': 1 + (fallbacks is List ? fallbacks.length : 0),
+          },
           if (op == null && body['i'] is int) 'index': body['i'],
           if (op == null && body['n'] is int) 'parts': body['n'],
         }),

@@ -38,6 +38,13 @@ void main() {
               'hash': 'private-content-digest',
               'position': [1000, 'private-message-id'],
             },
+            'prefixFallbacks': [
+              {
+                'count': 16,
+                'hash': 'private-content-digest',
+                'position': [500, 'private-message-id'],
+              },
+            ],
           },
         }),
       );
@@ -70,6 +77,7 @@ void main() {
       expect(rows[1]['request'], 'a' * 32);
       expect(rows[1]['op'], 'page');
       expect(rows[1]['prefixRows'], 32);
+      expect(rows[1]['prefixCandidates'], 2);
       expect(rows.last['recorded'], 1);
       expect(rows.last['dropped'], 1);
       expect(text, isNot(contains('must-not-be-recorded')));

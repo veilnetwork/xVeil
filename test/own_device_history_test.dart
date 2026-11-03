@@ -677,6 +677,76 @@ void main() {
     );
   });
 
+  test('a known late tail does not hide a matching earlier prefix', () async {
+    await seed(40);
+    final source = await sa.loadMessages(peer.hex);
+    for (final message in [...source.take(24), ...source.skip(36)]) {
+      await sb.appendMessage(message);
+    }
+    net.drop = (from, to, body) => from == a && body['q'] != null;
+    ma.start();
+    mb.start();
+    await until(
+      () async =>
+          await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+    );
+    final recovered = await sb.loadMessages(peer.hex);
+    expect(recovered.map((m) => m.id), source.map((m) => m.id));
+    expect(applied, 16, reason: 'the matching first 24 rows need no replay');
+    final requests = net.history
+        .where((frame) => frame.from == b && frame.body['q']?['op'] == 'page')
+        .toList();
+    expect(requests, hasLength(2));
+    expect(requests[1].body['q']['cursor'][1], 'm0031');
+  });
+
+  test(
+    'long endpoints reduce hints to fit the existing query budget',
+    () async {
+      final source = <Message>[];
+      for (var i = 0; i < 40; i++) {
+        final message = Message(
+          id: 'm${i.toString().padLeft(4, '0')}${'x' * 500}',
+          conversationId: peer.hex,
+          direction: MessageDirection.outgoing,
+          body: 'long-endpoint-$i',
+          timestamp: DateTime.utc(2020).add(Duration(seconds: i)),
+          status: MessageStatus.delivered,
+          author: a.hex,
+          seq: i + 1,
+          positionVerified: true,
+        );
+        source.add(message);
+        await sa.appendMessage(message);
+        if (i < 32) await sb.appendMessage(message);
+      }
+      ma.start();
+      mb.start();
+      await until(
+        () async =>
+            await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+      );
+      final request =
+          net.history
+                  .firstWhere(
+                    (frame) =>
+                        frame.from == b && frame.body['q']?['op'] == 'page',
+                  )
+                  .body['q']
+              as Map;
+      expect(jsonEncode(request).length, lessThanOrEqualTo(1500));
+      expect(
+        (request['prefixFallbacks'] as List).length,
+        inInclusiveRange(0, 6),
+      );
+      expect(applied, 8);
+      expect(
+        (await sb.loadMessages(peer.hex)).map((m) => m.id),
+        source.map((m) => m.id),
+      );
+    },
+  );
+
   test('verified held prefix is not transferred and applied again', () async {
     await seed(40);
     for (final message in (await sa.loadMessages(peer.hex)).take(32)) {
@@ -759,13 +829,78 @@ void main() {
         expect(repaired.body, 'corrected');
         expect((await sb.editSeqs(peer.hex))['m0013'], 7);
       }
-      expect(applied, 40);
+      // A matching part before row 13 may be skipped, but the gap or stale
+      // state at row 13 must still take the ordinary repair path.
+      expect(applied, inInclusiveRange(27, 40));
       expect(
         net.history.where(
           (frame) => frame.from == b && frame.body['q']?['op'] == 'page',
         ),
-        hasLength(5),
+        hasLength(inInclusiveRange(4, 5)),
       );
+    });
+  }
+
+  for (final malformed in ['over limit', 'not descending']) {
+    test('malformed prefix fallbacks are refused: $malformed', () async {
+      await seed(40);
+      for (final message in (await sa.loadMessages(peer.hex)).take(32)) {
+        await sb.appendMessage(message);
+      }
+      Map<String, dynamic>? held;
+      var blockOriginal = true;
+      net.drop = (from, to, body) {
+        if (from == a && body['q'] != null) return true;
+        if (held == null && from == b && body['q']?['prefix'] != null) {
+          held = Map<String, dynamic>.from(body);
+          return true;
+        }
+        if (blockOriginal &&
+            from == b &&
+            held != null &&
+            jsonEncode(body['q']) == jsonEncode(held!['q'])) {
+          return true;
+        }
+        return false;
+      };
+      ma.start();
+      mb.start();
+      await until(() async => held != null);
+      final query = Map<String, dynamic>.from(held!['q'] as Map);
+      query['prefixFallbacks'] = List.filled(
+        malformed == 'over limit' ? 8 : 1,
+        query['prefix'],
+      );
+      expect(jsonEncode(query).length, lessThanOrEqualTo(1500));
+      final read = Completer<void>();
+      sa.afterMessagesRead = () async => read.complete();
+      await net.send(
+        tb,
+        a,
+        WireEnvelope.deviceHistory(jsonEncode({...held!, 'q': query})).encode(),
+      );
+      await read.future;
+      // The fake store's remaining operations finish in microtasks. This
+      // event barrier observes refusal, without asserting a timing threshold.
+      await Future<void>(() {});
+      expect(
+        net.history.where(
+          (frame) =>
+              frame.from == a &&
+              frame.body['id'] == held!['id'] &&
+              frame.body['i'] != null,
+        ),
+        isEmpty,
+      );
+      expect(applied, 0);
+      blockOriginal = false;
+      await net.send(
+        tb,
+        a,
+        WireEnvelope.deviceHistory(jsonEncode(held)).encode(),
+      );
+      await until(() async => await count() == 40);
+      expect(errorJournal.entries, isEmpty);
     });
   }
 

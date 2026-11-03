@@ -38,6 +38,7 @@ class _MessagingOwnHistory {
   Timer? _timer;
   bool _closed = false;
   static const _page = 8;
+  static const _maxPrefixes = 8;
   static const _slice = 2048;
   static const _maxParts = 64;
   static const _maxDevices = 32;
@@ -210,13 +211,24 @@ class _MessagingOwnHistory {
       if (inventory) 'after': pull.progress['after'],
       if (record != null) ...{'hash': record.hash, 'offset': record.offset},
     };
-    final prefix = pull.prefix;
-    if (record == null &&
-        !inventory &&
-        prefix != null &&
-        _afterCursor(prefix['position'] as List, pull.progress['cursor']) &&
-        jsonEncode({...pull.query, 'prefix': prefix}).length <= 1500) {
-      pull.query['prefix'] = prefix;
+    if (record == null && !inventory) {
+      final prefixes = pull.prefixes
+          .where(
+            (p) => _afterCursor(p['position'] as List, pull.progress['cursor']),
+          )
+          .toList();
+      while (prefixes.isNotEmpty) {
+        final offered = {
+          ...pull.query,
+          'prefix': prefixes.first,
+          if (prefixes.length > 1) 'prefixFallbacks': prefixes.sublist(1),
+        };
+        if (jsonEncode(offered).length <= 1500) {
+          pull.query = offered;
+          break;
+        }
+        prefixes.removeLast();
+      }
     }
     _transmit(pull);
   }
@@ -494,6 +506,44 @@ class _MessagingOwnHistory {
       (prefix['count'] as int) > 0 &&
       _hex(prefix['hash']);
 
+  List<Map<String, dynamic>> _prefixProofs(
+    ({List<Message> rows, Map<String, int> edits}) snapshot,
+  ) => [
+    // A returning device may also hold a late echo tail beyond a gap. One
+    // all-held hint then fails correctly; bounded shorter candidates let the
+    // source verify a real earlier prefix without skipping the gap or repairs.
+    for (var step = _maxPrefixes; step > 0; step--)
+      if (snapshot.rows.length * step ~/ _maxPrefixes > _page)
+        _prefixProof((
+          rows: snapshot.rows.sublist(
+            0,
+            snapshot.rows.length * step ~/ _maxPrefixes,
+          ),
+          edits: snapshot.edits,
+        )),
+  ];
+
+  List<Map>? _queryPrefixes(Map query) {
+    final prefix = query['prefix'], fallbacks = query['prefixFallbacks'];
+    if (prefix == null) return fallbacks == null ? <Map>[] : null;
+    if (!_validPrefix(prefix) || (fallbacks != null && fallbacks is! List)) {
+      return null;
+    }
+    final extras = fallbacks as List? ?? const [];
+    if (extras.length >= _maxPrefixes) return null;
+    final prefixes = <Map>[prefix as Map];
+    for (final candidate in extras) {
+      final previous = prefixes.last;
+      if (!_validPrefix(candidate) ||
+          (candidate['count'] as int) >= (previous['count'] as int) ||
+          !_afterCursor(previous['position'] as List, candidate['position'])) {
+        return null;
+      }
+      prefixes.add(candidate as Map);
+    }
+    return prefixes;
+  }
+
   bool _samePrefix(Map left, Map right) =>
       left['count'] == right['count'] &&
       left['hash'] == right['hash'] &&
@@ -571,16 +621,17 @@ class _MessagingOwnHistory {
         }
         final snapshot = await _snapshot(peer);
         Map? acceptedPrefix;
-        final prefix = query['prefix'];
-        if (prefix != null) {
-          if (query['op'] != 'page' ||
-              !_validPrefix(prefix) ||
-              !_afterCursor(prefix['position'] as List, cursor)) {
-            return;
-          }
-          if (_matchesPrefix(snapshot, prefix as Map)) {
+        final prefixes = _queryPrefixes(query);
+        if (prefixes == null ||
+            (prefixes.isNotEmpty && query['op'] != 'page') ||
+            prefixes.any((p) => !_afterCursor(p['position'] as List, cursor))) {
+          return;
+        }
+        for (final prefix in prefixes) {
+          if (_matchesPrefix(snapshot, prefix)) {
             acceptedPrefix = prefix;
             cursor = prefix['position'];
+            break;
           }
         }
         final window = snapshot.rows
@@ -940,7 +991,7 @@ class _MessagingOwnHistory {
             'peer': peer,
             if (resume?['peer'] == peer) 'cursor': resume?['cursor'],
           });
-          if (held.rows.length > _page) pull.prefix = _prefixProof(held);
+          pull.prefixes = _prefixProofs(held);
           _request(pull);
           return;
         }
@@ -957,12 +1008,12 @@ class _MessagingOwnHistory {
     }
     final prefix = reply['prefix'];
     if (prefix != null) {
-      final proposed = pull.query['prefix'];
+      final proposed = _queryPrefixes(pull.query);
       if (reply['op'] != 'page' ||
           reply['peer'] != pull.progress['peer'] ||
           !_validPrefix(prefix) ||
-          !_validPrefix(proposed) ||
-          !_samePrefix(prefix as Map, proposed as Map) ||
+          proposed == null ||
+          !proposed.any((p) => _samePrefix(prefix as Map, p)) ||
           !_afterCursor(prefix['position'] as List, pull.progress['cursor'])) {
         throw StateError('Unrequested history prefix');
       }
@@ -970,7 +1021,7 @@ class _MessagingOwnHistory {
       if (!_matchesPrefix(held, prefix)) {
         // The local rows changed while the proof was in flight. Discard the
         // answer and retry a normal page from the unchanged durable cursor.
-        pull.prefix = null;
+        pull.prefixes = const [];
         _request(pull);
         return;
       }
@@ -980,7 +1031,7 @@ class _MessagingOwnHistory {
         'cursor': prefix['position'],
       });
     }
-    pull.prefix = null;
+    pull.prefixes = const [];
     if (reply['record'] != null) {
       _beginRecord(pull, reply);
       return;
@@ -1133,7 +1184,7 @@ class _OwnHistoryPull {
   final Object? binding;
   Map<String, dynamic> progress;
   Map<String, dynamic> query = {};
-  Map<String, dynamic>? prefix;
+  List<Map<String, dynamic>> prefixes = const [];
   bool recheckInventory;
   String id = '';
   int attempts = 0;
