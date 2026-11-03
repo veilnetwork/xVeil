@@ -161,6 +161,33 @@ remain available without any other device online. This decision does not waive
 reconnect, interrupted synchronization, revoke or eventual-convergence checks
 when the required holder becomes available again.
 
+## Live history records larger than one page (2026-11-03)
+
+The live-only own-history exchange keeps its 128-KiB/64-slice page bound.
+An event which cannot fit by itself is returned as a `record` descriptor in
+the page response: position, encoded length and SHA-256. The requester fetches
+64-KiB byte ranges with `op: record`, tied to its current conversation/cursor,
+digest and offset. Every response still fits the ordinary page bound.
+
+A logical record is capped at the existing 1-MiB application-frame bound;
+stored message events are already capped at 512 KiB. Partial records reserve
+their entire declared size against a shared 4-MiB budget. This is a separate
+budget from existing frame admission and reply caches, not a bound on all
+messaging memory. There is one active record per sibling pull.
+
+The cursor stays before the record until all bytes match its digest and the
+ordinary mirror/status applier completes. Partial bytes are RAM-only: restart
+re-fetches that record from its beginning without replaying the committed
+history prefix. A source change abandons the partial record and re-reads the
+same cursor. Current device authorization, binding and expiry checks still
+apply; the digest checks coherence and grants no authority. Mailboxes are
+not involved.
+
+This adds an app-level wire operation. Both devices need support for oversized
+records; interoperability with older versions is outside the active release
+requirements by the owner's decision. Ordinary short pages retain their
+existing representation.
+
 ## Tech-notes resolved (engineering stance, flagged in ROADMAP)
 
 1. xVeil v1 devices are separate node ids in the private app-level device

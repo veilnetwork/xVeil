@@ -190,6 +190,28 @@ void main() {
               if (request['reconcile'] == true) {
                 await device!.messaging.reconcileOnConnect();
               }
+              if (request['seedOwnHistory'] == true) {
+                // Model history outside the bounded device journal. Write
+                // through its live encrypted storage owner, without invoking
+                // local-send taps or constructing any replicated group rows.
+                final peer = request['peer'] as String;
+                for (var i = 0; i < 3; i++) {
+                  final id = 'record-stand-$i';
+                  if (await device!.storage.loadMessageById(peer, id) != null) {
+                    throw StateError('history fixture must be seeded once');
+                  }
+                  await device!.storage.appendMessage(Message(
+                    id: id,
+                    conversationId: peer,
+                    direction: MessageDirection.outgoing,
+                    body: i == 1 ? '$id:${'x' * 160000}' : id,
+                    timestamp: DateTime.utc(2020).add(Duration(seconds: i)),
+                    status: MessageStatus.delivered,
+                    author: device!.deviceNodeId.hex,
+                    positionVerified: true,
+                  ));
+                }
+              }
               final peer = request['peer'] as String;
               final prefix = request['prefix'] as String;
               final bodyPrefix = request['bodyPrefix'] as String?;

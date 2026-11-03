@@ -41,6 +41,13 @@ class _MessagingOwnHistory {
   static const _slice = 2048;
   static const _maxParts = 64;
   static const _maxDevices = 32;
+  // Stored message events are bounded at 512 KiB. Mirror metadata fits the
+  // existing 1-MiB application-frame bound, separately from the unchanged
+  // 128-KiB page. All partial records together share 4 MiB.
+  static const _maxRecordBytes = kLargeFrameMaxBytes;
+  static const _maxHeldRecordBytes = 4 * kLargeFrameMaxBytes;
+  static const _recordSlice = 64 * 1024;
+  int _heldRecordBytes = 0;
 
   bool get _ready =>
       !_closed &&
@@ -179,11 +186,17 @@ class _MessagingOwnHistory {
     pull.partCount = null;
     pull.processing = false;
     pull.attempts = 0;
+    final record = pull.record;
     pull.query = {
-      'op': pull.progress['peer'] == null ? 'list' : 'page',
+      'op': record != null
+          ? 'record'
+          : pull.progress['peer'] == null
+          ? 'list'
+          : 'page',
       if (pull.progress['peer'] != null) 'peer': pull.progress['peer'],
       if (pull.progress['peer'] != null) 'cursor': pull.progress['cursor'],
       if (pull.progress['peer'] == null) 'after': pull.progress['after'],
+      if (record != null) ...{'hash': record.hash, 'offset': record.offset},
     };
     _transmit(pull);
   }
@@ -221,10 +234,18 @@ class _MessagingOwnHistory {
   void _finish(_OwnHistoryPull pull, Duration cooldown) {
     pull.timer?.cancel();
     pull.parts.clear();
+    _releaseRecord(pull.record);
+    pull.record = null;
     if (_pulls[pull.device.hex] == pull) {
       _pulls.remove(pull.device.hex);
       _nextScan[pull.device.hex] = _owner._now().add(cooldown);
     }
+  }
+
+  void _releaseRecord(_OwnHistoryRecord? record) {
+    if (record == null || record.released) return;
+    record.released = true;
+    _heldRecordBytes -= record.bytes.length;
   }
 
   /// Common consent/provenance and ratchet handling already ran in the durable
@@ -443,7 +464,7 @@ class _MessagingOwnHistory {
           });
         }
         result = {'op': 'list', 'rows': rows};
-      } else if (query['op'] == 'page') {
+      } else if (query['op'] == 'page' || query['op'] == 'record') {
         final peer = query['peer'], cursor = query['cursor'];
         if (!_hex(peer) || !_validCursor(cursor)) return;
         final node = NodeId.fromHex(peer as String);
@@ -469,8 +490,7 @@ class _MessagingOwnHistory {
         final ttl = (await _owner._storage.getContact(
           node,
         ))?.disappearingTtlSeconds;
-        for (final message in page) {
-          if (!await _allowed(device, binding)) return;
+        Future<String> encodeRecord(Message message) async {
           var event = await _owner.ownHistoryEncode!(node, message);
           event = DeviceSyncEvent(
             kind: event.kind,
@@ -496,21 +516,77 @@ class _MessagingOwnHistory {
               },
             );
           }
-          events.add(event.toBody());
-          // Count the final UTF-8 envelope: event bodies are JSON strings
-          // inside another JSON object, so quotes/backslashes expand again.
-          // Eight valid messages can exceed the reassembly budget together.
-          // Keep a fitting prefix and resume after its last included message.
-          if (utf8.encode(jsonEncode(pageResult(message))).length >
-              _slice * _maxParts) {
-            events.removeLast();
-            if (events.isEmpty) {
-              throw StateError('History message too large');
-            }
-            break;
-          }
+          return event.toBody();
         }
-        result = pageResult(events.isEmpty ? null : page[events.length - 1]);
+
+        Map<String, dynamic>? descriptor;
+        if (query['op'] == 'record') {
+          final hash = query['hash'], offset = query['offset'];
+          if (!_hex(hash) ||
+              offset is! int ||
+              offset < 0 ||
+              offset >= _maxRecordBytes ||
+              offset % _recordSlice != 0) {
+            return;
+          }
+          final bytes = page.isEmpty
+              ? null
+              : utf8.encode(await encodeRecord(page.first));
+          if (bytes == null ||
+              crypto.sha256.convert(bytes).toString() != hash) {
+            result = {'op': 'record', 'peer': peer, 'changed': true};
+          } else {
+            if (bytes.length > _maxRecordBytes || offset >= bytes.length) {
+              return;
+            }
+            result = {
+              'op': 'record',
+              'peer': peer,
+              'key': page.first.id,
+              'hash': hash,
+              'offset': offset,
+              'data': base64Encode(
+                bytes.sublist(
+                  offset,
+                  (offset + _recordSlice).clamp(0, bytes.length),
+                ),
+              ),
+            };
+          }
+        } else {
+          for (final message in page) {
+            if (!await _allowed(device, binding)) return;
+            final body = await encodeRecord(message);
+            events.add(body);
+            // Event bodies are JSON strings inside another JSON envelope.
+            if (utf8.encode(jsonEncode(pageResult(message))).length >
+                _slice * _maxParts) {
+              events.removeLast();
+              if (events.isEmpty) {
+                final bytes = utf8.encode(body);
+                if (bytes.length > _maxRecordBytes) {
+                  throw StateError('History message too large');
+                }
+                descriptor = {
+                  'op': 'page',
+                  'peer': peer,
+                  'record': {
+                    'position': [
+                      message.timestamp.millisecondsSinceEpoch,
+                      message.id,
+                    ],
+                    'bytes': bytes.length,
+                    'hash': crypto.sha256.convert(bytes).toString(),
+                  },
+                };
+              }
+              break;
+            }
+          }
+          result =
+              descriptor ??
+              pageResult(events.isEmpty ? null : page[events.length - 1]);
+        }
       } else {
         return;
       }
@@ -592,6 +668,101 @@ class _MessagingOwnHistory {
     });
   }
 
+  void _beginRecord(_OwnHistoryPull pull, Map<String, dynamic> reply) {
+    final raw = reply['record'];
+    if (reply['peer'] != pull.progress['peer'] ||
+        raw is! Map ||
+        reply.containsKey('events') ||
+        pull.record != null) {
+      throw StateError('Invalid history record');
+    }
+    final position = raw['position'], size = raw['bytes'], hash = raw['hash'];
+    final cursor = pull.progress['cursor'] as List<dynamic>?;
+    if (position is! List ||
+        !_validCursor(position) ||
+        size is! int ||
+        size < 1 ||
+        size > _maxRecordBytes ||
+        !_hex(hash) ||
+        (cursor != null &&
+            (position[0] < cursor[0] ||
+                (position[0] == cursor[0] &&
+                    (position[1] as String).compareTo(cursor[1] as String) <=
+                        0)))) {
+      throw StateError('Invalid history record bound');
+    }
+    if (_heldRecordBytes + size > _maxHeldRecordBytes) {
+      // Leave the durable cursor unchanged. Another sibling's active record
+      // owns the budget; a bounded retry can begin after that record releases it.
+      _finish(pull, const Duration(seconds: 30));
+      return;
+    }
+    pull.record = _OwnHistoryRecord(
+      List<dynamic>.unmodifiable(position),
+      hash as String,
+      Uint8List(size),
+    );
+    _heldRecordBytes += size;
+    _request(pull);
+  }
+
+  Future<void> _applyRecord(
+    _OwnHistoryPull pull,
+    Map<String, dynamic> reply,
+  ) async {
+    final record = pull.record;
+    if (record == null || reply['peer'] != pull.progress['peer']) {
+      throw StateError('Unexpected history record');
+    }
+    if (reply['changed'] == true) {
+      _releaseRecord(record);
+      pull.record = null;
+      _request(pull);
+      return;
+    }
+    final data = reply['data'];
+    if (reply['key'] != record.position[1] ||
+        reply['hash'] != record.hash ||
+        reply['offset'] != record.offset ||
+        data is! String ||
+        data.length > ((_recordSlice + 2) ~/ 3) * 4) {
+      throw StateError('Invalid history record slice');
+    }
+    final bytes = base64Decode(data);
+    final expected = _recordSlice.clamp(0, record.bytes.length - record.offset);
+    if (bytes.length != expected) {
+      throw StateError('Invalid history record length');
+    }
+    record.bytes.setRange(record.offset, record.offset + bytes.length, bytes);
+    record.offset += bytes.length;
+    if (record.offset < record.bytes.length) {
+      _request(pull);
+      return;
+    }
+    // Detach before the ordinary page applier asks for its next page, but keep
+    // memory charged through validation and durable apply, including failure.
+    pull.record = null;
+    try {
+      if (crypto.sha256.convert(record.bytes).toString() != record.hash) {
+        throw StateError('History record digest mismatch');
+      }
+      final body = utf8.decode(record.bytes);
+      final event = DeviceSyncEvent.fromBody(body);
+      if (event == null ||
+          event.key != record.position[1] ||
+          event.tsMs != record.position[0]) {
+        throw StateError('History record position mismatch');
+      }
+      await _applyPage(pull, {
+        'peer': pull.progress['peer'],
+        'events': [body],
+        'next': record.position,
+      });
+    } finally {
+      _releaseRecord(record);
+    }
+  }
+
   Future<void> _checkpoint(
     _OwnHistoryPull pull,
     Map<String, dynamic> next,
@@ -615,6 +786,10 @@ class _MessagingOwnHistory {
     if (!await _allowed(pull.device, pull.binding) ||
         reply['op'] != pull.query['op']) {
       throw StateError('Wrong history response');
+    }
+    if (reply['op'] == 'record') {
+      await _applyRecord(pull, reply);
+      return;
     }
     if (reply['op'] == 'list') {
       final rows = reply['rows'];
@@ -651,6 +826,17 @@ class _MessagingOwnHistory {
       }
       return;
     }
+    if (reply['record'] != null) {
+      _beginRecord(pull, reply);
+      return;
+    }
+    await _applyPage(pull, reply);
+  }
+
+  Future<void> _applyPage(
+    _OwnHistoryPull pull,
+    Map<String, dynamic> reply,
+  ) async {
     final peer = pull.progress['peer'];
     final events = reply['events'], next = reply['next'];
     if (reply['peer'] != peer ||
@@ -776,6 +962,8 @@ class _MessagingOwnHistory {
     _timer?.cancel();
     for (final pull in _pulls.values) {
       pull.timer?.cancel();
+      _releaseRecord(pull.record);
+      pull.record = null;
     }
     _pulls.clear();
     _answers.clear();
@@ -791,8 +979,18 @@ class _OwnHistoryPull {
   Map<String, dynamic> query = {};
   String id = '';
   int attempts = 0;
+  _OwnHistoryRecord? record;
   Timer? timer;
   bool processing = false;
   int? partCount;
   final parts = <int, Uint8List>{};
+}
+
+class _OwnHistoryRecord {
+  _OwnHistoryRecord(this.position, this.hash, this.bytes);
+  final List<dynamic> position;
+  final String hash;
+  final Uint8List bytes;
+  int offset = 0;
+  bool released = false;
 }
