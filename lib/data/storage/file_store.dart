@@ -162,6 +162,14 @@ List<int> _recordIds(Iterable<_RecordSegment> segments) => [
       segment.base + offset,
 ];
 
+Iterable<int> _recordIdStream(Iterable<_RecordSegment> segments) sync* {
+  for (final segment in segments) {
+    for (var offset = 0; offset < segment.count; offset++) {
+      yield segment.base + offset;
+    }
+  }
+}
+
 List<List<int>> _encodeSegments(List<int> ids) {
   if (ids.isEmpty) return const [];
   final result = <List<int>>[];
@@ -570,10 +578,7 @@ class FileStore {
     final gc = _gcState().afterWrite(
       deleted: ops.whereType<DeleteLogOp>().length,
     );
-    _store.commit([
-      ...ops,
-      PutOp(Ns.settings, _k(_kChunkGcKey), gc.encode()),
-    ]);
+    _store.commit([...ops, PutOp(Ns.settings, _k(_kChunkGcKey), gc.encode())]);
   }
 
   FileMeta? metadata(String fileId) {
@@ -953,9 +958,7 @@ class AsyncFileStore {
         // Reserve metadata without adding to an untrusted legacy count:
         // MAX_I64 + 1 wraps before the budget comparison on the Dart VM.
         if (records >= budget) continue;
-        if (segments.any(
-          (run) => run.base > _kMaxDartLogId - run.count + 1,
-        )) {
+        if (segments.any((run) => run.base > _kMaxDartLogId - run.count + 1)) {
           continue;
         }
         ops.addAll([
@@ -1275,6 +1278,16 @@ class AsyncFileStore {
     if (metadata.length != requested.length) {
       throw StateError('file metadata batch length mismatch');
     }
+    if (reader is AsyncLogGroupReader) {
+      final groups = _inlineFileReadGroups(metadata, maxBytesPerFile);
+      if (groups != null) {
+        return _loadFileGroups(
+          reader as AsyncLogGroupReader,
+          groups,
+          maxBytesPerFile,
+        );
+      }
+    }
     final result = <Uint8List>[];
     for (var i = 0; i < requested.length; i++) {
       final raw = metadata[i];
@@ -1290,6 +1303,89 @@ class AsyncFileStore {
       result.add(bytes);
     }
     return result;
+  }
+
+  // Preparation is pure and non-authorizing. Unsupported, missing or malformed
+  // metadata takes the existing ordered path, including its first-failure rule.
+  // Do not turn a later metadata error into an early refusal of prior payloads.
+  List<List<_RecordSegment>>? _inlineFileReadGroups(
+    List<Uint8List?> metadata,
+    int maxBytes,
+  ) {
+    try {
+      final plans = <List<_RecordSegment>>[];
+      for (final raw in metadata) {
+        if (raw == null) return null;
+        final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
+        final size = m['size'];
+        if (m['streamed'] == true ||
+            size is! int ||
+            size < 0 ||
+            size > maxBytes) {
+          return null;
+        }
+        final runs = _fileSegments(m);
+        var remaining = min(maxBytes, _kMaxDartLogId - 1) + 1;
+        for (final run in runs) {
+          if (run.count > remaining ||
+              run.base > _kMaxDartLogId - run.count + 1) {
+            return null;
+          }
+          remaining -= run.count;
+        }
+        plans.add(runs);
+      }
+      return plans;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<List<Uint8List>?> _loadFileGroups(
+    AsyncLogGroupReader reader,
+    List<List<_RecordSegment>> plans,
+    int maxBytes,
+  ) async {
+    final iterators = [
+      for (final runs in plans) _recordIdStream(runs).iterator,
+    ];
+    final remaining = [
+      for (final runs in plans) runs.fold<int>(0, (n, run) => n + run.count),
+    ];
+    final results = [for (final _ in plans) BytesBuilder(copy: false)];
+    var file = 0;
+    while (file < plans.length) {
+      final groups = <LogReadGroup>[];
+      final owners = <int>[];
+      var slots = AsyncLogGroupReader.maxRecords;
+      while (file < plans.length &&
+          slots > 0 &&
+          groups.length < AsyncLogGroupReader.maxGroups) {
+        final count = min(slots, remaining[file]);
+        final ids = <int>[];
+        for (var i = 0; i < count; i++) {
+          if (!iterators[file].moveNext()) {
+            throw StateError('incomplete bounded file read plan');
+          }
+          ids.add(iterators[file].current);
+        }
+        groups.add((ids: ids, maxBytes: maxBytes - results[file].length));
+        owners.add(file);
+        slots -= count;
+        remaining[file] -= count;
+        if (remaining[file] == 0) file++;
+      }
+      // At most 64 exact records, even across file boundaries. The worker
+      // enforces each remaining file budget before reading a later record.
+      final bytes = await reader.readLogGroups(Ns.fileChunks, groups);
+      if (bytes == null || bytes.length != groups.length) return null;
+      for (var i = 0; i < bytes.length; i++) {
+        final out = results[owners[i]];
+        if (bytes[i].length > maxBytes - out.length) return null;
+        out.add(bytes[i]);
+      }
+    }
+    return [for (final out in results) out.takeBytes()];
   }
 
   // The caller already fetched this manifest. Do not enqueue another worker
@@ -1336,7 +1432,9 @@ class AsyncFileStore {
         );
         if (chunks == null || chunks.length != end - start) return null;
         for (final chunk in chunks) {
-          if (maxBytes != null && out.length + chunk.length > maxBytes) return null;
+          if (maxBytes != null && out.length + chunk.length > maxBytes) {
+            return null;
+          }
           out.add(chunk);
         }
       }
@@ -1344,7 +1442,9 @@ class AsyncFileStore {
       for (final id in ids) {
         final chunk = await reader.readLog(Ns.fileChunks, id);
         if (chunk == null) return null;
-        if (maxBytes != null && out.length + chunk.length > maxBytes) return null;
+        if (maxBytes != null && out.length + chunk.length > maxBytes) {
+          return null;
+        }
         out.add(chunk);
       }
     }
