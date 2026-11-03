@@ -214,6 +214,15 @@ Hints are not persisted; failed writes, cancellation and restarts cannot restore
 an unconfirmed skip. Existing request/reassembly/reply bounds remain unchanged;
 an oversized hint is omitted. There are no mailbox copies or new storage queues.
 
+The request may also offer up to seven `prefixFallbacks`, ordered by strictly
+decreasing count and endpoint. They cover shorter local prefixes: a device can
+already hold a late echo tail beyond a gap, so its entire held set is not
+necessarily a prefix. The source selects the longest candidate which actually
+matches its complete prefix; the receiver accepts only an offered candidate
+and rechecks that specific subset. Candidates share the existing 1500-character
+query bound and are removed if necessary to fit. There are at most eight checks,
+not an unbounded prefix search. Gaps and provisional positions are still repaired.
+
 A restored page cursor gets one current inventory check before replaying pages:
 other synchronization paths may already have filled the missing rows. If pages
 are still needed for that conversation, the previously durable cursor is kept.
