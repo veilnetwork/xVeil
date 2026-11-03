@@ -272,6 +272,7 @@ class E2eDevice {
   _BootScope? _boot;
   ProviderContainer? _container;
   ProviderSubscription<void>? _bridgeSubscription;
+  ProviderSubscription<GroupService?>? _censusSubscription;
   PrivateHistoryWireProbe? _historyWireProbe;
   HiddenVolumeStorage? _storage;
   MessageApplyCensus? _messageApplyCensus;
@@ -507,6 +508,20 @@ class E2eDevice {
             'from the stored identity config',
           );
         }
+        if (census != null) {
+          Future<List<NodeId>> Function()? wrapped;
+          _censusSubscription = container.listen(groupServiceProvider, (_, _) {
+            final messaging = container.read(messagingServiceProvider);
+            final readOwnDevices = messaging.myOtherDevices;
+            if (readOwnDevices == null || identical(readOwnDevices, wrapped)) {
+              return;
+            }
+            // The provider may rebind after linking/bridge readiness. Preserve
+            // each production resolver once, without nested timing wrappers.
+            wrapped = () => census.ownDevices(readOwnDevices);
+            messaging.myOtherDevices = wrapped;
+          }, fireImmediately: true);
+        }
         // AppShell WATCHES this on every ready session. A bare read does not
         // keep its dependency chain alive across later provider invalidation;
         // hold the subscription for this whole boot as the app shell does.
@@ -551,11 +566,13 @@ class E2eDevice {
       final container = _container;
       final messaging = container?.read(messagingServiceProvider);
       final bridgeSubscription = _bridgeSubscription;
+      final censusSubscription = _censusSubscription;
       final historyWireProbe = _historyWireProbe;
       final stack = _stack;
       final storage = _storage;
       _container = null;
       _bridgeSubscription = null;
+      _censusSubscription = null;
       _historyWireProbe = null;
       _stack = null;
       _storage = null;
@@ -565,6 +582,7 @@ class E2eDevice {
           () async => historyWireProbe?.close(),
         ),
         ('dispose app bridge watch', () async => bridgeSubscription?.close()),
+        ('dispose census watch', () async => censusSubscription?.close()),
         ('dispose providers', () async => container?.dispose()),
         // ProviderContainer.dispose is synchronous; join the service's
         // asynchronous ratchet save before freeing its FFI handle/storage.

@@ -16,6 +16,7 @@ class _Counted extends SyncWrappedAsyncKvLogStore {
   _Counted(super.store);
   int individual = 0, batches = 0, bodies = 0;
   bool inBatch = false;
+  final groupRequests = <List<LogReadGroup>>[];
   @override
   Future<Uint8List?> get(int ns, Uint8List key) {
     if (!inBatch) individual++;
@@ -39,8 +40,19 @@ class _Counted extends SyncWrappedAsyncKvLogStore {
     return super.readLogBatch(ns, ids);
   }
 
+  @override
+  Future<List<Uint8List>?> readLogGroups(int ns, List<LogReadGroup> groups) {
+    bodies++;
+    groupRequests.add([
+      for (final group in groups)
+        (ids: List<int>.of(group.ids), maxBytes: group.maxBytes),
+    ]);
+    return super.readLogGroups(ns, groups);
+  }
+
   void reset() {
     individual = batches = bodies = 0;
+    groupRequests.clear();
   }
 }
 
@@ -85,6 +97,99 @@ class _NoKvBatch implements AsyncKvLogStore, AsyncLogBatchReader {
 }
 
 void main() {
+  test(
+    'payload waves span files, preserve duplicates and stay within 64 records',
+    () async {
+      final raw = FakeKvLogStore();
+      final store = _Counted(raw);
+      final files = AsyncFileStore(store);
+      final expected = <Uint8List>[];
+      for (final count in [63, 2, 64, 0, 1]) {
+        final bytes = Uint8List.fromList(
+          List.generate(count * 3800, (i) => (i + count) % 251),
+        );
+        await files.storeFile('f${expected.length}', bytes);
+        expected.add(bytes);
+      }
+      store.reset();
+      expect(
+        await files.loadFiles([
+          'f0',
+          'f1',
+          'f2',
+          'f3',
+          'f4',
+          'f1',
+        ], maxBytesPerFile: 64 * 3800),
+        [...expected, expected[1]],
+      );
+      expect(
+        store.bodies,
+        3,
+        reason: '132 records use three waves, not one wave per file',
+      );
+      expect(
+        store.groupRequests.map(
+          (wave) => wave.fold<int>(0, (n, g) => n + g.ids.length),
+        ),
+        [64, 64, 4],
+      );
+      expect(
+        store.groupRequests[1].first.maxBytes,
+        63 * 3800,
+        reason: 'the second half of a file retains its remaining byte budget',
+      );
+    },
+  );
+
+  test(
+    'an over-ceiling file crossing waves stops before the next file',
+    () async {
+      final raw = _Guarded();
+      raw.commit([
+        for (var id = 1; id <= 66; id++)
+          AppendLogOp(Ns.fileChunks, id, Uint8List.fromList([id])),
+        PutOp(
+          Ns.settings,
+          _key('file:first'),
+          _key(jsonEncode({'size': 0, 'base': 1, 'count': 65})),
+        ),
+        PutOp(
+          Ns.settings,
+          _key('file:later'),
+          _key(jsonEncode({'size': 1, 'base': 66, 'count': 1})),
+        ),
+      ]);
+      raw.forbidden = 66;
+      expect(
+        await AsyncFileStore(
+          SyncWrappedAsyncKvLogStore(raw),
+        ).loadFiles(['first', 'later'], maxBytesPerFile: 64),
+        isNull,
+      );
+    },
+  );
+
+  test(
+    'a later malformed manifest cannot overtake an earlier missing payload',
+    () async {
+      final raw = FakeKvLogStore();
+      raw.commit([
+        PutOp(
+          Ns.settings,
+          _key('file:first'),
+          _key(jsonEncode({'size': 1, 'base': 1, 'count': 1})),
+        ),
+        PutOp(Ns.settings, _key('file:later'), _key('{invalid json')),
+      ]);
+      expect(
+        await AsyncFileStore(
+          SyncWrappedAsyncKvLogStore(raw),
+        ).loadFiles(['first', 'later'], maxBytesPerFile: 64),
+        isNull,
+      );
+    },
+  );
   test(
     'metadata batch preserves order missing slots duplicates and namespace',
     () async {
@@ -153,7 +258,11 @@ void main() {
       );
       expect(actual.batches, 2);
       expect(actual.individual, 0);
-      expect(actual.bodies, 2);
+      expect(
+        actual.bodies,
+        1,
+        reason: 'small files share one bounded payload request',
+      );
       actual.reset();
       expect(await storage.loadFiles([], maxBytesPerFile: 0), isEmpty);
       expect(actual.batches, 0);
@@ -313,10 +422,19 @@ void main() {
     ]);
     expect(await storage.loadFiles(['both'], maxBytesPerFile: 2), isNull);
   });
-  test('a maximum integer ceiling does not overflow the metadata budget', () async {
-    final files = AsyncFileStore(SyncWrappedAsyncKvLogStore(FakeKvLogStore()));
-    await files.storeFile('small', Uint8List.fromList([1, 2]));
-    expect(await files.loadFiles(['small'], maxBytesPerFile: 0x7fffffffffffffff), [[1, 2]]);
-  });
-
+  test(
+    'a maximum integer ceiling does not overflow the metadata budget',
+    () async {
+      final files = AsyncFileStore(
+        SyncWrappedAsyncKvLogStore(FakeKvLogStore()),
+      );
+      await files.storeFile('small', Uint8List.fromList([1, 2]));
+      expect(
+        await files.loadFiles(['small'], maxBytesPerFile: 0x7fffffffffffffff),
+        [
+          [1, 2],
+        ],
+      );
+    },
+  );
 }

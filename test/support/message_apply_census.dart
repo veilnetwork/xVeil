@@ -40,6 +40,10 @@ class MessageApplyCensus {
       <String, ({int count, int wait, int maxWait, int before})>{};
   final _messageChanges = <String, int>{};
   final _messageFailures = <String, int>{};
+  final _contexts =
+      <String, ({int count, int wait, int maxWait, int before})>{};
+  final _rpcContexts =
+      <String, ({int count, int wait, int maxWait, int before})>{};
 
   void reset() {
     _epoch = nowUs;
@@ -55,6 +59,25 @@ class MessageApplyCensus {
     _messageOperations.clear();
     _messageChanges.clear();
     _messageFailures.clear();
+    _contexts.clear();
+    _rpcContexts.clear();
+  }
+
+  Future<T> ownDevices<T>(Future<T> Function() body) async {
+    final start = nowUs;
+    try {
+      return await runZoned(
+        body,
+        zoneValues: {storageTimingContextKey: 'ownDevices'},
+      );
+    } finally {
+      _record(
+        _contexts,
+        'ownDevices',
+        math.max<int>(0, nowUs - math.max<int>(start, _epoch)),
+        start < _epoch,
+      );
+    }
   }
 
   Future<bool> messageOperation(
@@ -154,6 +177,7 @@ class MessageApplyCensus {
       'kv.getBatch',
       'kv.readLog',
       'kv.readLogBatch',
+      'kv.readLogGroups',
       'kv.iterLogRange',
       'kv.count',
       'kv.keys',
@@ -187,6 +211,10 @@ class MessageApplyCensus {
         : operation;
     final wait = start + duration - math.max<int>(start, _epoch);
     _record(_rpc, label, wait, start < _epoch);
+    final context = event['storage_context'];
+    if (context is String && storageTimingContexts.contains(context)) {
+      _record(_rpcContexts, '$context/$operation', wait, start < _epoch);
+    }
     final storageOperation = event['storage_operation'];
     if (storageOperation is String &&
         storageTimingOperations.contains(storageOperation)) {
@@ -268,6 +296,8 @@ class MessageApplyCensus {
     'rpcNamespacesCompleted': _rpcSnapshot(_rpcNamespaces),
     'storageOperationsCompleted': _rpcSnapshot(_storageOperations),
     'rpcStorageOperationsCompleted': _rpcSnapshot(_rpcStorageOperations),
+    'contextsCompleted': _rpcSnapshot(_contexts),
+    'rpcContextsCompleted': _rpcSnapshot(_rpcContexts),
     'messageOperationsCompleted': _rpcSnapshot(
       _messageOperations,
       changes: _messageChanges,

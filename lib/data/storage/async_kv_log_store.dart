@@ -63,6 +63,57 @@ abstract interface class AsyncLogBatchReader {
   Future<List<Uint8List>?> readLogBatch(int namespace, List<int> logIds);
 }
 
+typedef LogReadGroup = ({List<int> ids, int maxBytes});
+
+/// Ordered exact-ID groups, concatenated independently with a byte ceiling.
+/// Null at the first missing/over-ceiling record, before later records/groups.
+/// The whole request is bounded just like a single ordinary log batch.
+abstract interface class AsyncLogGroupReader {
+  static const maxGroups = 8;
+  static const maxRecords = AsyncLogBatchReader.maxRecords;
+  Future<List<Uint8List>?> readLogGroups(
+    int namespace,
+    List<LogReadGroup> groups,
+  );
+}
+
+List<LogReadGroup> _snapshotLogGroups(List<LogReadGroup> groups) {
+  if (groups.length > AsyncLogGroupReader.maxGroups) {
+    throw ArgumentError('too many log read groups');
+  }
+  var remaining = AsyncLogGroupReader.maxRecords;
+  final requested = <LogReadGroup>[];
+  for (final group in groups) {
+    if (group.maxBytes < 0 || group.ids.length > remaining) {
+      throw ArgumentError('invalid bounded log read');
+    }
+    remaining -= group.ids.length;
+    requested.add((ids: List<int>.of(group.ids), maxBytes: group.maxBytes));
+  }
+  return requested;
+}
+
+List<Uint8List>? _readLogGroups(
+  KvLogStore store,
+  int namespace,
+  List<LogReadGroup> groups,
+) {
+  final requested = _snapshotLogGroups(groups);
+  final result = <Uint8List>[];
+  for (final group in requested) {
+    final out = BytesBuilder(copy: false);
+    for (final id in group.ids) {
+      final bytes = store.readLog(namespace, id);
+      if (bytes == null || bytes.length > group.maxBytes - out.length) {
+        return null;
+      }
+      out.add(bytes);
+    }
+    result.add(out.takeBytes());
+  }
+  return result;
+}
+
 /// Ordered metadata reads in one worker request. Missing keys keep their null
 /// positions; this does not enumerate a namespace or retain a read cache.
 abstract interface class AsyncKvBatchReader {
@@ -106,6 +157,7 @@ class SyncWrappedAsyncKvLogStore
         AsyncKvLogStore,
         CommitAnchorSource,
         AsyncLogBatchReader,
+        AsyncLogGroupReader,
         AsyncKvBatchReader {
   SyncWrappedAsyncKvLogStore(this._inner);
 
@@ -143,6 +195,28 @@ class SyncWrappedAsyncKvLogStore
       records.add(record);
     }
     return records;
+  }
+
+  @override
+  Future<List<Uint8List>?> readLogGroups(
+    int namespace,
+    List<LogReadGroup> groups,
+  ) async {
+    final requested = _snapshotLogGroups(groups);
+    final result = <Uint8List>[];
+    for (final group in requested) {
+      final out = BytesBuilder(copy: false);
+      for (final id in group.ids) {
+        // Preserve overridden reads in inline adapters and test stores.
+        final bytes = await readLog(namespace, id);
+        if (bytes == null || bytes.length > group.maxBytes - out.length) {
+          return null;
+        }
+        out.add(bytes);
+      }
+      result.add(out.takeBytes());
+    }
+    return result;
   }
 
   @override
@@ -293,6 +367,12 @@ class _ReadLogBatchReq extends _Req {
   const _ReadLogBatchReq(this.namespace, this.logIds, super.reply);
   final int namespace;
   final List<int> logIds;
+}
+
+class _ReadLogGroupsReq extends _Req {
+  const _ReadLogGroupsReq(this.namespace, this.groups, super.reply);
+  final int namespace;
+  final List<LogReadGroup> groups;
 }
 
 class _IterReq extends _Req {
@@ -455,6 +535,8 @@ void _workerEntry(_OpenConfig cfg) {
         run(() => store.readLog(namespace, logId));
       case _ReadLogBatchReq(:final namespace, :final logIds):
         run(() => _readLogBatch(store, namespace, logIds));
+      case _ReadLogGroupsReq(:final namespace, :final groups):
+        run(() => _readLogGroups(store, namespace, groups));
       case _IterReq(:final namespace, :final start, :final end, :final limit):
         run(
           () => store.iterLogRange(
@@ -530,6 +612,7 @@ class WorkerKvLogStore
         AsyncKvLogStore,
         CommitAnchorSource,
         AsyncLogBatchReader,
+        AsyncLogGroupReader,
         AsyncKvBatchReader {
   WorkerKvLogStore._(this._isolate, this._toWorker, this._watch);
 
@@ -730,6 +813,20 @@ class WorkerKvLogStore
     final requested = List<int>.of(logIds);
     return _call<List<Uint8List>?>(
       (reply) => _ReadLogBatchReq(namespace, requested, reply),
+    );
+  }
+
+  @override
+  Future<List<Uint8List>?> readLogGroups(
+    int namespace,
+    List<LogReadGroup> groups,
+  ) async {
+    final requested = _snapshotLogGroups(groups);
+    if (requested.every((group) => group.ids.isEmpty)) {
+      return [for (final _ in requested) Uint8List(0)];
+    }
+    return _call<List<Uint8List>?>(
+      (reply) => _ReadLogGroupsReq(namespace, requested, reply),
     );
   }
 
