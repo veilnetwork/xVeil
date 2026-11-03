@@ -69,8 +69,9 @@ class _Endpoint implements VeilTransport {
   final NodeId me;
   final incoming = StreamController<InboundMessage>.broadcast();
   bool closed = false;
+  Future<NodeId> Function()? readNodeId;
   @override
-  Future<NodeId> nodeId() async => me;
+  Future<NodeId> nodeId() async => await readNodeId?.call() ?? me;
   @override
   Stream<InboundMessage> messages() => incoming.stream;
   @override
@@ -376,6 +377,42 @@ void main() {
       );
     },
   );
+
+  for (final replace in [false, true]) {
+    test('a history send held in device lookup cannot outlive its host '
+        '(replacement=$replace)', () async {
+      net.dropPresence = true;
+      final deviceRead = Completer<NodeId>();
+      var reads = 0;
+      tb.readNodeId = () {
+        reads++;
+        return deviceRead.future;
+      };
+      mb.start();
+      await Future<void>(() {});
+      expect(reads, greaterThan(0));
+      expect(net.history.where((f) => f.from == b), isEmpty);
+
+      mb.groupBindingsOwner = replace ? Object() : null;
+      tb.readNodeId = null;
+      if (replace) {
+        mb.onOwnDeviceHistoryReady(mb.groupBindingsOwner!);
+        await Future<void>(() {});
+        expect(
+          net.history.where((f) => f.from == b && f.body['q'] != null),
+          hasLength(1),
+        );
+      }
+      final before = net.history.where((f) => f.from == b).length;
+      deviceRead.complete(b);
+      await Future<void>(() {});
+      expect(
+        net.history.where((f) => f.from == b),
+        hasLength(before),
+        reason: 'the retired host must not enqueue its pending query',
+      );
+    });
+  }
 
   test(
     'only the current ready host starts history and repeated notices share its pull',
