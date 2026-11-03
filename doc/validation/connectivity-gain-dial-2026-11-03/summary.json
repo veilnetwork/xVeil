@@ -1,0 +1,18 @@
+{
+  "runtimePassed": 797,
+  "runtimeIgnored": 11,
+  "ffiCheckPassed": true,
+  "ffiFeatures": [
+    "node-embedded",
+    "production-seeds",
+    "packet-tunnel"
+  ],
+  "newRegressionsPassed": 2,
+  "realNetworkChangeStillCancelsPendingTransport": true,
+  "candidateUnpolledWakeRegressionCaught": true,
+  "externalMountLost": false,
+  "physicalMobileHandoverChecked": false,
+  "handoverLatencyImprovementClaimed": false,
+  "devicesUpdated": false,
+  "released": false
+}
