@@ -458,6 +458,14 @@ class _MessagingOwnHistory {
             .toList();
         final page = window.take(_page).toList();
         final events = <String>[];
+        Map<String, dynamic> pageResult(Message? last) => {
+          'op': 'page',
+          'peer': peer,
+          'events': events,
+          'next': last != null && window.length > events.length
+              ? [last.timestamp.millisecondsSinceEpoch, last.id]
+              : null,
+        };
         final ttl = (await _owner._storage.getContact(
           node,
         ))?.disappearingTtlSeconds;
@@ -489,15 +497,20 @@ class _MessagingOwnHistory {
             );
           }
           events.add(event.toBody());
+          // Count the final UTF-8 envelope: event bodies are JSON strings
+          // inside another JSON object, so quotes/backslashes expand again.
+          // Eight valid messages can exceed the reassembly budget together.
+          // Keep a fitting prefix and resume after its last included message.
+          if (utf8.encode(jsonEncode(pageResult(message))).length >
+              _slice * _maxParts) {
+            events.removeLast();
+            if (events.isEmpty) {
+              throw StateError('History message too large');
+            }
+            break;
+          }
         }
-        result = {
-          'op': 'page',
-          'peer': peer,
-          'events': events,
-          'next': window.length > _page
-              ? [page.last.timestamp.millisecondsSinceEpoch, page.last.id]
-              : null,
-        };
+        result = pageResult(events.isEmpty ? null : page[events.length - 1]);
       } else {
         return;
       }
