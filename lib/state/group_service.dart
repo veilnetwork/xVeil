@@ -31,6 +31,8 @@ import '../core/log.dart';
 import '../domain/clear_policy.dart';
 import '../domain/clear_request.dart';
 import '../crypto/blake3.dart';
+import '../crypto/sovereign_signature_cache.dart';
+import '../crypto/verification_cache_digest.dart';
 import '../data/node/embedded_node.dart';
 import '../data/storage/file_store.dart'
     show

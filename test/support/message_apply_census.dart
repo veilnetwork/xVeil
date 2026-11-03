@@ -9,6 +9,8 @@ import 'package:xveil/domain/chat.dart';
 
 import 'timed_native_store.dart';
 
+enum MessageStorageOperation { markStatus, adoptOrdering }
+
 /// Passive fixture data. No message key, payload, path or exception is exported.
 /// RPC await times can overlap and must not be summed as exclusive disk time.
 class MessageApplyCensus {
@@ -34,6 +36,10 @@ class MessageApplyCensus {
       <String, ({int count, int wait, int maxWait, int before})>{};
   final _storageOperations =
       <String, ({int count, int wait, int maxWait, int before})>{};
+  final _messageOperations =
+      <String, ({int count, int wait, int maxWait, int before})>{};
+  final _messageChanges = <String, int>{};
+  final _messageFailures = <String, int>{};
 
   void reset() {
     _epoch = nowUs;
@@ -46,6 +52,35 @@ class MessageApplyCensus {
     _rpcNamespaces.clear();
     _rpcStorageOperations.clear();
     _storageOperations.clear();
+    _messageOperations.clear();
+    _messageChanges.clear();
+    _messageFailures.clear();
+  }
+
+  Future<bool> messageOperation(
+    MessageStorageOperation operation,
+    Future<bool> Function() body,
+  ) async {
+    final start = nowUs;
+    bool? changed;
+    try {
+      final result = await body();
+      changed = result;
+      return result;
+    } finally {
+      final label = operation.name;
+      _record(
+        _messageOperations,
+        label,
+        math.max<int>(0, nowUs - math.max<int>(start, _epoch)),
+        start < _epoch,
+      );
+      if (changed == null) {
+        _messageFailures.update(label, (value) => value + 1, ifAbsent: () => 1);
+      } else if (changed) {
+        _messageChanges.update(label, (value) => value + 1, ifAbsent: () => 1);
+      }
+    }
   }
 
   Future<T> fileOperation<T>(
@@ -200,14 +235,18 @@ class MessageApplyCensus {
   }
 
   static Map<String, Object> _rpcSnapshot(
-    Map<String, ({int count, int wait, int maxWait, int before})> source,
-  ) => {
+    Map<String, ({int count, int wait, int maxWait, int before})> source, {
+    Map<String, int>? changes,
+    Map<String, int>? failures,
+  }) => {
     for (final label in source.keys.toList()..sort())
       label: {
         'count': source[label]!.count,
         'awaitUs': source[label]!.wait,
         'maxAwaitUs': source[label]!.maxWait,
         'startedBeforeWindow': source[label]!.before,
+        if (changes != null) 'changed': changes[label] ?? 0,
+        if (failures != null) 'failed': failures[label] ?? 0,
       },
   };
 
@@ -229,12 +268,47 @@ class MessageApplyCensus {
     'rpcNamespacesCompleted': _rpcSnapshot(_rpcNamespaces),
     'storageOperationsCompleted': _rpcSnapshot(_storageOperations),
     'rpcStorageOperationsCompleted': _rpcSnapshot(_rpcStorageOperations),
+    'messageOperationsCompleted': _rpcSnapshot(
+      _messageOperations,
+      changes: _messageChanges,
+      failures: _messageFailures,
+    ),
   };
 }
 
 class CountedMessageStorage extends HiddenVolumeStorage {
   CountedMessageStorage(super.opener, this.census) : super.async();
   final MessageApplyCensus census;
+
+  @override
+  Future<bool> markMessageStatus(
+    String conversationId,
+    String messageId,
+    MessageStatus status,
+  ) => census.messageOperation(
+    MessageStorageOperation.markStatus,
+    () => super.markMessageStatus(conversationId, messageId, status),
+  );
+
+  @override
+  Future<bool> adoptMessageOrdering(
+    String conversationId,
+    String messageId, {
+    required String provisionalAuthor,
+    required int provisionalSeq,
+    required String author,
+    required int seq,
+  }) => census.messageOperation(
+    MessageStorageOperation.adoptOrdering,
+    () => super.adoptMessageOrdering(
+      conversationId,
+      messageId,
+      provisionalAuthor: provisionalAuthor,
+      provisionalSeq: provisionalSeq,
+      author: author,
+      seq: seq,
+    ),
+  );
 
   @override
   Future<void> storeFile(

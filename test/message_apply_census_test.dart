@@ -12,6 +12,63 @@ import 'package:xveil/data/storage/fake_kv_log_store.dart';
 
 void main() {
   test(
+    'message methods preserve outcomes and clip reset without error data',
+    () async {
+      var now = 0;
+      final census = MessageApplyCensus(nowUs: () => now);
+      final entered = Completer<void>(), release = Completer<void>();
+      final pending = census.messageOperation(
+        MessageStorageOperation.adoptOrdering,
+        () async {
+          entered.complete();
+          await release.future;
+          return true;
+        },
+      );
+      await entered.future;
+      now = 50;
+      census.reset();
+      now = 80;
+      release.complete();
+      expect(await pending, isTrue);
+      expect(
+        await census.messageOperation(
+          MessageStorageOperation.markStatus,
+          () async => false,
+        ),
+        isFalse,
+      );
+      final error = StateError('PRIVATE_METHOD_ERROR');
+      await expectLater(
+        census.messageOperation(
+          MessageStorageOperation.markStatus,
+          () async => throw error,
+        ),
+        throwsA(same(error)),
+      );
+      final out = census.snapshot();
+      final methods = out['messageOperationsCompleted'] as Map;
+      expect(methods['adoptOrdering'], {
+        'count': 1,
+        'awaitUs': 30,
+        'maxAwaitUs': 30,
+        'startedBeforeWindow': 1,
+        'changed': 1,
+        'failed': 0,
+      });
+      expect(methods['markStatus'], {
+        'count': 2,
+        'awaitUs': 0,
+        'maxAwaitUs': 0,
+        'startedBeforeWindow': 0,
+        'changed': 0,
+        'failed': 1,
+      });
+      expect(jsonEncode(out), isNot(contains('PRIVATE_')));
+    },
+  );
+
+  test(
     'census distinguishes successful scoped repeats from failed attempts',
     () {
       var now = 0;
