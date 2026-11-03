@@ -315,6 +315,8 @@ void main() {
         timeout: const Duration(minutes: 2),
         interval: const Duration(seconds: 2),
       );
+      final expectedOfflinePositions = _positions['A'];
+      if (_withPositions) expect(expectedOfflinePositions, hasLength(100));
       await waitUntil(
         () => offline.elapsed >= const Duration(minutes: 5),
         what: 'B stays offline for at least five real minutes',
@@ -343,8 +345,17 @@ void main() {
             final found = await _ids(b, ci, 'backlog-offline-');
             final idsComplete =
                 found.length == 100 && equals(expected).matches(found, {});
+            final positions = _positions['B'];
+            final positionsComplete = !_withPositions ||
+                (positions != null &&
+                    positions.length == 100 &&
+                    expectedOfflinePositions!.entries.every((entry) =>
+                        positions[entry.key]?['orderAuthor'] ==
+                            entry.value['orderAuthor'] &&
+                        positions[entry.key]?['orderSeq'] ==
+                            entry.value['orderSeq']));
             final delivered = _statuses['B']?['delivered'] ?? 0;
-            final complete = idsComplete && delivered == 100;
+            final complete = idsComplete && positionsComplete && delivered == 100;
             samples.add({
               'elapsedMs': recovery.elapsedMilliseconds,
               'fromLaunchMs': launched.elapsedMilliseconds,
@@ -352,6 +363,7 @@ void main() {
               'queryMs': query.elapsedMilliseconds,
               'delivered': delivered,
               'idsComplete': idsComplete ? 1 : 0,
+              'positionsComplete': positionsComplete ? 1 : 0,
               'complete': complete ? 1 : 0,
             });
             E2eLog.line(
@@ -376,6 +388,12 @@ void main() {
             jsonEncode({
               'baseRows': baseRows,
               'initialHistoryMs': initialHistory.elapsedMilliseconds,
+              'initialCountCompleteMs': initialCountCompleteMs,
+              'initialOrderMismatchObservations':
+                  initialOrderMismatchObservations,
+              'initialPositionMismatchObservations':
+                  initialPositionMismatchObservations,
+              'positionsCompared': _withPositions,
               'initialBStatuses': initialBStatuses,
               'initialBCompletedHistoryRetries': completedHistoryRetries,
               'backlogRows': 100,
