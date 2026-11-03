@@ -1,0 +1,232 @@
+{
+  "flutterTestsPassed": 525,
+  "diagnosticTestsPassed": 19,
+  "analyzerIssues": 0,
+  "diagnosticAotModes": [
+    "disabled",
+    "enabled"
+  ],
+  "modelAbaIdentical": true,
+  "modelAotMatchesJit": true,
+  "modelBeforeContinuation": {
+    "lower-target": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true
+    ],
+    "legacy-plateau": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ],
+    "progressive": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "modelCandidate": {
+    "lower-target": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ],
+    "legacy-plateau": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ],
+    "progressive": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "physicalCellularQualification": false,
+  "experiments": [
+    {
+      "name": "target-only-candidate",
+      "fullGatePassed": false,
+      "durationSeconds": 70,
+      "processingScope": "codec-only-tones",
+      "processingScopeVerified": true,
+      "neutralRouteVerified": true,
+      "tailMotionVerified": true,
+      "directions": [
+        {
+          "side": 0,
+          "queuePressureSamples": 0,
+          "persistentVideoLossSamples": 2,
+          "firstFullVideoLimitSecondsAfterStart": 22.0,
+          "endVideoLimit": {
+            "kbps": 900,
+            "fps": 60.0
+          },
+          "decodedCounterFps": 8.84,
+          "videoTargetRangeMs": [
+            0,
+            358
+          ],
+          "toneEdgesMatched": 50,
+          "toneEdgesMissing": 0,
+          "maxToneEdgeMs": 322.97,
+          "quietPcmBlocks": 0,
+          "pcmBlocks": 4999,
+          "cumulativeAudioInterruptions": [
+            1
+          ]
+        },
+        {
+          "side": 1,
+          "queuePressureSamples": 1,
+          "persistentVideoLossSamples": 1,
+          "firstFullVideoLimitSecondsAfterStart": null,
+          "endVideoLimit": {
+            "kbps": 284,
+            "fps": 18.189894035458565
+          },
+          "decodedCounterFps": 17.79,
+          "videoTargetRangeMs": [
+            0,
+            377
+          ],
+          "toneEdgesMatched": 50,
+          "toneEdgesMissing": 0,
+          "maxToneEdgeMs": 333.38,
+          "quietPcmBlocks": 0,
+          "pcmBlocks": 4999,
+          "cumulativeAudioInterruptions": [
+            1
+          ]
+        }
+      ],
+      "nodeStopResults": [
+        0,
+        0,
+        0
+      ],
+      "remainingFixtureSockets": 0,
+      "policyExited": true,
+      "audioThreadExited": true
+    },
+    {
+      "name": "continuation-candidate",
+      "fullGatePassed": false,
+      "durationSeconds": 70,
+      "processingScope": "codec-only-tones",
+      "processingScopeVerified": true,
+      "neutralRouteVerified": true,
+      "tailMotionVerified": true,
+      "directions": [
+        {
+          "side": 0,
+          "queuePressureSamples": 0,
+          "persistentVideoLossSamples": 1,
+          "firstFullVideoLimitSecondsAfterStart": 14.0,
+          "endVideoLimit": {
+            "kbps": 900,
+            "fps": 60.0
+          },
+          "decodedCounterFps": 15.96,
+          "videoTargetRangeMs": [
+            0,
+            289
+          ],
+          "toneEdgesMatched": 50,
+          "toneEdgesMissing": 0,
+          "maxToneEdgeMs": 322.08,
+          "quietPcmBlocks": 0,
+          "pcmBlocks": 4994,
+          "cumulativeAudioInterruptions": [
+            0
+          ]
+        },
+        {
+          "side": 1,
+          "queuePressureSamples": 0,
+          "persistentVideoLossSamples": 2,
+          "firstFullVideoLimitSecondsAfterStart": 40.0,
+          "endVideoLimit": {
+            "kbps": 450,
+            "fps": 30.0
+          },
+          "decodedCounterFps": 22.5,
+          "videoTargetRangeMs": [
+            0,
+            346
+          ],
+          "toneEdgesMatched": 50,
+          "toneEdgesMissing": 0,
+          "maxToneEdgeMs": 322.29,
+          "quietPcmBlocks": 0,
+          "pcmBlocks": 4994,
+          "cumulativeAudioInterruptions": [
+            0
+          ]
+        }
+      ],
+      "nodeStopResults": [
+        0,
+        0,
+        0
+      ],
+      "remainingFixtureSockets": 0,
+      "policyExited": true,
+      "audioThreadExited": true
+    }
+  ]
+}
