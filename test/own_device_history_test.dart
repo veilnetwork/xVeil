@@ -158,6 +158,35 @@ Future<void> until(Future<bool> Function() check) async {
   }
 }
 
+Future<void> _historyReply(
+  _Endpoint from,
+  NodeId to,
+  String requestId,
+  Map<String, dynamic> reply,
+) async {
+  final bytes = utf8.encode(jsonEncode(reply));
+  final parts = (bytes.length + 2047) ~/ 2048;
+  expect(parts, lessThanOrEqualTo(64));
+  for (var i = 0; i < parts; i++) {
+    await from.net.send(
+      from,
+      to,
+      WireEnvelope.deviceHistory(
+        jsonEncode({
+          'v': 1,
+          'd': from.me.hex,
+          'id': requestId,
+          'i': i,
+          'n': parts,
+          'b': base64Encode(
+            bytes.sublist(i * 2048, ((i + 1) * 2048).clamp(0, bytes.length)),
+          ),
+        }),
+      ).encode(),
+    );
+  }
+}
+
 void main() {
   late _Network net;
   late _SnapshotStorage sa, sb;
@@ -745,6 +774,524 @@ void main() {
         (await sb.loadMessages(peer.hex)).map((row) => row.id),
         (await sa.loadMessages(peer.hex)).map((row) => row.id),
       );
+      expect(errorJournal.entries, isEmpty);
+    },
+  );
+
+  test(
+    'one oversized history event does not block its following messages',
+    () async {
+      await seed(3);
+      await sa.editMessage(
+        peer.hex,
+        'm0001',
+        List.filled(160000, 'z').join(),
+        seq: 7,
+      );
+      net.reverseParts = true;
+      ma.start();
+      mb.start();
+      await until(
+        () async => await count() == 3 || errorJournal.entries.isNotEmpty,
+      );
+      expect(await count(), 3);
+      final expected = await sa.loadMessages(peer.hex);
+      final got = await sb.loadMessages(peer.hex);
+      expect(got.map((row) => row.id), expected.map((row) => row.id));
+      expect(got.map((row) => row.body), expected.map((row) => row.body));
+      expect(
+        got.map((row) => row.orderAuthor),
+        expected.map((row) => row.orderAuthor),
+      );
+      expect(
+        got.map((row) => row.orderSeq),
+        expected.map((row) => row.orderSeq),
+      );
+      expect((await sb.editSeqs(peer.hex))['m0001'], 7);
+      expect(got.every((row) => row.status == MessageStatus.delivered), isTrue);
+      expect(applied, 3);
+      expect(errorJournal.entries, isEmpty);
+    },
+  );
+
+  test(
+    'restart discards a partial record and keeps its preceding durable cursor',
+    () async {
+      await seed(3);
+      await sa.editMessage(peer.hex, 'm0001', 'x' * 160000, seq: 4);
+      var hold = true, held = false;
+      net.drop = (from, to, body) {
+        if (from == a && body['q'] != null) return true;
+        final q = body['q'];
+        if (hold &&
+            from == b &&
+            q is Map &&
+            q['op'] == 'record' &&
+            q['offset'] == 65536) {
+          held = true;
+          return true;
+        }
+        return false;
+      };
+      ma.start();
+      mb.start();
+      await until(() async => held);
+      expect(await count(), 1);
+      final progress =
+          jsonDecode(
+                (await sb.getSetting('device.history.cursor.v2:${a.hex}'))!,
+              )
+              as Map;
+      expect((progress['cursor'] as List)[1], 'm0000');
+      final before = net.history.length;
+      hold = false;
+      await restartB();
+      await until(() async => await count() == 3);
+      final first = net.history
+          .skip(before)
+          .firstWhere(
+            (frame) => frame.from == b && frame.body['q']?['op'] == 'record',
+          );
+      expect(first.body['q']['offset'], 0);
+      expect(applied, 3);
+      expect((await sb.loadMessageById(peer.hex, 'm0001'))!.body, 'x' * 160000);
+      expect(errorJournal.entries, isEmpty);
+    },
+  );
+
+  test(
+    'editing a partial record restarts it without mixing revisions',
+    () async {
+      await seed(1, bodyBytes: 160000);
+      Map<String, dynamic>? held;
+      net.drop = (from, to, body) {
+        if (from == a && body['q'] != null) return true;
+        final q = body['q'];
+        if (held == null &&
+            from == b &&
+            q is Map &&
+            q['op'] == 'record' &&
+            q['offset'] == 65536) {
+          held = Map<String, dynamic>.from(body);
+          return true;
+        }
+        return false;
+      };
+      ma.start();
+      mb.start();
+      await until(() async => held != null);
+      expect(await count(), 0);
+      await sa.editMessage(peer.hex, 'm0000', 'n' * 160000, seq: 9);
+      await net.send(
+        tb,
+        a,
+        WireEnvelope.deviceHistory(jsonEncode(held)).encode(),
+      );
+      await until(() async => await count() == 1);
+      expect((await sb.loadMessageById(peer.hex, 'm0000'))!.body, 'n' * 160000);
+      expect((await sb.editSeqs(peer.hex))['m0000'], 9);
+      expect(applied, 1);
+      expect(
+        net.history
+            .where(
+              (frame) => frame.from == b && frame.body['q']?['op'] == 'record',
+            )
+            .map((frame) => frame.body['q']['hash'])
+            .toSet(),
+        hasLength(2),
+      );
+      expect(errorJournal.entries, isEmpty);
+    },
+  );
+
+  test('partial record cannot revive expired content', () async {
+    await seed(
+      1,
+      bodyBytes: 160000,
+      at: now.subtract(const Duration(seconds: 1)),
+    );
+    await sa.upsertContact(
+      (await sa.getContact(peer))!.copyWith(disappearingTtlSeconds: 5),
+    );
+    Map<String, dynamic>? held;
+    net.drop = (from, to, body) {
+      if (from == a && body['q'] != null) return true;
+      final q = body['q'];
+      if (held == null &&
+          from == b &&
+          q is Map &&
+          q['op'] == 'record' &&
+          q['offset'] == 65536) {
+        held = Map<String, dynamic>.from(body);
+        return true;
+      }
+      return false;
+    };
+    ma.start();
+    mb.start();
+    await until(() async => held != null);
+    now = now.add(const Duration(seconds: 10));
+    await net.send(
+      tb,
+      a,
+      WireEnvelope.deviceHistory(jsonEncode(held)).encode(),
+    );
+    await until(
+      () async =>
+          await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+    );
+    expect(await count(), 0);
+    expect(applied, 0);
+    expect(errorJournal.entries, isEmpty);
+  });
+
+  test(
+    'digest failures release record credit and never advance the cursor',
+    () async {
+      await seed(1, bodyBytes: 500000);
+      Map<String, dynamic>? held;
+      var corrupt = true;
+      net.drop = (from, to, body) {
+        if (from == a && body['q'] != null) return true;
+        final q = body['q'];
+        if (corrupt &&
+            held == null &&
+            from == b &&
+            q is Map &&
+            q['op'] == 'record' &&
+            q['offset'] == 0) {
+          held = Map<String, dynamic>.from(body);
+          return true;
+        }
+        return false;
+      };
+      ma.start();
+      mb.start();
+      for (var attempt = 0; attempt < 9; attempt++) {
+        await until(() async => held != null);
+        final q = held!['q'] as Map;
+        await _historyReply(ta, b, held!['id'] as String, {
+          'op': 'record',
+          'peer': peer.hex,
+          'key': 'm0000',
+          'hash': q['hash'],
+          'offset': 0,
+          'data': base64Encode(Uint8List(65536)),
+        });
+        await until(() async => errorJournal.entries.isNotEmpty);
+        expect(await count(), 0);
+        expect(applied, 0);
+        final progress =
+            jsonDecode(
+                  (await sb.getSetting('device.history.cursor.v2:${a.hex}'))!,
+                )
+                as Map;
+        expect(progress['cursor'], isNull);
+        errorJournal.clear();
+        held = null;
+        if (attempt == 8) corrupt = false;
+        now = now.add(const Duration(minutes: 6));
+        tb.incoming.add(
+          InboundMessage(
+            src: identity,
+            srcDevice: a,
+            provenance: SenderProvenance.signed,
+            payload: WireEnvelope.presence(a.hex).encode(),
+          ),
+        );
+      }
+      await until(() async => await count() == 1);
+      expect((await sb.loadMessageById(peer.hex, 'm0000'))!.body, '0' * 500000);
+      expect(applied, 1);
+      expect(errorJournal.entries, isEmpty);
+    },
+  );
+
+  test(
+    'record descriptors reserve at most four MiB and binding change releases them',
+    () async {
+      final sources = [
+        ta,
+        for (var i = 100; i < 104; i++) _Endpoint(net, id(i)),
+      ];
+      for (final endpoint in sources.skip(1)) {
+        addTearDown(endpoint.dispose);
+      }
+      bSiblings = sources.map((source) => source.me).toList();
+      mb.start();
+      await until(
+        () async =>
+            net.history
+                .where(
+                  (frame) =>
+                      frame.from == b && frame.body['q']?['op'] == 'list',
+                )
+                .length ==
+            5,
+      );
+      for (final source in sources) {
+        final ask = net.history.lastWhere(
+          (frame) =>
+              frame.from == b &&
+              frame.to == source.me &&
+              frame.body['q']?['op'] == 'list',
+        );
+        await _historyReply(source, b, ask.body['id'] as String, {
+          'op': 'list',
+          'rows': [
+            {'peer': peer.hex, 'count': 1, 'hash': '0' * 64},
+          ],
+        });
+      }
+      await until(
+        () async =>
+            net.history
+                .where(
+                  (frame) =>
+                      frame.from == b && frame.body['q']?['op'] == 'page',
+                )
+                .length ==
+            5,
+      );
+      Map<String, dynamic> descriptor() => {
+        'op': 'page',
+        'peer': peer.hex,
+        'record': {
+          'position': [DateTime.utc(2020).millisecondsSinceEpoch, 'record'],
+          'bytes': 1024 * 1024,
+          'hash': '1' * 64,
+        },
+      };
+      for (var i = 0; i < sources.length; i++) {
+        final source = sources[i];
+        final ask = net.history.lastWhere(
+          (frame) =>
+              frame.from == b &&
+              frame.to == source.me &&
+              frame.body['q']?['op'] == 'page',
+        );
+        await _historyReply(source, b, ask.body['id'] as String, descriptor());
+        if (i < 4) {
+          await until(
+            () async => net.history.any(
+              (frame) =>
+                  frame.from == b &&
+                  frame.to == source.me &&
+                  frame.body['q']?['op'] == 'record',
+            ),
+          );
+        }
+      }
+      // All fixture roster/storage futures complete in microtasks. Drain the
+      // turn after the last descriptor; this is an event barrier, not a speed gate.
+      await Future<void>(() {});
+      expect(
+        net.history.where(
+          (frame) => frame.from == b && frame.body['q']?['op'] == 'record',
+        ),
+        hasLength(4),
+      );
+      final before = net.history.length;
+      mb.groupBindingsOwner = Object();
+      now = now.add(const Duration(seconds: 31));
+      for (final source in sources) {
+        tb.incoming.add(
+          InboundMessage(
+            src: identity,
+            srcDevice: source.me,
+            provenance: SenderProvenance.signed,
+            payload: WireEnvelope.presence(source.me.hex).encode(),
+          ),
+        );
+      }
+      final fifth = sources.last;
+      await until(
+        () async => net.history
+            .skip(before)
+            .any(
+              (frame) =>
+                  frame.from == b &&
+                  frame.to == fifth.me &&
+                  frame.body['q']?['op'] == 'page',
+            ),
+      );
+      final ask = net.history.lastWhere(
+        (frame) =>
+            frame.from == b &&
+            frame.to == fifth.me &&
+            frame.body['q']?['op'] == 'page',
+      );
+      await _historyReply(fifth, b, ask.body['id'] as String, descriptor());
+      await until(
+        () async => net.history
+            .skip(before)
+            .any(
+              (frame) =>
+                  frame.from == b &&
+                  frame.to == fifth.me &&
+                  frame.body['q']?['op'] == 'record',
+            ),
+      );
+      expect(await count(), 0);
+      expect(errorJournal.entries, isEmpty);
+    },
+  );
+
+  test(
+    'oversized record descriptors leave the durable cursor in place',
+    () async {
+      await seed(1, bodyBytes: 160000);
+      Map<String, dynamic>? held;
+      net.drop = (from, to, body) {
+        if (from == a && body['q'] != null) return true;
+        if (held == null && from == b && body['q']?['op'] == 'page') {
+          held = Map<String, dynamic>.from(body);
+          return true;
+        }
+        return false;
+      };
+      ma.start();
+      mb.start();
+      await until(() async => held != null);
+      await _historyReply(ta, b, held!['id'] as String, {
+        'op': 'page',
+        'peer': peer.hex,
+        'record': {
+          'position': [DateTime.utc(2020).millisecondsSinceEpoch, 'm0000'],
+          'bytes': 1024 * 1024 + 1,
+          'hash': '1' * 64,
+        },
+      });
+      await until(() async => errorJournal.entries.isNotEmpty);
+      expect(await count(), 0);
+      expect(
+        net.history.where(
+          (frame) => frame.from == b && frame.body['q']?['op'] == 'record',
+        ),
+        isEmpty,
+      );
+      final progress =
+          jsonDecode(
+                (await sb.getSetting('device.history.cursor.v2:${a.hex}'))!,
+              )
+              as Map;
+      expect(progress['cursor'], isNull);
+    },
+  );
+
+  test(
+    'revoked source cannot complete a partial record across binding replacement',
+    () async {
+      await seed(1, bodyBytes: 160000);
+      Map<String, dynamic>? held;
+      net.drop = (from, to, body) {
+        if (from == a && body['q'] != null) return true;
+        final q = body['q'];
+        if (held == null &&
+            from == b &&
+            q is Map &&
+            q['op'] == 'record' &&
+            q['offset'] == 65536) {
+          held = Map<String, dynamic>.from(body);
+          return true;
+        }
+        return false;
+      };
+      ma.start();
+      mb.start();
+      await until(() async => held != null);
+      final rejected = Completer<void>();
+      bSiblings = [];
+      mb.myOtherDevices = () async {
+        if (!rejected.isCompleted) rejected.complete();
+        return bSiblings;
+      };
+      await net.send(
+        tb,
+        a,
+        WireEnvelope.deviceHistory(jsonEncode(held)).encode(),
+      );
+      await rejected.future;
+      await Future<void>(() {});
+      expect(await count(), 0);
+      final progress =
+          jsonDecode(
+                (await sb.getSetting('device.history.cursor.v2:${a.hex}'))!,
+              )
+              as Map;
+      expect(progress['cursor'], isNull);
+      await sa.editMessage(peer.hex, 'm0000', 'fresh' * 40000, seq: 10);
+      bSiblings = [a];
+      mb.groupBindingsOwner = Object();
+      now = now.add(const Duration(seconds: 31));
+      tb.incoming.add(
+        InboundMessage(
+          src: identity,
+          srcDevice: a,
+          provenance: SenderProvenance.signed,
+          payload: WireEnvelope.presence(a.hex).encode(),
+        ),
+      );
+      await until(() async => await count() == 1);
+      expect(
+        (await sb.loadMessageById(peer.hex, 'm0000'))!.body,
+        'fresh' * 40000,
+      );
+      expect((await sb.editSeqs(peer.hex))['m0000'], 10);
+      expect(applied, 1);
+      expect(errorJournal.entries, isEmpty);
+    },
+  );
+
+  test(
+    'a valid record request still requires current source-side authorization',
+    () async {
+      await seed(1, bodyBytes: 160000);
+      Map<String, dynamic>? held;
+      net.drop = (from, to, body) {
+        if (from == a && body['q'] != null) return true;
+        final q = body['q'];
+        if (held == null &&
+            from == b &&
+            q is Map &&
+            q['op'] == 'record' &&
+            q['offset'] == 65536) {
+          held = Map<String, dynamic>.from(body);
+          return true;
+        }
+        return false;
+      };
+      ma.start();
+      mb.start();
+      await until(() async => held != null);
+      final checked = Completer<void>();
+      ma.myOtherDevices = () async {
+        if (!checked.isCompleted) checked.complete();
+        return [];
+      };
+      final before = net.history.length;
+      await net.send(
+        tb,
+        a,
+        WireEnvelope.deviceHistory(jsonEncode(held)).encode(),
+      );
+      await checked.future;
+      await Future<void>(() {});
+      expect(
+        net.history
+            .skip(before)
+            .where((frame) => frame.from == a && frame.body['i'] != null),
+        isEmpty,
+      );
+      expect(await count(), 0);
+      ma.myOtherDevices = () async => [b];
+      await net.send(
+        tb,
+        a,
+        WireEnvelope.deviceHistory(jsonEncode(held)).encode(),
+      );
+      await until(() async => await count() == 1);
+      expect(applied, 1);
       expect(errorJournal.entries, isEmpty);
     },
   );
