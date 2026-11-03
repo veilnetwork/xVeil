@@ -218,16 +218,28 @@ class _MessagingOwnHistory {
     }
     final seconds = (1 << pull.attempts).clamp(2, 30);
     pull.timer = Timer(Duration(seconds: seconds), () => _transmit(pull));
+    final requestId = pull.id;
+    final query = Map<String, dynamic>.of(pull.query);
+    bool current() =>
+        _ready &&
+        identical(pull.binding, _owner.groupBindingsOwner) &&
+        _pulls[pull.device.hex] == pull &&
+        pull.id == requestId;
     _run(() async {
       if (!await _allowed(pull.device, pull.binding)) {
         _finish(pull, const Duration(minutes: 5));
         return;
       }
+      if (!current()) return;
+      final self = await _owner._selfHex();
+      // Roster/device lookups may complete after detach, a replacement pull,
+      // or its next page. Never enqueue retired work or borrow a newer query.
+      if (!current()) return;
       await _send(pull.device, {
         'v': 1,
-        'd': await _owner._selfHex(),
-        'id': pull.id,
-        'q': pull.query,
+        'd': self,
+        'id': requestId,
+        'q': query,
       });
     });
   }
