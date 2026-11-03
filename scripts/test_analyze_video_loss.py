@@ -17,6 +17,25 @@ def report(highest, lost, fraction, at):
 
 
 class VideoLossTest(unittest.TestCase):
+    def test_sender_reports_are_retained_and_checked_for_complete_capture(self):
+        with tempfile.TemporaryDirectory() as root:
+            p = Path(root) / 'trace'
+            header = ('video.loss.begin id=1 packets=0 packet_seen=0 '
+                      'reports=0 report_seen=0 malformed=0 '
+                      'sender_reports=1 sender_report_seen=1\n')
+            sr = ('video.loss.sr id=1 stage=s at_us=10 ssrc=7 '
+                  'compact_ntp=42 result=0\n')
+            footer = 'video.loss.end id=1 write_ok=1\n'
+            p.write_text(header + sr + footer)
+            result = read_trace(p)
+            self.assertEqual(result['sr'][0]['compact_ntp'], 42)
+            p.write_text(header + footer)
+            with self.assertRaisesRegex(ValueError, 'truncated'):
+                read_trace(p)
+            p.write_text(header + sr + footer + sr)
+            with self.assertRaisesRegex(ValueError, 'footer'):
+                read_trace(p)
+
     def test_late_packet_and_local_rejection_are_distinct(self):
         sends = [packet(i, i-99, result=int(i == 104)) for i in range(100, 106)]
         deliveries = [packet(i, t, 'd') for i, t in [(100, 6), (102, 12), (101, 55), (103, 62), (105, 76)]]
