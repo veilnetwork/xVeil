@@ -138,6 +138,14 @@ class NativeGroupSigner implements GroupSigner {
   final NodeId _selfId;
   final Uint8List _selfPubKey;
 
+  // A fresh roster read still verifies its manifest/control signatures. The
+  // exact same immutable crypto tuple need not repeat a hybrid signature
+  // verification; current membership and revocation folds remain outside.
+  late final _sovereignSignatures = SovereignSignatureCache(
+    verify: veil.verifySovereignSignature,
+    digest: VerificationCacheDigest.forLibrary(lib),
+  );
+
   @override
   NodeId get selfId => _selfId;
   @override
@@ -256,7 +264,7 @@ class NativeGroupSigner implements GroupSigner {
     required Uint8List message,
     required Uint8List signature,
   }) {
-    return veil.verifySovereignSignature(
+    return _sovereignSignatures.verify(
       algorithm: algorithm,
       nodeId: nodeId.bytes,
       publicKey: publicKey,
