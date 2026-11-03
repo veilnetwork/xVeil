@@ -594,6 +594,96 @@ void main() {
     },
   );
 
+  test('equal content cannot hide a provisional history position', () async {
+    await seed(1);
+    final original = (await sa.loadMessages(peer.hex)).single;
+    await sb.appendMessage(
+      Message(
+        id: original.id,
+        conversationId: original.conversationId,
+        direction: original.direction,
+        body: original.body,
+        timestamp: original.timestamp,
+        status: original.status,
+        author: identity.hex,
+        seq: 99,
+        positionVerified: false,
+      ),
+    );
+    ma.start();
+    mb.start();
+    // Wait for the durable inventory pass, not an arbitrary latency target.
+    await until(
+      () async =>
+          await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+    );
+    final repaired = (await sb.loadMessages(peer.hex)).single;
+    expect(repaired.orderAuthor, original.orderAuthor);
+    expect(repaired.orderSeq, original.orderSeq);
+    expect(repaired.body, original.body);
+    expect(repaired.status, original.status);
+    expect(
+      repaired.author,
+      identity.hex,
+      reason: 'ordering repair must not promote echo content into authorship',
+    );
+    expect(repaired.seq, 99);
+    expect(await sb.loadEventsSince(peer.hex, a.hex, 0), isEmpty);
+    expect(
+      net.history.where(
+        (frame) => frame.from == b && frame.body['q']?['op'] == 'page',
+      ),
+      isNotEmpty,
+    );
+  });
+
+  test('matching repaired ordering does not require raw authorship', () async {
+    await seed(1);
+    final original = (await sa.loadMessages(peer.hex)).single;
+    await sb.appendMessage(
+      Message(
+        id: original.id,
+        conversationId: original.conversationId,
+        direction: original.direction,
+        body: original.body,
+        timestamp: original.timestamp,
+        status: original.status,
+        author: identity.hex,
+        seq: 99,
+        positionVerified: false,
+      ),
+    );
+    expect(
+      await sb.adoptMessageOrdering(
+        peer.hex,
+        original.id,
+        provisionalAuthor: identity.hex,
+        provisionalSeq: 99,
+        author: original.orderAuthor!,
+        seq: original.orderSeq!,
+      ),
+      isTrue,
+    );
+    ma.start();
+    mb.start();
+    await until(
+      () async =>
+          await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+    );
+    expect(
+      net.history.where(
+        (frame) => frame.from == b && frame.body['q']?['op'] == 'page',
+      ),
+      isEmpty,
+    );
+    expect(applied, 0);
+    final held = (await sb.loadMessages(peer.hex)).single;
+    expect(held.orderAuthor, original.orderAuthor);
+    expect(held.orderSeq, original.orderSeq);
+    expect(held.author, identity.hex);
+    expect(held.seq, 99);
+  });
+
   test('equal-revision offline edits converge between own devices', () async {
     await seed(1);
     await sb.appendMessage((await sa.loadMessages(peer.hex)).single);
