@@ -32,6 +32,8 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 "'audio_jb_target_ms': 260, "
                 "'audio_output_level_band': 4, 'device': 'PRIVATE_CANARY', "
                 "'qtag': 'PRIVATE_CANARY', 'walk_tag': 'PRIVATE_CANARY', "
+                "'video_delivery_peers': {'PRIVATE_CANARY': {"
+                "'target_delay_ms': 260, 'sample_us': 314159265}}, "
                 "'op': 314159265, 'local': 'PRIVATE_CANARY'});\n"
                 "  diagnosticJournal.recordBackgroundState({'serviceForeground': true, "
                 "'wakeLockHeld': false, 'notification': 'PRIVATE_CANARY'});\n"

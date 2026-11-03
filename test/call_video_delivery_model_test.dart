@@ -9,6 +9,7 @@ Map<String, dynamic> report(
   int? timestamp,
   int? sent,
   int delay = 60,
+  int? targetDelay,
   int? bytes,
 }) => {
   'origin': origin,
@@ -21,6 +22,7 @@ Map<String, dynamic> report(
   'sent_bytes': n * 10000,
   'sent_timestamp_valid': true,
   'delay_ms': delay,
+  'target_delay_ms': ?targetDelay,
 };
 final epoch = DateTime(2026, 10, 21);
 DateTime at(int n) => epoch.add(Duration(seconds: n));
@@ -511,6 +513,228 @@ void main() {
     observe(m, 11, {'p': report(11, delay: 500)});
     expect(m.queuePressure, isTrue); // Independent hard ceiling is retained.
   });
+  test(
+    'filled video reserve does not turn a timing step into sustained queue growth',
+    () {
+      final m = CallVideoDeliveryModel();
+      for (var n = 1; n <= 10; n++) {
+        final filled = n >= 3;
+        observe(m, n, {
+          'p': report(
+            n,
+            delay: filled ? 260 : 60,
+            targetDelay: filled ? 260 : 60,
+            timestamp: n * 90000 - (filled ? 18000 : 0),
+          ),
+        });
+        expect(
+          m.queuePressure,
+          isFalse,
+          reason: 'reserve plateau at second $n',
+        );
+        if (n >= 3) {
+          expect(m.propose(floor, ceiling, at(n), healthy: true), isNotNull);
+        }
+      }
+    },
+  );
+  test('reserve filling and draining keeps the same media-time baseline', () {
+    final m = CallVideoDeliveryModel();
+    for (var n = 1; n <= 12; n++) {
+      final filled = n >= 3 && n < 8;
+      observe(m, n, {
+        'p': report(
+          n,
+          delay: filled ? 260 : 60,
+          targetDelay: filled ? 260 : 60,
+          timestamp: n * 90000 - (filled ? 18000 : 0),
+        ),
+      });
+      expect(m.queuePressure, isFalse);
+    }
+  });
+  test('lowering a target cannot manufacture media-time growth', () {
+    final m = CallVideoDeliveryModel();
+    for (var n = 1; n <= 12; n++) {
+      final lag = n < 3 ? 0 : 18000;
+      final reserve = n >= 3 && n < 7 ? 260 : 60;
+      observe(m, n, {
+        'p': report(
+          n,
+          delay: reserve,
+          targetDelay: reserve,
+          timestamp: n * 90000 - lag,
+        ),
+      });
+      expect(m.queuePressure, isFalse, reason: 'no further RTP lag at $n');
+    }
+  });
+  test(
+    'a stable legacy media-time step stops holding probes after confirmation',
+    () {
+      final m = CallVideoDeliveryModel();
+      for (var n = 1; n <= 8; n++) {
+        observe(m, n, {
+          'p': report(n, timestamp: n * 90000 - (n < 3 ? 0 : 18000)),
+        });
+        expect(m.queuePressure, isFalse);
+      }
+      expect(m.propose(floor, ceiling, at(8), healthy: true), isNotNull);
+    },
+  );
+  test(
+    'slow continuing media backlog still reduces below the hard delay ceiling',
+    () {
+      final m = CallVideoDeliveryModel();
+      var reduced = false;
+      for (var n = 1; n <= 20; n++) {
+        final lag = (n - 1) * 1350;
+        observe(m, n, {
+          'p': report(
+            n,
+            delay: 60,
+            targetDelay: 60,
+            timestamp: n * 90000 - lag,
+          ),
+        });
+        reduced |= m.queuePressure;
+      }
+      expect(reduced, isTrue);
+    },
+  );
+  test('cached reports cannot confirm a plateau or earn recovery', () {
+    final m = CallVideoDeliveryModel();
+    observe(m, 1, {'p': report(1)});
+    observe(m, 2, {'p': report(2)});
+    final delayed = report(3, timestamp: 3 * 90000 - 18000);
+    observe(m, 3, {'p': delayed});
+    for (var n = 4; n <= 10; n++) {
+      observe(m, n, {'p': delayed});
+      expect(m.propose(floor, ceiling, at(n), healthy: true), isNull);
+    }
+  });
+  test('a filled reserve cannot hide progressive media backlog', () {
+    final m = CallVideoDeliveryModel();
+    for (var n = 1; n <= 12; n++) {
+      final lag = n < 3 ? 0 : 18000 + (n - 3) * 4500;
+      observe(m, n, {
+        'p': report(
+          n,
+          delay: n < 3 ? 60 : 260,
+          targetDelay: n < 3 ? 60 : 260,
+          timestamp: n * 90000 - lag,
+        ),
+      });
+    }
+    expect(m.queuePressure, isTrue);
+  });
+  for (final target in [400, 500]) {
+    test(
+      'unfilled or unsupported video target $target cannot erase a backlog',
+      () {
+        final m = CallVideoDeliveryModel();
+        for (var n = 1; n <= 8; n++) {
+          observe(m, n, {
+            'p': report(
+              n,
+              delay: 60,
+              targetDelay: n < 3 ? 60 : target,
+              timestamp: n * 90000 - (n < 3 ? 0 : (n - 2) * 4500),
+            ),
+          });
+        }
+        expect(m.queuePressure, isTrue);
+      },
+    );
+  }
+  test('stopped decoding still creates pressure with a filled target', () {
+    final m = CallVideoDeliveryModel();
+    for (var n = 1; n <= 8; n++) {
+      final r = report(
+        n,
+        delay: 260,
+        targetDelay: 260,
+        timestamp: (n < 3 ? n : 2) * 90000,
+      )..['frames'] = (n < 3 ? n : 2) * 30;
+      observe(m, n, {'p': r});
+    }
+    expect(m.queuePressure, isTrue);
+  });
+  test('a reserve-aware peer cannot hide another receiver backlog', () {
+    final m = CallVideoDeliveryModel();
+    for (var n = 1; n <= 8; n++) {
+      final lag = n < 3 ? 0 : 18000;
+      observe(m, n, {
+        'p': report(
+          n,
+          delay: n < 3 ? 60 : 260,
+          targetDelay: n < 3 ? 60 : 260,
+          timestamp: n * 90000 - lag,
+        ),
+        'q': report(
+          n,
+          delay: 260,
+          targetDelay: 60,
+          timestamp: n * 90000 - (n < 3 ? 0 : (n - 2) * 4500),
+        ),
+      }, expected: 2);
+    }
+    expect(m.queuePressure, isTrue);
+    expect(m.propose(floor, ceiling, at(8), healthy: true), isNull);
+  });
+  test('actual 500ms video ceiling survives an advertised reserve', () {
+    final m = CallVideoDeliveryModel();
+    observe(m, 1, {'p': report(1, delay: 500, targetDelay: 400)});
+    observe(m, 2, {'p': report(2, delay: 500, targetDelay: 400)});
+    expect(m.queuePressure, isTrue);
+  });
+  for (final invalid in <Object>[-1, 60001, 260.5, '260', true]) {
+    test('malformed target $invalid cannot qualify a probe', () {
+      final m = CallVideoDeliveryModel();
+      observe(m, 1, {'p': report(1, targetDelay: 60)});
+      observe(m, 2, {
+        'p': report(2, targetDelay: 60)..['target_delay_ms'] = invalid,
+      });
+      expect(m.propose(floor, ceiling, at(2), healthy: true), isNull);
+    });
+  }
+  test('replayed target cannot reinterpret a measured queue window', () {
+    final m = CallVideoDeliveryModel();
+    for (var n = 1; n <= 8; n++) {
+      observe(m, n, {
+        'p': report(n, timestamp: n * 90000 - (n < 3 ? 0 : (n - 2) * 4500)),
+      });
+    }
+    expect(m.queuePressure, isTrue);
+    observe(m, 9, {
+      'p': report(
+        8,
+        delay: 260,
+        targetDelay: 260,
+        timestamp: 8 * 90000 - 27000,
+      ),
+    });
+    expect(m.propose(floor, ceiling, at(9), healthy: true), isNull);
+    observe(m, 10, {'p': report(10, timestamp: 10 * 90000 - 36000)});
+    expect(m.queuePressure, isTrue);
+  });
+  test('reserve accounting retains serial RTP wrap arithmetic', () {
+    final m = CallVideoDeliveryModel();
+    for (var n = 1; n <= 10; n++) {
+      final filled = n >= 3;
+      observe(m, n, {
+        'p': report(
+          n,
+          delay: filled ? 260 : 60,
+          targetDelay: filled ? 260 : 60,
+          timestamp:
+              (0xffff0000 + n * 90000 - (filled ? 18000 : 0)) & 0xffffffff,
+          sent: (0xffff0000 + n * 90000) & 0xffffffff,
+        ),
+      });
+      expect(m.queuePressure, isFalse);
+    }
+  });
   test('decoder media backlog tolerates a spike and drains sustained lag', () {
     final m = CallVideoDeliveryModel();
     observe(m, 1, {'p': report(1)});
@@ -519,8 +743,8 @@ void main() {
     expect(m.propose(floor, ceiling, at(2), healthy: true), isNull);
     observe(m, 3, {'p': report(3)}); // Caught up without cutting.
     expect(m.queuePressure, isFalse);
-    for (var n = 4; n <= 7; n++) {
-      observe(m, n, {'p': report(n, timestamp: n * 90000 - 18000)});
+    for (var n = 4; n <= 10; n++) {
+      observe(m, n, {'p': report(n, timestamp: n * 90000 - (n - 2) * 4500)});
     }
     expect(m.queuePressure, isTrue);
   });
