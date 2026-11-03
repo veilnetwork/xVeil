@@ -196,17 +196,28 @@ class _MessagingOwnHistory {
     pull.processing = false;
     pull.attempts = 0;
     final record = pull.record;
+    final inventory =
+        record == null &&
+        (pull.recheckInventory || pull.progress['peer'] == null);
     pull.query = {
       'op': record != null
           ? 'record'
-          : pull.progress['peer'] == null
+          : inventory
           ? 'list'
           : 'page',
-      if (pull.progress['peer'] != null) 'peer': pull.progress['peer'],
-      if (pull.progress['peer'] != null) 'cursor': pull.progress['cursor'],
-      if (pull.progress['peer'] == null) 'after': pull.progress['after'],
+      if (!inventory) 'peer': pull.progress['peer'],
+      if (!inventory) 'cursor': pull.progress['cursor'],
+      if (inventory) 'after': pull.progress['after'],
       if (record != null) ...{'hash': record.hash, 'offset': record.offset},
     };
+    final prefix = pull.prefix;
+    if (record == null &&
+        !inventory &&
+        prefix != null &&
+        _afterCursor(prefix['position'] as List, pull.progress['cursor']) &&
+        jsonEncode({...pull.query, 'prefix': prefix}).length <= 1500) {
+      pull.query['prefix'] = prefix;
+    }
     _transmit(pull);
   }
 
@@ -445,6 +456,67 @@ class _MessagingOwnHistory {
     return time != 0 ? time : message.id.compareTo(cursor[1] as String);
   }
 
+  // A small, request-local proof of rows already held. It is never itself a
+  // cursor: the source must match it and the receiver must recheck before a
+  // durable checkpoint. Include chronological coordinates as well as shared
+  // content so equal bodies cannot conceal a missing/reordered prefix.
+  Map<String, dynamic> _prefixProof(
+    ({List<Message> rows, Map<String, int> edits}) snapshot,
+  ) {
+    final rows = snapshot.rows;
+    return {
+      'position': [rows.last.timestamp.millisecondsSinceEpoch, rows.last.id],
+      'count': rows.length,
+      'hash': crypto.sha256
+          .convert(
+            utf8.encode(
+              jsonEncode([
+                _digest(snapshot),
+                for (final message in rows)
+                  [
+                    message.id,
+                    message.timestamp.millisecondsSinceEpoch,
+                    message.direction.index,
+                  ],
+              ]),
+            ),
+          )
+          .toString(),
+    };
+  }
+
+  bool _validPrefix(dynamic prefix) =>
+      prefix is Map &&
+      prefix.length == 3 &&
+      prefix['position'] is List &&
+      _validCursor(prefix['position']) &&
+      prefix['count'] is int &&
+      (prefix['count'] as int) > 0 &&
+      _hex(prefix['hash']);
+
+  bool _samePrefix(Map left, Map right) =>
+      left['count'] == right['count'] &&
+      left['hash'] == right['hash'] &&
+      jsonEncode(left['position']) == jsonEncode(right['position']);
+
+  bool _afterCursor(List position, dynamic cursor) =>
+      cursor == null ||
+      (position[0] as int) > (cursor[0] as int) ||
+      (position[0] == cursor[0] &&
+          (position[1] as String).compareTo(cursor[1] as String) > 0);
+
+  bool _matchesPrefix(
+    ({List<Message> rows, Map<String, int> edits}) snapshot,
+    Map prefix,
+  ) {
+    final rows = snapshot.rows
+        .where((message) => _compare(message, prefix['position'] as List) <= 0)
+        .toList();
+    return rows.isNotEmpty &&
+        rows.length == prefix['count'] &&
+        _samePrefix(_prefixProof((rows: rows, edits: snapshot.edits)), prefix);
+  }
+
   Future<void> _serve(
     NodeId device,
     Object? binding,
@@ -489,7 +561,8 @@ class _MessagingOwnHistory {
         }
         result = {'op': 'list', 'rows': rows};
       } else if (query['op'] == 'page' || query['op'] == 'record') {
-        final peer = query['peer'], cursor = query['cursor'];
+        final peer = query['peer'];
+        var cursor = query['cursor'];
         if (!_hex(peer) || !_validCursor(cursor)) return;
         final node = NodeId.fromHex(peer as String);
         if (peer == await _owner.selfIdentityHex?.call() ||
@@ -497,6 +570,19 @@ class _MessagingOwnHistory {
           return;
         }
         final snapshot = await _snapshot(peer);
+        Map? acceptedPrefix;
+        final prefix = query['prefix'];
+        if (prefix != null) {
+          if (query['op'] != 'page' ||
+              !_validPrefix(prefix) ||
+              !_afterCursor(prefix['position'] as List, cursor)) {
+            return;
+          }
+          if (_matchesPrefix(snapshot, prefix as Map)) {
+            acceptedPrefix = prefix;
+            cursor = prefix['position'];
+          }
+        }
         final window = snapshot.rows
             .where((m) => cursor == null || _compare(m, cursor as List) > 0)
             .take(_page + 1)
@@ -506,6 +592,7 @@ class _MessagingOwnHistory {
         Map<String, dynamic> pageResult(Message? last) => {
           'op': 'page',
           'peer': peer,
+          'prefix': ?acceptedPrefix,
           'events': events,
           'next': last != null && window.length > events.length
               ? [last.timestamp.millisecondsSinceEpoch, last.id]
@@ -594,6 +681,7 @@ class _MessagingOwnHistory {
                 descriptor = {
                   'op': 'page',
                   'peer': peer,
+                  'prefix': ?acceptedPrefix,
                   'record': {
                     'position': [
                       message.timestamp.millisecondsSinceEpoch,
@@ -820,6 +908,13 @@ class _MessagingOwnHistory {
       if (rows is! List || rows.length > _page) {
         throw StateError('Invalid inventory');
       }
+      // A restored cursor says what was applied, not what is still missing:
+      // other live sync paths may have filled its suffix before the crash.
+      // Recheck inventory once, preserving the cursor if this peer needs pages.
+      final resume = pull.recheckInventory
+          ? Map<String, dynamic>.of(pull.progress)
+          : null;
+      pull.recheckInventory = false;
       var after = pull.progress['after'] as String?;
       for (final entry in rows) {
         if (entry is! Map ||
@@ -833,9 +928,19 @@ class _MessagingOwnHistory {
         }
         final peer = entry['peer'] as String;
         final held = await _snapshot(peer);
-        if (held.rows.length != entry['count'] ||
-            _digest(held) != entry['hash']) {
-          await _checkpoint(pull, {'after': after, 'peer': peer});
+        final count = entry['count'] as int;
+        // A fully held smaller inventory is not missing state. This also
+        // avoids asking a recovering sibling to replay its known prefix back
+        // to the device which already holds the complete source history.
+        final prefix = held.rows.take(count).toList();
+        if (prefix.length != count ||
+            _digest((rows: prefix, edits: held.edits)) != entry['hash']) {
+          await _checkpoint(pull, {
+            'after': after,
+            'peer': peer,
+            if (resume?['peer'] == peer) 'cursor': resume?['cursor'],
+          });
+          if (held.rows.length > _page) pull.prefix = _prefixProof(held);
           _request(pull);
           return;
         }
@@ -850,6 +955,32 @@ class _MessagingOwnHistory {
       }
       return;
     }
+    final prefix = reply['prefix'];
+    if (prefix != null) {
+      final proposed = pull.query['prefix'];
+      if (reply['op'] != 'page' ||
+          reply['peer'] != pull.progress['peer'] ||
+          !_validPrefix(prefix) ||
+          !_validPrefix(proposed) ||
+          !_samePrefix(prefix as Map, proposed as Map) ||
+          !_afterCursor(prefix['position'] as List, pull.progress['cursor'])) {
+        throw StateError('Unrequested history prefix');
+      }
+      final held = await _snapshot(pull.progress['peer'] as String);
+      if (!_matchesPrefix(held, prefix)) {
+        // The local rows changed while the proof was in flight. Discard the
+        // answer and retry a normal page from the unchanged durable cursor.
+        pull.prefix = null;
+        _request(pull);
+        return;
+      }
+      await _checkpoint(pull, {
+        'after': pull.progress['after'],
+        'peer': pull.progress['peer'],
+        'cursor': prefix['position'],
+      });
+    }
+    pull.prefix = null;
     if (reply['record'] != null) {
       _beginRecord(pull, reply);
       return;
@@ -996,11 +1127,14 @@ class _MessagingOwnHistory {
 }
 
 class _OwnHistoryPull {
-  _OwnHistoryPull(this.device, this.binding, this.progress);
+  _OwnHistoryPull(this.device, this.binding, this.progress)
+    : recheckInventory = progress['peer'] != null;
   final NodeId device;
   final Object? binding;
   Map<String, dynamic> progress;
   Map<String, dynamic> query = {};
+  Map<String, dynamic>? prefix;
+  bool recheckInventory;
   String id = '';
   int attempts = 0;
   _OwnHistoryRecord? record;

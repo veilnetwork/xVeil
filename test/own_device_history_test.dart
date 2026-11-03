@@ -95,6 +95,7 @@ class _Endpoint implements VeilTransport {
 
 class _RefusingCursorStore extends FakeKvLogStore {
   bool refusePageCursor = false;
+  String pageCursorId = 'm0007';
   bool refused = false;
   bool refuseDelivery = false;
   bool deliveryRefused = false;
@@ -116,7 +117,7 @@ class _RefusingCursorStore extends FakeKvLogStore {
         ops.whereType<PutOp>().any(
           (op) =>
               utf8.decode(op.key).contains('device.history.cursor.v2:') &&
-              utf8.decode(op.value).contains('m0007'),
+              utf8.decode(op.value).contains(pageCursorId),
         )) {
       refusePageCursor = false;
       refused = true;
@@ -593,6 +594,360 @@ void main() {
       );
     },
   );
+
+  test('resume inventory can retire an entirely held conversation', () async {
+    await seed(40);
+    final source = await sa.loadMessages(peer.hex);
+    for (final message in source) {
+      await sb.appendMessage(message);
+    }
+    await sa.putSetting(
+      'device.history.cursor.v2:${b.hex}',
+      jsonEncode({
+        'peer': peer.hex,
+        'cursor': [source[7].timestamp.millisecondsSinceEpoch, source[7].id],
+      }),
+    );
+    ma.start();
+    mb.start();
+    await until(
+      () async =>
+          await sa.getSetting('device.history.cursor.v2:${b.hex}') == '{}',
+    );
+    expect(
+      net.history.where(
+        (frame) => frame.from == a && frame.body['q']?['op'] == 'page',
+      ),
+      isEmpty,
+    );
+  });
+
+  test(
+    'resume cursor can confirm newer held rows before fetching a suffix',
+    () async {
+      await seed(40);
+      final source = await sa.loadMessages(peer.hex);
+      for (final message in source.take(32)) {
+        await sb.appendMessage(message);
+      }
+      await sb.putSetting(
+        'device.history.cursor.v2:${a.hex}',
+        jsonEncode({
+          'peer': peer.hex,
+          'cursor': [source[7].timestamp.millisecondsSinceEpoch, source[7].id],
+        }),
+      );
+      ma.start();
+      mb.start();
+      await until(
+        () async =>
+            await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+      );
+      expect(await count(), 40);
+      expect(applied, 8);
+      final requests = net.history.where(
+        (frame) => frame.from == b && frame.body['q']?['op'] == 'page',
+      );
+      expect(requests, hasLength(1));
+      expect(requests.single.body['q']['cursor'][1], 'm0007');
+      expect(requests.single.body['q']['prefix']['count'], 32);
+    },
+  );
+
+  test('smaller inventory carrying a newer edit is still fetched', () async {
+    await seed(40);
+    for (final message in (await sa.loadMessages(peer.hex)).take(32)) {
+      await sb.appendMessage(message);
+    }
+    await sb.editMessage(peer.hex, 'm0013', 'edit on smaller sibling', seq: 7);
+    ma.start();
+    mb.start();
+    await until(
+      () async =>
+          (await sa.loadMessageById(peer.hex, 'm0013'))!.body ==
+              'edit on smaller sibling' &&
+          await count() == 40,
+    );
+    expect((await sa.editSeqs(peer.hex))['m0013'], 7);
+    expect(
+      net.history.where(
+        (frame) => frame.from == a && frame.body['q']?['op'] == 'page',
+      ),
+      isNotEmpty,
+    );
+  });
+
+  test('verified held prefix is not transferred and applied again', () async {
+    await seed(40);
+    for (final message in (await sa.loadMessages(peer.hex)).take(32)) {
+      await sb.appendMessage(message);
+    }
+    ma.start();
+    mb.start();
+    await until(
+      () async =>
+          await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+    );
+    final source = await sa.loadMessages(peer.hex);
+    final recovered = await sb.loadMessages(peer.hex);
+    expect(recovered.map((m) => m.id), source.map((m) => m.id));
+    expect(applied, 8, reason: 'only the missing suffix should be mirrored');
+    final requests = net.history.where(
+      (frame) => frame.from == b && frame.body['q']?['op'] == 'page',
+    );
+    expect(requests, hasLength(1));
+    expect(requests.single.body['q']['prefix']['count'], 32);
+    await until(
+      () async =>
+          await sa.getSetting('device.history.cursor.v2:${b.hex}') == '{}',
+    );
+    expect(
+      net.history.where(
+        (frame) => frame.from == a && frame.body['q']?['op'] == 'page',
+      ),
+      isEmpty,
+      reason: 'A already holds the entire smaller inventory of B',
+    );
+  });
+
+  for (final mismatch in ['gap', 'edit', 'delivery', 'position']) {
+    test('a held prefix with a $mismatch is not skipped', () async {
+      await seed(40);
+      final source = await sa.loadMessages(peer.hex);
+      for (var i = 0; i < 32; i++) {
+        if (mismatch == 'gap' && i == 13) continue;
+        final message = source[i];
+        await sb.appendMessage(
+          mismatch == 'position' && i == 13
+              ? Message(
+                  id: message.id,
+                  conversationId: message.conversationId,
+                  direction: message.direction,
+                  body: message.body,
+                  timestamp: message.timestamp,
+                  status: message.status,
+                  author: identity.hex,
+                  seq: 99,
+                  positionVerified: false,
+                )
+              : message.copyWith(
+                  status: mismatch == 'delivery' && i == 13
+                      ? MessageStatus.sent
+                      : message.status,
+                ),
+        );
+      }
+      if (mismatch == 'edit') {
+        await sa.editMessage(peer.hex, 'm0013', 'corrected', seq: 7);
+      }
+      // Isolate the receiving pull so a reverse pull cannot repair the
+      // mismatch before the source checks the proposed prefix.
+      net.drop = (from, to, body) => from == a && body['q'] != null;
+      ma.start();
+      mb.start();
+      await until(
+        () async =>
+            await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+      );
+      final recovered = await sb.loadMessages(peer.hex);
+      expect(recovered.map((m) => m.id), source.map((m) => m.id));
+      final repaired = recovered.singleWhere((m) => m.id == 'm0013');
+      expect(repaired.orderAuthor, a.hex);
+      expect(repaired.orderSeq, 14);
+      expect(repaired.status, MessageStatus.delivered);
+      if (mismatch == 'edit') {
+        expect(repaired.body, 'corrected');
+        expect((await sb.editSeqs(peer.hex))['m0013'], 7);
+      }
+      expect(applied, 40);
+      expect(
+        net.history.where(
+          (frame) => frame.from == b && frame.body['q']?['op'] == 'page',
+        ),
+        hasLength(5),
+      );
+    });
+  }
+
+  test('a prefix changed in flight falls back before checkpointing', () async {
+    await seed(40);
+    for (final message in (await sa.loadMessages(peer.hex)).take(32)) {
+      await sb.appendMessage(message);
+    }
+    Map<String, dynamic>? held;
+    net.drop = (from, to, body) {
+      if (from == a && body['q'] != null) return true;
+      if (held == null && from == b && body['q']?['prefix'] != null) {
+        held = Map<String, dynamic>.from(body);
+        return true;
+      }
+      return false;
+    };
+    ma.start();
+    mb.start();
+    await until(() async => held != null);
+    await sb.editMessage(peer.hex, 'm0000', 'newer local edit', seq: 7);
+    bStore.pageCursorId = 'm0031';
+    bStore.refusePageCursor = true;
+    // Only reject a jump to the proposed prefix, not the ordinary page which
+    // later reaches this position after repairing/revalidating its rows.
+    beforeApply = (_) async => bStore.refusePageCursor = false;
+    await net.send(
+      tb,
+      a,
+      WireEnvelope.deviceHistory(jsonEncode(held)).encode(),
+    );
+    await until(
+      () async =>
+          await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+    );
+    expect(await count(), 40);
+    expect(applied, 40);
+    expect(bStore.refused, isFalse);
+    expect(
+      (await sb.loadMessageById(peer.hex, 'm0000'))!.body,
+      'newer local edit',
+    );
+    expect(errorJournal.entries, isEmpty);
+    final requests = net.history
+        .where((frame) => frame.from == b && frame.body['q']?['op'] == 'page')
+        .toList();
+    final fallback = requests.firstWhere(
+      (frame) => frame.body['id'] != held!['id'],
+    );
+    expect(fallback.body['q']['cursor'], isNull);
+    expect(fallback.body['q']['prefix'], isNull);
+  });
+
+  test('revocation during prefix recheck cannot advance its cursor', () async {
+    await seed(40);
+    for (final message in (await sa.loadMessages(peer.hex)).take(32)) {
+      await sb.appendMessage(message);
+    }
+    Map<String, dynamic>? held;
+    net.drop = (from, to, body) {
+      if (from == a && body['q'] != null) return true;
+      if (held == null && from == b && body['q']?['prefix'] != null) {
+        held = Map<String, dynamic>.from(body);
+        return true;
+      }
+      return false;
+    };
+    ma.start();
+    mb.start();
+    await until(() async => held != null);
+    sb.afterMessagesRead = () async => bSiblings = [];
+    await net.send(
+      tb,
+      a,
+      WireEnvelope.deviceHistory(jsonEncode(held)).encode(),
+    );
+    await until(() async => errorJournal.entries.isNotEmpty);
+    final progress =
+        jsonDecode((await sb.getSetting('device.history.cursor.v2:${a.hex}'))!)
+            as Map;
+    expect(progress['cursor'], isNull);
+    expect(applied, 0);
+    expect(await count(), 32);
+  });
+
+  test('an unconfirmed prefix cannot advance the receiver cursor', () async {
+    await seed(40);
+    for (final message in (await sa.loadMessages(peer.hex)).take(32)) {
+      await sb.appendMessage(message);
+    }
+    Map<String, dynamic>? held;
+    net.drop = (from, to, body) {
+      if (from == a && body['q'] != null) return true;
+      if (held == null && from == b && body['q']?['prefix'] != null) {
+        held = Map<String, dynamic>.from(body);
+        return true;
+      }
+      return false;
+    };
+    ma.start();
+    mb.start();
+    await until(() async => held != null);
+    final proposed = Map<String, dynamic>.from(held!['q']['prefix'] as Map);
+    final hash = proposed['hash'] as String;
+    proposed['hash'] = '${hash[0] == '0' ? '1' : '0'}${hash.substring(1)}';
+    await _historyReply(ta, b, held!['id'] as String, {
+      'op': 'page',
+      'peer': peer.hex,
+      'prefix': proposed,
+      'events': <String>[],
+      'next': null,
+    });
+    await until(() async => errorJournal.entries.isNotEmpty);
+    final progress =
+        jsonDecode((await sb.getSetting('device.history.cursor.v2:${a.hex}'))!)
+            as Map;
+    expect(progress['cursor'], isNull);
+    expect(applied, 0);
+    expect(await count(), 32);
+  });
+
+  test(
+    'failed prefix checkpoint requires fresh confirmation after restart',
+    () async {
+      await seed(24);
+      for (final message in (await sa.loadMessages(peer.hex)).take(16)) {
+        await sb.appendMessage(message);
+      }
+      net.drop = (from, to, body) => from == a && body['q'] != null;
+      bStore.pageCursorId = 'm0015';
+      bStore.refusePageCursor = true;
+      ma.start();
+      mb.start();
+      await until(
+        () async => bStore.refused && errorJournal.entries.isNotEmpty,
+      );
+      expect(await count(), 16);
+      final progress =
+          jsonDecode(
+                (await sb.getSetting('device.history.cursor.v2:${a.hex}'))!,
+              )
+              as Map;
+      expect(progress['cursor'], isNull);
+      expect(progress.containsKey('prefix'), isFalse);
+      expect(applied, 0);
+      await mb.dispose();
+      mb = service(tb, sb, a)..start();
+      await until(
+        () async =>
+            await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+      );
+      expect(await count(), 24);
+      expect(applied, 8);
+    },
+  );
+
+  test('verified prefix can precede an oversized record', () async {
+    await seed(10, bodyBytes: 160000);
+    for (final message in (await sa.loadMessages(peer.hex)).take(9)) {
+      await sb.appendMessage(message);
+    }
+    ma.start();
+    mb.start();
+    await until(
+      () async =>
+          await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+    );
+    final recovered = await sb.loadMessages(peer.hex);
+    expect(
+      recovered.map((m) => m.id),
+      (await sa.loadMessages(peer.hex)).map((m) => m.id),
+    );
+    expect(recovered.last.body, '9' * 160000);
+    expect(applied, 1);
+    expect(
+      net.history.where(
+        (frame) => frame.from == b && frame.body['q']?['op'] == 'record',
+      ),
+      isNotEmpty,
+    );
+    expect(errorJournal.entries, isEmpty);
+  });
 
   test('equal content cannot hide a provisional history position', () async {
     await seed(1);
@@ -1397,6 +1752,28 @@ void main() {
         );
       }
       final fifth = sources.last;
+      await until(
+        () async => net.history
+            .skip(before)
+            .any(
+              (frame) =>
+                  frame.from == b &&
+                  frame.to == fifth.me &&
+                  frame.body['q']?['op'] == 'list',
+            ),
+      );
+      final inventory = net.history.lastWhere(
+        (frame) =>
+            frame.from == b &&
+            frame.to == fifth.me &&
+            frame.body['q']?['op'] == 'list',
+      );
+      await _historyReply(fifth, b, inventory.body['id'] as String, {
+        'op': 'list',
+        'rows': [
+          {'peer': peer.hex, 'count': 1, 'hash': '0' * 64},
+        ],
+      });
       await until(
         () async => net.history
             .skip(before)
