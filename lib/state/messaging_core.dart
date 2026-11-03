@@ -266,6 +266,15 @@ class MessagingService {
   Future<DeviceSyncEvent> Function(NodeId peer, Message message)?
   ownHistoryEncode;
   Future<void> Function(DeviceSyncEvent event)? ownHistoryApply;
+
+  /// The active group host has installed its callbacks and loaded the verifier
+  /// documents. start() can precede that readiness, so don't wait for the next
+  /// 30-second history poll. A stale host cannot wake a replacement's binding.
+  void onOwnDeviceHistoryReady(Object owner) {
+    if (_disposed || !identical(groupBindingsOwner, owner)) return;
+    _ownHistoryBindingsReady = true;
+    _ownHistory.nudge();
+  }
   late final _MessagingOutbox _outbox = _MessagingOutbox(this);
   late final _MessagingRealtimeControl _realtimeControl =
       _MessagingRealtimeControl(this);
@@ -369,7 +378,15 @@ class MessagingService {
   /// The token is what makes detaching safe: a build that is going away must
   /// only clear callbacks that are still ITS OWN, never ones a newer build has
   /// since installed on this same service.
-  Object? groupBindingsOwner;
+  Object? _groupBindingsOwner;
+  bool _ownHistoryBindingsReady = false;
+  Object? get groupBindingsOwner => _groupBindingsOwner;
+  set groupBindingsOwner(Object? owner) {
+    if (!identical(_groupBindingsOwner, owner)) {
+      _ownHistoryBindingsReady = false;
+    }
+    _groupBindingsOwner = owner;
+  }
 
   final Set<Future<void> Function()> _shutdownTasks = {};
 
@@ -1717,6 +1734,7 @@ class MessagingService {
   /// is exactly when a peer may have missed our events while we were down), then
   /// flush the outbox (which sends the beacons + re-sends un-acked messages).
   Future<void> reconcileOnConnect() async {
+    _ownHistory.nudge();
     _peerSync.resetSession();
     _fileTransfer.resetSession();
     // A (re)connect is exactly when interrupted downloads become resumable

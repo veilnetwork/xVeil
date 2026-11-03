@@ -24,12 +24,14 @@ class _Network {
   final history = <({NodeId from, NodeId to, Map<String, dynamic> body})>[];
   bool Function(NodeId, NodeId, Map<String, dynamic>)? drop;
   bool reverseParts = false;
+  bool dropPresence = false;
   final parts = <String, List<InboundMessage>>{};
 
   Future<void> send(_Endpoint from, NodeId to, Uint8List bytes) async {
     final env = WireEnvelope.decode(bytes);
     final target = endpoints[to];
     if (target == null || target.closed) return;
+    if (dropPresence && env.kind == WireKind.presence) return;
     final message = InboundMessage(
       src: identity,
       srcDevice: from.me,
@@ -225,6 +227,7 @@ void main() {
       );
       if (t.me == b) applied++;
     };
+    m.onOwnDeviceHistoryReady(m.groupBindingsOwner!);
     return m;
   }
 
@@ -284,6 +287,167 @@ void main() {
     tb = _Endpoint(net, b);
     mb = service(tb, sb, a)..start();
   }
+
+  test(
+    'reconnect starts history after late bindings without waiting for a timer',
+    () async {
+      await seed(1);
+      net.dropPresence = true;
+      final encode = mb.ownHistoryEncode, apply = mb.ownHistoryApply;
+      final owner = mb.groupBindingsOwner;
+      mb.ownHistoryEncode = null;
+      mb.ownHistoryApply = null;
+      mb.groupBindingsOwner = null;
+      mb.start();
+      ma.start();
+      await Future<void>(() {});
+      expect(
+        net.history.where(
+          (frame) => frame.from == b && frame.body['q'] != null,
+        ),
+        isEmpty,
+      );
+      mb.ownHistoryEncode = encode;
+      mb.ownHistoryApply = apply;
+      mb.groupBindingsOwner = owner;
+      mb.myOtherDevices = () async => [];
+      mb.onOwnDeviceHistoryReady(owner!);
+      await Future<void>(() {});
+      expect(
+        net.history.where(
+          (frame) => frame.from == b && frame.body['q'] != null,
+        ),
+        isEmpty,
+      );
+      mb.myOtherDevices = () async => [a];
+      await mb.reconcileOnConnect();
+      await Future<void>(() {});
+      expect(
+        net.history.where(
+          (frame) => frame.from == b && frame.body['q']?['op'] == 'list',
+        ),
+        isNotEmpty,
+      );
+      await until(() async => await count() == 1);
+    },
+  );
+
+  test(
+    'a late old roster read cannot cancel the new binding history pull',
+    () async {
+      net.dropPresence = true;
+      final oldRoster = Completer<List<NodeId>>();
+      mb.myOtherDevices = () => oldRoster.future;
+      mb.start();
+      await Future<void>(() {});
+      mb.groupBindingsOwner = Object();
+      mb.myOtherDevices = () async => [a];
+      mb.onOwnDeviceHistoryReady(mb.groupBindingsOwner!);
+      tb.incoming.add(
+        InboundMessage(
+          src: identity,
+          srcDevice: a,
+          provenance: SenderProvenance.signed,
+          payload: WireEnvelope.presence(a.hex).encode(),
+        ),
+      );
+      await until(
+        () async => net.history.any(
+          (frame) => frame.from == b && frame.body['q']?['op'] == 'list',
+        ),
+      );
+      final ask = net.history.lastWhere(
+        (frame) => frame.from == b && frame.body['q']?['op'] == 'list',
+      );
+      oldRoster.complete([]);
+      await Future<void>(() {});
+      await _historyReply(ta, b, ask.body['id'] as String, {
+        'op': 'list',
+        'rows': [
+          {'peer': peer.hex, 'count': 1, 'hash': '0' * 64},
+        ],
+      });
+      await Future<void>(() {});
+      expect(
+        net.history.where(
+          (frame) => frame.from == b && frame.body['q']?['op'] == 'page',
+        ),
+        isNotEmpty,
+      );
+    },
+  );
+
+  test(
+    'only the current ready host starts history and repeated notices share its pull',
+    () async {
+      net.dropPresence = true;
+      final encode = mb.ownHistoryEncode, apply = mb.ownHistoryApply;
+      mb.ownHistoryEncode = null;
+      mb.ownHistoryApply = null;
+      final oldOwner = mb.groupBindingsOwner!;
+      mb.start();
+      await Future<void>(() {});
+      final owner = Object();
+      mb.groupBindingsOwner = owner;
+      mb.ownHistoryEncode = encode;
+      mb.ownHistoryApply = apply;
+      mb.onOwnDeviceHistoryReady(oldOwner);
+      await Future<void>(() {});
+      expect(
+        net.history.where(
+          (frame) => frame.from == b && frame.body['q'] != null,
+        ),
+        isEmpty,
+      );
+      for (var i = 0; i < 10; i++) {
+        mb.onOwnDeviceHistoryReady(owner);
+      }
+      await Future<void>(() {});
+      expect(
+        net.history.where(
+          (frame) => frame.from == b && frame.body['q']?['op'] == 'list',
+        ),
+        hasLength(1),
+      );
+      await mb.dispose();
+      final count = net.history.length;
+      mb.onOwnDeviceHistoryReady(owner);
+      await Future<void>(() {});
+      expect(net.history.length, count);
+    },
+  );
+
+  test(
+    'reconnect cannot read history before its current host is ready',
+    () async {
+      net.dropPresence = true;
+      final encode = mb.ownHistoryEncode, apply = mb.ownHistoryApply;
+      mb.ownHistoryEncode = null;
+      mb.ownHistoryApply = null;
+      mb.groupBindingsOwner = null;
+      mb.start();
+      final owner = Object();
+      mb.groupBindingsOwner = owner;
+      mb.ownHistoryEncode = encode;
+      mb.ownHistoryApply = apply;
+      await mb.reconcileOnConnect();
+      await Future<void>(() {});
+      expect(
+        net.history.where(
+          (frame) => frame.from == b && frame.body['q'] != null,
+        ),
+        isEmpty,
+      );
+      mb.onOwnDeviceHistoryReady(owner);
+      await Future<void>(() {});
+      expect(
+        net.history.where(
+          (frame) => frame.from == b && frame.body['q']?['op'] == 'list',
+        ),
+        hasLength(1),
+      );
+    },
+  );
 
   test('reflected edit provenance survives an own-device history page', () async {
     await seed(1);
@@ -1093,6 +1257,7 @@ void main() {
       );
       final before = net.history.length;
       mb.groupBindingsOwner = Object();
+      mb.onOwnDeviceHistoryReady(mb.groupBindingsOwner!);
       now = now.add(const Duration(seconds: 31));
       for (final source in sources) {
         tb.incoming.add(
@@ -1223,6 +1388,7 @@ void main() {
       await sa.editMessage(peer.hex, 'm0000', 'fresh' * 40000, seq: 10);
       bSiblings = [a];
       mb.groupBindingsOwner = Object();
+      mb.onOwnDeviceHistoryReady(mb.groupBindingsOwner!);
       now = now.add(const Duration(seconds: 31));
       tb.incoming.add(
         InboundMessage(
@@ -1392,6 +1558,7 @@ void main() {
       mb.start();
       await entered.future.timeout(const Duration(seconds: 8));
       mb.groupBindingsOwner = Object();
+      mb.onOwnDeviceHistoryReady(mb.groupBindingsOwner!);
       beforeApply = null;
       now = now.add(const Duration(seconds: 31));
       tb.incoming.add(
