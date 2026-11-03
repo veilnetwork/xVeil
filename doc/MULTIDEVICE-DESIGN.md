@@ -147,6 +147,20 @@ inlined: msgMirror carries the contentId ref; the receiving device
 fetches lazily over the membership-authorized pull when the user opens
 the message.
 
+## Availability boundary confirmed by the owner (2026-11-03)
+
+Own-device synchronization does **not** use relay mailboxes. The owner explicitly
+kept this v1 policy after reviewing the scenario where both A and C are offline
+when B returns. Do not enable mailbox fallback for a linked device as a delivery
+fix, or reinterpret a contact mailbox as an own-device replica.
+
+A returning device needs an available holder of the missing state. If every
+holder is offline, it waits; tests must distinguish that availability limit from
+permanent data loss after a holder returns. Previously received local data must
+remain available without any other device online. This decision does not waive
+reconnect, interrupted synchronization, revoke or eventual-convergence checks
+when the required holder becomes available again.
+
 ## Tech-notes resolved (engineering stance, flagged in ROADMAP)
 
 1. xVeil v1 devices are separate node ids in the private app-level device

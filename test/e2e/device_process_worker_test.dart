@@ -193,7 +193,7 @@ void main() {
               final peer = request['peer'] as String;
               final prefix = request['prefix'] as String;
               final bodyPrefix = request['bodyPrefix'] as String?;
-              final messages = request['authorizationOnly'] == true
+              final List<Message> messages = request['authorizationOnly'] == true
                   ? []
                   : (await device!.storage.loadMessages(peer))
                         .where(
@@ -241,6 +241,19 @@ void main() {
                     ),
                   if (authorization.isNotEmpty) 'authorization': authorization,
                   'count': messages.length,
+                  // One live-owner snapshot for crash/catch-up assertions;
+                  // unlike the HTTP tail this cannot hide earlier duplicates.
+                  if (request['includeRows'] == true)
+                    'rows': [
+                      for (final message in messages)
+                        {
+                          'id': message.id,
+                          'body': message.body,
+                          'status': message.status.name,
+                          'orderAuthor': message.orderAuthor,
+                          'orderSeq': message.orderSeq,
+                        },
+                    ],
                   if (request['includeIds'] == true)
                     'ids': [for (final message in messages) message.id],
                   // Private synthetic-stand evidence, never part of the app's
