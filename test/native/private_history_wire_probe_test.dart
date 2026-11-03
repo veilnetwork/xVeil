@@ -30,7 +30,15 @@ void main() {
       final query = packet(
         jsonEncode({
           'id': 'a' * 32,
-          'q': {'op': 'list', 'private': 'must-not-be-recorded'},
+          'q': {
+            'op': 'page',
+            'private': 'must-not-be-recorded',
+            'prefix': {
+              'count': 32,
+              'hash': 'private-content-digest',
+              'position': [1000, 'private-message-id'],
+            },
+          },
         }),
       );
       final part = packet(
@@ -60,12 +68,15 @@ void main() {
           .toList();
       expect(rows.map((row) => row['kind']), ['open', 'query', 'close']);
       expect(rows[1]['request'], 'a' * 32);
-      expect(rows[1]['op'], 'list');
+      expect(rows[1]['op'], 'page');
+      expect(rows[1]['prefixRows'], 32);
       expect(rows.last['recorded'], 1);
       expect(rows.last['dropped'], 1);
       expect(text, isNot(contains('must-not-be-recorded')));
       expect(text, isNot(contains('secret-content')));
       expect(text, isNot(contains('private transport failure')));
+      expect(text, isNot(contains('private-content-digest')));
+      expect(text, isNot(contains('private-message-id')));
       expect(text, isNot(contains(sender.hex)));
       await app.cancel();
       await frames.close();

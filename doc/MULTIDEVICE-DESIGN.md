@@ -188,6 +188,38 @@ records; interoperability with older versions is outside the active release
 requirements by the owner's decision. Ordinary short pages retain their
 existing representation.
 
+## Confirming an already held history prefix (2026-11-03)
+
+An inventory can be a strict subset of the receiving device's history. If its
+count and content digest exactly match the receiver's chronological prefix of
+that length, all advertised rows are already held: no pages are requested just
+to mirror the same rows back to their source.
+
+For a genuinely incomplete receiver, the first ordinary `page` request can carry
+an optional `prefix`: chronological endpoint, count and SHA-256. This request-local
+hint covers the already held rows' IDs, canonical order author/sequence, text,
+inline emoji, edit frontier, delivered/reflected state, timestamps and direction.
+The source compares it against its own complete prefix through that endpoint.
+Only an exact match allows the page to start after it; the response echoes the
+confirmed hint. A mismatch returns an ordinary page from the original cursor.
+This adds no authority: ordinary current-device provenance, roster and host
+binding gates still apply on both ends.
+
+Before advancing its durable cursor, the receiver requires the echoed hint to
+match its outstanding request and rechecks its own current prefix. A local change
+discards the response and requests a normal page, without checkpointing the hint.
+Only already stored, matching rows can be skipped. The verified checkpoint must
+complete before applying a following page or fetching an oversized record.
+Hints are not persisted; failed writes, cancellation and restarts cannot restore
+an unconfirmed skip. Existing request/reassembly/reply bounds remain unchanged;
+an oversized hint is omitted. There are no mailbox copies or new storage queues.
+
+A restored page cursor gets one current inventory check before replaying pages:
+other synchronization paths may already have filled the missing rows. If pages
+are still needed for that conversation, the previously durable cursor is kept.
+An independently verified prefix may advance it further, but must end strictly
+after it. Neither a local row count nor a remembered hint can make that jump.
+
 ## Tech-notes resolved (engineering stance, flagged in ROADMAP)
 
 1. xVeil v1 devices are separate node ids in the private app-level device
