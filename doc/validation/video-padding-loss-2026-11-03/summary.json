@@ -1,0 +1,51 @@
+{
+  "scope": "owned-loopback-real-opus-vp8-synthetic-camera-codec-only-tone-oracle",
+  "durationSeconds": 70,
+  "periodicUdpHoldMs": 250,
+  "periodMs": 1000,
+  "videoStartsAtSeconds": 20,
+  "productionShimScenariosPassed": 9,
+  "analyzerTestsPassed": 5,
+  "modelPassed": true,
+  "legacyAndGroupControlsPassed": true,
+  "ordinaryLibraryHasNoTestExports": true,
+  "newPersistentImageLossEvents": [
+    0,
+    0
+  ],
+  "rawLossWitnesses": [
+    6,
+    4
+  ],
+  "firstAllowed60FpsAfterVideoSeconds": [
+    18,
+    15
+  ],
+  "finalAllowedFps": [
+    60,
+    60
+  ],
+  "decodedCounterAverageFps": [
+    20.37,
+    20.92
+  ],
+  "toneEdgesMatched": [
+    50,
+    50
+  ],
+  "toneEdgesExpected": [
+    50,
+    50
+  ],
+  "quietPcmBlocks": [
+    0,
+    0
+  ],
+  "missingSourceAcceptedPaddingPacketsDuringMiddle": 4,
+  "missingSourceAcceptedPayloadPacketsDuringMiddle": 0,
+  "originalOverallGatePassed": false,
+  "thresholdMsUnchanged": 200,
+  "physicalDeviceQualification": false,
+  "newEnginePins": false,
+  "released": false
+}

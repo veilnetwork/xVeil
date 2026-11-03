@@ -20,7 +20,7 @@ def read_trace(path):
             if kind == 'video.loss.begin':
                 if identity in sessions:
                     raise ValueError('Duplicate recorder header')
-                sessions[identity] = dict(header=row, rtp=[], rr=[], end=None)
+                sessions[identity] = dict(header=row, rtp=[], rr=[], sr=[], end=None)
                 continue
             if identity not in sessions:
                 raise ValueError('Record without header')
@@ -29,7 +29,7 @@ def read_trace(path):
                 if session['end'] is not None:
                     raise ValueError('Duplicate recorder footer')
                 session['end'] = row
-            elif kind in ('video.loss.rtp', 'video.loss.rr'):
+            elif kind in ('video.loss.rtp', 'video.loss.rr', 'video.loss.sr'):
                 if session['end'] is not None:
                     raise ValueError('Record after footer')
                 session[kind.rsplit('.', 1)[1]].append(row)
@@ -41,10 +41,12 @@ def read_trace(path):
         h = session['header']
         if (session['end'] != {'write_ok': 1} or h['malformed'] != 0 or
                 h['packets'] != h['packet_seen'] or h['reports'] != h['report_seen'] or
-                h['packets'] != len(session['rtp']) or h['reports'] != len(session['rr'])):
+                h['packets'] != len(session['rtp']) or h['reports'] != len(session['rr']) or
+                h.get('sender_reports', 0) != h.get('sender_report_seen', 0) or
+                h.get('sender_reports', 0) != len(session['sr'])):
             raise ValueError('Incomplete, malformed or truncated metadata capture')
     return {kind: [r for s in sessions.values() for r in s[kind]]
-            for kind in ('rtp', 'rr')}
+            for kind in ('rtp', 'rr', 'sr')}
 
 
 def unwrap(rows, reference=None):
@@ -135,12 +137,12 @@ def direction(source, receiver):
     def key(r): return r['extended'], r['timestamp']
     accepted = {key(r) for r in sends if r['result'] == 0}
     received = {key(r) for r in receives}
-    decoded = {key(r) for r in delivered}
+    webrtc_delivered = {key(r) for r in delivered}
     return dict(ssrc=ssrc, sends=len(sends), locally_rejected=sum(r['result'] != 0 for r in sends),
                 received_copies=len(receives), delivered_copies=len(delivered),
                 unique_accepted=len(accepted), unique_received=len(received),
                 accepted_not_received=sorted(accepted - received),
-                received_not_delivered=sorted(received - decoded),
+                received_not_delivered=sorted(received - webrtc_delivered),
                 report_count=len(reports), loss_report_count=len(events), loss_reports=events,
                 clock_scope='Only receiver-local delivery/report time differences; no cross-device one-way latency.')
 
