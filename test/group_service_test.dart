@@ -7721,6 +7721,73 @@ void main() {
     expect(svc.isDisposed, isTrue);
   });
 
+  for (final historyBatch in [true, false]) {
+    test(historyBatch
+        ? 'history batch waits for durable replication admission'
+        : 'live device posts retain background replication', () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'fixture', createIfMissing: true);
+      addTearDown(storage.close);
+      final entered = Completer<void>(), release = Completer<void>();
+      var queueCalls = 0, liveCalls = 0;
+      Future<void> ship(String json, {required bool queued}) async {
+        if (!json.contains('queued-history-fixture')) return;
+        if (queued) { queueCalls++; } else { liveCalls++; }
+        if (!entered.isCompleted) entered.complete();
+        await release.future;
+      }
+      final svc = GroupService(storage, _FakeSigner(owner),
+        send: (_, _, json) => ship(json, queued: false),
+        sendSyncResponse: (_, _, json) => ship(json, queued: true),
+      );
+      addTearDown(svc.dispose);
+      addTearDown(() { if (!release.isCompleted) release.complete(); });
+      await svc.linkDevice(bob, sovereign: sovereign, broadcastSnapshot: false);
+      final row = DeviceSyncEvent(kind: DeviceSyncKind.settingSet,
+        key: 'queued-history-fixture', tsMs: 1, payload: {'v': 1});
+      var finished = false;
+      final Future<List<bool>> posting = historyBatch
+          ? svc.postDeviceEvents([(event: row, attachment: null)])
+          : svc.postDeviceEvent(row).then((value) => [value]);
+      final observed = posting.then((value) { finished = true; return value; });
+      await entered.future;
+      // Drain ready microtasks, without a timing/performance threshold. The
+      // explicit queue gate remains shut for both the old and new paths.
+      await Future<void>(() {});
+      final reportedBeforeAdmission = finished;
+      release.complete();
+      expect(await observed, [true]);
+      expect(reportedBeforeAdmission, !historyBatch,
+          reason: 'history backpressure must observe already queued replication');
+      expect(queueCalls, historyBatch ? 1 : 0);
+      expect(liveCalls, historyBatch ? 0 : 1);
+    });
+  }
+
+  test('failed history replication admission keeps committed rows and frees drainer', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'fixture', createIfMissing: true);
+    addTearDown(storage.close);
+    var refuse = true;
+    final svc = GroupService(storage, _FakeSigner(owner),
+      sendSyncResponse: (_, _, _) async {
+        if (refuse) throw StateError('injected queue admission failure');
+      },
+    );
+    addTearDown(svc.dispose);
+    await svc.linkDevice(bob, sovereign: sovereign, broadcastSnapshot: false);
+    DeviceSyncEvent row(String key) => DeviceSyncEvent(
+      kind: DeviceSyncKind.settingSet, key: key, tsMs: 1, payload: {'v': 1});
+    expect(await svc.postDeviceEvents([(event: row('committed-before-refusal'), attachment: null)]), [false]);
+    expect((await svc.deviceSyncState()).containsKey(
+      (DeviceSyncKind.settingSet, 'committed-before-refusal')), isTrue,
+      reason: 'replication refusal must not discard the durable local journal');
+    refuse = false;
+    expect(await svc.postDeviceEvents([(event: row('after-refusal'), attachment: null)]), [true]);
+    expect((await svc.deviceSyncState()).containsKey(
+      (DeviceSyncKind.settingSet, 'after-refusal')), isTrue);
+  });
+
   test('history batch shares one durable save and preserves queued order', () async {
     final storage = _ControlledGroupWriteStorage();
     await storage.open(password: 'pw', createIfMissing: true);

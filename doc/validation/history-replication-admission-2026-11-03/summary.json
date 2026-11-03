@@ -1,0 +1,106 @@
+{
+  "schema": "xveil-history-replication-admission/1",
+  "scopedPassed": 490,
+  "scopedSkipped": 3,
+  "analyzerIssues": 0,
+  "modelRedExpectedFailure": true,
+  "baselineSourceEqualsReverseControl": true,
+  "onlyChangedProductionFile": "lib/state/group_service.dart",
+  "frozenFiles": 573,
+  "nativeSourceControl": "eb644a83",
+  "physicalAndroidQualification": false,
+  "offlineScenarioExecuted": false,
+  "released": false,
+  "phases": [
+    {
+      "phase": "a1",
+      "initialHistoryMs": 56690,
+      "initialCountCompleteMs": 51575,
+      "initialOrderMismatchObservations": 0,
+      "initialPositionMismatchObservations": 1,
+      "convergedIdsAndOrder": true,
+      "completedHistoryRetries": 0,
+      "initialBStatuses": {
+        "sending": 0,
+        "sent": 0,
+        "delivered": 2000,
+        "failed": 0
+      },
+      "A": {
+        "headerLoads": 611,
+        "segmentBatchLoads": 572,
+        "replicationRefusals": 0
+      },
+      "B": {
+        "headerLoads": 623,
+        "segmentBatchLoads": 605,
+        "replicationRefusals": 0
+      },
+      "ownedPidsChecked": 18,
+      "portsChecked": 19,
+      "runtimeRootRemoved": true,
+      "remainingOwnedProcesses": 0,
+      "remainingOwnedListeners": 0
+    },
+    {
+      "phase": "b",
+      "initialHistoryMs": 46323,
+      "initialCountCompleteMs": 46323,
+      "initialOrderMismatchObservations": 0,
+      "initialPositionMismatchObservations": 0,
+      "convergedIdsAndOrder": true,
+      "completedHistoryRetries": 0,
+      "initialBStatuses": {
+        "sending": 0,
+        "sent": 0,
+        "delivered": 2000,
+        "failed": 0
+      },
+      "A": {
+        "headerLoads": 768,
+        "segmentBatchLoads": 731,
+        "replicationRefusals": 0
+      },
+      "B": {
+        "headerLoads": 678,
+        "segmentBatchLoads": 655,
+        "replicationRefusals": 0
+      },
+      "ownedPidsChecked": 18,
+      "portsChecked": 20,
+      "runtimeRootRemoved": true,
+      "remainingOwnedProcesses": 0,
+      "remainingOwnedListeners": 0
+    },
+    {
+      "phase": "a2",
+      "initialHistoryMs": 51445,
+      "initialCountCompleteMs": 51445,
+      "initialOrderMismatchObservations": 0,
+      "initialPositionMismatchObservations": 0,
+      "convergedIdsAndOrder": true,
+      "completedHistoryRetries": 0,
+      "initialBStatuses": {
+        "sending": 0,
+        "sent": 0,
+        "delivered": 2000,
+        "failed": 0
+      },
+      "A": {
+        "headerLoads": 445,
+        "segmentBatchLoads": 400,
+        "replicationRefusals": 1
+      },
+      "B": {
+        "headerLoads": 428,
+        "segmentBatchLoads": 414,
+        "replicationRefusals": 0
+      },
+      "ownedPidsChecked": 18,
+      "portsChecked": 20,
+      "runtimeRootRemoved": true,
+      "remainingOwnedProcesses": 0,
+      "remainingOwnedListeners": 0
+    }
+  ]
+}

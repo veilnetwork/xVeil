@@ -21341,15 +21341,19 @@ class GroupService implements ArchiveGroups {
       _queueDeviceEvents([(event: e, attachment: attachment)]).single;
 
   /// Enqueue one bounded set before waking the existing durable drainer. This
-  /// lets history replay share load/save work without reporting success before
-  /// commit, changing row order or bypassing live events already in the queue.
+  /// lets history replay share load/save work. Complete only after local
+  /// commit AND durable replication admission, so its backlog gate counts the
+  /// previous batch before admitting the next. Live single posts keep their
+  /// background-send contract. With the host's queue-only sendSyncResponse,
+  /// history never waits for the initial network attempt.
   Future<List<bool>> postDeviceEvents(
     List<({DeviceSyncEvent event, MediaObject? attachment})> events,
-  ) => Future.wait(_queueDeviceEvents(events));
+  ) => Future.wait(_queueDeviceEvents(events, queueReplication: true));
 
   List<Future<bool>> _queueDeviceEvents(
-    List<({DeviceSyncEvent event, MediaObject? attachment})> events,
-  ) {
+    List<({DeviceSyncEvent event, MediaObject? attachment})> events, {
+    bool queueReplication = false,
+  }) {
     if (events.length > kDevicePostBatch) {
       throw ArgumentError.value(events.length, 'events', 'device post batch exceeds limit');
     }
@@ -21365,7 +21369,12 @@ class GroupService implements ArchiveGroups {
     for (final item in events) {
       _deviceOutgoingCtl.add(item.event);
       final done = Completer<bool>();
-      _devicePostQueue.add((event: item.event, attachment: item.attachment, done: done));
+      _devicePostQueue.add((
+        event: item.event,
+        attachment: item.attachment,
+        done: done,
+        queueReplication: queueReplication,
+      ));
       pending.add(done.future);
     }
     if (pending.isNotEmpty && !_devicePostDraining) {
@@ -21377,7 +21386,7 @@ class GroupService implements ArchiveGroups {
 
   /// Device events waiting for the drainer, in the order they were posted.
   final List<
-    ({DeviceSyncEvent event, MediaObject? attachment, Completer<bool> done})
+    ({DeviceSyncEvent event, MediaObject? attachment, Completer<bool> done, bool queueReplication})
   >
   _devicePostQueue = [];
   bool _devicePostDraining = false;
@@ -21430,7 +21439,7 @@ class GroupService implements ArchiveGroups {
   Future<List<bool>> _postDeviceBatch(
     NodeId gid,
     List<
-      ({DeviceSyncEvent event, MediaObject? attachment, Completer<bool> done})
+      ({DeviceSyncEvent event, MediaObject? attachment, Completer<bool> done, bool queueReplication})
     >
     batch,
   ) async {
@@ -21483,9 +21492,21 @@ class GroupService implements ArchiveGroups {
         );
     await _save(working, preserveDeviceAdmission: admissionNeutral);
     if (!_disposed) {
-      _backgroundTasks.start(() async {
-        await broadcastDelta(gid, messages: fresh);
-      });
+      if (batch.any((item) => item.queueReplication)) {
+        // The replay's awaitRoom reads the durable Outbox. Detaching this
+        // enqueue let it repeatedly observe a queue that had not been filled
+        // yet, then replication admission refused later batches at the cap.
+        // Use the existing queue-only sender, never the initial network leg.
+        await _broadcastDelta(
+          gid,
+          messages: fresh,
+          sendOverride: sendSyncResponse,
+        );
+      } else {
+        _backgroundTasks.start(() async {
+          await broadcastDelta(gid, messages: fresh);
+        });
+      }
     }
     return results;
   }
