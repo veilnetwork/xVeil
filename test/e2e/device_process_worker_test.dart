@@ -15,6 +15,7 @@ import 'package:xveil/domain/peer_authorization.dart';
 
 import 'device_fixture.dart';
 import 'e2e_env.dart';
+import '../support/stand_cpu_profile.dart';
 
 /// One native node per OS process, driven through the app's existing debug
 /// API. Only the ready/unlock seam is supplied by the fixture. No identity
@@ -38,6 +39,7 @@ void main() {
           )
           .toList();
       E2eDevice? device;
+      StandCpuProfile? cpuProfile;
       try {
         await tester.runAsync(() async {
           device = await E2eDevice.startWorker(
@@ -71,6 +73,14 @@ void main() {
             if (await inspect.exists()) {
               final request = jsonDecode(await inspect.readAsString()) as Map;
               await inspect.delete();
+              if (env['XVEIL_E2E_CPU_PROFILE'] == '1' &&
+                  request['storageTiming'] == true &&
+                  (cpuProfile == null || request['resetStorageTiming'] == true)) {
+                // Adoption restarts B's worker. Its first subsequent inspect
+                // must start a new window even without another explicit reset.
+                cpuProfile ??= StandCpuProfile();
+                await cpuProfile!.reset();
+              }
               if (request['reconcile'] == true) {
                 await device!.messaging.reconcileOnConnect();
               }
@@ -162,7 +172,22 @@ void main() {
           await tester.pumpWidget(const SizedBox.shrink());
         });
       } finally {
-        await tester.runAsync(() async => device?.stop());
+        await tester.runAsync(() async {
+          try {
+            if (cpuProfile?.hasWindow == true) {
+              final evidence = env['XVEIL_E2E_EVIDENCE_DIR'];
+              if (evidence == null) {
+                throw StateError('stand profiler needs a private evidence dir');
+              }
+              await File('$evidence/cpu-$label-private.json').writeAsString(
+                jsonEncode(await cpuProfile!.snapshot()),
+              );
+            }
+          } finally {
+            cpuProfile?.close();
+            await device?.stop();
+          }
+        });
       }
     },
     // testWidgets uses the binding's ten-minute default even with the library
