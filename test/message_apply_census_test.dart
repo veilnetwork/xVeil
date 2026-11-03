@@ -12,6 +12,58 @@ import 'package:xveil/data/storage/fake_kv_log_store.dart';
 
 void main() {
   test(
+    'own-device context preserves results, reset, errors and privacy',
+    () async {
+      var now = 0;
+      final census = MessageApplyCensus(nowUs: () => now);
+      final entered = Completer<void>(), release = Completer<void>();
+      final result = Object();
+      final pending = census.ownDevices(() async {
+        expect(Zone.current[storageTimingContextKey], 'ownDevices');
+        entered.complete();
+        await release.future;
+        return result;
+      });
+      await entered.future;
+      now = 20;
+      census.reset();
+      now = 50;
+      release.complete();
+      expect(await pending, same(result));
+      final error = StateError('PRIVATE_ERROR');
+      await expectLater(
+        census.ownDevices(() async => throw error),
+        throwsA(same(error)),
+      );
+      census.observeRpc({
+        'operation': 'kv.get',
+        'storage_context': 'ownDevices',
+        'start_us': 0,
+        'duration_us': 50,
+      });
+      census.observeRpc({
+        'operation': 'kv.get',
+        'storage_context': 'PRIVATE_CONTEXT',
+        'start_us': 30,
+        'duration_us': 10,
+      });
+      final out = census.snapshot();
+      expect((out['contextsCompleted'] as Map)['ownDevices'], {
+        'count': 2,
+        'awaitUs': 30,
+        'maxAwaitUs': 30,
+        'startedBeforeWindow': 1,
+      });
+      expect((out['rpcContextsCompleted'] as Map)['ownDevices/kv.get'], {
+        'count': 1,
+        'awaitUs': 30,
+        'maxAwaitUs': 30,
+        'startedBeforeWindow': 1,
+      });
+      expect(jsonEncode(out), isNot(contains('PRIVATE_')));
+    },
+  );
+  test(
     'message methods preserve outcomes and clip reset without error data',
     () async {
       var now = 0;
@@ -288,6 +340,13 @@ void main() {
         },
       );
       expect(events.single['storage_operation'], 'file.hasBatch.segment');
+      await census.ownDevices(() => store.get(Ns.settings, Uint8List(0)));
+      expect(events.last['storage_context'], 'ownDevices');
+      expect(
+        (census.snapshot()['rpcContextsCompleted']
+            as Map)['ownDevices/kv.get']['count'],
+        1,
+      );
       expect(
         (census.snapshot()['rpcStorageOperationsCompleted']
             as Map)['file.hasBatch.segment/kv.getBatch']['count'],
@@ -295,9 +354,13 @@ void main() {
       );
       await runZoned(
         () => store.get(Ns.settings, Uint8List(0)),
-        zoneValues: {storageTimingOperationKey: 'PRIVATE_ZONE'},
+        zoneValues: {
+          storageTimingOperationKey: 'PRIVATE_ZONE',
+          storageTimingContextKey: 'PRIVATE_CONTEXT',
+        },
       );
       expect(events.last.containsKey('storage_operation'), isFalse);
+      expect(events.last.containsKey('storage_context'), isFalse);
       expect(jsonEncode(events), isNot(contains('PRIVATE_')));
       expect(jsonEncode(census.snapshot()), isNot(contains('PRIVATE_')));
       await store.close();

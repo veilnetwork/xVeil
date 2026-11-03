@@ -15,6 +15,8 @@ const groupFileTimingOpKey = #xveilStandGroupFileOperation;
 const authorizationTimingOpKey = #xveilStandAuthorizationOperation;
 const authorizationFlushTimingKey = #xveilStandAuthorizationFlush;
 const storageTimingOperationKey = #xveilStandStorageOperation;
+const storageTimingContextKey = #xveilStandStorageContext;
+const storageTimingContexts = {'ownDevices'};
 
 // Exact test-only labels; an arbitrary Zone value cannot become a correlator.
 final storageTimingOperations = Set<String>.unmodifiable({
@@ -37,10 +39,12 @@ class TimedNativeStore
     implements
         AsyncKvLogStore,
         AsyncLogBatchReader,
+        AsyncLogGroupReader,
         CommitAnchorSource,
         AsyncKvBatchReader {
   TimedNativeStore(this.inner, this.clock, this.observe) {
     if (inner is! AsyncLogBatchReader ||
+        inner is! AsyncLogGroupReader ||
         inner is! AsyncKvBatchReader ||
         inner is! CommitAnchorSource) {
       throw StateError(
@@ -64,6 +68,7 @@ class TimedNativeStore
     final authorizationOperation = Zone.current[authorizationTimingOpKey];
     final authorizationFlush = Zone.current[authorizationFlushTimingKey];
     final storageOperation = Zone.current[storageTimingOperationKey];
+    final context = Zone.current[storageTimingContextKey];
     try {
       return await body();
     } finally {
@@ -81,6 +86,7 @@ class TimedNativeStore
           'authorization_flush': authorizationFlush,
         if (storageTimingOperations.contains(storageOperation))
           'storage_operation': storageOperation,
+        if (storageTimingContexts.contains(context)) 'storage_context': context,
       });
     }
   }
@@ -134,6 +140,24 @@ class TimedNativeStore
     namespaces: [namespace],
     operations: ids.length,
   );
+  @override
+  Future<List<Uint8List>?> readLogGroups(
+    int namespace,
+    List<LogReadGroup> groups,
+  ) {
+    // Snapshot before any wrapper or worker can yield.
+    final requested = [
+      for (final group in groups)
+        (ids: List<int>.of(group.ids), maxBytes: group.maxBytes),
+    ];
+    return _time(
+      'kv.readLogGroups',
+      () => (inner as AsyncLogGroupReader).readLogGroups(namespace, requested),
+      namespaces: [namespace],
+      operations: requested.fold<int>(0, (n, group) => n + group.ids.length),
+    );
+  }
+
   @override
   Future<List<KvLogEntry>> iterLogRange({
     required int namespace,
