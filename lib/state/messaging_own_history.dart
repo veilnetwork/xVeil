@@ -52,6 +52,7 @@ class _MessagingOwnHistory {
   bool get _ready =>
       !_closed &&
       !_owner._disposed &&
+      _owner._ownHistoryBindingsReady &&
       _owner.groupBindingsOwner != null &&
       _owner.ownHistoryEncode != null &&
       _owner.ownHistoryApply != null;
@@ -85,9 +86,17 @@ class _MessagingOwnHistory {
     _tick();
   }
 
+  void nudge() {
+    if (_timer != null) _tick();
+  }
+
   void _tick() => _run(() async {
     if (!_ready) return;
+    final binding = _owner.groupBindingsOwner;
     final devices = await _owner.myOtherDevices?.call() ?? <NodeId>[];
+    // A lookup from the previous provider must not retire a pull belonging to
+    // its replacement. _begin rechecks admission too, but cleanup comes first.
+    if (!_ready || !identical(binding, _owner.groupBindingsOwner)) return;
     final live = devices.map((d) => d.hex).toSet();
     for (final pull in _pulls.values.toList()) {
       if (!live.contains(pull.device.hex) ||

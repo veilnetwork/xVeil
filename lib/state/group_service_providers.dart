@@ -903,6 +903,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     await ownDocumentReady;
     await peerDocumentsReady;
     if (!tasks.isClosed && !service.isDisposed) {
+      messaging.onOwnDeviceHistoryReady(service);
       await service.nudgeGroupSyncAll();
     }
   });
