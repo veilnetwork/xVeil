@@ -20063,8 +20063,9 @@ class GroupService implements ArchiveGroups {
           _deviceGidCache != hex) {
         continue;
       }
-      // The shared future must not let one caller mutate another's targets.
-      return List<NodeId>.of(addresses);
+      // NodeId owns mutable bytes too: each caller must own both the list and
+      // its ID values, even when readers shared the same unfinished lookup.
+      return [for (final address in addresses) NodeId(address.bytes)];
     }
     return const [];
   }
