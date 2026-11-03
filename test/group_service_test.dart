@@ -682,7 +682,12 @@ class _HeldGroupHeaderStorage extends HiddenVolumeStorage
 /// Holds a completed journal load, after shared raw-byte reads have drained.
 /// This exposes a routing lookup finishing after a later committed revoke.
 class _HeldRoutingGroupService extends GroupService {
-  _HeldRoutingGroupService(super.storage, super.signer);
+  _HeldRoutingGroupService(
+    super.storage,
+    super.signer, {
+    super.send,
+    super.sendSyncResponse,
+  });
 
   NodeId? holdGroup;
   int readsUntilHold = 1;
@@ -12873,6 +12878,187 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 50));
     return (service, signer, gid);
   }
+
+  test(
+    'sovereign delta observes journal deletion between operations',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'fixture', createIfMissing: true);
+      addTearDown(storage.close);
+      final sent = <NodeId>[];
+      final service = _HeldRoutingGroupService(
+        storage,
+        _FakeSigner(owner),
+        send: (peer, _, _) async {
+          sent.add(peer);
+        },
+        sendSyncResponse: (_, _, _) async {},
+      )..myDevice = owner;
+      addTearDown(service.dispose);
+      await service.linkDevice(
+        bob,
+        sovereign: sovereign,
+        broadcastSnapshot: false,
+      );
+      await service.postDeviceEvents([
+        (
+          event: DeviceSyncEvent(
+            kind: DeviceSyncKind.settingSet,
+            key: 'coherent-delta-read',
+            tsMs: 100,
+            payload: {'v': true},
+          ),
+          attachment: null,
+        ),
+      ]);
+      final gid = NodeId.fromHex((await service.deviceGroupIdHex())!);
+      final bundle = (await service.load(gid))!;
+      sent.clear();
+      expect(await service.broadcastDelta(gid, messages: bundle.messages), 1);
+      expect(sent, [bob]);
+      sent.clear();
+      await storage.deleteStoredFile('group:${gid.hex}');
+      expect(await service.broadcastDelta(gid, messages: bundle.messages), 0);
+      expect(sent, isEmpty, reason: 'a later operation must observe deletion');
+    },
+  );
+
+  test(
+    'revoke overtaking a delta journal read still removes its recipient',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'fixture', createIfMissing: true);
+      addTearDown(storage.close);
+      final sent = <NodeId>[];
+      final service = _HeldRoutingGroupService(
+        storage,
+        _FakeSigner(owner),
+        send: (peer, _, _) async {
+          sent.add(peer);
+        },
+        sendSyncResponse: (_, _, _) async {},
+      )..myDevice = owner;
+      addTearDown(service.dispose);
+      await service.linkDevice(
+        bob,
+        sovereign: sovereign,
+        broadcastSnapshot: false,
+      );
+      await service.postDeviceEvents([
+        (
+          event: DeviceSyncEvent(
+            kind: DeviceSyncKind.settingSet,
+            key: 'revoked-delta-read',
+            tsMs: 100,
+            payload: {'v': true},
+          ),
+          attachment: null,
+        ),
+      ]);
+      final gid = NodeId.fromHex((await service.deviceGroupIdHex())!);
+      final bundle = (await service.load(gid))!;
+      service.holdGroup = gid;
+      final delta = service.broadcastDelta(gid, messages: bundle.messages);
+      await service.captured.future;
+      try {
+        expect(await service.revokeDevice(bob, sovereign: sovereign), isTrue);
+        // Ignore the separate control-only revoke announcement.
+        sent.clear();
+      } finally {
+        service.release.complete();
+      }
+      expect(await delta, 0);
+      expect(
+        sent,
+        isEmpty,
+        reason: 'an old loaded bundle cannot authorise a revoked target',
+      );
+    },
+  );
+
+  test(
+    'master announcement overtaking a delta read changes the selected address',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'fixture', createIfMissing: true);
+      addTearDown(storage.close);
+      final sent = <NodeId>[];
+      final replacement = NodeId(Uint8List.fromList(List.filled(32, 77)));
+      final service =
+          _HeldRoutingGroupService(
+              storage,
+              _FakeSigner(owner),
+              send: (peer, _, _) async {
+                sent.add(peer);
+              },
+              sendSyncResponse: (_, _, _) async {},
+            )
+            ..myDevice = bob
+            ..documentNodeId = (_) => owner;
+      addTearDown(service.dispose);
+      await service.linkDevice(
+        bob,
+        sovereign: sovereign,
+        broadcastSnapshot: false,
+      );
+      DeviceSyncEvent announcement(NodeId device, int stamp) => DeviceSyncEvent(
+        kind: DeviceSyncKind.identityDoc,
+        key: device.hex,
+        tsMs: stamp,
+        payload: const {'d': 'ZG9j', 'o': true},
+      );
+      await service.postDeviceEvents([
+        (event: announcement(owner, 100), attachment: null),
+      ]);
+      final gid = NodeId.fromHex((await service.deviceGroupIdHex())!);
+      final bundle = (await service.load(gid))!;
+      service.holdGroup = gid;
+      final delta = service.broadcastDelta(gid, messages: bundle.messages);
+      await service.captured.future;
+      try {
+        expect(
+          await service.postDeviceEvents([
+            (event: announcement(replacement, 200), attachment: null),
+          ]),
+          [true],
+        );
+        sent.clear();
+      } finally {
+        service.release.complete();
+      }
+      expect(await delta, 1);
+      expect(
+        sent,
+        [replacement],
+        reason: 'the current announcement must win over an old delta snapshot',
+      );
+    },
+  );
+
+  test(
+    'concurrent routing callers do not share mutable node ID bytes',
+    () async {
+      final (service, _, gid) = await heldRouting();
+      service.holdGroup = gid;
+      final first = service.addressableOwnDevices();
+      await service.captured.future;
+      final second = service.addressableOwnDevices();
+      await Future<void>(() {});
+      service.release.complete();
+      final addresses = await Future.wait([first, second]);
+      expect(addresses, [
+        [bob],
+        [bob],
+      ]);
+      addresses.first.single.bytes[0] ^= 0xff;
+      expect(
+        addresses.last,
+        [bob],
+        reason: 'copying only the list still shares the mutable target ID',
+      );
+      expect(await service.addressableOwnDevices(), [bob]);
+    },
+  );
 
   test(
     'concurrent own routing queries share only an unfinished journal view',
