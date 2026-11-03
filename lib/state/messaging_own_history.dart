@@ -416,14 +416,17 @@ class _MessagingOwnHistory {
   }
 
   // Device-local send attempts are not shared state. A positive delivery ACK
-  // is, and so are current text, inline emoji and its edit frontier. Comparing
-  // only IDs left held-but-stale rows invisible to recovery after compaction.
+  // is, and so are current text, inline emoji, its edit frontier and canonical
+  // ordering. Provisional echoes can have equal content but a different source
+  // position; compare the repaired ordering, not their unpromoted raw authorship.
   String _digest(({List<Message> rows, Map<String, int> edits}) snapshot) {
     final sorted = snapshot.rows.toList()..sort((a, b) => a.id.compareTo(b.id));
     final state = [
       for (final message in sorted)
         [
           message.id,
+          message.orderAuthor,
+          message.orderSeq,
           message.body,
           encodeInlineCustomEmoji(message.customEmoji),
           snapshot.edits[message.id],

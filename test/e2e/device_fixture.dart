@@ -354,6 +354,52 @@ class E2eDevice {
         }
 
         final opener = workerSpaceOpener('${dir.path}/store.hv');
+        // Crash qualification needs an on-disk witness before reconnect can
+        // fill a missing suffix. Only the fixture reads these synthetic rows;
+        // no IDs, bodies or keys are written to the private count-only probe.
+        if (label == 'B' &&
+            (int.tryParse(
+                      Platform.environment['XVEIL_E2E_MIGRATION_CRASH_AFTER_ROWS'] ??
+                          '0',
+                    ) ??
+                    0) >
+                0) {
+          final evidence = Platform.environment['XVEIL_E2E_EVIDENCE_DIR'];
+          if (evidence == null) _fail('crash probe needs private evidence');
+          final ids = <String>{};
+          var rows = 0, delivered = 0;
+          if (await File('${dir.path}/store.hv').exists()) {
+            // Close this inspector before constructing the application's
+            // owner: observing disk state must not warm its message folds.
+            final inspector = HiddenVolumeStorage.async(opener)
+              ..useOnDiskTier(Directory('${dir.path}/blobs'));
+            try {
+              if (!await inspector.open(password: password)) {
+                _fail('could not unlock the crash inspection container');
+              }
+              for (final conversation in await inspector.loadConversations()) {
+                for (final message in await inspector.loadMessages(
+                  conversation.id,
+                )) {
+                  if (!message.body.startsWith('backlog-base-')) continue;
+                  rows++;
+                  ids.add(message.id);
+                  if (message.status == MessageStatus.delivered) delivered++;
+                }
+              }
+            } finally {
+              await inspector.close();
+            }
+          }
+          await File(
+            '$evidence/backlog-B-before-network-private.jsonl',
+          ).writeAsString(
+            '${jsonEncode({'rows': rows, 'uniqueIds': ids.length, 'delivered': delivered, 'atUs': DateTime.now().microsecondsSinceEpoch})}\n',
+            mode: FileMode.append,
+            flush: true,
+          );
+        }
+
         final census = Platform.environment['XVEIL_E2E_STORAGE_TIMING'] == '1'
             ? MessageApplyCensus()
             : null;

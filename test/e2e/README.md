@@ -518,3 +518,47 @@ Optional `XVEIL_E2E_EVIDENCE_DIR` output is private: it can contain the owned
 temporary root and a failed QR image. Keep it outside the repository and never
 attach it as an anonymous report. Published results must contain only the
 bounded stage/pass/cleanup summaries.
+
+
+### Receiver crash during a large initial migration
+
+`multi_device_backlog_process_e2e_test.dart` has an opt-in crash mode. With the
+usual native-library/CLI gates configured, set:
+
+```sh
+TMPDIR=/private/tmp/ \
+XVEIL_E2E_MIGRATION_ONLY=1 \
+XVEIL_E2E_BACKLOG_BASE_ROWS=2000 \
+XVEIL_E2E_MIGRATION_CRASH_AFTER_ROWS=1000 \
+XVEIL_E2E_STORAGE_POSITIONS=1 \
+XVEIL_E2E_EVIDENCE_DIR=/private/tmp/xveil-crash-evidence \
+flutter test --no-pub test/e2e/multi_device_backlog_process_e2e_test.dart
+```
+
+Create the evidence directory privately before running. The test uses real
+A→C sends and checks delivered status before linking B. It sends SIGKILL to
+B's owned process group after observing at least the requested partial count,
+asserts the negative SIGKILL exit status, and restarts B. A fixture-only probe
+reads synthetic backlog rows through an isolated storage owner, closes it, and
+only then constructs B's application owner and starts its **network**: a
+nonempty incomplete on-disk prefix is required. A missed crash threshold or a
+fully completed transfer does not qualify as a successful crash.
+
+The final oracle compares all IDs, order, source positions and delivered
+statuses, rejects duplicate snapshots and completed-history retries, then
+restarts B without A/C and rechecks its retained state. The count-only boot
+probe writes no message IDs, bodies, peer identifiers or keys. It is disabled
+without the crash option; no production debug endpoint or callback is added.
+This is a process-crash/reconnect check, not a claim to inject a failure at
+one exact fsync/ratchet/ACK instruction. Its timing includes restart and boot
+inspection work and must not be compared as uninterrupted migration speed.
+
+
+Add `XVEIL_E2E_MIGRATION_CRASH_SOURCES_OFFLINE=1` to stop A and C immediately
+following B's crash, restart B without them, and require an incomplete local
+prefix after reconnect. Only A then returns; C remains stopped throughout the
+remaining history recovery. This mode requires a positive crash threshold.
+The legacy summary field `offlineScenarioExecuted=false` refers to the separate
+100-message/five-minute backlog phase; the crash-specific fields describe the
+source-offline steps here. Storage census windows belong to their worker boot;
+post-crash counters do not include the killed boot's earlier operations.

@@ -21,6 +21,7 @@ class ProcessDevice {
   Future<void>? _stdoutDone, _stderrDone;
   late int port;
   String? _key;
+  int? lastExitCode;
   final ownedPids = <int>[];
   String get logPath => '${dir.path}/worker.log';
 
@@ -55,6 +56,7 @@ class ProcessDevice {
   }
 
   Future<void> start() async {
+    lastExitCode = null;
     await dir.create(recursive: true);
     final stopMarker = File('${dir.path}/stop-worker');
     if (await stopMarker.exists()) await stopMarker.delete();
@@ -190,14 +192,14 @@ class ProcessDevice {
       await File('${dir.path}/stop-worker').writeAsString('stop');
     }
     try {
-      await _exit!.timeout(const Duration(seconds: 20));
+      lastExitCode = await _exit!.timeout(const Duration(seconds: 20));
     } on TimeoutException {
       await _killGroup(ProcessSignal.sigterm.signalNumber);
       try {
-        await _exit!.timeout(const Duration(seconds: 5));
+        lastExitCode = await _exit!.timeout(const Duration(seconds: 5));
       } on TimeoutException {
         await _killGroup(ProcessSignal.sigkill.signalNumber);
-        await _exit;
+        lastExitCode = await _exit;
       }
     }
     await Future.wait([_stdoutDone!, _stderrDone!]);

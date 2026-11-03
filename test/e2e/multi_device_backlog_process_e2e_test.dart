@@ -93,9 +93,16 @@ Future<List<String>> _ids(
 void main() {
   final gate = E2eGate.read();
   final migrationOnly = Platform.environment['XVEIL_E2E_MIGRATION_ONLY'] == '1';
+  final crashAfterRows = int.parse(
+    Platform.environment['XVEIL_E2E_MIGRATION_CRASH_AFTER_ROWS'] ?? '0',
+  );
+  final sourcesOfflineAtRestart =
+      Platform.environment['XVEIL_E2E_MIGRATION_CRASH_SOURCES_OFFLINE'] == '1';
   test(
     migrationOnly
-        ? 'isolated A/B/C: initial history migration only'
+        ? crashAfterRows > 0
+              ? 'isolated A/B/C: receiver crash during initial history migration'
+              : 'isolated A/B/C: initial history migration only'
         : 'isolated A/B/C: 100 offline mirrors after five minutes with aged history',
     () async {
       _observedInvalidSnapshot = false;
@@ -106,6 +113,14 @@ void main() {
         Platform.environment['XVEIL_E2E_BACKLOG_BASE_ROWS'] ?? '2000',
       );
       expect(baseRows, inInclusiveRange(migrationOnly ? 1 : 0, 3000));
+      expect(crashAfterRows, greaterThanOrEqualTo(0));
+      if (sourcesOfflineAtRestart) expect(crashAfterRows, greaterThan(0));
+      if (crashAfterRows > 0) {
+        expect(crashAfterRows, inExclusiveRange(0, baseRows));
+        expect(migrationOnly, isTrue);
+        expect(_withPositions, isTrue);
+        expect(Platform.environment['XVEIL_E2E_EVIDENCE_DIR'], isNotNull);
+      }
       final f = await ProcessFleet.start(gate);
       addTearDown(f.dispose);
       final a = f.a, b = f.b, c = f.c;
@@ -156,6 +171,16 @@ void main() {
       var initialOrderMismatchObservations = 0;
       var initialPositionMismatchObservations = 0;
       var initialOrderMatches = false, initialPositionsMatch = false;
+      int? rowsBeforeCrash, crashExitCode, rowsAtRestartBeforeNetwork;
+      int? rowsWithSourcesOffline, sourceRestartReadyAtMs;
+      int? crashAtMs, restartReadyAtMs;
+      final crashProbe = File(
+        '${Platform.environment['XVEIL_E2E_EVIDENCE_DIR']}/backlog-B-before-network-private.jsonl',
+      );
+      Future<List<Map<String, dynamic>>> bootCounts() async => [
+        for (final line in await crashProbe.readAsLines())
+          Map<String, dynamic>.from(jsonDecode(line) as Map),
+      ];
       final initialHistory = Stopwatch()..start();
       try {
         await waitUntil(
@@ -197,6 +222,59 @@ void main() {
               'orderMatch=$initialOrderMatches positionsMatch=$initialPositionsMatch '
               'delivered=${_statuses['B']?['delivered']}',
             );
+            if (crashAfterRows > 0 &&
+                rowsBeforeCrash == null &&
+                initialBCount >= crashAfterRows) {
+              expect(
+                initialBCount,
+                lessThan(baseRows),
+                reason: 'a completed transfer is not a mid-sync crash',
+              );
+              rowsBeforeCrash = initialBCount;
+              crashAtMs = initialHistory.elapsedMilliseconds;
+              final bootsBefore = (await bootCounts()).length;
+              await b.stop(crash: true);
+              crashExitCode = b.lastExitCode;
+              expect(crashExitCode, -ProcessSignal.sigkill.signalNumber);
+              if (sourcesOfflineAtRestart) {
+                await a.stop();
+                await c.stop();
+              }
+              await b.start();
+              restartReadyAtMs = initialHistory.elapsedMilliseconds;
+              final boots = await bootCounts();
+              expect(boots, hasLength(bootsBefore + 1));
+              final local = boots.last;
+              rowsAtRestartBeforeNetwork = local['rows'] as int;
+              expect(
+                rowsAtRestartBeforeNetwork,
+                inExclusiveRange(0, baseRows),
+                reason: 'the restarted receiver must still need history',
+              );
+              expect(local['uniqueIds'], rowsAtRestartBeforeNetwork);
+              E2eLog.line(
+                'BACKLOG_RECEIVER_CRASH before=$rowsBeforeCrash '
+                'localAfter=$rowsAtRestartBeforeNetwork exit=$crashExitCode',
+              );
+              if (sourcesOfflineAtRestart) {
+                final heldOffline = await _ids(b, ci, 'backlog-base-');
+                rowsWithSourcesOffline = heldOffline.length;
+                expect(
+                  rowsWithSourcesOffline,
+                  inExclusiveRange(0, baseRows),
+                  reason: 'the offline-source phase must still need history',
+                );
+                expect(expectedBase.toSet().containsAll(heldOffline), isTrue);
+                E2eLog.line(
+                  'BACKLOG_RECEIVER_OFFLINE_SOURCES rows=$rowsWithSourcesOffline',
+                );
+                // C stays down: the missing history must be recovered with A
+                // as the only live full source, not from the other contact.
+                await a.start();
+                sourceRestartReadyAtMs = initialHistory.elapsedMilliseconds;
+              }
+              return false;
+            }
             return complete &&
                 initialOrderMatches &&
                 initialPositionsMatch &&
@@ -214,6 +292,14 @@ void main() {
       } finally {
         initialHistory.stop();
         await _positionEvidence('B', 'last-observed');
+      }
+      if (crashAfterRows > 0) {
+        expect(
+          rowsBeforeCrash,
+          isNotNull,
+          reason: 'crash qualification must actually interrupt the transfer',
+        );
+        expect(rowsAtRestartBeforeNetwork, inExclusiveRange(0, baseRows));
       }
       expect(await _ids(b, ci, 'backlog-base-'), expectedBase);
       final initialBStatuses = Map<String, int>.of(_statuses['B']!);
@@ -248,13 +334,44 @@ void main() {
 
       if (migrationOnly) {
         expect(await _ids(a, ci, 'backlog-base-'), expectedBase);
-        expect(await _ids(c, ai, 'backlog-base-'), expectedBase);
+        if (!sourcesOfflineAtRestart) {
+          expect(await _ids(c, ai, 'backlog-base-'), expectedBase);
+        }
         if (Platform.environment['XVEIL_E2E_STORAGE_TIMING'] == '1') {
           await _ids(a, ci, 'backlog-base-');
           for (final label in ['A', 'B']) {
             expect(_storageTimings[label], isNotNull);
             expect(_storageTimings[label]!['keyLimitReached'], isFalse);
           }
+        }
+        expect(_observedInvalidSnapshot, isFalse);
+        final migrationStorageTimings = Map<String, Map<String, dynamic>>.of(
+          _storageTimings,
+        );
+        var retainedWithoutSources = false;
+        if (crashAfterRows > 0) {
+          await a.stop();
+          await c.stop();
+          final bootsBefore = (await bootCounts()).length;
+          await b.restart();
+          final boots = await bootCounts();
+          expect(boots, hasLength(bootsBefore + 1));
+          expect(boots.last['rows'], baseRows);
+          expect(boots.last['uniqueIds'], baseRows);
+          expect(boots.last['delivered'], baseRows);
+          expect(await _ids(b, ci, 'backlog-base-'), expectedBase);
+          expect(_statuses['B']?['delivered'], baseRows);
+          for (final entry in expectedPositions!.entries) {
+            expect(
+              _positions['B']?[entry.key]?['orderAuthor'],
+              entry.value['orderAuthor'],
+            );
+            expect(
+              _positions['B']?[entry.key]?['orderSeq'],
+              entry.value['orderSeq'],
+            );
+          }
+          retainedWithoutSources = true;
         }
         expect(_observedInvalidSnapshot, isFalse);
         final evidence = Platform.environment['XVEIL_E2E_EVIDENCE_DIR'];
@@ -276,8 +393,26 @@ void main() {
               'convergedIdsAndOrder': true,
               'invalidSnapshotObserved': _observedInvalidSnapshot,
               'offlineScenarioExecuted': false,
-              if (_storageTimings.isNotEmpty) 'storageTiming': _storageTimings,
-              if (_storageTimings.isNotEmpty)
+              'receiverCrashRequested': crashAfterRows > 0,
+              'receiverCrashPerformed': rowsBeforeCrash != null,
+              if (crashAfterRows > 0) ...{
+                'crashAfterRows': crashAfterRows,
+                'rowsBeforeCrash': rowsBeforeCrash,
+                'crashExitCode': crashExitCode,
+                'rowsAtRestartBeforeNetwork': rowsAtRestartBeforeNetwork,
+                'crashAtMs': crashAtMs,
+                'restartReadyAtMs': restartReadyAtMs,
+                'retainedWithoutSources': retainedWithoutSources,
+                'sourcesOfflineAtReceiverRestart': sourcesOfflineAtRestart,
+                if (sourcesOfflineAtRestart) ...{
+                  'rowsWithSourcesOffline': rowsWithSourcesOffline,
+                  'sourceRestartReadyAtMs': sourceRestartReadyAtMs,
+                  'onlySourceAReturned': true,
+                },
+              },
+              if (migrationStorageTimings.isNotEmpty)
+                'storageTiming': migrationStorageTimings,
+              if (migrationStorageTimings.isNotEmpty)
                 'storageTimingResetBeforeLink': ['A', 'B'],
             }),
           );
@@ -346,16 +481,20 @@ void main() {
             final idsComplete =
                 found.length == 100 && equals(expected).matches(found, {});
             final positions = _positions['B'];
-            final positionsComplete = !_withPositions ||
+            final positionsComplete =
+                !_withPositions ||
                 (positions != null &&
                     positions.length == 100 &&
-                    expectedOfflinePositions!.entries.every((entry) =>
-                        positions[entry.key]?['orderAuthor'] ==
-                            entry.value['orderAuthor'] &&
-                        positions[entry.key]?['orderSeq'] ==
-                            entry.value['orderSeq']));
+                    expectedOfflinePositions!.entries.every(
+                      (entry) =>
+                          positions[entry.key]?['orderAuthor'] ==
+                              entry.value['orderAuthor'] &&
+                          positions[entry.key]?['orderSeq'] ==
+                              entry.value['orderSeq'],
+                    ));
             final delivered = _statuses['B']?['delivered'] ?? 0;
-            final complete = idsComplete && positionsComplete && delivered == 100;
+            final complete =
+                idsComplete && positionsComplete && delivered == 100;
             samples.add({
               'elapsedMs': recovery.elapsedMilliseconds,
               'fromLaunchMs': launched.elapsedMilliseconds,
