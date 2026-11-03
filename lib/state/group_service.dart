@@ -21764,8 +21764,8 @@ class GroupService implements ArchiveGroups {
     Set<NodeId> exclude = const {},
     String? overlayId,
 
-    /// Send to exactly these and nobody else — the forward of rows received
-    /// from outside to my own devices.
+    /// Restrict to these current recipients — forwarding rows received from
+    /// outside to my own devices. This does not grant membership.
     Set<NodeId>? onlyTo,
   }) => _broadcastDelta(
     groupId,
@@ -21821,8 +21821,8 @@ class GroupService implements ArchiveGroups {
     Set<NodeId> exclude = const {},
     String? overlayId,
 
-    /// Send to exactly these and nobody else — the forward of rows received
-    /// from outside to my own devices.
+    /// Restrict to these current recipients — forwarding rows received from
+    /// outside to my own devices. This does not grant membership.
     Set<NodeId>? onlyTo,
     GroupSnapshotSender? sendOverride,
   }) async {
@@ -21888,7 +21888,13 @@ class GroupService implements ArchiveGroups {
         : {...await _myOtherDevicesForGroups()};
     final List<NodeId> peers;
     if (onlyTo != null) {
-      peers = onlyTo.toList();
+      // A forwarding task may have captured these addresses before a revoke
+      // or master-address change. The override narrows this send's current
+      // audience; it cannot grant membership to a stale or arbitrary target.
+      peers = [
+        for (final peer in onlyTo)
+          if (candidates.contains(peer) || myDevices.contains(peer)) peer,
+      ];
     } else {
       final chosen = sparse
           ? groupOverlayPeers(

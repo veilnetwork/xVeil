@@ -12879,6 +12879,172 @@ void main() {
     return (service, signer, gid);
   }
 
+  test('explicit delta targets cannot restore a revoked sibling', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'fixture', createIfMissing: true);
+    addTearDown(storage.close);
+    final sent = <NodeId>[];
+    final service = GroupService(
+      storage,
+      _FakeSigner(owner),
+      send: (peer, _, _) async {
+        sent.add(peer);
+      },
+      sendSyncResponse: (_, _, _) async {},
+    )..myDevice = owner;
+    addTearDown(service.dispose);
+    await service.linkDevice(
+      bob,
+      sovereign: sovereign,
+      broadcastSnapshot: false,
+    );
+    final group = await service.createGroup('private fixture');
+    expect(
+      await service.postMessage(group, 'private row', broadcast: false),
+      isTrue,
+    );
+    final rows = (await service.load(group))!.messages;
+    final capturedTargets = (await service.addressableOwnDevices()).toSet();
+    expect(capturedTargets, {bob});
+    sent.clear();
+    expect(
+      await service.broadcastDelta(
+        group,
+        messages: rows,
+        onlyTo: capturedTargets,
+      ),
+      1,
+    );
+    expect(sent, [
+      bob,
+    ], reason: 'a currently linked sibling must receive the row');
+    expect(await service.revokeDevice(bob, sovereign: sovereign), isTrue);
+    expect(await service.addressableOwnDevices(), isEmpty);
+    sent.clear();
+    expect(
+      await service.broadcastDelta(
+        group,
+        messages: rows,
+        onlyTo: capturedTargets,
+      ),
+      0,
+    );
+    expect(
+      sent,
+      isEmpty,
+      reason: 'an earlier forwarding target list grants no membership',
+    );
+  });
+
+  test(
+    'explicit delta targets still allow current members and exclude strangers',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'fixture', createIfMissing: true);
+      addTearDown(storage.close);
+      final sent = <NodeId>[];
+      final service = GroupService(
+        storage,
+        _FakeSigner(owner),
+        send: (peer, _, wire) async {
+          if ((jsonDecode(wire)['g'] as List).isNotEmpty) sent.add(peer);
+        },
+      );
+      addTearDown(service.dispose);
+      final group = await service.createGroup('membership fixture');
+      expect(
+        await service.addControlOp(
+          group,
+          ControlOp.addMember,
+          target: bob,
+          role: GroupRole.member,
+        ),
+        isTrue,
+      );
+      expect(
+        await service.postMessage(group, 'private row', broadcast: false),
+        isTrue,
+      );
+      final rows = (await service.load(group))!.messages;
+      sent.clear();
+      expect(
+        await service.broadcastDelta(
+          group,
+          messages: rows,
+          onlyTo: {bob, _id(77)},
+        ),
+        1,
+      );
+      expect(sent, [
+        bob,
+      ], reason: 'the override narrows, never expands, membership');
+      expect(
+        await service.addControlOp(group, ControlOp.removeMember, target: bob),
+        isTrue,
+      );
+      sent.clear();
+      expect(
+        await service.broadcastDelta(group, messages: rows, onlyTo: {bob}),
+        0,
+      );
+      expect(sent, isEmpty);
+    },
+  );
+
+  test(
+    'explicit device delta targets cannot restore a revoked sibling',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'fixture', createIfMissing: true);
+      addTearDown(storage.close);
+      final sent = <NodeId>[];
+      final service = GroupService(
+        storage,
+        _FakeSigner(owner),
+        send: (peer, _, wire) async {
+          if ((jsonDecode(wire)['g'] as List).isNotEmpty) sent.add(peer);
+        },
+        sendSyncResponse: (_, _, _) async {},
+      )..myDevice = owner;
+      addTearDown(service.dispose);
+      await service.linkDevice(
+        bob,
+        sovereign: sovereign,
+        broadcastSnapshot: false,
+      );
+      expect(
+        await service.postDeviceEvents([
+          (
+            event: DeviceSyncEvent(
+              kind: DeviceSyncKind.settingSet,
+              key: 'target-boundary',
+              tsMs: 100,
+              payload: {'v': true},
+            ),
+            attachment: null,
+          ),
+        ]),
+        [true],
+      );
+      final group = NodeId.fromHex((await service.deviceGroupIdHex())!);
+      final rows = (await service.load(group))!.messages;
+      final targets = (await service.addressableOwnDevices()).toSet();
+      sent.clear();
+      expect(
+        await service.broadcastDelta(group, messages: rows, onlyTo: targets),
+        1,
+      );
+      expect(sent, [bob]);
+      expect(await service.revokeDevice(bob, sovereign: sovereign), isTrue);
+      sent.clear();
+      expect(
+        await service.broadcastDelta(group, messages: rows, onlyTo: targets),
+        0,
+      );
+      expect(sent, isEmpty);
+    },
+  );
+
   test(
     'sovereign delta observes journal deletion between operations',
     () async {

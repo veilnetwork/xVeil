@@ -71,6 +71,8 @@ class ProcessDevice {
         'flutter',
         'test',
         '--no-pub',
+        if (Platform.environment['XVEIL_E2E_CPU_PROFILE'] == '1')
+          '--enable-vmservice',
         '--dart-define=XVEIL_DEBUG_HOOK=true',
         '--dart-define=XVEIL_DEBUG_HOOK_PORT=$port',
         if (Platform.environment['XVEIL_E2E_BULK_STREAM_TRACE'] == '1')
