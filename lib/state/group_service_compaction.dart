@@ -93,7 +93,6 @@ class _LogCompaction {
         <({GroupMessage message, DeviceSyncEvent event, String peer})>[];
     final deleted = <String, Set<String>>{};
     final ttl = <String, int?>{};
-    final now = _owner._clockNowMs();
     for (final m in b.messages) {
       if (!_owner._validMessageFor(b.manifest.groupId, m) ||
           !state.isMember(m.author)) {
@@ -118,8 +117,9 @@ class _LogCompaction {
         if (seconds != null && seconds > 0) {
           await _owner._storage.pruneConversationBefore(
             NodeId.fromHex(peer),
-            DateTime.fromMillisecondsSinceEpoch(now - seconds * 1000)
-                .add(const Duration(microseconds: 1)),
+            DateTime.fromMillisecondsSinceEpoch(
+              _owner._clockNowMs() - seconds * 1000,
+            ).add(const Duration(microseconds: 1)),
           );
           deleted[peer] = await _owner._storage.deletedMessageIds(peer);
         }
@@ -138,6 +138,9 @@ class _LogCompaction {
           seconds <= 0) {
         continue;
       }
+      // Policy/prune/tombstone reads above may wait behind storage I/O.
+      // A batch-start clock must not extend the original post's TTL.
+      final now = _owner._clockNowMs();
       final sent = messageTsOnReceipt(e.tsMs, now);
       if (now < sent + seconds * 1000 || deleted[row.peer]!.contains(e.key)) {
         continue;
@@ -156,8 +159,31 @@ class _LogCompaction {
         author: position ? author : null,
         seq: position ? seq : null,
       );
-      if (recorded ||
-          await _owner._storage.isMessageDeleted(row.peer, e.key)) {
+      var isDeleted =
+          recorded || await _owner._storage.isMessageDeleted(row.peer, e.key);
+      if (!isDeleted) {
+        // The first prune can complete after its cutoff is already stale.
+        // A refused unseen marker means there may still be a canonical row:
+        // inspect its OWN timestamp, never use the older mirror as authority.
+        final canonical = await _owner._storage.loadMessageById(
+          row.peer,
+          e.key,
+        );
+        final cutoff = _owner._clockNowMs() - seconds * 1000;
+        if (canonical != null &&
+            canonical.timestamp.millisecondsSinceEpoch <= cutoff) {
+          await _owner._storage.pruneConversationBefore(
+            NodeId.fromHex(row.peer),
+            DateTime.fromMillisecondsSinceEpoch(
+              cutoff,
+            ).add(const Duration(microseconds: 1)),
+          );
+        }
+        // Also catches deletion racing the canonical lookup. A missing row
+        // alone must not authorize erasing other copies with the same ID.
+        isDeleted = await _owner._storage.isMessageDeleted(row.peer, e.key);
+      }
+      if (isDeleted) {
         deleted[row.peer]!.add(e.key);
       } else {
         // The unseen-message marker refuses to overwrite a live canonical
