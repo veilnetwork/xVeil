@@ -73,7 +73,10 @@ class _MessagingInboundExpiry {
 
   Future<bool> edit(NodeId peer, Message target, {bool mirrored = false}) =>
       _guard(() async {
-        if (!await expired(peer, target.timestamp)) return false;
+        if (!await owner._storage.isMessageDeleted(peer.hex, target.id) &&
+            !await expired(peer, target.timestamp)) {
+          return false;
+        }
         if (owner._disposed) throw StateError('Messaging is disposing');
         if (mirrored) {
           await owner._storage.deleteMessage(peer.hex, target.id);
