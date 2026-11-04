@@ -71,6 +71,113 @@ class _LogCompaction {
 
   final GroupService _owner;
 
+  /// Physically retire locally expired 1:1 bodies from a sovereign device log.
+  /// Each decision uses a verified current member's row plus this container's
+  /// contact policy/tombstones. Unknown kinds and unverifiable rows stay intact.
+  /// Author floors are local sequence-allocation metadata, not prefix cuts:
+  /// older unrelated state must remain readable and synchronizable.
+  Future<GroupBundle> _withoutExpiredDeviceBodies(
+    GroupBundle b, {
+    Set<String>? storedHashes,
+  }) async {
+    if (!b.manifest.isSovereignDevice ||
+        await _owner.deviceGroupIdHex() != b.manifest.groupId.hex) {
+      return b;
+    }
+    final state = foldControlLog(
+      owner: b.manifest.owner,
+      entries: b.control,
+      verify: (e) => _owner._validControlFor(b.manifest, e),
+    ).state;
+    final rows =
+        <({GroupMessage message, DeviceSyncEvent event, String peer})>[];
+    final deleted = <String, Set<String>>{};
+    final ttl = <String, int?>{};
+    final now = _owner._clockNowMs();
+    for (final m in b.messages) {
+      if (!_owner._validMessageFor(b.manifest.groupId, m) ||
+          !state.isMember(m.author)) {
+        continue;
+      }
+      final event = DeviceSyncEvent.fromBody(m.body);
+      if (event == null ||
+          (event.kind != DeviceSyncKind.msgMirror &&
+              event.kind != DeviceSyncKind.msgEdit)) {
+        continue;
+      }
+      final peer = event.payload['peer'];
+      if (peer is! String || !RegExp(r'^[0-9a-f]{64}$').hasMatch(peer)) {
+        continue;
+      }
+      if (!deleted.containsKey(peer)) {
+        deleted[peer] = await _owner._storage.deletedMessageIds(peer);
+        ttl[peer] = (await _owner._storage.getContact(
+          NodeId.fromHex(peer),
+        ))?.disappearingTtlSeconds;
+        final seconds = ttl[peer];
+        if (seconds != null && seconds > 0) {
+          await _owner._storage.pruneConversationBefore(
+            NodeId.fromHex(peer),
+            DateTime.fromMillisecondsSinceEpoch(now - seconds * 1000),
+          );
+          deleted[peer] = await _owner._storage.deletedMessageIds(peer);
+        }
+      }
+      rows.add((message: m, event: event, peer: peer));
+    }
+    // Discover original post expiry before judging edits: edit timestamps do
+    // not renew a message's lifetime, including when the edit is another
+    // physical author's last row.
+    for (final row in rows) {
+      final e = row.event;
+      final seconds = ttl[row.peer];
+      if (e.kind != DeviceSyncKind.msgMirror ||
+          seconds == null ||
+          seconds <= 0) {
+        continue;
+      }
+      final sent = messageTsOnReceipt(e.tsMs, now);
+      if (now < sent + seconds * 1000 || deleted[row.peer]!.contains(e.key)) {
+        continue;
+      }
+      final author = e.payload['au'], seq = e.payload['sq'];
+      final position =
+          author is String &&
+          RegExp(r'^[0-9a-f]{64}$').hasMatch(author) &&
+          seq is int &&
+          isAcceptableWireSeq(seq);
+      // Persist the rejection before retiring the only journal copy: replay
+      // after TTL-off/clock rollback must not recreate the conversation row.
+      await _owner._storage.recordExpiredMessage(
+        row.peer,
+        e.key,
+        author: position ? author : null,
+        seq: position ? seq : null,
+      );
+      deleted[row.peer]!.add(e.key);
+    }
+    final gone = <String>{};
+    final floors = {...b.deviceMessageSeqFloors};
+    for (final row in rows) {
+      if (!deleted[row.peer]!.contains(row.event.key)) continue;
+      gone.add(_owner._messageHash(row.message));
+      final author = row.message.author.hex;
+      floors[author] = max(floors[author] ?? -1, row.message.seq);
+    }
+    if (gone.isEmpty) return b;
+    return b.copyWith(
+      messages: [
+        for (final m in b.messages)
+          if (!gone.contains(_owner._messageHash(m))) m,
+      ],
+      deviceMessageSeqFloors: floors,
+      deviceMessageScrubPending:
+          b.deviceMessageScrubPending ||
+          storedHashes == null ||
+          gone.any(storedHashes.contains),
+    );
+  }
+
   /// Where the last compaction pass stopped, so consecutive hours cover
   /// different groups instead of re-folding the same first few.
   int _compactionCursor = 0;
@@ -302,8 +409,9 @@ class _LogCompaction {
   /// row, preserving the current fold, next-seq allocation, and gap-fill
   /// high-water. Invalid/cross-group rows are scrubbed as part of the rewrite.
   Future<GroupLogCompaction?> compactLocked(NodeId groupId) async {
-    final b = await _owner.load(groupId);
-    if (b == null) return null;
+    final original = await _owner.load(groupId);
+    if (original == null) return null;
+    final b = await _withoutExpiredDeviceBodies(original);
     // A ROW THIS DEVICE CANNOT VERIFY RIGHT NOW IS NOT A ROW IT MAY DELETE.
     //
     // This pass used to rewrite every group keeping only what verified at
@@ -358,7 +466,7 @@ class _LogCompaction {
     final reactions = await _compactReactions(b);
     final posts = _owner._retainedPostRows(groupId, b.posts);
     final result = GroupLogCompaction(
-      messagesBefore: b.messages.length,
+      messagesBefore: original.messages.length,
       messagesAfter: messages.length,
       postsBefore: b.posts.length,
       postsAfter: posts.length,
@@ -367,15 +475,25 @@ class _LogCompaction {
       reactionsBefore: b.reactions.length,
       reactionsAfter: reactions.length,
     );
-    if (result.changed) {
-      await _owner._save(
-        b.copyWith(
-          control: control,
-          messages: messages,
-          posts: posts,
-          reactions: reactions,
-        ),
-      );
+    final compacted = b.copyWith(
+      control: control,
+      messages: messages,
+      posts: posts,
+      reactions: reactions,
+    );
+    if (result.changed || compacted.deviceMessageScrubPending) {
+      await _owner._save(compacted);
+    }
+    if (compacted.deviceMessageScrubPending) {
+      // The replacement header durably carries both sequence floors and this
+      // obligation before old bytes are vacuumed. A failed vacuum or final
+      // header write remains retryable after restart, even with no rows left.
+      if ((_owner._segmentIndex[_owner._key(groupId)]?.pending.isNotEmpty) ??
+          false) {
+        throw StateError('device journal segment cleanup incomplete');
+      }
+      await _owner._storage.scrubDeleted();
+      await _owner._save(compacted.copyWith(deviceMessageScrubPending: false));
     }
     // No marker is installed if validation/storage threw. A failed pass must
     // remain eligible on the next save. Hourly and explicit passes still run
