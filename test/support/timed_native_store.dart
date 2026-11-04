@@ -16,7 +16,7 @@ const authorizationTimingOpKey = #xveilStandAuthorizationOperation;
 const authorizationFlushTimingKey = #xveilStandAuthorizationFlush;
 const storageTimingOperationKey = #xveilStandStorageOperation;
 const storageTimingContextKey = #xveilStandStorageContext;
-const storageTimingContexts = {'ownDevices'};
+const storageTimingContexts = {'ownDevices', 'historyApply', 'historyEncode'};
 
 // Exact test-only labels; an arbitrary Zone value cannot become a correlator.
 final storageTimingOperations = Set<String>.unmodifiable({
