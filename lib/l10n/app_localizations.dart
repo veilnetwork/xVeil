@@ -3365,7 +3365,7 @@ abstract class AppL10n {
   /// No description provided for @chatRequestNotDelivered.
   ///
   /// In en, this message translates to:
-  /// **'Could not store the request for later delivery. It may still arrive directly'**
+  /// **'The request is saved on this device. Relay delivery has not been confirmed yet.'**
   String get chatRequestNotDelivered;
 
   /// No description provided for @chatRequestResend.

@@ -1952,7 +1952,7 @@ class AppL10nRu extends AppL10n {
 
   @override
   String get chatRequestNotDelivered =>
-      'Не удалось сохранить запрос для доставки позже. Он ещё может дойти напрямую';
+      'Запрос сохранён на этом устройстве. Доставка через реле пока не подтверждена.';
 
   @override
   String get chatRequestResend => 'Отправить снова';

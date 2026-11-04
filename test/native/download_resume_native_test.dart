@@ -6,9 +6,11 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/core/error_journal.dart';
 import 'package:xveil/data/serve_source.dart'
     show VeilPlainFileSink, veilPlainFileSinkOpener;
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
+import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/hv_kv_log_store.dart';
 import 'package:xveil/data/storage/hv_native.dart';
 import 'package:xveil/data/transport/loopback_transport.dart';
@@ -26,6 +28,76 @@ class _OfflineTransport extends LoopbackTransport {
 }
 
 void main() {
+  test(
+    'background startup preserves native resume intent across unlock',
+    () async {
+      expect(ensureHiddenVolumeLoaded(), true);
+      final dir = await Directory.systemTemp.createTemp('xveil-resume-unlock-');
+      final path = '${dir.path}/store.hv';
+      HvKvLogStore(
+        hv.HvSpace.create(
+          path: path,
+          password: Uint8List.fromList(utf8.encode('fixture')),
+          argon: hv.ArgonPreset.min,
+        ),
+      ).close();
+      final storage = HiddenVolumeStorage.async(workerSpaceOpener(path));
+      final transport = _OfflineTransport();
+      final service = MessagingService(transport, storage);
+      try {
+        expect(
+          await storage.open(password: 'fixture', createIfMissing: true),
+          true,
+        );
+        final peer = NodeId(Uint8List(32)..fillRange(0, 32, 0xbb));
+        final contentId = '72' * 32;
+        await storage.upsertContact(
+          Contact(nodeId: peer, status: ContactStatus.accepted),
+        );
+        await storage.putSetting(
+          'pending_downloads',
+          jsonEncode([
+            {
+              'cid': contentId,
+              'mode': 'store',
+              'peers': [peer.hex],
+              'at': DateTime.now().toIso8601String(),
+            },
+          ]),
+        );
+        await storage.close();
+        errorJournal.clear();
+        service.start();
+        await pumpEventQueue();
+        expect(
+          errorJournal.entries.where((e) => e.kind == 'download-resume-read'),
+          isEmpty,
+        );
+        expect(service.autoResumeTicks, 0);
+        expect(await storage.open(password: 'fixture'), true);
+        await service.reconcileOnConnect();
+        await Future<void>.delayed(const Duration(milliseconds: 2100));
+        expect(service.autoResumeTicks, greaterThan(0));
+        expect(await service.pendingAutoResumeContentIds(), [contentId]);
+        await service.dispose();
+        await storage.close();
+        expect(await storage.open(password: 'fixture'), true);
+        final cold = MessagingService(transport, storage);
+        try {
+          expect(await cold.pendingAutoResumeContentIds(), [contentId]);
+        } finally {
+          await cold.dispose();
+        }
+      } finally {
+        await service.dispose();
+        await transport.dispose();
+        await storage.close();
+        await dir.delete(recursive: true);
+        errorJournal.clear();
+      }
+    },
+  );
+
   test(
     'a late destination handle closes after the real container has shut down',
     () async {

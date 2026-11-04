@@ -825,7 +825,7 @@
   "mentionsLoadFailed": "Не удалось загрузить упоминания",
   "chatRequestSent": "Запрос ожидает ответа — доставка может занять время",
   "chatRequestResent": "Отправлено ещё раз — ожидание одобрения",
-  "chatRequestNotDelivered": "Не удалось сохранить запрос для доставки позже. Он ещё может дойти напрямую",
+  "chatRequestNotDelivered": "Запрос сохранён на этом устройстве. Доставка через реле пока не подтверждена.",
   "chatRequestResend": "Отправить снова",
   "chatRequestCancel": "Отменить",
   "chatRequestCancelTitle": "Отменить запрос?",

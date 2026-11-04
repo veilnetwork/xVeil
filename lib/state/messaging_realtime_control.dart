@@ -1,5 +1,20 @@
 part of 'messaging_core.dart';
 
+// Stable diagnostic codes, independent of peer/call/frame identifiers. Append
+// stages instead of reordering them; dispatched means handed to the callback,
+// not accepted by the FSM or received by a remote endpoint.
+enum _CallSignalDecision {
+  sendRequested,
+  decoded,
+  malformed,
+  rejectedProvenance,
+  rejectedContact,
+  rejectedEnding,
+  duplicate,
+  handlerMissing,
+  dispatched,
+}
+
 /// Outbox key prefix for a direct-endpoint share. One place, because the code
 /// that mints these ids and the code that retires the superseded ones must
 /// agree — a silent disagreement leaves the old frames re-driving.
@@ -231,12 +246,33 @@ class _MessagingRealtimeControl {
     }
 
     final signal = CallSignal.tryDecode(envelope.body);
+    recordCallDecision(
+      signal,
+      signal == null
+          ? _CallSignalDecision.malformed
+          : _CallSignalDecision.decoded,
+      realtime: true,
+    );
     if (signal == null) return;
-    if (!admitCallEnding(message, signal)) return;
+    if (!admitCallEnding(message, signal)) {
+      recordCallDecision(
+        signal,
+        _CallSignalDecision.rejectedEnding,
+        realtime: true,
+      );
+      return;
+    }
     // Only an offer can create a call. Follow-ups avoid a storage read because
     // CallService independently checks the exact active `(peer, callId)`.
     if (signal.type == CallSignalType.offer) {
-      if (!_speaksForContact(message, 'offer')) return;
+      if (!_speaksForContact(message, 'offer')) {
+        recordCallDecision(
+          signal,
+          _CallSignalDecision.rejectedProvenance,
+          realtime: true,
+        );
+        return;
+      }
       if (!isAccepted(message.src)) {
         final contact = await _owner._storage.getContact(message.src);
         if (contact?.status != ContactStatus.accepted) {
@@ -244,6 +280,11 @@ class _MessagingRealtimeControl {
           // fan-out) — no contact row, welcome anyway, no cache priming.
           // CallService re-verifies the sender before honoring onBehalfOf.
           if (!(await _owner.isOwnDevice?.call(message.src) ?? false)) {
+            recordCallDecision(
+              signal,
+              _CallSignalDecision.rejectedContact,
+              realtime: true,
+            );
             return;
           }
         } else {
@@ -258,7 +299,14 @@ class _MessagingRealtimeControl {
       // Delivery into the call FSM is latency-critical; ACK storage/mailbox
       // work runs independently after dedup state is recorded.
       unawaited(_owner._ackFrame(message, frameId));
-      if (!fresh) return;
+      if (!fresh) {
+        recordCallDecision(
+          signal,
+          _CallSignalDecision.duplicate,
+          realtime: true,
+        );
+        return;
+      }
     }
     _noteInbound(message.src);
     devLog(() {
@@ -272,7 +320,43 @@ class _MessagingRealtimeControl {
           'receipt_age=$receiptAge queue=${queueMs}ms '
           'handler=${elapsed.elapsedMilliseconds - queueMs}ms';
     });
-    onCallSignal?.call(message.src, signal);
+    dispatchCallSignal(message.src, signal, realtime: true);
+  }
+
+  void recordCallDecision(
+    CallSignal? signal,
+    _CallSignalDecision decision, {
+    bool realtime = false,
+    bool outgoing = false,
+  }) {
+    // Heartbeat frequency must not evict the evidence needed to diagnose
+    // ringing. Existing call/media counters retain liveness observations.
+    if (signal?.type == CallSignalType.health) return;
+    diagnosticJournal.record(
+      DiagnosticEvent.callSignalDecision,
+      values: {
+        DiagnosticMetric.code: signal?.type.index ?? -1,
+        DiagnosticMetric.state: decision.index,
+        DiagnosticMetric.transport: outgoing ? -1 : (realtime ? 1 : 0),
+        DiagnosticMetric.direction: outgoing ? 0 : 1,
+      },
+    );
+  }
+
+  void dispatchCallSignal(
+    NodeId peer,
+    CallSignal signal, {
+    bool realtime = false,
+  }) {
+    final handler = onCallSignal;
+    recordCallDecision(
+      signal,
+      handler == null
+          ? _CallSignalDecision.handlerMissing
+          : _CallSignalDecision.dispatched,
+      realtime: realtime,
+    );
+    handler?.call(peer, signal);
   }
 
   /// Count decoded protocol arrivals, before consent/dedup, on either inbox.
@@ -586,6 +670,11 @@ class _MessagingRealtimeControl {
     // relayed offers and answered-elsewhere signals address a sibling, which
     // is never a contact — this gate silently ate the whole relay while the
     // service above it logged "fanning offer … out to 1 sibling device(s)".
+    recordCallDecision(
+      signal,
+      _CallSignalDecision.sendRequested,
+      outgoing: true,
+    );
     final ownDevice = await _owner.isOwnDevice?.call(peer) ?? false;
     var contactIdentity = false;
     if (!ownDevice) {
@@ -595,6 +684,11 @@ class _MessagingRealtimeControl {
         markAccepted(peer);
       } else if (!(_owner.acceptsCallDeviceSignal?.call(peer, signal) ??
           false)) {
+        recordCallDecision(
+          signal,
+          _CallSignalDecision.rejectedContact,
+          outgoing: true,
+        );
         return;
       }
     }

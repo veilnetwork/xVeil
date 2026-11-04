@@ -825,7 +825,7 @@
   "mentionsLoadFailed": "No se pudieron cargar las menciones",
   "chatRequestSent": "Esperando respuesta: la entrega puede tardar",
   "chatRequestResent": "Enviado de nuevo — esperando aprobación",
-  "chatRequestNotDelivered": "No se pudo guardar la solicitud para entregarla después. Aún puede llegar directamente",
+  "chatRequestNotDelivered": "La solicitud está guardada en este dispositivo. La entrega a través del relé aún no se ha confirmado.",
   "chatRequestResend": "Enviar de nuevo",
   "chatRequestCancel": "Cancelar",
   "chatRequestCancelTitle": "¿Cancelar la solicitud?",

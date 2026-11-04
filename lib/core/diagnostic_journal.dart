@@ -45,6 +45,7 @@ enum DiagnosticEvent {
   callAudioOutput,
   audioOutputSnapshot,
   microphoneControl,
+  callSignalDecision,
 }
 
 enum DiagnosticMetric {

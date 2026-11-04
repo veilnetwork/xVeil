@@ -42,6 +42,11 @@ class _MessagingDownloadResume {
 
   final MessagingService _owner;
 
+  // The fallback messaging provider also exists before unlock. An idle
+  // background reader must not diagnose that expected state as a broken
+  // download registry. Explicit requests retain their strict storage checks.
+  bool get _canResume => !_owner._disposed && _owner._storage.isOpen;
+
   static const String _pendingDownloadsKey = 'pending_downloads';
   static const String _pendingDownloadsFile = 'download-resume.registry.v1';
   static const String _fileLayout = 'file:v1';
@@ -242,7 +247,9 @@ class _MessagingDownloadResume {
       // a new request must not overwrite an unreadable registry with an empty
       // one. Do not cache this failure: the next request may recover the read.
       _pendingReadFailed = true;
-      _report('download-resume-read', cause: error, stack: stack);
+      if (_canResume) {
+        _report('download-resume-read', cause: error, stack: stack);
+      }
       return {};
     }
   }
@@ -395,12 +402,14 @@ class _MessagingDownloadResume {
 
   Future<void> start() async {
     _failedSub ??= _owner.contentDownloadFailed.listen((contentId) async {
+      if (!_canResume) return;
       diagnosticJournal.record(DiagnosticEvent.downloadFailed);
       if ((await _pendingDownloads()).containsKey(contentId)) {
         _schedule(contentId, backoff: true);
       }
     });
     _progressSub ??= _owner.contentProgress.listen((event) async {
+      if (!_canResume) return;
       if ((await _pendingDownloads()).containsKey(event.contentId)) {
         _progressAt[event.contentId] = DateTime.now();
         _attempts.remove(event.contentId);
@@ -418,7 +427,9 @@ class _MessagingDownloadResume {
     Duration initial = const Duration(seconds: 2),
     Duration stagger = Duration.zero,
   }) async {
+    if (!_canResume) return;
     final pending = await _pendingDownloads();
+    if (!_canResume) return;
     final warmed = <String>{};
     for (final entry in pending.entries) {
       for (final hex in entry.value.peers) {
@@ -526,7 +537,7 @@ class _MessagingDownloadResume {
   }
 
   void _schedule(String contentId, {Duration? after, bool backoff = false}) {
-    if (_owner._disposed) return;
+    if (!_canResume) return;
     Duration delay;
     if (after != null) {
       delay = after;
@@ -571,12 +582,12 @@ class _MessagingDownloadResume {
   int resumeTicks = 0;
 
   Future<void> _resume(String contentId) async {
+    if (!_canResume || _inFlight.containsKey(contentId)) return;
     resumeTicks++;
-    if (_owner._disposed || _inFlight.containsKey(contentId)) return;
     final attempt = Object();
     _inFlight[contentId] = attempt;
     bool isCurrent() =>
-        !_owner._disposed &&
+        _canResume &&
         !_owner._cancelledDownloads.contains(contentId) &&
         identical(_inFlight[contentId], attempt);
     final short = contentId.length >= 12

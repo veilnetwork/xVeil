@@ -1933,7 +1933,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get chatRequestNotDelivered =>
-      'Could not store the request for later delivery. It may still arrive directly';
+      'The request is saved on this device. Relay delivery has not been confirmed yet.';
 
   @override
   String get chatRequestResend => 'Send again';
