@@ -341,12 +341,14 @@ void main() {
   );
 
   test(
-    'expiry while an initial live lookup waits prevents sending queued body',
+    'expiry while queued validation waits prevents the initial send',
     () async {
-      var reads = 0;
       final entered = Completer<void>(), release = Completer<void>();
       storage.afterOriginalRead = () async {
-        if (++reads == 2) {
+        if (!entered.isCompleted &&
+            (await pending()).any(
+              (e) => e.kind == WireKind.edit && e.id == 'target',
+            )) {
           entered.complete();
           await release.future;
         }
@@ -355,12 +357,19 @@ void main() {
         if (!release.isCompleted) release.complete();
       });
       storage.replacementObserved = Completer<void>();
-      await messaging.editOwnMessage('target', 'WAITING_INITIAL_EDIT');
-      await entered.future.timeout(const Duration(seconds: 10));
-      expect((await pending()).single.kind, WireKind.edit);
-      expect(transport.wires, isEmpty);
-      now = now.add(const Duration(seconds: 31));
-      release.complete();
+      final editing = messaging.editOwnMessage(
+        'target',
+        'WAITING_INITIAL_EDIT',
+      );
+      try {
+        await entered.future.timeout(const Duration(seconds: 10));
+        expect((await pending()).single.kind, WireKind.edit);
+        expect(transport.wires, isEmpty);
+        now = now.add(const Duration(seconds: 31));
+      } finally {
+        if (!release.isCompleted) release.complete();
+      }
+      await editing;
       await storage.replacementObserved!.future.timeout(
         const Duration(seconds: 10),
       );

@@ -483,6 +483,13 @@ class _MessagingOutbox {
         return;
       }
     }
+    // Enqueue can wait behind encrypted-store I/O. Expiry cleanup is part of
+    // this durable handoff, even when a silent peer gets no live leg (or its
+    // live leg is detached). Do not rely on tryLive to retire the stored body.
+    if (envelope.kind == WireKind.edit &&
+        !await _editExpiry.allow(peer.hex, frameId, wire, persisted: true)) {
+      return;
+    }
     // Contact requests and acceptance use mailbox. Start
     // its deposit before waiting for a live send to an unavailable requester.
     if (mailboxEligible) _owner._stashInBackground(peer, frameId, wire);

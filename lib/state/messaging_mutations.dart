@@ -498,6 +498,10 @@ class _MessagingMutations {
     // Try both independent effects even if either persistence step fails, and
     // report failure rather than claiming that sibling publication succeeded.
     await attempt(() async {
+      // The queue commit above can outlive the post too. Keep this inside
+      // attempt: an earlier peer-persistence failure must still be reported,
+      // and a live edit must still try its independent sibling publication.
+      if (await _owner._inboundExpiry.edit(destination, message)) return;
       await _owner._deviceMirror.onMessageEdited?.call(
         destination,
         messageId,
