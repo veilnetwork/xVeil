@@ -296,7 +296,9 @@ class _MessagingConversationAdmin {
       if (cutoff == null) return 0;
       final pruned = await _owner._storage.pruneConversationBefore(
         peer,
-        cutoff,
+        // Storage's generic retention primitive is strictly BEFORE. TTL is
+        // inclusive at post+window; keep the following microsecond intact.
+        cutoff.add(const Duration(microseconds: 1)),
       );
       if (pruned > 0) _owner._signal();
       return pruned;

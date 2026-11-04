@@ -120,7 +120,7 @@ Optional knobs:
 | `multi_device_partition_e2e_test.dart` | four independent live devices, two transport partitions, concurrent messages/edit/delete/reactions/read state, then ordered convergence without a restart; optional global deletion and offline receiver restart |
 | `expired_mirror_process_e2e_test.dart` | real thirty-second TTL with B offline; source journal bodies are retired, A restarts and sends a fresh message to B/C; expired copies stay absent from the conversation and journal after B cold-restarts with A/C stopped |
 | `expiry_outbox_process_e2e_test.dart` | proves queued snapshots contain expiring bodies mixed with retained state; observes automatic rewriting, reads stopped A's raw native Outbox before any application cleanup, then checks reconnect/fresh delivery and cold B retention |
-| `expired_edit_process_e2e_test.dart` | keeps C offline while a real edit expires; checks automatic replacement, stopped raw native roots, durable void ACK, fresh delivery and receiver TTL convergence after restart |
+| `expired_edit_process_e2e_test.dart` | keeps C offline while a real edit expires; checks automatic replacement, stopped raw native roots, first cold C read before the old TTL timer, durable void ACK and fresh delivery |
 | `pending_mutation_convergence_e2e_test.dart` | three native app stacks; a controlled peer unsend arrives before its post, then an offline sibling recovers the deletion without that peer and retains it after restart |
 | `e2e_env_test.dart` | unresponsive probes/diagnostics cannot disable the wait deadline |
 | `fixtures/*.toml` | test-only, committed node identities (see "Why identities are committed") |

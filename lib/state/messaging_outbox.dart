@@ -426,6 +426,11 @@ class _MessagingOutbox {
     Future<void> tryLive() async {
       final stopwatch = Stopwatch()..start();
       try {
+        if (_owner._expiryLifecycle.defers(OutboxFrame(
+          peerHex: peer.hex, frameId: frameId, wire: wire,
+        ))) {
+          return;
+        }
         if (envelope.kind == WireKind.edit &&
             (!await _editExpiry.allow(peer.hex, frameId, wire, persisted: true) ||
                 _owner._disposed)) {
@@ -662,6 +667,7 @@ class _MessagingOutbox {
     }
     for (final frame in pending) {
       if (!current(frame)) continue;
+      if (_owner._expiryLifecycle.defers(frame)) continue;
       try {
         if (!await _editExpiry.allow(
           frame.peerHex,

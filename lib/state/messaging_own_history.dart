@@ -58,6 +58,7 @@ class _MessagingOwnHistory {
   bool get _ready =>
       !_closed &&
       !_owner._disposed &&
+      !_owner._expiryLifecycle.pending &&
       _owner._ownHistoryBindingsReady &&
       _owner.groupBindingsOwner != null &&
       _owner.ownHistoryEncode != null &&
@@ -94,6 +95,18 @@ class _MessagingOwnHistory {
 
   void nudge() {
     if (_timer != null) _tick();
+  }
+
+  /// Detach stale pulls before readiness cleanup yields. An old continuation
+  /// must not install its failure cooldown while the replacement is paused.
+  void retireStaleBindings() {
+    for (final pull in _pulls.values.toList()) {
+      if (!identical(pull.binding, _owner.groupBindingsOwner)) {
+        _finish(pull, Duration.zero);
+      }
+    }
+    _starting.removeWhere((_, binding) =>
+      !identical(binding, _owner.groupBindingsOwner));
   }
 
   void _tick() => _run(() async {
