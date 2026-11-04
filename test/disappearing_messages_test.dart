@@ -1110,6 +1110,33 @@ void _readClockTests() {
       await tB.dispose();
     });
 
+    test(
+      'one background pass visits the device journal even without expired chat rows',
+      () async {
+        var calls = 0;
+        mA.onDisappearingSweep = () async {
+          calls++;
+        };
+        await mA.sweepAllDisappearing();
+        expect(calls, 1);
+        await mA.sweepAllDisappearing();
+        expect(calls, 2);
+      },
+    );
+
+    test(
+      'a failed journal cleanup does not disable the next background pass',
+      () async {
+        var calls = 0;
+        mA.onDisappearingSweep = () async {
+          if (++calls == 1) throw StateError('cleanup failed');
+        };
+        await mA.sweepAllDisappearing();
+        await mA.sweepAllDisappearing();
+        expect(calls, 2);
+      },
+    );
+
     test('an expired message goes on the background sweep', () async {
       await mA.setContactDisappearing(b, 60);
       await _pump();

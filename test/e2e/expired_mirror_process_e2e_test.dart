@@ -10,7 +10,7 @@ import 'multi_device_process_e2e_test.dart' as base;
 void main() {
   final gate = E2eGate.read();
   test(
-    'expired device-journal mirrors stay out of the conversation before sweep and after TTL off',
+    'TTL retires signed journal bodies and reconnect stays usable after an author restart',
     () async {
       final f = await ProcessFleet.start(gate);
       addTearDown(f.dispose);
@@ -82,13 +82,32 @@ void main() {
         timeout: const Duration(seconds: 40),
         interval: const Duration(milliseconds: 100),
       );
-      await c.stop();
-      await b.start();
+      Future<bool> originalJournalAbsent(ProcessDevice device) async {
+        final events =
+            (await device.checked('/device_events'))['events'] as Map;
+        return source.every(
+          (row) =>
+              !events.containsKey('msgMirror|${row['id']}') &&
+              !events.containsKey('msgEdit|${row['id']}'),
+        );
+      }
+
       await waitUntil(
-        () => hasJournal(b),
-        what: 'the expired mirrors actually arrive in B signed device journal',
+        () => originalJournalAbsent(a),
+        what:
+            'the real background TTL pass physically retires source device-journal bodies',
+        timeout: const Duration(seconds: 45),
       );
-      E2eLog.line('PROCESS_TTL_EXPIRED_JOURNAL_RECEIVED');
+      E2eLog.line('PROCESS_TTL_SOURCE_JOURNAL_RETIRED');
+      await a.restart();
+      expect(await originalJournalAbsent(a), isTrue);
+      await b.start();
+      const fresh = 'ttl-fresh-after-source-cleanup-and-restart';
+      await a.checked('/send_message', query: {'peer': ci, 'text': fresh});
+      await base.hasBody(c, ai, fresh);
+      await base.hasBody(b, ci, fresh);
+      E2eLog.line('PROCESS_TTL_FRESH_SYNC_AFTER_AUTHOR_RESTART');
+      await c.stop();
       Future<void> absentForObservation() async {
         final watch = Stopwatch()..start();
         do {
@@ -104,27 +123,13 @@ void main() {
       }
 
       await absentForObservation();
-      E2eLog.line('PROCESS_TTL_EXPIRED_PROJECTIONS_ABSENT');
-      await a.checked('/disappearing', query: {'peer': ci, 'set': '0'});
-      await waitUntil(
-        () async =>
-            (await b.checked(
-              '/disappearing',
-              query: {'peer': ci},
-            ))['ttlSeconds'] ==
-            null,
-        what: 'TTL-off decision is durably reflected on B',
-      );
+      expect(await originalJournalAbsent(b), isTrue);
+      E2eLog.line('PROCESS_TTL_EXPIRED_PROJECTIONS_AND_JOURNAL_ABSENT');
       await a.stop();
       await b.restart();
-      expect(
-        await hasJournal(b),
-        isTrue,
-        reason:
-            'the replay check must exercise still-held journal mirrors, not an empty log',
-      );
+      expect(await originalJournalAbsent(b), isTrue);
       await absentForObservation();
-      E2eLog.line('PROCESS_TTL_NO_RESURRECTION_AFTER_OFF_AND_COLD_RESTART');
+      E2eLog.line('PROCESS_TTL_NO_RESURRECTION_AFTER_COLD_RESTART');
     },
     skip: gate.skip,
   );

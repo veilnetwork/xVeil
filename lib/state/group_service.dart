@@ -47,7 +47,9 @@ import '../domain/chat.dart'
         ContactStatus,
         NotificationMuteMode,
         NotificationMutePolicy,
-        kMuteForever;
+        kMuteForever,
+        messageTsOnReceipt,
+        isAcceptableWireSeq;
 import '../domain/call_signal.dart';
 import '../domain/call_log.dart';
 import '../domain/cloud.dart'
@@ -307,6 +309,8 @@ class GroupBundle {
     this.localChannelEpochKeys = const {},
     this.sovereignBundle,
     this.retentionCuts = const {},
+    this.deviceMessageSeqFloors = const {},
+    this.deviceMessageScrubPending = false,
     this.messageReceipts = const {},
     this.postReceipts = const {},
     this.channelEpochReceipts = const {},
@@ -340,6 +344,15 @@ class GroupBundle {
   /// `retentionCutKey(scope, author)` -> physically deleted chain prefix.
   /// Local fold state, never a signed wire object (see [SpaceRetentionCut]).
   final Map<String, SpaceRetentionCut> retentionCuts;
+
+  /// Local-only high-water for verified sovereign-device rows physically
+  /// erased by conversation TTL. Retains sequence allocation without keeping
+  /// an expired author head. Never accepted from or exported to the wire;
+  /// unlike a prefix cut it does not hide unrelated rows below this number.
+  final Map<String, int> deviceMessageSeqFloors;
+
+  /// Durable retry obligation for vacuum after retiring device-journal bodies.
+  final bool deviceMessageScrubPending;
 
   /// `groupMessageReceiptKey(m)` -> the local moment that exact row was first
   /// accepted here. Local fold state like [retentionCuts]: never signed, never
@@ -440,6 +453,8 @@ class GroupBundle {
     Map<String, Uint8List>? localChannelEpochKeys,
     Uint8List? sovereignBundle,
     Map<String, SpaceRetentionCut>? retentionCuts,
+    Map<String, int>? deviceMessageSeqFloors,
+    bool? deviceMessageScrubPending,
     Map<String, int>? messageReceipts,
     Map<String, int>? postReceipts,
     Map<String, int>? channelEpochReceipts,
@@ -458,6 +473,10 @@ class GroupBundle {
     localChannelEpochKeys: localChannelEpochKeys ?? this.localChannelEpochKeys,
     sovereignBundle: sovereignBundle ?? this.sovereignBundle,
     retentionCuts: retentionCuts ?? this.retentionCuts,
+    deviceMessageSeqFloors:
+        deviceMessageSeqFloors ?? this.deviceMessageSeqFloors,
+    deviceMessageScrubPending:
+        deviceMessageScrubPending ?? this.deviceMessageScrubPending,
     messageReceipts: messageReceipts ?? this.messageReceipts,
     postReceipts: postReceipts ?? this.postReceipts,
     channelEpochReceipts: channelEpochReceipts ?? this.channelEpochReceipts,
@@ -6203,6 +6222,20 @@ class GroupService implements ArchiveGroups {
           retentionCuts[key] = cut;
         }
       }
+      final deviceMessageSeqFloors = <String, int>{};
+      final floors = d['dmf'];
+      if (manifest.isSovereignDevice && floors is Map) {
+        for (final entry in floors.entries) {
+          final author = entry.key;
+          final seq = entry.value;
+          if (author is String &&
+              RegExp(r'^[0-9a-f]{64}$').hasMatch(author) &&
+              seq is int &&
+              seq >= 0) {
+            deviceMessageSeqFloors[author] = seq;
+          }
+        }
+      }
       // An entry exists only for a row this device accepted and stored, so the
       // map is bounded by the rows a peer stamped into the future — empty in
       // every honest log. Entries whose row is later swept by retention are
@@ -6294,6 +6327,9 @@ class GroupService implements ArchiveGroups {
         localChannelEpochKeys: channelMaterial.keys,
         sovereignBundle: sovereignBundle,
         retentionCuts: retentionCuts,
+        deviceMessageSeqFloors: deviceMessageSeqFloors,
+        deviceMessageScrubPending:
+            manifest.isSovereignDevice && d['dsp'] == true,
         messageReceipts: messageReceipts,
         postReceipts: postReceipts,
         channelEpochReceipts: channelEpochReceipts,
@@ -6566,6 +6602,10 @@ class GroupService implements ArchiveGroups {
       // Local-only, like 'rcut': the arrival moments of rows whose signed
       // stamp this device could not believe. Absent from every snapshot
       // builder, which assemble their own maps from `toJson` rows.
+      if (b.manifest.isSovereignDevice && b.deviceMessageSeqFloors.isNotEmpty)
+        'dmf': b.deviceMessageSeqFloors,
+      if (b.manifest.isSovereignDevice && b.deviceMessageScrubPending)
+        'dsp': true,
       if (b.messageReceipts.isNotEmpty) 'mrx': b.messageReceipts,
       if (b.postReceipts.isNotEmpty) 'prx': b.postReceipts,
       if (b.channelEpochReceipts.isNotEmpty) 'cex': b.channelEpochReceipts,
@@ -11432,6 +11472,10 @@ class GroupService implements ArchiveGroups {
       return false;
     }
     var mySeq = _nextSeq(retainedSelf.map((message) => message.seq));
+    if (b.manifest.isSovereignDevice) {
+      final floor = b.deviceMessageSeqFloors[_signer.selfId.hex];
+      if (floor != null && mySeq <= floor) mySeq = floor + 1;
+    }
     for (final cut in b.retentionCuts.values) {
       // Physically deleted own rows must never free their sequence numbers:
       // a reused (author, seq) would read as fork evidence on peers that
@@ -18648,6 +18692,8 @@ class GroupService implements ArchiveGroups {
       channelEpochEnvelopes: channelMaterial.envelopes,
       localChannelEpochKeys: channelMaterial.keys,
       sovereignBundle: existing?.sovereignBundle ?? incomingSovereignBundle,
+      deviceMessageSeqFloors: existing?.deviceMessageSeqFloors ?? const {},
+      deviceMessageScrubPending: existing?.deviceMessageScrubPending ?? false,
       messageReceipts: messageReceipts,
       postReceipts: postReceipts,
     );
@@ -19258,6 +19304,8 @@ class GroupService implements ArchiveGroups {
       channelEpochEnvelopes: channelMaterial.envelopes,
       localChannelEpochKeys: channelMaterial.keys,
       sovereignBundle: existing?.sovereignBundle ?? incomingSovereignBundle,
+      deviceMessageSeqFloors: existing?.deviceMessageSeqFloors ?? const {},
+      deviceMessageScrubPending: existing?.deviceMessageScrubPending ?? false,
       retentionCuts: mergedRetentionCuts,
       messageReceipts: messageReceipts,
       postReceipts: postReceipts,
@@ -19274,7 +19322,17 @@ class GroupService implements ArchiveGroups {
       controlReceipts: existing?.controlReceipts ?? const <String, int>{},
     );
     final feedAccessChanged = hadFeedAccess != hasFeedAccess;
-    final committed = await _save(saved, notify: !feedAccessChanged);
+    // Do not construct the device-only hash witness for ordinary histories.
+    final deviceFiltered = man.isSovereignDevice
+        ? await _compaction._withoutExpiredDeviceBodies(
+            saved,
+            storedHashes: {
+              for (final m in existing?.messages ?? const <GroupMessage>[])
+                _messageHash(m),
+            },
+          )
+        : saved;
+    final committed = await _save(deviceFiltered, notify: !feedAccessChanged);
     if (feedAccessChanged) _invalidateFeedAccess();
     final freshPosts = !man.isSpace
         ? const <SpacePostView>[]
@@ -19354,8 +19412,12 @@ class GroupService implements ArchiveGroups {
       // looking infrastructure group and drive sync apply side effects.
       if (adoptedDeviceGroup) {
         var streamed = 0;
+        final committedHashes = {
+          for (final m in committed.messages) _messageHash(m),
+        };
         for (final m in fresh) {
-          final materialized = await _materializeEncryptedMessage(saved, m);
+          if (!committedHashes.contains(_messageHash(m))) continue;
+          final materialized = await _materializeEncryptedMessage(committed, m);
           if (materialized != null) {
             _deviceIncomingCtl.add(materialized);
             streamed++;
@@ -21477,12 +21539,16 @@ class GroupService implements ArchiveGroups {
         ),
       );
     }
-    final working = draft.bundle;
+    final proposed = draft.bundle;
+    if (!proposed.messages.any((m) => !before.contains(m.ref))) return results;
+    final working = await _compaction._withoutExpiredDeviceBodies(
+      proposed,
+      storedHashes: {for (final m in start.messages) _messageHash(m)},
+    );
     final fresh = [
       for (final m in working.messages)
         if (!before.contains(m.ref)) m,
     ];
-    if (fresh.isEmpty) return results;
     // These local appends cannot change the device owner or master's address.
     // Clearing their 30-second cache for every mirror made the next frame
     // reload the entire journal just to rediscover the same admission answer.
@@ -21506,7 +21572,7 @@ class GroupService implements ArchiveGroups {
           },
         );
     await _save(working, preserveDeviceAdmission: admissionNeutral);
-    if (!_disposed) {
+    if (!_disposed && fresh.isNotEmpty) {
       if (batch.any((item) => item.queueReplication)) {
         // The replay's awaitRoom reads the durable Outbox. Detaching this
         // enqueue let it repeatedly observe a queue that had not been filled

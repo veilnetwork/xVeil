@@ -784,6 +784,50 @@ class _CountedCompactionService extends GroupService {
   }
 }
 
+class _DeviceTtlFaultStorage extends HiddenVolumeStorage {
+  _DeviceTtlFaultStorage(super.opener);
+  bool failHeader = false, failScrub = false, failDelete = false;
+  int scrubCalls = 0;
+  @override
+  Future<void> deleteStoredFile(String id) async {
+    if (failDelete) {
+      failDelete = false;
+      throw StateError('TTL segment deletion failure');
+    }
+    return super.deleteStoredFile(id);
+  }
+
+  @override
+  Future<bool> tryStoreFilePair(
+    StoredFileWrite prerequisite,
+    StoredFileWrite publication, {
+    List<String> retireHints = const [],
+  }) async => false;
+  @override
+  Future<void> storeFile(
+    String id,
+    Uint8List bytes, {
+    String? name,
+    List<String> retireHints = const [],
+  }) async {
+    if (name == 'group' && failHeader) {
+      failHeader = false;
+      throw StateError('TTL header failure');
+    }
+    return super.storeFile(id, bytes, name: name, retireHints: retireHints);
+  }
+
+  @override
+  Future<void> scrubDeleted() async {
+    scrubCalls++;
+    if (failScrub) {
+      failScrub = false;
+      throw StateError('TTL vacuum failure');
+    }
+    return super.scrubDeleted();
+  }
+}
+
 void main() {
   final hasVeilFfi = (Platform.environment['VEIL_FFI_DYLIB'] ?? '').isNotEmpty;
   final owner = _id(1);
@@ -8576,6 +8620,322 @@ void main() {
       expect(restored.payload['sq'], 7);
     }
   });
+
+  test(
+    'device TTL journal removes an expired author head and keeps sequence after reopen',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      addTearDown(storage.close);
+      var wall = DateTime.utc(2026, 11, 4, 12).millisecondsSinceEpoch;
+      final svc = GroupService(storage, _FakeSigner(owner))
+        ..debugWallClockMs = () => wall;
+      addTearDown(svc.dispose);
+      await svc.linkDevice(bob, sovereign: sovereign);
+      final gid = NodeId.fromHex((await svc.deviceGroupIdHex())!);
+      await storage.upsertContact(
+        Contact(
+          nodeId: _id(77),
+          status: ContactStatus.accepted,
+          disappearingTtlSeconds: 30,
+        ),
+      );
+      await svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.msgMirror,
+          key: 'expiry-head',
+          tsMs: wall,
+          payload: {
+            'peer': _id(77).hex,
+            'dir': 'outgoing',
+            'body': 'PRIVATE_EXPIRED_HEAD',
+          },
+        ),
+      );
+      final before = (await svc.load(gid))!.messages.single;
+      expect(svc.debugMessageIsValid(gid, before), isTrue);
+      wall += 30000;
+      await svc.compactStateLogs(gid);
+      expect(
+        (await svc.load(gid))!.messages,
+        isEmpty,
+        reason: 'an author head cannot retain expired plaintext',
+      );
+      await storage.close();
+      await storage.open(password: 'pw');
+      final reopened = GroupService(storage, _FakeSigner(owner))
+        ..debugWallClockMs = () => wall;
+      addTearDown(reopened.dispose);
+      await reopened.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.settingSet,
+          key: 'theme',
+          tsMs: wall,
+          payload: const {'v': 'dark'},
+        ),
+      );
+      final after = (await reopened.load(gid))!.messages.single;
+      expect(
+        after.seq,
+        greaterThan(before.seq),
+        reason: 'erasing a head must never reuse its signed author/seq',
+      );
+      expect(reopened.debugMessageIsValid(gid, after), isTrue);
+    },
+  );
+
+  test(
+    'device TTL journal removes expired mirrors and edit bodies but keeps unrelated state',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      addTearDown(storage.close);
+      var wall = DateTime.utc(2026, 11, 4, 12).millisecondsSinceEpoch;
+      final svc = GroupService(storage, _FakeSigner(owner))
+        ..debugWallClockMs = () => wall;
+      addTearDown(svc.dispose);
+      await svc.linkDevice(bob, sovereign: sovereign);
+      final gid = NodeId.fromHex((await svc.deviceGroupIdHex())!);
+      final peer = _id(77);
+      await storage.upsertContact(
+        Contact(
+          nodeId: peer,
+          status: ContactStatus.accepted,
+          disappearingTtlSeconds: 30,
+        ),
+      );
+      await svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.msgMirror,
+          key: 'expiry-edited',
+          tsMs: wall,
+          payload: {
+            'peer': peer.hex,
+            'dir': 'incoming',
+            'body': 'PRIVATE_ORIGINAL',
+          },
+        ),
+      );
+      wall += 1000;
+      final sibling = GroupService(storage, _FakeSigner(bob))
+        ..debugWallClockMs = () => wall;
+      addTearDown(sibling.dispose);
+      await sibling.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.msgEdit,
+          key: 'expiry-edited',
+          tsMs: wall,
+          payload: {'peer': peer.hex, 'body': 'PRIVATE_EDIT'},
+        ),
+      );
+      await svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.settingSet,
+          key: 'keep',
+          tsMs: wall,
+          payload: const {'v': 'required'},
+        ),
+      );
+      wall += 29000;
+      await svc.compactStateLogs(gid);
+      final held = (await svc.load(gid))!.messages;
+      expect(held, hasLength(1));
+      expect(DeviceSyncEvent.fromBody(held.single.body)!.key, 'keep');
+      expect(
+        (await svc.deviceSyncState())[(DeviceSyncKind.settingSet, 'keep')]!
+            .payload['v'],
+        'required',
+      );
+    },
+  );
+
+  for (final fault in ['header', 'vacuum', 'segment deletion']) {
+    test('device TTL journal retries a failed $fault after reopen', () async {
+      final failAtHeader = fault == 'header';
+      final container = FakeHvContainer();
+      final storage = _DeviceTtlFaultStorage(container.passwordOpener);
+      await storage.open(password: 'pw', createIfMissing: true);
+      addTearDown(storage.close);
+      var wall = DateTime.utc(2026, 11, 4, 12).millisecondsSinceEpoch;
+      final svc = GroupService(storage, _FakeSigner(owner))
+        ..debugWallClockMs = () => wall;
+      addTearDown(svc.dispose);
+      await svc.linkDevice(bob, sovereign: sovereign);
+      final gid = NodeId.fromHex((await svc.deviceGroupIdHex())!);
+      final peer = _id(77);
+      await storage.upsertContact(
+        Contact(
+          nodeId: peer,
+          status: ContactStatus.accepted,
+          disappearingTtlSeconds: 30,
+        ),
+      );
+      await svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.msgMirror,
+          key: 'expired-fault',
+          tsMs: wall,
+          payload: {
+            'peer': peer.hex,
+            'dir': 'incoming',
+            'body': 'PRIVATE_RETRY_BODY',
+          },
+        ),
+      );
+      final oldSeq = (await svc.load(gid))!.messages.single.seq;
+      wall += 30000;
+      storage.failHeader = failAtHeader;
+      storage.failScrub = fault == 'vacuum';
+      storage.failDelete = fault == 'segment deletion';
+      await expectLater(svc.compactStateLogs(gid), throwsStateError);
+      final failed = (await svc.load(gid))!;
+      expect(failed.messages.length, failAtHeader ? 1 : 0);
+      expect(failed.deviceMessageScrubPending, !failAtHeader);
+      await svc.dispose();
+      await storage.close();
+      await storage.open(password: 'pw');
+      final reopened = GroupService(storage, _FakeSigner(owner))
+        ..debugWallClockMs = () => wall;
+      addTearDown(reopened.dispose);
+      final scrubBefore = storage.scrubCalls;
+      await reopened.compactStateLogs(gid);
+      expect(storage.scrubCalls, greaterThan(scrubBefore));
+      expect((await reopened.load(gid))!.deviceMessageScrubPending, isFalse);
+      expect((await reopened.load(gid))!.messages, isEmpty);
+      await reopened.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.settingSet,
+          key: 'safe-seq',
+          tsMs: wall,
+          payload: const {'v': 'ok'},
+        ),
+      );
+      expect(
+        (await reopened.load(gid))!.messages.single.seq,
+        greaterThan(oldSeq),
+      );
+    });
+  }
+
+  test(
+    'device TTL journal sequence floors are local and cannot be forged by snapshots',
+    () async {
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      addTearDown(storage.close);
+      var wall = DateTime.utc(2026, 11, 4, 12).millisecondsSinceEpoch;
+      final svc = GroupService(storage, _FakeSigner(owner))
+        ..debugWallClockMs = () => wall;
+      addTearDown(svc.dispose);
+      await svc.linkDevice(bob, sovereign: sovereign);
+      final gid = NodeId.fromHex((await svc.deviceGroupIdHex())!);
+      final peer = _id(77);
+      await storage.upsertContact(
+        Contact(
+          nodeId: peer,
+          status: ContactStatus.accepted,
+          disappearingTtlSeconds: 30,
+        ),
+      );
+      await svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.msgMirror,
+          key: 'expired-local',
+          tsMs: wall,
+          payload: {'peer': peer.hex, 'dir': 'outgoing', 'body': 'private'},
+        ),
+      );
+      final stale =
+          jsonDecode(svc.snapshotJson((await svc.load(gid))!))
+              as Map<String, dynamic>;
+      wall += 30000;
+      await svc.compactStateLogs(gid);
+      final floor = (await svc.load(gid))!.deviceMessageSeqFloors[owner.hex]!;
+      final snapshot =
+          jsonDecode(svc.snapshotJson((await svc.load(gid))!)) as Map;
+      expect(snapshot.containsKey('dmf'), isFalse);
+      expect(snapshot.containsKey('dsp'), isFalse);
+      // The already-durable rejection remains authoritative after TTL is off.
+    await storage.upsertContact(
+      (await storage.getContact(peer))!.copyWith(disappearingTtlSeconds: null),
+    );
+    stale['dmf'] = {owner.hex: floor + 1000000};
+      stale['dsp'] = true;
+      expect(await svc.ingestSnapshot(jsonEncode(stale)), isTrue);
+      expect((await svc.load(gid))!.deviceMessageSeqFloors[owner.hex], floor);
+      expect(
+        (await svc.load(gid))!.messages,
+        isEmpty,
+        reason: 'stale signed bodies must be refused before journal storage',
+      );
+      expect((await svc.load(gid))!.deviceMessageScrubPending, isFalse);
+      // A later genuine append uses the local floor, not the injected number.
+      await svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.settingSet,
+          key: 'next',
+          tsMs: wall,
+          payload: const {'v': 'ok'},
+        ),
+      );
+      final newest = (await svc.load(gid))!.messages
+          .where((m) => DeviceSyncEvent.fromBody(m.body)?.key == 'next')
+          .single;
+      expect(newest.seq, floor + 1);
+    },
+  );
+
+  test(
+    'device TTL journal cleanup cannot act through an unadopted marker group',
+    () async {
+      final localStorage = FakeHvContainer().storage();
+      final foreignStorage = FakeHvContainer().storage();
+      await localStorage.open(password: 'pw', createIfMissing: true);
+      await foreignStorage.open(password: 'pw', createIfMissing: true);
+      addTearDown(localStorage.close);
+      addTearDown(foreignStorage.close);
+      final wall = DateTime.utc(2026, 11, 4, 12).millisecondsSinceEpoch;
+      final local = GroupService(localStorage, _FakeSigner(owner))
+        ..debugWallClockMs = () => wall;
+      final foreign = GroupService(foreignStorage, _FakeSigner(carol))
+        ..debugWallClockMs = () => wall;
+      addTearDown(local.dispose);
+      addTearDown(foreign.dispose);
+      await local.linkDevice(bob, sovereign: sovereign);
+      final ownGid = await local.deviceGroupIdHex();
+      await foreign.linkDevice(owner, sovereign: _FakeSovereign(_id(8)));
+      final foreignGid = NodeId.fromHex((await foreign.deviceGroupIdHex())!);
+      final peer = _id(77);
+      await localStorage.upsertContact(
+        Contact(
+          nodeId: peer,
+          status: ContactStatus.accepted,
+          disappearingTtlSeconds: 30,
+        ),
+      );
+      await foreign.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.msgMirror,
+          key: 'unadopted-expired',
+          tsMs: wall - 60000,
+          payload: {'peer': peer.hex, 'dir': 'incoming', 'body': 'inert'},
+        ),
+      );
+      expect(
+        await local.ingestSnapshot(
+          foreign.snapshotJson((await foreign.load(foreignGid))!),
+        ),
+        isTrue,
+      );
+      await local.compactStateLogs(foreignGid);
+      expect(await local.deviceGroupIdHex(), ownGid);
+      expect(
+        await localStorage.isMessageDeleted(peer.hex, 'unadopted-expired'),
+        isFalse,
+      );
+      expect((await local.load(foreignGid))!.messages, hasLength(1));
+    },
+  );
 
   test('device-group compaction keeps LWW winners, unknown future events and '
       'author heads; ordinary chat messages are untouched', () async {
