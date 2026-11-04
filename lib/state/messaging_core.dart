@@ -296,8 +296,9 @@ class MessagingService {
   }
 
   late final _MessagingOutbox _outbox = _MessagingOutbox(this);
-  late final _MessagingInboundExpiry _inboundExpiry =
-      _MessagingInboundExpiry(this);
+  late final _MessagingInboundExpiry _inboundExpiry = _MessagingInboundExpiry(
+    this,
+  );
 
   late final _MessagingExpiryLifecycle _expiryLifecycle =
       _MessagingExpiryLifecycle(this);
@@ -851,6 +852,8 @@ class MessagingService {
   /// Persist a group snapshot to [dst], chunking oversized bundles. Sync
   /// responses may release inbound processing after persistence by setting
   /// [awaitInitialSend] false; bounded initial transport then runs separately.
+  /// Own-device copies always release at durable admission: their serialized
+  /// expiry validation runs afterwards, before either initial or retry sends.
   Future<void> sendGroupSnapshot(
     NodeId dst,
     String groupIdHex,
@@ -4621,6 +4624,7 @@ class MessagingService {
     final postReceiptsClosed = _postReceipts.close();
     final groupReceiptsClosed = _groupReceiptQueue.close();
     final groupSourceClosed = _groupSourceQueue.close();
+    final snapshotValidationClosed = _replication._expiry.close();
     _contentAvailability.cancelRetryReoffers();
     final historyClosed = _ownHistory.close();
     _outbox.dispose();
@@ -4637,6 +4641,7 @@ class MessagingService {
     _disappearingSweepTimer = null;
     await _expiryLifecycle.close();
     await _disappearingSweep;
+    await snapshotValidationClosed;
     await editExpiryClosed;
     await _downloadResume.dispose();
     await _sub?.cancel();

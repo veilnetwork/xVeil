@@ -792,6 +792,21 @@ class _CountedCompactionService extends GroupService {
   }
 }
 
+class _OwnSnapshotLink extends LoopbackTransport {
+  _OwnSnapshotLink(NodeId self) : super(localNodeId: self);
+  final forwarded = Completer<void>();
+  @override
+  Future<void> send(NodeId dst, Uint8List wire, {bool anonymous = false}) async {
+    final e = WireEnvelope.decode(wire);
+    final text = switch(e.kind) {
+      WireKind.groupEntry => e.body,
+      WireKind.groupEntryChunk => utf8.decode(parseGroupEntryChunk(e.body).data, allowMalformed: true),
+      _ => '',
+    };
+    if (text.contains('LOCK_SAFE_PAYLOAD') && !forwarded.isCompleted) { forwarded.complete(); }
+  }
+}
+
 class _DevicePolicyWaitStorage extends HiddenVolumeStorage {
   _DevicePolicyWaitStorage(super.opener);
   _DevicePolicyWaitStorage.async(super.opener) : super.async();
@@ -9011,6 +9026,92 @@ void main() {
         skip: native && (Platform.environment['XVEIL_HV_DYLIB'] ?? '').isEmpty,
       );
     }
+  }
+
+  for (final native in [false, true]) {
+    test(
+      'device snapshot validation releases producer group lock (native=$native)',
+      () async {
+        late HiddenVolumeStorage storage;
+        if (native) {
+          expect(
+            ensureHiddenVolumeLoaded(
+              dylibPath: Platform.environment['XVEIL_HV_DYLIB'],
+            ),
+            isTrue,
+          );
+          final dir = await Directory.systemTemp.createTemp(
+            'xveil-snapshot-lock-',
+          );
+          addTearDown(() => dir.delete(recursive: true));
+          final path = '${dir.path}/store.hv';
+          HvKvLogStore(
+            hv.HvSpace.create(
+              path: path,
+              password: Uint8List.fromList(utf8.encode('fixture')),
+              argon: hv.ArgonPreset.light,
+            ),
+          ).close();
+          storage = HiddenVolumeStorage.async(workerSpaceOpener(path));
+        } else {
+          storage = FakeHvContainer().storage();
+        }
+        expect(
+          await storage.open(password: 'fixture', createIfMissing: true),
+          isTrue,
+        );
+        final link = _OwnSnapshotLink(owner);
+        final messaging = MessagingService(link, storage);
+        final svc = GroupService(
+          storage,
+          _FakeSigner(owner),
+          sendSyncResponse: (peer, gid, body) => messaging.sendGroupSnapshot(
+            peer,
+            gid.hex,
+            body,
+            awaitInitialSend: false,
+          ),
+        );
+        addTearDown(() async {
+          await messaging.dispose();
+          await svc.dispose();
+          await link.dispose();
+          await storage.close();
+        });
+        await svc.linkDevice(bob, sovereign: sovereign);
+        expect(await svc.addressableOwnDevices(), contains(bob));
+        await storage.upsertContact(
+          Contact(nodeId: bob, status: ContactStatus.accepted),
+        );
+        messaging.groupBindingsOwner = svc;
+        messaging.deviceSnapshotExpiryGroup = svc.deviceGroupIdHex;
+        final validated = Completer<void>();
+        messaging.onDeviceSnapshotExpiry = (gid, body) async {
+          // This is the real serialized filter, not a no-op test callback.
+          final result = await svc.filterExpiredDeviceSnapshot(gid, body);
+          if (!validated.isCompleted) validated.complete();
+          return result;
+        };
+        final committed = await svc
+            .postDeviceEvents([
+              (
+                event: DeviceSyncEvent(
+                  kind: DeviceSyncKind.settingSet,
+                  key: 'queued-lock-control',
+                  tsMs: DateTime.now().millisecondsSinceEpoch,
+                  payload: {'v': 'LOCK_SAFE_PAYLOAD' * 400},
+                ),
+                attachment: null,
+              ),
+            ])
+            .timeout(const Duration(seconds: 10));
+        expect(committed, [true]);
+        await validated.future.timeout(const Duration(seconds: 10));
+        await link.forwarded.future.timeout(const Duration(seconds: 10));
+        expect(await storage.pendingOutboxFrames(), isNotEmpty);
+      },
+      skip: native && (Platform.environment['XVEIL_HV_DYLIB'] ?? '').isEmpty,
+    );
   }
 
   test(

@@ -38,7 +38,8 @@ void main() {
     await storage.open(password: 'fixture');
     sink = _Sink();
     messaging = MessagingService(sink, storage);
-    messaging.groupBindingsOwner = Object();
+    // These guards exercise pre-existing queues at an explicit sweep. New
+    // admissions with live bindings are covered by the admission-expiry test.
     messaging.deviceSnapshotExpiryGroup = () async => gid;
     messaging.onDeviceSnapshotExpiry = (_, _) async => clean;
   });
@@ -51,6 +52,10 @@ void main() {
       .sendGroupSnapshot(peer, scope ?? gid, body, awaitInitialSend: false);
   Future<List<String>> ids() async =>
       (await storage.pendingOutboxFrames()).map((f) => f.frameId).toList();
+  Future<void> runSweep() async {
+    messaging.groupBindingsOwner ??= Object();
+    await messaging.sweepAllDisappearing();
+  }
 
   test('only the active device group is decoded and filtered', () async {
     var calls = 0;
@@ -62,8 +67,12 @@ void main() {
     await queue('unrelated' * 1000, scope: 'cd' * 32);
     final other = await ids();
     await queue('{"g":[],"old":"expired"}');
-    await messaging.sweepAllDisappearing();
-    expect(calls, 1);
+    await runSweep();
+    expect(
+      calls,
+      2,
+      reason: 'original and post-write replacement are both checked',
+    );
     expect(await ids(), containsAll(other));
   });
 
@@ -80,7 +89,7 @@ void main() {
       expect(all.length, greaterThan(1));
       await storage.ackOutboxFrame(all.first.frameId, fromPeerHex: peer.hex);
       final partial = await ids();
-      await messaging.sweepAllDisappearing();
+      await runSweep();
       expect(calls, 0);
       expect(await ids(), unorderedEquals(partial));
     },
@@ -101,7 +110,7 @@ void main() {
         '{"g":[],"old":"tampered"}',
       ).withFrameId(original.frameId).encode();
       await storage.enqueueOutboxFrame(original.frameId, peer.hex, altered);
-      await messaging.sweepAllDisappearing();
+      await runSweep();
       expect(calls, 0);
       expect((await storage.pendingOutboxFrames()).single.wire, altered);
     },
@@ -125,7 +134,7 @@ void main() {
       await sweep;
       expect(await ids(), unorderedEquals(before));
       messaging.onDeviceSnapshotExpiry = (_, _) async => clean;
-      await messaging.sweepAllDisappearing();
+      await runSweep();
       expect(await ids(), isNot(unorderedEquals(before)));
     },
   );
@@ -140,7 +149,7 @@ void main() {
         if (body == 'malformed') throw const FormatException('fixture');
         return clean;
       };
-      await messaging.sweepAllDisappearing();
+      await runSweep();
       expect(await ids(), containsAll(bad));
       final rest = (await storage.pendingOutboxFrames()).where(
         (f) => !bad.contains(f.frameId),
@@ -156,7 +165,7 @@ void main() {
       await queue('{"g":[],"old":"expired"}');
       await pumpEventQueue();
       sink.sent.clear();
-      await messaging.sweepAllDisappearing();
+      await runSweep();
       await pumpEventQueue();
       final durable = (await storage.pendingOutboxFrames()).single;
       expect(
