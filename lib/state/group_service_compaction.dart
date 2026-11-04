@@ -118,7 +118,8 @@ class _LogCompaction {
         if (seconds != null && seconds > 0) {
           await _owner._storage.pruneConversationBefore(
             NodeId.fromHex(peer),
-            DateTime.fromMillisecondsSinceEpoch(now - seconds * 1000),
+            DateTime.fromMillisecondsSinceEpoch(now - seconds * 1000)
+                .add(const Duration(microseconds: 1)),
           );
           deleted[peer] = await _owner._storage.deletedMessageIds(peer);
         }
@@ -408,7 +409,11 @@ class _LogCompaction {
   /// device-sync LWW winners are retained together with each author's max-seq
   /// row, preserving the current fold, next-seq allocation, and gap-fill
   /// high-water. Invalid/cross-group rows are scrubbed as part of the rewrite.
-  Future<GroupLogCompaction?> compactLocked(NodeId groupId) async {
+  Future<GroupLogCompaction?> compactLocked(
+    NodeId groupId, {
+    bool notify = true,
+    bool shareEpochKeys = true,
+  }) async {
     final original = await _owner.load(groupId);
     if (original == null) return null;
     final b = await _withoutExpiredDeviceBodies(original);
@@ -482,7 +487,11 @@ class _LogCompaction {
       reactions: reactions,
     );
     if (result.changed || compacted.deviceMessageScrubPending) {
-      await _owner._save(compacted);
+      await _owner._save(
+        compacted,
+        notify: notify,
+        shareEpochKeys: shareEpochKeys,
+      );
     }
     if (compacted.deviceMessageScrubPending) {
       // The replacement header durably carries both sequence floors and this
@@ -493,7 +502,11 @@ class _LogCompaction {
         throw StateError('device journal segment cleanup incomplete');
       }
       await _owner._storage.scrubDeleted();
-      await _owner._save(compacted.copyWith(deviceMessageScrubPending: false));
+      await _owner._save(
+        compacted.copyWith(deviceMessageScrubPending: false),
+        notify: notify,
+        shareEpochKeys: shareEpochKeys,
+      );
     }
     // No marker is installed if validation/storage threw. A failed pass must
     // remain eligible on the next save. Hourly and explicit passes still run
