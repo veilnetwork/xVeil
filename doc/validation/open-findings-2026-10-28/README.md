@@ -1,5 +1,20 @@
 # Открытые случаи — обновлено 2026-11-04
 
+Последний шаг: [TTL входящего текста и правок](../inbound-ttl-2026-11-04/README.md).
+Подтверждены и локально исправлены запись/публикация expired peer post,
+повторная выдача held original при свежем retry timestamp, peer/mirrored edit
+истёкшего target. Новая строка сразу становится bodyless tombstone, собственный
+peer seq правки — void; ACK ждёт запись/scrub/required deletion publication.
+Reflected/mirrored revision не превращается в authored slot. Ошибки оставляют
+exact retry и доступны в анонимном отчёте. 1167 tests / 3 skipped, финальные
+37 targeted, 8 native cases и analyzer чистые. Process A/B/C сохранил все пять
+прежних gates TTL/edit/void ACK/новой доставки; 24 PID / 32 порта / 1447 frozen
+inputs, runtime удалён, native SHA прежние. Это регрессия, не A/B latency.
+Остальные body-bearing kinds,
+async I/O expiry windows, partial transfers/policy/clock skew и полная матрица
+остаются открыты. Mailbox/push/релиза/изменения APK или сидов нет.
+
+
 Последний шаг: [TTL при прямой догрузке истории](../peer-history-ttl-2026-11-04/README.md).
 Четыре красных теста подтвердили выдачу expired post/edit/file metadata и
 own-echo при недоступном фоновом prune. Источники теперь фильтруют TTL; свои
@@ -1090,6 +1105,7 @@ push/релиза нет; multi-device матрица не квалифицир�
 
 | Случай | Отметка | Граница подтверждения |
 |---|---|---|
+| TTL входящего текста и правок | **ПОДТВЕРЖДЕНО, ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННЫХ ПУТЯХ** | Истёкшие обычный post, duplicate и peer/mirrored edit больше не записывают/публикуют новое тело; tombstone/peer void и required publication предшествуют application ACK. Unit/native отказ/точный retry и cold reopen прошли. Другие media kinds и дальнейшие async I/O окна не квалифицированы полностью. [Проверка](../inbound-ttl-2026-11-04/README.md). |
 | Прямые queued правки после TTL и ранний ACK void | **ПОДТВЕРЖДЕНО, ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННОМ ПУТИ** | Тело edit оставалось и повторно передавалось после expiry. Теперь exact replacement на bodyless seq slot либо локальный discard для legacy; ACK void только после durable apply. Native raw roots и process A/B/C прошли. Transport/fragmentation после handoff не квалифицированы. [Проверка](../direct-edit-expiry-2026-11-04/README.md). |
 | TTL ранее сохранённой строки после cold restart / UI / retry | **ПОДТВЕРЖДЕНО, ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННЫХ ПУТЯХ** | Initial sweep теперь немедленный и owned; UI list/preview скрывают expired body независимо от prune, ordinary retry проверяет TTL/tombstone, exact TTL boundary физически удаляется. Native C первый raw read чистый до старого timer; raw worker/close и own snapshot A/B/C прошли. I/O-failure recovery всего массива, native handoff/fragmentation и peer gap-fill/ingress не квалифицированы полностью. [Проверка](../startup-ttl-2026-11-04/README.md). |
 | Истёкшие тела в queued собственных snapshot/delta | **ПОДТВЕРЖДЕНО, ЛОКАЛЬНО ИСПРАВЛЕНО ДЛЯ ПОЛНЫХ КОПИЙ** | Старые payloads оставались после очистки journal. Complete canonical transfers теперь переписываются с сохранением живых rows и durable recovery. Native raw-root и A/B/C прошли. Неполные persisted передачи и другие wire kinds ещё не закрыты. [Проверка](../device-outbox-expiry-2026-11-04/README.md). |

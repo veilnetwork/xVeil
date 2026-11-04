@@ -550,6 +550,10 @@ extension _MessagingInboundDispatch on MessagingService {
               'xVeil[timeline]: recv id=$id replyId=${m.replyId} '
               't=${DateTime.now().millisecondsSinceEpoch}',
         );
+        if (await _inboundExpiry.post(m.src, id, _wireSentAt(env), env.seq)) {
+          await settlePost(m, id, fid, direct: true);
+          return;
+        }
         // Dedup re-sent messages (the sender's local outbox re-sends un-acked
         // ones): finish any failed own-device publication before re-ACKing.
         if (id != null && await _mirrorStoredMessageIfPresent(m.src, id)) {
