@@ -1,0 +1,109 @@
+@Timeout(Duration(minutes: 15))
+library;
+
+import 'dart:convert';
+import 'dart:io';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/core/ids.dart';
+import 'package:xveil/data/storage/async_kv_log_store.dart';
+import 'package:xveil/data/storage/hidden_volume_storage.dart';
+import 'package:xveil/data/storage/hv_native.dart';
+import 'package:xveil/domain/chat.dart';
+import 'device_process_fixture.dart';
+import 'e2e_env.dart';
+import 'multi_device_process_e2e_test.dart' as base;
+
+int _sequence = 0;
+Future<int> pending(ProcessDevice d) async {
+  final nonce = 'contact-decisions-${++_sequence}';
+  final request = File('${d.dir.path}/storage-inspect.new');
+  await request.writeAsString(
+    jsonEncode({'nonce': nonce, 'contactDecisions': true}),
+  );
+  await request.rename('${d.dir.path}/storage-inspect.json');
+  int? count;
+  await waitUntil(() async {
+    final f = File('${d.dir.path}/storage-inspected.json');
+    if (!await f.exists()) return false;
+    final data = jsonDecode(await f.readAsString()) as Map;
+    if (data['nonce'] != nonce) return false;
+    count = data['pending'] as int;
+    return true;
+  }, what: 'live owner inspects durable contact obligations');
+  return count!;
+}
+
+Future<int?> eventTime(ProcessDevice d, String peer, String status) async {
+  final events = (await d.checked('/device_events'))['events'] as Map;
+  final event = events['contactUp|s:$peer'];
+  return event is Map && (event['payload'] as Map)['status'] == status
+      ? event['ts'] as int
+      : null;
+}
+
+void main() {
+  final gate = E2eGate.read();
+  test(
+    'a committed decision without a callback is recovered at boot with its original version',
+    () async {
+      final f = await ProcessFleet.start(gate);
+      addTearDown(f.dispose);
+      final a = f.a, b = f.b, c = f.c;
+      await base.introduceProcesses(a, c);
+      await base.linkProcesses(a, b);
+      final ci = (await base.deviceInfo(c))['identity'] as String;
+      await waitUntil(
+        () async => await base.contactStatus(b, ci) == 'accepted',
+        what: 'B starts with the accepted contact',
+      );
+      await a.stop();
+      expect(ensureHiddenVolumeLoaded(dylibPath: gate.hiddenVolumeDylib), true);
+      final storage = HiddenVolumeStorage.async(
+        workerSpaceOpener('${a.dir.path}/store.hv'),
+      );
+      late int originalTime;
+      try {
+        expect(await storage.open(password: 'e2e-A-password'), true);
+        await storage.setContactStatus(
+          NodeId.fromHex(ci),
+          ContactStatus.blocked,
+        );
+        final rows = await storage.pendingContactDecisions();
+        final record = rows.singleWhere((r) => r.peer.hex == ci);
+        originalTime = record.atMs;
+        expect(record.status, ContactStatus.blocked);
+      } finally {
+        await storage.close();
+      }
+      // This creates the exact post-commit/pre-callback durable state using the
+      // production storage port, rather than claiming to kill at a live UI await.
+      expect(await base.contactStatus(b, ci), 'accepted');
+      E2eLog.line('PROCESS_CONTACT_UNPUBLISHED_STATE_CONFIRMED');
+      await a.start();
+      await waitUntil(
+        () async =>
+            await base.contactStatus(a, ci) == 'blocked' &&
+            await base.contactStatus(b, ci) == 'blocked' &&
+            await eventTime(a, ci, 'blocked') == originalTime &&
+            await eventTime(b, ci, 'blocked') == originalTime &&
+            await pending(a) == 0,
+        what: 'boot publisher commits the original decision and B applies it',
+        timeout: const Duration(minutes: 3),
+      );
+      E2eLog.line('PROCESS_CONTACT_BOOT_RECOVERY_PASS');
+      await a.restart();
+      await waitUntil(
+        () async =>
+            await base.contactStatus(a, ci) == 'blocked' &&
+            await eventTime(a, ci, 'blocked') == originalTime &&
+            await eventTime(b, ci, 'blocked') == originalTime &&
+            await pending(a) == 0,
+        what:
+            'another boot neither restamps nor republishes an acknowledged decision',
+        timeout: const Duration(minutes: 2),
+      );
+      E2eLog.line('PROCESS_CONTACT_COLD_VERSION_RETENTION_PASS');
+    },
+    skip: gate.skip,
+  );
+}

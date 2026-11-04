@@ -172,6 +172,15 @@ void main() {
             if (await inspect.exists()) {
               final request = jsonDecode(await inspect.readAsString()) as Map;
               await inspect.delete();
+              if (request['contactDecisions'] == true) {
+                final records = await device!.storage.pendingContactDecisions();
+                final response = File('${dir.path}/storage-inspected.new');
+                await response.writeAsString(jsonEncode({
+                  'nonce': request['nonce'], 'pending': records.length,
+                }));
+                await response.rename('${dir.path}/storage-inspected.json');
+                continue;
+              }
               if (request['conflictingMirrorTarget'] case final String target) {
                 // A signed synthetic old-clock row, restricted to this test
                 // worker's owned container; no production clock/debug API.

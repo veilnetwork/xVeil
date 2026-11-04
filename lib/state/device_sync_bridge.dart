@@ -33,6 +33,7 @@ import '../domain/clear_policy.dart';
 import '../domain/disappearing_messages.dart' show DisappearingSetting;
 import 'call_log.dart';
 import 'call_log_sync.dart';
+import 'contact_decision_sync.dart';
 import 'device_history_backfill.dart'
     show
         historyAskToServe,
@@ -363,6 +364,18 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       );
     });
   };
+  final contactPublisher = ContactDecisionPublisher(
+    storage: ref.read(storageProvider),
+    isLinked: () async => await svc.deviceGroupIdHex() != null,
+    isOwnDevice: (peer) async =>
+        peer == svc.selfId || await svc.isMyDevice(peer),
+    loadPublished: svc.committedContactDecisions,
+    post: (events) => svc.postDeviceEvents([
+      for (final event in events) (event: event, attachment: null),
+    ]),
+  );
+  ref.onDispose(() => unawaited(contactPublisher.close()));
+
   // Relationship transitions ride a SEPARATE key namespace ('s:<peer>'), so
   // a preference edit and a status change LWW independently — an alias edit
   // carrying a stale embedded status could otherwise un-block a peer that my
@@ -388,6 +401,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   // after this setup has finished.
   late final void Function(DeviceSyncEvent) queueLinkHistory;
   svc.onMemberLinked = (device) async {
+    contactPublisher.nudge();
     try {
       // The first link may CREATE the device group after this bridge's boot
       // announcement ran. In that case the boot attempt had no group to post
@@ -410,13 +424,18 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
             await svc.isMyDevice(c.peer.nodeId)) {
           continue;
         }
+        final floor = await ref
+            .read(storageProvider)
+            .contactDecisionFloor(c.peer.nodeId);
         await svc.postDeviceEvent(
-          DeviceSyncEvent(
-            kind: DeviceSyncKind.contactUp,
-            key: 's:${c.peer.nodeId.hex}',
-            tsMs: nextTs(),
-            payload: {'status': status.name},
-          ),
+          floor != null
+              ? contactDecisionEvent(floor)
+              : DeviceSyncEvent(
+                  kind: DeviceSyncKind.contactUp,
+                  key: 's:${c.peer.nodeId.hex}',
+                  tsMs: nextTs(),
+                  payload: {'status': status.name},
+                ),
         );
         replayed++;
       }
@@ -449,35 +468,21 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   // The group is ready here, but publishing several preferences may take a
   // while. Let the link ceremony finish; the catch-up continues in the app.
   svc.onDeviceGroupAdopted = () async {
+    contactPublisher.nudge();
     tasks.start(() => announceStoredDevicePreferences());
     tasks.start(() => announceStoredAvatar());
   };
 
   messaging.onContactStatusChanged = (peer, status) {
     svc.notifyContactAccessChanged(peer);
-    tasks.start(() async {
-      if (peer == svc.selfId || await svc.isMyDevice(peer)) return;
-      // ONLY DECISIONS TRAVEL. A pending status is the doorbell, and every
-      // device hears the doorbell itself — the request wire is addressed to
-      // the identity. Mirroring it gave the SECOND device's "pendingIncoming"
-      // a fresher timestamp than the first device's "accepted", and the LWW
-      // fold then regressed the accept on every device that folded both.
-      // Measured live: C's request accepted on the master, and the sibling's
-      // own doorbell event beat the accept by four minutes of wall clock.
-      if (status == ContactStatus.pendingIncoming ||
-          status == ContactStatus.pendingOutgoing) {
-        return;
-      }
-      await svc.postDeviceEvent(
-        DeviceSyncEvent(
-          kind: DeviceSyncKind.contactUp,
-          key: 's:${peer.hex}',
-          tsMs: nextTs(),
-          payload: {'status': status.name},
-        ),
-      );
-    });
+    // The local transaction owns accepted/blocked publication. A failed or
+    // missing callback is repaired by the boot/periodic durable scan. Pending
+    // intros remain doorbells and never acquire publication obligations.
+    if (status == ContactStatus.accepted || status == ContactStatus.blocked) {
+      contactPublisher.nudge();
+    }
   };
+  contactPublisher.start();
   hub.onLocalSet = (key, value) {
     tasks.start(
       () => svc.postDeviceEvent(
@@ -836,6 +841,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       queued,
       serveChain,
       callPublisher.close(),
+      contactPublisher.close(),
     ]);
   });
   ref.onDispose(() => unawaited(closeBridge()));
@@ -913,6 +919,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
             final changed = await messaging.applyMirroredContactStatus(
               peer,
               resolved,
+              atMs: e.tsMs,
             );
             if (changed) svc.notifyContactAccessChanged(peer);
             // A pref event that arrived while this peer was still unknown was
@@ -1228,6 +1235,10 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   // What this device posts takes its slot too — see
   // [deviceSyncOwnEventRidesGate] for why the gate must hear of it.
   final ownSub = svc.deviceOutgoing.listen((e) {
+    // Consent has a durable storage floor already. This stream is emitted
+    // BEFORE the group commit, so it must not persist an uncommitted floor.
+    // Boot replay and verified incoming events still apply committed rows.
+    if (e.kind == DeviceSyncKind.contactUp && e.key.startsWith('s:')) return;
     if (deviceSyncOwnEventRidesGate(e.kind)) handleEvent(e);
   });
   ref.onDispose(ownSub.cancel);
