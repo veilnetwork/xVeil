@@ -68,6 +68,7 @@ class _MessagingFileTransfer {
       id: fileId,
       timestamp: _owner._now(),
     );
+    if (stored == null) return;
     _owner._signal();
     await _sendFrames(
       peer,
@@ -211,7 +212,7 @@ class _MessagingFileTransfer {
       );
       return;
     }
-    await _owner._store(
+    final stored = await _owner._store(
       message.src,
       MessageDirection.incoming,
       '📎 ${incoming.name ?? 'file'}',
@@ -223,6 +224,10 @@ class _MessagingFileTransfer {
       seq: incoming.seq,
       timestamp: incoming.timestamp,
     );
+    if (stored == null) {
+      await _owner._ackTo(message, transferId, direct: true, repeat: true);
+      return;
+    }
     _owner._emitIncoming(
       message.src,
       '📎 ${incoming.name ?? 'file'}',

@@ -601,7 +601,7 @@ extension _MessagingInboundDispatch on MessagingService {
           // Honor the unsend: store then tombstone so the message never shows AND
           // a later re-delivery is refused (isMessageDeleted above) — deniable
           // erasure, not a transient hide. No notification for an unsent message.
-          await _store(
+          final stored = await _store(
             m.src,
             MessageDirection.incoming,
             env.body,
@@ -611,11 +611,13 @@ extension _MessagingInboundDispatch on MessagingService {
             customEmoji: env.customEmoji,
             seq: env.seq,
           );
-          await _mutations.completeDelete(
-            m.src,
-            id!,
-            notifyDevices: pending.incomingOnly,
-          );
+          if (stored != null) {
+            await _mutations.completeDelete(
+              m.src,
+              id!,
+              notifyDevices: pending.incomingOnly,
+            );
+          }
           await settlePost(m, id, fid, direct: true);
           return;
         }
@@ -623,7 +625,7 @@ extension _MessagingInboundDispatch on MessagingService {
         // latest text shows on first paint (no flash of the superseded text, and
         // the original body never hits the container — nothing to scrub).
         final body = pending?.body ?? env.body;
-        await _store(
+        final stored = await _store(
           m.src,
           MessageDirection.incoming,
           body,
@@ -638,6 +640,10 @@ extension _MessagingInboundDispatch on MessagingService {
           // → storage allocates locally (no cross-device convergence for them).
           seq: env.seq,
         );
+        if (stored == null) {
+          await settlePost(m, id, fid, direct: true);
+          return;
+        }
         if (id != null && pending?.body != null && pending?.seq != null) {
           await _storage.editMessage(
             m.src.hex,
@@ -1270,7 +1276,7 @@ extension _MessagingInboundDispatch on MessagingService {
           await settlePost(m, id, fid, direct: true);
           return;
         }
-        await _store(
+        final stored = await _store(
           m.src,
           MessageDirection.incoming,
           encodeSpaceRecommendationMessage(card),
@@ -1279,6 +1285,10 @@ extension _MessagingInboundDispatch on MessagingService {
           timestamp: _wireSentAt(env),
           seq: env.seq,
         );
+        if (stored == null) {
+          await settlePost(m, id, fid, direct: true);
+          return;
+        }
         _emitIncoming(m.src, 'Community: ${card.name}', isFile: false);
         await settlePost(m, id, fid);
         return;
@@ -1509,7 +1519,7 @@ extension _MessagingInboundDispatch on MessagingService {
           await settlePost(m, null, fid);
           return;
         }
-        await _store(
+        final stored = await _store(
           m.src,
           MessageDirection.incoming,
           kChatDeletedMarkerBody,
@@ -1522,6 +1532,10 @@ extension _MessagingInboundDispatch on MessagingService {
           // log — see [_store.selfAuthored] for the ordering rationale.
           selfAuthored: true,
         );
+        if (stored == null) {
+          await settlePost(m, null, fid, direct: true);
+          return;
+        }
         _emitIncoming(m.src, '🗑️', isFile: false);
         await settlePost(m, null, fid);
         return;
