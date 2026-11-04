@@ -67,6 +67,7 @@ part 'messaging_attestation.dart';
 part 'messaging_replication.dart';
 part 'messaging_replication_expiry.dart';
 part 'messaging_edit_expiry.dart';
+part 'messaging_expiry_lifecycle.dart';
 part 'messaging_group_receipts.dart';
 part 'messaging_group_source.dart';
 part 'messaging_group_content.dart';
@@ -288,10 +289,13 @@ class MessagingService {
   void onOwnDeviceHistoryReady(Object owner) {
     if (_disposed || !identical(groupBindingsOwner, owner)) return;
     _ownHistoryBindingsReady = true;
-    _ownHistory.nudge();
+    _ownHistory.retireStaleBindings();
+    _expiryLifecycle.request();
   }
 
   late final _MessagingOutbox _outbox = _MessagingOutbox(this);
+  late final _MessagingExpiryLifecycle _expiryLifecycle =
+      _MessagingExpiryLifecycle(this);
   late final _MessagingRealtimeControl _realtimeControl =
       _MessagingRealtimeControl(this);
   late final _MessagingMailboxDelivery _mailboxDelivery =
@@ -1324,7 +1328,7 @@ class MessagingService {
   /// The background half of disappearing messages; see
   /// [sweepAllDisappearing].
   Timer? _disappearingSweepTimer;
-  bool _disappearingSweeping = false;
+  Future<int>? _disappearingSweep;
 
   /// Erase additional own-device journal copies after the conversation pass.
   /// Wired by the current group owner and detached before identity teardown.
@@ -1357,9 +1361,14 @@ class MessagingService {
   /// that sent it, and on the other two. The feature exists for the moment the
   /// container is opened by someone else, and that person does not open the
   /// chat first.
-  Future<int> sweepAllDisappearing() async {
-    if (_disposed || _disappearingSweeping) return 0;
-    _disappearingSweeping = true;
+  Future<int> sweepAllDisappearing() {
+    if (_disposed) return Future<int>.value(0);
+    return _disappearingSweep ??= _sweepAllDisappearing().whenComplete(() {
+      _disappearingSweep = null;
+    });
+  }
+
+  Future<int> _sweepAllDisappearing() async {
     var removed = 0;
     // Retention is the same "enforced only on open" gap, in days: applied
     // when the chat opened or the setting changed, never otherwise.
@@ -1367,11 +1376,12 @@ class MessagingService {
     final last = _lastRetentionSweep;
     final retentionDue =
         last == null || now.difference(last) >= kRetentionSweepEvery;
-    if (retentionDue) _lastRetentionSweep = now;
+    var retentionVisited = false;
     try {
       for (final c in await _storage.loadConversations()) {
         if (_disposed) break;
         if (retentionDue && (c.peer.retentionDays ?? 0) > 0) {
+          retentionVisited = true;
           await pruneConversation(c.peer.nodeId);
         }
         if (c.peer.disappearingTtlSeconds == null &&
@@ -1380,13 +1390,12 @@ class MessagingService {
         }
         removed += await sweepDisappearing(c.peer.nodeId);
       }
+      if (retentionVisited) _lastRetentionSweep = now;
       if (!_disposed) await onDisappearingSweep?.call();
       if (!_disposed) await _replication._expiry.sweep();
       if (!_disposed) await _outbox._editExpiry.sweep();
     } catch (e) {
       devLog(() => 'xVeil[disappearing]: background sweep failed: $e');
-    } finally {
-      _disappearingSweeping = false;
     }
     if (removed > 0) {
       devLog(() => 'xVeil[disappearing]: background sweep removed $removed');
@@ -1613,6 +1622,9 @@ class MessagingService {
   Stream<IncomingNotice> get incoming => _incoming.stream;
 
   void start() {
+    if (_disposed || _started) return;
+    _started = true;
+    _expiryLifecycle.request();
     _ownHistory.start();
     // LIVE transport frames only (the mailbox drain feeds [deliverInbound]
     // directly, not this). A frame from a peer proves it is reachable NOW, so
@@ -1724,6 +1736,7 @@ class MessagingService {
 
   /// Set in [dispose]; stops the stream accept loop.
   bool _disposed = false;
+  bool _started = false;
 
   Future<void> _retryFlush() async {
     if (_flushing) return; // don't stack overlapping flushes
@@ -2729,6 +2742,11 @@ class MessagingService {
   /// The conversation's shared disappearing-message window.
   Future<DisappearingSetting> disappearingOf(NodeId peer) =>
       _conversationAdmin.disappearingOf(peer);
+
+  /// Read-time TTL boundary on the same clock as physical expiry. A UI read
+  /// must not expose expired bytes while a failed/slow prune is being retried.
+  Future<DateTime?> disappearingCutoffOf(NodeId peer) async =>
+      (await disappearingOf(peer)).cutoffAt(_now());
 
   /// Choose the window and announce it to [peer]. `null`/<=0 turns it off.
   Future<void> setContactDisappearing(NodeId peer, int? seconds) =>
@@ -4604,6 +4622,8 @@ class MessagingService {
     _settingsGcTimer = null;
     _disappearingSweepTimer?.cancel();
     _disappearingSweepTimer = null;
+    await _expiryLifecycle.close();
+    await _disappearingSweep;
     await _downloadResume.dispose();
     await _sub?.cancel();
     _sub = null;

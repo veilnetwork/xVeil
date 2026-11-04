@@ -1,5 +1,21 @@
 # Открытые случаи — обновлено 2026-11-04
 
+Последний шаг: [TTL при запуске и чтении](../startup-ttl-2026-11-04/README.md).
+Исправлены подтверждённые startup timer gap, выдача expired rows/preview в UI,
+обычный retry во время медленного prune и точное равенство TTL cutoff. Initial
+cleanup coalesced/owned, dispose ждёт записи; текущие поздние group bindings
+запрашивают проход, stale owner не может. Group defer не расходует network
+backoff, call controls не блокируются; ordinary recovery cadence сохранён.
+1044 tests прошли, 3 skipped отдельно; 15 native cases и analyzer чистые.
+Process A/B/C: первый raw read C уже чистый через 9270 мс после запуска,
+раньше старого 30-с timer; void ACK и новая доставка работают. Отдельный
+own-snapshot A/B/C подтвердил retained state, raw-root cleanup и cold B без
+A/C. Оба test/driver/cleanup 0/0/0; 24+26 PID / 28+24 порта / 1441 frozen
+inputs в каждом, runtime удалены, native SHA неизменны. Это локальная
+квалификация проверенных путей, не все I/O-failure/peer ingress/gap-fill,
+policy/clock-skew/Android и partial-transfer границы. Mailbox/push/релиза/
+обновления APK, движков или сидов нет.
+
 Последний шаг: [TTL прямых правок в Outbox](../direct-edit-expiry-2026-11-04/README.md).
 Подтверждены и локально исправлены сохранение/повторная отправка отдельного
 edit body после expiry исходного post и ранний ACK входящего `voidSeq`.
@@ -1059,7 +1075,7 @@ push/релиза нет; multi-device матрица не квалифицир�
 | Случай | Отметка | Граница подтверждения |
 |---|---|---|
 | Прямые queued правки после TTL и ранний ACK void | **ПОДТВЕРЖДЕНО, ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННОМ ПУТИ** | Тело edit оставалось и повторно передавалось после expiry. Теперь exact replacement на bodyless seq slot либо локальный discard для legacy; ACK void только после durable apply. Native raw roots и process A/B/C прошли. Transport/fragmentation после handoff не квалифицированы. [Проверка](../direct-edit-expiry-2026-11-04/README.md). |
-| TTL ранее сохранённой строки после cold restart | **ПОДТВЕРЖДЕНО НАБЛЮДЕНИЕ** | Raw history хранит истёкшую строку до первого периодического sweep (30 с); немедленного прохода в start нет. В финальном process сценарии очистка наступила, UI-видимость не проверена. Это отдельная граница запуска, не исправлена очередью edit. [Проверка](../direct-edit-expiry-2026-11-04/README.md). |
+| TTL ранее сохранённой строки после cold restart / UI / retry | **ПОДТВЕРЖДЕНО, ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННЫХ ПУТЯХ** | Initial sweep теперь немедленный и owned; UI list/preview скрывают expired body независимо от prune, ordinary retry проверяет TTL/tombstone, exact TTL boundary физически удаляется. Native C первый raw read чистый до старого timer; raw worker/close и own snapshot A/B/C прошли. I/O-failure recovery всего массива, native handoff/fragmentation и peer gap-fill/ingress не квалифицированы полностью. [Проверка](../startup-ttl-2026-11-04/README.md). |
 | Истёкшие тела в queued собственных snapshot/delta | **ПОДТВЕРЖДЕНО, ЛОКАЛЬНО ИСПРАВЛЕНО ДЛЯ ПОЛНЫХ КОПИЙ** | Старые payloads оставались после очистки journal. Complete canonical transfers теперь переписываются с сохранением живых rows и durable recovery. Native raw-root и A/B/C прошли. Неполные persisted передачи и другие wire kinds ещё не закрыты. [Проверка](../device-outbox-expiry-2026-11-04/README.md). |
 | Сохранение истёкших тел в журнале устройств | **ПОДТВЕРЖДЕНО, ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННОМ ПУТИ** | Из текущего принятого device journal удаляются expired mirror/edit bodies с сохранением local sequence floors и retry scrub. Native A/B/C проверил очистку, restart автора, новую доставку и cold retention B без источников. Другие transport-копии и весь TTL/clock-skew ещё не закрыты. [Проверка](../device-journal-expiry-2026-11-04/README.md). |
 | Предложение файла Mac → новая личность Android | **СНЯТО ДО ПОВТОРЕНИЯ; прежнее событие подтверждено** | На SDK `76d9db45` предложение не появилось за 120 с. На SDK `5c392c4c` в отдельном свежем QA-профиле первое предложение видно за 0,894 с, четыре файла целы. Причина старого случая не доказана, relay-family путь конкретного предложения не атрибутирован; одна серия не закрывает исходный случай. [Новый прогон](../family-delivery-stages-2026-10-30/README.md). |

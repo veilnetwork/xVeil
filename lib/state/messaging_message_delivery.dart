@@ -145,7 +145,10 @@ class _MessagingMessageDelivery {
   }
 
   Future<void> _runConversationPass() async {
-    if (_owner._disposed || _owner.backgroundStashPaused) return;
+    if (_owner._disposed || _owner.backgroundStashPaused ||
+        _owner._expiryLifecycle.pending) {
+      return;
+    }
     final conversations = await _owner._storage.loadConversations();
     final accepted = {
       for (final conversation in conversations)
@@ -188,7 +191,11 @@ class _MessagingMessageDelivery {
   Future<void> _retryConversation(Conversation conversation) async {
     final peer = conversation.peer.nodeId;
     _owner._sendSyncBestEffort(peer);
-    final messages = await _owner._storage.loadMessages(conversation.id);
+    final cutoff = await _owner.disappearingCutoffOf(peer);
+    final messages = [
+      for (final message in await _owner._storage.loadMessages(conversation.id))
+        if (cutoff == null || message.timestamp.isAfter(cutoff)) message,
+    ];
     if (_owner._disposed || _owner.backgroundStashPaused) return;
     // Runs before unresolved-peer backoff so dead identities still terminate.
     final failed = await _maybeReconnect(peer, messages);
@@ -234,6 +241,7 @@ class _MessagingMessageDelivery {
 
       if (_owner._disposed || _owner.backgroundStashPaused) return;
       if (_hasDeliveryReceipt(peer.hex, message.id)) continue;
+      if (!await _canRetry(peer, message)) continue;
 
       final count = (backoff?.count ?? 0) + 1;
       // Clamp the shift: an unbounded count eventually wraps the delay to 0.
@@ -266,6 +274,7 @@ class _MessagingMessageDelivery {
         final offer = await _owner._fileOfferRetryFrame(message);
         if (offer == null) continue;
         wire = offer;
+        if (!await _canRetry(peer, message)) continue;
       } else {
         final recommendation = parseSpaceRecommendationMessage(message.body);
         wire =
@@ -311,6 +320,14 @@ class _MessagingMessageDelivery {
       // message or a later pass on this contact until the actual send settles.
       if (!settled) return;
     }
+  }
+
+  Future<bool> _canRetry(NodeId peer, Message message) async {
+    if (await _owner._storage.isMessageDeleted(peer.hex, message.id)) return false;
+    final setting = await _owner.disappearingOf(peer);
+    return !_owner._disposed &&
+        !_owner.backgroundStashPaused &&
+        !setting.hasExpired(message.timestamp, _owner._now());
   }
 
   /// Re-introduce a peer that may have forgotten us, and give each old message

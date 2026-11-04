@@ -94,6 +94,7 @@ extension _GroupSourceSending on _MessagingReplication {
       lane: peer.hex,
       bytes: bytes,
       send: () async {
+        if (_owner._expiryLifecycle.deferSource(peer.hex, frameId)) return;
         if (!_currentGroupEpoch(epoch) || _expiry.blocks(peer.hex, frameId)) return;
         // Await the actual attempt, rather than detaching a timed-out send
         // per fragment. Only one initial send is active per recipient, with

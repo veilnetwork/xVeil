@@ -237,6 +237,9 @@ void main() {
     test(
       'a ${forged ? 'foreign' : 'valid'} transfer ACK while a pass waits preserves destination authority',
       () async {
+        // Isolate the ACK race from the independently checked startup defer.
+        service.start();
+        await pumpEventQueue();
         await queue('edit:first', 'first');
         final tid = 'grp:${_id(3).hex}:${'a' * 64}:${peer.hex}';
         for (var i = 0; i < 3; i++) {
@@ -259,7 +262,6 @@ void main() {
             Contact(nodeId: source, status: ContactStatus.accepted),
           );
         }
-        service.start();
         transport.enteredSend = Completer<void>();
         transport.releaseSend = Completer<void>();
         final entered = transport.enteredSend!;

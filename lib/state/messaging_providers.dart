@@ -369,9 +369,31 @@ final conversationsProvider = StreamProvider<List<Conversation>>((ref) async* {
   }
   final service = ref.watch(messagingServiceProvider);
   final storage = ref.watch(storageProvider);
-  yield await storage.loadConversations();
+  Future<List<Conversation>> visibleConversations() async {
+    final result = <Conversation>[];
+    for (final conversation in await storage.loadConversations()) {
+      final last = conversation.lastMessage;
+      if (last != null && (conversation.peer.disappearingTtlSeconds ?? 0) > 0) {
+        final cutoff = await service.disappearingCutoffOf(
+          conversation.peer.nodeId,
+        );
+        if (cutoff != null && !last.timestamp.isAfter(cutoff)) {
+          // Keep identity and unread accounting until the physical prune;
+          // only the expired preview body must stop reaching the screen.
+          result.add(
+            Conversation(peer: conversation.peer, unread: conversation.unread),
+          );
+          continue;
+        }
+      }
+      result.add(conversation);
+    }
+    return result;
+  }
+
+  yield await visibleConversations();
   await for (final _ in service.changes) {
-    yield await storage.loadConversations();
+    yield await visibleConversations();
   }
 });
 
@@ -457,10 +479,26 @@ final messagesProvider = StreamProvider.autoDispose.family<List<Message>, String
     }
   }
 
-  yield _visibleChatMessages(
-    await storage.loadMessages(conversationId, limit: window),
-    hiddenThroughMs: await hiddenThrough(),
-  );
+  Future<List<Message>> visibleMessages() async {
+    final rows = await storage.loadMessages(conversationId, limit: window);
+    NodeId? peer;
+    try {
+      peer = NodeId.fromHex(conversationId);
+    } catch (_) {
+      // A legacy non-peer local conversation has no shared TTL policy.
+    }
+    final hidden = await hiddenThrough();
+    final expiredThrough = peer == null
+        ? null
+        : await service.disappearingCutoffOf(peer);
+    return _visibleChatMessages(
+      rows,
+      hiddenThroughMs: hidden,
+      expiredThrough: expiredThrough,
+    );
+  }
+
+  yield await visibleMessages();
   // Each `changes` tick re-loads + DECRYPTS the conversation window from the
   // container and rebuilds the ListView (+ auto-scroll). A burst of state
   // signals (sends, inbound re-sends, status flips) therefore thrashed the UI
@@ -470,20 +508,19 @@ final messagesProvider = StreamProvider.autoDispose.family<List<Message>, String
   await for (final _ in service.changes.auditTrailing(
     const Duration(milliseconds: 200),
   )) {
-    yield _visibleChatMessages(
-      await storage.loadMessages(conversationId, limit: window),
-      hiddenThroughMs: await hiddenThrough(),
-    );
+    yield await visibleMessages();
   }
 });
 
 List<Message> _visibleChatMessages(
   List<Message> messages, {
   int hiddenThroughMs = 0,
+  DateTime? expiredThrough,
 }) => messages
     .where(
       (m) =>
           !isServiceEchoBody(m.body) &&
+          (expiredThrough == null || m.timestamp.isAfter(expiredThrough)) &&
           (hiddenThroughMs <= 0 ||
               m.timestamp.millisecondsSinceEpoch > hiddenThroughMs),
     )

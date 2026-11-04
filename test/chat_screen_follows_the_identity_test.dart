@@ -129,7 +129,15 @@ void main() {
     // which `dart format` writes whenever the line grows. Three of those ran
     // after a file picker, so the bytes chosen under A were sent through B and
     // this test stayed green throughout (report18 XV18-H7).
-    final body = source.substring(start, end).replaceAll(RegExp(r'\s+'), '');
+    final sourceBody = source.substring(start, end).replaceAll(RegExp(r'\s+'), '');
+    // Export compares the CURRENT owner to its CAPTURED store after a picker.
+    // It never operates on the newly resolved store. Keep exactly this guard
+    // exempt; permitting an arbitrary second dynamic read would weaken this.
+    const exportGuard =
+        'bool_exportStillOurs()=>mounted&&'
+        'identical(ref.read(storageProvider),_storage);';
+    expect(sourceBody.split(exportGuard).length - 1, 1);
+    final body = sourceBody.replaceFirst(exportGuard, '');
 
     expect(
       body,

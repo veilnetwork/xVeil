@@ -625,8 +625,9 @@ void main() {
   /// durable frame it produces stays in its outbox to be counted.
   Future<({MessagingService messaging, HiddenVolumeStorage storage})> sender(
     NodeId me,
-    List<NodeId> destinations,
-  ) async {
+    List<NodeId> destinations, {
+    Future<void> Function(HiddenVolumeStorage)? seedBeforeStart,
+  }) async {
     final transport = _Link(me);
     final storage = HiddenVolumeStorage(_memOpener());
     await storage.open(password: 'send', createIfMissing: true);
@@ -637,6 +638,7 @@ void main() {
         Contact(nodeId: peer, status: ContactStatus.accepted),
       );
     }
+    await seedBeforeStart?.call(storage);
     final messaging = MessagingService(transport, storage)..start();
     addTearDown(messaging.dispose);
     return (messaging: messaging, storage: storage);
@@ -1524,6 +1526,9 @@ void main() {
       await sA.open(password: 'a', createIfMissing: true);
       final mA = MessagingService(source, sA)..start();
       addTearDown(mA.dispose);
+      // This is a wire-binding guard; startup's local send deferral is
+      // qualified separately before the first attempt can be observed.
+      await pumpEventQueue();
       await sA.upsertContact(
         Contact(nodeId: b, status: ContactStatus.accepted),
       );
@@ -1903,16 +1908,18 @@ void main() {
     //
     // This is the near miss, not the obvious case: a queue that is ALREADY
     // full, and a service that has not flushed yet.
-    final s = await sender(a, [b]);
-    // Fill the store directly, so nothing has updated any in-memory counter.
-    for (var i = 0; i < 300; i++) {
-      await s.storage.enqueueOutboxFrame(
-        'grp:aa11:pre$i:${b.hex}',
-        b.hex,
-        WireEnvelope.groupEntry('pre-existing-$i').encode(),
-      );
-    }
-    final before = (await s.storage.pendingOutboxFrames()).length;
+    // Persist BEFORE constructing the restarted service: startup cleanup now
+    // legitimately loads counters immediately rather than after three seconds.
+    var before = 0;
+    final s = await sender(a, [b], seedBeforeStart: (storage) async {
+      for (var i = 0; i < 300; i++) {
+        await storage.enqueueOutboxFrame(
+          'grp:aa11:pre$i:${b.hex}', b.hex,
+          WireEnvelope.groupEntry('pre-existing-$i').encode(),
+        );
+      }
+      before = (await storage.pendingOutboxFrames()).length;
+    });
     expect(before, greaterThanOrEqualTo(300));
 
     await s.messaging.sendGroupSnapshot(b, 'aa11', 'the-first-one-after-boot');
