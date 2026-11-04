@@ -1,5 +1,15 @@
 import 'dart:typed_data';
 
+typedef LogReadGroup = ({List<int> ids, int maxBytes});
+
+/// Optional native exact-ID grouping. Decoded batches are shared only in-call;
+/// missing/over-budget records stop before later IDs or groups are read.
+abstract interface class SyncLogGroupReader {
+  static const maxGroups = 8;
+  static const maxRecords = 64;
+  List<Uint8List>? readLogGroups(int namespace, List<LogReadGroup> groups);
+}
+
 /// Namespace tags inside a hidden-volume space. Byte 0 is RESERVED by the
 /// library; these mirror the conventional layout from the integration guide.
 class Ns {

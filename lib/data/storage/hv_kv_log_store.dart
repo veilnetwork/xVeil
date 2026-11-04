@@ -36,7 +36,8 @@ List<hv.HvWriteOp> _toHvOps(List<KvLogOp> ops) => ops.map<hv.HvWriteOp>((op) {
 /// Production [KvLogStore] backed by a real unlocked `HvSpace` from the
 /// hidden-volume plugin. The mapping is 1:1, so the domain storage layer
 /// (HiddenVolumeStorage) is unchanged whether it runs over this or the fake.
-class HvKvLogStore implements KvLogStore, SyncCommitAnchorSource {
+class HvKvLogStore
+    implements KvLogStore, SyncCommitAnchorSource, SyncLogGroupReader {
   HvKvLogStore(this._space);
 
   final hv.HvSpace _space;
@@ -72,6 +73,13 @@ class HvKvLogStore implements KvLogStore, SyncCommitAnchorSource {
   @override
   Uint8List? readLog(int namespace, int logId) =>
       _space.readLog(namespace, logId);
+
+  @override
+  List<Uint8List>? readLogGroups(int namespace, List<LogReadGroup> groups) =>
+      _space.readLogGroups(namespace, [
+        for (final group in groups)
+          hv.HvLogReadGroup(logIds: group.ids, maxBytes: group.maxBytes),
+      ]);
 
   @override
   List<KvLogEntry> iterLogRange({

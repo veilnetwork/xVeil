@@ -15,6 +15,8 @@ import 'storage_write_census.dart';
 import 'worker_death.dart';
 import 'package:xveil/core/log.dart';
 
+export 'kv_log_store.dart' show LogReadGroup;
+
 /// Async, OFF-UI-isolate facade over a single unlocked hidden-volume space.
 ///
 /// Every hidden-volume call (`open`, and each `get`/`commit`/`iterLogRange`/…)
@@ -63,14 +65,12 @@ abstract interface class AsyncLogBatchReader {
   Future<List<Uint8List>?> readLogBatch(int namespace, List<int> logIds);
 }
 
-typedef LogReadGroup = ({List<int> ids, int maxBytes});
-
 /// Ordered exact-ID groups, concatenated independently with a byte ceiling.
 /// Null at the first missing/over-ceiling record, before later records/groups.
 /// The whole request is bounded just like a single ordinary log batch.
 abstract interface class AsyncLogGroupReader {
-  static const maxGroups = 8;
-  static const maxRecords = AsyncLogBatchReader.maxRecords;
+  static const maxGroups = SyncLogGroupReader.maxGroups;
+  static const maxRecords = SyncLogGroupReader.maxRecords;
   Future<List<Uint8List>?> readLogGroups(
     int namespace,
     List<LogReadGroup> groups,
@@ -99,6 +99,9 @@ List<Uint8List>? _readLogGroups(
   List<LogReadGroup> groups,
 ) {
   final requested = _snapshotLogGroups(groups);
+  if (store is SyncLogGroupReader) {
+    return (store as SyncLogGroupReader).readLogGroups(namespace, requested);
+  }
   final result = <Uint8List>[];
   for (final group in requested) {
     final out = BytesBuilder(copy: false);
