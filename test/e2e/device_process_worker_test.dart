@@ -172,6 +172,76 @@ void main() {
             if (await inspect.exists()) {
               final request = jsonDecode(await inspect.readAsString()) as Map;
               await inspect.delete();
+              if (request['conflictingMirrorTarget'] case final String target) {
+                // A signed synthetic old-clock row, restricted to this test
+                // worker's owned container; no production clock/debug API.
+                final peer = request['peer'] as String;
+                final message = (await device!.storage.loadMessageById(peer, target))!;
+                final ttl = (await device!.storage.getContact(
+                  NodeId.fromHex(peer),
+                ))!.disappearingTtlSeconds!;
+                final now = DateTime.now().millisecondsSinceEpoch;
+                final staleTs = message.timestamp.millisecondsSinceEpoch - ttl * 2000;
+                final groups = device!.groups!;
+                final gid = NodeId.fromHex((await groups.deviceGroupIdHex())!);
+                final accepted = await groups.postDeviceEvent(
+                  DeviceSyncEvent(
+                    kind: DeviceSyncKind.msgMirror,
+                    key: target,
+                    tsMs: staleTs,
+                    payload: {
+                      'peer': peer,
+                      'dir': message.direction.name,
+                      'body': 'clock-conflict-stale-fixture',
+                      if (message.author != null) 'au': message.author,
+                      if (message.seq != null) 'sq': message.seq,
+                    },
+                  ),
+                );
+                await groups.compactStateLogs(gid);
+                final bundle = (await groups.load(gid))!;
+                final targetRows = bundle.messages.where((row) {
+                  final event = DeviceSyncEvent.fromBody(row.body);
+                  return event?.key == target && event?.payload['peer'] == peer;
+                }).toList();
+                final response = File('${dir.path}/storage-inspected.new');
+                await response.writeAsString(
+                  jsonEncode({
+                    'nonce': request['nonce'],
+                    'accepted': accepted,
+                    'canonicalWasLive':
+                        now < message.timestamp.millisecondsSinceEpoch + ttl * 1000,
+                    'injectedClockWasExpired': staleTs + ttl * 1000 <= now,
+                    'mirrors': targetRows
+                        .where(
+                          (row) =>
+                              DeviceSyncEvent.fromBody(row.body)!.kind ==
+                              DeviceSyncKind.msgMirror,
+                        )
+                        .length,
+                    'edits': targetRows
+                        .where(
+                          (row) =>
+                              DeviceSyncEvent.fromBody(row.body)!.kind ==
+                              DeviceSyncKind.msgEdit,
+                        )
+                        .length,
+                    'allRowsVerify':
+                        targetRows.isNotEmpty &&
+                        targetRows.every((row) => groups.debugMessageIsValid(gid, row)),
+                    'staleBodies': targetRows
+                        .where((row) => row.body.contains('clock-conflict-stale-fixture'))
+                        .length,
+                    'canonicalDeleted': await device!.storage.isMessageDeleted(
+                      peer,
+                      target,
+                    ),
+                    'scrubPending': bundle.deviceMessageScrubPending,
+                  }),
+                );
+                await response.rename('${dir.path}/storage-inspected.json');
+                continue;
+              }
               if (request['directEditTarget'] case final String target) {
                 final peer = request['peer'] as String;
                 final seq = request['seq'];

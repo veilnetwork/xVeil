@@ -129,6 +129,7 @@ class _LogCompaction {
     // Discover original post expiry before judging edits: edit timestamps do
     // not renew a message's lifetime, including when the edit is another
     // physical author's last row.
+    final expiredMirrors = Set<GroupMessage>.identity();
     for (final row in rows) {
       final e = row.event;
       final seconds = ttl[row.peer];
@@ -149,18 +150,30 @@ class _LogCompaction {
           isAcceptableWireSeq(seq);
       // Persist the rejection before retiring the only journal copy: replay
       // after TTL-off/clock rollback must not recreate the conversation row.
-      await _owner._storage.recordExpiredMessage(
+      final recorded = await _owner._storage.recordExpiredMessage(
         row.peer,
         e.key,
         author: position ? author : null,
         seq: position ? seq : null,
       );
-      deleted[row.peer]!.add(e.key);
+      if (recorded ||
+          await _owner._storage.isMessageDeleted(row.peer, e.key)) {
+        deleted[row.peer]!.add(e.key);
+      } else {
+        // The unseen-message marker refuses to overwrite a live canonical
+        // row. A conflicting old mirror clock is not deletion authority over
+        // that row's fresh mirror or edits. Retire this expired copy only;
+        // a durable tombstone above still retires every body for the ID.
+        expiredMirrors.add(row.message);
+      }
     }
     final gone = <String>{};
     final floors = {...b.deviceMessageSeqFloors};
     for (final row in rows) {
-      if (!deleted[row.peer]!.contains(row.event.key)) continue;
+      if (!deleted[row.peer]!.contains(row.event.key) &&
+          !expiredMirrors.contains(row.message)) {
+        continue;
+      }
       gone.add(_owner._messageHash(row.message));
       final author = row.message.author.hex;
       floors[author] = max(floors[author] ?? -1, row.message.seq);
