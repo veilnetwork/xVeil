@@ -4624,6 +4624,7 @@ class MessagingService {
     _contentAvailability.cancelRetryReoffers();
     final historyClosed = _ownHistory.close();
     _outbox.dispose();
+    final editExpiryClosed = _outbox._editExpiry.close();
     // Starts synchronously: the transport-scoped broker lease is detached
     // before Riverpod can construct a replacement service, while native
     // serve/pull streams are aborted and joined in the returned future.
@@ -4636,6 +4637,7 @@ class MessagingService {
     _disappearingSweepTimer = null;
     await _expiryLifecycle.close();
     await _disappearingSweep;
+    await editExpiryClosed;
     await _downloadResume.dispose();
     await _sub?.cancel();
     _sub = null;
