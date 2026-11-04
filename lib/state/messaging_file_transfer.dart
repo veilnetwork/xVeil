@@ -17,6 +17,24 @@ class _MessagingFileTransfer {
 
   void resetSession() => _lastNackAt.clear();
 
+  /// Admit metadata on a stable receipt clock, then recheck it before taking
+  /// any later chunk. A failed expiry commit retains the bounded partial state
+  /// and leaves the sender's message unACKed for its next query/retry.
+  Future<bool> _expired(
+    InboundMessage message,
+    String id,
+    DateTime timestamp,
+    int? seq,
+  ) async {
+    if (await _owner._inboundExpiry.post(message.src, id, timestamp, seq) ||
+        await _owner._storage.isMessageDeleted(message.src.hex, id)) {
+      _inFlight.remove(id);
+      await _owner._ackTo(message, id, direct: true, repeat: true);
+      return true;
+    }
+    return false;
+  }
+
   Future<void> send(
     NodeId peer,
     Uint8List bytes,
@@ -97,7 +115,21 @@ class _MessagingFileTransfer {
     // A file message rides the same event stream as a text one, so its seq
     // arrives from the peer and takes the same bound as any other.
     if (!isAcceptableWireSeq(meta.seq)) return;
-    if (_inFlight.containsKey(meta.transferId)) return;
+    final existing = _inFlight[meta.transferId];
+    if (existing != null && existing.src != message.src) return;
+    final timestamp =
+        existing?.timestamp ??
+        _owner._wireSentAtMs(meta.sentAtMs) ??
+        _owner._now();
+    if (await _expired(
+      message,
+      meta.transferId,
+      timestamp,
+      existing?.seq ?? meta.seq,
+    )) {
+      return;
+    }
+    if (existing != null) return;
     if (!_makeRoom()) return;
     _inFlight[meta.transferId] = _IncomingFile(
       src: message.src,
@@ -105,7 +137,7 @@ class _MessagingFileTransfer {
       reassembler: FileReassembler(),
       lastActivity: _owner._now(),
       seq: meta.seq,
-      sentAtMs: meta.sentAtMs,
+      timestamp: timestamp,
     );
     devLog(
       () =>
@@ -124,6 +156,14 @@ class _MessagingFileTransfer {
             '${message.src.short}'
             '${incoming != null ? " (src mismatch)" : " (META LOST or not yet arrived)"}',
       );
+      return;
+    }
+    if (await _expired(
+      message,
+      frame.transferId,
+      incoming.timestamp,
+      incoming.seq,
+    )) {
       return;
     }
     incoming.lastActivity = _owner._now();
@@ -181,7 +221,7 @@ class _MessagingFileTransfer {
       fileSize: assembled.length,
       id: transferId,
       seq: incoming.seq,
-      timestamp: _owner._wireSentAtMs(incoming.sentAtMs),
+      timestamp: incoming.timestamp,
     );
     _owner._emitIncoming(
       message.src,
@@ -197,6 +237,35 @@ class _MessagingFileTransfer {
   Future<void> handleQuery(InboundMessage message, FileMetaFrame meta) async {
     if (!isAcceptableWireSeq(meta.seq)) return;
     final transferId = meta.transferId;
+    final prior = _inFlight[transferId];
+    if (prior != null && prior.src != message.src) return;
+    if (!message.provenance.isAuthenticated) {
+      // Queries may arrive on a claimed return path. They may read an existing
+      // assembly, but cannot supply its name/clock/sequence or a tombstone.
+      final total = prior?.reassembler.total;
+      await _owner._send(
+        message.src,
+        fileNackEnvelope(
+          transferId: transferId,
+          missing: total == null
+              ? null
+              : prior!.reassembler.missingIndices(total),
+        ).encode(),
+      );
+      return;
+    }
+    final timestamp =
+        prior?.timestamp ??
+        _owner._wireSentAtMs(meta.sentAtMs) ??
+        _owner._now();
+    if (await _expired(
+      message,
+      transferId,
+      timestamp,
+      prior?.seq ?? meta.seq,
+    )) {
+      return;
+    }
     if (await _owner._mirrorStoredMessageIfPresent(message.src, transferId) ||
         await _owner._storage.isMessageDeleted(message.src.hex, transferId)) {
       await _owner._ackTo(message, transferId, direct: true, repeat: true);
@@ -211,7 +280,7 @@ class _MessagingFileTransfer {
         reassembler: FileReassembler(),
         lastActivity: _owner._now(),
         seq: meta.seq,
-        sentAtMs: meta.sentAtMs,
+        timestamp: timestamp,
       );
       _inFlight[transferId] = incoming;
     } else if (incoming.src != message.src) {
@@ -299,13 +368,13 @@ class _IncomingFile {
     required this.reassembler,
     required this.lastActivity,
     this.seq,
-    this.sentAtMs,
+    required this.timestamp,
   });
 
   final NodeId src;
   final String? name;
   final FileReassembler reassembler;
   final int? seq;
-  final int? sentAtMs;
+  final DateTime timestamp;
   DateTime lastActivity;
 }
