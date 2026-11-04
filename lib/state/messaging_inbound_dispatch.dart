@@ -401,6 +401,9 @@ extension _MessagingInboundDispatch on MessagingService {
     final deferredGroupCallAck = env.kind == WireKind.groupCallSignal;
     final deferredGroupSnapshotAck =
         env.kind == WireKind.groupEntry || env.kind == WireKind.groupEntryChunk;
+    final deferredHandshakeAck =
+        existing?.status == ContactStatus.accepted &&
+        (env.kind == WireKind.request || env.kind == WireKind.reconnect);
     // Older senders used the same frame ID for concurrent edits at one
     // revision. ACK that wire ID, but deduplicate its actual value locally.
     final persistenceDedupId = env.kind == WireKind.edit && fid != null
@@ -437,7 +440,12 @@ extension _MessagingInboundDispatch on MessagingService {
         (existing?.status == ContactStatus.accepted ||
             ownDeviceSender ||
             activeCallDevice)) {
-      if (deferredGroupSnapshotAck) {
+      if (deferredHandshakeAck) {
+        // Re-introduction owes a durable acceptance, not just recognition of
+        // this wire ID. A failed enqueue must leave the sender able to retry.
+        // Reprocess the same ID even after success: its prior response may
+        // have been ACKed before the peer lost its local relationship state.
+      } else if (deferredGroupSnapshotAck) {
         // Receipt and dedup belong to the completed group write. Partial
         // slices must remain in the sender's outbox across a receiver crash.
       } else if (deferredChatAck) {
@@ -510,9 +518,18 @@ extension _MessagingInboundDispatch on MessagingService {
       }
     }
 
+    Future<void> receiveContactRequest() async {
+      await _handleRequestOrReconnect(m, env, existing?.status);
+      if (deferredHandshakeAck && fid != null) {
+        // Use the existing bounded receipt lane, after durable admission.
+        // Explicit delivery callers join it; the serialized inbox does not.
+        await settlePost(m, null, fid);
+      }
+    }
+
     switch (env.kind) {
       case WireKind.request:
-        await _handleRequestOrReconnect(m, env, existing?.status);
+        await receiveContactRequest();
       case WireKind.accept:
         // Only honour an accept for a request we actually sent.
         if (existing?.status == ContactStatus.pendingOutgoing) {
@@ -948,7 +965,7 @@ extension _MessagingInboundDispatch on MessagingService {
         // can re-accept. Disambiguated by OUR state in _handleRequestOrReconnect
         // (accepted→re-ack; unknown/pending→pending intro; blocked→already
         // dropped). Falls through to _signal() so the pending surfaces in the UI.
-        await _handleRequestOrReconnect(m, env, existing?.status);
+        await receiveContactRequest();
       case WireKind.fileStream:
         // Reserved abandoned push-stream prototype. No production sender ever
         // emitted this kind; the shipped any-size path is contentManifest + a

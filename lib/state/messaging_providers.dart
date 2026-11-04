@@ -193,7 +193,8 @@ final messagingServiceProvider = Provider<MessagingService>((ref) {
     RealVeilStack.sovereignReceiveAddress(storage)
         .then((receiveAddress) {
           return transport.buildMailboxService(
-            deliver: service.deliverInbound,
+            deliver: (message) =>
+                service.deliverInbound(message, waitForReceipts: false),
             relayKeyCache: relayKeyCache,
             receiveAddress: receiveAddress == null
                 ? null

@@ -352,8 +352,10 @@ class HeadlessRuntime {
         final receiveAddress = await RealVeilStack.sovereignReceiveAddress(
           storage,
         );
+        final mailboxMessaging = messaging;
         mailbox = await transport.buildMailboxService(
-          deliver: messaging.deliverInbound,
+          deliver: (message) =>
+              mailboxMessaging.deliverInbound(message, waitForReceipts: false),
           relayKeyCache: StorageRelayKeyCache(storage),
           receiveAddress: receiveAddress == null
               ? null
