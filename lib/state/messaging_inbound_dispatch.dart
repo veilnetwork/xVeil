@@ -371,6 +371,7 @@ extension _MessagingInboundDispatch on MessagingService {
         env.kind == WireKind.spaceAbuseReport ||
         env.kind == WireKind.spaceAbuseReportDecision ||
         env.kind == WireKind.edit ||
+        env.kind == WireKind.voidSeq ||
         env.kind == WireKind.del ||
         env.kind == WireKind.clear ||
         env.kind == WireKind.reaction ||
@@ -802,6 +803,7 @@ extension _MessagingInboundDispatch on MessagingService {
         final vseq = env.seq;
         if (vseq != null) {
           await _storage.applyRemoteVoid(m.src.hex, m.src.hex, vseq);
+          await _settleMutationFrame(m, fid);
         }
         return;
       case WireKind.clear:

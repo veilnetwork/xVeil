@@ -84,6 +84,7 @@ class _MessagingOutbox {
   _MessagingOutbox(this._owner);
 
   final MessagingService _owner;
+  late final _editExpiry = _MessageEditExpiry(this);
 
   _OutboxFlushSnapshot? _flushSnapshot;
 
@@ -412,6 +413,10 @@ class _MessagingOutbox {
     bool startLiveBeforeEnqueue = false,
   }) async {
     final wire = envelope.withFrameId(frameId).encode();
+    if (envelope.kind == WireKind.edit &&
+        !await _editExpiry.allow(peer.hex, frameId, wire, persisted: false)) {
+      return;
+    }
     final mailboxEligible =
         envelope.kind == WireKind.request || envelope.kind == WireKind.accept;
     final skipLive =
@@ -421,6 +426,11 @@ class _MessagingOutbox {
     Future<void> tryLive() async {
       final stopwatch = Stopwatch()..start();
       try {
+        if (envelope.kind == WireKind.edit &&
+            (!await _editExpiry.allow(peer.hex, frameId, wire, persisted: true) ||
+                _owner._disposed)) {
+          return;
+        }
         await (liveSender?.call(wire) ??
             _owner._send(
               peer,
@@ -600,6 +610,7 @@ class _MessagingOutbox {
     if (_owner._disposed || !snapshot.capture(pending)) return;
     bool current(OutboxFrame frame) =>
         !_owner._disposed && snapshot.contains(frame.peerHex, frame.frameId) &&
+        !_editExpiry.blocks(frame.peerHex, frame.frameId) &&
         !_owner._replication._expiry.blocks(frame.peerHex, frame.frameId);
     // The authoritative count, once per cycle. Everything between cycles only
     // adjusts it.
@@ -650,6 +661,21 @@ class _MessagingOutbox {
       // An unavailable identity cannot justify retiring its queued state.
     }
     for (final frame in pending) {
+      if (!current(frame)) continue;
+      try {
+        if (!await _editExpiry.allow(
+          frame.peerHex,
+          frame.frameId,
+          frame.wire,
+          persisted: true,
+          enqueuedAtMs: frame.enqueuedAtMs,
+        )) {
+          continue;
+        }
+      } catch (_) {
+        // Retain an unreadable edit for retry, but never re-drive its body.
+        continue;
+      }
       if (!current(frame)) continue;
       if (_retireExpiredTransient(frame)) continue;
       if (_retireStaleReplication(frame)) continue;
@@ -871,6 +897,25 @@ class _MessagingOutbox {
     _OutboxRedrive entry,
     _OutboxFlushSnapshot snapshot,
   ) async {
+    if (_owner._disposed ||
+        !snapshot.contains(entry.frame.peerHex, entry.frame.frameId)) {
+      return true;
+    }
+    try {
+      if (!await _editExpiry.allow(
+        entry.peer.hex,
+        entry.frame.frameId,
+        entry.frame.wire,
+        persisted: true,
+        enqueuedAtMs: entry.frame.enqueuedAtMs,
+      )) {
+        return true;
+      }
+    } catch (_) {
+      // Keep the durable row, but do not send an edit whose expiry could not
+      // be checked. Other recipients retain their own attempts this pass.
+      return true;
+    }
     if (_owner._disposed ||
         !snapshot.contains(entry.frame.peerHex, entry.frame.frameId)) {
       return true;

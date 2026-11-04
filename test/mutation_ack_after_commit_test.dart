@@ -70,6 +70,16 @@ class _Storage extends HiddenVolumeStorage {
   }
 
   @override
+  Future<void> applyRemoteVoid(
+    String conversationId,
+    String author,
+    int seq,
+  ) async {
+    await before('void');
+    return super.applyRemoteVoid(conversationId, author, seq);
+  }
+
+  @override
   Future<void> enqueueOutboxFrame(
     String frameId,
     String peerHex,
@@ -212,6 +222,33 @@ void main() {
     }
     expect(completed, isTrue);
   });
+
+  test(
+    'durable void ACK waits for its persisted slot, and retries after refusal',
+    () async {
+      await target();
+      storage.held = 'void';
+      final pending = receive(const WireEnvelope.voidSeq(2), fid: 'void-slot');
+      try {
+        await storage.entered.future;
+        expect(link.acks, isEmpty);
+        storage.fail = 'void';
+      } finally {
+        storage.release.complete();
+        await pending;
+      }
+      expect(link.acks, isEmpty);
+      expect((await storage.conversationSync(peer.hex)).highWater[peer.hex], 1);
+      storage.fail = null;
+      await receive(const WireEnvelope.voidSeq(2), fid: 'void-slot');
+      expect(link.acks, contains('void-slot'));
+      expect((await storage.conversationSync(peer.hex)).highWater[peer.hex], 2);
+      await restart();
+      expect((await storage.conversationSync(peer.hex)).highWater[peer.hex], 2);
+      await receive(const WireEnvelope.voidSeq(2), fid: 'void-slot');
+      expect(link.acks, contains('void-slot'));
+    },
+  );
 
   test(
     'failed edit mirror retains the peer obligation across restart',

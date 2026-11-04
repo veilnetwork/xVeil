@@ -5634,7 +5634,6 @@ class HiddenVolumeStorage
     List<OutboxFrame> replacement,
   ) {
     if (expected.isEmpty ||
-        replacement.isEmpty ||
         expected.length > 4096 ||
         replacement.length > 4096) {
       throw ArgumentError('invalid outbox replacement size');
