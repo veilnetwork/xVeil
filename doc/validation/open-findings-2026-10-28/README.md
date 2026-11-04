@@ -1,5 +1,17 @@
 # Открытые случаи — обновлено 2026-11-05
 
+Текущий шаг: [освобождение ingress после durable accept](../contact-handshake-ingress-2026-11-05/README.md).
+Повторный request/reconnect от accepted contact держал ordinary inbox за первой
+сетевой попыткой ответа (стандартное окно до 10 с); последующий ordinary call
+signal не доходил до обработчика. Четыре old-code assertion-red, включая два
+worker/native HVS. Ответ теперь ожидает только local enqueue и отправляется
+через bounded/coalesced recipient queue; dispose присоединяет реальный send.
+27 scoped прошли без skip; broad 1732 passed / 58 conditional skipped,
+93 файла; 403 control с diagnostics/native HVS без skip, analyzer чистый.
+Причина пользовательского ПК ↔ Android случая не установлена,
+физического Windows повтора нет; общие ACK и первичное принятие не изменялись.
+Mailbox/push/релиза нет.
+
 Новый активный репорт: [ПК ↔ Android: запросы, звонки, registry](../user-pc-android-calls-2026-11-05/README.md).
 По точному release-stack подтверждено чтение resume registry до unlock/при
 закрытии контейнера; локально исправлено без удаления durable intent. Текст

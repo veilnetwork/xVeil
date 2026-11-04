@@ -257,6 +257,13 @@ class MessagingService {
           'xVeil[group]: initial send FAILED (${error.runtimeType}); durable retry retained',
     ),
   );
+  late final _contactResponseQueue = PostReceiptQueue(
+    maxConcurrent: 4,
+    onError: (error, _) => devLog(
+      () =>
+          'xVeil[contacts]: response send FAILED (${error.runtimeType}); durable retry retained',
+    ),
+  );
   late final _MessagingGroupContent _groupContent = _MessagingGroupContent(
     this,
   );
@@ -4624,6 +4631,7 @@ class MessagingService {
     final postReceiptsClosed = _postReceipts.close();
     final groupReceiptsClosed = _groupReceiptQueue.close();
     final groupSourceClosed = _groupSourceQueue.close();
+    final contactResponsesClosed = _contactResponseQueue.close();
     final snapshotValidationClosed = _replication._expiry.close();
     _contentAvailability.cancelRetryReoffers();
     final historyClosed = _ownHistory.close();
@@ -4653,6 +4661,7 @@ class MessagingService {
     await postReceiptsClosed;
     await groupReceiptsClosed;
     await groupSourceClosed;
+    await contactResponsesClosed;
     await historyClosed;
     await _mutations.quiesce();
     Object? shutdownError;

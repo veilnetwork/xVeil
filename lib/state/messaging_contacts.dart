@@ -117,11 +117,7 @@ class _MessagingContacts {
       // land, and this retry proves the first copy didn't. Force a fresh
       // mailbox deposit too — the previous one may have aged out at the relay.
       _owner._mailboxDelivery.removeStashed('accept:${m.src.hex}');
-      await _owner.sendDurable(
-        m.src,
-        'accept:${m.src.hex}',
-        const WireEnvelope.accept(),
-      );
+      await _queueAcceptance(m.src);
       return;
     }
     // Re-drives of a durable request/reconnect land here on every backoff tick
@@ -149,6 +145,42 @@ class _MessagingContacts {
         timestamp: _owner._wireSentAt(env),
       );
     }
+  }
+
+  /// Finish durable admission inside ingress; send on bounded recipient lanes.
+  /// A retrying accepted contact must not hold the ordinary inbox behind a
+  /// slow reverse route. Failed/dropped jobs keep their durable Outbox copy.
+  Future<void> _queueAcceptance(NodeId peer) async {
+    final frameId = 'accept:${peer.hex}';
+    final wire = const WireEnvelope.accept().withFrameId(frameId).encode();
+    final frame = OutboxFrame(frameId: frameId, peerHex: peer.hex, wire: wire);
+    await _owner._outbox.enqueue(peer, frameId, wire);
+    if (_owner._disposed) return;
+    unawaited(
+      _owner._contactResponseQueue.submit(
+        key: frameId,
+        lane: peer.hex,
+        bytes: 512 + 2 * wire.length + 6 * frameId.length,
+        send: () async {
+          if (_owner._disposed) return;
+          final skipLive = await _owner._outbox._longSilent(peer.hex);
+          // Recheck durable membership: ACK/cancellation while this job waited
+          // must not recreate a retired row. There is no enqueue in the worker.
+          if (!await _owner._storage.containsOutboxFrame(frame) ||
+              _owner._disposed) {
+            return;
+          }
+          final contact = await _owner._storage.getContact(peer);
+          if (_owner._disposed || contact?.status != ContactStatus.accepted) {
+            return;
+          }
+          _owner._stashInBackground(peer, frameId, wire);
+          if (skipLive) return;
+          _owner._outbox.recordQueued(frameId, peer.hex);
+          await _owner._send(peer, wire);
+        },
+      ),
+    );
   }
 
   /// Ask [dst] to connect, with an optional [greeting]. We can't freely
