@@ -548,12 +548,10 @@ class MailboxService implements MailboxSink {
   /// [InboundMessage.onDeclined]); the drain then leaves the blob at the relay
   /// instead of acking it away from our other devices.
   ///
-  /// Optimistic by construction: silence means yes. The verdict is awaited only
-  /// up to [_verdictWindow], and a delivery that throws still counts as taken —
-  /// both are exactly what this code did before there was a verdict at all, so
-  /// a slow or broken inbound path can never be WORSE than it was, only the
-  /// refusal is new. The refusal itself is raised at the consent gate, before
-  /// any storage or network work, so it is never the slow case.
+  /// Completion without a local refusal transfers responsibility. A pending,
+  /// failed or retired delivery cannot authorize deletion of every relay copy.
+  /// The deadline bounds the drain; it does not cancel the application future
+  /// or turn its eventual completion into a retroactive ACK.
   Future<bool> _deliverDrained(DrainedMessage m) async {
     final verdict = Completer<bool>();
     void settle(bool taken) {
@@ -561,36 +559,40 @@ class MailboxService implements MailboxSink {
     }
 
     unawaited(
-      _deliver(
-        InboundMessage(
-          src: m.sender,
-          payload: m.data,
-          provenance: SenderProvenance.signed,
-          onDeclined: (reason) {
-            devLog(
-              () =>
-                  'xVeil[mailbox]: declined a drained message from '
-                  '${m.sender.short} — $reason',
-            );
-            settle(false);
-          },
+      Future<void>.sync(
+        () => _deliver(
+          InboundMessage(
+            src: m.sender,
+            payload: m.data,
+            provenance: SenderProvenance.signed,
+            onDeclined: (reason) {
+              devLog(
+                () =>
+                    'xVeil[mailbox]: declined a drained message from '
+                    '${m.sender.short} — $reason',
+              );
+              settle(false);
+            },
+          ),
         ),
-      ).then((_) => settle(true), onError: (Object e) {
-        devLog(
-          () =>
-              'xVeil[mailbox]: delivery of a drained message from '
-              '${m.sender.short} FAILED — $e; acking anyway, as before',
-        );
-        settle(true);
-      }),
+      ).then(
+        (_) => settle(!_disposed),
+        onError: (Object e) {
+          devLog(
+            () =>
+                'xVeil[mailbox]: delivery of a drained message from '
+                '${m.sender.short} FAILED (${e.runtimeType}); retaining relay copy',
+          );
+          settle(false);
+        },
+      ),
     );
-    return verdict.future.timeout(_verdictWindow, onTimeout: () => true);
+    return verdict.future.timeout(_verdictWindow, onTimeout: () => false);
   }
 
-  /// How long the drain waits to hear that a message was refused before it
-  /// assumes it was taken. A refusal is decided synchronously at the consent
-  /// gate; this only bounds the case where the inbound chain is busy with an
-  /// earlier frame, and timing out lands on the old behaviour.
+  /// Bound time spent waiting for local durable processing. A timeout leaves
+  /// the blob at its relay; the orchestrator's existing refused-copy backoff
+  /// prevents that copy from starving the remaining inbox.
   static const _verdictWindow = Duration(seconds: 3);
 
   /// A peer is provably LIVE-reachable right now (we just received a frame from

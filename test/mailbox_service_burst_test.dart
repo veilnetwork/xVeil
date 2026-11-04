@@ -249,10 +249,9 @@ void main() {
       expect(orch.verdicts.first, isTrue);
     });
 
-    /// CONTROL. A delivery that THROWS is not a refusal — it is the behaviour
-    /// this path had before there was a verdict, and it must stay that way, or
-    /// one bad frame would leave its blob at the relay forever.
-    test('a delivery that throws is still acked, as it always was', () async {
+    /// A local processing failure does not establish durable responsibility.
+    /// Refused-copy backoff lets later mail progress without deleting this one.
+    test('a delivery that throws retains its relay copy', () async {
       final service = MailboxService(
         client: _FakeClient(),
         me: _id(1),
@@ -266,7 +265,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 80));
 
       expect(orch.verdicts, isNotEmpty, reason: 'nothing was drained at all');
-      expect(orch.verdicts.first, isTrue);
+      expect(orch.verdicts.first, isFalse);
     });
   });
 

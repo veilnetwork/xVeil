@@ -1,5 +1,16 @@
 # Открытые случаи — обновлено 2026-11-05
 
+Текущий шаг: [ACK запроса после durable приёма](../contact-handshake-commit-2026-11-05/README.md).
+Подтверждены ранние ACK/seen перед enqueue ответа, разрешение mailbox ACK по
+таймауту/исключению и поглощение локального dispatch failure. Повтор запроса
+теперь сохраняет шанс восстановления; carrier не удаляет незавершённую/ошибочную
+копию. GUI/headless не ждут сетевой receipt после локальной обработки.
+12 native/ordinary baseline red, 4 relay-verdict red и отдельный getContact red;
+408 control с diagnostics/native HVS без skip, broad 1803 passed / 64 skipped
+в 99 файлах, analyzer чистый. Headless AOT build/--help прошли; это не сетевой
+прогон. Primary user accept status/outbox atomicity и исходный Windows случай
+остаются открытыми. Mailbox для собственных устройств не добавлен, push/релиза нет.
+
 Текущий шаг: [освобождение ingress после durable accept](../contact-handshake-ingress-2026-11-05/README.md).
 Повторный request/reconnect от accepted contact держал ordinary inbox за первой
 сетевой попыткой ответа (стандартное окно до 10 с); последующий ordinary call
