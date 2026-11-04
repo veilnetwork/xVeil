@@ -57,6 +57,17 @@ class _MessageEditExpiry {
     if (!_retiring.add(key)) return false;
     outbox._flushSnapshot?.invalidate(key);
     try {
+      var queuedAt = enqueuedAtMs;
+      if (persisted && queuedAt == null) {
+        // Initial sends know the wire but not the storage admission stamp.
+        // Read it only on expiry; healthy sends need no queue scan. The
+        // replacement below still CAS-checks the exact peer/id/wire bytes.
+        final held = (await owner._storage.pendingOutboxFrames())
+            .where((frame) => frame.peerHex == peerHex && frame.frameId == frameId)
+            .firstOrNull;
+        if (held == null) return false; // Already ACKed or replaced.
+        queuedAt = held.enqueuedAtMs;
+      }
       // The placeholder has no target/body. Bind its stable ID to the exact
       // old wire AND recipient, so retries are idempotent across restarts.
       final digestInput = BytesBuilder(copy: false)
@@ -76,7 +87,7 @@ class _MessageEditExpiry {
               frameId: frameId,
               peerHex: peer.hex,
               wire: wire,
-              enqueuedAtMs: enqueuedAtMs,
+              enqueuedAtMs: queuedAt,
             ),
           ],
           [
@@ -85,7 +96,7 @@ class _MessageEditExpiry {
                 frameId: id,
                 peerHex: peer.hex,
                 wire: placeholder.encode(),
-                enqueuedAtMs: enqueuedAtMs,
+                enqueuedAtMs: queuedAt,
               ),
           ],
         );
