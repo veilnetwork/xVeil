@@ -325,6 +325,18 @@ abstract interface class Storage {
     Uint8List wire,
   );
 
+  /// Admit one complete immutable transfer with ONE atomic index publication, before any
+  /// part is sent. Failure leaves either no new rows or the complete image
+  /// (a reply can be lost after commit), never an admitted prefix. Existing
+  /// IDs must match exact destination/wire; retries retain their original age.
+  /// Bounded to 4096 unique frames, one recipient and 16 MiB of wire bytes.
+  Future<void> enqueueOutboxTransfer(List<OutboxFrame> frames);
+
+  /// Exact current destination/wire membership, without scanning the queue.
+  /// A sender uses this after admission waits so ACK/expiry cannot be undone
+  /// by re-enqueueing an obsolete initial-send copy.
+  Future<bool> containsOutboxFrame(OutboxFrame expected);
+
   /// Mark [frameId] delivered (recipient acked) so the flush stops re-driving it.
   /// Retire the durable frame [frameId], but only if it was addressed to
   /// [fromPeerHex]. See `HiddenVolumeStorage.ackOutboxFrame` (audit XV-02).

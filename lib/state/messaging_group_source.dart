@@ -35,10 +35,11 @@ extension _GroupSourceSending on _MessagingReplication {
 
   Future<void> _sendStoredGroupFrames(
     NodeId destination,
-    List<({String frameId, WireEnvelope envelope})> frames,
-  ) async {
-    if (frames.length > 8) {
-      throw ArgumentError('group persistence batch exceeds its bound');
+    List<({String frameId, WireEnvelope envelope})> frames, {
+    bool awaitInitialSend = false,
+  }) async {
+    if (frames.isEmpty || frames.length > _kMaxGroupReasmChunks) {
+      throw ArgumentError('group persistence transfer exceeds its bound');
     }
     if (_owner._disposed) throw StateError('messaging is disposing');
     _refreshGroupHandlers();
@@ -56,13 +57,40 @@ extension _GroupSourceSending on _MessagingReplication {
     // Publication/ACK of the request may proceed only after its reply frames
     // exist durably. A refused first-attempt job leaves the ordinary outbox
     // row intact for retry, including across shutdown and restart.
-    // Join every admitted enqueue even on failure; no detached persistence or
-    // source job may escape a rejected batch. The backend can share one commit.
-    await Future.wait([
-      for (final frame in prepared)
-        _owner._outbox.enqueue(peer, frame.frameId, frame.wire),
-    ]);
+    // One complete image, not independently committed cohorts: a crash or lost
+    // reply must not strand an unfilterable prefix of a mixed snapshot.
+    if (prepared.length == 1) {
+      final frame = prepared.single;
+      await _owner._outbox.enqueue(peer, frame.frameId, frame.wire);
+    } else {
+      await _owner._outbox.enqueueTransfer(peer, [
+        for (final frame in prepared)
+          OutboxFrame(
+            frameId: frame.frameId,
+            peerHex: peer.hex,
+            wire: frame.wire,
+          ),
+      ]);
+    }
+    // The awaited initial leg must retain its attempt across startup cleanup;
+    // queue-only responses never await that barrier inside ingress.
+    if (awaitInitialSend) await _owner._expiryLifecycle.settle();
     if (skipLive || !_currentGroupEpoch(epoch)) return;
+    if (awaitInitialSend) {
+      for (final frame in prepared) {
+        if (!_currentGroupEpoch(epoch)) return;
+        await _owner._outbox.boundedLiveLeg(
+          _sendCurrentStoredGroupWire(
+            peer,
+            frame.frameId,
+            frame.wire,
+            epoch: epoch,
+            background: frame.background,
+          ),
+        );
+      }
+      return;
+    }
     for (final frame in prepared) {
       _queueStoredGroupWire(
         peer,
@@ -72,6 +100,34 @@ extension _GroupSourceSending on _MessagingReplication {
         background: frame.background,
       );
     }
+  }
+
+  Future<void> _sendCurrentStoredGroupWire(
+    NodeId peer,
+    String frameId,
+    Uint8List wire, {
+    required int epoch,
+    required bool background,
+  }) async {
+    if (_owner._expiryLifecycle.deferSource(peer.hex, frameId) ||
+        !_currentGroupEpoch(epoch) ||
+        _expiry.blocks(peer.hex, frameId)) {
+      return;
+    }
+    if (!await _owner._storage.containsOutboxFrame(
+      OutboxFrame(frameId: frameId, peerHex: peer.hex, wire: wire),
+    )) {
+      return;
+    }
+    if (!_currentGroupEpoch(epoch) ||
+        _expiry.blocks(peer.hex, frameId) ||
+        _owner._expiryLifecycle.deferSource(peer.hex, frameId)) {
+      return;
+    }
+    // Admission already owns the complete durable image. Never enqueue here:
+    // TTL/ACK may have retired it while a preceding live attempt was pending.
+    _owner._outbox.recordQueued(frameId, peer.hex);
+    await _owner._send(peer, wire, background: background);
   }
 
   void _queueStoredGroupWire(
@@ -94,12 +150,16 @@ extension _GroupSourceSending on _MessagingReplication {
       lane: peer.hex,
       bytes: bytes,
       send: () async {
-        if (_owner._expiryLifecycle.deferSource(peer.hex, frameId)) return;
-        if (!_currentGroupEpoch(epoch) || _expiry.blocks(peer.hex, frameId)) return;
         // Await the actual attempt, rather than detaching a timed-out send
         // per fragment. Only one initial send is active per recipient, with
         // four recipient lanes sharing the worker's global count/byte budget.
-        await _owner._send(peer, wire, background: background);
+        await _sendCurrentStoredGroupWire(
+          peer,
+          frameId,
+          wire,
+          epoch: epoch,
+          background: background,
+        );
       },
     );
     if (queue.dropped != dropped && queue.dropped & (queue.dropped - 1) == 0) {

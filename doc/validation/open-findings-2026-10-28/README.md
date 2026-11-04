@@ -1,5 +1,20 @@
 # Открытые случаи — обновлено 2026-11-04
 
+Текущий цикл: [атомарный admission chunked snapshot](../group-transfer-admission-2026-11-04/README.md).
+На прежнем sender восемь ordinary/native red подтвердили incomplete durable
+копию (1/8 из 17 частей) при первой отправке/потере ответа. Теперь все logical
+indexes публикуются вместе до live legs. Крупный payload соблюдает native cap
+1024 log appends через staging без indexes и durable cleanup obligation.
+Два дополнительных red поймали re-enqueue после TTL в первом кандидате;
+initial sender теперь проверяет exact current row и не сохраняет её заново.
+26 scoped native-backed/ordinary tests прошли без skip, 1495 passed / 43
+conditional skipped в 84 файлах, analyzer lib inputs + всего test чистый.
+Process A/B/C прошёл все пять TTL/Outbox gates, включая raw roots и cold B
+без A/C. Teardown чистый: 28 PID / 29 портов, 1458 frozen inputs, native SHA
+прежние, runtime удалён. Уже осиротевшие legacy partials не объявлены
+восстановленными; transport/policy/clock, latency и остальная матрица открыты.
+Mailbox/push/релиза нет.
+
 Текущий цикл: [конкурентная очистка direct edits](../concurrent-outbox-expiry-2026-11-04/README.md).
 Подтверждены stale/null lookup после tombstone, ранний success/потеря ошибки
 при совместной очистке, сохранение старого тела при pre-enqueue retry и ранний
@@ -1208,6 +1223,7 @@ push/релиза нет; multi-device матрица не квалифицир�
 
 | Случай | Отметка | Граница подтверждения |
 |---|---|---|
+| Неполная новая queued snapshot-копия при прерванном admission | **ПОДТВЕРЖДЕНО, ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННОМ ПУТИ** | Полный index set публикуется атомарно; staged payloads имеют cleanup obligation, lost reply оставляет определённый logical image. Ordinary/native failure/reopen/max-size и TTL controls прошли. Старые partials без полной source-копии не восстанавливаются. [Проверка](../group-transfer-admission-2026-11-04/README.md). |
 | Конкурентная очистка queued edit после TTL | **ПОДТВЕРЖДЕНО И ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННЫХ ГРАНИЦАХ** | Совместные вызовы ждут результат/scrub, pre-enqueue retry очищает уже сохранённое тело, dispose ждёт локальные работы; tombstone и clock проверяются после чтений. Ordinary/native gates и direct-edit A/B/C прошли. Вся transport/partial/policy/clock матрица не закрыта. [Проверка](../concurrent-outbox-expiry-2026-11-04/README.md). |
 | TTL после ожидания enqueue / без live leg | **ПОДТВЕРЖДЕНО И ЛОКАЛЬНО ИСПРАВЛЕНО** | Persisted expiry guard обязателен после queue commit; caller не публикует expired edit. Bodyless replacement сохраняет actual age, ошибка cleanup не скрывается; legacy no-seq discard и cold retry проверены. Native gates/raw roots и два process сценария прошли. Сохранённый старый last-seen моделирует offline, реальные сутки и transport waits не квалифицированы. [Проверка](../outbox-enqueue-expiry-2026-11-04/README.md). |
 | TTL при завершении записи правок | **ПОДТВЕРЖДЕНО И ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННОЙ ГРАНИЦЕ** | Own/peer/mirror/reflected paths проверяют original TTL/tombstone после edit commit. Required publication не получает expired body; failed incoming erase не ACK, exact retry сохраняет peer void и не создаёт authored reflected slot. Native gates/cold roots и real-provider 100-edit A/B/C regression прошли. Поздние publisher/transport ожидания ещё открыты. [Проверка](../edit-io-expiry-2026-11-04/README.md). |

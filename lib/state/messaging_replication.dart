@@ -142,6 +142,11 @@ class _MessagingReplication {
   }) async {
     if (await _backedUp(dst, 'group snapshot')) return;
     final bytes = Uint8List.fromList(utf8.encode(bundleJson));
+    if (bytes.length > _kMaxGroupReasmBytes) {
+      throw ArgumentError(
+        'group snapshot exceeds the receiver reassembly bound',
+      );
+    }
     // Three things belong in this id, and two of them were missing.
     //
     // CONTENT, so a NEW snapshot of the same group (a fresh message/op) is a
@@ -228,21 +233,13 @@ class _MessagingReplication {
         data: Uint8List.sublistView(bytes, start, end),
         transferAck: transferAck,
       );
-      if (awaitInitialSend) {
-        await _sendStoredGroupFrame(
-          dst,
-          frameId,
-          envelope,
-          awaitInitialSend: true,
-        );
-      } else {
-        pending.add((frameId: frameId, envelope: envelope));
-        if (pending.length == 8 || i == count - 1) {
-          await _sendStoredGroupFrames(dst, pending);
-          pending.clear();
-        }
-      }
+      pending.add((frameId: frameId, envelope: envelope));
     }
+    await _sendStoredGroupFrames(
+      dst,
+      pending,
+      awaitInitialSend: awaitInitialSend,
+    );
   }
 
   /// Ship a shared-document invite/snapshot/delta durably. A document frame can

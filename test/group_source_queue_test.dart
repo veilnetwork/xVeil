@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
+import 'package:xveil/data/storage/storage.dart';
 import 'package:xveil/data/transport/loopback_transport.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
@@ -85,6 +86,10 @@ class _FailedOutbox extends HiddenVolumeStorage {
     String peer,
     Uint8List wire,
   ) async => throw StateError('fixture persistence refusal');
+
+  @override
+  Future<void> enqueueOutboxTransfer(List<OutboxFrame> frames) async =>
+      throw StateError('fixture transfer persistence refusal');
 }
 
 class _DeferredBatchRetirement extends HiddenVolumeStorage {
@@ -537,34 +542,36 @@ void main() {
     },
   );
 
-  test(
-    'a failed durable response never starts a live send or retires its request',
-    () async {
-      final r = await _rig(
-        supplied: _FailedOutbox(FakeHvContainer().passwordOpener),
-      );
-      r.service.onGroupEntry = (_, _) async {
-        await r.service.sendGroupSnapshot(
-          _id(2),
-          'ab' * 32,
-          '{}',
-          awaitInitialSend: false,
+  for (final chunked in [false, true]) {
+    test(
+      'a failed durable response never starts a live send or retires its request (chunked=$chunked)',
+      () async {
+        final r = await _rig(
+          supplied: _FailedOutbox(FakeHvContainer().passwordOpener),
         );
-        return true;
-      };
-      await r.service.deliverInbound(
-        InboundMessage(
-          src: _id(2),
-          provenance: SenderProvenance.sessionPeer,
-          payload: WireEnvelope.groupEntry(
-            '{"sreq":1}',
-          ).withFrameId('request').encode(),
-        ),
-      );
-      expect(r.link.entered.isCompleted, isFalse);
-      expect(r.link.acknowledgements, isEmpty);
-    },
-  );
+        r.service.onGroupEntry = (_, _) async {
+          await r.service.sendGroupSnapshot(
+            _id(2),
+            'ab' * 32,
+            jsonEncode({'g': [], 'filler': 'x' * (chunked ? 9000 : 10)}),
+            awaitInitialSend: false,
+          );
+          return true;
+        };
+        await r.service.deliverInbound(
+          InboundMessage(
+            src: _id(2),
+            provenance: SenderProvenance.sessionPeer,
+            payload: WireEnvelope.groupEntry(
+              '{"sreq":1}',
+            ).withFrameId('request').encode(),
+          ),
+        );
+        expect(r.link.entered.isCompleted, isFalse);
+        expect(r.link.acknowledgements, isEmpty);
+      },
+    );
+  }
 
   test(
     'queued source work cannot run in a replacement group context',

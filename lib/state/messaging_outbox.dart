@@ -370,6 +370,17 @@ class _MessagingOutbox {
   /// Persist before a first contact attempt; no network work starts here.
   Future<void> enqueue(NodeId peer, String frameId, Uint8List wire) async {
     await _owner._storage.enqueueOutboxFrame(frameId, peer.hex, wire);
+    _recordEnqueued(peer, frameId, wire);
+  }
+
+  Future<void> enqueueTransfer(NodeId peer, List<OutboxFrame> frames) async {
+    await _owner._storage.enqueueOutboxTransfer(frames);
+    for (final frame in frames) {
+      _recordEnqueued(peer, frame.frameId, frame.wire);
+    }
+  }
+
+  void _recordEnqueued(NodeId peer, String frameId, Uint8List wire) {
     final tid = _MessagingReplication._canonicalChunkTransfer(frameId);
     final progress = tid == null ? null : _groupSliceAcks[_key(peer.hex, tid)];
     if (progress != null) {
@@ -426,13 +437,18 @@ class _MessagingOutbox {
     Future<void> tryLive() async {
       final stopwatch = Stopwatch()..start();
       try {
-        if (_owner._expiryLifecycle.defers(OutboxFrame(
-          peerHex: peer.hex, frameId: frameId, wire: wire,
-        ))) {
+        if (_owner._expiryLifecycle.defers(
+          OutboxFrame(peerHex: peer.hex, frameId: frameId, wire: wire),
+        )) {
           return;
         }
         if (envelope.kind == WireKind.edit &&
-            (!await _editExpiry.allow(peer.hex, frameId, wire, persisted: true) ||
+            (!await _editExpiry.allow(
+                  peer.hex,
+                  frameId,
+                  wire,
+                  persisted: true,
+                ) ||
                 _owner._disposed)) {
           return;
         }
@@ -621,7 +637,8 @@ class _MessagingOutbox {
     }
     if (_owner._disposed || !snapshot.capture(pending)) return;
     bool current(OutboxFrame frame) =>
-        !_owner._disposed && snapshot.contains(frame.peerHex, frame.frameId) &&
+        !_owner._disposed &&
+        snapshot.contains(frame.peerHex, frame.frameId) &&
         !_editExpiry.blocks(frame.peerHex, frame.frameId) &&
         !_owner._replication._expiry.blocks(frame.peerHex, frame.frameId);
     // The authoritative count, once per cycle. Everything between cycles only
