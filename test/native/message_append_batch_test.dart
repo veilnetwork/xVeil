@@ -13,6 +13,7 @@ import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/hv_kv_log_store.dart';
 import 'package:xveil/data/storage/hv_native.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
+import 'package:xveil/data/storage/message_batch_store.dart';
 import 'package:xveil/domain/chat.dart';
 
 import '../support/timed_native_store.dart';
@@ -111,6 +112,64 @@ void main() {
       workerSpaceOpener('${directory.path}/store.hv'),
     );
     expect(await storage.open(password: passwordText), isTrue);
+  }
+
+  test(
+    'native prepared cohort publishes one durable transaction and deduplicates retry',
+    () async {
+      final rows = [for (var i = 1; i <= 16; i++) row(i)];
+      expect(
+        await storage.appendMissingMessageBatch(
+          rows,
+          beforeCommit: () async {},
+        ),
+        List.filled(16, PreparedMessageWrite.appended),
+      );
+      expect(backing.commitRows, [16]);
+      await reopen();
+      expect(
+        await storage.appendMissingMessageBatch(
+          rows,
+          beforeCommit: () async {},
+        ),
+        List.filled(16, PreparedMessageWrite.existing),
+      );
+      expect(await ids(), [for (var i = 1; i <= 16; i++) 'row-$i']);
+    },
+    skip: skip,
+  );
+
+  for (final uncertain in [false, true]) {
+    test(
+      'native prepared cohort retries failure without duplicate posts ($uncertain)',
+      () async {
+        backing.refuse = !uncertain;
+        backing.uncertain = uncertain;
+        final rows = [row(1), row(2)];
+        await expectLater(
+          storage.appendMissingMessageBatch(rows, beforeCommit: () async {}),
+          throwsStateError,
+        );
+        await reopen();
+        expect(
+          await storage.appendMissingMessageBatch(
+            rows,
+            beforeCommit: () async {},
+          ),
+          List.filled(
+            2,
+            uncertain
+                ? PreparedMessageWrite.existing
+                : PreparedMessageWrite.appended,
+          ),
+        );
+        expect(await ids(), ['row-1', 'row-2']);
+        final sync = await storage.conversationSync('peer');
+        expect(sync.highWater['author'], 2);
+        expect(sync.holes, isEmpty);
+      },
+      skip: skip,
+    );
   }
 
   test(

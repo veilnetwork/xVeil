@@ -15,6 +15,7 @@ import '../crypto/blake3.dart';
 import '../data/node/embedded_node.dart' show BootstrapPeerCfg, EmbeddedNode;
 import '../data/storage/file_store.dart' show kMaxStoredFileBytes;
 import '../data/storage/storage.dart';
+import '../data/storage/message_batch_store.dart';
 import '../data/transport/veil_mailbox.dart' show MailboxPeerUnresolved;
 import '../data/transport/veil_transport.dart';
 import '../data/transport/stream_write_idle.dart';
@@ -72,6 +73,7 @@ part 'messaging_peer_sync.dart';
 part 'messaging_mutations.dart';
 part 'messaging_device_mirror.dart';
 part 'messaging_own_history.dart';
+part 'messaging_own_history_batch.dart';
 part 'messaging_outbox.dart';
 part 'messaging_realtime_control.dart';
 part 'messaging_mailbox_delivery.dart';
@@ -265,7 +267,18 @@ class MessagingService {
   /// builders/appliers as live mirrors, without republishing them to the log.
   Future<DeviceSyncEvent> Function(NodeId peer, Message message)?
   ownHistoryEncode;
-  Future<void> Function(DeviceSyncEvent event)? ownHistoryApply;
+  Future<void> Function(DeviceSyncEvent event)? _ownHistoryApply;
+  Future<void> Function(DeviceSyncEvent event)? get ownHistoryApply =>
+      _ownHistoryApply;
+  set ownHistoryApply(Future<void> Function(DeviceSyncEvent event)? value) {
+    _ownHistoryApply = value;
+    // Rebinding or overriding the ordinary applier also invalidates its
+    // prepared counterpart. A host installs the matching pair together.
+    ownHistoryApplyPrepared = null;
+  }
+
+  Future<void> Function(DeviceSyncEvent event, PreparedMessageAppender append)?
+  ownHistoryApplyPrepared;
 
   /// The active group host has installed its callbacks and loaded the verifier
   /// documents. start() can precede that readiness, so don't wait for the next
@@ -275,6 +288,7 @@ class MessagingService {
     _ownHistoryBindingsReady = true;
     _ownHistory.nudge();
   }
+
   late final _MessagingOutbox _outbox = _MessagingOutbox(this);
   late final _MessagingRealtimeControl _realtimeControl =
       _MessagingRealtimeControl(this);
@@ -610,6 +624,7 @@ class MessagingService {
   );
 
   Future<bool> applyMirroredMessage({
+    PreparedMessageAppender? appendPrepared,
     String? author,
     int? seq,
     bool? positionVerified,
@@ -628,6 +643,7 @@ class MessagingService {
     String? thumb,
     List<InlineCustomEmoji> customEmoji = const [],
   }) => _deviceMirror.applyMessage(
+    appendPrepared: appendPrepared,
     author: author,
     seq: seq,
     positionVerified: positionVerified,

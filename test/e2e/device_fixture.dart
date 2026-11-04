@@ -527,9 +527,14 @@ class E2eDevice {
               messaging.myOtherDevices = wrapped;
             }
             final apply = messaging.ownHistoryApply;
+            final prepared = messaging.ownHistoryApplyPrepared;
             if (apply != null && !identical(apply, wrappedApply)) {
               wrappedApply = (event) => census.historyApply(() => apply(event));
               messaging.ownHistoryApply = wrappedApply;
+              if (prepared != null) {
+                messaging.ownHistoryApplyPrepared = (event, append) =>
+                    census.historyApply(() => prepared(event, append));
+              }
             }
             final encode = messaging.ownHistoryEncode;
             if (encode != null && !identical(encode, wrappedEncode)) {

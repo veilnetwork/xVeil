@@ -5,11 +5,12 @@ import 'dart:typed_data';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/storage/file_store.dart';
+import 'package:xveil/data/storage/message_batch_store.dart';
 import 'package:xveil/domain/chat.dart';
 
 import 'timed_native_store.dart';
 
-enum MessageStorageOperation { markStatus, adoptOrdering }
+enum MessageStorageOperation { markStatus, adoptOrdering, preparedBatch }
 
 /// Passive fixture data. No message key, payload, path or exception is exported.
 /// RPC await times can overlap and must not be summed as exclusive disk time.
@@ -315,6 +316,27 @@ class MessageApplyCensus {
 class CountedMessageStorage extends HiddenVolumeStorage {
   CountedMessageStorage(super.opener, this.census) : super.async();
   final MessageApplyCensus census;
+
+  // Count a prepared publication once, rather than inventing one physical
+  // append wait per row. Its suspended historyApply contexts overlap.
+  @override
+  Future<List<PreparedMessageWrite>?> appendMissingMessageBatch(
+    List<Message> messages, {
+    required Future<void> Function() beforeCommit,
+  }) async {
+    List<PreparedMessageWrite>? result;
+    await census.messageOperation(
+      MessageStorageOperation.preparedBatch,
+      () async {
+        result = await super.appendMissingMessageBatch(
+          messages,
+          beforeCommit: beforeCommit,
+        );
+        return result?.contains(PreparedMessageWrite.appended) ?? false;
+      },
+    );
+    return result;
+  }
 
   @override
   Future<bool> markMessageStatus(

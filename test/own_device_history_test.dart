@@ -8,6 +8,7 @@ import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
+import 'package:xveil/data/storage/message_batch_store.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/domain/chat.dart';
@@ -99,6 +100,7 @@ class _RefusingCursorStore extends FakeKvLogStore {
   bool refused = false;
   bool refuseDelivery = false;
   bool deliveryRefused = false;
+  final postBatches = <int>[];
 
   @override
   int commit(List<KvLogOp> ops) {
@@ -123,13 +125,38 @@ class _RefusingCursorStore extends FakeKvLogStore {
       refused = true;
       throw StateError('fixture cursor write failure');
     }
-    return super.commit(ops);
+    final result = super.commit(ops);
+    final posts = ops.whereType<AppendLogOp>().where((op) {
+      if (op.namespace < Ns.messageLogShardFirst ||
+          op.namespace > Ns.messageLogShardLast) {
+        return false;
+      }
+      final value = jsonDecode(utf8.decode(op.payload));
+      return value is Map && value['k'] == 0 && value['op'] == null;
+    }).length;
+    if (posts > 0) postBatches.add(posts);
+    return result;
   }
 }
 
 class _SnapshotStorage extends HiddenVolumeStorage {
   _SnapshotStorage(super.opener);
   Future<void> Function()? afterMessagesRead;
+  Future<void> Function()? beforePreparedCommit;
+
+  @override
+  Future<List<PreparedMessageWrite>?> appendMissingMessageBatch(
+    List<Message> messages, {
+    required Future<void> Function() beforeCommit,
+  }) => super.appendMissingMessageBatch(
+    messages,
+    beforeCommit: () async {
+      final hook = beforePreparedCommit;
+      beforePreparedCommit = null;
+      await hook?.call();
+      await beforeCommit();
+    },
+  );
 
   @override
   Future<List<Message>> loadMessages(
@@ -211,10 +238,14 @@ void main() {
         p == identity || (await m.myOtherDevices!()).contains(p);
     m.ownHistoryEncode = (p, message) async =>
         deviceMirrorOf(p.hex, message).event;
-    m.ownHistoryApply = (event) async {
+    Future<void> apply(
+      DeviceSyncEvent event, {
+      PreparedMessageAppender? append,
+    }) async {
       await beforeApply?.call(event);
       final p = event.payload;
       await m.applyMirroredMessage(
+        appendPrepared: append,
         peer: NodeId.fromHex(p['peer'] as String),
         msgId: event.key,
         direction: p['dir'] == 'outgoing'
@@ -228,7 +259,10 @@ void main() {
         reflectedEdit: p['er'] == true,
       );
       if (t.me == b) applied++;
-    };
+    }
+
+    m.ownHistoryApply = (event) => apply(event);
+    m.ownHistoryApplyPrepared = (event, append) => apply(event, append: append);
     m.onOwnDeviceHistoryReady(m.groupBindingsOwner!);
     return m;
   }
@@ -289,6 +323,24 @@ void main() {
     tb = _Endpoint(net, b);
     mb = service(tb, sb, a)..start();
   }
+
+  test('short history publishes posts in bounded durable cohorts', () async {
+    await seed(64);
+    ma.start();
+    mb.start();
+    await until(() async => await count() == 64);
+    await until(
+      () async =>
+          await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+    );
+    expect(bStore.postBatches.fold<int>(0, (n, size) => n + size), 64);
+    expect(
+      bStore.postBatches.length,
+      lessThanOrEqualTo(4),
+      reason: 'sixteen prepared posts share one durable publication',
+    );
+    expect(bStore.postBatches.every((size) => size <= 16), isTrue);
+  });
 
   test(
     'reconnect starts history after late bindings without waiting for a timer',
@@ -2138,6 +2190,30 @@ void main() {
     expect(errorJournal.entries, isEmpty);
   });
 
+  test(
+    'revocation at the prepared storage boundary refuses all unpublished rows',
+    () async {
+      await seed(32);
+      var checked = false;
+      sb.beforePreparedCommit = () async {
+        checked = true;
+        bSiblings = [];
+      };
+      ma.start();
+      mb.start();
+      await until(() async => checked && errorJournal.entries.isNotEmpty);
+      expect(await count(), 0);
+      expect(applied, 0);
+      expect(bStore.postBatches, isEmpty);
+      final saved =
+          jsonDecode(
+                (await sb.getSetting('device.history.cursor.v2:${a.hex}'))!,
+              )
+              as Map;
+      expect(saved['cursor'], isNull);
+    },
+  );
+
   test('an over-cap page is rejected before applying any message', () async {
     await seed(33);
     // Only B runs; A's replies are supplied explicitly below.
@@ -2192,7 +2268,7 @@ void main() {
       ma.start();
       mb.start();
       await until(
-        () async => await count() == 20 && errorJournal.entries.isNotEmpty,
+        () async => await count() == 16 && errorJournal.entries.isNotEmpty,
       );
       final saved =
           jsonDecode(
@@ -2200,7 +2276,11 @@ void main() {
               )
               as Map;
       expect(saved['cursor'], isNull);
-      expect(applied, 20);
+      // The next cohort was prepared, but revocation prevents its entire
+      // publication. Only the first durable cohort is allowed to survive.
+      expect(applied, 16);
+      expect(bStore.postBatches, [16]);
+      expect(await sb.loadMessageById(peer.hex, 'm0016'), isNull);
     },
   );
 
