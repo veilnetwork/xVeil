@@ -20,6 +20,7 @@ import 'device_fixture.dart';
 import 'e2e_env.dart';
 import '../support/stand_cpu_profile.dart';
 import '../support/stand_storage_timeline.dart';
+import '../support/queued_snapshot_probe.dart';
 
 // File-controlled synthetic stand probe, never an application HTTP endpoint.
 // Populate the real durable Outbox while the master process is stopped, then
@@ -170,6 +171,43 @@ void main() {
             if (await inspect.exists()) {
               final request = jsonDecode(await inspect.readAsString()) as Map;
               await inspect.delete();
+              if (request['outboxExpiryIds'] case final List values) {
+                final groupId = (await device!.groups!.deviceGroupIdHex())!;
+                if (request['queueFullSnapshot'] == true) {
+                  final target = NodeId.fromHex(request['target'] as String);
+                  final bundle = (await device!.groups!.load(
+                    NodeId.fromHex(groupId),
+                  ))!;
+                  await device!.messaging.sendGroupSnapshot(
+                    target,
+                    groupId,
+                    device!.groups!.snapshotJson(
+                      bundle,
+                      recipient: target,
+                      ownDevice: true,
+                    ),
+                    awaitInitialSend: false,
+                  );
+                }
+                final stats = queuedSnapshotStats(
+                  await device!.storage.pendingOutboxFrames(),
+                  groupId,
+                  values.cast<String>().toSet(),
+                  keepKey: request['keepKey'] as String,
+                );
+                final response = File('${dir.path}/storage-inspected.new');
+                await response.writeAsString(
+                  jsonEncode({
+                    'nonce': request['nonce'],
+                    'groupId': groupId,
+                    'cleanupPending': (await device!.storage.settingsKeys())
+                        .contains('outbox.replacement_scrub_pending'),
+                    ...stats,
+                  }),
+                );
+                await response.rename('${dir.path}/storage-inspected.json');
+                continue;
+              }
               if (request['historyRoom'] case final String operation) {
                 final values = await device!.inZone(
                   () => _historyRoomProbe(device!, operation),

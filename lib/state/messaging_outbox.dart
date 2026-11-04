@@ -599,7 +599,8 @@ class _MessagingOutbox {
     }
     if (_owner._disposed || !snapshot.capture(pending)) return;
     bool current(OutboxFrame frame) =>
-        !_owner._disposed && snapshot.contains(frame.peerHex, frame.frameId);
+        !_owner._disposed && snapshot.contains(frame.peerHex, frame.frameId) &&
+        !_owner._replication._expiry.blocks(frame.peerHex, frame.frameId);
     // The authoritative count, once per cycle. Everything between cycles only
     // adjusts it.
     _pendingByPeer.clear();

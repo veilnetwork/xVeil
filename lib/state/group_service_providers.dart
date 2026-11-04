@@ -343,6 +343,11 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     final hex = await service.deviceGroupIdHex();
     if (hex != null) await service.compactStateLogs(NodeId.fromHex(hex));
   });
+  messaging.deviceSnapshotExpiryGroup = () =>
+      tasks.runRequired(service.deviceGroupIdHex);
+  messaging.onDeviceSnapshotExpiry = (groupId, snapshot) => tasks.runRequired(
+    () => service.filterExpiredDeviceSnapshot(groupId, snapshot),
+  );
   // THE PULL on a clock (owner's push/pull scheme, 2026-09-23): whatever a
   // push lost between my own devices is asked for again, at most this long
   // after it went missing. Boot runs the full sync above; a session coming up
@@ -942,6 +947,8 @@ void _detachGroupBindings(MessagingService messaging, GroupService service) {
   if (!identical(messaging.groupBindingsOwner, service)) return;
   messaging.groupBindingsOwner = null;
   messaging.onDisappearingSweep = null;
+  messaging.onDeviceSnapshotExpiry = null;
+  messaging.deviceSnapshotExpiryGroup = null;
   messaging.onGroupEntry = null;
   messaging.onSpaceInvite = null;
   messaging.onSpaceInviteDecision = null;

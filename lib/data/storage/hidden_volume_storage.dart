@@ -5626,6 +5626,150 @@ class HiddenVolumeStorage
         ];
       });
 
+  static const _outboxCleanupKey = 'outbox.replacement_scrub_pending';
+
+  @override
+  Future<bool> replaceOutboxFrames(
+    List<OutboxFrame> expected,
+    List<OutboxFrame> replacement,
+  ) {
+    if (expected.isEmpty ||
+        replacement.isEmpty ||
+        expected.length > 4096 ||
+        replacement.length > 4096) {
+      throw ArgumentError('invalid outbox replacement size');
+    }
+    final peer = expected.first.peerHex;
+    final oldIds = {for (final f in expected) f.frameId};
+    final newIds = {for (final f in replacement) f.frameId};
+    if (oldIds.length != expected.length ||
+        newIds.length != replacement.length ||
+        oldIds.any(newIds.contains) ||
+        [...expected, ...replacement].any((f) => f.peerHex != peer) ||
+        [
+              ...expected,
+              ...replacement,
+            ].fold<int>(0, (n, f) => n + f.wire.length) >
+            32 * 1024 * 1024) {
+      throw ArgumentError('inconsistent outbox replacement');
+    }
+    OutboxFrame freeze(OutboxFrame f) => OutboxFrame(
+      frameId: f.frameId,
+      peerHex: f.peerHex,
+      wire: Uint8List.fromList(f.wire),
+      enqueuedAtMs: f.enqueuedAtMs,
+    );
+    final old = expected.map(freeze).toList();
+    final fresh = replacement.map(freeze).toList();
+    return _trackLogWrite((store) async {
+      bool matches(OutboxFrame a, OutboxFrame b) =>
+          a.peerHex == b.peerHex && _bytesEqual(a.wire, b.wire);
+      Future<bool> check() async {
+        if (!identical(store, _store)) {
+          throw StateError('outbox replacement session changed');
+        }
+        if (!await _ensureOutboxLoadedCritical()) {
+          throw StateError('durable outbox could not be loaded');
+        }
+        for (final frame in old) {
+          final held = _outboxById[frame.frameId]?.frame;
+          if (held == null || !matches(frame, held)) return false;
+        }
+        for (final frame in fresh) {
+          final held = _outboxById[frame.frameId]?.frame;
+          if (held != null && !matches(frame, held)) return false;
+        }
+        return true;
+      }
+
+      if (!await _outboxSerialized(check)) return false;
+      // Stage bounded cohorts, releasing the outbox lane between commits so
+      // unrelated ACK/enqueue operations are not parked behind a large copy.
+      // The admitted outer write pins the same space through every cohort.
+      for (var i = 0; i < fresh.length; i += 8) {
+        final admitted = await _outboxSerialized(() async {
+          if (!await check()) return false;
+          final missing = <_QueuedOutboxFrame>[];
+          for (final frame in fresh.skip(i).take(8)) {
+            if (_outboxById.containsKey(frame.frameId)) continue;
+            final stamped = OutboxFrame(
+              frameId: frame.frameId,
+              peerHex: peer,
+              wire: frame.wire,
+              enqueuedAtMs:
+                  frame.enqueuedAtMs ?? DateTime.now().millisecondsSinceEpoch,
+            );
+            final payload = _sk(
+              jsonEncode({
+                'id': stamped.frameId,
+                'p': peer,
+                'w': base64Encode(stamped.wire),
+                't': stamped.enqueuedAtMs,
+              }),
+            );
+            if (payload.length > _outboxMaxPayloadBytes) {
+              throw ArgumentError('outbox replacement payload exceeds bound');
+            }
+            missing.add((frame: stamped, payload: payload));
+          }
+          if (missing.isNotEmpty) {
+            final stored = await _persistOutboxPayloadsCritical(store, missing);
+            for (final item in stored) {
+              _outboxById[item.frame.frameId] = item;
+            }
+          }
+          return true;
+        });
+        if (!admitted) return false;
+      }
+      return _outboxSerialized(() async {
+        if (!await check()) return false;
+        // A replacement ACK can race staging. Absence is not proof that its
+        // full payload is now durable; leave the original intact and retry.
+        for (final frame in fresh) {
+          final held = _outboxById[frame.frameId]?.frame;
+          if (held == null || !matches(frame, held)) return false;
+        }
+        final payloadIds = {
+          for (final id in oldIds) ..._outboxById[id]!.logIds,
+        };
+        try {
+          await store.commit([
+            for (final id in oldIds)
+              DeleteOp(Ns.outboxIndex, _outboxIndexKey(id)),
+            if (payloadIds.length <= 1024)
+              for (final id in payloadIds) DeleteLogOp(Ns.outbox, id),
+            PutOp(Ns.settings, _sk(_outboxCleanupKey), Uint8List.fromList([1])),
+          ]);
+        } catch (_) {
+          _outboxLoaded = false;
+          _outboxById.clear();
+          rethrow;
+        }
+        for (final id in oldIds) {
+          _outboxById.remove(id);
+        }
+        return true;
+      });
+    });
+  }
+
+  @override
+  Future<void> finishOutboxCleanup() => _trackLogWrite(
+    (store) => _outboxSerialized(() async {
+      if (!identical(store, _store)) {
+        throw StateError('outbox cleanup session changed');
+      }
+      if (await store.get(Ns.settings, _sk(_outboxCleanupKey)) == null) return;
+      if (!await _ensureOutboxLoadedCritical()) {
+        throw StateError('durable outbox could not be loaded');
+      }
+      await _cleanupIndexedOutboxCritical();
+      await scrubDeleted();
+      await store.commit([DeleteOp(Ns.settings, _sk(_outboxCleanupKey))]);
+    }),
+  );
+
   Future<void> _invalidateOutboxCache() => _outboxSerialized(() async {
     _outboxById.clear();
     _outboxLoaded = false;

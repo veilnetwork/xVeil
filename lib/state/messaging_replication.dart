@@ -33,6 +33,7 @@ class _MessagingReplication {
   _MessagingReplication(this._owner);
 
   final MessagingService _owner;
+  late final _expiry = _DeviceSnapshotExpiry(this);
 
   /// Reassembly state is per (SENDER, transfer id) — never per transfer id
   /// alone.

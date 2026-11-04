@@ -15,6 +15,9 @@ import 'package:xveil/data/storage/file_store.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/transport/bootstrap_invite.dart';
+import 'package:xveil/data/transport/loopback_transport.dart';
+import 'package:xveil/data/transport/wire_envelope.dart';
+import 'package:xveil/state/messaging.dart';
 import 'package:xveil/data/transport/veil_mailbox.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/call_log.dart';
@@ -57,6 +60,7 @@ import 'package:xveil/state/group_service_providers.dart';
 import 'package:xveil/state/space_observability.dart';
 
 import 'support/fake_hv_container.dart';
+import 'support/queued_snapshot_probe.dart';
 
 NodeId _id(int seed) => NodeId(Uint8List.fromList(List.filled(32, seed)));
 
@@ -8620,6 +8624,156 @@ void main() {
       expect(restored.payload['sq'], 7);
     }
   });
+
+  for (final compact in [false, true]) {
+    for (final chunked in [false, true]) {
+      test(
+        'device TTL Outbox erases expired bytes while retaining live snapshot state ($chunked/$compact)',
+        () async {
+          final storage = FakeHvContainer().storage();
+          await storage.open(password: 'pw', createIfMissing: true);
+          var wall = DateTime.utc(2026, 11, 4, 12).millisecondsSinceEpoch;
+          final svc = GroupService(storage, _FakeSigner(owner))
+            ..debugWallClockMs = () => wall;
+          final link = LoopbackTransport(localNodeId: owner);
+          final messaging = MessagingService(
+            link,
+            storage,
+            now: () => DateTime.fromMillisecondsSinceEpoch(wall),
+          );
+          addTearDown(() async {
+            await messaging.dispose();
+            await svc.dispose();
+            await link.dispose();
+            await storage.close();
+          });
+          await svc.linkDevice(bob, sovereign: sovereign);
+          final gid = NodeId.fromHex((await svc.deviceGroupIdHex())!);
+          final peer = _id(77);
+          await storage.upsertContact(
+            Contact(
+              nodeId: peer,
+              status: ContactStatus.accepted,
+              disappearingTtlSeconds: 30,
+            ),
+          );
+          await svc.postDeviceEvent(
+            DeviceSyncEvent(
+              kind: DeviceSyncKind.msgMirror,
+              key: 'ttl-queued',
+              tsMs: wall,
+              payload: {
+                'peer': peer.hex,
+                'dir': 'outgoing',
+                'body': chunked
+                    ? 'PRIVATE_OLD_OUTBOX' * 700
+                    : 'PRIVATE_OLD_OUTBOX',
+              },
+            ),
+          );
+          await svc.postDeviceEvent(
+            DeviceSyncEvent(
+              kind: DeviceSyncKind.settingSet,
+              key: 'live-state',
+              tsMs: wall,
+              payload: const {'v': 'KEEP_LIVE_STATE'},
+            ),
+          );
+          final bundle = (await svc.load(gid))!;
+          final wire =
+              jsonDecode(svc.snapshotJson(bundle.copyWith(control: [])))
+                  as Map<String, dynamic>;
+          if (compact) {
+            wire.remove('m');
+            wire['mid'] = gid.hex;
+            wire['mh'] = GroupService.manifestHash(bundle.manifest);
+          }
+          final json = jsonEncode(wire);
+          await messaging.sendGroupSnapshot(
+            bob,
+            gid.hex,
+            json,
+            awaitInitialSend: false,
+          );
+          Future<String> queuedJson() async {
+            final frames = (await storage.pendingOutboxFrames())
+                .where((f) => f.peerHex == bob.hex)
+                .toList();
+            final envelopes = [
+              for (final f in frames) WireEnvelope.decode(f.wire),
+            ];
+            final single = envelopes.where(
+              (e) => e.kind == WireKind.groupEntry,
+            );
+            if (single.isNotEmpty) return single.single.body;
+            final parts = [
+              for (final e in envelopes) parseGroupEntryChunk(e.body),
+            ]..sort((a, b) => a.index.compareTo(b.index));
+            expect(parts.length, parts.first.count);
+            return utf8.decode([for (final p in parts) ...p.data]);
+          }
+
+          expect((await storage.pendingOutboxFrames()).length > 1, chunked);
+          expect(await queuedJson(), contains('PRIVATE_OLD_OUTBOX'));
+          expect(await queuedJson(), contains('KEEP_LIVE_STATE'));
+          final witnessed = queuedSnapshotStats(
+            await storage.pendingOutboxFrames(),
+            gid.hex,
+            {'ttl-queued'},
+            keepKey: 'live-state',
+          );
+          expect(witnessed['matchingIds'], 1);
+          expect(witnessed['mixedTransfers'], 1);
+          expect(witnessed['partialTransfers'], 0);
+          expect(witnessed['malformedTransfers'], 0);
+          messaging.groupBindingsOwner = svc;
+          messaging.onDisappearingSweep = () async {
+            await svc.compactStateLogs(gid);
+          };
+          messaging.onDeviceSnapshotExpiry = svc.filterExpiredDeviceSnapshot;
+          messaging.deviceSnapshotExpiryGroup = svc.deviceGroupIdHex;
+          wall += 30000;
+          if (compact) {
+            expect(
+              await svc.filterExpiredDeviceSnapshot(
+                gid.hex,
+                jsonEncode({...wire, 'mh': '0' * 32}),
+              ),
+              isNull,
+            );
+            expect(
+              await storage.isMessageDeleted(peer.hex, 'ttl-queued'),
+              isFalse,
+            );
+          }
+          await messaging.sweepAllDisappearing();
+          expect(
+            (await svc.load(
+              gid,
+            ))!.messages.any((m) => m.body.contains('PRIVATE_OLD_OUTBOX')),
+            isFalse,
+          );
+          expect(
+            await queuedJson(),
+            isNot(contains('PRIVATE_OLD_OUTBOX')),
+            reason:
+                'the durable transport queue must not keep an expired plaintext copy',
+          );
+          expect(
+            await queuedJson(),
+            contains('KEEP_LIVE_STATE'),
+            reason: 'expiry cannot discard live rows sharing a snapshot',
+          );
+          if (compact) {
+            final actual = jsonDecode(await queuedJson()) as Map;
+            expect(actual.containsKey('m'), isFalse);
+            expect(actual['mid'], gid.hex);
+            expect(actual['mh'], GroupService.manifestHash(bundle.manifest));
+          }
+        },
+      );
+    }
+  }
 
   test(
     'device TTL journal removes an expired author head and keeps sequence after reopen',
