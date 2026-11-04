@@ -1614,7 +1614,10 @@ class MessagingService {
   /// Recover pre-upgrade mail without reviving a call after its live route or
   /// ring window has gone. New deposits contain only the contact handshake;
   /// older user data may remain on relays until its TTL and is still ingested.
-  Future<void> deliverInbound(InboundMessage m) {
+  /// Mailbox callers release responsibility after durable handling; live ACK
+  /// transport runs on the receipt queue and must not hold their blob verdict.
+  /// Explicit delivery/test callers keep their original receipt-joining default.
+  Future<void> deliverInbound(InboundMessage m, {bool waitForReceipts = true}) {
     try {
       final kind = WireEnvelope.decode(m.payload).kind;
       if (kind == WireKind.callSignal ||
@@ -1625,7 +1628,7 @@ class MessagingService {
     } catch (_) {
       // The normal inbound decoder records malformed legacy mail.
     }
-    return _onInbound(m);
+    return _onInbound(m, waitForReceipts: waitForReceipts);
   }
 
   /// Emits whenever stored conversations/messages change.
@@ -2288,7 +2291,10 @@ class MessagingService {
     // those would write into is closed moments later by
     // MultiIdentitySession.disposeAll. Leave now — dispose() waits out
     // whatever is already past this line (audit XV-05).
-    if (_disposed) return;
+    if (_disposed) {
+      _declinedLocally(m, 'messaging service is closed');
+      return;
+    }
     devLog(
       () =>
           'xVeil[recv]: INBOUND from=${m.src.short} bytes=${m.payload.length}',
@@ -2332,12 +2338,38 @@ class MessagingService {
       } else {
         await _dispatch(m, onReceipt: onReceipt);
       }
-    } catch (e) {
-      // A hostile or corrupt datagram (malformed JSON, missing/ill-typed
-      // fields, bad base64) must never throw out of the stream listener and
-      // disrupt delivery for everyone else — drop it silently. LOG it so a
-      // legit message that fails to parse/store isn't invisibly dropped.
-      devLog(() => 'xVeil[recv]: dispatch FAILED from=${m.src.short}: $e');
+    } catch (error, stack) {
+      // A local failure must not authorize the mailbox to delete every copy.
+      // Keep the inbox usable, but distinguish failure from durable handling.
+      var kind = 'inbound-dispatch';
+      try {
+        final wireKind = WireEnvelope.decode(m.payload).kind;
+        if (wireKind == WireKind.request || wireKind == WireKind.reconnect) {
+          kind = 'contact-request-persist';
+        }
+      } catch (_) {
+        // An undecodable carrier has no finer source-owned category.
+      }
+      const message = 'Inbound frame could not be processed';
+      final Object safe = switch (error) {
+        FileSystemException(:final osError) => FileSystemException(
+          message,
+          null,
+          osError == null
+              ? null
+              : OSError('operation refused', osError.errorCode),
+        ),
+        FormatException() => const FormatException(message),
+        _ => StateError(message),
+      };
+      errorJournal.record(
+        kind: kind,
+        error: safe,
+        stack: stack,
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      _declinedLocally(m, 'inbound processing failed');
+      devLog(() => 'xVeil[recv]: dispatch FAILED (${error.runtimeType})');
     }
   }
 
