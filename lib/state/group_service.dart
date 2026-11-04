@@ -32,6 +32,7 @@ import '../domain/clear_policy.dart';
 import '../domain/clear_request.dart';
 import '../crypto/blake3.dart';
 import '../crypto/sovereign_signature_cache.dart';
+import '../crypto/sha256_backend.dart';
 import '../crypto/verification_cache_digest.dart';
 import '../data/node/embedded_node.dart';
 import '../data/storage/file_store.dart'
@@ -679,6 +680,17 @@ class GroupService implements ArchiveGroups {
   /// when another device announces its document.
   Storage get storage => _storage;
   final GroupSigner _signer;
+
+  // The wire chain still commits to SHA-256(canonical bytes || signature).
+  // Hash fresh bytes on every call: keys/signatures are mutable and a hash
+  // does not carry an authorization verdict. No derived history is cached.
+  late final _chainSha256 = _signer is NativeGroupSigner
+      ? Sha256Backend.forLibrary(_signer.lib)
+      : Sha256Backend.dart();
+
+  String _messageHash(GroupMessage message) => crypto.Digest(
+    _chainSha256.hashParts([message.canonicalBytes(), message.signature]),
+  ).toString();
 
   /// THIS DEVICE's transport id, when the host knows it.
   ///
@@ -4578,7 +4590,7 @@ class GroupService implements ArchiveGroups {
       final id =
           '${_messageChainScope(bundle.manifest, message)}'
           '|${message.author.short}:${message.seq}';
-      bySeq.putIfAbsent(id, () => <String>{}).add(groupMessageHash(message));
+      bySeq.putIfAbsent(id, () => <String>{}).add(_messageHash(message));
       bodies
           .putIfAbsent(id, () => <String>[])
           .add(message.isEncrypted ? '<sealed>' : message.body);
@@ -5297,7 +5309,7 @@ class GroupService implements ArchiveGroups {
           scope: scope,
           author: rows.first.author,
           throughSeq: lastRetired.seq,
-          throughHash: groupMessageHash(lastRetired),
+          throughHash: _messageHash(lastRetired),
           throughCreatedAtMs: lastRetired.createdAtMs,
         );
       }
@@ -7549,7 +7561,7 @@ class GroupService implements ArchiveGroups {
         GroupMessage? last;
         for (final m in rows) {
           if (limit != null && m.seq > limit) break;
-          gone.add(groupMessageHash(m));
+          gone.add(_messageHash(m));
           last = m;
         }
         if (last == null) continue;
@@ -7559,7 +7571,7 @@ class GroupService implements ArchiveGroups {
             scope: _messageChainScope(b.manifest, last),
             author: last.author,
             throughSeq: last.seq,
-            throughHash: groupMessageHash(last),
+            throughHash: _messageHash(last),
             throughCreatedAtMs: last.createdAtMs,
           );
         }
@@ -7572,7 +7584,7 @@ class GroupService implements ArchiveGroups {
             ...untouched,
             for (final rows in byChain.values)
               for (final m in rows)
-                if (!gone.contains(groupMessageHash(m))) m,
+                if (!gone.contains(_messageHash(m))) m,
           ],
           retentionCuts: cuts,
         ),
@@ -8128,12 +8140,12 @@ class GroupService implements ArchiveGroups {
             for (final m in rows) {
               if (m.seq <= priorCutSeq) {
                 // Straggler below an accepted cut: already retired.
-                deletedHashes.add(groupMessageHash(m));
+                deletedHashes.add(_messageHash(m));
                 continue;
               }
               if (fork != null && m.seq >= fork.seq) break;
               if (!graceExpiredMessage(m)) break;
-              deletedHashes.add(groupMessageHash(m));
+              deletedHashes.add(_messageHash(m));
               lastDeleted = m;
             }
             if (lastDeleted == null) continue;
@@ -8143,7 +8155,7 @@ class GroupService implements ArchiveGroups {
                 scope: scope,
                 author: rows.first.author,
                 throughSeq: lastDeleted.seq,
-                throughHash: groupMessageHash(lastDeleted),
+                throughHash: _messageHash(lastDeleted),
                 throughCreatedAtMs: lastDeleted.createdAtMs,
               );
               cutsRecorded++;
@@ -8153,7 +8165,7 @@ class GroupService implements ArchiveGroups {
             ...untouched,
             for (final rows in byChain.values)
               for (final m in rows)
-                if (!deletedHashes.contains(groupMessageHash(m))) m,
+                if (!deletedHashes.contains(_messageHash(m))) m,
           ];
 
           // Publications: not hash-chained, but edit/delete revisions sign
@@ -11442,7 +11454,7 @@ class GroupService implements ArchiveGroups {
     final prevHash = b.manifest.isSovereignDevice
         ? ''
         : acceptedScope.isNotEmpty
-        ? groupMessageHash(acceptedScope.last)
+        ? _messageHash(acceptedScope.last)
         : (selfScopeCut?.throughHash ?? '');
     if (protectedChannel == null &&
         encryptionEstablished &&
@@ -12968,7 +12980,7 @@ class GroupService implements ArchiveGroups {
 
     final objectIds = <String>[
       for (final entry in controls) 'control:${controlEntryHash(entry)}',
-      for (final message in messages) 'message:${groupMessageHash(message)}',
+      for (final message in messages) 'message:${_messageHash(message)}',
       for (final reaction in reactions) 'reaction:${_reactionHash(reaction)}',
       for (final post in posts) 'post:${_spacePostHash(post)}',
       for (final comment in publicComments)
@@ -13099,8 +13111,8 @@ class GroupService implements ArchiveGroups {
       } else {
         final hashes =
             previous.hashes ??
-            {groupMessageHash(rows[previous.first]): previous.first};
-        final hash = groupMessageHash(message);
+            {_messageHash(rows[previous.first]): previous.first};
+        final hash = _messageHash(message);
         final index = hashes[hash];
         if (index == null) {
           hashes[hash] = rows.length;
@@ -13186,8 +13198,8 @@ class GroupService implements ArchiveGroups {
       } else {
         final variants =
             previous.variants ??
-            {groupMessageHash(previous.latest): previous.latest};
-        variants[groupMessageHash(message)] = message;
+            {_messageHash(previous.latest): previous.latest};
+        variants[_messageHash(message)] = message;
         candidates[identity] = (latest: message, variants: variants);
       }
     }
@@ -13290,7 +13302,7 @@ class GroupService implements ArchiveGroups {
           } else if (message.seq != cut.throughSeq + 1) {
             break;
           }
-        } else if (message.prevHash != groupMessageHash(predecessor)) {
+        } else if (message.prevHash != _messageHash(predecessor)) {
           break;
         }
         strict = true;
@@ -13367,7 +13379,7 @@ class GroupService implements ArchiveGroups {
           scopeHash: entry.key.substring(0, 64),
           author: entry.value.author,
           seq: entry.value.seq,
-          hash: groupMessageHash(entry.value),
+          hash: _messageHash(entry.value),
         ),
     ];
   }
@@ -13449,7 +13461,7 @@ class GroupService implements ArchiveGroups {
     }
     if (boundary != null && message.seq <= boundary.seq) {
       return message.seq < boundary.seq ||
-          groupMessageHash(message) == boundary.hash;
+          _messageHash(message) == boundary.hash;
     }
     if (!state.isActive) return false;
     return message.lifecycleGeneration == state.lifecycleTransitionHash &&
@@ -13475,7 +13487,7 @@ class GroupService implements ArchiveGroups {
             _messageLifecycleScopeHash(bundle.manifest, message) ==
                 head.scopeHash &&
             message.seq == head.seq &&
-            groupMessageHash(message) == head.hash,
+            _messageHash(message) == head.hash,
       )) {
         completePrefixes.add(head.identity);
       }
@@ -14850,7 +14862,7 @@ class GroupService implements ArchiveGroups {
         final have = chain.map((message) => message.seq).toList()..sort();
         final value = <String, Object>{
           's': chain.isEmpty ? -1 : chain.last.seq,
-          if (chain.isNotEmpty) 'h': groupMessageHash(chain.last),
+          if (chain.isNotEmpty) 'h': _messageHash(chain.last),
           if (namesItsRows) 'have': have,
           if (fork != null)
             'f': {'s': fork.seq, 'h': fork.hashes.toList()..sort()},
@@ -15394,7 +15406,7 @@ class GroupService implements ArchiveGroups {
         // that neither side may materialize until the fork is resolved by a
         // future explicit protocol.
         if (message.seq > fork.seq) return false;
-        missing = !knownFork.contains(groupMessageHash(message));
+        missing = !knownFork.contains(_messageHash(message));
       } else {
         // The SET first, when the requester named it. Otherwise the high-water
         // mark, which cannot see a hole beneath itself.
@@ -15405,7 +15417,7 @@ class GroupService implements ArchiveGroups {
                   (message.seq == peerSeq &&
                       hasRowHash(messageVector, message.author) &&
                       seenRowHash(messageVector, message.author) !=
-                          groupMessageHash(message));
+                          _messageHash(message));
       }
       if (!missing) return false;
       if (message.isChannelEncrypted) {
@@ -18835,7 +18847,7 @@ class GroupService implements ArchiveGroups {
           () => ingestAtMs,
         );
       }
-      final incomingHash = groupMessageHash(m);
+      final incomingHash = _messageHash(m);
       // The digest binds author and sequence. Narrow the candidates before
       // signature verification, but keep the full signed digest as identity:
       // distinct same-slot rows must remain available as fork evidence.
@@ -18844,7 +18856,7 @@ class GroupService implements ArchiveGroups {
             stored.seq == m.seq &&
             stored.author == m.author &&
             _validMessageFor(manifest.groupId, stored) &&
-            groupMessageHash(stored) == incomingHash,
+            _messageHash(stored) == incomingHash,
       )) {
         messages.add(m);
       }
@@ -19141,7 +19153,7 @@ class GroupService implements ArchiveGroups {
           mergedState.lifecycleTransitionHash ??
           _legacyPostGeneration(man.groupId);
       final acceptedMessageHashes = {
-        for (final message in acceptedMessages) groupMessageHash(message),
+        for (final message in acceptedMessages) _messageHash(message),
       };
       for (final comment in inPublicComments) {
         if (!_validPublicCommentFor(man.groupId, comment) ||
@@ -19154,7 +19166,7 @@ class GroupService implements ArchiveGroups {
           if (candidate.author == comment.author &&
               candidate.seq == comment.seq &&
               candidate.spacePostId == comment.postId &&
-              acceptedMessageHashes.contains(groupMessageHash(candidate))) {
+              acceptedMessageHashes.contains(_messageHash(candidate))) {
             memberRow = candidate;
             break;
           }
