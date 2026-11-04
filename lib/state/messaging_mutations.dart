@@ -245,6 +245,13 @@ class _MessagingMutations {
         seq: envelope.seq,
         customEmoji: envelope.customEmoji,
       );
+      // The durable edit can finish after the ORIGINAL post's lifetime.
+      // Refuse publication and consume only this authenticated peer's slot;
+      // a failed erase/publication leaves the frame unacknowledged for retry.
+      if (await _owner._inboundExpiry.edit(peer, target)) {
+        await _owner._inboundExpiry.deletedEdit(peer, id, envelope.seq);
+        return true;
+      }
       // Only the device the peer reached heard this. The others keep showing
       // the text the sender replaced.
       await _owner._deviceMirror.onMessageEdited?.call(
@@ -434,6 +441,8 @@ class _MessagingMutations {
       return;
     }
     if (isSpaceRecommendationMessageBody(message.body)) return;
+    final destination = NodeId.fromHex(message.conversationId);
+    if (await _owner._inboundExpiry.edit(destination, message)) return;
     // Append-only, like the incoming edit above — no chunk is orphaned, so
     // there is nothing for a vacuum to reclaim (see [applyIncomingEdit]).
     final editSeq = await _owner._storage.editMessage(
@@ -442,8 +451,8 @@ class _MessagingMutations {
       trimmed,
       customEmoji: customEmoji,
     );
+    if (await _owner._inboundExpiry.edit(destination, message)) return;
     _owner._signal();
-    final destination = NodeId.fromHex(message.conversationId);
     // A compact value-specific ID distinguishes concurrent revisions without
     // adding the body or a long target ID to the delivery envelope.
     final operation = crypto.sha256

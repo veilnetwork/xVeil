@@ -1,5 +1,18 @@
 # Открытые случаи — обновлено 2026-11-04
 
+Последний шаг: [TTL во время edit commit](../edit-io-expiry-2026-11-04/README.md).
+Шесть TTL shapes воспроизведены на прежнем product-коде; окончательная fixture
+повторно дала 6 native assertion-red. После правки исходящие, входящие,
+mirrored/reflected edits заново проверяют original post clock/tombstone после
+записи. Expired edit не попадает в sibling publication; incoming ACK ждёт erase,
+exact retry и peer void; reflected seq не становится authored slot. 1447 tests /
+14 skipped в 79 файлах, 24 scoped с явно заданной HVS без skip, analyzer чистый.
+A/B/C normal-path regression: 100 conflicting edits / cold retention / author
+upgrade без C и без дублей; test/driver/cleanup 0/0/0, 40 PID / 52 порта /
+1454 frozen inputs, runtime удалён, native SHA прежние. Более поздние publisher/
+Outbox/transport ожидания, partial/policy/clock skew и полная матрица открыты.
+Mailbox/push/релиза нет.
+
 Последний шаг: [TTL при конфликте clocks зеркальных копий](../clock-conflict-expiry-2026-11-04/README.md).
 Два настоящих red на FakeHv/native HVS подтвердили удаление свежих journal
 mirror/edit из-за старой копии того же ID при живой canonical row. Helper
@@ -1165,6 +1178,7 @@ push/релиза нет; multi-device матрица не квалифицир�
 
 | Случай | Отметка | Граница подтверждения |
 |---|---|---|
+| TTL при завершении записи правок | **ПОДТВЕРЖДЕНО И ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННОЙ ГРАНИЦЕ** | Own/peer/mirror/reflected paths проверяют original TTL/tombstone после edit commit. Required publication не получает expired body; failed incoming erase не ACK, exact retry сохраняет peer void и не создаёт authored reflected slot. Native gates/cold roots и real-provider 100-edit A/B/C regression прошли. Поздние publisher/transport ожидания ещё открыты. [Проверка](../edit-io-expiry-2026-11-04/README.md). |
 | TTL: старый clock копии при живой canonical row | **ПОДТВЕРЖДЕНО И ЛОКАЛЬНО ИСПРАВЛЕНО** | Отказ unseen-expiry marker больше не считается удалением всего ID; сохраняются fresh mirror/edit, удаляется только старая копия. Native old-segment cleanup / cold floor, exact queued rows и real-signer A/B/C с offline recovery прошли. Смена системного времени и вся clock-skew матрица не квалифицированы. [Проверка](../clock-conflict-expiry-2026-11-04/README.md). |
 | TTL внутри required publisher / atomic journal completion | **ПОДТВЕРЖДЕНО, ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННОЙ ГРАНИЦЕ** | После publisher повторяется expiry guard; device post ждёт save/recheck/scrub, включая независимый key-share. Failed cleanup не ACK/notice/snapshot; exact retry и свежая отправка проходят. Native paired-commit / cold floor и широкая регрессия прошли. Остальные async snapshot/transport/partial/policy границы не закрыты. [Проверка](../publisher-ttl-boundary-2026-11-04/README.md). |
 | TTL после append до публикации | **ПОДТВЕРЖДЕНО, ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННОЙ ГРАНИЦЕ** | Строка, истёкшая во время append, удаляется до onMessageStored; nullable результат останавливает wire/notification/autofetch. Unit/native gates, scoped author slot, точный retry и fresh A/B/C прошли. Внутри уже запущенного publisher/редакций/transport I/O ещё не квалифицировано. [Проверка](../store-ttl-boundary-2026-11-04/README.md). |
