@@ -1,5 +1,22 @@
 # Открытые случаи — обновлено 2026-11-04
 
+Последний шаг: [разложение native durable-коммитов](../native-commit-stages-2026-11-04/README.md).
+На private instrumented HVS, без изменения продовой зависимости и протокола,
+измерены этапы коммитов в настоящей sparse crash/reconnect серии. В процессе
+восстановления B: 694 успешных native commits, 2776 sync calls; 9,845 из
+10,283 с native body (95,7%) занял File::sync_all. Это доля native commits,
+не всей догрузки и не только физического диска. Ни одного успешного commit
+без padding/reuse не было: простое удаление «пустого» четвёртого sync здесь
+не поможет и не внедрено. Следующий существенный участок — ограниченное
+batch-применение истории с сохранением merge/revoke/session/cursor границ.
+Контроль: 35 FFI, 40/40 worker RPC/handler, 6 parser/installer tests прошли;
+checksums 45. После SIGKILL B сохранил 1572 строки без источников, затем от
+одного A сошлись все 2000 ID/порядок/positions/delivered без дублей/повторов;
+retention прошёл. 41,726 с после готовности A — не A/B с прежними 36,513 с
+(тогда сохранено 1672). Стенд закрыт: 31 PID / 45 портов / 1420 frozen inputs.
+Private target очищен. Библиотека помечена mustNeverShip; обычная не заменена.
+Mailbox/push/релиза/смены APK и сидов нет. Latency и матрица ещё открыты.
+
 Последний шаг: [native SHA-256 при проверке групповой цепочки](../history-chain-sha-2026-11-04/README.md).
 Убрано повторное Dart-вычисление стандартного SHA-256 на native host; точные
 protocol hashes и независимый domain-эталон сохранены. Membership/revoke,
