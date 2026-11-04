@@ -340,6 +340,20 @@ abstract interface class Storage {
   /// The frames still awaiting delivery (enqueued and not yet acked).
   Future<List<OutboxFrame>> pendingOutboxFrames();
 
+  /// Replace a complete immutable transfer locally, without claiming a peer ACK.
+  /// Compare every expected destination/wire first. Persist ALL replacement
+  /// rows before atomically retiring the old index set; a failed staging write
+  /// retains the complete old copy. New IDs may already exist from a retry but
+  /// must carry identical bytes. Keeps replacement enqueue timestamps.
+  Future<bool> replaceOutboxFrames(
+    List<OutboxFrame> expected,
+    List<OutboxFrame> replacement,
+  );
+
+  /// Complete durable orphan-payload/vacuum work left by local replacements.
+  /// Failure retains its retry obligation across reopen.
+  Future<void> finishOutboxCleanup();
+
   /// Append a new edit event for message [messageId] in conversation
   /// [conversationId] with [newBody]; the fold collapses to the latest text and
   /// the prior versions stay as history until a scrub reclaims them. Scoped by

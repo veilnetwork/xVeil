@@ -1,5 +1,19 @@
 # Открытые случаи — обновлено 2026-11-04
 
+Последний шаг: [TTL payloads в durable Outbox](../device-outbox-expiry-2026-11-04/README.md).
+Подтверждены и локально исправлены полные snapshot и компактные `mid`/`mh`
+delta с expired mirror/edit bodies, включая chunked wire. Остальные raw signed
+rows сохраняются; новая полная durable копия предшествует атомарной ретирации
+старой, scrub retry и возраст очереди переживают reopen. 790 основных tests
+прошли, 3 skipped отдельно; 10 native cases и analyzer чистые. Сквозной A/B/C:
+raw native roots после остановки A без expired IDs/непустых orphan payloads,
+живая setting row и новая доставка сохранены после restart, cold B без A/C
+не воскресил сообщения. Test/driver/cleanup 0, 27 PID / 26 портов, 1434 inputs
+и native SHA стабильны. Первый неудачный стенд поймал compact-delta пробел,
+был очищен и не засчитан. **Не закрыты:** неполные durable transfers, другие
+виды queued bodies, policy/clock-skew границы и остальная матрица.
+Mailbox/push/релиза/обновления APK, движков или сидов нет.
+
 Последний шаг: [очистка device journal по TTL](../device-journal-expiry-2026-11-04/README.md).
 Истёкшие mirror/edit bodies, включая author heads, удаляются с сохранением
 локального sequence floor; remote snapshot не может подменить этот floor.
@@ -1028,6 +1042,7 @@ push/релиза нет; multi-device матрица не квалифицир�
 
 | Случай | Отметка | Граница подтверждения |
 |---|---|---|
+| Истёкшие тела в queued собственных snapshot/delta | **ПОДТВЕРЖДЕНО, ЛОКАЛЬНО ИСПРАВЛЕНО ДЛЯ ПОЛНЫХ КОПИЙ** | Старые payloads оставались после очистки journal. Complete canonical transfers теперь переписываются с сохранением живых rows и durable recovery. Native raw-root и A/B/C прошли. Неполные persisted передачи и другие wire kinds ещё не закрыты. [Проверка](../device-outbox-expiry-2026-11-04/README.md). |
 | Сохранение истёкших тел в журнале устройств | **ПОДТВЕРЖДЕНО, ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННОМ ПУТИ** | Из текущего принятого device journal удаляются expired mirror/edit bodies с сохранением local sequence floors и retry scrub. Native A/B/C проверил очистку, restart автора, новую доставку и cold retention B без источников. Другие transport-копии и весь TTL/clock-skew ещё не закрыты. [Проверка](../device-journal-expiry-2026-11-04/README.md). |
 | Предложение файла Mac → новая личность Android | **СНЯТО ДО ПОВТОРЕНИЯ; прежнее событие подтверждено** | На SDK `76d9db45` предложение не появилось за 120 с. На SDK `5c392c4c` в отдельном свежем QA-профиле первое предложение видно за 0,894 с, четыре файла целы. Причина старого случая не доказана, relay-family путь конкретного предложения не атрибутирован; одна серия не закрывает исходный случай. [Новый прогон](../family-delivery-stages-2026-10-30/README.md). |
 | Паузы файлов после reconnect | **СНЯТО ДО ПОВТОРЕНИЯ; прежние паузы подтверждены** | SDK `08b67a6e` снимает блокировку готовой outbound-альтернативы молчащим кандидатом; красный gate-тест воспроизвёл старый scheduler. На Blackview/Mac оба 32-МиБ файла после обрыва продолжились в прежних stream, SHA совпали; devlogs без payload-idle/attempt failures. Неподвижный prefix 14–15 с включает radio-off 8–9 с и возврат сессий 5–7,5 с; payload возобновился около первого нового session.open или через ~0,7–1,3 с. Это два наблюдения, не A/B и не закрытие первоначального «33%». [Последняя серия](../outbound-confirm-recovery-2026-10-30/README.md), [прежняя локализация 10-с ожидания](../stale-rto-recovery-2026-10-30/README.md). |

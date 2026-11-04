@@ -65,6 +65,7 @@ part 'messaging_local_chat.dart';
 part 'messaging_conversation_admin.dart';
 part 'messaging_attestation.dart';
 part 'messaging_replication.dart';
+part 'messaging_replication_expiry.dart';
 part 'messaging_group_receipts.dart';
 part 'messaging_group_source.dart';
 part 'messaging_group_content.dart';
@@ -1327,6 +1328,12 @@ class MessagingService {
   /// Erase additional own-device journal copies after the conversation pass.
   /// Wired by the current group owner and detached before identity teardown.
   Future<void> Function()? onDisappearingSweep;
+
+  /// Current group owner validates and removes expired rows from exact queued
+  /// own-device snapshots. Null/unchanged means keep the original transfer.
+  Future<String?> Function(String groupIdHex, String snapshot)?
+  onDeviceSnapshotExpiry;
+  Future<String?> Function()? deviceSnapshotExpiryGroup;
   DateTime? _lastRetentionSweep;
 
   /// How often the per-conversation RETENTION (in days) is enforced by the
@@ -1373,6 +1380,7 @@ class MessagingService {
         removed += await sweepDisappearing(c.peer.nodeId);
       }
       if (!_disposed) await onDisappearingSweep?.call();
+      if (!_disposed) await _replication._expiry.sweep();
     } catch (e) {
       devLog(() => 'xVeil[disappearing]: background sweep failed: $e');
     } finally {
