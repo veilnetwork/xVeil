@@ -24,13 +24,9 @@ extension _GroupSourceSending on _MessagingReplication {
     WireEnvelope envelope, {
     required bool awaitInitialSend,
   }) async {
-    if (awaitInitialSend) {
-      await _owner.sendDurable(destination, frameId, envelope);
-      return;
-    }
     await _sendStoredGroupFrames(destination, [
       (frameId: frameId, envelope: envelope),
-    ]);
+    ], awaitInitialSend: awaitInitialSend);
   }
 
   Future<void> _sendStoredGroupFrames(
@@ -59,19 +55,38 @@ extension _GroupSourceSending on _MessagingReplication {
     // row intact for retry, including across shutdown and restart.
     // One complete image, not independently committed cohorts: a crash or lost
     // reply must not strand an unfilterable prefix of a mixed snapshot.
-    if (prepared.length == 1) {
-      final frame = prepared.single;
-      await _owner._outbox.enqueue(peer, frame.frameId, frame.wire);
-    } else {
-      await _owner._outbox.enqueueTransfer(peer, [
-        for (final frame in prepared)
-          OutboxFrame(
-            frameId: frame.frameId,
-            peerHex: peer.hex,
-            wire: frame.wire,
-          ),
-      ]);
+    final admission = await _expiry.beginAdmission(
+      peer.hex,
+      prepared.first.frameId,
+    );
+    try {
+      if (admission == null && awaitInitialSend && frames.length == 1) {
+        await _owner.sendDurable(
+          peer,
+          frames.single.frameId,
+          frames.single.envelope,
+        );
+        return;
+      }
+      if (prepared.length == 1) {
+        final frame = prepared.single;
+        await _owner._outbox.enqueue(peer, frame.frameId, frame.wire);
+      } else {
+        await _owner._outbox.enqueueTransfer(peer, [
+          for (final frame in prepared)
+            OutboxFrame(
+              frameId: frame.frameId,
+              peerHex: peer.hex,
+              wire: frame.wire,
+            ),
+        ]);
+      }
+    } finally {
+      if (admission != null) _expiry.finishAdmission(admission);
     }
+    // Own-device publication means durable admission. Validation runs after
+    // this producer releases its group mutation gate, before any live leg.
+    if (admission != null) return;
     // The awaited initial leg must retain its attempt across startup cleanup;
     // queue-only responses never await that barrier inside ingress.
     if (awaitInitialSend) await _owner._expiryLifecycle.settle();
