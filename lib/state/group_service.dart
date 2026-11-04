@@ -5803,6 +5803,60 @@ class GroupService implements ArchiveGroups {
   Future<int> sweepStateLogCompaction({int limit = 8}) =>
       _compaction.sweep(limit: limit);
 
+  /// Rewrite expired bodies in an already-queued own-device snapshot. Keep
+  /// exact retained rows and all other wire fields, rather than replacing an
+  /// old delta with today's potentially smaller compacted journal.
+  Future<String?> filterExpiredDeviceSnapshot(
+    String groupIdHex,
+    String json,
+  ) async {
+    if (_disposed || await deviceGroupIdHex() != groupIdHex) return null;
+    final decoded = jsonDecode(json);
+    if (decoded is! Map<String, dynamic> || decoded['g'] is! List) return null;
+    final gid = NodeId.fromHex(groupIdHex);
+    return _serialized(gid, () async {
+      if (_disposed || await deviceGroupIdHex() != groupIdHex) return null;
+      final local = await load(gid);
+      if (local == null || !local.manifest.isSovereignDevice) return null;
+      if (decoded['m'] != null) {
+        final manifest = SpaceManifest.fromJson(decoded['m']);
+        if (manifest == null ||
+            !_validManifest(manifest) ||
+            !local.manifest.sameGenesis(manifest)) {
+          return null;
+        }
+      } else {
+        // Normal data deltas omit the manifest. Bind to the same current
+        // genesis by mid/mh, without re-inflating that optimized wire shape.
+        if (decoded['mid'] != groupIdHex ||
+            decoded['mh'] != manifestHash(local.manifest) ||
+            decoded['c'] is! List ||
+            (decoded['c'] as List).isNotEmpty) {
+          return null;
+        }
+      }
+      final raw = decoded['g'] as List;
+      final parsed = [for (final value in raw) GroupMessage.fromJson(value)];
+      final input = local.copyWith(
+        messages: parsed.whereType<GroupMessage>().toList(),
+      );
+      final filtered = await _compaction._withoutExpiredDeviceBodies(
+        input,
+        storedHashes: {},
+      );
+      if (identical(input, filtered)) return null;
+      final keep = {for (final m in filtered.messages) _messageHash(m)};
+      return jsonEncode({
+        ...decoded,
+        'g': [
+          for (var i = 0; i < raw.length; i++)
+            if (parsed[i] == null || keep.contains(_messageHash(parsed[i]!)))
+              raw[i],
+        ],
+      });
+    });
+  }
+
   /// The group index lists EVERY group/Space id, so in one settings record
   /// it outgrows the hidden-volume record capacity at roughly 30+ groups
   /// (~2.2 KiB) — from then on creating or even ingesting any new group
