@@ -213,7 +213,13 @@ extension _MessagingInboundDispatch on MessagingService {
       );
       return;
     }
-    final existing = await _storage.getContact(m.src);
+    final consent = await _realtimeControl._readContactConsent(m.src);
+    if (consent == null ||
+        !_realtimeControl._consentCurrent(m.src, consent.epoch)) {
+      _declinedLocally(m, 'contact changed during admission');
+      return;
+    }
+    final existing = consent.contact;
     if (existing?.status == ContactStatus.blocked ||
         (blockedWhileReassembling &&
             existing?.status == ContactStatus.accepted)) {
@@ -290,7 +296,7 @@ extension _MessagingInboundDispatch on MessagingService {
       return; // drop blocked
     }
     if (existing?.status == ContactStatus.accepted) {
-      _realtimeControl.markAccepted(m.src);
+      _realtimeControl._cacheAccepted(m.src, consent.epoch);
     }
 
     // Hearing from a peer is the mailbox backoff's only recovery signal — see
@@ -435,6 +441,14 @@ extension _MessagingInboundDispatch on MessagingService {
     // the same snapshot chunks per log window while the sender's outbox held
     // them forever and its deposits kept the shared mailbox clogged.
     final ownDeviceSender = await isOwnDevice?.call(m.src) ?? false;
+    if (_disposed) return;
+    if (!ownDeviceSender &&
+        (callSignal?.type == CallSignalType.offer ||
+            env.kind == WireKind.p2pEndpoints) &&
+        !_realtimeControl._consentCurrent(m.src, consent.epoch)) {
+      _declinedLocally(m, 'contact changed during control admission');
+      return;
+    }
     if (fid != null &&
         !liveOnlyNoAck &&
         (existing?.status == ContactStatus.accepted ||
@@ -1084,6 +1098,15 @@ extension _MessagingInboundDispatch on MessagingService {
         }
         final callSig = callSignal;
         if (callSig != null) {
+          if (callSig.type == CallSignalType.offer &&
+              !ownDeviceSender &&
+              !_realtimeControl._consentCurrent(m.src, consent.epoch) &&
+              !_realtimeControl._cacheAccepted(
+                m.src,
+                await _realtimeControl._acceptedContactEpoch(m.src),
+              )) {
+            return;
+          }
           devLog(() {
             final at = callSig.sentAtMs;
             final age = at == null
@@ -1103,6 +1126,15 @@ extension _MessagingInboundDispatch on MessagingService {
         // sibling ladder's exchange arrives on this lane via the mailbox.
         if (existing?.status != ContactStatus.accepted &&
             !(await isOwnDevice?.call(m.src) ?? false)) {
+          return;
+        }
+        if (_disposed) return;
+        if (!ownDeviceSender &&
+            !_realtimeControl._consentCurrent(m.src, consent.epoch) &&
+            !_realtimeControl._cacheAccepted(
+              m.src,
+              await _realtimeControl._acceptedContactEpoch(m.src),
+            )) {
           return;
         }
         devLog(

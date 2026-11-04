@@ -70,6 +70,8 @@ class _MessagingRealtimeControl {
   void Function(NodeId peer, String bodyJson)? onP2PEndpoints;
 
   final Set<String> _acceptedPeers = {};
+  static final _initialConsentEpoch = Object();
+  final Map<String, Object> _consentEpochs = {};
   Future<void> _inboundChain = Future<void>.value();
 
   /// This lane's own bound (audit XV-05). Smaller than the durable lane's:
@@ -91,9 +93,42 @@ class _MessagingRealtimeControl {
 
   bool isAccepted(NodeId peer) => _acceptedPeers.contains(peer.hex);
 
-  void markAccepted(NodeId peer) => _acceptedPeers.add(peer.hex);
+  Object _consentEpoch(NodeId peer) =>
+      _consentEpochs[peer.hex] ?? _initialConsentEpoch;
 
-  void revoke(NodeId peer) => _acceptedPeers.remove(peer.hex);
+  bool _consentCurrent(NodeId peer, Object? epoch) =>
+      !_owner._disposed &&
+      epoch != null &&
+      identical(_consentEpoch(peer), epoch);
+
+  bool _cacheAccepted(NodeId peer, Object? epoch) {
+    if (!_consentCurrent(peer, epoch)) return false;
+    _acceptedPeers.add(peer.hex);
+    return true;
+  }
+
+  void revoke(NodeId peer) {
+    _acceptedPeers.remove(peer.hex);
+    _consentEpochs[peer.hex] = Object();
+  }
+
+  // A read-only stranger does not allocate a map entry. Mutations invalidate
+  // both pending reads and positive cache entries, independently per contact.
+  Future<({Contact? contact, Object epoch})?> _readContactConsent(
+    NodeId peer,
+  ) async {
+    for (var attempt = 0; attempt < 2 && !_owner._disposed; attempt++) {
+      final epoch = _consentEpoch(peer);
+      final contact = await _owner._storage.getContact(peer);
+      if (_consentCurrent(peer, epoch)) return (contact: contact, epoch: epoch);
+    }
+    return null;
+  }
+
+  Future<Object?> _acceptedContactEpoch(NodeId peer) async {
+    final read = await _readContactConsent(peer);
+    return read?.contact?.status == ContactStatus.accepted ? read?.epoch : null;
+  }
 
   final Map<String, ({NodeId identity, NodeId device, int pinnedAtMs})>
   _callReplyDevices = {};
@@ -201,8 +236,8 @@ class _MessagingRealtimeControl {
       // first would let the very claim under suspicion answer for itself.
       if (!_speaksForContact(message, 'endpoints')) return;
       if (!isAccepted(message.src)) {
-        final contact = await _owner._storage.getContact(message.src);
-        if (contact?.status != ContactStatus.accepted) {
+        final epoch = await _acceptedContactEpoch(message.src);
+        if (!_cacheAccepted(message.src, epoch)) {
           // MY OWN DEVICE: a sibling's share is welcome without a contact
           // row (it has none), but it does not prime the accepted-cache —
           // that cache answers contact questions, and a sibling is not one.
@@ -211,10 +246,9 @@ class _MessagingRealtimeControl {
           if (!(await _owner.isOwnDevice?.call(message.src) ?? false)) {
             return;
           }
-        } else {
-          markAccepted(message.src);
         }
       }
+      if (_owner._disposed) return;
       _owner._noteAuthenticatedDevice(message);
       final frameId = envelope.frameId;
       if (frameId != null) {
@@ -274,8 +308,8 @@ class _MessagingRealtimeControl {
         return;
       }
       if (!isAccepted(message.src)) {
-        final contact = await _owner._storage.getContact(message.src);
-        if (contact?.status != ContactStatus.accepted) {
+        final epoch = await _acceptedContactEpoch(message.src);
+        if (!_cacheAccepted(message.src, epoch)) {
           // MY OWN DEVICE: the sibling relay of a call offer (device
           // fan-out) — no contact row, welcome anyway, no cache priming.
           // CallService re-verifies the sender before honoring onBehalfOf.
@@ -287,11 +321,10 @@ class _MessagingRealtimeControl {
             );
             return;
           }
-        } else {
-          markAccepted(message.src);
         }
       }
     }
+    if (_owner._disposed) return;
     _owner._noteAuthenticatedDevice(message);
     final frameId = envelope.frameId;
     if (frameId != null) {
@@ -666,6 +699,7 @@ class _MessagingRealtimeControl {
   }
 
   Future<void> sendCallSignal(NodeId peer, CallSignal signal) async {
+    if (_owner._disposed) return;
     // MY OWN DEVICE, same shape as [sendP2PEndpoints]: the call fan-out's
     // relayed offers and answered-elsewhere signals address a sibling, which
     // is never a contact — this gate silently ate the whole relay while the
@@ -678,10 +712,9 @@ class _MessagingRealtimeControl {
     final ownDevice = await _owner.isOwnDevice?.call(peer) ?? false;
     var contactIdentity = false;
     if (!ownDevice) {
-      final contact = await _owner._storage.getContact(peer);
-      if (contact?.status == ContactStatus.accepted) {
+      final epoch = await _acceptedContactEpoch(peer);
+      if (_cacheAccepted(peer, epoch)) {
         contactIdentity = true;
-        markAccepted(peer);
       } else if (!(_owner.acceptsCallDeviceSignal?.call(peer, signal) ??
           false)) {
         recordCallDecision(
@@ -692,6 +725,7 @@ class _MessagingRealtimeControl {
         return;
       }
     }
+    if (_owner._disposed) return;
     final stamped = signal.sentAtMs == null
         ? signal.copyWith(sentAtMs: _owner._now().millisecondsSinceEpoch)
         : signal;
@@ -756,15 +790,16 @@ class _MessagingRealtimeControl {
     String bodyJson, {
     required int sentAtMs,
   }) async {
+    if (_owner._disposed) return;
     // MY OWN DEVICE bypasses the contact gate but not the accepted-cache:
     // a sibling is never a contact, and this silent return was the reason a
     // sibling's ladder ran to the punch with nothing exchanged — the frame
     // the ladder thought it sent died right here.
     final ownDevice = await _owner.isOwnDevice?.call(peer) ?? false;
+    Object? consentEpoch;
     if (!ownDevice) {
-      final contact = await _owner._storage.getContact(peer);
-      if (contact == null || contact.status != ContactStatus.accepted) return;
-      markAccepted(peer);
+      consentEpoch = await _acceptedContactEpoch(peer);
+      if (!_cacheAccepted(peer, consentEpoch)) return;
     }
     devLog(
       () =>
@@ -784,6 +819,11 @@ class _MessagingRealtimeControl {
     // only ever produce a drop. Endpoints are, in this file's own words,
     // ephemeral runtime facts — the newest set is the only one worth sending.
     await _retireEarlierEndpointFrames(peer);
+    if (_owner._disposed) return;
+    if (!ownDevice && !_consentCurrent(peer, consentEpoch)) {
+      consentEpoch = await _acceptedContactEpoch(peer);
+      if (!_cacheAccepted(peer, consentEpoch)) return;
+    }
     final envelope = WireEnvelope.p2pEndpoints(bodyJson);
     await _owner.sendDurable(
       peer,
