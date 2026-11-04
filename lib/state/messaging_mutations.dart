@@ -225,6 +225,10 @@ class _MessagingMutations {
           isSpaceRecommendationMessageBody(envelope.body)) {
         return true;
       }
+      if (await _owner._inboundExpiry.edit(peer, target)) {
+        await _owner._inboundExpiry.deletedEdit(peer, id, envelope.seq);
+        return true;
+      }
       // Fold under the editor's seq so both devices converge on (author, seq).
       //
       // NOT scrubbed: an edit is a pure APPEND (a new row at a fresh seq), and
@@ -249,8 +253,9 @@ class _MessagingMutations {
         envelope.body,
         envelope.customEmoji,
       );
-    } else if (!await hasMessage(peer, id) &&
-        !await _owner._storage.isMessageDeleted(peer.hex, id)) {
+    } else if (await _owner._storage.isMessageDeleted(peer.hex, id)) {
+      await _owner._inboundExpiry.deletedEdit(peer, id, envelope.seq);
+    } else if (!await hasMessage(peer, id)) {
       bufferPending(
         peer,
         id,

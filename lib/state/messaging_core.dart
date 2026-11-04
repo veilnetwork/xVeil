@@ -69,6 +69,7 @@ part 'messaging_replication_expiry.dart';
 part 'messaging_edit_expiry.dart';
 part 'messaging_expiry_lifecycle.dart';
 part 'messaging_peer_expiry.dart';
+part 'messaging_inbound_expiry.dart';
 part 'messaging_group_receipts.dart';
 part 'messaging_group_source.dart';
 part 'messaging_group_content.dart';
@@ -295,6 +296,9 @@ class MessagingService {
   }
 
   late final _MessagingOutbox _outbox = _MessagingOutbox(this);
+  late final _MessagingInboundExpiry _inboundExpiry =
+      _MessagingInboundExpiry(this);
+
   late final _MessagingExpiryLifecycle _expiryLifecycle =
       _MessagingExpiryLifecycle(this);
   late final _MessagingRealtimeControl _realtimeControl =
