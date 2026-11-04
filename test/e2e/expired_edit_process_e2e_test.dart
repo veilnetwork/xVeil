@@ -145,7 +145,18 @@ void main() {
       }
       E2eLog.line('PROCESS_EXPIRED_EDIT_RAW_ROOTS_CLEAN');
       await a.start();
+      final restarted = Stopwatch()..start();
       await c.start();
+      final firstRead = await base.rows(c, ai);
+      expect(firstRead.any((r) => r['id'] == id), isFalse);
+      expect(
+        restarted.elapsed,
+        lessThan(const Duration(seconds: 30)),
+        reason: 'qualification must precede the old first periodic sweep',
+      );
+      E2eLog.line(
+        'PROCESS_STARTUP_TTL_FIRST_READ_PASS ready_ms=${restarted.elapsedMilliseconds}',
+      );
       await waitUntil(
         () async {
           final receiver = await _probe(c, ai, id, seq: seq);
@@ -162,11 +173,7 @@ void main() {
         query: {'peer': ci, 'text': 'fresh-after-expired-edit'},
       );
       await base.hasBody(c, ai, 'fresh-after-expired-edit');
-      await waitUntil(
-        () async => !(await base.rows(c, ai)).any((r) => r['id'] == id),
-        what: 'receiver finishes its ordinary TTL sweep after cold restart',
-        timeout: const Duration(seconds: 30),
-      );
+      expect((await base.rows(c, ai)).any((r) => r['id'] == id), isFalse);
       E2eLog.line('PROCESS_EXPIRED_EDIT_ACK_AND_FRESH_DELIVERY_PASS');
     },
     skip: gate.skip,
