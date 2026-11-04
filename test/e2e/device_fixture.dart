@@ -423,6 +423,10 @@ class E2eDevice {
                               inner,
                               census.clock,
                               census.observeRpc,
+                              traceRpc:
+                                  Platform
+                                      .environment['XVEIL_E2E_STORAGE_TIMELINE'] ==
+                                  label,
                             );
                     }, census))
               ..useOnDiskTier(Directory('${dir.path}/blobs'));

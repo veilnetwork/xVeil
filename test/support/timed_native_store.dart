@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'dart:typed_data';
 
 import 'package:xveil/core/ids.dart';
@@ -42,7 +43,15 @@ class TimedNativeStore
         AsyncLogGroupReader,
         CommitAnchorSource,
         AsyncKvBatchReader {
-  TimedNativeStore(this.inner, this.clock, this.observe) {
+  TimedNativeStore(
+    this.inner,
+    this.clock,
+    this.observe, {
+    this.traceRpc = false,
+  }) {
+    if (traceRpc && inner is! WorkerKvLogStore) {
+      throw ArgumentError('VM tracing requires the actual single worker');
+    }
     if (inner is! AsyncLogBatchReader ||
         inner is! AsyncLogGroupReader ||
         inner is! AsyncKvBatchReader ||
@@ -52,6 +61,8 @@ class TimedNativeStore
       );
     }
   }
+  final bool traceRpc;
+  int _rpcSequence = 0;
   final AsyncKvLogStore inner;
   final Stopwatch clock;
   final NativeTiming observe;
@@ -61,6 +72,7 @@ class TimedNativeStore
     Future<T> Function() body, {
     List<int> namespaces = const [],
     int? operations,
+    bool queued = true,
   }) async {
     final start = clock.elapsedMicroseconds;
     final groupFrame = Zone.current[groupTimingFrameKey];
@@ -69,9 +81,18 @@ class TimedNativeStore
     final authorizationFlush = Zone.current[authorizationFlushTimingKey];
     final storageOperation = Zone.current[storageTimingOperationKey];
     final context = Zone.current[storageTimingContextKey];
+    final trace = traceRpc && queued ? developer.TimelineTask() : null;
+    trace?.start(
+      'stand.storage.rpc',
+      arguments: {'operation': operation, 'sequence': ++_rpcSequence},
+    );
+    var ok = false;
     try {
-      return await body();
+      final result = await body();
+      ok = true;
+      return result;
     } finally {
+      trace?.finish(arguments: {'ok': ok});
       observe({
         'operation': operation,
         'start_us': start,
@@ -126,6 +147,7 @@ class TimedNativeStore
         },
         namespaces: [namespace],
         operations: keys.length,
+        queued: keys.isNotEmpty,
       );
   @override
   Future<Uint8List?> readLog(int namespace, int logId) => _time(
@@ -139,6 +161,7 @@ class TimedNativeStore
     () => (inner as AsyncLogBatchReader).readLogBatch(namespace, ids),
     namespaces: [namespace],
     operations: ids.length,
+    queued: ids.isNotEmpty,
   );
   @override
   Future<List<Uint8List>?> readLogGroups(
@@ -155,6 +178,7 @@ class TimedNativeStore
       () => (inner as AsyncLogGroupReader).readLogGroups(namespace, requested),
       namespaces: [namespace],
       operations: requested.fold<int>(0, (n, group) => n + group.ids.length),
+      queued: requested.any((group) => group.ids.isNotEmpty),
     );
   }
 
@@ -189,15 +213,19 @@ class TimedNativeStore
   @override
   Future<void> scrub() => _time('kv.scrub', inner.scrub);
   @override
-  Future<Uint8List> exportKeys() => inner.exportKeys();
+  Future<Uint8List> exportKeys() =>
+      traceRpc ? _time('kv.exportKeys', inner.exportKeys) : inner.exportKeys();
   @override
   Future<SlotUtilization?> slotUtilization() =>
       _time('kv.slots', inner.slotUtilization);
   @override
-  Future<String?> hardeningWarning() => inner.hardeningWarning();
+  Future<String?> hardeningWarning() => traceRpc
+      ? _time('kv.hardeningWarning', inner.hardeningWarning)
+      : inner.hardeningWarning();
   @override
-  Future<void> acknowledgeHardeningWarning() =>
-      inner.acknowledgeHardeningWarning();
+  Future<void> acknowledgeHardeningWarning() => traceRpc
+      ? _time('kv.ackHardening', inner.acknowledgeHardeningWarning)
+      : inner.acknowledgeHardeningWarning();
   @override
   Future<int> commitSeq() =>
       _time('anchor.sequence', (inner as CommitAnchorSource).commitSeq);
@@ -208,7 +236,8 @@ class TimedNativeStore
   Future<Map<int, String>> commitRoots() =>
       _time('anchor.roots', (inner as CommitAnchorSource).commitRoots);
   @override
-  Future<void> close() => inner.close();
+  Future<void> close() =>
+      traceRpc ? _time('kv.close', inner.close) : inner.close();
 }
 
 class TimedNativeRatchet extends RatchetPersistence {

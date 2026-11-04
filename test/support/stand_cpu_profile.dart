@@ -44,6 +44,12 @@ class StandCpuProfile {
     return Map<String, dynamic>.from(decoded['result'] as Map);
   }
 
+  // Shared only by private stand tooling; never imported by the application.
+  Future<Map<String, dynamic>> request(
+    String method, [
+    Map<String, String> parameters = const {},
+  ]) => _rpc(method, parameters);
+
   Future<void> reset() async {
     await _rpc('setFlag', {'name': 'profile', 'value': 'true'});
     final vm = await _rpc('getVM');

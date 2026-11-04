@@ -19,6 +19,7 @@ import 'package:xveil/state/device_sync_bridge.dart' show awaitDeviceHistoryRoom
 import 'device_fixture.dart';
 import 'e2e_env.dart';
 import '../support/stand_cpu_profile.dart';
+import '../support/stand_storage_timeline.dart';
 
 // File-controlled synthetic stand probe, never an application HTTP endpoint.
 // Populate the real durable Outbox while the master process is stopped, then
@@ -135,6 +136,7 @@ void main() {
           .toList();
       E2eDevice? device;
       StandCpuProfile? cpuProfile;
+      StandStorageTimeline? storageTimeline;
       try {
         await tester.runAsync(() async {
           device = await E2eDevice.startWorker(
@@ -178,6 +180,17 @@ void main() {
                 }));
                 await response.rename('${dir.path}/storage-inspected.json');
                 continue;
+              }
+              if (env['XVEIL_E2E_STORAGE_TIMELINE'] == label &&
+                  request['storageTiming'] == true) {
+                final evidence = env['XVEIL_E2E_EVIDENCE_DIR'];
+                if (evidence == null) {
+                  throw StateError('timeline needs private evidence');
+                }
+                storageTimeline ??= await StandStorageTimeline.open(
+                  File('$evidence/storage-timeline-$label-$pid-private.jsonl'),
+                );
+                await storageTimeline!.capture();
               }
               if (env['XVEIL_E2E_CPU_PROFILE'] == '1' &&
                   request['storageTiming'] == true &&
@@ -341,8 +354,12 @@ void main() {
               );
             }
           } finally {
-            cpuProfile?.close();
-            await device?.stop();
+            try {
+              await storageTimeline?.close();
+            } finally {
+              cpuProfile?.close();
+              await device?.stop();
+            }
           }
         });
       }
