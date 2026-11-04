@@ -683,6 +683,7 @@ extension _MessagingContentPublish on MessagingService {
       id: msgId,
       timestamp: _now(),
     );
+    if (stored == null) return false;
     _signal();
     await _advertiseStored(
       dst,
@@ -822,6 +823,7 @@ extension _MessagingContentPublish on MessagingService {
       id: msgId,
       timestamp: _now(),
     );
+    if (stored == null) return;
     _signal();
     // Advertise carrying THIS send's event identity so the receiver folds a
     // first-class filePost and acks by msgId (not the shared contentId).
@@ -975,6 +977,10 @@ extension _MessagingContentPublish on MessagingService {
       id: msgId,
       timestamp: _now(),
     );
+    if (stored == null) {
+      await close();
+      return null;
+    }
     devLog(
       () =>
           'xVeil[content]: stream-send stored offer '

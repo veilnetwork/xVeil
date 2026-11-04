@@ -363,7 +363,7 @@ class _MessagingLocalChat {
     final key = message.fileId ?? message.fileContentId;
     if (key == null || !await _owner._storage.hasFile(key)) return false;
     final selfId = NodeId.fromHex(await _owner._selfHex());
-    await _owner._store(
+    final stored = await _owner._store(
       selfId,
       MessageDirection.outgoing,
       message.body,
@@ -376,6 +376,7 @@ class _MessagingLocalChat {
       forwardedFrom: forwardedFrom,
       timestamp: _owner._now(),
     );
+    if (stored == null) return false;
     _owner._signal();
     return true;
   }

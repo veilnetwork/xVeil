@@ -2584,7 +2584,7 @@ extension _MessagingContentPull on MessagingService {
       );
       return false; // deliberately deleted
     }
-    await _store(
+    final stored = await _store(
       peer,
       MessageDirection.incoming,
       '📎 $name',
@@ -2601,6 +2601,7 @@ extension _MessagingContentPull on MessagingService {
       // bound as every other wire stamp, not a bare fromMillisecondsSinceEpoch.
       timestamp: _wireSentAtMs(ts) ?? _now(),
     );
+    if (stored == null) return false;
     _emitIncoming(
       peer,
       '📎 $name',

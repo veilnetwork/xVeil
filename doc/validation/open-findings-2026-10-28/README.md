@@ -1,5 +1,18 @@
 # Открытые случаи — обновлено 2026-11-04
 
+Последний шаг: [TTL между append и публикацией](../store-ttl-boundary-2026-11-04/README.md).
+Три red tests подтвердили выдачу expired post/offer в publication/send/notices,
+если append завершался после TTL. Общий store теперь возвращает null после
+сохранённого удаления; вызывающие ветки прекращают отправку/уведомление/fetch,
+необъявленный streaming source закрывается. Ошибка удаления сохраняет exact
+retry без ACK. Pending-delete double publication поймана и исправлена отдельно.
+Финальная полная серия: 1432 tests / 3 skipped в 78 файлах; 78 targeted,
+10 native cases и analyzer также прошли. Fresh A/B/C file regression: две receiver cold копии и две
+sibling metadata copies без дублей, 18 PID/30 портов/1452 frozen inputs, все
+стенды закрыты. Remaining: expiry внутри publisher/очередей, edit/transport I/O,
+partial transfers/policy/clock skew и остальная матрица. Mailbox/push/релиза нет.
+
+
 Последний шаг: [TTL входящих файлов и предложений](../media-ttl-2026-11-04/README.md).
 Подтверждены и локально исправлены legacy сборка после TTL и регистрация/
 автозагрузка full manifest/ref после отказа expired/deleted сообщению.
@@ -1124,6 +1137,7 @@ push/релиза нет; multi-device матрица не квалифицир�
 
 | Случай | Отметка | Граница подтверждения |
 |---|---|---|
+| TTL после append до публикации | **ПОДТВЕРЖДЕНО, ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННОЙ ГРАНИЦЕ** | Строка, истёкшая во время append, удаляется до onMessageStored; nullable результат останавливает wire/notification/autofetch. Unit/native gates, scoped author slot, точный retry и fresh A/B/C прошли. Внутри уже запущенного publisher/редакций/transport I/O ещё не квалифицировано. [Проверка](../store-ttl-boundary-2026-11-04/README.md). |
 | TTL входящих файлов и предложений | **ПОДТВЕРЖДЕНО, ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННЫХ ПУТЯХ** | Legacy meta/chunks/query используют исходный clock и durable expiry; full manifest/ref прекращают unsolicited fetch после отказа surface. Claimed query read-only; свежий ID того же content работает. 6 native cases и fresh A/B/C file regression прошли. Mid-I/O, уже начатые shared downloads/partial transfers и legacy egress NACK остаются вне этой квалификации. [Проверка](../media-ttl-2026-11-04/README.md). |
 | TTL входящего текста и правок | **ПОДТВЕРЖДЕНО, ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННЫХ ПУТЯХ** | Истёкшие обычный post, duplicate и peer/mirrored edit больше не записывают/публикуют новое тело; tombstone/peer void и required publication предшествуют application ACK. Unit/native отказ/точный retry и cold reopen прошли. Другие media kinds и дальнейшие async I/O окна не квалифицированы полностью. [Проверка](../inbound-ttl-2026-11-04/README.md). |
 | Прямые queued правки после TTL и ранний ACK void | **ПОДТВЕРЖДЕНО, ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННОМ ПУТИ** | Тело edit оставалось и повторно передавалось после expiry. Теперь exact replacement на bodyless seq slot либо локальный discard для legacy; ACK void только после durable apply. Native raw roots и process A/B/C прошли. Transport/fragmentation после handoff не квалифицированы. [Проверка](../direct-edit-expiry-2026-11-04/README.md). |

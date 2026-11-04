@@ -164,7 +164,7 @@ class _MessagingContacts {
   /// and nothing anywhere said so. Persist the handshake before either leg
   /// so an unsuccessful first attempt can retry after reconnect or restart.
   Future<bool> sendRequest(NodeId dst, String greeting) async {
-    final text = greeting.trim();
+    var text = greeting.trim();
     await setStatus(dst, ContactStatus.pendingOutgoing);
     // Tag the greeting with a stable id shared between our stored copy and the
     // request on the wire. The greeting is stored `sent`, so the outbox re-sends
@@ -174,7 +174,7 @@ class _MessagingContacts {
     final id = _uuid.v4();
     final sentAt = DateTime.now();
     if (text.isNotEmpty) {
-      await _owner._store(
+      final stored = await _owner._store(
         dst,
         MessageDirection.outgoing,
         text,
@@ -182,6 +182,7 @@ class _MessagingContacts {
         id: id,
         timestamp: sentAt,
       );
+      if (stored == null) text = '';
     }
     _owner._signal();
     final frameId = 'request:$id';

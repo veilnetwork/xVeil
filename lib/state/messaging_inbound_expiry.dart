@@ -86,4 +86,16 @@ class _MessagingInboundExpiry {
 
   Future<void> deletedEdit(NodeId peer, String id, int? seq) =>
       _guard(() => _finish(peer, id, peerSeq: seq));
+
+  /// Append completion may wait behind storage I/O while the original clock
+  /// expires. Erase through the stored author's real slot; no peer sequence
+  /// may be invented for a local outgoing row or system annotation.
+  Future<bool> refuseStored(NodeId peer, Message stored) => _guard(() async {
+    if (!await owner._storage.isMessageDeleted(peer.hex, stored.id) &&
+        !await expired(peer, stored.timestamp)) {
+      return false;
+    }
+    await _finish(peer, stored.id);
+    return true;
+  });
 }

@@ -2036,7 +2036,9 @@ class MessagingService {
   Future<bool> saveFileNoteRef(Message m, {String? forwardedFrom}) =>
       _localChat.saveFileNoteRef(m, forwardedFrom: forwardedFrom);
 
-  Future<Message> _store(
+  /// Null means the committed row expired/was erased while append waited.
+  /// Its durable deletion completes before callers suppress network/notices.
+  Future<Message?> _store(
     NodeId peer,
     MessageDirection dir,
     String body,
@@ -2098,6 +2100,7 @@ class MessagingService {
               : null,
         ),
       );
+      if (await _inboundExpiry.refuseStored(peer, stored)) return null;
       // Multi-device mirror tap: after the single write path persists a 1:1 row,
       // let the device-sync bridge mirror it to my other devices. [_store] is the
       // one messaging write path; applyMirroredMessage bypasses it, so a mirrored
@@ -2822,11 +2825,10 @@ class MessagingService {
   Future<bool> applyMirroredReadMark(String conversationId, int tsMs) =>
       _conversationAdmin.applyMirroredReadMark(conversationId, tsMs);
 
-  /// Returns whether the message was stored and sent. `false` is a refusal —
-  /// empty or malformed text, or a peer that is not an accepted contact — and
-  /// nothing was stored. The chat screen cannot reach those cases (it offers
-  /// no composer to a pending contact), but the API and the debug hook can,
-  /// and they answered "ok" for a message that went nowhere.
+  /// Returns whether a live message was stored and sent. `false` also covers
+  /// expiry/deletion while append waited: no live row or network send remains.
+  /// Empty/malformed text and a peer without consent are refused before append.
+  /// The API/debug hook must not report success for a message sent nowhere.
   Future<bool> sendText(
     NodeId dst,
     String text, {
@@ -2857,6 +2859,7 @@ class MessagingService {
       forwardedFrom: forwardedFrom,
       customEmoji: customEmoji,
     );
+    if (stored == null) return false;
     final id = stored.id;
     _signal();
     // Stays `sent` until the peer acks; the local outbox re-sends un-acked ones
@@ -2914,6 +2917,7 @@ class MessagingService {
       MessageStatus.sent,
       timestamp: sentAt,
     );
+    if (stored == null) return null;
     _signal();
     final wire = WireEnvelope.spaceRecommendation(
       card,
