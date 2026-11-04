@@ -11,6 +11,54 @@ import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 
 void main() {
+  for (final label in ['historyApply', 'historyEncode']) {
+    test(
+      '$label preserves callback identity, failures and reset boundaries',
+      () async {
+        var now = 0;
+        final census = MessageApplyCensus(nowUs: () => now);
+        final run = label == 'historyApply'
+            ? census.historyApply<Object>
+            : census.historyEncode<Object>;
+        final result = Object(), error = StateError('PRIVATE_CALLBACK_ERROR');
+        final entered = Completer<void>(), release = Completer<void>();
+        final future = run(() async {
+          expect(Zone.current[storageTimingContextKey], label);
+          entered.complete();
+          await release.future;
+          return result;
+        });
+        await entered.future;
+        now = 20;
+        census.reset();
+        now = 50;
+        release.complete();
+        expect(await future, same(result));
+        await expectLater(run(() async => throw error), throwsA(same(error)));
+        census.observeRpc({
+          'operation': 'kv.commit',
+          'storage_context': label,
+          'start_us': 0,
+          'duration_us': 50,
+        });
+        final snapshot = census.snapshot();
+        expect((snapshot['contextsCompleted'] as Map)[label], {
+          'count': 2,
+          'awaitUs': 30,
+          'maxAwaitUs': 30,
+          'startedBeforeWindow': 1,
+        });
+        expect((snapshot['rpcContextsCompleted'] as Map)['$label/kv.commit'], {
+          'count': 1,
+          'awaitUs': 30,
+          'maxAwaitUs': 30,
+          'startedBeforeWindow': 1,
+        });
+        expect(jsonEncode(snapshot), isNot(contains('PRIVATE_')));
+      },
+    );
+  }
+
   test(
     'own-device context preserves results, reset, errors and privacy',
     () async {
