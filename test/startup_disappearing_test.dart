@@ -115,6 +115,40 @@ void main() {
     await storage.close();
   });
 
+  test('reconnect during startup cleanup runs once cleanup releases', () async {
+    storage.held = true;
+    service.start();
+    await storage.entered.future;
+    var completed = false;
+    final reconnect = service.reconcileOnConnect().then(
+      (_) => completed = true,
+    );
+    await pumpEventQueue();
+    expect(completed, isFalse, reason: 'reconnect owns its deferred pass');
+    expect(transport.sent.where((e) => e.kind == WireKind.sync), isEmpty);
+    storage.release.complete();
+    await reconnect;
+    await pumpEventQueue();
+    expect(transport.sent.where((e) => e.kind == WireKind.sync), isNotEmpty);
+    expect(await storage.loadMessageById(peer.hex, 'expired'), isNull);
+    expect(
+      transport.sent.any((e) => e.body.contains('PRIVATE_EXPIRED_POST')),
+      isFalse,
+    );
+  });
+
+  test('dispose cancels a reconnect deferred behind startup cleanup', () async {
+    storage.held = true;
+    service.start();
+    await storage.entered.future;
+    final reconnect = service.reconcileOnConnect();
+    await pumpEventQueue();
+    final closing = service.dispose();
+    storage.release.complete();
+    await Future.wait([reconnect, closing]);
+    expect(transport.sent.where((e) => e.kind == WireKind.sync), isEmpty);
+  });
+
   test(
     'start removes already-expired rows without a timer tick or chat open',
     () async {

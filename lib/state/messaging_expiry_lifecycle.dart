@@ -9,6 +9,14 @@ class _MessagingExpiryLifecycle {
   bool _again = false, _closed = false;
   bool get pending => _work != null;
 
+  /// An explicit reconnect must retain its recovery pass while startup owns
+  /// the history barrier. Ordinary periodic retries keep their own cadence.
+  Future<void> settle() async {
+    while (_work != null) {
+      await _work;
+    }
+  }
+
   void request() {
     if (_closed || owner._disposed) return;
     _again = true;

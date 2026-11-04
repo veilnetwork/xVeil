@@ -269,6 +269,7 @@ class _MessagingPeerSync {
   _MessagingPeerSync(this._owner);
 
   final MessagingService _owner;
+  late final _expiry = _PeerHistoryExpiry(_owner);
 
   final Map<String, DateTime> _lastSentAt = {};
   final Map<String, DateTime> _lastActedAt = {};
@@ -721,7 +722,9 @@ class _MessagingPeerSync {
           message.id: message,
     };
     final events = <LogEvent>[];
-    for (final event in candidates) {
+    for (final candidate in candidates) {
+      final event = await _expiry.event(peer, candidate);
+      if (event == null) continue;
       final stored = byId[event.id];
       if ((event.kind == EventKind.post || event.kind == EventKind.filePost) &&
           stored != null &&
@@ -762,7 +765,11 @@ class _MessagingPeerSync {
                     'this mark without it moving)' : ''}',
     );
     if (events.isNotEmpty && !withheld) {
-      for (final event in events) {
+      for (final candidate in events) {
+        // Earlier durable publications/sends may have waited past TTL or a
+        // deletion. Revalidate the exact event before handing bytes off.
+        final event = await _expiry.event(peer, candidate);
+        if (event == null || _owner._disposed) continue;
         switch (event.kind) {
           case EventKind.post:
           case EventKind.filePost:
@@ -1006,7 +1013,7 @@ class _MessagingPeerSync {
       // BY TIME: the log is in arrival order, and "the last hundred" of it is
       // not the newest hundred once gap-fill and mirrors have filled it in.
       final sent = [
-        for (final m in snapshot.messages)
+        for (final m in await _expiry.visible(peer, snapshot.messages))
           if (m.direction == MessageDirection.outgoing) m,
       ]..sort((a, b) => a.timestamp.compareTo(b.timestamp));
       if (sent.isEmpty) return null;
@@ -1084,7 +1091,7 @@ class _MessagingPeerSync {
     if (held.isEmpty) return;
     final snapshot = await _editSnapshot(peer);
     final theirs = [
-      for (final m in snapshot.messages)
+      for (final m in await _expiry.visible(peer, snapshot.messages))
         if (m.direction == MessageDirection.incoming &&
             m.seq != null &&
             (m.author == null || m.author == peer.hex) &&
@@ -1120,6 +1127,7 @@ class _MessagingPeerSync {
       );
     }
     for (final m in edited) {
+      if (await _expiry.state(peer, m.id) != _PeerBodyState.live) continue;
       await _owner._send(
         to,
         WireEnvelope.sync(
@@ -1183,6 +1191,7 @@ class _MessagingPeerSync {
           '-> ${missing.length} handed back',
     );
     for (final m in missing) {
+      if (await _expiry.state(peer, m.id) != _PeerBodyState.live) continue;
       final cid = m.fileContentId;
       await _owner._send(
         to,
