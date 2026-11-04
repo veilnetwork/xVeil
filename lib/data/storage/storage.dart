@@ -29,6 +29,22 @@ class PendingCallLogSync {
   final String token;
 }
 
+/// A local consent decision not yet handed to the committed device journal.
+/// The original timestamp survives retries; [token] protects acknowledgement
+/// against a newer local decision for the same contact.
+class PendingContactDecision {
+  const PendingContactDecision({
+    required this.peer,
+    required this.status,
+    required this.atMs,
+    required this.token,
+  });
+  final NodeId peer;
+  final ContactStatus status;
+  final int atMs;
+  final String token;
+}
+
 /// Domain-oriented persistence port.
 ///
 /// The production adapter is backed by `hidden-volume`: a [open] call unlocks
@@ -106,6 +122,28 @@ abstract interface class Storage {
   Future<List<RosterEntry>?> loadRoster();
 
   Future<void> upsertContact(Contact contact);
+
+  /// Change a local relationship, preserving its current other fields.
+  /// Accepted/blocked decisions queue device publication in the same commit.
+  Future<void> setContactStatus(NodeId peer, ContactStatus status);
+
+  /// Apply a verified, effective device-journal decision without echoing it.
+  /// Persist its ordering floor so delayed events cannot undo a newer local
+  /// decision, even before that local decision reaches the device journal.
+  Future<bool> applyContactDecision(
+    NodeId peer,
+    ContactStatus status,
+    int atMs,
+  );
+
+  Future<PendingContactDecision?> contactDecisionFloor(NodeId peer);
+
+  Future<List<PendingContactDecision>> pendingContactDecisions({
+    int limit = 64,
+    String? afterPeerHex,
+  });
+
+  Future<bool> acknowledgeContactDecision(PendingContactDecision record);
 
   /// Persist the local acceptance and its destination-bound response in one
   /// transaction. Preserve the contact's other current fields and the age of

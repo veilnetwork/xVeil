@@ -2174,8 +2174,11 @@ class MessagingService {
   Future<void> _setStatus(NodeId peer, ContactStatus status) =>
       _contacts.setStatus(peer, status);
 
-  Future<bool> applyMirroredContactStatus(NodeId peer, ContactStatus status) =>
-      _contacts.applyMirroredContactStatus(peer, status);
+  Future<bool> applyMirroredContactStatus(
+    NodeId peer,
+    ContactStatus status, {
+    int? atMs,
+  }) => _contacts.applyMirroredContactStatus(peer, status, atMs: atMs);
 
   Future<void> _handleRequestOrReconnect(
     InboundMessage message,
