@@ -336,4 +336,25 @@ void main() {
       expect(rawContains('PRIVATE_DURING_APPEND'), isFalse);
     },
   );
+  test(
+    'outgoing post expiring while required publisher waits is not sent',
+    () async {
+      storage.armed = false;
+      final entered = Completer<void>(), release = Completer<void>();
+      service.onMessageStored = (_, _) async {
+        entered.complete();
+        await release.future;
+      };
+      final sending = service.sendText(peer, 'PRIVATE_PUBLISHER_WAIT');
+      try {
+        await entered.future.timeout(const Duration(seconds: 10));
+        now = now.add(const Duration(seconds: 30));
+      } finally {
+        release.complete();
+      }
+      expect(await sending, isFalse);
+      expect(link.sent.any((e) => e.kind == WireKind.message), isFalse);
+      expect(await storage.loadMessages(peer.hex), isEmpty);
+    },
+  );
 }

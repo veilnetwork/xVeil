@@ -1,5 +1,20 @@
 # Открытые случаи — обновлено 2026-11-04
 
+Последний шаг: [TTL внутри publisher и парной записи журнала](../publisher-ttl-boundary-2026-11-04/README.md).
+Подтверждены post-publisher отправка истёкшего тела и сохранение expired mirror
+при задержанном завершении atomic pair. Добавлены повторная проверка store,
+тихий save/recheck/scrub до подтверждения device batch и точная TTL boundary.
+Отдельные два red выявили обход через независимый key-share snapshot; его
+запуск отложен до cleaned committed bundle, без сетевого ожидания в ingress.
+Ошибка scrub не публикуется как успех, exact retry после восстановления
+завершает очистку. Широкая серия 1437 passed / 4 skipped; финальные 6 targeted
+с явно заданной native HVS без skip, analyzer чистый. Финальный fresh-file
+A/B/C: две receiver byte-копии и две sibling metadata copies без дублей;
+test/driver/cleanup 0/0/0, 18 PID / 21 порт / 1452 frozen inputs, runtime удалён.
+Первая попытка с отсутствующим private evidence-каталогом не засчитана;
+product между попытками не менялся. Другие transport I/O/partial/policy/clock skew
+и полная матрица остаются открыты; mailbox/push/релиза нет.
+
 Последний шаг: [TTL между append и публикацией](../store-ttl-boundary-2026-11-04/README.md).
 Три red tests подтвердили выдачу expired post/offer в publication/send/notices,
 если append завершался после TTL. Общий store теперь возвращает null после
@@ -1137,6 +1152,7 @@ push/релиза нет; multi-device матрица не квалифицир�
 
 | Случай | Отметка | Граница подтверждения |
 |---|---|---|
+| TTL внутри required publisher / atomic journal completion | **ПОДТВЕРЖДЕНО, ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННОЙ ГРАНИЦЕ** | После publisher повторяется expiry guard; device post ждёт save/recheck/scrub, включая независимый key-share. Failed cleanup не ACK/notice/snapshot; exact retry и свежая отправка проходят. Native paired-commit / cold floor и широкая регрессия прошли. Остальные async snapshot/transport/partial/policy границы не закрыты. [Проверка](../publisher-ttl-boundary-2026-11-04/README.md). |
 | TTL после append до публикации | **ПОДТВЕРЖДЕНО, ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННОЙ ГРАНИЦЕ** | Строка, истёкшая во время append, удаляется до onMessageStored; nullable результат останавливает wire/notification/autofetch. Unit/native gates, scoped author slot, точный retry и fresh A/B/C прошли. Внутри уже запущенного publisher/редакций/transport I/O ещё не квалифицировано. [Проверка](../store-ttl-boundary-2026-11-04/README.md). |
 | TTL входящих файлов и предложений | **ПОДТВЕРЖДЕНО, ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННЫХ ПУТЯХ** | Legacy meta/chunks/query используют исходный clock и durable expiry; full manifest/ref прекращают unsolicited fetch после отказа surface. Claimed query read-only; свежий ID того же content работает. 6 native cases и fresh A/B/C file regression прошли. Mid-I/O, уже начатые shared downloads/partial transfers и legacy egress NACK остаются вне этой квалификации. [Проверка](../media-ttl-2026-11-04/README.md). |
 | TTL входящего текста и правок | **ПОДТВЕРЖДЕНО, ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННЫХ ПУТЯХ** | Истёкшие обычный post, duplicate и peer/mirrored edit больше не записывают/публикуют новое тело; tombstone/peer void и required publication предшествуют application ACK. Unit/native отказ/точный retry и cold reopen прошли. Другие media kinds и дальнейшие async I/O окна не квалифицированы полностью. [Проверка](../inbound-ttl-2026-11-04/README.md). |

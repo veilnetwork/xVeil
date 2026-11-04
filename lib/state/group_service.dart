@@ -6605,6 +6605,7 @@ class GroupService implements ArchiveGroups {
     GroupBundle b, {
     bool notify = true,
     bool preserveDeviceAdmission = false,
+    bool shareEpochKeys = true,
   }) async {
     final controlBeforeAdmission = b.control;
     b = _admitControlRowsSignedByLiveKeys(b);
@@ -6687,7 +6688,7 @@ class GroupService implements ArchiveGroups {
     // or arrived in a snapshot — so this is the one place that sees them all.
     // Not awaited: the write is what the caller was promised, and a sibling
     // that is slow to reach must not hold up a local save.
-    if (!_disposed) {
+    if (!_disposed && shareEpochKeys) {
       _backgroundTasks.start(() => _shareNewEpochKeysWithMyDevices(b));
     }
     // Default to invalidation: incoming state and control/document changes may
@@ -21595,14 +21596,10 @@ class GroupService implements ArchiveGroups {
     }
     final proposed = draft.bundle;
     if (!proposed.messages.any((m) => !before.contains(m.ref))) return results;
-    final working = await _compaction._withoutExpiredDeviceBodies(
+    var working = await _compaction._withoutExpiredDeviceBodies(
       proposed,
       storedHashes: {for (final m in start.messages) _messageHash(m)},
     );
-    final fresh = [
-      for (final m in working.messages)
-        if (!before.contains(m.ref)) m,
-    ];
     // These local appends cannot change the device owner or master's address.
     // Clearing their 30-second cache for every mirror made the next frame
     // reload the entire journal just to rediscover the same admission answer.
@@ -21625,7 +21622,45 @@ class GroupService implements ArchiveGroups {
             _ => false,
           },
         );
-    await _save(working, preserveDeviceAdmission: admissionNeutral);
+    while (true) {
+      // Neither change listeners nor replication may observe this batch until
+      // the expiry check AFTER its durable write. Each extra pass removes rows,
+      // so the loop is bounded by the finite batch/journal, not a time retry.
+      working = await _save(
+        working,
+        notify: false,
+        preserveDeviceAdmission: admissionNeutral,
+        shareEpochKeys: false,
+      );
+      if (working.deviceMessageScrubPending) {
+        await _compaction.compactLocked(
+          gid,
+          notify: false,
+          shareEpochKeys: false,
+        );
+        working = (await load(gid)) ??
+            (throw StateError('Device journal unavailable after expiry cleanup'));
+      }
+      final current = await _compaction._withoutExpiredDeviceBodies(
+        working,
+        storedHashes: {for (final m in working.messages) _messageHash(m)},
+      );
+      if (identical(current, working)) break;
+      working = current;
+    }
+    final fresh = [
+      for (final m in working.messages)
+        if (!before.contains(m.ref)) m,
+    ];
+    // _save also shares complete snapshots when it learns epoch keys. Defer
+    // that independent sender along with the ordinary delta: an intermediate
+    // committed bundle may still need expiry removal or physical cleanup.
+    // Keep network work in the background, as on every other save.
+    if (!_disposed) {
+      final committed = working;
+      _backgroundTasks.start(() => _shareNewEpochKeysWithMyDevices(committed));
+    }
+    changes.value++;
     if (!_disposed && fresh.isNotEmpty) {
       if (batch.any((item) => item.queueReplication)) {
         // The replay's awaitRoom reads the durable Outbox. Detaching this
