@@ -1,5 +1,21 @@
 # Открытые случаи — обновлено 2026-11-04
 
+Последний шаг: [TTL при прямой догрузке истории](../peer-history-ttl-2026-11-04/README.md).
+Четыре красных теста подтвердили выдачу expired post/edit/file metadata и
+own-echo при недоступном фоновом prune. Источники теперь фильтруют TTL; свои
+slots становятся пустыми только после durable tombstone, чужие не подделываются.
+После async ожиданий tail revalidated; ошибки доступны в анонимном отчёте.
+Попутно подтверждён на архиве прежнего HEAD и исправлен потерянный reconnect
+во время startup cleanup: явный запрос ждёт барьер, обычный cadence сохранён.
+1153 tests / 3 skipped, финальные 25 targeted, 3 native cases и analyzer чистые.
+Process A/B/C восстановил 100 правок через C при offline A, сохранил их после
+restart и подтвердил авторской историей A при offline C; дублей нет.
+Test/driver/cleanup 0/0/0: 40 PID / 56 портов / 1444 frozen inputs, runtime
+удалён, native SHA прежние. Это регрессия сходимости, не замер ускорения.
+Проверки ingress/partial-transfer/policy/clock skew и общая latency остаются
+открыты. Mailbox для собственных устройств не подключался; push/релиза нет.
+
+
 Последний шаг: [TTL при запуске и чтении](../startup-ttl-2026-11-04/README.md).
 Исправлены подтверждённые startup timer gap, выдача expired rows/preview в UI,
 обычный retry во время медленного prune и точное равенство TTL cutoff. Initial
