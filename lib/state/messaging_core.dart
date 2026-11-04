@@ -68,6 +68,7 @@ part 'messaging_replication.dart';
 part 'messaging_replication_expiry.dart';
 part 'messaging_edit_expiry.dart';
 part 'messaging_expiry_lifecycle.dart';
+part 'messaging_peer_expiry.dart';
 part 'messaging_group_receipts.dart';
 part 'messaging_group_source.dart';
 part 'messaging_group_content.dart';
@@ -1787,6 +1788,8 @@ class MessagingService {
     // again — reset the failure backoff and probe each pending one.
     _downloadResume.reconcileOnConnect();
     unawaited(announcePresence());
+    await _expiryLifecycle.settle();
+    if (_disposed) return;
     await flushOutbox();
   }
 
