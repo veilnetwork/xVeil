@@ -9215,6 +9215,221 @@ void main() {
     skip: (Platform.environment['XVEIL_HV_DYLIB'] ?? '').isEmpty,
   );
 
+  for (final native in [false, true]) {
+    test(
+      'device TTL conflicting old mirror preserves live canonical journal (native=$native)',
+      () async {
+        late HiddenVolumeStorage storage;
+        if (native) {
+          expect(
+            ensureHiddenVolumeLoaded(
+              dylibPath: Platform.environment['XVEIL_HV_DYLIB'],
+            ),
+            isTrue,
+          );
+          final dir = await Directory.systemTemp.createTemp(
+            'xveil-clock-mirror-',
+          );
+          addTearDown(() => dir.delete(recursive: true));
+          final path = '${dir.path}/store.hv';
+          HvKvLogStore(
+            hv.HvSpace.create(
+              path: path,
+              password: Uint8List.fromList(utf8.encode('fixture')),
+              argon: hv.ArgonPreset.light,
+            ),
+          ).close();
+          storage = HiddenVolumeStorage.async(workerSpaceOpener(path));
+        } else {
+          storage = FakeHvContainer().storage();
+        }
+        expect(
+          await storage.open(password: 'fixture', createIfMissing: true),
+          isTrue,
+        );
+        addTearDown(storage.close);
+        var wall = DateTime.utc(2026, 11, 4, 12).millisecondsSinceEpoch;
+        final svc = GroupService(storage, _FakeSigner(owner))
+          ..debugWallClockMs = () => wall;
+        addTearDown(svc.dispose);
+        await svc.linkDevice(bob, sovereign: sovereign);
+        final gid = NodeId.fromHex((await svc.deviceGroupIdHex())!);
+        final peer = _id(77);
+        await storage.upsertContact(
+          Contact(nodeId: peer, status: ContactStatus.accepted),
+        );
+        await storage.appendMessage(
+          Message(
+            id: 'clock-conflict',
+            conversationId: peer.hex,
+            direction: MessageDirection.incoming,
+            body: 'KEEP_CANONICAL_EDIT',
+            timestamp: DateTime.fromMillisecondsSinceEpoch(wall),
+            author: peer.hex,
+            seq: 1,
+          ),
+        );
+        for (final event in [
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.msgMirror,
+            key: 'clock-conflict',
+            tsMs: wall,
+            payload: {
+              'peer': peer.hex,
+              'dir': 'incoming',
+              'body': 'KEEP_LIVE_MIRROR',
+              'au': peer.hex,
+              'sq': 1,
+            },
+          ),
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.msgEdit,
+            key: 'clock-conflict',
+            tsMs: wall,
+            payload: {'peer': peer.hex, 'body': 'KEEP_CANONICAL_EDIT'},
+          ),
+          // This older clock can arrive later in the journal, so it is also
+          // the author's high-water row and cannot disappear just as obsolete LWW.
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.msgMirror,
+            key: 'clock-conflict',
+            tsMs: wall - 60000,
+            payload: {
+              'peer': peer.hex,
+              'dir': 'incoming',
+              'body': 'PRIVATE_STALE_CLOCK',
+              'au': peer.hex,
+              'sq': 1,
+            },
+          ),
+        ]) {
+          expect(await svc.postDeviceEvent(event), isTrue);
+        }
+        final before = (await svc.load(gid))!;
+        expect(before.messages, hasLength(3));
+        final high = before.messages
+            .map((m) => m.seq)
+            .reduce((a, b) => a > b ? a : b);
+        final header =
+            jsonDecode(
+                  utf8.decode((await storage.loadFile('group:${gid.hex}'))!),
+                )
+                as Map;
+        final oldSegments = (header['gs'] as List).cast<String>();
+        expect(oldSegments, isNotEmpty);
+        expect(
+          utf8.decode((await storage.loadFile(oldSegments.single))!),
+          contains('PRIVATE_STALE_CLOCK'),
+        );
+        await storage.upsertContact(
+          (await storage.getContact(
+            peer,
+          ))!.copyWith(disappearingTtlSeconds: 30),
+        );
+        final filtered = await svc.filterExpiredDeviceSnapshot(
+          gid.hex,
+          svc.snapshotJson(before),
+        );
+        expect(filtered, isNotNull);
+        expect(
+          (jsonDecode(filtered!) as Map)['g'],
+          [
+            for (final message in before.messages)
+              if (!message.body.contains('PRIVATE_STALE_CLOCK'))
+                message.toJson(),
+          ],
+          reason: 'queued filtering must retain exact signed live rows too',
+        );
+        expect(
+          await storage.isMessageDeleted(peer.hex, 'clock-conflict'),
+          isFalse,
+        );
+        await svc.compactStateLogs(gid);
+        final cleaned = (await svc.load(gid))!;
+        final bodies = cleaned.messages.map((m) => m.body).join();
+        expect(
+          bodies,
+          contains('KEEP_LIVE_MIRROR'),
+          reason: 'a refused unseen-expiry marker is not a durable deletion',
+        );
+        expect(bodies, contains('KEEP_CANONICAL_EDIT'));
+        expect(
+          bodies,
+          isNot(contains('PRIVATE_STALE_CLOCK')),
+          reason: 'the stale copy still has to be physically retired',
+        );
+        expect(
+          await storage.isMessageDeleted(peer.hex, 'clock-conflict'),
+          isFalse,
+        );
+        expect(
+          (await storage.loadMessageById(peer.hex, 'clock-conflict'))!.body,
+          'KEEP_CANONICAL_EDIT',
+        );
+        expect(cleaned.deviceMessageScrubPending, isFalse);
+        expect(cleaned.deviceMessageSeqFloors[owner.hex], high);
+        for (final segment in oldSegments) {
+          expect(
+            await storage.loadFile(segment),
+            isNull,
+            reason: 'the old stored segment cannot retain the stale copy',
+          );
+        }
+        // Cold reopen must preserve both the live rows and the retired tail's
+        // local allocation floor. The floor is not a foreign deletion proof.
+        await svc.dispose();
+        await storage.close();
+        expect(await storage.open(password: 'fixture'), isTrue);
+        final reopened = GroupService(storage, _FakeSigner(owner))
+          ..debugWallClockMs = () => wall;
+        addTearDown(reopened.dispose);
+        final cold = (await reopened.load(gid))!;
+        expect(
+          cold.messages.map((m) => m.body).join(),
+          contains('KEEP_LIVE_MIRROR'),
+        );
+        expect(
+          cold.messages.map((m) => m.body).join(),
+          isNot(contains('PRIVATE_STALE_CLOCK')),
+        );
+        expect(
+          await reopened.postDeviceEvent(
+            DeviceSyncEvent(
+              kind: DeviceSyncKind.settingSet,
+              key: 'after-clock-cleanup',
+              tsMs: wall,
+              payload: const {'v': 'kept'},
+            ),
+          ),
+          isTrue,
+        );
+        expect(
+          (await reopened.load(gid))!.messages.last.seq,
+          greaterThan(high),
+        );
+        // Protecting the live copy must not disable expiry when its OWN
+        // original clock reaches TTL, including its separate edit body.
+        wall += 30000;
+        await reopened.compactStateLogs(gid);
+        final expired = (await reopened.load(gid))!;
+        expect(expired.messages, hasLength(1));
+        expect(
+          DeviceSyncEvent.fromBody(expired.messages.single.body)!.key,
+          'after-clock-cleanup',
+        );
+        expect(
+          await storage.loadMessageById(peer.hex, 'clock-conflict'),
+          isNull,
+        );
+        expect(
+          await storage.isMessageDeleted(peer.hex, 'clock-conflict'),
+          isTrue,
+        );
+      },
+      skip: native && (Platform.environment['XVEIL_HV_DYLIB'] ?? '').isEmpty,
+    );
+  }
+
   test(
     'device TTL journal removes an expired author head and keeps sequence after reopen',
     () async {

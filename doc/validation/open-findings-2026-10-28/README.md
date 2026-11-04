@@ -1,5 +1,18 @@
 # Открытые случаи — обновлено 2026-11-04
 
+Последний шаг: [TTL при конфликте clocks зеркальных копий](../clock-conflict-expiry-2026-11-04/README.md).
+Два настоящих red на FakeHv/native HVS подтвердили удаление свежих journal
+mirror/edit из-за старой копии того же ID при живой canonical row. Helper
+теперь признаёт удаление ID только по durable tombstone; иначе ретирует
+только expired row. Queued filter сохраняет точные живые подписи, storage
+cleanup и local seq floor проверены после reopen; обычное дальнейшее expiry
+не отключено. 1438 tests / 5 skipped, 14 scoped с явно заданной HVS без skip,
+analyzer чистый. Real-signer A/B/C: A сохранил живые rows после инъекции старого
+clock, B догнал edit при offline C и сохранил его после restart без A/C;
+дублей нет. Test/driver/cleanup 0/0/0, 24 PID / 26 портов / 1453 frozen inputs,
+runtime удалён, native SHA прежние. Остальная clock-skew/TTL/transport и общая
+матрица открыты; mailbox/push/релиза нет.
+
 Последний шаг: [TTL внутри publisher и парной записи журнала](../publisher-ttl-boundary-2026-11-04/README.md).
 Подтверждены post-publisher отправка истёкшего тела и сохранение expired mirror
 при задержанном завершении atomic pair. Добавлены повторная проверка store,
@@ -1152,6 +1165,7 @@ push/релиза нет; multi-device матрица не квалифицир�
 
 | Случай | Отметка | Граница подтверждения |
 |---|---|---|
+| TTL: старый clock копии при живой canonical row | **ПОДТВЕРЖДЕНО И ЛОКАЛЬНО ИСПРАВЛЕНО** | Отказ unseen-expiry marker больше не считается удалением всего ID; сохраняются fresh mirror/edit, удаляется только старая копия. Native old-segment cleanup / cold floor, exact queued rows и real-signer A/B/C с offline recovery прошли. Смена системного времени и вся clock-skew матрица не квалифицированы. [Проверка](../clock-conflict-expiry-2026-11-04/README.md). |
 | TTL внутри required publisher / atomic journal completion | **ПОДТВЕРЖДЕНО, ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННОЙ ГРАНИЦЕ** | После publisher повторяется expiry guard; device post ждёт save/recheck/scrub, включая независимый key-share. Failed cleanup не ACK/notice/snapshot; exact retry и свежая отправка проходят. Native paired-commit / cold floor и широкая регрессия прошли. Остальные async snapshot/transport/partial/policy границы не закрыты. [Проверка](../publisher-ttl-boundary-2026-11-04/README.md). |
 | TTL после append до публикации | **ПОДТВЕРЖДЕНО, ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННОЙ ГРАНИЦЕ** | Строка, истёкшая во время append, удаляется до onMessageStored; nullable результат останавливает wire/notification/autofetch. Unit/native gates, scoped author slot, точный retry и fresh A/B/C прошли. Внутри уже запущенного publisher/редакций/transport I/O ещё не квалифицировано. [Проверка](../store-ttl-boundary-2026-11-04/README.md). |
 | TTL входящих файлов и предложений | **ПОДТВЕРЖДЕНО, ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННЫХ ПУТЯХ** | Legacy meta/chunks/query используют исходный clock и durable expiry; full manifest/ref прекращают unsolicited fetch после отказа surface. Claimed query read-only; свежий ID того же content работает. 6 native cases и fresh A/B/C file regression прошли. Mid-I/O, уже начатые shared downloads/partial transfers и legacy egress NACK остаются вне этой квалификации. [Проверка](../media-ttl-2026-11-04/README.md). |
