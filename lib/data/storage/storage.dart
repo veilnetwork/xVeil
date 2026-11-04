@@ -107,6 +107,16 @@ abstract interface class Storage {
 
   Future<void> upsertContact(Contact contact);
 
+  /// Persist the local acceptance and its destination-bound response in one
+  /// transaction. Preserve the contact's other current fields and the age of
+  /// an identical pending frame. A lost commit reply may leave both durable;
+  /// an uncommitted failure must not publish only the accepted status.
+  Future<void> acceptContactAndEnqueue(
+    NodeId peer,
+    String frameId,
+    Uint8List wire,
+  );
+
   /// The stored contact for [nodeId], or null if we have no record of them.
   Future<Contact?> getContact(NodeId nodeId);
 

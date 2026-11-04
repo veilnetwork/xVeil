@@ -373,6 +373,15 @@ class _MessagingOutbox {
     _recordEnqueued(peer, frameId, wire);
   }
 
+  Future<void> enqueueAcceptance(
+    NodeId peer,
+    String frameId,
+    Uint8List wire,
+  ) async {
+    await _owner._storage.acceptContactAndEnqueue(peer, frameId, wire);
+    if (!_owner._disposed) _recordEnqueued(peer, frameId, wire);
+  }
+
   Future<void> enqueueTransfer(NodeId peer, List<OutboxFrame> frames) async {
     await _owner._storage.enqueueOutboxTransfer(frames);
     for (final frame in frames) {

@@ -4664,6 +4664,7 @@ class MessagingService {
     final groupReceiptsClosed = _groupReceiptQueue.close();
     final groupSourceClosed = _groupSourceQueue.close();
     final contactResponsesClosed = _contactResponseQueue.close();
+    final contactAcceptancesClosed = _contacts.close();
     final snapshotValidationClosed = _replication._expiry.close();
     _contentAvailability.cancelRetryReoffers();
     final historyClosed = _ownHistory.close();
@@ -4694,6 +4695,7 @@ class MessagingService {
     await groupReceiptsClosed;
     await groupSourceClosed;
     await contactResponsesClosed;
+    await contactAcceptancesClosed;
     await historyClosed;
     await _mutations.quiesce();
     Object? shutdownError;
