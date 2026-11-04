@@ -792,6 +792,35 @@ class _CountedCompactionService extends GroupService {
   }
 }
 
+class _DevicePolicyWaitStorage extends HiddenVolumeStorage {
+  _DevicePolicyWaitStorage(super.opener);
+  _DevicePolicyWaitStorage.async(super.opener) : super.async();
+  String? peerToHold;
+  bool afterPrune = false;
+  final entered = Completer<void>(), release = Completer<void>();
+
+  Future<void> _hold(NodeId peer, bool prune) async {
+    if (peer.hex != peerToHold || afterPrune != prune) return;
+    peerToHold = null;
+    entered.complete();
+    await release.future;
+  }
+
+  @override
+  Future<Contact?> getContact(NodeId peer) async {
+    final contact = await super.getContact(peer);
+    await _hold(peer, false);
+    return contact;
+  }
+
+  @override
+  Future<int> pruneConversationBefore(NodeId peer, DateTime cutoff) async {
+    final count = await super.pruneConversationBefore(peer, cutoff);
+    await _hold(peer, true);
+    return count;
+  }
+}
+
 class _PostPairExpiryStorage extends HiddenVolumeStorage {
   _PostPairExpiryStorage(super.opener);
   _PostPairExpiryStorage.async(super.opener) : super.async();
@@ -8811,6 +8840,175 @@ void main() {
             expect(actual['mh'], GroupService.manifestHash(bundle.manifest));
           }
         },
+      );
+    }
+  }
+
+  for (final native in [false, true]) {
+    for (final shape in [
+      'policy-held',
+      'canonical-policy-held',
+      'prune-held',
+      'canonical-prune-held',
+      'fresh-canonical-prune-held',
+    ]) {
+      test(
+        'device TTL clock follows storage waits $shape (native=$native)',
+        () async {
+          late _DevicePolicyWaitStorage storage;
+          if (native) {
+            expect(
+              ensureHiddenVolumeLoaded(
+                dylibPath: Platform.environment['XVEIL_HV_DYLIB'],
+              ),
+              isTrue,
+            );
+            final dir = await Directory.systemTemp.createTemp(
+              'xveil-device-clock-',
+            );
+            addTearDown(() => dir.delete(recursive: true));
+            final path = '${dir.path}/store.hv';
+            HvKvLogStore(
+              hv.HvSpace.create(
+                path: path,
+                password: Uint8List.fromList(utf8.encode('fixture')),
+                argon: hv.ArgonPreset.light,
+              ),
+            ).close();
+            storage = _DevicePolicyWaitStorage.async(workerSpaceOpener(path));
+          } else {
+            storage = _DevicePolicyWaitStorage(
+              FakeHvContainer().passwordOpener,
+            );
+          }
+          expect(
+            await storage.open(password: 'fixture', createIfMissing: true),
+            isTrue,
+          );
+          addTearDown(storage.close);
+          var wall = DateTime.utc(2026, 11, 4, 12).millisecondsSinceEpoch;
+          final svc = GroupService(storage, _FakeSigner(owner))
+            ..debugWallClockMs = () => wall;
+          addTearDown(svc.dispose);
+          addTearDown(() {
+            if (!storage.release.isCompleted) {
+              storage.release.complete();
+            }
+          });
+          await svc.linkDevice(bob, sovereign: sovereign);
+          final gid = NodeId.fromHex((await svc.deviceGroupIdHex())!);
+          final peer = _id(77);
+          await storage.upsertContact(
+            Contact(
+              nodeId: peer,
+              status: ContactStatus.accepted,
+              disappearingTtlSeconds: 30,
+            ),
+          );
+          final freshCanonical = shape.startsWith('fresh-');
+          if (shape.contains('canonical-')) {
+            await storage.appendMessage(
+              Message(
+                id: 'held-clock',
+                conversationId: peer.hex,
+                direction: MessageDirection.outgoing,
+                body: freshCanonical
+                    ? 'KEEP_FRESH_CLOCK'
+                    : 'PRIVATE_HELD_CLOCK',
+                timestamp: DateTime.fromMillisecondsSinceEpoch(
+                  wall + (freshCanonical ? 30000 : 0),
+                ),
+                author: owner.hex,
+                seq: 1,
+              ),
+            );
+          }
+          expect(
+            await svc.postDeviceEvent(
+              DeviceSyncEvent(
+                kind: DeviceSyncKind.msgMirror,
+                key: 'held-clock',
+                tsMs: wall,
+                payload: {
+                  'peer': peer.hex,
+                  'dir': 'outgoing',
+                  'body': 'PRIVATE_HELD_CLOCK',
+                  'au': owner.hex,
+                  'sq': 1,
+                },
+              ),
+            ),
+            isTrue,
+          );
+          expect(
+            await svc.postDeviceEvent(
+              DeviceSyncEvent(
+                kind: DeviceSyncKind.settingSet,
+                key: 'clock-control',
+                tsMs: wall,
+                payload: const {'v': 'KEEP_CLOCK_CONTROL'},
+              ),
+            ),
+            isTrue,
+          );
+          final original = svc.snapshotJson((await svc.load(gid))!);
+          expect(original, contains('PRIVATE_HELD_CLOCK'));
+          expect(
+            await svc.filterExpiredDeviceSnapshot(gid.hex, original),
+            isNull,
+            reason: 'the same snapshot is valid before storage is held',
+          );
+          storage.peerToHold = peer.hex;
+          storage.afterPrune = shape.endsWith('prune-held');
+          final filtering = svc.filterExpiredDeviceSnapshot(gid.hex, original);
+          await storage.entered.future.timeout(const Duration(seconds: 10));
+          wall += 30000;
+          storage.release.complete();
+          final cleaned = await filtering;
+          expect(
+            cleaned,
+            isNotNull,
+            reason: 'a pre-read clock cannot authorize an expired mirror',
+          );
+          expect(cleaned, isNot(contains('PRIVATE_HELD_CLOCK')));
+          expect(cleaned, contains('KEEP_CLOCK_CONTROL'));
+          expect(
+            await storage.isMessageDeleted(peer.hex, 'held-clock'),
+            !freshCanonical,
+          );
+          if (freshCanonical) {
+            expect(
+              (await storage.loadMessageById(peer.hex, 'held-clock'))!.body,
+              'KEEP_FRESH_CLOCK',
+            );
+          }
+          await svc.compactStateLogs(gid);
+          await storage.upsertContact(
+            Contact(nodeId: peer, status: ContactStatus.accepted),
+          );
+          wall -=
+              30000; // Neither TTL-off nor clock rollback may revive the body.
+          await svc.dispose();
+          await storage.close();
+          expect(await storage.open(password: 'fixture'), isTrue);
+          final reopened = GroupService(storage, _FakeSigner(owner))
+            ..debugWallClockMs = () => wall;
+          addTearDown(reopened.dispose);
+          final retained = (await reopened.load(gid))!;
+          expect(
+            retained.messages.any((m) => m.body.contains('PRIVATE_HELD_CLOCK')),
+            isFalse,
+          );
+          expect(
+            retained.messages.any((m) => m.body.contains('KEEP_CLOCK_CONTROL')),
+            isTrue,
+          );
+          expect(
+            await storage.isMessageDeleted(peer.hex, 'held-clock'),
+            !freshCanonical,
+          );
+        },
+        skip: native && (Platform.environment['XVEIL_HV_DYLIB'] ?? '').isEmpty,
       );
     }
   }
