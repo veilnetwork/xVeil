@@ -2113,6 +2113,7 @@ class MessagingService {
         stored,
         publisher: publisher ?? onMessageStored,
       );
+      if (await _inboundExpiry.refuseStored(peer, stored)) return null;
       return stored;
     });
   }

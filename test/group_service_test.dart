@@ -7,6 +7,10 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:veil_flutter/veil_flutter.dart' as veil;
+import 'package:hidden_volume/hidden_volume.dart' as hv;
+import 'package:xveil/data/storage/async_kv_log_store.dart';
+import 'package:xveil/data/storage/hv_kv_log_store.dart';
+import 'package:xveil/data/storage/hv_native.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/crypto/blake3.dart';
 import 'package:xveil/data/node/space_discovery_transport.dart';
@@ -785,6 +789,42 @@ class _CountedCompactionService extends GroupService {
     failNextCompaction = false;
     lastCompaction = work;
     return work;
+  }
+}
+
+class _PostPairExpiryStorage extends HiddenVolumeStorage {
+  _PostPairExpiryStorage(super.opener);
+  _PostPairExpiryStorage.async(super.opener) : super.async();
+  final entered = Completer<void>(), release = Completer<void>();
+  bool armed = false, paired = false, failScrub = false;
+  String? savedSegment;
+  @override
+  Future<void> scrubDeleted() async {
+    if (failScrub) throw StateError('fixture physical journal scrub failed');
+    return super.scrubDeleted();
+  }
+
+  @override
+  Future<bool> tryStoreFilePair(
+    StoredFileWrite prerequisite,
+    StoredFileWrite publication, {
+    List<String> retireHints = const [],
+  }) async {
+    final saved = await super.tryStoreFilePair(
+      prerequisite,
+      publication,
+      retireHints: retireHints,
+    );
+    if (armed &&
+        saved &&
+        utf8.decode(prerequisite.bytes).contains('PRIVATE_POST_SAVE')) {
+      armed = false;
+      paired = true;
+      savedSegment = prerequisite.id;
+      entered.complete();
+      await release.future;
+    }
+    return saved;
   }
 }
 
@@ -8774,6 +8814,406 @@ void main() {
       );
     }
   }
+
+  test(
+    'device TTL post rechecks expiry after paired journal commit before publication',
+    () async {
+      final storage = _PostPairExpiryStorage(FakeHvContainer().passwordOpener);
+      await storage.open(password: 'pw', createIfMissing: true);
+      addTearDown(storage.close);
+      var wall = DateTime.utc(2026, 11, 4, 12).millisecondsSinceEpoch;
+      final svc = GroupService(storage, _FakeSigner(owner))
+        ..debugWallClockMs = () => wall;
+      addTearDown(svc.dispose);
+      addTearDown(() {
+        if (!storage.release.isCompleted) storage.release.complete();
+      });
+      await svc.linkDevice(bob, sovereign: sovereign);
+      final gid = NodeId.fromHex((await svc.deviceGroupIdHex())!);
+      final peer = _id(77);
+      await storage.upsertContact(
+        Contact(
+          nodeId: peer,
+          status: ContactStatus.accepted,
+          disappearingTtlSeconds: 30,
+        ),
+      );
+      storage.armed = true;
+      final posting = svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.msgMirror,
+          key: 'post-save-expired',
+          tsMs: wall,
+          payload: {
+            'peer': peer.hex,
+            'dir': 'incoming',
+            'body': 'PRIVATE_POST_SAVE',
+          },
+        ),
+      );
+      try {
+        await storage.entered.future.timeout(const Duration(seconds: 10));
+        expect(
+          storage.paired,
+          isTrue,
+          reason: 'gate the actual atomic pair, not its fallback',
+        );
+        wall += 30000;
+      } finally {
+        storage.release.complete();
+      }
+      expect(await posting, isTrue);
+      expect((await svc.load(gid))!.messages, isEmpty);
+      expect((await svc.load(gid))!.deviceMessageScrubPending, isFalse);
+      expect(
+        await storage.isMessageDeleted(peer.hex, 'post-save-expired'),
+        isTrue,
+      );
+      await svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.settingSet,
+          key: 'keep-after-expiry',
+          tsMs: wall,
+          payload: const {'v': 'kept'},
+        ),
+      );
+      final fresh = (await svc.load(gid))!.messages.single;
+      expect(fresh.seq, greaterThan(0));
+      expect(DeviceSyncEvent.fromBody(fresh.body)!.key, 'keep-after-expiry');
+    },
+  );
+
+  test(
+    'device TTL post keeps failed cleanup unacknowledged and retries before next publication',
+    () async {
+      final storage = _PostPairExpiryStorage(FakeHvContainer().passwordOpener);
+      await storage.open(password: 'pw', createIfMissing: true);
+      addTearDown(storage.close);
+      var wall = DateTime.utc(2026, 11, 4, 12).millisecondsSinceEpoch;
+      final svc = GroupService(storage, _FakeSigner(owner))
+        ..debugWallClockMs = () => wall;
+      addTearDown(svc.dispose);
+      addTearDown(() {
+        if (!storage.release.isCompleted) storage.release.complete();
+      });
+      await svc.linkDevice(bob, sovereign: sovereign);
+      final gid = NodeId.fromHex((await svc.deviceGroupIdHex())!);
+      final peer = _id(77);
+      await storage.upsertContact(
+        Contact(
+          nodeId: peer,
+          status: ContactStatus.accepted,
+          disappearingTtlSeconds: 30,
+        ),
+      );
+      storage.armed = true;
+      final before = svc.changes.value;
+      final event = DeviceSyncEvent(
+        kind: DeviceSyncKind.msgMirror,
+        key: 'post-save-failed',
+        tsMs: wall,
+        payload: {
+          'peer': peer.hex,
+          'dir': 'incoming',
+          'body': 'PRIVATE_POST_SAVE',
+        },
+      );
+      final posting = svc.postDeviceEvent(event);
+      try {
+        await storage.entered.future.timeout(const Duration(seconds: 10));
+        wall += 30000;
+        storage.failScrub = true;
+      } finally {
+        storage.release.complete();
+      }
+      expect(await posting, isFalse);
+      expect(
+        svc.changes.value,
+        before,
+        reason: 'no committed-live notification before cleanup succeeds',
+      );
+      expect((await svc.load(gid))!.deviceMessageScrubPending, isTrue);
+      storage.failScrub = false;
+      expect(
+        await svc.postDeviceEvent(event),
+        isTrue,
+        reason:
+            'the exact failed event can complete cleanup without a new update',
+      );
+      expect((await svc.load(gid))!.messages, isEmpty);
+      expect((await svc.load(gid))!.deviceMessageScrubPending, isFalse);
+      expect(
+        await svc.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.settingSet,
+            key: 'recovered',
+            tsMs: wall,
+            payload: const {'v': 'kept'},
+          ),
+        ),
+        isTrue,
+      );
+      final current = (await svc.load(gid))!;
+      expect(current.deviceMessageScrubPending, isFalse);
+      expect(current.messages, hasLength(1));
+      expect(
+        DeviceSyncEvent.fromBody(current.messages.single.body)!.key,
+        'recovered',
+      );
+    },
+  );
+
+  for (final failCleanup in [false, true]) {
+    test(
+      'device TTL epoch snapshot waits for post-save cleanup (failure=$failCleanup)',
+      () async {
+        final storage = _PostPairExpiryStorage(
+          FakeHvContainer().passwordOpener,
+        );
+        await storage.open(password: 'pw', createIfMissing: true);
+        addTearDown(storage.close);
+        var wall = DateTime.utc(2026, 11, 4, 12).millisecondsSinceEpoch;
+        final seed = GroupService(storage, _FakeSigner(owner));
+        await seed.linkDevice(bob, sovereign: sovereign);
+        final gid = NodeId.fromHex((await seed.deviceGroupIdHex())!);
+        await seed.dispose();
+        // A key learned while this service was stopped has not been shared.
+        // It exercises the independent full-snapshot sender inside _save.
+        final headerId = 'group:${gid.hex}';
+        final header =
+            jsonDecode(utf8.decode((await storage.loadFile(headerId))!))
+                as Map<String, dynamic>;
+        final epochKey = base64Encode(Uint8List.fromList(List.filled(32, 99)));
+        header['kk'] = {'99': epochKey};
+        await storage.storeFile(
+          headerId,
+          Uint8List.fromList(utf8.encode(jsonEncode(header))),
+        );
+        final peer = _id(77);
+        await storage.upsertContact(
+          Contact(
+            nodeId: peer,
+            status: ContactStatus.accepted,
+            disappearingTtlSeconds: 30,
+          ),
+        );
+        final snapshots = <Map<String, dynamic>>[];
+        GroupService service() =>
+            GroupService(
+                storage,
+                _FakeSigner(owner),
+                send: (to, group, json) async {
+                  expect(to, bob);
+                  expect(group, gid);
+                  final wire = jsonDecode(json) as Map<String, dynamic>;
+                  if (wire.containsKey('kk')) snapshots.add(wire);
+                },
+              )
+              ..debugWallClockMs = (() => wall)
+              ..ownDevicesForGroupsOverride = () async => [bob];
+        final svc = service();
+        addTearDown(svc.dispose);
+        addTearDown(() {
+          if (!storage.release.isCompleted) storage.release.complete();
+        });
+        storage.armed = true;
+        final posting = svc.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.msgMirror,
+            key: 'post-save-epoch',
+            tsMs: wall,
+            payload: {
+              'peer': peer.hex,
+              'dir': 'incoming',
+              'body': 'PRIVATE_POST_SAVE',
+            },
+          ),
+        );
+        try {
+          await storage.entered.future.timeout(const Duration(seconds: 10));
+          expect(storage.paired, isTrue);
+          wall += 30000;
+          storage.failScrub = failCleanup;
+        } finally {
+          storage.release.complete();
+        }
+        expect(await posting, !failCleanup);
+        // Dispose joins all background sends: this assertion cannot pass just
+        // because the independent epoch-share task has not run yet.
+        await svc.dispose();
+        expect(
+          snapshots.where(
+            (wire) => jsonEncode(wire).contains('PRIVATE_POST_SAVE'),
+          ),
+          isEmpty,
+          reason: 'epoch sharing must use the cleaned committed view',
+        );
+        if (failCleanup) {
+          expect(
+            snapshots,
+            isEmpty,
+            reason: 'failed cleanup must not publish a key snapshot',
+          );
+          expect(
+            await storage.getSetting('devices.epoch_keys_shared.${gid.hex}'),
+            isNull,
+          );
+          storage.failScrub = false;
+          final recovered = service();
+          addTearDown(recovered.dispose);
+          expect(
+            await recovered.postDeviceEvent(
+              DeviceSyncEvent(
+                kind: DeviceSyncKind.settingSet,
+                key: 'epoch-share-recovered',
+                tsMs: wall,
+                payload: const {'v': 'kept'},
+              ),
+            ),
+            isTrue,
+          );
+          await recovered.dispose();
+          expect(jsonEncode(snapshots), contains('epoch-share-recovered'));
+        }
+        expect(
+          snapshots,
+          hasLength(1),
+          reason:
+              'positive control: successful cleanup must still share the new key',
+        );
+        expect((snapshots.single['kk'] as Map)['99'], epochKey);
+        expect(jsonEncode(snapshots), isNot(contains('PRIVATE_POST_SAVE')));
+        expect(
+          await storage.getSetting('devices.epoch_keys_shared.${gid.hex}'),
+          '99',
+        );
+      },
+    );
+  }
+
+  test(
+    'native device TTL post retires paired body before completion and preserves floor',
+    () async {
+      expect(
+        ensureHiddenVolumeLoaded(
+          dylibPath: Platform.environment['XVEIL_HV_DYLIB'],
+        ),
+        isTrue,
+      );
+      final dir = await Directory.systemTemp.createTemp(
+        'xveil-device-publish-expiry-',
+      );
+      addTearDown(() => dir.delete(recursive: true));
+      final path = '${dir.path}/store.hv';
+      final password = Uint8List.fromList(utf8.encode('fixture'));
+      HvKvLogStore(
+        hv.HvSpace.create(
+          path: path,
+          password: password,
+          argon: hv.ArgonPreset.light,
+        ),
+      ).close();
+      final storage = _PostPairExpiryStorage.async(workerSpaceOpener(path));
+      expect(await storage.open(password: 'fixture'), isTrue);
+      addTearDown(storage.close);
+      var wall = DateTime.now().millisecondsSinceEpoch;
+      final svc = GroupService(storage, _FakeSigner(owner))
+        ..debugWallClockMs = () => wall;
+      addTearDown(svc.dispose);
+      addTearDown(() {
+        if (!storage.release.isCompleted) storage.release.complete();
+      });
+      await svc.linkDevice(bob, sovereign: sovereign);
+      final gid = NodeId.fromHex((await svc.deviceGroupIdHex())!);
+      final peer = _id(77);
+      await storage.upsertContact(
+        Contact(
+          nodeId: peer,
+          status: ContactStatus.accepted,
+          disappearingTtlSeconds: 30,
+        ),
+      );
+      await storage.appendMessage(
+        Message(
+          id: 'post-save-native',
+          conversationId: peer.hex,
+          direction: MessageDirection.incoming,
+          body: 'PRIVATE_POST_SAVE',
+          timestamp: DateTime.fromMillisecondsSinceEpoch(wall),
+          author: peer.hex,
+          seq: 1,
+        ),
+      );
+      storage.armed = true;
+      final posting = svc.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.msgMirror,
+          key: 'post-save-native',
+          tsMs: wall,
+          payload: {
+            'peer': peer.hex,
+            'dir': 'incoming',
+            'body': 'PRIVATE_POST_SAVE',
+            'au': peer.hex,
+            'sq': 1,
+          },
+        ),
+      );
+      try {
+        await storage.entered.future.timeout(const Duration(seconds: 10));
+        expect(storage.paired, isTrue);
+        final old = await storage.loadFile(storage.savedSegment!);
+        expect(old, isNotNull);
+        expect(
+          utf8.decode(old!).contains('PRIVATE_POST_SAVE'),
+          isTrue,
+          reason:
+              'positive control: the native paired publication already committed',
+        );
+        wall += 30000;
+      } finally {
+        storage.release.complete();
+      }
+      expect(await posting, isTrue);
+      final current = (await svc.load(gid))!;
+      expect(current.messages, isEmpty);
+      expect(current.deviceMessageScrubPending, isFalse);
+      final floor = current.deviceMessageSeqFloors[owner.hex]!;
+      expect(await storage.loadFile(storage.savedSegment!), isNull);
+      expect(
+        await storage.loadMessageById(peer.hex, 'post-save-native'),
+        isNull,
+        reason: 'the exact original+TTL boundary must be durably erased too',
+      );
+      expect(
+        await storage.isMessageDeleted(peer.hex, 'post-save-native'),
+        isTrue,
+      );
+      await svc.dispose();
+      await storage.close();
+      expect(await storage.open(password: 'fixture'), isTrue);
+      final reopened = GroupService(storage, _FakeSigner(owner))
+        ..debugWallClockMs = () => wall;
+      addTearDown(reopened.dispose);
+      expect((await reopened.load(gid))!.messages, isEmpty);
+      expect((await reopened.load(gid))!.deviceMessageScrubPending, isFalse);
+      expect(
+        await reopened.postDeviceEvent(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.settingSet,
+            key: 'native-fresh',
+            tsMs: wall,
+            payload: const {'v': 'kept'},
+          ),
+        ),
+        isTrue,
+      );
+      final fresh = (await reopened.load(gid))!.messages.single;
+      expect(fresh.seq, greaterThan(floor));
+      expect(DeviceSyncEvent.fromBody(fresh.body)!.key, 'native-fresh');
+    },
+    skip: (Platform.environment['XVEIL_HV_DYLIB'] ?? '').isEmpty,
+  );
 
   test(
     'device TTL journal removes an expired author head and keeps sequence after reopen',
