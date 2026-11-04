@@ -6441,6 +6441,42 @@ void main() {
     );
   }
 
+  for (final rejectWrite in [false, true]) {
+    test('contact publication dedupe joins the committed batch reject=$rejectWrite', () async {
+      final storage = _ControlledGroupWriteStorage();
+      await storage.open(password: 'pw', createIfMissing: true);
+      final service = GroupService(storage, _FakeSigner(owner));
+      addTearDown(service.dispose);
+      expect(await service.linkDevice(bob, sovereign: sovereign), true);
+      expect(await service.committedContactDecisions(), isEmpty);
+      final release = Completer<void>();
+      addTearDown(() { if (!release.isCompleted) release.complete(); });
+      storage.callWriteEntered = Completer<void>();
+      storage.callWriteRelease = release;
+      storage.failNextGroupWrite = rejectWrite;
+      final futureTime = DateTime.now().millisecondsSinceEpoch + 10000000;
+      final post = service.postDeviceEvent(DeviceSyncEvent(
+        kind: DeviceSyncKind.contactUp, key: 's:${bob.hex}', tsMs: futureTime,
+        payload: const {'status': 'blocked'},
+      ));
+      await storage.callWriteEntered!.future;
+      var readDone = false;
+      final read = service.committedContactDecisions().then((rows) {
+        readDone = true; return rows;
+      });
+      await Future<void>.delayed(Duration.zero);
+      expect(readDone, false);
+      release.complete();
+      expect(await post, !rejectWrite);
+      final rows = await read;
+      expect(rows.length, rejectWrite ? 0 : 1);
+      if (!rejectWrite) expect(rows.single.payload['status'], 'blocked');
+      expect((await service.deviceSyncState()).containsKey(
+        (DeviceSyncKind.contactUp, 's:${bob.hex}')), false,
+        reason: 'dedupe must not make future decisions effective');
+    });
+  }
+
   test('device group: link/adopt/revoke lifecycle, hidden + silent', () async {
     Future<void> drain() async {
       for (var i = 0; i < 6; i++) {

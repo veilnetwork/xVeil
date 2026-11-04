@@ -1,5 +1,19 @@
 # Открытые случаи — обновлено 2026-11-05
 
+Текущий шаг: [durable решения о контактах своим устройствам](../contact-decision-sync-2026-11-05/README.md).
+Подтверждено отсутствие повторяемой обязанности после сбоя callback: два
+ordinary/native assertion-red. Статус, ordering floor и намерение синхронизации
+теперь сохраняются вместе; boot/periodic publisher передаёт исходную версию в
+committed device journal, CAS-ACK сохраняет новые решения. Late mirrors не
+отменяют более новую локальную версию; linking не restamp'ит известную версию.
+36 scoped, 505 diagnostic control и 1951 broad passed / 3 skipped в 105 файлах,
+analyzer чистый, headless AOT/--help прошёл. Process A/B/C воспроизвёл durable
+post-commit/pre-callback состояние и прошёл recovery + второй boot с тем же ts.
+Teardown 25 PID / 41 порт чистый, 1467 inputs/native SHA неизменны.
+Это закрывает указанную GUI boot/handoff границу; полная contact conflict/crash
+матрица, другие writers контакта и исходный Windows случай остаются открытыми.
+Mailbox для собственных устройств, push/релиз и обновления сидов не добавлены.
+
 Текущий шаг: [атомарное первичное принятие контакта](../contact-accept-atomic-2026-11-05/README.md).
 Подтверждён разрыв между локальным accepted и сохранением ответа: ошибка
 Outbox оставляла принятый контакт без durable accept. Статус, contact index и

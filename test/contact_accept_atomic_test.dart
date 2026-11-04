@@ -371,7 +371,18 @@ void main() {
             failCallback = false;
             if (mode != 'close') await service.acceptContact(peer);
             expect(
-              commits.any((ops) => _acceptsContact(ops) && _hasReply(ops)),
+              commits.any(
+                (ops) =>
+                    _acceptsContact(ops) &&
+                    _hasReply(ops) &&
+                    ops.whereType<PutOp>().any(
+                      (op) =>
+                          op.namespace == Ns.settings &&
+                          utf8
+                              .decode(op.key)
+                              .startsWith('contact.status.pending.v1:'),
+                    ),
+              ),
               true,
               reason: 'status and response must share a native transaction',
             );

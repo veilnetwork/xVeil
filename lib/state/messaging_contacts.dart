@@ -45,10 +45,9 @@ class _MessagingContacts {
   }
 
   Future<void> setStatus(NodeId peer, ContactStatus status) async {
-    final existing = await _owner._storage.getContact(peer);
-    await _owner._storage.upsertContact(
-      (existing ?? Contact(nodeId: peer)).copyWith(status: status),
-    );
+    // A lost commit reply must not leave a stale positive consent cache.
+    _owner._realtimeControl.revoke(peer);
+    await _owner._storage.setContactStatus(peer, status);
     await _afterStatusSaved(peer, status);
   }
 
@@ -71,13 +70,14 @@ class _MessagingContacts {
   /// [_owner.onContactStatusChanged], so a mirrored status cannot echo.
   Future<bool> applyMirroredContactStatus(
     NodeId peer,
-    ContactStatus status,
-  ) async {
+    ContactStatus status, {
+    int? atMs,
+  }) async {
     // This one CREATES a record, so it is where a contact with my own device
     // would be born — refused, as the emitters refuse to post one.
     if (await _owner._isSiblingDevice(peer)) return false;
     final existing = await _owner._storage.getContact(peer);
-    if (existing?.status == status) return false;
+    if (atMs == null && existing?.status == status) return false;
     // A DOORBELL NEVER OVERWRITES A DECISION. Both devices receive the raw
     // request themselves, so a mirrored pending status carries no information
     // a decided record lacks — and device logs written before the poster
@@ -90,9 +90,18 @@ class _MessagingContacts {
             existing?.status == ContactStatus.blocked)) {
       return false;
     }
-    await _owner._storage.upsertContact(
-      (existing ?? Contact(nodeId: peer)).copyWith(status: status),
-    );
+    _owner._realtimeControl.revoke(peer);
+    if (atMs != null &&
+        (status == ContactStatus.accepted || status == ContactStatus.blocked)) {
+      if (!await _owner._storage.applyContactDecision(peer, status, atMs)) {
+        return false;
+      }
+    } else {
+      await _owner._storage.upsertContact(
+        (existing ?? Contact(nodeId: peer)).copyWith(status: status),
+      );
+    }
+    if (_owner._disposed) return false;
     if (status == ContactStatus.accepted) {
       await _owner._outbox.retireRequests(peer);
       _owner._realtimeControl.markAccepted(peer);

@@ -665,6 +665,190 @@ class HiddenVolumeStorage
     return result;
   }
 
+  static const _contactPendingPrefix = 'contact.status.pending.v1:';
+  static const _contactFloorPrefix = 'contact.status.floor.v1:';
+
+  static bool _isContactDecision(ContactStatus status) =>
+      status == ContactStatus.accepted || status == ContactStatus.blocked;
+
+  static PendingContactDecision _decodeContactDecision(Uint8List raw) {
+    try {
+      final value = jsonDecode(utf8.decode(raw));
+      final status = ContactStatus.values.byName(value['status'] as String);
+      final atMs = value['ts'];
+      final peer = value['peer'];
+      if (_isContactDecision(status) &&
+          atMs is int &&
+          atMs >= 0 &&
+          peer is String &&
+          RegExp(r'^[0-9a-f]{64}$').hasMatch(peer)) {
+        return PendingContactDecision(
+          peer: NodeId.fromHex(peer),
+          status: status,
+          atMs: atMs,
+          token: crypto.sha256.convert(raw).toString(),
+        );
+      }
+    } catch (_) {
+      // Keep corrupt obligations for diagnosis, without their private bytes.
+    }
+    throw StateError('Unreadable pending contact decision');
+  }
+
+  static Uint8List _contactDecisionBytes(
+    NodeId peer,
+    ContactStatus status,
+    int atMs,
+  ) => _sk(jsonEncode({'peer': peer.hex, 'status': status.name, 'ts': atMs}));
+
+  Future<Uint8List> _newContactDecision(
+    AsyncKvLogStore store,
+    NodeId peer,
+    ContactStatus status,
+  ) async {
+    final old = await store.get(
+      Ns.settings,
+      _sk('$_contactFloorPrefix${peer.hex}'),
+    );
+    final previous = old == null ? null : _decodeContactDecision(old);
+    if (previous != null && previous.peer != peer) {
+      throw StateError('Contact decision floor does not match its key');
+    }
+    final stamp = max(
+      DateTime.now().millisecondsSinceEpoch,
+      (previous?.atMs ?? -1) + 1,
+    );
+    return _contactDecisionBytes(peer, status, stamp);
+  }
+
+  List<PutOp> _contactDecisionOps(NodeId peer, Uint8List value) => [
+    PutOp(Ns.settings, _sk('$_contactFloorPrefix${peer.hex}'), value),
+    PutOp(Ns.settings, _sk('$_contactPendingPrefix${peer.hex}'), value),
+  ];
+
+  @override
+  Future<void> setContactStatus(NodeId peer, ContactStatus status) =>
+      _trackLogWrite(
+        (store) => _contactSerialized(() async {
+          final existing = await getContact(peer);
+          final contact = (existing ?? Contact(nodeId: peer)).copyWith(
+            status: status,
+          );
+          final (index, shards) = await _contactIndexShards();
+          final indexed = index.contains(peer.hex);
+          if (!indexed) index.add(peer.hex);
+          await store.commit([
+            PutOp(Ns.contacts, peer.bytes, _encodeContact(contact)),
+            if (!indexed) ..._contactIndexOps(index, shards),
+            if (_isContactDecision(status))
+              ..._contactDecisionOps(
+                peer,
+                await _newContactDecision(store, peer, status),
+              ),
+          ]);
+        }),
+      );
+
+  @override
+  Future<bool> applyContactDecision(
+    NodeId peer,
+    ContactStatus status,
+    int atMs,
+  ) {
+    if (!_isContactDecision(status) || atMs < 0) {
+      return Future.error(ArgumentError('Invalid contact decision'));
+    }
+    return _trackLogWrite(
+      (store) => _contactSerialized(() async {
+        final key = _sk('$_contactFloorPrefix${peer.hex}');
+        final raw = await store.get(Ns.settings, key);
+        final old = raw == null ? null : _decodeContactDecision(raw);
+        if (old != null && old.peer != peer) {
+          throw StateError('Contact decision floor does not match its key');
+        }
+        if (old != null &&
+            (atMs < old.atMs ||
+                (atMs == old.atMs &&
+                    status.name.compareTo(old.status.name) <= 0))) {
+          return false;
+        }
+        final existing = await getContact(peer);
+        final contact = (existing ?? Contact(nodeId: peer)).copyWith(
+          status: status,
+        );
+        final (index, shards) = await _contactIndexShards();
+        final indexed = index.contains(peer.hex);
+        if (!indexed) index.add(peer.hex);
+        await store.commit([
+          PutOp(Ns.contacts, peer.bytes, _encodeContact(contact)),
+          if (!indexed) ..._contactIndexOps(index, shards),
+          PutOp(Ns.settings, key, _contactDecisionBytes(peer, status, atMs)),
+        ]);
+        return existing?.status != status;
+      }),
+    );
+  }
+
+  @override
+  Future<PendingContactDecision?> contactDecisionFloor(NodeId peer) =>
+      _trackLogWrite((store) async {
+        final raw = await store.get(
+          Ns.settings,
+          _sk('$_contactFloorPrefix${peer.hex}'),
+        );
+        if (raw == null) return null;
+        final record = _decodeContactDecision(raw);
+        if (record.peer != peer) {
+          throw StateError('Contact decision floor does not match its key');
+        }
+        return record;
+      });
+
+  @override
+  Future<List<PendingContactDecision>> pendingContactDecisions({
+    int limit = 64,
+    String? afterPeerHex,
+  }) {
+    if (limit <= 0) throw ArgumentError.value(limit, 'limit');
+    return _trackLogWrite((store) async {
+      final names = [
+        for (final key in await store.kvKeys(Ns.settings))
+          if (utf8.decode(key, allowMalformed: true) case final name)
+            if (name.startsWith(_contactPendingPrefix) &&
+                (afterPeerHex == null ||
+                    name.compareTo('$_contactPendingPrefix$afterPeerHex') > 0))
+              name,
+      ]..sort();
+      final records = <PendingContactDecision>[];
+      for (final name in names) {
+        final raw = await store.get(Ns.settings, _sk(name));
+        if (raw == null) continue;
+        final record = _decodeContactDecision(raw);
+        if (name != '$_contactPendingPrefix${record.peer.hex}') {
+          throw StateError('Contact decision does not match its key');
+        }
+        records.add(record);
+        if (records.length >= limit) break;
+      }
+      return records;
+    });
+  }
+
+  @override
+  Future<bool> acknowledgeContactDecision(PendingContactDecision record) =>
+      _trackLogWrite(
+        (store) => _contactSerialized(() async {
+          final key = _sk('$_contactPendingPrefix${record.peer.hex}');
+          final raw = await store.get(Ns.settings, key);
+          if (raw == null ||
+              crypto.sha256.convert(raw).toString() != record.token) {
+            return false;
+          }
+          await store.commit([DeleteOp(Ns.settings, key)]);
+          return true;
+        }),
+      );
+
   static Uint8List _encodeContact(Contact contact) {
     final json = jsonEncode({
       'n': contact.nodeId.hex,
@@ -3782,6 +3966,8 @@ class HiddenVolumeStorage
       final (index, hadShards) = await _contactIndexShards();
       index.remove(peer.hex);
       ops.add(DeleteOp(Ns.contacts, peer.bytes));
+      ops.add(DeleteOp(Ns.settings, _sk('$_contactPendingPrefix${peer.hex}')));
+      ops.add(DeleteOp(Ns.settings, _sk('$_contactFloorPrefix${peer.hex}')));
       ops.addAll(_contactIndexOps(index, hadShards));
       await _commitBatched(ops);
     });
@@ -5693,6 +5879,12 @@ class HiddenVolumeStorage
               PutOp(Ns.contacts, peer.bytes, bytes),
             if (!indexed) ..._contactIndexOps(index, hadShards),
           ];
+          final decision = await _newContactDecision(
+            store,
+            peer,
+            ContactStatus.accepted,
+          );
+          ops.addAll(_contactDecisionOps(peer, decision));
           try {
             if (held != null) {
               if (ops.isNotEmpty) await store.commit(ops);
@@ -5717,6 +5909,20 @@ class HiddenVolumeStorage
                     _bytesEqual(saved.wire, record.frame.wire) &&
                     (await getContact(peer))?.status ==
                         ContactStatus.accepted &&
+                    _bytesEqual(
+                      await store.get(
+                        Ns.settings,
+                        _sk('$_contactPendingPrefix${peer.hex}'),
+                      ),
+                      decision,
+                    ) &&
+                    _bytesEqual(
+                      await store.get(
+                        Ns.settings,
+                        _sk('$_contactFloorPrefix${peer.hex}'),
+                      ),
+                      decision,
+                    ) &&
                     (await _contactIndex()).contains(peer.hex)) {
                   return;
                 }
