@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hidden_volume/hidden_volume.dart' as hv;
+import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/hv_native.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
 
@@ -72,6 +73,32 @@ void main() {
     () async {
       final space = await openFixture();
       expect(space.verifyIntegrity, throwsA(hashFailure('IntegrityFailure')));
+    },
+    skip: skip ? 'set verified HV library and synthetic hash fixture' : false,
+  );
+
+  test(
+    'worker native groups check the second committed hash on cache hit',
+    () async {
+      expect(ensureHiddenVolumeLoaded(), isTrue);
+      final directory = await Directory.systemTemp.createTemp('xv-group-hash-');
+      addTearDown(() => directory.delete(recursive: true));
+      final copy = await File(fixture!).copy('${directory.path}/fixture.hv');
+      final store = await workerSpaceOpener(copy.path)(
+        password: Uint8List.fromList(utf8.encode('pw')),
+        create: false,
+      );
+      expect(store, isNotNull);
+      addTearDown(store!.close);
+      expect(await store.readLog(Ns.messageLog, 7), utf8.encode('seven'));
+      expect(store, isA<AsyncLogGroupReader>());
+      await expectLater(
+        (store as AsyncLogGroupReader).readLogGroups(Ns.messageLog, [
+          (ids: [7], maxBytes: 5),
+          (ids: [8], maxBytes: 5),
+        ]),
+        throwsA(hashFailure('Malformed')),
+      );
     },
     skip: skip ? 'set verified HV library and synthetic hash fixture' : false,
   );
