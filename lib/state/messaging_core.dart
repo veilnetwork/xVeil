@@ -1323,6 +1323,10 @@ class MessagingService {
   /// [sweepAllDisappearing].
   Timer? _disappearingSweepTimer;
   bool _disappearingSweeping = false;
+
+  /// Erase additional own-device journal copies after the conversation pass.
+  /// Wired by the current group owner and detached before identity teardown.
+  Future<void> Function()? onDisappearingSweep;
   DateTime? _lastRetentionSweep;
 
   /// How often the per-conversation RETENTION (in days) is enforced by the
@@ -1368,6 +1372,7 @@ class MessagingService {
         }
         removed += await sweepDisappearing(c.peer.nodeId);
       }
+      if (!_disposed) await onDisappearingSweep?.call();
     } catch (e) {
       devLog(() => 'xVeil[disappearing]: background sweep failed: $e');
     } finally {
