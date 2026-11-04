@@ -435,6 +435,18 @@ abstract interface class Storage {
   /// deleted). Stays true forever — there is no un-delete.
   Future<bool> isMessageDeleted(String conversationId, String messageId);
 
+  /// Consume an already-expired unseen message without storing its body.
+  /// The local tombstone prevents a replay after TTL is disabled or the wall
+  /// clock moves back. A supplied original author/seq keeps its gap-fill slot;
+  /// absent legacy positions never allocate an outgoing sequence. Never
+  /// overwrites a live row or requests deletion on another device.
+  Future<bool> recordExpiredMessage(
+    String conversationId,
+    String messageId, {
+    String? author,
+    int? seq,
+  });
+
   /// Remove a whole conversation with [peer]: forensically delete its messages,
   /// drop the contact record + its chat-list index entry, and scrub. Used to
   /// CANCEL a pending request (retract it locally) — afterwards the peer is
