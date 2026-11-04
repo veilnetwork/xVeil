@@ -5137,8 +5137,9 @@ class HiddenVolumeStorage
     String frameId,
     Uint8List payload,
     int logId,
-    List<KvLogOp> ops,
-  ) {
+    List<KvLogOp> ops, {
+    bool publishIndex = true,
+  }) {
     final partCount = _outboxPartCount(payload);
     final logIds = <int>[logId];
     if (partCount == 0) {
@@ -5172,7 +5173,9 @@ class HiddenVolumeStorage
         ),
       );
     }
-    ops.add(PutOp(Ns.outboxIndex, _outboxIndexKey(frameId), _sk('$logId')));
+    if (publishIndex) {
+      ops.add(PutOp(Ns.outboxIndex, _outboxIndexKey(frameId), _sk('$logId')));
+    }
     return logIds;
   }
 
@@ -5226,6 +5229,73 @@ class HiddenVolumeStorage
     }
     _noteLogCommit(store, cursor - 1);
     return persisted;
+  }
+
+  // HVS admits at most 1024 log appends per transaction. Larger transfers
+  // stage payload-only cohorts, then atomically publish ALL logical indexes.
+  // The durable cleanup marker covers a crash/lost reply at any staging step.
+  Future<List<({OutboxFrame frame, int logId, List<int> logIds})>>
+  _persistCompleteOutboxTransferCritical(
+    AsyncKvLogStore store,
+    List<_QueuedOutboxFrame> records,
+  ) async {
+    final counts = [for (final r in records) _outboxPartCount(r.payload) + 1];
+    final total = counts.fold<int>(0, (a, b) => a + b);
+    if (total <= 1024) return _persistOutboxPayloadsCritical(store, records);
+    final first = await _allocLogIds(store, count: total);
+    var cursor = first;
+    final staged = <({OutboxFrame frame, int logId, List<int> logIds})>[];
+    final ops = <KvLogOp>[];
+    var batchFrames = 0, batchBytes = 0;
+    Future<void> flush() async {
+      if (ops.isEmpty) return;
+      await store.commit([
+        ...ops,
+        PutOp(Ns.settings, _sk(_outboxCleanupKey), Uint8List.fromList([1])),
+      ]);
+      _noteLogCommit(store, cursor - 1);
+      ops.clear();
+      batchFrames = 0;
+      batchBytes = 0;
+    }
+
+    try {
+      for (var n = 0; n < records.length; n++) {
+        final r = records[n];
+        if (batchFrames >= 8 ||
+            ops.length + counts[n] > 1024 ||
+            batchBytes + r.payload.length > 32 * 1024) {
+          await flush();
+        }
+        final logId = cursor;
+        final logIds = _appendOutboxPayloadOps(
+          r.frame.frameId,
+          r.payload,
+          logId,
+          ops,
+          publishIndex: false,
+        );
+        staged.add((frame: r.frame, logId: logId, logIds: logIds));
+        cursor += counts[n];
+        batchFrames++;
+        batchBytes += r.payload.length;
+      }
+      await flush();
+      await store.commit([
+        for (final item in staged)
+          PutOp(
+            Ns.outboxIndex,
+            _outboxIndexKey(item.frame.frameId),
+            _sk('${item.logId}'),
+          ),
+      ]);
+      return staged;
+    } catch (_) {
+      _outboxLoaded = false;
+      _outboxById.clear();
+      _noteLogCommit(store, cursor - 1);
+      rethrow;
+    }
   }
 
   Future<({Uint8List payload, List<int> logIds})?> _readOutboxPayload(
@@ -5445,6 +5515,98 @@ class HiddenVolumeStorage
       devLog(() => 'xVeil[outbox]: index load failed: $e');
       return false;
     }
+  }
+
+  @override
+  Future<bool> containsOutboxFrame(OutboxFrame expected) {
+    final session = _store;
+    if (session == null) return Future.value(false);
+    final id = expected.frameId, peer = expected.peerHex;
+    final wire = Uint8List.fromList(expected.wire);
+    return _outboxSerialized(() async {
+      if (!identical(session, _store) ||
+          !await _ensureOutboxLoadedCritical() ||
+          !identical(session, _store)) {
+        return false;
+      }
+      final held = _outboxById[id]?.frame;
+      return held != null &&
+          held.peerHex == peer &&
+          _bytesEqual(held.wire, wire);
+    });
+  }
+
+  @override
+  Future<void> enqueueOutboxTransfer(List<OutboxFrame> frames) {
+    if (_store == null || _convSequenceFences > 0) {
+      throw StateError('storage is closing or locked');
+    }
+    if (frames.isEmpty || frames.length > 4096) {
+      throw ArgumentError('invalid outbox transfer size');
+    }
+    final peer = frames.first.peerHex;
+    final ids = <String>{};
+    var bytes = 0;
+    for (final frame in frames) {
+      bytes += frame.wire.length;
+      if (frame.peerHex != peer ||
+          !ids.add(frame.frameId) ||
+          bytes > 16 * 1024 * 1024) {
+        throw ArgumentError('inconsistent or oversized outbox transfer');
+      }
+    }
+    final stamp = DateTime.now().millisecondsSinceEpoch;
+    // Freeze before waiting for the storage lane, including caller-owned IDs,
+    // bytes and age. The native commit publishes payloads and indexes together.
+    final records = <_QueuedOutboxFrame>[];
+    for (final input in frames) {
+      final frame = OutboxFrame(
+        frameId: input.frameId,
+        peerHex: peer,
+        wire: Uint8List.fromList(input.wire),
+        enqueuedAtMs: input.enqueuedAtMs ?? stamp,
+      );
+      final payload = _sk(
+        jsonEncode({
+          'id': frame.frameId,
+          'p': peer,
+          'w': base64Encode(frame.wire),
+          't': frame.enqueuedAtMs,
+        }),
+      );
+      if (payload.length > _outboxMaxPayloadBytes) {
+        throw ArgumentError('outbox transfer payload exceeds storage bound');
+      }
+      records.add((frame: frame, payload: payload));
+    }
+    return _trackLogWrite(
+      (store) => _outboxSerialized(() async {
+        if (!identical(store, _store)) {
+          throw StateError('storage session changed before transfer admission');
+        }
+        if (!await _ensureOutboxLoadedCritical()) {
+          throw StateError('durable outbox could not be loaded');
+        }
+        final missing = <_QueuedOutboxFrame>[];
+        for (final record in records) {
+          final held = _outboxById[record.frame.frameId]?.frame;
+          if (held == null) {
+            missing.add(record);
+          } else if (held.peerHex != peer ||
+              !_bytesEqual(held.wire, record.frame.wire)) {
+            throw StateError('outbox transfer conflicts with a queued frame');
+          }
+        }
+        if (missing.isEmpty) return;
+        final persisted = await _persistCompleteOutboxTransferCritical(
+          store,
+          missing,
+        );
+        for (final item in persisted) {
+          _outboxById[item.frame.frameId] = item;
+        }
+      }),
+    );
   }
 
   @override
@@ -6016,9 +6178,7 @@ class HiddenVolumeStorage
     // Maintenance begins at the conversation fence, before it reaches the
     // file gate. Refuse new producers immediately, but finish accepted work
     // against the same space before closing or erasing it.
-    if (_closePending != null ||
-        _convSequenceFences > 0 ||
-        _fileIoFences > 0) {
+    if (_closePending != null || _convSequenceFences > 0 || _fileIoFences > 0) {
       return Future<T>.error(StateError('file storage is closing or erasing'));
     }
     final session = _store;
@@ -6752,11 +6912,12 @@ class HiddenVolumeStorage
     final pending = _closePending;
     if (pending != null) return pending;
     late final Future<void> closing;
-    closing = _drainConvSequenceWrites(
-      () => _drainRatchetIo(() => _drainFileIo(_close)),
-    ).whenComplete(() {
-      if (identical(_closePending, closing)) _closePending = null;
-    });
+    closing =
+        _drainConvSequenceWrites(
+          () => _drainRatchetIo(() => _drainFileIo(_close)),
+        ).whenComplete(() {
+          if (identical(_closePending, closing)) _closePending = null;
+        });
     _closePending = closing;
     return closing;
   }
