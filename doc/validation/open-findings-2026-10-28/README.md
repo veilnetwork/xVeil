@@ -1,5 +1,21 @@
 # Открытые случаи — обновлено 2026-11-04
 
+Последний шаг: [TTL после durable enqueue edit](../outbox-enqueue-expiry-2026-11-04/README.md).
+По пять ordinary/native red подтвердили сохранение expired/deleted правки
+при пропущенном live leg и позднюю sibling publication. После enqueue теперь
+обязательный persisted guard; caller повторяет TTL до edit publisher.
+Три age-red на обоих backend закрыты сохранением actual queue stamp при
+bodyless replacement. Здоровая silent/TTL-off ветка и точный retry после
+отказа replacement сохранены. 1454 tests / 21 skipped в 80 файлах, 15 scoped
+с явно заданной HVS без skip, analyzer чистый. Snapshot A/B/C и direct-edit
+void→durable ACK→fresh delivery прошли; cleanup 28/24 PID и 35/30 портов,
+1455 frozen inputs в каждом, runtime удалены, native SHA прежние. Первый
+direct прогон не засчитан из-за неверного first-raw-read oracle: запрос
+опередил завершение async startup sweep на 47 мс. Проверка теперь ждёт
+automatic cleanup в прежнем pre-30-с бюджете; UI projection проверен отдельно.
+Остальные transport/early-ACK/parallel cleanup/partial/policy/clock skew и
+вся матрица открыты; mailbox/push/релиза нет.
+
 Последний шаг: [TTL во время edit commit](../edit-io-expiry-2026-11-04/README.md).
 Шесть TTL shapes воспроизведены на прежнем product-коде; окончательная fixture
 повторно дала 6 native assertion-red. После правки исходящие, входящие,
@@ -1178,6 +1194,7 @@ push/релиза нет; multi-device матрица не квалифицир�
 
 | Случай | Отметка | Граница подтверждения |
 |---|---|---|
+| TTL после ожидания enqueue / без live leg | **ПОДТВЕРЖДЕНО И ЛОКАЛЬНО ИСПРАВЛЕНО** | Persisted expiry guard обязателен после queue commit; caller не публикует expired edit. Bodyless replacement сохраняет actual age, ошибка cleanup не скрывается; legacy no-seq discard и cold retry проверены. Native gates/raw roots и два process сценария прошли. Сохранённый старый last-seen моделирует offline, реальные сутки и transport waits не квалифицированы. [Проверка](../outbox-enqueue-expiry-2026-11-04/README.md). |
 | TTL при завершении записи правок | **ПОДТВЕРЖДЕНО И ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННОЙ ГРАНИЦЕ** | Own/peer/mirror/reflected paths проверяют original TTL/tombstone после edit commit. Required publication не получает expired body; failed incoming erase не ACK, exact retry сохраняет peer void и не создаёт authored reflected slot. Native gates/cold roots и real-provider 100-edit A/B/C regression прошли. Поздние publisher/transport ожидания ещё открыты. [Проверка](../edit-io-expiry-2026-11-04/README.md). |
 | TTL: старый clock копии при живой canonical row | **ПОДТВЕРЖДЕНО И ЛОКАЛЬНО ИСПРАВЛЕНО** | Отказ unseen-expiry marker больше не считается удалением всего ID; сохраняются fresh mirror/edit, удаляется только старая копия. Native old-segment cleanup / cold floor, exact queued rows и real-signer A/B/C с offline recovery прошли. Смена системного времени и вся clock-skew матрица не квалифицированы. [Проверка](../clock-conflict-expiry-2026-11-04/README.md). |
 | TTL внутри required publisher / atomic journal completion | **ПОДТВЕРЖДЕНО, ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННОЙ ГРАНИЦЕ** | После publisher повторяется expiry guard; device post ждёт save/recheck/scrub, включая независимый key-share. Failed cleanup не ACK/notice/snapshot; exact retry и свежая отправка проходят. Native paired-commit / cold floor и широкая регрессия прошли. Остальные async snapshot/transport/partial/policy границы не закрыты. [Проверка](../publisher-ttl-boundary-2026-11-04/README.md). |

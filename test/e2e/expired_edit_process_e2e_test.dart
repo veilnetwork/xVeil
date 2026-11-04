@@ -148,14 +148,27 @@ void main() {
       final restarted = Stopwatch()..start();
       await c.start();
       final firstRead = await base.rows(c, ai);
-      expect(firstRead.any((r) => r['id'] == id), isFalse);
+      final firstReadWasClean = !firstRead.any((r) => r['id'] == id);
+      // The authenticated debug endpoint reads raw storage, unlike the UI's
+      // TTL projection. API readiness is not completion of the owned async
+      // startup sweep. Observe its cleanup without forcing another pass, and
+      // keep the original deadline BEFORE the old first periodic sweep.
+      final remaining = const Duration(seconds: 30) - restarted.elapsed;
+      expect(remaining, greaterThan(Duration.zero));
+      await waitUntil(
+        () async => !(await base.rows(c, ai)).any((r) => r['id'] == id),
+        what: 'automatic startup cleanup finishes before the old timer',
+        timeout: remaining,
+        interval: const Duration(milliseconds: 100),
+      );
       expect(
         restarted.elapsed,
         lessThan(const Duration(seconds: 30)),
         reason: 'qualification must precede the old first periodic sweep',
       );
       E2eLog.line(
-        'PROCESS_STARTUP_TTL_FIRST_READ_PASS ready_ms=${restarted.elapsedMilliseconds}',
+        'PROCESS_STARTUP_TTL_BEFORE_PERIODIC_PASS '
+        'ready_ms=${restarted.elapsedMilliseconds} first_read_clean=$firstReadWasClean',
       );
       await waitUntil(
         () async {
