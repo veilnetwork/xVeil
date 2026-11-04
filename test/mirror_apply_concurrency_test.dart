@@ -134,6 +134,72 @@ void main() {
   );
 
   test(
+    'prepared ordering keeps the mirror key until its durable correction',
+    () async {
+      storage.holdFirst = false;
+      await storage.appendMessage(
+        Message(
+          id: 'shared',
+          conversationId: peer.hex,
+          author: peer.hex,
+          seq: 99,
+          direction: MessageDirection.outgoing,
+          body: 'peer echo',
+          timestamp: DateTime.fromMillisecondsSinceEpoch(1000),
+          status: MessageStatus.delivered,
+          positionVerified: false,
+        ),
+      );
+      final ready = Completer<MessageOrderingAdoption>();
+      final publish = Completer<bool>();
+      var completed = false;
+      final applying = service
+          .applyMirroredMessage(
+            peer: peer,
+            msgId: 'shared',
+            direction: MessageDirection.outgoing,
+            body: 'canonical',
+            tsMs: 1000,
+            author: _id(1).hex,
+            seq: 1,
+            positionVerified: true,
+            adoptPrepared: (request) {
+              ready.complete(request);
+              return publish.future;
+            },
+          )
+          .whenComplete(() {
+            completed = true;
+          });
+      final request = await ready.future;
+      var duplicateCompleted = false;
+      final duplicate = mirror(peer).whenComplete(() {
+        duplicateCompleted = true;
+      });
+      expect(await mirror(other), isTrue);
+      expect(completed, isFalse);
+      expect(duplicateCompleted, isFalse);
+      expect(
+        (await storage.loadMessageById(peer.hex, 'shared'))!.ordering,
+        isNull,
+      );
+      final result = await storage.adoptMessageOrderingBatch([
+        request,
+      ], beforeCommit: () async {});
+      publish.complete(result!.single);
+      expect(await applying, isTrue);
+      await duplicate;
+      expect(rawPosts(peer), 1);
+      final held = (await storage.loadMessageById(peer.hex, 'shared'))!;
+      expect(held.body, 'peer echo');
+      expect(held.author, peer.hex);
+      expect(held.seq, 99);
+      expect(held.orderAuthor, _id(1).hex);
+      expect(held.orderSeq, 1);
+    },
+  );
+
+  test(
     'wire winner at prepared boundary uses ordinary merge without a second post',
     () async {
       storage.holdFirst = false;

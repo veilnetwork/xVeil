@@ -1128,21 +1128,18 @@ class _MessagingOwnHistory {
         }
       }
 
-      final cohort = _HistoryAppendCohort(
-        store as PreparedMessageBatchStore,
-        check,
-      );
+      final cohort = _HistoryWriteCohort(store, check);
       try {
         for (final event in validated) {
           await cohort.apply(
             event,
-            (append) => _applyHistoryEvent(
+            (writes) => _applyHistoryEvent(
               pull,
               peer,
               event,
               heldEdits,
               visible,
-              append: append,
+              writes: writes,
               prepared: prepared,
             ),
           );
@@ -1172,8 +1169,8 @@ class _MessagingOwnHistory {
     DeviceSyncEvent event,
     Map<String, int> heldEdits,
     bool Function(DateTime) visible, {
-    PreparedMessageAppender? append,
-    Future<void> Function(DeviceSyncEvent, PreparedMessageAppender)? prepared,
+    PreparedMessageWrites? writes,
+    Future<void> Function(DeviceSyncEvent, PreparedMessageWrites)? prepared,
   }) async {
     if (_pulls[pull.device.hex] != pull ||
         !await _allowed(pull.device, pull.binding)) {
@@ -1185,10 +1182,10 @@ class _MessagingOwnHistory {
     final reflected = event.payload['er'];
     if ((expiry == null || _owner._now().millisecondsSinceEpoch < expiry) &&
         visible(DateTime.fromMillisecondsSinceEpoch(event.tsMs))) {
-      if (append == null) {
+      if (writes == null) {
         await _owner.ownHistoryApply!(event);
       } else {
-        await prepared!(event, append);
+        await prepared!(event, writes);
       }
       if (!await _allowed(pull.device, pull.binding)) {
         throw StateError('History session ended');
