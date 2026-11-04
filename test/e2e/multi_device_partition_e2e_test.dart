@@ -1,6 +1,8 @@
 @Timeout(Duration(minutes: 20))
 library;
 
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'device_fixture.dart' show E2eIdentity;
@@ -10,8 +12,12 @@ import 'multi_device_process_e2e_test.dart' as base;
 
 void main() {
   final gate = E2eGate.read();
+  final deleteEverywhere =
+      Platform.environment['XVEIL_E2E_PARTITION_DELETE_EVERYONE'] == '1';
   test(
-    'cases 31/32: two live partitions converge without process restart',
+    deleteEverywhere
+        ? 'cases 20/31/32: edit versus global delete across a live partition'
+        : 'cases 31/32: two live partitions converge without process restart',
     () async {
       final f = await ProcessFleet.start(
         gate,
@@ -168,7 +174,17 @@ void main() {
           '/edit_message',
           query: {'id': editedId, 'text': 'partition-edited-on-A'},
         ),
-        b.checked('/delete_message', query: {'id': editedId}),
+        b
+            .checked(
+              '/delete_message',
+              query: {
+                'id': editedId,
+                if (deleteEverywhere) 'for_everyone': 'true',
+              },
+            )
+            .then((reply) {
+              expect(reply['forEveryone'], deleteEverywhere);
+            }),
         a.checked(
           '/react',
           query: {'peer': y, 'msg': reactionId, 'emoji': '🚀'},
@@ -211,6 +227,33 @@ void main() {
           isEmpty,
         );
       }
+      if (deleteEverywhere) {
+        await waitUntil(
+          () async {
+            for (final device in [a, c]) {
+              final rows = (await messages(
+                device,
+              )).where((row) => row['id'] == editedId).toList();
+              if (rows.length != 1 ||
+                  rows.single['body'] != 'partition-edited-on-A') {
+                return false;
+              }
+            }
+            for (final device in [b, d]) {
+              if ((await messages(
+                device,
+              )).any((row) => row['id'] == editedId)) {
+                return false;
+              }
+            }
+            return true;
+          },
+          what:
+              'edit survives in A/C while global deletion reaches B/D before healing',
+        );
+        expect(await isolated(), isTrue);
+        E2eLog.line('PROCESS_TWO_PARTITIONS_GLOBAL_DELETE_PREHEAL_PASS');
+      }
       final read = <String, int>{};
       for (final device in f.devices.values) {
         read[device.label] =
@@ -244,6 +287,13 @@ void main() {
         };
         for (final device in f.devices.values) {
           final view = views[device.label]!;
+          final expectedRows = !deleteEverywhere && (device == c || device == d)
+              ? 18
+              : 17;
+          if (view.length != expectedRows ||
+              view.where((row) => row['id'] == reactionId).length != 1) {
+            return false;
+          }
           for (final sender in f.devices.keys) {
             if (!same(
               [
@@ -276,7 +326,15 @@ void main() {
           return false;
         }
         if (views['A']!.any((row) => row['id'] == editedId)) return false;
-        if (views['C']!.singleWhere((row) => row['id'] == editedId)['body'] !=
+        if (deleteEverywhere) {
+          if (views.values.any(
+            (view) => view.any((row) => row['id'] == editedId),
+          )) {
+            return false;
+          }
+        } else if (views['C']!.singleWhere(
+              (row) => row['id'] == editedId,
+            )['body'] !=
             'partition-edited-on-A') {
           return false;
         }
@@ -340,12 +398,52 @@ void main() {
       E2eLog.line(
         'PROCESS_TWO_PARTITIONS_HISTORY_CONFLICT_REACTION_READ_CONVERGENCE_PASS',
       );
+      if (deleteEverywhere) {
+        E2eLog.line('PROCESS_TWO_PARTITIONS_GLOBAL_DELETE_CONVERGENCE_PASS');
+      }
       E2eLog.line(
         'PROCESS_TWO_PARTITIONS_METRICS '
         'firstConvergedMs=$firstConvergedMs '
         'stableMs=${stable!.elapsedMilliseconds} '
         'totalRecoveryMs=${healing.elapsedMilliseconds}',
       );
+      if (deleteEverywhere) {
+        final heldRows = logical(await messages(b));
+        final heldReactions = await reactions(b);
+        final heldRead =
+            (await b.checked('/read_state', query: {'conv': y}))['marker']
+                as int;
+        for (final source in [a, c, d]) {
+          await source.stop();
+          expect(source.lastExitCode, 0);
+        }
+        await b.restart();
+        final restarted = await base.deviceInfo(b);
+        expect(restarted['identity'], x);
+        expect(restarted['nodeId'], infos['B']!['nodeId']);
+        await waitUntil(
+          () async {
+            final rows = await messages(b);
+            if (rows.length != 17 ||
+                rows.any((row) => row['id'] == editedId) ||
+                !same(logical(rows), heldRows) ||
+                !same(await reactions(b), heldReactions)) {
+              return false;
+            }
+            final marker =
+                (await b.checked('/read_state', query: {'conv': y}))['marker']
+                    as int;
+            return marker >= heldRead;
+          },
+          what:
+              'B retains the converged history, deletion, reactions and read state after restart with A/C/D stopped',
+          describe: () async =>
+              '${{'rows': await messages(b), 'reactions': await reactions(b)}}',
+        );
+        E2eLog.line(
+          'PROCESS_TWO_PARTITIONS_GLOBAL_DELETE_OFFLINE_RESTART_PASS',
+        );
+      }
     },
     skip: gate.skip,
   );

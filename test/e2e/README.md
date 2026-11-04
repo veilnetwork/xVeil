@@ -117,10 +117,19 @@ Optional knobs:
 | `multi_device_extended_e2e_test.dart` | concurrent writers, interrupted backlog, message state, media, call races, groups and revocation probes |
 | `device_process_fixture.dart` / `device_process_worker_test.dart` | a separate OS process and authenticated debug API per device |
 | `multi_device_process_e2e_test.dart` | independent history, B→C authentication, reconnect, stale-device revoke, call race and abrupt crash probes |
-| `multi_device_partition_e2e_test.dart` | four independent live devices, two transport partitions, concurrent messages/edit/delete/reactions/read state, then ordered convergence without a restart |
+| `multi_device_partition_e2e_test.dart` | four independent live devices, two transport partitions, concurrent messages/edit/delete/reactions/read state, then ordered convergence without a restart; optional global deletion and offline receiver restart |
 | `pending_mutation_convergence_e2e_test.dart` | three native app stacks; a controlled peer unsend arrives before its post, then an offline sibling recovers the deletion without that peer and retains it after restart |
 | `e2e_env_test.dart` | unresponsive probes/diagnostics cannot disable the wait deadline |
 | `fixtures/*.toml` | test-only, committed node identities (see "Why identities are committed") |
+
+The partition test uses local deletion by default. With the usual native gate
+variables configured, set `XVEIL_E2E_PARTITION_DELETE_EVERYONE=1` to test a
+concurrent edit versus **delete for everyone**. It first requires the edit in
+A/C and the deletion in B/D while the halves are still isolated. After healing,
+all four must agree that the target is absent. It then stops A/C/D and restarts
+B, checking retained ordered history, deletion, reactions and read position.
+The no-restart assertion applies to the live partition and its merge; the
+additional cold restart happens only after stable convergence was verified.
 
 The two smoke files exist so that failures separate. "The relays never came up",
 "the app stack never booted", "the two devices never linked" and "the state did
