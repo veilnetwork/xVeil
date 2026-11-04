@@ -1,5 +1,19 @@
 # Открытые случаи — обновлено 2026-11-05
 
+Текущий шаг: [кэш согласия после конкурентного block](../contact-consent-cache-2026-11-05/README.md).
+ПОДТВЕРЖДЕНО: late accept-side effects и stale accepted reads разрешали
+call/P2P control после завершённой блокировки, включая ordinary cache writer.
+16 baseline assertion-red (восемь worker/native), два здоровых controls.
+Кэш теперь требует актуальный per-peer witness; запись инвалидирует его
+на входе и выходе, старый accept не прогревает кэш. 34 новых сценария включают
+настоящий CallService FSM без media: blocked не достигает ringing.
+151 scoped, 539 diagnostic control, 1985 broad passed / 3 skipped в 106 файлах,
+analyzer чистый, headless AOT/--help прошёл. Process A/B/C прошёл три boot/handoff
+gates; cleanup 24 PID / 42 порта чистый, 1468 inputs/native SHA неизменны.
+Остальные writers/полная conflict/crash матрица ещё требуют проверки; исходный
+Windows случай этим не объяснён (сценария block в репорте нет).
+Mailbox для собственных устройств, push/релиз и сиды не менялись.
+
 Текущий шаг: [durable решения о контактах своим устройствам](../contact-decision-sync-2026-11-05/README.md).
 Подтверждено отсутствие повторяемой обязанности после сбоя callback: два
 ordinary/native assertion-red. Статус, ordering floor и намерение синхронизации

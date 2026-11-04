@@ -45,19 +45,33 @@ class _MessagingContacts {
   }
 
   Future<void> setStatus(NodeId peer, ContactStatus status) async {
-    // A lost commit reply must not leave a stale positive consent cache.
-    _owner._realtimeControl.revoke(peer);
-    await _owner._storage.setContactStatus(peer, status);
+    await _withConsentWrite(
+      peer,
+      () => _owner._storage.setContactStatus(peer, status),
+    );
     await _afterStatusSaved(peer, status);
   }
 
+  Future<T> _withConsentWrite<T>(
+    NodeId peer,
+    Future<T> Function() write,
+  ) async {
+    if (_owner._disposed) throw StateError('messaging service is closed');
+    // Also invalidate on completion/failure: a read begun DURING a blocked
+    // write may have observed the previous accepted record.
+    _owner._realtimeControl.revoke(peer);
+    try {
+      return await write();
+    } finally {
+      _owner._realtimeControl.revoke(peer);
+    }
+  }
+
   Future<void> _afterStatusSaved(NodeId peer, ContactStatus status) async {
+    if (_owner._disposed) return;
     if (status == ContactStatus.accepted) {
       await _owner._outbox.retireRequests(peer);
       if (_owner._disposed) return;
-      _owner._realtimeControl.markAccepted(peer);
-    } else {
-      _owner._realtimeControl.revoke(peer);
     }
     _owner.onContactStatusChanged?.call(peer, status);
   }
@@ -73,10 +87,13 @@ class _MessagingContacts {
     ContactStatus status, {
     int? atMs,
   }) async {
+    if (_owner._disposed) return false;
     // This one CREATES a record, so it is where a contact with my own device
     // would be born — refused, as the emitters refuse to post one.
     if (await _owner._isSiblingDevice(peer)) return false;
+    if (_owner._disposed) return false;
     final existing = await _owner._storage.getContact(peer);
+    if (_owner._disposed) return false;
     if (atMs == null && existing?.status == status) return false;
     // A DOORBELL NEVER OVERWRITES A DECISION. Both devices receive the raw
     // request themselves, so a mirrored pending status carries no information
@@ -90,24 +107,27 @@ class _MessagingContacts {
             existing?.status == ContactStatus.blocked)) {
       return false;
     }
-    _owner._realtimeControl.revoke(peer);
     if (atMs != null &&
         (status == ContactStatus.accepted || status == ContactStatus.blocked)) {
-      if (!await _owner._storage.applyContactDecision(peer, status, atMs)) {
+      if (!await _withConsentWrite(
+        peer,
+        () => _owner._storage.applyContactDecision(peer, status, atMs),
+      )) {
         return false;
       }
     } else {
-      await _owner._storage.upsertContact(
-        (existing ?? Contact(nodeId: peer)).copyWith(status: status),
+      await _withConsentWrite(
+        peer,
+        () => _owner._storage.upsertContact(
+          (existing ?? Contact(nodeId: peer)).copyWith(status: status),
+        ),
       );
     }
     if (_owner._disposed) return false;
     if (status == ContactStatus.accepted) {
       await _owner._outbox.retireRequests(peer);
-      _owner._realtimeControl.markAccepted(peer);
-    } else {
-      _owner._realtimeControl.revoke(peer);
     }
+    if (_owner._disposed) return false;
     _owner._signal();
     return true;
   }
@@ -423,7 +443,10 @@ class _MessagingContacts {
     final frame = OutboxFrame(frameId: frameId, peerHex: peer.hex, wire: wire);
     // User-visible consent and the response obligation share one transaction.
     // No callback/live send can advertise a decision with no durable answer.
-    await _owner._outbox.enqueueAcceptance(peer, frameId, wire);
+    await _withConsentWrite(
+      peer,
+      () => _owner._outbox.enqueueAcceptance(peer, frameId, wire),
+    );
     try {
       if (_owner._disposed) return;
       await _afterStatusSaved(peer, ContactStatus.accepted);
