@@ -63,6 +63,7 @@ import 'package:xveil/data/transport/veil_native.dart';
 import 'package:xveil/data/veil_stack.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/device_link.dart';
+import 'package:xveil/domain/device_sync.dart';
 import 'package:xveil/domain/identity.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/call_service.dart';
@@ -510,16 +511,28 @@ class E2eDevice {
         }
         if (census != null) {
           Future<List<NodeId>> Function()? wrapped;
+          Future<void> Function(DeviceSyncEvent)? wrappedApply;
+          Future<DeviceSyncEvent> Function(NodeId, Message)? wrappedEncode;
           _censusSubscription = container.listen(groupServiceProvider, (_, _) {
             final messaging = container.read(messagingServiceProvider);
             final readOwnDevices = messaging.myOtherDevices;
-            if (readOwnDevices == null || identical(readOwnDevices, wrapped)) {
-              return;
+            if (readOwnDevices != null && !identical(readOwnDevices, wrapped)) {
+              // The provider may rebind after linking/bridge readiness. Preserve
+              // each production resolver once, without nested timing wrappers.
+              wrapped = () => census.ownDevices(readOwnDevices);
+              messaging.myOtherDevices = wrapped;
             }
-            // The provider may rebind after linking/bridge readiness. Preserve
-            // each production resolver once, without nested timing wrappers.
-            wrapped = () => census.ownDevices(readOwnDevices);
-            messaging.myOtherDevices = wrapped;
+            final apply = messaging.ownHistoryApply;
+            if (apply != null && !identical(apply, wrappedApply)) {
+              wrappedApply = (event) => census.historyApply(() => apply(event));
+              messaging.ownHistoryApply = wrappedApply;
+            }
+            final encode = messaging.ownHistoryEncode;
+            if (encode != null && !identical(encode, wrappedEncode)) {
+              wrappedEncode = (peer, message) =>
+                  census.historyEncode(() => encode(peer, message));
+              messaging.ownHistoryEncode = wrappedEncode;
+            }
           }, fireImmediately: true);
         }
         // AppShell WATCHES this on every ready session. A bare read does not

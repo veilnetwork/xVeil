@@ -63,17 +63,23 @@ class MessageApplyCensus {
     _rpcContexts.clear();
   }
 
-  Future<T> ownDevices<T>(Future<T> Function() body) async {
+  Future<T> ownDevices<T>(Future<T> Function() body) =>
+      _context('ownDevices', body);
+
+  Future<T> historyApply<T>(Future<T> Function() body) =>
+      _context('historyApply', body);
+
+  Future<T> historyEncode<T>(Future<T> Function() body) =>
+      _context('historyEncode', body);
+
+  Future<T> _context<T>(String label, Future<T> Function() body) async {
     final start = nowUs;
     try {
-      return await runZoned(
-        body,
-        zoneValues: {storageTimingContextKey: 'ownDevices'},
-      );
+      return await runZoned(body, zoneValues: {storageTimingContextKey: label});
     } finally {
       _record(
         _contexts,
-        'ownDevices',
+        label,
         math.max<int>(0, nowUs - math.max<int>(start, _epoch)),
         start < _epoch,
       );
