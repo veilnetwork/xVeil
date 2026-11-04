@@ -345,6 +345,8 @@ abstract interface class Storage {
   /// rows before atomically retiring the old index set; a failed staging write
   /// retains the complete old copy. New IDs may already exist from a retry but
   /// must carry identical bytes. Keeps replacement enqueue timestamps.
+  /// An empty replacement is an explicit local discard, still compared and
+  /// retired atomically with its durable scrub obligation; it is not an ACK.
   Future<bool> replaceOutboxFrames(
     List<OutboxFrame> expected,
     List<OutboxFrame> replacement,

@@ -66,6 +66,7 @@ part 'messaging_conversation_admin.dart';
 part 'messaging_attestation.dart';
 part 'messaging_replication.dart';
 part 'messaging_replication_expiry.dart';
+part 'messaging_edit_expiry.dart';
 part 'messaging_group_receipts.dart';
 part 'messaging_group_source.dart';
 part 'messaging_group_content.dart';
@@ -1381,6 +1382,7 @@ class MessagingService {
       }
       if (!_disposed) await onDisappearingSweep?.call();
       if (!_disposed) await _replication._expiry.sweep();
+      if (!_disposed) await _outbox._editExpiry.sweep();
     } catch (e) {
       devLog(() => 'xVeil[disappearing]: background sweep failed: $e');
     } finally {
