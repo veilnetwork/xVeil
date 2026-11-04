@@ -171,6 +171,50 @@ void outboxReplacementCases({
     );
   }
 
+  for (final fault in [null, 'retire-before', 'retire-after']) {
+    test('empty local replacement is exact and durable ($fault)', () async {
+      // A stale expected image must never be an unconditional delete.
+      expect(
+        await storage.replaceOutboxFrames([
+          OutboxFrame(
+            frameId: old.first.frameId,
+            peerHex: 'wrong-peer',
+            wire: old.first.wire,
+          ),
+        ], []),
+        isFalse,
+      );
+      expect(await ids(), containsAll(old.map((f) => f.frameId)));
+      faults.fault = fault;
+      if (fault == null) {
+        expect(await storage.replaceOutboxFrames(old, []), isTrue);
+      } else {
+        await expectLater(
+          storage.replaceOutboxFrames(old, []),
+          throwsStateError,
+        );
+        expect(
+          await ids(),
+          fault == 'retire-before'
+              ? containsAll(old.map((f) => f.frameId))
+              : ['unrelated'],
+        );
+      }
+      await storage.close();
+      expect(await storage.open(password: 'fixture'), isTrue);
+      if (fault == 'retire-before') {
+        expect(await storage.replaceOutboxFrames(old, []), isTrue);
+      }
+      faults.fault = 'scrub';
+      await expectLater(storage.finishOutboxCleanup(), throwsStateError);
+      await storage.close();
+      expect(await storage.open(password: 'fixture'), isTrue);
+      await storage.finishOutboxCleanup();
+      expect(await ids(), ['unrelated']);
+      expect(faults.stage, 0);
+    }, skip: skip);
+  }
+
   test(
     'vacuum obligation survives replacement and reopen without old rows',
     () async {

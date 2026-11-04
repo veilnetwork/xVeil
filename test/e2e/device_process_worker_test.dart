@@ -14,6 +14,7 @@ import 'package:xveil/core/ids.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/peer_authorization.dart';
 import 'package:xveil/domain/device_sync.dart';
+import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/state/device_sync_bridge.dart' show awaitDeviceHistoryRoom;
 
 import 'device_fixture.dart';
@@ -171,6 +172,31 @@ void main() {
             if (await inspect.exists()) {
               final request = jsonDecode(await inspect.readAsString()) as Map;
               await inspect.delete();
+              if (request['directEditTarget'] case final String target) {
+                final peer = request['peer'] as String;
+                final seq = request['seq'];
+                final queued = await device!.storage.pendingOutboxFrames();
+                final edits = [
+                  for (final frame in queued)
+                    if (frame.peerHex == peer) WireEnvelope.decode(frame.wire),
+                ];
+                final targets = edits.where((e) =>
+                  e.kind == WireKind.edit && e.id == target).toList();
+                final sync = await device!.storage.conversationSync(peer);
+                final response = File('${dir.path}/storage-inspected.new');
+                await response.writeAsString(jsonEncode({
+                  'nonce': request['nonce'],
+                  'targetedEdits': targets.length,
+                  'editSeq': targets.isEmpty ? null : targets.first.seq,
+                  'voidSlots': edits.where((e) => e.kind == WireKind.voidSeq &&
+                    (seq == null || e.seq == seq)).length,
+                  'peerHighWater': sync.highWater[peer] ?? 0,
+                  'cleanupPending': (await device!.storage.settingsKeys())
+                    .contains('outbox.replacement_scrub_pending'),
+                }));
+                await response.rename('${dir.path}/storage-inspected.json');
+                continue;
+              }
               if (request['outboxExpiryIds'] case final List values) {
                 final groupId = (await device!.groups!.deviceGroupIdHex())!;
                 if (request['queueFullSnapshot'] == true) {

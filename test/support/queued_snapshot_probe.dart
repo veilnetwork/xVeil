@@ -130,6 +130,7 @@ Future<Map<String, int>> stoppedOutboxStats(
   String gid,
   Set<String> ids, {
   required String keepKey,
+  void Function(List<OutboxFrame>)? inspectFrames,
 }) async {
   final records = <int, Uint8List>{};
   int? start;
@@ -185,6 +186,7 @@ Future<Map<String, int>> stoppedOutboxStats(
       ),
     );
   }
+  inspectFrames?.call(List.unmodifiable(frames));
   return {
     ...queuedSnapshotStats(frames, gid, ids, keepKey: keepKey),
     'rawPayloadRows': records.length,
