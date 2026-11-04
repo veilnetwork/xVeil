@@ -512,6 +512,7 @@ class _MessagingDeviceMirror {
 
   Future<bool> applyMessage({
     PreparedMessageAppender? appendPrepared,
+    PreparedOrderingAdopter? adoptPrepared,
     String? author,
     int? seq,
     bool? positionVerified,
@@ -543,6 +544,7 @@ class _MessagingDeviceMirror {
       }
       return _applyMessage(
         appendPrepared: appendPrepared,
+        adoptPrepared: adoptPrepared,
         binding: binding,
         author: author,
         seq: seq,
@@ -575,6 +577,7 @@ class _MessagingDeviceMirror {
 
   Future<bool> _applyMessage({
     PreparedMessageAppender? appendPrepared,
+    PreparedOrderingAdopter? adoptPrepared,
     required Object? binding,
     String? author,
     int? seq,
@@ -667,14 +670,28 @@ class _MessagingDeviceMirror {
                   held.author == identity))) {
         return deliveryChanged;
       }
-      final changed = await _owner._storage.adoptMessageOrdering(
-        peer.hex,
-        msgId,
-        provisionalAuthor: held.author!,
-        provisionalSeq: held.seq!,
-        author: author,
-        seq: seq,
-      );
+      final changed = adoptPrepared == null
+          ? await _owner._storage.adoptMessageOrdering(
+              peer.hex,
+              msgId,
+              provisionalAuthor: held.author!,
+              provisionalSeq: held.seq!,
+              author: author,
+              seq: seq,
+            )
+          : await adoptPrepared(
+              MessageOrderingAdoption(
+                conversationId: peer.hex,
+                messageId: msgId,
+                provisionalAuthor: held.author!,
+                provisionalSeq: held.seq!,
+                author: author,
+                seq: seq,
+              ),
+            );
+      if (_owner._disposed || !identical(binding, _owner.groupBindingsOwner)) {
+        return false;
+      }
       if (changed) _owner._signal();
       return changed || deliveryChanged;
     }

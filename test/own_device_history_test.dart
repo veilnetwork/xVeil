@@ -101,6 +101,7 @@ class _RefusingCursorStore extends FakeKvLogStore {
   bool refuseDelivery = false;
   bool deliveryRefused = false;
   final postBatches = <int>[];
+  final orderingBatches = <int>[];
 
   @override
   int commit(List<KvLogOp> ops) {
@@ -135,6 +136,15 @@ class _RefusingCursorStore extends FakeKvLogStore {
       return value is Map && value['k'] == 0 && value['op'] == null;
     }).length;
     if (posts > 0) postBatches.add(posts);
+    final ordering = ops.whereType<AppendLogOp>().where((op) {
+      if (op.namespace < Ns.messageLogShardFirst ||
+          op.namespace > Ns.messageLogShardLast) {
+        return false;
+      }
+      final value = jsonDecode(utf8.decode(op.payload));
+      return value is Map && value['op'] == 'ordering';
+    }).length;
+    if (ordering > 0) orderingBatches.add(ordering);
     return result;
   }
 }
@@ -143,6 +153,23 @@ class _SnapshotStorage extends HiddenVolumeStorage {
   _SnapshotStorage(super.opener);
   Future<void> Function()? afterMessagesRead;
   Future<void> Function()? beforePreparedCommit;
+  bool ordinaryOrderingOnly = false;
+
+  @override
+  Future<List<bool>?> adoptMessageOrderingBatch(
+    List<MessageOrderingAdoption> requests, {
+    required Future<void> Function() beforeCommit,
+  }) => ordinaryOrderingOnly
+      ? Future.value(null)
+      : super.adoptMessageOrderingBatch(
+          requests,
+          beforeCommit: () async {
+            final hook = beforePreparedCommit;
+            beforePreparedCommit = null;
+            await hook?.call();
+            await beforeCommit();
+          },
+        );
 
   @override
   Future<List<PreparedMessageWrite>?> appendMissingMessageBatch(
@@ -241,11 +268,13 @@ void main() {
     Future<void> apply(
       DeviceSyncEvent event, {
       PreparedMessageAppender? append,
+      PreparedOrderingAdopter? adopt,
     }) async {
       await beforeApply?.call(event);
       final p = event.payload;
       await m.applyMirroredMessage(
         appendPrepared: append,
+        adoptPrepared: adopt,
         peer: NodeId.fromHex(p['peer'] as String),
         msgId: event.key,
         direction: p['dir'] == 'outgoing'
@@ -262,7 +291,8 @@ void main() {
     }
 
     m.ownHistoryApply = (event) => apply(event);
-    m.ownHistoryApplyPrepared = (event, append) => apply(event, append: append);
+    m.ownHistoryApplyPrepared = (event, writes) =>
+        apply(event, append: writes.append, adopt: writes.adoptOrdering);
     m.onOwnDeviceHistoryReady(m.groupBindingsOwner!);
     return m;
   }
@@ -341,6 +371,168 @@ void main() {
     );
     expect(bStore.postBatches.every((size) => size <= 16), isTrue);
   });
+
+  test(
+    'history repairs provisional positions in bounded durable cohorts',
+    () async {
+      await seed(64);
+      final originals = await sa.loadMessages(peer.hex);
+      for (var i = 0; i < originals.length; i++) {
+        final row = originals[i];
+        await sb.appendMessage(
+          Message(
+            id: row.id,
+            conversationId: row.conversationId,
+            direction: row.direction,
+            body: row.body,
+            timestamp: row.timestamp,
+            status: row.status,
+            author: identity.hex,
+            seq: 2000 + i,
+            positionVerified: false,
+          ),
+        );
+      }
+      ma.start();
+      mb.start();
+      await until(
+        () async =>
+            await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+      );
+      final repaired = await sb.loadMessages(peer.hex);
+      expect(repaired.map((row) => row.id), originals.map((row) => row.id));
+      expect(
+        repaired.map((row) => (row.orderAuthor, row.orderSeq)),
+        originals.map((row) => (row.orderAuthor, row.orderSeq)),
+      );
+      expect(repaired.every((row) => row.author == identity.hex), isTrue);
+      expect(await sb.loadEventsSince(peer.hex, a.hex, 0), isEmpty);
+      expect(bStore.orderingBatches.fold<int>(0, (n, size) => n + size), 64);
+      expect(
+        bStore.orderingBatches.length,
+        lessThanOrEqualTo(4),
+        reason:
+            'sixteen authenticated ordering corrections share one durable publication',
+      );
+      expect(bStore.orderingBatches.every((size) => size <= 16), isTrue);
+    },
+  );
+
+  test(
+    'unsupported ordering batches retain the ordinary durable merge',
+    () async {
+      await seed(4);
+      final originals = await sa.loadMessages(peer.hex);
+      for (var i = 0; i < originals.length; i++) {
+        final row = originals[i];
+        await sb.appendMessage(
+          Message(
+            id: row.id,
+            conversationId: row.conversationId,
+            direction: row.direction,
+            body: row.body,
+            timestamp: row.timestamp,
+            status: row.status,
+            author: identity.hex,
+            seq: 2000 + i,
+            positionVerified: false,
+          ),
+        );
+      }
+      sb.ordinaryOrderingOnly = true;
+      ma.start();
+      mb.start();
+      await until(
+        () async =>
+            await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+      );
+      final held = await sb.loadMessages(peer.hex);
+      expect(
+        held.map((m) => (m.id, m.orderAuthor, m.orderSeq)),
+        originals.map((m) => (m.id, m.orderAuthor, m.orderSeq)),
+      );
+      expect(bStore.orderingBatches, [1, 1, 1, 1]);
+      expect(errorJournal.entries, isEmpty);
+    },
+  );
+
+  test('mixed insert and ordering cohorts preserve the full history', () async {
+    await seed(40);
+    final originals = await sa.loadMessages(peer.hex);
+    for (var i = 0; i < originals.length; i += 2) {
+      final row = originals[i];
+      await sb.appendMessage(
+        Message(
+          id: row.id,
+          conversationId: row.conversationId,
+          direction: row.direction,
+          body: row.body,
+          timestamp: row.timestamp,
+          status: row.status,
+          author: identity.hex,
+          seq: 2000 + i,
+          positionVerified: false,
+        ),
+      );
+    }
+    ma.start();
+    mb.start();
+    await until(
+      () async =>
+          await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+    );
+    final held = await sb.loadMessages(peer.hex);
+    expect(
+      held.map((m) => (m.id, m.body, m.orderAuthor, m.orderSeq)),
+      originals.map((m) => (m.id, m.body, m.orderAuthor, m.orderSeq)),
+    );
+    expect(held.map((m) => m.id).toSet(), hasLength(40));
+    expect(bStore.orderingBatches.fold<int>(0, (n, size) => n + size), 20);
+  });
+
+  test(
+    'revocation at ordering publication leaves raw positions and cursor intact',
+    () async {
+      await seed(16);
+      final originals = await sa.loadMessages(peer.hex);
+      for (var i = 0; i < originals.length; i++) {
+        final row = originals[i];
+        await sb.appendMessage(
+          Message(
+            id: row.id,
+            conversationId: row.conversationId,
+            direction: row.direction,
+            body: row.body,
+            timestamp: row.timestamp,
+            status: row.status,
+            author: identity.hex,
+            seq: 2000 + i,
+            positionVerified: false,
+          ),
+        );
+      }
+      var checked = false;
+      sb.beforePreparedCommit = () async {
+        checked = true;
+        bSiblings = [];
+      };
+      ma.start();
+      mb.start();
+      await until(() async => checked && errorJournal.entries.isNotEmpty);
+      expect(
+        (await sb.loadMessages(peer.hex)).every((m) => m.ordering == null),
+        isTrue,
+      );
+      expect(bStore.orderingBatches, isEmpty);
+      final saved =
+          jsonDecode(
+                (await sb.getSetting('device.history.cursor.v2:${a.hex}'))!,
+              )
+              as Map;
+      expect(saved['cursor'], isNull);
+      expect(applied, 0);
+    },
+  );
 
   test(
     'reconnect starts history after late bindings without waiting for a timer',

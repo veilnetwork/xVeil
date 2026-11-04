@@ -277,7 +277,7 @@ class MessagingService {
     ownHistoryApplyPrepared = null;
   }
 
-  Future<void> Function(DeviceSyncEvent event, PreparedMessageAppender append)?
+  Future<void> Function(DeviceSyncEvent event, PreparedMessageWrites writes)?
   ownHistoryApplyPrepared;
 
   /// The active group host has installed its callbacks and loaded the verifier
@@ -625,6 +625,7 @@ class MessagingService {
 
   Future<bool> applyMirroredMessage({
     PreparedMessageAppender? appendPrepared,
+    PreparedOrderingAdopter? adoptPrepared,
     String? author,
     int? seq,
     bool? positionVerified,
@@ -644,6 +645,7 @@ class MessagingService {
     List<InlineCustomEmoji> customEmoji = const [],
   }) => _deviceMirror.applyMessage(
     appendPrepared: appendPrepared,
+    adoptPrepared: adoptPrepared,
     author: author,
     seq: seq,
     positionVerified: positionVerified,

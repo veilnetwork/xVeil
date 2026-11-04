@@ -114,6 +114,171 @@ void main() {
     expect(await storage.open(password: passwordText), isTrue);
   }
 
+  MessageOrderingAdoption correction(int seq) => MessageOrderingAdoption(
+    conversationId: 'peer',
+    messageId: 'row-$seq',
+    provisionalAuthor: 'author',
+    provisionalSeq: seq,
+    author: 'canonical',
+    seq: seq + 1000,
+  );
+
+  test('native same-image A/B/A ordering commit census', () async {
+    await Future.wait([
+      for (var i = 1; i <= 64; i++) storage.appendMessage(row(i)),
+    ]);
+    await storage.close();
+    final seed = await File('${directory.path}/store.hv').readAsBytes();
+    final phases = <Map<String, Object>>[];
+    final requests = [for (var i = 1; i <= 64; i++) correction(i)];
+    for (var phase = 0; phase < 3; phase++) {
+      final path = '${directory.path}/ordering-phase-$phase.hv';
+      await File(path).writeAsBytes(seed, flush: true);
+      expect(await File(path).readAsBytes(), seed);
+      backing = _NativePostStore(
+        (await workerSpaceOpener(path)(password: password, create: false))!,
+      );
+      storage = HiddenVolumeStorage.async(
+        ({required password, required create}) async => backing,
+      );
+      expect(await storage.open(password: passwordText), isTrue);
+      final watch = Stopwatch()..start();
+      if (phase == 1) {
+        for (var i = 0; i < 64; i += 16) {
+          expect(
+            await storage.adoptMessageOrderingBatch(
+              requests.sublist(i, i + 16),
+              beforeCommit: () async {},
+            ),
+            List.filled(16, true),
+          );
+        }
+      } else {
+        for (final r in requests) {
+          expect(
+            await storage.adoptMessageOrdering(
+              r.conversationId,
+              r.messageId,
+              provisionalAuthor: r.provisionalAuthor,
+              provisionalSeq: r.provisionalSeq,
+              author: r.author,
+              seq: r.seq,
+            ),
+            isTrue,
+          );
+        }
+      }
+      watch.stop();
+      final held = await storage.loadMessages('peer');
+      expect(
+        held.map((m) => (m.id, m.author, m.seq, m.orderAuthor, m.orderSeq)),
+        [
+          for (var i = 1; i <= 64; i++)
+            ('row-$i', 'author', i, 'canonical', i + 1000),
+        ],
+      );
+      expect(held.map((m) => m.body), [
+        for (var i = 1; i <= 64; i++) row(i).body,
+      ]);
+      expect(await storage.loadEventsSince('peer', 'canonical', 0), isEmpty);
+      expect(backing.commitRows.length, phase == 1 ? 4 : 64);
+      expect(backing.commitRows.fold<int>(0, (a, b) => a + b), 64);
+      phases.add({
+        'mode': phase == 1 ? 'batch' : 'single',
+        'rows': 64,
+        'postCommits': backing.commitRows.length,
+        'elapsedUs': watch.elapsedMicroseconds,
+      });
+      await storage.close();
+    }
+    final result = Platform.environment['XVEIL_NATIVE_ORDERING_RESULT'];
+    if (result != null) {
+      await File(result).writeAsString(
+        jsonEncode({
+          'schema': 'xveil-native-ordering-control/1',
+          'sameSeedImage': true,
+          'identicalLogicalOutcome': true,
+          'phases': phases,
+        }),
+      );
+    }
+  }, skip: skip);
+
+  test(
+    'native ordering cohort preserves bodies raw positions and durable canonical order',
+    () async {
+      await Future.wait([
+        for (var i = 1; i <= 16; i++) storage.appendMessage(row(i)),
+      ]);
+      backing.commitRows.clear();
+      final requests = [for (var i = 1; i <= 16; i++) correction(i)];
+      expect(
+        await storage.adoptMessageOrderingBatch(
+          requests,
+          beforeCommit: () async {},
+        ),
+        List.filled(16, true),
+      );
+      expect(backing.commitRows, [16]);
+      await reopen();
+      final held = await storage.loadMessages('peer');
+      expect(
+        held.map((m) => (m.id, m.author, m.seq, m.orderAuthor, m.orderSeq)),
+        [
+          for (var i = 1; i <= 16; i++)
+            ('row-$i', 'author', i, 'canonical', i + 1000),
+        ],
+      );
+      expect(held.map((m) => m.body), [
+        for (var i = 1; i <= 16; i++) row(i).body,
+      ]);
+      expect(held.every((m) => m.status == MessageStatus.delivered), isTrue);
+      expect(await storage.loadEventsSince('peer', 'canonical', 0), isEmpty);
+      expect(
+        await storage.adoptMessageOrderingBatch(
+          requests,
+          beforeCommit: () async {},
+        ),
+        List.filled(16, false),
+      );
+    },
+    skip: skip,
+  );
+
+  for (final uncertain in [false, true]) {
+    test(
+      'native ordering cohort recovers atomic failure ($uncertain)',
+      () async {
+        await Future.wait([
+          storage.appendMessage(row(1)),
+          storage.appendMessage(row(2)),
+        ]);
+        backing.uncertain = uncertain;
+        backing.refuse = !uncertain;
+        final requests = [correction(1), correction(2)];
+        await expectLater(
+          storage.adoptMessageOrderingBatch(
+            requests,
+            beforeCommit: () async {},
+          ),
+          throwsStateError,
+        );
+        await reopen();
+        expect(
+          await storage.adoptMessageOrderingBatch(
+            requests,
+            beforeCommit: () async {},
+          ),
+          List.filled(2, !uncertain),
+        );
+        final held = await storage.loadMessages('peer');
+        expect(held.map((m) => m.orderSeq), [1001, 1002]);
+        expect(held.map((m) => m.seq), [1, 2]);
+      },
+      skip: skip,
+    );
+  }
+
   test(
     'native prepared cohort publishes one durable transaction and deduplicates retry',
     () async {

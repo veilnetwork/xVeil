@@ -499,6 +499,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     DeviceSyncEvent event, {
     String? attachmentThumb,
     PreparedMessageAppender? appendPrepared,
+    PreparedOrderingAdopter? adoptPrepared,
   }) => tasks.run(() async {
     if (event.kind != DeviceSyncKind.msgMirror) return;
     final peerHex = event.payload['peer'];
@@ -534,6 +535,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     final forwardedFrom = event.payload['fw'];
     await messaging.applyMirroredMessage(
       appendPrepared: appendPrepared,
+      adoptPrepared: adoptPrepared,
       author: author is String && author.isNotEmpty ? author : null,
       seq: seq is int && isAcceptableWireSeq(seq) ? seq : null,
       positionVerified: event.payload['pv'] is bool
@@ -577,9 +579,13 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     await applyMirrorEvent(event);
     if (tasks.isClosed) throw StateError('Device history session closed');
   });
-  messaging.ownHistoryApplyPrepared = (event, append) =>
+  messaging.ownHistoryApplyPrepared = (event, writes) =>
       tasks.runRequired(() async {
-        await applyMirrorEvent(event, appendPrepared: append);
+        await applyMirrorEvent(
+          event,
+          appendPrepared: writes.append,
+          adoptPrepared: writes.adoptOrdering,
+        );
         if (tasks.isClosed) throw StateError('Device history session closed');
       });
 

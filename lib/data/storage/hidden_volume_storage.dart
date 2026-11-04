@@ -124,7 +124,8 @@ class HiddenVolumeStorage
         StoredFileBatchReader,
         StoredFilePresenceReader,
         StoredFilePairWriter,
-        PreparedMessageBatchStore {
+        PreparedMessageBatchStore,
+        PreparedOrderingBatchStore {
   /// Default (SYNC opener) — the in-memory fake, tests, and any path not yet
   /// given its own worker. The sync opener is lifted to async (run INLINE on
   /// the calling isolate) internally, so behaviour is unchanged; only the
@@ -2318,17 +2319,7 @@ class HiddenVolumeStorage
     Future<List<PreparedMessageWrite>?> acquire(int index) =>
         index == keys.length
         ? _serialized(() async {
-            final erasureEpoch = _messageErasureEpoch;
-            void checkErasure() {
-              if (_messageErasures != 0 ||
-                  erasureEpoch != _messageErasureEpoch) {
-                throw StateError(
-                  'Message erasure crossed prepared publication',
-                );
-              }
-            }
-
-            checkErasure();
+            final checkErasure = _preparedErasureCheck();
             await _foldCritical();
             final selected = <Uint8List>[];
             final results = <PreparedMessageWrite>[];
@@ -2433,6 +2424,82 @@ class HiddenVolumeStorage
   }
 
   @override
+  Future<List<bool>?> adoptMessageOrderingBatch(
+    List<MessageOrderingAdoption> requests, {
+    required Future<void> Function() beforeCommit,
+  }) {
+    if (requests.length > 16) return Future.value(null);
+    final frozen = List<MessageOrderingAdoption>.of(requests);
+    if (frozen.isEmpty) return Future.value(const []);
+    final ids = <(String, String)>{};
+    for (final request in frozen) {
+      if (!ids.add((request.conversationId, request.messageId))) {
+        return Future.error(ArgumentError('duplicate prepared ordering'));
+      }
+      if (_orderingPayload(request).length > _messageInlineBytes) {
+        return Future.value(null);
+      }
+    }
+    final keys =
+        {
+          for (final r in frozen) (r.conversationId, r.provisionalAuthor),
+        }.toList()..sort((a, b) {
+          final c = a.$1.compareTo(b.$1);
+          return c != 0 ? c : a.$2.compareTo(b.$2);
+        });
+    Future<List<bool>?> acquire(int index) => index == keys.length
+        ? _serialized(() async {
+            final checkErasure = _preparedErasureCheck();
+            await _foldCritical();
+            final outcomes = <bool>[];
+            final payloads = <Uint8List>[];
+            for (final r in frozen) {
+              final matches = _canAdoptOrdering(r);
+              outcomes.add(matches);
+              if (matches) payloads.add(_orderingPayload(r));
+            }
+            if (payloads.isNotEmpty) {
+              await _commitPositionedMessageBatch(
+                payloads,
+                beforeCommit: beforeCommit,
+                checkBeforePublish: checkErasure,
+              );
+              await _foldCritical();
+            }
+            return List.unmodifiable(outcomes);
+          })
+        : _withConvSequence(
+            keys[index].$1,
+            keys[index].$2,
+            () => acquire(index + 1),
+            acceptedBeforeFence: index > 0,
+          );
+    return acquire(0);
+  }
+
+  bool _canAdoptOrdering(MessageOrderingAdoption request) {
+    final held = _scanById[_msgKey(request.conversationId, request.messageId)];
+    return held != null &&
+        held.direction == MessageDirection.outgoing &&
+        held.author == request.provisionalAuthor &&
+        held.seq == request.provisionalSeq &&
+        held.ordering == null;
+  }
+
+  Uint8List _orderingPayload(MessageOrderingAdoption request) => _sk(
+    jsonEncode({
+      'op': 'ordering',
+      'k': EventKind.void_.index,
+      'c': request.conversationId,
+      'id': request.messageId,
+      'fromAu': request.provisionalAuthor,
+      'fromSq': request.provisionalSeq,
+      'orderAu': request.author,
+      'orderSq': request.seq,
+    }),
+  );
+
+  @override
   Future<bool> adoptMessageOrdering(
     String conversationId,
     String messageId, {
@@ -2442,14 +2509,15 @@ class HiddenVolumeStorage
     required int seq,
   }) => _serialized(() async {
     await _foldCritical();
-    final held = _scanById[_msgKey(conversationId, messageId)];
-    if (held == null ||
-        held.direction != MessageDirection.outgoing ||
-        held.author != provisionalAuthor ||
-        held.seq != provisionalSeq ||
-        held.ordering != null) {
-      return false;
-    }
+    final request = MessageOrderingAdoption(
+      conversationId: conversationId,
+      messageId: messageId,
+      provisionalAuthor: provisionalAuthor,
+      provisionalSeq: provisionalSeq,
+      author: author,
+      seq: seq,
+    );
+    if (!_canAdoptOrdering(request)) return false;
     // A body-less local metadata record. Older folds see an inert void with no
     // sequence slot; exporters see no au/sq. In particular this cannot re-ship
     // the contact's unverified echo as a new send from our physical device.
@@ -2457,22 +2525,7 @@ class HiddenVolumeStorage
     // delete/clear authoritative: the correction cannot resurrect its body.
     await _commitAtNextMessageLogId(
       (namespace, logId) => [
-        AppendLogOp(
-          namespace,
-          logId,
-          _sk(
-            jsonEncode({
-              'op': 'ordering',
-              'k': EventKind.void_.index,
-              'c': conversationId,
-              'id': messageId,
-              'fromAu': provisionalAuthor,
-              'fromSq': provisionalSeq,
-              'orderAu': author,
-              'orderSq': seq,
-            }),
-          ),
-        ),
+        AppendLogOp(namespace, logId, _orderingPayload(request)),
       ],
     );
     await _foldCritical();
@@ -5659,6 +5712,18 @@ class HiddenVolumeStorage
   // and publish bytes the eraser never saw. Do not wait while holding the scan
   // gate: refuse this page so erasure can finish and history can retry safely.
   int _messageErasureEpoch = 0, _messageErasures = 0;
+  void Function() _preparedErasureCheck() {
+    final epoch = _messageErasureEpoch;
+    void check() {
+      if (_messageErasures != 0 || epoch != _messageErasureEpoch) {
+        throw StateError('Message erasure crossed prepared publication');
+      }
+    }
+
+    check();
+    return check;
+  }
+
   Future<T> _withMessageErasure<T>(Future<T> Function() body) async {
     _messageErasureEpoch++;
     _messageErasures++;
@@ -6023,7 +6088,7 @@ class HiddenVolumeStorage
     return logId;
   });
 
-  // Already-positioned inline posts consume only internal global ids, never
+  // Bounded inline posts/metadata consume only internal global ids, never
   // author sequence numbers. The whole bounded set and all shard markers are
   // durable before any append future completes.
   Future<void> _commitPositionedMessageBatch(
