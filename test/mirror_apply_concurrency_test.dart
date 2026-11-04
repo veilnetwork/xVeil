@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
+import 'package:xveil/data/storage/message_batch_store.dart';
 import 'package:xveil/data/transport/loopback_transport.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/state/messaging.dart';
@@ -82,6 +83,92 @@ void main() {
     }
     return count;
   }
+
+  test(
+    'prepared mirror holds its key and completion until durable publication',
+    () async {
+      storage.holdFirst = false;
+      final ready = Completer<Message>();
+      final publish = Completer<PreparedMessageWrite>();
+      var completed = false;
+      final first = service
+          .applyMirroredMessage(
+            peer: peer,
+            msgId: 'shared',
+            direction: MessageDirection.outgoing,
+            body: 'prepared',
+            tsMs: 1000,
+            author: other.hex,
+            seq: 1,
+            appendPrepared: (row) {
+              ready.complete(row);
+              return publish.future;
+            },
+          )
+          .whenComplete(() {
+            completed = true;
+          });
+      final row = await ready.future;
+      final duplicate = mirror(peer);
+      expect(await mirror(other), isTrue);
+      expect(completed, isFalse);
+      expect(await storage.loadMessageById(peer.hex, 'shared'), isNull);
+      expect(storage.calls[(peer.hex, 'shared')], isNull);
+      final result = await storage.appendMissingMessageBatch([
+        row,
+      ], beforeCommit: () async {});
+      publish.complete(result!.single);
+      expect(await first, isTrue);
+      expect(
+        await duplicate,
+        isTrue,
+        reason:
+            'queued mirror upgrades delivery after the prepared post commits',
+      );
+      expect(rawPosts(peer), 1);
+      expect(
+        (await storage.loadMessageById(peer.hex, 'shared'))!.status,
+        MessageStatus.delivered,
+      );
+    },
+  );
+
+  test(
+    'wire winner at prepared boundary uses ordinary merge without a second post',
+    () async {
+      storage.holdFirst = false;
+      final ready = Completer<Message>();
+      final publish = Completer<PreparedMessageWrite>();
+      final applying = service.applyMirroredMessage(
+        peer: peer,
+        msgId: 'shared',
+        direction: MessageDirection.outgoing,
+        body: 'stale history',
+        tsMs: 1000,
+        author: other.hex,
+        seq: 1,
+        status: MessageStatus.delivered,
+        appendPrepared: (row) {
+          ready.complete(row);
+          return publish.future;
+        },
+      );
+      final row = await ready.future;
+      await storage.appendMessage(
+        row.copyWith(body: 'wire winner', status: MessageStatus.sent),
+      );
+      final result = await storage.appendMissingMessageBatch([
+        row,
+      ], beforeCommit: () async {});
+      expect(result, [PreparedMessageWrite.existing]);
+      publish.complete(result!.single);
+      await applying;
+      final winner = (await storage.loadMessageById(peer.hex, 'shared'))!;
+      expect(winner.body, 'wire winner');
+      expect(winner.status, MessageStatus.delivered);
+      expect(rawPosts(peer), 1);
+    },
+  );
 
   test(
     'concurrent mirrors append one durable post while another conversation progresses',

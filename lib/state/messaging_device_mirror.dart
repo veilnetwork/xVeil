@@ -511,6 +511,7 @@ class _MessagingDeviceMirror {
   final _mirrorApplyTails = <(String, String), Future<void>>{};
 
   Future<bool> applyMessage({
+    PreparedMessageAppender? appendPrepared,
     String? author,
     int? seq,
     bool? positionVerified,
@@ -541,6 +542,7 @@ class _MessagingDeviceMirror {
         return false;
       }
       return _applyMessage(
+        appendPrepared: appendPrepared,
         binding: binding,
         author: author,
         seq: seq,
@@ -572,6 +574,7 @@ class _MessagingDeviceMirror {
   }
 
   Future<bool> _applyMessage({
+    PreparedMessageAppender? appendPrepared,
     required Object? binding,
     String? author,
     int? seq,
@@ -712,30 +715,64 @@ class _MessagingDeviceMirror {
               (direction == MessageDirection.outgoing && !reflectedEdit
                   ? MessageStatus.sent
                   : MessageStatus.delivered);
-    await _owner._storage.appendMessage(
-      Message(
-        id: msgId,
-        conversationId: peer.hex,
-        direction: direction,
-        body: body,
-        timestamp: DateTime.fromMillisecondsSinceEpoch(
-          messageTsOnReceipt(tsMs, _owner._now().millisecondsSinceEpoch),
-        ),
-        status: initialStatus,
-        fileContentId: fileContentId,
-        fileName: fileName,
-        fileSize: fileSize,
-        thumb: thumb,
-        customEmoji: customEmoji,
-        replyToId: replyToId,
-        forwardedFrom: forwardedFrom,
-        author: author,
-        seq: seq,
-        positionVerified: positionVerified,
-        edited: reflectedEdit,
-        reflectedEdit: reflectedEdit,
+    if (_owner._disposed || !identical(binding, _owner.groupBindingsOwner)) {
+      return false;
+    }
+    final message = Message(
+      id: msgId,
+      conversationId: peer.hex,
+      direction: direction,
+      body: body,
+      timestamp: DateTime.fromMillisecondsSinceEpoch(
+        messageTsOnReceipt(tsMs, _owner._now().millisecondsSinceEpoch),
       ),
+      status: initialStatus,
+      fileContentId: fileContentId,
+      fileName: fileName,
+      fileSize: fileSize,
+      thumb: thumb,
+      customEmoji: customEmoji,
+      replyToId: replyToId,
+      forwardedFrom: forwardedFrom,
+      author: author,
+      seq: seq,
+      positionVerified: positionVerified,
+      edited: reflectedEdit,
+      reflectedEdit: reflectedEdit,
     );
+    if (appendPrepared == null) {
+      await _owner._storage.appendMessage(message);
+    } else {
+      final result = await appendPrepared(message);
+      if (result == PreparedMessageWrite.suppressed) return false;
+      if (result == PreparedMessageWrite.existing) {
+        // A normal wire arrival or an earlier cohort won the insert race.
+        // Re-enter the same merge, without restaging or releasing this key.
+        return _applyMessage(
+          binding: binding,
+          author: author,
+          seq: seq,
+          positionVerified: positionVerified,
+          reflectedEdit: reflectedEdit,
+          replyToId: replyToId,
+          forwardedFrom: forwardedFrom,
+          peer: peer,
+          msgId: msgId,
+          direction: direction,
+          body: body,
+          tsMs: tsMs,
+          status: status,
+          fileContentId: fileContentId,
+          fileName: fileName,
+          fileSize: fileSize,
+          thumb: thumb,
+          customEmoji: customEmoji,
+        );
+      }
+    }
+    if (_owner._disposed || !identical(binding, _owner.groupBindingsOwner)) {
+      return false;
+    }
     // The constructor may have run before the receipt arrived while append
     // was pending. Finish its durable status before reporting the apply done.
     if (direction == MessageDirection.outgoing &&
