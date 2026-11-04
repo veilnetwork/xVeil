@@ -1062,6 +1062,44 @@ class HiddenVolumeStorage
       });
 
   @override
+  Future<bool> recordExpiredMessage(
+    String conversationId,
+    String messageId, {
+    String? author,
+    int? seq,
+  }) => _withConvSequence(
+    conversationId,
+    author ?? conversationId,
+    () => _serialized(() async {
+      await _foldCritical();
+      final key = _msgKey(conversationId, messageId);
+      if (_scanById.containsKey(key) ||
+          _scanDeletedKeys.contains(key) ||
+          _scanDeletedLegacyIds.contains(messageId)) {
+        return false;
+      }
+      await _commitAtNextMessageLogId(
+        (namespace, logId) => [
+          AppendLogOp(
+            namespace,
+            logId,
+            _sk(
+              jsonEncode({
+                'op': 'del',
+                'c': conversationId,
+                'id': messageId,
+                if (author != null && seq != null) ...{'au': author, 'sq': seq},
+              }),
+            ),
+          ),
+        ],
+      );
+      await _foldCritical();
+      return true;
+    }),
+  );
+
+  @override
   Future<void> recordBlockedMessage(
     String conversationId,
     String author,
