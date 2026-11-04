@@ -99,6 +99,220 @@ void main() {
     beforeCommit: guard ?? () async {},
   );
 
+  MessageOrderingAdoption correction(
+    String id,
+    int from, {
+    String conversation = 'conversation',
+    String author = 'original-device',
+  }) => MessageOrderingAdoption(
+    conversationId: conversation,
+    messageId: id,
+    provisionalAuthor: 'author',
+    provisionalSeq: from,
+    author: author,
+    seq: from + 1000,
+  );
+  Future<List<bool>?> repair(
+    List<MessageOrderingAdoption> requests, {
+    Future<void> Function()? guard,
+  }) => storage.adoptMessageOrderingBatch(
+    requests,
+    beforeCommit: guard ?? () async {},
+  );
+
+  test(
+    'prepared ordering publishes one bounded bodyless transaction',
+    () async {
+      for (var i = 1; i <= 16; i++) {
+        await storage.appendMessage(row('position-$i', seq: i));
+      }
+      backing.writes.clear();
+      final requests = [
+        for (var i = 1; i <= 16; i++) correction('position-$i', i),
+      ];
+      expect(await repair(requests), List.filled(16, true));
+      expect(backing.writes, hasLength(1));
+      expect(backing.writes.single.whereType<AppendLogOp>(), hasLength(16));
+      final held = await storage.loadMessages('conversation');
+      expect(
+        held.every(
+          (m) =>
+              m.body == 'small' &&
+              m.status == MessageStatus.delivered &&
+              m.author == 'author',
+        ),
+        isTrue,
+      );
+      expect(held.map((m) => m.seq), [for (var i = 1; i <= 16; i++) i]);
+      expect(held.map((m) => (m.orderAuthor, m.orderSeq)), [
+        for (var i = 1; i <= 16; i++) ('original-device', i + 1000),
+      ]);
+      expect(
+        await storage.loadEventsSince('conversation', 'original-device', 0),
+        isEmpty,
+      );
+      expect(await repair(requests), List.filled(16, false));
+      expect(backing.writes, hasLength(1));
+    },
+  );
+
+  test(
+    'prepared ordering skips stale absent canonical and deleted rows',
+    () async {
+      for (var i = 1; i <= 3; i++) {
+        await storage.appendMessage(row('position-$i', seq: i));
+      }
+      expect(await repair([correction('position-1', 1)]), [true]);
+      await storage.deleteMessage('conversation', 'position-3');
+      backing.writes.clear();
+      expect(
+        await repair([
+          correction('missing', 1),
+          correction('position-1', 1),
+          correction('position-2', 200),
+          correction('position-3', 3),
+        ]),
+        [false, false, false, false],
+      );
+      expect(backing.writes, isEmpty);
+      expect(
+        await storage.loadMessageById('conversation', 'position-3'),
+        isNull,
+      );
+      expect(
+        (await storage.loadMessageById('conversation', 'position-2'))!.ordering,
+        isNull,
+      );
+    },
+  );
+
+  for (final uncertain in [false, true]) {
+    test(
+      'prepared ordering retries an uncertain transaction ($uncertain)',
+      () async {
+        for (var i = 1; i <= 2; i++) {
+          await storage.appendMessage(row('r-$i', seq: i));
+        }
+        backing.uncertain = uncertain;
+        backing.refuse = !uncertain;
+        final requests = [correction('r-1', 1), correction('r-2', 2)];
+        await expectLater(repair(requests), throwsStateError);
+        expect(await repair(requests), List.filled(2, !uncertain));
+        expect(records().where((row) => row['op'] == 'ordering'), hasLength(2));
+      },
+    );
+  }
+
+  test(
+    'ordering admission and racing deletion publish no unadmitted metadata',
+    () async {
+      await storage.appendMessage(row('target', seq: 1));
+      final requests = [correction('target', 1)];
+      await expectLater(
+        repair(
+          requests,
+          guard: () async {
+            throw StateError('revoked');
+          },
+        ),
+        throwsStateError,
+      );
+      expect(
+        (await storage.loadMessageById('conversation', 'target'))!.ordering,
+        isNull,
+      );
+      late Future<void> deletion;
+      await expectLater(
+        repair(
+          requests,
+          guard: () async {
+            deletion = storage.deleteMessage('conversation', 'target');
+          },
+        ),
+        throwsStateError,
+      );
+      await deletion;
+      expect(await storage.loadMessageById('conversation', 'target'), isNull);
+      expect(records().where((row) => row['op'] == 'ordering'), isEmpty);
+    },
+  );
+
+  test(
+    'ordering preparation bounds and freezes its request list before waiting',
+    () async {
+      await storage.appendMessage(row('first', seq: 1));
+      await storage.appendMessage(row('second', seq: 2));
+      backing.hold = true;
+      final first = storage.adoptMessageOrdering(
+        'conversation',
+        'first',
+        provisionalAuthor: 'author',
+        provisionalSeq: 1,
+        author: 'first-winner',
+        seq: 101,
+      );
+      await backing.entered.future;
+      final requests = [correction('second', 2)];
+      final second = repair(requests);
+      requests[0] = correction('first', 1, author: 'mutated-loser');
+      backing.release.complete();
+      expect(await first, isTrue);
+      expect(await second, [true]);
+      expect(
+        (await storage.loadMessageById('conversation', 'first'))!.orderAuthor,
+        'first-winner',
+      );
+      expect(
+        (await storage.loadMessageById('conversation', 'second'))!.orderAuthor,
+        'original-device',
+      );
+      final count = backing.writes.length;
+      expect(
+        await repair([for (var i = 0; i < 17; i++) correction('r-$i', i)]),
+        isNull,
+      );
+      expect(
+        await repair([correction('large', 1, author: 'x' * 2000)]),
+        isNull,
+      );
+      await expectLater(
+        repair([correction('duplicate', 1), correction('duplicate', 2)]),
+        throwsArgumentError,
+      );
+      expect(backing.writes, hasLength(count));
+    },
+  );
+
+  for (final erase in [false, true]) {
+    test(
+      'accepted ordering batch drains before maintenance ($erase)',
+      () async {
+        await storage.appendMessage(row('target', seq: 1));
+        backing.hold = true;
+        final writing = repair([correction('target', 1)]);
+        await backing.entered.future;
+        final maintenance = erase ? storage.eraseSpace() : storage.close();
+        final refused = expectLater(
+          repair([correction('later', 2)]),
+          throwsStateError,
+        );
+        backing.release.complete();
+        await Future.wait([writing, maintenance, refused]);
+        final reopened = HiddenVolumeStorage(
+          ({required password, required create}) => raw,
+        );
+        await reopened.open(password: 'fixture');
+        final held = await reopened.loadMessageById('conversation', 'target');
+        if (erase) {
+          expect(held, isNull);
+        } else {
+          expect(held!.orderAuthor, 'original-device');
+        }
+        await reopened.close();
+      },
+    );
+  }
+
   test(
     'prepared cohort publishes once and rechecks existing durable rows',
     () async {

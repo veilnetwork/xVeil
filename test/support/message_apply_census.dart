@@ -10,7 +10,12 @@ import 'package:xveil/domain/chat.dart';
 
 import 'timed_native_store.dart';
 
-enum MessageStorageOperation { markStatus, adoptOrdering, preparedBatch }
+enum MessageStorageOperation {
+  markStatus,
+  adoptOrdering,
+  preparedBatch,
+  preparedOrderingBatch,
+}
 
 /// Passive fixture data. No message key, payload, path or exception is exported.
 /// RPC await times can overlap and must not be summed as exclusive disk time.
@@ -72,6 +77,9 @@ class MessageApplyCensus {
 
   Future<T> historyEncode<T>(Future<T> Function() body) =>
       _context('historyEncode', body);
+
+  Future<T> historyPublish<T>(Future<T> Function() body) =>
+      _context('historyPublish', body);
 
   Future<T> _context<T>(String label, Future<T> Function() body) async {
     final start = nowUs;
@@ -317,6 +325,27 @@ class CountedMessageStorage extends HiddenVolumeStorage {
   CountedMessageStorage(super.opener, this.census) : super.async();
   final MessageApplyCensus census;
 
+  @override
+  Future<List<bool>?> adoptMessageOrderingBatch(
+    List<MessageOrderingAdoption> requests, {
+    required Future<void> Function() beforeCommit,
+  }) async {
+    List<bool>? result;
+    await census.historyPublish(
+      () => census.messageOperation(
+        MessageStorageOperation.preparedOrderingBatch,
+        () async {
+          result = await super.adoptMessageOrderingBatch(
+            requests,
+            beforeCommit: beforeCommit,
+          );
+          return result?.contains(true) ?? false;
+        },
+      ),
+    );
+    return result;
+  }
+
   // Count a prepared publication once, rather than inventing one physical
   // append wait per row. Its suspended historyApply contexts overlap.
   @override
@@ -325,15 +354,17 @@ class CountedMessageStorage extends HiddenVolumeStorage {
     required Future<void> Function() beforeCommit,
   }) async {
     List<PreparedMessageWrite>? result;
-    await census.messageOperation(
-      MessageStorageOperation.preparedBatch,
-      () async {
-        result = await super.appendMissingMessageBatch(
-          messages,
-          beforeCommit: beforeCommit,
-        );
-        return result?.contains(PreparedMessageWrite.appended) ?? false;
-      },
+    await census.historyPublish(
+      () => census.messageOperation(
+        MessageStorageOperation.preparedBatch,
+        () async {
+          result = await super.appendMissingMessageBatch(
+            messages,
+            beforeCommit: beforeCommit,
+          );
+          return result?.contains(PreparedMessageWrite.appended) ?? false;
+        },
+      ),
     );
     return result;
   }

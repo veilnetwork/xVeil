@@ -4,6 +4,8 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
+import 'package:xveil/data/storage/message_batch_store.dart';
+import 'package:xveil/domain/chat.dart';
 
 import 'support/message_apply_census.dart';
 import 'support/timed_native_store.dart';
@@ -11,15 +13,106 @@ import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 
 void main() {
-  for (final label in ['historyApply', 'historyEncode']) {
+  test(
+    'prepared publications tag actual adapter commits without inventing per-row RPCs',
+    () async {
+      final census = MessageApplyCensus();
+      final events = <Map<String, Object?>>[];
+      final backing = TimedNativeStore(
+        SyncWrappedAsyncKvLogStore(FakeKvLogStore()),
+        census.clock,
+        (event) {
+          events.add(event);
+          census.observeRpc(event);
+        },
+      );
+      final storage = CountedMessageStorage(
+        ({required password, required create}) async => backing,
+        census,
+      );
+      await storage.open(password: 'fixture');
+      final messages = [
+        for (var i = 1; i <= 16; i++)
+          Message(
+            id: 'PRIVATE_ID_$i',
+            conversationId: 'PRIVATE_CONVERSATION',
+            author: 'PRIVATE_RAW',
+            seq: i,
+            direction: MessageDirection.outgoing,
+            body: 'PRIVATE_BODY',
+            timestamp: DateTime.utc(2026),
+            status: MessageStatus.delivered,
+          ),
+      ];
+      expect(
+        await storage.appendMissingMessageBatch(
+          messages,
+          beforeCommit: () async {},
+        ),
+        List.filled(16, PreparedMessageWrite.appended),
+      );
+      expect(
+        await storage.adoptMessageOrderingBatch([
+          for (var i = 1; i <= 16; i++)
+            MessageOrderingAdoption(
+              conversationId: 'PRIVATE_CONVERSATION',
+              messageId: 'PRIVATE_ID_$i',
+              provisionalAuthor: 'PRIVATE_RAW',
+              provisionalSeq: i,
+              author: 'PRIVATE_CANONICAL',
+              seq: 1000 + i,
+            ),
+        ], beforeCommit: () async {}),
+        List.filled(16, true),
+      );
+      final dataCommits = events.where(
+        (event) =>
+            event['operation'] == 'kv.commit' &&
+            (event['namespaces'] as List).any(
+              (ns) =>
+                  ns is int &&
+                  ns >= Ns.messageLogShardFirst &&
+                  ns <= Ns.messageLogShardLast,
+            ),
+      );
+      expect(dataCommits, hasLength(2));
+      expect(
+        dataCommits.every(
+          (event) => event['storage_context'] == 'historyPublish',
+        ),
+        isTrue,
+      );
+      final snapshot = census.snapshot();
+      expect(
+        (snapshot['contextsCompleted'] as Map)['historyPublish']['count'],
+        2,
+      );
+      expect(
+        (snapshot['rpcContextsCompleted'] as Map)['historyApply/kv.commit'],
+        isNull,
+      );
+      expect(
+        (snapshot['rpcContextsCompleted']
+            as Map)['historyPublish/kv.commit']['count'],
+        greaterThanOrEqualTo(2),
+      );
+      expect(jsonEncode(events), isNot(contains('PRIVATE_')));
+      expect(jsonEncode(snapshot), isNot(contains('PRIVATE_')));
+      await storage.close();
+    },
+  );
+
+  for (final label in ['historyApply', 'historyEncode', 'historyPublish']) {
     test(
       '$label preserves callback identity, failures and reset boundaries',
       () async {
         var now = 0;
         final census = MessageApplyCensus(nowUs: () => now);
-        final run = label == 'historyApply'
-            ? census.historyApply<Object>
-            : census.historyEncode<Object>;
+        final run = switch (label) {
+          'historyApply' => census.historyApply<Object>,
+          'historyEncode' => census.historyEncode<Object>,
+          _ => census.historyPublish<Object>,
+        };
         final result = Object(), error = StateError('PRIVATE_CALLBACK_ERROR');
         final entered = Completer<void>(), release = Completer<void>();
         final future = run(() async {
