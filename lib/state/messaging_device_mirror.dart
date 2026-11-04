@@ -449,6 +449,9 @@ class _MessagingDeviceMirror {
         customEmoji: customEmoji,
         reflected: reflected,
       );
+      // Keep the original post clock across this await, including reflected
+      // peer-history edits. A sibling replay never publishes a deletion back.
+      if (await _owner._inboundExpiry.edit(peer, target, mirrored: true)) return;
       _owner._signal();
     } catch (e) {
       devLog(() => 'xVeil[devices]: mirrored edit of $msgId failed: $e');
