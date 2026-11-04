@@ -164,6 +164,13 @@ when the required holder becomes available again.
 ## Live history records larger than one page (2026-11-03)
 
 The live-only own-history exchange keeps its 128-KiB/64-slice page bound.
+Message pages carry at most 32 events; inventory remains at eight conversations.
+The byte ceiling may end a message page earlier. A receiver rejects an over-cap
+page before applying any event. Current sibling authorization is rechecked for
+each event and after awaited apply; the durable cursor advances only after the
+whole accepted page completes. Interrupted pages replay idempotently, and a
+revocation/binding change prevents the unfinished page from being checkpointed.
+
 An event which cannot fit by itself is returned as a `record` descriptor in
 the page response: position, encoded length and SHA-256. The requester fetches
 64-KiB byte ranges with `op: record`, tied to its current conversation/cursor,
