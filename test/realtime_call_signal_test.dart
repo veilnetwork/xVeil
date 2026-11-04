@@ -230,6 +230,141 @@ void main() {
     addTearDown(storage.close);
   });
 
+  for (final realtime in [false, true]) {
+    for (final outcome in [
+      'dispatch',
+      'missing',
+      'consent',
+      'provenance',
+      'duplicate',
+      'malformed',
+    ]) {
+      test(
+        'anonymous call decision evidence lane=$realtime outcome=$outcome',
+        () async {
+          if (outcome == 'consent') {
+            await storage.upsertContact(
+              Contact(nodeId: peer, status: ContactStatus.pendingOutgoing),
+            );
+          }
+          final messaging = MessagingService(transport, storage)..start();
+          addTearDown(messaging.dispose);
+          var callbacks = 0;
+          if (outcome != 'missing') {
+            messaging.onCallSignal = (_, _) => callbacks++;
+          }
+          final wire = WireEnvelope.callSignal(
+            outcome == 'malformed'
+                ? 'PRIVATE_MALFORMED'
+                : const CallSignal(
+                    callId: 'PRIVATE_DIAGNOSTIC_CALL',
+                    type: CallSignalType.offer,
+                  ).encode(),
+          ).withFrameId('PRIVATE_FRAME').encode();
+          void inject() {
+            final message = InboundMessage(
+              src: peer,
+              payload: wire,
+              provenance: outcome == 'provenance'
+                  ? SenderProvenance.claimed
+                  : SenderProvenance.sessionPeer,
+            );
+            (realtime ? transport.realtimeInbound : transport.inbound).add(
+              message,
+            );
+          }
+
+          inject();
+          await pumpEventQueue();
+          if (outcome == 'duplicate') {
+            inject();
+            await pumpEventQueue();
+          }
+          expect(
+            callbacks,
+            outcome == 'dispatch' || outcome == 'duplicate' ? 1 : 0,
+          );
+          final report = diagnosticJournal.toJson();
+          final decisions = (report['events'] as List)
+              .where((e) => e['event'] == 'callSignalDecision')
+              .toList();
+          final stage = switch (outcome) {
+            'dispatch' => 8,
+            'missing' => 7,
+            'consent' => 4,
+            'provenance' => 3,
+            'duplicate' => 6,
+            _ => 2,
+          };
+          if (kDiagnosticReportEnabled) {
+            expect(
+              decisions.map((e) => e['values']),
+              contains(
+                equals({
+                  'code': outcome == 'malformed'
+                      ? -1
+                      : CallSignalType.offer.index,
+                  'state': stage,
+                  'transport': realtime ? 1 : 0,
+                  'direction': 1,
+                }),
+              ),
+            );
+          } else {
+            expect(decisions, isEmpty);
+          }
+          final encoded = jsonEncode(report);
+          expect(encoded, isNot(contains('PRIVATE_')));
+          expect(encoded, isNot(contains(peer.hex)));
+        },
+      );
+    }
+  }
+
+  for (final accepted in [false, true]) {
+    test('anonymous outgoing call decision accepted=$accepted', () async {
+      if (!accepted) {
+        await storage.upsertContact(
+          Contact(nodeId: peer, status: ContactStatus.pendingOutgoing),
+        );
+      }
+      final messaging = MessagingService(transport, storage);
+      addTearDown(messaging.dispose);
+      await messaging.sendCallSignal(
+        peer,
+        const CallSignal(
+          callId: 'PRIVATE_OUTGOING_CALL',
+          type: CallSignalType.offer,
+        ),
+      );
+      final report = diagnosticJournal.toJson();
+      final decisions = (report['events'] as List)
+          .where((e) => e['event'] == 'callSignalDecision')
+          .toList();
+      if (kDiagnosticReportEnabled) {
+        expect(
+          decisions.map((e) => e['values']),
+          contains(
+            equals({
+              'code': CallSignalType.offer.index,
+              'state': 0,
+              'transport': -1,
+              'direction': 0,
+            }),
+          ),
+        );
+        expect(
+          decisions.any((e) => (e['values'] as Map)['state'] == 4),
+          !accepted,
+        );
+      } else {
+        expect(decisions, isEmpty);
+      }
+      expect(jsonEncode(report), isNot(contains('PRIVATE_')));
+      expect(jsonEncode(report), isNot(contains(peer.hex)));
+    });
+  }
+
   for (final anonymous in [false, true]) {
     test('model inventory reaches ordinary receiver with realtime transport '
         '(anonymous=$anonymous)', () async {

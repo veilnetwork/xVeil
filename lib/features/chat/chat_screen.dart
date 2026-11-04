@@ -637,11 +637,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     } else {
       // No contact yet / not accepted — the first message is the request.
       //
-      // This is the one send in the app with nothing behind it: `flushOutbox`
-      // re-stashes accepted contacts only, so a request that reached neither
-      // the relay nor the peer is never retried by anything. The verdict was
-      // computed and thrown away here, which showed that silence as a sent
-      // message (report19 XV19-M1).
+      // The handshake is durable locally. This result describes relay
+      // deposit only; neither outcome proves the peer received the request.
       if (!await svc.sendRequest(_peer, text)) {
         _reportRequestUndelivered();
       }
@@ -727,10 +724,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     });
   }
 
-  /// Say that a connection request was not delivered, and offer the retry.
-  ///
-  /// The greeting is kept — it is stored, and marked failed — so trying again
-  /// re-sends the same one under the same id and the peer still dedups it.
+  /// Relay deposit was not confirmed; the durable local request stays pending.
+  /// Retrying uses the same greeting/id, so the peer can deduplicate it.
   void _reportRequestUndelivered() {
     if (!mounted) return;
     final l = AppL10n.of(context);

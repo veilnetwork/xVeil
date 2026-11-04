@@ -1952,7 +1952,7 @@ class AppL10nEs extends AppL10n {
 
   @override
   String get chatRequestNotDelivered =>
-      'No se pudo guardar la solicitud para entregarla después. Aún puede llegar directamente';
+      'La solicitud está guardada en este dispositivo. La entrega a través del relé aún no se ha confirmado.';
 
   @override
   String get chatRequestResend => 'Enviar de nuevo';
