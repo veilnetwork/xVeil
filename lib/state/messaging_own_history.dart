@@ -37,7 +37,12 @@ class _MessagingOwnHistory {
   final _lastWake = <String, DateTime>{};
   Timer? _timer;
   bool _closed = false;
+  // Conversation inventory and prefix-proof granularity stay unchanged.
   static const _page = 8;
+  // Short messages should share a byte-bounded reply rather than pay another
+  // round trip, snapshot and durable cursor every eight rows. The 128-KiB,
+  // 64-part and admission ceilings remain independent of this row cap.
+  static const _messagePage = 32;
   static const _maxPrefixes = 8;
   static const _slice = 2048;
   static const _maxParts = 64;
@@ -636,9 +641,9 @@ class _MessagingOwnHistory {
         }
         final window = snapshot.rows
             .where((m) => cursor == null || _compare(m, cursor as List) > 0)
-            .take(_page + 1)
+            .take(_messagePage + 1)
             .toList();
-        final page = window.take(_page).toList();
+        final page = window.take(_messagePage).toList();
         final events = <String>[];
         Map<String, dynamic> pageResult(Message? last) => {
           'op': 'page',
@@ -1047,7 +1052,7 @@ class _MessagingOwnHistory {
     final events = reply['events'], next = reply['next'];
     if (reply['peer'] != peer ||
         events is! List ||
-        events.length > _page ||
+        events.length > _messagePage ||
         !_validCursor(next) ||
         (next != null && events.isEmpty)) {
       throw StateError('Invalid history page');

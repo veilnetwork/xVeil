@@ -696,8 +696,28 @@ void main() {
     final requests = net.history
         .where((frame) => frame.from == b && frame.body['q']?['op'] == 'page')
         .toList();
-    expect(requests, hasLength(2));
-    expect(requests[1].body['q']['cursor'][1], 'm0031');
+    expect(requests, hasLength(1));
+    final parts =
+        net.history
+            .where(
+              (frame) =>
+                  frame.from == a &&
+                  frame.body['id'] == requests.single.body['id'] &&
+                  frame.body['b'] is String,
+            )
+            .toList()
+          ..sort(
+            (left, right) =>
+                (left.body['i'] as int).compareTo(right.body['i'] as int),
+          );
+    final bytes = BytesBuilder();
+    for (final part in parts) {
+      bytes.add(base64Decode(part.body['b'] as String));
+    }
+    final reply = jsonDecode(utf8.decode(bytes.takeBytes())) as Map;
+    expect(reply['prefix']['count'], 24);
+    expect(reply['prefix']['position'][1], 'm0023');
+    expect(reply['events'], hasLength(16));
   });
 
   test(
@@ -836,7 +856,7 @@ void main() {
         net.history.where(
           (frame) => frame.from == b && frame.body['q']?['op'] == 'page',
         ),
-        hasLength(inInclusiveRange(4, 5)),
+        hasLength(inInclusiveRange(1, 2)),
       );
     });
   }
@@ -2101,8 +2121,91 @@ void main() {
     },
   );
 
+  test('short history uses bounded pages of thirty-two messages', () async {
+    await seed(65);
+    ma.start();
+    mb.start();
+    await until(
+      () async =>
+          await count() == 65 &&
+          await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+    );
+    final requests = net.history
+        .where((frame) => frame.from == b && frame.body['q']?['op'] == 'page')
+        .toList();
+    expect(requests, hasLength(3));
+    expect(applied, 65);
+    expect(errorJournal.entries, isEmpty);
+  });
+
+  test('an over-cap page is rejected before applying any message', () async {
+    await seed(33);
+    // Only B runs; A's replies are supplied explicitly below.
+    mb.start();
+    await until(
+      () async => net.history.any(
+        (frame) => frame.from == b && frame.body['q']?['op'] == 'list',
+      ),
+    );
+    final inventory = net.history.lastWhere(
+      (frame) => frame.from == b && frame.body['q']?['op'] == 'list',
+    );
+    await _historyReply(ta, b, inventory.body['id'] as String, {
+      'op': 'list',
+      'rows': [
+        {'peer': peer.hex, 'count': 33, 'hash': '0' * 64},
+      ],
+    });
+    await until(
+      () async => net.history.any(
+        (frame) => frame.from == b && frame.body['q']?['op'] == 'page',
+      ),
+    );
+    final request = net.history.lastWhere(
+      (frame) => frame.from == b && frame.body['q']?['op'] == 'page',
+    );
+    await _historyReply(ta, b, request.body['id'] as String, {
+      'op': 'page',
+      'peer': peer.hex,
+      'events': [
+        for (final row in await sa.loadMessages(peer.hex))
+          deviceMirrorOf(peer.hex, row).event.toBody(),
+      ],
+      'next': null,
+    });
+    await until(() async => errorJournal.entries.isNotEmpty);
+    expect(await count(), 0);
+    expect(applied, 0);
+    final saved =
+        jsonDecode((await sb.getSetting('device.history.cursor.v2:${a.hex}'))!)
+            as Map;
+    expect(saved['cursor'], isNull);
+  });
+
+  test(
+    'revocation within a larger page leaves its cursor uncommitted',
+    () async {
+      await seed(65);
+      beforeApply = (event) async {
+        if (event.key == 'm0019') bSiblings = [];
+      };
+      ma.start();
+      mb.start();
+      await until(
+        () async => await count() == 20 && errorJournal.entries.isNotEmpty,
+      );
+      final saved =
+          jsonDecode(
+                (await sb.getSetting('device.history.cursor.v2:${a.hex}'))!,
+              )
+              as Map;
+      expect(saved['cursor'], isNull);
+      expect(applied, 20);
+    },
+  );
+
   test('restart continues the acknowledged durable page cursor', () async {
-    await seed(40);
+    await seed(96);
     var held = false;
     net.drop = (from, to, body) {
       final q = body['q'];
@@ -2110,7 +2213,7 @@ void main() {
           q is Map &&
           q['op'] == 'page' &&
           q['cursor'] is List &&
-          (q['cursor'] as List)[1] == 'm0015') {
+          (q['cursor'] as List)[1] == 'm0063') {
         held = true;
         return true;
       }
@@ -2118,19 +2221,19 @@ void main() {
     };
     ma.start();
     mb.start();
-    await until(() async => held && await count() == 16);
+    await until(() async => held && await count() == 64);
     final mark = net.history.length;
     net.drop = null;
     await restartB();
-    await until(() async => await count() == 40);
+    await until(() async => await count() == 96);
     final resumed =
         net.history
                 .skip(mark)
                 .firstWhere((e) => e.from == b && e.body['q']?['op'] == 'page')
                 .body['q']
             as Map;
-    expect((resumed['cursor'] as List)[1], 'm0015');
-    expect(applied, 40);
+    expect((resumed['cursor'] as List)[1], 'm0063');
+    expect(applied, 96);
   });
 
   test(
@@ -2164,21 +2267,22 @@ void main() {
   );
 
   test('failed durable cursor write retries the page after restart', () async {
-    await seed(20);
+    await seed(65);
     bStore.refusePageCursor = true;
+    bStore.pageCursorId = 'm0031';
     ma.start();
     mb.start();
     await until(() async => bStore.refused && errorJournal.entries.isNotEmpty);
-    expect(await count(), 8);
+    expect(await count(), 32);
     final cursor =
         jsonDecode((await sb.getSetting('device.history.cursor.v2:${a.hex}'))!)
             as Map;
     expect(cursor['cursor'], isNull);
     await restartB();
-    await until(() async => await count() == 20);
+    await until(() async => await count() == 65);
     expect(
       (await sb.loadMessages(peer.hex)).map((m) => m.id).toSet(),
-      hasLength(20),
+      hasLength(65),
     );
   });
 
