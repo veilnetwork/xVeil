@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/ids.dart';
 import '../core/async_tasks.dart';
 import '../core/log.dart';
+import '../data/storage/message_batch_store.dart';
 import '../data/node/embedded_node.dart';
 import '../data/node/identity_config_fields.dart';
 import '../data/storage/storage.dart';
@@ -497,6 +498,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
   Future<void> applyMirrorEvent(
     DeviceSyncEvent event, {
     String? attachmentThumb,
+    PreparedMessageAppender? appendPrepared,
   }) => tasks.run(() async {
     if (event.kind != DeviceSyncKind.msgMirror) return;
     final peerHex = event.payload['peer'];
@@ -531,6 +533,7 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     final replyTo = event.payload['r'];
     final forwardedFrom = event.payload['fw'];
     await messaging.applyMirroredMessage(
+      appendPrepared: appendPrepared,
       author: author is String && author.isNotEmpty ? author : null,
       seq: seq is int && isAcceptableWireSeq(seq) ? seq : null,
       positionVerified: event.payload['pv'] is bool
@@ -574,6 +577,11 @@ final groupServiceProvider = Provider<GroupService?>((ref) {
     await applyMirrorEvent(event);
     if (tasks.isClosed) throw StateError('Device history session closed');
   });
+  messaging.ownHistoryApplyPrepared = (event, append) =>
+      tasks.runRequired(() async {
+        await applyMirrorEvent(event, appendPrepared: append);
+        if (tasks.isClosed) throw StateError('Device history session closed');
+      });
 
   /// One tick later on the message the mirror already delivered.
   ///

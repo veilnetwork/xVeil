@@ -22,6 +22,7 @@ import 'package:hidden_volume/hidden_volume.dart' as hv;
 import 'async_kv_log_store.dart';
 import 'file_store.dart';
 import 'materialized_view.dart';
+import 'message_batch_store.dart';
 import 'kv_log_store.dart';
 import 'rollback_anchor.dart';
 import 'on_disk_blob_store.dart';
@@ -122,7 +123,8 @@ class HiddenVolumeStorage
         AtomicRatchetSnapshotReservations,
         StoredFileBatchReader,
         StoredFilePresenceReader,
-        StoredFilePairWriter {
+        StoredFilePairWriter,
+        PreparedMessageBatchStore {
   /// Default (SYNC opener) — the in-memory fake, tests, and any path not yet
   /// given its own worker. The sync opener is lifted to async (run INLINE on
   /// the calling isolate) internally, so behaviour is unchanged; only the
@@ -2279,6 +2281,94 @@ class HiddenVolumeStorage
     );
   }
 
+  @override
+  Future<List<PreparedMessageWrite>?> appendMissingMessageBatch(
+    List<Message> messages, {
+    required Future<void> Function() beforeCommit,
+  }) {
+    if (messages.length > 16) return Future.value(null);
+    final frozen = <Message>[];
+    final payloads = <Uint8List>[];
+    final ids = <(String, String)>{};
+    for (final message in messages) {
+      if (!ids.add((message.conversationId, message.id))) {
+        return Future.error(ArgumentError('duplicate prepared message'));
+      }
+      if (message.author == null ||
+          message.seq == null ||
+          message.body.length > _messageInlineBytes ||
+          (message.thumb?.length ?? 0) > _messageInlineBytes) {
+        return Future.value(null);
+      }
+      final copy = message.copyWith(
+        customEmoji: List.unmodifiable(message.customEmoji),
+      );
+      final payload = _sk(_encodeMessage(copy));
+      if (payload.length > _messageInlineBytes) return Future.value(null);
+      frozen.add(copy);
+      payloads.add(payload);
+    }
+    if (frozen.isEmpty) return Future.value(const []);
+    final keys =
+        {for (final row in frozen) (row.conversationId, row.author!)}.toList()
+          ..sort((a, b) {
+            final c = a.$1.compareTo(b.$1);
+            return c != 0 ? c : a.$2.compareTo(b.$2);
+          });
+    Future<List<PreparedMessageWrite>?> acquire(int index) =>
+        index == keys.length
+        ? _serialized(() async {
+            final erasureEpoch = _messageErasureEpoch;
+            void checkErasure() {
+              if (_messageErasures != 0 ||
+                  erasureEpoch != _messageErasureEpoch) {
+                throw StateError(
+                  'Message erasure crossed prepared publication',
+                );
+              }
+            }
+
+            checkErasure();
+            await _foldCritical();
+            final selected = <Uint8List>[];
+            final results = <PreparedMessageWrite>[];
+            for (var i = 0; i < frozen.length; i++) {
+              final row = frozen[i],
+                  key = _msgKey(frozen[i].conversationId, frozen[i].id);
+              final clear = _clearedWatermark[row.conversationId]?[row.author];
+              if (_scanDeletedKeys.contains(key) ||
+                  _scanDeletedLegacyIds.contains(row.id) ||
+                  row.timestamp.millisecondsSinceEpoch <=
+                      (_clearedAt[row.conversationId] ?? -1) ||
+                  (clear != null &&
+                      row.seq! <= clear.seq &&
+                      row.timestamp.millisecondsSinceEpoch <= clear.at)) {
+                results.add(PreparedMessageWrite.suppressed);
+              } else if (_scanById.containsKey(key)) {
+                results.add(PreparedMessageWrite.existing);
+              } else {
+                selected.add(payloads[i]);
+                results.add(PreparedMessageWrite.appended);
+              }
+            }
+            if (selected.isNotEmpty) {
+              await _commitPositionedMessageBatch(
+                selected,
+                beforeCommit: beforeCommit,
+                checkBeforePublish: checkErasure,
+              );
+            }
+            return List.unmodifiable(results);
+          })
+        : _withConvSequence(
+            keys[index].$1,
+            keys[index].$2,
+            () => acquire(index + 1),
+            acceptedBeforeFence: index > 0,
+          );
+    return acquire(0);
+  }
+
   Future<Message> _appendMessage(Message message) async {
     // Bind (author, seq): the author is the message originator (set by the
     // messaging layer from the authenticated sender — R1; defaults to the
@@ -3188,6 +3278,14 @@ class HiddenVolumeStorage
     String conversationId,
     String messageId, {
     MessageDeletionIntent? intent,
+  }) => _withMessageErasure(
+    () => _deleteMessage(conversationId, messageId, intent: intent),
+  );
+
+  Future<void> _deleteMessage(
+    String conversationId,
+    String messageId, {
+    MessageDeletionIntent? intent,
   }) async {
     final hit = await _liveEntryFor(conversationId, messageId);
     if (hit == null) return;
@@ -3566,7 +3664,10 @@ class HiddenVolumeStorage
   }
 
   @override
-  Future<void> removeConversation(NodeId peer) async {
+  Future<void> removeConversation(NodeId peer) =>
+      _withMessageErasure(() => _removeConversation(peer));
+
+  Future<void> _removeConversation(NodeId peer) async {
     final blobNames = <String>[];
     final ops = await _tombstoneAllOps(peer, blobNamesOut: blobNames);
     final (index, hadShards) = await _contactIndexShards();
@@ -3592,7 +3693,10 @@ class HiddenVolumeStorage
   }
 
   @override
-  Future<int> pruneConversationBefore(NodeId peer, DateTime cutoff) async {
+  Future<int> pruneConversationBefore(NodeId peer, DateTime cutoff) =>
+      _withMessageErasure(() => _pruneConversationBefore(peer, cutoff));
+
+  Future<int> _pruneConversationBefore(NodeId peer, DateTime cutoff) async {
     // Old messages by ORIGINAL post time (the fold keeps the post's original
     // timestamp; edits are separate rows and never refresh it).
     final oldMessages = [
@@ -3671,7 +3775,10 @@ class HiddenVolumeStorage
   }
 
   @override
-  Future<void> clearMessages(NodeId peer) async {
+  Future<void> clearMessages(NodeId peer) =>
+      _withMessageErasure(() => _clearMessages(peer));
+
+  Future<void> _clearMessages(NodeId peer) async {
     // Same per-message tombstone+scrub as removeConversation, but the contact
     // record and chat-list index entry stay — the conversation remains (empty).
     final blobNames = <String>[];
@@ -3687,7 +3794,7 @@ class HiddenVolumeStorage
   emitClearConversation(NodeId peer, String selfHex) => _withConvSequence(
     peer.hex,
     selfHex,
-    () => _emitClearConversation(peer, selfHex),
+    () => _withMessageErasure(() => _emitClearConversation(peer, selfHex)),
   );
 
   Future<({String author, int seq, Map<String, int> watermark, int atMs})>
@@ -3747,6 +3854,26 @@ class HiddenVolumeStorage
 
   @override
   Future<void> applyRemoteClear(
+    NodeId peer,
+    String author,
+    int seq,
+    Map<String, int> watermark, {
+    required String selfHex,
+    int? ownClearAtMs,
+    bool fromOwnDevice = false,
+  }) => _withMessageErasure(
+    () => _applyRemoteClear(
+      peer,
+      author,
+      seq,
+      watermark,
+      selfHex: selfHex,
+      ownClearAtMs: ownClearAtMs,
+      fromOwnDevice: fromOwnDevice,
+    ),
+  );
+
+  Future<void> _applyRemoteClear(
     NodeId peer,
     String author,
     int seq,
@@ -5527,6 +5654,22 @@ class HiddenVolumeStorage
 
   // Single-flight gate serializing all scan-cache access (scan + invalidate).
   Future<void> _scanGate = Future<void>.value();
+  // Destructive operations discover their rows through the scan gate, then
+  // scrub them outside it. A prepared insert must not straddle that discovery
+  // and publish bytes the eraser never saw. Do not wait while holding the scan
+  // gate: refuse this page so erasure can finish and history can retry safely.
+  int _messageErasureEpoch = 0, _messageErasures = 0;
+  Future<T> _withMessageErasure<T>(Future<T> Function() body) async {
+    _messageErasureEpoch++;
+    _messageErasures++;
+    try {
+      return await body();
+    } finally {
+      _messageErasures--;
+      _messageErasureEpoch++;
+    }
+  }
+
   Future<T> _serialized<T>(Future<T> Function() body) {
     final result = _scanGate.then((_) => body());
     _scanGate = result.then((_) {}, onError: (_) {});
@@ -5883,38 +6026,45 @@ class HiddenVolumeStorage
   // Already-positioned inline posts consume only internal global ids, never
   // author sequence numbers. The whole bounded set and all shard markers are
   // durable before any append future completes.
-  Future<void> _commitPositionedMessageBatch(List<Uint8List> payloads) =>
-      _trackLogWrite((store) async {
-        final first = await _allocLogIds(
-          store,
-          count: payloads.length,
-          maximum: Ns.messageLogShardCapacity,
-        );
-        await _ensureMessageLogNamespacesLoaded();
-        final namespaces = <int>{};
-        final ops = <KvLogOp>[];
-        for (var i = 0; i < payloads.length; i++) {
-          final id = first + i;
-          final ns = Ns.messageLogNamespaceFor(id);
-          namespaces.add(ns);
-          ops.add(AppendLogOp(ns, id, payloads[i]));
-        }
-        await _publishMessageOps(
-          store,
-          ops,
-          namespaces,
-          first,
-          first + payloads.length - 1,
-        );
-      });
+  Future<void> _commitPositionedMessageBatch(
+    List<Uint8List> payloads, {
+    Future<void> Function()? beforeCommit,
+    void Function()? checkBeforePublish,
+  }) => _trackLogWrite((store) async {
+    final first = await _allocLogIds(
+      store,
+      count: payloads.length,
+      maximum: Ns.messageLogShardCapacity,
+    );
+    await _ensureMessageLogNamespacesLoaded();
+    final namespaces = <int>{};
+    final ops = <KvLogOp>[];
+    for (var i = 0; i < payloads.length; i++) {
+      final id = first + i;
+      final ns = Ns.messageLogNamespaceFor(id);
+      namespaces.add(ns);
+      ops.add(AppendLogOp(ns, id, payloads[i]));
+    }
+    await _publishMessageOps(
+      store,
+      ops,
+      namespaces,
+      first,
+      first + payloads.length - 1,
+      beforeCommit: beforeCommit,
+      checkBeforePublish: checkBeforePublish,
+    );
+  });
 
   Future<void> _publishMessageOps(
     AsyncKvLogStore store,
     List<KvLogOp> messageOps,
     Set<int> namespaces,
     int logId,
-    int lastId,
-  ) async {
+    int lastId, {
+    Future<void> Function()? beforeCommit,
+    void Function()? checkBeforePublish,
+  }) async {
     // Join earlier first-use publications before claiming any new shard.
     // Register one shared flight for all newly touched shards, so a crossing
     // record publishes every fragment and discovery marker in the same commit.
@@ -5925,6 +6075,8 @@ class HiddenVolumeStorage
     final missing = namespaces.difference(_messageLogNamespaceMarkers);
     late final Future<void> publish;
     publish = () async {
+      if (beforeCommit != null) await beforeCommit();
+      checkBeforePublish?.call();
       await store.commit([
         ...messageOps,
         for (final ns in missing)

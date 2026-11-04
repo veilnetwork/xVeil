@@ -1061,6 +1061,7 @@ class _MessagingOwnHistory {
     final heldEdits = await _owner._storage.editSeqs(peer);
     List<dynamic>? position = pull.progress['cursor'] as List<dynamic>?;
     final seen = <String>{};
+    final validated = <DeviceSyncEvent>[];
     for (final body in events) {
       final event = body is String ? DeviceSyncEvent.fromBody(body) : null;
       if (event == null ||
@@ -1068,8 +1069,7 @@ class _MessagingOwnHistory {
           event.payload['peer'] != peer ||
           event.payload['body'] is! String ||
           !deviceSyncEffectiveAt(event, _owner._now().millisecondsSinceEpoch) ||
-          !seen.add(event.key) ||
-          !await _allowed(pull.device, pull.binding)) {
+          !seen.add(event.key)) {
         throw StateError('Invalid history mirror');
       }
       if (position != null &&
@@ -1094,69 +1094,68 @@ class _MessagingOwnHistory {
               expiry.abs() > 8640000000000000)) {
         throw StateError('Invalid history expiry');
       }
-      if ((expiry == null || _owner._now().millisecondsSinceEpoch < expiry) &&
-          visible(DateTime.fromMillisecondsSinceEpoch(event.tsMs))) {
-        await _owner.ownHistoryApply!(event);
-        if (!await _allowed(pull.device, pull.binding)) {
-          throw StateError('History session ended');
-        }
-        final target = await _owner._storage.loadMessageById(peer, event.key);
-        if (target != null) {
-          var changed = false;
-          if (editSeq is int &&
-              messageEditWins(
-                revision: editSeq,
-                contentHash: messageEditContentHash(
-                  event.payload['body'] as String,
-                  parseInlineCustomEmoji(
-                    event.payload['body'] as String,
-                    event.payload['ce'],
-                  ),
-                ),
-                heldRevision: heldEdits[event.key],
-                heldContentHash: messageEditContentHash(
-                  target.body,
-                  target.customEmoji,
-                ),
-                reflected: reflected == true,
-                heldReflected: target.reflectedEdit,
-              )) {
-            final body = event.payload['body'] as String;
-            await _owner._storage.editMessage(
-              peer,
-              event.key,
-              body,
-              seq: editSeq,
-              customEmoji: parseInlineCustomEmoji(body, event.payload['ce']),
-              reflected: reflected == true,
-            );
-            heldEdits[event.key] = editSeq;
-            changed = true;
-          }
-          if (delivered == true &&
-              target.direction == MessageDirection.outgoing &&
-              target.status != MessageStatus.delivered) {
-            await _owner._storage.markMessageStatus(
-              peer,
-              event.key,
-              MessageStatus.delivered,
-            );
-            final stored = await _owner._storage.loadMessageById(
-              peer,
-              event.key,
-            );
-            if (stored != null && stored.status != MessageStatus.delivered) {
-              throw StateError('History delivery state was not saved');
-            }
-            changed = true;
-          }
-          if (changed) _owner._signal();
-        }
-      }
+      validated.add(event);
       position = [event.tsMs, event.key];
     }
     if (next != null && jsonEncode(next) != jsonEncode(position)) {
       throw StateError('History cursor did not advance');
+    }
+    final prepared = _owner.ownHistoryApplyPrepared;
+    final ordinary = _owner.ownHistoryApply;
+    final store = _owner._storage;
+    if (prepared != null && store is PreparedMessageBatchStore) {
+      Future<void> check(List<DeviceSyncEvent> pending) async {
+        if (!identical(_owner.ownHistoryApplyPrepared, prepared) ||
+            !identical(_owner.ownHistoryApply, ordinary) ||
+            _pulls[pull.device.hex] != pull ||
+            !await _allowed(pull.device, pull.binding)) {
+          throw StateError('History session ended');
+        }
+        final visibleNow = await _visible(peer);
+        final contact = await _owner._storage.getContact(NodeId.fromHex(peer));
+        final now = _owner._now().millisecondsSinceEpoch;
+        for (final event in pending) {
+          final expiry = event.payload['historyExpiryMs'];
+          if ((expiry is int && now >= expiry) ||
+              !visibleNow(DateTime.fromMillisecondsSinceEpoch(event.tsMs)) ||
+              (event.payload['dir'] != 'outgoing' &&
+                  contact?.status == ContactStatus.blocked)) {
+            throw StateError('History visibility changed before publication');
+          }
+        }
+        if (!await _allowed(pull.device, pull.binding)) {
+          throw StateError('History session ended');
+        }
+      }
+
+      final cohort = _HistoryAppendCohort(
+        store as PreparedMessageBatchStore,
+        check,
+      );
+      try {
+        for (final event in validated) {
+          await cohort.apply(
+            event,
+            (append) => _applyHistoryEvent(
+              pull,
+              peer,
+              event,
+              heldEdits,
+              visible,
+              append: append,
+              prepared: prepared,
+            ),
+          );
+        }
+        await cohort.flush();
+      } catch (error, stack) {
+        await cohort.abort(error, stack);
+        rethrow;
+      }
+    } else {
+      for (final event in validated) {
+        await _applyHistoryEvent(pull, peer, event, heldEdits, visible);
+      }
     }
     await _checkpoint(
       pull,
@@ -1165,6 +1164,85 @@ class _MessagingOwnHistory {
           : {'after': pull.progress['after'], 'peer': peer, 'cursor': next},
     );
     _request(pull);
+  }
+
+  Future<void> _applyHistoryEvent(
+    _OwnHistoryPull pull,
+    String peer,
+    DeviceSyncEvent event,
+    Map<String, int> heldEdits,
+    bool Function(DateTime) visible, {
+    PreparedMessageAppender? append,
+    Future<void> Function(DeviceSyncEvent, PreparedMessageAppender)? prepared,
+  }) async {
+    if (_pulls[pull.device.hex] != pull ||
+        !await _allowed(pull.device, pull.binding)) {
+      throw StateError('History session ended');
+    }
+    final expiry = event.payload['historyExpiryMs'];
+    final editSeq = event.payload['historyEditSeq'];
+    final delivered = event.payload['historyDelivered'];
+    final reflected = event.payload['er'];
+    if ((expiry == null || _owner._now().millisecondsSinceEpoch < expiry) &&
+        visible(DateTime.fromMillisecondsSinceEpoch(event.tsMs))) {
+      if (append == null) {
+        await _owner.ownHistoryApply!(event);
+      } else {
+        await prepared!(event, append);
+      }
+      if (!await _allowed(pull.device, pull.binding)) {
+        throw StateError('History session ended');
+      }
+      final target = await _owner._storage.loadMessageById(peer, event.key);
+      if (target != null) {
+        var changed = false;
+        if (editSeq is int &&
+            messageEditWins(
+              revision: editSeq,
+              contentHash: messageEditContentHash(
+                event.payload['body'] as String,
+                parseInlineCustomEmoji(
+                  event.payload['body'] as String,
+                  event.payload['ce'],
+                ),
+              ),
+              heldRevision: heldEdits[event.key],
+              heldContentHash: messageEditContentHash(
+                target.body,
+                target.customEmoji,
+              ),
+              reflected: reflected == true,
+              heldReflected: target.reflectedEdit,
+            )) {
+          final body = event.payload['body'] as String;
+          await _owner._storage.editMessage(
+            peer,
+            event.key,
+            body,
+            seq: editSeq,
+            customEmoji: parseInlineCustomEmoji(body, event.payload['ce']),
+            reflected: reflected == true,
+          );
+          heldEdits[event.key] = editSeq;
+          changed = true;
+        }
+        if (delivered == true &&
+            target.direction == MessageDirection.outgoing &&
+            target.status != MessageStatus.delivered) {
+          await _owner._storage.markMessageStatus(
+            peer,
+            event.key,
+            MessageStatus.delivered,
+          );
+          final stored = await _owner._storage.loadMessageById(peer, event.key);
+          if (stored != null && stored.status != MessageStatus.delivered) {
+            throw StateError('History delivery state was not saved');
+          }
+          changed = true;
+        }
+        if (changed) _owner._signal();
+      }
+    }
   }
 
   Future<void> close() {

@@ -8,6 +8,7 @@ import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
+import 'package:xveil/data/storage/message_batch_store.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/event.dart';
 
@@ -89,6 +90,161 @@ void main() {
       (await (target ?? storage).loadMessages(
         'conversation',
       )).map((message) => message.id).toList();
+
+  Future<List<PreparedMessageWrite>?> publish(
+    List<Message> rows, {
+    Future<void> Function()? guard,
+  }) => storage.appendMissingMessageBatch(
+    rows,
+    beforeCommit: guard ?? () async {},
+  );
+
+  test(
+    'prepared cohort publishes once and rechecks existing durable rows',
+    () async {
+      final rows = [for (var i = 1; i <= 16; i++) row('prepared-$i', seq: i)];
+      expect(
+        await publish(rows),
+        List.filled(16, PreparedMessageWrite.appended),
+      );
+      expect(backing.writes, hasLength(1));
+      expect(backing.writes.single.whereType<AppendLogOp>(), hasLength(16));
+      expect(
+        await publish(rows),
+        List.filled(16, PreparedMessageWrite.existing),
+      );
+      expect(backing.writes, hasLength(1));
+      expect(records(), hasLength(16));
+      final local = await storage.appendMessage(row('local', seq: null));
+      expect(local.seq, 1);
+    },
+  );
+
+  test(
+    'prepared cohort never overwrites a live row or resurrects a tombstone',
+    () async {
+      await storage.appendMessage(row('live', seq: 1, body: 'wire winner'));
+      await storage.appendMessage(row('deleted', seq: 2));
+      await storage.deleteMessage('conversation', 'deleted');
+      final result = await publish([
+        row('live', seq: 1, body: 'stale mirror'),
+        row('deleted', seq: 2, body: 'must never be stored'),
+        row('new', seq: 3),
+      ]);
+      expect(result, [
+        PreparedMessageWrite.existing,
+        PreparedMessageWrite.suppressed,
+        PreparedMessageWrite.appended,
+      ]);
+      expect(
+        (await storage.loadMessageById('conversation', 'live'))!.body,
+        'wire winner',
+      );
+      expect(await storage.loadMessageById('conversation', 'deleted'), isNull);
+      expect(
+        records().where((r) => r['body'] == 'must never be stored'),
+        isEmpty,
+      );
+      expect(
+        records().where((r) => r['id'] == 'live' && r['op'] == null),
+        hasLength(1),
+      );
+    },
+  );
+
+  test(
+    'prepared visibility guard refuses before any post publication',
+    () async {
+      await expectLater(
+        publish(
+          [row('refused')],
+          guard: () async {
+            throw StateError('fresh admission refused');
+          },
+        ),
+        throwsStateError,
+      );
+      expect(records(), isEmpty);
+      expect(await publish([row('refused')]), [PreparedMessageWrite.appended]);
+      expect(records(), hasLength(1));
+    },
+  );
+
+  test(
+    'erasure starting during admission aborts prepared publication without deadlock',
+    () async {
+      final peer = NodeId.fromHex('00' * 32);
+      await storage.appendMessage(row('existing', conversation: peer.hex));
+      late Future<void> deleting;
+      await expectLater(
+        publish(
+          [row('new', conversation: peer.hex)],
+          guard: () async {
+            deleting = storage.clearMessages(peer);
+          },
+        ),
+        throwsStateError,
+      );
+      await deleting;
+      expect(await storage.loadMessageById(peer.hex, 'new'), isNull);
+      expect(await storage.loadMessageById(peer.hex, 'existing'), isNull);
+      expect(await publish([row('new', conversation: peer.hex)]), [
+        PreparedMessageWrite.appended,
+      ]);
+    },
+  );
+
+  for (final uncertain in [false, true]) {
+    test(
+      'prepared cohort retries a failed atomic publication ($uncertain)',
+      () async {
+        backing.refuse = !uncertain;
+        backing.uncertain = uncertain;
+        final rows = [row('first', seq: 1), row('second', seq: 2)];
+        await expectLater(publish(rows), throwsStateError);
+        expect(await ids(), uncertain ? ['first', 'second'] : isEmpty);
+        expect(
+          await publish(rows),
+          List.filled(
+            2,
+            uncertain
+                ? PreparedMessageWrite.existing
+                : PreparedMessageWrite.appended,
+          ),
+        );
+        expect(records().where((r) => r['op'] == null), hasLength(2));
+      },
+    );
+  }
+
+  test('unsupported prepared payloads perform no writes', () async {
+    expect(await publish([row('large', body: 'x' * 2000)]), isNull);
+    expect(await publish([row('unpositioned', seq: null)]), isNull);
+    expect(await publish([for (var i = 0; i < 17; i++) row('id-$i')]), isNull);
+    expect(records(), isEmpty);
+    expect(backing.writes, isEmpty);
+  });
+
+  for (final erase in [false, true]) {
+    test(
+      'accepted prepared publication drains before maintenance ($erase)',
+      () async {
+        backing.hold = true;
+        final insert = publish([row('one', seq: 1), row('two', seq: 2)]);
+        await backing.entered.future;
+        final maintenance = erase ? storage.eraseSpace() : storage.close();
+        final refused = expectLater(publish([row('late')]), throwsStateError);
+        backing.release.complete();
+        await Future.wait([insert, maintenance, refused]);
+        final reopened = HiddenVolumeStorage(
+          ({required password, required create}) => raw,
+        );
+        await reopened.open(password: 'fixture');
+        expect(await ids(reopened), erase ? isEmpty : ['one', 'two']);
+        await reopened.close();
+      },
+    );
+  }
 
   test('40 adjacent positioned appends use bounded 16-row commits', () async {
     final stored = await Future.wait([
