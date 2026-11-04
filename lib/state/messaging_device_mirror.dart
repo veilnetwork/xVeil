@@ -713,8 +713,8 @@ class _MessagingDeviceMirror {
     // Only the incoming direction is refused: a message WE sent them before
     // the block is our own history, and the sibling mirroring it back is not
     // the blocked party reaching us.
+    final contact = await _owner._storage.getContact(peer);
     if (direction == MessageDirection.incoming) {
-      final contact = await _owner._storage.getContact(peer);
       if (contact?.status == ContactStatus.blocked) {
         devLog(
           () =>
@@ -723,6 +723,31 @@ class _MessagingDeviceMirror {
         );
         return false;
       }
+    }
+    final receivedAt = _owner._now();
+    final timestamp = DateTime.fromMillisecondsSinceEpoch(
+      messageTsOnReceipt(tsMs, receivedAt.millisecondsSinceEpoch),
+    );
+    final ttl = contact?.disappearingTtlSeconds;
+    if (ttl != null &&
+        ttl > 0 &&
+        !receivedAt.isBefore(timestamp.add(Duration(seconds: ttl)))) {
+      if (_owner._disposed || !identical(binding, _owner.groupBindingsOwner)) {
+        return false;
+      }
+      // The bounded device journal can outlive a conversation's TTL. Refuse
+      // its late projection before any body/media write, not at the next
+      // background sweep. Keep only a local bodyless gap-fill/tombstone slot.
+      await _owner._storage.recordExpiredMessage(
+        peer.hex,
+        msgId,
+        author: author,
+        seq: seq,
+      );
+      devLog(
+        () => 'xVeil[devices]: expired mirror refused before message storage',
+      );
+      return false;
     }
     final initialStatus =
         direction == MessageDirection.outgoing &&
@@ -740,9 +765,7 @@ class _MessagingDeviceMirror {
       conversationId: peer.hex,
       direction: direction,
       body: body,
-      timestamp: DateTime.fromMillisecondsSinceEpoch(
-        messageTsOnReceipt(tsMs, _owner._now().millisecondsSinceEpoch),
-      ),
+      timestamp: timestamp,
       status: initialStatus,
       fileContentId: fileContentId,
       fileName: fileName,
