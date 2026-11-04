@@ -1,5 +1,19 @@
 # Открытые случаи — обновлено 2026-11-04
 
+Текущий цикл: [конкурентная очистка direct edits](../concurrent-outbox-expiry-2026-11-04/README.md).
+Подтверждены stale/null lookup после tombstone, ранний success/потеря ошибки
+при совместной очистке, сохранение старого тела при pre-enqueue retry и ранний
+dispose. Локальная правка объединяет результат очистки, повторяет tombstone,
+сохраняет queue age и присоединяет локальные операции при shutdown. Регрессия
+промежуточного кандидата (TTL истекает во время последнего read) поймана двумя
+red и исправлена проверкой clock после await. 33 scoped tests с явно заданной
+native HVS прошли без skip; широкая серия 1463 passed / 30 conditional skipped,
+analyzer чистый. Финальный direct-edit A/B/C прошёл все пять gates, включая
+raw-root cleanup, cold startup и void ACK→новую доставку. Teardown чистый:
+23 PID / 27 порта, 1456 frozen inputs, runtime удалён, native SHA прежние.
+Остальные transport/partial/policy/clock и общая latency/матрица открыты.
+Mailbox/push/релиза нет.
+
 Последний шаг: [TTL после durable enqueue edit](../outbox-enqueue-expiry-2026-11-04/README.md).
 По пять ordinary/native red подтвердили сохранение expired/deleted правки
 при пропущенном live leg и позднюю sibling publication. После enqueue теперь
@@ -1194,6 +1208,7 @@ push/релиза нет; multi-device матрица не квалифицир�
 
 | Случай | Отметка | Граница подтверждения |
 |---|---|---|
+| Конкурентная очистка queued edit после TTL | **ПОДТВЕРЖДЕНО И ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННЫХ ГРАНИЦАХ** | Совместные вызовы ждут результат/scrub, pre-enqueue retry очищает уже сохранённое тело, dispose ждёт локальные работы; tombstone и clock проверяются после чтений. Ordinary/native gates и direct-edit A/B/C прошли. Вся transport/partial/policy/clock матрица не закрыта. [Проверка](../concurrent-outbox-expiry-2026-11-04/README.md). |
 | TTL после ожидания enqueue / без live leg | **ПОДТВЕРЖДЕНО И ЛОКАЛЬНО ИСПРАВЛЕНО** | Persisted expiry guard обязателен после queue commit; caller не публикует expired edit. Bodyless replacement сохраняет actual age, ошибка cleanup не скрывается; legacy no-seq discard и cold retry проверены. Native gates/raw roots и два process сценария прошли. Сохранённый старый last-seen моделирует offline, реальные сутки и transport waits не квалифицированы. [Проверка](../outbox-enqueue-expiry-2026-11-04/README.md). |
 | TTL при завершении записи правок | **ПОДТВЕРЖДЕНО И ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННОЙ ГРАНИЦЕ** | Own/peer/mirror/reflected paths проверяют original TTL/tombstone после edit commit. Required publication не получает expired body; failed incoming erase не ACK, exact retry сохраняет peer void и не создаёт authored reflected slot. Native gates/cold roots и real-provider 100-edit A/B/C regression прошли. Поздние publisher/transport ожидания ещё открыты. [Проверка](../edit-io-expiry-2026-11-04/README.md). |
 | TTL: старый clock копии при живой canonical row | **ПОДТВЕРЖДЕНО И ЛОКАЛЬНО ИСПРАВЛЕНО** | Отказ unseen-expiry marker больше не считается удалением всего ID; сохраняются fresh mirror/edit, удаляется только старая копия. Native old-segment cleanup / cold floor, exact queued rows и real-signer A/B/C с offline recovery прошли. Смена системного времени и вся clock-skew матрица не квалифицированы. [Проверка](../clock-conflict-expiry-2026-11-04/README.md). |
