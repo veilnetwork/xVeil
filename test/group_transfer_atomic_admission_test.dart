@@ -156,13 +156,14 @@ void main() {
               expect(await store.pendingOutboxFrames(), isEmpty);
             }
             if (mode == 'ttl-during-send') {
-              service.groupBindingsOwner = Object();
-              service.deviceSnapshotExpiryGroup = () async => 'ab' * 32;
-              service.onDeviceSnapshotExpiry = (_, input) async {
-                expect(input, body);
-                return '{"g":[],"keep":"retained"}';
-              };
               link.afterFirst = () async {
+                // Expiry begins AFTER the first live part, not at admission.
+                // Keep this separate from the new admission-validation cases.
+                service.groupBindingsOwner = Object();
+                service.deviceSnapshotExpiryGroup = () async => 'ab' * 32;
+                service.onDeviceSnapshotExpiry = (_, input) async {
+                  return input == body ? '{"g":[],"keep":"retained"}' : null;
+                };
                 await service.sweepAllDisappearing();
               };
             }
