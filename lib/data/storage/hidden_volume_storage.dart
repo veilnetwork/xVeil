@@ -657,8 +657,15 @@ class HiddenVolumeStorage
 
   // --- Contacts ----------------------------------------------------------
 
-  @override
-  Future<void> upsertContact(Contact contact) async {
+  Future<void> _contactGate = Future<void>.value();
+
+  Future<T> _contactSerialized<T>(Future<T> Function() body) {
+    final result = _contactGate.then((_) => body());
+    _contactGate = result.then<void>((_) {}, onError: (_) {});
+    return result;
+  }
+
+  static Uint8List _encodeContact(Contact contact) {
     final json = jsonEncode({
       'n': contact.nodeId.hex,
       'name': contact.name,
@@ -696,8 +703,17 @@ class HiddenVolumeStorage
       if (contact.p2pOverride != kDefaultContactP2POverride)
         'p2p': contact.p2pOverride.index,
     });
-    final contactBytes = _sk(json);
-    final existingContact = await _as.get(Ns.contacts, contact.nodeId.bytes);
+    return _sk(json);
+  }
+
+  @override
+  Future<void> upsertContact(Contact contact) => _trackLogWrite(
+    (store) => _contactSerialized(() => _upsertContact(store, contact)),
+  );
+
+  Future<void> _upsertContact(AsyncKvLogStore store, Contact contact) async {
+    final contactBytes = _encodeContact(contact);
+    final existingContact = await store.get(Ns.contacts, contact.nodeId.bytes);
     // Maintain a contacts index (hidden-volume has no KV key enumeration) so
     // the chat list can show contacts that have no messages yet.
     final (index, hadShards) = await _contactIndexShards();
@@ -708,7 +724,7 @@ class HiddenVolumeStorage
         oldIndexJson == indexJson) {
       return;
     }
-    await _as.commit([
+    await store.commit([
       PutOp(Ns.contacts, contact.nodeId.bytes, contactBytes),
       ..._contactIndexOps(index, hadShards),
     ]);
@@ -3755,17 +3771,20 @@ class HiddenVolumeStorage
   }
 
   @override
-  Future<void> removeConversation(NodeId peer) =>
-      _withMessageErasure(() => _removeConversation(peer));
+  Future<void> removeConversation(NodeId peer) => _trackLogWrite(
+    (_) => _withMessageErasure(() => _removeConversation(peer)),
+  );
 
   Future<void> _removeConversation(NodeId peer) async {
     final blobNames = <String>[];
     final ops = await _tombstoneAllOps(peer, blobNamesOut: blobNames);
-    final (index, hadShards) = await _contactIndexShards();
-    index.remove(peer.hex);
-    ops.add(DeleteOp(Ns.contacts, peer.bytes));
-    ops.addAll(_contactIndexOps(index, hadShards));
-    await _commitBatched(ops);
+    await _contactSerialized(() async {
+      final (index, hadShards) = await _contactIndexShards();
+      index.remove(peer.hex);
+      ops.add(DeleteOp(Ns.contacts, peer.bytes));
+      ops.addAll(_contactIndexOps(index, hadShards));
+      await _commitBatched(ops);
+    });
     // Whole conversation is gone — scrub the orphaned chunks for forensic erasure
     // and drop the warm fold (scrubDeleted invalidates it) so a later read can't
     // resurrect a tombstoned row; the tombstones are durable in the log, so
@@ -5198,13 +5217,14 @@ class HiddenVolumeStorage
   Future<List<({OutboxFrame frame, int logId, List<int> logIds})>>
   _persistOutboxPayloadsCritical(
     AsyncKvLogStore store,
-    List<_QueuedOutboxFrame> records,
-  ) async {
+    List<_QueuedOutboxFrame> records, {
+    List<KvLogOp> companionOps = const [],
+  }) async {
     final counts = [for (final r in records) _outboxPartCount(r.payload) + 1];
     final total = counts.fold<int>(0, (a, b) => a + b);
     final first = await _allocLogIds(store, count: total);
     var cursor = first;
-    final ops = <KvLogOp>[];
+    final ops = <KvLogOp>[...companionOps];
     final persisted = <({OutboxFrame frame, int logId, List<int> logIds})>[];
     for (var n = 0; n < records.length; n++) {
       final record = records[n];
@@ -5609,17 +5629,11 @@ class HiddenVolumeStorage
     );
   }
 
-  @override
-  Future<void> enqueueOutboxFrame(
+  _QueuedOutboxFrame _ownedOutboxRecord(
     String frameId,
     String peerHex,
     Uint8List wire,
-  ) async {
-    if (_store == null || _convSequenceFences > 0) {
-      throw StateError('storage is closing or locked');
-    }
-    // Own the caller's bytes before waiting for the outbox lane. Use one stamp
-    // in RAM and on disk; retention measures when this frame was queued.
+  ) {
     final ownedWire = Uint8List.fromList(wire);
     final stamp = DateTime.now().millisecondsSinceEpoch;
     final record = (
@@ -5641,6 +5655,92 @@ class HiddenVolumeStorage
     if (record.payload.length > _outboxMaxPayloadBytes) {
       throw ArgumentError('outbox payload exceeds the storage bound');
     }
+    return record;
+  }
+
+  @override
+  Future<void> acceptContactAndEnqueue(
+    NodeId peer,
+    String frameId,
+    Uint8List wire,
+  ) {
+    final record = _ownedOutboxRecord(frameId, peer.hex, wire);
+    return _trackLogWrite(
+      (store) => _outboxSerialized(
+        () => _contactSerialized(() async {
+          if (!identical(store, _store)) {
+            throw StateError('acceptance storage session changed');
+          }
+          if (!await _ensureOutboxLoadedCritical()) {
+            throw StateError('durable outbox could not be loaded');
+          }
+          final held = _outboxById[frameId];
+          if (held != null &&
+              (held.frame.peerHex != peer.hex ||
+                  !_bytesEqual(held.frame.wire, record.frame.wire))) {
+            throw StateError('conflicting durable acceptance frame');
+          }
+          final existing = await getContact(peer);
+          final contact = (existing ?? Contact(nodeId: peer)).copyWith(
+            status: ContactStatus.accepted,
+          );
+          final bytes = _encodeContact(contact);
+          final (index, hadShards) = await _contactIndexShards();
+          final indexed = index.contains(peer.hex);
+          if (!indexed) index.add(peer.hex);
+          final ops = <KvLogOp>[
+            if (existing?.status != ContactStatus.accepted)
+              PutOp(Ns.contacts, peer.bytes, bytes),
+            if (!indexed) ..._contactIndexOps(index, hadShards),
+          ];
+          try {
+            if (held != null) {
+              if (ops.isNotEmpty) await store.commit(ops);
+              return;
+            }
+            final persisted = await _persistOutboxPayloadsCritical(store, [
+              record,
+            ], companionOps: ops);
+            for (final item in persisted) {
+              _outboxById[item.frame.frameId] = item;
+            }
+          } catch (error, stack) {
+            // A lost reply may follow the full commit. Verify every promised
+            // effect while still holding both lanes before publishing consent.
+            // An unavailable read or partial proof remains a failure.
+            try {
+              if (identical(store, _store) &&
+                  await _ensureOutboxLoadedCritical()) {
+                final saved = _outboxById[frameId]?.frame;
+                if (saved != null &&
+                    saved.peerHex == peer.hex &&
+                    _bytesEqual(saved.wire, record.frame.wire) &&
+                    (await getContact(peer))?.status ==
+                        ContactStatus.accepted &&
+                    (await _contactIndex()).contains(peer.hex)) {
+                  return;
+                }
+              }
+            } catch (_) {
+              // Preserve the original storage failure, not a recovery error.
+            }
+            Error.throwWithStackTrace(error, stack);
+          }
+        }),
+      ),
+    );
+  }
+
+  @override
+  Future<void> enqueueOutboxFrame(
+    String frameId,
+    String peerHex,
+    Uint8List wire,
+  ) async {
+    if (_store == null || _convSequenceFences > 0) {
+      throw StateError('storage is closing or locked');
+    }
+    final record = _ownedOutboxRecord(frameId, peerHex, wire);
     final pending = _pendingOutboxEnqueues;
     if (pending != null &&
         pending.peer == peerHex &&

@@ -10,6 +10,13 @@ class _MessagingContacts {
   _MessagingContacts(this._owner);
 
   final MessagingService _owner;
+  final _acceptances = <Future<void>>{};
+
+  Future<void> close() async {
+    while (_acceptances.isNotEmpty) {
+      await Future.wait(_acceptances.toList());
+    }
+  }
 
   /// Bound the number of pre-consent intro messages held from a single
   /// not-yet-accepted [peer] (anti-spam). Each [WireKind.request] greeting is
@@ -42,8 +49,13 @@ class _MessagingContacts {
     await _owner._storage.upsertContact(
       (existing ?? Contact(nodeId: peer)).copyWith(status: status),
     );
+    await _afterStatusSaved(peer, status);
+  }
+
+  Future<void> _afterStatusSaved(NodeId peer, ContactStatus status) async {
     if (status == ContactStatus.accepted) {
       await _owner._outbox.retireRequests(peer);
+      if (_owner._disposed) return;
       _owner._realtimeControl.markAccepted(peer);
     } else {
       _owner._realtimeControl.revoke(peer);
@@ -155,31 +167,34 @@ class _MessagingContacts {
     final wire = const WireEnvelope.accept().withFrameId(frameId).encode();
     final frame = OutboxFrame(frameId: frameId, peerHex: peer.hex, wire: wire);
     await _owner._outbox.enqueue(peer, frameId, wire);
-    if (_owner._disposed) return;
-    unawaited(
-      _owner._contactResponseQueue.submit(
-        key: frameId,
-        lane: peer.hex,
-        bytes: 512 + 2 * wire.length + 6 * frameId.length,
-        send: () async {
-          if (_owner._disposed) return;
-          final skipLive = await _owner._outbox._longSilent(peer.hex);
-          // Recheck durable membership: ACK/cancellation while this job waited
-          // must not recreate a retired row. There is no enqueue in the worker.
-          if (!await _owner._storage.containsOutboxFrame(frame) ||
-              _owner._disposed) {
-            return;
-          }
-          final contact = await _owner._storage.getContact(peer);
-          if (_owner._disposed || contact?.status != ContactStatus.accepted) {
-            return;
-          }
-          _owner._stashInBackground(peer, frameId, wire);
-          if (skipLive) return;
-          _owner._outbox.recordQueued(frameId, peer.hex);
-          await _owner._send(peer, wire);
-        },
-      ),
+    unawaited(_sendStoredAcceptance(peer, frame));
+  }
+
+  Future<void> _sendStoredAcceptance(NodeId peer, OutboxFrame frame) {
+    if (_owner._disposed) return Future.value();
+    final frameId = frame.frameId, wire = frame.wire;
+    return _owner._contactResponseQueue.submit(
+      key: frameId,
+      lane: peer.hex,
+      bytes: 512 + 2 * wire.length + 6 * frameId.length,
+      send: () async {
+        if (_owner._disposed) return;
+        final skipLive = await _owner._outbox._longSilent(peer.hex);
+        // Recheck durable membership: ACK/cancellation while this job waited
+        // must not recreate a retired row. There is no enqueue in the worker.
+        if (!await _owner._storage.containsOutboxFrame(frame) ||
+            _owner._disposed) {
+          return;
+        }
+        final contact = await _owner._storage.getContact(peer);
+        if (_owner._disposed || contact?.status != ContactStatus.accepted) {
+          return;
+        }
+        _owner._stashInBackground(peer, frameId, wire);
+        if (skipLive) return;
+        _owner._outbox.recordQueued(frameId, peer.hex);
+        await _owner._send(peer, wire);
+      },
     );
   }
 
@@ -354,19 +369,63 @@ class _MessagingContacts {
   }
 
   /// Approve an incoming request — both sides can now message freely.
-  Future<void> acceptContact(NodeId peer) async {
-    await setStatus(peer, ContactStatus.accepted);
-    _owner._signal();
-    // DURABLE (see [sendDurable]): the requester is likely NAT'd/offline, and
-    // an accept that dies on the lossy first live attempt (or our restart)
-    // strands the whole relationship — they never learn they were accepted.
-    // The pipeline live-sends, deposits at their mailbox, and re-drives until
-    // their ack retires it. Stable id keys relay dedup per peer.
-    await _owner.sendDurable(
-      peer,
-      'accept:${peer.hex}',
-      const WireEnvelope.accept(),
-    );
+  Future<void> acceptContact(NodeId peer) {
+    if (_owner._disposed) {
+      return Future.error(StateError('messaging service is closed'));
+    }
+    final result = _acceptContact(peer);
+    late final Future<void> settled;
+    settled = result
+        .then<void>(
+          (_) {},
+          onError: (Object error, StackTrace stack) {
+            // Joining owned work also observes its error. Keep a safe diagnostic
+            // even when a UI callback does not await the returned future.
+            const message = 'Contact acceptance could not be completed';
+            final Object safe = switch (error) {
+              FileSystemException(:final osError) => FileSystemException(
+                message,
+                null,
+                osError == null
+                    ? null
+                    : OSError('operation refused', osError.errorCode),
+              ),
+              FormatException() => const FormatException(message),
+              _ => StateError(message),
+            };
+            errorJournal.record(
+              kind: 'contact-accept',
+              error: safe,
+              stack: stack,
+              atMs: DateTime.now().millisecondsSinceEpoch,
+            );
+          },
+        )
+        .whenComplete(() {
+          _acceptances.remove(settled);
+        });
+    _acceptances.add(settled);
+    return result;
+  }
+
+  Future<void> _acceptContact(NodeId peer) async {
+    final frameId = 'accept:${peer.hex}';
+    final wire = const WireEnvelope.accept().withFrameId(frameId).encode();
+    final frame = OutboxFrame(frameId: frameId, peerHex: peer.hex, wire: wire);
+    // User-visible consent and the response obligation share one transaction.
+    // No callback/live send can advertise a decision with no durable answer.
+    await _owner._outbox.enqueueAcceptance(peer, frameId, wire);
+    try {
+      if (_owner._disposed) return;
+      await _afterStatusSaved(peer, ContactStatus.accepted);
+    } finally {
+      if (!_owner._disposed) {
+        _owner._signal();
+        // Never enqueue again here: an ACK/retry may already have retired
+        // the committed frame. Keep the caller's bounded initial-send wait.
+        await _owner._outbox.boundedLiveLeg(_sendStoredAcceptance(peer, frame));
+      }
+    }
   }
 
   /// Decline / block an incoming request — their messages are dropped.

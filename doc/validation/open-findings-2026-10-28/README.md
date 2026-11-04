@@ -1,5 +1,19 @@
 # Открытые случаи — обновлено 2026-11-05
 
+Текущий шаг: [атомарное первичное принятие контакта](../contact-accept-atomic-2026-11-05/README.md).
+Подтверждён разрыв между локальным accepted и сохранением ответа: ошибка
+Outbox оставляла принятый контакт без durable accept. Статус, contact index и
+ответ теперь коммитятся вместе; потерянный ответ commit восстанавливается
+только после полного readback. Dispose ждёт принятое действие, callback failure
+не снимает обязанность ответить; анонимный `contact-accept` не хранит исходные
+тексты/пути. 12 baseline assertion-red; финальные 20 ordinary/worker-native
+scoped cases, control с diagnostics 440 passed, broad 1884 passed / 3 skipped
+в 100 файлах, analyzer чистый. Headless AOT/--help и все пять process A/B/C
+gates прошли; teardown 27 PID / 37 портов чистый, 1463 inputs/native SHA
+неизменны. Локальная atomicity закрыта в указанных пределах;
+crash-durable публикация решения своим устройствам и исходный Windows случай
+открыты. Mailbox для собственных устройств не добавлен, push/релиза нет.
+
 Текущий шаг: [ACK запроса после durable приёма](../contact-handshake-commit-2026-11-05/README.md).
 Подтверждены ранние ACK/seen перед enqueue ответа, разрешение mailbox ACK по
 таймауту/исключению и поглощение локального dispatch failure. Повтор запроса
