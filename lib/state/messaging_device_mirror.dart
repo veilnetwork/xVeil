@@ -426,6 +426,7 @@ class _MessagingDeviceMirror {
         );
         return;
       }
+      if (await _owner._inboundExpiry.edit(peer, target, mirrored: true)) return;
       final hash = messageEditContentHash(body, customEmoji);
       final heldHash = messageEditContentHash(target.body, target.customEmoji);
       if (seq == null) {
