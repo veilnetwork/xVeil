@@ -217,6 +217,12 @@ extension _MessagingInboundDispatch on MessagingService {
     if (existing?.status == ContactStatus.blocked ||
         (blockedWhileReassembling &&
             existing?.status == ContactStatus.accepted)) {
+      if (env.kind == WireKind.callSignal) {
+        _realtimeControl.recordCallDecision(
+          null,
+          _CallSignalDecision.rejectedContact,
+        );
+      }
       // A MESSAGE from a blocked contact is kept aside up to the payload cap,
       // out of the chat, and acknowledged so its sender stops re-sending it.
       // When it was dropped without an ACK, the sender re-drove it until the
@@ -345,11 +351,23 @@ extension _MessagingInboundDispatch on MessagingService {
     final callSignal = env.kind == WireKind.callSignal
         ? CallSignal.tryDecode(env.body)
         : null;
+    if (env.kind == WireKind.callSignal) {
+      _realtimeControl.recordCallDecision(
+        callSignal,
+        callSignal == null
+            ? _CallSignalDecision.malformed
+            : _CallSignalDecision.decoded,
+      );
+    }
     // Match the realtime lane before acknowledging or remembering this ID.
     // A contact row or an old device's readable ciphertext cannot prove a new
     // call offer. Follow-ups retain the active call's bearer capability.
     if (callSignal?.type == CallSignalType.offer &&
         !_speaksForContact(m, env.kind)) {
+      _realtimeControl.recordCallDecision(
+        callSignal,
+        _CallSignalDecision.rejectedProvenance,
+      );
       return;
     }
     final activeCallDevice =
@@ -357,6 +375,10 @@ extension _MessagingInboundDispatch on MessagingService {
         (acceptsCallDeviceSignal?.call(m.src, callSignal) ?? false);
     if (callSignal != null &&
         !_realtimeControl.admitCallEnding(m, callSignal)) {
+      _realtimeControl.recordCallDecision(
+        callSignal,
+        _CallSignalDecision.rejectedEnding,
+      );
       return;
     }
     final deferredPersistenceAck =
@@ -465,6 +487,12 @@ extension _MessagingInboundDispatch on MessagingService {
             env.kind == WireKind.cloudDocumentChunk ||
             env.kind == WireKind.pieceRequest;
         if (!_outbox.remember(m.src.hex, fid) && !reprocessSafely) {
+          if (callSignal != null) {
+            _realtimeControl.recordCallDecision(
+              callSignal,
+              _CallSignalDecision.duplicate,
+            );
+          }
           // A re-drive of a frame this device already took. Ordinary — except
           // when the first take DID NOT achieve what it was for, which is
           // exactly the device-linking case: the snapshot is processed once,
@@ -1025,6 +1053,10 @@ extension _MessagingInboundDispatch on MessagingService {
         if (existing?.status != ContactStatus.accepted &&
             !ownDeviceSender &&
             !activeCallDevice) {
+          _realtimeControl.recordCallDecision(
+            callSignal,
+            _CallSignalDecision.rejectedContact,
+          );
           devLog(
             () =>
                 'xVeil[call-sig]: ${callSignal?.type.name ?? "invalid"} '
@@ -1043,7 +1075,7 @@ extension _MessagingInboundDispatch on MessagingService {
             return 'xVeil[call-sig]: in type=${callSig.type.name} '
                 'call=${callSig.callId} from=${m.src.short} age=$age';
           });
-          onCallSignal?.call(m.src, callSig);
+          _realtimeControl.dispatchCallSignal(m.src, callSig);
         }
         return;
       case WireKind.p2pEndpoints:

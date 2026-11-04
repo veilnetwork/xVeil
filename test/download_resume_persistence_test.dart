@@ -34,10 +34,21 @@ class _HeldStorage extends HiddenVolumeStorage {
     : super(({required password, required bool create}) => kv);
   Completer<void>? entered, release;
   Completer<void>? lookupEntered, lookupRelease;
+  Completer<void>? readEntered, readRelease;
+  int registryReads = 0;
   Object? readFailure;
   StackTrace? readFailureStack;
   @override
-  Future<Uint8List?> loadFile(String id, {int? maxBytes}) {
+  Future<Uint8List?> loadFile(String id, {int? maxBytes}) async {
+    if (id == registry) {
+      registryReads++;
+      final gate = readRelease;
+      if (gate != null) {
+        readRelease = null;
+        readEntered!.complete();
+        await gate.future;
+      }
+    }
     if (id == registry && readFailure != null) {
       final stack = readFailureStack;
       if (stack != null) Error.throwWithStackTrace(readFailure!, stack);
@@ -119,6 +130,68 @@ void main() {
     await service.dispose();
     service = MessagingService(transport, s, plainFileStream: true);
   }
+
+  Future<void> seedResume() => s.putSetting(
+    'pending_downloads',
+    jsonEncode([
+      {
+        'cid': cid(72),
+        'mode': 'store',
+        'peers': [peer.hex],
+        'at': DateTime.now().toIso8601String(),
+      },
+    ]),
+  );
+
+  test(
+    'background resume waits for an open container and resumes after unlock',
+    () async {
+      await seedResume();
+      await s.close();
+      service.start();
+      await pumpEventQueue();
+      expect(s.registryReads, 0);
+      expect(
+        errorJournal.entries.where((e) => e.kind == 'download-resume-read'),
+        isEmpty,
+      );
+      expect(service.autoResumeTicks, 0);
+
+      expect(await s.open(password: 'fixture'), isTrue);
+      await service.reconcileOnConnect();
+      // Reconnect schedules the existing durable request rather than replacing
+      // it with an empty registry sampled while the container was locked.
+      await Future<void>.delayed(const Duration(milliseconds: 2100));
+      expect(service.autoResumeTicks, greaterThan(0));
+      expect(await service.pendingAutoResumeContentIds(), [cid(72)]);
+      expect(await s.getSetting('pending_downloads'), isNotNull);
+    },
+  );
+
+  test(
+    'closing the container during a background registry read is not corruption',
+    () async {
+      await seedResume();
+      s.readEntered = Completer<void>();
+      final gate = Completer<void>();
+      s.readRelease = gate;
+      service.start();
+      await s.readEntered!.future;
+      try {
+        await s.close();
+      } finally {
+        gate.complete();
+      }
+      await pumpEventQueue();
+      expect(
+        errorJournal.entries.where((e) => e.kind == 'download-resume-read'),
+        isEmpty,
+      );
+      expect(service.autoResumeTicks, 0);
+      expect(await s.open(password: 'fixture'), isTrue);
+      expect(await service.pendingAutoResumeContentIds(), [cid(72)]);
+    },
+  );
 
   for (final entry in ['store', 'store-any', 'file', 'file-any']) {
     for (final action in ['cancel', 'replace', 'clear']) {

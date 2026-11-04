@@ -1,4 +1,27 @@
-# Открытые случаи — обновлено 2026-11-04
+# Открытые случаи — обновлено 2026-11-05
+
+Новый активный репорт: [ПК ↔ Android: запросы, звонки, registry](../user-pc-android-calls-2026-11-05/README.md).
+По точному release-stack подтверждено чтение resume registry до unlock/при
+закрытии контейнера; локально исправлено без удаления durable intent. Текст
+неподтверждённого relay deposit больше не выдаёт его за отказ локального
+сохранения. Недоставка подтверждений и звонков возвращена в активную очередь:
+семь PC-вызовов остались dialing, медиадвижок не запускался; root cause не
+доказан. Добавлены анонимные type/lane/disposition категории call control,
+вместо вывода о WebRTC из одного счётчика arrivals. Windows стенда сейчас
+недоступна; физическое воспроизведение этого пользовательского случая не
+объявляется выполненным. Push/релиза нет.
+
+Завершён [TTL после полного durable admission снимка](../device-snapshot-admission-2026-11-05/README.md),
+коммит `ed6e65fc`: полный own-device transfer блокирует initial/retry до
+асинхронной сериализованной проверки, не удерживая producer group lock.
+Устаревший результат не разрешает новую concurrent admission, failure остаётся
+fail-closed, dispose присоединяет проверку. 44 scoped passed без skip;
+1508 passed / 56 conditional skipped в 85 файлах. Native A/B/C прошёл все
+пять TTL/Outbox gates, 27 PID / 27 портов проверены, runtime удалён,
+1459 frozen inputs и native SHA неизменны. Последующие transport/fragmentation
+waits, policy/skew/legacy partials и общая latency/multi-device матрица открыты.
+Mailbox для собственных устройств не добавлен.
+
 
 Текущий цикл: [clock TTL после storage waits](../device-expiry-clock-2026-11-04/README.md).
 Шесть old-code assertion-red подтвердили stale batch clock после policy/prune

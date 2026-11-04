@@ -825,7 +825,7 @@
   "mentionsLoadFailed": "Could not load mentions",
   "chatRequestSent": "Waiting for a response — delivery may take time",
   "chatRequestResent": "Sent again — waiting for approval",
-  "chatRequestNotDelivered": "Could not store the request for later delivery. It may still arrive directly",
+  "chatRequestNotDelivered": "The request is saved on this device. Relay delivery has not been confirmed yet.",
   "chatRequestResend": "Send again",
   "chatRequestCancel": "Cancel",
   "chatRequestCancelTitle": "Cancel request?",
