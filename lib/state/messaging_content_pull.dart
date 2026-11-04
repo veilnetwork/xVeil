@@ -2474,12 +2474,12 @@ extension _MessagingContentPull on MessagingService {
   /// content surfaces as a NEW message (A); a re-delivery of the SAME (deleted)
   /// event stays gone. The "downloaded" state is derived from hasFile(contentId),
   /// so no message rewrite is needed when the blob later lands.
-  Future<void> _surfaceFileOffer(
+  Future<bool> _surfaceFileOffer(
     NodeId peer,
     ContentManifest m, {
     required String route,
   }) async {
-    await _surfaceFileOfferFields(
+    return _surfaceFileOfferFields(
       peer,
       route: route,
       contentId: m.contentId,
@@ -2497,20 +2497,22 @@ extension _MessagingContentPull on MessagingService {
   /// Asked only when an arrival brought no per-send id of its own, so the row
   /// it would create is keyed by the content hash and would sit beside the one
   /// the sender's id already made.
-  Future<bool> _hasFileRowFor(NodeId peer, String contentId) async {
-    try {
-      final rows = await _storage.loadMessages(peer.hex);
-      return rows.any(
-        (m) => m.fileContentId == contentId || m.fileId == contentId,
-      );
-    } catch (_) {
-      // Storage locked or unavailable: say no and let the ordinary id-based
-      // checks below decide, exactly as before this guard existed.
-      return false;
+  Future<bool?> _existingFileOfferAdmission(NodeId peer, String contentId) async {
+    final rows = await _storage.loadMessages(peer.hex);
+    final setting = await disappearingOf(peer);
+    final now = _now();
+    var any = false;
+    for (final row in rows) {
+      if (row.fileContentId != contentId && row.fileId != contentId) continue;
+      any = true;
+      if (!setting.hasExpired(row.timestamp, now)) return true;
     }
+    // No matching row means this may be a genuine legacy offer. A matching
+    // but expired row gives no permission to revive its download anonymously.
+    return any ? false : null;
   }
 
-  Future<void> _surfaceFileOfferFields(
+  Future<bool> _surfaceFileOfferFields(
     NodeId peer, {
 
     /// Which arrival produced this row. Four different ones can, and the id a
@@ -2529,8 +2531,14 @@ extension _MessagingContentPull on MessagingService {
     // The manifest's seq is a peer's number like any other — the single funnel
     // for both the full manifest and the compact ref, so neither route can
     // land an out-of-range slot.
-    if (!isAcceptableWireSeq(seq)) return;
+    if (!isAcceptableWireSeq(seq)) return false;
     final msgIdOrContent = msgId ?? contentId; // legacy sender → hash id
+    if (await _inboundExpiry.post(peer, msgIdOrContent, _wireSentAtMs(ts), seq)) {
+      return false;
+    }
+    // A rejected/deleted event must not become permission to auto-download.
+    // Keep this decision per message, never as a global content-ID ban.
+    if (await _storage.isMessageDeleted(peer.hex, msgIdOrContent)) return false;
     // No msgId means this row would be keyed by the CONTENT HASH, and four
     // different arrivals can surface a file. When one of them carries the
     // sender's per-send id and another does not, the two keys disagree and the
@@ -2548,14 +2556,17 @@ extension _MessagingContentPull on MessagingService {
     // carries a fresh per-send id and still surfaces as a new message — that
     // is deliberate (a cleared file re-sent must reappear) and has its own
     // test; this branch cannot reach it.
-    if (msgId == null && await _hasFileRowFor(peer, contentId)) {
+    final existing = msgId == null
+        ? await _existingFileOfferAdmission(peer, contentId)
+        : null;
+    if (existing != null) {
       devLog(
         () =>
             'xVeil[content]: offer skip ${contentId.substring(0, 12)} '
             'via=$route — already surfaced under the sender\'s own id, and '
             'this arrival carries none <- ${peer.short}',
       );
-      return;
+      return existing;
     }
     if (await _mirrorStoredMessageIfPresent(peer, msgIdOrContent)) {
       devLog(
@@ -2563,7 +2574,7 @@ extension _MessagingContentPull on MessagingService {
             'xVeil[content]: offer skip ${contentId.substring(0, 12)} '
             'msg ${msgIdOrContent.substring(0, 8)} already stored <- ${peer.short}',
       );
-      return; // already surfaced
+      return true; // live existing offer may still need its bytes
     }
     if (await _storage.isMessageDeleted(peer.hex, msgIdOrContent)) {
       devLog(
@@ -2571,7 +2582,7 @@ extension _MessagingContentPull on MessagingService {
             'xVeil[content]: offer skip ${contentId.substring(0, 12)} '
             'msg ${msgIdOrContent.substring(0, 8)} deleted <- ${peer.short}',
       );
-      return; // already surfaced / deliberately deleted
+      return false; // deliberately deleted
     }
     await _store(
       peer,
@@ -2606,6 +2617,7 @@ extension _MessagingContentPull on MessagingService {
                     "hash, so an arrival that HAS one becomes a SECOND row)" : ""}'
           '(${size}B) <- ${peer.short}',
     );
+    return true;
   }
 }
 

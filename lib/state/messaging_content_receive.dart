@@ -13,14 +13,10 @@ extension _MessagingContentReceive on MessagingService {
     final decoded = jsonDecode(body) as Map<String, dynamic>;
     final ref = _parseContentManifestRef(decoded);
     if (ref != null) {
-      _contentAvailability.noteHolderDevice(ref.contentId, peer, device);
       await _onContentManifestRef(peer, ref, device: device);
       return;
     }
     final m = ContentManifest.fromJson(decoded);
-    if (m != null) {
-      _contentAvailability.noteHolderDevice(m.contentId, peer, device);
-    }
     if (m == null) {
       devLog(
         () => 'xVeil[content]: manifest DROPPED (malformed) <- ${peer.short}',
@@ -36,7 +32,11 @@ extension _MessagingContentReceive on MessagingService {
     // Surface the file as an OFFER first — metadata only (name/size + the
     // contentId to fetch), NO blob yet — idempotent on the sender's per-send
     // msgId. The receiver decides whether to download (anti-spam + disk control).
-    await _surfaceFileOffer(peer, m, route: 'manifest');
+    if (!await _surfaceFileOffer(peer, m, route: 'manifest')) {
+      await _ackFileOffer(peer, m.msgId ?? m.contentId, device: device);
+      return;
+    }
+    _contentAvailability.noteHolderDevice(m.contentId, peer, device);
     await _ackFileOffer(peer, m.msgId ?? m.contentId, device: device);
 
     // We ALREADY hold these exact bytes (a re-offer / dedup) → the offer renders
@@ -260,7 +260,7 @@ extension _MessagingContentReceive on MessagingService {
           'size=${ref.size} msg=${ref.msgId?.substring(0, 8)} '
           '<- ${peer.short}',
     );
-    await _surfaceFileOfferFields(
+    final admitted = await _surfaceFileOfferFields(
       peer,
       route: 'ref',
       contentId: cid,
@@ -272,6 +272,8 @@ extension _MessagingContentReceive on MessagingService {
       thumb: ref.thumb,
     );
     await _ackFileOffer(peer, ref.msgId ?? cid, device: device);
+    if (!admitted) return;
+    _contentAvailability.noteHolderDevice(cid, peer, device);
 
     if (await _storage.hasFile(cid)) {
       devLog(

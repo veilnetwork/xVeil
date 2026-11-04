@@ -1,5 +1,24 @@
 # Открытые случаи — обновлено 2026-11-04
 
+Последний шаг: [TTL входящих файлов и предложений](../media-ttl-2026-11-04/README.md).
+Подтверждены и локально исправлены legacy сборка после TTL и регистрация/
+автозагрузка full manifest/ref после отказа expired/deleted сообщению.
+Время partial transfer фиксируется при первой meta, проверяется перед chunks;
+сообщение получает durable bodyless expiry decision. Surface возвращает
+результат допуска; handler прекращает unsolicited download. Shared CID не
+удаляется/не блокируется глобально, свежий per-send ID работает. Claimed query
+остаётся read-only; регрессия первого кандидата воспроизведена и исправлена.
+Eventless hint не оживляет единственную истёкшую named строку. 1361 tests /
+3 skipped, финальные 22 targeted и 6 native cases прошли. Native process A/B/C:
+2 файла в обе стороны, две cold receiver копии байт-в-байт и две sibling
+metadata copies без дублей; test/driver/cleanup 0/0/0, 18 PID/26 портов/
+1450 frozen inputs, native SHA прежние. Первый oracle source-copy был ошибочен,
+исправлен в тесте; продукт между попытками не менялся. Analyzer чистый.
+Остальные async I/O,
+partial persisted/download, source-NACK/policy/clock skew и полная матрица
+ещё открыты. Mailbox для своих устройств не добавлен; push/релиза нет.
+
+
 Последний шаг: [TTL входящего текста и правок](../inbound-ttl-2026-11-04/README.md).
 Подтверждены и локально исправлены запись/публикация expired peer post,
 повторная выдача held original при свежем retry timestamp, peer/mirrored edit
@@ -1105,6 +1124,7 @@ push/релиза нет; multi-device матрица не квалифицир�
 
 | Случай | Отметка | Граница подтверждения |
 |---|---|---|
+| TTL входящих файлов и предложений | **ПОДТВЕРЖДЕНО, ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННЫХ ПУТЯХ** | Legacy meta/chunks/query используют исходный clock и durable expiry; full manifest/ref прекращают unsolicited fetch после отказа surface. Claimed query read-only; свежий ID того же content работает. 6 native cases и fresh A/B/C file regression прошли. Mid-I/O, уже начатые shared downloads/partial transfers и legacy egress NACK остаются вне этой квалификации. [Проверка](../media-ttl-2026-11-04/README.md). |
 | TTL входящего текста и правок | **ПОДТВЕРЖДЕНО, ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННЫХ ПУТЯХ** | Истёкшие обычный post, duplicate и peer/mirrored edit больше не записывают/публикуют новое тело; tombstone/peer void и required publication предшествуют application ACK. Unit/native отказ/точный retry и cold reopen прошли. Другие media kinds и дальнейшие async I/O окна не квалифицированы полностью. [Проверка](../inbound-ttl-2026-11-04/README.md). |
 | Прямые queued правки после TTL и ранний ACK void | **ПОДТВЕРЖДЕНО, ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННОМ ПУТИ** | Тело edit оставалось и повторно передавалось после expiry. Теперь exact replacement на bodyless seq slot либо локальный discard для legacy; ACK void только после durable apply. Native raw roots и process A/B/C прошли. Transport/fragmentation после handoff не квалифицированы. [Проверка](../direct-edit-expiry-2026-11-04/README.md). |
 | TTL ранее сохранённой строки после cold restart / UI / retry | **ПОДТВЕРЖДЕНО, ЛОКАЛЬНО ИСПРАВЛЕНО В ПРОВЕРЕННЫХ ПУТЯХ** | Initial sweep теперь немедленный и owned; UI list/preview скрывают expired body независимо от prune, ordinary retry проверяет TTL/tombstone, exact TTL boundary физически удаляется. Native C первый raw read чистый до старого timer; raw worker/close и own snapshot A/B/C прошли. I/O-failure recovery всего массива, native handoff/fragmentation и peer gap-fill/ingress не квалифицированы полностью. [Проверка](../startup-ttl-2026-11-04/README.md). |
