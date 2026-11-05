@@ -59,9 +59,12 @@ class MainActivity : FlutterFragmentActivity(), CallScreenActivity.Host {
     private var pipAspect = Rational(16, 9)
     private var previousCallVolumeStream: Int? = null
     private var documentExport: DocumentExport? = null
+    private var quickUnlock: NativeQuickUnlock? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        quickUnlock?.dispose()
+        quickUnlock = NativeQuickUnlock(this, flutterEngine.dartExecutor.binaryMessenger)
         CallScreenActivity.attachHost(this)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "xveil/call_screen").setMethodCallHandler { call, result ->
             when (call.method) {
@@ -440,7 +443,13 @@ class MainActivity : FlutterFragmentActivity(), CallScreenActivity.Host {
         deliverCallAction(intent)
     }
 
+    override fun onStop() {
+        quickUnlock?.cancel()
+        super.onStop()
+    }
+
     override fun onDestroy() {
+        quickUnlock?.dispose()
         mediaPermissions.close()
         documentExport?.dispose()
         setCallNetworkActive(false)
