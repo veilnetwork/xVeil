@@ -2424,3 +2424,27 @@ exclusive disk time. Следующая квалификация матрицы 
 SDK 1524 tracked files/lock/features и native/HV SHA с новым binary symbol.
 Это Mac/JIT, не Android/AOT. Mailbox собственных устройств остаётся отключённым;
 push/релиза и изменений публичных сидов нет.
+
+
+## 2026-11-05: контактные политики и ownership оффлайн-архива
+
+[Проверка и исправления](../contact-policy-archive-2026-11-05/README.md).
+Новые архивы передают independent policy с исходным clock, создают отсутствующий
+контакт до его полей; offline registry ждёт этот slot, live ingress не менялся.
+Экран выбирает активную identity вместо physical device ID. Чужие архивы
+отвергаются; старый архив именно своего устройства допускается по отдельно
+захваченному доверенному local ID, без разрешений по claims архива/сети.
+
+Scoped **76 passed**, diagnostic control **790 passed / 38 файлов**, analyzer
+чистый, AOT build/help пройден. Process A/B/C: **13 gates**, импорт с A offline,
+новый контакт, newer alias/block/local P2P, repeat и cold B. Пять других
+unconfirmed appliers не выданы за подтверждённое применение всех данных.
+48 PID/54 порта проверены, runtime удалён; 1476 frozen inputs/native SHA
+неизменны. Android/Windows и старый порядок архивных rows не квалифицированы.
+
+[Пользовательский репорт ПК ↔ Android](../user-pc-android-calls-2026-11-05/README.md)
+не объявляется решённым: на старой версии семь calls остались dialing до старта
+медиа. Повторный SSH check — timeout; физический Windows прогон недоступен.
+Локальные исправления premature download-resume read, relay-deposit текста и
+handshake/consent уже описаны отдельно. Mailbox своих устройств не добавлен;
+push, релиза и обновления публичных сидов нет.
