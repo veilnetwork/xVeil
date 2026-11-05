@@ -1,5 +1,16 @@
 # Открытые случаи — обновлено 2026-11-05
 
+Последнее исправление NETCALL-01: [network-change worker](../network-change-worker-2026-11-05/README.md).
+ПОДТВЕРЖДЕНО: синхронное ожидание native dispatch receipt в `Future` блокировало
+основной Dart event loop. Три regression-red; SDK `70478463` использует worker
+с сохранённым completion/error/lifetime контрактом. SDK 74 passed / 1 skipped,
+app control 348 passed, analyzer чистый. Настоящий embedded node принял все
+10 временных уведомлений по Unix и authenticated TCP; stop/sidecars/порты
+проверены. Первый неверный file-log observer не засчитан и очищен.
+Физический mobile handover и слышимость не квалифицированы: ADB пуст.
+Это снятый локальный механизм, не доказательство устранения полной паузы.
+Rust/engine pins, сиды, push и релиз не менялись.
+
 Последнее исправление: [чтение журнала звонков и граница личности](../call-journal-read-2026-11-05/README.md).
 ПОДТВЕРЖДЕНО: отказ namespace-read выдавался за пустой журнал, навсегда завершал
 legacy migration без публикации и экспортировал ложный restore success.
