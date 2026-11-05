@@ -16,6 +16,16 @@ class _Store extends QuickUnlockSecretStore {
   Completer<String?>? pendingBio;
   String _key(String key, bool bio) => '$bio:$key';
   @override
+  Future<String?> readAuthenticated(
+    String key,
+    String reason,
+    LocalScreenAuthentication authentication,
+  ) async {
+    if (!await authentication.authenticate(reason)) return null;
+    return read(key, biometric: true);
+  }
+
+  @override
   Future<String?> read(String key, {bool biometric = false}) async {
     reads++;
     if (biometric && denyBio) throw StateError('OS authentication cancelled');
