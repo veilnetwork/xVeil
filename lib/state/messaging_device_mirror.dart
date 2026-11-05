@@ -942,6 +942,33 @@ class _MessagingDeviceMirror {
     return committed;
   }
 
+  Future<bool> applyPolicy(NodeId peer, DisappearingSetting policy) async {
+    if (_owner._disposed || await _owner._isSiblingDevice(peer)) return false;
+    var known = false;
+    await updateContactPrefs(
+      peer,
+      (current) {
+        known = true;
+        final held = DisappearingSetting(
+          ttlSeconds: current.disappearingTtlSeconds,
+          setAtMs: current.disappearingSetAtMs,
+          setBy: current.disappearingSetBy,
+          hideAfterReadSeconds: current.hideAfterReadSeconds,
+        );
+        if (DisappearingSetting.compare(policy, held) <= 0) return null;
+        return current.copyWith(
+          disappearingTtlSeconds: policy.ttlSeconds,
+          disappearingSetAtMs: policy.setAtMs,
+          disappearingSetBy: policy.setBy,
+          hideAfterReadSeconds: policy.hideAfterReadSeconds,
+        );
+      },
+      mirror: false,
+      local: false,
+    );
+    return known && !_owner._disposed;
+  }
+
   /// Merge contact preferences from another device while preserving local
   /// relationship and P2P policy fields. Unknown contacts are not materialized.
   Future<bool> applyContact({
