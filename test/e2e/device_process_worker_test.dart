@@ -13,6 +13,7 @@ import 'package:xveil/debug/soak_hook.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/core/diagnostic_journal.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/domain/peer_authorization.dart';
 import 'package:xveil/domain/device_sync.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
@@ -176,6 +177,30 @@ void main() {
             if (await inspect.exists()) {
               final request = jsonDecode(await inspect.readAsString()) as Map;
               await inspect.delete();
+              if (request['replayFinishedOffer'] == true) {
+                // A new authenticated transport copy of an old logical offer.
+                // Only this private fixture can request it; no app debug API.
+                final id = request['callId'] as String;
+                final wire = WireEnvelope.callSignal(CallSignal(
+                  callId: id,
+                  type: CallSignalType.offer,
+                  posture: CallPosture.anonymous,
+                  media: const CallMedia(audio: true),
+                  mediaKey: generateCallMediaKeyContribution(),
+                  sentAtMs: request['sentAtMs'] as int,
+                  onBehalfOf: request['onBehalfOf'] as String,
+                ).encode()).withFrameId('fixture-replay:${request['nonce']}').encode();
+                await device!.stack.transport.send(
+                  NodeId.fromHex(request['peer'] as String), wire,
+                  anonymous: true,
+                );
+                final response = File('${dir.path}/storage-inspected.new');
+                await response.writeAsString(jsonEncode({
+                  'nonce': request['nonce'], 'sourceAccepted': true,
+                }));
+                await response.rename('${dir.path}/storage-inspected.json');
+                continue;
+              }
               if (request['callDiagnostics'] == true) {
                 final response = File('${dir.path}/storage-inspected.new');
                 await response.writeAsString(jsonEncode({

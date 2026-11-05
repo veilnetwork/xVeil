@@ -591,3 +591,11 @@ checks exact-call ringing, a cold sibling, an offline primary, sibling outgoing
 calls, and joining a still-ringing call. Ending checks use fresh diagnostic
 terminal evidence and the exact durable journal row because the live slot is
 cleared immediately. It does not accept media or qualify audible speech.
+
+
+The call signaling process fixture also checks finished-call restoration on a
+cold sibling. Its private `replayFinishedOffer` file command sends an authenticated
+on-behalf-of sibling offer for a previously finished logical call, with a fresh
+transport frame ID. It uses the existing anonymous send and native authorization;
+this is not a production API or a raw ciphertext-replay test. The receiver must
+record replay rejection without any transient callState, then accept fresh calls.
