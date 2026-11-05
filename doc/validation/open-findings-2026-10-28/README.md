@@ -1,5 +1,23 @@
 # Открытые случаи — обновлено 2026-11-06
 
+Последнее исправление: [ticket resume и stale predecessor](../relay-resume-predecessor-2026-11-06/README.md).
+ПОДТВЕРЖДЕНО и исправлено в Veil `ade3130a`: корректное возобновление no-row Leaf на Core блокировалось старой
+TX-регистрацией; в relay-only окне сохранённой серии реле отклонили пять
+подключений QA-префикса как дубликаты. Добавлена узкая замена только точного
+predecessor из проверенного ticket после свежего ATTACH MAC; обычные дубликаты,
+mesh/scheduled rows и более новый owner защищены. Тест дополнительно выявил,
+что повторный session ID позволял late old guard удалить replacement.
+Ticket resumption теперь получает свежий согласованный connection ID;
+вывод directional keys и живой HandoffAttach сохранены. Старые версии не
+квалифицируются по решению владельца; обе стороны resume нужно обновлять вместе.
+Baseline допуска 1 assertion-red / 2 passed, отдельный ID guard 1 assertion-red;
+полный контроль 1664 passed / 19 ignored. Подробные границы и агрегаты в отчёте.
+NETCALL-01 **открыт**: нового физического замера после этой правки нет;
+прежние 19–20 с auto и 10,3 с relay-only не объявляются устранёнными.
+Владелец отключил Windows; следующий физический стенд — телефон ↔ MacBook.
+Реле только читались; APK, основной контейнер/настройки телефона, engine pins,
+production-сервисы, push и релиз в этом цикле не менялись.
+
 Последнее исправление: [BootstrapJoin и повтор NETCALL-01](../bootstrap-join-dial-isolation-2026-11-06/README.md).
 ПОДТВЕРЖДЕНО и исправлено в Veil `c65a8d0c`: добавление/повтор одного bootstrap
 peer отменял in-flight dial других peer через общий network-change wake.
