@@ -1,0 +1,267 @@
+{
+  "patternEstablished": false,
+  "humanAudibilityQualified": false,
+  "phases": [
+    {
+      "nsEnabled": 1,
+      "roles": {
+        "phone": {
+          "quietMedianBand": 2.0,
+          "windows": [
+            {
+              "kind": "quiet",
+              "samples": 8,
+              "medianBand": 1.0
+            },
+            {
+              "kind": "speech",
+              "samples": 10,
+              "medianBand": 1.0
+            },
+            {
+              "kind": "quiet",
+              "samples": 9,
+              "medianBand": 2
+            },
+            {
+              "kind": "speech",
+              "samples": 10,
+              "medianBand": 2.0
+            },
+            {
+              "kind": "quiet",
+              "samples": 10,
+              "medianBand": 2.0
+            },
+            {
+              "kind": "speech",
+              "samples": 10,
+              "medianBand": 3.5
+            },
+            {
+              "kind": "quiet",
+              "samples": 7,
+              "medianBand": 3
+            }
+          ],
+          "threePulsesEstablished": false
+        },
+        "windows": {
+          "quietMedianBand": 1.25,
+          "windows": [
+            {
+              "kind": "quiet",
+              "samples": 8,
+              "medianBand": 1.0
+            },
+            {
+              "kind": "speech",
+              "samples": 10,
+              "medianBand": 1.0
+            },
+            {
+              "kind": "quiet",
+              "samples": 9,
+              "medianBand": 1
+            },
+            {
+              "kind": "speech",
+              "samples": 10,
+              "medianBand": 1.0
+            },
+            {
+              "kind": "quiet",
+              "samples": 10,
+              "medianBand": 1.5
+            },
+            {
+              "kind": "speech",
+              "samples": 10,
+              "medianBand": 3.5
+            },
+            {
+              "kind": "quiet",
+              "samples": 7,
+              "medianBand": 3
+            }
+          ],
+          "threePulsesEstablished": false
+        }
+      }
+    },
+    {
+      "nsEnabled": 0,
+      "roles": {
+        "phone": {
+          "quietMedianBand": 3.25,
+          "windows": [
+            {
+              "kind": "quiet",
+              "samples": 7,
+              "medianBand": 3
+            },
+            {
+              "kind": "speech",
+              "samples": 10,
+              "medianBand": 3.0
+            },
+            {
+              "kind": "quiet",
+              "samples": 10,
+              "medianBand": 3.5
+            },
+            {
+              "kind": "speech",
+              "samples": 9,
+              "medianBand": 3
+            },
+            {
+              "kind": "quiet",
+              "samples": 10,
+              "medianBand": 4.0
+            },
+            {
+              "kind": "speech",
+              "samples": 10,
+              "medianBand": 3.0
+            },
+            {
+              "kind": "quiet",
+              "samples": 7,
+              "medianBand": 3
+            }
+          ],
+          "threePulsesEstablished": false
+        },
+        "windows": {
+          "quietMedianBand": 4.0,
+          "windows": [
+            {
+              "kind": "quiet",
+              "samples": 7,
+              "medianBand": 4
+            },
+            {
+              "kind": "speech",
+              "samples": 10,
+              "medianBand": 3.0
+            },
+            {
+              "kind": "quiet",
+              "samples": 10,
+              "medianBand": 4.0
+            },
+            {
+              "kind": "speech",
+              "samples": 9,
+              "medianBand": 3
+            },
+            {
+              "kind": "quiet",
+              "samples": 10,
+              "medianBand": 4.0
+            },
+            {
+              "kind": "speech",
+              "samples": 10,
+              "medianBand": 3.0
+            },
+            {
+              "kind": "quiet",
+              "samples": 7,
+              "medianBand": 3
+            }
+          ],
+          "threePulsesEstablished": false
+        }
+      }
+    },
+    {
+      "nsEnabled": 1,
+      "roles": {
+        "phone": {
+          "quietMedianBand": 2.0,
+          "windows": [
+            {
+              "kind": "quiet",
+              "samples": 7,
+              "medianBand": 1
+            },
+            {
+              "kind": "speech",
+              "samples": 10,
+              "medianBand": 2.0
+            },
+            {
+              "kind": "quiet",
+              "samples": 10,
+              "medianBand": 2.0
+            },
+            {
+              "kind": "speech",
+              "samples": 10,
+              "medianBand": 2.0
+            },
+            {
+              "kind": "quiet",
+              "samples": 9,
+              "medianBand": 2
+            },
+            {
+              "kind": "speech",
+              "samples": 9,
+              "medianBand": 2
+            },
+            {
+              "kind": "quiet",
+              "samples": 6,
+              "medianBand": 3.0
+            }
+          ],
+          "threePulsesEstablished": false
+        },
+        "windows": {
+          "quietMedianBand": 1.75,
+          "windows": [
+            {
+              "kind": "quiet",
+              "samples": 7,
+              "medianBand": 1
+            },
+            {
+              "kind": "speech",
+              "samples": 10,
+              "medianBand": 1.0
+            },
+            {
+              "kind": "quiet",
+              "samples": 10,
+              "medianBand": 1.5
+            },
+            {
+              "kind": "speech",
+              "samples": 10,
+              "medianBand": 2.0
+            },
+            {
+              "kind": "quiet",
+              "samples": 9,
+              "medianBand": 2
+            },
+            {
+              "kind": "speech",
+              "samples": 9,
+              "medianBand": 2
+            },
+            {
+              "kind": "quiet",
+              "samples": 6,
+              "medianBand": 3.0
+            }
+          ],
+          "threePulsesEstablished": false
+        }
+      }
+    }
+  ]
+}
