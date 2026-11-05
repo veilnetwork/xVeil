@@ -1,5 +1,15 @@
 # Открытые случаи — обновлено 2026-11-05
 
+Последнее исправление: [lifecycle запуска аудио](../audio-start-owner-2026-11-05/README.md).
+ПОДТВЕРЖДЕНО: после ожидания выбора аудиоустройства или маршрута прежний start
+обращался к disposed engine при stop, новом звонке и same-call замене engine.
+Девять baseline assertion-red и три healthy control. Проверки epoch/engine/call
+после await и до выбора устройства отменяют старую операцию; successor
+успешно запускается. Контроль 345 passed / без skip, analyzer чистый.
+Это controller-квалификация, не доказанная причина пользовательской тишины.
+Windows SSH повторно доступна с авторизацией; ADB пока пуст.
+Native/engine pins, сиды, push и релиз не менялись.
+
 Последнее исправление: [lifecycle включения видео](../video-upgrade-owner-2026-11-05/README.md).
 ПОДТВЕРЖДЕНО: старый upgrade после audio-route await перезаписывал Call и
 срывал следующий start; поздняя permission обращалась к disposed engine,
