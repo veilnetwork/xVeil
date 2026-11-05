@@ -1,5 +1,22 @@
 # Открытые случаи — обновлено 2026-11-05
 
+Текущий шаг: [durable публикация настроек контакта](../contact-preferences-durable-2026-11-05/README.md).
+ПОДТВЕРЖДЕНО: после local commit отказ callback оставлял preference без
+повторяемой публикации своим устройствам; два ordinary/native assertion-red.
+Contact и immutable snapshot теперь коммитятся вместе, GUI boot/link/periodic
+publisher передаёт исходную версию в committed device journal; CAS ACK не
+снимает новую обязанность. Own echo сверяет durable floor внутри storage turn.
+Отдельный replay-red: status materialization применял старые preferences мимо
+их ordering slot. Replay теперь проходит через gate, unknown apply deferred.
+151 scoped, 700 diagnostic control, 2071 broad passed / 3 skipped в 112 файлах;
+analyzer чистый, headless AOT/--help прошёл. Финальный process A/B/C прошёл семь
+gates, включая offline-created preference → GUI boot → B с тем же ts.
+Cleanup 30 PID / 35 портов чистый, 1474 inputs/native SHA неизменны.
+Первый новый boot-gate провалился и не засчитан; также исправлена запись
+тестовой трассы без parent folder. Полная конфликтная/crash матрица и физический
+Windows-репорт остаются открытыми. Own-device mailbox, сиды, APK/engine pins,
+push/релиз не менялись.
+
 Текущий шаг: [коллизия recipient/revision в доставке disappearing policy](../disappearing-recipient-outbox-2026-11-05/README.md).
 ПОДТВЕРЖДЕНО: ID из setAtMs/setBy был общим для разных контактов, а Outbox
 ключуется глобально по frameId. При совпадении этих полей второй адресат не

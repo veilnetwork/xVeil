@@ -21728,6 +21728,26 @@ class GroupService implements ArchiveGroups {
     });
   }
 
+  /// Verified committed portable contact snapshots, before the clock filter.
+  /// In-flight outgoing notifications are not durable publication evidence.
+  Future<List<DeviceSyncEvent>> committedContactPreferences() async {
+    final hex = await deviceGroupIdHex();
+    if (hex == null) return const [];
+    final gid = NodeId.fromHex(hex);
+    return _serialized(gid, () async {
+      final events = <DeviceSyncEvent>[];
+      for (final message in await messagesOf(gid, applyLocalRetention: false)) {
+        final event = DeviceSyncEvent.fromBody(message.body);
+        if (event != null &&
+            event.kind == DeviceSyncKind.contactUp &&
+            RegExp(r'^[0-9a-f]{64}$').hasMatch(event.key)) {
+          events.add(event);
+        }
+      }
+      return events;
+    });
+  }
+
   /// The folded device-sync state: newest event per (kind, key), from the
   /// VALIDATED device-group log. Empty before adoption.
   ///

@@ -500,6 +500,7 @@ class E2eDevice {
           if (evidence == null) {
             throw StateError('wire trace needs private evidence');
           }
+          await Directory(evidence).create(recursive: true);
           _historyWireProbe = PrivateHistoryWireProbe(
             stack.transport.messages(),
             File('$evidence/history-rx-$label-private.jsonl'),

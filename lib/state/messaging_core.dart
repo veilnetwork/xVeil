@@ -728,6 +728,7 @@ class MessagingService {
     /// held here is kept rather than cleared.
     DisappearingSetting? disappearing,
     bool Function()? shouldApply,
+    String? onlyIfLocalPrefsToken,
   }) => _deviceMirror.applyContact(
     peer: peer,
     name: name,
@@ -740,6 +741,7 @@ class MessagingService {
     clearPolicy: clearPolicy,
     disappearing: disappearing,
     shouldApply: shouldApply,
+    onlyIfLocalPrefsToken: onlyIfLocalPrefsToken,
   );
 
   /// Attached by the group layer: a group snapshot from a NON-contact sender

@@ -8,6 +8,7 @@ import 'package:crypto/crypto.dart' as crypto;
 import '../../core/ids.dart';
 import '../../domain/call_log.dart';
 import '../../domain/chat.dart';
+import '../../domain/contact_preferences.dart';
 import '../../domain/clear_policy.dart';
 import '../../domain/event.dart';
 import '../../domain/identity.dart';
@@ -849,6 +850,183 @@ class HiddenVolumeStorage
         }),
       );
 
+  static const _prefsPending = 'contact.prefs.pending.v1:';
+  static const _prefsFloor = 'contact.prefs.floor.v1:';
+  static const _prefsData = 'contact.prefs.data.v1:';
+  static const _prefsPartBytes = 1024, _prefsMaxParts = 8;
+
+  static Map<String, dynamic> _prefsManifest(Uint8List raw) {
+    try {
+      final value = jsonDecode(utf8.decode(raw));
+      if (value is Map<String, dynamic> &&
+          value['v'] == 1 &&
+          value['nonce'] is String &&
+          RegExp(r'^[0-9a-f]{32}$').hasMatch(value['nonce']) &&
+          value['peer'] is String &&
+          RegExp(r'^[0-9a-f]{64}$').hasMatch(value['peer']) &&
+          value['ts'] is int &&
+          value['ts'] >= 0 &&
+          value['parts'] is int &&
+          value['parts'] > 0 &&
+          value['parts'] <= _prefsMaxParts &&
+          value['n'] is int &&
+          value['n'] > 0 &&
+          value['n'] <= _prefsMaxParts * _prefsPartBytes &&
+          value['parts'] ==
+              (value['n'] + _prefsPartBytes - 1) ~/ _prefsPartBytes &&
+          value['sha'] is String &&
+          RegExp(r'^[0-9a-f]{64}$').hasMatch(value['sha'])) {
+        return value;
+      }
+    } catch (_) {}
+    throw StateError('Unreadable contact preference manifest');
+  }
+
+  Future<List<KvLogOp>> _preferenceObligationOps(
+    AsyncKvLogStore store,
+    Contact contact,
+  ) async {
+    final peer = contact.nodeId.hex;
+    final previous = await store.get(Ns.settings, _sk('$_prefsFloor$peer'));
+    final oldPending = await store.get(Ns.settings, _sk('$_prefsPending$peer'));
+    if ((previous != null && _prefsManifest(previous)['peer'] != peer) ||
+        (oldPending != null && _prefsManifest(oldPending)['peer'] != peer)) {
+      throw StateError('Contact preference manifest does not match its key');
+    }
+    final oldParts = oldPending == null
+        ? 0
+        : _prefsManifest(oldPending)['parts'] as int;
+    final ts = max(
+      DateTime.now().millisecondsSinceEpoch,
+      previous == null ? 0 : (_prefsManifest(previous)['ts'] as int) + 1,
+    );
+    final bytes = _sk(jsonEncode(contactPrefsPayload(contact)));
+    final count = (bytes.length + _prefsPartBytes - 1) ~/ _prefsPartBytes;
+    if (count <= 0 || count > _prefsMaxParts) {
+      throw StateError('Contact preference snapshot exceeds storage bound');
+    }
+    final manifest = _sk(
+      jsonEncode({
+        'v': 1,
+        'peer': peer,
+        'nonce': _randomHex(16),
+        'ts': ts,
+        'parts': count,
+        'n': bytes.length,
+        'sha': crypto.sha256.convert(bytes).toString(),
+      }),
+    );
+    return [
+      PutOp(Ns.settings, _sk('$_prefsFloor$peer'), manifest),
+      PutOp(Ns.settings, _sk('$_prefsPending$peer'), manifest),
+      for (var i = 0; i < count; i++)
+        PutOp(
+          Ns.settings,
+          _sk('$_prefsData$peer:$i'),
+          Uint8List.sublistView(
+            bytes,
+            i * _prefsPartBytes,
+            min((i + 1) * _prefsPartBytes, bytes.length),
+          ),
+        ),
+      for (var i = count; i < oldParts; i++)
+        DeleteOp(Ns.settings, _sk('$_prefsData$peer:$i')),
+    ];
+  }
+
+  @override
+  Future<List<PendingContactPreferences>> pendingContactPreferences({
+    int limit = 64,
+    String? afterPeerHex,
+  }) {
+    if (limit <= 0) throw ArgumentError.value(limit, 'limit');
+    return _trackLogWrite(
+      (store) => _contactSerialized(() async {
+        final names = [
+          for (final key in await store.kvKeys(Ns.settings))
+            if (utf8.decode(key, allowMalformed: true) case final name)
+              if (name.startsWith(_prefsPending) &&
+                  (afterPeerHex == null ||
+                      name.compareTo('$_prefsPending$afterPeerHex') > 0))
+                name,
+        ]..sort();
+        final records = <PendingContactPreferences>[];
+        for (final name in names) {
+          final peerHex = name.substring(_prefsPending.length);
+          if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(peerHex)) {
+            throw StateError('Unreadable contact preference key');
+          }
+          final raw = await store.get(Ns.settings, _sk(name));
+          if (raw == null) continue;
+          final manifest = _prefsManifest(raw);
+          if (manifest['peer'] != peerHex) {
+            throw StateError(
+              'Contact preference manifest does not match its key',
+            );
+          }
+          final bytes = BytesBuilder(copy: false);
+          for (var i = 0; i < manifest['parts']; i++) {
+            final part = await store.get(
+              Ns.settings,
+              _sk('$_prefsData$peerHex:$i'),
+            );
+            final expected = min(
+              _prefsPartBytes,
+              manifest['n'] - i * _prefsPartBytes,
+            );
+            if (part == null || part.length != expected) {
+              throw StateError('Incomplete contact preference snapshot');
+            }
+            bytes.add(part);
+          }
+          final encoded = bytes.takeBytes();
+          if (crypto.sha256.convert(encoded).toString() != manifest['sha']) {
+            throw StateError('Invalid contact preference snapshot digest');
+          }
+          final Map<String, Object?> payload;
+          try {
+            payload = Map<String, Object?>.from(
+              jsonDecode(utf8.decode(encoded)) as Map,
+            );
+          } catch (_) {
+            throw StateError('Unreadable contact preference snapshot');
+          }
+          records.add(
+            PendingContactPreferences(
+              peer: NodeId.fromHex(peerHex),
+              atMs: manifest['ts'] as int,
+              payload: Map.unmodifiable(payload),
+              token: crypto.sha256.convert(raw).toString(),
+            ),
+          );
+          if (records.length >= limit) break;
+        }
+        return records;
+      }),
+    );
+  }
+
+  @override
+  Future<bool> acknowledgeContactPreferences(
+    PendingContactPreferences record,
+  ) => _trackLogWrite(
+    (store) => _contactSerialized(() async {
+      final key = _sk('$_prefsPending${record.peer.hex}');
+      final raw = await store.get(Ns.settings, key);
+      if (raw == null ||
+          crypto.sha256.convert(raw).toString() != record.token) {
+        return false;
+      }
+      final manifest = _prefsManifest(raw);
+      await store.commit([
+        DeleteOp(Ns.settings, key),
+        for (var i = 0; i < manifest['parts']; i++)
+          DeleteOp(Ns.settings, _sk('$_prefsData${record.peer.hex}:$i')),
+      ]);
+      return true;
+    }),
+  );
+
   static Uint8List _encodeContact(Contact contact) {
     final json = jsonEncode({
       'n': contact.nodeId.hex,
@@ -898,9 +1076,21 @@ class HiddenVolumeStorage
   @override
   Future<Contact?> updateContactPrefs(
     NodeId peer,
-    Contact? Function(Contact current) update,
-  ) => _trackLogWrite(
+    Contact? Function(Contact current) update, {
+    bool queueForSync = false,
+    String? onlyIfLocalPrefsToken,
+  }) => _trackLogWrite(
     (store) => _contactSerialized(() async {
+      if (onlyIfLocalPrefsToken != null) {
+        final raw = await store.get(
+          Ns.settings,
+          _sk('$_prefsFloor${peer.hex}'),
+        );
+        if (raw == null ||
+            crypto.sha256.convert(raw).toString() != onlyIfLocalPrefsToken) {
+          return null;
+        }
+      }
       final current = await getContact(peer);
       if (current == null) return null;
       final next = update(current);
@@ -908,12 +1098,22 @@ class HiddenVolumeStorage
       if (next.nodeId != peer || next.status != current.status) {
         throw ArgumentError('Preference update cannot change the relationship');
       }
-      await _upsertContact(store, next);
+      await _upsertContact(
+        store,
+        next,
+        extraOps: queueForSync
+            ? await _preferenceObligationOps(store, next)
+            : const [],
+      );
       return next;
     }),
   );
 
-  Future<void> _upsertContact(AsyncKvLogStore store, Contact contact) async {
+  Future<void> _upsertContact(
+    AsyncKvLogStore store,
+    Contact contact, {
+    List<KvLogOp> extraOps = const [],
+  }) async {
     final contactBytes = _encodeContact(contact);
     final existingContact = await store.get(Ns.contacts, contact.nodeId.bytes);
     // Maintain a contacts index (hidden-volume has no KV key enumeration) so
@@ -922,13 +1122,15 @@ class HiddenVolumeStorage
     final oldIndexJson = jsonEncode(index);
     if (!index.contains(contact.nodeId.hex)) index.add(contact.nodeId.hex);
     final indexJson = jsonEncode(index);
-    if (_bytesEqual(existingContact, contactBytes) &&
+    if (extraOps.isEmpty &&
+        _bytesEqual(existingContact, contactBytes) &&
         oldIndexJson == indexJson) {
       return;
     }
     await store.commit([
       PutOp(Ns.contacts, contact.nodeId.bytes, contactBytes),
       ..._contactIndexOps(index, hadShards),
+      ...extraOps,
     ]);
   }
 
@@ -3983,6 +4185,13 @@ class HiddenVolumeStorage
     await _contactSerialized(() async {
       final (index, hadShards) = await _contactIndexShards();
       index.remove(peer.hex);
+      // Forgetting a contact must work even if a pending manifest is corrupt.
+      // The writer has a fixed maximum; erase every possible owned part.
+      for (var i = 0; i < _prefsMaxParts; i++) {
+        ops.add(DeleteOp(Ns.settings, _sk('$_prefsData${peer.hex}:$i')));
+      }
+      ops.add(DeleteOp(Ns.settings, _sk('$_prefsPending${peer.hex}')));
+      ops.add(DeleteOp(Ns.settings, _sk('$_prefsFloor${peer.hex}')));
       ops.add(DeleteOp(Ns.contacts, peer.bytes));
       ops.add(DeleteOp(Ns.settings, _sk('$_contactPendingPrefix${peer.hex}')));
       ops.add(DeleteOp(Ns.settings, _sk('$_contactFloorPrefix${peer.hex}')));

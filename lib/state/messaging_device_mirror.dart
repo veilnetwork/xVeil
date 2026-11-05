@@ -896,24 +896,30 @@ class _MessagingDeviceMirror {
     Contact? Function(Contact current) update, {
     bool mirror = true,
     bool local = true,
+    String? onlyIfLocalPrefsToken,
   }) async {
     if (_owner._disposed) throw StateError('messaging service is closed');
     Object? previousWitness, attemptedWitness;
     final Contact? committed;
     try {
-      committed = await _owner._storage.updateContactPrefs(peer, (current) {
-        final next = update(current);
-        if (next != null && local) {
-          // Invalidate before the commit await, in the same serialized turn.
-          // Even an already queued own echo must check again when it writes.
-          previousWitness = _localPrefsWitness[peer];
-          final witness = Object();
-          attemptedWitness = witness;
-          _localPrefsWitness[peer] = witness;
-          _prefsSnapshotWitness[next] = witness;
-        }
-        return next;
-      });
+      committed = await _owner._storage.updateContactPrefs(
+        peer,
+        (current) {
+          final next = update(current);
+          if (next != null && local) {
+            // Invalidate before the commit await, in the same serialized turn.
+            // Even an already queued own echo must check again when it writes.
+            previousWitness = _localPrefsWitness[peer];
+            final witness = Object();
+            attemptedWitness = witness;
+            _localPrefsWitness[peer] = witness;
+            _prefsSnapshotWitness[next] = witness;
+          }
+          return next;
+        },
+        queueForSync: local && mirror,
+        onlyIfLocalPrefsToken: onlyIfLocalPrefsToken,
+      );
     } catch (_) {
       // A refused write has no snapshot to publish. Do not disqualify the
       // previous committed snapshot, or roll back a newer writer's witness.
@@ -950,6 +956,7 @@ class _MessagingDeviceMirror {
     required ClearRequestPolicy clearPolicy,
     DisappearingSetting? disappearing,
     bool Function()? shouldApply,
+    String? onlyIfLocalPrefsToken,
   }) async {
     // See [applyMessage]: a contact record of my own device is not portable.
     if (_owner._disposed || await _owner._isSiblingDevice(peer)) return false;
@@ -998,6 +1005,7 @@ class _MessagingDeviceMirror {
       },
       mirror: false,
       local: false,
+      onlyIfLocalPrefsToken: onlyIfLocalPrefsToken,
     );
     return committed != null;
   }
