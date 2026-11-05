@@ -1,5 +1,15 @@
 # Открытые случаи — обновлено 2026-11-05
 
+Последнее исправление: [отбой во время подготовки медиа](../media-preflight-cancel-2026-11-05/README.md).
+ПОДТВЕРЖДЕНО: после stop во время чтения prefs прежний start заново приобретал
+network activity и оставлял grant удержанным; более поздние отмены допускали
+лишние channel opens. Следующий start также пропускал незаконченное чтение
+и терял сохранённый вход. Семь baseline assertion-red / восемь passed.
+Post-await guards и общая Future чтения исправлены; контроль 373 passed / без
+skip, analyzer чистый. Это controller/MethodChannel квалификация на Mac,
+не Android FGS или физический handover. NETCALL-01/слышимость открыты, ADB пуст.
+Native pins, сиды, push и релиз не менялись.
+
 Последнее исправление: [lifecycle запуска аудио](../audio-start-owner-2026-11-05/README.md).
 ПОДТВЕРЖДЕНО: после ожидания выбора аудиоустройства или маршрута прежний start
 обращался к disposed engine при stop, новом звонке и same-call замене engine.
