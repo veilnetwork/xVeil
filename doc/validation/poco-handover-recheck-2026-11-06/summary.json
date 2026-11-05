@@ -1,0 +1,63 @@
+{
+  "schema": "xveil-handover-qualification/1",
+  "scope": "sampled RTP payload progress; not human audibility",
+  "androidSource": "efdb4d0e",
+  "androidSdkDart": "70478463",
+  "nativeSdk": "b8647716",
+  "windowsFrozenDart": "3e8cea24",
+  "cases": {
+    "in-call": {
+      "incomingAfterPlaceRequestMs": 626,
+      "baselineFiveFreshSamplesAfterRequestMs": 4147,
+      "endpoints": {
+        "phone": {
+          "sampleCount": 174,
+          "maxSampleGapMs": 835,
+          "unexpectedCallSamples": 0,
+          "maxNativeRxAgeMs": 16816,
+          "tailFresh": true,
+          "firstFreshAfterRequestMs": 2054,
+          "firstFreshAfterObservedInterruptionMs": 17636,
+          "maxNativeRxAgeBeforeWifiRestoreMs": 16816,
+          "maxNativeRxAgeDuringWifiReturnMs": 3433
+        },
+        "windows": {
+          "sampleCount": 174,
+          "maxSampleGapMs": 835,
+          "unexpectedCallSamples": 0,
+          "maxNativeRxAgeMs": 16808,
+          "tailFresh": true,
+          "firstFreshAfterRequestMs": 2054,
+          "firstFreshAfterObservedInterruptionMs": 17636,
+          "maxNativeRxAgeBeforeWifiRestoreMs": 16808,
+          "maxNativeRxAgeDuringWifiReturnMs": 3467
+        }
+      }
+    },
+    "post-switch": {
+      "incomingAfterPlaceRequestMs": 7319,
+      "baselineFiveFreshSamplesAfterRequestMs": 13889,
+      "endpoints": {
+        "phone": {
+          "sampleCount": 59,
+          "maxSampleGapMs": 587,
+          "unexpectedCallSamples": 0,
+          "maxNativeRxAgeMs": 1009,
+          "tailFresh": true,
+          "firstFreshAfterRequestMs": 11727
+        },
+        "windows": {
+          "sampleCount": 59,
+          "maxSampleGapMs": 587,
+          "unexpectedCallSamples": 0,
+          "maxNativeRxAgeMs": 1248,
+          "tailFresh": true,
+          "firstFreshAfterRequestMs": 11727
+        }
+      }
+    }
+  },
+  "validatedWifiAndCellularObserved": true,
+  "humanAudibilityQualified": false,
+  "controlledRouteAB": false
+}
