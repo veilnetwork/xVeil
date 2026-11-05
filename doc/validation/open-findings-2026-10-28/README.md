@@ -1,5 +1,21 @@
 # Открытые случаи — обновлено 2026-11-06
 
+Последнее исправление: [BootstrapJoin и повтор NETCALL-01](../bootstrap-join-dial-isolation-2026-11-06/README.md).
+ПОДТВЕРЖДЕНО и исправлено в Veil `c65a8d0c`: добавление/повтор одного bootstrap
+peer отменял in-flight dial других peer через общий network-change wake.
+Production drain теперь использует per-peer refresh; настоящая смена сети
+по-прежнему отменяет устаревшие попытки. Два baseline assertion-red; focused
+13 passed; полный контроль 999 passed / 16 ignored (отдельно).
+Три звонка Poco/Android 16 ↔ Windows QA прошли без неожиданного отбоя, но
+NETCALL-01 **открыт**: при validated cellular через ~1,1 с fresh RX вернулся
+через 18,943/20,044 с; при заранее запрещённом P2P — через 10,296 с.
+Новый звонок сразу после Wi-Fi off: incoming 14,585 с, fresh RX 16,826 с.
+Это native payload counters, не слышимость; маршруты не фиксировались, A/B нет.
+Изоляция dial cancellation не объявляется устранением всей паузы.
+Настройки/P2P-политики/QA APK восстановлены, исходный контейнер и основной
+`.2` не менялись; свои процессы/task/runtime/туннели/порты закрыты.
+Push/релиза и изменений сидов нет.
+
 Последняя физическая проверка: [Poco Wi-Fi ↔ cellular](../poco-handover-recheck-2026-11-06/README.md).
 NETCALL-01 повторился на текущем Android profile/AOT (`efdb4d0e`, SDK Dart
 `70478463`) с фиксированным Windows QA. Оба звонка завершены командами стенда;
