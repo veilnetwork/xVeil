@@ -447,6 +447,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   bool _screenSharing = false;
   String? _selectedScreenId;
   Future<void> _tail = Future<void>.value();
+  int _sessionRequestEpoch = 0;
 
   static Future<bool> _defaultMicPermission() async {
     if (!Platform.isMacOS) return true;
@@ -493,22 +494,33 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       (VeilMediaNative.guard(requestPlatformScreenCaptureAccess) ?? false);
 
   @override
-  Future<bool> start(GroupCall call) => _locked(() async {
+  Future<bool> start(GroupCall call) {
+    final request = ++_sessionRequestEpoch;
+    return _locked(() => _startLocked(call, request));
+  }
+
+  Future<bool> _startLocked(GroupCall call, int request) async {
+    bool isCurrent() => request == _sessionRequestEpoch;
+    if (!isCurrent()) return false;
     _microphoneState.beginCall(call.callId, micOn: call.micOn);
     await _stopLocked(clearMicrophoneState: false);
+    if (!isCurrent()) return false;
     _audioEnabled = call.media.audio;
     // Match direct calls: bound the permission prompt, then bring up playout
     // even when capture permission is denied or still pending.
     if (call.media.audio) {
       final micGranted = await _requestMicrophone();
+      if (!isCurrent()) return false;
       devLog(() => 'xVeil[group-call-media]: mic permission=$micGranted');
     }
     if ((call.media.video || call.media.screen) &&
         (Platform.isMacOS || Platform.isIOS)) {
       final cameraGranted = await _requestCamera();
+      if (!isCurrent()) return false;
       devLog(() => 'xVeil[group-call-media]: camera permission=$cameraGranted');
     }
     final localId = await _transport.localNodeId();
+    if (!isCurrent()) return false;
     _localNode = NodeId(localId);
     _localIdHex = _localNode!.hex;
     // Bindings load the local choice asynchronously. Do not start capture
@@ -518,6 +530,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     } catch (_) {
       return false;
     }
+    if (!isCurrent()) return false;
     final engine = _engineFactory(localId);
     if (engine == null) return false;
     if (engine.supportsNoiseSuppression &&
@@ -526,8 +539,10 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       return false;
     }
     _engine = engine;
+    var committed = false;
     try {
       await _networkActivity.acquire(_networkActivityOwner);
+      if (!isCurrent()) return false;
       // Capture intent can change while permission or channel setup is pending.
       // Apply it before audio starts, then keep it as the video policy's source.
       engine.setMicMuted(_microphoneState.mutedForCall(call.callId));
@@ -535,17 +550,19 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
       // released by _stopLocked on every teardown path.
       if (call.media.audio) {
         await AndroidCallForegroundService.setActive(true);
+        if (!isCurrent()) return false;
       }
       await _syncPeersLocked(call);
+      if (!isCurrent()) return false;
       if (call.media.audio && engine.supportsAudioBudget) {
         _audioAdapter = GroupCallAudioAdapter();
         if (_applyAudioBudget(engine, _audioAdapter!) == false) {
-          await _stopLocked();
           return false;
         }
       }
       if (call.media.audio) {
         await callAudioRouter.useDefaultFor(call.media);
+        if (!isCurrent()) return false;
       }
       final audioReady = !call.media.audio || engine.startAudio();
       if (diagnosticJournal.enabled && call.media.audio) {
@@ -567,8 +584,8 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
           startScreen: call.screenOn || call.media.screen,
         );
       }
+      if (!isCurrent()) return false;
       if (!audioReady || !videoReady) {
-        await _stopLocked();
         return false;
       }
       _statsTimer = Timer.periodic(_statsInterval, (_) => _pollStats(engine));
@@ -577,12 +594,14 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
             'xVeil[group-call-media]: audio started peers=${_peers.length} '
             'video=${call.media.video || call.media.screen}',
       );
+      committed = true;
       return true;
-    } catch (_) {
-      await _stopLocked();
-      rethrow;
+    } finally {
+      // A newer start can repair this same call. Its user's mute intent must
+      // survive disposal of this engine; an explicit stop clears it in order.
+      if (!committed) await _stopLocked(clearMicrophoneState: false);
     }
-  });
+  }
 
   @override
   Future<void> update(GroupCall call) => _locked(() async {
@@ -721,8 +740,11 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   }
 
   Future<void> _syncPeersLocked(GroupCall call) async {
+    final request = _sessionRequestEpoch;
     final engine = _engine;
     if (engine == null) return;
+    bool isCurrent() =>
+        request == _sessionRequestEpoch && _engine == engine;
     final nextAudioPeers = call.participants.values
         .where((peer) => peer.nodeId.hex != _localIdHex && peer.media.audio)
         .map((peer) => peer.nodeId.hex)
@@ -798,6 +820,7 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
     }
     try {
       for (final entry in missing) {
+        if (!isCurrent()) return;
         int? channel;
         final keys = deriveGroupCallMediaKeys(
           roomSecret: roomSecret,
@@ -810,6 +833,12 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
             txKey: keys.txKey,
             rxKey: keys.rxKey,
           );
+          if (!isCurrent()) {
+            final abandoned = channel;
+            channel = null;
+            _transport.close(abandoned);
+            return;
+          }
           if ((_screenSourceSelected &&
                   _transport.setScreenSharing(channel, true) != 0) ||
               !engine.addPeer(channel: channel, peer: entry.value)) {
@@ -1496,7 +1525,12 @@ class VeilGroupCallMediaController implements GroupCallMediaController {
   }
 
   @override
-  Future<void> stop() => _locked(_stopLocked);
+  Future<void> stop() {
+    // Record hangup before waiting for an old start's permission/IPC future.
+    // The lock serializes cleanup, but must not authorize late capture.
+    _sessionRequestEpoch++;
+    return _locked(_stopLocked);
+  }
 
   /// Bumped by every teardown, so work started before one can tell.
   ///
