@@ -177,13 +177,25 @@ class _MessagingContacts {
       await capPreConsentIntros(m.src, env.id);
       // Store the greeting under its id so a later outbox re-send of the same
       // greeting (as a WireKind.message) dedups instead of creating a second copy.
+      // An undecided request may arrive many times. New requests carry their
+      // original sender sequence; a legacy retry must keep the first local
+      // position rather than allocating a fresh sequence on every arrival.
+      final held = env.id == null
+          ? null
+          : await _owner._storage.loadMessageById(m.src.hex, env.id!);
+      final intro =
+          held?.direction == MessageDirection.incoming &&
+              held?.author == m.src.hex
+          ? held
+          : null;
       await _owner._store(
         m.src,
         MessageDirection.incoming,
         env.body,
         MessageStatus.delivered,
         id: env.id,
-        timestamp: _owner._wireSentAt(env),
+        timestamp: _owner._wireSentAt(env) ?? intro?.timestamp,
+        seq: env.seq ?? intro?.seq,
       );
     }
   }
@@ -249,6 +261,7 @@ class _MessagingContacts {
     // the greeting twice.
     final id = _uuid.v4();
     final sentAt = DateTime.now();
+    int? seq;
     if (text.isNotEmpty) {
       final stored = await _owner._store(
         dst,
@@ -259,6 +272,7 @@ class _MessagingContacts {
         timestamp: sentAt,
       );
       if (stored == null) text = '';
+      seq = stored?.seq;
     }
     _owner._signal();
     final frameId = 'request:$id';
@@ -266,6 +280,7 @@ class _MessagingContacts {
       text,
       id: id,
       sentAtMs: sentAt.millisecondsSinceEpoch,
+      seq: seq,
     ).withFrameId(frameId).encode();
     // Survive a failed deposit, a lost live leg and an application restart.
     // The peer's acceptance or cancellation retires this handshake row.
@@ -317,6 +332,8 @@ class _MessagingContacts {
     if (contact?.status != ContactStatus.pendingOutgoing) return false;
     String? body;
     String? id;
+    int? sentAtMs;
+    int? seq;
     for (final frame in await _owner._storage.pendingOutboxFrames()) {
       if (frame.peerHex != dst.hex || !frame.frameId.startsWith('request:')) {
         continue;
@@ -326,6 +343,8 @@ class _MessagingContacts {
         if (request.kind != WireKind.request) continue;
         id = request.id;
         body = request.body;
+        sentAtMs = request.sentAtMs;
+        seq = request.seq;
         break;
       } catch (_) {
         /* Try the legacy greeting record below. */
@@ -336,8 +355,18 @@ class _MessagingContacts {
         if (m.direction == MessageDirection.outgoing) {
           body = m.body;
           id = m.id;
+          sentAtMs = m.timestamp.millisecondsSinceEpoch;
+          seq = m.seq;
           break;
         }
+      }
+    } else if (body?.isNotEmpty == true && (sentAtMs == null || seq == null)) {
+      // Upgrade a pre-sequence durable request from its committed local row.
+      // Never restamp a manual retry: it is still the same logical greeting.
+      final stored = await _owner._storage.loadMessageById(dst.hex, id);
+      if (stored?.direction == MessageDirection.outgoing) {
+        sentAtMs ??= stored!.timestamp.millisecondsSinceEpoch;
+        seq ??= stored!.seq;
       }
     }
     id ??= _uuid.v4();
@@ -345,6 +374,8 @@ class _MessagingContacts {
     final wire = WireEnvelope.request(
       body ?? '',
       id: id,
+      sentAtMs: sentAtMs,
+      seq: seq,
     ).withFrameId(frameId).encode();
     await _owner._outbox.enqueue(dst, frameId, wire);
     // Same order as [sendRequest], and for a sharper reason: this method is
