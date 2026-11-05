@@ -9,6 +9,7 @@ import '../core/diagnostic_journal.dart';
 import '../core/ids.dart';
 import '../data/transport/veil_flutter_transport.dart';
 import '../domain/call.dart';
+import '../domain/call_log.dart';
 import '../domain/call_signal.dart';
 import 'messaging.dart';
 import 'call_slot.dart';
@@ -297,6 +298,7 @@ class CallService {
     Future<bool> Function(NodeId peer)? localAllowsP2P,
     Future<bool> Function(NodeId peer)? peerReachableForP2P,
     String? Function(NodeId peer)? p2pFallbackReason,
+    Future<List<CallLogEntry>> Function()? loadFinishedCalls,
   }) : _now = now ?? DateTime.now,
        // ignore: prefer_initializing_formals — public `media:` param → private field.
        _media = media,
@@ -309,7 +311,12 @@ class CallService {
        _localAllowsP2P = localAllowsP2P ?? _neverP2P,
        _peerReachableForP2P = peerReachableForP2P ?? _neverP2P,
        // ignore: prefer_initializing_formals — public `p2pFallbackReason:` → private field.
-       _p2pFallbackReason = p2pFallbackReason;
+       _p2pFallbackReason = p2pFallbackReason,
+       // ignore: prefer_initializing_formals — public callback → private field.
+       _loadFinishedCalls = loadFinishedCalls;
+
+  final Future<List<CallLogEntry>> Function()? _loadFinishedCalls;
+  Future<void>? _historyReady;
 
   final MessagingService _messaging;
   final DateTime Function() _now;
@@ -358,7 +365,8 @@ class CallService {
   /// Also recorded when a sibling's "answered/declined elsewhere" arrives
   /// before this device's own copy of the offer, so that copy does not ring.
   final _finishedCalls = <(NodeId, String), DateTime>{};
-  static const int _maxFinishedCalls = 64;
+  // Sized above the retained 200-row journal, with headroom for hot entries.
+  static const int _maxFinishedCalls = 256;
 
   void _rememberFinished(NodeId peer, String callId) {
     final key = (peer, callId);
@@ -747,11 +755,15 @@ class CallService {
       : CallPosture.direct;
 
   void start() {
-    if (_started) return;
+    if (_started || _disposed) return;
     _started = true;
-    _handler = _onWireSignal;
-    _messaging.onCallSignal = _handler;
-    _messaging.acceptsCallDeviceSignal = _acceptsCallDeviceSignal;
+    if (_loadFinishedCalls == null) {
+      _attachWireHandler();
+    } else {
+      // Leave the consumer unattached until its retained replay floor is
+      // loaded. Messaging keeps early copies available for durable retry.
+      _historyReady = _restoreHistoryAndAttach();
+    }
     _peerHealthSub = _media?.peerHealth.listen((signal) {
       final call = _current;
       if (_disposed ||
@@ -790,6 +802,51 @@ class CallService {
     });
   }
 
+  void _attachWireHandler() {
+    if (_disposed) return;
+    _handler = _onWireSignal;
+    _messaging.onCallSignal = _handler;
+    _messaging.acceptsCallDeviceSignal = _acceptsCallDeviceSignal;
+  }
+
+  Future<void> _restoreHistoryAndAttach() async {
+    try {
+      final rows = await _loadFinishedCalls!();
+      if (_disposed) return;
+      var restored = 0;
+      // Storage returns newest first. Insert oldest first so hot evictions
+      // retain the newest evidence. A malformed peer cannot discard the rest.
+      for (final row in rows.take(_maxFinishedCalls).toList().reversed) {
+        final NodeId peer;
+        try {
+          peer = NodeId.fromHex(row.peerHex);
+        } catch (_) {
+          continue;
+        }
+        _rememberFinished(peer, row.id);
+        restored++;
+      }
+      diagnosticJournal.record(
+        DiagnosticEvent.callHistoryRestore,
+        values: {
+          DiagnosticMetric.success: 1,
+          DiagnosticMetric.sources: restored,
+        },
+      );
+    } catch (_) {
+      // Journal availability is not permission to silence all fresh calls.
+      // Keep this distinguishable from a successful empty journal, without
+      // exporting a peer, call id, path, or exception text.
+      if (!_disposed) {
+        diagnosticJournal.record(
+          DiagnosticEvent.callHistoryRestore,
+          values: {DiagnosticMetric.success: 0, DiagnosticMetric.sources: 0},
+        );
+      }
+    }
+    _attachWireHandler();
+  }
+
   bool _acceptsCallDeviceSignal(NodeId peer, CallSignal signal) {
     final call = _current;
     if (_disposed ||
@@ -817,6 +874,9 @@ class CallService {
   /// Place a call to [peer] offering [media]. No-op if a call is already live or
   /// [media] is empty.
   Future<void> placeCall(NodeId peer, CallMedia media) async {
+    final ready = _historyReady;
+    if (ready != null) await ready;
+    if (_disposed) return;
     if (_current != null && _current!.isLive) return; // one call at a time
     if (media.isEmpty) return;
     if (!_takeSlot()) return;
@@ -1967,6 +2027,10 @@ class CallService {
 
   void _onOffer(NodeId peer, CallSignal sig) {
     if (_isFinished(peer, sig.callId)) {
+      diagnosticJournal.record(
+        DiagnosticEvent.callReplayRejected,
+        minInterval: const Duration(seconds: 1),
+      );
       devLog(
         () =>
             'xVeil[call-sig]: offer ${sig.callId} ignored — that call is '
@@ -2910,6 +2974,9 @@ class CallService {
             'phase=${ending.status.name} route=${ending.transport?.name ?? 'unset'}',
       );
       _rememberFinished(ending.peer, ending.callId);
+      if (ending.mediaIdentity != ending.peer) {
+        _rememberFinished(ending.mediaIdentity, ending.callId);
+      }
     }
     _pendingRelayCallId = null;
     _pendingRelayPeer = null;
@@ -3053,6 +3120,7 @@ final callServiceProvider = Provider<CallService>((ref) {
     messaging,
     media: media,
     callSlot: ref.read(callSlotProvider),
+    loadFinishedCalls: ref.read(storageProvider).callLogEntries,
     // Calls start UNMUTED on every platform. Android used to pass
     // `Platform.isAndroid` here, so every call on a phone connected with the
     // microphone off: the person answering said hello into a muted mic and the

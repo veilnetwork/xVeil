@@ -2490,3 +2490,26 @@ analyzer чистый. Process A/B/C: пять положительных exact-
 пятью прошедшими новыми вызовами. Нужна отдельная проверка durable finished-call
 replay; исходный Windows репорт не атрибутирован, SSH недоступен. Push/релиза,
 обновлений сидов и mailbox для собственных устройств нет.
+
+
+## 2026-11-05: durable finished-call state восстанавливается до приёма
+
+[Исправление повторного звонка](../call-history-replay-2026-11-05/README.md).
+Старый отменённый call возвращался в ringing после cold B, потому что cache
+не переживал restart. Четыре assertion-red на real provider/live inbox (два
+native HVS) и два other-peer positive controls. Restore retained journal теперь
+предшествует подключению call consumer; early frames остаются для retry,
+outgoing setup ждёт этот же barrier. После forked answer также сохраняется
+stable identity: отдельный пятый assertion-red подтвердил hot alias-вариант.
+
+Diagnostic control **802 passed / без skip**, analyzer чистый. Native process:
+контролируемый authenticated sibling replay того же logical call ID дошёл до B
+и был отвергнут без callState/terminal перехода. Пять свежих call scenarios
+тоже проходят; A/B/C terminal counters 2/5/5, лишнего B больше нет. Шесть
+report snapshots по allowlist, dropped 0. 1479 frozen inputs, native SHA
+неизменны; 25 PID/33 порта проверены, runtime удалён. Push/релиза нет.
+
+Ограничения: требуется сохранившаяся journal запись; существующий fail-open
+контракт чтения журнала не менялся, полный crash/clock-skew набор не заявлен.
+Windows снова отвечает и authenticated SSH выполнен; приложение там не
+запущено. Предстоит физический ПК ↔ Android прогон, исходная жалоба пока открыта.

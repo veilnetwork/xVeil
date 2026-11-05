@@ -46,6 +46,8 @@ enum DiagnosticEvent {
   audioOutputSnapshot,
   microphoneControl,
   callSignalDecision,
+  callHistoryRestore,
+  callReplayRejected,
 }
 
 enum DiagnosticMetric {
@@ -362,6 +364,7 @@ class DiagnosticJournal {
   // Busy network traffic must not erase the last audio/OS/setup evidence while
   // the user navigates to export. Fixed cardinality, process-local only.
   static const _retainedEvidence = {
+    DiagnosticEvent.callHistoryRestore,
     DiagnosticEvent.mediaSample,
     DiagnosticEvent.audioStart,
     DiagnosticEvent.audioRoute,
