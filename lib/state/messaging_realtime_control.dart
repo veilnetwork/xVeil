@@ -326,21 +326,6 @@ class _MessagingRealtimeControl {
     }
     if (_owner._disposed) return;
     _owner._noteAuthenticatedDevice(message);
-    final frameId = envelope.frameId;
-    if (frameId != null) {
-      final fresh = _owner._outbox.remember(message.src.hex, frameId);
-      // Delivery into the call FSM is latency-critical; ACK storage/mailbox
-      // work runs independently after dedup state is recorded.
-      unawaited(_owner._ackFrame(message, frameId));
-      if (!fresh) {
-        recordCallDecision(
-          signal,
-          _CallSignalDecision.duplicate,
-          realtime: true,
-        );
-        return;
-      }
-    }
     _noteInbound(message.src);
     devLog(() {
       final sentAt = signal.sentAtMs;
@@ -353,7 +338,12 @@ class _MessagingRealtimeControl {
           'receipt_age=$receiptAge queue=${queueMs}ms '
           'handler=${elapsed.elapsedMilliseconds - queueMs}ms';
     });
-    dispatchCallSignal(message.src, signal, realtime: true);
+    dispatchCallSignal(
+      message,
+      signal,
+      frameId: envelope.frameId,
+      realtime: true,
+    );
   }
 
   void recordCallDecision(
@@ -377,19 +367,53 @@ class _MessagingRealtimeControl {
   }
 
   void dispatchCallSignal(
-    NodeId peer,
+    InboundMessage message,
     CallSignal signal, {
+    String? frameId,
     bool realtime = false,
   }) {
     final handler = onCallSignal;
+    if (handler == null) {
+      // A missing consumer did not accept this frame. Keep its ID available
+      // for the sender's durable retry after CallService attaches. A copy
+      // already dispatched earlier still owes an ACK, even during teardown.
+      if (frameId != null && _owner._outbox.hasSeen(message.src.hex, frameId)) {
+        unawaited(_owner._ackFrame(message, frameId));
+        recordCallDecision(
+          signal,
+          _CallSignalDecision.duplicate,
+          realtime: realtime,
+        );
+      } else {
+        recordCallDecision(
+          signal,
+          _CallSignalDecision.handlerMissing,
+          realtime: realtime,
+        );
+        _owner._declinedLocally(message, 'call service not attached');
+      }
+      return;
+    }
+    if (frameId != null) {
+      final fresh = _owner._outbox.remember(message.src.hex, frameId);
+      // Snapshot the consumer above; no await separates admission from the
+      // synchronous handoff. ACK work must not block the call FSM.
+      unawaited(_owner._ackFrame(message, frameId));
+      if (!fresh) {
+        recordCallDecision(
+          signal,
+          _CallSignalDecision.duplicate,
+          realtime: realtime,
+        );
+        return;
+      }
+    }
     recordCallDecision(
       signal,
-      handler == null
-          ? _CallSignalDecision.handlerMissing
-          : _CallSignalDecision.dispatched,
+      _CallSignalDecision.dispatched,
       realtime: realtime,
     );
-    handler?.call(peer, signal);
+    handler(message.src, signal);
   }
 
   /// Count decoded protocol arrivals, before consent/dedup, on either inbox.
