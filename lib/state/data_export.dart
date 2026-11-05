@@ -199,6 +199,14 @@ class DataExporter {
   final int Function() _now;
   final int _fileCeiling;
 
+  /// settingsKeys enumerates the raw namespace, including file metadata and
+  /// cursors. getSetting and the transfer allowlists take the logical name
+  /// beneath exactly one set: prefix instead.
+  Future<List<String>> _storedSettingNames() async => [
+    for (final key in await _storage.settingsKeys())
+      if (key.startsWith('set:')) key.substring('set:'.length),
+  ];
+
   /// Count what is there, without reading a byte of file content.
   Future<DataExportPlan> plan() async {
     final conversations = await _storage.loadConversations();
@@ -210,7 +218,7 @@ class DataExporter {
     // the preview promise settings the export then dropped in silence — and a
     // count is exactly what a person checks the archive against afterwards
     // (report24 CH-W1).
-    final settings = (await _storage.settingsKeys())
+    final settings = (await _storedSettingNames())
         .where((k) => _syncedSettingKeys.contains(k) || isTransferableSetting(k))
         .toList();
     final calls = await _storage.callLogEntries();
@@ -389,7 +397,7 @@ class DataExporter {
 
     // 3. Settings. Keys registered with device-group sync travel as events, so
     //    they merge by the same rule online sync uses; the rest travel raw.
-    for (final key in await _storage.settingsKeys()) {
+    for (final key in await _storedSettingNames()) {
       final value = await _storage.getSetting(key);
       if (value == null) continue;
       if (_syncedSettingKeys.contains(key)) {

@@ -60,7 +60,9 @@ class _Space implements Storage {
   Future<void> saveNodeConfig(String toml) async => nodeConfig = toml;
 
   @override
-  Future<List<String>> settingsKeys() async => settings.keys.toList();
+  Future<List<String>> settingsKeys() async => [
+    for (final key in settings.keys) 'set:$key',
+  ];
 
   @override
   Future<String?> getSetting(String key) async => settings[key];

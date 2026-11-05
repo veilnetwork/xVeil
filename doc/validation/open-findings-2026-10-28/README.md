@@ -2448,3 +2448,21 @@ unconfirmed appliers не выданы за подтверждённое при�
 Локальные исправления premature download-resume read, relay-deposit текста и
 handshake/consent уже описаны отдельно. Mailbox своих устройств не добавлен;
 push, релиза и обновления публичных сидов нет.
+
+
+## 2026-11-05: экспорт настроек использует raw-key контракт хранилища
+
+[Воспроизведение и исправление](../archive-settings-storage-2026-11-05/README.md).
+Подтверждена потеря сохранённых настроек: `settingsKeys` возвращает `set:*`,
+а exporter ожидал логические имена и поэтому пропускал их. Четыре assertion-red
+(preview/export × ordinary/native HVS). Исправлен единый reader preview/export;
+снимается ровно один `set:` prefix, иные key families остаются вне переноса.
+Общий Storage API, GC и импортные allowlists не менялись. Round-trip double
+исправлен по настоящему контракту вместо маскировки дефекта.
+
+**63 passed / без skip**, в том числе два worker/native cases с сохранностью
+после cold reopen; analyzer чистый. Canary-проверки raw bookkeeping,
+локальных параметров и key material пройдены. Native source/artifact пины
+неизменны, временные контейнеры удалены. Это настройки encrypted Storage;
+SharedPreferences-only/UI controllers и физический Windows звонок не
+квалифицированы. SSH Windows по-прежнему timeout. Push/релиза нет.
