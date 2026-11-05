@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/services.dart' show MethodChannel;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_platform_interface.dart';
 import 'package:veil_media/veil_media.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/data/transport/veil_flutter_transport.dart';
@@ -250,9 +251,212 @@ class _RestoreStageEngine extends _Engine {
   }
 }
 
+class _PreflightTransport extends _Transport {
+  final identityEntered = Completer<void>();
+  final identityReady = Completer<void>();
+  bool delayIdentity = false;
+  int identityReads = 0;
+  final openedChannels = <int>[];
+
+  @override
+  Future<NodeId> peerFacingNodeId({
+    Duration timeout = const Duration(seconds: 2),
+  }) async {
+    if (++identityReads == 1 && delayIdentity) {
+      identityEntered.complete();
+      await identityReady.future;
+    }
+    return _id(1);
+  }
+
+  @override
+  Future<int> openMediaChannel(
+    Uint8List dstNode, {
+    required Uint8List txKey,
+    required Uint8List rxKey,
+    bool direct = false,
+    bool relay = false,
+  }) async {
+    final channel = 200 + openedChannels.length;
+    openedChannels.add(channel);
+    return channel;
+  }
+}
+
+class _PreflightPreferences extends InMemorySharedPreferencesStore {
+  _PreflightPreferences({this.failRead = false})
+    : super.withData({
+        'flutter.call.capture.microphone.${Platform.operatingSystem}':
+            'saved input',
+      });
+
+  final entered = Completer<void>();
+  final ready = Completer<void>();
+  final bool failRead;
+
+  @override
+  Future<Map<String, Object>> getAll() async {
+    entered.complete();
+    await ready.future;
+    if (failRead) throw StateError('fixture preferences unavailable');
+    return super.getAll();
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  for (final stage in [
+    'preferences',
+    'failed-preferences',
+    'network',
+    'permission',
+    'identity',
+  ]) {
+    for (final action in ['none', 'hangup', 'next-call']) {
+      test(
+        'media preflight cancellation at $stage with $action',
+        () async {
+          const network = MethodChannel('xveil/call_network');
+          const permissions = MethodChannel('xveil/media_permissions');
+          final messenger =
+              TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+          final store = SharedPreferencesStorePlatform.instance;
+          final loadingPreferences = stage.endsWith('preferences');
+          final prefs = _PreflightPreferences(
+            failRead: stage == 'failed-preferences',
+          );
+          if (loadingPreferences) {
+            SharedPreferences.resetStatic();
+            SharedPreferencesStorePlatform.instance = prefs;
+          }
+          final entered = Completer<void>(), ready = Completer<void>();
+          final networkChanges = <bool>[];
+          var permissionRequests = 0;
+          messenger.setMockMethodCallHandler(network, (request) async {
+            final active = (request.arguments as Map)['active'] as bool;
+            networkChanges.add(active);
+            if (stage == 'network' && active && !entered.isCompleted) {
+              entered.complete();
+              await ready.future;
+            }
+            return active;
+          });
+          messenger.setMockMethodCallHandler(permissions, (request) async {
+            if (request.method != 'request') return 'authorized';
+            permissionRequests++;
+            if (stage == 'permission' && !entered.isCompleted) {
+              entered.complete();
+              await ready.future;
+            }
+            return true;
+          });
+          final transport = _PreflightTransport()
+            ..delayIdentity = stage == 'identity';
+          final engines = <_RestoreStageEngine>[];
+          final controller = VeilCallMediaController(
+            transport,
+            engineFactory:
+                ({required veilChan, required localId, required peerId}) {
+                  final engine = _RestoreStageEngine('none', 'current');
+                  engines.add(engine);
+                  return engine;
+                },
+          );
+          final starting = controller.start(_call());
+          Future<void>? ending;
+          Future<bool>? next;
+          try {
+            await (loadingPreferences
+                    ? prefs.entered.future
+                    : stage == 'identity'
+                    ? transport.identityEntered.future
+                    : entered.future)
+                .timeout(const Duration(seconds: 5));
+            if (action != 'none') ending = controller.stop();
+            if (action == 'next-call') {
+              next = controller.start(_call(callId: 'successor-call'));
+              // Drain already-ready work while the explicit first-stage gate
+              // stays closed; this is not a latency threshold.
+              await Future<void>.delayed(Duration.zero);
+            }
+            if (!prefs.ready.isCompleted) prefs.ready.complete();
+            if (!ready.isCompleted) ready.complete();
+            if (!transport.identityReady.isCompleted) {
+              transport.identityReady.complete();
+            }
+            expect(await starting, action == 'none');
+            await ending;
+            if (next != null) expect(await next, isTrue);
+            final expectedOpens = action == 'hangup' ? 0 : 1;
+            final earlyHangup =
+                action == 'hangup' &&
+                (loadingPreferences || stage == 'network');
+            expect(
+              {
+                'opened': transport.openedChannels.length,
+                'engines': engines.length,
+                'networkHeld':
+                    controller.diagnostics['call_network_activity_active'],
+                if (action == 'hangup')
+                  'networkReleased':
+                      networkChanges.isEmpty || !networkChanges.last,
+                if (earlyHangup) 'permissionRequests': permissionRequests,
+              },
+              {
+                'opened': expectedOpens,
+                'engines': expectedOpens,
+                'networkHeld': action != 'hangup',
+                if (action == 'hangup') 'networkReleased': true,
+                if (earlyHangup) 'permissionRequests': 0,
+              },
+              reason: 'retired preflight cannot open a route or retain a grant',
+            );
+            if (stage == 'preferences' && engines.isNotEmpty) {
+              expect(
+                engines.single.selectedInputs,
+                ['current-input'],
+                reason: 'the successor must await the shared preference load',
+              );
+            }
+            if (stage == 'failed-preferences' && engines.isNotEmpty) {
+              expect(engines.single.selectedInputs, isEmpty);
+              expect(
+                engines.single.audioStarts,
+                1,
+                reason:
+                    'an optional preference read failure is not a call failure',
+              );
+            }
+          } finally {
+            if (!prefs.ready.isCompleted) prefs.ready.complete();
+            if (!ready.isCompleted) ready.complete();
+            if (!transport.identityReady.isCompleted) {
+              transport.identityReady.complete();
+            }
+            try {
+              await starting;
+              await ending;
+              await next;
+            } finally {
+              try {
+                await controller.stop();
+              } finally {
+                messenger.setMockMethodCallHandler(network, null);
+                messenger.setMockMethodCallHandler(permissions, null);
+                SharedPreferencesStorePlatform.instance = store;
+                SharedPreferences.resetStatic();
+              }
+            }
+          }
+        },
+        skip: !Platform.isMacOS
+            ? 'macOS fixture uses the real platform activity/permission branch'
+            : false,
+      );
+    }
+  }
 
   for (final stage in ['input', 'output', 'mute']) {
     for (final action in ['none', 'hangup', 'next-call', 'same-call-engine']) {
