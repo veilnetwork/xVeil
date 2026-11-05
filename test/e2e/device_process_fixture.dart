@@ -78,6 +78,8 @@ class ProcessDevice {
           '--enable-vmservice',
         '--dart-define=XVEIL_DEBUG_HOOK=true',
         '--dart-define=XVEIL_DEBUG_HOOK_PORT=$port',
+        if (Platform.environment['XVEIL_E2E_DIAGNOSTICS'] == '1')
+          '--dart-define=XVEIL_DIAGNOSTICS=true',
         if (Platform.environment['XVEIL_E2E_BULK_STREAM_TRACE'] == '1')
           '--dart-define=XVEIL_BULK_STREAM_TRACE=true',
         'test/e2e/device_process_worker_test.dart',

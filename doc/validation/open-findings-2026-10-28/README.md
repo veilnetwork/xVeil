@@ -2466,3 +2466,27 @@ push, релиза и обновления публичных сидов нет.
 неизменны, временные контейнеры удалены. Это настройки encrypted Storage;
 SharedPreferences-only/UI controllers и физический Windows звонок не
 квалифицированы. SSH Windows по-прежнему timeout. Push/релиза нет.
+
+
+## 2026-11-05: ранний сигнал звонка не теряется без consumer
+
+[Исправление и process-квалификация](../call-consumer-admission-2026-11-05/README.md).
+Ordinary/realtime прежде ACKed и запоминали frame ID до проверки наличия
+call handler; поздний handler уже не получал повтор. Два assertion-red на
+прежних production files, 2 green на восстановленном кандидате. Теперь общий
+handoff сохраняет новую копию для retry/carrier, а уже доставленные дубли
+по-прежнему подтверждаются. Consent/provenance/ratchet gates не ослаблены.
+
+Scoped **83**, diagnostic/native-HVS control **792 passed / без skip**,
+analyzer чистый. Process A/B/C: пять положительных exact-call сценариев
+(onion, обе online, cold B, A offline, B→C и B joins ringing), terminal reason
+из свежей анонимной диагностики и одна durable journal row. Шесть snapshots
+проверены по allowlist, dropped 0. 1478 frozen inputs, native SHA неизменны;
+24 PID/33 порта проверены, runtime удалён. Медиа/слышимость не проверялись.
+
+**Новый открытый случай:** после cold B старый отменённый call кратко вернулся
+в ringing и снова завершился cancel (около 10 мс состояния, exact ID проверен
+в private signal trace). Этот дополнительный terminal event не скрыт под
+пятью прошедшими новыми вызовами. Нужна отдельная проверка durable finished-call
+replay; исходный Windows репорт не атрибутирован, SSH недоступен. Push/релиза,
+обновлений сидов и mailbox для собственных устройств нет.

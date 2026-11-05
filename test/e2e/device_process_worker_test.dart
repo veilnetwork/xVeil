@@ -11,6 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/data/node/embedded_node.dart';
 import 'package:xveil/debug/soak_hook.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/core/diagnostic_journal.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/peer_authorization.dart';
 import 'package:xveil/domain/device_sync.dart';
@@ -175,6 +176,15 @@ void main() {
             if (await inspect.exists()) {
               final request = jsonDecode(await inspect.readAsString()) as Map;
               await inspect.delete();
+              if (request['callDiagnostics'] == true) {
+                final response = File('${dir.path}/storage-inspected.new');
+                await response.writeAsString(jsonEncode({
+                  'nonce': request['nonce'],
+                  'diagnostics': diagnosticJournal.toJson(),
+                }));
+                await response.rename('${dir.path}/storage-inspected.json');
+                continue;
+              }
               if (request['contactDecisions'] == true) {
                 final records = await device!.storage.pendingContactDecisions();
                 final response = File('${dir.path}/storage-inspected.new');
@@ -533,7 +543,18 @@ void main() {
               await storageTimeline?.close();
             } finally {
               cpuProfile?.close();
-              await device?.stop();
+              try {
+                await device?.stop();
+              } finally {
+                // Owned process-fixture evidence, not an application API.
+                // Use the normal allowlisted report, including terminal events.
+                final evidence = env['XVEIL_E2E_EVIDENCE_DIR'];
+                if (env['XVEIL_E2E_DIAGNOSTICS'] == '1' && evidence != null) {
+                  await Directory(evidence).create(recursive: true);
+                  await File('$evidence/diagnostics-$label-$pid-private.json')
+                      .writeAsString(jsonEncode(diagnosticJournal.toJson()));
+                }
+              }
             }
           }
         });

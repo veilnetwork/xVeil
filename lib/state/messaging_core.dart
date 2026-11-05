@@ -356,9 +356,9 @@ class MessagingService {
 
   /// Set by the call service to receive inbound [WireKind.callSignal] frames
   /// (offer/answer/reject/cancel/busy/end/renegotiate/transportInfo). Fires only
-  /// for accepted contacts; a durable signal is already acked+deduped by the
-  /// generic durable-frame gate before this runs. Null when no call service is
-  /// attached — the signal is then dropped.
+  /// for accepted contacts; a durable signal is ACKed/deduplicated at the
+  /// synchronous consumer handoff. Null when no call service is attached —
+  /// unseen signals then remain unacknowledged and can retry after attachment.
   void Function(NodeId peer, CallSignal signal)? get onCallSignal =>
       _realtimeControl.onCallSignal;
 

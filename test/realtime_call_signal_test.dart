@@ -231,6 +231,65 @@ void main() {
   });
 
   for (final realtime in [false, true]) {
+    test('retry reaches a late call handler lane=$realtime', () async {
+      final messaging = MessagingService(transport, storage)..start();
+      addTearDown(messaging.dispose);
+      const frame = 'late-call-handler-frame';
+      final wire = WireEnvelope.callSignal(
+        const CallSignal(
+          callId: 'late-call-handler',
+          type: CallSignalType.offer,
+        ).encode(),
+      ).withFrameId(frame).encode();
+      var acks = 0, calls = 0, declines = 0;
+      transport.onNormalSend = (_, payload) {
+        final envelope = WireEnvelope.decode(payload);
+        if (envelope.kind == WireKind.ack && envelope.id == frame) acks++;
+      };
+      void inject({bool? lane}) =>
+          ((lane ?? realtime) ? transport.realtimeInbound : transport.inbound)
+              .add(
+                InboundMessage(
+                  src: peer,
+                  payload: wire,
+                  provenance: SenderProvenance.sessionPeer,
+                  onDeclined: (_) => declines++,
+                ),
+              );
+      inject();
+      await pumpEventQueue();
+      final prematureAcks = acks;
+      messaging.onCallSignal = (_, _) => calls++;
+      inject();
+      await pumpEventQueue();
+      expect(calls, 1, reason: 'missing handler must not consume the retry ID');
+      expect(
+        prematureAcks,
+        0,
+        reason: 'no call handler accepted that first copy',
+      );
+      expect(
+        declines,
+        1,
+        reason: 'the carrier must retain the undelivered copy',
+      );
+      expect(acks, greaterThan(0));
+      inject(lane: !realtime);
+      await pumpEventQueue();
+      expect(calls, 1, reason: 'a delivered frame still deduplicates');
+      messaging.onCallSignal = null;
+      inject(lane: !realtime);
+      await pumpEventQueue();
+      expect(calls, 1);
+      expect(
+        declines,
+        1,
+        reason: 'an accepted duplicate is not a local refusal',
+      );
+    });
+  }
+
+  for (final realtime in [false, true]) {
     for (final outcome in [
       'dispatch',
       'missing',
