@@ -465,6 +465,9 @@ extension _MessagingInboundDispatch on MessagingService {
       } else if (deferredChatAck) {
         // These branches ACK only after storage AND own-device publication.
         // Retry uses the stored row, so no RAM frame-seen gate is needed.
+      } else if (callSignal != null) {
+        // The call consumer admits/deduplicates and ACKs at its synchronous
+        // handoff below. An unattached CallService must leave retries live.
       } else if (deferredGroupCallAck) {
         // Authorization is the group frame itself, not ContactStatus. The
         // groupCallSignal switch arm ACKs only after the group layer accepts.
@@ -474,17 +477,7 @@ extension _MessagingInboundDispatch on MessagingService {
           return;
         }
       } else {
-        if (callSignal != null) {
-          // A call-control copy can arrive on the ordinary lane even when
-          // APP_RT is unavailable. Its device ACK may need a slow route or
-          // certificate lookup; do not hold answer/end/route dispatch behind
-          // that outbound work. Dedup below is recorded before the call FSM
-          // runs, just as on the dedicated realtime lane. A missed ACK still
-          // prompts the sender to retry and is answered again on the duplicate.
-          unawaited(_ackFrame(m, fid));
-        } else {
-          await _ackFrame(m, fid);
-        }
+        await _ackFrame(m, fid);
         // A CONTENT REQUEST is a read and must be served again on retry.
         // Its frame id is `creq:<contentId>` — stable per content,
         // deliberately, so however often the re-request timer fires the outbox
@@ -509,12 +502,6 @@ extension _MessagingInboundDispatch on MessagingService {
             env.kind == WireKind.cloudDocumentChunk ||
             env.kind == WireKind.pieceRequest;
         if (!_outbox.remember(m.src.hex, fid) && !reprocessSafely) {
-          if (callSignal != null) {
-            _realtimeControl.recordCallDecision(
-              callSignal,
-              _CallSignalDecision.duplicate,
-            );
-          }
           // A re-drive of a frame this device already took. Ordinary — except
           // when the first take DID NOT achieve what it was for, which is
           // exactly the device-linking case: the snapshot is processed once,
@@ -1076,10 +1063,9 @@ extension _MessagingInboundDispatch on MessagingService {
         return;
       case WireKind.callSignal:
         // Call control plane (voice/video/screen). Consent-gated; a durable
-        // signal was already acked+deduped by the generic frame gate above.
-        // Forward the decoded signal to the attached call service (dropped when
-        // none is attached — e.g. a headless/loopback context). MY OWN DEVICE
-        // passes without a contact row: the device fan-out's relayed offers
+        // signal is ACKed/deduplicated at the consumer handoff below. A
+        // missing call service leaves the frame available for retry. MY OWN
+        // DEVICE passes without a contact row: the device fan-out's relayed offers
         // and answered-elsewhere signals ride this lane between siblings.
         if (existing?.status != ContactStatus.accepted &&
             !ownDeviceSender &&
@@ -1115,7 +1101,7 @@ extension _MessagingInboundDispatch on MessagingService {
             return 'xVeil[call-sig]: in type=${callSig.type.name} '
                 'call=${callSig.callId} from=${m.src.short} age=$age';
           });
-          _realtimeControl.dispatchCallSignal(m.src, callSig);
+          _realtimeControl.dispatchCallSignal(m, callSig, frameId: fid);
         }
         return;
       case WireKind.p2pEndpoints:

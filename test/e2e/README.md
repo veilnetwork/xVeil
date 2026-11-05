@@ -574,3 +574,20 @@ The legacy summary field `offlineScenarioExecuted=false` refers to the separate
 100-message/five-minute backlog phase; the crash-specific fields describe the
 source-offline steps here. Storage census windows belong to their worker boot;
 post-crash counters do not include the killed boot's earlier operations.
+
+
+### Opt-in call diagnostic snapshots in process fixtures
+
+`XVEIL_E2E_DIAGNOSTICS=1` passes the normal `XVEIL_DIAGNOSTICS=true` compile
+flag to owned device workers. With `XVEIL_E2E_EVIDENCE_DIR` set, each worker
+writes its ordinary allowlisted diagnostic snapshot there on teardown. The
+fixture-only `storage-inspect.json` command `callDiagnostics: true` reads the
+same snapshot from a live owner; it is not an application API. Neither switch
+adds identifiers or payload fields to the diagnostic report.
+
+`call_signaling_reconnect_process_e2e_test.dart` needs the existing Veil/HVS
+native environment, `XVEIL_E2E_ANONYMOUS=1`, and this diagnostic switch. It
+checks exact-call ringing, a cold sibling, an offline primary, sibling outgoing
+calls, and joining a still-ringing call. Ending checks use fresh diagnostic
+terminal evidence and the exact durable journal row because the live slot is
+cleared immediately. It does not accept media or qualify audible speech.
