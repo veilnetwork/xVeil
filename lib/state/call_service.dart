@@ -377,13 +377,15 @@ class CallService {
     _finishedCalls[key] = _now();
   }
 
-  /// An offer for this id would ring a call that is already over. Kept for
-  /// [_offerMaxAge]: past that, the offer is refused as stale anyway.
+  /// An offer for this id would ring a call that is already over. Retain it
+  /// through the whole admission window, including a caller whose timestamp
+  /// is ahead by [_offerSkewAllowance]. Expiring at [_offerMaxAge] alone lets
+  /// that already-finished offer ring again before its timestamp becomes stale.
   bool _isFinished(NodeId peer, String callId) {
     final key = (peer, callId);
     final at = _finishedCalls[key];
     if (at == null) return false;
-    if (_now().difference(at) > _offerMaxAge) {
+    if (_now().difference(at) > _offerMaxAge + _offerSkewAllowance) {
       _finishedCalls.remove(key);
       return false;
     }
