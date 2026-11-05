@@ -279,13 +279,15 @@ class _MessagingConversationAdmin {
     // and nothing retried: both channels could be unavailable for a moment and
     // the policy simply never left this device.
     //
-    // The frame id is the REVISION rather than a fresh uuid. Re-announcing the
+    // The frame id binds the recipient AND revision rather than a fresh uuid.
+    // Two contacts can be edited in one tick by the same author, while the
+    // durable outbox is keyed by frame id across all recipients. Re-announcing the
     // same policy — a reconnect, a second device applying it — then reuses the
     // row instead of queueing another frame for a fact already queued, and the
     // receiver's dedup recognises it as the same announcement.
     await _owner.sendDurable(
       peer,
-      'disap:${setting.setAtMs}:${setting.setBy}',
+      'disap:${peer.hex}:${setting.setAtMs}:${setting.setBy}',
       WireEnvelope(
         WireKind.disappearingSet,
         jsonEncode(setting.toWireJson()),
