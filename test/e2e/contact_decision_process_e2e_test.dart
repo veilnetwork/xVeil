@@ -103,6 +103,55 @@ void main() {
         timeout: const Duration(minutes: 2),
       );
       E2eLog.line('PROCESS_CONTACT_COLD_VERSION_RETENTION_PASS');
+      final before = await a.checked('/contact_info', query: {'peer': ci});
+      await b.checked('/contact_set', query: {'peer': ci, 'p2p': 'deny'});
+      await a.checked(
+        '/contact_set',
+        query: {
+          'peer': ci,
+          'name': 'stand-atomic-prefs',
+          'pin': '1',
+          'arc': '1',
+        },
+      );
+      final observedPrefs = <String, Object?>{};
+      Future<bool> prefsMatch(ProcessDevice device, {String? p2p}) async {
+        final value = await device.checked(
+          '/contact_info',
+          query: {'peer': ci},
+        );
+        observedPrefs[device == a ? 'A' : 'B'] = {
+          ...value,
+          'decisionTimePreserved':
+              await eventTime(device, ci, 'blocked') == originalTime,
+        };
+        return value['name'] == 'stand-atomic-prefs' &&
+            value['pinned'] == true &&
+            value['archived'] == true &&
+            value['status'] == 'blocked' &&
+            (p2p == null || value['p2pOverride'] == p2p) &&
+            await eventTime(device, ci, 'blocked') == originalTime;
+      }
+
+      await waitUntil(
+        () async =>
+            await prefsMatch(a, p2p: before['p2pOverride'] as String) &&
+            await prefsMatch(b, p2p: 'deny'),
+        describe: () => jsonEncode(observedPrefs),
+        what:
+            'native sibling preference merge preserves the block and local P2P override',
+        timeout: const Duration(minutes: 2),
+      );
+      E2eLog.line('PROCESS_CONTACT_PREFS_PRESERVE_DECISION_PASS');
+      await b.restart();
+      await waitUntil(
+        () async => await prefsMatch(b, p2p: 'deny'),
+        describe: () => jsonEncode(observedPrefs),
+        what:
+            'cold sibling retains contact preferences and independent consent',
+        timeout: const Duration(minutes: 2),
+      );
+      E2eLog.line('PROCESS_CONTACT_PREFS_COLD_PASS');
     },
     skip: gate.skip,
   );

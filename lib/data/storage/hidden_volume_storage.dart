@@ -895,6 +895,24 @@ class HiddenVolumeStorage
     (store) => _contactSerialized(() => _upsertContact(store, contact)),
   );
 
+  @override
+  Future<Contact?> updateContactPrefs(
+    NodeId peer,
+    Contact? Function(Contact current) update,
+  ) => _trackLogWrite(
+    (store) => _contactSerialized(() async {
+      final current = await getContact(peer);
+      if (current == null) return null;
+      final next = update(current);
+      if (next == null) return null;
+      if (next.nodeId != peer || next.status != current.status) {
+        throw ArgumentError('Preference update cannot change the relationship');
+      }
+      await _upsertContact(store, next);
+      return next;
+    }),
+  );
+
   Future<void> _upsertContact(AsyncKvLogStore store, Contact contact) async {
     final contactBytes = _encodeContact(contact);
     final existingContact = await store.get(Ns.contacts, contact.nodeId.bytes);

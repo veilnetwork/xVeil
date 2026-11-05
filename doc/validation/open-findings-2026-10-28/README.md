@@ -1,5 +1,22 @@
 # Открытые случаи — обновлено 2026-11-05
 
+Текущий шаг: [атомарные настройки контакта и собственные старые проекции](../contact-preference-atomic-2026-11-05/README.md).
+ПОДТВЕРЖДЕНО: stale Contact DTO мог вернуть pending после accept, отменить
+block/P2P deny/TTL/архив и воссоздать удалённый contact. 22 baseline assertion-red
+на ordinary/worker-native HVS. Отдельно process A/B/C дважды показал потерю pin
+при последовательных name → pin → archive на самом A; четыре модельных red
+подтвердили собственный запоздавший echo. Чтение/transform/commit настроек теперь
+сериализованы с consent writers; own echo проверяет локальный witness внутри
+storage turn. Статус и device-local P2P не берутся из старого снимка.
+Дополнительный carrier-verdict red закрыт: ошибка сохранения disappearing policy
+не выдаётся за успешный durable приём. Финал: 46 новых случаев (23 native),
+139 scoped, 669 diagnostic control, 2040 broad passed / 3 skipped в 109 файлах;
+analyzer чистый, AOT/--help прошёл. Process A/B/C прошёл все пять boot/prefs gates,
+включая cold B; cleanup 27 PID / 43 порта чистый, 1469 inputs/native SHA неизменны.
+Исходный Windows ↔ Android случай этим не объяснён; SSH к Windows в этом цикле
+недоступен. Crash-durable публикация preferences и полная conflict/crash матрица
+открыты. Own-device mailbox, сиды, APK и release pins не менялись; push/релиза нет.
+
 Текущий шаг: [кэш согласия после конкурентного block](../contact-consent-cache-2026-11-05/README.md).
 ПОДТВЕРЖДЕНО: late accept-side effects и stale accepted reads разрешали
 call/P2P control после завершённой блокировки, включая ordinary cache writer.
