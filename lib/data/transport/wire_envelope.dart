@@ -538,8 +538,12 @@ class WireEnvelope {
   /// detection for that peer until it upgrades).
   final int? seq;
 
-  const WireEnvelope.request(String greeting, {String? id, int? sentAtMs})
-    : this(WireKind.request, greeting, id: id, sentAtMs: sentAtMs);
+  const WireEnvelope.request(
+    String greeting, {
+    String? id,
+    int? sentAtMs,
+    int? seq,
+  }) : this(WireKind.request, greeting, id: id, sentAtMs: sentAtMs, seq: seq);
   const WireEnvelope.accept() : this(WireKind.accept, '');
   const WireEnvelope.message(
     String text, {
