@@ -1,0 +1,87 @@
+{
+  "scope": "native admission and saved QA relay logs",
+  "physicalRetestAfterFix": false,
+  "productionDeployment": false,
+  "baselineAdmission": {
+    "passed": 2,
+    "assertionFailed": 1
+  },
+  "baselineConnectionId": {
+    "passed": 0,
+    "assertionFailed": 1
+  },
+  "intermediateLateTeardownFailed": true,
+  "baselineCloneRetirementAlreadyPassed": true,
+  "fullControl": {
+    "packages": {
+      "veil-crypto": {
+        "passed": 172,
+        "ignored": 0
+      },
+      "veil-node-runtime": {
+        "passed": 805,
+        "ignored": 11
+      },
+      "veil-session": {
+        "passed": 687,
+        "ignored": 8
+      }
+    },
+    "passed": 1664,
+    "ignored": 19,
+    "failed": 0
+  },
+  "relayLogWindow": {
+    "readOnly": true,
+    "serverPhoneClocksCalibrated": false,
+    "fullIdentityWitness": false,
+    "dedupRelays": 3,
+    "duplicateRejections": 5,
+    "relays": [
+      {
+        "relayOrdinal": 1,
+        "duplicateRejections": 0,
+        "openEvents": 1
+      },
+      {
+        "relayOrdinal": 2,
+        "duplicateRejections": 0,
+        "openEvents": 0
+      },
+      {
+        "relayOrdinal": 3,
+        "duplicateRejections": 1,
+        "openEvents": 0
+      },
+      {
+        "relayOrdinal": 4,
+        "duplicateRejections": 0,
+        "openEvents": 1
+      },
+      {
+        "relayOrdinal": 5,
+        "duplicateRejections": 3,
+        "openEvents": 1
+      },
+      {
+        "relayOrdinal": 6,
+        "duplicateRejections": 1,
+        "openEvents": 1
+      }
+    ]
+  },
+  "nextPhysicalEndpoints": [
+    "android",
+    "macos"
+  ],
+  "finalFocusedAdmission": {
+    "passed": 3,
+    "failed": 0,
+    "ignored": 0
+  },
+  "finalFocusedCrypto": {
+    "passed": 3,
+    "failed": 0,
+    "ignored": 0
+  }
+}
