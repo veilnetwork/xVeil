@@ -17,6 +17,95 @@ import 'package:xveil/state/messaging.dart';
 import 'package:xveil/state/veil_call_media.dart';
 
 void main() {
+  test('history bootstrap cannot reattach a disposed owner or send a queued call', () async {
+    final wire = _FakeMessaging();
+    final gate = Completer<List<CallLogEntry>>();
+    final service = CallService(wire, loadFinishedCalls: () => gate.future)..start();
+    expect(wire.onCallSignal, isNull);
+    var placed = false;
+    final placing = service.placeCall(NodeId.fromHex('a' * 64),
+        const CallMedia(audio: true)).then((_) => placed = true);
+    await pumpEventQueue();
+    expect(placed, false);
+    expect(wire.sent, isEmpty);
+    service.dispose();
+    final successor = CallService(wire)..start();
+    addTearDown(successor.dispose);
+    final handler = wire.onCallSignal;
+    gate.complete([]);
+    await placing;
+    expect(wire.onCallSignal, same(handler));
+    expect(wire.sent, isEmpty);
+  });
+
+  test('unavailable call history is diagnosed without silencing fresh calls', () async {
+    diagnosticJournal.clear();
+    final wire = _FakeMessaging();
+    final service = CallService(wire, loadFinishedCalls: () async =>
+        throw StateError('PRIVATE_HISTORY_PATH'))..start();
+    addTearDown(service.dispose);
+    await pumpEventQueue();
+    expect(wire.onCallSignal, isNotNull);
+    wire.onCallSignal!(NodeId.fromHex('a' * 64), _diagnosticOffer());
+    expect(service.current?.status, CallStatus.ringing);
+    final report = diagnosticJournal.toJson();
+    if (kDiagnosticReportEnabled) {
+      expect(((report['last_evidence'] as Map)['callHistoryRestore'] as Map)['values'],
+          {'success': 0, 'sources': 0});
+    }
+    expect(jsonEncode(report), isNot(contains('PRIVATE_HISTORY_PATH')));
+  });
+
+  test('all retained journal calls restore before the wire consumer attaches', () async {
+    diagnosticJournal.clear();
+    final wire = _FakeMessaging(), peer = NodeId.fromHex('a' * 64);
+    final rows = [
+      const CallLogEntry(id: 'PRIVATE_INVALID_ROW', peerHex: 'bad-peer',
+          outgoing: false, video: false, outcome: CallLogOutcome.missed, atMs: 1),
+      for (var i = 0; i < 200; i++) CallLogEntry(id: 'PRIVATE_OLD_CALL_$i',
+          peerHex: peer.hex, outgoing: false, video: false,
+          outcome: CallLogOutcome.missed, atMs: 200 - i),
+    ];
+    final service = CallService(wire, loadFinishedCalls: () async => rows)..start();
+    addTearDown(service.dispose);
+    await pumpEventQueue();
+    expect(wire.onCallSignal, isNotNull);
+    for (final index in [0, 199]) {
+      wire.onCallSignal!(peer, CallSignal(callId: 'PRIVATE_OLD_CALL_$index',
+          type: CallSignalType.offer));
+      expect(service.current, isNull);
+    }
+    final report = diagnosticJournal.toJson();
+    if (kDiagnosticReportEnabled) {
+      expect(((report['last_evidence'] as Map)['callHistoryRestore'] as Map)['values'],
+          {'success': 1, 'sources': 200});
+    }
+    expect(jsonEncode(report), isNot(contains('PRIVATE_')));
+    expect(jsonEncode(report), isNot(contains(peer.hex)));
+    wire.onCallSignal!(peer, _diagnosticOffer());
+    expect(service.current?.status, CallStatus.ringing);
+  });
+
+  test('finished forked call remembers its stable peer identity', () async {
+    final peer = NodeId.fromHex('a' * 64), device = NodeId.fromHex('b' * 64);
+    final wire = _FakeMessaging();
+    final service = CallService(wire, media: _FakeMedia())..start();
+    addTearDown(service.dispose);
+    await service.placeCall(peer, const CallMedia(audio: true));
+    final id = service.current!.callId;
+    wire.onCallSignal!(device, CallSignal(callId: id, type: CallSignalType.answer,
+        posture: CallPosture.anonymous,
+        mediaKey: generateCallMediaKeyContribution()));
+    await pumpEventQueue();
+    expect(service.current?.peer, device);
+    expect(service.current?.mediaIdentity, peer);
+    await service.hangup();
+    wire.onCallSignal!(peer, CallSignal(callId: id, type: CallSignalType.offer,
+        posture: CallPosture.anonymous));
+    expect(service.current, isNull,
+        reason: 'a physical answer must not lose the stable finished-call key');
+  });
+
   test(
     'late local microphone failure updates UI and peer without ending call',
     () async {

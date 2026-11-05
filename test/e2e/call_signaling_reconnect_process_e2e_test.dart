@@ -146,13 +146,63 @@ void main() {
         );
 
         result['stage'] = 'both-online';
+        final firstSentAt = DateTime.now().millisecondsSinceEpoch;
         var id = await place(c, ai);
+        final firstId = id;
         await rings([a, b], id);
         await finish(c, '/call_hangup', [a, b, c], id, CallEndReason.cancelled);
         E2eLog.line('PROCESS_SIGNAL_BOTH_ONLINE_PASS');
 
         result['stage'] = 'sibling-cold-restart';
         await b.restart();
+        late Map boot;
+        await waitUntil(() async {
+          boot = await diagnostics(b);
+          final restore =
+              (boot['last_evidence'] as Map)['callHistoryRestore'] as Map?;
+          final values = restore?['values'] as Map?;
+          return values?['success'] == 1 &&
+              (values?['sources'] as int? ?? 0) > 0;
+        }, what: 'B restores a nonempty durable finished-call floor');
+        expect(
+          (boot['counts'] as Map)['callState'] ?? 0,
+          0,
+          reason: 'no old call may briefly ring before the cold API is ready',
+        );
+        final rejectedBefore =
+            (boot['counts'] as Map)['callReplayRejected'] as int? ?? 0;
+        final nonce = 'call-replay-${++sequence}';
+        final replay = File('${a.dir.path}/storage-inspect.new');
+        await replay.writeAsString(
+          jsonEncode({
+            'nonce': nonce,
+            'replayFinishedOffer': true,
+            'peer': (await base.deviceInfo(b))['nodeId'] as String,
+            'onBehalfOf': ci,
+            'callId': firstId,
+            'sentAtMs': firstSentAt,
+          }),
+        );
+        await replay.rename('${a.dir.path}/storage-inspect.json');
+        await waitUntil(() async {
+          final file = File('${a.dir.path}/storage-inspected.json');
+          if (!await file.exists()) return false;
+          final value = jsonDecode(await file.readAsString()) as Map;
+          return value['nonce'] == nonce && value['sourceAccepted'] == true;
+        }, what: 'A accepts a controlled authenticated sibling-offer replay');
+        await waitUntil(
+          () async =>
+              (((await diagnostics(b))['counts'] as Map)['callReplayRejected']
+                      as int? ??
+                  0) >
+              rejectedBefore,
+          what: 'B actually rejects a delivered replay using restored history',
+        );
+        final afterReplay = await diagnostics(b);
+        expect((afterReplay['counts'] as Map)['callState'] ?? 0, 0);
+        expect((afterReplay['counts'] as Map)['callEnded'] ?? 0, 0);
+        expect(await state(b), isNull);
+        E2eLog.line('PROCESS_SIGNAL_RESTORED_REPLAY_REJECTED_PASS');
         id = await place(c, ai);
         await rings([a, b], id);
         await finish(b, '/call_reject', [a, b, c], id, CallEndReason.declined);
