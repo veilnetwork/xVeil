@@ -189,9 +189,161 @@ class _RepairingTransport extends _Transport {
   }
 }
 
+class _RestoreStageEngine extends _Engine {
+  _RestoreStageEngine(this.stage, this.label)
+    : super(nativeStarted: true, capture: 1);
+  final String stage, label;
+  final entered = Completer<void>();
+  final retiredCalls = <String>[];
+  final selectedInputs = <String>[], selectedOutputs = <String>[];
+  int audioStarts = 0;
+
+  void touch(String operation) {
+    if (disposed) {
+      retiredCalls.add(operation);
+      throw StateError('closed fixture engine');
+    }
+    if (operation == stage && !entered.isCompleted) entered.complete();
+  }
+
+  @override
+  List<MediaDevice> listAudioInputs() {
+    touch('input');
+    return [
+      MediaDevice(id: '$label-input', label: 'saved input', kind: 'input'),
+    ];
+  }
+
+  @override
+  List<MediaDevice> listAudioOutputs() {
+    touch('output');
+    return [
+      MediaDevice(id: '$label-output', label: 'saved output', kind: 'output'),
+    ];
+  }
+
+  @override
+  bool selectAudioInput(String id) {
+    touch('select input');
+    selectedInputs.add(id);
+    return true;
+  }
+
+  @override
+  bool selectAudioOutput(String id) {
+    touch('select output');
+    selectedOutputs.add(id);
+    return true;
+  }
+
+  @override
+  void setMicMuted(bool muted) {
+    touch('mute');
+    super.setMicMuted(muted);
+  }
+
+  @override
+  bool startAudio({bool send = true, bool recv = true}) {
+    touch('start audio');
+    audioStarts++;
+    return super.startAudio(send: send, recv: recv);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  for (final stage in ['input', 'output', 'mute']) {
+    for (final action in ['none', 'hangup', 'next-call', 'same-call-engine']) {
+      test(
+        'audio startup owner after $stage and $action',
+        () async {
+          SharedPreferences.setMockInitialValues({
+            if (stage == 'input')
+              'call.capture.microphone.${Platform.operatingSystem}':
+                  'saved input',
+            if (stage == 'output')
+              'call.playout.speaker.${Platform.operatingSystem}':
+                  'saved output',
+          });
+          final old = _RestoreStageEngine(stage, 'old');
+          final fresh = _RestoreStageEngine('none', 'new');
+          var creates = 0;
+          final controller = VeilCallMediaController(
+            _Transport(),
+            engineFactory:
+                ({required veilChan, required localId, required peerId}) =>
+                    creates++ == 0 ? old : fresh,
+          );
+          bool? outcome;
+          Object? error;
+          final starting = controller
+              .start(_call())
+              .then<void>(
+                (ok) => outcome = ok,
+                onError: (Object failure) {
+                  error = failure;
+                },
+              );
+          Future<void>? ending;
+          Future<bool>? next;
+          try {
+            await old.entered.future.timeout(const Duration(seconds: 5));
+            if (action == 'hangup' || action == 'next-call') {
+              ending = controller.stop();
+            }
+            if (action == 'next-call' || action == 'same-call-engine') {
+              next = controller.start(
+                _call(
+                  callId: action == 'next-call'
+                      ? 'successor-call'
+                      : 'receive-only-start',
+                ),
+              );
+            }
+            await starting;
+            await ending;
+            if (next != null) {
+              expect(await next, true);
+              expect(fresh.audioStarts, 1);
+              expect(fresh.disposed, false);
+            }
+            expect(
+              old.retiredCalls,
+              isEmpty,
+              reason: 'an old continuation must not touch a disposed engine',
+            );
+            expect(
+              error,
+              isNull,
+              reason: 'a retired startup returns false cleanly',
+            );
+            expect(outcome, action == 'none');
+            if (action == 'none') {
+              expect(old.audioStarts, 1);
+              if (stage == 'input') {
+                expect(old.selectedInputs, ['old-input']);
+              }
+              if (stage == 'output') {
+                expect(old.selectedOutputs, ['old-output']);
+              }
+            } else {
+              expect(old.audioStarts, 0);
+            }
+          } finally {
+            await starting;
+            await ending;
+            await next;
+            await controller.stop();
+          }
+        },
+        skip: Platform.isAndroid || Platform.isIOS
+            ? 'desktop device enumeration fixture; no phone hardware opened'
+            : false,
+      );
+    }
+  }
 
   for (final replacement in [false, true]) {
     test(

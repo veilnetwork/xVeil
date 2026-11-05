@@ -1680,8 +1680,17 @@ class VeilCallMediaController implements CallMediaController {
     _engine = engine;
     _startControlPolling();
     _diagnosticMediaController = this;
-    await _restoreMicrophonePreference(engine);
-    await _restoreSpeakerPreference(engine);
+    // Device discovery and routing yield to stop/rebuild. Neither an old call
+    // nor the previous engine of this same call may resume native startup or
+    // reset the successor's liveness state after those waits.
+    bool currentEngine() =>
+        _mediaEpoch == epoch &&
+        _engine == engine &&
+        _activeCall?.callId == call.callId;
+    await _restoreMicrophonePreference(engine, isCurrent: currentEngine);
+    if (!currentEngine()) return false;
+    await _restoreSpeakerPreference(engine, isCurrent: currentEngine);
+    if (!currentEngine()) return false;
     // Liveness signal for the call FSM: poll rx_pkts so it can tell the peer's
     // media is still arriving even when the durable signaling heartbeat lags.
     _statsTimer?.cancel();
@@ -1988,6 +1997,7 @@ class VeilCallMediaController implements CallMediaController {
     );
     // Select communication/headset routing before opening the physical streams.
     await callAudioRouter.useDefaultFor(call.media);
+    if (!currentEngine()) return false;
     final nativeAudioOk = engine.startAudio(send: true, recv: true);
     final startupStats = nativeAudioOk
         ? const <String, dynamic>{}
@@ -2634,10 +2644,15 @@ class VeilCallMediaController implements CallMediaController {
     }
   }
 
-  Future<void> _restoreMicrophonePreference(VeilMediaEngine engine) async {
+  Future<void> _restoreMicrophonePreference(
+    VeilMediaEngine engine, {
+    required bool Function() isCurrent,
+  }) async {
+    if (!isCurrent()) return;
     final preferred = _preferredMicrophoneLabel;
     if (preferred == null || preferred.isEmpty) return;
     final devices = await listMicrophones();
+    if (!isCurrent()) return;
     for (final device in devices) {
       if (device.label != preferred) continue;
       try {
@@ -2654,10 +2669,15 @@ class VeilCallMediaController implements CallMediaController {
   /// Ids are not stable across reboots or replugs; the label is what a person
   /// recognised when they picked it. Mirrors the microphone, which has done
   /// this since it had a picker at all — the output had neither.
-  Future<void> _restoreSpeakerPreference(VeilMediaEngine engine) async {
+  Future<void> _restoreSpeakerPreference(
+    VeilMediaEngine engine, {
+    required bool Function() isCurrent,
+  }) async {
+    if (!isCurrent()) return;
     final preferred = _preferredSpeakerLabel;
     if (preferred == null || preferred.isEmpty) return;
     final devices = await listSpeakers();
+    if (!isCurrent()) return;
     for (final device in devices) {
       if (device.label != preferred) continue;
       try {
