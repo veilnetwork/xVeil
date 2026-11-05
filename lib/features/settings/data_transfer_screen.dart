@@ -36,7 +36,7 @@ import '../../state/device_settings_sync.dart';
 import '../../state/group_service_providers.dart';
 import '../../state/device_sync_appliers.dart';
 import '../../state/messaging.dart';
-import '../../state/app_controller.dart' show IdentityLease;
+import '../../state/app_controller.dart' show IdentityLease, appControllerProvider;
 import '../../state/identity_guard.dart';
 import '../../state/providers.dart';
 
@@ -105,11 +105,12 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
   /// records went to whichever one was active when each was applied
   /// (report27 X02). `mounted` does not answer this: the widget is still
   /// mounted, which is why the continuation runs at all.
-  Future<({IdentityLease lease, Storage storage, String selfHex})>
+  Future<({IdentityLease lease, Storage storage, String selfHex, String deviceHex})>
   _operationOwner() async => (
     lease: ref.leaseIdentity(),
     storage: ref.read(storageProvider),
     selfHex: await _selfHex(),
+    deviceHex: await ref.read(messagingServiceProvider).savedSelfHex(),
   );
 
   /// Whether the identity the operation belongs to is still the active one.
@@ -139,8 +140,13 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
     }
   }
 
-  Future<String> _selfHex() =>
-      ref.read(messagingServiceProvider).savedSelfHex();
+  Future<String> _selfHex() async {
+    // Archive ownership belongs to the active identity. A linked device has
+    // its own transport id; using that id rejects its sibling's archive.
+    final identity = ref.read(appControllerProvider).identity;
+    return identity?.nodeId.hex ??
+        await ref.read(messagingServiceProvider).savedSelfHex();
+  }
 
   /// The layers whose rows the archive carries: the cloud index, and the share
   /// registry.
@@ -323,6 +329,7 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
             storage: owner.storage,
             appliers: ref.read(deviceSyncAppliersProvider),
             selfNodeIdHex: owner.selfHex,
+            localDeviceNodeIdHex: owner.deviceHex,
             groups: ref.read(groupServiceProvider),
             cloud: _cloudLayers(),
           ).run(

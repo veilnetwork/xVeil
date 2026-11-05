@@ -1263,7 +1263,13 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
     ref
         .read(deviceSyncAppliersProvider)
         .register(
-          handleEvent,
+          (event) async {
+            handleEvent(event);
+            // An import's next contact projection may require this record to
+            // exist. Live streams remain nonblocking; only the offline
+            // registry waits for the particular slot it just offered.
+            await gate.settleSlot(event);
+          },
           settle: gate.settle,
           failures: () => gate.failedApplies,
         ),
