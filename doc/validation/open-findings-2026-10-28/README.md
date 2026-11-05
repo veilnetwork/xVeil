@@ -6,10 +6,13 @@
 каждом входе, без отдельного LocalAuth и без plaintext-key cache plugin.
 KeyInfo/strong-biometric policy, отмена/stop/dispose и поздние результаты
 защищены. Два baseline-red, 80 Flutter tests passed, Kotlin gate smoke и
-analyzer прошли. QA/обычный release APK собраны. Физическая квалификация
-ожидает USB-установки и отпечатка владельца: Android отклонил установку probe.
-Один диалог на телефоне пока не заявлен; основная установленная версия —
-`0.13.94-fingerprint.1`. Push/релиза и изменений сидов нет.
+analyzer прошли. На Poco/Android 16
+cold и warm open настоящего QA-контейнера прошли; владелец подтвердил по одному
+запросу. Back/Home не выдали пароль; парольный fallback прошёл. Probe удалён.
+Обычная `0.13.94-fingerprint.2` установлена поверх `.1`: исходная подпись,
+те же native/assets, SHA/firstInstallTime/startup smoke проверены. После smoke
+приложение остановлено; пользовательский контейнер не открывался.
+Push/публичного релиза и изменений сидов нет.
 
 Последнее исправление: [быстрый вход по отпечатку на Poco](../android-biometric-startup-2026-11-05/README.md).
 ПОДТВЕРЖДЕНО: запрет marker-less migration в secure-storage 10.3.4 блокировал
