@@ -1,0 +1,168 @@
+{
+  "schema": "xveil-windows-receive-series/1",
+  "cases": [
+    {
+      "case": "current-20",
+      "schema": "xveil-windows-receive-probe/1",
+      "qualified": true,
+      "mode": "pattern",
+      "packet_ms": 20,
+      "samples": 66,
+      "rtp_packets": 600,
+      "emitted_samples": 576000,
+      "burst_session_peak_medians": [
+        0.030319,
+        0.030365,
+        0.030518
+      ],
+      "quiet_session_peak_medians": [
+        3.1e-05,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "capture_requested": false,
+      "human_audibility_verified": false
+    },
+    {
+      "case": "release-20",
+      "schema": "xveil-windows-receive-probe/1",
+      "qualified": true,
+      "mode": "pattern",
+      "packet_ms": 20,
+      "samples": 66,
+      "rtp_packets": 600,
+      "emitted_samples": 576000,
+      "burst_session_peak_medians": [
+        0.030319,
+        0.030365,
+        0.030518
+      ],
+      "quiet_session_peak_medians": [
+        3.1e-05,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "capture_requested": false,
+      "human_audibility_verified": false
+    },
+    {
+      "case": "current-40",
+      "schema": "xveil-windows-receive-probe/1",
+      "qualified": true,
+      "mode": "pattern",
+      "packet_ms": 40,
+      "samples": 66,
+      "rtp_packets": 300,
+      "emitted_samples": 576000,
+      "burst_session_peak_medians": [
+        0.030304,
+        0.030365,
+        0.030487
+      ],
+      "quiet_session_peak_medians": [
+        3.1e-05,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "capture_requested": false,
+      "human_audibility_verified": false
+    },
+    {
+      "case": "release-40",
+      "schema": "xveil-windows-receive-probe/1",
+      "qualified": true,
+      "mode": "pattern",
+      "packet_ms": 40,
+      "samples": 66,
+      "rtp_packets": 300,
+      "emitted_samples": 576000,
+      "burst_session_peak_medians": [
+        0.030304,
+        0.030365,
+        0.030487
+      ],
+      "quiet_session_peak_medians": [
+        3.1e-05,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "capture_requested": false,
+      "human_audibility_verified": false
+    },
+    {
+      "case": "current-60",
+      "schema": "xveil-windows-receive-probe/1",
+      "qualified": true,
+      "mode": "pattern",
+      "packet_ms": 60,
+      "samples": 66,
+      "rtp_packets": 200,
+      "emitted_samples": 576000,
+      "burst_session_peak_medians": [
+        0.030319,
+        0.030365,
+        0.030487
+      ],
+      "quiet_session_peak_medians": [
+        3.1e-05,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "capture_requested": false,
+      "human_audibility_verified": false
+    },
+    {
+      "case": "release-60",
+      "schema": "xveil-windows-receive-probe/1",
+      "qualified": true,
+      "mode": "pattern",
+      "packet_ms": 60,
+      "samples": 66,
+      "rtp_packets": 200,
+      "emitted_samples": 576000,
+      "burst_session_peak_medians": [
+        0.030319,
+        0.030365,
+        0.030487
+      ],
+      "quiet_session_peak_medians": [
+        3.1e-05,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "capture_requested": false,
+      "human_audibility_verified": false
+    },
+    {
+      "case": "silence-40",
+      "schema": "xveil-windows-receive-probe/1",
+      "qualified": true,
+      "mode": "silence",
+      "packet_ms": 40,
+      "samples": 66,
+      "rtp_packets": 300,
+      "emitted_samples": 576000,
+      "burst_session_peak_medians": [
+        3.1e-05,
+        3.1e-05,
+        3.1e-05
+      ],
+      "quiet_session_peak_medians": [
+        3.1e-05,
+        3.1e-05,
+        3.1e-05,
+        3.1e-05
+      ],
+      "capture_requested": false,
+      "human_audibility_verified": false
+    }
+  ],
+  "human_audibility_verified": false,
+  "network_qualified": false
+}

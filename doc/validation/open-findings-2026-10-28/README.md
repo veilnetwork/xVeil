@@ -1,5 +1,15 @@
 # Открытые случаи — обновлено 2026-11-05
 
+Последняя квалификация звука: [известный сигнал на Windows](../windows-receive-pattern-2026-11-05/README.md).
+Жалоба на тишину остаётся открытой. В отдельном native stand опубликованная
+и текущая media DLL приняли Opus по 20/40/60 мс и вывели все три заданных тона
+в собственной Windows audio session; silence control остался тихим. Семь
+qualified запусков, 10 tests oracle; source/binary SHA и cleanup проверены.
+Это lossless receive/Windows ADM/session-peak квалификация, не реальный звонок,
+телефонный захват, сеть или человеческая слышимость. Приёмный gain не менялся.
+Windows task/processes/fake DLL удалены; пользователь разрешил работать без
+телефона. Production code, pins, сиды, push и релиз не менялись.
+
 Последнее исправление: [отмена группового запуска](../group-start-cancel-2026-11-05/README.md).
 ПОДТВЕРЖДЕНО: stop ожидал в очереди, а старый group start после permission/IPC
 открывал peer channels и запускал capture. Поколение запроса теперь меняется
