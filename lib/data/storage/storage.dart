@@ -376,6 +376,8 @@ abstract interface class Storage {
   });
 
   /// Every call-journal row, newest-first (by [CallLogEntry.atMs]).
+  /// Namespace read failures propagate: callers must not treat unavailable
+  /// history as an empty, successfully migrated or restored journal.
   Future<List<CallLogEntry>> callLogEntries();
 
   /// Stage a retained legacy result for publication, without changing history.

@@ -356,6 +356,9 @@ class AppL10nEs extends AppL10n {
   String get callLogEmpty => 'Todavía no hay llamadas';
 
   @override
+  String get callLogLoadFailed => 'No se pudo cargar el historial de llamadas';
+
+  @override
   String get callLogEmptyHint =>
       'Las llamadas que hagas y recibas en cualquiera de tus dispositivos aparecerán aquí';
 

@@ -687,6 +687,12 @@ abstract class AppL10n {
   /// **'No calls yet'**
   String get callLogEmpty;
 
+  /// No description provided for @callLogLoadFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load call history'**
+  String get callLogLoadFailed;
+
   /// No description provided for @callLogEmptyHint.
   ///
   /// In en, this message translates to:
