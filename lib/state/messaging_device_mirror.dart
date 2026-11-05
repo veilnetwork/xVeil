@@ -426,7 +426,9 @@ class _MessagingDeviceMirror {
         );
         return;
       }
-      if (await _owner._inboundExpiry.edit(peer, target, mirrored: true)) return;
+      if (await _owner._inboundExpiry.edit(peer, target, mirrored: true)) {
+        return;
+      }
       final hash = messageEditContentHash(body, customEmoji);
       final heldHash = messageEditContentHash(target.body, target.customEmoji);
       if (seq == null) {
@@ -451,7 +453,9 @@ class _MessagingDeviceMirror {
       );
       // Keep the original post clock across this await, including reflected
       // peer-history edits. A sibling replay never publishes a deletion back.
-      if (await _owner._inboundExpiry.edit(peer, target, mirrored: true)) return;
+      if (await _owner._inboundExpiry.edit(peer, target, mirrored: true)) {
+        return;
+      }
       _owner._signal();
     } catch (e) {
       devLog(() => 'xVeil[devices]: mirrored edit of $msgId failed: $e');
@@ -871,10 +875,65 @@ class _MessagingDeviceMirror {
     return true;
   }
 
-  /// Persist a local contact preference update, then mirror the fresh record.
-  Future<void> putContactPrefs(Contact contact) async {
-    await _owner._storage.upsertContact(contact);
-    onContactPrefsChanged?.call(contact);
+  // Only local preference edits allocate witnesses. An own-event echo may
+  // wait behind native IO while the UI commits another edit to this contact.
+  // Keep the captured snapshot weakly: callers and the outgoing gate own its
+  // lifetime, not this map.
+  final _localPrefsWitness = <NodeId, Object>{};
+  final _prefsSnapshotWitness = Expando<Object>();
+
+  bool isCurrentContactPrefsSnapshot(Contact snapshot) =>
+      !_owner._disposed &&
+      _prefsSnapshotWitness[snapshot] != null &&
+      identical(
+        _prefsSnapshotWitness[snapshot],
+        _localPrefsWitness[snapshot.nodeId],
+      );
+
+  /// Serialize the transform with consent writes and publish only its result.
+  Future<Contact?> updateContactPrefs(
+    NodeId peer,
+    Contact? Function(Contact current) update, {
+    bool mirror = true,
+    bool local = true,
+  }) async {
+    if (_owner._disposed) throw StateError('messaging service is closed');
+    Object? previousWitness, attemptedWitness;
+    final Contact? committed;
+    try {
+      committed = await _owner._storage.updateContactPrefs(peer, (current) {
+        final next = update(current);
+        if (next != null && local) {
+          // Invalidate before the commit await, in the same serialized turn.
+          // Even an already queued own echo must check again when it writes.
+          previousWitness = _localPrefsWitness[peer];
+          final witness = Object();
+          attemptedWitness = witness;
+          _localPrefsWitness[peer] = witness;
+          _prefsSnapshotWitness[next] = witness;
+        }
+        return next;
+      });
+    } catch (_) {
+      // A refused write has no snapshot to publish. Do not disqualify the
+      // previous committed snapshot, or roll back a newer writer's witness.
+      if (attemptedWitness != null &&
+          identical(_localPrefsWitness[peer], attemptedWitness)) {
+        if (previousWitness == null) {
+          _localPrefsWitness.remove(peer);
+        } else {
+          _localPrefsWitness[peer] = previousWitness!;
+        }
+      }
+      rethrow;
+    }
+    if (committed == null || _owner._disposed) return null;
+    try {
+      if (mirror) onContactPrefsChanged?.call(committed);
+    } finally {
+      _owner._signal();
+    }
+    return committed;
   }
 
   /// Merge contact preferences from another device while preserving local
@@ -890,52 +949,56 @@ class _MessagingDeviceMirror {
     required bool allowPeerDelete,
     required ClearRequestPolicy clearPolicy,
     DisappearingSetting? disappearing,
+    bool Function()? shouldApply,
   }) async {
     // See [applyMessage]: a contact record of my own device is not portable.
-    if (await _owner._isSiblingDevice(peer)) return false;
-    final existing = await _owner._storage.getContact(peer);
-    if (existing == null) return false;
+    if (_owner._disposed || await _owner._isSiblingDevice(peer)) return false;
     // The retention policy is decided by the SAME rule a peer's announcement
     // goes through, not by whoever mirrored last. A sibling that has been
     // offline holds an older view, and its alias edit must not roll the window
     // back — `winner` is last-writer-wins with a deterministic tie-break, so
     // both devices land on one answer whichever order the events arrive in.
-    final held = DisappearingSetting(
-      ttlSeconds: existing.disappearingTtlSeconds,
-      setAtMs: existing.disappearingSetAtMs,
-      setBy: existing.disappearingSetBy,
-      hideAfterReadSeconds: existing.hideAfterReadSeconds,
+    final committed = await updateContactPrefs(
+      peer,
+      (existing) {
+        if (shouldApply != null && !shouldApply()) return null;
+        final held = DisappearingSetting(
+          ttlSeconds: existing.disappearingTtlSeconds,
+          setAtMs: existing.disappearingSetAtMs,
+          setBy: existing.disappearingSetBy,
+          hideAfterReadSeconds: existing.hideAfterReadSeconds,
+        );
+        final policy = disappearing == null
+            ? held
+            : DisappearingSetting.winner(held, disappearing);
+        // `copyWith`, NOT a fresh `Contact`. A hand-written field list here named
+        // the seven fields the bridge carries and silently defaulted the rest, so
+        // mirroring an alias, a pin or a mute wiped the disappearing policy: ttl
+        // to null, the stamp to 0, the setter to empty. Turning the window off is
+        // an explicit act with a timestamp behind it; an unrelated edit on another
+        // device is not that act. The sentinels on `copyWith` exist precisely so a
+        // merge can say "leave what I was not told about" — which is what a
+        // partial mirror is.
+        return existing.copyWith(
+          name: name,
+          mutedUntil: mutedUntilMs == null
+              ? null
+              : DateTime.fromMillisecondsSinceEpoch(mutedUntilMs),
+          notificationMuteMode: notificationMuteMode,
+          pinned: pinned,
+          archived: archived,
+          retentionDays: retentionDays,
+          allowPeerDelete: allowPeerDelete,
+          clearPolicy: clearPolicy,
+          disappearingTtlSeconds: policy.ttlSeconds,
+          disappearingSetAtMs: policy.setAtMs,
+          disappearingSetBy: policy.setBy,
+          hideAfterReadSeconds: policy.hideAfterReadSeconds,
+        );
+      },
+      mirror: false,
+      local: false,
     );
-    final policy = disappearing == null
-        ? held
-        : DisappearingSetting.winner(held, disappearing);
-    // `copyWith`, NOT a fresh `Contact`. A hand-written field list here named
-    // the seven fields the bridge carries and silently defaulted the rest, so
-    // mirroring an alias, a pin or a mute wiped the disappearing policy: ttl
-    // to null, the stamp to 0, the setter to empty. Turning the window off is
-    // an explicit act with a timestamp behind it; an unrelated edit on another
-    // device is not that act. The sentinels on `copyWith` exist precisely so a
-    // merge can say "leave what I was not told about" — which is what a
-    // partial mirror is.
-    await _owner._storage.upsertContact(
-      existing.copyWith(
-        name: name,
-        mutedUntil: mutedUntilMs == null
-            ? null
-            : DateTime.fromMillisecondsSinceEpoch(mutedUntilMs),
-        notificationMuteMode: notificationMuteMode,
-        pinned: pinned,
-        archived: archived,
-        retentionDays: retentionDays,
-        allowPeerDelete: allowPeerDelete,
-        clearPolicy: clearPolicy,
-        disappearingTtlSeconds: policy.ttlSeconds,
-        disappearingSetAtMs: policy.setAtMs,
-        disappearingSetBy: policy.setBy,
-        hideAfterReadSeconds: policy.hideAfterReadSeconds,
-      ),
-    );
-    _owner._signal();
-    return true;
+    return committed != null;
   }
 }

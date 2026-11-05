@@ -12,19 +12,13 @@ class _MessagingConversationAdmin {
   static const _kFoldersKey = 'chat_folders';
 
   Future<void> setContactName(NodeId peer, String? name) async {
-    final existing = await _owner._storage.getContact(peer);
-    if (existing == null) return;
     final trimmed = name?.trim();
-    // copyWith, not a fresh Contact. The hand-written field list this replaces
-    // predated the disappearing window and never learned about it, so renaming
-    // a contact silently turned their disappearing messages OFF — and then
-    // announced that to them as a decision.
-    await _owner._putContactPrefs(
-      existing.copyWith(
+    await _owner._updateContactPrefs(
+      peer,
+      (current) => current.copyWith(
         name: (trimmed == null || trimmed.isEmpty) ? null : trimmed,
       ),
     );
-    _owner._signal();
   }
 
   Future<void> setContactMutedUntil(
@@ -32,26 +26,25 @@ class _MessagingConversationAdmin {
     DateTime? until, {
     NotificationMuteMode mode = NotificationMuteMode.none,
   }) async {
-    final existing = await _owner._storage.getContact(peer);
-    if (existing == null) return;
-    await _owner._putContactPrefs(
-      existing.copyWith(mutedUntil: until, notificationMuteMode: mode),
+    await _owner._updateContactPrefs(
+      peer,
+      (current) =>
+          current.copyWith(mutedUntil: until, notificationMuteMode: mode),
     );
-    _owner._signal();
   }
 
   Future<void> setContactArchived(NodeId peer, bool archived) async {
-    final existing = await _owner._storage.getContact(peer);
-    if (existing == null) return;
-    await _owner._putContactPrefs(existing.copyWith(archived: archived));
-    _owner._signal();
+    await _owner._updateContactPrefs(
+      peer,
+      (current) => current.copyWith(archived: archived),
+    );
   }
 
   Future<void> setContactAllowPeerDelete(NodeId peer, bool allow) async {
-    final existing = await _owner._storage.getContact(peer);
-    if (existing == null) return;
-    await _owner._putContactPrefs(existing.copyWith(allowPeerDelete: allow));
-    _owner._signal();
+    await _owner._updateContactPrefs(
+      peer,
+      (current) => current.copyWith(allowPeerDelete: allow),
+    );
   }
 
   /// Whose request to EMPTY this conversation this device will honour.
@@ -64,39 +57,37 @@ class _MessagingConversationAdmin {
     NodeId peer,
     ClearRequestPolicy policy,
   ) async {
-    final existing = await _owner._storage.getContact(peer);
-    if (existing == null) return;
-    await _owner._putContactPrefs(existing.copyWith(clearPolicy: policy));
-    _owner._signal();
+    await _owner._updateContactPrefs(
+      peer,
+      (current) => current.copyWith(clearPolicy: policy),
+    );
   }
 
   Future<void> setContactP2POverride(
     NodeId peer,
     ContactP2POverride value,
   ) async {
-    final existing = await _owner._storage.getContact(peer);
-    if (existing == null) return;
-    await _owner._storage.upsertContact(existing.copyWith(p2pOverride: value));
-    _owner._signal();
+    await _owner._updateContactPrefs(
+      peer,
+      (current) => current.copyWith(p2pOverride: value),
+      mirror: false,
+    );
   }
 
   Future<void> setContactPinned(NodeId peer, bool pinned) async {
-    final existing = await _owner._storage.getContact(peer);
-    if (existing == null) return;
-    await _owner._putContactPrefs(existing.copyWith(pinned: pinned));
-    _owner._signal();
+    await _owner._updateContactPrefs(
+      peer,
+      (current) => current.copyWith(pinned: pinned),
+    );
   }
 
   Future<void> setContactRetention(NodeId peer, int? days) async {
-    final existing = await _owner._storage.getContact(peer);
-    if (existing == null) return;
     final window = (days == null || days <= 0) ? null : days;
-    // Same fix as [setContactName], same reason: this list did not carry the
-    // disappearing window either, so changing local retention wiped the shared
-    // one.
-    await _owner._putContactPrefs(existing.copyWith(retentionDays: window));
-    _owner._signal();
-    if (window != null) {
+    final updated = await _owner._updateContactPrefs(
+      peer,
+      (current) => current.copyWith(retentionDays: window),
+    );
+    if (updated != null && window != null && !_owner._disposed) {
       await _owner._storage.pruneConversation(peer, window);
       _owner._signal();
     }
@@ -143,64 +134,83 @@ class _MessagingConversationAdmin {
     required (int?,)? ttl,
     required (int?,)? hideAfterRead,
   }) async {
-    final existing = await _owner._storage.getContact(peer);
-    if (existing == null) return;
+    if (_owner._disposed) throw StateError('messaging service is closed');
     int? clamp(int? seconds) => (seconds == null || seconds <= 0)
         ? null
         : seconds.clamp(1, kDisappearingMaxSeconds);
     final selfHex = await _owner._selfHex();
-    final setting = DisappearingSetting(
-      ttlSeconds: ttl == null ? existing.disappearingTtlSeconds : clamp(ttl.$1),
-      hideAfterReadSeconds: hideAfterRead == null
-          ? existing.hideAfterReadSeconds
-          : clamp(hideAfterRead.$1),
-      setAtMs: _owner._now().millisecondsSinceEpoch,
-      setBy: selfHex,
-    );
-    await _applyDisappearing(peer, existing, setting, incoming: false);
-    await _announceDisappearing(peer, setting);
+    final updated = await _owner._updateContactPrefs(peer, (current) {
+      final now = _owner._now().millisecondsSinceEpoch;
+      // Two local edits, including the other half, need different revisions
+      // even in one clock tick; otherwise the peer keeps its first tie.
+      final stamp = now > current.disappearingSetAtMs
+          ? now
+          : current.disappearingSetAtMs + 1;
+      return _withDisappearing(
+        current,
+        DisappearingSetting(
+          ttlSeconds: ttl == null
+              ? current.disappearingTtlSeconds
+              : clamp(ttl.$1),
+          hideAfterReadSeconds: hideAfterRead == null
+              ? current.hideAfterReadSeconds
+              : clamp(hideAfterRead.$1),
+          setAtMs: stamp,
+          setBy: selfHex,
+        ),
+      );
+    });
+    if (updated == null) return;
+    final setting = _settingOf(updated);
+    await _finishDisappearing(peer, setting, incoming: false);
+    if (!_owner._disposed) await _announceDisappearing(peer, setting);
   }
 
-  /// Adopt an announcement that arrived from [peer]. Returns whether it won.
+  static DisappearingSetting _settingOf(Contact current) => DisappearingSetting(
+    ttlSeconds: current.disappearingTtlSeconds,
+    setAtMs: current.disappearingSetAtMs,
+    setBy: current.disappearingSetBy,
+    hideAfterReadSeconds: current.hideAfterReadSeconds,
+  );
+
+  static Contact _withDisappearing(
+    Contact current,
+    DisappearingSetting setting,
+  ) => current.copyWith(
+    disappearingTtlSeconds: setting.ttlSeconds,
+    disappearingSetAtMs: setting.setAtMs,
+    disappearingSetBy: setting.setBy,
+    hideAfterReadSeconds: setting.hideAfterReadSeconds,
+  );
+
+  /// Check the winner INSIDE the same turn that writes the current contact.
   Future<bool> adoptDisappearing(
     NodeId peer,
     DisappearingSetting incoming,
   ) async {
-    final existing = await _owner._storage.getContact(peer);
-    if (existing == null) return false;
-    final held = DisappearingSetting(
-      ttlSeconds: existing.disappearingTtlSeconds,
-      setAtMs: existing.disappearingSetAtMs,
-      setBy: existing.disappearingSetBy,
-      hideAfterReadSeconds: existing.hideAfterReadSeconds,
+    final updated = await _owner._updateContactPrefs(
+      peer,
+      (current) =>
+          identical(
+            DisappearingSetting.winner(_settingOf(current), incoming),
+            incoming,
+          )
+          ? _withDisappearing(current, incoming)
+          : null,
     );
-    if (!identical(DisappearingSetting.winner(held, incoming), incoming)) {
-      return false;
-    }
-    await _applyDisappearing(peer, existing, incoming, incoming: true);
+    if (updated == null) return false;
+    await _finishDisappearing(peer, _settingOf(updated), incoming: true);
     return true;
   }
 
-  Future<void> _applyDisappearing(
+  Future<void> _finishDisappearing(
     NodeId peer,
-    Contact existing,
     DisappearingSetting setting, {
     required bool incoming,
   }) async {
-    await _owner._putContactPrefs(
-      existing.copyWith(
-        disappearingTtlSeconds: setting.ttlSeconds,
-        disappearingSetAtMs: setting.setAtMs,
-        disappearingSetBy: setting.setBy,
-        hideAfterReadSeconds: setting.hideAfterReadSeconds,
-      ),
-    );
-    _owner._signal();
-    // A row in the timeline, not a silent toggle: the window governs what the
-    // OTHER person's device deletes too, so both people have to be able to see
-    // that it changed and when.
+    if (_owner._disposed) return;
     await _writeDisappearingMarker(peer, setting, incoming: incoming);
-    await sweepDisappearing(peer);
+    if (!_owner._disposed) await sweepDisappearing(peer);
   }
 
   Future<void> _writeDisappearingMarker(

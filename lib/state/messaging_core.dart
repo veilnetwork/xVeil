@@ -700,8 +700,16 @@ class MessagingService {
     _deviceMirror.onContactPrefsChanged = callback;
   }
 
-  Future<void> _putContactPrefs(Contact contact) =>
-      _deviceMirror.putContactPrefs(contact);
+  Future<Contact?> _updateContactPrefs(
+    NodeId peer,
+    Contact? Function(Contact current) update, {
+    bool mirror = true,
+  }) => _deviceMirror.updateContactPrefs(peer, update, mirror: mirror);
+
+  /// Whether an own-event echo still represents the latest local write.
+  /// The applier checks this synchronously inside its storage write turn.
+  bool isCurrentContactPrefsSnapshot(Contact snapshot) =>
+      _deviceMirror.isCurrentContactPrefsSnapshot(snapshot);
 
   /// Merge mirrored preferences while retaining local relationship/P2P state.
   Future<bool> applyMirroredContact({
@@ -719,6 +727,7 @@ class MessagingService {
     /// from a build that did not carry it — in which case the policy already
     /// held here is kept rather than cleared.
     DisappearingSetting? disappearing,
+    bool Function()? shouldApply,
   }) => _deviceMirror.applyContact(
     peer: peer,
     name: name,
@@ -730,6 +739,7 @@ class MessagingService {
     allowPeerDelete: allowPeerDelete,
     clearPolicy: clearPolicy,
     disappearing: disappearing,
+    shouldApply: shouldApply,
   );
 
   /// Attached by the group layer: a group snapshot from a NON-contact sender

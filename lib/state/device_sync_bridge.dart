@@ -351,17 +351,21 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   // relationship by the OTHER device's id, so the record is not portable (on
   // the sibling it would describe itself). Same rule as the msgMirror
   // exclusion (brick 4c).
+  final ownPrefsGuards = Expando<bool Function()>();
   messaging.onContactPrefsChanged = (c) {
+    // Reserve order before the asynchronous own-device lookup. An old local
+    // snapshot must neither be stamped newer nor overwrite a later UI edit
+    // when the outgoing stream feeds it back through the apply gate.
+    final event = DeviceSyncEvent(
+      kind: DeviceSyncKind.contactUp,
+      key: c.nodeId.hex,
+      tsMs: nextTs(),
+      payload: contactPrefsPayload(c),
+    );
+    ownPrefsGuards[event] = () => messaging.isCurrentContactPrefsSnapshot(c);
     tasks.start(() async {
       if (c.nodeId == svc.selfId || await svc.isMyDevice(c.nodeId)) return;
-      await svc.postDeviceEvent(
-        DeviceSyncEvent(
-          kind: DeviceSyncKind.contactUp,
-          key: c.nodeId.hex,
-          tsMs: nextTs(),
-          payload: contactPrefsPayload(c),
-        ),
-      );
+      await svc.postDeviceEvent(event);
     });
   };
   final contactPublisher = ContactDecisionPublisher(
@@ -862,7 +866,11 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   });
 
   // Shared by the live pref apply and the post-materialization replay below.
-  Future<bool> applyPrefs(NodeId peer, DeviceSyncEvent e) {
+  Future<bool> applyPrefs(
+    NodeId peer,
+    DeviceSyncEvent e, {
+    bool Function()? shouldApply,
+  }) {
     final name = e.payload['name'], muted = e.payload['mutedMs'];
     final muteMode = NotificationMuteMode.values.firstWhere(
       (mode) => mode.name == e.payload['muteMode'],
@@ -887,6 +895,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
             allowPeerDelete: e.payload['apd'] != false,
           ),
       disappearing: disappearingFromPayload(e.payload),
+      shouldApply: shouldApply,
     );
   }
 
@@ -894,7 +903,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   // folded state replayed at start. They are the same events; only the
   // MOMENT differs, and the moment was load-bearing when it should not have
   // been.
-  void handleEvent(DeviceSyncEvent e) {
+  void handleEvent(DeviceSyncEvent e, {bool Function()? ownPrefsGuard}) {
     if (bridgeGone) return;
     switch (e.kind) {
       case DeviceSyncKind.contactUp:
@@ -907,7 +916,9 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
             return null; // malformed key from a newer/buggy device
           }
           if (peer.hex == svc.selfId.hex) return null; // never my own record
-          if (!statusEvent) return () => applyPrefs(peer, e);
+          if (!statusEvent) {
+            return () => applyPrefs(peer, e, shouldApply: ownPrefsGuard);
+          }
           final raw = e.payload['status'];
           ContactStatus? status;
           for (final s in ContactStatus.values) {
@@ -1239,7 +1250,9 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
     // BEFORE the group commit, so it must not persist an uncommitted floor.
     // Boot replay and verified incoming events still apply committed rows.
     if (e.kind == DeviceSyncKind.contactUp && e.key.startsWith('s:')) return;
-    if (deviceSyncOwnEventRidesGate(e.kind)) handleEvent(e);
+    if (deviceSyncOwnEventRidesGate(e.kind)) {
+      handleEvent(e, ownPrefsGuard: ownPrefsGuards[e]);
+    }
   });
   ref.onDispose(ownSub.cancel);
   // REPLAY THE FOLD, once, at start. The live stream only carries what
