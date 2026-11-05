@@ -5774,6 +5774,95 @@ void main() {
           sentAtMs: sentAtMs ?? DateTime.now().millisecondsSinceEpoch,
         );
 
+    for (final restored in [false, true]) {
+      for (final relayed in [false, true]) {
+        test('finished call suppresses clock-skewed replay across its whole '
+            'admission window (restored=$restored relayed=$relayed)', () async {
+          var now = DateTime(2026, 11, 5, 12);
+          final sentAt = now.add(const Duration(seconds: 30));
+          final fake = _FakeMessaging();
+          const id = 'finished-future-stamp';
+          final svc = CallService(
+            fake,
+            now: () => now,
+            loadFinishedCalls: restored
+                ? () async => [
+                    CallLogEntry(
+                      id: id,
+                      peerHex: caller.hex,
+                      outgoing: false,
+                      video: false,
+                      outcome: CallLogOutcome.declined,
+                      atMs: now.millisecondsSinceEpoch,
+                    ),
+                  ]
+                : null,
+          )..start();
+          addTearDown(svc.dispose);
+          svc.isOwnDevice = (peer) async => peer == sibling;
+          await pumpEventQueue();
+          if (!restored) {
+            fake.onCallSignal!(
+              caller,
+              offer(id, sentAtMs: sentAt.millisecondsSinceEpoch),
+            );
+            await pumpEventQueue();
+            expect(
+              svc.current?.status,
+              CallStatus.ringing,
+              reason: 'the initial future stamp is inside tolerated skew',
+            );
+            await svc.reject();
+            expect(svc.current, isNull);
+          }
+          var replayRings = 0;
+          final subscription = svc.changes.listen((call) {
+            if (call?.status == CallStatus.ringing) replayRings++;
+          });
+          addTearDown(subscription.cancel);
+          // The cache used to expire at 90s while this accepted offer remains
+          // within its age gate through 120s, because its sender is 30s ahead.
+          for (final seconds in [91, 120]) {
+            now = DateTime(2026, 11, 5, 12).add(Duration(seconds: seconds));
+            fake.onCallSignal!(
+              relayed ? sibling : caller,
+              offer(
+                id,
+                onBehalfOf: relayed ? caller.hex : null,
+                sentAtMs: sentAt.millisecondsSinceEpoch,
+              ),
+            );
+            await pumpEventQueue();
+            expect(
+              svc.current,
+              isNull,
+              reason: 'a finished call must not ring at +$seconds seconds',
+            );
+          }
+          expect(replayRings, 0);
+          // Once cache evidence may expire, the original offer is stale.
+          now = now.add(const Duration(milliseconds: 1));
+          fake.onCallSignal!(
+            caller,
+            offer(id, sentAtMs: sentAt.millisecondsSinceEpoch),
+          );
+          await pumpEventQueue();
+          expect(svc.current, isNull);
+          fake.onCallSignal!(
+            caller,
+            offer('fresh-after-replay', sentAtMs: now.millisecondsSinceEpoch),
+          );
+          await pumpEventQueue();
+          expect(
+            svc.current?.status,
+            CallStatus.ringing,
+            reason: 'fresh calls must remain available',
+          );
+          expect(replayRings, 1);
+        });
+      }
+    }
+
     for (final type in [CallSignalType.cancel, CallSignalType.end]) {
       for (final relayed in [false, true]) {
         test('${type.name} before an offer keeps the delayed ring silent '
