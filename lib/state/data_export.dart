@@ -38,7 +38,7 @@ import '../domain/data_transfer.dart';
 import '../domain/device_sync.dart';
 import 'device_history_backfill.dart' show deviceMirrorOf;
 import 'transferable_settings.dart';
-import 'device_sync_bridge.dart' show contactPrefsPayload;
+import '../domain/contact_preferences.dart';
 
 /// Files larger than this are named in the archive but their bytes are not
 /// carried.
@@ -421,16 +421,9 @@ class DataExporter {
       final contact = conversation.peer;
       final peerHex = contact.nodeId.hex;
       {
-        await emit(
-          DeviceSyncEvent(
-            kind: DeviceSyncKind.contactUp,
-            key: peerHex,
-            tsMs: nextArchiveStamp(),
-            payload: contactPrefsPayload(contact),
-          ),
-        );
-        // Status rides its own key namespace, exactly as it does live, so an
-        // alias edit and a block cannot overwrite one another.
+        // Materialize a missing contact before its field projections. Unlike
+        // live sync, archive rows are not already present in the group fold
+        // for a later status event to replay.
         await emit(
           DeviceSyncEvent(
             kind: DeviceSyncKind.contactUp,
@@ -439,6 +432,21 @@ class DataExporter {
             payload: {'status': contact.status.name},
           ),
         );
+        await emit(
+          DeviceSyncEvent(
+            kind: DeviceSyncKind.contactUp,
+            key: peerHex,
+            tsMs: nextArchiveStamp(),
+            payload: contactPrefsPayload(contact),
+          ),
+        );
+        final policy = contactPolicyEvent(
+          contact.nodeId,
+          contactPrefsPayload(contact),
+        );
+        if (policy != null) {
+          await emit(policy);
+        }
       }
       step();
 

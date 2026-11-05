@@ -16,6 +16,9 @@ import 'package:xveil/domain/peer_authorization.dart';
 import 'package:xveil/domain/device_sync.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
 import 'package:xveil/state/device_sync_bridge.dart' show awaitDeviceHistoryRoom;
+import 'package:xveil/state/data_import.dart';
+import 'package:xveil/state/app_controller.dart';
+import 'package:xveil/state/device_sync_appliers.dart';
 
 import 'device_fixture.dart';
 import 'e2e_env.dart';
@@ -178,6 +181,35 @@ void main() {
                 await response.writeAsString(jsonEncode({
                   'nonce': request['nonce'], 'pending': records.length,
                 }));
+                await response.rename('${dir.path}/storage-inspected.json');
+                continue;
+              }
+              if (request['importContactArchive'] == true) {
+                final appliers = device!.container.read(deviceSyncAppliersProvider);
+                final before = appliers.failedApplies;
+                final result = <String, Object?>{'nonce': request['nonce']};
+                try {
+                  final report = await DataImporter(
+                    storage: device!.storage,
+                    appliers: appliers,
+                    selfNodeIdHex: device!.container.read(
+                      appControllerProvider,
+                    ).identity!.nodeId.hex,
+                    localDeviceNodeIdHex: await device!.messaging.savedSelfHex(),
+                    groups: device!.groups,
+                  ).run(bytes: File('${dir.path}/contact-fixture.xva').openRead());
+                  result.addAll({
+                    'syncEvents': report.syncEvents,
+                    'newFailedApplies': report.failedApplies - before,
+                    'unconfirmedAppliers': report.unconfirmedAppliers,
+                  });
+                } on ImportRefused catch (error) {
+                  result['refusal'] = error.reason.name;
+                } catch (error) {
+                  result['error'] = error.runtimeType.toString();
+                }
+                final response = File('${dir.path}/storage-inspected.new');
+                await response.writeAsString(jsonEncode(result));
                 await response.rename('${dir.path}/storage-inspected.json');
                 continue;
               }

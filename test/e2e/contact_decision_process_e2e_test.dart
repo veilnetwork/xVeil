@@ -9,6 +9,7 @@ import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/storage/hv_native.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/state/data_export.dart';
 import 'device_process_fixture.dart';
 import 'e2e_env.dart';
 import 'multi_device_process_e2e_test.dart' as base;
@@ -359,6 +360,134 @@ void main() {
         timeout: const Duration(minutes: 2),
       );
       E2eLog.line('PROCESS_CONTACT_POLICY_TIE_CONVERGENCE_PASS');
+      // Import a snapshot through the exact production applier registry while
+      // A is stopped, so live sync cannot accidentally satisfy the archive gate.
+      await a.stop();
+      await b.checked(
+        '/contact_set',
+        query: {'peer': ci, 'name': 'archive-receiver-newer'},
+      );
+      await waitUntil(
+        () => hasPref(b, 'archive-receiver-newer'),
+        what:
+            'receiver already holds a newer metadata event than archive fill clocks',
+      );
+      final archiveClock = DateTime.now().millisecondsSinceEpoch;
+      final archivePeer = NodeId.fromHex('c1' * 32);
+      expect(
+        (await b.call('/contact_info', query: {'peer': archivePeer.hex}))['ok'],
+        false,
+      );
+      final exportStore = HiddenVolumeStorage.async(
+        workerSpaceOpener('${a.dir.path}/store.hv'),
+      );
+      final archiveBytes = <int>[];
+      try {
+        expect(await exportStore.open(password: 'e2e-A-password'), true);
+        await exportStore.updateContactPrefs(
+          NodeId.fromHex(ci),
+          (current) => current.copyWith(
+            disappearingTtlSeconds: 60,
+            disappearingSetAtMs: archiveClock,
+            disappearingSetBy: ownerIdentity,
+          ),
+        );
+        await exportStore.upsertContact(
+          Contact(
+            nodeId: archivePeer,
+            name: 'archive-only-contact',
+            status: ContactStatus.accepted,
+            disappearingTtlSeconds: 120,
+            disappearingSetAtMs: archiveClock,
+            disappearingSetBy: ownerIdentity,
+          ),
+        );
+        await DataExporter(
+          storage: exportStore,
+          nodeIdHex: ownerIdentity,
+          syncedSettingKeys: {},
+        ).run(
+          sink: (bytes) async => archiveBytes.addAll(bytes),
+          includeFiles: false,
+        );
+      } finally {
+        await exportStore.close();
+      }
+      await File(
+        '${b.dir.path}/contact-fixture.xva',
+      ).writeAsBytes(archiveBytes, flush: true);
+      Future<Map> importOwnedArchive() async {
+        final nonce = 'archive-${++_sequence}';
+        final request = File('${b.dir.path}/storage-inspect.new');
+        await request.writeAsString(
+          jsonEncode({'nonce': nonce, 'importContactArchive': true}),
+        );
+        await request.rename('${b.dir.path}/storage-inspect.json');
+        Map? reply;
+        await waitUntil(() async {
+          final file = File('${b.dir.path}/storage-inspected.json');
+          if (!await file.exists()) return false;
+          final value = jsonDecode(await file.readAsString()) as Map;
+          if (value['nonce'] != nonce) return false;
+          reply = value;
+          return true;
+        }, what: 'real worker completes archive import');
+        expect(reply!['refusal'], isNull);
+        expect(reply!['error'], isNull);
+        return reply!;
+      }
+
+      final imported = await importOwnedArchive();
+      expect(imported['newFailedApplies'], 0);
+      // Other registry participants do not all expose a settle callback.
+      // Verify the contact projection itself below, rather than claiming that
+      // the registry can confirm unrelated group/cloud work.
+      E2eLog.line('PROCESS_ARCHIVE_UNCONFIRMED_APPLIERS=${imported['unconfirmedAppliers']}');
+      final archiveObserved = <String, Object?>{};
+      Future<bool> archiveMatches() async {
+        final existing = await b.checked('/contact_info', query: {'peer': ci});
+        final policy = await b.checked('/disappearing', query: {'peer': ci});
+        final fresh = await b.call(
+          '/contact_info',
+          query: {'peer': archivePeer.hex},
+        );
+        final freshPolicy = await b.checked(
+          '/disappearing',
+          query: {'peer': archivePeer.hex},
+        );
+        archiveObserved.addAll({
+          'existing': existing,
+          'policy': policy,
+          'fresh': fresh,
+          'freshPolicy': freshPolicy,
+        });
+        return existing['name'] == 'archive-receiver-newer' &&
+            existing['status'] == 'blocked' &&
+            existing['p2pOverride'] == 'deny' &&
+            policy['ttlSeconds'] == 60 &&
+            policy['setAtMs'] == archiveClock &&
+            fresh['name'] == 'archive-only-contact' &&
+            fresh['status'] == 'accepted' &&
+            freshPolicy['ttlSeconds'] == 120 &&
+            freshPolicy['setAtMs'] == archiveClock;
+      }
+
+      await waitUntil(
+        archiveMatches,
+        what:
+            'archive fills new contact and newer policy without undoing live metadata',
+        describe: () => jsonEncode(archiveObserved),
+        timeout: const Duration(minutes: 2),
+      );
+      E2eLog.line('PROCESS_CONTACT_POLICY_ARCHIVE_MERGE_PASS');
+      final repeated = await importOwnedArchive();
+      expect(repeated['newFailedApplies'], 0);
+      expect(await archiveMatches(), true);
+      E2eLog.line('PROCESS_CONTACT_POLICY_ARCHIVE_REPEAT_PASS');
+      await b.restart();
+      await waitUntil(archiveMatches, what: 'cold receiver retains archive projections',
+          describe: () => jsonEncode(archiveObserved));
+      E2eLog.line('PROCESS_CONTACT_POLICY_ARCHIVE_COLD_PASS');
     },
     skip: gate.skip,
   );

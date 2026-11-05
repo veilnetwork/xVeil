@@ -10,6 +10,7 @@ import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/transport/loopback_transport.dart';
 import 'package:xveil/domain/identity.dart';
+import 'package:xveil/domain/data_transfer.dart';
 import 'package:xveil/features/settings/data_transfer_screen.dart';
 import 'package:xveil/l10n/app_localizations.dart';
 import 'package:xveil/l10n/app_localizations_en.dart';
@@ -33,10 +34,12 @@ class _App extends AppController {
 
 class _Document implements ExportDocument {
   int writes = 0, aborts = 0;
+  final bytes = <int>[];
   final finishing = Completer<void>(), release = Completer<void>();
   @override
   Future<void> write(List<int> bytes) async {
     writes++;
+    this.bytes.addAll(bytes);
   }
 
   @override
@@ -57,11 +60,15 @@ void main() {
   late _App app;
   late MessagingService messaging;
 
-  Future<void> mount(WidgetTester tester, ExportDocumentPicker pick) async {
+  Future<void> mount(
+    WidgetTester tester,
+    ExportDocumentPicker pick, {
+    NodeId? deviceId,
+  }) async {
     final storage = HiddenVolumeStorage.fromStore(FakeKvLogStore());
     app = _App();
     messaging = MessagingService(
-      LoopbackTransport(localNodeId: NodeId(Uint8List(32))),
+      LoopbackTransport(localNodeId: deviceId ?? NodeId(Uint8List(32))),
       storage,
     );
     container = ProviderContainer(
@@ -94,6 +101,36 @@ void main() {
     await messaging.dispose();
     container.dispose();
   });
+
+  testWidgets(
+    'archive belongs to the active identity, not its physical device',
+    (tester) async {
+      final document = _Document()..release.complete();
+      await mount(
+        tester,
+        (_) async => document,
+        deviceId: NodeId(Uint8List(32)..fillRange(0, 32, 7)),
+      );
+      await tester.tap(find.text(l.transferExportOpen));
+      await tester.pumpAndSettle();
+      await tester.runAsync(() async {
+        final reader = await DataTransferReader.open(
+          Stream.value(document.bytes),
+        );
+        try {
+          expect(reader.header.nodeIdHex, app.state.identity!.nodeId.hex);
+          expect(
+            reader.header.nodeIdHex,
+            isNot(await messaging.savedSelfHex()),
+          );
+        } finally {
+          await reader.close();
+        }
+      });
+      await tester.pumpWidget(const SizedBox());
+    },
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+  );
 
   testWidgets(
     'picker failure is caught and shown by the actual export button',

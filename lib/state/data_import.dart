@@ -189,14 +189,16 @@ class DataImporter {
     required Storage storage,
     required DeviceSyncAppliers appliers,
     required String selfNodeIdHex,
+    String? localDeviceNodeIdHex,
     ArchiveGroups? groups,
     List<ArchiveCloud> cloud = const [],
-  }) : this._(storage, appliers, selfNodeIdHex, groups, cloud);
+  }) : this._(storage, appliers, selfNodeIdHex, localDeviceNodeIdHex, groups, cloud);
 
   DataImporter._(
     this._storage,
     this._appliers,
     this._selfNodeIdHex,
+    this._localDeviceNodeIdHex,
     this._groups,
     this._cloud,
   );
@@ -220,6 +222,11 @@ class DataImporter {
   /// The identity this device is running as — empty when it has none yet,
   /// which is the only case in which an archive may bring one.
   final String _selfNodeIdHex;
+
+  /// Trusted current transport id, captured by the caller with the identity.
+  /// Older archives used this device's id as owner. This permits its own old
+  /// archives, never arbitrary device ids claimed by an archive or document.
+  final String? _localDeviceNodeIdHex;
 
   bool _claimedByCloud(DeviceSyncEvent event) {
     for (final layer in _cloud) {
@@ -362,7 +369,9 @@ class DataImporter {
     final header = reader.header;
 
     final self = _selfNodeIdHex.trim();
-    if (self.isNotEmpty && header.nodeIdHex != self) {
+    if (self.isNotEmpty &&
+        header.nodeIdHex != self &&
+        header.nodeIdHex != _localDeviceNodeIdHex) {
       throw ImportRefused(
         ImportRefusal.otherIdentity,
         archiveNodeId: header.nodeIdHex,
