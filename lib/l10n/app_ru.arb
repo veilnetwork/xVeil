@@ -98,6 +98,7 @@
   "navSettings": "Настройки",
   "navCalls": "Звонки",
   "callLogEmpty": "Пока нет звонков",
+  "callLogLoadFailed": "Не удалось загрузить историю звонков",
   "callLogEmptyHint": "Здесь появятся звонки, сделанные и принятые на любом из ваших устройств",
   "callOutcomeMissed": "Пропущенный",
   "callKindVoice": "Голосовой звонок",
