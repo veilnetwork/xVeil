@@ -1,0 +1,139 @@
+{
+  "scope": "sampled native audio payload progress; not human audibility",
+  "controlledAB": false,
+  "cases": {
+    "in-call": {
+      "incomingAfterRequestMs": 157,
+      "endpoints": {
+        "phone": {
+          "sampleCount": 173,
+          "maxSampleGapMs": 822,
+          "unexpectedCallSamples": 0,
+          "firstFreshAfterRequestMs": 1636,
+          "tailFresh": true,
+          "firstFreshAfterCutMs": 18943,
+          "maxNativeRxAgeBeforeWifiReturnMs": 18107,
+          "maxNativeRxAgeDuringWifiReturnMs": 3274,
+          "observedTransportChangesAfterCut": [
+            {
+              "afterCutMs": 203,
+              "transport": "p2p"
+            },
+            {
+              "afterCutMs": 19509,
+              "transport": "relay"
+            },
+            {
+              "afterCutMs": 34507,
+              "transport": "p2p"
+            }
+          ]
+        },
+        "windows": {
+          "sampleCount": 173,
+          "maxSampleGapMs": 822,
+          "unexpectedCallSamples": 0,
+          "firstFreshAfterRequestMs": 1636,
+          "tailFresh": true,
+          "firstFreshAfterCutMs": 20044,
+          "maxNativeRxAgeBeforeWifiReturnMs": 19190,
+          "maxNativeRxAgeDuringWifiReturnMs": 3418,
+          "observedTransportChangesAfterCut": [
+            {
+              "afterCutMs": 203,
+              "transport": "p2p"
+            },
+            {
+              "afterCutMs": 18943,
+              "transport": "relay"
+            },
+            {
+              "afterCutMs": 35575,
+              "transport": "p2p"
+            }
+          ]
+        }
+      },
+      "firstSampledValidatedCellularAfterCutMs": 1121
+    },
+    "post-switch": {
+      "incomingAfterRequestMs": 14585,
+      "endpoints": {
+        "phone": {
+          "sampleCount": 54,
+          "maxSampleGapMs": 1081,
+          "unexpectedCallSamples": 0,
+          "firstFreshAfterRequestMs": 16826,
+          "tailFresh": true
+        },
+        "windows": {
+          "sampleCount": 54,
+          "maxSampleGapMs": 1081,
+          "unexpectedCallSamples": 0,
+          "firstFreshAfterRequestMs": 16826,
+          "tailFresh": true
+        }
+      }
+    },
+    "relay-only": {
+      "incomingAfterRequestMs": 89,
+      "endpoints": {
+        "phone": {
+          "sampleCount": 173,
+          "maxSampleGapMs": 738,
+          "unexpectedCallSamples": 0,
+          "firstFreshAfterRequestMs": 771,
+          "tailFresh": true,
+          "firstFreshAfterCutMs": 10296,
+          "maxNativeRxAgeBeforeWifiReturnMs": 9565,
+          "maxNativeRxAgeDuringWifiReturnMs": 1311,
+          "observedTransportChangesAfterCut": [
+            {
+              "afterCutMs": 229,
+              "transport": "relay"
+            }
+          ]
+        },
+        "windows": {
+          "sampleCount": 173,
+          "maxSampleGapMs": 738,
+          "unexpectedCallSamples": 0,
+          "firstFreshAfterRequestMs": 1298,
+          "tailFresh": true,
+          "firstFreshAfterCutMs": 10296,
+          "maxNativeRxAgeBeforeWifiReturnMs": 9537,
+          "maxNativeRxAgeDuringWifiReturnMs": 1177,
+          "observedTransportChangesAfterCut": [
+            {
+              "afterCutMs": 229,
+              "transport": "relay"
+            }
+          ]
+        }
+      },
+      "firstSampledValidatedCellularAfterCutMs": 1049
+    }
+  },
+  "nativeCancellationByAttachment": [
+    {
+      "attachment": "cellular",
+      "interruptionsWithinFirstSecond": 5,
+      "interruptionsAfterFirstSecond": 0
+    },
+    {
+      "attachment": "wifi",
+      "interruptionsWithinFirstSecond": 0,
+      "interruptionsAfterFirstSecond": 0
+    },
+    {
+      "attachment": "cellular",
+      "interruptionsWithinFirstSecond": 5,
+      "interruptionsAfterFirstSecond": 0
+    },
+    {
+      "attachment": "wifi",
+      "interruptionsWithinFirstSecond": 0,
+      "interruptionsAfterFirstSecond": 0
+    }
+  ]
+}
