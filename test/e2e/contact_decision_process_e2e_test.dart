@@ -152,6 +152,58 @@ void main() {
         timeout: const Duration(minutes: 2),
       );
       E2eLog.line('PROCESS_CONTACT_PREFS_COLD_PASS');
+      // Exact durable post-commit/pre-callback state, with no application
+      // running on A. Boot must publish the stored snapshot/version, not mint
+      // a fresh version or read an older folded contact projection instead.
+      await a.stop();
+      final offline = HiddenVolumeStorage.async(
+        workerSpaceOpener('${a.dir.path}/store.hv'),
+      );
+      late int preferenceTime;
+      try {
+        expect(await offline.open(password: 'e2e-A-password'), true);
+        await offline.updateContactPrefs(
+          NodeId.fromHex(ci),
+          (current) =>
+              current.copyWith(name: 'stand-durable-prefs', archived: false),
+          queueForSync: true,
+        );
+        preferenceTime = (await offline.pendingContactPreferences())
+            .singleWhere((r) => r.peer.hex == ci)
+            .atMs;
+      } finally {
+        await offline.close();
+      }
+      E2eLog.line('PROCESS_CONTACT_PREFS_UNPUBLISHED_CONFIRMED');
+      await a.start();
+      final bootPrefs = <String, Object?>{};
+      Future<bool> restoredPrefs(ProcessDevice device) async {
+        final value = await device.checked(
+          '/contact_info',
+          query: {'peer': ci},
+        );
+        final events =
+            (await device.checked('/device_events'))['events'] as Map;
+        final event = events['contactUp|$ci'];
+        bootPrefs[device == a ? 'A' : 'B'] = value;
+        return value['name'] == 'stand-durable-prefs' &&
+            value['pinned'] == true &&
+            value['archived'] == false &&
+            value['status'] == 'blocked' &&
+            (device != b || value['p2pOverride'] == 'deny') &&
+            event is Map &&
+            event['ts'] == preferenceTime &&
+            (event['payload'] as Map)['name'] == 'stand-durable-prefs';
+      }
+
+      await waitUntil(
+        () async => await restoredPrefs(a) && await restoredPrefs(b),
+        what:
+            'boot publishes the committed preference snapshot with its stored version',
+        describe: () => jsonEncode(bootPrefs),
+        timeout: const Duration(minutes: 2),
+      );
+      E2eLog.line('PROCESS_CONTACT_PREFS_BOOT_RECOVERY_PASS');
     },
     skip: gate.skip,
   );

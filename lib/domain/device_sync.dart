@@ -589,6 +589,18 @@ class DeviceSyncApplyGate {
   /// entry per conversation, setting and journal row for the bridge's lifetime.
   int get pendingSlots => _chains.length;
 
+  /// Join only this event's slot. A status plan may replay preferences after
+  /// materializing a contact; waiting for the whole gate there waits for
+  /// itself. Keep the replay ordered with already admitted preference work.
+  Future<void> settleSlot(DeviceSyncEvent event, {int rounds = 64}) async {
+    final slot = slotOf(event);
+    for (var i = 0; i < rounds; i++) {
+      final pending = _chains[slot];
+      if (pending == null) return;
+      await pending;
+    }
+  }
+
   /// Wait for everything admitted so far to finish.
   ///
   /// [offer] returns as soon as it has DECIDED — the write itself is queued
