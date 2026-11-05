@@ -68,13 +68,16 @@ class _Held extends HiddenVolumeStorage {
 }
 
 class _Wire extends LoopbackTransport {
-  _Wire() : super(localNodeId: id(1));
+  _Wire({NodeId? local}) : super(localNodeId: local ?? id(1));
+  final sent = <Uint8List>[];
   @override
   Future<void> send(
     NodeId dst,
     Uint8List payload, {
     bool anonymous = false,
-  }) async {}
+  }) async {
+    sent.add(Uint8List.fromList(payload));
+  }
 }
 
 Future<bool> _mirror(MessagingService s, {DisappearingSetting? policy}) =>
@@ -103,7 +106,7 @@ class _Fixture {
   }
 }
 
-Future<_Fixture> _fixture(bool native, {DateTime? now}) async {
+Future<_Fixture> _fixture(bool native, {DateTime? now, NodeId? self}) async {
   Directory? dir;
   late AsyncSpaceOpener open;
   if (native) {
@@ -123,7 +126,7 @@ Future<_Fixture> _fixture(bool native, {DateTime? now}) async {
     open = ({required password, required bool create}) async =>
         SyncWrappedAsyncKvLogStore(kv);
   }
-  final storage = _Held(open), wire = _Wire();
+  final storage = _Held(open), wire = _Wire(local: self);
   final f = _Fixture(
     storage,
     wire,
@@ -138,6 +141,99 @@ Future<_Fixture> _fixture(bool native, {DateTime? now}) async {
 
 void main() {
   for (final native in [false, true]) {
+    test(
+      'same-clock policy delivery keeps both recipients native=$native',
+      () async {
+        final fixed = DateTime.now().toUtc();
+        final f = await _fixture(native, now: fixed);
+        final s = f.storage, svc = f.service;
+        for (final p in [id(2), id(3)]) {
+          await s.upsertContact(
+            Contact(nodeId: p, status: ContactStatus.accepted),
+          );
+        }
+        await svc.setContactDisappearing(id(2), 60);
+        await svc.setContactDisappearing(id(3), 120);
+        final frames = (await s.pendingOutboxFrames())
+            .where((f) => f.frameId.startsWith('disap:'))
+            .toList();
+        expect(
+          frames.map((f) => f.peerHex).toSet(),
+          {id(2).hex, id(3).hex},
+          reason: 'both offline destinations must retain their own obligation',
+        );
+        expect(frames.map((f) => f.frameId).toSet(), hasLength(2));
+        final byPeer = {for (final frame in frames) frame.peerHex: frame};
+        for (final peer in [id(2), id(3)]) {
+          final row = byPeer[peer.hex]!;
+          final env = WireEnvelope.decode(row.wire);
+          expect(env.kind, WireKind.disappearingSet);
+          expect(
+            (jsonDecode(env.body) as Map)['ttl'],
+            peer == id(2) ? 60 : 120,
+          );
+          // Repeating the SAME recipient/revision must still deduplicate.
+          await svc.sendDurable(peer, row.frameId, env);
+        }
+        expect(await s.pendingOutboxFrames(), hasLength(2));
+        await svc.dispose();
+        await s.close();
+        expect(await s.open(password: 'fixture'), true);
+        var sender = MessagingService(f.wire, s, now: () => fixed);
+        addTearDown(() => sender.dispose());
+        expect((await s.pendingOutboxFrames()).map((f) => f.peerHex).toSet(), {
+          id(2).hex,
+          id(3).hex,
+        });
+        Future<void> receive(
+          MessagingService receiver,
+          NodeId source,
+          Uint8List wire,
+        ) => receiver.deliverInbound(
+          InboundMessage(
+            src: source,
+            payload: wire,
+            provenance: SenderProvenance.sessionPeer,
+          ),
+        );
+        final receivers = <int, _Fixture>{};
+        for (final n in [2, 3]) {
+          final receiver = await _fixture(native, self: id(n));
+          receivers[n] = receiver;
+          await receiver.storage.upsertContact(
+            Contact(nodeId: id(1), status: ContactStatus.accepted),
+          );
+          final row = byPeer[id(n).hex]!;
+          await receive(receiver.service, id(1), row.wire);
+          await receive(receiver.service, id(1), row.wire);
+          final policy = (await receiver.storage.getContact(id(1)))!;
+          expect(policy.disappearingTtlSeconds, n == 2 ? 60 : 120);
+          expect(policy.disappearingSetAtMs, fixed.millisecondsSinceEpoch);
+          expect(policy.disappearingSetBy, id(1).hex);
+          expect(
+            (await receiver.storage.loadMessages(
+              id(1).hex,
+            )).where((m) => m.id.startsWith('sys:disap:')),
+            hasLength(1),
+          );
+        }
+        Uint8List ack(int n) => receivers[n]!.wire.sent.firstWhere(
+          (wire) => WireEnvelope.decode(wire).kind == WireKind.ack,
+        );
+        // A valid contact cannot acknowledge another recipient's obligation.
+        await receive(sender, id(3), ack(2));
+        expect(await s.pendingOutboxFrames(), hasLength(2));
+        await receive(sender, id(2), ack(2));
+        expect((await s.pendingOutboxFrames()).single.peerHex, id(3).hex);
+        await sender.dispose();
+        await s.close();
+        expect(await s.open(password: 'fixture'), true);
+        sender = MessagingService(f.wire, s, now: () => fixed);
+        expect((await s.pendingOutboxFrames()).single.peerHex, id(3).hex);
+        await receive(sender, id(3), ack(3));
+        expect(await s.pendingOutboxFrames(), isEmpty);
+      },
+    );
     for (final mode in ['latest', 'other-peer', 'failed', 'closed']) {
       test('own preference witness native=$native mode=$mode', () async {
         final f = await _fixture(native);

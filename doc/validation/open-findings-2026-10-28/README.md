@@ -1,5 +1,19 @@
 # Открытые случаи — обновлено 2026-11-05
 
+Текущий шаг: [коллизия recipient/revision в доставке disappearing policy](../disappearing-recipient-outbox-2026-11-05/README.md).
+ПОДТВЕРЖДЕНО: ID из setAtMs/setBy был общим для разных контактов, а Outbox
+ключуется глобально по frameId. При совпадении этих полей второй адресат не
+получал durable обязанность доставки; два assertion-red (ordinary/native).
+Теперь ID содержит адресата. Повтор того же recipient/revision дедуплицируется;
+обе записи переживают reopen, настоящие inbound policy и ACK проходят,
+чужой ACK не удаляет запись, повтор не дублирует marker. 141 scoped,
+671 diagnostic control, 2042 broad passed / 3 skipped; analyzer чистый.
+Это локальный storage/dispatch regression на трёх endpoint, не физический
+reconnect/звонок. Старая несохранённая обязанность не восстанавливается.
+Исходный Windows случай, durable публикация preferences и полная матрица
+остаются открытыми. Blackview/сиды/engine pins/own-device mailbox не менялись;
+push/релиза нет.
+
 Текущий шаг: [атомарные настройки контакта и собственные старые проекции](../contact-preference-atomic-2026-11-05/README.md).
 ПОДТВЕРЖДЕНО: stale Contact DTO мог вернуть pending после accept, отменить
 block/P2P deny/TTL/архив и воссоздать удалённый contact. 22 baseline assertion-red
