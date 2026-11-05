@@ -12,6 +12,7 @@ import 'package:xveil/domain/group_call.dart';
 import 'package:xveil/state/veil_group_call_media.dart';
 import 'package:xveil/state/call_audio_buffer_window.dart';
 import 'package:xveil/state/call_network_activity.dart';
+import 'package:xveil/state/android_call_foreground.dart';
 
 NodeId _id(int byte) => NodeId(Uint8List.fromList(List.filled(32, byte)));
 
@@ -64,7 +65,200 @@ Map<String, dynamic> _sourceStats(List<NodeId> peers, {int delay = 100}) => {
   },
 };
 
+class _StartGate {
+  _StartGate(this.stage);
+  final String stage;
+  final entered = Completer<void>(), ready = Completer<void>();
+  bool used = false;
+
+  Future<void> pause(String at) async {
+    if (stage != at || used) return;
+    used = true;
+    entered.complete();
+    await ready.future;
+  }
+}
+
+class _CancelledStartTransport extends _FakeTransport {
+  _CancelledStartTransport(super.self, this.gate);
+  final _StartGate gate;
+
+  @override
+  Future<Uint8List> localNodeId() async {
+    await gate.pause('identity');
+    return super.localNodeId();
+  }
+
+  @override
+  Future<int> open(
+    NodeId peer, {
+    required Uint8List txKey,
+    required Uint8List rxKey,
+  }) async {
+    final channel = await super.open(peer, txKey: txKey, rxKey: rxKey);
+    await gate.pause('channel');
+    return channel;
+  }
+}
+
+class _CancelledStartEngine extends _FakeEngine {
+  int disposed = 0;
+  @override
+  void dispose() {
+    disposed++;
+  }
+}
+
 void main() {
+  for (final stage in [
+    'permission',
+    'identity',
+    'activity',
+    'foreground',
+    'secret',
+    'channel',
+  ]) {
+    for (final action in ['keep', 'stop', 'replace', 'queued-stop-replace']) {
+      test('group start cancellation at $stage with $action', () async {
+        final self = _id(1), peers = [_id(2), _id(3)];
+        final gate = _StartGate(stage);
+        final transport = _CancelledStartTransport(self, gate);
+        final engines = <_CancelledStartEngine>[];
+        final grants = <bool>[], foreground = <bool>[];
+        final secrets = <Uint8List>[];
+        AndroidCallForegroundService.debugReset();
+        AndroidCallForegroundService.debugInvokeOverride = (active) async {
+          foreground.add(active);
+          if (active) await gate.pause('foreground');
+          return true;
+        };
+        final activity = CallNetworkActivity(
+          setActive: (active) async {
+            grants.add(active);
+            if (active) await gate.pause('activity');
+            return active;
+          },
+        );
+        final controller = VeilGroupCallMediaController(
+          transport,
+          roomMediaSecret: (_) async {
+            await gate.pause('secret');
+            final secret = _secret(0x5a);
+            secrets.add(secret);
+            return secret;
+          },
+          engineFactory: (_) {
+            final engine = _CancelledStartEngine();
+            engines.add(engine);
+            return engine;
+          },
+          requestMicrophone: () async {
+            await gate.pause('permission');
+            return true;
+          },
+          networkActivity: activity,
+        );
+        final starting = controller.start(_call(self, peers));
+        Future<void>? stopping;
+        Future<bool>? replacement;
+        Future<bool>? superseded;
+        try {
+          await gate.entered.future.timeout(const Duration(seconds: 5));
+          final retired = List<_CancelledStartEngine>.of(engines);
+          if (action == 'stop') stopping = controller.stop();
+          if (action == 'replace') {
+            await controller.setMicMuted(true);
+            replacement = controller.start(_call(self, peers));
+          }
+          if (action == 'queued-stop-replace') {
+            await controller.setMicMuted(true);
+            superseded = controller.start(_call(self, peers));
+            stopping = controller.stop();
+            replacement = controller.start(_call(self, peers));
+          }
+          gate.ready.complete();
+          final result = await starting;
+          if (superseded != null) expect(await superseded, isFalse);
+          await stopping;
+          if (replacement != null) expect(await replacement, isTrue);
+          if (action == 'replace') {
+            expect(
+              engines.last.audioStartMuted,
+              [true],
+              reason: 'same-call replacement must retain a live mute choice',
+            );
+          }
+          if (action == 'queued-stop-replace') {
+            expect(
+              engines.last.audioStartMuted,
+              [false],
+              reason: 'an explicit stop ends the previous call mute lifetime',
+            );
+          }
+          expect(
+            {
+              'startResult': result,
+              'audioStarts': engines.fold<int>(
+                0,
+                (n, engine) => n + engine.started,
+              ),
+            },
+            {
+              'startResult': action == 'keep',
+              'audioStarts': action == 'stop' ? 0 : 1,
+            },
+            reason: 'a retired start must not capture or publish success',
+          );
+          if (action != 'keep') {
+            for (final engine in retired) {
+              expect(engine.started, 0);
+              expect(engine.added, isEmpty);
+              expect(engine.disposed, 1);
+            }
+          }
+          final expectedOpens = action == 'keep'
+              ? peers.length
+              : (stage == 'channel' ? 1 : 0) +
+                    (replacement != null ? peers.length : 0);
+          expect(
+            transport.opened,
+            hasLength(expectedOpens),
+            reason: 'cancellation cannot open more peer channels',
+          );
+          if (stage == 'channel' && action != 'keep') {
+            expect(
+              transport.closed.where((channel) => channel == 1),
+              hasLength(1),
+              reason: 'the late admitted channel is reclaimed once',
+            );
+          }
+          expect(
+            secrets.every((secret) => secret.every((byte) => byte == 0)),
+            isTrue,
+          );
+          if (action == 'stop') {
+            expect(AndroidCallForegroundService.isActive, isFalse);
+            expect(grants.isEmpty || !grants.last, isTrue);
+          } else {
+            expect(AndroidCallForegroundService.isActive, isTrue);
+            expect(grants.last, isTrue);
+          }
+        } finally {
+          if (!gate.ready.isCompleted) gate.ready.complete();
+          try {
+            await starting;
+            await stopping;
+            await replacement;
+            await superseded;
+          } finally {
+            await controller.stop();
+            AndroidCallForegroundService.debugReset();
+          }
+        }
+      });
+    }
+  }
+
   test('group capture waits for stored processing choice', () async {
     final self = _id(1), peer = _id(2);
     final ready = Completer<void>();

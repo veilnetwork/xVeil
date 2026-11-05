@@ -1,5 +1,15 @@
 # Открытые случаи — обновлено 2026-11-05
 
+Последнее исправление: [отмена группового запуска](../group-start-cancel-2026-11-05/README.md).
+ПОДТВЕРЖДЕНО: stop ожидал в очереди, а старый group start после permission/IPC
+открывал peer channels и запускал capture. Поколение запроса теперь меняется
+до ожидания очереди; late channel и ключи очищаются до допуска преемника.
+18 baseline assertion-red / 6 passed; финальные 24 случая и контроль 420 passed
+/ без skip, analyzer чистый. Same-call mute сохраняется; промежуточная потеря
+intent поймана четырьмя red и исправлена. Это controller-квалификация на Mac,
+не physical audio/Android FGS; исходные тишина и NETCALL-01 открыты. ADB пуст.
+Native pins, сиды, push и релиз не менялись.
+
 Последнее исправление: [отбой во время подготовки медиа](../media-preflight-cancel-2026-11-05/README.md).
 ПОДТВЕРЖДЕНО: после stop во время чтения prefs прежний start заново приобретал
 network activity и оставлял grant удержанным; более поздние отмены допускали
