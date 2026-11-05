@@ -1,5 +1,16 @@
 # Открытые случаи — обновлено 2026-11-05
 
+Текущий шаг: [один запрос отпечатка](../android-single-biometric-2026-11-05/README.md).
+Владелец подтвердил работоспособность `0.13.94-fingerprint.1`, но при холодном
+входе нужны два касания. Android read переведён на свежий CryptoObject при
+каждом входе, без отдельного LocalAuth и без plaintext-key cache plugin.
+KeyInfo/strong-biometric policy, отмена/stop/dispose и поздние результаты
+защищены. Два baseline-red, 80 Flutter tests passed, Kotlin gate smoke и
+analyzer прошли. QA/обычный release APK собраны. Физическая квалификация
+ожидает USB-установки и отпечатка владельца: Android отклонил установку probe.
+Один диалог на телефоне пока не заявлен; основная установленная версия —
+`0.13.94-fingerprint.1`. Push/релиза и изменений сидов нет.
+
 Последнее исправление: [быстрый вход по отпечатку на Poco](../android-biometric-startup-2026-11-05/README.md).
 ПОДТВЕРЖДЕНО: запрет marker-less migration в secure-storage 10.3.4 блокировал
 инициализацию нового биометрического namespace. Разрешён штатный путь с

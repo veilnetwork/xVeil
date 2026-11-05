@@ -5,6 +5,7 @@ import 'dart:math';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'local_authentication.dart';
@@ -52,6 +53,22 @@ class QuickUnlockSecretStore {
   );
   Future<String?> read(String key, {bool biometric = false}) =>
       _store(biometric, key).read(key: key);
+  Future<String?> readAuthenticated(
+    String key,
+    String reason,
+    LocalScreenAuthentication authentication,
+  ) async {
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      // The native bridge unwraps through a fresh CryptoObject on EVERY read.
+      // The plugin's ordinary read caches its unwrapped key in this process.
+      return const MethodChannel(
+        'xveil/quick_unlock',
+      ).invokeMethod<String>('read', {'key': key, 'reason': reason});
+    }
+    if (!await authentication.authenticate(reason)) return null;
+    return read(key, biometric: true);
+  }
+
   Future<void> write(String key, String value, {bool biometric = false}) =>
       _store(biometric, key).write(key: key, value: value);
   Future<void> delete(String key, {bool biometric = false}) =>
@@ -342,14 +359,13 @@ class QuickUnlockVault {
     final generation = _generation;
     final r = await _read();
     if (r?['system'] != true) return null;
-    // Windows DPAPI and macOS Keychain protect storage at rest; OS consent is
-    // checked separately. Android/iOS also enforce auth on the secret read.
-    if (!await authentication.authenticate(reason)) {
-      return null;
-    }
     final slot = r?['bioSlot'];
     if (slot is! String || slot.length > 64) return null;
-    final raw = await store.read(_bioKey(slot), biometric: true);
+    final raw = await store.readAuthenticated(
+      _bioKey(slot),
+      reason,
+      authentication,
+    );
     if (raw == null ||
         generation != _generation ||
         (await _read())?['id'] != r!['id']) {
