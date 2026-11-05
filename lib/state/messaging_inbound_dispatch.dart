@@ -1571,6 +1571,7 @@ extension _MessagingInboundDispatch on MessagingService {
                 'xVeil[recv]: disappearingSet from ${m.src.short} NOT applied '
                 '($e) — left unacked so the sender re-drives it',
           );
+          _declinedLocally(m, 'disappearing policy could not be stored');
           return;
         }
         await settleDisappearing();

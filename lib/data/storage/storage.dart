@@ -123,6 +123,15 @@ abstract interface class Storage {
 
   Future<void> upsertContact(Contact contact);
 
+  /// Apply a synchronous preference transform to the latest contact while
+  /// holding its storage write turn. No creation and no relationship change.
+  /// Null from the transform declines the update. The returned record is the
+  /// committed one; callbacks must not publish an earlier caller snapshot.
+  Future<Contact?> updateContactPrefs(
+    NodeId peer,
+    Contact? Function(Contact current) update,
+  );
+
   /// Change a local relationship, preserving its current other fields.
   /// Accepted/blocked decisions queue device publication in the same commit.
   Future<void> setContactStatus(NodeId peer, ContactStatus status);
