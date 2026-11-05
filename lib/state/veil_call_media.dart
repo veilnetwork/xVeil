@@ -2305,43 +2305,72 @@ class VeilCallMediaController implements CallMediaController {
 
   @override
   Future<bool> setVideoEnabled(bool enabled) async {
-    final engine = _engine;
     final call = _activeCall;
-    if (!enabled || engine == null || call == null) return false;
+    if (!enabled || call == null || (_engine == null && !_routeRepairing)) {
+      return false;
+    }
     if (call.media.video || call.media.screen) return true; // already mounted
+    bool sameCall() =>
+        _activeCall?.callId == call.callId &&
+        _activeCall?.mediaIdentity == call.mediaIdentity;
     // Same bounded Apple TCC pre-prompt as a video call's start(): never let
-    // the permission sheet block the running call.
+    // the permission sheet hold the route-repair queue of the running call.
     final granted = await MacMediaPermissions.requestCamera().timeout(
       const Duration(seconds: 5),
       onTimeout: () => false,
     );
+    if (!sameCall()) return false;
     devLog(() => 'xVeil[call-media]: mid-call camera permission=$granted');
-    final profile = _highQualityRoute
-        ? _directVideoProfile
-        : _anonymousVideoProfile;
-    final adapter = _videoAdapterForProfile(profile, engine);
-    if (!_prepareVideoAudioAdmission(call, engine, adapter)) return false;
-    final target = adapter.targetForStart;
-    final bool ok;
-    try {
-      ok = engine.startVideo(
-        send: true,
-        recv: true,
-        maxBitrateKbps: target.maxBitrateKbps,
-        maxFps: target.maxFps,
-      );
-    } catch (_) {
-      return false;
-    }
-    devLog(() => 'xVeil[call-media]: mid-call video mount=$ok');
-    if (!ok) return false;
-    await callAudioRouter.useDefaultFor(call.media.copyWith(video: true));
-    if (Platform.isAndroid) await _startAndroidVideoRenderer(engine);
-    // Keep the session's own call view carrying video, so a route repair or
-    // switch rebuilds the upgraded media set rather than the audio-only offer.
-    _activeCall = call.copyWith(media: call.media.copyWith(video: true));
-    if (_frameTimer == null) _startFramePump(engine);
-    return true;
+    return _routeOperations.runForCall(
+      call.callId,
+      () => _activeCall?.callId,
+      () async {
+        // Permission belongs to the logical call. A repair may have replaced
+        // its engine while the prompt was pending; mount on the current one.
+        final engine = _engine;
+        if (!sameCall() || engine == null) return false;
+        final currentCall = _activeCall!;
+        if (currentCall.media.video || currentCall.media.screen) return true;
+        final epoch = _mediaEpoch;
+        bool isCurrent() =>
+            sameCall() && _mediaEpoch == epoch && _engine == engine;
+        final profile = _highQualityRoute
+            ? _directVideoProfile
+            : _anonymousVideoProfile;
+        final adapter = _videoAdapterForProfile(profile, engine);
+        if (!_prepareVideoAudioAdmission(currentCall, engine, adapter)) {
+          return false;
+        }
+        final target = adapter.targetForStart;
+        final bool ok;
+        try {
+          ok = engine.startVideo(
+            send: true,
+            recv: true,
+            maxBitrateKbps: target.maxBitrateKbps,
+            maxFps: target.maxFps,
+          );
+        } catch (_) {
+          return false;
+        }
+        devLog(() => 'xVeil[call-media]: mid-call video mount=$ok');
+        if (!ok) return false;
+        await callAudioRouter.useDefaultFor(
+          currentCall.media.copyWith(video: true),
+        );
+        if (!isCurrent()) return false;
+        if (Platform.isAndroid) await _startAndroidVideoRenderer(engine);
+        if (!isCurrent()) return false;
+        // Keep newer mic/camera/screen intent and a committed route instead of
+        // restoring the snapshot taken before permission or platform awaits.
+        final current = _activeCall!;
+        _activeCall = current.copyWith(
+          media: current.media.copyWith(video: true),
+        );
+        if (_frameTimer == null) _startFramePump(engine);
+        return true;
+      },
+    );
   }
 
   @override
