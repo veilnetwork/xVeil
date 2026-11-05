@@ -1,5 +1,19 @@
 # Открытые случаи — обновлено 2026-11-05
 
+Текущий шаг: [актуальный звук Windows ↔ Android](../current-audio-windows-android-2026-11-05/README.md).
+Свежие DLL/ELF из текущего C++, все 107 API, source/binary guards. Два
+принятых QA-вызова на Windows 11 + Blackview: наблюдение 39,905/81,450 с,
+capture/playout=1 и RTP в обе стороны. Ненулевые цифровые уровни наблюдались,
+но попытка речевого стимула не квалифицирована по timeline; слышимость
+человеком не проверена. NS off/on через
+UI Android достиг native без смены call/epoch, AEC/AGC сохранились.
+Реальные UI-отчёты прошли allowlist/canary аудит: Android 251, Windows 289
+событий; по два audioStart/callEnded. В Windows есть отдельный
+TransportUnavailable из peer-sync, связь со звуком не установлена.
+Исходный Poco/mobile случай и акустическое качество открыты. Engine release
+pins ещё не обновлены. Стенд остановлен, задачи/forward/временные файлы убраны;
+основные приложения, сиды, mailbox, push/релиз не менялись.
+
 Текущий шаг: [порядок приветствия при повторах запроса](../contact-greeting-order-2026-11-05/README.md).
 ПОДТВЕРЖДЕНО: request не передавал сохранённый seq; undecided retries
 перенумеровывали приветствие, resend терял timestamp. Реальный messaging/storage
