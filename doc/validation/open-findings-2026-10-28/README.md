@@ -1,5 +1,18 @@
 # Открытые случаи — обновлено 2026-11-05
 
+Последнее исправление: [чтение журнала звонков и граница личности](../call-journal-read-2026-11-05/README.md).
+ПОДТВЕРЖДЕНО: отказ namespace-read выдавался за пустой журнал, навсегда завершал
+legacy migration без публикации и экспортировал ложный restore success.
+Восемь ordinary/worker-native assertion-red; ошибка теперь передаётся caller,
+миграция остаётся повторяемой. Экран показывает отказ и повтор. Ещё два UI-red
+закрыли прежние строки при смене личности и contact lookup старого чтения в
+новом storage. Scoped 67, consumer control 811 passed / 3 skipped, финальные
+widget 5 passed; analyzer чистый. Process A/B/C с post-commit SIGKILL writer:
+итоговая запись сохранилась и дошла обоим без дублей; 26 PID / 24 порта закрыты.
+Отказ restore по-прежнему не блокирует свежие звонки; replay при недоступной
+истории и исходная жалоба на звук этим не объявлены исправленными.
+Push/релиза, изменений сидов, engine pins и own-device mailbox нет.
+
 Последняя квалификация: [partition и revoke](../partition-revoke-recheck-2026-11-05/README.md).
 Три native/process suite прошли: четыре устройства сошлись после split-brain,
 edit/delete/reactions/read и cold restart B; отозванный B после получения

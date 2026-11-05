@@ -5497,24 +5497,24 @@ class HiddenVolumeStorage
   Future<List<({int logId, CallLogEntry entry})>>
   _readCallLogNamespace() async {
     final out = <({int logId, CallLogEntry entry})>[];
-    try {
-      final rows = await _as.iterLogRange(
-        namespace: Ns.callLog,
-        start: null,
-        limit: _logScanLimit,
-      );
-      for (final r in rows) {
-        try {
-          final m = jsonDecode(utf8.decode(r.payload));
-          if (m is! Map) continue;
-          final e = CallLogEntry.fromJson(Map<String, dynamic>.from(m));
-          if (e != null) out.add((logId: r.logId, entry: e));
-        } catch (_) {
-          // Skip one unreadable row; never lose the journal to a bad record.
-        }
+    // Namespace I/O failure is not an empty journal: the publisher would
+    // permanently finish its legacy seed without saving any obligations, and
+    // finished-call restore would report success with no replay evidence.
+    // Propagate it so each caller can retry or report its own bounded failure.
+    final rows = await _as.iterLogRange(
+      namespace: Ns.callLog,
+      start: null,
+      limit: _logScanLimit,
+    );
+    for (final r in rows) {
+      try {
+        final m = jsonDecode(utf8.decode(r.payload));
+        if (m is! Map) continue;
+        final e = CallLogEntry.fromJson(Map<String, dynamic>.from(m));
+        if (e != null) out.add((logId: r.logId, entry: e));
+      } catch (_) {
+        // A malformed row does not hide the remaining readable records.
       }
-    } catch (_) {
-      // Unreadable namespace → empty journal (same stance as the outbox).
     }
     return out;
   }

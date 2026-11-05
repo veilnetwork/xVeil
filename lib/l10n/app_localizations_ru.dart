@@ -352,6 +352,9 @@ class AppL10nRu extends AppL10n {
   String get callLogEmpty => 'Пока нет звонков';
 
   @override
+  String get callLogLoadFailed => 'Не удалось загрузить историю звонков';
+
+  @override
   String get callLogEmptyHint =>
       'Здесь появятся звонки, сделанные и принятые на любом из ваших устройств';
 

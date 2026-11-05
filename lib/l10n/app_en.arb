@@ -98,6 +98,7 @@
   "navSettings": "Settings",
   "navCalls": "Calls",
   "callLogEmpty": "No calls yet",
+  "callLogLoadFailed": "Could not load call history",
   "callLogEmptyHint": "Calls you make and receive on any of your devices will appear here",
   "callOutcomeMissed": "Missed",
   "callKindVoice": "Voice call",

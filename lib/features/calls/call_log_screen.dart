@@ -16,11 +16,16 @@ import '../../routing/back_affordance.dart';
 import '../../state/call_log.dart';
 import '../../state/providers.dart';
 
-class CallLogScreen extends ConsumerWidget {
+class CallLogScreen extends ConsumerStatefulWidget {
   const CallLogScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<CallLogScreen> createState() => _CallLogScreenState();
+}
+
+class _CallLogScreenState extends ConsumerState<CallLogScreen> {
+  @override
+  Widget build(BuildContext context) {
     final l = AppL10n.of(context);
     final store = ref.watch(callLogStoreProvider);
     return Scaffold(
@@ -29,10 +34,28 @@ class CallLogScreen extends ConsumerWidget {
         title: Text(l.navCalls),
       ),
       body: ValueListenableBuilder<int>(
+        // FutureBuilder retains old data while its replacement is loading.
+        // A different identity must start with a fresh private projection.
+        key: ObjectKey(store),
         valueListenable: store.changes,
         builder: (context, _, _) => FutureBuilder<List<_Row>>(
           future: _load(ref, store),
           builder: (context, snap) {
+            if (snap.hasError) {
+              return Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(l.callLogLoadFailed, textAlign: TextAlign.center),
+                    const SizedBox(height: 12),
+                    FilledButton(
+                      onPressed: () => setState(() {}),
+                      child: Text(l.lockWipeRetry),
+                    ),
+                  ],
+                ),
+              );
+            }
             final rows = snap.data;
             if (rows == null) return const SizedBox.shrink();
             if (rows.isEmpty) {
@@ -70,8 +93,10 @@ class CallLogScreen extends ConsumerWidget {
   }
 
   Future<List<_Row>> _load(WidgetRef ref, CallLogStore store) async {
-    final entries = await store.list();
+    // Capture both halves before yielding: a late old journal read must not
+    // look up its peers in the newly selected identity's storage.
     final storage = ref.read(storageProvider);
+    final entries = await store.list();
     final rows = <_Row>[];
     for (final e in entries) {
       String label = e.peerHex.length >= 8
