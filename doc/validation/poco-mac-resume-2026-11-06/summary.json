@@ -1,0 +1,39 @@
+{
+  "scope": "Poco Android 16 to receive-only MacBook through one isolated QA Core",
+  "sdkCommit": "ade3130a",
+  "p2pDenied": true,
+  "initialBidirectionalBaselinePassed": false,
+  "macMicrophonePermissionPending": true,
+  "humanAudibilityVerified": false,
+  "receiveOnlyScenariosCompleted": 2,
+  "allSamplesExpectedCall": true,
+  "cellularValidatedAfterWifiOffSeconds": 1.345,
+  "longestObservedNotFreshRxSeconds": 18.458,
+  "fiveFreshSamplesStartAfterWifiOffSeconds": 22.319,
+  "maximumObservedNativeRxAgeMs": 12944,
+  "postSwitchIncomingAfterWifiOffSeconds": 2.243,
+  "postSwitchFiveSampleBaselineAfterWifiOffSeconds": 18.113,
+  "qaRelayResumeReplacePhonePrefixCount": 3,
+  "qaRelayDedupCount": 0,
+  "perPacketAttribution": false,
+  "abComparison": false,
+  "netcallClosed": false,
+  "profileScreenshot": {
+    "before": "LateInitializationError in RenderObject.debugNeedsPaint",
+    "after": "valid profile PNG",
+    "unitTestsPassed": 5,
+    "analyzerIssues": 0
+  },
+  "cleanup": {
+    "qaApkRestoredBySha": true,
+    "normalApkUnchangedBySha": true,
+    "oldQaContainerUnchangedBySha": true,
+    "phoneSettingsAndValidatedWifiRestored": true,
+    "ownAppProcessesExited": true,
+    "ownAdbForwardAndPortsReleased": true,
+    "isolatedQaRelayRemoved": true,
+    "productionPidBinaryConfigRestartsUnchanged": true
+  },
+  "push": false,
+  "release": false
+}

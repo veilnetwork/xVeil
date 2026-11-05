@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
@@ -411,8 +411,10 @@ class UiDriver {
       devLog(() => 'xVeil[ui-driver]: screenshot boundary not found');
       return null;
     }
-    // A dirty tree throws in toImage; flush by waiting for the running frame.
-    if (renderObject.debugNeedsPaint) {
+    // debugNeedsPaint is initialized inside a framework assertion. Reading it
+    // in the explicitly enabled profile hook throws LateInitializationError.
+    // Flush a frame there without consulting assertion-only state.
+    if (!kDebugMode || renderObject.debugNeedsPaint) {
       WidgetsBinding.instance.scheduleFrame();
       try {
         await WidgetsBinding.instance.endOfFrame.timeout(
