@@ -605,7 +605,7 @@ class VeilCallMediaController implements CallMediaController {
   bool get _routeRepairing => _routeOperations.busy;
   final _networkActivityOwner = Object();
   int _mediaEpoch = 0;
-  bool _devicePreferencesLoaded = false;
+  Future<void>? _devicePreferencesReady;
   String? _selectedCameraId;
   String? _selectedMicrophoneId;
   String? _selectedScreenId;
@@ -1451,12 +1451,19 @@ class VeilCallMediaController implements CallMediaController {
     if (!_microphoneState.belongsToCall(call.callId)) return false;
     final epoch = ++_mediaEpoch;
     _activeCall = call;
+    bool currentStart() =>
+        _mediaEpoch == epoch &&
+        _activeCall?.callId == call.callId &&
+        _microphoneState.belongsToCall(call.callId);
     await _loadDevicePreferences();
+    if (!currentStart()) return false;
     await CallNetworkActivity.shared.acquire(_networkActivityOwner);
+    if (!currentStart()) return false;
     // Before capture opens: the grant must exist by the time the screen can
     // lock, and the typed service may only start while the app is visible.
     if (call.media.audio) {
       await AndroidCallForegroundService.setActive(true);
+      if (!currentStart()) return false;
     }
     // Present the platform mic/camera prompts before native capture starts,
     // but do not serialize them: two independent five-second waits used to
@@ -1504,6 +1511,7 @@ class VeilCallMediaController implements CallMediaController {
         },
       );
     }
+    if (!currentStart()) return false;
     // The address the PEER knows us by, not this device's transport id. Both
     // ends hash (caller, callee) into the call-media master key, and the peer
     // can only put our IDENTITY there — a contact, an invite and a certificate
@@ -1511,6 +1519,7 @@ class VeilCallMediaController implements CallMediaController {
     // ends hash different pairs on any device whose identity is not its own
     // key, and every sealed cell then arrived and failed to open.
     final localId = (await _transport.peerFacingNodeId()).bytes;
+    if (!currentStart()) return false;
     final peerId = call.mediaIdentity.bytes;
     // Open only the route finalized by call negotiation.
     final int chan;
@@ -2631,9 +2640,12 @@ class VeilCallMediaController implements CallMediaController {
     return true;
   }
 
-  Future<void> _loadDevicePreferences() async {
-    if (_devicePreferencesLoaded) return;
-    _devicePreferencesLoaded = true;
+  // A replacement start must await the same read, rather than treating an
+  // in-flight load as completed and starting on the default devices.
+  Future<void> _loadDevicePreferences() =>
+      _devicePreferencesReady ??= _readDevicePreferences();
+
+  Future<void> _readDevicePreferences() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       _selectedCameraId = prefs.getString(_cameraPreferenceKey);
