@@ -107,6 +107,34 @@ void main() {
   const everything = DeviceHistoryAsk(fromDeviceHex: 'aa');
 
   test(
+    'history carries an independent policy at its original revision',
+    () async {
+      const at = 1700000000000;
+      final contact = (await storage.getContact(alice))!;
+      await storage.upsertContact(
+        contact.copyWith(
+          disappearingTtlSeconds: 60,
+          disappearingSetAtMs: at,
+          disappearingSetBy: alice.hex,
+        ),
+      );
+      await addMessage(alice, 'policy-history', 'text');
+      await replay(everything);
+      final policy = of(
+        DeviceSyncKind.contactUp,
+      ).singleWhere((e) => e.key == 'd:${alice.hex}');
+      expect(policy.tsMs, at);
+      expect(policy.payload['dsa'], at);
+      expect(policy.payload['dtl'], 60);
+      expect(
+        of(DeviceSyncKind.contactUp).where((e) => e.key == 'd:${bob.hex}'),
+        isEmpty,
+      );
+    },
+  );
+
+
+  test(
     'completed outgoing history retains terminal delivery state without moving time',
     () {
       for (final status in [MessageStatus.delivered, MessageStatus.failed]) {

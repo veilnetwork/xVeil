@@ -343,16 +343,27 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
     isOwnDevice: (peer) async =>
         peer == svc.selfId || await svc.isMyDevice(peer),
     loadPublished: svc.committedContactPreferences,
-    post: (records) {
-      final events = [
-        for (final record in records) contactPreferencesEvent(record),
+    post: (records) async {
+      final grouped = [
+        for (final record in records) contactPreferencesEvents(record),
       ];
-      for (var i = 0; i < events.length; i++) {
-        ownPrefsTokens[events[i]] = records[i].token;
+      final events = [for (final group in grouped) ...group];
+      for (var i = 0; i < grouped.length; i++) {
+        ownPrefsTokens[grouped[i].first] = records[i].token;
       }
-      return svc.postDeviceEvents([
+      final results = await svc.postDeviceEvents([
         for (final event in events) (event: event, attachment: null),
       ]);
+      if (results.length != events.length) {
+        throw StateError('Contact preference publication count mismatch');
+      }
+      var offset = 0;
+      final accepted = <bool>[];
+      for (final group in grouped) {
+        accepted.add(results.skip(offset).take(group.length).every((ok) => ok));
+        offset += group.length;
+      }
+      return accepted;
     },
   );
   ref.onDispose(() => unawaited(prefsPublisher.close()));
@@ -901,13 +912,25 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       case DeviceSyncKind.contactUp:
         gate.offer(e, () {
           final statusEvent = e.key.startsWith('s:');
+          final policyEvent = e.key.startsWith('d:');
           final NodeId peer;
           try {
-            peer = NodeId.fromHex(statusEvent ? e.key.substring(2) : e.key);
+            peer = NodeId.fromHex(
+              statusEvent || policyEvent ? e.key.substring(2) : e.key,
+            );
           } catch (_) {
             return null; // malformed key from a newer/buggy device
           }
           if (peer.hex == svc.selfId.hex) return null; // never my own record
+          if (policyEvent) {
+            final policy = contactPolicyFromEvent(e);
+            if (policy == null) return null;
+            return () async {
+              if (!await messaging.applyMirroredContactPolicy(peer, policy)) {
+                throw const DeviceSyncApplyDeferred();
+              }
+            };
+          }
           if (!statusEvent) {
             return () async {
               final applied = await applyPrefs(
@@ -941,10 +964,12 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
             // Now that the record exists, replay the newest folded pref for
             // it so the alias/flags chosen on the other device land too.
             final folded = await svc.deviceSyncState();
-            final pref = folded[(DeviceSyncKind.contactUp, peer.hex)];
-            if (pref != null) {
-              await gate.settleSlot(pref);
-              handleEvent(pref);
+            for (final key in [peer.hex, 'd:${peer.hex}']) {
+              final pref = folded[(DeviceSyncKind.contactUp, key)];
+              if (pref != null) {
+                await gate.settleSlot(pref);
+                handleEvent(pref);
+              }
             }
           };
         });

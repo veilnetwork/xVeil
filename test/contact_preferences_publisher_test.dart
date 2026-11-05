@@ -81,6 +81,42 @@ ContactPreferencesPublisher pub(
 }
 
 void main() {
+  for (final existing in ['main', 'policy', 'both']) {
+    test(
+      'snapshot ACK requires both committed projections existing=$existing',
+      () async {
+        final s = await _open(_Kv());
+        await s.updateContactPrefs(
+          id(2),
+          (c) => c.copyWith(
+            name: 'name',
+            disappearingTtlSeconds: 60,
+            disappearingSetAtMs: 100,
+            disappearingSetBy: id(1).hex,
+          ),
+          queueForSync: true,
+        );
+        final record = (await s.pendingContactPreferences()).single;
+        final expected = contactPreferencesEvents(record);
+        expect(expected, hasLength(2));
+        var posts = 0;
+        final p = pub(
+          s,
+          load: () async => existing == 'both'
+              ? expected
+              : [existing == 'main' ? expected.first : expected.last],
+          post: (rows) async {
+            posts++;
+            return [true];
+          },
+        );
+        expect(await p.flush(), true);
+        expect(posts, existing == 'both' ? 0 : 1);
+        expect(await s.pendingContactPreferences(), isEmpty);
+      },
+    );
+  }
+
   for (final mode in ['write-before', 'write-after']) {
     test('preference and snapshot commit atomically $mode', () async {
       final kv = _Kv();
@@ -147,7 +183,7 @@ void main() {
         load: () async => committed,
         post: (rows) async {
           posts++;
-          committed.addAll(rows.map(contactPreferencesEvent));
+          committed.addAll(rows.expand(contactPreferencesEvents));
           return List.filled(rows.length, true);
         },
       );

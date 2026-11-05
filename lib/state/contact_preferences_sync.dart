@@ -4,6 +4,7 @@ import '../core/error_journal.dart';
 import '../core/ids.dart';
 import '../data/storage/storage.dart';
 import '../domain/device_sync.dart';
+import '../domain/contact_preferences.dart';
 
 DeviceSyncEvent contactPreferencesEvent(PendingContactPreferences record) =>
     DeviceSyncEvent(
@@ -12,6 +13,16 @@ DeviceSyncEvent contactPreferencesEvent(PendingContactPreferences record) =>
       tsMs: record.atMs,
       payload: record.payload,
     );
+
+/// Every required event for this snapshot, committed/replicated as a unit.
+List<DeviceSyncEvent> contactPreferencesEvents(
+  PendingContactPreferences record,
+) {
+  final events = [contactPreferencesEvent(record)];
+  final policy = contactPolicyEvent(record.peer, record.payload);
+  if (policy != null) events.add(policy);
+  return events;
+}
 
 /// Transfers a durable local snapshot to the committed device journal. A
 /// callback merely wakes the worker; retries never mint a newer snapshot.
@@ -26,6 +37,8 @@ class ContactPreferencesPublisher {
     ErrorJournal? journal,
   }) : journal = journal ?? errorJournal;
 
+  // At most two events per record; GroupService admits at most 64 per batch.
+  static const _pageRecords = 32;
   final Storage storage;
   final Future<bool> Function() isLinked;
   final Future<bool> Function(NodeId) isOwnDevice;
@@ -81,11 +94,12 @@ class ContactPreferencesPublisher {
   Future<bool> _pass() async {
     if (!await isLinked() || _closed) return false;
     var pending = await storage.pendingContactPreferences(
+      limit: _pageRecords,
       afterPeerHex: _cursor,
     );
     if (pending.isEmpty && _cursor != null) {
       _cursor = null;
-      pending = await storage.pendingContactPreferences();
+      pending = await storage.pendingContactPreferences(limit: _pageRecords);
     }
     if (_closed || pending.isEmpty) return !_closed;
     final published = <String, List<DeviceSyncEvent>>{};
@@ -97,6 +111,7 @@ class ContactPreferencesPublisher {
     for (var page = 0; page < 8 && !_closed; page++) {
       if (page > 0) {
         pending = await storage.pendingContactPreferences(
+          limit: _pageRecords,
           afterPeerHex: _cursor,
         );
       }
@@ -110,10 +125,12 @@ class ContactPreferencesPublisher {
         if (_closed) return false;
         final own = await isOwnDevice(record.peer);
         if (_closed) return false;
-        final event = contactPreferencesEvent(record);
-        final covered = (published[event.key] ?? const <DeviceSyncEvent>[]).any(
-          (old) =>
-              !isNewerDeviceSync(event, old) && !isNewerDeviceSync(old, event),
+        final covered = contactPreferencesEvents(record).every(
+          (event) => (published[event.key] ?? const <DeviceSyncEvent>[]).any(
+            (old) =>
+                !isNewerDeviceSync(event, old) &&
+                !isNewerDeviceSync(old, event),
+          ),
         );
         if (own || covered) {
           if (!await storage.acknowledgeContactPreferences(record)) {
@@ -125,9 +142,6 @@ class ContactPreferencesPublisher {
       }
       if (_closed) return false;
       if (toPost.isEmpty) continue;
-      final events = [
-        for (final record in toPost) contactPreferencesEvent(record),
-      ];
       final results = await post(toPost);
       if (results.length != toPost.length) {
         throw StateError('Contact publication result count mismatch');
@@ -141,7 +155,9 @@ class ContactPreferencesPublisher {
           success = false;
           continue;
         }
-        published.putIfAbsent(events[i].key, () => []).add(events[i]);
+        for (final event in contactPreferencesEvents(toPost[i])) {
+          published.putIfAbsent(event.key, () => []).add(event);
+        }
         if (!await storage.acknowledgeContactPreferences(toPost[i])) {
           _again = true;
         }

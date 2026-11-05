@@ -280,6 +280,8 @@ class _MessagingConversationAdmin {
     // the policy simply never left this device.
     //
     // The frame id binds the recipient AND revision rather than a fresh uuid.
+    // Concurrent devices can share identity/clock but choose different values;
+    // bind those values too, so one policy ACK cannot retire the other.
     // Two contacts can be edited in one tick by the same author, while the
     // durable outbox is keyed by frame id across all recipients. Re-announcing the
     // same policy — a reconnect, a second device applying it — then reuses the
@@ -287,7 +289,7 @@ class _MessagingConversationAdmin {
     // receiver's dedup recognises it as the same announcement.
     await _owner.sendDurable(
       peer,
-      'disap:${peer.hex}:${setting.setAtMs}:${setting.setBy}',
+      'disap:${peer.hex}:${setting.setAtMs}:${setting.setBy}:${setting.ttlSeconds ?? 0}:${setting.hideAfterReadSeconds ?? 0}',
       WireEnvelope(
         WireKind.disappearingSet,
         jsonEncode(setting.toWireJson()),

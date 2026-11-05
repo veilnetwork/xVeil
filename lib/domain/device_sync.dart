@@ -8,6 +8,7 @@ import 'dart:convert';
 
 import '../core/ids.dart';
 import 'chat.dart' show isAcceptableWireSeq;
+import 'disappearing_messages.dart';
 import 'inline_custom_emoji.dart';
 import 'message_edit.dart';
 import 'call_log.dart';
@@ -278,6 +279,23 @@ Map<(DeviceSyncKind, String), DeviceSyncEvent> foldDeviceSync(
 }
 
 bool _newer(DeviceSyncEvent a, DeviceSyncEvent b) {
+  if (a.kind == DeviceSyncKind.contactUp &&
+      b.kind == a.kind &&
+      a.key == b.key &&
+      RegExp(r'^d:[0-9a-f]{64}$').hasMatch(a.key)) {
+    DisappearingSetting? policy(DeviceSyncEvent event) {
+      final value = DisappearingSetting.fromMirrorFields(event.payload);
+      return value != null && value.setAtMs == event.tsMs ? value : null;
+    }
+
+    final first = policy(a), second = policy(b);
+    if ((first == null) != (second == null)) return first != null;
+    if (first != null && second != null) {
+      final order = DisappearingSetting.compare(first, second);
+      if (order != 0) return order > 0;
+    }
+  }
+
   if (a.kind == DeviceSyncKind.msgEdit && b.kind == a.kind) {
     ({String peer, int revision, String hash})? version(DeviceSyncEvent e) {
       final peer = e.payload['peer'],
