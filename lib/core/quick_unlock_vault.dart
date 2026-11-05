@@ -25,7 +25,10 @@ class QuickUnlockSecretStore {
             enforceBiometrics: true,
             biometricType: AndroidBiometricType.strongBiometricOnly,
             resetOnError: false,
-            migrateOnAlgorithmChange: false,
+            // Native storage initializes fresh namespaces through its
+            // marker-less migration path. Keep its target AES-GCM cipher and
+            // strong-biometric requirement; a failure must never reset data.
+            migrateOnAlgorithmChange: true,
           )
         : const AndroidOptions(
             storageNamespace: 'xveil_quick_pattern_v1',
