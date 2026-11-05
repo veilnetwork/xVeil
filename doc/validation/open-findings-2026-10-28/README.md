@@ -1,5 +1,16 @@
 # Открытые случаи — обновлено 2026-11-05
 
+Последнее исправление: [lifecycle включения видео](../video-upgrade-owner-2026-11-05/README.md).
+ПОДТВЕРЖДЕНО: старый upgrade после audio-route await перезаписывал Call и
+срывал следующий start; поздняя permission обращалась к disposed engine,
+same-call repair терял upgrade. Шесть baseline assertion-red и один healthy
+control. Permission теперь вне route queue, mounting выбирает текущий engine
+после ремонта; post-await guards отменяют чужую/устаревшую операцию.
+Финал: 333 tests passed / без skip, analyzer чистый. Это model/controller,
+не физическая квалификация Android или атрибуция мобильной паузы/тишины.
+Телефон в ADB отсутствует; NETCALL-01 и слышимость остаются открытыми.
+Native/engine pins, сиды, push и релиз не менялись.
+
 Последнее исправление NETCALL-01: [network-change worker](../network-change-worker-2026-11-05/README.md).
 ПОДТВЕРЖДЕНО: синхронное ожидание native dispatch receipt в `Future` блокировало
 основной Dart event loop. Три regression-red; SDK `70478463` использует worker

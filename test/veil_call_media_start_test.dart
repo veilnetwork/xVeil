@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/services.dart' show MethodChannel;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:veil_media/veil_media.dart';
@@ -129,9 +131,13 @@ class _Engine implements VeilMediaEngine {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-Call _call({bool video = false, String callId = 'receive-only-start'}) => Call(
+Call _call({
+  bool video = false,
+  String callId = 'receive-only-start',
+  NodeId? peer,
+}) => Call(
   callId: callId,
-  peer: _id(2),
+  peer: peer ?? _id(2),
   direction: CallDirection.incoming,
   media: CallMedia(audio: true, video: video),
   status: CallStatus.connecting,
@@ -155,9 +161,188 @@ class _LivenessEngine extends _Engine {
   };
 }
 
+class _UpgradeEngine extends _Engine {
+  _UpgradeEngine() : super(nativeStarted: true, capture: 1);
+  final videoStarted = Completer<void>();
+
+  @override
+  bool startVideo({
+    bool send = true,
+    bool recv = true,
+    int maxBitrateKbps = 150,
+    num maxFps = 15,
+  }) {
+    videoStarts++;
+    if (!videoStarted.isCompleted) videoStarted.complete();
+    if (disposed) throw StateError('retired engine');
+    return true;
+  }
+}
+
+class _RepairingTransport extends _Transport {
+  int repairs = 0;
+
+  @override
+  int repairMediaChannel(int channel) {
+    repairs++;
+    return 0;
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  for (final replacement in [false, true]) {
+    test(
+      'late video upgrade cannot survive hangup (new call=$replacement)',
+      () async {
+        final old = _UpgradeEngine();
+        final fresh = _Engine(nativeStarted: true, capture: 1);
+        var creates = 0;
+        final controller = VeilCallMediaController(
+          _Transport(),
+          engineFactory:
+              ({required veilChan, required localId, required peerId}) =>
+                  creates++ == 0 ? old : fresh,
+        );
+        Future<bool>? upgrade, next;
+        Future<void>? ending;
+        try {
+          expect(await controller.start(_call()), true);
+          upgrade = controller.setVideoEnabled(true);
+          // startVideo proves the request reached native mounting. Its following
+          // audio-route await yields before the old Call snapshot is published.
+          await old.videoStarted.future.timeout(const Duration(seconds: 5));
+          ending = controller.stop();
+          if (replacement) next = controller.start(_call(callId: 'next-call'));
+          await ending;
+          final upgraded = await upgrade;
+          if (replacement) {
+            expect(
+              await next!,
+              true,
+              reason: 'a stale upgrade must not overwrite the next call owner',
+            );
+            expect(fresh.disposed, false);
+            expect(controller.activeTransport, CallTransportKind.onion);
+          } else {
+            expect(controller.activeTransport, isNull);
+          }
+          expect(
+            upgraded,
+            false,
+            reason: 'hangup retires the pending video activation',
+          );
+          expect(old.disposed, true);
+        } finally {
+          await ending;
+          await upgrade;
+          await next;
+          await controller.stop();
+        }
+      },
+    );
+  }
+
+  for (final change in [
+    'hangup',
+    'new-call',
+    'same-call-engine',
+    'same-id-other-peer',
+    'none',
+  ]) {
+    test(
+      'video permission result respects current media owner after $change',
+      () async {
+        const permissions = MethodChannel('xveil/media_permissions');
+        final entered = Completer<void>(), permission = Completer<bool>();
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(permissions, (request) async {
+              if ((request.arguments as Map)['type'] == 'video') {
+                if (!entered.isCompleted) entered.complete();
+                return permission.future;
+              }
+              return true;
+            });
+        final old = _UpgradeEngine(), fresh = _UpgradeEngine();
+        var creates = 0;
+        final transport = _RepairingTransport();
+        final controller = VeilCallMediaController(
+          transport,
+          engineFactory:
+              ({required veilChan, required localId, required peerId}) =>
+                  creates++ == 0 ? old : fresh,
+        );
+        Future<bool>? upgrade;
+        try {
+          expect(await controller.start(_call()), true);
+          upgrade = controller.setVideoEnabled(true);
+          await entered.future.timeout(const Duration(seconds: 5));
+          if (change == 'none') {
+            expect(await controller.repairRoute(), true);
+            expect(
+              transport.repairs,
+              1,
+              reason: 'a permission prompt must not hold the repair queue',
+            );
+          }
+          if (change == 'hangup') await controller.stop();
+          if (change == 'new-call' ||
+              change == 'same-call-engine' ||
+              change == 'same-id-other-peer') {
+            expect(
+              await controller.start(
+                _call(
+                  peer: change == 'same-id-other-peer' ? _id(3) : null,
+                  callId: change == 'new-call'
+                      ? 'replacement-call'
+                      : 'receive-only-start',
+                ),
+              ),
+              true,
+            );
+          }
+          permission.complete(true);
+          final continuing = change == 'none' || change == 'same-call-engine';
+          expect(await upgrade, continuing);
+          expect(
+            old.videoStarts,
+            change == 'none' ? 1 : 0,
+            reason:
+                'permission for an obsolete session must never target its engine',
+          );
+          expect(
+            fresh.videoStarts,
+            change == 'same-call-engine' ? 1 : 0,
+            reason:
+                'a same-call repair must not lose the requested video upgrade',
+          );
+          if (change == 'none') {
+            expect(await controller.setVideoEnabled(true), true);
+            expect(
+              old.videoStarts,
+              1,
+              reason: 'a completed upgrade is already mounted',
+            );
+          }
+          if (change != 'hangup') {
+            expect(controller.activeTransport, CallTransportKind.onion);
+          }
+        } finally {
+          if (!permission.isCompleted) permission.complete(false);
+          await upgrade;
+          await controller.stop();
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .setMockMethodCallHandler(permissions, null);
+        }
+      },
+      skip: !(Platform.isMacOS || Platform.isIOS || Platform.isAndroid)
+          ? 'permission-channel fixture needs an Apple or Android host'
+          : false,
+    );
+  }
+
 
   for (final cancel in [false, true]) {
     test('capture waits for stored processing choice; cancel=$cancel', () async {
