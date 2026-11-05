@@ -45,6 +45,20 @@ class PendingContactDecision {
   final String token;
 }
 
+/// An immutable preference snapshot not yet handed to the device journal.
+class PendingContactPreferences {
+  const PendingContactPreferences({
+    required this.peer,
+    required this.atMs,
+    required this.payload,
+    required this.token,
+  });
+  final NodeId peer;
+  final int atMs;
+  final Map<String, Object?> payload;
+  final String token;
+}
+
 /// Domain-oriented persistence port.
 ///
 /// The production adapter is backed by `hidden-volume`: a [open] call unlocks
@@ -129,8 +143,16 @@ abstract interface class Storage {
   /// committed one; callbacks must not publish an earlier caller snapshot.
   Future<Contact?> updateContactPrefs(
     NodeId peer,
-    Contact? Function(Contact current) update,
-  );
+    Contact? Function(Contact current) update, {
+    bool queueForSync = false,
+    String? onlyIfLocalPrefsToken,
+  });
+
+  Future<List<PendingContactPreferences>> pendingContactPreferences({
+    int limit = 64,
+    String? afterPeerHex,
+  });
+  Future<bool> acknowledgeContactPreferences(PendingContactPreferences record);
 
   /// Change a local relationship, preserving its current other fields.
   /// Accepted/blocked decisions queue device publication in the same commit.

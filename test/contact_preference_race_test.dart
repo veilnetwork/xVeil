@@ -47,17 +47,24 @@ class _Held extends HiddenVolumeStorage {
   @override
   Future<Contact?> updateContactPrefs(
     NodeId peer,
-    Contact? Function(Contact) update,
-  ) async {
+    Contact? Function(Contact) update, {
+    bool queueForSync = false,
+    String? onlyIfLocalPrefsToken,
+  }) async {
     await hold();
-    return super.updateContactPrefs(peer, (current) {
-      final next = update(current);
-      if (failAfterTransform) {
-        failAfterTransform = false;
-        throw StateError('injected refusal after transform');
-      }
-      return next;
-    });
+    return super.updateContactPrefs(
+      peer,
+      (current) {
+        final next = update(current);
+        if (failAfterTransform) {
+          failAfterTransform = false;
+          throw StateError('injected refusal after transform');
+        }
+        return next;
+      },
+      queueForSync: queueForSync,
+      onlyIfLocalPrefsToken: onlyIfLocalPrefsToken,
+    );
   }
 
   @override
@@ -141,6 +148,29 @@ Future<_Fixture> _fixture(bool native, {DateTime? now, NodeId? self}) async {
 
 void main() {
   for (final native in [false, true]) {
+    test(
+      'durable publication echo checks floor inside write turn native=$native',
+      () async {
+        final f = await _fixture(native), s = f.storage, svc = f.service;
+        await svc.setContactName(id(2), 'old');
+        final old = (await s.pendingContactPreferences()).single;
+        s.armed = true;
+        final echo = svc.applyMirroredContact(
+          peer: id(2),
+          name: 'old',
+          pinned: false,
+          archived: false,
+          allowPeerDelete: true,
+          clearPolicy: kDefaultClearRequestPolicy,
+          onlyIfLocalPrefsToken: old.token,
+        );
+        await s.entered.future;
+        await svc.setContactPinned(id(2), true);
+        s.release.complete();
+        expect(await echo, false);
+        expect((await s.getContact(id(2)))!.pinned, true);
+      },
+    );
     test(
       'same-clock policy delivery keeps both recipients native=$native',
       () async {

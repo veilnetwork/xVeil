@@ -1,3 +1,6 @@
+export '../domain/contact_preferences.dart' show contactPrefsPayload;
+import '../domain/contact_preferences.dart';
+import 'contact_preferences_sync.dart';
 import '../domain/profile_avatar.dart';
 // Multi-device bridge, brick 4 (doc/MULTIDEVICE-DESIGN.md): contacts, app
 // settings and the call journal ride the device group the same way brick 3
@@ -26,7 +29,7 @@ import '../data/node/sovereign_identity_material.dart';
 import '../data/veil_stack.dart';
 import '../domain/call_log.dart';
 import '../domain/chat.dart'
-    show Contact, ContactStatus, NotificationMuteMode, SignaturePolicy;
+    show ContactStatus, NotificationMuteMode, SignaturePolicy;
 import '../domain/device_history_ask.dart';
 import '../domain/device_sync.dart';
 import '../domain/clear_policy.dart';
@@ -88,24 +91,6 @@ Future<void> awaitDeviceHistoryRoom({
 ///
 /// Relationship status and the per-device P2P override are deliberately absent:
 /// they ride their own key namespace, or are local by design.
-Map<String, Object?> contactPrefsPayload(Contact c) => {
-  'name': c.name,
-  'mutedMs': c.mutedUntil?.millisecondsSinceEpoch,
-  'muteMode': c.notificationMuteMode.name,
-  'pin': c.pinned,
-  'arc': c.archived,
-  'ret': c.retentionDays,
-  'apd': c.allowPeerDelete,
-  // A decision about MY history is mine on every device I own.
-  'clp': c.clearPolicy.name,
-  // The retention policy travels WITH the preferences, carrying its own stamp
-  // and setter so the sibling can run the same last-writer-wins rule a peer's
-  // announcement goes through.
-  'dtl': c.disappearingTtlSeconds,
-  'dsa': c.disappearingSetAtMs,
-  'dsb': c.disappearingSetBy,
-  'har': c.hideAfterReadSeconds,
-};
 
 /// The retention policy carried by [contactPrefsPayload], or null when the
 /// event came from a build that did not carry one — or carried one this
@@ -351,23 +336,27 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   // relationship by the OTHER device's id, so the record is not portable (on
   // the sibling it would describe itself). Same rule as the msgMirror
   // exclusion (brick 4c).
-  final ownPrefsGuards = Expando<bool Function()>();
-  messaging.onContactPrefsChanged = (c) {
-    // Reserve order before the asynchronous own-device lookup. An old local
-    // snapshot must neither be stamped newer nor overwrite a later UI edit
-    // when the outgoing stream feeds it back through the apply gate.
-    final event = DeviceSyncEvent(
-      kind: DeviceSyncKind.contactUp,
-      key: c.nodeId.hex,
-      tsMs: nextTs(),
-      payload: contactPrefsPayload(c),
-    );
-    ownPrefsGuards[event] = () => messaging.isCurrentContactPrefsSnapshot(c);
-    tasks.start(() async {
-      if (c.nodeId == svc.selfId || await svc.isMyDevice(c.nodeId)) return;
-      await svc.postDeviceEvent(event);
-    });
-  };
+  final ownPrefsTokens = Expando<String>();
+  final prefsPublisher = ContactPreferencesPublisher(
+    storage: ref.read(storageProvider),
+    isLinked: () async => await svc.deviceGroupIdHex() != null,
+    isOwnDevice: (peer) async =>
+        peer == svc.selfId || await svc.isMyDevice(peer),
+    loadPublished: svc.committedContactPreferences,
+    post: (records) {
+      final events = [
+        for (final record in records) contactPreferencesEvent(record),
+      ];
+      for (var i = 0; i < events.length; i++) {
+        ownPrefsTokens[events[i]] = records[i].token;
+      }
+      return svc.postDeviceEvents([
+        for (final event in events) (event: event, attachment: null),
+      ]);
+    },
+  );
+  ref.onDispose(() => unawaited(prefsPublisher.close()));
+  messaging.onContactPrefsChanged = (_) => prefsPublisher.nudge();
   final contactPublisher = ContactDecisionPublisher(
     storage: ref.read(storageProvider),
     isLinked: () async => await svc.deviceGroupIdHex() != null,
@@ -406,6 +395,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   late final void Function(DeviceSyncEvent) queueLinkHistory;
   svc.onMemberLinked = (device) async {
     contactPublisher.nudge();
+    prefsPublisher.nudge();
     try {
       // The first link may CREATE the device group after this bridge's boot
       // announcement ran. In that case the boot attempt had no group to post
@@ -487,6 +477,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
     }
   };
   contactPublisher.start();
+  prefsPublisher.start();
   hub.onLocalSet = (key, value) {
     tasks.start(
       () => svc.postDeviceEvent(
@@ -846,6 +837,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       serveChain,
       callPublisher.close(),
       contactPublisher.close(),
+      prefsPublisher.close(),
     ]);
   });
   ref.onDispose(() => unawaited(closeBridge()));
@@ -869,7 +861,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   Future<bool> applyPrefs(
     NodeId peer,
     DeviceSyncEvent e, {
-    bool Function()? shouldApply,
+    String? onlyIfLocalPrefsToken,
   }) {
     final name = e.payload['name'], muted = e.payload['mutedMs'];
     final muteMode = NotificationMuteMode.values.firstWhere(
@@ -895,7 +887,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
             allowPeerDelete: e.payload['apd'] != false,
           ),
       disappearing: disappearingFromPayload(e.payload),
-      shouldApply: shouldApply,
+      onlyIfLocalPrefsToken: onlyIfLocalPrefsToken,
     );
   }
 
@@ -903,7 +895,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
   // folded state replayed at start. They are the same events; only the
   // MOMENT differs, and the moment was load-bearing when it should not have
   // been.
-  void handleEvent(DeviceSyncEvent e, {bool Function()? ownPrefsGuard}) {
+  void handleEvent(DeviceSyncEvent e, {String? ownPrefsToken}) {
     if (bridgeGone) return;
     switch (e.kind) {
       case DeviceSyncKind.contactUp:
@@ -917,7 +909,18 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
           }
           if (peer.hex == svc.selfId.hex) return null; // never my own record
           if (!statusEvent) {
-            return () => applyPrefs(peer, e, shouldApply: ownPrefsGuard);
+            return () async {
+              final applied = await applyPrefs(
+                peer,
+                e,
+                onlyIfLocalPrefsToken: ownPrefsToken,
+              );
+              if (!applied && ownPrefsToken == null) {
+                // Unknown/closing contacts have not applied this projection.
+                // Let a later status materialization re-offer the same row.
+                throw const DeviceSyncApplyDeferred();
+              }
+            };
           }
           final raw = e.payload['status'];
           ContactStatus? status;
@@ -939,7 +942,10 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
             // it so the alias/flags chosen on the other device land too.
             final folded = await svc.deviceSyncState();
             final pref = folded[(DeviceSyncKind.contactUp, peer.hex)];
-            if (pref != null) await applyPrefs(peer, pref);
+            if (pref != null) {
+              await gate.settleSlot(pref);
+              handleEvent(pref);
+            }
           };
         });
       case DeviceSyncKind.settingSet:
@@ -1251,7 +1257,7 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
     // Boot replay and verified incoming events still apply committed rows.
     if (e.kind == DeviceSyncKind.contactUp && e.key.startsWith('s:')) return;
     if (deviceSyncOwnEventRidesGate(e.kind)) {
-      handleEvent(e, ownPrefsGuard: ownPrefsGuards[e]);
+      handleEvent(e, ownPrefsToken: ownPrefsTokens[e]);
     }
   });
   ref.onDispose(ownSub.cancel);
