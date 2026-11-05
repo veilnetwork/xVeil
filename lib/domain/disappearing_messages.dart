@@ -100,8 +100,19 @@ class DisappearingSetting {
     DisappearingSetting a,
     DisappearingSetting b,
   ) {
-    if (a.setAtMs != b.setAtMs) return a.setAtMs > b.setAtMs ? a : b;
-    return a.setBy.compareTo(b.setBy) >= 0 ? a : b;
+    return compare(a, b) >= 0 ? a : b;
+  }
+
+  /// One deterministic order, including concurrent edits by the same identity
+  /// on different devices in the same clock tick.
+  static int compare(DisappearingSetting a, DisappearingSetting b) {
+    var order = a.setAtMs.compareTo(b.setAtMs);
+    if (order != 0) return order;
+    order = a.setBy.compareTo(b.setBy);
+    if (order != 0) return order;
+    order = (a.ttlSeconds ?? 0).compareTo(b.ttlSeconds ?? 0);
+    if (order != 0) return order;
+    return (a.hideAfterReadSeconds ?? 0).compareTo(b.hideAfterReadSeconds ?? 0);
   }
 
   /// Whether a message posted at [sentAt] has run out of time by [now].
@@ -167,10 +178,20 @@ class DisappearingSetting {
     Map<String, Object?> json, {
     DateTime? now,
   }) {
+    final policy = fromMirrorFields(json);
+    if (policy == null) return null;
+    final nowMs = (now ?? DateTime.now()).millisecondsSinceEpoch;
+    if (policy.setAtMs > nowMs + kDisappearingClockSkew.inMilliseconds) {
+      return null;
+    }
+    return policy;
+  }
+
+  /// Structural parsing for durable ordering/emission. This does NOT authorize
+  /// application: live consumers must use [fromMirrorJson] and its clock bound.
+  static DisappearingSetting? fromMirrorFields(Map<String, Object?> json) {
     final setAt = json['dsa'];
     if (setAt is! int || setAt < 0) return null;
-    final nowMs = (now ?? DateTime.now()).millisecondsSinceEpoch;
-    if (setAt > nowMs + kDisappearingClockSkew.inMilliseconds) return null;
 
     // Absent or zero is "off", which is a real answer and not a malformation:
     // a device that turned the window off mirrors exactly that. Out of range

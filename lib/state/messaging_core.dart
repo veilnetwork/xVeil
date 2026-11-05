@@ -711,6 +711,12 @@ class MessagingService {
   bool isCurrentContactPrefsSnapshot(Contact snapshot) =>
       _deviceMirror.isCurrentContactPrefsSnapshot(snapshot);
 
+  /// Apply only the independently versioned policy from my device group.
+  Future<bool> applyMirroredContactPolicy(
+    NodeId peer,
+    DisappearingSetting policy,
+  ) => _deviceMirror.applyPolicy(peer, policy);
+
   /// Merge mirrored preferences while retaining local relationship/P2P state.
   Future<bool> applyMirroredContact({
     required NodeId peer,

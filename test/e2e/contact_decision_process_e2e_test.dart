@@ -204,6 +204,161 @@ void main() {
         timeout: const Duration(minutes: 2),
       );
       E2eLog.line('PROCESS_CONTACT_PREFS_BOOT_RECOVERY_PASS');
+      final ownerIdentity = (await base.deviceInfo(a))['identity'] as String;
+      Future<int> offlinePolicy(
+        ProcessDevice device, {
+        int? ttl,
+        int? at,
+        String? name,
+      }) async {
+        final storage = HiddenVolumeStorage.async(
+          workerSpaceOpener('${device.dir.path}/store.hv'),
+        );
+        try {
+          expect(
+            await storage.open(password: 'e2e-${device.label}-password'),
+            true,
+          );
+          await storage.updateContactPrefs(
+            NodeId.fromHex(ci),
+            (current) => current.copyWith(
+              name: name ?? current.name,
+              disappearingTtlSeconds: ttl ?? current.disappearingTtlSeconds,
+              disappearingSetAtMs: at ?? current.disappearingSetAtMs,
+              disappearingSetBy: at == null
+                  ? current.disappearingSetBy
+                  : ownerIdentity,
+            ),
+            queueForSync: true,
+          );
+          return (await storage.pendingContactPreferences())
+              .singleWhere((r) => r.peer.hex == ci)
+              .atMs;
+        } finally {
+          await storage.close();
+        }
+      }
+
+      Future<bool> hasPref(
+        ProcessDevice device,
+        String name, {
+        int? revision,
+      }) async {
+        final events =
+            (await device.checked('/device_events'))['events'] as Map;
+        final event = events['contactUp|$ci'];
+        return event is Map &&
+            (event['payload'] as Map)['name'] == name &&
+            (revision == null || event['ts'] == revision);
+      }
+
+      Future<bool> policyMatches(ProcessDevice device, int ttl, int at) async {
+        final pref = await device.checked('/contact_info', query: {'peer': ci});
+        final policy = await device.checked(
+          '/disappearing',
+          query: {'peer': ci},
+        );
+        return pref['name'] == 'policy-alias-from-B' &&
+            pref['status'] == 'blocked' &&
+            (device != b || pref['p2pOverride'] == 'deny') &&
+            policy['ttlSeconds'] == ttl &&
+            policy['setAtMs'] == at &&
+            policy['setBy'] == ownerIdentity;
+      }
+
+      await a.stop();
+      await b.stop();
+      final policyClock = DateTime.now().millisecondsSinceEpoch;
+      final aRevision = await offlinePolicy(a, ttl: 60, at: policyClock);
+      var bRevision = await offlinePolicy(b, name: 'policy-alias-from-B');
+      if (bRevision <= aRevision) {
+        bRevision = await offlinePolicy(b, name: 'policy-alias-from-B');
+      }
+      expect(
+        bRevision,
+        greaterThan(aRevision),
+        reason: 'alias must outrank the outer policy snapshot',
+      );
+      await b.start();
+      await waitUntil(
+        () => hasPref(b, 'policy-alias-from-B', revision: bRevision),
+        what:
+            'B commits its newer alias before receiving the older outer A snapshot',
+      );
+      await b.stop();
+      await a.start();
+      await waitUntil(() async {
+        final events = (await a.checked('/device_events'))['events'] as Map;
+        final policy = events['contactUp|d:$ci'];
+        return policy is Map &&
+            policy['ts'] == policyClock &&
+            (policy['payload'] as Map)['dtl'] == 60;
+      }, what: 'A commits the independently keyed policy while B is offline');
+      await b.start();
+      await waitUntil(
+        () async =>
+            await policyMatches(a, 60, policyClock) &&
+            await policyMatches(b, 60, policyClock),
+        what: 'newer alias and independent TTL converge together',
+        timeout: const Duration(minutes: 2),
+      );
+      E2eLog.line('PROCESS_CONTACT_POLICY_ALIAS_CONVERGENCE_PASS');
+      await a.checked(
+        '/contact_set',
+        query: {'peer': ci, 'name': 'policy-compaction-obsolete'},
+      );
+      await waitUntil(
+        () => hasPref(a, 'policy-compaction-obsolete'),
+        what: 'an obsolete preference really enters the signed journal',
+      );
+      await a.checked(
+        '/contact_set',
+        query: {'peer': ci, 'name': 'policy-alias-from-B'},
+      );
+      await waitUntil(
+        () async =>
+            await hasPref(a, 'policy-alias-from-B') &&
+            await policyMatches(a, 60, policyClock) &&
+            await policyMatches(b, 60, policyClock),
+        what: 'the replacement preference commits before compaction',
+      );
+      final group = (await a.checked('/devices'))['deviceGroup'] as String;
+      final compactions = [
+        await a.checked('/group_compact', query: {'group': group}),
+        await b.checked('/group_compact', query: {'group': group}),
+      ];
+      final removed = compactions.fold<int>(0, (count, result) {
+        final sizes = result['messages'] as List;
+        return count + (sizes[0] as int) - (sizes[1] as int);
+      });
+      expect(
+        removed,
+        greaterThan(0),
+        reason: 'cold retention needs actual signed-row removal',
+      );
+      E2eLog.line('PROCESS_CONTACT_POLICY_COMPACTION_REMOVED=$removed');
+      await b.restart();
+      await waitUntil(
+        () => policyMatches(b, 60, policyClock),
+        what:
+            'cold B retains policy after real signed device-journal compaction',
+      );
+      E2eLog.line('PROCESS_CONTACT_POLICY_COMPACTION_COLD_PASS');
+      await a.stop();
+      await b.stop();
+      final tieClock = DateTime.now().millisecondsSinceEpoch;
+      await offlinePolicy(a, ttl: 60, at: tieClock);
+      await offlinePolicy(b, ttl: 120, at: tieClock);
+      await a.start();
+      await b.start();
+      await waitUntil(
+        () async =>
+            await policyMatches(a, 120, tieClock) &&
+            await policyMatches(b, 120, tieClock),
+        what: 'same identity/clock policies converge by content tie break',
+        timeout: const Duration(minutes: 2),
+      );
+      E2eLog.line('PROCESS_CONTACT_POLICY_TIE_CONVERGENCE_PASS');
     },
     skip: gate.skip,
   );

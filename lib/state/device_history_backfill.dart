@@ -32,7 +32,7 @@ import '../domain/media_object.dart';
 // The ONE contact-preferences builder the app has — the same import the
 // archive walk takes, and for the same reason: a field added to `Contact` and
 // forgotten in a second copy of this list syncs on one path and not the other.
-import 'device_sync_bridge.dart' show contactPrefsPayload;
+import '../domain/contact_preferences.dart';
 
 /// The mirror event a stored [message] travels as, and the attachment
 /// reference that authorizes another device to pull its bytes.
@@ -385,6 +385,11 @@ Future<DeviceHistoryReplay> replayHistoryForAsk({
     )) {
       break;
     }
+    final policy = contactPolicyEvent(
+      conversation.peer.nodeId,
+      contactPrefsPayload(conversation.peer),
+    );
+    if (policy != null && !await emit(policy)) break;
     if (!await emit(
       DeviceSyncEvent(
         kind: DeviceSyncKind.contactUp,

@@ -1,5 +1,23 @@
 # Открытые случаи — обновлено 2026-11-05
 
+Текущий шаг: [независимая версия disappearing policy](../contact-policy-convergence-2026-11-05/README.md).
+ПОДТВЕРЖДЕНО: поздний alias snapshot скрывал новую policy другого устройства
+при live gate и fold; одинаковые identity/clock давали first-wins; одинаковый
+wire ID разных policy позволял ACK одной снять другую. 6 baseline assertion-red
+и 4 дополнительных wire-red до правки ID, всего 4 worker/native red.
+Policy получает отдельный `contactUp/d:<peer>` key и исходный clock; metadata,
+consent и P2P не меняются вместе с ней. Fold/gate/winner используют общий
+детерминированный порядок. Publisher требует обе проекции и ограничен
+32 snapshots / 64 events. ID внешней доставки различает TTL/read значения.
+20 новых случаев (5 worker/native), 208 scoped, отдельная history suite 43,
+719 diagnostic control, 2090 broad passed / 3 skipped; analyzer чистый,
+headless AOT/--help прошёл. Native A/B/C: все 10 gates, actual compaction
+удалила 10 signed rows, cold B сохранил policy; одинаковый clock с разными TTL
+сошёлся. Cleanup 46 PID / 55 портов чистый, 1475 inputs/native SHA неизменны.
+Offline archive projection, conflict timeline caption и полная матрица ещё
+требуют проверки; физический Windows случай не закрыт. Сиды, APK/engine pins,
+mailbox собственным устройствам, push/релиз не менялись.
+
 Текущий шаг: [durable публикация настроек контакта](../contact-preferences-durable-2026-11-05/README.md).
 ПОДТВЕРЖДЕНО: после local commit отказ callback оставлял preference без
 повторяемой публикации своим устройствам; два ordinary/native assertion-red.

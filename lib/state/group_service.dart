@@ -21740,7 +21740,7 @@ class GroupService implements ArchiveGroups {
         final event = DeviceSyncEvent.fromBody(message.body);
         if (event != null &&
             event.kind == DeviceSyncKind.contactUp &&
-            RegExp(r'^[0-9a-f]{64}$').hasMatch(event.key)) {
+            RegExp(r'^(?:d:)?[0-9a-f]{64}$').hasMatch(event.key)) {
           events.add(event);
         }
       }
