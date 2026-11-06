@@ -2642,6 +2642,180 @@ void main() {
     ).encode(),
   );
 
+  Future<void> requestSourcePage(String requestId) async {
+    ma.start(); // The requester deliberately has no listener or pull task.
+    await Future<void>(() {});
+    ta.incoming.add(
+      InboundMessage(
+        src: identity,
+        srcDevice: b,
+        provenance: SenderProvenance.signed,
+        payload: WireEnvelope.deviceHistory(
+          jsonEncode({
+            'v': 1,
+            'd': b.hex,
+            'id': requestId,
+            'q': {'op': 'page', 'peer': peer.hex, 'cursor': null},
+          }),
+        ).encode(),
+      ),
+    );
+  }
+
+  test(
+    'local page encoding does not reread the roster for every row',
+    () async {
+      await seed(32);
+      final encode = ma.ownHistoryEncode!;
+      var encoded = 0, rosterReads = 0, readsAtFirst = 0;
+      final entered = Completer<void>(), release = Completer<void>();
+      ma.myOtherDevices = () async {
+        rosterReads++;
+        return [b];
+      };
+      ma.ownHistoryEncode = (peer, message) async {
+        encoded++;
+        if (encoded == 1) readsAtFirst = rosterReads;
+        if (encoded == 32) {
+          entered.complete();
+          await release.future;
+        }
+        return encode(peer, message);
+      };
+      const requestId = 'cccccccccccccccccccccccccccccccc';
+      await requestSourcePage(requestId);
+      await entered.future;
+      try {
+        expect(encoded, 32);
+        expect(
+          rosterReads - readsAtFirst,
+          0,
+          reason: 'bounded local encoding must not pay for 31 fresh journals',
+        );
+        expect(net.history.where((e) => e.body['id'] == requestId), isEmpty);
+      } finally {
+        release.complete();
+      }
+      await until(() async {
+        final parts = net.history.where((e) => e.body['id'] == requestId);
+        return parts.isNotEmpty && parts.length == parts.first.body['n'];
+      });
+      final parts = net.history
+          .where((e) => e.body['id'] == requestId)
+          .toList();
+      expect(
+        rosterReads - readsAtFirst,
+        greaterThanOrEqualTo(parts.length),
+        reason: 'each disclosed part must still obtain fresh authorization',
+      );
+    },
+  );
+
+  test('a revoke during page encoding refuses every reply part', () async {
+    await seed(32);
+    var live = true, encoded = 0;
+    final encode = ma.ownHistoryEncode!;
+    final entered = Completer<void>(), release = Completer<void>();
+    final rechecked = Completer<void>();
+    ma.myOtherDevices = () async {
+      if (!live && !rechecked.isCompleted) rechecked.complete();
+      return live ? [b] : [];
+    };
+    ma.ownHistoryEncode = (peer, message) async {
+      if (++encoded == 32) {
+        entered.complete();
+        await release.future;
+      }
+      return encode(peer, message);
+    };
+    const requestId = 'dddddddddddddddddddddddddddddddd';
+    final sent = Completer<void>();
+    net.drop = (_, _, body) {
+      if (body['id'] == requestId && !sent.isCompleted) sent.complete();
+      return false;
+    };
+    await requestSourcePage(requestId);
+    await entered.future;
+    live = false;
+    release.complete();
+    await Future.any([rechecked.future, sent.future]);
+    await Future<void>(() {});
+    expect(rechecked.isCompleted, isTrue);
+    expect(sent.isCompleted, isFalse);
+    expect(net.history.where((e) => e.body['id'] == requestId), isEmpty);
+  });
+
+  test(
+    'revoke prevents subsequent inline-file preparation within a page',
+    () async {
+      await seed(1);
+      await sa.appendMessage(
+        Message(
+          id: 'inline-file',
+          conversationId: peer.hex,
+          direction: MessageDirection.outgoing,
+          body: 'attachment',
+          timestamp: DateTime.utc(2020).add(const Duration(seconds: 1)),
+          status: MessageStatus.delivered,
+          fileId: 'fixture-local-blob',
+        ),
+      );
+      var live = true;
+      final rechecked = Completer<void>(), encodedFile = Completer<void>();
+      ma.myOtherDevices = () async {
+        if (!live && !rechecked.isCompleted) rechecked.complete();
+        return live ? [b] : [];
+      };
+      final encode = ma.ownHistoryEncode!;
+      ma.ownHistoryEncode = (peer, message) async {
+        if (message.fileId != null) encodedFile.complete();
+        final event = await encode(peer, message);
+        live = false;
+        return event;
+      };
+      const requestId = 'ffffffffffffffffffffffffffffffff';
+      await requestSourcePage(requestId);
+      await Future.any([rechecked.future, encodedFile.future]);
+      await Future<void>(() {});
+      expect(
+        encodedFile.isCompleted,
+        isFalse,
+        reason:
+            'inline-file encoding may register content, so it needs a fresh gate',
+      );
+      expect(net.history.where((e) => e.body['id'] == requestId), isEmpty);
+    },
+  );
+
+  test(
+    'a replacement binding stops a locally encoded page before its next row',
+    () async {
+      await seed(32);
+      var encoded = 0;
+      final encode = ma.ownHistoryEncode!;
+      final entered = Completer<void>(), release = Completer<void>();
+      final resumed = Completer<void>();
+      ma.ownHistoryEncode = (peer, message) async {
+        if (++encoded == 1) {
+          entered.complete();
+          await release.future;
+          resumed.complete();
+        }
+        return encode(peer, message);
+      };
+      const requestId = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+      await requestSourcePage(requestId);
+      await entered.future;
+      ma.groupBindingsOwner = Object();
+      ma.onOwnDeviceHistoryReady(ma.groupBindingsOwner!);
+      release.complete();
+      await resumed.future;
+      await Future<void>(() {});
+      expect(encoded, 1);
+      expect(net.history.where((e) => e.body['id'] == requestId), isEmpty);
+    },
+  );
+
   Future<Completer<void>> holdHistoryAdmission({
     List<NodeId> Function()? roster,
     bool failOnRelease = false,

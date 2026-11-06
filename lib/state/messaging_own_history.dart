@@ -178,12 +178,13 @@ class _MessagingOwnHistory {
     }
   }
 
+  bool _bound(Object? binding) =>
+      _ready && identical(binding, _owner.groupBindingsOwner);
+
   Future<bool> _allowed(NodeId device, Object? binding) async =>
-      _ready &&
-      identical(binding, _owner.groupBindingsOwner) &&
+      _bound(binding) &&
       (await _owner.myOtherDevices?.call() ?? <NodeId>[]).contains(device) &&
-      _ready &&
-      identical(binding, _owner.groupBindingsOwner);
+      _bound(binding);
 
   void _begin(NodeId device) {
     final previous = _pulls[device.hex];
@@ -875,9 +876,20 @@ class _MessagingOwnHistory {
             };
           }
         } else {
+          if (!await _allowed(device, binding)) return;
           for (final message in page) {
-            if (!await _allowed(device, binding)) return;
+            // Text/already-addressed media need only local preparation here.
+            // An inline blob may register content, so keep its fresh gate.
+            // Every reply part still needs fresh _allowed below too.
+            // A closing/replaced identity must stop local callbacks too.
+            if (!_bound(binding)) return;
+            if (message.fileContentId == null &&
+                message.fileId != null &&
+                !await _allowed(device, binding)) {
+              return;
+            }
             final body = await encodeRecord(message);
+            if (!_bound(binding)) return;
             events.add(body);
             // Event bodies are JSON strings inside another JSON envelope.
             if (utf8.encode(jsonEncode(pageResult(message))).length >
