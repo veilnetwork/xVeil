@@ -86,6 +86,12 @@ class _PositionedMessageAppends {
   late final Future<void> result;
 }
 
+class _PendingOrderingAdoptions {
+  final requests = <MessageOrderingAdoption>[];
+  int bytes = 0;
+  late final Future<List<bool>> result;
+}
+
 typedef _QueuedOutboxFrame = ({OutboxFrame frame, Uint8List payload});
 
 class _PendingOutboxEnqueues {
@@ -3015,26 +3021,9 @@ class HiddenVolumeStorage
           return c != 0 ? c : a.$2.compareTo(b.$2);
         });
     Future<List<bool>?> acquire(int index) => index == keys.length
-        ? _serialized(() async {
-            final checkErasure = _preparedErasureCheck();
-            await _foldCritical();
-            final outcomes = <bool>[];
-            final payloads = <Uint8List>[];
-            for (final r in frozen) {
-              final matches = _canAdoptOrdering(r);
-              outcomes.add(matches);
-              if (matches) payloads.add(_orderingPayload(r));
-            }
-            if (payloads.isNotEmpty) {
-              await _commitPositionedMessageBatch(
-                payloads,
-                beforeCommit: beforeCommit,
-                checkBeforePublish: checkErasure,
-              );
-              await _foldCritical();
-            }
-            return List.unmodifiable(outcomes);
-          })
+        ? _serialized(
+            () => _adoptOrderingCritical(frozen, beforeCommit: beforeCommit),
+          )
         : _withConvSequence(
             keys[index].$1,
             keys[index].$2,
@@ -3042,6 +3031,30 @@ class HiddenVolumeStorage
             acceptedBeforeFence: index > 0,
           );
     return acquire(0);
+  }
+
+  Future<List<bool>> _adoptOrderingCritical(
+    List<MessageOrderingAdoption> requests, {
+    Future<void> Function()? beforeCommit,
+  }) async {
+    final checkErasure = _preparedErasureCheck();
+    await _foldCritical();
+    final outcomes = <bool>[];
+    final payloads = <Uint8List>[];
+    for (final request in requests) {
+      final matches = _canAdoptOrdering(request);
+      outcomes.add(matches);
+      if (matches) payloads.add(_orderingPayload(request));
+    }
+    if (payloads.isNotEmpty) {
+      await _commitPositionedMessageBatch(
+        payloads,
+        beforeCommit: beforeCommit,
+        checkBeforePublish: checkErasure,
+      );
+      await _foldCritical();
+    }
+    return List.unmodifiable(outcomes);
   }
 
   bool _canAdoptOrdering(MessageOrderingAdoption request) {
@@ -3074,8 +3087,7 @@ class HiddenVolumeStorage
     required int provisionalSeq,
     required String author,
     required int seq,
-  }) => _serialized(() async {
-    await _foldCritical();
+  }) {
     final request = MessageOrderingAdoption(
       conversationId: conversationId,
       messageId: messageId,
@@ -3084,6 +3096,60 @@ class HiddenVolumeStorage
       author: author,
       seq: seq,
     );
+    final size = _orderingPayload(request).length;
+    if (size > _messageInlineBytes) {
+      // Keep the existing fragmented path for a single oversized record.
+      // It is still a sequence turn and a barrier to either kind of cohort.
+      return _withConvSequence(
+        conversationId,
+        provisionalAuthor,
+        () => _serialized(() => _adoptLargeOrderingCritical(request)),
+      );
+    }
+    return _queueOrderingAdoption(request, size);
+  }
+
+  Future<bool> _queueOrderingAdoption(
+    MessageOrderingAdoption request,
+    int size,
+  ) {
+    if (_store == null || _convSequenceFences > 0) {
+      return Future.error(StateError('storage is closing or locked'));
+    }
+    final key = (request.conversationId, request.provisionalAuthor);
+    final pending = _pendingOrderingAdoptions[key];
+    if (pending != null &&
+        pending.requests.length < 16 &&
+        pending.bytes + size <= _messageInlineBytes &&
+        !pending.requests.any((r) => r.messageId == request.messageId)) {
+      final index = pending.requests.length;
+      pending.requests.add(request);
+      pending.bytes += size;
+      return pending.result.then((outcomes) => outcomes[index]);
+    }
+    final batch = _PendingOrderingAdoptions()
+      ..requests.add(request)
+      ..bytes = size;
+    batch.result =
+        _withConvSequence(key.$1, key.$2, () {
+          // Seal at the start of this turn, before any read or native commit.
+          if (identical(_pendingOrderingAdoptions[key], batch)) {
+            _pendingOrderingAdoptions.remove(key);
+          }
+          return _serialized(() => _adoptOrderingCritical(batch.requests));
+        }).whenComplete(() {
+          if (identical(_pendingOrderingAdoptions[key], batch)) {
+            _pendingOrderingAdoptions.remove(key);
+          }
+        });
+    _pendingOrderingAdoptions[key] = batch;
+    return batch.result.then((outcomes) => outcomes.first);
+  }
+
+  Future<bool> _adoptLargeOrderingCritical(
+    MessageOrderingAdoption request,
+  ) async {
+    await _foldCritical();
     if (!_canAdoptOrdering(request)) return false;
     // A body-less local metadata record. Older folds see an inert void with no
     // sequence slot; exporters see no au/sq. In particular this cannot re-ship
@@ -3097,7 +3163,7 @@ class HiddenVolumeStorage
     );
     await _foldCritical();
     return true;
-  });
+  }
 
   @override
   Future<ConversationSync> conversationSync(String conversationId) =>
@@ -6732,6 +6798,8 @@ class HiddenVolumeStorage
   final _convSequenceTails = <(String, String), Future<void>>{};
   final _positionedMessageAppends =
       <(String, String), _PositionedMessageAppends>{};
+  final _pendingOrderingAdoptions =
+      <(String, String), _PendingOrderingAdoptions>{};
   int _convSequenceFences = 0;
 
   Future<T> _withConvSequence<T>(
@@ -6747,6 +6815,7 @@ class HiddenVolumeStorage
     final key = (conversation, author);
     // An edit, clear, local allocation or large row must retain its own turn.
     _positionedMessageAppends.remove(key);
+    _pendingOrderingAdoptions.remove(key);
     final previous = _convSequenceTails[key] ?? Future<void>.value();
     final result = previous.then((_) {
       if (!identical(session, _store)) {

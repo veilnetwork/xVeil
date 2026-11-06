@@ -120,6 +120,165 @@ void main() {
     beforeCommit: guard ?? () async {},
   );
 
+  Future<bool> repairOne(String id, int from, {String author = 'canonical'}) =>
+      storage.adoptMessageOrdering(
+        'conversation',
+        id,
+        provisionalAuthor: 'author',
+        provisionalSeq: from,
+        author: author,
+        seq: from + 1000,
+      );
+
+  test('concurrent single ordering calls amortize durable writes', () async {
+    for (var i = 1; i <= 64; i++) {
+      await storage.appendMessage(row('coalesced-$i', seq: i));
+    }
+    backing.writes.clear();
+    expect(
+      await Future.wait([
+        for (var i = 1; i <= 64; i++) repairOne('coalesced-$i', i),
+      ]),
+      List.filled(64, true),
+    );
+    expect(backing.writes.length, lessThanOrEqualTo(8));
+    expect(
+      backing.writes.expand((ops) => ops.whereType<AppendLogOp>()),
+      hasLength(64),
+    );
+    expect(
+      await Future.wait([
+        for (var i = 1; i <= 64; i++) repairOne('coalesced-$i', i),
+      ]),
+      List.filled(64, false),
+    );
+    final held = await storage.loadMessages('conversation');
+    expect(
+      held.map(
+        (m) => (m.body, m.status, m.author, m.seq, m.orderAuthor, m.orderSeq),
+      ),
+      [
+        for (var i = 1; i <= 64; i++)
+          (
+            'small',
+            MessageStatus.delivered,
+            'author',
+            i,
+            'canonical',
+            i + 1000,
+          ),
+      ],
+    );
+    expect(
+      await storage.loadEventsSince('conversation', 'canonical', 0),
+      isEmpty,
+    );
+  });
+
+  test('competing single corrections keep the first winner', () async {
+    await storage.appendMessage(row('target', seq: 1));
+    expect(
+      await Future.wait([
+        repairOne('target', 1, author: 'winner'),
+        repairOne('target', 1, author: 'loser'),
+      ]),
+      [true, false],
+    );
+    expect(
+      (await storage.loadMessageById('conversation', 'target'))!.orderAuthor,
+      'winner',
+    );
+  });
+
+  test(
+    'an intervening append keeps its turn between ordering cohorts',
+    () async {
+      for (var i = 1; i <= 3; i++) {
+        await storage.appendMessage(row('barrier-$i', seq: i));
+      }
+      backing.writes.clear();
+      await Future.wait([
+        repairOne('barrier-1', 1),
+        storage.appendMessage(row('barrier-4', seq: 4)),
+        repairOne('barrier-2', 2),
+        repairOne('barrier-3', 3),
+      ]);
+      final writes = [
+        for (final ops in backing.writes)
+          [
+            for (final op in ops.whereType<AppendLogOp>())
+              (jsonDecode(utf8.decode(op.payload)) as Map)['id'],
+          ],
+      ];
+      expect(writes, [
+        ['barrier-1'],
+        ['barrier-4'],
+        ['barrier-2', 'barrier-3'],
+      ]);
+    },
+  );
+
+  for (final uncertain in [false, true]) {
+    test(
+      'single ordering cohort retries atomic failure ($uncertain)',
+      () async {
+        await storage.appendMessage(row('single-1', seq: 1));
+        await storage.appendMessage(row('single-2', seq: 2));
+        backing.refuse = !uncertain;
+        backing.uncertain = uncertain;
+        final failed = await Future.wait([
+          for (var i = 1; i <= 2; i++)
+            repairOne('single-$i', i).then((_) => false, onError: (_) => true),
+        ]);
+        expect(failed, [true, true]);
+        expect(
+          await Future.wait([
+            for (var i = 1; i <= 2; i++) repairOne('single-$i', i),
+          ]),
+          List.filled(2, !uncertain),
+        );
+        expect(records().where((r) => r['op'] == 'ordering'), hasLength(2));
+      },
+    );
+  }
+
+  for (final erase in [false, true]) {
+    test('single ordering cohorts drain before maintenance ($erase)', () async {
+      await storage.appendMessage(row('accepted', seq: 1));
+      backing.hold = true;
+      final writing = repairOne('accepted', 1);
+      await backing.entered.future;
+      final maintenance = erase ? storage.eraseSpace() : storage.close();
+      final refused = expectLater(repairOne('late', 2), throwsStateError);
+      backing.release.complete();
+      expect(await writing, true);
+      await Future.wait([maintenance, refused]);
+      final opened = HiddenVolumeStorage(
+        ({required password, required create}) => raw,
+      );
+      await opened.open(password: 'fixture');
+      addTearDown(opened.close);
+      final held = await opened.loadMessageById('conversation', 'accepted');
+      if (erase) {
+        expect(held, isNull);
+      } else {
+        expect(held!.orderAuthor, 'canonical');
+      }
+    });
+  }
+
+  test('oversized single ordering retains fragmented fallback', () async {
+    await storage.appendMessage(row('large-correction', seq: 1));
+    expect(await repairOne('large-correction', 1, author: 'x' * 2400), true);
+    expect(
+      (await storage.loadMessageById(
+        'conversation',
+        'large-correction',
+      ))!.orderAuthor,
+      'x' * 2400,
+    );
+  });
+
   test(
     'prepared ordering publishes one bounded bodyless transaction',
     () async {
