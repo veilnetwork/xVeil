@@ -1,0 +1,46 @@
+{
+  "schema": "xveil-validation/ordered-binding-progress/1",
+  "sdkBase": "b9b88bb7",
+  "sdkFix": "4f441329",
+  "testKind": "host production worker, real obfs4 parent offer, deterministic authenticated child pipes",
+  "baseline": {
+    "passed": 0,
+    "failedAssertions": 2,
+    "timedOut": false,
+    "readySecondChild": 0,
+    "startedAckFlights": 1
+  },
+  "candidate": {
+    "passed": 2,
+    "readySecondChildBeforeTimer": 1,
+    "startedAckFlights": 8,
+    "directionalConnectionBudget": 8,
+    "excessConnectionRejected": true,
+    "independentEncryptedRecordVerified": true,
+    "otherBindingSurvivesFirstTimeout": true,
+    "retirementActiveConnections": 0
+  },
+  "fullSession": {
+    "passed": 694,
+    "failed": 0,
+    "ignored": 8,
+    "docPassed": 0,
+    "docIgnored": 1
+  },
+  "verification": {
+    "sourceInputs": 995,
+    "sourceUnchanged": true,
+    "newTestsInExecutedBinary": 2,
+    "externalMountVerified": true,
+    "externalMountLost": false,
+    "liveOwnedCargoProcesses": 0,
+    "liveTestBinaryProcesses": 0
+  },
+  "limits": [
+    "local blocked ACK I/O, not a physical mobile-loss reproduction",
+    "no attribution of the NETCALL pause",
+    "no new FFI or APK build or install",
+    "no phone or Windows call",
+    "no production seed updates, push or release"
+  ]
+}
