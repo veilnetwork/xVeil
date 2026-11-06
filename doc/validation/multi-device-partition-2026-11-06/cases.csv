@@ -1,0 +1,7 @@
+phase,online,action_source,expected,actual,duplicates_order,after_reconnect,identity_convergence
+initial,A B C D; all relays,A,Two initial messages and reaction reach all four,PASS,No repeated message IDs,not applicable,observed
+partition,A C + Core0 | B D + Core1 Core2,native admin,No cross-half native session; both halves remain live,PASS,"16 new messages, four per device, only within own half",pending healing,intentionally divergent
+edit-delete,same two isolated halves,A edit; B global delete,A/C keep edit; B/D delete target before healing,PASS,target presence checked by exact message ID,global deletion reaches all four,17 rows each after healing
+reactions-read,all devices after healing,A B D reactions; A B C D read,Known unique logical reactors; read markers agree per identity,PASS with strict oracle,No unknown or duplicate actor slots; same displayed order per identity,observed stable >=10s,observed
+automatic-heal,A B C D; all relays,admin unban only,"Converge without join, restart or journal import",PASS; first convergence 44772ms,16 new messages present once; deleted target absent,delay remains open,observed
+receiver-restart,B + relays; A C D offline,B restart,"Retain 17 rows, deletion, reactions and read position",PASS,same IDs and displayed ordering retained,sources remain stopped,B retained; other devices offline
