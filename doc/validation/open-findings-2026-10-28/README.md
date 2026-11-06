@@ -1,5 +1,19 @@
 # Открытые случаи — обновлено 2026-11-06
 
+Последнее исправление: [direct-route retry после входящей активности](../message-route-up-nudge-2026-11-06/README.md).
+Steady inbound больше не расходует cooldown события восстановления прямого
+соединения; ожидающее сообщение освобождается от своей задержки до 24 с.
+Повторные recovery notices ограничены, ACK/peer scope сохранены.
+База: 1 assertion-red / 2 passed; candidate 3 passed, связанные suites 22 passed
+(включая эти три), analyzer чист. В полном `durable_redrive_test.dart`
+есть **четыре незакрытых отказа на базе и candidate**; весь набор не зелёный,
+их причины вынесены в validation-запись, исправленными они не считаются.
+Native regression на четырёх устройствах прошёл: 17 строк, edit/delete,
+реакции, read position и restart B при offline A/C/D. Unban без join:
+первая сходимость **45,455 с**, то есть задержка automatic recovery остаётся.
+Эффект retry-фикса на этот симптом не доказан. Стенд очищен (28 PID, 35 портов),
+телефон/production не трогались, push/релиза нет.
+
 Последняя квалификация: [четыре устройства, live partition, edit/delete, реакции и read position](../multi-device-partition-2026-11-06/README.md).
 Две личности A/B и C/D работают в изолированных половинах и сходятся после
 healing; 17 ожидаемых строк без дублей, global delete побеждает edit, реакции
