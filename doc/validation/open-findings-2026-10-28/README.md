@@ -1,5 +1,18 @@
 # Открытые случаи — обновлено 2026-11-06
 
+Последняя физическая проверка: [Poco obfs4 first flight](../poco-obfs-first-flight-2026-11-06/README.md).
+NETCALL-01 **подтверждён и открыт**. Новый observer SDK `29ee0700` собран,
+проверен и реально сработал на обоих клиентах. Первые два handover цикла
+звонок сохранили; в третьем оба endpoint завершились по liveness timeout.
+Canonical obfs4 ожидал 10001 мс: 171 байт приняты TCP, read 0, notsent 0,
+unacked 1, четыре kernel retransmission. Outer timeout следует через 1 мс,
+phone call-end — ещё через 4,786 с. Ожидание до socket write для этой попытки
+исключено; конкретный участок ОС/модем/NAT/сеть не установлен. NIC реле быстро
+отвечал на все 80 flow с client payload; точная привязка failed mobile flow
+не доказана из-за NAT. Следующий контроль — несколько доступных QA-реле,
+а не изменение аудиобуфера. Стенд убран, APK/настройки восстановлены,
+production-код/сиды не менялись; push/релиза нет.
+
 Последняя работа: [obfs4 handshake diagnostics](../obfs-handshake-diagnostics-2026-11-06/README.md).
 NETCALL-01 **открыт**. В ещё одном Mac → Poco Wi-Fi/cellular/Wi-Fi разговоре
 canonical obfs4 timeout не повторился, native RX age до 1,326/2,066 с;
