@@ -1,0 +1,341 @@
+{
+  "schema": "xveil-test-history-page-slices/1",
+  "sourceBaseline": "dc8fff71",
+  "fixture": {
+    "platform": "macOS",
+    "host": "JIT/provider",
+    "clientProcesses": 3,
+    "identities": 2,
+    "loopbackCores": 3,
+    "sourceRows": 2000,
+    "pollAboutMs": 5000,
+    "phoneUsed": false,
+    "cpuOrVmProfilingEnabled": false
+  },
+  "change": {
+    "sliceBytes": 4096,
+    "maximumPartBase64Chars": 5464,
+    "wireBodyCharacterLimit": 6000,
+    "transportApplicationFrameByteLimit": 6144,
+    "pageRowCap": 32,
+    "pageByteCap": 131072,
+    "acceptedPartCountCap": 64,
+    "senderMaximumPartCount": 32,
+    "reassemblyByteCapCheckedBeforeRetaining": true,
+    "admissionByteOrFrameBudgetsChanged": false,
+    "authorizationCacheAdded": false
+  },
+  "tests": {
+    "relatedPassed": 96,
+    "skipped": 0,
+    "baselineSliceCountAssertionRed": true,
+    "controlledPagePartCount": {
+      "before": 37,
+      "after": 19
+    },
+    "exactPageByteBudgetAccepted": true,
+    "oneExcessByteRefusedBeforeRetention": true,
+    "rejectedSlotCanBeCorrected": true,
+    "decodedPart4097BytesRejected": true,
+    "reassemblyCapMutationAssertionRed": true,
+    "decodedPartCapMutationAssertionRed": true,
+    "expandedSenderBudgetMutationAssertionRed": true
+  },
+  "scenario": {
+    "migrationOnly": true,
+    "baseRows": 2000,
+    "initialHistoryMs": 72845,
+    "initialCountCompleteMs": 72845,
+    "initialOrderMismatchObservations": 0,
+    "initialPositionMismatchObservations": 0,
+    "initialPositionsCompared": true,
+    "initialBStatuses": {
+      "sending": 0,
+      "sent": 0,
+      "delivered": 2000,
+      "failed": 0
+    },
+    "completedHistoryRetries": 0,
+    "convergedIdsAndOrder": true,
+    "invalidSnapshotObserved": false,
+    "offlineScenarioExecuted": false,
+    "receiverCrashRequested": true,
+    "receiverCrashPerformed": true,
+    "crashAfterRows": 500,
+    "rowsBeforeCrash": 624,
+    "crashExitCode": -9,
+    "rowsAtRestartBeforeNetwork": 687,
+    "crashAtMs": 5234,
+    "restartReadyAtMs": 16545,
+    "retainedWithoutSources": true,
+    "crashRetentionBeforeNetwork": {
+      "passed": true,
+      "expectedRows": 624,
+      "actualRows": 687,
+      "retainedExpectedRows": 624,
+      "missingExpectedRows": 0,
+      "unexpectedRows": 0,
+      "duplicateExpectedRows": 0,
+      "duplicateActualRows": 0,
+      "invalidExpectedRows": 0,
+      "invalidActualRows": 0,
+      "expectedDeliveredRows": 624,
+      "retainedDeliveredRows": 624,
+      "expectedCanonicalRows": 574,
+      "retainedCanonicalRows": 574,
+      "expectedBodyRows": 624,
+      "retainedBodyRows": 624
+    },
+    "finalRetentionBeforeNetwork": {
+      "passed": true,
+      "expectedRows": 2000,
+      "actualRows": 2000,
+      "retainedExpectedRows": 2000,
+      "missingExpectedRows": 0,
+      "unexpectedRows": 0,
+      "duplicateExpectedRows": 0,
+      "duplicateActualRows": 0,
+      "invalidExpectedRows": 0,
+      "invalidActualRows": 0,
+      "expectedDeliveredRows": 2000,
+      "retainedDeliveredRows": 2000,
+      "expectedCanonicalRows": 2000,
+      "retainedCanonicalRows": 2000,
+      "expectedBodyRows": 2000,
+      "retainedBodyRows": 2000
+    },
+    "sourcesOfflineAtReceiverRestart": true,
+    "rowsWithSourcesOffline": 687,
+    "sourceRestartReadyAtMs": 26821,
+    "onlySourceAReturned": true,
+    "storageTimingResetBeforeLink": [
+      "A",
+      "B"
+    ]
+  },
+  "recoveryAfterSourceStartReturnedMs": 46024,
+  "wire": {
+    "afterSourceARestartOnly": true,
+    "uniqueRequestIds": 43,
+    "qualifiedUnrepeatedCompletePairs": 42,
+    "excluded": {
+      "repeatedQueryIds": 1
+    },
+    "operationCounts": {
+      "page": 41,
+      "list": 1
+    },
+    "pageQueryToLastPart": {
+      "samples": 41,
+      "minimumUs": 68515,
+      "medianUs": 110449,
+      "maximumUs": 196242
+    },
+    "nextQueryAfterLastPart": {
+      "samples": 41,
+      "minimumUs": 219750,
+      "medianUs": 534710,
+      "maximumUs": 1001689
+    }
+  },
+  "wireFrames": {
+    "qualifiedPageCount": 41,
+    "partCountHistogram": {
+      "4": 40,
+      "1": 1
+    },
+    "medianPartCount": 4,
+    "maximumCapturedApplicationFrameBytes": 5640,
+    "captureDroppedRecords": 0
+  },
+  "ownDevicesLookupCensus": {
+    "A": {
+      "count": 1023,
+      "awaitUs": 13515196,
+      "maxAwaitUs": 181006,
+      "startedBeforeWindow": 0
+    },
+    "B": {
+      "count": 3474,
+      "awaitUs": 32810071,
+      "maxAwaitUs": 197181,
+      "startedBeforeWindow": 0
+    }
+  },
+  "historyCallbacks": {
+    "A": {
+      "historyEncode": 1287,
+      "historyApply": 316
+    },
+    "B": {
+      "historyEncode": 316,
+      "historyApply": 1287
+    }
+  },
+  "previousReference": {
+    "scenario": {
+      "migrationOnly": true,
+      "baseRows": 2000,
+      "initialHistoryMs": 75600,
+      "initialCountCompleteMs": 75600,
+      "initialOrderMismatchObservations": 0,
+      "initialPositionMismatchObservations": 0,
+      "initialPositionsCompared": true,
+      "initialBStatuses": {
+        "sending": 0,
+        "sent": 0,
+        "delivered": 2000,
+        "failed": 0
+      },
+      "completedHistoryRetries": 0,
+      "convergedIdsAndOrder": true,
+      "invalidSnapshotObserved": false,
+      "offlineScenarioExecuted": false,
+      "receiverCrashRequested": true,
+      "receiverCrashPerformed": true,
+      "crashAfterRows": 500,
+      "rowsBeforeCrash": 623,
+      "crashExitCode": -9,
+      "rowsAtRestartBeforeNetwork": 623,
+      "crashAtMs": 5228,
+      "restartReadyAtMs": 12867,
+      "retainedWithoutSources": true,
+      "crashRetentionBeforeNetwork": {
+        "passed": true,
+        "expectedRows": 623,
+        "actualRows": 623,
+        "retainedExpectedRows": 623,
+        "missingExpectedRows": 0,
+        "unexpectedRows": 0,
+        "duplicateExpectedRows": 0,
+        "duplicateActualRows": 0,
+        "invalidExpectedRows": 0,
+        "invalidActualRows": 0,
+        "expectedDeliveredRows": 623,
+        "retainedDeliveredRows": 623,
+        "expectedCanonicalRows": 573,
+        "retainedCanonicalRows": 573,
+        "expectedBodyRows": 623,
+        "retainedBodyRows": 623
+      },
+      "finalRetentionBeforeNetwork": {
+        "passed": true,
+        "expectedRows": 2000,
+        "actualRows": 2000,
+        "retainedExpectedRows": 2000,
+        "missingExpectedRows": 0,
+        "unexpectedRows": 0,
+        "duplicateExpectedRows": 0,
+        "duplicateActualRows": 0,
+        "invalidExpectedRows": 0,
+        "invalidActualRows": 0,
+        "expectedDeliveredRows": 2000,
+        "retainedDeliveredRows": 2000,
+        "expectedCanonicalRows": 2000,
+        "retainedCanonicalRows": 2000,
+        "expectedBodyRows": 2000,
+        "retainedBodyRows": 2000
+      },
+      "sourcesOfflineAtReceiverRestart": true,
+      "rowsWithSourcesOffline": 623,
+      "sourceRestartReadyAtMs": 24359,
+      "onlySourceAReturned": true,
+      "storageTimingResetBeforeLink": [
+        "A",
+        "B"
+      ]
+    },
+    "recoveryAfterSourceStartReturnedMs": 51241,
+    "wire": {
+      "afterSourceARestartOnly": true,
+      "uniqueRequestIds": 44,
+      "qualifiedUnrepeatedCompletePairs": 43,
+      "excluded": {
+        "repeatedQueryIds": 1
+      },
+      "operationCounts": {
+        "page": 42,
+        "list": 1
+      },
+      "pageQueryToLastPart": {
+        "samples": 42,
+        "minimumUs": 124783,
+        "medianUs": 142477.5,
+        "maximumUs": 1074097
+      },
+      "nextQueryAfterLastPart": {
+        "samples": 42,
+        "minimumUs": 520889,
+        "medianUs": 547369.0,
+        "maximumUs": 1170991
+      }
+    },
+    "ownDevicesLookupCensus": {
+      "A": {
+        "count": 888,
+        "awaitUs": 10339081,
+        "maxAwaitUs": 195051,
+        "startedBeforeWindow": 0
+      },
+      "B": {
+        "count": 3737,
+        "awaitUs": 36112467,
+        "maxAwaitUs": 175059,
+        "startedBeforeWindow": 0
+      }
+    },
+    "historyCallbacks": {
+      "A": {
+        "historyEncode": 1343,
+        "historyApply": 188
+      },
+      "B": {
+        "historyEncode": 188,
+        "historyApply": 1343
+      }
+    }
+  },
+  "previousWireFrames": {
+    "qualifiedPageCount": 42,
+    "partCountHistogram": {
+      "7": 41,
+      "6": 1
+    },
+    "medianPartCount": 7.0,
+    "maximumCapturedApplicationFrameBytes": 2908,
+    "captureDroppedRecords": 0
+  },
+  "qualification": {
+    "exit_code": 0,
+    "seconds": 264.061,
+    "sourceUnchangedDuringRun": true,
+    "qualificationPassed": true,
+    "diagnosticProfilingEnabled": false,
+    "qualificationKind": "crash-and-offline-source-recovery"
+  },
+  "cleanup": {
+    "ownedPidsChecked": 27,
+    "portsChecked": 28,
+    "livePids": [],
+    "remainingListeners": [],
+    "runtimeRootRemoved": true,
+    "frozenFilesVerified": 1506,
+    "nativeArtifactsUnchanged": true,
+    "hiddenVolumeUnchanged": true,
+    "sdkClean": true,
+    "portsReusedByOtherPids": 0
+  },
+  "osMappings": {
+    "selectedLibraryWorkersAfterCrashAndSourceOfflineMarker": 2
+  },
+  "limits": {
+    "differentCrashPointAndWorkVolumes": true,
+    "controlledOverallSpeedupClaimed": false,
+    "mobileHandoverQualified": false,
+    "windowsCallQualified": false,
+    "hoursOrDaysOfflineQualified": false,
+    "allCrashStagesQualified": false,
+    "mailboxForOwnDevicesAdded": false,
+    "releaseOrPush": false
+  }
+}
