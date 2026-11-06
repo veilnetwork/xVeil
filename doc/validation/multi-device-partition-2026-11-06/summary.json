@@ -1,0 +1,214 @@
+{
+  "schema": "xveil-validation/multi-device-partition/1",
+  "appBaselineCommit": "0c8ce8674925ba40a7358d1a637fa3f2ab507392",
+  "productionChanged": false,
+  "sdkCommit": "bbeaf3a9eb32c00abf95f3a1ceb7dd31696c79f1",
+  "hiddenVolumeCommit": "eceb9158015bd391494d91acc6fca00d44b7938a",
+  "devices": 4,
+  "identities": 2,
+  "relays": 3,
+  "frontend": "Mac/JIT",
+  "scope": [
+    "selected case 20 edit vs global delete",
+    "case 31 live two-half partition",
+    "selected case 32 message/reaction/read convergence",
+    "offline-sources receiver restart"
+  ],
+  "newMessagesDuringPartition": 16,
+  "finalRowsPerDevice": 17,
+  "duplicateMessagesAllowed": false,
+  "unknownReactionActorsAllowed": false,
+  "duplicateIdentityReactionSlotsAllowed": false,
+  "readCriterion": "equal within identity and at least maximum pre-heal marker",
+  "offlineRestartSources": [
+    "A",
+    "C",
+    "D"
+  ],
+  "relaysOnlineDuringRestart": true,
+  "ownDeviceMailboxAdded": false,
+  "unitOracleTestsPassed": 5,
+  "unitOracleTestsSkipped": 0,
+  "mutation": {
+    "exitCode": 1,
+    "assertionRed": true,
+    "sourceRestoredByteForByte": true
+  },
+  "runs": [
+    {
+      "variant": "prior-oracle-with-join",
+      "strictReactionOracle": false,
+      "noJoinAfterUnban": false,
+      "qualified": true,
+      "firstConvergedMs": 16788,
+      "stableMs": 10418,
+      "totalRecoveryMs": 27207,
+      "allExpectedPhaseMarkers": true,
+      "frozenInputs": 1493,
+      "cleanup": {
+        "pidsChecked": 27,
+        "portsChecked": 35,
+        "runtimeRemoved": true,
+        "noOwnedProcessesOrListeners": true,
+        "nativeUnchanged": true,
+        "hvsUnchanged": true
+      }
+    },
+    {
+      "variant": "strict-with-join",
+      "strictReactionOracle": true,
+      "noJoinAfterUnban": false,
+      "qualified": true,
+      "firstConvergedMs": 15851,
+      "stableMs": 10227,
+      "totalRecoveryMs": 26079,
+      "allExpectedPhaseMarkers": true,
+      "frozenInputs": 1495,
+      "cleanup": {
+        "pidsChecked": 26,
+        "portsChecked": 42,
+        "runtimeRemoved": true,
+        "noOwnedProcessesOrListeners": true,
+        "nativeUnchanged": true,
+        "hvsUnchanged": true
+      }
+    },
+    {
+      "variant": "strict-automatic",
+      "strictReactionOracle": true,
+      "noJoinAfterUnban": true,
+      "qualified": true,
+      "firstConvergedMs": 44772,
+      "stableMs": 10226,
+      "totalRecoveryMs": 54999,
+      "allExpectedPhaseMarkers": true,
+      "frozenInputs": 1495,
+      "cleanup": {
+        "pidsChecked": 28,
+        "portsChecked": 32,
+        "runtimeRemoved": true,
+        "noOwnedProcessesOrListeners": true,
+        "nativeUnchanged": true,
+        "hvsUnchanged": true
+      }
+    }
+  ],
+  "automaticWaitObservations": [
+    {
+      "waitSeconds": 15,
+      "views": {
+        "A": {
+          "rows": 10,
+          "uniqueIds": 10,
+          "missingPartitionMessages": 8,
+          "editedTargetStillVisible": true,
+          "reactionSlots": 1
+        },
+        "B": {
+          "rows": 9,
+          "uniqueIds": 9,
+          "missingPartitionMessages": 8,
+          "editedTargetStillVisible": false,
+          "reactionSlots": 1
+        },
+        "C": {
+          "rows": 10,
+          "uniqueIds": 10,
+          "missingPartitionMessages": 8,
+          "editedTargetStillVisible": true,
+          "reactionSlots": 1
+        },
+        "D": {
+          "rows": 9,
+          "uniqueIds": 9,
+          "missingPartitionMessages": 8,
+          "editedTargetStillVisible": false,
+          "reactionSlots": 1
+        }
+      },
+      "sameIdentityDisplayedOrderMatches": false,
+      "reactionMapsMatchAll": false
+    },
+    {
+      "waitSeconds": 30,
+      "views": {
+        "A": {
+          "rows": 17,
+          "uniqueIds": 17,
+          "missingPartitionMessages": 0,
+          "editedTargetStillVisible": false,
+          "reactionSlots": 2
+        },
+        "B": {
+          "rows": 9,
+          "uniqueIds": 9,
+          "missingPartitionMessages": 8,
+          "editedTargetStillVisible": false,
+          "reactionSlots": 1
+        },
+        "C": {
+          "rows": 14,
+          "uniqueIds": 14,
+          "missingPartitionMessages": 4,
+          "editedTargetStillVisible": true,
+          "reactionSlots": 1
+        },
+        "D": {
+          "rows": 17,
+          "uniqueIds": 17,
+          "missingPartitionMessages": 0,
+          "editedTargetStillVisible": false,
+          "reactionSlots": 2
+        }
+      },
+      "sameIdentityDisplayedOrderMatches": false,
+      "reactionMapsMatchAll": false
+    },
+    {
+      "waitSeconds": 45,
+      "views": {
+        "A": {
+          "rows": 17,
+          "uniqueIds": 17,
+          "missingPartitionMessages": 0,
+          "editedTargetStillVisible": false,
+          "reactionSlots": 2
+        },
+        "B": {
+          "rows": 17,
+          "uniqueIds": 17,
+          "missingPartitionMessages": 0,
+          "editedTargetStillVisible": false,
+          "reactionSlots": 2
+        },
+        "C": {
+          "rows": 17,
+          "uniqueIds": 17,
+          "missingPartitionMessages": 0,
+          "editedTargetStillVisible": false,
+          "reactionSlots": 2
+        },
+        "D": {
+          "rows": 17,
+          "uniqueIds": 17,
+          "missingPartitionMessages": 0,
+          "editedTargetStillVisible": false,
+          "reactionSlots": 2
+        }
+      },
+      "sameIdentityDisplayedOrderMatches": true,
+      "reactionMapsMatchAll": true
+    }
+  ],
+  "automaticRecoveryDelayClosed": false,
+  "wholeMatrixComplete": false,
+  "nativeArtifactSha256": {
+    "cli": "a4e89846f6c34238bedc1350ce68fbd1a298629cca2921cf6f51174bec1f85bd",
+    "ffi": "788315831440df34ad77f209c0ebb5ce3a3f3165aef2d58db251dd742a88072f",
+    "hvs": "f69688d3ecf4642b0ab65894a20c18697189f87556a85824540d0e9b35b85cf3"
+  },
+  "phoneWindowsOrProductionChanged": false,
+  "pushOrRelease": false,
+  "firstConvergedTimeBase": "recovery stopwatch starts before sequential admin unban commands",
+  "waitObservationTimeBase": "waitUntil starts after unban; each replica read sequentially"
+}

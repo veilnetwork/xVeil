@@ -134,6 +134,13 @@ B, checking retained ordered history, deletion, reactions and read position.
 The no-restart assertion applies to the live partition and its merge; the
 additional cold restart happens only after stable convergence was verified.
 
+Set `XVEIL_E2E_PARTITION_AUTOMATIC_HEAL=1` to heal with admin unban alone,
+without calling `/add_peer` again for known siblings. This separately checks
+native reconnect/discovery and application anti-entropy without a join kick.
+Reaction comparisons reject unknown actors and duplicate raw slots belonging
+to one logical identity; identical wrong extra actors on all replicas are not
+accepted as convergence.
+
 The two smoke files exist so that failures separate. "The relays never came up",
 "the app stack never booted", "the two devices never linked" and "the state did
 not converge" are four different problems that a case reports identically. When

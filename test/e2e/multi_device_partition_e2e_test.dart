@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import '../support/multi_device_reaction_oracle.dart';
 import 'device_fixture.dart' show E2eIdentity;
 import 'device_process_fixture.dart';
 import 'e2e_env.dart';
@@ -14,6 +15,8 @@ void main() {
   final gate = E2eGate.read();
   final deleteEverywhere =
       Platform.environment['XVEIL_E2E_PARTITION_DELETE_EVERYONE'] == '1';
+  final automaticHeal =
+      Platform.environment['XVEIL_E2E_PARTITION_AUTOMATIC_HEAL'] == '1';
   test(
     deleteEverywhere
         ? 'cases 20/31/32: edit versus global delete across a live partition'
@@ -36,6 +39,10 @@ void main() {
       };
       final x = infos['A']!['identity'] as String;
       final y = infos['C']!['identity'] as String;
+      final deviceIdentities = {
+        for (final info in infos.values)
+          info['nodeId'] as String: info['identity'] as String,
+      };
       expect(infos['B']!['identity'], x);
       expect(infos['D']!['identity'], y);
       final pids = {
@@ -85,18 +92,10 @@ void main() {
         final raw = Map<String, dynamic>.from(
           (response['reactions'] as Map)[reactionId] as Map? ?? {},
         );
-        // Local self reactions intentionally use this installation's device
-        // key; sibling application rebinds that key locally. Compare logical
-        // identity state without collapsing duplicate reactor slots.
-        final normalized = <String, dynamic>{};
-        for (final entry in raw.entries) {
-          final actor = entry.key == infos[device.label]!['nodeId']
-              ? infos[device.label]!['identity'] as String
-              : entry.key;
-          expect(normalized.containsKey(actor), isFalse);
-          normalized[actor] = entry.value;
-        }
-        return normalized;
+        return normalizeDeviceReactions(
+          raw,
+          deviceIdentities: deviceIdentities,
+        );
       }
 
       await a.checked(
@@ -268,12 +267,17 @@ void main() {
 
       final healing = Stopwatch()..start();
       await crossBans(false);
-      // Restore native connectivity after admin bans, not application journal
-      // contents. The ordinary peer-up/history protocols must perform the merge.
-      await base.join(a, b);
-      await base.join(b, a);
-      await base.join(c, d);
-      await base.join(d, c);
+      if (automaticHeal) {
+        // Unban alone must let the native reconnect/discovery and application
+        // anti-entropy paths heal. Do not refresh peer rows with debug join.
+        E2eLog.line('PROCESS_TWO_PARTITIONS_AUTOMATIC_HEAL_WITHOUT_JOIN');
+      } else {
+        // Restore native connectivity, not application journal contents.
+        await base.join(a, b);
+        await base.join(b, a);
+        await base.join(c, d);
+        await base.join(d, c);
+      }
       bool same(Object? expected, Object? actual) =>
           equals(expected).matches(actual, {});
       List<Object?> logical(List<Map<String, dynamic>> rows) => [
