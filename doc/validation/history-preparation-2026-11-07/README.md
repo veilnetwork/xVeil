@@ -96,10 +96,12 @@ in-flight строки разрешены только из исходного �
 Во всех трёх фазах **2000/2000** ID, тел, итоговых позиций/порядка и delivered
 сошлись и сохранились при финальном старте до сети. Completed-history retries 0.
 
-Два-source overlap — in-process protocol regression с fake transport/KV и
-настоящими MessagingService/codec/mirror/cohort. Native A/B/C имеет только
-один sibling-source на storage; реальная многопроцессная серия с двумя
-одновременными источниками, мобильная сеть и AOT остаются для квалификации.
+Два-source overlap этого цикла — in-process protocol regression с fake
+transport/KV и настоящими MessagingService/codec/mirror/cohort. Native A/B/C
+имеет только один sibling-source на storage. Последующая
+[native-серия с двумя одновременными источниками](../history-multisource-2026-11-07/README.md)
+проверила 512 пересекающихся архивных строк и offline restart-retention.
+Мобильная сеть и AOT остаются для квалификации.
 
 ## Происхождение и очистка
 
