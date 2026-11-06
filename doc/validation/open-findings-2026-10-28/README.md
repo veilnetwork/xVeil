@@ -1,5 +1,19 @@
 # Открытые случаи — обновлено 2026-11-06
 
+Последняя локализация: [Delivery handover: obfs4/TCP](../delivery-obfs-handover-2026-11-06/README.md).
+NETCALL-01 **подтверждён и открыт**. В прежнем аварийном захвате dial
+начинался сразу после Cellular notification; два последовательных obfs4
+handshake ждали по 10 с. Версия ожидания старого runner для того случая
+опровергнута. Новые три network-only цикла без obfs4 timeout; в одном
+Mac → Poco разговоре timeout повторился один раз, native RX age до
+14,7 с, но звонок пережил оба перехода и завершён стендом. На NIC отдельного
+QA-Core все 107 flow с client payload получили первый server payload за
+0,240–1,305 мс; 47 TCP flow без client payload. Связь конкретного flow с
+failed dial пока только временная, не доказанная. Следующий контроль —
+client TCP queue/INFO и local port непосредственно во время handshake.
+Сборки прежние, production-код/таймеры/защиты не менялись; свой стенд удалён,
+QA APK и настройки восстановлены, production не затронут, push/релиза нет.
+
 Последняя физическая проверка: [Poco ↔ Mac, Delivery после смены сети](../poco-mac-delivery-reconnect-2026-11-06/README.md).
 **NETCALL-01 подтверждён и открыт.** С разрешённым микрофоном Mac
 двусторонний baseline прошёл. Первый Wi-Fi → cellular → Wi-Fi в разговоре

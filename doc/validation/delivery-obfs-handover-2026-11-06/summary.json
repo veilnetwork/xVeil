@@ -1,0 +1,57 @@
+{
+  "schema": "xveil-obfs-handover-validation/1",
+  "sdk": "81436bd1",
+  "actualCallTransport": "non-onion Delivery relay",
+  "p2pDenied": true,
+  "humanAudibilityVerified": false,
+  "networkOnly": {
+    "wifiCellularWifiCyclesCompleted": 3,
+    "mobileObservationSecondsPerCycle": 28,
+    "wifiObservationSecondsPerCycle": 16,
+    "canonicalObfsHandshakeTimeouts": 0
+  },
+  "call": {
+    "direction": "Mac to Poco",
+    "bidirectionalBaselinePassed": true,
+    "wifiCellularWifiCompleted": true,
+    "endedByHarness": true,
+    "canonicalObfsHandshakeTimeouts": 1,
+    "maxObservedNativeRxAgeMs": {
+      "phone": 14672,
+      "mac": 14685
+    },
+    "unexpectedCallEnd": false
+  },
+  "relayPacketCapture": {
+    "snaplen": 192,
+    "packetCount": 19170,
+    "kernelDroppedPackets": 0,
+    "tcpFlows": 154,
+    "clientPayloadFlows": 107,
+    "payloadFlowsWithoutServerResponse": 0,
+    "serverFirstResponseDelayMinMs": 0.24,
+    "serverFirstResponseDelayMaxMs": 1.305,
+    "flowsWithoutClientPayload": 47,
+    "dataPayloadFlowsWithAcknowledgedFirstServerResponse": 107,
+    "applicationHandshakeTimedOutFlowCryptographicallyOrPortCorrelated": false
+  },
+  "productionCodeChanged": false,
+  "abComparison": false,
+  "netcallClosed": false,
+  "cleanup": {
+    "macRequiredSigkillAfterGrace": true,
+    "macProcessExited": true,
+    "phoneQaExited": true,
+    "network.veil.xveil.qa.audio20261101ApkShaUnchanged": true,
+    "network.veil.xveilApkShaUnchanged": true,
+    "oldQaContainerShaUnchanged": true,
+    "validatedWifiRestored": true,
+    "ownAdbForwardRemoved": true,
+    "ownedPortsReleased": true,
+    "ownMacRuntimeRemoved": true,
+    "macSignatureReverifiedAfterArchivingOwnRuntimeLog": true
+  },
+  "productionRelayUnchangedAndOwnServiceRemoved": true,
+  "push": false,
+  "release": false
+}
