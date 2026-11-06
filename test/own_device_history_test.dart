@@ -102,6 +102,7 @@ class _RefusingCursorStore extends FakeKvLogStore {
   bool deliveryRefused = false;
   final postBatches = <int>[];
   final orderingBatches = <int>[];
+  final publicationFamilies = <String>[];
 
   @override
   int commit(List<KvLogOp> ops) {
@@ -135,7 +136,10 @@ class _RefusingCursorStore extends FakeKvLogStore {
       final value = jsonDecode(utf8.decode(op.payload));
       return value is Map && value['k'] == 0 && value['op'] == null;
     }).length;
-    if (posts > 0) postBatches.add(posts);
+    if (posts > 0) {
+      postBatches.add(posts);
+      publicationFamilies.add('post');
+    }
     final ordering = ops.whereType<AppendLogOp>().where((op) {
       if (op.namespace < Ns.messageLogShardFirst ||
           op.namespace > Ns.messageLogShardLast) {
@@ -144,7 +148,10 @@ class _RefusingCursorStore extends FakeKvLogStore {
       final value = jsonDecode(utf8.decode(op.payload));
       return value is Map && value['op'] == 'ordering';
     }).length;
-    if (ordering > 0) orderingBatches.add(ordering);
+    if (ordering > 0) {
+      orderingBatches.add(ordering);
+      publicationFamilies.add('ordering');
+    }
     return result;
   }
 }
@@ -551,6 +558,469 @@ void main() {
       reason: 'sixteen prepared posts share one durable publication',
     );
     expect(bStore.postBatches.every((size) => size <= 16), isTrue);
+  });
+
+  test(
+    'history preparation has four slots without publishing past a held row',
+    () async {
+      await seed(32);
+      var started = 0;
+      final first = Completer<void>(), release = Completer<void>();
+      beforeApply = (event) async {
+        started++;
+        if (event.key == 'm0000') {
+          first.complete();
+          await release.future;
+        }
+      };
+      ma.start();
+      mb.start();
+      await first.future;
+      try {
+        // Gate the first preparation, then drain the fixture's immediate IO.
+        // Neither elapsed-time speed nor network timing is the assertion.
+        await Future<void>(() {});
+        await Future<void>(() {});
+        expect(
+          started,
+          4,
+          reason: 'one held row must not serialize fresh reads',
+        );
+        expect(await count(), 0);
+        expect(bStore.postBatches, isEmpty);
+      } finally {
+        release.complete();
+      }
+      await until(() async => await count() == 32);
+      final original = await sa.loadMessages(peer.hex);
+      final received = await sb.loadMessages(peer.hex);
+      expect(
+        received.map((m) => (m.id, m.body, m.orderAuthor, m.orderSeq)),
+        original.map((m) => (m.id, m.body, m.orderAuthor, m.orderSeq)),
+      );
+      expect(bStore.postBatches, [16, 16]);
+      expect(applied, 32);
+    },
+  );
+
+  test(
+    'revocation while a preparation wave is held refuses its publication',
+    () async {
+      await seed(32);
+      final first = Completer<void>(), release = Completer<void>();
+      beforeApply = (event) async {
+        if (event.key == 'm0000') {
+          first.complete();
+          await release.future;
+        }
+      };
+      ma.start();
+      mb.start();
+      await first.future;
+      await Future<void>(() {});
+      bSiblings = [];
+      release.complete();
+      await until(() async => errorJournal.entries.isNotEmpty);
+      expect(await count(), 0);
+      expect(applied, 0);
+      expect(bStore.postBatches, isEmpty);
+      final saved =
+          jsonDecode(
+                (await sb.getSetting('device.history.cursor.v2:${a.hex}'))!,
+              )
+              as Map;
+      expect(saved['cursor'], isNull);
+    },
+  );
+
+  test(
+    'a failed preparation joins a sibling that reaches its write boundary late',
+    () async {
+      await seed(4);
+      final first = Completer<void>(), failFirst = Completer<void>();
+      final second = Completer<void>(), releaseSecond = Completer<void>();
+      final cleanup = Completer<PreparedMessageWrite>();
+      var lateStageRejected = false;
+      final held = {
+        for (final row in await sa.loadMessages(peer.hex)) row.id: row,
+      };
+      mb.ownHistoryApplyPrepared = (event, writes) async {
+        if (event.key == 'm0000') {
+          first.complete();
+          await failFirst.future;
+          throw StateError('fixture preparation failure');
+        }
+        if (event.key == 'm0001') {
+          second.complete();
+          await releaseSecond.future;
+        }
+        try {
+          // Cover every wave member: the deliberately broken implementation
+          // may let more than the held row reach a late write boundary.
+          await Future.any([writes.append(held[event.key]!), cleanup.future]);
+        } catch (_) {
+          if (event.key == 'm0001') lateStageRejected = true;
+          rethrow;
+        }
+      };
+      ma.start();
+      mb.start();
+      try {
+        await first.future;
+        await second.future;
+        failFirst.complete();
+        await Future<void>(() {});
+        expect(
+          errorJournal.entries,
+          isEmpty,
+          reason: 'abort must join the still-preparing sibling before settling',
+        );
+        expect(bStore.postBatches, isEmpty);
+        releaseSecond.complete();
+        await Future<void>(() {});
+        expect(
+          lateStageRejected,
+          isTrue,
+          reason: 'an aborted wave must reject its late write boundary',
+        );
+      } finally {
+        if (!failFirst.isCompleted) failFirst.complete();
+        if (!releaseSecond.isCompleted) releaseSecond.complete();
+        cleanup.complete(PreparedMessageWrite.suppressed);
+      }
+      await until(() async => errorJournal.entries.isNotEmpty);
+      expect(await count(), 0);
+      expect(applied, 0);
+      expect(bStore.postBatches, isEmpty);
+      final saved =
+          jsonDecode(
+                (await sb.getSetting('device.history.cursor.v2:${a.hex}'))!,
+              )
+              as Map;
+      expect(saved['cursor'], isNull);
+    },
+  );
+
+  test(
+    'a later ordering preparation cannot publish before an earlier insert',
+    () async {
+      await seed(2);
+      // Only B pulls in this publication-order probe. Otherwise A's reverse
+      // reconciliation of B's provisional row also enters the shared hook.
+      net.drop = (from, _, body) => from == a && body['q'] != null;
+      final originals = await sa.loadMessages(peer.hex);
+      final later = originals[1];
+      await sb.appendMessage(
+        Message(
+          id: later.id,
+          conversationId: later.conversationId,
+          direction: later.direction,
+          body: later.body,
+          timestamp: later.timestamp,
+          status: later.status,
+          author: identity.hex,
+          seq: 2001,
+          positionVerified: false,
+        ),
+      );
+      bStore.publicationFamilies.clear();
+      final first = Completer<void>(), release = Completer<void>();
+      var started = 0;
+      beforeApply = (event) async {
+        started++;
+        if (event.key == 'm0000') {
+          first.complete();
+          await release.future;
+        }
+      };
+      ma.start();
+      mb.start();
+      await first.future;
+      try {
+        await Future<void>(() {});
+        expect(started, 2);
+        expect(bStore.publicationFamilies, isEmpty);
+      } finally {
+        release.complete();
+      }
+      await until(
+        () async =>
+            await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+      );
+      expect(bStore.publicationFamilies, ['post', 'ordering']);
+      final received = await sb.loadMessages(peer.hex);
+      expect(
+        received.map((m) => (m.id, m.body, m.orderAuthor, m.orderSeq)),
+        originals.map((m) => (m.id, m.body, m.orderAuthor, m.orderSeq)),
+      );
+      expect(applied, 2);
+      expect(errorJournal.entries, isEmpty);
+    },
+  );
+
+  for (final revokeFirst in [false, true]) {
+    test(
+      revokeFirst
+          ? 'a revoked queued source does not poison the next source page'
+          : 'overlapping source pages cannot hold opposite message slots',
+      () async {
+        await seed(2);
+        final extra = id(94), tx = _Endpoint(net, id(94));
+        addTearDown(tx.dispose);
+        bSiblings = [a, extra];
+        final firstStaged = Completer<void>(), firstLater = Completer<void>();
+        final secondStaged = Completer<void>();
+        final releaseFirstLater = Completer<void>(),
+            releaseSecondFirst = Completer<void>();
+        final cleanup = Completer<PreparedMessageWrite>();
+        final original = mb.ownHistoryApplyPrepared!;
+        var secondEntered = false;
+        mb.ownHistoryApplyPrepared = (event, writes) async {
+          final source = event.payload['fixtureSource'];
+          if (source == 'second') secondEntered = true;
+          if (source == 'first' && event.key == 'm0001') {
+            firstLater.complete();
+            await releaseFirstLater.future;
+          }
+          if (source == 'second' && event.key == 'm0000') {
+            await releaseSecondFirst.future;
+          }
+          await original(
+            event,
+            PreparedMessageWrites(
+              append: (message) {
+                final result = writes.append(message);
+                if (source == 'first' &&
+                    event.key == 'm0000' &&
+                    !firstStaged.isCompleted) {
+                  firstStaged.complete();
+                }
+                if (source == 'second' &&
+                    event.key == 'm0001' &&
+                    !secondStaged.isCompleted) {
+                  secondStaged.complete();
+                }
+                return Future.any([result, cleanup.future]);
+              },
+              adoptOrdering: writes.adoptOrdering,
+            ),
+          );
+        };
+        mb.start();
+        Future<String> requestFor(NodeId device, String op) async {
+          await until(
+            () async => net.history.any(
+              (f) => f.from == b && f.to == device && f.body['q']?['op'] == op,
+            ),
+          );
+          return net.history
+                  .lastWhere(
+                    (f) =>
+                        f.from == b &&
+                        f.to == device &&
+                        f.body['q']?['op'] == op,
+                  )
+                  .body['id']
+              as String;
+        }
+
+        final sources = [(ta, a, 'first'), (tx, extra, 'second')];
+        for (final (transport, device, _) in sources) {
+          await _historyReply(transport, b, await requestFor(device, 'list'), {
+            'op': 'list',
+            'rows': [
+              {'peer': peer.hex, 'count': 2, 'hash': '0' * 64},
+            ],
+          });
+        }
+        final rows = await sa.loadMessages(peer.hex);
+        Map<String, dynamic> response(String source) => {
+          'op': 'page',
+          'peer': peer.hex,
+          'next': null,
+          'events': [
+            for (final row in rows)
+              DeviceSyncEvent(
+                kind: DeviceSyncKind.msgMirror,
+                key: row.id,
+                tsMs: row.timestamp.millisecondsSinceEpoch,
+                payload: {
+                  ...deviceMirrorOf(peer.hex, row).event.payload,
+                  'fixtureSource': source,
+                  'historyDelivered': true,
+                },
+              ).toBody(),
+          ],
+        };
+        try {
+          await _historyReply(
+            ta,
+            b,
+            await requestFor(a, 'page'),
+            response('first'),
+          );
+          await firstStaged.future;
+          await firstLater.future;
+          await _historyReply(
+            tx,
+            b,
+            await requestFor(extra, 'page'),
+            response('second'),
+          );
+          await drainHistoryFrames();
+          final oppositeHeld = secondStaged.isCompleted;
+          if (revokeFirst) bSiblings = [extra];
+          releaseFirstLater.complete();
+          releaseSecondFirst.complete();
+          await Future<void>(() {});
+          if (oppositeHeld) {
+            expect(
+              await count(),
+              0,
+              reason:
+                  'both cohorts hold a slot needed by the other publication',
+            );
+          }
+          expect(
+            oppositeHeld,
+            isFalse,
+            reason:
+                'overlapping pages must not acquire opposite prepared slots',
+          );
+          if (revokeFirst) {
+            expect(
+              secondEntered,
+              isTrue,
+              reason: 'a failed predecessor must not poison the next page',
+            );
+          }
+          await until(
+            () async => applied == (revokeFirst ? 2 : 4) && await count() == 2,
+          );
+          for (final device in [if (!revokeFirst) a, extra]) {
+            await until(() async {
+              final raw = await sb.getSetting(
+                'device.history.cursor.v2:${device.hex}',
+              );
+              return raw != null &&
+                  (jsonDecode(raw) as Map)['after'] == peer.hex;
+            });
+          }
+          final received = await sb.loadMessages(peer.hex);
+          expect(
+            received.map((m) => (m.id, m.body, m.orderAuthor, m.orderSeq)),
+            rows.map((m) => (m.id, m.body, m.orderAuthor, m.orderSeq)),
+          );
+          expect(
+            received.every((m) => m.status == MessageStatus.delivered),
+            isTrue,
+          );
+          expect(bStore.postBatches, [2]);
+          expect(errorJournal.entries, revokeFirst ? isNotEmpty : isEmpty);
+          if (revokeFirst) {
+            final raw = await sb.getSetting(
+              'device.history.cursor.v2:${a.hex}',
+            );
+            expect((jsonDecode(raw!) as Map)['cursor'], isNull);
+          }
+        } finally {
+          bSiblings = [];
+          if (!releaseFirstLater.isCompleted) releaseFirstLater.complete();
+          if (!releaseSecondFirst.isCompleted) releaseSecondFirst.complete();
+          cleanup.complete(PreparedMessageWrite.suppressed);
+        }
+      },
+    );
+  }
+
+  test('a held history page does not block a different conversation', () async {
+    await seed(1);
+    final extra = id(94), otherPeer = id(95), tx = _Endpoint(net, id(94));
+    addTearDown(tx.dispose);
+    bSiblings = [a, extra];
+    await sb.upsertContact(
+      Contact(nodeId: otherPeer, status: ContactStatus.accepted),
+    );
+    final entered = Completer<void>(), release = Completer<void>();
+    beforeApply = (event) async {
+      if (event.payload['peer'] == peer.hex) {
+        entered.complete();
+        await release.future;
+      }
+    };
+    mb.start();
+    Future<String> requestFor(NodeId device, String op) async {
+      await until(
+        () async => net.history.any(
+          (f) => f.from == b && f.to == device && f.body['q']?['op'] == op,
+        ),
+      );
+      return net.history
+              .lastWhere(
+                (f) =>
+                    f.from == b && f.to == device && f.body['q']?['op'] == op,
+              )
+              .body['id']
+          as String;
+    }
+
+    for (final (transport, device, target) in [
+      (ta, a, peer),
+      (tx, extra, otherPeer),
+    ]) {
+      await _historyReply(transport, b, await requestFor(device, 'list'), {
+        'op': 'list',
+        'rows': [
+          {'peer': target.hex, 'count': 1, 'hash': '0' * 64},
+        ],
+      });
+    }
+    final firstRow = (await sa.loadMessages(peer.hex)).single;
+    final secondRow = Message(
+      id: 'other-history',
+      conversationId: otherPeer.hex,
+      direction: MessageDirection.outgoing,
+      body: 'other conversation',
+      timestamp: DateTime.utc(2020),
+      status: MessageStatus.delivered,
+      author: a.hex,
+      seq: 1,
+      positionVerified: true,
+    );
+    Map<String, dynamic> response(NodeId target, Message row) => {
+      'op': 'page',
+      'peer': target.hex,
+      'next': null,
+      'events': [deviceMirrorOf(target.hex, row).event.toBody()],
+    };
+    try {
+      await _historyReply(
+        ta,
+        b,
+        await requestFor(a, 'page'),
+        response(peer, firstRow),
+      );
+      await entered.future;
+      await _historyReply(
+        tx,
+        b,
+        await requestFor(extra, 'page'),
+        response(otherPeer, secondRow),
+      );
+      await drainHistoryFrames();
+      expect(
+        (await sb.loadMessages(otherPeer.hex)).length,
+        1,
+        reason: 'only pages sharing message-slot scope may wait for this gate',
+      );
+      expect(await count(), 0);
+    } finally {
+      release.complete();
+    }
+    await until(() async => applied == 2 && await count() == 1);
+    expect((await sb.loadMessages(otherPeer.hex)).length, 1);
+    expect(bStore.postBatches, [1, 1]);
+    expect(errorJournal.entries, isEmpty);
   });
 
   test(

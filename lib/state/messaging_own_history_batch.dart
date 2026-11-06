@@ -11,12 +11,16 @@ class _PreparedHistoryRow {
   bool get pending => message != null || ordering != null;
   Object? error;
   StackTrace? stack;
+  Object? _aborted;
+  StackTrace? _abortStack;
 
   void start(
     Future<void> Function(PreparedMessageWrites) apply, {
     required bool prepareOrdering,
   }) {
     void stage() {
+      final aborted = _aborted;
+      if (aborted != null) Error.throwWithStackTrace(aborted, _abortStack!);
       if (pending) throw StateError('mirror requested two prepared writes');
       if (!ready.isCompleted) ready.complete();
     }
@@ -54,35 +58,56 @@ class _PreparedHistoryRow {
   void check() {
     if (error != null) Error.throwWithStackTrace(error!, stack!);
   }
+
+  void abort(Object error, StackTrace stack) {
+    _aborted = error;
+    _abortStack = stack;
+    if (pending && !publication.isCompleted) {
+      publication.completeError(error, stack);
+    }
+  }
 }
 
-/// Bounded prepared continuations. Preparation is sequential; only futures
-/// which have reached their write boundary wait together for publication.
+/// Bounded preparation of distinct, already validated message IDs. Results
+/// enter publication in input order, independently of preparation completion.
 class _HistoryWriteCohort {
   _HistoryWriteCohort(this.store, this.checkAdmission);
   final Storage store;
   final Future<void> Function(List<DeviceSyncEvent>) checkAdmission;
   final _pending = <({DeviceSyncEvent event, _PreparedHistoryRow row})>[];
   final _all = <_PreparedHistoryRow>[];
+  static const _prepareConcurrency = 4;
 
-  Future<void> apply(
-    DeviceSyncEvent event,
-    Future<void> Function(PreparedMessageWrites) action,
+  Future<void> applyAll(
+    List<DeviceSyncEvent> events,
+    Future<void> Function(DeviceSyncEvent, PreparedMessageWrites) action,
   ) async {
-    final row = _PreparedHistoryRow();
-    _all.add(row);
-    row.start(action, prepareOrdering: store is PreparedOrderingBatchStore);
-    await row.ready.future;
-    row.check();
-    if (row.pending) {
-      // Preserve sequential merge semantics across different write families.
-      // In particular an earlier insert is durable before a later correction.
-      if (_pending.isNotEmpty &&
-          (_pending.first.row.ordering != null) != (row.ordering != null)) {
-        await flush();
+    for (var start = 0; start < events.length; start += _prepareConcurrency) {
+      final wave = <({DeviceSyncEvent event, _PreparedHistoryRow row})>[];
+      for (final event in events.skip(start).take(_prepareConcurrency)) {
+        final row = _PreparedHistoryRow();
+        _all.add(row);
+        wave.add((event: event, row: row));
+        row.start(
+          (writes) => action(event, writes),
+          prepareOrdering: store is PreparedOrderingBatchStore,
+        );
       }
-      _pending.add((event: event, row: row));
-      if (_pending.length == 16) await flush();
+      for (final item in wave) {
+        final row = item.row;
+        await row.ready.future;
+        row.check();
+        if (row.pending) {
+          // Preserve ordered publication across write families, even when a
+          // later preparation reached its boundary before an earlier one.
+          if (_pending.isNotEmpty &&
+              (_pending.first.row.ordering != null) != (row.ordering != null)) {
+            await flush();
+          }
+          _pending.add(item);
+          if (_pending.length == 16) await flush();
+        }
+      }
     }
   }
 
@@ -140,9 +165,10 @@ class _HistoryWriteCohort {
 
   Future<void> abort(Object error, StackTrace stack) async {
     for (final row in _all) {
-      if (row.pending && !row.publication.isCompleted) {
-        row.publication.completeError(error, stack);
-      }
+      // Some wave members may still be reading when an earlier row fails.
+      // They must reject a late stage, rather than wait forever on a promise
+      // which this abort could not see yet. Join every started continuation.
+      row.abort(error, stack);
     }
     await Future.wait([for (final row in _all) row.settled]);
   }
