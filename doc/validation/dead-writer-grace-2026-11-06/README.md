@@ -1,5 +1,9 @@
 # Keepalive: лишний graceful drain уже непригодного TX
 
+Последующая [физическая проверка efe1c4ca](../dead-writer-physical-2026-11-06/README.md):
+шесть звонков сохранились, terminal-close → runner-ended 1 мс; RX-паузы
+остались. Ниже — исходная квалификация самого исправления до этой серии.
+
 **Подтверждён и исправлен локально дополнительный 5-секундный барьер перед
 reconnect.** После терминального keepalive-probe отказа SessionRunner
 ожидал graceful writer drain, хотя TX уже признан непригодным, genuine RX
