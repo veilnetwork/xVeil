@@ -77,6 +77,7 @@ import 'package:xveil/state/providers.dart';
 import '../support/message_apply_census.dart';
 import '../support/timed_native_store.dart';
 import '../support/private_history_wire_probe.dart';
+import '../support/private_history_gate.dart';
 import 'convergence_oracle.dart';
 import 'crash_retention_oracle.dart';
 import 'e2e_env.dart';
@@ -276,6 +277,11 @@ class E2eDevice {
   ProviderSubscription<void>? _bridgeSubscription;
   ProviderSubscription<GroupService?>? _censusSubscription;
   PrivateHistoryWireProbe? _historyWireProbe;
+  PrivateHistoryGate? _historyGate;
+  Map<String, int> privateHistoryGateSnapshot() =>
+      _historyGate?.snapshot ?? const {};
+  List<Map<String, dynamic>> privateHistoryWireSnapshot() =>
+      _historyWireProbe?.snapshot ?? const [];
   HiddenVolumeStorage? _storage;
   MessageApplyCensus? _messageApplyCensus;
   RealVeilStack? _stack;
@@ -362,13 +368,16 @@ class E2eDevice {
         // no IDs, bodies or keys are written to the private count-only probe.
         // A controller-owned expectation file stays inside this disposable
         // fixture directory; only retention counts leave the disk inspector.
+        final overlapInspection =
+            Platform.environment['XVEIL_E2E_HISTORY_OVERLAP'] == '1';
         if (label == 'B' &&
-            (int.tryParse(
-                      Platform.environment['XVEIL_E2E_MIGRATION_CRASH_AFTER_ROWS'] ??
-                          '0',
-                    ) ??
-                    0) >
-                0) {
+            (overlapInspection ||
+                (int.tryParse(
+                          Platform.environment['XVEIL_E2E_MIGRATION_CRASH_AFTER_ROWS'] ??
+                              '0',
+                        ) ??
+                        0) >
+                    0)) {
           final evidence = Platform.environment['XVEIL_E2E_EVIDENCE_DIR'];
           if (evidence == null) _fail('crash probe needs private evidence');
           await Directory(evidence!).create(recursive: true);
@@ -388,7 +397,10 @@ class E2eDevice {
                 for (final message in await inspector.loadMessages(
                   conversation.id,
                 )) {
-                  if (!message.body.startsWith('backlog-base-')) continue;
+                  if (!overlapInspection &&
+                      !message.body.startsWith('backlog-base-')) {
+                    continue;
+                  }
                   rows++;
                   ids.add(message.id);
                   if (message.status == MessageStatus.delivered) delivered++;
@@ -411,7 +423,9 @@ class E2eDevice {
           }
           int? witness;
           Map<String, Object>? retention;
-          final expectation = File('${dir.path}/crash-witness.json');
+          final expectation = File(
+            '${dir.path}/${overlapInspection ? 'history-overlap-witness' : 'crash-witness'}.json',
+          );
           if (await expectation.exists()) {
             final value = jsonDecode(await expectation.readAsString()) as Map;
             witness = value['witness'] as int;
@@ -425,7 +439,7 @@ class E2eDevice {
             );
           }
           await File(
-            '$evidence/backlog-B-before-network-private.jsonl',
+            '$evidence/${overlapInspection ? 'overlap' : 'backlog'}-B-before-network-private.jsonl',
           ).writeAsString(
             '${jsonEncode({'rows': rows, 'uniqueIds': ids.length, 'delivered': delivered, 'atUs': DateTime.now().microsecondsSinceEpoch, 'witness': ?witness, 'retention': ?retention})}\n',
             mode: FileMode.append,
@@ -535,6 +549,8 @@ class E2eDevice {
           _historyWireProbe = PrivateHistoryWireProbe(
             stack.transport.messages(),
             File('$evidence/history-rx-$label-private.jsonl'),
+            retainRecords:
+                Platform.environment['XVEIL_E2E_HISTORY_OVERLAP'] == '1',
           );
         }
         container.read(callLogRecorderProvider);
@@ -545,6 +561,15 @@ class E2eDevice {
             'from the stored identity config',
           );
         }
+        final overlap =
+            Platform.environment['XVEIL_E2E_HISTORY_OVERLAP'] == '1';
+        if (overlap && census == null) {
+          throw StateError('synthetic history gates require storage census');
+        }
+        final historyGate = overlap
+            ? PrivateHistoryGate(dir, 'native-overlap-')
+            : null;
+        _historyGate = historyGate;
         if (census != null) {
           Future<List<NodeId>> Function()? wrapped;
           Future<void> Function(DeviceSyncEvent)? wrappedApply;
@@ -564,14 +589,40 @@ class E2eDevice {
               wrappedApply = (event) => census.historyApply(() => apply(event));
               messaging.ownHistoryApply = wrappedApply;
               if (prepared != null) {
-                messaging.ownHistoryApplyPrepared = (event, append) =>
-                    census.historyApply(() => prepared(event, append));
+                final binding = messaging.groupBindingsOwner;
+                messaging.ownHistoryApplyPrepared = historyGate == null
+                    ? (event, append) =>
+                          census.historyApply(() => prepared(event, append))
+                    : (event, append) => census.historyApply(() async {
+                        await historyGate.wait(
+                          kind: HistoryGateKind.apply,
+                          id: event.key,
+                          body: event.payload['body'] as String? ?? '',
+                          isActive: () =>
+                              boot.alive &&
+                              identical(binding, messaging.groupBindingsOwner),
+                        );
+                        await prepared(event, append);
+                      });
               }
             }
             final encode = messaging.ownHistoryEncode;
             if (encode != null && !identical(encode, wrappedEncode)) {
-              wrappedEncode = (peer, message) =>
-                  census.historyEncode(() => encode(peer, message));
+              final binding = messaging.groupBindingsOwner;
+              wrappedEncode = historyGate == null
+                  ? (peer, message) =>
+                        census.historyEncode(() => encode(peer, message))
+                  : (peer, message) => census.historyEncode(() async {
+                      await historyGate.wait(
+                        kind: HistoryGateKind.encode,
+                        id: message.id,
+                        body: message.body,
+                        isActive: () =>
+                            boot.alive &&
+                            identical(binding, messaging.groupBindingsOwner),
+                      );
+                      return encode(peer, message);
+                    });
               messaging.ownHistoryEncode = wrappedEncode;
             }
           }, fireImmediately: true);
@@ -628,6 +679,7 @@ class E2eDevice {
       _bridgeSubscription = null;
       _censusSubscription = null;
       _historyWireProbe = null;
+      _historyGate = null;
       _stack = null;
       _storage = null;
       await teardownLegs('device-$label-stop', [

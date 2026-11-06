@@ -12,12 +12,14 @@ import 'package:xveil/data/node/embedded_node.dart';
 import 'package:xveil/debug/soak_hook.dart';
 import 'package:xveil/core/ids.dart';
 import 'package:xveil/core/diagnostic_journal.dart';
+import 'package:xveil/core/error_journal.dart';
 import 'package:xveil/domain/chat.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/domain/peer_authorization.dart';
 import 'package:xveil/domain/device_sync.dart';
 import 'package:xveil/data/transport/wire_envelope.dart';
-import 'package:xveil/state/device_sync_bridge.dart' show awaitDeviceHistoryRoom;
+import 'package:xveil/state/device_sync_bridge.dart'
+    show awaitDeviceHistoryRoom;
 import 'package:xveil/state/data_import.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/device_sync_appliers.dart';
@@ -54,9 +56,13 @@ Future<Map<String, Object>> _historyRoomProbe(
       'masterInRegistry': registry.contains(master),
       'identityInRegistry': registry.contains(device.identityNodeId),
       'ownsGroup': await groups.ownsDeviceGroup(),
-      'ownerAnnouncements': state.entries.where((entry) =>
-          entry.key.$1 == DeviceSyncKind.identityDoc &&
-          entry.value.payload['o'] == true).length,
+      'ownerAnnouncements': state.entries
+          .where(
+            (entry) =>
+                entry.key.$1 == DeviceSyncKind.identityDoc &&
+                entry.value.payload['o'] == true,
+          )
+          .length,
     };
   }
   if (operation != 'fill-and-check' || !ready) {
@@ -81,7 +87,8 @@ Future<Map<String, Object>> _historyRoomProbe(
   final actualPending = device.messaging.pendingFramesFor(master);
   final aliasPending = device.messaging.pendingFramesFor(device.identityNodeId);
   final durablePending = (await device.storage.pendingOutboxFrames())
-      .where((frame) => frame.peerHex == master.hex).length;
+      .where((frame) => frame.peerHex == master.hex)
+      .length;
   if (actualPending < 128 || durablePending < 128 || aliasPending >= 128) {
     throw StateError(
       'history-room queues do not distinguish the two addresses',
@@ -181,58 +188,79 @@ void main() {
                 // A new authenticated transport copy of an old logical offer.
                 // Only this private fixture can request it; no app debug API.
                 final id = request['callId'] as String;
-                final wire = WireEnvelope.callSignal(CallSignal(
-                  callId: id,
-                  type: CallSignalType.offer,
-                  posture: CallPosture.anonymous,
-                  media: const CallMedia(audio: true),
-                  mediaKey: generateCallMediaKeyContribution(),
-                  sentAtMs: request['sentAtMs'] as int,
-                  onBehalfOf: request['onBehalfOf'] as String,
-                ).encode()).withFrameId('fixture-replay:${request['nonce']}').encode();
+                final wire = WireEnvelope.callSignal(
+                  CallSignal(
+                    callId: id,
+                    type: CallSignalType.offer,
+                    posture: CallPosture.anonymous,
+                    media: const CallMedia(audio: true),
+                    mediaKey: generateCallMediaKeyContribution(),
+                    sentAtMs: request['sentAtMs'] as int,
+                    onBehalfOf: request['onBehalfOf'] as String,
+                  ).encode(),
+                ).withFrameId('fixture-replay:${request['nonce']}').encode();
                 await device!.stack.transport.send(
-                  NodeId.fromHex(request['peer'] as String), wire,
+                  NodeId.fromHex(request['peer'] as String),
+                  wire,
                   anonymous: true,
                 );
                 final response = File('${dir.path}/storage-inspected.new');
-                await response.writeAsString(jsonEncode({
-                  'nonce': request['nonce'], 'sourceAccepted': true,
-                }));
+                await response.writeAsString(
+                  jsonEncode({
+                    'nonce': request['nonce'],
+                    'sourceAccepted': true,
+                  }),
+                );
                 await response.rename('${dir.path}/storage-inspected.json');
                 continue;
               }
               if (request['callDiagnostics'] == true) {
                 final response = File('${dir.path}/storage-inspected.new');
-                await response.writeAsString(jsonEncode({
-                  'nonce': request['nonce'],
-                  'diagnostics': diagnosticJournal.toJson(),
-                }));
+                await response.writeAsString(
+                  jsonEncode({
+                    'nonce': request['nonce'],
+                    'diagnostics': diagnosticJournal.toJson(),
+                  }),
+                );
                 await response.rename('${dir.path}/storage-inspected.json');
                 continue;
               }
               if (request['contactDecisions'] == true) {
                 final records = await device!.storage.pendingContactDecisions();
                 final response = File('${dir.path}/storage-inspected.new');
-                await response.writeAsString(jsonEncode({
-                  'nonce': request['nonce'], 'pending': records.length,
-                }));
+                await response.writeAsString(
+                  jsonEncode({
+                    'nonce': request['nonce'],
+                    'pending': records.length,
+                  }),
+                );
                 await response.rename('${dir.path}/storage-inspected.json');
                 continue;
               }
               if (request['importContactArchive'] == true) {
-                final appliers = device!.container.read(deviceSyncAppliersProvider);
+                final appliers = device!.container.read(
+                  deviceSyncAppliersProvider,
+                );
                 final before = appliers.failedApplies;
                 final result = <String, Object?>{'nonce': request['nonce']};
                 try {
-                  final report = await DataImporter(
-                    storage: device!.storage,
-                    appliers: appliers,
-                    selfNodeIdHex: device!.container.read(
-                      appControllerProvider,
-                    ).identity!.nodeId.hex,
-                    localDeviceNodeIdHex: await device!.messaging.savedSelfHex(),
-                    groups: device!.groups,
-                  ).run(bytes: File('${dir.path}/contact-fixture.xva').openRead());
+                  final report =
+                      await DataImporter(
+                        storage: device!.storage,
+                        appliers: appliers,
+                        selfNodeIdHex: device!.container
+                            .read(appControllerProvider)
+                            .identity!
+                            .nodeId
+                            .hex,
+                        localDeviceNodeIdHex: await device!.messaging
+                            .savedSelfHex(),
+                        groups: device!.groups,
+                      ).run(
+                        bytes: File(
+                          '${dir.path}/contact-fixture.xva',
+                        ).openRead(),
+                      );
                   result.addAll({
                     'syncEvents': report.syncEvents,
                     'newFailedApplies': report.failedApplies - before,
@@ -252,12 +280,16 @@ void main() {
                 // A signed synthetic old-clock row, restricted to this test
                 // worker's owned container; no production clock/debug API.
                 final peer = request['peer'] as String;
-                final message = (await device!.storage.loadMessageById(peer, target))!;
+                final message = (await device!.storage.loadMessageById(
+                  peer,
+                  target,
+                ))!;
                 final ttl = (await device!.storage.getContact(
                   NodeId.fromHex(peer),
                 ))!.disappearingTtlSeconds!;
                 final now = DateTime.now().millisecondsSinceEpoch;
-                final staleTs = message.timestamp.millisecondsSinceEpoch - ttl * 2000;
+                final staleTs =
+                    message.timestamp.millisecondsSinceEpoch - ttl * 2000;
                 final groups = device!.groups!;
                 final gid = NodeId.fromHex((await groups.deviceGroupIdHex())!);
                 final accepted = await groups.postDeviceEvent(
@@ -286,7 +318,8 @@ void main() {
                     'nonce': request['nonce'],
                     'accepted': accepted,
                     'canonicalWasLive':
-                        now < message.timestamp.millisecondsSinceEpoch + ttl * 1000,
+                        now <
+                        message.timestamp.millisecondsSinceEpoch + ttl * 1000,
                     'injectedClockWasExpired': staleTs + ttl * 1000 <= now,
                     'mirrors': targetRows
                         .where(
@@ -304,9 +337,14 @@ void main() {
                         .length,
                     'allRowsVerify':
                         targetRows.isNotEmpty &&
-                        targetRows.every((row) => groups.debugMessageIsValid(gid, row)),
+                        targetRows.every(
+                          (row) => groups.debugMessageIsValid(gid, row),
+                        ),
                     'staleBodies': targetRows
-                        .where((row) => row.body.contains('clock-conflict-stale-fixture'))
+                        .where(
+                          (row) =>
+                              row.body.contains('clock-conflict-stale-fixture'),
+                        )
                         .length,
                     'canonicalDeleted': await device!.storage.isMessageDeleted(
                       peer,
@@ -326,20 +364,28 @@ void main() {
                   for (final frame in queued)
                     if (frame.peerHex == peer) WireEnvelope.decode(frame.wire),
                 ];
-                final targets = edits.where((e) =>
-                  e.kind == WireKind.edit && e.id == target).toList();
+                final targets = edits
+                    .where((e) => e.kind == WireKind.edit && e.id == target)
+                    .toList();
                 final sync = await device!.storage.conversationSync(peer);
                 final response = File('${dir.path}/storage-inspected.new');
-                await response.writeAsString(jsonEncode({
-                  'nonce': request['nonce'],
-                  'targetedEdits': targets.length,
-                  'editSeq': targets.isEmpty ? null : targets.first.seq,
-                  'voidSlots': edits.where((e) => e.kind == WireKind.voidSeq &&
-                    (seq == null || e.seq == seq)).length,
-                  'peerHighWater': sync.highWater[peer] ?? 0,
-                  'cleanupPending': (await device!.storage.settingsKeys())
-                    .contains('outbox.replacement_scrub_pending'),
-                }));
+                await response.writeAsString(
+                  jsonEncode({
+                    'nonce': request['nonce'],
+                    'targetedEdits': targets.length,
+                    'editSeq': targets.isEmpty ? null : targets.first.seq,
+                    'voidSlots': edits
+                        .where(
+                          (e) =>
+                              e.kind == WireKind.voidSeq &&
+                              (seq == null || e.seq == seq),
+                        )
+                        .length,
+                    'peerHighWater': sync.highWater[peer] ?? 0,
+                    'cleanupPending': (await device!.storage.settingsKeys())
+                        .contains('outbox.replacement_scrub_pending'),
+                  }),
+                );
                 await response.rename('${dir.path}/storage-inspected.json');
                 continue;
               }
@@ -385,9 +431,9 @@ void main() {
                   () => _historyRoomProbe(device!, operation),
                 );
                 final response = File('${dir.path}/storage-inspected.new');
-                await response.writeAsString(jsonEncode({
-                  'nonce': request['nonce'], ...values,
-                }));
+                await response.writeAsString(
+                  jsonEncode({'nonce': request['nonce'], ...values}),
+                );
                 await response.rename('${dir.path}/storage-inspected.json');
                 continue;
               }
@@ -404,7 +450,8 @@ void main() {
               }
               if (env['XVEIL_E2E_CPU_PROFILE'] == '1' &&
                   request['storageTiming'] == true &&
-                  (cpuProfile == null || request['resetStorageTiming'] == true)) {
+                  (cpuProfile == null ||
+                      request['resetStorageTiming'] == true)) {
                 // Adoption restarts B's worker. Its first subsequent inspect
                 // must start a new window even without another explicit reset.
                 cpuProfile ??= StandCpuProfile();
@@ -423,22 +470,57 @@ void main() {
                   if (await device!.storage.loadMessageById(peer, id) != null) {
                     throw StateError('history fixture must be seeded once');
                   }
-                  await device!.storage.appendMessage(Message(
-                    id: id,
-                    conversationId: peer,
-                    direction: MessageDirection.outgoing,
-                    body: i == 1 ? '$id:${'x' * 160000}' : id,
-                    timestamp: DateTime.utc(2020).add(Duration(seconds: i)),
-                    status: MessageStatus.delivered,
-                    author: device!.deviceNodeId.hex,
-                    positionVerified: true,
-                  ));
+                  await device!.storage.appendMessage(
+                    Message(
+                      id: id,
+                      conversationId: peer,
+                      direction: MessageDirection.outgoing,
+                      body: i == 1 ? '$id:${'x' * 160000}' : id,
+                      timestamp: DateTime.utc(2020).add(Duration(seconds: i)),
+                      status: MessageStatus.delivered,
+                      author: device!.deviceNodeId.hex,
+                      positionVerified: true,
+                    ),
+                  );
+                }
+              }
+              if (request['seedSharedHistory'] == true) {
+                if (env['XVEIL_E2E_HISTORY_OVERLAP'] != '1') {
+                  throw StateError('shared archive setup is not enabled');
+                }
+                final count = request['sharedRows'] as int;
+                if (count < 32 || count > 512) {
+                  throw StateError('invalid archive count');
+                }
+                final author = NodeId.fromHex(
+                  request['sharedAuthor'] as String,
+                );
+                final peer = request['peer'] as String;
+                for (var i = 0; i < count; i++) {
+                  final id = 'native-overlap-${i.toString().padLeft(4, '0')}';
+                  if (await device!.storage.loadMessageById(peer, id) != null) {
+                    throw StateError('shared archive must be seeded once');
+                  }
+                  await device!.storage.appendMessage(
+                    Message(
+                      id: id,
+                      conversationId: peer,
+                      direction: MessageDirection.outgoing,
+                      body: '$id:archived payload',
+                      timestamp: DateTime.utc(2020).add(Duration(seconds: i)),
+                      status: MessageStatus.delivered,
+                      author: author.hex,
+                      seq: 100001 + i,
+                      positionVerified: true,
+                    ),
+                  );
                 }
               }
               final peer = request['peer'] as String;
               final prefix = request['prefix'] as String;
               final bodyPrefix = request['bodyPrefix'] as String?;
-              final List<Message> messages = request['authorizationOnly'] == true
+              final List<Message> messages =
+                  request['authorizationOnly'] == true
                   ? []
                   : (await device!.storage.loadMessages(peer))
                         .where(
@@ -480,13 +562,22 @@ void main() {
               if (request['historyBodyPrefix'] case final String bodyPrefix) {
                 final folded = await device!.groups!.deviceSyncState();
                 final askingDevice = request['historyAskingDevice'] as String;
-                final served = int.tryParse(await device!.storage.getSetting(
-                    'device.history.served.v1:$askingDevice') ?? '');
+                final served = int.tryParse(
+                  await device!.storage.getSetting(
+                        'device.history.served.v1:$askingDevice',
+                      ) ??
+                      '',
+                );
                 historyState = {
-                  'mirrors': folded.values.where((event) =>
-                      event.kind == DeviceSyncKind.msgMirror &&
-                      event.payload['body'] is String &&
-                      (event.payload['body'] as String).startsWith(bodyPrefix))
+                  'mirrors': folded.values
+                      .where(
+                        (event) =>
+                            event.kind == DeviceSyncKind.msgMirror &&
+                            event.payload['body'] is String &&
+                            (event.payload['body'] as String).startsWith(
+                              bodyPrefix,
+                            ),
+                      )
                       .length,
                   'servedRequests': served == null ? 0 : 1,
                 };
@@ -501,6 +592,21 @@ void main() {
                     ),
                   if (authorization.isNotEmpty) 'authorization': authorization,
                   'historyState': ?historyState,
+                  if (request['includeHistoryWire'] == true)
+                    'historyWire': device!.privateHistoryWireSnapshot(),
+                  if (request['includeHistoryWire'] == true)
+                    'historyGates': device!.privateHistoryGateSnapshot(),
+                  if (request['includeHistoryWire'] == true)
+                    'historyFailures': errorJournal.entries
+                        .where((e) => e.kind == 'device-history')
+                        .length,
+                  if (request['cursorDevices'] case final List devices)
+                    'historyCursors': {
+                      for (final id in devices)
+                        id as String: await device!.storage.getSetting(
+                          'device.history.cursor.v2:$id',
+                        ),
+                    },
                   'count': messages.length,
                   // One live-owner snapshot for crash/catch-up assertions;
                   // unlike the HTTP tail this cannot hide earlier duplicates.
@@ -559,9 +665,9 @@ void main() {
               if (evidence == null) {
                 throw StateError('stand profiler needs a private evidence dir');
               }
-              await File('$evidence/cpu-$label-private.json').writeAsString(
-                jsonEncode(await cpuProfile!.snapshot()),
-              );
+              await File(
+                '$evidence/cpu-$label-private.json',
+              ).writeAsString(jsonEncode(await cpuProfile!.snapshot()));
             }
           } finally {
             try {
@@ -576,8 +682,9 @@ void main() {
                 final evidence = env['XVEIL_E2E_EVIDENCE_DIR'];
                 if (env['XVEIL_E2E_DIAGNOSTICS'] == '1' && evidence != null) {
                   await Directory(evidence).create(recursive: true);
-                  await File('$evidence/diagnostics-$label-$pid-private.json')
-                      .writeAsString(jsonEncode(diagnosticJournal.toJson()));
+                  await File(
+                    '$evidence/diagnostics-$label-$pid-private.json',
+                  ).writeAsString(jsonEncode(diagnosticJournal.toJson()));
                 }
               }
             }

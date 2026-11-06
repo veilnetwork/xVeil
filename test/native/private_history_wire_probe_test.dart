@@ -90,4 +90,56 @@ void main() {
       await frames.close();
     },
   );
+
+  test(
+    'optional live snapshot is bounded, immutable and never expands disk logs',
+    () async {
+      final root = await Directory.systemTemp.createTemp('history-live-probe-');
+      addTearDown(() => root.delete(recursive: true));
+      final frames = StreamController<InboundMessage>.broadcast();
+      final file = File('${root.path}/wire.jsonl');
+      final probe = PrivateHistoryWireProbe(
+        frames.stream,
+        file,
+        maxRecords: 2,
+        retainRecords: true,
+      );
+      final sender = NodeId(Uint8List(32)..fillRange(0, 32, 17));
+      for (var i = 0; i < 3; i++) {
+        frames.add(
+          InboundMessage(
+            src: sender,
+            provenance: SenderProvenance.signed,
+            payload: WireEnvelope.deviceHistory(
+              jsonEncode({
+                'id': '$i'.padLeft(32, '0'),
+                'q': {'op': 'page', 'body': 'secret-payload'},
+              }),
+            ).encode(),
+          ),
+        );
+      }
+      await Future<void>(() {});
+      final rows = probe.snapshot;
+      expect(rows.length, 2);
+      expect(
+        rows.every(
+          (r) => r['fromDevice'] == sender.hex && r['authenticated'] == true,
+        ),
+        isTrue,
+      );
+      expect(() => rows.clear(), throwsUnsupportedError);
+      expect(
+        () => rows.first['fromDevice'] = 'changed',
+        throwsUnsupportedError,
+      );
+      expect(jsonEncode(rows), isNot(contains('secret-payload')));
+      await probe.close();
+      final text = await file.readAsString();
+      expect(text, isNot(contains(sender.hex)));
+      expect(text, isNot(contains('fromDevice')));
+      expect((jsonDecode(text.trim().split('\n').last) as Map)['dropped'], 1);
+      await frames.close();
+    },
+  );
 }
