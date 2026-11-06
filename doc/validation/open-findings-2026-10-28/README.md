@@ -1,5 +1,17 @@
 # Открытые случаи — обновлено 2026-11-06
 
+Последнее исправление: [лишнее хэширование журнала при новой порции device-событий](../history-committed-selection-2026-11-06/README.md).
+Для 25 свежих строк старый индекс хэшировал 1025 сохранённых, новый — 25;
+точный SHA-256 membership и прежние auth/durable/lifecycle проверки сохранены.
+На механически выделенном старом индексе 2 assertion-red / 4 passed, затем
+8 focused passed; связанные suites 555 passed / 11 skipped, native run 12 passed
+(наборы пересекаются), analyzer чист. AOT/native-SHA локальный A/B/A:
+1,908 / 0,092 / 1,897 с на 80 повторов этапа, не всей догрузки.
+На настоящем A/B/C 2000 ID/порядок/позиции/delivered сошлись без повторов:
+38,091 с до и 32,842 с после, но poll около 5 с и по одному прогону — общего
+причинного ускорения не заявляем. Догрузка остаётся активной. Оба qualified
+стенда и ошибочный startup очищены; телефон/production не менялись, push/релиза нет.
+
 Последняя квалификация: [полный NetworkChanged → reconnect → AEAD frame](../retirement-integration-2026-11-06/README.md),
 SDK `bbeaf3a9` (новых production-изменений нет). Настоящий TCP/OVL1,
 блокировка writer после handshake, настоящий MobileEventForwarder;

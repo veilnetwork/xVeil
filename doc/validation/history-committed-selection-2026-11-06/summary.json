@@ -1,0 +1,113 @@
+{
+  "schema": "xveil-validation/history-committed-selection/1",
+  "parentAppCommit": "cefa0896e0ea0c788fb5d9352466d614377a6365",
+  "sdkCommit": "bbeaf3a9eb32c00abf95f3a1ceb7dd31696c79f1",
+  "hiddenVolumeCommit": "eceb9158015bd391494d91acc6fca00d44b7938a",
+  "algorithm": "Signed-slot candidate prefilter followed by unchanged full SHA-256 commitment membership",
+  "newAuthorizationOrVerdictCache": false,
+  "wireOrDurableBarrierChanges": false,
+  "ownDeviceMailboxAdded": false,
+  "unitBaseline": {
+    "passed": 4,
+    "assertionFailures": 2,
+    "fullHashesFor25FreshAmong1025": 1025,
+    "fullHashesForEmptyFresh": 100
+  },
+  "unitCandidate": {
+    "focusedPassed": 8,
+    "fullHashesFor25FreshAmong1025": 25,
+    "fullHashesForEmptyFresh": 0,
+    "relatedSuitesPassed": 555,
+    "relatedSuitesSkipped": 11,
+    "nativeRunPassed": 12,
+    "nativeRunSkipped": 0,
+    "overlappingSuitesNotSummed": true
+  },
+  "aotNativeHashMicrobenchmark": {
+    "committedRows": 2000,
+    "freshRows": 25,
+    "exactMatches": 20,
+    "sha": "real native veil_sha256",
+    "aot": true,
+    "phases": [
+      {
+        "phase": "A1",
+        "repeat": 80,
+        "microseconds": 1907985,
+        "fullHashCalls": 162000
+      },
+      {
+        "phase": "B",
+        "repeat": 80,
+        "microseconds": 92246,
+        "fullHashCalls": 4000
+      },
+      {
+        "phase": "A2",
+        "repeat": 80,
+        "microseconds": 1896527,
+        "fullHashCalls": 162000
+      }
+    ]
+  },
+  "microbenchmarkSourceSha256": "31a3b39f596fdca787f05b5b3578dac131aba0f92f69c13ed14641a0207f54a9",
+  "microbenchmarkBinarySha256": "34c76959235436fae04943b9555eba9ab60f6968ed14cac0a6649a20a8ad162d",
+  "baseline": {
+    "baseRows": 2000,
+    "initialCountCompleteMs": 32857,
+    "initialHistoryMs": 38091,
+    "convergedIdsOrderPositionsAndDelivered": true,
+    "completedHistoryRetries": 0,
+    "invalidSnapshots": false,
+    "messageLogCommitRpcs": 431,
+    "otherCommitRpcs": 732,
+    "sourceInputsFrozen": 1491,
+    "cleanup": {
+      "pidsChecked": 22,
+      "portsChecked": 32,
+      "runtimeRemoved": true,
+      "noOwnedProcessesOrListeners": true
+    }
+  },
+  "candidate": {
+    "baseRows": 2000,
+    "initialCountCompleteMs": 32842,
+    "initialHistoryMs": 32842,
+    "convergedIdsOrderPositionsAndDelivered": true,
+    "completedHistoryRetries": 0,
+    "invalidSnapshots": false,
+    "messageLogCommitRpcs": 337,
+    "otherCommitRpcs": 725,
+    "sourceInputsFrozen": 1493,
+    "cleanup": {
+      "pidsChecked": 22,
+      "portsChecked": 33,
+      "runtimeRemoved": true,
+      "noOwnedProcessesOrListeners": true
+    }
+  },
+  "candidateExactNativeMappings": 3,
+  "nativeBytesSameAcrossBothQualifiedRuns": true,
+  "nativeProvenance": {
+    "ffiSha256": "788315831440df34ad77f209c0ebb5ce3a3f3165aef2d58db251dd742a88072f",
+    "cliSha256": "a4e89846f6c34238bedc1350ce68fbd1a298629cca2921cf6f51174bec1f85bd",
+    "hiddenVolumeSha256": "f69688d3ecf4642b0ab65894a20c18697189f87556a85824540d0e9b35b85cf3",
+    "hvsMethodChecksumsVerified": 45,
+    "cliBuildMountVerified": true,
+    "cliBuildMountLost": false
+  },
+  "initialStartupNotQualified": {
+    "reason": "previous stand HVS lacked read_log_groups required by current bindings",
+    "abiGateRefusedBeforeContainerOpen": true,
+    "cleanupPassed": true
+  },
+  "timingLimits": {
+    "observerCadenceSecondsApprox": 5,
+    "macroRunsPerVariant": 1,
+    "macroCausalSpeedupClaimed": false,
+    "wholeHistoryLatencyClosed": false,
+    "frontend": "Mac JIT, isolated native processes"
+  },
+  "phoneOrProductionChanged": false,
+  "pushOrRelease": false
+}
