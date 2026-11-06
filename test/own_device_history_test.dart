@@ -223,7 +223,17 @@ Future<void> _historyReply(
   Map<String, dynamic> reply,
 ) async {
   final bytes = utf8.encode(jsonEncode(reply));
-  final parts = (bytes.length + 2047) ~/ 2048;
+  await _historyReplyBytes(from, to, requestId, bytes);
+}
+
+Future<void> _historyReplyBytes(
+  _Endpoint from,
+  NodeId to,
+  String requestId,
+  List<int> bytes, {
+  int sliceBytes = 2048,
+}) async {
+  final parts = (bytes.length + sliceBytes - 1) ~/ sliceBytes;
   expect(parts, lessThanOrEqualTo(64));
   for (var i = 0; i < parts; i++) {
     await from.net.send(
@@ -237,7 +247,10 @@ Future<void> _historyReply(
           'i': i,
           'n': parts,
           'b': base64Encode(
-            bytes.sublist(i * 2048, ((i + 1) * 2048).clamp(0, bytes.length)),
+            bytes.sublist(
+              i * sliceBytes,
+              ((i + 1) * sliceBytes).clamp(0, bytes.length),
+            ),
           ),
         }),
       ).encode(),
@@ -353,6 +366,174 @@ void main() {
     tb = _Endpoint(net, b);
     mb = service(tb, sb, a)..start();
   }
+
+  Future<String> manualPageRequest() async {
+    mb.start(); // No source listener: every reply in this probe is explicit.
+    await until(
+      () async => net.history.any(
+        (frame) => frame.from == b && frame.body['q']?['op'] == 'list',
+      ),
+    );
+    final inventory = net.history.lastWhere(
+      (frame) => frame.from == b && frame.body['q']?['op'] == 'list',
+    );
+    await _historyReply(ta, b, inventory.body['id'] as String, {
+      'op': 'list',
+      'rows': [
+        {'peer': peer.hex, 'count': 1, 'hash': '0' * 64},
+      ],
+    });
+    await until(
+      () async => net.history.any(
+        (frame) => frame.from == b && frame.body['q']?['op'] == 'page',
+      ),
+    );
+    return net.history
+            .lastWhere(
+              (frame) => frame.from == b && frame.body['q']?['op'] == 'page',
+            )
+            .body['id']
+        as String;
+  }
+
+  Future<List<int>> paddedSingleRowReply(int byteLength) async {
+    final message = (await sa.loadMessages(peer.hex)).single;
+    final reply = <String, dynamic>{
+      'op': 'page',
+      'peer': peer.hex,
+      'events': [deviceMirrorOf(peer.hex, message).event.toBody()],
+      'next': null,
+      'padding': '',
+    };
+    final overhead = utf8.encode(jsonEncode(reply)).length;
+    expect(overhead, lessThan(byteLength));
+    reply['padding'] = 'x' * (byteLength - overhead);
+    final bytes = utf8.encode(jsonEncode(reply));
+    expect(bytes, hasLength(byteLength));
+    return bytes;
+  }
+
+  Future<void> drainHistoryFrames() async {
+    await Future<void>(() {});
+    await until(() async => mb.historyInboundAdmission.queuedFrames == 0);
+    await Future<void>(() {});
+  }
+
+  test(
+    'history pages use four-KiB slices within the six-KiB wire bound',
+    () async {
+      await seed(32, bodyBytes: 2000);
+      ma.start();
+      mb.start();
+      await until(
+        () async =>
+            await count() == 32 &&
+            await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+      );
+      final replies = <String, Map<int, Map<String, dynamic>>>{};
+      for (final frame in net.history.where((frame) => frame.from == a)) {
+        final body = frame.body;
+        if (body['i'] case final int index) {
+          replies.putIfAbsent(body['id'] as String, () => {})[index] = body;
+        }
+      }
+      var pages = 0;
+      for (final parts in replies.values) {
+        final bytes = BytesBuilder();
+        for (var i = 0; i < parts.length; i++) {
+          bytes.add(base64Decode(parts[i]!['b'] as String));
+        }
+        final payload = bytes.takeBytes();
+        final reply = jsonDecode(utf8.decode(payload)) as Map;
+        if (reply['op'] != 'page') continue;
+        pages++;
+        expect(reply['events'], hasLength(32));
+        expect(payload.length, lessThanOrEqualTo(128 * 1024));
+        expect(parts.length, (payload.length + 4095) ~/ 4096);
+        expect(base64Decode(parts[0]!['b'] as String), hasLength(4096));
+      }
+      expect(pages, 1);
+      expect(applied, 32);
+      expect(errorJournal.entries, isEmpty);
+    },
+  );
+
+  test(
+    'four-KiB slices accept exactly the existing 128-KiB page budget',
+    () async {
+      await seed(1);
+      final request = await manualPageRequest();
+      final bytes = await paddedSingleRowReply(128 * 1024);
+      await _historyReplyBytes(ta, b, request, bytes, sliceBytes: 4096);
+      await until(() async => await count() == 1);
+      expect(
+        (await sb.loadMessageById(peer.hex, 'm0000'))!.body,
+        (await sa.loadMessageById(peer.hex, 'm0000'))!.body,
+      );
+      expect(applied, 1);
+      expect(errorJournal.entries, isEmpty);
+    },
+  );
+
+  test(
+    'page byte budget rejects excess bytes before retaining the final part',
+    () async {
+      await seed(1);
+      final request = await manualPageRequest();
+      final cursor = await sb.getSetting('device.history.cursor.v2:${a.hex}');
+      final bytes = await paddedSingleRowReply(128 * 1024);
+      // The JSON is valid with trailing whitespace too; only the byte budget
+      // can refuse this response. 33 parts fit the unchanged count bound.
+      await _historyReplyBytes(ta, b, request, [
+        ...bytes,
+        32,
+      ], sliceBytes: 4096);
+      await drainHistoryFrames();
+      expect(await count(), 0);
+      expect(applied, 0);
+      expect(await sb.getSetting('device.history.cursor.v2:${a.hex}'), cursor);
+      // The rejected part must not occupy its slot. An empty corrected tail
+      // now completes exactly 128 KiB using the same request and held prefix.
+      await net.send(
+        ta,
+        b,
+        WireEnvelope.deviceHistory(
+          jsonEncode({
+            'v': 1,
+            'd': a.hex,
+            'id': request,
+            'i': 32,
+            'n': 33,
+            'b': '',
+          }),
+        ).encode(),
+      );
+      await until(() async => await count() == 1);
+      expect(applied, 1);
+      expect(errorJournal.entries, isEmpty);
+    },
+  );
+
+  test(
+    'a decoded part over four KiB cannot occupy its repairable slot',
+    () async {
+      await seed(1);
+      final request = await manualPageRequest();
+      final bytes = await paddedSingleRowReply(4096);
+      // 4096 and 4097 decoded bytes have the same base64 character count.
+      await _historyReplyBytes(ta, b, request, [
+        ...bytes,
+        32,
+      ], sliceBytes: 4097);
+      await drainHistoryFrames();
+      expect(await count(), 0);
+      expect(applied, 0);
+      await _historyReplyBytes(ta, b, request, bytes, sliceBytes: 4096);
+      await until(() async => await count() == 1);
+      expect(applied, 1);
+      expect(errorJournal.entries, isEmpty);
+    },
+  );
 
   test('short history publishes posts in bounded durable cohorts', () async {
     await seed(64);

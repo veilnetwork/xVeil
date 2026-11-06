@@ -47,7 +47,13 @@ class _MessagingOwnHistory {
   // 64-part and admission ceilings remain independent of this row cap.
   static const _messagePage = 32;
   static const _maxPrefixes = 8;
-  static const _slice = 2048;
+  // Four-KiB binary slices fit the existing six-KiB transport frame even
+  // after base64/envelope encoding. Keep the page byte budget independent
+  // of accepted part count (which also admits older, smaller slices).
+  static const _slice = 4096;
+  static const _maxPartBase64 = ((_slice + 2) ~/ 3) * 4;
+  static const _maxWireBody = 6000;
+  static const _maxPageBytes = 128 * 1024;
   static const _maxParts = 64;
   static const _maxDevices = 32;
   static const _maxAttempts = 6;
@@ -445,7 +451,9 @@ class _MessagingOwnHistory {
   /// not in front of unrelated chat messages. Every history effect still checks
   /// the current binding and device authorization in the normal handler.
   void enqueue(InboundMessage message, String body) {
-    if (!_ready || !message.provenance.isAuthenticated || body.length > 5000) {
+    if (!_ready ||
+        !message.provenance.isAuthenticated ||
+        body.length > _maxWireBody) {
       return;
     }
     if (!_wanted(message, body)) return;
@@ -504,7 +512,9 @@ class _MessagingOwnHistory {
   }
 
   Future<void> _handle(InboundMessage message, String body) async {
-    if (!_ready || !message.provenance.isAuthenticated || body.length > 5000) {
+    if (!_ready ||
+        !message.provenance.isAuthenticated ||
+        body.length > _maxWireBody) {
       return;
     }
     // Bind to the authenticated physical sender, never the body claim or the
@@ -893,7 +903,7 @@ class _MessagingOwnHistory {
             events.add(body);
             // Event bodies are JSON strings inside another JSON envelope.
             if (utf8.encode(jsonEncode(pageResult(message))).length >
-                _slice * _maxParts) {
+                _maxPageBytes) {
               events.removeLast();
               if (events.isEmpty) {
                 final bytes = utf8.encode(body);
@@ -925,7 +935,7 @@ class _MessagingOwnHistory {
         return;
       }
       final bytes = Uint8List.fromList(utf8.encode(jsonEncode(result)));
-      if (bytes.length > _slice * _maxParts) {
+      if (bytes.length > _maxPageBytes) {
         throw StateError('History page too large');
       }
       answer = (
@@ -972,15 +982,22 @@ class _MessagingOwnHistory {
         i < 0 ||
         i >= n ||
         data is! String ||
-        data.length > 2800 ||
+        data.length > _maxPartBase64 ||
         (pull.partCount != null && pull.partCount != n)) {
       return;
     }
     final bytes = base64Decode(data);
     if (bytes.length > _slice) return;
-    pull.partCount = n;
     final previous = pull.parts[i];
     if (previous != null && base64Encode(previous) != data) return;
+    final heldBytes = pull.parts.values.fold<int>(
+      0,
+      (total, part) => total + part.length,
+    );
+    if (heldBytes - (previous?.length ?? 0) + bytes.length > _maxPageBytes) {
+      return;
+    }
+    pull.partCount = n;
     pull.parts[i] = bytes;
     if (pull.parts.length != n) return;
     pull.processing = true;
