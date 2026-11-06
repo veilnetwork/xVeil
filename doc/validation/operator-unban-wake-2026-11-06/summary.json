@@ -1,0 +1,130 @@
+{
+  "schema": "xveil-validation/1",
+  "date": "2026-11-06",
+  "scope": "operator-unban-matching-connector-wake",
+  "sdk": "b9b88bb7d6fd3dd956196f58777fe65fb86bcd01",
+  "baselineFocused": {
+    "passed": 0,
+    "assertionFailed": 1
+  },
+  "runtime": {
+    "unitPassed": 812,
+    "unitIgnored": 11,
+    "integrationPassed": 8,
+    "docIgnored": 2
+  },
+  "analyzer": {
+    "files": 1,
+    "issues": 0
+  },
+  "nativePhases": [
+    {
+      "mode": "trace",
+      "sdk": "bbeaf3a9",
+      "routeTrace": true,
+      "passed": true,
+      "unbanDurationMs": 552,
+      "firstCrossHalfSessionMs": {
+        "A": 25438,
+        "B": 25438,
+        "C": 25773,
+        "D": 25902
+      },
+      "firstOwnIdentityGroupFrameMs": {
+        "A": 28460,
+        "B": 33232,
+        "C": 34460,
+        "D": 28539
+      },
+      "firstConvergedMs": 35568,
+      "stableMs": 10244,
+      "totalRecoveryMs": 45812,
+      "frozenInputsVerified": 1496,
+      "ownedPidsChecked": 27,
+      "portsChecked": 32,
+      "remainingOwnedProcesses": 0,
+      "remainingOwnedListeners": 0,
+      "runtimeRootRemoved": true,
+      "nativeArtifactsUnchanged": true
+    },
+    {
+      "mode": "post",
+      "sdk": "b9b88bb7",
+      "routeTrace": true,
+      "passed": true,
+      "unbanDurationMs": 502,
+      "firstCrossHalfSessionMs": {
+        "A": 1107,
+        "B": 1116,
+        "C": 304,
+        "D": 304
+      },
+      "firstOwnIdentityGroupFrameMs": {
+        "A": 3432,
+        "B": 8530,
+        "C": 9902,
+        "D": 4448
+      },
+      "firstConvergedMs": 13070,
+      "stableMs": 10273,
+      "totalRecoveryMs": 23344,
+      "frozenInputsVerified": 1496,
+      "ownedPidsChecked": 27,
+      "portsChecked": 34,
+      "remainingOwnedProcesses": 0,
+      "remainingOwnedListeners": 0,
+      "runtimeRootRemoved": true,
+      "nativeArtifactsUnchanged": true
+    },
+    {
+      "mode": "quiet",
+      "sdk": "b9b88bb7",
+      "routeTrace": false,
+      "passed": true,
+      "unbanDurationMs": 603,
+      "firstCrossHalfSessionMs": {
+        "A": 978,
+        "B": 978,
+        "C": 375,
+        "D": 375
+      },
+      "firstOwnIdentityGroupFrameMs": {
+        "A": 3229,
+        "B": 7321,
+        "C": 8173,
+        "D": 6492
+      },
+      "firstConvergedMs": 13396,
+      "stableMs": 10311,
+      "totalRecoveryMs": 23708,
+      "frozenInputsVerified": 1496,
+      "ownedPidsChecked": 26,
+      "portsChecked": 30,
+      "remainingOwnedProcesses": 0,
+      "remainingOwnedListeners": 0,
+      "runtimeRootRemoved": true,
+      "nativeArtifactsUnchanged": true
+    }
+  ],
+  "newFfi": {
+    "cApiExports": 208,
+    "exportsUnchanged": true,
+    "abiContractVerifiedByCall": true,
+    "signatureVerified": true,
+    "runtimeRecompiled": true
+  },
+  "newCli": {
+    "version": "0.11.47",
+    "signatureVerified": true,
+    "runtimeRecompiled": true
+  },
+  "selectedLibrariesMappedByFourLiveWorkers": true,
+  "externalMountVerifiedThroughoutBuilds": true,
+  "automaticBanExpiryPollUnchanged": true,
+  "deliveryLatencyFullyResolved": false,
+  "netcall01Qualified": false,
+  "phoneTouched": false,
+  "productionTouched": false,
+  "pushed": false,
+  "released": false
+}
