@@ -27,6 +27,12 @@ class _MessagingMessageDelivery {
   /// Bounds inbound-triggered retry rewinds to one per peer per retry interval.
   final Map<String, DateTime> _lastNudgeAt = {};
 
+  /// Steady inbound can nudge durable controls without rewinding messages.
+  /// It must not consume the retry opportunity of a restored direct route.
+  /// Silence-ending inbound and direct-route events share this throttle so
+  /// those two recovery signals cannot immediately duplicate each other.
+  final Map<String, DateTime> _lastRecoveryNudgeAt = {};
+
   /// When each peer was last heard from, on the service clock — whether that
   /// inbound rewound anything or not (see [nudge]).
   final Map<String, DateTime> _lastHeardAt = {};
@@ -99,9 +105,10 @@ class _MessagingMessageDelivery {
     _lastHeardAt[peerHex] = at;
     final silenceEnded =
         force || heard == null || at.difference(heard) >= _maxRetryBackoff;
-    final last = _lastNudgeAt[peerHex];
+    final last = (force ? _lastRecoveryNudgeAt : _lastNudgeAt)[peerHex];
     if (last != null && at.difference(last) < _retryInterval) return;
     _lastNudgeAt[peerHex] = at;
+    if (silenceEnded) _lastRecoveryNudgeAt[peerHex] = at;
     // The message ladder below keeps the wall clock it was stamped with.
     final now = DateTime.now();
     var nudged = false;
@@ -157,6 +164,7 @@ class _MessagingMessageDelivery {
     };
     _retryBackoff.removeWhere((_, value) => !accepted.contains(value.peer));
     _lastNudgeAt.removeWhere((peer, _) => !accepted.contains(peer));
+    _lastRecoveryNudgeAt.removeWhere((peer, _) => !accepted.contains(peer));
     _lastHeardAt.removeWhere((peer, _) => !accepted.contains(peer));
     _lastReconnectAt.removeWhere((peer, _) => !accepted.contains(peer));
     var next = 0;
