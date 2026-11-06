@@ -12,6 +12,7 @@ class PrivateHistoryWireProbe {
     Stream<InboundMessage> input,
     File file, {
     this.maxRecords = 2048,
+    this.retainRecords = false,
   }) : _sink = file.openWrite(mode: FileMode.append) {
     _sink.writeln(jsonEncode({'kind': 'open', 'atUs': _now()}));
     _subscription = input.listen(
@@ -24,6 +25,9 @@ class PrivateHistoryWireProbe {
   }
 
   final int maxRecords;
+  final bool retainRecords;
+  final _records = <Map<String, dynamic>>[];
+  List<Map<String, dynamic>> get snapshot => List.unmodifiable(_records);
   final IOSink _sink;
   late final StreamSubscription<InboundMessage> _subscription;
   int _recorded = 0, _dropped = 0;
@@ -50,22 +54,32 @@ class PrivateHistoryWireProbe {
       if (op != null && !const ['list', 'page', 'record'].contains(op)) return;
       final prefix = query is Map ? query['prefix'] : null;
       final fallbacks = query is Map ? query['prefixFallbacks'] : null;
-      _sink.writeln(
-        jsonEncode({
-          'kind': op == null ? 'part' : 'query',
-          'atUs': _now(),
-          'request': body['id'],
-          'bytes': message.payload.length,
-          'provenance': message.provenance.name,
-          'op': ?op,
-          if (op == 'page' && prefix is Map && prefix['count'] is int) ...{
-            'prefixRows': prefix['count'],
-            'prefixCandidates': 1 + (fallbacks is List ? fallbacks.length : 0),
-          },
-          if (op == null && body['i'] is int) 'index': body['i'],
-          if (op == null && body['n'] is int) 'parts': body['n'],
-        }),
-      );
+      final row = <String, dynamic>{
+        'kind': op == null ? 'part' : 'query',
+        'atUs': _now(),
+        'request': body['id'],
+        'bytes': message.payload.length,
+        'provenance': message.provenance.name,
+        'op': ?op,
+        if (op == 'page' && prefix is Map && prefix['count'] is int) ...{
+          'prefixRows': prefix['count'],
+          'prefixCandidates': 1 + (fallbacks is List ? fallbacks.length : 0),
+        },
+        if (op == null && body['i'] is int) 'index': body['i'],
+        if (op == null && body['n'] is int) 'parts': body['n'],
+      };
+      if (retainRecords) {
+        // Synthetic multi-source fixtures use this private in-memory view to
+        // bind a reply to its actual physical sender. Disk logs stay minimal.
+        _records.add(
+          Map.unmodifiable({
+            ...row,
+            'fromDevice': (message.srcDevice ?? message.src).hex,
+            'authenticated': message.provenance.isAuthenticated,
+          }),
+        );
+      }
+      _sink.writeln(jsonEncode(row));
       _recorded++;
     } on FormatException {
       // A passive observer does not turn malformed application input into a
