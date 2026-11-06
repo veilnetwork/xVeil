@@ -22,6 +22,7 @@ class _NativePostStore extends TimedNativeStore {
   _NativePostStore(AsyncKvLogStore inner)
     : super(inner, Stopwatch()..start(), (_) {});
   final commitRows = <int>[];
+  final commitBytes = <int>[];
   int idReservations = 0;
   bool hold = false, refuse = false, uncertain = false;
   final entered = Completer<void>(), release = Completer<void>();
@@ -44,6 +45,12 @@ class _NativePostStore extends TimedNativeStore {
         .length;
     if (rows == 0) return super.commit(ops);
     commitRows.add(rows);
+    commitBytes.add(
+      ops.whereType<AppendLogOp>().fold<int>(
+        0,
+        (n, op) => n + op.payload.length,
+      ),
+    );
     if (hold) {
       hold = false;
       entered.complete();
@@ -159,6 +166,60 @@ void main() {
     author: 'canonical',
     seq: seq + 1000,
   );
+
+  test('native concurrent single ordering calls coalesce durably', () async {
+    for (var i = 1; i <= 64; i++) {
+      await storage.appendMessage(row(i));
+    }
+    backing.commitRows.clear();
+    backing.commitBytes.clear();
+    expect(
+      await Future.wait([
+        for (var i = 1; i <= 64; i++)
+          storage.adoptMessageOrdering(
+            'peer',
+            'row-$i',
+            provisionalAuthor: 'author',
+            provisionalSeq: i,
+            author: 'canonical',
+            seq: i + 1000,
+          ),
+      ]),
+      List.filled(64, true),
+    );
+    expect(backing.commitRows.length, lessThanOrEqualTo(8));
+    expect(backing.commitRows.every((count) => count <= 16), true);
+    expect(backing.commitRows.fold<int>(0, (n, count) => n + count), 64);
+    expect(backing.commitBytes.every((bytes) => bytes <= 1800), true);
+    await reopen();
+    final held = await storage.loadMessages('peer');
+    expect(
+      held.map(
+        (m) => (
+          m.id,
+          m.body,
+          m.status,
+          m.author,
+          m.seq,
+          m.orderAuthor,
+          m.orderSeq,
+        ),
+      ),
+      [
+        for (var i = 1; i <= 64; i++)
+          (
+            'row-$i',
+            row(i).body,
+            MessageStatus.delivered,
+            'author',
+            i,
+            'canonical',
+            i + 1000,
+          ),
+      ],
+    );
+    expect(await storage.loadEventsSince('peer', 'canonical', 0), isEmpty);
+  }, skip: skip);
 
   test('native same-image A/B/A ordering commit census', () async {
     await Future.wait([
