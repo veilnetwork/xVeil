@@ -1,6 +1,17 @@
 # Открытые случаи — обновлено 2026-11-06
 
-Последнее изменение: [ограниченный backup obfs4](../obfs4-backup-2026-11-06/README.md),
+Последнее исправление: [writer drain после terminal keepalive](../dead-writer-grace-2026-11-06/README.md),
+Veil `efe1c4ca`. После решения признать TX непригодным runner ещё мог ждать
+graceful writer до 5 с; в сохранённом телефонном capture промежуток 5002 мс.
+Настоящий runner воспроизводит эту задержку (1 assertion-red, normal-drain
+контроль pass). После правки оба проходят: выход без продвижения часов,
+transport закрыт, старая регистрация не блокирует reconnect. Normal/idle
+drain и detector guards сохранены. Session 689 passed / 8 ignored / 1 doc
+ignored; runtime 810 unit + 8 integration, FFI 397, пропуски отдельно.
+**NETCALL-01 открыт:** эффект на мобильном звонке новой SDK ещё не проверен.
+Приложения/реле не запускались, production не затронут; push/релиза нет.
+
+Предыдущее изменение: [ограниченный backup obfs4](../obfs4-backup-2026-11-06/README.md),
 Veil `dd6129b0`. Pending handshake через 1 с получает один запасной
 transport-кандидат в пределах прежнего общего 10-с deadline; fast path,
 обе auth-проверки, отмена и предел двух попыток покрыты. Transport
