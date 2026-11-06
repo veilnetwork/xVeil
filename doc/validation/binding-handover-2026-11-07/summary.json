@@ -1,0 +1,160 @@
+{
+  "schema": "xveil-validation/binding-handover/1",
+  "sdkCommit": "4f441329",
+  "platforms": [
+    "Poco Android",
+    "Mac"
+  ],
+  "frontend": "unchanged signed QA AOT from previous qualification; native SDK replaced",
+  "qaTopology": {
+    "isolatedCores": 1,
+    "transport": "obfs4/TCP",
+    "deliveryPath": "non-onion Delivery relay",
+    "p2pDeniedBothEndpoints": true,
+    "productionNetworkUsed": false
+  },
+  "cases": [
+    {
+      "case": "confirmed-cellular-new-call",
+      "caller": "Poco",
+      "observedStatePreserved": true,
+      "incomingSeconds": 2.194,
+      "firstJointFreshSeconds": 11.506,
+      "fiveJointFreshBaselineSeconds": 22.076,
+      "observationsPerEndpoint": 53,
+      "finalFiveFresh": {
+        "phone": true,
+        "mac": true
+      },
+      "maxObservedRxAgeMs": {
+        "phone": 1074,
+        "mac": 7590
+      }
+    },
+    {
+      "case": "in-call-handover-1",
+      "caller": "Mac",
+      "observedStatePreserved": true,
+      "incomingSeconds": 3.194,
+      "firstJointFreshSeconds": 38.955,
+      "fiveJointFreshBaselineSeconds": 41.119,
+      "observationsPerEndpoint": 178,
+      "finalFiveFresh": {
+        "phone": false,
+        "mac": false
+      },
+      "maxObservedRxAgeMs": {
+        "phone": 13314,
+        "mac": 12160
+      },
+      "wifiToCellular": {
+        "maxObservedRxAgeMs": {
+          "phone": 561,
+          "mac": 1234
+        },
+        "firstValidatedNetworkAfterCommandSeconds": 1.112
+      },
+      "cellularToWifi": {
+        "maxObservedRxAgeMs": {
+          "phone": 13314,
+          "mac": 12160
+        },
+        "firstValidatedNetworkAfterCommandSeconds": 1.676
+      }
+    },
+    {
+      "case": "in-call-handover-2",
+      "caller": "Mac",
+      "observedStatePreserved": true,
+      "incomingSeconds": 12.598,
+      "firstJointFreshSeconds": 15.578,
+      "fiveJointFreshBaselineSeconds": 17.781,
+      "observationsPerEndpoint": 116,
+      "finalFiveFresh": {
+        "phone": true,
+        "mac": true
+      },
+      "maxObservedRxAgeMs": {
+        "phone": 1146,
+        "mac": 1607
+      },
+      "wifiToCellular": {
+        "maxObservedRxAgeMs": {
+          "phone": 1146,
+          "mac": 1607
+        },
+        "firstValidatedNetworkAfterCommandSeconds": 1.009
+      },
+      "cellularToWifi": {
+        "maxObservedRxAgeMs": {
+          "phone": 289,
+          "mac": 674
+        },
+        "firstValidatedNetworkAfterCommandSeconds": 2.484
+      }
+    },
+    {
+      "case": "new-call-immediately-after-wifi-off",
+      "caller": "Poco",
+      "observedStatePreserved": true,
+      "incomingSeconds": 2.098,
+      "firstJointFreshSeconds": 6.21,
+      "fiveJointFreshBaselineSeconds": 11.274,
+      "observationsPerEndpoint": 39,
+      "finalFiveFresh": {
+        "phone": true,
+        "mac": false
+      },
+      "maxObservedRxAgeMs": {
+        "phone": 1052,
+        "mac": 1514
+      }
+    }
+  ],
+  "sampleErrors": 0,
+  "maxWithinCaseSampleIntervalMs": 1398.9,
+  "verification": {
+    "sdkSourceFiles": 1533,
+    "sdkSourceUnchanged": true,
+    "platformBuilds": 3,
+    "allBuildsExternalMountVerified": true,
+    "cApiExports": 208,
+    "abiUnchanged": true,
+    "macActualFfiMappingVerified": true,
+    "qaCoreActualExecutableShaVerified": true,
+    "initialActiveCoreTransportPeers": 2
+  },
+  "cleanup": {
+    "productionCoreUnchanged": true,
+    "qaCoreRemoved": true,
+    "qaAndroidApkRestoredBySha": true,
+    "normalAndroidApkUnchanged": true,
+    "oldQaRootContainerUnchanged": true,
+    "previousP2pValuesAndStoredValuesRestored": true,
+    "originalNetworkSettingsAndValidatedWifiRestored": true,
+    "ownedLocalProcessesExited": true,
+    "ownedPortsReleased": true,
+    "macRuntimeRemoved": true,
+    "macBundleSignatureReverified": true,
+    "macNeededSigkillAfterGrace": true
+  },
+  "captureLimitation": {
+    "pcapComplete": false,
+    "copyTimeoutSeconds": 60,
+    "remotePcapDeletedBeforeCopyCompleted": true,
+    "partialExcludedFromPacketLossAttribution": true,
+    "fullEndpointAndCoreLogsRetained": true,
+    "futureCleanupRequiresVerifiedCopy": true
+  },
+  "netcallClosed": false,
+  "otherDefectsClosed": false,
+  "limits": [
+    "sampled packet age, not acoustic latency or a continuous PCM silence measurement",
+    "media epoch continuity not proven",
+    "state-preservation harness success does not imply stable audio success",
+    "no speed A/B or attribution to a single fix",
+    "no Windows call or human audibility check",
+    "old signed QA frontend rather than latest app source",
+    "no push, release, production seed update or sibling mailbox"
+  ]
+}
