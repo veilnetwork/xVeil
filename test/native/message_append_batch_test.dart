@@ -22,11 +22,18 @@ class _NativePostStore extends TimedNativeStore {
   _NativePostStore(AsyncKvLogStore inner)
     : super(inner, Stopwatch()..start(), (_) {});
   final commitRows = <int>[];
+  int idReservations = 0;
   bool hold = false, refuse = false, uncertain = false;
   final entered = Completer<void>(), release = Completer<void>();
 
   @override
   Future<int> commit(List<KvLogOp> ops) async {
+    if (ops.whereType<PutOp>().any(
+      (op) =>
+          op.namespace == Ns.settings && utf8.decode(op.key) == 'msg_next_id',
+    )) {
+      idReservations++;
+    }
     final rows = ops
         .whereType<AppendLogOp>()
         .where(
@@ -113,6 +120,36 @@ void main() {
     );
     expect(await storage.open(password: passwordText), isTrue);
   }
+
+  test(
+    'native sustained ID allocation persists across two worker restarts',
+    () async {
+      for (var i = 1; i <= 256; i++) {
+        await storage.appendMessage(row(i));
+      }
+      expect(backing.idReservations, lessThanOrEqualTo(8));
+      final records = await backing.inner.iterLogRange(
+        namespace: Ns.messageLogShardFirst,
+        limit: 1000,
+      );
+      final cursor = int.parse(
+        utf8.decode(
+          (await backing.inner.get(
+            Ns.settings,
+            Uint8List.fromList(utf8.encode('msg_next_id')),
+          ))!,
+        ),
+      );
+      expect(records, hasLength(256));
+      expect(records.every((r) => r.logId < cursor), isTrue);
+      for (var i = 257; i <= 258; i++) {
+        await reopen();
+        await storage.appendMessage(row(i));
+        expect((await ids()).toSet(), {for (var n = 1; n <= i; n++) 'row-$n'});
+      }
+    },
+    skip: skip,
+  );
 
   MessageOrderingAdoption correction(int seq) => MessageOrderingAdoption(
     conversationId: 'peer',

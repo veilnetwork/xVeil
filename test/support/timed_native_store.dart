@@ -7,6 +7,7 @@ import 'package:xveil/data/storage/async_kv_log_store.dart';
 import 'package:xveil/data/storage/kv_log_store.dart';
 import 'package:xveil/data/storage/rollback_anchor.dart';
 import 'package:xveil/state/ratchet_persistence.dart';
+import 'storage_commit_classification.dart';
 
 typedef NativeTiming = void Function(Map<String, Object?> values);
 
@@ -78,6 +79,8 @@ class TimedNativeStore
     List<int> namespaces = const [],
     int? operations,
     bool queued = true,
+    String? commitClass,
+    List<String> commitComponents = const [],
   }) async {
     final start = clock.elapsedMicroseconds;
     final groupFrame = Zone.current[groupTimingFrameKey];
@@ -89,7 +92,11 @@ class TimedNativeStore
     final trace = traceRpc && queued ? developer.TimelineTask() : null;
     trace?.start(
       'stand.storage.rpc',
-      arguments: {'operation': operation, 'sequence': ++_rpcSequence},
+      arguments: {
+        'operation': operation,
+        'sequence': ++_rpcSequence,
+        'commit_class': ?commitClass,
+      },
     );
     var ok = false;
     try {
@@ -104,6 +111,9 @@ class TimedNativeStore
         'duration_us': clock.elapsedMicroseconds - start,
         'namespaces': namespaces,
         'operations': ?operations,
+        'ok': ok,
+        'commit_class': ?commitClass,
+        if (commitComponents.isNotEmpty) 'commit_components': commitComponents,
         if (groupFrame is int) 'group_frame': groupFrame,
         if (fileOperation is int) 'file_operation': fileOperation,
         if (authorizationOperation is int)
@@ -119,6 +129,11 @@ class TimedNativeStore
 
   @override
   Future<int> commit(List<KvLogOp> ops) {
+    final context = Zone.current[storageTimingOperationKey];
+    final classification = classifyStorageCommit(
+      ops,
+      storageOperation: context is String ? context : null,
+    );
     final namespaces = {
       for (final op in ops)
         switch (op) {
@@ -133,6 +148,8 @@ class TimedNativeStore
       () => inner.commit(ops),
       namespaces: namespaces,
       operations: ops.length,
+      commitClass: classification.primary,
+      commitComponents: classification.components,
     );
   }
 

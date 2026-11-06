@@ -1,0 +1,25 @@
+// Fixed stand-only labels. Neither a key suffix nor a namespace number may
+// become a label in a timing report or VM trace.
+const storageCommitLabels = {
+  'peerAuthorization',
+  'ratchet',
+  'messages',
+  'outbox',
+  'groupHeader',
+  'groupSegment',
+  'groupPair',
+  'files',
+  'historyCursor',
+  'ratchetReservation',
+  'messageAllocator',
+  'messageSequence',
+  'syncFloor',
+  'groupSettings',
+  'deviceSettings',
+  'contactSettings',
+  'settingsOther',
+  'mixed',
+  'other',
+  'empty',
+  'unclassified',
+};
