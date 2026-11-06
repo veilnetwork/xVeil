@@ -265,8 +265,16 @@ void main() {
       }
       E2eLog.line('PROCESS_TWO_PARTITIONS_BOTH_HALVES_LIVE_16_MESSAGES');
 
+      final healingAtMs = DateTime.now().millisecondsSinceEpoch;
       final healing = Stopwatch()..start();
       await crossBans(false);
+      // This clock pair joins private native/Dart captures on the same host.
+      // Public validation reports retain only durations, never capture IDs.
+      E2eLog.line(
+        'PROCESS_TWO_PARTITIONS_HEALING_CLOCK '
+        'startMs=$healingAtMs '
+        'unbannedMs=${DateTime.now().millisecondsSinceEpoch}',
+      );
       if (automaticHeal) {
         // Unban alone must let the native reconnect/discovery and application
         // anti-entropy paths heal. Do not refresh peer rows with debug join.
