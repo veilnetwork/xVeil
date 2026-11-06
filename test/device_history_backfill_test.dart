@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'dart:typed_data';
 
@@ -35,8 +36,10 @@ class _HistorySnapshot implements Storage {
   @override
   Future<List<Conversation>> loadConversations() async => conversations;
   @override
-  Future<List<Message>> loadMessages(String conversationId, {int? limit}) async =>
-      messages[conversationId] ?? const [];
+  Future<List<Message>> loadMessages(
+    String conversationId, {
+    int? limit,
+  }) async => messages[conversationId] ?? const [];
   @override
   dynamic noSuchMethod(Invocation invocation) =>
       throw UnsupportedError('unexpected history snapshot operation');
@@ -133,7 +136,6 @@ void main() {
     },
   );
 
-
   test(
     'completed outgoing history retains terminal delivery state without moving time',
     () {
@@ -184,7 +186,6 @@ void main() {
     ).event;
     expect(incoming.payload, isNot(contains('st')));
   });
-
 
   test(
     'bounded durable batches preserve the sequential history and attachments',
@@ -240,6 +241,219 @@ void main() {
       expect(batched.calls, sequential.calls);
       expect(batched.readMarks, sequential.readMarks);
       expect(batched.stoppedEarly, isFalse);
+    },
+  );
+
+  int preparedBytes(DeviceMessageMirror row) => utf8
+      .encode(
+        jsonEncode({
+          'body': row.event.toBody(),
+          if (row.attachment != null)
+            'att': row.attachment!.toLegacyAttachmentCanonical(),
+        }),
+      )
+      .length;
+
+  test(
+    'byte-bounded replay preserves UTF-8, escaping and media intact',
+    () async {
+      await addMessage(alice, 'unicode', 'Я"\n\\' * 70);
+      await addMessage(alice, 'oversized', '😀' * 2000);
+      await storage.appendMessage(
+        Message(
+          id: 'preview',
+          conversationId: alice.hex,
+          direction: MessageDirection.incoming,
+          body: 'file',
+          timestamp: DateTime.fromMillisecondsSinceEpoch(2000),
+          fileContentId: 'ab' * 32,
+          fileName: 'фото.jpg',
+          fileSize: 9000,
+          thumb: base64Encode(List.filled(1500, 42)),
+        ),
+      );
+      final originalReport = await replay(everything);
+      final original = List<_Sent>.of(sent);
+      final cohorts = <List<DeviceMessageMirror>>[];
+      final report = await replayHistoryForAsk(
+        ask: everything,
+        storage: storage,
+        post: post,
+        batch: 64,
+        batchBytes: 900,
+        pause: Duration.zero,
+        postBatch: (rows) async {
+          cohorts.add(List.of(rows));
+          return List.filled(rows.length, true);
+        },
+      );
+      final received = cohorts.expand((rows) => rows).toList();
+      expect(
+        received.map((r) => r.event.toBody()),
+        original.map((r) => r.event.toBody()),
+      );
+      expect(
+        received.map((r) => r.attachment?.toLegacyAttachmentCanonical()),
+        original.map((r) => r.attachment?.toLegacyAttachmentCanonical()),
+      );
+      expect(cohorts.any((rows) => rows.length > 1), true);
+      expect(
+        cohorts.any(
+          (rows) => rows.length == 1 && preparedBytes(rows.single) > 900,
+        ),
+        true,
+      );
+      for (final rows in cohorts) {
+        expect(rows.length, lessThanOrEqualTo(64));
+        final bytes = rows.fold<int>(0, (n, row) => n + preparedBytes(row));
+        expect(bytes <= 900 || rows.length == 1, true);
+      }
+      expect(report.messages, originalReport.messages);
+      expect(report.contacts, originalReport.contacts);
+      expect(report.stoppedEarly, false);
+    },
+  );
+
+  Future<(DeviceHistoryAsk, int)> largeReplayFixture() async {
+    await addMessage(alice, 'large-a', '😀' * 2000);
+    await addMessage(alice, 'large-b', '😀' * 2000);
+    final ask = DeviceHistoryAsk(
+      fromDeviceHex: 'aa',
+      peers: [alice.hex],
+      callLog: false,
+      readMarks: false,
+    );
+    await replayHistoryForAsk(
+      ask: ask,
+      storage: storage,
+      post: post,
+      pause: Duration.zero,
+    );
+    final contacts = sent
+        .where((row) => row.event.kind == DeviceSyncKind.contactUp)
+        .toList();
+    expect(contacts, hasLength(2));
+    final budget =
+        contacts.fold<int>(0, (n, row) => n + preparedBytes(row)) + 1;
+    expect(
+      sent
+          .where((row) => row.event.kind == DeviceSyncKind.msgMirror)
+          .every((row) => preparedBytes(row) > budget),
+      true,
+    );
+    sent.clear();
+    return (ask, budget);
+  }
+
+  test(
+    'cancellation during byte flush does not publish the waiting oversized row',
+    () async {
+      final (ask, budget) = await largeReplayFixture();
+      var cancelled = false, calls = 0;
+      final report = await replayHistoryForAsk(
+        ask: ask,
+        storage: storage,
+        post: post,
+        batch: 64,
+        batchBytes: budget,
+        pause: Duration.zero,
+        cancelled: () => cancelled,
+        postBatch: (rows) async {
+          calls++;
+          sent.addAll(rows);
+          cancelled = true;
+          return List.filled(rows.length, true);
+        },
+      );
+      expect(calls, 1);
+      expect(report.messages, 0);
+      expect(report.contacts, 1);
+      expect(report.stoppedEarly, true);
+      expect(sent.every((r) => r.event.kind == DeviceSyncKind.contactUp), true);
+    },
+  );
+
+  test(
+    'byte flush waits for backlog room before posting the waiting row',
+    () async {
+      final (ask, budget) = await largeReplayFixture();
+      final entered = Completer<void>(), room = Completer<void>();
+      var calls = 0, roomCalls = 0;
+      final replaying = replayHistoryForAsk(
+        ask: ask,
+        storage: storage,
+        post: post,
+        batch: 64,
+        batchBytes: budget,
+        pause: Duration.zero,
+        postBatch: (rows) async {
+          calls++;
+          sent.addAll(rows);
+          return List.filled(rows.length, true);
+        },
+        awaitRoom: () {
+          roomCalls++;
+          if (roomCalls == 1) {
+            entered.complete();
+            return room.future;
+          }
+          return Future.value();
+        },
+      );
+      try {
+        await entered.future.timeout(const Duration(seconds: 2));
+        expect(calls, 1);
+      } finally {
+        room.complete();
+      }
+      final report = await replaying;
+      expect(calls, 3);
+      expect(roomCalls, 3);
+      expect(report.messages, 2);
+      expect(report.stoppedEarly, false);
+    },
+  );
+
+  test(
+    'partial refusal at a byte boundary posts no later oversized row',
+    () async {
+      final (ask, budget) = await largeReplayFixture();
+      var calls = 0;
+      final report = await replayHistoryForAsk(
+        ask: ask,
+        storage: storage,
+        post: post,
+        batch: 64,
+        batchBytes: budget,
+        pause: Duration.zero,
+        postBatch: (rows) async {
+          calls++;
+          expect(rows, hasLength(2));
+          return [true, false];
+        },
+      );
+      expect(calls, 1);
+      expect(report.messages, 0);
+      expect(report.stoppedEarly, true);
+    },
+  );
+
+  test(
+    'non-positive byte budgets are refused before producing history',
+    () async {
+      for (final bytes in [0, -1]) {
+        await expectLater(
+          replayHistoryForAsk(
+            ask: everything,
+            storage: storage,
+            post: post,
+            batchBytes: bytes,
+            pause: Duration.zero,
+          ),
+          throwsArgumentError,
+        );
+      }
+      expect(sent, isEmpty);
     },
   );
 
@@ -558,7 +772,6 @@ void main() {
     },
   );
 
-
   test('a chat with one of my own devices is not handed over', () async {
     // On the receiver it would be a chat with its sibling — or with itself.
     final sibling = _id(0x5B);
@@ -579,10 +792,15 @@ void main() {
     final touched = {
       for (final s in sent)
         s.event.payload['peer'] as String? ??
-            (s.event.key.startsWith('s:') ? s.event.key.substring(2) : s.event.key),
+            (s.event.key.startsWith('s:')
+                ? s.event.key.substring(2)
+                : s.event.key),
     };
-    expect(touched, isNot(contains(sibling.hex)),
-        reason: 'the replay handed over a chat with my own device');
+    expect(
+      touched,
+      isNot(contains(sibling.hex)),
+      reason: 'the replay handed over a chat with my own device',
+    );
     expect(touched, contains(alice.hex), reason: 'premise: others still go');
     expect(report.conversations, 2, reason: 'alice and bob, not the sibling');
   });
@@ -756,36 +974,39 @@ void main() {
     );
   });
 
-  test('the replay waits for room between batches, not only for a pause', () async {
-    // A full copy at the fixed pause overran the siblings' 256-frame
-    // replication backlog, and a backed-up sibling has its queued replication
-    // dropped. The room check is what paces a big history.
-    for (var i = 1; i <= 60; i++) {
-      await addMessage(alice, 'm$i', 'body $i', atMs: 1000 * i);
-    }
-    final sentWhenAsked = <int>[];
-    var held = true;
-    final release = Completer<void>();
-    final replaying = replayHistoryForAsk(
-      ask: everything,
-      storage: storage,
-      post: post,
-      pause: Duration.zero,
-      batch: 25,
-      awaitRoom: () async {
-        sentWhenAsked.add(sent.length);
-        if (held) await release.future;
-      },
-    );
-    await Future<void>.delayed(const Duration(milliseconds: 50));
-    expect(sentWhenAsked, [25], reason: 'asked at the first batch boundary');
-    expect(sent.length, 25, reason: 'and nothing more went while it waited');
-    held = false;
-    release.complete();
-    final report = await replaying;
-    expect(report.messages, 60);
-    expect(sentWhenAsked.length, greaterThanOrEqualTo(2));
-  });
+  test(
+    'the replay waits for room between batches, not only for a pause',
+    () async {
+      // A full copy at the fixed pause overran the siblings' 256-frame
+      // replication backlog, and a backed-up sibling has its queued replication
+      // dropped. The room check is what paces a big history.
+      for (var i = 1; i <= 60; i++) {
+        await addMessage(alice, 'm$i', 'body $i', atMs: 1000 * i);
+      }
+      final sentWhenAsked = <int>[];
+      var held = true;
+      final release = Completer<void>();
+      final replaying = replayHistoryForAsk(
+        ask: everything,
+        storage: storage,
+        post: post,
+        pause: Duration.zero,
+        batch: 25,
+        awaitRoom: () async {
+          sentWhenAsked.add(sent.length);
+          if (held) await release.future;
+        },
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(sentWhenAsked, [25], reason: 'asked at the first batch boundary');
+      expect(sent.length, 25, reason: 'and nothing more went while it waited');
+      held = false;
+      release.complete();
+      final report = await replaying;
+      expect(report.messages, 60);
+      expect(sentWhenAsked.length, greaterThanOrEqualTo(2));
+    },
+  );
 
   group('stopping', () {
     test('a cancel stops the walk and the report SAYS it stopped', () async {
@@ -835,19 +1056,28 @@ void main() {
     });
   });
 
-  test('text and file mirrors carry reply target and forwarding attribution', () {
-    for (final cid in [null, 'content-ref']) {
-      final mirror = deviceMirrorOf(alice.hex, Message(
-        id: 'annotated', conversationId: alice.hex,
-        direction: MessageDirection.outgoing, body: 'reply',
-        timestamp: DateTime.fromMillisecondsSinceEpoch(1000),
-        replyToId: 'original-message', forwardedFrom: 'Original author',
-        fileContentId: cid,
-      ));
-      expect(mirror.event.payload['r'], 'original-message');
-      expect(mirror.event.payload['fw'], 'Original author');
-    }
-  });
+  test(
+    'text and file mirrors carry reply target and forwarding attribution',
+    () {
+      for (final cid in [null, 'content-ref']) {
+        final mirror = deviceMirrorOf(
+          alice.hex,
+          Message(
+            id: 'annotated',
+            conversationId: alice.hex,
+            direction: MessageDirection.outgoing,
+            body: 'reply',
+            timestamp: DateTime.fromMillisecondsSinceEpoch(1000),
+            replyToId: 'original-message',
+            forwardedFrom: 'Original author',
+            fileContentId: cid,
+          ),
+        );
+        expect(mirror.event.payload['r'], 'original-message');
+        expect(mirror.event.payload['fw'], 'Original author');
+      }
+    },
+  );
 
   /// The drift this builder was introduced to remove: the archive kept its own
   /// copy of this field list and had already lost the inline custom emoji the

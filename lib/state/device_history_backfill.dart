@@ -20,6 +20,7 @@
 // where the receiving device has nothing at all. Fill a gap, never overwrite.
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import '../core/ids.dart';
@@ -243,6 +244,9 @@ Future<DeviceHistoryReplay> replayHistoryForAsk({
   bool Function()? cancelled,
   void Function(int sent)? onProgress,
   int batch = 25,
+  // Optional prepared body/attachment budget, before signing. An oversized
+  // row remains whole and is posted alone; transport owns fragmentation.
+  int? batchBytes,
   // With durable batches AND backlog admission, this is the minimum batch
   // interval: time spent saving/enqueuing already paces the producer. Hosts
   // without that admission keep the trailing pause after their append.
@@ -267,7 +271,11 @@ Future<DeviceHistoryReplay> replayHistoryForAsk({
   var sent = 0;
   var stopped = false;
   if (batch < 1) throw ArgumentError.value(batch, 'batch', 'must be positive');
+  if (batchBytes != null && batchBytes < 1) {
+    throw ArgumentError.value(batchBytes, 'batchBytes', 'must be positive');
+  }
   final pending = <({DeviceMessageMirror row, void Function()? accepted})>[];
+  var pendingBytes = 0;
 
   // See the header: contact rows carry a counter so they can only ever fill a
   // gap. It starts at 1 rather than 0 because a zero timestamp reads as "no
@@ -286,10 +294,12 @@ Future<DeviceHistoryReplay> replayHistoryForAsk({
     if (cancelled?.call() ?? false) {
       stopped = true;
       pending.clear();
+      pendingBytes = 0;
       return false;
     }
     final rows = List.of(pending);
     pending.clear();
+    pendingBytes = 0;
     final results = await postBatch!(
       List.unmodifiable([for (final row in rows) row.row]),
     );
@@ -337,11 +347,31 @@ Future<DeviceHistoryReplay> replayHistoryForAsk({
       return false;
     }
     if (postBatch != null) {
+      final bytes = batchBytes == null
+          ? 0
+          : utf8
+                .encode(
+                  jsonEncode({
+                    'body': e.toBody(),
+                    if (attachment != null)
+                      'att': attachment.toLegacyAttachmentCanonical(),
+                  }),
+                )
+                .length;
+      if (pending.isNotEmpty &&
+          batchBytes != null &&
+          pendingBytes + bytes > batchBytes) {
+        if (!await flushPaced()) return false;
+      }
       pending.add((
         row: (event: e, attachment: attachment),
         accepted: onAccepted,
       ));
-      if (pending.length < batch) return true;
+      pendingBytes += bytes;
+      if (pending.length < batch &&
+          (batchBytes == null || pendingBytes < batchBytes)) {
+        return true;
+      }
       return flushPaced();
     } else {
       if (!await post(e, attachment: attachment)) {
