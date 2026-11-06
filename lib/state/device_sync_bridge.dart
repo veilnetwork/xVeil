@@ -796,6 +796,10 @@ final deviceSyncBridgeProvider = Provider<void>((ref) {
       post: (event, {attachment}) =>
           svc.postDeviceEvent(event, attachment: attachment),
       postBatch: svc.postDeviceEvents,
+      // Match the durable drainer's bounded turn; awaitRoom still gates each
+      // completed batch before the next one can enter replication.
+      batch: GroupService.kDevicePostBatch,
+      batchBytes: GroupService.chunkedDeviceSyncBatchBytes,
       isOwnDevice: svc.isMyDeviceOrMaster,
       cancelled: () =>
           bridgeGone || !identical(ref.read(groupServiceProvider), svc),
