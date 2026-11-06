@@ -1,5 +1,17 @@
 # Открытые случаи — обновлено 2026-11-06
 
+Последнее исправление: [master roster: изоляция, атомарный shrink и согласованное чтение](../roster-storage-lifecycle-2026-11-06/README.md).
+Список личностей и SpaceKeys больше не переходят в следующий контейнер
+из отложенного save/read и не восстанавливаются после erase. Уменьшение
+списка публикует setting и удаление старой файловой копии атомарно; повреждённый
+файл не заменяется по устаревшей тени. Optional cleanup после durable большого
+файла остаётся best-effort, но повторяет попытку и для идентичных bytes.
+База: 17 assertion-red в обоих backend; candidate 149 связанных passed /
+1 native-only skipped и 29 native passed, включая настоящий child unlock
+после file promotion/shrink/reopen. Analyzer чист, native fixtures удалены.
+Полная storage/multi-device матрица и задержка догрузки остаются открытыми;
+телефон, production и SDK/HVS не менялись, push/релиза нет.
+
 Последнее исправление: [lifetime и порядок записей settings/profile/node config](../metadata-write-lifetime-2026-11-06/README.md).
 Устранены запись значения A в следующий контейнер B, восстановление данных
 после erase, перестановка сохранений и одинаковые параллельные транзакции.
