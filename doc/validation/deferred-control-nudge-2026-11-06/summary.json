@@ -1,0 +1,98 @@
+{
+  "schema": "xveil-validation/1",
+  "date": "2026-11-06",
+  "scope": "deferred-durable-reachability-nudge",
+  "baselineFocused": {
+    "passed": 5,
+    "assertionFailed": 2
+  },
+  "candidateRelatedIncludingFocused": {
+    "passed": 45,
+    "failed": 0
+  },
+  "firstExpiryRun": {
+    "passed": 29,
+    "skipped": 16
+  },
+  "nativeExpiryIncludingFocused": {
+    "passed": 45,
+    "failed": 0,
+    "skipped": 0
+  },
+  "suitesOverlap": true,
+  "durableBeforeFixtureCorrections": {
+    "baselinePassed": 38,
+    "baselineFailed": 4,
+    "candidatePassed": 38,
+    "candidateFailed": 4
+  },
+  "durableAfterFixtureCorrections": {
+    "baselinePassed": 42,
+    "candidatePassed": 42,
+    "failed": 0
+  },
+  "ackMutation": {
+    "assertionFailed": 1,
+    "byteRestored": true
+  },
+  "analyzer": {
+    "files": 4,
+    "issues": 0
+  },
+  "nativeAutomaticHealPhases": [
+    {
+      "phase": "A1",
+      "firstConvergedMs": 45455,
+      "stableMs": 10373,
+      "totalRecoveryMs": 55829,
+      "passed": true,
+      "cleanup": {
+        "ownedPidsChecked": 28,
+        "portsChecked": 35,
+        "remainingOwnedProcesses": 0,
+        "remainingOwnedListeners": 0,
+        "runtimeRootRemoved": true
+      },
+      "sourceInputsUnchangedDuringRun": true,
+      "nativeArtifactsUnchanged": true
+    },
+    {
+      "phase": "B",
+      "firstConvergedMs": 37344,
+      "stableMs": 10361,
+      "totalRecoveryMs": 47706,
+      "passed": true,
+      "cleanup": {
+        "ownedPidsChecked": 27,
+        "portsChecked": 35,
+        "remainingOwnedProcesses": 0,
+        "remainingOwnedListeners": 0,
+        "runtimeRootRemoved": true
+      },
+      "sourceInputsUnchangedDuringRun": true,
+      "nativeArtifactsUnchanged": true
+    },
+    {
+      "phase": "A2",
+      "firstConvergedMs": 42350,
+      "stableMs": 10257,
+      "totalRecoveryMs": 52607,
+      "passed": true,
+      "cleanup": {
+        "ownedPidsChecked": 27,
+        "portsChecked": 30,
+        "remainingOwnedProcesses": 0,
+        "remainingOwnedListeners": 0,
+        "runtimeRootRemoved": true
+      },
+      "sourceInputsUnchangedDuringRun": true,
+      "nativeArtifactsUnchanged": true
+    }
+  ],
+  "macroLatencyResolved": false,
+  "mobileQualified": false,
+  "phoneTouched": false,
+  "productionTouched": false,
+  "pushed": false,
+  "released": false
+}

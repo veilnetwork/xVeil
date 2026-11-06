@@ -321,24 +321,28 @@ class _MessagingOutbox {
   bool remember(String peerHex, String frameId) =>
       _seenFrames.add(_key(peerHex, frameId));
 
-  /// Rewind pending control frames when authenticated inbound proves the peer
-  /// is reachable, while leaving just-sent frames alone so their ACK can land.
+  /// Bring pending control frames forward when authenticated inbound proves
+  /// the peer reachable, preserving the growing grace for their ACKs.
+  /// An early signal must still schedule that earlier retry: otherwise a
+  /// short recovery burst ending before grace expires leaves the frame on
+  /// its full backoff until another inbound arrives. The periodic flush owns
+  /// future deadlines; return whether any frame becomes due right now.
   bool nudge(String peerHex) {
     final now = _owner._now();
     var nudged = false;
     for (final id in _liveBackoff.keys.toList()) {
       final backoff = _liveBackoff[id]!;
-      if (now.difference(backoff.lastSentAt) < _nudgeGraceFor(backoff.count)) {
-        continue;
-      }
-      if (backoff.peer == peerHex && backoff.nextAt.isAfter(now)) {
+      if (backoff.peer != peerHex) continue;
+      final afterGrace = backoff.lastSentAt.add(_nudgeGraceFor(backoff.count));
+      final nextAt = afterGrace.isAfter(now) ? afterGrace : now;
+      if (backoff.nextAt.isAfter(nextAt)) {
         _liveBackoff[id] = (
           count: backoff.count,
-          nextAt: now,
+          nextAt: nextAt,
           peer: backoff.peer,
           lastSentAt: backoff.lastSentAt,
         );
-        nudged = true;
+        if (!nextAt.isAfter(now)) nudged = true;
       }
     }
     return nudged;
