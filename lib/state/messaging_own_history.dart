@@ -18,6 +18,7 @@ class _MessagingOwnHistory {
     maxStrangerBytes: 0,
   );
   Future<void> _inbound = Future<void>.value();
+  final _pageApplies = <String, Future<void>>{};
 
   final _pulls = <String, _OwnHistoryPull>{};
   // A deadline stops waiting, not the underlying transport operation. Credit
@@ -1232,6 +1233,37 @@ class _MessagingOwnHistory {
     Map<String, dynamic> reply,
   ) async {
     final peer = pull.progress['peer'];
+    if (peer is! String || !_bound(pull.binding)) {
+      throw StateError('History session ended');
+    }
+    // A prepared row owns its mirror slot until publication. Two sibling
+    // pages for the same conversation must not acquire opposite slots while
+    // both wait for a complete cohort. Other conversations remain independent.
+    final previous = _pageApplies[peer] ?? Future<void>.value();
+    final turn = previous.then((_) async {
+      if (_pulls[pull.device.hex] != pull ||
+          !await _allowed(pull.device, pull.binding)) {
+        throw StateError('History session ended');
+      }
+      await _applyPageNow(pull, reply);
+    });
+    final settled = turn.then<void>(
+      (_) {},
+      onError: (Object _, StackTrace _) {},
+    );
+    _pageApplies[peer] = settled;
+    try {
+      await turn;
+    } finally {
+      if (identical(_pageApplies[peer], settled)) _pageApplies.remove(peer);
+    }
+  }
+
+  Future<void> _applyPageNow(
+    _OwnHistoryPull pull,
+    Map<String, dynamic> reply,
+  ) async {
+    final peer = pull.progress['peer'];
     final events = reply['events'], next = reply['next'];
     if (reply['peer'] != peer ||
         events is! List ||
@@ -1313,20 +1345,18 @@ class _MessagingOwnHistory {
 
       final cohort = _HistoryWriteCohort(store, check);
       try {
-        for (final event in validated) {
-          await cohort.apply(
+        await cohort.applyAll(
+          validated,
+          (event, writes) => _applyHistoryEvent(
+            pull,
+            peer,
             event,
-            (writes) => _applyHistoryEvent(
-              pull,
-              peer,
-              event,
-              heldEdits,
-              visible,
-              writes: writes,
-              prepared: prepared,
-            ),
-          );
-        }
+            heldEdits,
+            visible,
+            writes: writes,
+            prepared: prepared,
+          ),
+        );
         await cohort.flush();
       } catch (error, stack) {
         await cohort.abort(error, stack);
