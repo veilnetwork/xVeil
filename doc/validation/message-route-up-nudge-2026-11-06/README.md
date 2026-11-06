@@ -53,6 +53,12 @@ drain backlog после restart, retirement после удаления convers
 приложения. Например, часть fixtures ждёт ACK звонка без подключённого
 call consumer, тогда как production намеренно не подтверждает такой dispatch.
 
+Обновление следующего раунда: все четыре причины разобраны и fixtures
+исправлены; полный файл проходит 42/42 и на базе, и на candidate. Строгий
+ACK-mutation контроль вновь падает. Подробности в
+[проверке отложенного nudge](../deferred-control-nudge-2026-11-06/README.md).
+Ранние 38/4 выше сохранены как фактический результат первого запуска.
+
 ## Native regression: четыре устройства после partition
 
 Повторён [сценарий автоматического healing](../multi-device-partition-2026-11-06/README.md):
