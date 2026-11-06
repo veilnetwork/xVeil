@@ -9,6 +9,7 @@ import 'package:xveil/data/storage/message_batch_store.dart';
 import 'package:xveil/domain/chat.dart';
 
 import 'timed_native_store.dart';
+import 'storage_commit_labels.dart';
 
 enum MessageStorageOperation {
   markStatus,
@@ -50,6 +51,11 @@ class MessageApplyCensus {
       <String, ({int count, int wait, int maxWait, int before})>{};
   final _rpcContexts =
       <String, ({int count, int wait, int maxWait, int before})>{};
+  final _commitClasses =
+      <String, ({int count, int wait, int maxWait, int before})>{};
+  final _commitComponents =
+      <String, ({int count, int wait, int maxWait, int before})>{};
+  final _commitFailures = <String, int>{};
 
   void reset() {
     _epoch = nowUs;
@@ -67,6 +73,9 @@ class MessageApplyCensus {
     _messageFailures.clear();
     _contexts.clear();
     _rpcContexts.clear();
+    _commitClasses.clear();
+    _commitComponents.clear();
+    _commitFailures.clear();
   }
 
   Future<T> ownDevices<T>(Future<T> Function() body) =>
@@ -226,6 +235,28 @@ class MessageApplyCensus {
         : operation;
     final wait = start + duration - math.max<int>(start, _epoch);
     _record(_rpc, label, wait, start < _epoch);
+    if (operation == 'kv.commit') {
+      final rawClass = event['commit_class'];
+      final category =
+          rawClass is String && storageCommitLabels.contains(rawClass)
+          ? rawClass
+          : 'unclassified';
+      _record(_commitClasses, category, wait, start < _epoch);
+      if (event['ok'] == false) {
+        _commitFailures.update(category, (v) => v + 1, ifAbsent: () => 1);
+      }
+      final rawComponents = event['commit_components'];
+      if (rawComponents is List) {
+        for (final component
+            in rawComponents
+                .take(storageCommitLabels.length)
+                .whereType<String>()
+                .where(storageCommitLabels.contains)
+                .toSet()) {
+          _record(_commitComponents, component, wait, start < _epoch);
+        }
+      }
+    }
     final context = event['storage_context'];
     if (context is String && storageTimingContexts.contains(context)) {
       _record(_rpcContexts, '$context/$operation', wait, start < _epoch);
@@ -313,6 +344,11 @@ class MessageApplyCensus {
     'rpcStorageOperationsCompleted': _rpcSnapshot(_rpcStorageOperations),
     'contextsCompleted': _rpcSnapshot(_contexts),
     'rpcContextsCompleted': _rpcSnapshot(_rpcContexts),
+    'commitClassesCompleted': _rpcSnapshot(
+      _commitClasses,
+      failures: _commitFailures,
+    ),
+    'commitComponentsCompleted': _rpcSnapshot(_commitComponents),
     'messageOperationsCompleted': _rpcSnapshot(
       _messageOperations,
       changes: _messageChanges,

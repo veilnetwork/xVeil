@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'stand_cpu_profile.dart';
+import 'storage_commit_labels.dart';
 
 typedef StandVmRequest =
     Future<Map<String, dynamic>> Function(
@@ -178,6 +179,8 @@ class StandStorageTimeline {
                 if (args.containsKey('sequence')) 'sequence': args['sequence'],
                 if (args.containsKey('operation'))
                   'operation': args['operation'],
+                if (storageCommitLabels.contains(args['commit_class']))
+                  'commit_class': args['commit_class'],
                 if (args.containsKey('ok')) 'ok': args['ok'],
               }
             : {'isolateId': args['isolateId']},
