@@ -1,0 +1,104 @@
+{
+  "schema": "xveil-validation/explicit-retirement/1",
+  "sdkCommit": "54c64c03a2596c9bc0571dd17e904468c838c688",
+  "baselineSdk": "efe1c4ca3f124550158f01985cd0d91f29525ab5",
+  "productionChange": "Abort and join owned writer after explicit registry retirement; ordinary replacement retains drain",
+  "baseline": {
+    "exitCode": 101,
+    "externalMountVerified": true,
+    "externalMountLost": false,
+    "counts": [
+      {
+        "passed": 3,
+        "failed": 2,
+        "ignored": 0
+      }
+    ]
+  },
+  "focused": {
+    "exitCode": 0,
+    "externalMountVerified": true,
+    "externalMountLost": false,
+    "counts": [
+      {
+        "passed": 5,
+        "failed": 0,
+        "ignored": 0
+      }
+    ]
+  },
+  "sessionFull": {
+    "exitCode": 0,
+    "externalMountVerified": true,
+    "externalMountLost": false,
+    "counts": [
+      {
+        "passed": 692,
+        "failed": 0,
+        "ignored": 8
+      },
+      {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 1
+      }
+    ]
+  },
+  "runtimeAndFfi": {
+    "exitCode": 0,
+    "externalMountVerified": true,
+    "externalMountLost": false,
+    "counts": [
+      {
+        "passed": 810,
+        "failed": 0,
+        "ignored": 11
+      },
+      {
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 2,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 397,
+        "failed": 0,
+        "ignored": 11
+      },
+      {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 2
+      },
+      {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 5
+      }
+    ]
+  },
+  "ordinaryReplacementDrainCovered": true,
+  "ordinaryWriterDrainCovered": true,
+  "borrowedProducerHeldThroughoutRetirement": true,
+  "virtualClockNotAdvancedToPayDrainGrace": true,
+  "newPhysicalQualification": false,
+  "phoneDisconnectedAfterCompletedBaselineSeries": true,
+  "netcallClosed": false,
+  "cryptoWireOrDetectorThresholdsChanged": false,
+  "noNewDeployment": true,
+  "pushOrRelease": false
+}

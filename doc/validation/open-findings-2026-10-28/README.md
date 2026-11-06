@@ -1,5 +1,18 @@
 # Открытые случаи — обновлено 2026-11-06
 
+Последний раунд: SDK `54c64c03`, [явный retirement и writer grace](../explicit-retirement-2026-11-06/README.md).
+На прежней SDK `efe1c4ca` [прошли шесть Poco ↔ Mac звонков](../dead-writer-physical-2026-11-06/README.md),
+три со сменой Wi-Fi/cellular/Wi-Fi. Пять финальных срезов RX свежие у обоих
+концов, livenessTimeout нет, но возраст native RX достигал 12,512/13,140 с.
+В одном разговоре media epoch сменился: непрерывность двигателя не заявлена.
+Terminal keepalive → runner-ended теперь 1 мс, но явный network retirement
+в одном случае всё ещё занимал 5002 мс. Этот отдельный барьер воспроизведён
+на настоящем runner и исправлен с сохранением обычного drain: 2 assertion-red
+на базе, 5 focused passed, полный session 692 passed / 8 ignored / 1 doc ignored.
+**NETCALL-01 открыт.** Новая правка ждёт мобильной квалификации: Poco отключён
+пользователем после законченной серии. QA/production восстановлены,
+свои приложения и Core остановлены, push/релиза нет.
+
 Последнее исправление: [writer drain после terminal keepalive](../dead-writer-grace-2026-11-06/README.md),
 Veil `efe1c4ca`. После решения признать TX непригодным runner ещё мог ждать
 graceful writer до 5 с; в сохранённом телефонном capture промежуток 5002 мс.

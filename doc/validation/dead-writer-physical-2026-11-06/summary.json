@@ -1,0 +1,194 @@
+{
+  "schema": "xveil-validation/dead-writer-physical/1",
+  "sdkCommit": "efe1c4ca3f124550158f01985cd0d91f29525ab5",
+  "qaCoreSdk": "ade3130a",
+  "frozenFrontend": true,
+  "p2pAllowed": false,
+  "actualMediaPath": "non-onion Delivery relay",
+  "abComparison": false,
+  "calls": [
+    {
+      "case": "mobile-new-call",
+      "roles": {
+        "phone": {
+          "samples": 27,
+          "fresh": 21,
+          "maxNativeAgeMs": 301,
+          "mediaEpochs": [
+            1
+          ],
+          "mediaRepairingSamples": 0
+        },
+        "mac": {
+          "samples": 27,
+          "fresh": 23,
+          "maxNativeAgeMs": 410,
+          "mediaEpochs": [
+            1
+          ],
+          "mediaRepairingSamples": 0
+        }
+      },
+      "requestToIncomingMs": 604,
+      "requestToFiveFreshSamplesMs": 6363
+    },
+    {
+      "case": "in-call-1",
+      "roles": {
+        "phone": {
+          "samples": 134,
+          "fresh": 105,
+          "maxNativeAgeMs": 7486,
+          "mediaEpochs": [
+            3
+          ],
+          "mediaRepairingSamples": 0
+        },
+        "mac": {
+          "samples": 134,
+          "fresh": 89,
+          "maxNativeAgeMs": 6119,
+          "mediaEpochs": [
+            3
+          ],
+          "mediaRepairingSamples": 0
+        }
+      },
+      "requestToIncomingMs": 562,
+      "requestToFiveFreshSamplesMs": 14184
+    },
+    {
+      "case": "in-call-2",
+      "roles": {
+        "phone": {
+          "samples": 117,
+          "fresh": 74,
+          "maxNativeAgeMs": 12512,
+          "mediaEpochs": [
+            5,
+            7
+          ],
+          "mediaRepairingSamples": 1
+        },
+        "mac": {
+          "samples": 117,
+          "fresh": 56,
+          "maxNativeAgeMs": 13140,
+          "mediaEpochs": [
+            5,
+            7
+          ],
+          "mediaRepairingSamples": 2
+        }
+      },
+      "requestToIncomingMs": 1075,
+      "requestToFiveFreshSamplesMs": 6498
+    },
+    {
+      "case": "post-switch-new-call",
+      "roles": {
+        "phone": {
+          "samples": 38,
+          "fresh": 33,
+          "maxNativeAgeMs": 1135,
+          "mediaEpochs": [
+            9
+          ],
+          "mediaRepairingSamples": 0
+        },
+        "mac": {
+          "samples": 38,
+          "fresh": 29,
+          "maxNativeAgeMs": 1177,
+          "mediaEpochs": [
+            9
+          ],
+          "mediaRepairingSamples": 0
+        }
+      },
+      "requestToIncomingMs": 6671,
+      "requestToFiveFreshSamplesMs": 15159
+    },
+    {
+      "case": "confirmed-cellular-new-call",
+      "roles": {
+        "phone": {
+          "samples": 32,
+          "fresh": 28,
+          "maxNativeAgeMs": 354,
+          "mediaEpochs": [
+            11
+          ],
+          "mediaRepairingSamples": 0
+        },
+        "mac": {
+          "samples": 32,
+          "fresh": 28,
+          "maxNativeAgeMs": 514,
+          "mediaEpochs": [
+            11
+          ],
+          "mediaRepairingSamples": 0
+        }
+      },
+      "requestToIncomingMs": 607,
+      "requestToFiveFreshSamplesMs": 4945
+    },
+    {
+      "case": "phone-origin-handover",
+      "roles": {
+        "phone": {
+          "samples": 118,
+          "fresh": 104,
+          "maxNativeAgeMs": 6076,
+          "mediaEpochs": [
+            13
+          ],
+          "mediaRepairingSamples": 0
+        },
+        "mac": {
+          "samples": 118,
+          "fresh": 112,
+          "maxNativeAgeMs": 1806,
+          "mediaEpochs": [
+            13
+          ],
+          "mediaRepairingSamples": 0
+        }
+      },
+      "requestToIncomingMs": 1081,
+      "requestToFiveFreshSamplesMs": 4775
+    }
+  ],
+  "callsSurvived": 6,
+  "handoverCallsSurvived": 3,
+  "allFinalFiveSamplesFreshPerRole": true,
+  "terminalKeepaliveToRunnerEndMs": 1,
+  "explicitNetworkRetirementToRunnerEndMs": 5002,
+  "humanAudibilityChecked": false,
+  "netcallClosed": false,
+  "nativeProvenance": {
+    "macSha256": "0db3ebd04ea89b5f78f7730788cb61ce7816305d1426fd9e7c3120ad6e29bf51",
+    "macExactExternalFfiMapped": true,
+    "androidRawSha256": "ca05a9a4d4632b860ae319cb2b889069756ffabe2177ce20cb87fa38a6de38c5",
+    "androidPackagedSha256": "4b86ee0e3fca6640f39e940c1196e70685199d1ef6da30f21337722e47326a74",
+    "apkSha256": "518bccf06619c99225e8d96161eea8d92ea6e264347caa8696569dc3727bb67a",
+    "verifiedApkInstalledSuccessfully": true,
+    "androidSignerMatchesBase": true,
+    "otherAotAndNativePayloadUnchanged": true,
+    "unchangedCExports": 208
+  },
+  "cleanup": {
+    "appsExited": true,
+    "originalQaApkRestored": true,
+    "mainApkUnchanged": true,
+    "unknownOldQaContainerUnchanged": true,
+    "networkAwakeAndPoliciesRestored": true,
+    "ownedPortsAndForwardReleased": true,
+    "ownRuntimeAndBundleLogRemoved": true,
+    "macBundleStrictSignatureVerified": true,
+    "qaCoreAndCaptureRemoved": true,
+    "productionUnchanged": true
+  },
+  "pushOrRelease": false
+}
