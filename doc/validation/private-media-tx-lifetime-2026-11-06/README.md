@@ -4,6 +4,10 @@
 В Veil `81436bd1` исправлена отдельная ошибка пригодности private media route.
 Влияние на физическую паузу NETCALL-01 после этой правки **ещё не проверено**.
 
+Последующая [проверка Poco ↔ Mac](../poco-mac-delivery-reconnect-2026-11-06/README.md)
+выявила активный non-onion Delivery path: она воспроизвела NETCALL-01,
+но не квалифицирует этот private onion `PinnedRoute`.
+
 ## Подтверждение
 
 `PinnedRoute::is_live` проверял наличие любой живой сессии first hop и общий

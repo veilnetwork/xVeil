@@ -1,0 +1,99 @@
+{
+  "sdk": "81436bd1",
+  "actualCallTransport": "non-onion Delivery relay",
+  "p2pDenied": true,
+  "humanAudibilityVerified": false,
+  "controlBidirectionalBaselinePassed": true,
+  "firstCall": {
+    "direction": "phone to Mac",
+    "wifiToCellularValidatedSeconds": 1.523,
+    "wifiReturnValidatedSeconds": 3.219,
+    "inCallSwitchesCompleted": true,
+    "bothExpectedCallThroughout": true,
+    "roles": {
+      "phone": {
+        "mediaEpochs": [
+          3
+        ],
+        "maximumObservedNativeRxAgeMs": 1301
+      },
+      "mac": {
+        "mediaEpochs": [
+          3
+        ],
+        "maximumObservedNativeRxAgeMs": 1417
+      }
+    },
+    "endedByHarness": true
+  },
+  "newCallImmediatelyAfterWifiOff": {
+    "direction": "phone to Mac",
+    "incomingSecondsAfterWifiOff": 1.173,
+    "fiveFreshBidirectionalSamplesAchievedWithin50Seconds": false,
+    "roles": {
+      "phone": {
+        "freshSamples": 74,
+        "totalSamples": 92,
+        "maxObservedRxPacketsPerEpoch": {
+          "5": 245,
+          "7": 104,
+          "9": 181
+        }
+      },
+      "mac": {
+        "freshSamples": 4,
+        "totalSamples": 92,
+        "maxObservedRxPacketsPerEpoch": {
+          "5": 5,
+          "7": 0,
+          "9": 0
+        }
+      }
+    },
+    "endedByHarnessAfterFailedBaseline": true
+  },
+  "reverseCall": {
+    "direction": "Mac to phone",
+    "bidirectionalBaselineBeforeSwitchPassed": true,
+    "cellularValidatedSeconds": 1.254,
+    "callLostSecondsAfterWifiOff": 22.975,
+    "terminalCauseBothEnds": "livenessTimeout",
+    "endedBeforeHarnessHangup": true,
+    "postSwitchNewCallScenarioExecuted": false
+  },
+  "endpointTrace": {
+    "relaySendStageObserved": true,
+    "relayAdmissionSampleRows": 23,
+    "allAdmissionSamplesRefusedZero": true,
+    "allAdmissionSamplesNeutralDatagramTransport": true,
+    "admissionProvesNetworkDelivery": false
+  },
+  "onionPinnedRoutePhysicallyQualified": false,
+  "netcallClosed": false,
+  "abComparison": false,
+  "cleanup": {
+    "qaApkSha256RestoredOrUnchanged": true,
+    "normalApkSha256RestoredOrUnchanged": true,
+    "oldQaContainerShaUnchanged": true,
+    "phoneQaProcessExited": true,
+    "phoneSettingsRestored": true,
+    "validatedWifiRestored": true,
+    "macProcessExited": true,
+    "ownAdbForwardRemoved": true,
+    "ownedPortsReleased": true,
+    "portProbeUsesReuseAddrBecauseAcceptedConnectionsMayLeaveTimeWait": true,
+    "ownMacRuntimeRemoved": true,
+    "isolatedQaRelayRemoved": true,
+    "productionPidBinaryConfigRestartsUnchanged": true
+  },
+  "qaRelayWasActiveInCapturesAfterFailures": true,
+  "qaRelayStoppedLaterByThirtyMinuteBound": true,
+  "newProductionCodeChangesInPhysicalCycle": false,
+  "push": false,
+  "release": false,
+  "nativeCellularNotificationObserved": true,
+  "cellularForceUnregisterPositiveCountObserved": false,
+  "absenceOfForceUnregisterLogProvesEmptyRegistry": false,
+  "approximateCoreParentSessionOpenAfterReverseCutSeconds": 23.449,
+  "crossHostTimingUncertaintyHalfSshRoundTripSeconds": 0.908
+}
