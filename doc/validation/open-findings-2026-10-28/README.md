@@ -1,5 +1,14 @@
 # Открытые случаи — обновлено 2026-11-06
 
+Последняя квалификация: [полный NetworkChanged → reconnect → AEAD frame](../retirement-integration-2026-11-06/README.md),
+SDK `bbeaf3a9` (новых production-изменений нет). Настоящий TCP/OVL1,
+блокировка writer после handshake, настоящий MobileEventForwarder;
+новый dial начинается без продвижения часов и после освобождения старого
+транспорта. Новая регистрация/ключ/session ID и расшифровка wire-кадра проверены.
+Удаление отмены writer даёт assertion-red; final runtime 811 unit + 8 integration
+passed, пропуски отдельно. **NETCALL-01 открыт:** это локальный controlled
+сценарий, не новая проверка Wi-Fi/cellular; Poco отключён пользователем.
+
 Последний раунд: SDK `54c64c03`, [явный retirement и writer grace](../explicit-retirement-2026-11-06/README.md).
 На прежней SDK `efe1c4ca` [прошли шесть Poco ↔ Mac звонков](../dead-writer-physical-2026-11-06/README.md),
 три со сменой Wi-Fi/cellular/Wi-Fi. Пять финальных срезов RX свежие у обоих
