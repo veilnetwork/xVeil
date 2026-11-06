@@ -1,0 +1,30 @@
+{
+  "sdkCommit": "81436bd1603e84baaa7c866defdd91937dd21ad4",
+  "defect": "private media route lifetime used a peer-wide runner exit counter instead of its own live TX registration",
+  "baselineAssertionFailed": 1,
+  "fixtureAndCompilationFailuresCountedAsRed": false,
+  "focusedPassed": 1,
+  "fullFfi": {
+    "passed": 375,
+    "ignored": 10,
+    "failed": 0,
+    "childTestRunAddedToPassedTotal": false
+  },
+  "formatChangedFilesPassed": true,
+  "nativeReleaseBuilds": {
+    "macArm64": "passed",
+    "androidArm64Api24": "passed",
+    "cleanSdkSourceProvenanceRecorded": true,
+    "binaryHashesChangedFromBaseline": true,
+    "exportedCApiNamesUnchanged": true,
+    "externalMountLost": false
+  },
+  "physicalRetestAfterFix": false,
+  "phoneAdbAvailableAtCheck": false,
+  "allOfNetcallPauseAttributedToThisDefect": false,
+  "netcallClosed": false,
+  "appsInstalledThisCycle": false,
+  "productionRelayChanges": false,
+  "push": false,
+  "release": false
+}
