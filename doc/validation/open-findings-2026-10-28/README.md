@@ -1,5 +1,16 @@
 # Открытые случаи — обновлено 2026-11-07
 
+Последнее исправление NETCALL-направления:
+[общее ожидание ACK дочернего канала](../ordered-binding-progress-2026-11-07/README.md),
+SDK `4f441329`. Один заблокированный ACK прежде останавливал весь ordered
+pool worker. Два финальных baseline assertions: 0 готовых вместо 1 и 1
+начатый ACK вместо 8. Подтверждения теперь независимы при прежних proof,
+lease, timeout и directional budget; retirement отменяет и join-ит flights.
+Полный session: 694 passed / 8 ignored, один doc ignored отдельно; source и
+test binary проверены, процессы завершены. **NETCALL-01 открыт:** эффекта
+на физический Wi-Fi/cellular звонок не измерено, новая FFI/APK не установлена.
+Poco сейчас не виден ADB; Windows/телефон/production не менялись, push/релиза нет.
+
 Последняя квалификация: [два одновременных native-источника истории](../history-multisource-2026-11-07/README.md).
 A/E передали B полные authenticated ответы до снятия первого apply-барьера;
 в этот момент архив B пуст. Затем оба cursor завершились, все 512 архивных
