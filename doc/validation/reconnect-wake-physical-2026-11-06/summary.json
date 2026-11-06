@@ -1,0 +1,72 @@
+{
+  "schema": "xveil-validation/reconnect-wake-physical/1",
+  "sdkCommit": "aa51cc131c6939d09541889c573aac90ef02c78b",
+  "qaCoreSdk": "ade3130a",
+  "p2pAllowed": false,
+  "actualMediaPath": "non-onion Delivery relay",
+  "newSdkPhysicallyLoaded": true,
+  "calls": [
+    {
+      "case": "mobile-new-call",
+      "incomingFromRequestSeconds": 0.61,
+      "fiveFreshRxSamplesFromRequestSeconds": 7.299
+    },
+    {
+      "case": "in-call",
+      "incomingFromRequestSeconds": 0.125,
+      "fiveFreshRxSamplesFromRequestSeconds": 3.679
+    },
+    {
+      "case": "post-switch-new-call",
+      "incomingFromRequestSeconds": 0.088,
+      "fiveFreshRxSamplesFromRequestSeconds": 18.397
+    }
+  ],
+  "plannedInCallCuts": 2,
+  "executedInCallCuts": 1,
+  "callStateLostAfterWifiOffReturnSeconds": 23.379,
+  "macTerminalReason": "livenessTimeout",
+  "callStateLostBeforeHarnessCleanup": true,
+  "secondCutNotExecuted": true,
+  "postSwitchProbeCompleted": true,
+  "incomingMayPrecedeCellularAttachmentObservation": true,
+  "longIncompleteHandshakes": [
+    {
+      "phase": "Read",
+      "elapsedMs": 10001,
+      "writtenBytes": 129,
+      "readBytes": 0,
+      "queued_bytes": 129,
+      "notsent_bytes": 0,
+      "unacked_packets": 1,
+      "retransmitted_packets": 4
+    },
+    {
+      "phase": "Read",
+      "elapsedMs": 10001,
+      "writtenBytes": 161,
+      "readBytes": 0,
+      "queued_bytes": 161,
+      "notsent_bytes": 0,
+      "unacked_packets": 1,
+      "retransmitted_packets": 4
+    }
+  ],
+  "humanAudibilityChecked": false,
+  "abComparison": false,
+  "netcallClosed": false,
+  "cleanup": {
+    "appsExited": true,
+    "ownPortsReleased": true,
+    "mainApkUnchanged": true,
+    "qaApkRestored": true,
+    "oldQaContainerUnchanged": true,
+    "originalMobileNetworkRestored": true,
+    "qaDefaultPoliciesExplicitlyMaterialized": true,
+    "qaCoreRemoved": true,
+    "productionUnchanged": true,
+    "macBundleSignatureVerifiedAfterRemovingOwnAddedLog": true,
+    "ownPackagingBytesRemoved": 153267538
+  },
+  "pushOrRelease": false
+}
