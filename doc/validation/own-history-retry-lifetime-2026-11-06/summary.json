@@ -1,0 +1,60 @@
+{
+  "schema": "xveil-validation/1",
+  "date": "2026-11-06",
+  "baseRoot": "4e4038c4",
+  "sdk": "b9b88bb7d6fd3dd956196f58777fe65fb86bcd01",
+  "hiddenVolume": "eceb9158015bd391494d91acc6fca00d44b7938a",
+  "tests": {
+    "baselineAssertionFailures": 8,
+    "baselinePassed": 2,
+    "candidateFocused": 10,
+    "candidateRelatedPassed": 139,
+    "analyzerIssues": 0
+  },
+  "nativeMigration": {
+    "migrationOnly": true,
+    "baseRows": 2000,
+    "initialHistoryMs": 38065,
+    "initialCountCompleteMs": 32737,
+    "initialOrderMismatchObservations": 1,
+    "initialPositionMismatchObservations": 1,
+    "initialPositionsCompared": true,
+    "initialBStatuses": {
+      "sending": 0,
+      "sent": 0,
+      "delivered": 2000,
+      "failed": 0
+    },
+    "completedHistoryRetries": 0,
+    "convergedIdsAndOrder": true,
+    "invalidSnapshotObserved": false,
+    "offlineScenarioExecuted": false,
+    "receiverCrashRequested": false,
+    "receiverCrashPerformed": false
+  },
+  "nativeQualification": {
+    "exit_code": 0,
+    "seconds": 238.156,
+    "sourceUnchangedDuringRun": true,
+    "qualificationPassed": true,
+    "profileHasSamples": true
+  },
+  "cleanup": {
+    "ownedPidsChecked": 22,
+    "portsChecked": 34,
+    "livePids": [],
+    "remainingListeners": [],
+    "runtimeRootRemoved": true,
+    "frozenFilesVerified": 1497,
+    "nativeArtifactsUnchanged": true,
+    "hiddenVolumeUnchanged": true,
+    "sdkClean": true,
+    "portsReusedByOtherPids": 0
+  },
+  "selectedLibraryWorkersVerified": 3,
+  "causalOverallLatencyImprovementClaimed": false,
+  "phoneUsed": false,
+  "productionChanged": false,
+  "pushed": false,
+  "released": false
+}

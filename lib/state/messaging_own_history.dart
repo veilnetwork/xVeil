@@ -20,8 +20,11 @@ class _MessagingOwnHistory {
   Future<void> _inbound = Future<void>.value();
 
   final _pulls = <String, _OwnHistoryPull>{};
+  // A deadline stops waiting, not the underlying transport operation. Credit
+  // belongs to the actual request send, even after its pull/binding retires.
+  final _requestSends = <String, _OwnHistoryRequestSend>{};
   final _starting = <String, Object>{};
-  final _serving = <String>{};
+  final _serving = <String, _OwnHistoryServe>{};
   final _answers =
       <
         String,
@@ -47,6 +50,7 @@ class _MessagingOwnHistory {
   static const _slice = 2048;
   static const _maxParts = 64;
   static const _maxDevices = 32;
+  static const _maxAttempts = 6;
   // Stored message events are bounded at 512 KiB. Mirror metadata fits the
   // existing 1-MiB application-frame bound, separately from the unchanged
   // 128-KiB page. All partial records together share 4 MiB.
@@ -102,11 +106,12 @@ class _MessagingOwnHistory {
   void retireStaleBindings() {
     for (final pull in _pulls.values.toList()) {
       if (!identical(pull.binding, _owner.groupBindingsOwner)) {
-        _finish(pull, Duration.zero);
+        _finish(pull, Duration.zero, retirePreparation: true);
       }
     }
-    _starting.removeWhere((_, binding) =>
-      !identical(binding, _owner.groupBindingsOwner));
+    _starting.removeWhere(
+      (_, binding) => !identical(binding, _owner.groupBindingsOwner),
+    );
   }
 
   void _tick() => _run(() async {
@@ -120,19 +125,26 @@ class _MessagingOwnHistory {
     for (final pull in _pulls.values.toList()) {
       if (!live.contains(pull.device.hex) ||
           !identical(pull.binding, _owner.groupBindingsOwner)) {
-        _finish(pull, Duration.zero);
+        _finish(pull, Duration.zero, retirePreparation: true);
       }
     }
     _nextScan.removeWhere((key, _) => !live.contains(key));
     _lastWake.removeWhere((key, _) => !live.contains(key));
     _answers.removeWhere((key, _) => !live.contains(key));
     for (final device in devices) {
-      _begin(device);
+      final pending = _pulls[device.hex];
+      if (pending != null && pending.retryPending) {
+        _transmit(pending);
+      } else {
+        _begin(device);
+      }
     }
   });
 
   /// A presence frame has already proved this device is back. A fresh process
   /// starts with no cooldown; repeated announcements do not restart a pull.
+  /// An unfinished query keeps its ID/cursor but need not wait out backoff
+  /// after this authorized recovery signal.
   void wake(NodeId device) {
     if (!_ready) return;
     final now = _owner._now();
@@ -142,7 +154,28 @@ class _MessagingOwnHistory {
     }
     _lastWake[device.hex] = now;
     _nextScan.remove(device.hex);
-    _begin(device);
+    final pending = _pulls[device.hex];
+    if (pending == null) {
+      _begin(device);
+    } else if (!pending.processing && pending.attempts < _maxAttempts) {
+      final sentAt = pending.lastAttemptAt;
+      if (sentAt != null) {
+        // Recovery can shorten backoff, but must not duplicate startup traffic
+        // or postpone an earlier timer when the wall clock rolls back.
+        if (now.isBefore(sentAt)) return;
+        final earliest = sentAt.add(const Duration(seconds: 2));
+        if (now.isBefore(earliest)) {
+          if (!(pending.timer?.isActive ?? false) ||
+              pending.retryAt == null ||
+              pending.retryAt!.isAfter(earliest)) {
+            _scheduleRetry(pending, earliest.difference(now));
+          }
+          return;
+        }
+      }
+      pending.timer?.cancel();
+      _transmit(pending);
+    }
   }
 
   Future<bool> _allowed(NodeId device, Object? binding) async =>
@@ -213,7 +246,10 @@ class _MessagingOwnHistory {
     pull.parts.clear();
     pull.partCount = null;
     pull.processing = false;
+    pull.retryPending = false;
     pull.attempts = 0;
+    pull.lastAttemptAt = null;
+    pull.retryAt = null;
     final record = pull.record;
     final inventory =
         record == null &&
@@ -248,17 +284,40 @@ class _MessagingOwnHistory {
         prefixes.removeLast();
       }
     }
+    _retireRequestPreparation(pull);
     _transmit(pull);
   }
 
+  void _scheduleRetry(_OwnHistoryPull pull, Duration delay) {
+    pull.timer?.cancel();
+    pull.retryAt = _owner._now().add(delay);
+    pull.timer = Timer(delay, () => _transmit(pull));
+  }
+
   void _transmit(_OwnHistoryPull pull) {
-    if (!_ready || _pulls[pull.device.hex] != pull) return;
-    if (++pull.attempts > 6) {
+    if (_closed ||
+        _owner._disposed ||
+        _pulls[pull.device.hex] != pull ||
+        !identical(pull.binding, _owner.groupBindingsOwner) ||
+        pull.processing) {
+      return;
+    }
+    if (!_ready ||
+        _requestSends.containsKey(pull.device.hex) ||
+        _requestSends.length >= _maxDevices) {
+      pull.retryPending = true;
+      return;
+    }
+    if (++pull.attempts > _maxAttempts) {
       _finish(pull, const Duration(minutes: 5));
       return;
     }
+    pull.retryPending = false;
+    final lease = _OwnHistoryRequestSend(pull);
+    _requestSends[pull.device.hex] = lease;
+    pull.lastAttemptAt = _owner._now();
     final seconds = (1 << pull.attempts).clamp(2, 30);
-    pull.timer = Timer(Duration(seconds: seconds), () => _transmit(pull));
+    _scheduleRetry(pull, Duration(seconds: seconds));
     final requestId = pull.id;
     final query = Map<String, dynamic>.of(pull.query);
     bool current() =>
@@ -267,34 +326,103 @@ class _MessagingOwnHistory {
         _pulls[pull.device.hex] == pull &&
         pull.id == requestId;
     _run(() async {
-      if (!await _allowed(pull.device, pull.binding)) {
-        _finish(pull, const Duration(minutes: 5));
-        return;
+      var transportOwnsLease = false;
+      try {
+        if (!await _allowed(pull.device, pull.binding)) {
+          _finish(pull, const Duration(minutes: 5));
+          return;
+        }
+        if (!current()) return;
+        final self = await _owner._selfHex();
+        // Lookups may finish after detach or page advance. A late release
+        // resumes the current pull, never this captured request/query.
+        if (!current()) return;
+        final send = _sendWire(pull.device, {
+          'v': 1,
+          'd': self,
+          'id': requestId,
+          'q': query,
+        });
+        lease.started = true;
+        transportOwnsLease = true;
+        unawaited(
+          send.then<void>(
+            (_) => _releaseRequestSend(pull.device.hex, lease),
+            onError: (Object _, StackTrace _) =>
+                _releaseRequestSend(pull.device.hex, lease),
+          ),
+        );
+        await send.timeout(_owner.liveLegDeadline);
+      } finally {
+        if (!transportOwnsLease) _releaseRequestSend(pull.device.hex, lease);
       }
-      if (!current()) return;
-      final self = await _owner._selfHex();
-      // Roster/device lookups may complete after detach, a replacement pull,
-      // or its next page. Never enqueue retired work or borrow a newer query.
-      if (!current()) return;
-      await _send(pull.device, {
-        'v': 1,
-        'd': self,
-        'id': requestId,
-        'q': query,
-      });
     });
   }
 
-  Future<void> _send(NodeId device, Map<String, dynamic> body) => _owner
-      ._send(
+  void _retireRequestPreparation(_OwnHistoryPull pull) {
+    final lease = _requestSends[pull.device.hex];
+    if (lease != null && identical(lease.pull, pull) && !lease.started) {
+      // An obsolete lookup has handed nothing to transport. A replacement
+      // binding/page may proceed; the old task still checks its captured ID.
+      _requestSends.remove(pull.device.hex);
+    }
+  }
+
+  void _releaseRequestSend(String peer, _OwnHistoryRequestSend lease) {
+    if (!identical(_requestSends[peer], lease)) return;
+    _requestSends.remove(peer);
+    if (!_ready) return;
+    for (final pending in _pulls.values.toList()) {
+      if (pending.retryPending) _transmit(pending);
+    }
+  }
+
+  Future<void> _sendWire(NodeId device, Map<String, dynamic> body) =>
+      _owner._send(
         device,
         WireEnvelope.deviceHistory(jsonEncode(body)).encode(),
         background: true,
-      )
-      .timeout(_owner.liveLegDeadline);
+      );
 
-  void _finish(_OwnHistoryPull pull, Duration cooldown) {
+  void _releaseServing(String peer, _OwnHistoryServe serving) {
+    if (!serving.active &&
+        serving.send == null &&
+        identical(_serving[peer], serving)) {
+      _serving.remove(peer);
+    }
+  }
+
+  Future<void> _sendReply(
+    NodeId device,
+    Map<String, dynamic> body,
+    _OwnHistoryServe serving,
+  ) {
+    final send = _sendWire(device, body);
+    final lease = Object();
+    serving.send = lease;
+    void release() {
+      if (identical(serving.send, lease)) serving.send = null;
+      _releaseServing(device.hex, serving);
+    }
+
+    // Keep serving credit after timeout until the actual part write ends.
+    // Request traffic has separate credit so replies cannot stop full duplex.
+    unawaited(
+      send.then<void>(
+        (_) => release(),
+        onError: (Object _, StackTrace _) => release(),
+      ),
+    );
+    return send.timeout(_owner.liveLegDeadline);
+  }
+
+  void _finish(
+    _OwnHistoryPull pull,
+    Duration cooldown, {
+    bool retirePreparation = false,
+  }) {
     pull.timer?.cancel();
+    pull.retryPending = false;
     pull.parts.clear();
     _releaseRecord(pull.record);
     pull.record = null;
@@ -302,6 +430,7 @@ class _MessagingOwnHistory {
       _pulls.remove(pull.device.hex);
       _nextScan[pull.device.hex] = _owner._now().add(cooldown);
     }
+    if (retirePreparation) _retireRequestPreparation(pull);
   }
 
   void _releaseRecord(_OwnHistoryRecord? record) {
@@ -396,12 +525,23 @@ class _MessagingOwnHistory {
       return;
     }
     if (decoded['q'] case final Map<String, dynamic> query) {
-      if (_serving.length >= _maxDevices || !_serving.add(device.hex)) return;
+      if (_serving.length >= _maxDevices || _serving.containsKey(device.hex)) {
+        return;
+      }
+      final serving = _OwnHistoryServe();
+      _serving[device.hex] = serving;
       _run(() async {
         try {
-          await _serve(device, binding, decoded['id'] as String, query);
+          await _serve(
+            device,
+            binding,
+            decoded['id'] as String,
+            query,
+            serving,
+          );
         } finally {
-          _serving.remove(device.hex);
+          serving.active = false;
+          _releaseServing(device.hex, serving);
         }
       });
     } else {
@@ -590,6 +730,7 @@ class _MessagingOwnHistory {
     Object? binding,
     String id,
     Map<String, dynamic> query,
+    _OwnHistoryServe serving,
   ) async {
     final encoded = jsonEncode(query);
     if (encoded.length > 1500) return;
@@ -797,14 +938,14 @@ class _MessagingOwnHistory {
     for (var part = 0; part < parts; part++) {
       if (!await _allowed(device, binding)) return;
       final end = ((part + 1) * _slice).clamp(0, bytes.length);
-      await _send(device, {
+      await _sendReply(device, {
         'v': 1,
         'd': await _owner._selfHex(),
         'id': id,
         'i': part,
         'n': parts,
         'b': base64Encode(Uint8List.sublistView(bytes, part * _slice, end)),
-      });
+      }, serving);
     }
   }
 
@@ -1265,9 +1406,22 @@ class _MessagingOwnHistory {
       pull.record = null;
     }
     _pulls.clear();
+    _requestSends.clear();
+    _serving.clear();
     _answers.clear();
     return _tasks.close();
   }
+}
+
+class _OwnHistoryRequestSend {
+  _OwnHistoryRequestSend(this.pull);
+  final _OwnHistoryPull pull;
+  bool started = false;
+}
+
+class _OwnHistoryServe {
+  bool active = true;
+  Object? send;
 }
 
 class _OwnHistoryPull {
@@ -1281,9 +1435,12 @@ class _OwnHistoryPull {
   bool recheckInventory;
   String id = '';
   int attempts = 0;
+  DateTime? lastAttemptAt;
+  DateTime? retryAt;
   _OwnHistoryRecord? record;
   Timer? timer;
   bool processing = false;
+  bool retryPending = false;
   int? partCount;
   final parts = <int, Uint8List>{};
 }
