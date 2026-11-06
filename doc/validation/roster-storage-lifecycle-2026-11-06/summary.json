@@ -1,0 +1,73 @@
+{
+  "schema": "xveil-validation/1",
+  "date": "2026-11-06",
+  "baseRoot": "bff45255",
+  "hiddenVolume": "eceb9158015bd391494d91acc6fca00d44b7938a",
+  "tests": {
+    "baseline": {
+      "fake": {
+        "assertionFailures": 17,
+        "passed": 11,
+        "skipped": 1
+      },
+      "native": {
+        "assertionFailures": 17,
+        "passed": 12,
+        "skipped": 0
+      },
+      "candidateRestored": true
+    },
+    "candidateInMemoryPassed": 28,
+    "candidateInMemorySkipped": 1,
+    "relatedPassed": 149,
+    "relatedSkipped": 1,
+    "native": {
+      "passed": 29,
+      "skipped": 0,
+      "hiddenVolumeSource": "eceb9158015bd391494d91acc6fca00d44b7938a",
+      "artifactShaVerifiedBeforeAndAfter": true,
+      "sourceUnchangedDuringRun": true,
+      "testUnchangedDuringRun": true,
+      "fixtureDirectoriesRemaining": 0
+    },
+    "analyzerIssues": 0,
+    "countsOverlap": true
+  },
+  "controlledBurst": {
+    "callers": 16,
+    "sizes": [
+      1,
+      24
+    ],
+    "candidateTransactionsPerFreshSaveBurst": 1
+  },
+  "coverage": {
+    "crossSpaceWriteAndRead": true,
+    "closeAndEraseFences": true,
+    "atomicShrinkFailure": true,
+    "incompleteFileFailClosed": true,
+    "optionalShadowCleanupRemainsBestEffort": true,
+    "sameBytesRetryCleansShadow": true,
+    "primarySettingIoFailurePropagates": true,
+    "validFileDoesNotDependOnShadowReads": true,
+    "pendingReadDoesNotBlockWriterOrFreshSession": true,
+    "inputBytesFrozen": true,
+    "legacyEmptyFileMarker": true,
+    "multiCommitSyntheticRows": 2400,
+    "partialDataDurabilityConfirmedBeforeInjectedFailure": true,
+    "realChildUnlockAfterPromotionShrinkReopen": true,
+    "realChildrenInCryptoScenario": 1
+  },
+  "intermediateCandidateRegressionAssertions": 6,
+  "nativeFixtureDirectoriesRemaining": 0,
+  "sourceAndTestsStableDuringNativeRun": true,
+  "messagingStandRun": false,
+  "overallDeliveryLatencyClaimedFixed": false,
+  "fullMultiDeviceMatrixQualified": false,
+  "sdkChanged": false,
+  "hiddenVolumeChanged": false,
+  "phoneUsed": false,
+  "productionChanged": false,
+  "pushed": false,
+  "released": false
+}

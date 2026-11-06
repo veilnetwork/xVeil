@@ -562,111 +562,185 @@ class HiddenVolumeStorage
     return raw == null ? null : utf8.decode(raw);
   }
 
-  // The master roster is a single SETTINGS-namespace KV blob, so it inherits
-  // the space's deniability. Each child's SpaceKeys are base64'd inside it —
-  // sensitive material that lives only in this (master) space.
-  @override
-  Future<void> saveRoster(List<RosterEntry> entries) async {
-    final json = jsonEncode([
-      for (final e in entries)
-        {
-          'l': e.label,
-          'k': base64.encode(e.spaceKeys),
-          if (e.anonymous) 'a': 1,
-        },
-    ]);
-    final bytes = _sk(json);
-    // WHEREVER IT LIVES. A roster that outgrew a settings record moved to the
-    // file store, and a guard that reads only the setting would read "no
-    // roster" for it — then overwrite it, which is the exact loss this guard
-    // exists to prevent.
-    Uint8List? existing;
+  // File writers already serialize publication and close/erase. Readers
+  // recheck this revision instead of holding writers or another session's
+  // readers behind a suspended storage reply.
+  int _rosterRevision = 0;
+  Future<void>? _rosterPublication;
+
+  Future<T> _publishingRoster<T>(Future<T> Function() body) async {
+    final done = Completer<void>();
+    final publication = done.future;
+    _rosterPublication = publication;
+    _rosterRevision++;
     try {
-      final stored = await loadFile(_rosterFile);
-      if (stored != null && stored.isNotEmpty) existing = stored;
-    } catch (_) {
-      // Unreadable is not absent: fall through to the setting, and if that is
-      // unreadable too the guard below refuses.
-    }
-    existing ??= await _as.get(Ns.settings, _sk('master:roster'));
-    if (existing != null && existing.isEmpty) existing = null;
-    // FAIL CLOSED on an unreadable roster. `loadRoster` answers null both for
-    // "this space has no roster" and for "this space has one I could not
-    // parse", so `_updateRoster` starts from an empty list either way, mutates
-    // it, and lands here to overwrite. On the second reading that write drops
-    // every other identity's SpaceKeys — the child spaces stay on disk and
-    // become permanently unopenable, because those keys existed nowhere else.
-    // A corrupt roster is a case for a repair flow, never for a blind rewrite.
-    if (existing != null && _decodeRoster(existing) == null) {
-      throw StateError(
-        'refusing to overwrite an unreadable master roster: rewriting it '
-        'would drop the SpaceKeys of every identity it lists',
-      );
-    }
-    if (_bytesEqual(existing, bytes)) return;
-    // A ROSTER IS NOT BOUND BY THE SETTING LIMIT.
-    //
-    // One JSON value in a settings record, and the record is capped at 2048
-    // bytes by the container (`MAX_VALUE_LEN`). Each identity costs ~105 of
-    // them — an 88-character base64 of its 64-byte keys plus its label — so a
-    // container stopped being able to add an identity somewhere around twenty
-    // of them, and the failure landed AFTER the child space had already been
-    // created: a real identity on disk that the master does not list
-    // (report27 X31).
-    //
-    // The file store takes what the setting cannot, exactly as the sovereign
-    // material does a few files over. ONE copy at a time: whichever home is
-    // used, the other is cleared, or a stale record still looks authoritative.
-    if (bytes.length <= _maxSettingValueBytes) {
-      await _as.commit([PutOp(Ns.settings, _sk('master:roster'), bytes)]);
-      try {
-        if (await hasFile(_rosterFile)) await storeFile(_rosterFile, _sk(''));
-      } catch (_) {
-        // Best effort: an empty leftover decodes as "no roster" and the
-        // setting above is what `loadRoster` prefers anyway.
-      }
-      return;
-    }
-    await storeFile(_rosterFile, bytes, name: 'master-roster');
-    try {
-      await _as.commit([PutOp(Ns.settings, _sk('master:roster'), _sk(''))]);
-    } catch (_) {
-      // Same reasoning: the reader prefers the file, and an empty setting is
-      // not a roster.
+      return await body();
+    } finally {
+      _rosterRevision++;
+      if (identical(_rosterPublication, publication)) _rosterPublication = null;
+      done.complete();
     }
   }
 
-  /// Where a roster lives when it outgrew a settings record.
-  static const String _rosterFile = 'master:roster.v2';
+  @override
+  Future<void> saveRoster(List<RosterEntry> entries) {
+    // Freeze labels and opaque SpaceKeys before any queued operation yields.
+    final bytes = _sk(
+      jsonEncode([
+        for (final e in entries)
+          {
+            'l': e.label,
+            'k': base64.encode(e.spaceKeys),
+            if (e.anonymous) 'a': 1,
+          },
+      ]),
+    );
+    return _fileSerialized(() {
+      final store = _as;
+      return _publishingRoster(() async {
+        final snapshot = await _rosterSnapshot(store);
+        final existing = snapshot.active;
+        if (existing != null && _decodeRoster(existing) == null) {
+          throw StateError('refusing to overwrite an unreadable master roster');
+        }
+        final files = AsyncFileStore(store);
+        if (bytes.length <= _maxSettingValueBytes) {
+          if (!snapshot.filePresent && _bytesEqual(snapshot.legacy, bytes)) {
+            return;
+          }
+          // The old file remains authoritative until this atomic publication.
+          // Failure cannot leave a new setting shadowed by an old file while
+          // reporting that the new roster has been saved.
+          final retire = await files.deleteFileOps(_rosterFile);
+          await store.commit([
+            PutOp(Ns.settings, _sk('master:roster'), bytes),
+            ...retire,
+          ]);
+        } else {
+          // FileStore retains the previous version until publication. A crash
+          // before the following cleanup still leaves the new file preferred.
+          if (!_bytesEqual(existing, bytes)) {
+            await files.storeFile(_rosterFile, bytes, name: 'master-roster');
+          }
+          // The file is already durable and preferred. Keep legacy cleanup
+          // best-effort, but retry it even when the requested bytes match.
+          if (snapshot.cleanupLegacy) {
+            try {
+              await store.commit([DeleteOp(Ns.settings, _sk('master:roster'))]);
+            } catch (_) {
+              // A later save retries this; a declared file never falls back
+              // to this stale shadow if its payload becomes unreadable.
+            }
+          }
+        }
+      });
+    });
+  }
 
-  /// The container's own ceiling for one settings value, with room for the
-  /// record around it.
+  /// Internal in-volume file used when a roster outgrows one settings record.
+  static const String _rosterFile = 'master:roster.v2';
   static const int _maxSettingValueBytes = 1900;
 
-  @override
-  Future<List<RosterEntry>?> loadRoster() async {
-    // The file first: a roster that outgrew a settings record lives there, and
-    // the setting beside it was cleared when it moved (see [saveRoster]).
-    Uint8List? raw;
-    try {
-      final stored = await loadFile(_rosterFile);
-      if (stored != null && stored.isNotEmpty) raw = stored;
-    } catch (_) {
-      // Unreadable file: fall through to the setting rather than claim this
-      // space has no roster.
+  Future<
+    ({
+      Uint8List? active,
+      Uint8List? legacy,
+      bool filePresent,
+      bool cleanupLegacy,
+    })
+  >
+  _rosterSnapshot(AsyncKvLogStore store, {bool readOnly = false}) async {
+    // This private file is created only by saveRoster, in the volume. Refuse
+    // an unexpected external-tier descriptor rather than overwrite keys we
+    // cannot account for. No plaintext roster is written outside the volume.
+    if (await store.get(Ns.settings, _sk('ondisk:$_rosterFile')) != null) {
+      if (readOnly) {
+        return (
+          active: null,
+          legacy: null,
+          filePresent: true,
+          cleanupLegacy: false,
+        );
+      }
+      throw StateError('unsupported master roster file tier');
     }
-    raw ??= await _as.get(Ns.settings, _sk('master:roster'));
-    if (raw == null || raw.isEmpty) return null; // plain space — not a master
-    // A corrupt / truncated roster blob must not crash a roster-edit or the
-    // master open (jsonDecode, the cast, or base64.decode would throw). Treat
-    // it as no-roster so the caller degrades gracefully rather than wedging.
-    //
-    // That degradation is safe only for READERS. `null` here is the same value
-    // a plain identity space returns, so a writer cannot tell "no roster" from
-    // "roster I could not read" — see the guard in [saveRoster], which is what
-    // stops the difference from costing someone their identities.
-    return _decodeRoster(raw);
+    final metadata = await store.get(Ns.settings, _sk('file:$_rosterFile'));
+    Uint8List? active;
+    if (metadata != null) {
+      try {
+        active = await AsyncFileStore(
+          store,
+        ).loadFile(_rosterFile, maxBytes: kMaxStoredFileBytes);
+        if (active == null) {
+          // A declared file with missing chunks is not an absent roster.
+          throw StateError('unreadable master roster file');
+        }
+      } catch (_) {
+        if (!readOnly) rethrow;
+        return (
+          active: null,
+          legacy: null,
+          filePresent: true,
+          cleanupLegacy: false,
+        );
+      }
+      if (active.isEmpty) active = null; // legacy retired-file marker
+      if (readOnly && active != null) {
+        return (
+          active: active,
+          legacy: null,
+          filePresent: true,
+          cleanupLegacy: false,
+        );
+      }
+    }
+    Uint8List? legacy;
+    try {
+      legacy = await store.get(Ns.settings, _sk('master:roster'));
+    } catch (_) {
+      if (active == null) rethrow; // the setting is the only primary copy
+      // A valid file does not depend on an optional stale setting. Attempt
+      // cleanup best-effort rather than refusing the authoritative update.
+      return (
+        active: active,
+        legacy: null,
+        filePresent: true,
+        cleanupLegacy: true,
+      );
+    }
+    active ??= legacy == null || legacy.isEmpty ? null : legacy;
+    return (
+      active: active,
+      legacy: legacy,
+      filePresent: metadata != null,
+      cleanupLegacy: legacy != null,
+    );
   }
+
+  @override
+  Future<List<RosterEntry>?> loadRoster() => _readFileSession((session) async {
+    while (true) {
+      _checkFileReadSession(session);
+      final publication = _rosterPublication;
+      if (publication != null) {
+        await publication;
+        continue;
+      }
+      final revision = _rosterRevision;
+      Uint8List? raw;
+      try {
+        raw = (await _rosterSnapshot(session.store, readOnly: true)).active;
+      } catch (_) {
+        _checkFileReadSession(session);
+        if (revision != _rosterRevision) continue;
+        // An IO failure of the primary setting is not an absent identity.
+        rethrow;
+      }
+      _checkFileReadSession(session);
+      if (revision != _rosterRevision) continue;
+      return raw == null ? null : _decodeRoster(raw);
+    }
+  });
 
   /// The roster in [raw], or null if it does not parse.
   static List<RosterEntry>? _decodeRoster(Uint8List raw) {
