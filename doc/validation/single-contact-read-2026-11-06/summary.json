@@ -1,0 +1,127 @@
+{
+  "schema": "xveil-validation/1",
+  "date": "2026-11-06",
+  "baseRoot": "3acd5a58",
+  "sdk": "b9b88bb7",
+  "hiddenVolume": "eceb9158",
+  "tests": {
+    "baselineAssertionFailures": 1,
+    "baselinePassed": 2,
+    "candidateFocusedPassed": 3,
+    "candidateRelatedPassed": 181,
+    "candidateRelatedSkipped": 24,
+    "nativeRunPassed": 48,
+    "nativeRunSkipped": 0,
+    "nativeRunNativeCases": 24,
+    "suiteCountsOverlap": true,
+    "analyzerIssues": 0,
+    "decoderBodyByteIdentical": true
+  },
+  "controlledReadCost": {
+    "lookups": 32,
+    "baselineNamespaceReads": 64,
+    "candidateNamespaceReads": 32
+  },
+  "nativeMigration": {
+    "migrationOnly": true,
+    "baseRows": 2000,
+    "initialHistoryMs": 37664,
+    "initialCountCompleteMs": 32439,
+    "initialOrderMismatchObservations": 0,
+    "initialPositionMismatchObservations": 1,
+    "initialPositionsCompared": true,
+    "initialBStatuses": {
+      "sending": 0,
+      "sent": 0,
+      "delivered": 2000,
+      "failed": 0
+    },
+    "completedHistoryRetries": 0,
+    "convergedIdsAndOrder": true,
+    "invalidSnapshotObserved": false,
+    "offlineScenarioExecuted": false,
+    "receiverCrashRequested": false,
+    "receiverCrashPerformed": false
+  },
+  "storageObservations": {
+    "sumAwaitIsNotWallTime": true,
+    "namespaceCommitsAreNotUniqueTransactions": true,
+    "baseline": {
+      "kv.get.contacts": {
+        "count": 5603,
+        "awaitUs": 18096546,
+        "maxAwaitUs": 112071,
+        "startedBeforeWindow": 0
+      },
+      "kv.get.settings": {
+        "count": 4374,
+        "awaitUs": 12091586,
+        "maxAwaitUs": 108987,
+        "startedBeforeWindow": 0
+      },
+      "kv.commit.messageLog": {
+        "count": 431,
+        "awaitUs": 10093309,
+        "maxAwaitUs": 93838,
+        "startedBeforeWindow": 0
+      },
+      "kv.commit.settings": {
+        "count": 770,
+        "awaitUs": 18065544,
+        "maxAwaitUs": 106073,
+        "startedBeforeWindow": 0
+      }
+    },
+    "candidate": {
+      "kv.get.contacts": {
+        "count": 3219,
+        "awaitUs": 16271039,
+        "maxAwaitUs": 137159,
+        "startedBeforeWindow": 0
+      },
+      "kv.get.settings": {
+        "count": 4566,
+        "awaitUs": 13246059,
+        "maxAwaitUs": 96470,
+        "startedBeforeWindow": 0
+      },
+      "kv.commit.messageLog": {
+        "count": 430,
+        "awaitUs": 10404630,
+        "maxAwaitUs": 97544,
+        "startedBeforeWindow": 0
+      },
+      "kv.commit.settings": {
+        "count": 746,
+        "awaitUs": 18432408,
+        "maxAwaitUs": 133742,
+        "startedBeforeWindow": 0
+      }
+    }
+  },
+  "nativeQualification": {
+    "exit_code": 0,
+    "seconds": 234.035,
+    "sourceUnchangedDuringRun": true,
+    "qualificationPassed": true,
+    "profileHasSamples": true
+  },
+  "cleanup": {
+    "ownedPidsChecked": 22,
+    "portsChecked": 34,
+    "livePids": [],
+    "remainingListeners": [],
+    "runtimeRootRemoved": true,
+    "frozenFilesVerified": 1498,
+    "nativeArtifactsUnchanged": true,
+    "hiddenVolumeUnchanged": true,
+    "sdkClean": true,
+    "portsReusedByOtherPids": 0
+  },
+  "selectedLibraryWorkersVerified": 3,
+  "causalOverallLatencyImprovementClaimed": false,
+  "phoneUsed": false,
+  "productionChanged": false,
+  "pushed": false,
+  "released": false
+}
