@@ -1,7 +1,14 @@
 import 'dart:convert';
 import 'dart:math' as math;
+import 'storage_commit_labels.dart';
 
-typedef _Span = ({int start, int end, String? operation, int? sequence});
+typedef _Span = ({
+  int start,
+  int end,
+  String? operation,
+  int? sequence,
+  String? commitClass,
+});
 
 /// Strict FIFO qualification for ONE synchronous storage worker. Boundary
 /// partial spans are trimmed, never repaired; gaps, missing middle events,
@@ -77,6 +84,10 @@ Map<String, Object> analyzeStorageTimeline(List<Map<String, dynamic>> records) {
         end: event['ts'] as int,
         operation: isRpc ? (args?['operation'] as String?) : null,
         sequence: isRpc ? (args?['sequence'] as int?) : null,
+        commitClass:
+            isRpc && storageCommitLabels.contains(args?['commit_class'])
+            ? args!['commit_class'] as String
+            : null,
       ));
     }
   }
@@ -133,6 +144,7 @@ Map<String, Object> analyzeStorageTimeline(List<Map<String, dynamic>> records) {
     'anchor.roots',
   };
   final categories = <String, Map<String, int>>{};
+  final commits = <String, Map<String, int>>{};
   for (var i = 0; i < calls.length; i++) {
     final call = calls[i], handler = handlers[i];
     if (!operations.contains(call.operation) ||
@@ -164,6 +176,22 @@ Map<String, Object> analyzeStorageTimeline(List<Map<String, dynamic>> records) {
     if (tail < 0) {
       stats['negativeReplyTails'] = stats['negativeReplyTails']! + 1;
     }
+    if (call.operation == 'kv.commit') {
+      final aggregate = commits.putIfAbsent(
+        call.commitClass ?? 'unclassified',
+        () => {for (final key in stats.keys) key: 0},
+      );
+      aggregate['count'] = aggregate['count']! + 1;
+      aggregate['awaitUs'] = aggregate['awaitUs']! + call.end - call.start;
+      aggregate['beforeHandlerUs'] =
+          aggregate['beforeHandlerUs']! + handler.start - call.start;
+      aggregate['handlerUs'] =
+          aggregate['handlerUs']! + handler.end - handler.start;
+      aggregate['signedReplyTailUs'] = aggregate['signedReplyTailUs']! + tail;
+      if (tail < 0) {
+        aggregate['negativeReplyTails'] = aggregate['negativeReplyTails']! + 1;
+      }
+    }
   }
   return {
     'schema': 'xveil-test-storage-queue-summary/1',
@@ -177,5 +205,6 @@ Map<String, Object> analyzeStorageTimeline(List<Map<String, dynamic>> records) {
     'trimmedRpcs': rpc.length - calls.length,
     'trimmedHandlers': worker.length - handlers.length,
     'operations': categories,
+    'commitClasses': commits,
   };
 }

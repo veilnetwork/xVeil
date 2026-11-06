@@ -6849,17 +6849,23 @@ class HiddenVolumeStorage
     }
   }
 
-  // Reserve a small durable window before handing out any global log ids.
+  // Reserve a durable window before handing out any global log ids. Start
+  // small on each open, then grow after successful reservations, up to 64:
+  // sustained history must not pay a separate commit every eight records.
+  // The unused reservation is bounded by 64 ids, unless a caller explicitly
+  // requests a larger batch (which still reserves that complete batch).
   // Data commits may finish out of order; they must never write an older
   // msg_next_id over a newer one. A crash can skip unused internal ids, but
   // conversation sequence numbers are still committed gap-free with events.
   static const int _logIdReserveAhead = 8;
+  static const int _logIdReserveMax = 64;
   static final Object _acceptedConvWriteZone = Object();
   final _logWrites = <Future<void>>{};
   AsyncKvLogStore? _allocatorStore;
   int? _nextIdCache;
   int? _visibleNextLogId;
   int _logReservedUntil = 0;
+  int _logReservationSize = _logIdReserveAhead;
   Future<void>? _idInit;
   Future<void>? _idReservation;
 
@@ -6868,6 +6874,7 @@ class HiddenVolumeStorage
     _nextIdCache = null;
     _visibleNextLogId = null;
     _logReservedUntil = 0;
+    _logReservationSize = _logIdReserveAhead;
     _idInit = null;
     _idReservation = null;
   }
@@ -6925,8 +6932,11 @@ class HiddenVolumeStorage
       var reservation = _idReservation;
       if (reservation == null) {
         final int end = maximum == null
-            ? next + max<int>(_logIdReserveAhead, count)
-            : min<int>(next + max<int>(_logIdReserveAhead, count), maximum + 1);
+            ? next + max<int>(_logReservationSize, count)
+            : min<int>(
+                next + max<int>(_logReservationSize, count),
+                maximum + 1,
+              );
         late final Future<void> write;
         write =
             () async {
@@ -6940,6 +6950,10 @@ class HiddenVolumeStorage
                 );
               }
               _logReservedUntil = end;
+              _logReservationSize = min(
+                _logReservationSize * 2,
+                _logIdReserveMax,
+              );
             }().whenComplete(() {
               if (identical(_idReservation, write)) _idReservation = null;
             });

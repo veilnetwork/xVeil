@@ -65,6 +65,22 @@ List<Map<String, dynamic>> trace({int sequence = 1, String op = 'kv.get'}) => [
   {'kind': 'close', 'capped': false},
 ];
 void main() {
+  test(
+    'exclusive commit classes retain timing without trusting arbitrary labels',
+    () {
+      final data = trace(op: 'kv.commit');
+      final events = data[1]['events'] as List;
+      (events.first['args'] as Map)['commit_class'] = 'groupPair';
+      var result = analyzeStorageTimeline(data);
+      final classes = result['commitClasses'] as Map;
+      expect(classes['groupPair'], (result['operations'] as Map)['kv.commit']);
+      (events.first['args'] as Map)['commit_class'] = 'PRIVATE_CLASS_OR_PATH';
+      result = analyzeStorageTimeline(data);
+      expect((result['commitClasses'] as Map).keys, ['unclassified']);
+      expect(jsonEncode(result), isNot(contains('PRIVATE')));
+    },
+  );
+
   test('equal VM timestamps retain recorded per-thread order', () async {
     // Sanitized event shape from a synthetic 36-RPC run: all IDs/thread names
     // replaced and timestamps relative. No paths, payloads or VM correlators.
@@ -261,7 +277,33 @@ void main() {
           case 'getVMTimelineMicros':
             return {'timestamp': now += 10};
           case 'getVMTimeline':
-            return {'traceEvents': []};
+            return {
+              'traceEvents': [
+                event(
+                  'stand.storage.rpc',
+                  'b',
+                  112,
+                  id: 'known',
+                  args: {
+                    'operation': 'kv.commit',
+                    'sequence': 1,
+                    'commit_class': 'messageAllocator',
+                    'secret': 'PRIVATE',
+                  },
+                ),
+                event(
+                  'stand.storage.rpc',
+                  'b',
+                  113,
+                  id: 'unknown',
+                  args: {
+                    'operation': 'kv.commit',
+                    'sequence': 2,
+                    'commit_class': 'PRIVATE_CLASS',
+                  },
+                ),
+              ],
+            };
           default:
             throw StateError(name);
         }
@@ -282,6 +324,14 @@ void main() {
       expect(records.first['kind'], 'open');
       expect(records.last['capped'], false);
       expect(records.where((r) => r['kind'] == 'chunk'), hasLength(2));
+      final events = [
+        for (final r in records.where((r) => r['kind'] == 'chunk'))
+          ...r['events'] as List,
+      ];
+      expect(events, hasLength(2));
+      expect(events.first['args']['commit_class'], 'messageAllocator');
+      expect((events.last['args'] as Map).containsKey('commit_class'), false);
+      expect(jsonEncode(records), isNot(contains('PRIVATE')));
     },
   );
   test(

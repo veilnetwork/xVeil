@@ -1,0 +1,695 @@
+{
+  "schema": "xveil-test-growing-log-reservation/1",
+  "fixture": {
+    "platform": "macOS",
+    "host": "JIT/provider",
+    "clientProcesses": 3,
+    "identities": 2,
+    "loopbackCores": 3,
+    "rows": 2000,
+    "observationPollAboutMs": 5000,
+    "sameNativeArtifacts": true,
+    "freshIdentitiesAndCachesPerRun": true,
+    "phoneUsed": false,
+    "physicalHandoverTest": false
+  },
+  "phases": {
+    "baseline": {
+      "history": {
+        "baseRows": 2000,
+        "initialHistoryMs": 37860,
+        "initialCountCompleteMs": 32633,
+        "initialBStatuses": {
+          "sending": 0,
+          "sent": 0,
+          "delivered": 2000,
+          "failed": 0
+        },
+        "completedHistoryRetries": 0,
+        "convergedIdsAndOrder": true,
+        "invalidSnapshotObserved": false,
+        "initialPositionsCompared": true,
+        "offlineScenarioExecuted": false,
+        "receiverCrashRequested": false,
+        "receiverCrashPerformed": false
+      },
+      "workerTimeline": {
+        "schema": "xveil-test-storage-queue-summary/1",
+        "qualified": true,
+        "rpcCount": 11627,
+        "workerCount": 11627,
+        "windowUs": 42315761,
+        "captureWindowUs": 42476057,
+        "capturedCompleteRpcs": 11638,
+        "capturedCompleteHandlers": 11640,
+        "trimmedRpcs": 11,
+        "trimmedHandlers": 13,
+        "operations": {
+          "kv.get": {
+            "count": 7889,
+            "awaitUs": 23591722,
+            "beforeHandlerUs": 16174578,
+            "handlerUs": 430878,
+            "signedReplyTailUs": 6986266,
+            "negativeReplyTails": 0
+          },
+          "kv.readLogBatch": {
+            "count": 564,
+            "awaitUs": 875526,
+            "beforeHandlerUs": 522244,
+            "handlerUs": 165460,
+            "signedReplyTailUs": 187822,
+            "negativeReplyTails": 0
+          },
+          "kv.getBatch": {
+            "count": 1172,
+            "awaitUs": 1798126,
+            "beforeHandlerUs": 1332490,
+            "handlerUs": 147864,
+            "signedReplyTailUs": 317772,
+            "negativeReplyTails": 0
+          },
+          "kv.readLogGroups": {
+            "count": 558,
+            "awaitUs": 3268859,
+            "beforeHandlerUs": 1000979,
+            "handlerUs": 1999431,
+            "signedReplyTailUs": 268449,
+            "negativeReplyTails": 0
+          },
+          "kv.iterLogRange": {
+            "count": 291,
+            "awaitUs": 1841003,
+            "beforeHandlerUs": 1350105,
+            "handlerUs": 90436,
+            "signedReplyTailUs": 400462,
+            "negativeReplyTails": 0
+          },
+          "kv.commit": {
+            "count": 1142,
+            "awaitUs": 28059492,
+            "beforeHandlerUs": 3324596,
+            "handlerUs": 23268826,
+            "signedReplyTailUs": 1466070,
+            "negativeReplyTails": 0
+          },
+          "kv.erase": {
+            "count": 2,
+            "awaitUs": 2055,
+            "beforeHandlerUs": 315,
+            "handlerUs": 432,
+            "signedReplyTailUs": 1308,
+            "negativeReplyTails": 0
+          },
+          "kv.keys": {
+            "count": 8,
+            "awaitUs": 65952,
+            "beforeHandlerUs": 62180,
+            "handlerUs": 894,
+            "signedReplyTailUs": 2878,
+            "negativeReplyTails": 0
+          },
+          "kv.scrub": {
+            "count": 1,
+            "awaitUs": 131986,
+            "beforeHandlerUs": 22735,
+            "handlerUs": 109179,
+            "signedReplyTailUs": 72,
+            "negativeReplyTails": 0
+          }
+        },
+        "commitClasses": {
+          "ratchet": {
+            "count": 153,
+            "awaitUs": 4841766,
+            "beforeHandlerUs": 1207061,
+            "handlerUs": 3371280,
+            "signedReplyTailUs": 263425,
+            "negativeReplyTails": 0
+          },
+          "groupPair": {
+            "count": 108,
+            "awaitUs": 2670462,
+            "beforeHandlerUs": 156864,
+            "handlerUs": 2293032,
+            "signedReplyTailUs": 220566,
+            "negativeReplyTails": 0
+          },
+          "messages": {
+            "count": 425,
+            "awaitUs": 9922631,
+            "beforeHandlerUs": 1064982,
+            "handlerUs": 8335329,
+            "signedReplyTailUs": 522320,
+            "negativeReplyTails": 0
+          },
+          "messageAllocator": {
+            "count": 250,
+            "awaitUs": 5845055,
+            "beforeHandlerUs": 657512,
+            "handlerUs": 4876306,
+            "signedReplyTailUs": 311237,
+            "negativeReplyTails": 0
+          },
+          "outbox": {
+            "count": 1,
+            "awaitUs": 21355,
+            "beforeHandlerUs": 23,
+            "handlerUs": 21224,
+            "signedReplyTailUs": 108,
+            "negativeReplyTails": 0
+          },
+          "groupSegment": {
+            "count": 111,
+            "awaitUs": 2656972,
+            "beforeHandlerUs": 110985,
+            "handlerUs": 2408271,
+            "signedReplyTailUs": 137716,
+            "negativeReplyTails": 0
+          },
+          "groupHeader": {
+            "count": 76,
+            "awaitUs": 1725309,
+            "beforeHandlerUs": 83574,
+            "handlerUs": 1634155,
+            "signedReplyTailUs": 7580,
+            "negativeReplyTails": 0
+          },
+          "ratchetReservation": {
+            "count": 6,
+            "awaitUs": 144852,
+            "beforeHandlerUs": 16462,
+            "handlerUs": 127819,
+            "signedReplyTailUs": 571,
+            "negativeReplyTails": 0
+          },
+          "peerAuthorization": {
+            "count": 1,
+            "awaitUs": 25665,
+            "beforeHandlerUs": 20,
+            "handlerUs": 25563,
+            "signedReplyTailUs": 82,
+            "negativeReplyTails": 0
+          },
+          "settingsOther": {
+            "count": 3,
+            "awaitUs": 85519,
+            "beforeHandlerUs": 23578,
+            "handlerUs": 61691,
+            "signedReplyTailUs": 250,
+            "negativeReplyTails": 0
+          },
+          "deviceSettings": {
+            "count": 1,
+            "awaitUs": 16077,
+            "beforeHandlerUs": 3434,
+            "handlerUs": 12585,
+            "signedReplyTailUs": 58,
+            "negativeReplyTails": 0
+          },
+          "historyCursor": {
+            "count": 7,
+            "awaitUs": 103829,
+            "beforeHandlerUs": 101,
+            "handlerUs": 101571,
+            "signedReplyTailUs": 2157,
+            "negativeReplyTails": 0
+          }
+        }
+      },
+      "commitCensus": {
+        "contactSettings": {
+          "count": 1,
+          "awaitUs": 45717,
+          "maxAwaitUs": 45717,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        },
+        "deviceSettings": {
+          "count": 2,
+          "awaitUs": 30305,
+          "maxAwaitUs": 16080,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        },
+        "files": {
+          "count": 3,
+          "awaitUs": 58219,
+          "maxAwaitUs": 22933,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        },
+        "groupHeader": {
+          "count": 76,
+          "awaitUs": 1725811,
+          "maxAwaitUs": 45043,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        },
+        "groupPair": {
+          "count": 111,
+          "awaitUs": 2725139,
+          "maxAwaitUs": 90711,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        },
+        "groupSegment": {
+          "count": 111,
+          "awaitUs": 2657500,
+          "maxAwaitUs": 71750,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        },
+        "groupSettings": {
+          "count": 2,
+          "awaitUs": 34106,
+          "maxAwaitUs": 22123,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        },
+        "historyCursor": {
+          "count": 5,
+          "awaitUs": 70865,
+          "maxAwaitUs": 16413,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        },
+        "messageAllocator": {
+          "count": 253,
+          "awaitUs": 5939175,
+          "maxAwaitUs": 109478,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        },
+        "messages": {
+          "count": 429,
+          "awaitUs": 10047884,
+          "maxAwaitUs": 94690,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        },
+        "outbox": {
+          "count": 2,
+          "awaitUs": 41905,
+          "maxAwaitUs": 21376,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        },
+        "peerAuthorization": {
+          "count": 1,
+          "awaitUs": 25673,
+          "maxAwaitUs": 25673,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        },
+        "ratchet": {
+          "count": 154,
+          "awaitUs": 4895594,
+          "maxAwaitUs": 163114,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        },
+        "ratchetReservation": {
+          "count": 6,
+          "awaitUs": 144880,
+          "maxAwaitUs": 42575,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        },
+        "settingsOther": {
+          "count": 7,
+          "awaitUs": 185770,
+          "maxAwaitUs": 47603,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        }
+      },
+      "runQualification": {
+        "exit_code": 0,
+        "seconds": 242.386,
+        "sourceUnchangedDuringRun": true,
+        "qualificationPassed": true,
+        "profileHasSamples": true
+      },
+      "cleanup": {
+        "ownedPidsChecked": 22,
+        "portsChecked": 35,
+        "livePids": [],
+        "remainingListeners": [],
+        "runtimeRootRemoved": true,
+        "frozenFilesVerified": 1504,
+        "nativeArtifactsUnchanged": true,
+        "hiddenVolumeUnchanged": true,
+        "sdkClean": true,
+        "portsReusedByOtherPids": 0
+      }
+    },
+    "candidate": {
+      "history": {
+        "baseRows": 2000,
+        "initialHistoryMs": 32236,
+        "initialCountCompleteMs": 32231,
+        "initialBStatuses": {
+          "sending": 0,
+          "sent": 0,
+          "delivered": 2000,
+          "failed": 0
+        },
+        "completedHistoryRetries": 0,
+        "convergedIdsAndOrder": true,
+        "invalidSnapshotObserved": false,
+        "initialPositionsCompared": true,
+        "offlineScenarioExecuted": false,
+        "receiverCrashRequested": false,
+        "receiverCrashPerformed": false
+      },
+      "workerTimeline": {
+        "schema": "xveil-test-storage-queue-summary/1",
+        "qualified": true,
+        "rpcCount": 9711,
+        "workerCount": 9711,
+        "windowUs": 37773396,
+        "captureWindowUs": 37775863,
+        "capturedCompleteRpcs": 9711,
+        "capturedCompleteHandlers": 9711,
+        "trimmedRpcs": 0,
+        "trimmedHandlers": 0,
+        "operations": {
+          "kv.commit": {
+            "count": 915,
+            "awaitUs": 22469486,
+            "beforeHandlerUs": 2442513,
+            "handlerUs": 18833828,
+            "signedReplyTailUs": 1193145,
+            "negativeReplyTails": 0
+          },
+          "kv.get": {
+            "count": 6929,
+            "awaitUs": 21382052,
+            "beforeHandlerUs": 10886456,
+            "handlerUs": 509876,
+            "signedReplyTailUs": 9985720,
+            "negativeReplyTails": 0
+          },
+          "kv.iterLogRange": {
+            "count": 293,
+            "awaitUs": 1319460,
+            "beforeHandlerUs": 861922,
+            "handlerUs": 88839,
+            "signedReplyTailUs": 368699,
+            "negativeReplyTails": 0
+          },
+          "kv.erase": {
+            "count": 2,
+            "awaitUs": 4883,
+            "beforeHandlerUs": 880,
+            "handlerUs": 980,
+            "signedReplyTailUs": 3023,
+            "negativeReplyTails": 0
+          },
+          "kv.readLogBatch": {
+            "count": 349,
+            "awaitUs": 863478,
+            "beforeHandlerUs": 421825,
+            "handlerUs": 122471,
+            "signedReplyTailUs": 319182,
+            "negativeReplyTails": 0
+          },
+          "kv.getBatch": {
+            "count": 736,
+            "awaitUs": 2192067,
+            "beforeHandlerUs": 1654219,
+            "handlerUs": 100704,
+            "signedReplyTailUs": 437144,
+            "negativeReplyTails": 0
+          },
+          "kv.readLogGroups": {
+            "count": 478,
+            "awaitUs": 2741161,
+            "beforeHandlerUs": 1202211,
+            "handlerUs": 1271106,
+            "signedReplyTailUs": 267844,
+            "negativeReplyTails": 0
+          },
+          "kv.keys": {
+            "count": 8,
+            "awaitUs": 31946,
+            "beforeHandlerUs": 29716,
+            "handlerUs": 1187,
+            "signedReplyTailUs": 1043,
+            "negativeReplyTails": 0
+          },
+          "kv.scrub": {
+            "count": 1,
+            "awaitUs": 98610,
+            "beforeHandlerUs": 179,
+            "handlerUs": 98356,
+            "signedReplyTailUs": 75,
+            "negativeReplyTails": 0
+          }
+        },
+        "commitClasses": {
+          "groupPair": {
+            "count": 111,
+            "awaitUs": 2595779,
+            "beforeHandlerUs": 146599,
+            "handlerUs": 2358744,
+            "signedReplyTailUs": 90436,
+            "negativeReplyTails": 0
+          },
+          "messages": {
+            "count": 429,
+            "awaitUs": 10123852,
+            "beforeHandlerUs": 983509,
+            "handlerUs": 8611563,
+            "signedReplyTailUs": 528780,
+            "negativeReplyTails": 0
+          },
+          "ratchet": {
+            "count": 147,
+            "awaitUs": 4235331,
+            "beforeHandlerUs": 958267,
+            "handlerUs": 3100329,
+            "signedReplyTailUs": 176735,
+            "negativeReplyTails": 0
+          },
+          "messageAllocator": {
+            "count": 41,
+            "awaitUs": 1101567,
+            "beforeHandlerUs": 166426,
+            "handlerUs": 830424,
+            "signedReplyTailUs": 104717,
+            "negativeReplyTails": 0
+          },
+          "outbox": {
+            "count": 1,
+            "awaitUs": 29568,
+            "beforeHandlerUs": 31,
+            "handlerUs": 29226,
+            "signedReplyTailUs": 311,
+            "negativeReplyTails": 0
+          },
+          "groupSegment": {
+            "count": 105,
+            "awaitUs": 2437561,
+            "beforeHandlerUs": 94786,
+            "handlerUs": 2246367,
+            "signedReplyTailUs": 96408,
+            "negativeReplyTails": 0
+          },
+          "groupHeader": {
+            "count": 72,
+            "awaitUs": 1667047,
+            "beforeHandlerUs": 48877,
+            "handlerUs": 1469244,
+            "signedReplyTailUs": 148926,
+            "negativeReplyTails": 0
+          },
+          "peerAuthorization": {
+            "count": 1,
+            "awaitUs": 13941,
+            "beforeHandlerUs": 53,
+            "handlerUs": 13801,
+            "signedReplyTailUs": 87,
+            "negativeReplyTails": 0
+          },
+          "settingsOther": {
+            "count": 3,
+            "awaitUs": 162764,
+            "beforeHandlerUs": 31078,
+            "handlerUs": 85326,
+            "signedReplyTailUs": 46360,
+            "negativeReplyTails": 0
+          },
+          "ratchetReservation": {
+            "count": 1,
+            "awaitUs": 15499,
+            "beforeHandlerUs": 14,
+            "handlerUs": 15404,
+            "signedReplyTailUs": 81,
+            "negativeReplyTails": 0
+          },
+          "deviceSettings": {
+            "count": 1,
+            "awaitUs": 29530,
+            "beforeHandlerUs": 230,
+            "handlerUs": 29254,
+            "signedReplyTailUs": 46,
+            "negativeReplyTails": 0
+          },
+          "historyCursor": {
+            "count": 3,
+            "awaitUs": 57047,
+            "beforeHandlerUs": 12643,
+            "handlerUs": 44146,
+            "signedReplyTailUs": 258,
+            "negativeReplyTails": 0
+          }
+        }
+      },
+      "commitCensus": {
+        "contactSettings": {
+          "count": 1,
+          "awaitUs": 54843,
+          "maxAwaitUs": 54843,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        },
+        "deviceSettings": {
+          "count": 2,
+          "awaitUs": 43805,
+          "maxAwaitUs": 29533,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        },
+        "files": {
+          "count": 3,
+          "awaitUs": 60018,
+          "maxAwaitUs": 22525,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        },
+        "groupHeader": {
+          "count": 72,
+          "awaitUs": 1667552,
+          "maxAwaitUs": 98438,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        },
+        "groupPair": {
+          "count": 113,
+          "awaitUs": 2638862,
+          "maxAwaitUs": 92512,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        },
+        "groupSegment": {
+          "count": 105,
+          "awaitUs": 2438026,
+          "maxAwaitUs": 64187,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        },
+        "groupSettings": {
+          "count": 2,
+          "awaitUs": 40581,
+          "maxAwaitUs": 25071,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        },
+        "historyCursor": {
+          "count": 2,
+          "awaitUs": 42336,
+          "maxAwaitUs": 27717,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        },
+        "messageAllocator": {
+          "count": 42,
+          "awaitUs": 1128413,
+          "maxAwaitUs": 93909,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        },
+        "messages": {
+          "count": 429,
+          "awaitUs": 10137520,
+          "maxAwaitUs": 102611,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        },
+        "outbox": {
+          "count": 2,
+          "awaitUs": 60362,
+          "maxAwaitUs": 30766,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        },
+        "peerAuthorization": {
+          "count": 1,
+          "awaitUs": 13951,
+          "maxAwaitUs": 13951,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        },
+        "ratchet": {
+          "count": 146,
+          "awaitUs": 4233139,
+          "maxAwaitUs": 110022,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        },
+        "ratchetReservation": {
+          "count": 1,
+          "awaitUs": 15502,
+          "maxAwaitUs": 15502,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        },
+        "settingsOther": {
+          "count": 7,
+          "awaitUs": 390189,
+          "maxAwaitUs": 79634,
+          "startedBeforeWindow": 0,
+          "failed": 0
+        }
+      },
+      "runQualification": {
+        "exit_code": 0,
+        "seconds": 224.391,
+        "sourceUnchangedDuringRun": true,
+        "qualificationPassed": true,
+        "profileHasSamples": true
+      },
+      "cleanup": {
+        "ownedPidsChecked": 22,
+        "portsChecked": 34,
+        "livePids": [],
+        "remainingListeners": [],
+        "runtimeRootRemoved": true,
+        "frozenFilesVerified": 1504,
+        "nativeArtifactsUnchanged": true,
+        "hiddenVolumeUnchanged": true,
+        "sdkClean": true,
+        "portsReusedByOtherPids": 0
+      }
+    }
+  },
+  "tests": {
+    "relatedPassed": 209,
+    "relatedSkipped": 7,
+    "nativePassed": 16,
+    "nativeSkipped": 0,
+    "focusedInMemoryPassed": 4,
+    "focusedInMemoryBaselineFailed": 1,
+    "focusedInMemoryBaselinePassed": 3,
+    "focusedNativeBaselineFailed": 1,
+    "note": "focused and instrument suites overlap related/native counts"
+  },
+  "limits": {
+    "generalEndToEndSpeedupProven": false,
+    "compatibilityOrWireFormatChanged": false,
+    "releaseOrPush": false,
+    "firstTraceMissingCommitLabelsExcludedFromComparison": true
+  }
+}
