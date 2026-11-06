@@ -459,15 +459,17 @@ class HiddenVolumeStorage
   // --- Identity ----------------------------------------------------------
 
   @override
-  Future<void> saveProfile(UserProfile profile) async {
+  Future<void> saveProfile(UserProfile profile) {
     // No node id (audit XV-06). It is derivable from the node config in this
     // same space and nowhere else; a copy here was a cache that went stale on
     // the very first launch and stayed stale.
     final json = jsonEncode({'dn': profile.displayName, 'u': profile.username});
     final bytes = _sk(json);
-    final existing = await _as.get(Ns.settings, _sk('identity'));
-    if (_bytesEqual(existing, bytes)) return;
-    await _as.commit([PutOp(Ns.settings, _sk('identity'), bytes)]);
+    return _metadataWrite('identity', (store) async {
+      final existing = await store.get(Ns.settings, _sk('identity'));
+      if (_bytesEqual(existing, bytes)) return;
+      await store.commit([PutOp(Ns.settings, _sk('identity'), bytes)]);
+    });
   }
 
   @override
@@ -492,20 +494,42 @@ class HiddenVolumeStorage
 
   // --- Settings ----------------------------------------------------------
 
+  // Active writes only. Keep read/compare/commit ordered for one key, without
+  // putting unrelated settings behind its IO or caching a completed value.
+  final _metadataTails = <String, Future<void>>{};
+
+  Future<void> _metadataWrite(
+    String key,
+    Future<void> Function(AsyncKvLogStore) write,
+  ) => _trackLogWrite((store) {
+    final previous = _metadataTails[key] ?? Future<void>.value();
+    final result = previous.then((_) => write(store));
+    late final Future<void> tail;
+    tail = result.then<void>((_) {}, onError: (_) {}).whenComplete(() {
+      if (identical(_metadataTails[key], tail)) _metadataTails.remove(key);
+    });
+    _metadataTails[key] = tail;
+    return result;
+  });
+
   @override
-  Future<void> putSetting(String key, String value) async {
-    // Idempotent-write chokepoint: every commit is padded to a full bucket
-    // (256 KiB) that the append-only container NEVER reclaims until a manual
-    // compaction, so re-persisting an unchanged value (retry drivers, reoffer
-    // rounds, per-launch re-puts whose in-RAM guards reset) permanently grows
-    // the container. Skipping the no-op write here shields ALL callers at once.
-    final existing = await _as.get(Ns.settings, _sk('set:$key'));
-    if (existing != null &&
-        utf8.decode(existing, allowMalformed: true) == value) {
-      return;
-    }
-    await _as.commit([PutOp(Ns.settings, _sk('set:$key'), _sk(value))]);
-  }
+  Future<void> putSetting(String key, String value) => _metadataWrite(
+    'set:$key',
+    (store) async {
+      // Idempotent-write chokepoint: every commit is padded to a full bucket
+      // (256 KiB) that the append-only container NEVER reclaims until a manual
+      // compaction. Concurrent identical callers must compare AFTER the earlier
+      // write, or every caller pays for another permanent bucket.
+      // Pin this accepted operation to its space across both awaits; close and
+      // erase drain it before replacing or clearing that space.
+      final existing = await store.get(Ns.settings, _sk('set:$key'));
+      if (existing != null &&
+          utf8.decode(existing, allowMalformed: true) == value) {
+        return;
+      }
+      await store.commit([PutOp(Ns.settings, _sk('set:$key'), _sk(value))]);
+    },
+  );
 
   @override
   Future<String?> getSetting(String key) async {
@@ -516,16 +540,21 @@ class HiddenVolumeStorage
   // The node config (with the keypair) is just another SETTINGS-namespace KV
   // entry, so it inherits the space's deniability — no plaintext config file.
   @override
-  Future<void> saveNodeConfig(String configToml) async {
-    // Same no-op-write shield as putSetting: the config is re-saved on every
-    // node (re)start, almost always byte-identical.
-    final existing = await _as.get(Ns.settings, _sk('node:config'));
-    if (existing != null &&
-        utf8.decode(existing, allowMalformed: true) == configToml) {
-      return;
-    }
-    await _as.commit([PutOp(Ns.settings, _sk('node:config'), _sk(configToml))]);
-  }
+  Future<void> saveNodeConfig(String configToml) => _metadataWrite(
+    'node:config',
+    (store) async {
+      // Same no-op-write shield as putSetting: the config is re-saved on every
+      // node (re)start, almost always byte-identical.
+      final existing = await store.get(Ns.settings, _sk('node:config'));
+      if (existing != null &&
+          utf8.decode(existing, allowMalformed: true) == configToml) {
+        return;
+      }
+      await store.commit([
+        PutOp(Ns.settings, _sk('node:config'), _sk(configToml)),
+      ]);
+    },
+  );
 
   @override
   Future<String?> loadNodeConfig() async {

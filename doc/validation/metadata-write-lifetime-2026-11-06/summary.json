@@ -1,0 +1,243 @@
+{
+  "schema": "xveil-validation/1",
+  "date": "2026-11-06",
+  "baseRoot": "d51bf0df",
+  "sdk": "b9b88bb7",
+  "hiddenVolume": "eceb9158",
+  "tests": {
+    "baselineAssertionFailures": 15,
+    "baselinePassed": 3,
+    "candidateFocusedPassed": 18,
+    "candidateRelatedPassed": 205,
+    "nativeSuitePassed": 50,
+    "nativeSuiteNativeCases": 26,
+    "nativeSuiteInMemoryCases": 24,
+    "nativeProfileSmokePassed": 1,
+    "analyzerIssues": 0
+  },
+  "controlledIdenticalWriteCost": {
+    "concurrentCallersPerApi": 16,
+    "apis": 3,
+    "baselineTransactionsPerApi": 16,
+    "candidateTransactionsPerApi": 1
+  },
+  "nativeMigration": {
+    "migrationOnly": true,
+    "baseRows": 2000,
+    "initialHistoryMs": 37853,
+    "initialCountCompleteMs": 32628,
+    "initialOrderMismatchObservations": 1,
+    "initialPositionMismatchObservations": 1,
+    "initialPositionsCompared": true,
+    "initialBStatuses": {
+      "sending": 0,
+      "sent": 0,
+      "delivered": 2000,
+      "failed": 0
+    },
+    "completedHistoryRetries": 0,
+    "convergedIdsAndOrder": true,
+    "invalidSnapshotObserved": false,
+    "offlineScenarioExecuted": false,
+    "receiverCrashRequested": false,
+    "receiverCrashPerformed": false
+  },
+  "storageTimelineBefore": {
+    "schema": "xveil-test-storage-queue-summary/1",
+    "qualified": true,
+    "rpcCount": 11676,
+    "workerCount": 11676,
+    "windowUs": 42798054,
+    "captureWindowUs": 42845941,
+    "capturedCompleteRpcs": 11677,
+    "capturedCompleteHandlers": 11678,
+    "trimmedRpcs": 1,
+    "trimmedHandlers": 2,
+    "operations": {
+      "kv.get": {
+        "count": 7936,
+        "awaitUs": 28514454,
+        "beforeHandlerUs": 18282812,
+        "handlerUs": 376315,
+        "signedReplyTailUs": 9855327,
+        "negativeReplyTails": 0
+      },
+      "kv.commit": {
+        "count": 1151,
+        "awaitUs": 29090129,
+        "beforeHandlerUs": 3779676,
+        "handlerUs": 24097084,
+        "signedReplyTailUs": 1213369,
+        "negativeReplyTails": 0
+      },
+      "kv.readLogBatch": {
+        "count": 563,
+        "awaitUs": 964128,
+        "beforeHandlerUs": 493392,
+        "handlerUs": 167966,
+        "signedReplyTailUs": 302770,
+        "negativeReplyTails": 0
+      },
+      "kv.getBatch": {
+        "count": 1170,
+        "awaitUs": 2018840,
+        "beforeHandlerUs": 1507122,
+        "handlerUs": 147417,
+        "signedReplyTailUs": 364301,
+        "negativeReplyTails": 0
+      },
+      "kv.readLogGroups": {
+        "count": 556,
+        "awaitUs": 2899777,
+        "beforeHandlerUs": 879540,
+        "handlerUs": 1928983,
+        "signedReplyTailUs": 91254,
+        "negativeReplyTails": 0
+      },
+      "kv.iterLogRange": {
+        "count": 290,
+        "awaitUs": 1200841,
+        "beforeHandlerUs": 875230,
+        "handlerUs": 83621,
+        "signedReplyTailUs": 241990,
+        "negativeReplyTails": 0
+      },
+      "kv.erase": {
+        "count": 2,
+        "awaitUs": 73185,
+        "beforeHandlerUs": 71219,
+        "handlerUs": 959,
+        "signedReplyTailUs": 1007,
+        "negativeReplyTails": 0
+      },
+      "kv.keys": {
+        "count": 7,
+        "awaitUs": 32801,
+        "beforeHandlerUs": 21118,
+        "handlerUs": 950,
+        "signedReplyTailUs": 10733,
+        "negativeReplyTails": 0
+      },
+      "kv.scrub": {
+        "count": 1,
+        "awaitUs": 140711,
+        "beforeHandlerUs": 34843,
+        "handlerUs": 105802,
+        "signedReplyTailUs": 66,
+        "negativeReplyTails": 0
+      }
+    }
+  },
+  "storageTimelineAfter": {
+    "schema": "xveil-test-storage-queue-summary/1",
+    "qualified": true,
+    "rpcCount": 11199,
+    "workerCount": 11199,
+    "windowUs": 42491694,
+    "captureWindowUs": 42625554,
+    "capturedCompleteRpcs": 11209,
+    "capturedCompleteHandlers": 11210,
+    "trimmedRpcs": 10,
+    "trimmedHandlers": 11,
+    "operations": {
+      "kv.get": {
+        "count": 7705,
+        "awaitUs": 22042949,
+        "beforeHandlerUs": 13880660,
+        "handlerUs": 410486,
+        "signedReplyTailUs": 7751803,
+        "negativeReplyTails": 0
+      },
+      "kv.readLogBatch": {
+        "count": 503,
+        "awaitUs": 843535,
+        "beforeHandlerUs": 461158,
+        "handlerUs": 183203,
+        "signedReplyTailUs": 199174,
+        "negativeReplyTails": 0
+      },
+      "kv.getBatch": {
+        "count": 1050,
+        "awaitUs": 1657911,
+        "beforeHandlerUs": 1344962,
+        "handlerUs": 159560,
+        "signedReplyTailUs": 153389,
+        "negativeReplyTails": 0
+      },
+      "kv.readLogGroups": {
+        "count": 494,
+        "awaitUs": 2953083,
+        "beforeHandlerUs": 1037486,
+        "handlerUs": 1758673,
+        "signedReplyTailUs": 156924,
+        "negativeReplyTails": 0
+      },
+      "kv.iterLogRange": {
+        "count": 292,
+        "awaitUs": 1198049,
+        "beforeHandlerUs": 934954,
+        "handlerUs": 108240,
+        "signedReplyTailUs": 154855,
+        "negativeReplyTails": 0
+      },
+      "kv.commit": {
+        "count": 1141,
+        "awaitUs": 27988283,
+        "beforeHandlerUs": 3304450,
+        "handlerUs": 23199193,
+        "signedReplyTailUs": 1484640,
+        "negativeReplyTails": 0
+      },
+      "kv.erase": {
+        "count": 4,
+        "awaitUs": 24370,
+        "beforeHandlerUs": 21911,
+        "handlerUs": 634,
+        "signedReplyTailUs": 1825,
+        "negativeReplyTails": 0
+      },
+      "kv.keys": {
+        "count": 9,
+        "awaitUs": 77723,
+        "beforeHandlerUs": 57899,
+        "handlerUs": 1433,
+        "signedReplyTailUs": 18391,
+        "negativeReplyTails": 0
+      },
+      "kv.scrub": {
+        "count": 1,
+        "awaitUs": 108759,
+        "beforeHandlerUs": 107,
+        "handlerUs": 108576,
+        "signedReplyTailUs": 76,
+        "negativeReplyTails": 0
+      }
+    }
+  },
+  "nativeQualification": {
+    "exit_code": 0,
+    "seconds": 251.619,
+    "sourceUnchangedDuringRun": true,
+    "qualificationPassed": true,
+    "profileHasSamples": true
+  },
+  "cleanup": {
+    "ownedPidsChecked": 22,
+    "portsChecked": 33,
+    "livePids": [],
+    "remainingListeners": [],
+    "runtimeRootRemoved": true,
+    "frozenFilesVerified": 1499,
+    "nativeArtifactsUnchanged": true,
+    "hiddenVolumeUnchanged": true,
+    "sdkClean": true,
+    "portsReusedByOtherPids": 0
+  },
+  "osMappingProbeMissedLiveWindow": true,
+  "causalOverallLatencyImprovementClaimed": false,
+  "compositeMetadataLifecycleQualified": false,
+  "phoneUsed": false,
+  "productionChanged": false,
+  "pushed": false,
+  "released": false
+}
