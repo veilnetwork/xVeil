@@ -194,7 +194,7 @@ void main() {
     },
   );
   test(
-    'operator circuit and DHT correlation never enters anonymous reports',
+    'operator circuit DHT and TCP correlation never enters anonymous reports',
     () {
       final journal = DiagnosticJournal(enabled: true);
       final native = <String, Object?>{
@@ -216,6 +216,13 @@ void main() {
         'duplicate_trace':
             'dht.query.duplicate_drop local=private-node walk_tag=private-walk',
         'process_duplicates': 123456789,
+        'tcp_handshake_trace': _PrivateValue(),
+        'tcp_trace': 'transport.tcp_trace.handshake private-tcp-snapshot',
+        'connection': 161803398,
+        'local_port': 45678,
+        'peer_port': 45679,
+        'written_bytes': 141421356,
+        'read_bytes': 173205080,
         'ranges': [
           {'sid': 'private-stream', 'offset': 123456789},
         ],
@@ -243,6 +250,17 @@ void main() {
         'duplicate_trace',
         'duplicate_drop',
         'process_duplicates',
+        'tcp_handshake_trace',
+        'tcp_trace',
+        '161803398',
+        '45678',
+        '45679',
+        '141421356',
+        '173205080',
+        'local_port',
+        'peer_port',
+        'written_bytes',
+        'read_bytes',
       ]) {
         expect(report, isNot(contains(forbidden)));
       }

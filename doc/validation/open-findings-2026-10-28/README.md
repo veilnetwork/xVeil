@@ -1,5 +1,17 @@
 # Открытые случаи — обновлено 2026-11-06
 
+Последняя работа: [obfs4 handshake diagnostics](../obfs-handshake-diagnostics-2026-11-06/README.md).
+NETCALL-01 **открыт**. В ещё одном Mac → Poco Wi-Fi/cellular/Wi-Fi разговоре
+canonical obfs4 timeout не повторился, native RX age до 1,326/2,066 с;
+разговор завершён стендом. Shell Android не даёт полный TCP_INFO через
+netlink. Закрыт пробел SDK-диагностики: opt-in observer снимает стадию,
+байтовые счётчики и live TCP snapshot до Drop handshake, с локальными ports
+для сопоставления; после upgrade application I/O не учитывается. Таймеры,
+аутентификация и wire не менялись. 161+5+2 transport checks, 19 privacy tests
+и AOT artifact gate прошли. Новая диагностика ещё не установлена на Poco:
+физический прогон использовал прежний SDK, причинного исправления паузы
+не заявляется. Стенд удалён, APK/настройки восстановлены; push/релиза нет.
+
 Последняя локализация: [Delivery handover: obfs4/TCP](../delivery-obfs-handover-2026-11-06/README.md).
 NETCALL-01 **подтверждён и открыт**. В прежнем аварийном захвате dial
 начинался сразу после Cellular notification; два последовательных obfs4

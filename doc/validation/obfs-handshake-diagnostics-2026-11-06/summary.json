@@ -1,0 +1,77 @@
+{
+  "schema": "xveil-obfs-handshake-diagnostics/1",
+  "physicalSdkBeforeDiagnosticChange": "81436bd1",
+  "diagnosticInstalledOnPhone": false,
+  "physicalCall": {
+    "direction": "Mac to Poco",
+    "actualTransport": "non-onion Delivery relay",
+    "p2pDenied": true,
+    "completedWifiCellularWifi": true,
+    "endedByHarness": true,
+    "unexpectedEnd": false,
+    "bidirectionalBaselinePassed": true,
+    "canonicalObfsTimeoutEvents": 0,
+    "maximumObservedNativeRxAgeMs": {
+      "phone": 1326,
+      "mac": 2066
+    },
+    "humanAudibilityVerified": false,
+    "abComparison": false
+  },
+  "phoneSocketInventory": {
+    "sampleCount": 391,
+    "socketRows": 3570,
+    "minimumSleepMs": 250,
+    "netlinkPermissionDenied": true,
+    "fallbackUsed": true,
+    "fullTcpInfoAvailableFromSs": false,
+    "maximumObservedSendQueueBytes": 9883,
+    "stalledCanonicalHandshakeObserved": false
+  },
+  "relayCapture": {
+    "packets": 18040,
+    "kernelDrops": 0,
+    "tcpFlows": 43,
+    "flowsWithClientPayload": 35,
+    "payloadFlowsWithoutServerResponse": 0,
+    "firstResponseMinMs": 0.246,
+    "firstResponseMaxMs": 1.358
+  },
+  "diagnostic": {
+    "gate": "existing rt-trace opt-in",
+    "protocolOrDeadlineChanged": false,
+    "socketDuplicated": false,
+    "snapshotsBeforeSocketDrop": true,
+    "applicationByteCountingStopsAfterUpgrade": true,
+    "anonymousExportIncludesRawSocketMetadata": false
+  },
+  "verification": {
+    "newTcpObservationTestsPassed": 4,
+    "transportUnitTestsPassed": 161,
+    "transportSmokeTestsPassed": 5,
+    "transportDocTestsPassed": 2,
+    "ignored": 0,
+    "anonymousJournalTestsPassed": 19,
+    "compiledArtifactGateTestsPassed": 1,
+    "bothArtifactDiagnosticFlagModesChecked": true,
+    "externalFilesystemMonitored": true
+  },
+  "netcallClosed": false,
+  "cleanup": {
+    "qaApkRestoredBySha": true,
+    "normalApkAndOldQaContainerUnchangedBySha": true,
+    "phoneSettingsAndValidatedWifiRestored": true,
+    "priorP2pPoliciesRestored": true,
+    "ownAppsAndSocketCollectorExited": true,
+    "ownForwardRuntimeRemoteScriptRemoved": true,
+    "ownCoreAndCaptureStoppedAndRemoved": true,
+    "productionPidBinaryConfigRestartsUnchanged": true
+  },
+  "push": false,
+  "release": false,
+  "diagnosticSdk": "29ee0700a10659e1739d9e6f6cd227a90aaab078",
+  "diagnosticSdkCommits": [
+    "cce33acf",
+    "29ee0700"
+  ]
+}

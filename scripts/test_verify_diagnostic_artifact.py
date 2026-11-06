@@ -32,6 +32,9 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 "'audio_jb_target_ms': 260, "
                 "'audio_output_level_band': 4, 'device': 'PRIVATE_CANARY', "
                 "'qtag': 'PRIVATE_CANARY', 'walk_tag': 'PRIVATE_CANARY', "
+                "'tcp_handshake_trace': 'PRIVATE_CANARY', 'tcp_trace': 'PRIVATE_CANARY', "
+                "'connection': 314159265, 'local_port': 45678, 'peer_port': 45679, "
+                "'written_bytes': 314159265, 'read_bytes': 314159265, "
                 "'video_delivery_peers': {'PRIVATE_CANARY': {"
                 "'target_delay_ms': 260, 'sample_us': 314159265}}, "
                 "'op': 314159265, 'local': 'PRIVATE_CANARY'});\n"
@@ -63,6 +66,10 @@ class DiagnosticArtifactTest(unittest.TestCase):
                     self.assertEqual(report['enabled'], enabled)
                     self.assertNotIn('PRIVATE_CANARY', json.dumps(report))
                     self.assertNotIn('314159265', json.dumps(report))
+                    for forbidden in ['tcp_handshake_trace', 'tcp_trace', 'connection',
+                                      'local_port', 'peer_port', 'written_bytes',
+                                      'read_bytes', '45678', '45679']:
+                        self.assertNotIn(forbidden, json.dumps(report))
                     if enabled:
                         self.assertEqual(len(report['call_state_history']), 1)
                         self.assertEqual(report['call_state_history'][0]['values'], {
