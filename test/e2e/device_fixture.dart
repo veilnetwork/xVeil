@@ -78,6 +78,7 @@ import '../support/message_apply_census.dart';
 import '../support/timed_native_store.dart';
 import '../support/private_history_wire_probe.dart';
 import 'convergence_oracle.dart';
+import 'crash_retention_oracle.dart';
 import 'e2e_env.dart';
 import 'relay_cluster.dart';
 
@@ -359,6 +360,8 @@ class E2eDevice {
         // Crash qualification needs an on-disk witness before reconnect can
         // fill a missing suffix. Only the fixture reads these synthetic rows;
         // no IDs, bodies or keys are written to the private count-only probe.
+        // A controller-owned expectation file stays inside this disposable
+        // fixture directory; only retention counts leave the disk inspector.
         if (label == 'B' &&
             (int.tryParse(
                       Platform.environment['XVEIL_E2E_MIGRATION_CRASH_AFTER_ROWS'] ??
@@ -368,7 +371,9 @@ class E2eDevice {
                 0) {
           final evidence = Platform.environment['XVEIL_E2E_EVIDENCE_DIR'];
           if (evidence == null) _fail('crash probe needs private evidence');
+          await Directory(evidence!).create(recursive: true);
           final ids = <String>{};
+          final retainedRows = <CrashRetentionRow>[];
           var rows = 0, delivered = 0;
           if (await File('${dir.path}/store.hv').exists()) {
             // Close this inspector before constructing the application's
@@ -387,16 +392,42 @@ class E2eDevice {
                   rows++;
                   ids.add(message.id);
                   if (message.status == MessageStatus.delivered) delivered++;
+                  retainedRows.add(
+                    CrashRetentionRow(
+                      id: message.id,
+                      delivered: message.status == MessageStatus.delivered,
+                      orderAuthor: message.orderAuthor,
+                      orderSeq: message.orderSeq,
+                      bodyTag: sha256
+                          .convert(utf8.encode(message.body))
+                          .toString(),
+                    ),
+                  );
                 }
               }
             } finally {
               await inspector.close();
             }
           }
+          int? witness;
+          Map<String, Object>? retention;
+          final expectation = File('${dir.path}/crash-witness.json');
+          if (await expectation.exists()) {
+            final value = jsonDecode(await expectation.readAsString()) as Map;
+            witness = value['witness'] as int;
+            retention = crashRetentionOf(
+              expected: [
+                for (final row in value['expectedRows'] as List)
+                  CrashRetentionRow.fromJson(row as Map),
+              ],
+              actual: retainedRows,
+              allowedIds: Set<String>.from(value['allowedIds'] as List),
+            );
+          }
           await File(
             '$evidence/backlog-B-before-network-private.jsonl',
           ).writeAsString(
-            '${jsonEncode({'rows': rows, 'uniqueIds': ids.length, 'delivered': delivered, 'atUs': DateTime.now().microsecondsSinceEpoch})}\n',
+            '${jsonEncode({'rows': rows, 'uniqueIds': ids.length, 'delivered': delivered, 'atUs': DateTime.now().microsecondsSinceEpoch, 'witness': ?witness, 'retention': ?retention})}\n',
             mode: FileMode.append,
             flush: true,
           );
