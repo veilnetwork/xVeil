@@ -1,5 +1,23 @@
 # Открытые случаи — обновлено 2026-11-06
 
+Последняя физическая проверка: [Poco ↔ Mac, Delivery после смены сети](../poco-mac-delivery-reconnect-2026-11-06/README.md).
+**NETCALL-01 подтверждён и открыт.** С разрешённым микрофоном Mac
+двусторонний baseline прошёл. Первый Wi-Fi → cellular → Wi-Fi в разговоре
+сохранил RX и media epoch обоих концов. Но следующий телефон → Mac сразу
+после Wi-Fi off позвонил за 1,173 с и не получил двусторонний baseline за
+50 с: Mac сначала принял 5 пакетов, затем RX стоял, rebuild не восстановил
+приём. В обратном Mac → телефон после handover оба конца завершились по
+`livenessTimeout`; потеря call state +22,975 с при validated cellular
+через 1,254 с. Отбой предшествовал cleanup стенда, Core ещё был active.
+Actual path — **non-onion Delivery relay** (`relay_send`), поэтому
+`81436bd1` / private `PinnedRoute` этим прогоном не квалифицируется.
+Native уведомление Cellular получено; следующий участок — parent session /
+ordered child / Delivery после него, в том числе при уже отсутствующей TX.
+Это новый handover-timeout, не доказанная причина старой 25-с жалобы.
+QA APK/основной APK/старый QA-контейнер сверены по SHA, сеть/настройки
+восстановлены, свои процессы и временное реле удалены; production прежний.
+Слышимость человеком и A/B не проверялись. Push/релиза нет.
+
 Последнее исправление: [private media и точная TX-регистрация](../private-media-tx-lifetime-2026-11-06/README.md).
 ПОДТВЕРЖДЕНО и исправлено в Veil `81436bd1`: `PinnedRoute` ещё решал пригодность
 по общему exit counter. Заменённая TX при ещё живом старом runner оставляла
