@@ -190,5 +190,18 @@
     "qaCoreAndCaptureRemoved": true,
     "productionUnchanged": true
   },
-  "pushOrRelease": false
+  "pushOrRelease": false,
+  "phoneHandshakeAggregate": {
+    "scope": "all observed client obfs4 handshakes, including auxiliary connections",
+    "selectedPrimary": 95,
+    "selectedBackup": 34,
+    "longIncompleteCount": 1,
+    "longIncompleteElapsedMs": [
+      10002
+    ],
+    "longIncompleteReadBytes": [
+      0
+    ],
+    "longIncompleteHasObservedOtherWinner": false
+  }
 }
