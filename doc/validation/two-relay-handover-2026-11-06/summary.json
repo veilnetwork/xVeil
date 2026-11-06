@@ -1,0 +1,146 @@
+{
+  "schema": "xveil-two-relay-handover-validation/1",
+  "sdk": "29ee0700",
+  "sameFfiAotMediaAsPreviousRun": true,
+  "onlyQaSeedAssetsChanged": true,
+  "qaRelays": 2,
+  "independentQaIdentities": true,
+  "realClientsActiveAtBothRelaysBeforeCall": true,
+  "actualCallTransport": "non-onion Delivery relay",
+  "p2pDeniedOnBoth": true,
+  "physical": {
+    "callCount": 1,
+    "direction": "Mac to Poco",
+    "cycles": [
+      {
+        "cycle": 1,
+        "wifiOffSeconds": 35.594,
+        "maxNativeRxAgeMs": {
+          "phone": 1046,
+          "mac": 1137
+        },
+        "observedCallLost": false
+      },
+      {
+        "cycle": 2,
+        "wifiOffSeconds": 35.663,
+        "maxNativeRxAgeMs": {
+          "phone": 1073,
+          "mac": 1138
+        },
+        "observedCallLost": false
+      },
+      {
+        "cycle": 3,
+        "wifiOffSeconds": 35.718,
+        "maxNativeRxAgeMs": {
+          "phone": 1397,
+          "mac": 4566
+        },
+        "observedCallLost": false
+      }
+    ],
+    "initialBidirectionalFreshBaselinePassed": true,
+    "completed": true,
+    "endedByHarness": true,
+    "unexpectedEnd": false,
+    "mediaContinuity": {
+      "phone": {
+        "mediaEpochs": [
+          1
+        ],
+        "negativeRxAgeSamples": 1,
+        "freshSamples": 323,
+        "totalSamples": 332,
+        "lastFiveFresh": true
+      },
+      "mac": {
+        "mediaEpochs": [
+          1
+        ],
+        "negativeRxAgeSamples": 0,
+        "freshSamples": 316,
+        "totalSamples": 332,
+        "lastFiveFresh": true
+      }
+    },
+    "humanAudibilityVerified": false,
+    "postSwitchNewOutgoingCallTested": false,
+    "abComparison": false
+  },
+  "hopWitnesses": {
+    "phone": {
+      "primary": {
+        "sampleRows": 150,
+        "withPositiveAdmission": 150
+      },
+      "secondary": {
+        "sampleRows": 138,
+        "withPositiveAdmission": 138
+      }
+    },
+    "mac": {
+      "primary": {
+        "sampleRows": 168,
+        "withPositiveAdmission": 168
+      },
+      "secondary": {
+        "sampleRows": 168,
+        "withPositiveAdmission": 168
+      }
+    }
+  },
+  "admissionProvesEndToEndDelivery": false,
+  "transport": {
+    "outerObfsTimeoutWarningCount": 1,
+    "longIncompleteHandshake": {
+      "elapsedMs": 10002,
+      "writtenBytes": 112,
+      "readBytes": 0,
+      "phase": "Read",
+      "queuedBytes": 112,
+      "notsentBytes": 0,
+      "unackedPackets": 1,
+      "retransmittedPackets": 4,
+      "secondaryRelayIdentifiedByLocalSocketInventory": true,
+      "localSocketSampleRows": 56,
+      "rowsWithMatchingSendQueue": 28
+    },
+    "outerWarningFollowsObservationMs": 1867,
+    "outerWarningBoundByConnectionId": false
+  },
+  "capture": {
+    "primary": {
+      "packets": 30202,
+      "flows": 98,
+      "payloadFlows": 77,
+      "payloadFlowsWithoutServerResponse": 0,
+      "kernelDrops": 0,
+      "manuallyStopped": true
+    },
+    "secondary": {
+      "packets": 23236,
+      "flows": 188,
+      "payloadFlows": 88,
+      "payloadFlowsWithoutServerResponse": 0,
+      "kernelDrops": 0,
+      "manuallyStopped": true
+    }
+  },
+  "newBehavioralFix": false,
+  "existingReadySourcePreferenceAndDiversityObserved": true,
+  "singleRelayFailureRootCauseClosed": false,
+  "netcallClosed": false,
+  "cleanup": {
+    "bothQaServicesAndCapturesStoppedAndRemoved": true,
+    "bothProductionPidExecutableConfigRestartsUnchanged": true,
+    "qaApkRestoredBySha": true,
+    "normalApkAndOldQaContainerUnchangedBySha": true,
+    "settingsPoliciesAndValidatedWifiRestored": true,
+    "ownAppsCollectorForwardAndRuntimeRemoved": true,
+    "originalMacBundleSignatureReverified": true,
+    "ownPackagingBytesRemoved": 108335522
+  },
+  "push": false,
+  "release": false
+}
