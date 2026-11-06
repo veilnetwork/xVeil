@@ -1210,8 +1210,10 @@ class HiddenVolumeStorage
 
   @override
   Future<Contact?> getContact(NodeId nodeId) async {
-    if (await _as.get(Ns.contacts, nodeId.bytes) == null) return null;
-    return _contactFor(nodeId);
+    final raw = await _as.get(Ns.contacts, nodeId.bytes);
+    // The presence check already fetched the row from the storage worker.
+    // Decode that observation, without a second RPC or a stale contact cache.
+    return raw == null ? null : _decodeContact(nodeId, raw);
   }
 
   Future<Contact> _contactFor(NodeId id) async {
@@ -1242,6 +1244,10 @@ class HiddenVolumeStorage
     if (raw == null) {
       return Contact(nodeId: id, status: ContactStatus.pendingOutgoing);
     }
+    return _decodeContact(id, raw);
+  }
+
+  Contact _decodeContact(NodeId id, Uint8List raw) {
     final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
     final s = m['s'] as int?;
     return Contact(
