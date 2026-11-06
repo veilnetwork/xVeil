@@ -16,6 +16,7 @@ NodeId _id(int tag) => NodeId(Uint8List(32)..fillRange(0, 32, tag));
 class _Transport implements VeilTransport {
   final inbound = StreamController<InboundMessage>.broadcast();
   final messagesSent = <({NodeId peer, String? id})>[];
+  final framesSent = <({NodeId peer, String? id})>[];
 
   @override
   Future<NodeId> nodeId() async => _id(1);
@@ -26,6 +27,7 @@ class _Transport implements VeilTransport {
     bool anonymous = false,
   }) async {
     final frame = WireEnvelope.decode(bytes);
+    framesSent.add((peer: peer, id: frame.frameId));
     if (frame.kind == WireKind.message) {
       messagesSent.add((peer: peer, id: frame.id));
     }
@@ -167,6 +169,21 @@ class _Fixture {
   int copies(String id) =>
       transport.messagesSent.where((m) => m.id == id).length;
 
+  String queueControl(NodeId peer) {
+    final id = 'test:deferred-${peer.short}';
+    finish(service.sendDurable(peer, id, const WireEnvelope.reconnect('')));
+    expect(frameCopies(id), 1);
+    expect(
+      finish(storage.pendingOutboxFrames()).map((row) => row.frameId),
+      contains(id),
+      reason: 'the control frame must actually be pending',
+    );
+    return id;
+  }
+
+  int frameCopies(String id) =>
+      transport.framesSent.where((frame) => frame.id == id).length;
+
   void advanceNudgeClock() => clock = clock.add(const Duration(seconds: 4));
 
   void routeUp(NodeId peer) {
@@ -188,6 +205,120 @@ Future<void> _withFixture(void Function(_Fixture) run) async {
 }
 
 void main() {
+  test(
+    'early reachability keeps the control retry due at the end of grace',
+    () => _withFixture((f) {
+      final peer = _id(2);
+      f.hear(peer);
+      final start = f.clock;
+      final id = f.queueControl(peer);
+      f.clock = start.add(const Duration(seconds: 4));
+      f.hear(peer);
+      expect(f.frameCopies(id), 1, reason: 'the ACK still gets its grace');
+      f.clock = start.add(const Duration(seconds: 9));
+      f.finish(f.service.flushOutbox());
+      expect(f.frameCopies(id), 1);
+      f.clock = start.add(const Duration(seconds: 10));
+      f.finish(f.service.flushOutbox());
+      expect(
+        f.frameCopies(id),
+        2,
+        reason: 'the early nudge must survive until its grace expires',
+      );
+      expect(f.time.elapsed, Duration.zero);
+    }),
+  );
+
+  test(
+    'a deferred control nudge retains the growing retry grace',
+    () => _withFixture((f) {
+      final peer = _id(2);
+      f.hear(peer);
+      final id = f.queueControl(peer);
+      f.clock = f.clock.add(const Duration(seconds: 21));
+      f.finish(f.service.flushOutbox());
+      expect(f.frameCopies(id), 2);
+      final secondAttempt = f.clock;
+      f.advanceNudgeClock();
+      f.hear(peer);
+      f.clock = secondAttempt.add(const Duration(seconds: 19));
+      f.finish(f.service.flushOutbox());
+      expect(f.frameCopies(id), 2, reason: 'second-attempt grace is 20 s');
+      f.clock = secondAttempt.add(const Duration(seconds: 20));
+      f.finish(f.service.flushOutbox());
+      expect(
+        f.frameCopies(id),
+        3,
+        reason: 'an early reachability signal must not be forgotten',
+      );
+      expect(f.time.elapsed, Duration.zero);
+    }),
+  );
+
+  test(
+    'steady control nudges cannot bypass exponential grace',
+    () => _withFixture((f) {
+      final peer = _id(2);
+      f.hear(peer);
+      final id = f.queueControl(peer);
+      final attempts = [f.clock];
+      for (var i = 0; i < 20; i++) {
+        f.advanceNudgeClock();
+        f.hear(peer);
+        f.finish(f.service.flushOutbox());
+        if (f.frameCopies(id) > attempts.length) attempts.add(f.clock);
+        expect(
+          f.frameCopies(id),
+          attempts.length,
+          reason: 'a nudge must never emit multiple copies',
+        );
+      }
+      expect(
+        attempts,
+        hasLength(4),
+        reason: 'the fixture must exercise several ladder steps',
+      );
+      for (var i = 1; i < attempts.length; i++) {
+        expect(
+          attempts[i].difference(attempts[i - 1]),
+          greaterThanOrEqualTo(Duration(seconds: 10 * (1 << (i - 1)))),
+        );
+      }
+      expect(f.time.elapsed, Duration.zero);
+    }),
+  );
+
+  test(
+    'a deferred control nudge is peer scoped and cancelled by ACK',
+    () => _withFixture((f) {
+      final peer = _id(2), other = _id(3);
+      f.hear(peer);
+      f.hear(other);
+      final start = f.clock;
+      final id = f.queueControl(peer), otherId = f.queueControl(other);
+      f.advanceNudgeClock();
+      f.hear(peer);
+      f.transport.inbound.add(
+        InboundMessage(
+          src: peer,
+          provenance: SenderProvenance.sessionPeer,
+          payload: WireEnvelope.ack(id).encode(),
+        ),
+      );
+      f.drain();
+      expect(
+        f.finish(f.storage.pendingOutboxFrames()).map((row) => row.frameId),
+        [otherId],
+        reason: 'the ACK must retire the actual durable row',
+      );
+      f.clock = start.add(const Duration(seconds: 10));
+      f.finish(f.service.flushOutbox());
+      expect(f.frameCopies(id), 1, reason: 'no deferred copy after ACK');
+      expect(f.frameCopies(otherId), 1, reason: 'no nudge for the other peer');
+      expect(f.time.elapsed, Duration.zero);
+    }),
+  );
+
   test(
     'authenticated activity cannot consume the direct-route retry nudge',
     () => _withFixture((f) {

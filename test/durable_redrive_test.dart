@@ -709,11 +709,12 @@ void main() {
       clock = DateTime.now().add(const Duration(days: 40));
       final mA2 = MessagingService(tA, sA, now: () => clock)
         ..isOwnDevice = (p) async => p == device;
+      int old() => tA.sentFrameIds.where((f) => f.startsWith('test:old:')).length;
+      // Startup cleanup also flushes: count its probe, not just later ticks.
+      final before = old();
       mA2.start();
       addTearDown(mA2.dispose);
       await _settle();
-      int old() => tA.sentFrameIds.where((f) => f.startsWith('test:old:')).length;
-      final before = old();
       for (var i = 0; i < 10; i++) {
         clock = clock.add(const Duration(minutes: 1));
         await mA2.flushOutbox();
@@ -1027,6 +1028,12 @@ void main() {
           ..start();
         final mSlowB = MessagingService(tSlowB, sSlowB, now: () => clock)
           ..start();
+        var acceptedOffers = 0;
+        // A missing call consumer intentionally owes no receipt. This race
+        // needs a frame actually handed to its consumer before persistence.
+        mSlowB.onCallSignal = (_, signal) {
+          if (signal.callId == 'race') acceptedOffers++;
+        };
         addTearDown(mSlowA.dispose);
         addTearDown(mSlowB.dispose);
         await mSlowA.sendRequest(b, '');
@@ -1050,6 +1057,7 @@ void main() {
               'a frame the peer already confirmed must not stay pending — '
               'nothing would ever retire it again',
         );
+        expect(acceptedOffers, 1, reason: 'the frame was actually dispatched');
       },
     );
 
@@ -1101,6 +1109,10 @@ void main() {
     /// shape the outbox was already measured producing: bursts of about 175
     /// sends a second, each one a radio wake and a lookup.
     test('a restart drains the queue over passes, not in one burst', () async {
+      var acceptedOffers = 0;
+      mB.onCallSignal = (_, signal) {
+        if (signal.callId.startsWith('burst-')) acceptedOffers++;
+      };
       tA.online = false;
       for (var i = 0; i < 40; i++) {
         await mA.sendCallSignal(
@@ -1140,6 +1152,9 @@ void main() {
       // And the rest is not stranded: the next pass takes the next slice.
       final afterFirst = (await sA.pendingOutboxFrames()).length;
       expect(afterFirst, lessThan(40), reason: 'the first slice went out');
+      expect(acceptedOffers, greaterThan(0),
+          reason: 'a consumer must accept the slice before ACK retires it');
+      expect(acceptedOffers, lessThan(40), reason: 'the slice remains bounded');
       clock = clock.add(const Duration(seconds: 21));
       tA.sent = 0;
       await mA2.flushOutbox();
@@ -1596,6 +1611,14 @@ void main() {
       await sA.removeConversation(b); // relationship torn down locally
       tA.online = true;
       clock = clock.add(const Duration(seconds: 21));
+      await flushA();
+
+      // Expiry replaces the erased body with a sequence-only placeholder.
+      // This pass owns the old snapshot; the next pass owns the replacement
+      // and can retire it with the now-removed relationship.
+      final replacement = await sA.pendingOutboxFrames();
+      expect(replacement, hasLength(1));
+      expect(WireEnvelope.decode(replacement.single.wire).kind, WireKind.voidSeq);
       await flushA();
 
       expect(
