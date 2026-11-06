@@ -1,6 +1,20 @@
 # Открытые случаи — обновлено 2026-11-06
 
-Последний контроль: [handover с двумя QA-реле](../two-relay-handover-2026-11-06/README.md).
+Последнее исправление: [потеря reconnect wake](../reconnect-wake-gap-2026-11-06/README.md),
+Veil `aa51cc13`. Смена сети/gain между отказом dial и созданием retry-wait
+могла теряться; обе ветки assertion-red на базе. Подписки теперь живут весь
+проход connector, собственный gain не снимает refusal pause (отдельный
+настоящий handshake и mutation-red). Runtime 810 unit + 8 integration passed,
+11 unit / 2 doc ignored; FFI 397 passed / 11 ignored, отдельный child 1 passed,
+5 doc ignored. **NETCALL-01 открыт:** [новая физическая серия](../reconnect-wake-physical-2026-11-06/README.md)
+на этой SDK снова теряет звонок на Mac через 23,379 с после команды Wi-Fi off,
+с `livenessTimeout` до cleanup. Два отдельных новых звонка прошли; после off
+пять свежих двусторонних RX-срезов лишь за 18,397 с. Второй запланированный
+network-cut цикл не выполнен. Два 10-с incomplete Read с unacked первой
+TCP-посылкой остаются транспортным свидетельством, не полной атрибуцией.
+QA/production проверены при очистке; push/релиза нет.
+
+Предыдущий контроль: [handover с двумя QA-реле](../two-relay-handover-2026-11-06/README.md).
 Тот же SDK `29ee0700`, изменены только QA seed assets. Оба клиента реально
 active на обоих Core до звонка. Один Mac → Poco разговор пережил три цикла
 Wi-Fi/cellular/Wi-Fi, media epoch 1 обоих не менялся, последние пять срезов

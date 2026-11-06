@@ -1,0 +1,145 @@
+{
+  "schema": "xveil-validation/reconnect-wake-gap/1",
+  "sdkCommit": "aa51cc131c6939d09541889c573aac90ef02c78b",
+  "baseline": {
+    "exitCode": 101,
+    "externalMountVerified": true,
+    "externalMountLost": false,
+    "results": [
+      {
+        "passed": 2,
+        "failed": 2,
+        "ignored": 0,
+        "measured": 0,
+        "filtered": 816
+      }
+    ]
+  },
+  "selfGainControl": {
+    "exitCode": 0,
+    "externalMountVerified": true,
+    "externalMountLost": false,
+    "results": [
+      {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "measured": 0,
+        "filtered": 820
+      },
+      {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0,
+        "measured": 0,
+        "filtered": 3
+      },
+      {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0,
+        "measured": 0,
+        "filtered": 3
+      },
+      {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 0,
+        "measured": 0,
+        "filtered": 2
+      }
+    ]
+  },
+  "selfGainMutation": {
+    "exitCode": 101,
+    "externalMountVerified": true,
+    "externalMountLost": false,
+    "results": [
+      {
+        "passed": 0,
+        "failed": 1,
+        "ignored": 0,
+        "measured": 0,
+        "filtered": 820
+      }
+    ]
+  },
+  "runtime": {
+    "exitCode": 0,
+    "externalMountVerified": true,
+    "externalMountLost": false,
+    "results": [
+      {
+        "passed": 810,
+        "failed": 0,
+        "ignored": 11,
+        "measured": 0,
+        "filtered": 0
+      },
+      {
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0,
+        "measured": 0,
+        "filtered": 0
+      },
+      {
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0,
+        "measured": 0,
+        "filtered": 0
+      },
+      {
+        "passed": 2,
+        "failed": 0,
+        "ignored": 0,
+        "measured": 0,
+        "filtered": 0
+      },
+      {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 2,
+        "measured": 0,
+        "filtered": 0
+      }
+    ]
+  },
+  "ffi": {
+    "exitCode": 0,
+    "externalMountVerified": true,
+    "externalMountLost": false,
+    "results": [
+      {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "measured": 0,
+        "filtered": 407
+      },
+      {
+        "passed": 397,
+        "failed": 0,
+        "ignored": 11,
+        "measured": 0,
+        "filtered": 0
+      },
+      {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 5,
+        "measured": 0,
+        "filtered": 0
+      }
+    ]
+  },
+  "timingThresholdUsedForProperty": false,
+  "physicalQualification": {
+    "newSdkBuiltAndLoaded": true,
+    "netcallFailureReproduced": true,
+    "abComparison": false
+  },
+  "netcallClosed": false,
+  "pushOrRelease": false
+}
