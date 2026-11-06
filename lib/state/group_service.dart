@@ -88,6 +88,7 @@ import '../domain/space_rules.dart';
 import '../data/transport/bootstrap_invite.dart';
 import '../data/node/space_discovery_transport.dart';
 import '../data/storage/storage.dart';
+import 'committed_device_events.dart';
 import 'group_crypto.dart';
 import 'group_epoch_service.dart';
 import 'space_observability.dart';
@@ -19467,9 +19468,11 @@ class GroupService implements ArchiveGroups {
       // looking infrastructure group and drive sync apply side effects.
       if (adoptedDeviceGroup) {
         var streamed = 0;
-        final committedHashes = {
-          for (final m in committed.messages) _messageHash(m),
-        };
+        final committedHashes = committedDeviceEventHashes(
+          committed.messages,
+          fresh,
+          hashMessage: _messageHash,
+        );
         for (final m in fresh) {
           if (!committedHashes.contains(_messageHash(m))) continue;
           final materialized = await _materializeEncryptedMessage(committed, m);
