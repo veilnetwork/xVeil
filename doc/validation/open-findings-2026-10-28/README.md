@@ -1,6 +1,19 @@
 # Открытые случаи — обновлено 2026-11-06
 
-Последнее исправление: [потеря reconnect wake](../reconnect-wake-gap-2026-11-06/README.md),
+Последнее изменение: [ограниченный backup obfs4](../obfs4-backup-2026-11-06/README.md),
+Veil `dd6129b0`. Pending handshake через 1 с получает один запасной
+transport-кандидат в пределах прежнего общего 10-с deadline; fast path,
+обе auth-проверки, отмена и предел двух попыток покрыты. Transport
+171 unit + 5 smoke + 2 doc; runtime 810 unit + 8 integration; FFI 397,
+пропуски отдельно в отчёте. Diagnostic privacy: Dart 19 + Python 1.
+Реальный Mac/FFI/embedded node прошёл controlled blackhole первого flow:
+выбран backup, primary закрыт через 1,316 с, exact Mac transport active
+на изолированном Core. **Poco исчез до установки; звонков на новой SDK нет.**
+Это не A/B (другой QA host), не устранение зависания уже установленного TCP
+и не закрытие NETCALL-01. Готовые обе FFI/APK сохранены; стенд очищен,
+production прежний, push/релиза нет.
+
+Предыдущее исправление: [потеря reconnect wake](../reconnect-wake-gap-2026-11-06/README.md),
 Veil `aa51cc13`. Смена сети/gain между отказом dial и созданием retry-wait
 могла теряться; обе ветки assertion-red на базе. Подписки теперь живут весь
 проход connector, собственный gain не снимает refusal pause (отдельный

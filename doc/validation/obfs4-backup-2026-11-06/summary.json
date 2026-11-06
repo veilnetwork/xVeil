@@ -1,0 +1,182 @@
+{
+  "schema": "xveil-validation/obfs4-backup/1",
+  "sdkCommit": "dd6129b04d1a3b8fd57dcb5e116fa7298f26e70d",
+  "policy": {
+    "backupDelayMs": 1000,
+    "maxConcurrentTransportCandidates": 2,
+    "sharedHandshakeDeadlineMs": 10000,
+    "noDetachedTasks": true,
+    "wireRoleAdded": false
+  },
+  "legacySingleAttemptCharacterization": {
+    "exitCode": 101,
+    "externalMountVerified": true,
+    "externalMountLost": false,
+    "counts": [
+      {
+        "passed": 2,
+        "failed": 4,
+        "ignored": 0
+      }
+    ]
+  },
+  "transportTests": {
+    "exitCode": 0,
+    "externalMountVerified": true,
+    "externalMountLost": false,
+    "counts": [
+      {
+        "passed": 171,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 5,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 2,
+        "failed": 0,
+        "ignored": 0
+      }
+    ]
+  },
+  "runtimeAndFfi": {
+    "exitCode": 0,
+    "externalMountVerified": true,
+    "externalMountLost": false,
+    "counts": [
+      {
+        "passed": 810,
+        "failed": 0,
+        "ignored": 11
+      },
+      {
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 2,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 397,
+        "failed": 0,
+        "ignored": 11
+      },
+      {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 2
+      },
+      {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 5
+      }
+    ]
+  },
+  "diagnosticJournalPassed": 19,
+  "diagnosticArtifactCanaryPassed": 1,
+  "builds": {
+    "mac": {
+      "exit_code": 0,
+      "external_mount_lost": false,
+      "seconds": 117.448,
+      "external_mount_verified": true
+    },
+    "android": {
+      "exit_code": 0,
+      "external_mount_lost": false,
+      "seconds": 122.5,
+      "external_mount_verified": true
+    }
+  },
+  "physical": {
+    "scope": "controlled Mac embedded-node dial via loopback blackhole proxy to isolated QA Core",
+    "qaCoreCommit": "ade3130a",
+    "qaHostChanged": true,
+    "abComparison": false,
+    "selectedFirstGroup": [
+      {
+        "outcome": "linked",
+        "elapsedMs": 0,
+        "writtenBytes": 0,
+        "readBytes": 0,
+        "candidate": "primary"
+      },
+      {
+        "outcome": "linked",
+        "elapsedMs": 0,
+        "writtenBytes": 0,
+        "readBytes": 0,
+        "candidate": "backup"
+      },
+      {
+        "outcome": "complete",
+        "elapsedMs": 314,
+        "writtenBytes": 148,
+        "readBytes": 122,
+        "candidate": "backup"
+      },
+      {
+        "outcome": "incomplete",
+        "elapsedMs": 1316,
+        "writtenBytes": 86,
+        "readBytes": 0,
+        "candidate": "primary"
+      },
+      {
+        "outcome": "selected",
+        "elapsedMs": 314,
+        "writtenBytes": 148,
+        "readBytes": 122,
+        "candidate": "backup"
+      }
+    ],
+    "backupFlowAcceptedAfterFirstMs": 1000.18,
+    "heldPrimaryClosedAfterFirstMs": 1314.828,
+    "firstFlowSentBytes": 86,
+    "exactMacTransportActiveAtCore": true,
+    "mobilePhoneTested": false,
+    "phoneInstallStarted": false,
+    "phoneAbsentFromAdbAndUsb": true,
+    "callsTested": 0,
+    "humanAudioChecked": false,
+    "pcap": {
+      "flows": 27,
+      "packets": 903,
+      "clientPayloadFlows": 14,
+      "payloadWithoutServerResponse": 0,
+      "dataRetransmissions": 0
+    },
+    "pcapKernelDrops": 0,
+    "captureStoppedBeforeBound": true,
+    "noAttributionOfPayloadlessFlowsAsNetworkLoss": true
+  },
+  "cleanup": {
+    "macAndProxyExited": true,
+    "runtimeDirsRemoved": true,
+    "ownPortsReleased": true,
+    "qaCoreAndCaptureRemoved": true,
+    "productionUnchanged": true,
+    "qaBootstrapRestored": true,
+    "macBundleSignatureVerified": true,
+    "ownPackagingBytesRemoved": 153302943
+  },
+  "netcallClosed": false,
+  "pushOrRelease": false
+}
