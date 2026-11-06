@@ -1,0 +1,114 @@
+{
+  "schema": "xveil-obfs-first-flight-validation/1",
+  "clientSdk": "29ee0700",
+  "coreSdk": "ade3130a",
+  "actualCallTransport": "non-onion Delivery relay",
+  "newDiagnosticWitnessedOnBothClients": true,
+  "macExternalFfiMappingVerified": true,
+  "aotMediaAndHiddenVolumeUnchanged": true,
+  "bothCapiExportsUnchangedCount": 208,
+  "physical": {
+    "direction": "Mac to Poco",
+    "p2pDeniedOnBoth": true,
+    "initialBidirectionalNativeRxPassed": true,
+    "cycles": [
+      {
+        "cycle": 1,
+        "wifiOffSeconds": 35.311,
+        "maxNativeRxAgeMs": {
+          "phone": 1202,
+          "mac": 1418
+        },
+        "observedCallLost": false
+      },
+      {
+        "cycle": 2,
+        "wifiOffSeconds": 35.831,
+        "maxNativeRxAgeMs": {
+          "phone": 1151,
+          "mac": 1582
+        },
+        "observedCallLost": false
+      },
+      {
+        "cycle": 3,
+        "wifiOffSeconds": 35.613,
+        "maxNativeRxAgeMs": {
+          "phone": 9665,
+          "mac": 10095
+        },
+        "observedCallLost": true,
+        "callStateLostSecondsAfterCut": 35.896
+      }
+    ],
+    "terminalCauseBoth": "livenessTimeout",
+    "harnessEndedBeforeTerminalEvent": false,
+    "humanAudibilityVerified": false,
+    "abComparison": false
+  },
+  "canonicalHandshake": {
+    "outcome": "incomplete",
+    "phase": "Read",
+    "elapsedMs": 10001,
+    "writtenBytes": 171,
+    "readBytes": 0,
+    "queuedBytes": 171,
+    "notsentBytes": 0,
+    "unackedPackets": 1,
+    "retransmittedPackets": 4,
+    "tcpNodelay": true,
+    "sendMssBytes": 1024,
+    "outerObfsTimeoutAfterObservationMs": 1,
+    "phoneCallEndAfterOuterTimeoutSeconds": 4.786
+  },
+  "qaHandshakeObservations": {
+    "phoneIncompleteCount": 31,
+    "allPhaseRead": true,
+    "allUnackedOnePacket": true,
+    "longCanonicalTimeoutCount": 1,
+    "remainingIncompleteMustNotBeTreatedAsCanonicalFailures": true
+  },
+  "relayCapture": {
+    "packets": 23868,
+    "kernelDroppedPackets": 0,
+    "flows": 112,
+    "clientPayloadFlows": 80,
+    "payloadFlowsWithoutServerResponse": 0,
+    "serverFirstResponseMinMs": 0.261,
+    "serverFirstResponseMaxMs": 1.233
+  },
+  "correlation": {
+    "completedPortAndTimeMatches": 33,
+    "allMatchedCompletedFirstFlightLengthsAgree": true,
+    "failedMobilePortMatches": 0,
+    "natMappingUnproven": true,
+    "sameClockOffsetConstraintPairs": 33,
+    "clockOffsetIntersectionWidthMs": 49.346,
+    "canonicalSynTimeWindowCandidateCount": 1,
+    "candidateClientPayloadPackets": 0,
+    "exactCanonicalFlowBindingProven": false
+  },
+  "rootCauseBoundaries": {
+    "sdkBeforeSocketWriteWaitExcludedForCanonicalTimeout": true,
+    "tcpHandoffToPhysicalNicDeliveryProven": false,
+    "specificOsModemNatOrNetworkHopIdentified": false,
+    "dpiProven": false,
+    "singleHandshakeExplainsEntireCallGapProven": false
+  },
+  "netcallClosed": false,
+  "newBehavioralFixInThisCycle": false,
+  "newObserverPhysicallyQualified": true,
+  "cleanup": {
+    "qaApkRestoredBySha": true,
+    "normalApkAndOldQaContainerUnchangedBySha": true,
+    "phoneSettingsPriorPoliciesAndValidatedWifiRestored": true,
+    "ownAppsAndCollectorExited": true,
+    "ownForwardRuntimeAndCollectorScriptRemoved": true,
+    "ownCoreAndCaptureStoppedAndRemoved": true,
+    "productionPidExecutableConfigRestartsUnchanged": true,
+    "originalMacBundleSignatureReverified": true,
+    "ownPackagingIntermediatesRemovedBytes": 161091938
+  },
+  "push": false,
+  "release": false
+}
