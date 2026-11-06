@@ -1,0 +1,229 @@
+{
+  "schema": "xveil-test-history-local-encoding/1",
+  "sourceBaseline": "8e83dad3",
+  "fixture": {
+    "platform": "macOS",
+    "host": "JIT/provider",
+    "clientProcesses": 3,
+    "identities": 2,
+    "loopbackCores": 3,
+    "sourceRows": 2000,
+    "pollAboutMs": 5000,
+    "phoneUsed": false,
+    "cpuOrVmProfilingEnabled": false
+  },
+  "change": {
+    "pageRowCap": 32,
+    "pageByteCap": 131072,
+    "sliceBytes": 2048,
+    "freshRosterReadBeforePageEncoding": true,
+    "freshRosterReadBeforeEachReplyPart": true,
+    "freshRosterReadBeforeInlineContentPreparation": true,
+    "bindingCheckedBeforeAndAfterEveryEncodedRow": true,
+    "rosterCacheAdded": false
+  },
+  "tests": {
+    "relatedPassed": 92,
+    "skipped": 0,
+    "baselineExtraReadsAssertionRed": true,
+    "finalPartAuthorizationMutationAssertionRed": true,
+    "intermediateInlinePreparationAssertionRed": true
+  },
+  "scenario": {
+    "migrationOnly": true,
+    "baseRows": 2000,
+    "initialHistoryMs": 75600,
+    "initialCountCompleteMs": 75600,
+    "initialOrderMismatchObservations": 0,
+    "initialPositionMismatchObservations": 0,
+    "initialPositionsCompared": true,
+    "initialBStatuses": {
+      "sending": 0,
+      "sent": 0,
+      "delivered": 2000,
+      "failed": 0
+    },
+    "completedHistoryRetries": 0,
+    "convergedIdsAndOrder": true,
+    "invalidSnapshotObserved": false,
+    "offlineScenarioExecuted": false,
+    "receiverCrashRequested": true,
+    "receiverCrashPerformed": true,
+    "crashAfterRows": 500,
+    "rowsBeforeCrash": 623,
+    "crashExitCode": -9,
+    "rowsAtRestartBeforeNetwork": 623,
+    "crashAtMs": 5228,
+    "restartReadyAtMs": 12867,
+    "retainedWithoutSources": true,
+    "crashRetentionBeforeNetwork": {
+      "passed": true,
+      "expectedRows": 623,
+      "actualRows": 623,
+      "retainedExpectedRows": 623,
+      "missingExpectedRows": 0,
+      "unexpectedRows": 0,
+      "duplicateExpectedRows": 0,
+      "duplicateActualRows": 0,
+      "invalidExpectedRows": 0,
+      "invalidActualRows": 0,
+      "expectedDeliveredRows": 623,
+      "retainedDeliveredRows": 623,
+      "expectedCanonicalRows": 573,
+      "retainedCanonicalRows": 573,
+      "expectedBodyRows": 623,
+      "retainedBodyRows": 623
+    },
+    "finalRetentionBeforeNetwork": {
+      "passed": true,
+      "expectedRows": 2000,
+      "actualRows": 2000,
+      "retainedExpectedRows": 2000,
+      "missingExpectedRows": 0,
+      "unexpectedRows": 0,
+      "duplicateExpectedRows": 0,
+      "duplicateActualRows": 0,
+      "invalidExpectedRows": 0,
+      "invalidActualRows": 0,
+      "expectedDeliveredRows": 2000,
+      "retainedDeliveredRows": 2000,
+      "expectedCanonicalRows": 2000,
+      "retainedCanonicalRows": 2000,
+      "expectedBodyRows": 2000,
+      "retainedBodyRows": 2000
+    },
+    "sourcesOfflineAtReceiverRestart": true,
+    "rowsWithSourcesOffline": 623,
+    "sourceRestartReadyAtMs": 24359,
+    "onlySourceAReturned": true,
+    "storageTimingResetBeforeLink": [
+      "A",
+      "B"
+    ]
+  },
+  "recoveryAfterSourceStartReturnedMs": 51241,
+  "wire": {
+    "afterSourceARestartOnly": true,
+    "uniqueRequestIds": 44,
+    "qualifiedUnrepeatedCompletePairs": 43,
+    "excluded": {
+      "repeatedQueryIds": 1
+    },
+    "operationCounts": {
+      "page": 42,
+      "list": 1
+    },
+    "pageQueryToLastPart": {
+      "samples": 42,
+      "minimumUs": 124783,
+      "medianUs": 142477.5,
+      "maximumUs": 1074097
+    },
+    "nextQueryAfterLastPart": {
+      "samples": 42,
+      "minimumUs": 520889,
+      "medianUs": 547369.0,
+      "maximumUs": 1170991
+    }
+  },
+  "ownDevicesLookupCensus": {
+    "A": {
+      "count": 888,
+      "awaitUs": 10339081,
+      "maxAwaitUs": 195051,
+      "startedBeforeWindow": 0
+    },
+    "B": {
+      "count": 3737,
+      "awaitUs": 36112467,
+      "maxAwaitUs": 175059,
+      "startedBeforeWindow": 0
+    }
+  },
+  "historyCallbacks": {
+    "A": {
+      "historyEncode": 1343,
+      "historyApply": 188
+    },
+    "B": {
+      "historyEncode": 188,
+      "historyApply": 1343
+    }
+  },
+  "previousReference": {
+    "rowsBeforeCrash": 815,
+    "initialHistoryMs": 121539,
+    "recoveryAfterSourceStartReturnedMs": 87015,
+    "wire": {
+      "afterSourceARestartOnly": true,
+      "uniqueRequestIds": 62,
+      "qualifiedUnrepeatedCompletePairs": 61,
+      "excluded": {
+        "repeatedQueryIds": 1
+      },
+      "operationCounts": {
+        "page": 60,
+        "list": 1
+      },
+      "pageQueryToLastPart": {
+        "samples": 60,
+        "minimumUs": 179433,
+        "medianUs": 447612.0,
+        "maximumUs": 1558447
+      },
+      "nextQueryAfterLastPart": {
+        "samples": 60,
+        "minimumUs": 282715,
+        "medianUs": 591077.0,
+        "maximumUs": 1354788
+      }
+    },
+    "ownDevicesLookupCensus": {
+      "A": {
+        "count": 4303,
+        "awaitUs": 43049335,
+        "maxAwaitUs": 528243,
+        "startedBeforeWindow": 0
+      },
+      "B": {
+        "count": 5950,
+        "awaitUs": 62187005,
+        "maxAwaitUs": 187179,
+        "startedBeforeWindow": 0
+      }
+    }
+  },
+  "qualification": {
+    "exit_code": 0,
+    "seconds": 266.686,
+    "sourceUnchangedDuringRun": true,
+    "qualificationPassed": true,
+    "diagnosticProfilingEnabled": false,
+    "qualificationKind": "crash-and-offline-source-recovery"
+  },
+  "cleanup": {
+    "ownedPidsChecked": 27,
+    "portsChecked": 27,
+    "livePids": [],
+    "remainingListeners": [],
+    "runtimeRootRemoved": true,
+    "frozenFilesVerified": 1506,
+    "nativeArtifactsUnchanged": true,
+    "hiddenVolumeUnchanged": true,
+    "sdkClean": true,
+    "portsReusedByOtherPids": 0
+  },
+  "osMappings": {
+    "selectedLibraryWorkersAfterCrashAndSourceOfflineMarker": 2
+  },
+  "limits": {
+    "differentCrashPointThanPreviousReference": true,
+    "controlledOverallSpeedupClaimed": false,
+    "cumulativeAwaitIsExclusiveWallTime": false,
+    "mobileHandoverQualified": false,
+    "hoursOrDaysOfflineQualified": false,
+    "allCrashStagesQualified": false,
+    "mailboxForOwnDevicesAdded": false,
+    "releaseOrPush": false
+  }
+}
