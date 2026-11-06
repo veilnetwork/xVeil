@@ -1,0 +1,164 @@
+{
+  "schema": "xveil-test-history-crash-retention/1",
+  "baselineRoot": "ba1ff89a",
+  "productionCodeChanged": false,
+  "fixture": {
+    "platform": "macOS",
+    "host": "JIT/provider",
+    "clientProcesses": 3,
+    "identities": 2,
+    "loopbackCores": 3,
+    "sourceRows": 2000,
+    "pollAboutMs": 5000,
+    "phoneUsed": false,
+    "cpuOrVmProfilingEnabled": false
+  },
+  "scenario": {
+    "migrationOnly": true,
+    "baseRows": 2000,
+    "initialHistoryMs": 121539,
+    "initialCountCompleteMs": 121539,
+    "initialOrderMismatchObservations": 0,
+    "initialPositionMismatchObservations": 0,
+    "initialPositionsCompared": true,
+    "initialBStatuses": {
+      "sending": 0,
+      "sent": 0,
+      "delivered": 2000,
+      "failed": 0
+    },
+    "completedHistoryRetries": 0,
+    "convergedIdsAndOrder": true,
+    "invalidSnapshotObserved": false,
+    "offlineScenarioExecuted": false,
+    "receiverCrashRequested": true,
+    "receiverCrashPerformed": true,
+    "crashAfterRows": 500,
+    "rowsBeforeCrash": 815,
+    "crashExitCode": -9,
+    "rowsAtRestartBeforeNetwork": 815,
+    "crashAtMs": 10332,
+    "restartReadyAtMs": 22603,
+    "retainedWithoutSources": true,
+    "crashRetentionBeforeNetwork": {
+      "passed": true,
+      "expectedRows": 815,
+      "actualRows": 815,
+      "retainedExpectedRows": 815,
+      "missingExpectedRows": 0,
+      "unexpectedRows": 0,
+      "duplicateExpectedRows": 0,
+      "duplicateActualRows": 0,
+      "invalidExpectedRows": 0,
+      "invalidActualRows": 0,
+      "expectedDeliveredRows": 815,
+      "retainedDeliveredRows": 815,
+      "expectedCanonicalRows": 765,
+      "retainedCanonicalRows": 765,
+      "expectedBodyRows": 815,
+      "retainedBodyRows": 815
+    },
+    "finalRetentionBeforeNetwork": {
+      "passed": true,
+      "expectedRows": 2000,
+      "actualRows": 2000,
+      "retainedExpectedRows": 2000,
+      "missingExpectedRows": 0,
+      "unexpectedRows": 0,
+      "duplicateExpectedRows": 0,
+      "duplicateActualRows": 0,
+      "invalidExpectedRows": 0,
+      "invalidActualRows": 0,
+      "expectedDeliveredRows": 2000,
+      "retainedDeliveredRows": 2000,
+      "expectedCanonicalRows": 2000,
+      "retainedCanonicalRows": 2000,
+      "expectedBodyRows": 2000,
+      "retainedBodyRows": 2000
+    },
+    "sourcesOfflineAtReceiverRestart": true,
+    "rowsWithSourcesOffline": 815,
+    "sourceRestartReadyAtMs": 34524,
+    "onlySourceAReturned": true,
+    "storageTimingResetBeforeLink": [
+      "A",
+      "B"
+    ]
+  },
+  "recoveryAfterSourceStartReturnedMs": 87015,
+  "wire": {
+    "afterSourceARestartOnly": true,
+    "uniqueRequestIds": 62,
+    "qualifiedUnrepeatedCompletePairs": 61,
+    "excluded": {
+      "repeatedQueryIds": 1
+    },
+    "operationCounts": {
+      "page": 60,
+      "list": 1
+    },
+    "pageQueryToLastPart": {
+      "samples": 60,
+      "minimumUs": 179433,
+      "medianUs": 447612.0,
+      "maximumUs": 1558447
+    },
+    "nextQueryAfterLastPart": {
+      "samples": 60,
+      "minimumUs": 282715,
+      "medianUs": 591077.0,
+      "maximumUs": 1354788
+    }
+  },
+  "ownDevicesLookupCensus": {
+    "A": {
+      "count": 4303,
+      "awaitUs": 43049335,
+      "maxAwaitUs": 528243,
+      "startedBeforeWindow": 0
+    },
+    "B": {
+      "count": 5950,
+      "awaitUs": 62187005,
+      "maxAwaitUs": 187179,
+      "startedBeforeWindow": 0
+    }
+  },
+  "tests": {
+    "retentionOraclePassed": 10,
+    "existingConvergenceOraclePassed": 24,
+    "skipped": 0,
+    "missingSetMutationFailed": 1
+  },
+  "qualification": {
+    "exit_code": 0,
+    "seconds": 312.334,
+    "sourceUnchangedDuringRun": true,
+    "qualificationPassed": true,
+    "diagnosticProfilingEnabled": false,
+    "qualificationKind": "crash-and-offline-source-recovery"
+  },
+  "cleanup": {
+    "ownedPidsChecked": 27,
+    "portsChecked": 26,
+    "livePids": [],
+    "remainingListeners": [],
+    "runtimeRootRemoved": true,
+    "frozenFilesVerified": 1506,
+    "nativeArtifactsUnchanged": true,
+    "hiddenVolumeUnchanged": true,
+    "sdkClean": true,
+    "portsReusedByOtherPids": 0
+  },
+  "osMappings": {
+    "selectedLibraryWorkersAfterCrashAndSourceOfflineMarker": 2
+  },
+  "limits": {
+    "allCrashStagesQualified": false,
+    "mobileHandoverQualified": false,
+    "hoursOrDaysOfflineQualified": false,
+    "newDataDeliveredWithoutSourcesClaimed": false,
+    "mailboxForOwnDevicesAdded": false,
+    "releaseOrPush": false
+  }
+}

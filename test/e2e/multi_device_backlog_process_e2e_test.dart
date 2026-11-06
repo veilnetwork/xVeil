@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:crypto/crypto.dart' show sha256;
 
 import 'device_process_fixture.dart';
 import 'e2e_env.dart';
@@ -17,6 +18,13 @@ bool _observedInvalidSnapshot = false;
 final _statuses = <String, Map<String, int>>{};
 final _storageTimings = <String, Map<String, dynamic>>{};
 final _positions = <String, Map<String, Map<String, dynamic>>>{};
+final _bodyTags = <String, Map<String, String>>{};
+bool get _crashRequested =>
+    (int.tryParse(
+          Platform.environment['XVEIL_E2E_MIGRATION_CRASH_AFTER_ROWS'] ?? '0',
+        ) ??
+        0) >
+    0;
 bool get _withPositions =>
     Platform.environment['XVEIL_E2E_STORAGE_POSITIONS'] == '1';
 
@@ -45,6 +53,7 @@ Future<List<String>> _ids(
       'bodyPrefix': bodyPrefix,
       'includeIds': true,
       if (_withPositions) 'includePositions': true,
+      if (_crashRequested) 'includeRows': true,
       if (Platform.environment['XVEIL_E2E_STORAGE_TIMING'] == '1') ...{
         'storageTiming': true,
         'resetStorageTiming': resetStorageTiming,
@@ -62,6 +71,19 @@ Future<List<String>> _ids(
       if (value['nonce'] != nonce) return false;
       ids = List<String>.from(value['ids'] as List);
       count = value['count'] as int;
+      if (_crashRequested) {
+        final rows = value['rows'] as List;
+        _bodyTags[device.label] = {
+          for (final row in rows)
+            row['id'] as String: sha256
+                .convert(utf8.encode(row['body'] as String))
+                .toString(),
+        };
+        if (rows.length != ids!.length ||
+            _bodyTags[device.label]!.length != rows.length) {
+          _observedInvalidSnapshot = true;
+        }
+      }
       if (_withPositions) {
         final raw = Map<String, dynamic>.from(value['positions'] as Map);
         expect(raw, hasLength(count!));
@@ -90,6 +112,58 @@ Future<List<String>> _ids(
   return ids!;
 }
 
+// The witness is private, controller-owned fixture data. The boot inspector
+// compares exact IDs before creating a node and publishes only fixed counts.
+Future<({int witness, int canonicalRows})> _writeCrashWitness(
+  ProcessDevice device,
+  List<String> observed,
+  List<String> sourceIds,
+  Map<String, Map<String, dynamic>> sourcePositions,
+  Map<String, String> sourceBodyTags,
+) async {
+  expect(observed, isNotEmpty);
+  expect(observed.toSet(), hasLength(observed.length));
+  expect(_statuses[device.label]?['delivered'], observed.length);
+  final positions = _positions[device.label]!;
+  final rows = <Map<String, Object>>[];
+  var canonicalRows = 0;
+  for (final id in observed) {
+    expect(sourceBodyTags.containsKey(id), true);
+    expect(
+      _bodyTags[device.label]?[id] == sourceBodyTags[id],
+      true,
+      reason:
+          'observed source content must match before capturing durability witness',
+    );
+    final held = positions[id]!, source = sourcePositions[id]!;
+    final canonical =
+        source['orderAuthor'] is String &&
+        source['orderSeq'] is int &&
+        held['orderAuthor'] == source['orderAuthor'] &&
+        held['orderSeq'] == source['orderSeq'];
+    if (canonical) canonicalRows++;
+    rows.add({
+      'id': id,
+      'delivered': true,
+      'bodyTag': sourceBodyTags[id]!,
+      if (canonical) 'orderAuthor': source['orderAuthor'] as String,
+      if (canonical) 'orderSeq': source['orderSeq'] as int,
+    });
+  }
+  final witness = ++_request;
+  final file = File('${device.dir.path}/crash-witness.new');
+  await file.writeAsString(
+    jsonEncode({
+      'witness': witness,
+      'allowedIds': sourceIds,
+      'expectedRows': rows,
+    }),
+    flush: true,
+  );
+  await file.rename('${device.dir.path}/crash-witness.json');
+  return (witness: witness, canonicalRows: canonicalRows);
+}
+
 void main() {
   final gate = E2eGate.read();
   final migrationOnly = Platform.environment['XVEIL_E2E_MIGRATION_ONLY'] == '1';
@@ -109,6 +183,7 @@ void main() {
       _statuses.clear();
       _storageTimings.clear();
       _positions.clear();
+      _bodyTags.clear();
       final baseRows = int.parse(
         Platform.environment['XVEIL_E2E_BACKLOG_BASE_ROWS'] ?? '2000',
       );
@@ -163,6 +238,10 @@ void main() {
         await _ids(b, ci, 'backlog-base-', resetStorageTiming: true);
       }
       final expectedPositions = _positions['A'];
+      final expectedBodyTags = _crashRequested
+          ? Map<String, String>.of(_bodyTags['A']!)
+          : const <String, String>{};
+      if (_crashRequested) expect(expectedBodyTags, hasLength(baseRows));
       if (_withPositions) expect(expectedPositions, hasLength(baseRows));
       await _positionEvidence('A', 'before-link');
       await base.linkProcesses(a, b);
@@ -174,6 +253,7 @@ void main() {
       int? rowsBeforeCrash, crashExitCode, rowsAtRestartBeforeNetwork;
       int? rowsWithSourcesOffline, sourceRestartReadyAtMs;
       int? crashAtMs, restartReadyAtMs;
+      Map<String, dynamic>? crashRetention, finalRetention;
       final crashProbe = File(
         '${Platform.environment['XVEIL_E2E_EVIDENCE_DIR']}/backlog-B-before-network-private.jsonl',
       );
@@ -231,6 +311,19 @@ void main() {
                 reason: 'a completed transfer is not a mid-sync crash',
               );
               rowsBeforeCrash = initialBCount;
+              final witness = await _writeCrashWitness(
+                b,
+                got,
+                expectedBase,
+                expectedPositions!,
+                expectedBodyTags,
+              );
+              expect(
+                witness.canonicalRows,
+                greaterThan(0),
+                reason:
+                    'partial-crash witness must exercise canonical positions',
+              );
               crashAtMs = initialHistory.elapsedMilliseconds;
               final bootsBefore = (await bootCounts()).length;
               await b.stop(crash: true);
@@ -245,6 +338,22 @@ void main() {
               final boots = await bootCounts();
               expect(boots, hasLength(bootsBefore + 1));
               final local = boots.last;
+              expect(local['witness'], witness.witness);
+              crashRetention = Map<String, dynamic>.from(
+                local['retention'] as Map,
+              );
+              expect(
+                crashRetention!['passed'],
+                true,
+                reason: jsonEncode(crashRetention),
+              );
+              expect(crashRetention!['expectedRows'], rowsBeforeCrash);
+              expect(crashRetention!['expectedDeliveredRows'], rowsBeforeCrash);
+              expect(crashRetention!['expectedBodyRows'], rowsBeforeCrash);
+              expect(
+                crashRetention!['expectedCanonicalRows'],
+                witness.canonicalRows,
+              );
               rowsAtRestartBeforeNetwork = local['rows'] as int;
               expect(
                 rowsAtRestartBeforeNetwork,
@@ -302,6 +411,18 @@ void main() {
         expect(rowsAtRestartBeforeNetwork, inExclusiveRange(0, baseRows));
       }
       expect(await _ids(b, ci, 'backlog-base-'), expectedBase);
+      if (_crashRequested) {
+        expect(
+          _bodyTags['B'] == null
+              ? false
+              : expectedBodyTags.entries.every(
+                  (row) => _bodyTags['B']![row.key] == row.value,
+                ),
+          true,
+          reason:
+              'all recovered message contents must match the original source',
+        );
+      }
       final initialBStatuses = Map<String, int>.of(_statuses['B']!);
       final initialLog = await File(b.logPath).readAsString();
       expect(
@@ -350,18 +471,39 @@ void main() {
         );
         var retainedWithoutSources = false;
         if (crashAfterRows > 0) {
+          final current = await _ids(b, ci, 'backlog-base-');
+          final witness = await _writeCrashWitness(
+            b,
+            current,
+            expectedBase,
+            expectedPositions!,
+            expectedBodyTags,
+          );
+          expect(witness.canonicalRows, baseRows);
           await a.stop();
           await c.stop();
           final bootsBefore = (await bootCounts()).length;
           await b.restart();
           final boots = await bootCounts();
           expect(boots, hasLength(bootsBefore + 1));
+          expect(boots.last['witness'], witness.witness);
+          finalRetention = Map<String, dynamic>.from(
+            boots.last['retention'] as Map,
+          );
+          expect(
+            finalRetention['passed'],
+            true,
+            reason: jsonEncode(finalRetention),
+          );
+          expect(finalRetention['expectedRows'], baseRows);
+          expect(finalRetention['expectedBodyRows'], baseRows);
+          expect(finalRetention['expectedCanonicalRows'], baseRows);
           expect(boots.last['rows'], baseRows);
           expect(boots.last['uniqueIds'], baseRows);
           expect(boots.last['delivered'], baseRows);
           expect(await _ids(b, ci, 'backlog-base-'), expectedBase);
           expect(_statuses['B']?['delivered'], baseRows);
-          for (final entry in expectedPositions!.entries) {
+          for (final entry in expectedPositions.entries) {
             expect(
               _positions['B']?[entry.key]?['orderAuthor'],
               entry.value['orderAuthor'],
@@ -403,6 +545,8 @@ void main() {
                 'crashAtMs': crashAtMs,
                 'restartReadyAtMs': restartReadyAtMs,
                 'retainedWithoutSources': retainedWithoutSources,
+                'crashRetentionBeforeNetwork': crashRetention,
+                'finalRetentionBeforeNetwork': finalRetention,
                 'sourcesOfflineAtReceiverRestart': sourcesOfflineAtRestart,
                 if (sourcesOfflineAtRestart) ...{
                   'rowsWithSourcesOffline': rowsWithSourcesOffline,
