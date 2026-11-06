@@ -1,0 +1,105 @@
+{
+  "schema": "xveil-validation/retirement-integration/1",
+  "sdkCommit": "bbeaf3a9eb32c00abf95f3a1ceb7dd31696c79f1",
+  "productionFixCommit": "54c64c03",
+  "productionChangedThisCycle": false,
+  "actualTcpAndOvl1": true,
+  "firstTransportBlockedOnlyAfterHandshake": true,
+  "blockedWriteObservedBeforeNetworkChange": true,
+  "mobileForwarderUsed": true,
+  "peerEofDidNotSubstituteForRetirement": true,
+  "borrowedProducerHeld": true,
+  "redialBeforeVirtualClockAdvance": true,
+  "oldTransportDroppedBeforeRedial": true,
+  "newLiveRegistrationVerified": true,
+  "newSessionIdAndKeyVerified": true,
+  "freshWireFrameAeadVerified": true,
+  "mutationNoAbort": {
+    "exitCode": 101,
+    "externalMountVerified": true,
+    "externalMountLost": false,
+    "counts": [
+      {
+        "passed": 0,
+        "failed": 1,
+        "ignored": 0
+      }
+    ]
+  },
+  "fullRuntime": {
+    "exitCode": 0,
+    "externalMountVerified": true,
+    "externalMountLost": false,
+    "counts": [
+      {
+        "passed": 811,
+        "failed": 0,
+        "ignored": 11
+      },
+      {
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 2,
+        "failed": 0,
+        "ignored": 0
+      },
+      {
+        "passed": 0,
+        "failed": 0,
+        "ignored": 2
+      }
+    ]
+  },
+  "sameFixtureAtNegativeAndFinalQualification": true,
+  "productionRestoredByteForByte": true,
+  "fixtureCleansOnSuccessTimeoutAndPanic": true,
+  "newMobileQualification": false,
+  "netcallClosed": false,
+  "noInstallationOrRelayChanges": true,
+  "pushOrRelease": false,
+  "nativeBuilds": {
+    "mac": {
+      "sdk": "bbeaf3a9eb32c00abf95f3a1ceb7dd31696c79f1",
+      "sha256": "788315831440df34ad77f209c0ebb5ce3a3f3165aef2d58db251dd742a88072f",
+      "cApiCount": 208,
+      "cApiUnchanged": true,
+      "sessionRecompiled": true,
+      "differsFromEfe1c4ca": true,
+      "installed": false,
+      "build": {
+        "exit_code": 0,
+        "external_mount_lost": false,
+        "seconds": 107.357,
+        "external_mount_verified": true
+      },
+      "signatureVerified": true,
+      "abiUnchanged": true
+    },
+    "android": {
+      "sdk": "bbeaf3a9eb32c00abf95f3a1ceb7dd31696c79f1",
+      "sha256": "c7514988f3b14bfeb8a004103b8cf828fdf39640a74dfef5394c48eac7f1b92e",
+      "cApiCount": 208,
+      "cApiUnchanged": true,
+      "sessionRecompiled": true,
+      "differsFromEfe1c4ca": true,
+      "installed": false,
+      "build": {
+        "exit_code": 0,
+        "external_mount_lost": false,
+        "seconds": 112.127,
+        "external_mount_verified": true
+      },
+      "abiHashMarkerPresent": true,
+      "architecture": "aarch64"
+    }
+  },
+  "fixtureDirectoriesAbsentAfterRuns": true
+}
