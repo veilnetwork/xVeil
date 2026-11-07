@@ -561,7 +561,7 @@ void main() {
   });
 
   test(
-    'history preparation has four slots without publishing past a held row',
+    'history preparation fills one bounded cohort without publishing past a held row',
     () async {
       await seed(32);
       var started = 0;
@@ -583,7 +583,7 @@ void main() {
         await Future<void>(() {});
         expect(
           started,
-          4,
+          16,
           reason: 'one held row must not serialize fresh reads',
         );
         expect(await count(), 0);
@@ -600,6 +600,73 @@ void main() {
       );
       expect(bStore.postBatches, [16, 16]);
       expect(applied, 32);
+    },
+  );
+
+  test(
+    'mixed history preparation stays within the unpublished cohort budget',
+    () async {
+      await seed(32);
+      // Only B pulls: reverse reconciliation must not enter the shared hook.
+      net.drop = (from, _, body) => from == a && body['q'] != null;
+      final originals = await sa.loadMessages(peer.hex);
+      for (final row in originals.skip(8).take(8)) {
+        await sb.appendMessage(
+          Message(
+            id: row.id,
+            conversationId: row.conversationId,
+            direction: row.direction,
+            body: row.body,
+            timestamp: row.timestamp,
+            status: row.status,
+            author: identity.hex,
+            seq: 2001,
+            positionVerified: false,
+          ),
+        );
+      }
+      bStore.postBatches.clear();
+      bStore.orderingBatches.clear();
+      bStore.publicationFamilies.clear();
+      var started = 0;
+      final held = Completer<void>(), release = Completer<void>();
+      beforeApply = (event) async {
+        started++;
+        if (event.key == 'm0016') {
+          held.complete();
+          await release.future;
+        }
+      };
+      ma.start();
+      mb.start();
+      await held.future;
+      try {
+        await Future<void>(() {});
+        await Future<void>(() {});
+        // Eight posts were published, eight ordering updates remain staged.
+        // Only eight more preparations fit before the held row can settle.
+        expect(started, 24);
+        expect(await count(), 16);
+        expect(bStore.postBatches, [8]);
+        expect(bStore.orderingBatches, isEmpty);
+        expect(bStore.publicationFamilies, ['post']);
+      } finally {
+        release.complete();
+      }
+      await until(
+        () async =>
+            await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+      );
+      final received = await sb.loadMessages(peer.hex);
+      expect(
+        received.map((m) => (m.id, m.body, m.orderAuthor, m.orderSeq)),
+        originals.map((m) => (m.id, m.body, m.orderAuthor, m.orderSeq)),
+      );
+      expect(bStore.publicationFamilies, ['post', 'ordering', 'post']);
+      expect(bStore.postBatches, [8, 16]);
+      expect(bStore.orderingBatches, [8]);
+      expect(applied, 32);
+      expect(errorJournal.entries, isEmpty);
     },
   );
 
