@@ -550,5 +550,54 @@
     "TCP-only PCAP is not a capture of every overlay transport",
     "Phone update also includes prior bootstrap retry changes; no causal speedup or fix claimed",
     "No sibling mailbox enabled"
-  ]
+  ],
+  "offlineTcpFollowup": {
+    "schema": "xveil-validation/mobile-pause-tcp/1",
+    "newPhysicalTests": 0,
+    "sourceChanged": false,
+    "wholeCaptureRows": {
+      "kernel_progress": 1894,
+      "socket": 206,
+      "handshake": 1496,
+      "write_wait": 80
+    },
+    "targetNameAbsentInAndroidLog": true,
+    "conservativePauseKernelRows": 15,
+    "observedConnections": 6,
+    "queuedBytesMax": 29098,
+    "notSentBytesMax": 14423,
+    "rttUsMax": 1296024,
+    "rtoUsMax": 4064000,
+    "unackedPacketsMax": 31,
+    "allSocketsNoDelay": true,
+    "uniquePortAndLifetimeJoins": 0,
+    "unmatchedOrAmbiguousJoins": 6,
+    "packetJoins": [],
+    "limits": [
+      "TCP queue and retransmission counters do not prove NIC egress",
+      "Socket/PCAP joins do not identify the specific RTP or ordered-record source lane",
+      "Android target names are absent: signatures classify pre-existing messages",
+      "Conservative windows exclude both phone and remote clock uncertainty; no one-way delay inferred",
+      "NAT rewriting or ambiguous tuple/lifetime matches are rejected"
+    ],
+    "connectionsWithBeforeAndInsideSnapshots": 5,
+    "allFiveQueuesIncreased": true,
+    "retransmittedPacketIncreaseMin": 3,
+    "retransmittedPacketIncreaseMax": 8,
+    "pcaps": [
+      {
+        "packets": 87322,
+        "tcpLifetimes": 281,
+        "parsedToEof": true
+      },
+      {
+        "packets": 84524,
+        "tcpLifetimes": 244,
+        "parsedToEof": true
+      }
+    ],
+    "frozenInputHashesRechecked": 27,
+    "causeOfRtpPauseProved": false,
+    "blackviewUsed": false
+  }
 }
