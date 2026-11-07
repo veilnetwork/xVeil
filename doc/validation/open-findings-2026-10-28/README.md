@@ -1,5 +1,20 @@
 # Открытые случаи — обновлено 2026-11-07
 
+Последний раунд: [TCP first-flight join](../core-first-flight-2026-11-07/README.md).
+Разобран прежний захват, новых звонков нет. Все 35 post-handover TCP socket
+телефона однозначно сопоставлены с Core/PCAP; независимый tcpdump подтвердил
+каждый flow. 11 handshake успешны; у 22 закрытых незавершённых — первые байты
+приняты TCP Android, всё ещё unacked, `notsent=0`, retransmits 2–5; на Core
+прочитано 0 и в PCAP payload отсутствует. Ещё 2 клиентских исхода не наблюдались.
+Три post-close dial = шесть primary/backup socket с той же сигнатурой. Это
+локализует **неудачный reconnect**, но не объясняет начало потери медиапотока.
+Физический egress NIC телефона не захвачен; DPI/провайдер причиной не назначены.
+**NETCALL-01 открыт.** Подготовлен двух-Core контроль и QA APK с неизменными
+AOT/native/signer; только seed assets отличаются. Серверы проверены read-only,
+QA не развёрнут, APK не установлен. Один Core без P2P не квалифицирует
+production failover; Poco сейчас не виден ADB. Production/код прежние,
+push/релиза нет. Предыдущие записи относятся к своим раундам.
+
 Последний раунд: [child-pressure и потеря Core после handover](../child-pressure-2026-11-07/README.md).
 На Core — observational SDK `97dc1295`, клиенты/QA AOT неизменны (`c6699c28`).
 Четыре вызова Poco ↔ Mac на фиксированных Wi-Fi/mobile прошли с 35-с контролем;
