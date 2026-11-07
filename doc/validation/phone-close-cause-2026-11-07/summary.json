@@ -1,0 +1,554 @@
+{
+  "logicalCalls": 3,
+  "longCallDurationMs": 424103,
+  "sameLongCallForAllSixTransitions": true,
+  "phoneNewNativeTraceSeenBeforeLongCall": true,
+  "allNineStrictChecksPassed": false,
+  "strictPasses": 7,
+  "cases": [
+    {
+      "case": "wifi-control",
+      "caller": "phone",
+      "initialNetwork": "WIFI",
+      "targetNetwork": null,
+      "networkSwitchExecuted": false,
+      "passed": true,
+      "finalWindow": {
+        "phone": {
+          "allFiveFresh": true,
+          "rxCounterAdvanced": true
+        },
+        "mac": {
+          "allFiveFresh": true,
+          "rxCounterAdvanced": true
+        }
+      },
+      "endpoints": {
+        "phone": {
+          "samples": 74,
+          "freshSamples": 72,
+          "nativeRxAgeMaxMs": 376,
+          "apiErrors": 0
+        },
+        "mac": {
+          "samples": 74,
+          "freshSamples": 72,
+          "nativeRxAgeMaxMs": 392,
+          "apiErrors": 0
+        }
+      }
+    },
+    {
+      "case": "mobile-control",
+      "caller": "mac",
+      "initialNetwork": "CELLULAR",
+      "targetNetwork": null,
+      "networkSwitchExecuted": false,
+      "passed": false,
+      "finalWindow": {
+        "phone": {
+          "allFiveFresh": true,
+          "rxCounterAdvanced": true
+        },
+        "mac": {
+          "allFiveFresh": false,
+          "rxCounterAdvanced": true
+        }
+      },
+      "endpoints": {
+        "phone": {
+          "samples": 75,
+          "freshSamples": 68,
+          "nativeRxAgeMaxMs": 1360,
+          "apiErrors": 0
+        },
+        "mac": {
+          "samples": 75,
+          "freshSamples": 58,
+          "nativeRxAgeMaxMs": 4061,
+          "apiErrors": 0
+        }
+      }
+    },
+    {
+      "case": "long-baseline",
+      "caller": "phone",
+      "initialNetwork": "WIFI",
+      "targetNetwork": null,
+      "networkSwitchExecuted": false,
+      "passed": true,
+      "finalWindow": {
+        "phone": {
+          "allFiveFresh": true,
+          "rxCounterAdvanced": true
+        },
+        "mac": {
+          "allFiveFresh": true,
+          "rxCounterAdvanced": true
+        }
+      },
+      "endpoints": {
+        "phone": {
+          "samples": 78,
+          "freshSamples": 72,
+          "nativeRxAgeMaxMs": 390,
+          "apiErrors": 0
+        },
+        "mac": {
+          "samples": 78,
+          "freshSamples": 71,
+          "nativeRxAgeMaxMs": 359,
+          "apiErrors": 0
+        }
+      }
+    },
+    {
+      "case": "handover-1",
+      "caller": "phone",
+      "initialNetwork": "WIFI",
+      "targetNetwork": "CELLULAR",
+      "networkSwitchExecuted": true,
+      "passed": true,
+      "finalWindow": {
+        "phone": {
+          "allFiveFresh": true,
+          "rxCounterAdvanced": true
+        },
+        "mac": {
+          "allFiveFresh": true,
+          "rxCounterAdvanced": true
+        }
+      },
+      "endpoints": {
+        "phone": {
+          "samples": 110,
+          "freshSamples": 108,
+          "nativeRxAgeMaxMs": 1142,
+          "apiErrors": 0
+        },
+        "mac": {
+          "samples": 110,
+          "freshSamples": 108,
+          "nativeRxAgeMaxMs": 1518,
+          "apiErrors": 0
+        }
+      },
+      "observedAfterSwitchSeconds": 60
+    },
+    {
+      "case": "handover-2",
+      "caller": "phone",
+      "initialNetwork": "CELLULAR",
+      "targetNetwork": "WIFI",
+      "networkSwitchExecuted": true,
+      "passed": true,
+      "finalWindow": {
+        "phone": {
+          "allFiveFresh": true,
+          "rxCounterAdvanced": true
+        },
+        "mac": {
+          "allFiveFresh": true,
+          "rxCounterAdvanced": true
+        }
+      },
+      "endpoints": {
+        "phone": {
+          "samples": 110,
+          "freshSamples": 110,
+          "nativeRxAgeMaxMs": 487,
+          "apiErrors": 0
+        },
+        "mac": {
+          "samples": 110,
+          "freshSamples": 110,
+          "nativeRxAgeMaxMs": 313,
+          "apiErrors": 0
+        }
+      },
+      "observedAfterSwitchSeconds": 60
+    },
+    {
+      "case": "handover-3",
+      "caller": "phone",
+      "initialNetwork": "WIFI",
+      "targetNetwork": "CELLULAR",
+      "networkSwitchExecuted": true,
+      "passed": true,
+      "finalWindow": {
+        "phone": {
+          "allFiveFresh": true,
+          "rxCounterAdvanced": true
+        },
+        "mac": {
+          "allFiveFresh": true,
+          "rxCounterAdvanced": true
+        }
+      },
+      "endpoints": {
+        "phone": {
+          "samples": 108,
+          "freshSamples": 104,
+          "nativeRxAgeMaxMs": 1195,
+          "apiErrors": 0
+        },
+        "mac": {
+          "samples": 108,
+          "freshSamples": 104,
+          "nativeRxAgeMaxMs": 1641,
+          "apiErrors": 0
+        }
+      },
+      "observedAfterSwitchSeconds": 60
+    },
+    {
+      "case": "handover-4",
+      "caller": "phone",
+      "initialNetwork": "CELLULAR",
+      "targetNetwork": "WIFI",
+      "networkSwitchExecuted": true,
+      "passed": true,
+      "finalWindow": {
+        "phone": {
+          "allFiveFresh": true,
+          "rxCounterAdvanced": true
+        },
+        "mac": {
+          "allFiveFresh": true,
+          "rxCounterAdvanced": true
+        }
+      },
+      "endpoints": {
+        "phone": {
+          "samples": 107,
+          "freshSamples": 107,
+          "nativeRxAgeMaxMs": 899,
+          "apiErrors": 0
+        },
+        "mac": {
+          "samples": 107,
+          "freshSamples": 107,
+          "nativeRxAgeMaxMs": 820,
+          "apiErrors": 0
+        }
+      },
+      "observedAfterSwitchSeconds": 60
+    },
+    {
+      "case": "handover-5",
+      "caller": "phone",
+      "initialNetwork": "WIFI",
+      "targetNetwork": "CELLULAR",
+      "networkSwitchExecuted": true,
+      "passed": false,
+      "finalWindow": {
+        "phone": {
+          "allFiveFresh": true,
+          "rxCounterAdvanced": true
+        },
+        "mac": {
+          "allFiveFresh": false,
+          "rxCounterAdvanced": true
+        }
+      },
+      "endpoints": {
+        "phone": {
+          "samples": 105,
+          "freshSamples": 101,
+          "nativeRxAgeMaxMs": 1416,
+          "apiErrors": 0
+        },
+        "mac": {
+          "samples": 105,
+          "freshSamples": 98,
+          "nativeRxAgeMaxMs": 1640,
+          "apiErrors": 0
+        }
+      },
+      "observedAfterSwitchSeconds": 60
+    },
+    {
+      "case": "handover-6",
+      "caller": "phone",
+      "initialNetwork": "CELLULAR",
+      "targetNetwork": "WIFI",
+      "networkSwitchExecuted": true,
+      "passed": true,
+      "finalWindow": {
+        "phone": {
+          "allFiveFresh": true,
+          "rxCounterAdvanced": true
+        },
+        "mac": {
+          "allFiveFresh": true,
+          "rxCounterAdvanced": true
+        }
+      },
+      "endpoints": {
+        "phone": {
+          "samples": 105,
+          "freshSamples": 105,
+          "nativeRxAgeMaxMs": 376,
+          "apiErrors": 0
+        },
+        "mac": {
+          "samples": 105,
+          "freshSamples": 105,
+          "nativeRxAgeMaxMs": 375,
+          "apiErrors": 0
+        }
+      },
+      "observedAfterSwitchSeconds": 60
+    }
+  ],
+  "continuity": {
+    "phone": {
+      "samplesAfterInitialReady": 745,
+      "sameCallThroughout": true,
+      "missingCounterAfterInitialReady": 0,
+      "observedRxCounterRegressions": 0
+    },
+    "mac": {
+      "samplesAfterInitialReady": 745,
+      "sameCallThroughout": true,
+      "missingCounterAfterInitialReady": 0,
+      "observedRxCounterRegressions": 0
+    }
+  },
+  "closeCauses": {
+    "a": {
+      "wholeCaptureTerminalEvents": 32,
+      "insideLongCallConservative": 14,
+      "longCallCauses": {
+        "partial_record_expired": 8,
+        "read_error": 5,
+        "read_eof": 1
+      },
+      "clockBoundsWidthMs": 1469.773
+    },
+    "b": {
+      "wholeCaptureTerminalEvents": 51,
+      "insideLongCallConservative": 31,
+      "longCallCauses": {
+        "read_eof": 27,
+        "partial_record_expired": 2,
+        "read_error": 2
+      },
+      "clockBoundsWidthMs": 815.486
+    },
+    "phone": {
+      "wholeCaptureTerminalEvents": 56,
+      "insideLongCallConservative": 45,
+      "longCallCauses": {
+        "read_error": 31,
+        "quic_receiver_error": 4,
+        "open": 1,
+        "partial_record_expired": 7,
+        "read_eof": 2
+      },
+      "clockBoundsWidthMs": 60.949
+    }
+  },
+  "schema": "xveil-validation/phone-close-cause/1",
+  "phoneSdk": "7d34e4e5",
+  "coreSdk": "7d34e4e5",
+  "macSdk": "c6699c28",
+  "p2pGlobalPolicy": "denied",
+  "humanAudibilityChecked": false,
+  "newSourceFixClaimed": false,
+  "netcall01Status": "open",
+  "mobilePause": {
+    "networkSwitchInsideCase": false,
+    "afterInitialBidirectionalReady": true,
+    "nativeMacRxAgePeakMs": 4061,
+    "observedMacRxCounterFlatMs": 3765,
+    "phoneNativeTxCounterIncrease": 44,
+    "macNativeRxCounterIncrease": 0,
+    "bothNativeWorkersRunning": true,
+    "bothNativeWorkerStalledValues": 0,
+    "coreFrameObservations": {
+      "a": {
+        "conservativeInteriorMs": 2530,
+        "rows": [
+          {
+            "direction": "rx",
+            "source": "mac",
+            "destination": "a",
+            "count": 26
+          },
+          {
+            "direction": "tx",
+            "source": "a",
+            "destination": "phone",
+            "count": 26
+          }
+        ]
+      },
+      "b": {
+        "conservativeInteriorMs": 3185,
+        "rows": [
+          {
+            "direction": "rx",
+            "source": "mac",
+            "destination": "b",
+            "count": 35
+          },
+          {
+            "direction": "tx",
+            "source": "b",
+            "destination": "phone",
+            "count": 35
+          }
+        ]
+      },
+      "mac": {
+        "conservativeInteriorMs": 4000,
+        "rows": [
+          {
+            "direction": "rx",
+            "source": "a",
+            "destination": "mac",
+            "count": 1
+          },
+          {
+            "direction": "tx",
+            "source": "mac",
+            "destination": "a",
+            "count": 43
+          },
+          {
+            "direction": "tx",
+            "source": "mac",
+            "destination": "b",
+            "count": 39
+          }
+        ]
+      }
+    },
+    "coreDecoderWindows": {
+      "a": {
+        "windows": 9,
+        "counts": {
+          "datagrams": 0,
+          "fragments_pending": 0,
+          "decode_rejected": 0,
+          "ineligible": 0,
+          "dispatched": 0,
+          "rate_limited": 0,
+          "violations": 0,
+          "unexpected": 0
+        }
+      },
+      "b": {
+        "windows": 18,
+        "counts": {
+          "datagrams": 0,
+          "fragments_pending": 0,
+          "decode_rejected": 0,
+          "ineligible": 0,
+          "dispatched": 0,
+          "rate_limited": 0,
+          "violations": 0,
+          "unexpected": 0
+        }
+      }
+    },
+    "phonePartialExpiryReceiversNearEpisode": 2,
+    "phoneLocalSourcePressureWindowDrops": [
+      11,
+      17,
+      8
+    ],
+    "pressureContextWiderThanExactRxGap": true,
+    "producerCounterDoesNotProveSocketOrNicEgress": true,
+    "missingCoreWitnessDoesNotProveWireDrop": true
+  },
+  "mediaScope": {
+    "callModesObserved": [
+      "relay"
+    ],
+    "macObservedMediaMarkerTxToCores": 21108,
+    "macObservedMediaMarkerRxFromCores": 18622,
+    "macObservedMediaMarkerDirectPeerRows": 0,
+    "macObservedDirectOtherForwardRows": 196,
+    "phoneDirectQuicTerminalEvents": 4,
+    "sourceRelayFlagSkipsDirectAndExcludesRecipientFirstHop": true,
+    "allOverlayControlTrafficRelayOnlyClaimed": false,
+    "p2pMediaBypassConfirmed": false
+  },
+  "observers": {
+    "rows": {
+      "a": 42115,
+      "b": 40960,
+      "mac": 41679
+    },
+    "limitEach": 100000,
+    "allFamily3": true,
+    "plaintextRows": 0,
+    "boundedCaptureNotCompletePacketDeliveryOracle": true
+  },
+  "artifactChecks": {
+    "same208CExports": true,
+    "cApiSourceUnchanged": true,
+    "allNewMarkersPresent": true,
+    "architecture": "aarch64",
+    "ndkStripUsed": true,
+    "noUnbundledCppRuntime": true,
+    "onlyFfiZipPayloadChanged": true,
+    "aotAndAllOtherNativeAndSeedsUnchanged": true,
+    "signerUnchanged": true,
+    "zipalign16KiBVerified": true,
+    "installedApkShaVerified": true,
+    "externalMountWatchdogPassed": true,
+    "fullSourceTestsNotRepeated": true
+  },
+  "hygiene": {
+    "local": {
+      "macRequiredSigkillAfterGrace": true,
+      "macProcessExited": true,
+      "phoneQaExited": true,
+      "originalAudioPermissionRestored": true,
+      "network.veil.xveil.qa.audio20261101ApkShaUnchanged": true,
+      "network.veil.xveilApkShaUnchanged": true,
+      "oldQaContainerShaUnchanged": true,
+      "validatedOriginalNetworkRestored": true,
+      "ownAdbForwardRemoved": true,
+      "ownedPortsReleased": true
+    },
+    "extra": {
+      "macOwnedRuntimeRemoved": true,
+      "macSignatureVerified": true,
+      "macOwnDebugLogMoved": true,
+      "allRecordedLocalChildrenExited": true
+    },
+    "remote": {
+      "a": {
+        "ownServicesStopped": true,
+        "ownStateRuntimeConfigBinaryUnitAndStageRemoved": true,
+        "testPortsFree": true,
+        "productionUnchanged": true
+      },
+      "b": {
+        "ownServicesStopped": true,
+        "ownStateRuntimeConfigBinaryUnitAndStageRemoved": true,
+        "testPortsFree": true,
+        "productionUnchanged": true
+      }
+    },
+    "frozenObservationInputs": 27,
+    "harnessUnchanged": true,
+    "noPushOrRelease": true
+  },
+  "limits": [
+    "Seven of nine strict final windows passed; this was three logical calls, not nine calls",
+    "Five of six transition windows passed strictly; all six used one call ID and sustained the call",
+    "Native RX age and producer counts do not measure human audibility or mouth-to-ear latency",
+    "A native TX counter is not proof that a packet reached the socket, NIC or Core",
+    "Core capture misses and zero decode windows narrow the path but do not prove a physical wire drop",
+    "Quic receiver errors have no ordered record close cause; one ordered receiver exited while its record plane still reported open",
+    "First-cause counts are local; without an individual lane/cell join they do not establish the source of the user audio symptom",
+    "TCP-only PCAP is not a capture of every overlay transport",
+    "Phone update also includes prior bootstrap retry changes; no causal speedup or fix claimed",
+    "No sibling mailbox enabled"
+  ]
+}
