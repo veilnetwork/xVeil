@@ -11,14 +11,8 @@ void main() {
       // The length was an `assert`, which a release build compiles out — so a
       // 31-byte id became a NodeId in the shipped app and surfaced later as a
       // hex string that matched nothing.
-      expect(
-        () => NodeId(Uint8List(31)),
-        throwsA(isA<ArgumentError>()),
-      );
-      expect(
-        () => NodeId(Uint8List(33)),
-        throwsA(isA<ArgumentError>()),
-      );
+      expect(() => NodeId(Uint8List(31)), throwsA(isA<ArgumentError>()));
+      expect(() => NodeId(Uint8List(33)), throwsA(isA<ArgumentError>()));
       expect(NodeId(Uint8List(32)).bytes.length, 32);
     });
 
@@ -53,6 +47,80 @@ void main() {
         expect(NodeId.fromHex(id.hex), id);
       }
     });
+
+    test('fromHex reads every byte with lower, upper and mixed case', () {
+      for (var value = 0; value < 256; value++) {
+        final lower = value.toRadixString(16).padLeft(2, '0');
+        for (final pair in {
+          lower,
+          lower.toUpperCase(),
+          '${lower[0].toUpperCase()}${lower[1]}',
+          '${lower[0]}${lower[1].toUpperCase()}',
+        }) {
+          final parsed = NodeId.fromHex(List.filled(32, pair).join());
+          expect(parsed.bytes, List.filled(32, value), reason: pair);
+        }
+      }
+    });
+
+    test('fromHex preserves legacy parsing for every ASCII pair', () {
+      final zeros = List.filled(31, '00').join();
+      for (var left = 0; left < 128; left++) {
+        for (var right = 0; right < 128; right++) {
+          final pair = String.fromCharCodes([left, right]);
+          for (final input in ['$pair$zeros', '$zeros$pair']) {
+            _expectLegacyHexParsing(input);
+          }
+        }
+      }
+    });
+
+    test('fromHex preserves spaces, Unicode and malformed input behavior', () {
+      final zeros = List.filled(31, '00').join();
+      for (final pair in [
+        '+f',
+        '-a',
+        '\tf',
+        'f\t',
+        '\nf',
+        'f\r',
+        '\u00a0a',
+        'a\u2000',
+        '\u2028f',
+        'f\u2029',
+        '\u3000a',
+        '\u200bf',
+        '\ud800a',
+        '\udc00f',
+        '\uff10a',
+        '\u0660f',
+        '😀',
+      ]) {
+        _expectLegacyHexParsing('$pair$zeros');
+        _expectLegacyHexParsing('$zeros$pair');
+      }
+      for (final value in [
+        '',
+        '00',
+        '0' * 63,
+        '0' * 65,
+        '0' * 66,
+        '  ${'aB' * 32}  ',
+        List.filled(32, ' a B ').join(),
+      ]) {
+        _expectLegacyHexParsing(value);
+      }
+      expect(NodeId.fromHex('$zeros-f').bytes.last, 241);
+    });
+
+    test('fromHex gives each result its own mutable bytes', () {
+      final raw = 'aB' * 32;
+      final first = NodeId.fromHex(raw);
+      final second = NodeId.fromHex(raw);
+      first.bytes[0] = 0;
+      expect(second.bytes, List.filled(32, 0xab));
+      expect(NodeId.fromHex(raw).bytes, List.filled(32, 0xab));
+    });
   });
 
   test(
@@ -86,4 +154,43 @@ void main() {
     expect(jsonDecode(encoded), isA<Map>());
     expect(jsonDecode(encoded), isNot(isA<List>()));
   });
+}
+
+// The shipped substring/int.parse decoder is the compatibility oracle. Do not
+// reuse the optimized nibble decoder here: noncanonical signs and whitespace
+// are accepted by int.parse too, and Uint8List wraps a negative parsed value.
+NodeId _legacyHex(String hex) {
+  final clean = hex.replaceAll(' ', '');
+  if (clean.length != 64) {
+    throw ArgumentError('node id hex must be 64 chars, got ${clean.length}');
+  }
+  final out = Uint8List(32);
+  for (var i = 0; i < 32; i++) {
+    out[i] = int.parse(clean.substring(i * 2, i * 2 + 2), radix: 16);
+  }
+  return NodeId(out);
+}
+
+void _expectLegacyHexParsing(String input) {
+  NodeId? expected;
+  Object? error;
+  try {
+    expected = _legacyHex(input);
+  } catch (caught) {
+    error = caught;
+  }
+  if (error != null) {
+    expect(
+      () => NodeId.fromHex(input),
+      throwsA(
+        predicate<Object>(
+          (actual) =>
+              actual.runtimeType == error.runtimeType &&
+              actual.toString() == error.toString(),
+        ),
+      ),
+    );
+  } else {
+    expect(NodeId.fromHex(input).bytes, expected!.bytes);
+  }
 }
