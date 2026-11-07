@@ -1,5 +1,30 @@
 # Открытые случаи — обновлено 2026-11-07
 
+Последний раунд: [child-pressure и потеря Core после handover](../child-pressure-2026-11-07/README.md).
+На Core — observational SDK `97dc1295`, клиенты/QA AOT неизменны (`c6699c28`).
+Четыре вызова Poco ↔ Mac на фиксированных Wi-Fi/mobile прошли с 35-с контролем;
+пять fresh RX — за 3,371–5,490 с. Переход Cellular → Wi-Fi внутри разговора
+**не восстановился за 60 с**; call ID сохранился, hangup сделал стенд.
+На телефоне новая Core session установилась, затем закрылась по keepalive
+(примерно +14,114 с от команды Wi-Fi; probe age 9807 мс, genuine data age
+5124 мс), далее три 10-с handshake без прочитанных байтов. Core pressure
+windows **0**, поэтому новая неудача не атрибутируется прежнему child queue.
+Почему перестали проходить данные/handshake, пока не доказано. Один Core,
+P2P denied: production multi-Core failover и слышимость не квалифицированы.
+**NETCALL-01 остаётся активным.**
+
+Отдельно исправлен подтверждённый дефект повторного bootstrap join:
+configured peer возвращал успех без redial, а настоящий synthetic ID pinned
+relay позволял заменить operator-owned поля приглашением. Теперь bounded
+retry использует сохранённую запись; configured/pinned защищены по source,
+Rendezvous endpoint refresh сохранён. 8 focused и 818 runtime passed /
+11 ignored. Старый код дал три queue assertion-red; fixture с настоящим
+pinned ID — отдельный ownership assertion-red. Нового исправления в пяти
+физических звонках не было; оно пока проверено тестами.
+APK/контейнер/настройки восстановлены, собственные процессы/Core/capture
+остановлены и удалены, production PID/binary/config повторно проверены.
+Push/релиза и sibling mailbox нет. Предыдущие записи относятся к своим раундам.
+
 Последний раунд: [Core frame join](../core-frame-join-2026-11-07/README.md).
 Четыре квалифицированных Poco ↔ Mac вызова на неизменной SDK `c6699c28`:
 два Wi-Fi прошли, мобильный Poco→Mac вышел на пять fresh RX только за 22,651 с,
