@@ -1,5 +1,20 @@
 # Открытые случаи — обновлено 2026-11-08
 
+Последний раунд: [собственный keepalive и нейтральная FIFO](../keepalive-neutral-2026-11-08/README.md).
+SDK `04584523`: подтверждённый компонентный механизм исправлен — timer probe
+больше не ставится перед нейтральными Forward в INTERACTIVE. Он остаётся
+canonical TX probe; перенос на здоровый auxiliary child запрещён только
+исходящим selector, приём не меняется. Сохранены relay FIFO/WRR, квоты и wire.
+Дополнительно сохранена interactive urgency внутренних control queues при
+батарейном накоплении/overflow, чтобы перенос не понизил их ниже bulk.
+Regression-red, окончательно 708 session passed / 8 ignored; scoped Clippy,
+Android FFI release check с параметрами приложения, fmt/diff-check прошли.
+
+**NETCALL-01 открыт:** новая сборка ещё не проверялась в физическом звонке.
+Предыдущие 45 ingress / 44 без last-hop selection не приписаны этому
+механизму доказанно. Следующий шаг — повтор на Poco/Mac/Core с session-bound
+trace. Приложения/серверы в этом раунде не менялись; push/релиза нет.
+
 Последний раунд: [новый receive budget в звонках Poco ↔ Mac](../record-read-calls-2026-11-08/README.md).
 SDK `92cebc7e` физически проверен на обоих клиентах и двух QA Core: два
 звонка, четыре переключения сети, все шесть финальных окон passed. Прежние
