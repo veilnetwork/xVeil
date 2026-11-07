@@ -26,6 +26,16 @@ kernel RTT estimate до 1,296 с, RTO до 4,064 с; на пяти соедин
 конкретный RTP/child ещё не атрибутирован. Это наблюдаемое TCP-давление,
 не доказанная причина всей паузы и не новый физический прогон.
 
+Следующее сопоставление по двум initial-flight byte counts и времени handshake
+дало шесть различных однозначных flow (по три на Core), с независимой сверкой
+всех TCP payload timestamps/directions/sequence/length через tcpdump. На пяти
+flow подтверждены TCP sequence holes, пересекающие RX-gap: более поздний
+payload приходит, cumulative ACK/prefix стоит 2,622–6,647 с. Шестой в своём
+окне не имел client payload. Это **подтверждённый TCP head-of-line**, но ещё
+не связь с конкретным RTP/source child и не доказательство причины ранних
+пропусков. Порты через NAT не используются как равные; межхоповой crypto-proof
+не заявляется. Исходные 27 входов прежние, новых физических прогонов нет.
+
 Проверен отдельный флажок: native QUIC-сессии phone↔Mac существовали, но режим
 медиа оставался relay, media-marker Forward напрямую не наблюдались; forced
 relay flags исключают direct branch/получателя. Обход P2P media не подтверждён;

@@ -599,5 +599,176 @@
     "frozenInputHashesRechecked": 27,
     "causeOfRtpPauseProved": false,
     "blackviewUsed": false
+  },
+  "offlineHandshakeAndSequenceFollowup": {
+    "handshake": {
+      "schema": "xveil-validation/mobile-pause-path/1",
+      "newPhysicalRuns": 0,
+      "sourceChanged": false,
+      "nativeWriterSockets": 6,
+      "allSixMatchedUniquelyInCapture": true,
+      "matchingUsesBidirectionalInitialUniqueByteCountsAndClockOverlap": true,
+      "portEqualityRequired": false,
+      "samePortJoinRejectedEarlier": true,
+      "allSixIndependentTcpdumpPacketCountsMatch": true,
+      "frozenInputHashesRechecked": 27,
+      "connections": [
+        {
+          "core": "b",
+          "uniqueHandshakeJoin": true,
+          "independentPacketCountMatched": true,
+          "interiorMs": 2950,
+          "clientPayloadPackets": 7,
+          "clientPayloadBytesIncludingRetransmissions": 3624,
+          "serverPayloadBytesIncludingRetransmissions": 1210,
+          "serverAckPackets": 11,
+          "clientPacketsBeyondLastObservedAck": 7,
+          "observedAckPlateauMaxMsInBroaderWindow": 7116
+        },
+        {
+          "core": "a",
+          "uniqueHandshakeJoin": true,
+          "independentPacketCountMatched": true,
+          "interiorMs": 2295,
+          "clientPayloadPackets": 5,
+          "clientPayloadBytesIncludingRetransmissions": 2378,
+          "serverPayloadBytesIncludingRetransmissions": 15984,
+          "serverAckPackets": 26,
+          "clientPacketsBeyondLastObservedAck": 5,
+          "observedAckPlateauMaxMsInBroaderWindow": 5005
+        },
+        {
+          "core": "b",
+          "uniqueHandshakeJoin": true,
+          "independentPacketCountMatched": true,
+          "interiorMs": 2950,
+          "clientPayloadPackets": 5,
+          "clientPayloadBytesIncludingRetransmissions": 3252,
+          "serverPayloadBytesIncludingRetransmissions": 19449,
+          "serverAckPackets": 23,
+          "clientPacketsBeyondLastObservedAck": 5,
+          "observedAckPlateauMaxMsInBroaderWindow": 3298
+        },
+        {
+          "core": "a",
+          "uniqueHandshakeJoin": true,
+          "independentPacketCountMatched": true,
+          "interiorMs": 2295,
+          "clientPayloadPackets": 3,
+          "clientPayloadBytesIncludingRetransmissions": 2464,
+          "serverPayloadBytesIncludingRetransmissions": 3774,
+          "serverAckPackets": 7,
+          "clientPacketsBeyondLastObservedAck": 3,
+          "observedAckPlateauMaxMsInBroaderWindow": 3734
+        },
+        {
+          "core": "b",
+          "uniqueHandshakeJoin": true,
+          "independentPacketCountMatched": true,
+          "interiorMs": 2950,
+          "clientPayloadPackets": 0,
+          "clientPayloadBytesIncludingRetransmissions": 0,
+          "serverPayloadBytesIncludingRetransmissions": 0,
+          "serverAckPackets": 0,
+          "clientPacketsBeyondLastObservedAck": 0,
+          "observedAckPlateauMaxMsInBroaderWindow": 68
+        },
+        {
+          "core": "a",
+          "uniqueHandshakeJoin": true,
+          "independentPacketCountMatched": true,
+          "interiorMs": 2295,
+          "clientPayloadPackets": 2,
+          "clientPayloadBytesIncludingRetransmissions": 1251,
+          "serverPayloadBytesIncludingRetransmissions": 8434,
+          "serverAckPackets": 10,
+          "clientPacketsBeyondLastObservedAck": 2,
+          "observedAckPlateauMaxMsInBroaderWindow": 3664
+        }
+      ],
+      "limits": [
+        "This is an observational handshake match within this capture, not a cryptographic cross-hop proof",
+        "No phone NIC capture; kernel observations do not prove physical egress",
+        "No specific RTP/source-lane association is established",
+        "Conservative inner windows exclude clock uncertainty; ACK plateau durations use one capture clock",
+        "Packets beyond the last observed ACK alone do not prove a persistent hole: ACKs can be delayed or lost in capture",
+        "PCAP payload byte sums include retransmissions; no goodput inferred"
+      ],
+      "allPayloadFieldsMatchIndependentTcpdump": true
+    },
+    "sequence": {
+      "schema": "xveil-validation/mobile-pause-sequence/1",
+      "sourceChanged": false,
+      "newPhysicalRuns": 0,
+      "connections": [
+        {
+          "core": "b",
+          "overlappingSequenceHoles": 1,
+          "holesWithRepeatedMatchingServerAck": 1,
+          "maxObservedHoleMs": 6647,
+          "repeatedAckWitnesses": 12,
+          "holeFilledLater": true,
+          "ackExceedsCapturedPrefixInPause": 0,
+          "ackExceedsCapturedPrefixWholeFlow": 0
+        },
+        {
+          "core": "a",
+          "overlappingSequenceHoles": 1,
+          "holesWithRepeatedMatchingServerAck": 1,
+          "maxObservedHoleMs": 2622,
+          "repeatedAckWitnesses": 39,
+          "holeFilledLater": true,
+          "ackExceedsCapturedPrefixInPause": 0,
+          "ackExceedsCapturedPrefixWholeFlow": 0
+        },
+        {
+          "core": "b",
+          "overlappingSequenceHoles": 1,
+          "holesWithRepeatedMatchingServerAck": 1,
+          "maxObservedHoleMs": 3199,
+          "repeatedAckWitnesses": 36,
+          "holeFilledLater": false,
+          "ackExceedsCapturedPrefixInPause": 0,
+          "ackExceedsCapturedPrefixWholeFlow": 0
+        },
+        {
+          "core": "a",
+          "overlappingSequenceHoles": 1,
+          "holesWithRepeatedMatchingServerAck": 1,
+          "maxObservedHoleMs": 3519,
+          "repeatedAckWitnesses": 16,
+          "holeFilledLater": true,
+          "ackExceedsCapturedPrefixInPause": 0,
+          "ackExceedsCapturedPrefixWholeFlow": 0
+        },
+        {
+          "core": "b",
+          "overlappingSequenceHoles": 0,
+          "holesWithRepeatedMatchingServerAck": 0,
+          "maxObservedHoleMs": null,
+          "repeatedAckWitnesses": 0,
+          "holeFilledLater": null,
+          "ackExceedsCapturedPrefixInPause": 0,
+          "ackExceedsCapturedPrefixWholeFlow": 0
+        },
+        {
+          "core": "a",
+          "overlappingSequenceHoles": 1,
+          "holesWithRepeatedMatchingServerAck": 1,
+          "maxObservedHoleMs": 3464,
+          "repeatedAckWitnesses": 28,
+          "holeFilledLater": false,
+          "ackExceedsCapturedPrefixInPause": 0,
+          "ackExceedsCapturedPrefixWholeFlow": 0
+        }
+      ],
+      "limits": [
+        "TCP sequence holes are below the application framing; no specific RTP/child association is established",
+        "Durations are repeated observations on one Core capture clock; not one-way delay",
+        "A hole begins at its first observed out-of-order segment, not the unknown time of packet loss",
+        "Whole-flow capture can omit packets: ACK greater than captured prefix is retained as an explicit incompleteness witness",
+        "Same-clock matching cumulative ACKs strengthen the receiver-prefix evidence only in their observed interval"
+      ]
+    }
   }
 }
