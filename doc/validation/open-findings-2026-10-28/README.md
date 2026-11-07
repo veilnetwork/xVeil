@@ -1,5 +1,27 @@
 # Открытые случаи — обновлено 2026-11-08
 
+Последний раунд: [физическая проверка keepalive/FIFO](../keepalive-calls-2026-11-08/README.md).
+SDK `04584523` собран и проверен на Poco, Mac и двух изолированных QA Core.
+Два звонка, четыре реальных handover: **5/6** финальных окон passed,
+первое Cellular-окно failed по свежести RX на обоих концах. **NETCALL-01
+остаётся открыт**: независимый телефонный collector подтвердил интервалы
+неподвижного RX порядка 1,6 с при продолжающейся выдаче аудио источником.
+
+На Core 0 `independent_fifo_wait`, все наблюдаемые source ingress имеют
+target selection; внутри Core этот участок занимал ≤4,214 мс. Это не A/B
+и не доказательство устранения прежних 2,7/8,6 с именно keepalive-фиксом.
+Строгая packet-привязка: Poco → Mac 2319/2363 source cells имеют равные
+наборы Core ingress/selection/authenticated receipt. Mac → Poco все 3223
+имеют Core selection, 3139 — полную received SHA + authenticated RTP;
+ещё один header-only witness не включён в строгий receipt-набор.
+Ненаблюдаемые receipts не объявляются доказанными wire drops.
+
+Следующий участок — конкретный child/попытка отправки после selection
+и приём до dispatcher, плюс неполное timestamp-покрытие приёмной IPC-ветки.
+Собственные стенды/процессы убраны, APK/контейнер/настройки восстановлены;
+независимо проверено неизменное production. Source-код не менялся,
+push/релиза и sibling mailbox нет.
+
 Последний раунд: [собственный keepalive и нейтральная FIFO](../keepalive-neutral-2026-11-08/README.md).
 SDK `04584523`: подтверждённый компонентный механизм исправлен — timer probe
 больше не ставится перед нейтральными Forward в INTERACTIVE. Он остаётся
@@ -10,7 +32,8 @@ canonical TX probe; перенос на здоровый auxiliary child зап�
 Regression-red, окончательно 708 session passed / 8 ignored; scoped Clippy,
 Android FFI release check с параметрами приложения, fmt/diff-check прошли.
 
-**NETCALL-01 открыт:** новая сборка ещё не проверялась в физическом звонке.
+**NETCALL-01 открыт:** на момент компонентного раунда новая сборка ещё
+не проверялась в физическом звонке; выполненный затем повтор описан выше.
 Предыдущие 45 ingress / 44 без last-hop selection не приписаны этому
 механизму доказанно. Следующий шаг — повтор на Poco/Mac/Core с session-bound
 trace. Приложения/серверы в этом раунде не менялись; push/релиза нет.
