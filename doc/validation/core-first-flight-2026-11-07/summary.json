@@ -1,0 +1,61 @@
+{
+  "schema": "xveil-validation/core-first-flight/1",
+  "coreSdk": "97dc1295",
+  "clientSdk": "c6699c28",
+  "newPhysicalCallsThisRound": 0,
+  "sourceBehaviorChanged": false,
+  "sourceCaptureUnchanged": true,
+  "network": "cellular-to-wifi",
+  "p2pDenied": true,
+  "coreCount": 1,
+  "globalPortCandidatesPerPhoneSocket": 1,
+  "joinedPhoneSockets": 35,
+  "joinedCoreSockets": 35,
+  "independentTcpdumpChecks": 35,
+  "successfulHandshakes": 11,
+  "reciprocalSuccessfulHandshakeByteCountsVerified": 11,
+  "clientCompletedFailures": 22,
+  "clientPendingAtObservationEnd": 2,
+  "coreReadZeroAndCapturePayloadAbsent": 24,
+  "completedClientFailureSnapshots": {
+    "count": 22,
+    "allFlightBytesStillQueued": true,
+    "allNotSentBytesZero": true,
+    "allUnackedPacketsOne": true,
+    "retransmittedPacketCountMin": 2,
+    "retransmittedPacketCountMax": 5
+  },
+  "postCanonicalCloseCompletedAttempts": 3,
+  "postCanonicalClosePrimaryAndBackupSockets": 6,
+  "allSixCorePayloadAbsent": true,
+  "captureReportedKernelDrops": 0,
+  "captureStartBeforeSwitchMs": 316761,
+  "captureEndAfterSwitchMs": 92518,
+  "lastServerHandshakeResultAfterSwitchMs": 64129,
+  "rejectedControls": [
+    "empty observations",
+    "missing socket flow",
+    "ambiguous reused port",
+    "duplicate socket observation"
+  ],
+  "privacy": {
+    "rawTuplesPortsIdentifiersAndPacketBytesRemainPrivate": true,
+    "anonymousAggregateOnly": true
+  },
+  "limits": [
+    "No phone NIC capture: queued/notsent/retransmission counters do not prove physical egress",
+    "The captures localize the reconnect first-flight gap, not the initial media loss",
+    "No DPI, NAT, provider or Android driver root cause assigned",
+    "One isolated Core with P2P denied; production multi-Core failover remains untested",
+    "Two client sockets still pending when phone observation stopped; no terminal byte count inferred",
+    "Zero reported capture kernel drops does not prove absence of all capture loss"
+  ],
+  "nextControl": {
+    "twoIndependentCoreConfigurationsPrepared": true,
+    "remoteReadOnlyPreflightPassed": true,
+    "qaApkOnlyBootstrapAssetsChanged": true,
+    "frontendNativeAndSignerVerifiedUnchanged": true,
+    "deployed": false,
+    "physicalQualification": false
+  }
+}
