@@ -1,0 +1,187 @@
+{
+  "status": "NETCALL-01_open",
+  "functionalNetworkFixClaimed": false,
+  "testedAndroidSdk": "b01c633b",
+  "testedMacAndCoreSdk": "5d89beb5",
+  "finalSdk": "0c3715b6",
+  "finalNonUtf8GuardPhysicallyTested": false,
+  "defaultSamplingInterval": 50,
+  "fullSamplingOptInObserved": true,
+  "publicAnonymousSchemaChanged": false,
+  "logicalCalls": 2,
+  "actualNetworkSwitches": 6,
+  "finalCaseWindowsPassed": 8,
+  "rounds": [
+    {
+      "series": "first",
+      "logicalCalls": 1,
+      "caseCount": 3,
+      "allFinalWindowsPassed": true,
+      "cases": [
+        {
+          "case": "handover-baseline",
+          "finalWindowPassed": true,
+          "rxAgeMaxMs": {
+            "phone": 348,
+            "mac": 383
+          },
+          "rxCounterRegressions": 0
+        },
+        {
+          "case": "handover-1",
+          "finalWindowPassed": true,
+          "rxAgeMaxMs": {
+            "phone": 982,
+            "mac": 1524
+          },
+          "rxCounterRegressions": 0
+        },
+        {
+          "case": "handover-2",
+          "finalWindowPassed": true,
+          "rxAgeMaxMs": {
+            "phone": 361,
+            "mac": 389
+          },
+          "rxCounterRegressions": 0
+        }
+      ]
+    },
+    {
+      "series": "followup",
+      "logicalCalls": 1,
+      "caseCount": 5,
+      "allFinalWindowsPassed": true,
+      "cases": [
+        {
+          "case": "repeat-baseline",
+          "finalWindowPassed": true,
+          "rxAgeMaxMs": {
+            "phone": 294,
+            "mac": 370
+          },
+          "rxCounterRegressions": 0
+        },
+        {
+          "case": "repeat-handover-1",
+          "finalWindowPassed": true,
+          "rxAgeMaxMs": {
+            "phone": 1012,
+            "mac": 1525
+          },
+          "rxCounterRegressions": 0
+        },
+        {
+          "case": "repeat-handover-2",
+          "finalWindowPassed": true,
+          "rxAgeMaxMs": {
+            "phone": 403,
+            "mac": 427
+          },
+          "rxCounterRegressions": 0
+        },
+        {
+          "case": "repeat-handover-3",
+          "finalWindowPassed": true,
+          "rxAgeMaxMs": {
+            "phone": 1343,
+            "mac": 1726
+          },
+          "rxCounterRegressions": 0
+        },
+        {
+          "case": "repeat-handover-4",
+          "finalWindowPassed": true,
+          "rxAgeMaxMs": {
+            "phone": 782,
+            "mac": 1133
+          },
+          "rxCounterRegressions": 0
+        }
+      ]
+    }
+  ],
+  "observedOld8598msPauseReproduced": false,
+  "maxPostSwitchMacNativeRxAgeMs": 1726,
+  "cellIdentitySetsExactlyEqual": true,
+  "encryptedCells": {
+    "source": 3192,
+    "coreIngressAndSelectionAndAuthenticatedReceipt": 3162,
+    "noAuthenticatedReceiptWitness": 30,
+    "noRelayQueuedWitness": 22,
+    "queuedWithoutObservedCoreIngress": 8,
+    "transportCopyDeliveryProven": false,
+    "wireLossAttributed": false
+  },
+  "payloadRtpPacketWitnesses": {
+    "source": 3196,
+    "authenticatedMac": 3166,
+    "duplicateHeaderIdentities": 0
+  },
+  "firstHopCounts": {
+    "2": 3039,
+    "1": 131,
+    "0": 22
+  },
+  "sourceStageMs": {
+    "cell:relay_send": {
+      "count": 3192,
+      "median": 0.142,
+      "max": 1.118
+    },
+    "ipc:socket_written": {
+      "count": 3192,
+      "median": 0.331,
+      "max": 1.946
+    },
+    "ipc:daemon_read": {
+      "count": 3192,
+      "median": 0.544,
+      "max": 4.194
+    },
+    "ipc:handler_enter": {
+      "count": 3192,
+      "median": 0.698,
+      "max": 4.358
+    },
+    "ipc:relay_queued": {
+      "count": 3170,
+      "median": 0.86,
+      "max": 4.478
+    }
+  },
+  "matchedEndToEndBoundsMs": {
+    "medianLower": 71.186,
+    "medianUpper": 98.515,
+    "maxUpper": 1553.375
+  },
+  "clockOffsetIntersectionWidthMs": 25.329,
+  "phoneLocalHttpRecords": {
+    "rows": 1087,
+    "successfulHttpRows": 1087,
+    "maxRequestMs": 270,
+    "maxSampleStartGapMs": 880
+  },
+  "unitTests": {
+    "veilUtilPassed": 74,
+    "ignored": 0,
+    "earlier73NotAdded": true
+  },
+  "androidFinalTargetCheckPassed": true,
+  "androidReleaseBuildAtTestedSdkPassed": true,
+  "all25HarnessHashesAndFollowupDriverVerified": true,
+  "observationAndProofFilesFrozen": 121,
+  "cleanup": {
+    "independentStatsAndDetachedLogcatStopped": true,
+    "stableNativePullShaVerified": true,
+    "emptyPropertyValueQuotingCorrected": true,
+    "samplingPropertyRestored": true,
+    "privateDeviceDirectoriesAndHeadersRemoved": true,
+    "originalApkContainerAndSettingsVerified": true,
+    "productionUnchanged": true
+  },
+  "speechAndHumanAudibilityQualified": false,
+  "pushOrRelease": false,
+  "siblingMailboxAdded": false,
+  "anonymousArtifactGatePassed": true
+}
