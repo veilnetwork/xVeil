@@ -1,5 +1,29 @@
 # Открытые случаи — обновлено 2026-11-07
 
+Последний раунд: [RTP и стадии отправки при handover](../audio-cell-join-2026-11-07/README.md).
+Android получил operator sampling property для существующего подробного trace
+(`b01c633b`); default/gates/wire/admission не менялись. `0c3715b6` дополнительно
+сохраняет sparse default при non-UTF8 environment value. 74 util tests,
+Android/aarch64 check и AOT anonymous-export gate passed. На телефоне физически
+проверен `b01c633b`, Mac/Core — immutable `5d89beb5`; дополнительный invalid-input
+guard физически не исполнялся.
+
+Два звонка, шесть реальных переключений, восемь финальных case windows passed.
+Прежние 8,6 с не повторились, maximum post-switch RX age Mac 1726 мс —
+**NETCALL-01 открыт**, причинное ускорение не объявлено. По точным identities
+3192 source payload-RTP cells: 3162 наблюдаются на Core и в authenticated Mac
+receipt; эти наборы равны, а не только их размеры. Для 30 receipt не наблюдался:
+у 22 нет relay-queued witness, у 8 он есть без наблюдаемого Core dispatcher
+ingress; все внутри первых двух секунд после переключений. Судьба отдельных
+transport copies и wire drop не доказаны.
+
+Source sealing → handler-enter максимум 4,358 мс в новых случаях. Следующий
+участок для admitted-but-unobserved — конкретный ordered child/transport/
+обработка до dispatcher; старые 8,6 с этим не объяснены. Все QA процессы,
+включая отделившийся logcat child, завершены; APK/контейнер/сеть/permissions/
+sampling property/P2P восстановлены, production прежний. Push/релиза и sibling
+mailbox нет.
+
 Последний раунд: [проверка recovery-сборки на Poco](../confirmed-recovery-2026-11-07/README.md).
 SDK `5d89beb5` собран для Android, Mac и двух QA Core, provenance/ABI/подписи
 проверены. Три полных Cellular/QUIC-контроля прошли финальные проверки, прежняя
