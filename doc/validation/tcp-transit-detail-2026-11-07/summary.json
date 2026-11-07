@@ -1,0 +1,144 @@
+{
+  "schema": "xveil-validation/tcp-transit-detail/1",
+  "sdk": "c6699c28",
+  "appKind": "frozen qualified QA AOT; not current Dart candidate",
+  "networkScope": "one isolated testnet Core on TCP 443; P2P denied; validated cellular before both calls",
+  "noHandoverExecuted": true,
+  "cases": [
+    {
+      "caller": "phone",
+      "networkSwitchExecuted": false,
+      "passed": false,
+      "failedPrerequisite": "Pre-switch final-five-fresh prerequisite absent",
+      "endpoints": {
+        "phone": {
+          "samples": 51,
+          "freshSamples": 34,
+          "activeSamples": 48,
+          "audioRxMax": 182,
+          "audioTxPayloadMax": 154,
+          "audioRxNativeAgeMaxMs": 387,
+          "audioCaptureSucceeded": true,
+          "audioPlayoutSucceeded": true,
+          "mediaEpochsObserved": [
+            1
+          ]
+        },
+        "mac": {
+          "samples": 51,
+          "freshSamples": 25,
+          "activeSamples": 44,
+          "audioRxMax": 97,
+          "audioTxPayloadMax": 184,
+          "audioRxNativeAgeMaxMs": 10825,
+          "audioCaptureSucceeded": true,
+          "audioPlayoutSucceeded": true,
+          "mediaEpochsObserved": [
+            1
+          ]
+        }
+      },
+      "fiveFreshRxAfterPlaceMs": 12294
+    },
+    {
+      "caller": "mac",
+      "networkSwitchExecuted": false,
+      "passed": false,
+      "failedPrerequisite": "Fresh bidirectional audio payload baseline absent",
+      "endpoints": {
+        "phone": {
+          "samples": 141,
+          "freshSamples": 0,
+          "activeSamples": 136,
+          "audioRxMax": 0,
+          "audioTxPayloadMax": 84,
+          "audioRxNativeAgeMaxMs": null,
+          "audioCaptureSucceeded": true,
+          "audioPlayoutSucceeded": true,
+          "mediaEpochsObserved": [
+            3,
+            5,
+            7,
+            9,
+            11
+          ]
+        },
+        "mac": {
+          "samples": 141,
+          "freshSamples": 0,
+          "activeSamples": 0,
+          "audioRxMax": 0,
+          "audioTxPayloadMax": 0,
+          "audioRxNativeAgeMaxMs": null,
+          "audioCaptureSucceeded": false,
+          "audioPlayoutSucceeded": false,
+          "mediaEpochsObserved": []
+        }
+      }
+    }
+  ],
+  "terminalCauses": {
+    "first": {
+      "phone": "diagnosticApi hangup",
+      "mac": "diagnosticApi hangup"
+    },
+    "second": {
+      "phone": "remoteSignal cancelled",
+      "mac": "ringTimeout while dialing"
+    }
+  },
+  "tcpObservation": {
+    "bytes": 610205,
+    "tcpRows": 1207,
+    "handshakeRows": 344,
+    "envVerified": true,
+    "productionUnchanged": true,
+    "tailLimitReached": false
+  },
+  "packetCapture": {
+    "completeToEof": true,
+    "originalSizeAndShaVerified": true,
+    "packets": 15523,
+    "flows": 168,
+    "freshSynFlows": 110,
+    "clientPayloadWithoutObservedServerPayload": 1
+  },
+  "excludedAttribution": {
+    "largestQueuedTcpConnectionStartedAfterSecondCallFailure": true,
+    "reason": "time bounds exclude it as cause of either observed call failure; no per-cell match"
+  },
+  "hygiene": {
+    "sdkInputsUnchanged": 1533,
+    "frontendInputsUnchanged": 1480,
+    "harnessInputsUnchanged": 19,
+    "probeAndLogcatExited": true,
+    "strictMacSignatureAfterLogRemoval": true,
+    "ownRuntimePreservedAndRemoved": true,
+    "local": {
+      "macRequiredSigkillAfterGrace": true,
+      "macProcessExited": true,
+      "phoneQaExited": true,
+      "originalAudioPermissionRestored": true,
+      "network.veil.xveil.qa.audio20261101ApkShaUnchanged": true,
+      "network.veil.xveilApkShaUnchanged": true,
+      "oldQaContainerShaUnchanged": true,
+      "validatedOriginalNetworkRestored": true,
+      "ownAdbForwardRemoved": true,
+      "ownedPortsReleased": true
+    },
+    "relay": {
+      "ownServiceStopped": true,
+      "ownedStateRuntimeConfigBinaryUnitRemoved": true,
+      "ownPortsReleased": true,
+      "productionUnchanged": true
+    },
+    "bothP2pPoliciesRestored": true
+  },
+  "limits": [
+    "Digital receive counters do not prove human audibility",
+    "No network change occurred inside either call",
+    "Observed TCP loss alone does not identify a failed media route",
+    "NETCALL-01 remains open",
+    "No production change, push or release"
+  ]
+}

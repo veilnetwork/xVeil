@@ -254,6 +254,82 @@ class _MessageCheckCountingSigner extends _FakeSigner {
   }
 }
 
+class _RoutingPrefixFixture {
+  _RoutingPrefixFixture(
+    this.service,
+    this.storage,
+    this.signer,
+    this.group,
+    this.master,
+    this.author,
+    this.atMs,
+    this.policyVersion,
+  );
+
+  final GroupService service;
+  final _HeldGroupHeaderStorage storage;
+  final _MessageCheckCountingSigner signer;
+  final NodeId group;
+  final NodeId master;
+  final NodeId author;
+  final int atMs;
+  final int policyVersion;
+
+  GroupMessage row(int seq, String body, {String prev = '', NodeId? author}) =>
+      _FakeSigner(author ?? this.author).signMessage(
+        GroupMessage(
+          groupId: group,
+          author: author ?? this.author,
+          seq: seq,
+          prevHash: prev,
+          body: body,
+          policyVersion: policyVersion,
+          createdAtMs: atMs + seq,
+          signature: Uint8List(0),
+        ),
+      );
+
+  String announcement(NodeId device, int stamp) => DeviceSyncEvent(
+    kind: DeviceSyncKind.identityDoc,
+    key: device.hex,
+    tsMs: stamp,
+    payload: const {'d': 'ZG9j', 'o': true},
+  ).toBody();
+
+  // Deliberately retain raw forks/gaps/bad signatures in local storage. A
+  // read must validate those bytes; snapshot admission must not sanitize the
+  // very counterexample whose read-time behavior this fixture checks.
+  Future<void> put(
+    List<GroupMessage> rows, {
+    List<SpaceRetentionCut> cuts = const [],
+    bool legacy = false,
+  }) async {
+    final key = 'group:${group.hex}';
+    final header =
+        jsonDecode(utf8.decode((await storage.loadFile(key))!))
+            as Map<String, dynamic>;
+    header
+      ..remove('gs')
+      ..['g'] = [for (final row in rows) row.toJson()]
+      ..['rcut'] = [for (final cut in cuts) cut.toJson()];
+    if (legacy) {
+      final m = SpaceManifest.fromJson(header['m'])!;
+      header['m'] = SpaceManifest(
+        groupId: m.groupId,
+        owner: m.owner,
+        genesisPubKey: m.genesisPubKey,
+        name: m.name,
+        createdAtMs: m.createdAtMs,
+      ).toJson();
+      header.remove('s');
+    }
+    await storage.storeFile(
+      key,
+      Uint8List.fromList(utf8.encode(jsonEncode(header))),
+    );
+  }
+}
+
 /// Keeps the control and detached fake signatures cryptographically
 /// interchangeable, matching the production identity key used by public
 /// authority links.
@@ -15270,6 +15346,423 @@ void main() {
       expect(fixture.store.headerReads, 1);
     },
   );
+
+  Future<_RoutingPrefixFixture> routingPrefixFixture() async {
+    final clock = DateTime.utc(2026, 11, 7, 12).millisecondsSinceEpoch;
+    final sourceStore = FakeHvContainer().storage();
+    final store = _HeldGroupHeaderStorage();
+    await sourceStore.open(password: 'fixture', createIfMissing: true);
+    await store.open(password: 'fixture', createIfMissing: true);
+    final source = GroupService(sourceStore, _FakeSigner(owner))
+      ..myDevice = _id(0xD7)
+      ..debugWallClockMs = (() => clock);
+    final signer = _MessageCheckCountingSigner(bob);
+    final linked = GroupService(store, signer)
+      ..myDevice = bob
+      ..debugWallClockMs = (() => clock)
+      ..documentNodeId = (_) => owner;
+    addTearDown(() async {
+      await linked.dispose();
+      await source.dispose();
+      await store.close();
+      await sourceStore.close();
+    });
+    expect(
+      await source.linkDevice(
+        bob,
+        sovereign: sovereign,
+        broadcastSnapshot: false,
+      ),
+      isTrue,
+    );
+    final group = NodeId.fromHex((await source.deviceGroupIdHex())!);
+    expect(
+      await linked.ingestSnapshot(
+        source.snapshotJson((await source.load(group))!, recipient: bob),
+      ),
+      isTrue,
+    );
+    expect(await linked.adoptDeviceGroup(group), isTrue);
+    final version = (await linked.stateOf(group))!.policyVersion;
+    store.heldKey = 'group:${group.hex}';
+    return _RoutingPrefixFixture(
+      linked,
+      store,
+      signer,
+      group,
+      _id(0xD7),
+      owner,
+      clock + 1000,
+      version,
+    );
+  }
+
+  test(
+    'routing verifies the announcement prefix without the later chat suffix',
+    () async {
+      final f = await routingPrefixFixture();
+      final first = f.row(1, 'chain predecessor');
+      final doc = f.row(
+        2,
+        f.announcement(f.master, 444),
+        prev: groupMessageHash(first),
+      );
+      final rows = [first, doc];
+      for (var seq = 3; seq <= 66; seq++) {
+        rows.add(
+          f.row(
+            seq,
+            DeviceSyncEvent(
+              kind: DeviceSyncKind.msgMirror,
+              key: 'chat-$seq',
+              tsMs: 400 + seq,
+              payload: {'body': 'later chat row $seq'},
+            ).toBody(),
+            prev: groupMessageHash(rows.last),
+          ),
+        );
+      }
+      await f.put(rows);
+      expect(
+        (await f.service.deviceSyncState())[(
+          DeviceSyncKind.identityDoc,
+          f.master.hex,
+        )],
+        isNotNull,
+      );
+      final before = await f.storage.loadFile('group:${f.group.hex}');
+      f.signer.checks.clear();
+      f.storage.headerReads = 0;
+      for (var read = 0; read < 2; read++) {
+        expect(await f.service.addressableOwnDevices(), [f.master]);
+      }
+      expect(f.storage.headerReads, 2);
+      expect(f.signer.checks.keys.toSet(), {first.ref, doc.ref});
+      expect(
+        f.signer.checks.values,
+        everyElement(2),
+        reason: 'each new lookup still verifies the complete relevant prefix',
+      );
+      expect(await f.storage.loadFile('group:${f.group.hex}'), before);
+    },
+  );
+
+  test(
+    'routing announcement ceilings are independent for each author',
+    () async {
+      final f = await routingPrefixFixture();
+      final first = f.row(1, 'first author predecessor');
+      final doc = f.row(
+        2,
+        f.announcement(f.master, 444),
+        prev: groupMessageHash(first),
+      );
+      final tail = f.row(
+        3,
+        'first author later row',
+        prev: groupMessageHash(doc),
+      );
+      final other = f.row(4, 'second author predecessor', author: bob);
+      final replacement = _id(0xD8);
+      final newer = f.row(
+        30,
+        f.announcement(replacement, 445),
+        author: bob,
+        prev: groupMessageHash(other),
+      );
+      final foreign = f.row(40, f.announcement(_id(0xD9), 446), author: carol);
+      await f.put([first, doc, tail, other, newer, foreign]);
+      final full = await f.service.deviceSyncState();
+      expect(full[(DeviceSyncKind.identityDoc, replacement.hex)], isNotNull);
+      expect(
+        full[(DeviceSyncKind.identityDoc, _id(0xD9).hex)],
+        isNull,
+        reason: 'a correctly shaped signature does not confer membership',
+      );
+      f.signer.checks.clear();
+      expect(await f.service.addressableOwnDevices(), [replacement]);
+      expect(f.signer.checks.containsKey(tail.ref), isFalse);
+      expect(f.signer.checks.keys.toSet(), {
+        first.ref,
+        doc.ref,
+        other.ref,
+        newer.ref,
+        foreign.ref,
+      });
+    },
+  );
+
+  for (final format in ['legacy', 'encrypted', 'oversized-key']) {
+    test('routing keeps full validation for the $format format', () async {
+      final f = await routingPrefixFixture();
+      final first = f.row(1, 'chain predecessor');
+      final doc = f.row(
+        2,
+        f.announcement(f.master, 444),
+        prev: groupMessageHash(first),
+      );
+      final tail = f.row(3, 'later chat row', prev: groupMessageHash(doc));
+      final rows = [first, doc, tail];
+      if (format == 'oversized-key') {
+        rows.add(
+          f
+              .row(4, 'invalid writer key')
+              .withSignature(Uint8List(64), Uint8List(4096)),
+        );
+      }
+      if (format == 'encrypted') {
+        rows.add(
+          _FakeSigner(owner).signMessage(
+            GroupMessage(
+              groupId: f.group,
+              author: owner,
+              seq: 4,
+              prevHash: '',
+              body: '',
+              policyVersion: f.policyVersion,
+              createdAtMs: f.atMs + 4,
+              signature: Uint8List(0),
+              version: 2,
+              membershipEpoch: 0,
+              encryptedPayload: GroupEncryptedPayload(
+                nonce: Uint8List(12),
+                cipherText: Uint8List(0),
+                mac: Uint8List(16),
+              ),
+            ),
+          ),
+        );
+      }
+      await f.put(rows, legacy: format == 'legacy');
+      expect(
+        (await f.service.deviceSyncState())[(
+          DeviceSyncKind.identityDoc,
+          f.master.hex,
+        )],
+        isNotNull,
+      );
+      f.signer.checks.clear();
+      expect(await f.service.addressableOwnDevices(), [f.master]);
+      expect(f.signer.checks.keys.toSet(), rows.map((m) => m.ref).toSet());
+    });
+  }
+
+  test(
+    'routing unchained announcements still verify potential fork slots',
+    () async {
+      final f = await routingPrefixFixture();
+      final rows = <GroupMessage>[
+        for (var seq = 1; seq <= 64; seq++)
+          f.row(
+            seq,
+            DeviceSyncEvent(
+              kind: DeviceSyncKind.msgMirror,
+              key: 'chat-$seq',
+              tsMs: 400 + seq,
+              payload: {'body': 'old chat row $seq'},
+            ).toBody(),
+          ),
+        f.row(65, f.announcement(f.master, 500)),
+        f.row(20, 'bad fork variant'),
+      ];
+      f.signer.rejectedBodies.add('bad fork variant');
+      await f.put(rows);
+      expect(
+        (await f.service.deviceSyncState())[(
+          DeviceSyncKind.identityDoc,
+          f.master.hex,
+        )],
+        isNotNull,
+      );
+      f.signer.checks.clear();
+      f.storage.headerReads = 0;
+      expect(await f.service.addressableOwnDevices(), [f.master]);
+      expect(f.storage.headerReads, 1);
+      expect(
+        f.signer.checks,
+        {rows[19].ref: 2, rows[64].ref: 1},
+        reason: 'only the announcement and both potential fork variants matter',
+      );
+      f.signer.rejectedBodies.clear();
+      expect(
+        (await f.service.deviceSyncState())[(
+          DeviceSyncKind.identityDoc,
+          f.master.hex,
+        )],
+        isNull,
+      );
+      expect(
+        await f.service.addressableOwnDevices(),
+        [owner],
+        reason: 'two valid same-slot variants still quarantine the later doc',
+      );
+    },
+  );
+
+  test(
+    'routing keeps independent writer scopes out of announcement work',
+    () async {
+      final f = await routingPrefixFixture();
+      final rows = <GroupMessage>[];
+      for (var seq = 1; seq <= 64; seq++) {
+        final row = f.row(seq, 'ordinary row $seq');
+        rows.add(row);
+        rows.add(row.withSignature(Uint8List(64), _id(0x70).bytes));
+      }
+      final doc = f.row(65, f.announcement(f.master, 500));
+      rows.add(doc);
+      await f.put(rows);
+      expect(
+        (await f.service.deviceSyncState())[(
+          DeviceSyncKind.identityDoc,
+          f.master.hex,
+        )],
+        isNotNull,
+      );
+      f.signer.checks.clear();
+      expect(await f.service.addressableOwnDevices(), [f.master]);
+      expect(f.signer.checks, {doc.ref: 1});
+    },
+  );
+
+  for (final chained in [true, false]) {
+    for (final scenario in [
+      'clean',
+      'gap',
+      'invalid predecessor',
+      'fork before',
+      'fork at',
+      'fork after',
+      'newer announcement',
+      'invalid announcement',
+      'future announcement',
+      'retention anchor',
+      'missing anchor',
+      'no announcement',
+      'strict downgrade',
+    ]) {
+      test('routing announcement prefix agrees with full validation: '
+          '${chained ? 'chained' : 'unchained'} $scenario', () async {
+        final f = await routingPrefixFixture();
+        final first = f.row(1, 'chain predecessor');
+        final doc = f.row(
+          2,
+          f.announcement(f.master, 444),
+          prev: chained ? groupMessageHash(first) : '',
+        );
+        final tail = f.row(
+          3,
+          'later chat row',
+          prev: chained ? groupMessageHash(doc) : '',
+        );
+        var rows = [first, doc, tail];
+        var expected = f.master;
+        var cuts = <SpaceRetentionCut>[];
+        switch (scenario) {
+          case 'gap':
+            rows = [doc, tail];
+            expected = chained ? owner : f.master;
+          case 'invalid predecessor':
+            f.signer.rejectedBodies.add(first.body);
+            expected = chained ? owner : f.master;
+          case 'fork before':
+            rows.add(f.row(1, 'conflicting predecessor'));
+            expected = owner;
+          case 'fork at':
+            rows.add(
+              f.row(
+                2,
+                'conflicting doc slot',
+                prev: chained ? groupMessageHash(first) : '',
+              ),
+            );
+            expected = owner;
+          case 'fork after':
+            rows.add(
+              f.row(
+                3,
+                'conflicting later slot',
+                prev: chained ? groupMessageHash(doc) : '',
+              ),
+            );
+          case 'newer announcement':
+            expected = _id(0xD8);
+            rows.add(
+              f.row(
+                4,
+                f.announcement(expected, 445),
+                prev: chained ? groupMessageHash(tail) : '',
+              ),
+            );
+          case 'invalid announcement':
+            f.signer.rejectedBodies.add(doc.body);
+            expected = owner;
+          case 'future announcement':
+            rows[1] = f.row(
+              2,
+              f.announcement(
+                f.master,
+                f.atMs + kDeviceSyncClockSkew.inMilliseconds + 1000,
+              ),
+              prev: chained ? groupMessageHash(first) : '',
+            );
+            rows = rows.take(2).toList();
+            expected = owner;
+          case 'retention anchor':
+            rows = [doc, tail];
+            cuts = [
+              SpaceRetentionCut(
+                scope: 'group|clear|dev:${owner.hex}',
+                author: owner,
+                throughSeq: 1,
+                throughHash: groupMessageHash(first),
+                throughCreatedAtMs: first.createdAtMs,
+              ),
+            ];
+          case 'missing anchor':
+            rows = [doc, tail];
+            cuts = [
+              SpaceRetentionCut(
+                scope: 'group|clear|dev:${owner.hex}',
+                author: owner,
+                throughSeq: 1,
+                throughHash: 'f' * 64,
+                throughCreatedAtMs: first.createdAtMs,
+              ),
+            ];
+            expected = chained ? owner : f.master;
+          case 'no announcement':
+            rows = [first];
+            expected = owner;
+          case 'strict downgrade':
+            rows = [
+              first,
+              f.row(2, 'strict step', prev: groupMessageHash(first)),
+              f.row(3, f.announcement(f.master, 444)),
+            ];
+            expected = owner;
+        }
+        await f.put(rows, cuts: cuts);
+        final full = await f.service.deviceSyncState();
+        if (expected == owner) {
+          expect(
+            full.values.where(
+              (e) =>
+                  e.kind == DeviceSyncKind.identityDoc &&
+                  e.payload['o'] == true,
+            ),
+            isEmpty,
+          );
+        } else {
+          expect(full[(DeviceSyncKind.identityDoc, expected.hex)], isNotNull);
+        }
+        expect(await f.service.addressableOwnDevices(), [expected]);
+        // A completed lookup must not cache either validation or authority.
+        f.signer.rejectedBodies.addAll(rows.map((row) => row.body));
+        expect(await f.service.addressableOwnDevices(), [owner]);
+      });
+    }
+  }
 
   test(
     'own transport addresses use one fresh validated journal view',

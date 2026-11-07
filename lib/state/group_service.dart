@@ -20246,7 +20246,7 @@ class GroupService implements ArchiveGroups {
       // address. Afterwards replace that address with the actual device so a
       // fanout does not send once to each name for the same recipient.
       final master = _masterAddressInState(
-        await _deviceSyncStateOfBundle(b),
+        await _deviceAnnouncementStateOfBundle(b),
         me,
       );
       if (master == null) {
@@ -20274,7 +20274,7 @@ class GroupService implements ArchiveGroups {
       // case; avoid reading the device journal when selfId already suffices.
       if (!ids.remove(_signer.selfId)) {
         if (me != null) {
-          final announcement = (await _deviceSyncStateOfBundle(
+          final announcement = (await _deviceAnnouncementStateOfBundle(
             b,
           ))[(DeviceSyncKind.identityDoc, me.hex)];
           if (announcement?.payload['o'] == true) {
@@ -21764,6 +21764,75 @@ class GroupService implements ArchiveGroups {
     final b = await load(NodeId.fromHex(hex));
     if (b == null) return const {};
     return _deviceSyncStateOfBundle(b);
+  }
+
+  Future<Map<(DeviceSyncKind, String), DeviceSyncEvent>>
+  _deviceAnnouncementStateOfBundle(GroupBundle b) async {
+    var view = b;
+    if (b.manifest.isSovereignDevice &&
+        b.messages.every(
+          (message) =>
+              message.version == 1 && message.authorPubKey.length == 32,
+        ) &&
+        b.control.every(
+          (entry) =>
+              entry.op == ControlOp.addMember ||
+              entry.op == ControlOp.removeMember,
+        )) {
+      final through = <(NodeId, String), int>{};
+      final announcements = <GroupMessage>{};
+      for (final message in b.messages) {
+        // An unverified body selects work, never an address or a grant. Keep
+        // every possible announcement, including malformed/future candidates.
+        if (DeviceSyncEvent.fromBody(message.body)?.kind ==
+            DeviceSyncKind.identityDoc) {
+          announcements.add(message);
+          final writer = (
+            message.author,
+            _messageChainScope(b.manifest, message),
+          );
+          final previous = through[writer];
+          if (previous == null || message.seq > previous) {
+            through[writer] = message.seq;
+          }
+        }
+      }
+      final prefix = <({GroupMessage message, String scope})>[];
+      final chained = <(NodeId, String)>{};
+      final slots = <(NodeId, String, int), int>{};
+      for (final message in b.messages) {
+        final scope = _messageChainScope(b.manifest, message);
+        final writer = (message.author, scope);
+        if (message.seq > (through[writer] ?? -1)) continue;
+        prefix.add((message: message, scope: scope));
+        if (message.prevHash.isNotEmpty) chained.add(writer);
+        final slot = (message.author, scope, message.seq);
+        slots.update(slot, (count) => count + 1, ifAbsent: () => 1);
+      }
+      // Sovereign V1 rows have independent per-author/writer chains and no
+      // lifecycle transitions. A later suffix cannot invalidate an earlier
+      // announcement; every predecessor and same-slot fork up to the last
+      // candidate MUST remain. The normal verifier/fork/chain/retention/ACL
+      // and clock folds still decide which candidates actually exist.
+      // Current sovereign writers use unchained LWW rows. If a writer's
+      // entire prefix is unchained, unique non-announcement slots cannot
+      // affect routing. Preserve every potential fork in that same canonical
+      // scope; ordinary signature checks still decide whether it is real.
+      view = b.copyWith(
+        messages: [
+          for (final (:message, :scope) in prefix)
+            if (chained.contains((message.author, scope)) ||
+                announcements.contains(message) ||
+                (slots[(message.author, scope, message.seq)] ?? 0) > 1)
+              message,
+        ],
+      );
+    }
+    final state = await _deviceSyncStateOfBundle(view);
+    return {
+      for (final entry in state.entries)
+        if (entry.key.$1 == DeviceSyncKind.identityDoc) entry.key: entry.value,
+    };
   }
 
   Future<Map<(DeviceSyncKind, String), DeviceSyncEvent>>

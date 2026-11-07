@@ -1,5 +1,34 @@
 # Открытые случаи — обновлено 2026-11-07
 
+Последний раунд: [routing announcement view](../routing-announcement-prefix-2026-11-07/README.md)
+и [Poco baseline с TCP trace](../tcp-transit-detail-2026-11-07/README.md).
+Для поиска собственного device address больше не проверяется весь чат после
+объявления. В sovereign unchained журнале сохранены объявления и все raw
+fork-slot варианты; linked prefix проверяется полностью прежним verifier.
+Fresh header/ACL/cuts/clock/signatures сохранены, public state/records прежние;
+legacy/encrypted/неправильная длина ключа используют полный путь.
+33 focused, 651 related passed / 11 skipped, analyzer чистый. Baseline — четыре
+assertion-red; девять mutations — десять assertion-red, без timeout.
+
+Native A₁/B₁/A₂/B₂: во всех четырёх фазах 2000/2000 сообщений сходятся и
+переживают SIGKILL, запуск без A/C, возврат только A и финальный cold boot.
+Прямая цена linked lookup — 2 проверки из 66, unchained с потенциальным fork —
+3 из 66. Но **общее ускорение не доказано**: финальный B₂ после `start(A)`
+занял 25,681 с против 25,683/25,687 с controls; B₁ до последнего guard —
+20,476 с. Объём догрузки/обратной работы различался. Median receiver stage
+349,677/304,025/329,709/260,387 мс; догрузка остаётся активной.
+
+**NETCALL-01 открыт.** Poco доступен, два вызова выполнены на отдельном Core
+с рабочим узким TCP info logger. Оба baseline провалились **до** команды
+смены сети: в первом Mac перестал принимать при растущем TX телефона,
+во втором answer телефона не дошёл до dialing Mac. Handover не выполнен,
+слышимость не проверена. Socket с большой TCP-очередью появился уже после
+отказа второго сценария — причинная атрибуция отвергнута. Следующий участок —
+source admission → Core → callback выбранного адресата. Сырые журналы приватны.
+APK/контейнер/настройки восстановлены, свои процессы/порты/Core/capture убраны,
+production прежний; push/релиза и sibling mailbox нет.
+Предыдущие записи относятся к своим завершённым раундам.
+
 Последний раунд: [history request wake](../history-request-wake-2026-11-07/README.md).
 Подтверждён лишний backoff: ранняя presence занимает wake throttle, а валидный
 обратный history-запрос не ускоряет уже ожидающий pull. В двух прежних сериях
