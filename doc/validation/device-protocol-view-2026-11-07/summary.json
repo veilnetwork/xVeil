@@ -1,0 +1,124 @@
+{
+  "schema": "xveil-validation/device-protocol-view/1",
+  "base": "909203a9",
+  "fixes": [
+    "Protocol folds do not apply local presentation filters",
+    "Read-only folds do not advance the logical write clock"
+  ],
+  "redControls": {
+    "presentationMutationValueAssertions": 3,
+    "presentationMutationInjectedReadFailure": 1,
+    "clockMutationValueAssertions": 2,
+    "timeoutAsFailure": false,
+    "candidateBytesRestored": true
+  },
+  "candidateTests": {
+    "newTestsPassed": 6,
+    "relatedSuitePassed": 617,
+    "relatedSuiteSkipped": 11,
+    "analyzerClean": true,
+    "presentationPreferenceReadsPerProtocolQuery": 0,
+    "freshGroupHeaderReadsPerProtocolQuery": 1
+  },
+  "native": {
+    "sdk": "c6699c28",
+    "kind": "Separate Mac processes, JIT, encrypted native containers, private loopback relay island",
+    "scenario": {
+      "migrationOnly": true,
+      "baseRows": 2000,
+      "initialHistoryMs": 67459,
+      "initialCountCompleteMs": 67459,
+      "initialOrderMismatchObservations": 0,
+      "initialPositionMismatchObservations": 0,
+      "initialPositionsCompared": true,
+      "initialBStatuses": {
+        "sending": 0,
+        "sent": 0,
+        "delivered": 2000,
+        "failed": 0
+      },
+      "completedHistoryRetries": 0,
+      "convergedIdsAndOrder": true,
+      "invalidSnapshotObserved": false,
+      "offlineScenarioExecuted": false,
+      "receiverCrashRequested": true,
+      "receiverCrashPerformed": true,
+      "crashAfterRows": 500,
+      "rowsBeforeCrash": 623,
+      "crashExitCode": -9,
+      "rowsAtRestartBeforeNetwork": 623,
+      "crashAtMs": 5216,
+      "restartReadyAtMs": 16325,
+      "retainedWithoutSources": true,
+      "crashRetentionBeforeNetwork": {
+        "passed": true,
+        "expectedRows": 623,
+        "actualRows": 623,
+        "retainedExpectedRows": 623,
+        "missingExpectedRows": 0,
+        "unexpectedRows": 0,
+        "duplicateExpectedRows": 0,
+        "duplicateActualRows": 0,
+        "invalidExpectedRows": 0,
+        "invalidActualRows": 0,
+        "expectedDeliveredRows": 623,
+        "retainedDeliveredRows": 623,
+        "expectedCanonicalRows": 573,
+        "retainedCanonicalRows": 573,
+        "expectedBodyRows": 623,
+        "retainedBodyRows": 623
+      },
+      "finalRetentionBeforeNetwork": {
+        "passed": true,
+        "expectedRows": 2000,
+        "actualRows": 2000,
+        "retainedExpectedRows": 2000,
+        "missingExpectedRows": 0,
+        "unexpectedRows": 0,
+        "duplicateExpectedRows": 0,
+        "duplicateActualRows": 0,
+        "invalidExpectedRows": 0,
+        "invalidActualRows": 0,
+        "expectedDeliveredRows": 2000,
+        "retainedDeliveredRows": 2000,
+        "expectedCanonicalRows": 2000,
+        "retainedCanonicalRows": 2000,
+        "expectedBodyRows": 2000,
+        "retainedBodyRows": 2000
+      },
+      "sourcesOfflineAtReceiverRestart": true,
+      "rowsWithSourcesOffline": 623,
+      "sourceRestartReadyAtMs": 26535,
+      "onlySourceAReturned": true
+    },
+    "recoveryAfterSourceStartReturnedMs": 40924,
+    "qualification": {
+      "exit_code": 0,
+      "seconds": 258.949,
+      "sourceUnchangedDuringRun": true,
+      "qualificationPassed": true,
+      "diagnosticProfilingEnabled": false,
+      "qualificationKind": "crash-and-offline-source-recovery"
+    },
+    "restartSelectedLibraryWorkerCount": 2,
+    "cleanup": {
+      "ownedPidsChecked": 26,
+      "portsChecked": 29,
+      "livePids": [],
+      "remainingListeners": [],
+      "runtimeRootRemoved": true,
+      "frozenFilesVerified": 1509,
+      "nativeArtifactsUnchanged": true,
+      "hiddenVolumeUnchanged": true,
+      "sdkClean": true,
+      "portsReusedByOtherPids": 0
+    }
+  },
+  "limits": [
+    "No whole-sync causal speed claim",
+    "No Android AOT qualification for these Dart changes",
+    "No claim of NETCALL-01 attribution",
+    "No sibling mailbox",
+    "No push or release"
+  ]
+}

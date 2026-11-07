@@ -21768,8 +21768,11 @@ class GroupService implements ArchiveGroups {
 
   Future<Map<(DeviceSyncKind, String), DeviceSyncEvent>>
   _deviceSyncStateOfBundle(GroupBundle b) async {
-    final msgs = await _messagesOfBundle(b);
-    final nowMs = _now();
+    // Protocol state is not a screen projection: hiding a locally read row
+    // must not forget device addresses, settings or pending mirror events.
+    // Signed retention, lifecycle, membership and signature gates still run.
+    final msgs = await _messagesOfBundle(b, applyLocalRetention: false);
+    final nowMs = _clockNowMs();
     return foldDeviceSync([
       for (final m in msgs)
         if (DeviceSyncEvent.fromBody(m.body) case final e?)
@@ -21788,8 +21791,11 @@ class GroupService implements ArchiveGroups {
   Future<List<DeviceSyncRecord>> deviceSyncRecords() async {
     final hex = await deviceGroupIdHex();
     if (hex == null) return const [];
-    final messages = await messagesOf(NodeId.fromHex(hex));
-    final nowMs = _now();
+    final messages = await messagesOf(
+      NodeId.fromHex(hex),
+      applyLocalRetention: false,
+    );
+    final nowMs = _clockNowMs();
     return [
       for (final message in messages)
         if (DeviceSyncEvent.fromBody(message.body) case final event?)

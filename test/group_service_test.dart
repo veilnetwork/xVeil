@@ -688,6 +688,24 @@ class _HeldGroupHeaderStorage extends HiddenVolumeStorage
   }
 }
 
+/// Presentation preferences may fail independently of the signed journal.
+class _PresentationReadStorage extends _HeldGroupHeaderStorage {
+  int presentationReads = 0;
+  bool rejectPresentationReads = false;
+
+  @override
+  Future<String?> getSetting(String key) async {
+    if (key.startsWith('space.hideread.local.v1:') ||
+        key.startsWith('space.shown.v1:')) {
+      presentationReads++;
+      if (rejectPresentationReads) {
+        throw StateError('injected presentation-setting read failure');
+      }
+    }
+    return super.getSetting(key);
+  }
+}
+
 /// Holds a completed journal load, after shared raw-byte reads have drained.
 /// This exposes a routing lookup finishing after a later committed revoke.
 class _HeldRoutingGroupService extends GroupService {
@@ -15055,6 +15073,203 @@ void main() {
     expect(await reading, isEmpty);
     expect(await service.addressableOwnDevices(), isEmpty);
   });
+
+  for (final view in ['state', 'records']) {
+    test(
+      'device protocol $view reads do not advance the future-event clock',
+      () async {
+        var wall = DateTime.utc(2026, 11, 7, 12).millisecondsSinceEpoch;
+        final store = FakeHvContainer().storage();
+        await store.open(password: 'fixture', createIfMissing: true);
+        final service = GroupService(store, _FakeSigner(owner))
+          ..myDevice = owner
+          ..debugWallClockMs = (() => wall);
+        addTearDown(() async {
+          await service.dispose();
+          await store.close();
+        });
+        expect(
+          await service.linkDevice(
+            bob,
+            sovereign: sovereign,
+            broadcastSnapshot: false,
+          ),
+          isTrue,
+        );
+        final futureDevice = _id(0xDD);
+        final event = DeviceSyncEvent(
+          kind: DeviceSyncKind.identityDoc,
+          key: futureDevice.hex,
+          tsMs: wall + kDeviceSyncClockSkew.inMilliseconds + 200,
+          payload: const {'d': 'ZG9j', 'o': true},
+        );
+        expect(await service.postDeviceEvent(event), isTrue);
+        Future<bool> effective() async => view == 'state'
+            ? (await service.deviceSyncState()).containsKey((
+                event.kind,
+                event.key,
+              ))
+            : (await service.deviceSyncRecords()).any(
+                (record) =>
+                    record.event.kind == event.kind &&
+                    record.event.key == event.key,
+              );
+        expect(await effective(), isFalse);
+        for (var read = 0; read < 512; read++) {
+          await effective();
+        }
+        expect(
+          await effective(),
+          isFalse,
+          reason: 'queries must not make a future announcement effective',
+        );
+        wall += 200;
+        expect(
+          await effective(),
+          isTrue,
+          reason: 'the real wall clock still admits the exact skew boundary',
+        );
+      },
+    );
+  }
+
+  Future<
+    ({
+      GroupService linked,
+      _PresentationReadStorage store,
+      NodeId group,
+      NodeId master,
+    })
+  >
+  hiddenDeviceJournal() async {
+    var wall = DateTime.utc(2026, 11, 7, 12).millisecondsSinceEpoch;
+    final ownerStore = FakeHvContainer().storage();
+    final linkedStore = _PresentationReadStorage();
+    await ownerStore.open(password: 'fixture', createIfMissing: true);
+    await linkedStore.open(password: 'fixture', createIfMissing: true);
+    final physicalMaster = _id(0xD7);
+    final master = GroupService(ownerStore, _FakeSigner(owner))
+      ..myDevice = physicalMaster
+      ..debugWallClockMs = (() => wall)
+      ..documentNodeId = (_) => owner;
+    final linked = GroupService(linkedStore, _FakeSigner(bob))
+      ..myDevice = bob
+      ..debugWallClockMs = (() => wall)
+      ..documentNodeId = (_) => owner;
+    addTearDown(() async {
+      await linked.dispose();
+      await master.dispose();
+      await linkedStore.close();
+      await ownerStore.close();
+    });
+    expect(
+      await master.linkDevice(
+        bob,
+        sovereign: sovereign,
+        broadcastSnapshot: false,
+      ),
+      isTrue,
+    );
+    final gid = NodeId.fromHex((await master.deviceGroupIdHex())!);
+    expect(
+      await master.postDeviceEvent(
+        DeviceSyncEvent(
+          kind: DeviceSyncKind.identityDoc,
+          key: physicalMaster.hex,
+          tsMs: wall,
+          payload: const {'d': 'ZG9j', 'o': true},
+        ),
+      ),
+      isTrue,
+    );
+    expect(
+      await linked.ingestSnapshot(
+        master.snapshotJson((await master.load(gid))!, recipient: bob),
+      ),
+      isTrue,
+    );
+    expect(await linked.adoptDeviceGroup(gid), isTrue);
+    expect(await linked.addressableOwnDevices(), [physicalMaster]);
+    // Showing clamps coverage to the reader's clock. Let the real test clock
+    // pass the master's monotonic write stamps before recording that view.
+    wall += 1000;
+    final visible = await linked.messagesOf(gid);
+    expect(visible, isNotEmpty);
+    expect(
+      await linked.setLocalSpaceHideAfterReadMs(gid, kMinHideAfterReadMs),
+      isTrue,
+    );
+    await linked.recordSpaceShown(gid, messages: visible);
+    wall += kMinHideAfterReadMs + 1000;
+    expect(
+      (await linked.messagesOf(gid)).where((message) {
+        final event = DeviceSyncEvent.fromBody(message.body);
+        return event?.kind == DeviceSyncKind.identityDoc &&
+            event?.key == physicalMaster.hex;
+      }),
+      isEmpty,
+      reason: 'the local presentation boundary must actually hide this row',
+    );
+    expect((await linked.load(gid))!.messages, isNotEmpty);
+    linkedStore
+      ..heldKey = 'group:${gid.hex}'
+      ..headerReads = 0
+      ..presentationReads = 0;
+    return (
+      linked: linked,
+      store: linkedStore,
+      group: gid,
+      master: physicalMaster,
+    );
+  }
+
+  for (final view in ['state', 'records', 'routing']) {
+    test('device protocol $view survives local hide-after-read', () async {
+      final fixture = await hiddenDeviceJournal();
+      final service = fixture.linked;
+      switch (view) {
+        case 'state':
+          expect(
+            (await service.deviceSyncState())[(
+              DeviceSyncKind.identityDoc,
+              fixture.master.hex,
+            )],
+            isNotNull,
+          );
+        case 'records':
+          expect(
+            (await service.deviceSyncRecords()).where(
+              (record) =>
+                  record.event.kind == DeviceSyncKind.identityDoc &&
+                  record.event.key == fixture.master.hex,
+            ),
+            hasLength(1),
+          );
+        case 'routing':
+          expect(await service.addressableOwnDevices(), [fixture.master]);
+      }
+      expect(fixture.store.presentationReads, 0);
+      expect(
+        fixture.store.headerReads,
+        1,
+        reason: 'ignoring presentation must preserve the fresh journal read',
+      );
+    });
+  }
+
+  test(
+    'device protocol routing ignores a damaged presentation setting',
+    () async {
+      final fixture = await hiddenDeviceJournal();
+      fixture.store.rejectPresentationReads = true;
+      await expectLater(
+        fixture.linked.addressableOwnDevices(),
+        completion(equals([fixture.master])),
+      );
+      expect(fixture.store.presentationReads, 0);
+      expect(fixture.store.headerReads, 1);
+    },
+  );
 
   test(
     'own transport addresses use one fresh validated journal view',
