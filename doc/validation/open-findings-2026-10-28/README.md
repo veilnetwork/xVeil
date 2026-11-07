@@ -1,5 +1,23 @@
 # Открытые случаи — обновлено 2026-11-08
 
+Последний раунд: [полные IPC timings и ordered record boundaries](../ordered-record-observability-2026-11-08/README.md).
+SDK `f5a246ab` устраняет подтверждённый диагностический дефект: full-capture
+не менял фиксированную выборку приёмных IPC ages раз в 50 клеток. Наборы
+44/2319 и 59/3139 в прежнем захвате точно совпали с этой выборкой;
+regression упал на sequence 2 до исправления. Default/cap/TTL/auth-boundary
+сохранены. `26686d56` добавляет operator-only связь opaque cell → encrypted
+ordered record → queue/write/flush/read/decode boundaries; Android получил
+default-off property gates, raw metadata исключена из anonymous export.
+
+Финально 199 IPC / 709 session / 177 transport / 76 util passed,
+13 ignored отдельно; 19 journal tests и AOT privacy gate passed.
+Android release FFI compilation check прошёл. **NETCALL-01 остаётся открыт**:
+нового физического звонка/установки этих сборок ещё не было. Последний
+физический результат — 5/6 финальных окон и остаточные паузы порядка 1,6 с.
+Следующий шаг — свежие native builds и захват после transport selection
+с проверкой покрытия нужной ветки. Сеть/квоты/FIFO/wire не менялись;
+приложения и серверы не запускались, push/релиза нет.
+
 Последний раунд: [физическая проверка keepalive/FIFO](../keepalive-calls-2026-11-08/README.md).
 SDK `04584523` собран и проверен на Poco, Mac и двух изолированных QA Core.
 Два звонка, четыре реальных handover: **5/6** финальных окон passed,
