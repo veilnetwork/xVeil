@@ -1,4 +1,19 @@
-# Открытые случаи — обновлено 2026-11-07
+# Открытые случаи — обновлено 2026-11-08
+
+Последний раунд: [срок сборки входящего TCP-блока](../record-read-budget-2026-11-08/README.md).
+SDK `92cebc7e` устраняет подтверждённое неограниченное ожидание остатка
+заголовка/тела ordered record. Существующий 200-мс receive budget начинается
+с первого байта, не продлевается trickle или завершением сборки; истечение
+закрывает только этот child с `read_timeout`. Пустой child остаётся пригодным.
+Два виртуальных regression-red; после исправления host transport 176 passed,
+session 704 passed / 8 ignored, Android component на Poco 19 passed.
+Реальный authenticated obfs4/TCP-тест проверил sibling/canonical survival,
+освобождение lease и новую доставку через replacement.
+
+**NETCALL-01 открыт:** этот механизм не доказан как причина прежних 8,6 с.
+Новая FFI в обычном звонке ещё не проверялась; ранее записанные звонки её
+не содержат. На Poco запускался только отдельный native component test,
+APK/контейнеры не менялись, свои процессы/файлы убраны. Push/релиза нет.
 
 Последний раунд: [RTP и стадии отправки при handover](../audio-cell-join-2026-11-07/README.md).
 Android получил operator sampling property для существующего подробного trace
