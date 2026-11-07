@@ -66,9 +66,23 @@ class NodeId {
     }
     final out = Uint8List(32);
     for (var i = 0; i < 32; i++) {
-      out[i] = int.parse(clean.substring(i * 2, i * 2 + 2), radix: 16);
+      final high = _hexNibble(clean.codeUnitAt(i * 2));
+      final low = _hexNibble(clean.codeUnitAt(i * 2 + 1));
+      // The normal stored/wire spelling needs no temporary strings or
+      // general-purpose number parser. Keep the previous parser for other
+      // pairs: it also accepts a sign or surrounding whitespace, and callers
+      // must retain those legacy values and the same malformed-input errors.
+      out[i] = high >= 0 && low >= 0
+          ? (high << 4) | low
+          : int.parse(clean.substring(i * 2, i * 2 + 2), radix: 16);
     }
     return NodeId(out);
+  }
+
+  static int _hexNibble(int unit) {
+    if (unit >= 0x30 && unit <= 0x39) return unit - 0x30;
+    final lower = unit | 0x20;
+    return lower >= 0x61 && lower <= 0x66 ? lower - 0x61 + 10 : -1;
   }
 
   /// Built from a digit table, not per byte through `toRadixString` and

@@ -1,5 +1,22 @@
 # Открытые случаи — обновлено 2026-11-07
 
+Последний раунд: [разбор NodeId на пути догрузки](../node-id-hex-2026-11-07/README.md).
+Убран 32-кратный substring/int.parse для обычного hex ID; legacy fallback,
+ошибки и отдельное владение mutable bytes сохранены. 32768 ASCII cases плюс
+Unicode/регистр/знаки проверены против прежнего decoder. 508 related passed /
+11 skipped; analyzer чистый, два независимых mutation assertion-red.
+В AOT A/B/A parser обычных ID примерно в 4 раза дешевле; **это не ускорение
+всей догрузки**. Native A/B/C: 771/771 строка пережила SIGKILL и запуск без A/C;
+после возврата только A все 2000 ID/тел/delivered/позиций/порядок сходятся без
+дублей/retries и сохраняются при последнем cold boot без источников.
+Наблюдаемое завершение после `start(A)` — 25,567 с при 5-с интервале parent
+observer; миллисекундная разница с прежними прогонами не означает ускорения.
+Last-part → next-query median 262,743 мс, подготовка страниц и device-journal
+folds требуют дальнейшей работы. Native artifacts прежние (SDK `c6699c28`),
+новый SDK source `37f6bb08` не пересобирался. 1509 frozen inputs, 34 PID и 51
+порт проверены после cleanup. NETCALL-01 открыт, двух-Core проверка ждёт Poco.
+Push/релиза и sibling mailbox нет. Предыдущие записи относятся к своим раундам.
+
 Последний раунд: [TCP first-flight join](../core-first-flight-2026-11-07/README.md).
 Разобран прежний захват, новых звонков нет. Все 35 post-handover TCP socket
 телефона однозначно сопоставлены с Core/PCAP; независимый tcpdump подтвердил

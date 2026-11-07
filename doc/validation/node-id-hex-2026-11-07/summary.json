@@ -1,0 +1,524 @@
+{
+  "schema": "xveil-validation/node-id-hex/1",
+  "base": "7dcfe2d0",
+  "productionChange": "ASCII hex nibble decoding with unchanged legacy fallback",
+  "correctness": {
+    "focusedPassed": 9,
+    "relatedPassedIncludingFocused": 508,
+    "relatedSkipped": 11,
+    "asciiPairInputs": 32768,
+    "allByteValuesAndHexCases": true,
+    "unicodeAndLegacyBehaviorComparedWithOldDecoder": true,
+    "exceptionTypesAndTextCompared": true,
+    "mutableResultOwnershipPreserved": true,
+    "analyzerClean": true,
+    "timingThresholdAssertions": false,
+    "baselineSemanticFailureClaimed": false
+  },
+  "mutationControls": {
+    "controls": [
+      {
+        "case": "nibble-value",
+        "assertionRed": true,
+        "compileFailure": false,
+        "timeout": false
+      },
+      {
+        "case": "legacy-fallback-value",
+        "assertionRed": true,
+        "compileFailure": false,
+        "timeout": false
+      }
+    ],
+    "candidateRestoredByteForByte": true,
+    "initialLegacyExceptionProbeExcludedFromAssertionCount": true
+  },
+  "benchmark": {
+    "aot": true,
+    "parses": 6000000,
+    "syntheticIdsOnly": true,
+    "sourceAndExecutableProvenanceVerified": true,
+    "sourceUnchangedDuringMeasurement": true,
+    "rows": [
+      {
+        "profile": "lower",
+        "repetition": 0,
+        "count": 100000,
+        "baseline1Us": 66212,
+        "candidateUs": 13070,
+        "baseline2Us": 53547,
+        "checksumMatched": true
+      },
+      {
+        "profile": "lower",
+        "repetition": 1,
+        "count": 100000,
+        "baseline1Us": 53063,
+        "candidateUs": 12239,
+        "baseline2Us": 54192,
+        "checksumMatched": true
+      },
+      {
+        "profile": "lower",
+        "repetition": 2,
+        "count": 100000,
+        "baseline1Us": 53118,
+        "candidateUs": 12808,
+        "baseline2Us": 53609,
+        "checksumMatched": true
+      },
+      {
+        "profile": "lower",
+        "repetition": 3,
+        "count": 100000,
+        "baseline1Us": 53648,
+        "candidateUs": 12153,
+        "baseline2Us": 53675,
+        "checksumMatched": true
+      },
+      {
+        "profile": "lower",
+        "repetition": 4,
+        "count": 100000,
+        "baseline1Us": 60287,
+        "candidateUs": 17094,
+        "baseline2Us": 63759,
+        "checksumMatched": true
+      },
+      {
+        "profile": "mixed",
+        "repetition": 0,
+        "count": 100000,
+        "baseline1Us": 59391,
+        "candidateUs": 14055,
+        "baseline2Us": 57391,
+        "checksumMatched": true
+      },
+      {
+        "profile": "mixed",
+        "repetition": 1,
+        "count": 100000,
+        "baseline1Us": 55157,
+        "candidateUs": 13758,
+        "baseline2Us": 54932,
+        "checksumMatched": true
+      },
+      {
+        "profile": "mixed",
+        "repetition": 2,
+        "count": 100000,
+        "baseline1Us": 53317,
+        "candidateUs": 12821,
+        "baseline2Us": 53238,
+        "checksumMatched": true
+      },
+      {
+        "profile": "mixed",
+        "repetition": 3,
+        "count": 100000,
+        "baseline1Us": 53525,
+        "candidateUs": 12173,
+        "baseline2Us": 53497,
+        "checksumMatched": true
+      },
+      {
+        "profile": "mixed",
+        "repetition": 4,
+        "count": 100000,
+        "baseline1Us": 54130,
+        "candidateUs": 14258,
+        "baseline2Us": 57651,
+        "checksumMatched": true
+      },
+      {
+        "profile": "spaces",
+        "repetition": 0,
+        "count": 100000,
+        "baseline1Us": 135008,
+        "candidateUs": 92155,
+        "baseline2Us": 139367,
+        "checksumMatched": true
+      },
+      {
+        "profile": "spaces",
+        "repetition": 1,
+        "count": 100000,
+        "baseline1Us": 136687,
+        "candidateUs": 90673,
+        "baseline2Us": 130888,
+        "checksumMatched": true
+      },
+      {
+        "profile": "spaces",
+        "repetition": 2,
+        "count": 100000,
+        "baseline1Us": 136052,
+        "candidateUs": 87778,
+        "baseline2Us": 131282,
+        "checksumMatched": true
+      },
+      {
+        "profile": "spaces",
+        "repetition": 3,
+        "count": 100000,
+        "baseline1Us": 129523,
+        "candidateUs": 88902,
+        "baseline2Us": 132815,
+        "checksumMatched": true
+      },
+      {
+        "profile": "spaces",
+        "repetition": 4,
+        "count": 100000,
+        "baseline1Us": 130484,
+        "candidateUs": 88505,
+        "baseline2Us": 136366,
+        "checksumMatched": true
+      },
+      {
+        "profile": "legacy",
+        "repetition": 0,
+        "count": 100000,
+        "baseline1Us": 54929,
+        "candidateUs": 16973,
+        "baseline2Us": 54075,
+        "checksumMatched": true
+      },
+      {
+        "profile": "legacy",
+        "repetition": 1,
+        "count": 100000,
+        "baseline1Us": 54057,
+        "candidateUs": 16965,
+        "baseline2Us": 55101,
+        "checksumMatched": true
+      },
+      {
+        "profile": "legacy",
+        "repetition": 2,
+        "count": 100000,
+        "baseline1Us": 56267,
+        "candidateUs": 17308,
+        "baseline2Us": 54089,
+        "checksumMatched": true
+      },
+      {
+        "profile": "legacy",
+        "repetition": 3,
+        "count": 100000,
+        "baseline1Us": 55195,
+        "candidateUs": 15823,
+        "baseline2Us": 55639,
+        "checksumMatched": true
+      },
+      {
+        "profile": "legacy",
+        "repetition": 4,
+        "count": 100000,
+        "baseline1Us": 62611,
+        "candidateUs": 17102,
+        "baseline2Us": 56543,
+        "checksumMatched": true
+      }
+    ],
+    "summary": [
+      {
+        "profile": "lower",
+        "baseline1MedianUs": 53648,
+        "candidateMedianUs": 12808,
+        "baseline2MedianUs": 53675,
+        "candidateVsControlMedianRatio": 0.2387,
+        "repetitions": 5,
+        "parsesPerPhase": 100000
+      },
+      {
+        "profile": "mixed",
+        "baseline1MedianUs": 54130,
+        "candidateMedianUs": 13758,
+        "baseline2MedianUs": 54932,
+        "candidateVsControlMedianRatio": 0.2523,
+        "repetitions": 5,
+        "parsesPerPhase": 100000
+      },
+      {
+        "profile": "spaces",
+        "baseline1MedianUs": 135008,
+        "candidateMedianUs": 88902,
+        "baseline2MedianUs": 132815,
+        "candidateVsControlMedianRatio": 0.6639,
+        "repetitions": 5,
+        "parsesPerPhase": 100000
+      },
+      {
+        "profile": "legacy",
+        "baseline1MedianUs": 55195,
+        "candidateMedianUs": 16973,
+        "baseline2MedianUs": 55101,
+        "candidateVsControlMedianRatio": 0.3078,
+        "repetitions": 5,
+        "parsesPerPhase": 100000
+      }
+    ],
+    "wholeHistorySpeedClaimed": false
+  },
+  "native": {
+    "artifactSdk": "c6699c28",
+    "sourceSdk": "37f6bb08",
+    "nativeInputsUnchangedFromPriorQualification": true,
+    "scenario": {
+      "migrationOnly": true,
+      "baseRows": 2000,
+      "initialHistoryMs": 61233,
+      "initialCountCompleteMs": 61233,
+      "initialOrderMismatchObservations": 0,
+      "initialPositionMismatchObservations": 0,
+      "initialPositionsCompared": true,
+      "initialBStatuses": {
+        "sending": 0,
+        "sent": 0,
+        "delivered": 2000,
+        "failed": 0
+      },
+      "completedHistoryRetries": 0,
+      "convergedIdsAndOrder": true,
+      "invalidSnapshotObserved": false,
+      "receiverCrashRequested": true,
+      "receiverCrashPerformed": true,
+      "crashAfterRows": 500,
+      "rowsBeforeCrash": 771,
+      "crashExitCode": -9,
+      "rowsAtRestartBeforeNetwork": 771,
+      "retainedWithoutSources": true,
+      "crashRetentionBeforeNetwork": {
+        "passed": true,
+        "expectedRows": 771,
+        "actualRows": 771,
+        "retainedExpectedRows": 771,
+        "missingExpectedRows": 0,
+        "unexpectedRows": 0,
+        "duplicateExpectedRows": 0,
+        "duplicateActualRows": 0,
+        "invalidExpectedRows": 0,
+        "invalidActualRows": 0,
+        "expectedDeliveredRows": 771,
+        "retainedDeliveredRows": 771,
+        "expectedCanonicalRows": 721,
+        "retainedCanonicalRows": 721,
+        "expectedBodyRows": 771,
+        "retainedBodyRows": 771
+      },
+      "finalRetentionBeforeNetwork": {
+        "passed": true,
+        "expectedRows": 2000,
+        "actualRows": 2000,
+        "retainedExpectedRows": 2000,
+        "missingExpectedRows": 0,
+        "unexpectedRows": 0,
+        "duplicateExpectedRows": 0,
+        "duplicateActualRows": 0,
+        "invalidExpectedRows": 0,
+        "invalidActualRows": 0,
+        "expectedDeliveredRows": 2000,
+        "retainedDeliveredRows": 2000,
+        "expectedCanonicalRows": 2000,
+        "retainedCanonicalRows": 2000,
+        "expectedBodyRows": 2000,
+        "retainedBodyRows": 2000
+      },
+      "sourcesOfflineAtReceiverRestart": true,
+      "rowsWithSourcesOffline": 771,
+      "onlySourceAReturned": true
+    },
+    "afterSourceStartReturnedMs": 25567,
+    "parentObservationIntervalMs": 5000,
+    "wire": {
+      "afterSourceARestartOnly": true,
+      "uniqueRequestIds": 59,
+      "qualifiedUnrepeatedCompletePairs": 58,
+      "excluded": {
+        "repeatedQueryIds": 1
+      },
+      "operationCounts": {
+        "page": 57,
+        "list": 1
+      },
+      "pageQueryToLastPart": {
+        "samples": 57,
+        "minimumUs": 50886,
+        "medianUs": 88403,
+        "maximumUs": 199760
+      },
+      "nextQueryAfterLastPart": {
+        "samples": 57,
+        "minimumUs": 176232,
+        "medianUs": 262743,
+        "maximumUs": 330459
+      }
+    },
+    "cpu": {
+      "samples": 2980,
+      "windowMs": 42778,
+      "inclusiveAppFrames": [
+        {
+          "function": "<anonymous closure>",
+          "source": "lib/state/group_service.dart",
+          "samples": 1000
+        },
+        {
+          "function": "_readOwnDeviceAddresses",
+          "source": "lib/state/group_service.dart",
+          "samples": 519
+        },
+        {
+          "function": "_deviceAnnouncementStateOfBundle",
+          "source": "lib/state/group_service.dart",
+          "samples": 430
+        },
+        {
+          "function": "load",
+          "source": "lib/state/group_service.dart",
+          "samples": 417
+        },
+        {
+          "function": "fromBody",
+          "source": "lib/domain/device_sync.dart",
+          "samples": 231
+        },
+        {
+          "function": "foldControlLog",
+          "source": "lib/domain/group_policy.dart",
+          "samples": 190
+        },
+        {
+          "function": "_foldControlLogOnce",
+          "source": "lib/domain/group_policy.dart",
+          "samples": 183
+        },
+        {
+          "function": "_call",
+          "source": "lib/data/storage/async_kv_log_store.dart",
+          "samples": 157
+        },
+        {
+          "function": "_deviceSyncStateOfBundle",
+          "source": "lib/state/group_service.dart",
+          "samples": 149
+        },
+        {
+          "function": "fromJson",
+          "source": "lib/domain/group_message.dart",
+          "samples": 148
+        },
+        {
+          "function": "_messagesOfBundle",
+          "source": "lib/state/group_service.dart",
+          "samples": 132
+        },
+        {
+          "function": "_validMessageFor",
+          "source": "lib/state/group_service.dart",
+          "samples": 127
+        },
+        {
+          "function": "verifyMessage",
+          "source": "lib/state/group_service_signers.dart",
+          "samples": 127
+        },
+        {
+          "function": "verifyGroupMessage",
+          "source": "lib/state/group_crypto.dart",
+          "samples": 127
+        },
+        {
+          "function": "_acceptedMessageRows",
+          "source": "lib/state/group_service.dart",
+          "samples": 99
+        },
+        {
+          "function": "_acceptedMessagesWithinLifecycle",
+          "source": "lib/state/group_service.dart",
+          "samples": 98
+        },
+        {
+          "function": "_ingestSnapshot",
+          "source": "lib/state/group_service.dart",
+          "samples": 98
+        },
+        {
+          "function": "_canonicalMessageRows",
+          "source": "lib/state/group_service.dart",
+          "samples": 94
+        },
+        {
+          "function": "_canonicalMessageView",
+          "source": "lib/state/group_service.dart",
+          "samples": 94
+        },
+        {
+          "function": "_canonicalRetainedMessageView",
+          "source": "lib/state/group_service.dart",
+          "samples": 93
+        },
+        {
+          "function": "_mergeEpochMaterial",
+          "source": "lib/state/group_service.dart",
+          "samples": 92
+        },
+        {
+          "function": "_acceptedControl",
+          "source": "lib/state/group_service.dart",
+          "samples": 89
+        },
+        {
+          "function": "<anonymous closure>",
+          "source": "lib/state/group_service.dart",
+          "samples": 81
+        },
+        {
+          "function": "_validControlFor",
+          "source": "lib/state/group_service.dart",
+          "samples": 78
+        }
+      ],
+      "fromHexInclusiveSamples": 61,
+      "inclusiveCountsOverlap": true,
+      "causalWallTimeClaimed": false
+    },
+    "historyCallbackCounts": {
+      "A": {
+        "historyApply": 522,
+        "historyEncode": 1808,
+        "ownDevices": 1616
+      },
+      "B": {
+        "historyApply": 1808,
+        "historyEncode": 522,
+        "ownDevices": 4766
+      }
+    },
+    "qualificationPassed": true,
+    "sourceUnchangedDuringRun": true,
+    "mappedImmutableLibrariesAfterReceiverRestart": true,
+    "cleanup": {
+      "ownedPidsChecked": 34,
+      "portsChecked": 51,
+      "livePids": [],
+      "remainingListeners": [],
+      "runtimeRootRemoved": true,
+      "frozenFilesVerified": 1509,
+      "nativeArtifactsUnchanged": true,
+      "hiddenVolumeUnchanged": true,
+      "sdkClean": true,
+      "portsReusedByOtherPids": 0
+    }
+  },
+  "limits": [
+    "AOT benchmark measures parser cost, not full history synchronization",
+    "Native qualification is one profiled JIT run on one Mac and loopback Core",
+    "Parent history polling interval is 5 seconds; millisecond differences in observed completion are not a speedup",
+    "Partial receive volumes and reverse history work differ from old runs",
+    "No Android AOT, Windows, WAN or full multi-device matrix qualification",
+    "NETCALL-01 remains open; phone unavailable over ADB",
+    "No authorization cache, sibling mailbox, push or release"
+  ]
+}
