@@ -1,5 +1,27 @@
 # Открытые случаи — обновлено 2026-11-07
 
+Последний раунд: [Core frame join](../core-frame-join-2026-11-07/README.md).
+Четыре квалифицированных Poco ↔ Mac вызова на неизменной SDK `c6699c28`:
+два Wi-Fi прошли, мобильный Poco→Mac вышел на пять fresh RX только за 22,651 с,
+затем выдержал 35 с; следующий Mac→Poco **не появился за 45,305 с**.
+Wi-Fi отключался между разговорами. В консервативной внутренней части
+последнего окна 137 Mac-origin Forward реально получены Core и не имеют
+Core TX witness; в обратном направлении 90/90 имеют Core TX и Mac RX.
+Одновременно 44 pressure windows к Poco, queue depth до 176, retry 10 мс.
+Это сужает фронт до egress/admission на Core, но отсутствие capture TX не
+является доказательством drop; конкретные ветвь/канал и call-offer не
+атрибутированы. **NETCALL-01 остаётся открытым.**
+
+SDK `97dc1295` после серии добавляет только opt-in child-pressure snapshot:
+free actor slots, actor/record bytes и completed/received counters; остальные
+retry gates помечены `other`. Admission/таймеры/wire/cipher прежние.
+697 session passed / 8 ignored; физического захвата с этим добавлением ещё нет.
+Один преждевременный setup-call исключён; capture на Poco не объявлен
+работающим. Ошибочный вывод о VPN отозван: parser совпал с `NOT_VPN`, raw
+Transports подтверждает Wi-Fi. APK/контейнер/сеть/настройки восстановлены,
+свои Core/capture/subscribers/processes убраны, production прежний.
+Push/релиза нет. Предыдущие записи относятся к своим завершённым раундам.
+
 Последний раунд: [routing announcement view](../routing-announcement-prefix-2026-11-07/README.md)
 и [Poco baseline с TCP trace](../tcp-transit-detail-2026-11-07/README.md).
 Для поиска собственного device address больше не проверяется весь чат после

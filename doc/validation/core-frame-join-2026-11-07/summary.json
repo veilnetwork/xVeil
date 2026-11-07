@@ -1,0 +1,391 @@
+{
+  "schema": "xveil-validation/core-frame-join/1",
+  "sdk": "c6699c28",
+  "frameObservers": {
+    "coreRows": 14354,
+    "macRows": 6174,
+    "coreRateLimitConfiguredPerPeerPerSecond": 1000,
+    "macRateLimitConfiguredPerPeerPerSecond": 1000,
+    "allFamily3": true,
+    "plaintextRows": 0,
+    "uniqueCoreReceiveEnvelopeKeys": 7615,
+    "uniqueCoreOutboundEnvelopeKeys": 6739,
+    "coreOutboundWithReceiveWitness": 6739,
+    "bodyPreviewsRemainPrivate": true,
+    "sourcePreviewMatches": [
+      {
+        "role": "phone",
+        "uniqueSourceObservations": 24,
+        "exactCoreIngressPreviewMatches": 24,
+        "stages": {
+          "budget_admit": 24
+        },
+        "phoneObservationSparse": true,
+        "scope": "whole capture including excluded setup; not a call packet count"
+      },
+      {
+        "role": "mac",
+        "uniqueSourceObservations": 5220,
+        "exactCoreIngressPreviewMatches": 5220,
+        "stages": {
+          "budget_admit": 2610,
+          "datagram_accepted": 2610
+        },
+        "phoneObservationSparse": false,
+        "scope": "whole capture including excluded setup; not a call packet count"
+      }
+    ],
+    "macObserverAuthenticatedBeforeQualifiedCalls": true,
+    "coreObserverAuthenticatedBeforeQualifiedCalls": true,
+    "phoneObserverSucceeded": false
+  },
+  "clockBounds": {
+    "relayOffsetIntervalWidthMs": 1486.236,
+    "coreWindowsStrictlyInsideCaseForEveryMeasuredOffset": true,
+    "oneWayNetworkLatencyClaimed": false
+  },
+  "cases": [
+    {
+      "network": "WIFI",
+      "caller": "phone",
+      "passed": true,
+      "networkSwitchInsideCall": false,
+      "durationAfterPlaceMs": 38974,
+      "conservativeCoreInteriorWindowMs": 37488,
+      "observedAfterFreshBaselineSeconds": 35,
+      "failure": null,
+      "finalFiveFresh": {
+        "phone": true,
+        "mac": true
+      },
+      "endpoints": {
+        "phone": {
+          "samples": 74,
+          "freshSamples": 72,
+          "rxPktsMax": 371,
+          "txPayloadPktsMax": 271,
+          "rxNativeAgeMaxMs": 354
+        },
+        "mac": {
+          "samples": 74,
+          "freshSamples": 72,
+          "rxPktsMax": 291,
+          "txPayloadPktsMax": 354,
+          "rxNativeAgeMaxMs": 392
+        }
+      },
+      "relayJoins": [
+        {
+          "source": "phone",
+          "opaqueEnvelopeKind": "media",
+          "coreReceiveObserved": 591,
+          "coreOutboundObserved": 591,
+          "noCoreOutboundWitness": 0,
+          "macInboundObserved": 591
+        },
+        {
+          "source": "phone",
+          "opaqueEnvelopeKind": "other",
+          "coreReceiveObserved": 18,
+          "coreOutboundObserved": 18,
+          "noCoreOutboundWitness": 0,
+          "macInboundObserved": 18
+        },
+        {
+          "source": "mac",
+          "opaqueEnvelopeKind": "media",
+          "coreReceiveObserved": 591,
+          "coreOutboundObserved": 591,
+          "noCoreOutboundWitness": 0,
+          "macInboundObserved": null
+        },
+        {
+          "source": "mac",
+          "opaqueEnvelopeKind": "other",
+          "coreReceiveObserved": 8,
+          "coreOutboundObserved": 8,
+          "noCoreOutboundWitness": 0,
+          "macInboundObserved": null
+        }
+      ],
+      "fiveFreshAfterPlaceMs": 3699
+    },
+    {
+      "network": "WIFI",
+      "caller": "mac",
+      "passed": true,
+      "networkSwitchInsideCall": false,
+      "durationAfterPlaceMs": 38879,
+      "conservativeCoreInteriorWindowMs": 37393,
+      "observedAfterFreshBaselineSeconds": 35,
+      "failure": null,
+      "finalFiveFresh": {
+        "phone": true,
+        "mac": true
+      },
+      "endpoints": {
+        "phone": {
+          "samples": 73,
+          "freshSamples": 72,
+          "rxPktsMax": 850,
+          "txPayloadPktsMax": 237,
+          "rxNativeAgeMaxMs": 63
+        },
+        "mac": {
+          "samples": 73,
+          "freshSamples": 71,
+          "rxPktsMax": 257,
+          "txPayloadPktsMax": 842,
+          "rxNativeAgeMaxMs": 393
+        }
+      },
+      "relayJoins": [
+        {
+          "source": "phone",
+          "opaqueEnvelopeKind": "media",
+          "coreReceiveObserved": 819,
+          "coreOutboundObserved": 819,
+          "noCoreOutboundWitness": 0,
+          "macInboundObserved": 819
+        },
+        {
+          "source": "phone",
+          "opaqueEnvelopeKind": "other",
+          "coreReceiveObserved": 16,
+          "coreOutboundObserved": 16,
+          "noCoreOutboundWitness": 0,
+          "macInboundObserved": 16
+        },
+        {
+          "source": "mac",
+          "opaqueEnvelopeKind": "media",
+          "coreReceiveObserved": 1044,
+          "coreOutboundObserved": 1044,
+          "noCoreOutboundWitness": 0,
+          "macInboundObserved": null
+        },
+        {
+          "source": "mac",
+          "opaqueEnvelopeKind": "other",
+          "coreReceiveObserved": 16,
+          "coreOutboundObserved": 16,
+          "noCoreOutboundWitness": 0,
+          "macInboundObserved": null
+        }
+      ],
+      "fiveFreshAfterPlaceMs": 3662
+    },
+    {
+      "network": "CELLULAR",
+      "caller": "phone",
+      "passed": true,
+      "networkSwitchInsideCall": false,
+      "durationAfterPlaceMs": 57703,
+      "conservativeCoreInteriorWindowMs": 56217,
+      "observedAfterFreshBaselineSeconds": 35,
+      "failure": null,
+      "finalFiveFresh": {
+        "phone": true,
+        "mac": true
+      },
+      "endpoints": {
+        "phone": {
+          "samples": 108,
+          "freshSamples": 60,
+          "rxPktsMax": 307,
+          "txPayloadPktsMax": 339,
+          "rxNativeAgeMaxMs": 8188
+        },
+        "mac": {
+          "samples": 108,
+          "freshSamples": 89,
+          "rxPktsMax": 391,
+          "txPayloadPktsMax": 628,
+          "rxNativeAgeMaxMs": 3686
+        }
+      },
+      "relayJoins": [
+        {
+          "source": "phone",
+          "opaqueEnvelopeKind": "media",
+          "coreReceiveObserved": 490,
+          "coreOutboundObserved": 490,
+          "noCoreOutboundWitness": 0,
+          "macInboundObserved": 490
+        },
+        {
+          "source": "phone",
+          "opaqueEnvelopeKind": "other",
+          "coreReceiveObserved": 138,
+          "coreOutboundObserved": 138,
+          "noCoreOutboundWitness": 0,
+          "macInboundObserved": 138
+        },
+        {
+          "source": "mac",
+          "opaqueEnvelopeKind": "media",
+          "coreReceiveObserved": 818,
+          "coreOutboundObserved": 540,
+          "noCoreOutboundWitness": 278,
+          "macInboundObserved": null
+        },
+        {
+          "source": "mac",
+          "opaqueEnvelopeKind": "other",
+          "coreReceiveObserved": 219,
+          "coreOutboundObserved": 121,
+          "noCoreOutboundWitness": 98,
+          "macInboundObserved": null
+        }
+      ],
+      "fiveFreshAfterPlaceMs": 22651
+    },
+    {
+      "network": "CELLULAR",
+      "caller": "mac",
+      "passed": false,
+      "networkSwitchInsideCall": false,
+      "durationAfterPlaceMs": 45305,
+      "conservativeCoreInteriorWindowMs": 43819,
+      "observedAfterFreshBaselineSeconds": null,
+      "failure": "Exact incoming not observed",
+      "finalFiveFresh": null,
+      "endpoints": {
+        "phone": {
+          "samples": 0,
+          "freshSamples": 0,
+          "rxPktsMax": 0,
+          "txPayloadPktsMax": 0,
+          "rxNativeAgeMaxMs": null
+        },
+        "mac": {
+          "samples": 0,
+          "freshSamples": 0,
+          "rxPktsMax": 0,
+          "txPayloadPktsMax": 0,
+          "rxNativeAgeMaxMs": null
+        }
+      },
+      "relayJoins": [
+        {
+          "source": "phone",
+          "opaqueEnvelopeKind": "media",
+          "coreReceiveObserved": 0,
+          "coreOutboundObserved": 0,
+          "noCoreOutboundWitness": 0,
+          "macInboundObserved": 0
+        },
+        {
+          "source": "phone",
+          "opaqueEnvelopeKind": "other",
+          "coreReceiveObserved": 90,
+          "coreOutboundObserved": 90,
+          "noCoreOutboundWitness": 0,
+          "macInboundObserved": 90
+        },
+        {
+          "source": "mac",
+          "opaqueEnvelopeKind": "media",
+          "coreReceiveObserved": 0,
+          "coreOutboundObserved": 0,
+          "noCoreOutboundWitness": 0,
+          "macInboundObserved": null
+        },
+        {
+          "source": "mac",
+          "opaqueEnvelopeKind": "other",
+          "coreReceiveObserved": 137,
+          "coreOutboundObserved": 0,
+          "noCoreOutboundWitness": 137,
+          "macInboundObserved": null
+        }
+      ],
+      "fiveFreshAfterPlaceMs": null,
+      "phoneEgressLocalPressure": {
+        "windows": 44,
+        "pqDepthMax": 176,
+        "retryMsObserved": [
+          10
+        ],
+        "headSizesObserved": [
+          652
+        ]
+      }
+    }
+  ],
+  "tcpTrace": {
+    "tcpRows": 1641,
+    "handshakeRows": 276,
+    "envVerified": true,
+    "productionUnchanged": true,
+    "tailLimitReached": false
+  },
+  "packetCapture": {
+    "packets": 35921,
+    "flows": 138,
+    "completeToEof": true,
+    "sizeAndShaVerified": true
+  },
+  "hygiene": {
+    "sdkInputsUnchanged": 1533,
+    "frontendInputsUnchanged": 1480,
+    "frozenHarnessUnchangedDuringQualifiedCalls": true,
+    "ownedLocalObserverProbeAndLogcatProcessesExited": true,
+    "phoneNcProcessExited": true,
+    "strictSignatureVerifiedAfterLogRemoval": true,
+    "ownMacRuntimeRemoved": true,
+    "local": {
+      "macRequiredSigkillAfterGrace": true,
+      "macProcessExited": true,
+      "phoneQaExited": true,
+      "originalAudioPermissionRestored": true,
+      "network.veil.xveil.qa.audio20261101ApkShaUnchanged": true,
+      "network.veil.xveilApkShaUnchanged": true,
+      "oldQaContainerShaUnchanged": true,
+      "validatedOriginalNetworkRestored": true,
+      "ownAdbForwardRemoved": true,
+      "ownedPortsReleased": true
+    },
+    "remote": {
+      "ownServiceStopped": true,
+      "ownedStateRuntimeConfigBinaryUnitRemoved": true,
+      "ownPortsReleased": true,
+      "productionUnchanged": true
+    }
+  },
+  "excludedSetup": {
+    "callStartedBeforeMacObserver": true,
+    "stoppedAndExcluded": true,
+    "coreObserverFirstFailure": "CLI UID differed from service UID; corrected to actual service UID",
+    "macObserverConfig": "temporary app TOML absent; used validated observer-only config pointing at existing owned admin socket",
+    "phoneObserver": "ADB exec-out stdin control failed; subsequent shell health probe had no reply; no phone capture claimed",
+    "initialNetworkClassification": "NOT_VPN capability falsely matched as VPN; corrected from original Transports field; no VPN state changed"
+  },
+  "limits": [
+    "Observation TX is transport selection, not peer delivery",
+    "Capture is bounded, rate limited and can silently lag; no TX witness alone does not prove an egress drop",
+    "Concurrent queue growth corroborates a local egress wait but does not identify its route or admission branch",
+    "Healthy Wi-Fi and cellular calls do not close NETCALL-01",
+    "No user-data, endpoint IDs, addresses or ciphertext hashes published",
+    "No current Dart AOT qualification, source or production change, push or release"
+  ],
+  "physicalSeriesProductCodeChanged": false,
+  "diagnosticAddition": {
+    "sdkCommit": "97dc1295",
+    "kind": "observation only; no admission, wire, queue, timer or cipher policy change",
+    "physicalSeriesUsedIt": false,
+    "sessionTestsPassed": 697,
+    "sessionTestsIgnored": 8,
+    "externalMountVerified": true,
+    "externalMountLost": false,
+    "newFields": [
+      "pressure_route",
+      "child_free_slots",
+      "child_actor_bytes",
+      "child_record_bytes",
+      "child_completed",
+      "child_received"
+    ],
+    "traceOffSkipsAdditionalSnapshot": true
+  }
+}
