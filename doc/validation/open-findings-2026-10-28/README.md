@@ -1,5 +1,29 @@
 # Открытые случаи — обновлено 2026-11-07
 
+Последний раунд: [проверка recovery-сборки на Poco](../confirmed-recovery-2026-11-07/README.md).
+SDK `5d89beb5` собран для Android, Mac и двух QA Core, provenance/ABI/подписи
+проверены. Три полных Cellular/QUIC-контроля прошли финальные проверки, прежняя
+пауза 5,6 с не повторилась. В этой серии нет Core recovery events: это smoke
+новой сборки, не доказательство причинного устранения ложной отмены replacement.
+Две ранние попытки прервались из-за ADB при прежнем PID приложения; они не
+засчитаны как product failures или успешная квалификация.
+
+**NETCALL-01 подтверждён повторно:** в одном TCP-звонке Wi-Fi → Cellular
+audio RX Mac стоял ≥8501 мс, age достиг 8598 мс. Внутри паузы native audio TX
+Poco +36; это независимо подтвердили host samples и local phone collector.
+На Core B — 34 phone-origin marker frames с TX witness к Mac, на Mac —
+36 входящих marker frames. Один feedback packet однозначно прошёл до
+authenticated receive за 71,269–120,997 мс внутри audio gap. Класс остальных
+кадров и судьба недостающих audio payloads пока не установлены; epoch не
+отличает feedback от RTP. Следующий участок — audio producer/send pump/
+admission/выбранный carrier отдельно от работающей feedback-ветки.
+
+Обратный Cellular → Wi-Fi прошёл без такой паузы; call ID/PID прежние.
+Local collectors дали 291/291 и 300/300 успешных записей, после проверки
+завершены, их private device directories/keys удалены. Все QA стенды убраны,
+APK/контейнеры/сеть/permissions/P2P восстановлены, production прежний.
+SDK source не менялся, push/релиза и sibling mailbox нет.
+
 Последний раунд: [Cellular TCP / QUIC / TCP](../tcp-quic-cellular-2026-11-07/README.md).
 Девять звонков Poco ↔ Mac, SDK `7d34e4e5` на обоих клиентах и двух QA Core,
 без смены сети; все media relay. В QUIC-контроле RX Poco стоял ≥5458 мс,
