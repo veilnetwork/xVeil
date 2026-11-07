@@ -1,5 +1,30 @@
 # Открытые случаи — обновлено 2026-11-07
 
+Последний раунд: [history request wake](../history-request-wake-2026-11-07/README.md).
+Подтверждён лишний backoff: ранняя presence занимает wake throttle, а валидный
+обратный history-запрос не ускоряет уже ожидающий pull. В двух прежних сериях
+один list повторялся через 16 с при работающем обратном обмене. Теперь
+подготовленный ответ после fresh gates даёт отдельный throttled сигнал:
+те же ID/cursor/attempts, минимум 2 с, 30-с throttle, прежние request leases.
+Четыре baseline assertion-red и три независимые guard mutations без timeout;
+142 passed / 1 skipped, analyzer чистый. Отзыв перед deferred retry соблюдён.
+
+Native profiled A/B/C: после SIGKILL 751 наблюдавшаяся строка цела до сети
+при offline A/C, затем только A возвращается; все 2000 ID/тел/delivered/
+позиций/порядок сходятся без дублей/history retries и переживают ещё один
+cold boot без источников. Начальный list повторился через 1,982 с вместо
+прежнего 16-с интервала; отдельной native hook-записи нет, исключительная
+причинная атрибуция/общий выигрыш скорости не заявлены. 25,683 с после
+`start(A)` — один прогон с profiling. Между страницами median около 350 мс,
+догрузка остаётся активной.
+
+Исправлено перезаписывание профиля предыдущего boot в test worker: полный
+CPU window 5444 samples / 40,513 с сохранён отдельно. Inclusive stacks указывают
+на повторный validated device-journal view, canonical rows и crypto verdicts;
+fresh authorization не убран. 1509 frozen inputs, 34 PID/57 портов очищены,
+SDK/HVS/production прежние. **NETCALL-01 открыт**, Poco сейчас не виден ADB;
+push/релиза и sibling mailbox нет. Предыдущие записи относятся к своим раундам.
+
 Последний раунд: [служебные представления устройств](../device-protocol-view-2026-11-07/README.md).
 Исправлены два подтверждённых дефекта: локальное скрытие прочитанных строк
 забывало physical device address в protocol fold, а частые read-запросы

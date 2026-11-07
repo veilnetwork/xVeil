@@ -175,19 +175,19 @@ class _Fixture {
     drain();
   }
 
-  void historyQuery(NodeId peer, String requestId) {
+  void historyQuery(
+    NodeId peer,
+    String requestId, {
+    Map<String, dynamic> query = const {'op': 'list'},
+    SenderProvenance provenance = SenderProvenance.signed,
+  }) {
     transport.input.add(
       InboundMessage(
         src: _id(90),
         srcDevice: peer,
-        provenance: SenderProvenance.signed,
+        provenance: provenance,
         payload: WireEnvelope.deviceHistory(
-          jsonEncode({
-            'v': 1,
-            'd': peer.hex,
-            'id': requestId,
-            'q': {'op': 'list'},
-          }),
+          jsonEncode({'v': 1, 'd': peer.hex, 'id': requestId, 'q': query}),
         ).encode(),
       ),
     );
@@ -380,6 +380,105 @@ void main() {
         hasLength(4),
         reason: 'repeated presence must retain the 30-second wake throttle',
       );
+    }),
+  );
+
+  test(
+    'a served history request releases backoff despite early presence',
+    () => _run((f) {
+      final peer = _id(2);
+      f.presence(peer);
+      f.time.elapse(const Duration(seconds: 9));
+      final first = f.queries(peer).first;
+      expect(f.queries(peer), hasLength(3)); // t=0,2,6, next t=14.
+      f.presence(peer); // The ordinary presence wake is still throttled.
+      expect(f.queries(peer), hasLength(3));
+      f.historyQuery(peer, 'a' * 32);
+      expect(f.transport.replies, hasLength(1));
+      expect(
+        f.queries(peer),
+        hasLength(4),
+        reason: 'a validated reverse request proves the history host is ready',
+      );
+      expect(f.queries(peer).last, first);
+      expect(
+        f.finish(f.storage.getSetting('device.history.cursor.v2:${peer.hex}')),
+        isNull,
+        reason: 'readiness must not advance the durable history cursor',
+      );
+    }),
+  );
+
+  test(
+    'a served history request keeps the minimum retry interval',
+    () => _run((f) {
+      final peer = _id(2);
+      f.presence(peer);
+      f.time.elapse(const Duration(seconds: 6));
+      expect(f.queries(peer), hasLength(3));
+      f.historyQuery(peer, 'a' * 32);
+      expect(f.transport.replies, hasLength(1));
+      expect(f.queries(peer), hasLength(3));
+      f.time.elapse(const Duration(milliseconds: 1999));
+      expect(f.queries(peer), hasLength(3));
+      f.time.elapse(const Duration(milliseconds: 1));
+      expect(f.queries(peer), hasLength(4));
+    }),
+  );
+
+  test(
+    'served history requests cannot repeatedly release the same pull',
+    () => _run((f) {
+      final peer = _id(2);
+      f.presence(peer);
+      f.time.elapse(const Duration(seconds: 9));
+      f.historyQuery(peer, 'a' * 32);
+      expect(f.queries(peer), hasLength(4));
+      f.time.elapse(const Duration(seconds: 2));
+      for (var i = 0; i < 10; i++) {
+        f.historyQuery(peer, i.toRadixString(16).padLeft(32, '0'));
+        f.time.elapse(const Duration(milliseconds: 50));
+      }
+      expect(f.transport.replies, hasLength(11));
+      expect(
+        f.queries(peer),
+        hasLength(4),
+        reason: 'request readiness has its own thirty-second wake throttle',
+      );
+    }),
+  );
+
+  test(
+    'malformed or unauthenticated requests cannot release history backoff',
+    () => _run((f) {
+      final peer = _id(2);
+      f.presence(peer);
+      f.time.elapse(const Duration(seconds: 9));
+      f.historyQuery(peer, 'a' * 32, query: {'op': 'unsupported'});
+      f.historyQuery(
+        peer,
+        'b' * 32,
+        query: {'op': 'page', 'peer': 'bad', 'cursor': null},
+      );
+      f.historyQuery(peer, 'c' * 32, provenance: SenderProvenance.claimed);
+      expect(f.transport.replies, isEmpty);
+      expect(f.queries(peer), hasLength(3));
+      f.historyQuery(peer, 'd' * 32);
+      expect(f.queries(peer), hasLength(4));
+    }),
+  );
+
+  test(
+    'revocation refuses a retry woken by a served history request',
+    () => _run((f) {
+      final peer = _id(2);
+      f.presence(peer);
+      f.time.elapse(const Duration(seconds: 6));
+      f.historyQuery(peer, 'a' * 32);
+      expect(f.transport.replies, hasLength(1));
+      f.siblings = [];
+      f.time.elapse(const Duration(seconds: 2));
+      expect(f.queries(peer), hasLength(3));
     }),
   );
 
