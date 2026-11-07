@@ -1,5 +1,30 @@
 # Открытые случаи — обновлено 2026-11-07
 
+Последний раунд: [диагностика Poco и шесть переключений в одном звонке](../phone-close-cause-2026-11-07/README.md).
+Phone/Core SDK `7d34e4e5`, Mac `c6699c28`; проверены Android ELF, 208 C exports,
+неизменность остальных APK payloads, signer/alignment и реально установленный
+SHA. До длинного звонка получен новый phone first-cause trace. Один call ID
+сохранился 424,103 с при шести сменах Wi-Fi/Cellular; 745 срезов на каждом
+конце после готовности без пропуска/регрессии RX counter. Строгих окон 7/9,
+переходов 5/6: два финальных age-превышения на Mac — 1007/1103 мс.
+
+**Паузы аудио остаются активными.** В отдельном Cellular-контроле без смены
+сети после исходной готовности RX age Mac достиг 4061 мс: phone native TX
+counter +44, Mac RX +0. Внутри консервативных окон Core нет наблюдаемого
+phone-origin media Forward, встречный путь прогрессирует; на телефоне рядом
+два partial expiry и endpoint source pressure. Это локализует фронт до source
+admission/канала/транспорта перед Core observer, но не доказывает NIC egress,
+wire drop или единственную причину. Прежние 9,6 с после handover не повторились;
+**NETCALL-01 не закрыт**, нового причинного фикса/ускорения не объявлено.
+
+Проверен отдельный флажок: native QUIC-сессии phone↔Mac существовали, но режим
+медиа оставался relay, media-marker Forward напрямую не наблюдались; forced
+relay flags исключают direct branch/получателя. Обход P2P media не подтверждён;
+полная изоляция overlay/control в этом стенде не заявляется. Poco восстановлен
+до отключения владельцем, Core/процессы/порты убраны, production прежний;
+27 входов заморожены. Blackview с Wi-Fi доступен, в эту серию не входил.
+Push/релиза и sibling mailbox нет. Предыдущие записи относятся к своим раундам.
+
 Последний раунд: [первая причина закрытия record channel](../record-close-cause-2026-11-07/README.md).
 SDK `7d34e4e5` сохраняет типизированную первую причину до teardown; raw error
 text не сохраняется. EOF, I/O failure, invalid record, partial expiry,
