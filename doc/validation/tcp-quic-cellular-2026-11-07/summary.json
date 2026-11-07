@@ -1,0 +1,176 @@
+{
+  "sdkPhysicalBaseline": "7d34e4e5",
+  "sdkRecoveryFix": "5d89beb5",
+  "frontendAndMediaUnchanged": true,
+  "mobileNetwork": "validated_cellular",
+  "handoverExecuted": false,
+  "allMediaRelay": true,
+  "logicalCalls": 9,
+  "strictFinalPasses": 8,
+  "strictFinalPassIsNotWholeCallHealth": true,
+  "arms": [
+    {
+      "arm": "tcp-1",
+      "actualTransport": "obfs4-tcp",
+      "logicalCalls": 3,
+      "allCasesExecuted": true,
+      "strictFinalPasses": 2,
+      "cases": [
+        {
+          "case": "fixed-cellular-1",
+          "strictFinalPass": true,
+          "phoneRxAgeMaxMs": 597,
+          "macRxAgeMaxMs": 618,
+          "nativeRxCounterRegressions": 0
+        },
+        {
+          "case": "fixed-cellular-2",
+          "strictFinalPass": true,
+          "phoneRxAgeMaxMs": 758,
+          "macRxAgeMaxMs": 859,
+          "nativeRxCounterRegressions": 0
+        },
+        {
+          "case": "fixed-cellular-3",
+          "strictFinalPass": false,
+          "phoneRxAgeMaxMs": 1065,
+          "macRxAgeMaxMs": 1146,
+          "nativeRxCounterRegressions": 0
+        }
+      ],
+      "frozenObservationInputs": 98,
+      "harnessFilesVerified": 21,
+      "restorationPassed": true,
+      "finalSessionTransports": {
+        "a": {
+          "obfs4-tcp": 3
+        },
+        "b": {
+          "obfs4-tcp": 2
+        }
+      }
+    },
+    {
+      "arm": "quic-1",
+      "actualTransport": "quic",
+      "logicalCalls": 3,
+      "allCasesExecuted": true,
+      "strictFinalPasses": 3,
+      "cases": [
+        {
+          "case": "fixed-cellular-1",
+          "strictFinalPass": true,
+          "phoneRxAgeMaxMs": 1058,
+          "macRxAgeMaxMs": 1351,
+          "nativeRxCounterRegressions": 0
+        },
+        {
+          "case": "fixed-cellular-2",
+          "strictFinalPass": true,
+          "phoneRxAgeMaxMs": 5621,
+          "macRxAgeMaxMs": 845,
+          "nativeRxCounterRegressions": 0
+        },
+        {
+          "case": "fixed-cellular-3",
+          "strictFinalPass": true,
+          "phoneRxAgeMaxMs": 1662,
+          "macRxAgeMaxMs": 1106,
+          "nativeRxCounterRegressions": 0
+        }
+      ],
+      "frozenObservationInputs": 102,
+      "harnessFilesVerified": 21,
+      "restorationPassed": true,
+      "finalSessionTransports": {
+        "a": {
+          "quic": 3
+        },
+        "b": {
+          "quic": 2
+        }
+      }
+    },
+    {
+      "arm": "tcp-2",
+      "actualTransport": "obfs4-tcp",
+      "logicalCalls": 3,
+      "allCasesExecuted": true,
+      "strictFinalPasses": 3,
+      "cases": [
+        {
+          "case": "fixed-cellular-1",
+          "strictFinalPass": true,
+          "phoneRxAgeMaxMs": 1350,
+          "macRxAgeMaxMs": 1333,
+          "nativeRxCounterRegressions": 0
+        },
+        {
+          "case": "fixed-cellular-2",
+          "strictFinalPass": true,
+          "phoneRxAgeMaxMs": 642,
+          "macRxAgeMaxMs": 767,
+          "nativeRxCounterRegressions": 0
+        },
+        {
+          "case": "fixed-cellular-3",
+          "strictFinalPass": true,
+          "phoneRxAgeMaxMs": 652,
+          "macRxAgeMaxMs": 604,
+          "nativeRxCounterRegressions": 0
+        }
+      ],
+      "frozenObservationInputs": 95,
+      "harnessFilesVerified": 21,
+      "restorationPassed": true,
+      "finalSessionTransports": {
+        "a": {
+          "obfs4-tcp": 3
+        },
+        "b": {
+          "obfs4-tcp": 2
+        }
+      }
+    }
+  ],
+  "confirmedQuicPause": {
+    "phoneNativeRxAgeMaxMs": 5621,
+    "observedRxFlatInteriorMs": 5458,
+    "peerNativeTxSamplesStrictlyInside": 9,
+    "peerNativeAudioTxDeltaInside": 73,
+    "coreMediaMarkerMatches": [
+      64,
+      92
+    ],
+    "phoneReceivedAndDispatchedDatagramsInInteriorWindows": [
+      3,
+      5
+    ],
+    "specificAudioLaneToStalledConnectionAttributed": false,
+    "humanAudibilityChecked": false
+  },
+  "regression": {
+    "redPassed": 2,
+    "redFailed": 3,
+    "finalRecoveryCasesPassed": 8,
+    "sessionPassed": 703,
+    "sessionIgnored": 8,
+    "transportPassed": 173,
+    "aotAnonymousArtifactGatePassed": true,
+    "rustfmtAndDiffPassed": true,
+    "quinnProtoFocusedTest": "not_executed_non_workspace_member_with_dev_dependencies",
+    "physicalFixQualification": false
+  },
+  "priorStandErratum": {
+    "wrongQaAdvertiseHostCorrected": true,
+    "priorPacketObservationsRetained": true,
+    "priorDiscoveryFailoverQualificationLimited": true,
+    "productionConfigsChanged": false,
+    "productionHostsReadOnlyChecked": 2
+  },
+  "allQaStoppedAndRestored": true,
+  "frozenObservationInputs": 295,
+  "harnessFileHashesVerified": 63,
+  "pushOrRelease": false,
+  "status": "NETCALL-01_active"
+}
