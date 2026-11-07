@@ -1,0 +1,332 @@
+{
+  "schema": "xveil-validation/dual-core-handover/1",
+  "clientSdk": "c6699c28",
+  "coreSdk": "97dc1295",
+  "coreCount": 2,
+  "p2pPolicy": "denied",
+  "productCodeChangedDuringPhysicalSeries": false,
+  "allCasesExecuted": true,
+  "allCasesPassed": false,
+  "caseResults": [
+    {
+      "case": "wifi-phone",
+      "caller": "phone",
+      "initialNetwork": "WIFI",
+      "targetNetwork": null,
+      "networkSwitchExecuted": false,
+      "passed": true,
+      "observedAfterFreshBaselineSeconds": 35,
+      "targetValidated": true,
+      "finalFiveFresh": {
+        "phone": true,
+        "mac": true
+      },
+      "phoneProcessUnchanged": true,
+      "fiveFreshAfterPlaceMs": 3579,
+      "endpoints": {
+        "phone": {
+          "samples": 74,
+          "freshSamples": 73,
+          "observationErrors": 0,
+          "rxAgeMaxMs": 248,
+          "rxPacketsMax": 905
+        },
+        "mac": {
+          "samples": 74,
+          "freshSamples": 72,
+          "observationErrors": 0,
+          "rxAgeMaxMs": 348,
+          "rxPacketsMax": 330
+        }
+      }
+    },
+    {
+      "case": "wifi-mac",
+      "caller": "mac",
+      "initialNetwork": "WIFI",
+      "targetNetwork": null,
+      "networkSwitchExecuted": false,
+      "passed": true,
+      "observedAfterFreshBaselineSeconds": 35,
+      "targetValidated": true,
+      "finalFiveFresh": {
+        "phone": true,
+        "mac": true
+      },
+      "phoneProcessUnchanged": true,
+      "fiveFreshAfterPlaceMs": 4842,
+      "endpoints": {
+        "phone": {
+          "samples": 75,
+          "freshSamples": 71,
+          "observationErrors": 0,
+          "rxAgeMaxMs": 358,
+          "rxPacketsMax": 676
+        },
+        "mac": {
+          "samples": 75,
+          "freshSamples": 71,
+          "observationErrors": 0,
+          "rxAgeMaxMs": 376,
+          "rxPacketsMax": 461
+        }
+      }
+    },
+    {
+      "case": "mobile-phone",
+      "caller": "phone",
+      "initialNetwork": "CELLULAR",
+      "targetNetwork": null,
+      "networkSwitchExecuted": false,
+      "passed": false,
+      "observedAfterFreshBaselineSeconds": 35,
+      "targetValidated": true,
+      "finalFiveFresh": {
+        "phone": true,
+        "mac": false
+      },
+      "phoneProcessUnchanged": true,
+      "fiveFreshAfterPlaceMs": 7219,
+      "endpoints": {
+        "phone": {
+          "samples": 77,
+          "freshSamples": 67,
+          "observationErrors": 0,
+          "rxAgeMaxMs": 1335,
+          "rxPacketsMax": 387
+        },
+        "mac": {
+          "samples": 77,
+          "freshSamples": 67,
+          "observationErrors": 0,
+          "rxAgeMaxMs": 1362,
+          "rxPacketsMax": 488
+        }
+      }
+    },
+    {
+      "case": "mobile-mac",
+      "caller": "mac",
+      "initialNetwork": "CELLULAR",
+      "targetNetwork": null,
+      "networkSwitchExecuted": false,
+      "passed": true,
+      "observedAfterFreshBaselineSeconds": 35,
+      "targetValidated": true,
+      "finalFiveFresh": {
+        "phone": true,
+        "mac": true
+      },
+      "phoneProcessUnchanged": true,
+      "fiveFreshAfterPlaceMs": 8248,
+      "endpoints": {
+        "phone": {
+          "samples": 78,
+          "freshSamples": 74,
+          "observationErrors": 0,
+          "rxAgeMaxMs": 1117,
+          "rxPacketsMax": 450
+        },
+        "mac": {
+          "samples": 78,
+          "freshSamples": 71,
+          "observationErrors": 0,
+          "rxAgeMaxMs": 1540,
+          "rxPacketsMax": 503
+        }
+      }
+    },
+    {
+      "case": "mobile-to-wifi",
+      "caller": "phone",
+      "initialNetwork": "CELLULAR",
+      "targetNetwork": "WIFI",
+      "networkSwitchExecuted": false,
+      "passed": false,
+      "fiveFreshAfterPlaceMs": 4930,
+      "endpoints": {
+        "phone": {
+          "samples": 36,
+          "freshSamples": 31,
+          "observationErrors": 0,
+          "rxAgeMaxMs": 1109,
+          "rxPacketsMax": 175
+        },
+        "mac": {
+          "samples": 36,
+          "freshSamples": 32,
+          "observationErrors": 0,
+          "rxAgeMaxMs": 1039,
+          "rxPacketsMax": 182
+        }
+      },
+      "outcome": "switch_not_executed_prerequisite"
+    },
+    {
+      "case": "wifi-to-mobile",
+      "caller": "mac",
+      "initialNetwork": "WIFI",
+      "targetNetwork": "CELLULAR",
+      "networkSwitchExecuted": true,
+      "passed": false,
+      "observedAfterSwitchSeconds": 60,
+      "targetValidated": true,
+      "finalFiveFresh": {
+        "phone": true,
+        "mac": false
+      },
+      "phoneProcessUnchanged": true,
+      "fiveFreshAfterPlaceMs": 3581,
+      "endpoints": {
+        "phone": {
+          "samples": 144,
+          "freshSamples": 122,
+          "observationErrors": 0,
+          "rxAgeMaxMs": 8548,
+          "rxPacketsMax": 729,
+          "postSwitchSamples": 109,
+          "postSwitchFreshSamples": 89
+        },
+        "mac": {
+          "samples": 144,
+          "freshSamples": 109,
+          "observationErrors": 0,
+          "rxAgeMaxMs": 9609,
+          "rxPacketsMax": 546,
+          "postSwitchSamples": 109,
+          "postSwitchFreshSamples": 76
+        }
+      },
+      "firstObservedValidatedTargetAfterSwitchMs": 1262
+    }
+  ],
+  "osNetworkObservationErrors": 0,
+  "excludedFirstPhase": {
+    "casesQualified": 0,
+    "handoverExecuted": false,
+    "reason": "ADB observation lost during first fixed Wi-Fi call; no application failure inferred"
+  },
+  "harnessUnchanged": true,
+  "humanAudibilityChecked": false,
+  "latestSourceSdkQualified": false,
+  "separateRetry": {
+    "case": "mobile-to-wifi-repeat",
+    "caller": "phone",
+    "initialNetwork": "CELLULAR",
+    "targetNetwork": "WIFI",
+    "networkSwitchExecuted": true,
+    "passed": true,
+    "observedAfterSwitchSeconds": 60,
+    "targetValidated": true,
+    "finalFiveFresh": {
+      "phone": true,
+      "mac": true
+    },
+    "phoneProcessUnchanged": true,
+    "endpoints": {
+      "phone": {
+        "postSwitchSamples": 113,
+        "postSwitchFreshSamples": 113,
+        "postSwitchRxAgeMaxMs": 340,
+        "observationErrors": 0
+      },
+      "mac": {
+        "postSwitchSamples": 113,
+        "postSwitchFreshSamples": 113,
+        "postSwitchRxAgeMaxMs": 537,
+        "observationErrors": 0
+      }
+    }
+  },
+  "twoNetworkSwitchesActuallyExecuted": true,
+  "netcall01Status": "open",
+  "sourceSdkAfterCycle": "1572c22b",
+  "newDiagnosticPresentInPhysicalBinaries": false,
+  "bridgeObservation": {
+    "sourceConservativeWindowMs": 8543,
+    "coreAIngressFromMacRows": 271,
+    "coreAIngressDistinctOpaquePreviews": 271,
+    "endpointPhoneFrameSubscriber": false,
+    "singleEnvelopeDeliveryToPhoneClaimed": false,
+    "cooccurringMatchingPreviewsAllFourStages": 262,
+    "matchingPreviewsAllFourStages": 262,
+    "eachSelectedStageUniqueInWholeCapture": true,
+    "sameHostOrderCompatible": 81,
+    "onlyOnePrecedingIngressAtEachCore": 81,
+    "crossCoreClockOrderNotClaimed": true,
+    "individualReceiptByPhoneNotClaimed": true
+  },
+  "frameObservers": {
+    "rows": {
+      "a": 23759,
+      "b": 25085,
+      "mac": 24441
+    },
+    "allAuthenticatedFamily3": true,
+    "plaintextRows": 0,
+    "clockIntervalWidthMs": {
+      "a": 1456.746,
+      "b": 804.763,
+      "mac": 0
+    }
+  },
+  "checks": {
+    "sessionPassed": 697,
+    "sessionIgnored": 8,
+    "sessionFailed": 0,
+    "rustfmtPassed": true,
+    "diagnosticArtifactAotTestPassed": 1,
+    "compiledTestMarkerVerified": true,
+    "externalMountWatchdogPassed": true
+  },
+  "hygiene": {
+    "local": {
+      "macRequiredSigkillAfterGrace": true,
+      "macProcessExited": true,
+      "phoneQaExited": true,
+      "originalAudioPermissionRestored": true,
+      "network.veil.xveil.qa.audio20261101ApkShaUnchanged": true,
+      "network.veil.xveilApkShaUnchanged": true,
+      "oldQaContainerShaUnchanged": true,
+      "validatedOriginalNetworkRestored": true,
+      "ownAdbForwardRemoved": true,
+      "ownedPortsReleased": true
+    },
+    "extra": {
+      "macOwnedRuntimeRemoved": true,
+      "macSignatureVerified": true,
+      "macOwnDebugLogMoved": true,
+      "allRecordedLocalChildrenExited": true
+    },
+    "cores": {
+      "a": {
+        "ownServicesStopped": true,
+        "ownStateRuntimeConfigBinaryUnitAndStageRemoved": true,
+        "testPortsFree": true,
+        "productionUnchanged": true
+      },
+      "b": {
+        "ownServicesStopped": true,
+        "ownStateRuntimeConfigBinaryUnitAndStageRemoved": true,
+        "testPortsFree": true,
+        "productionUnchanged": true
+      }
+    },
+    "frozenObservationInputs": 29,
+    "allFrozenRemoteFilesVerified": true,
+    "remoteSnapshotsTakenAfterStoppingWriters": true,
+    "initialMutableSnapshotNotUsed": true
+  },
+  "limits": [
+    "No human audibility, echo or noise qualification",
+    "No causal A/B comparison with the former one-Core series",
+    "Two Core availability does not guarantee recovery; Wi-Fi to mobile showed a later 8.5-9.6 second RX age peak",
+    "Peer-only old close logs do not identify which of several current/retiring receivers closed",
+    "Record plane closed does not distinguish EOF, I/O error, expiry, owner drop or cancellation",
+    "No endpoint phone frame subscriber; an individual opaque envelope delivery to phone is not established",
+    "Capture is bounded/rate limited; lack of TX witness alone does not prove a drop",
+    "Initial post-switch fresh samples can precede another outage, and are not a stable recovery metric",
+    "No changed timers, wire, codec, authentication, P2P policy design or mailbox model",
+    "No push or release"
+  ]
+}
