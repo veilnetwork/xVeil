@@ -1,0 +1,258 @@
+{
+  "sdk": "5d89beb5",
+  "cleanTrackedSdkSourceFilesVerified": 1533,
+  "newSdkEditsThisRound": false,
+  "successfulReleaseBuilds": [
+    "android-arm64-api24",
+    "macos-arm64",
+    "linux-x86_64-musl"
+  ],
+  "cExports": 208,
+  "aotMediaAndHvsUnchanged": true,
+  "logicalCallsStarted": 7,
+  "logicalCallsFullyObserved": 5,
+  "callsWithObservationInterrupted": 2,
+  "qualifiedFinalWindows": 7,
+  "finalFreshnessDoesNotProveWholeCallHealth": true,
+  "arms": [
+    {
+      "arm": "quic-fixed",
+      "transport": "quic",
+      "logicalCallsStarted": 2,
+      "logicalCallsFullyObserved": 1,
+      "allPlannedCasesExecuted": false,
+      "qualifiedFinalWindows": 1,
+      "status": "observation_interrupted_not_a_product_failure",
+      "frozenObservationAndProofFiles": 96,
+      "frozenHarnessFiles": 21,
+      "sourceArtifactsAndTopologyVerified": true,
+      "allRestorationAndProductionGuardsPassed": true,
+      "cases": [
+        {
+          "case": "fixed-cellular-1",
+          "finalWindowPassed": true,
+          "rxAgeMaxMs": {
+            "phone": 1218,
+            "mac": 1193
+          }
+        },
+        {
+          "case": "fixed-cellular-2",
+          "finalWindowPassed": false,
+          "rxAgeMaxMs": {
+            "phone": 11,
+            "mac": 702
+          }
+        }
+      ]
+    },
+    {
+      "arm": "quic-retry",
+      "transport": "quic",
+      "logicalCallsStarted": 1,
+      "logicalCallsFullyObserved": 0,
+      "allPlannedCasesExecuted": false,
+      "qualifiedFinalWindows": 0,
+      "status": "observation_interrupted_not_a_product_failure",
+      "frozenObservationAndProofFiles": 93,
+      "frozenHarnessFiles": 21,
+      "sourceArtifactsAndTopologyVerified": true,
+      "allRestorationAndProductionGuardsPassed": true,
+      "cases": [
+        {
+          "case": "fixed-cellular-1",
+          "finalWindowPassed": false,
+          "rxAgeMaxMs": {
+            "phone": 514,
+            "mac": 264
+          }
+        }
+      ]
+    },
+    {
+      "arm": "tcp-handover",
+      "transport": "obfs4-tcp",
+      "logicalCallsStarted": 1,
+      "logicalCallsFullyObserved": 1,
+      "allPlannedCasesExecuted": true,
+      "qualifiedFinalWindows": 3,
+      "status": "full_observation",
+      "frozenObservationAndProofFiles": 104,
+      "frozenHarnessFiles": 23,
+      "sourceArtifactsAndTopologyVerified": true,
+      "allRestorationAndProductionGuardsPassed": true,
+      "cases": [
+        {
+          "case": "handover-baseline",
+          "finalWindowPassed": true,
+          "rxAgeMaxMs": {
+            "phone": 342,
+            "mac": 354
+          }
+        },
+        {
+          "case": "handover-1",
+          "finalWindowPassed": true,
+          "rxAgeMaxMs": {
+            "phone": 1341,
+            "mac": 8598
+          }
+        },
+        {
+          "case": "handover-2",
+          "finalWindowPassed": true,
+          "rxAgeMaxMs": {
+            "phone": 367,
+            "mac": 357
+          }
+        }
+      ]
+    },
+    {
+      "arm": "quic-local",
+      "transport": "quic",
+      "logicalCallsStarted": 3,
+      "logicalCallsFullyObserved": 3,
+      "allPlannedCasesExecuted": true,
+      "qualifiedFinalWindows": 3,
+      "status": "full_observation",
+      "frozenObservationAndProofFiles": 106,
+      "frozenHarnessFiles": 23,
+      "sourceArtifactsAndTopologyVerified": true,
+      "allRestorationAndProductionGuardsPassed": true,
+      "cases": [
+        {
+          "case": "fixed-cellular-1",
+          "finalWindowPassed": true,
+          "rxAgeMaxMs": {
+            "phone": 1319,
+            "mac": 1247
+          }
+        },
+        {
+          "case": "fixed-cellular-2",
+          "finalWindowPassed": true,
+          "rxAgeMaxMs": {
+            "phone": 967,
+            "mac": 1183
+          }
+        },
+        {
+          "case": "fixed-cellular-3",
+          "finalWindowPassed": true,
+          "rxAgeMaxMs": {
+            "phone": 720,
+            "mac": 913
+          }
+        }
+      ]
+    }
+  ],
+  "localPhoneObservations": {
+    "tcp-handover": {
+      "rows": 291,
+      "successfulHttpRows": 291,
+      "clockIntersectionWidthMs": 49.728,
+      "cases": [
+        {
+          "case": "handover-baseline",
+          "completeLocalSamples": 49,
+          "phoneRxAgeMaxMs": 342,
+          "phoneRxAdvanced": true,
+          "phoneRxRegressions": 0
+        },
+        {
+          "case": "handover-1",
+          "completeLocalSamples": 84,
+          "phoneRxAgeMaxMs": 1330,
+          "phoneRxAdvanced": true,
+          "phoneRxRegressions": 0
+        },
+        {
+          "case": "handover-2",
+          "completeLocalSamples": 85,
+          "phoneRxAgeMaxMs": 420,
+          "phoneRxAdvanced": true,
+          "phoneRxRegressions": 0
+        }
+      ],
+      "txInsideMacPause": {
+        "completeLocalSamples": 12,
+        "nativeAudioTxPayloadDelta": 36
+      }
+    },
+    "quic-local": {
+      "rows": 300,
+      "successfulHttpRows": 300,
+      "clockIntersectionWidthMs": 47.498,
+      "cases": [
+        {
+          "case": "fixed-cellular-1",
+          "completeLocalSamples": 84,
+          "phoneRxAgeMaxMs": 1082,
+          "phoneRxAdvanced": true,
+          "phoneRxRegressions": 0
+        },
+        {
+          "case": "fixed-cellular-2",
+          "completeLocalSamples": 85,
+          "phoneRxAgeMaxMs": 880,
+          "phoneRxAdvanced": true,
+          "phoneRxRegressions": 0
+        },
+        {
+          "case": "fixed-cellular-3",
+          "completeLocalSamples": 84,
+          "phoneRxAgeMaxMs": 386,
+          "phoneRxAdvanced": true,
+          "phoneRxRegressions": 0
+        }
+      ]
+    }
+  },
+  "handoverPause": {
+    "direction": "wifi_to_cellular",
+    "observedMacRxFlatInteriorMs": 8501,
+    "macNativeRxAgeMaxMs": 8598,
+    "sourceAudioTxPayloadDeltaFromHost": 36,
+    "sourceAudioTxPayloadDeltaFromPhoneLocal": 36,
+    "corePhoneOriginMarkerRows": [
+      0,
+      34
+    ],
+    "coreBUniqueMacDirectedTxWitnesses": 34,
+    "macIncomingMarkerRows": 36,
+    "feedbackWitness": {
+      "uniqueAuthenticatedEndpointFeedbackWitnesses": 1,
+      "minTransitMs": 71.269,
+      "maxTransitMs": 120.997,
+      "clockOffsetIntersectionWidthMs": 49.728,
+      "allOtherMediaMarkerRowsClassified": false
+    },
+    "missingRtpPayloadsAttributed": false,
+    "sameCallBothTransitions": true,
+    "cellularToWifiRxAgeMaxMs": {
+      "phone": 367,
+      "mac": 357
+    }
+  },
+  "finalQuicSeries": {
+    "logicalCalls": 3,
+    "allFinalWindowsPassed": true,
+    "prior5621msPauseReproduced": false,
+    "coreRecoveryEventsObserved": 0,
+    "causalRecoveryFixBenefitProved": false
+  },
+  "earlierUnitTestsNotRerunThisRound": {
+    "sessionPassed": 703,
+    "transportPassed": 173,
+    "sessionIgnored": 8
+  },
+  "normalApkAndUnknownRootQaContainerUnchanged": true,
+  "phoneCollectorProcessesAndPrivateDirectoriesVerifiedGone": true,
+  "productionChanged": false,
+  "humanAudibilityEchoOrLoudnessChecked": false,
+  "siblingMailboxAdded": false,
+  "pushOrRelease": false,
+  "status": "NETCALL-01_active"
+}
