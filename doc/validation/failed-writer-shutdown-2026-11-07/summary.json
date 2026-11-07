@@ -1,0 +1,137 @@
+{
+  "schema": "xveil-validation/failed-writer-shutdown/1",
+  "sdkBase": "4f441329",
+  "sdkFix": "c6699c28",
+  "baseline": {
+    "writerAssertionsFailed": 2,
+    "runnerAssertionsFailed": 1,
+    "timeoutsAsTestFailures": false
+  },
+  "candidate": {
+    "writerTestsPassed": 2,
+    "runnerTestsPassed": 1,
+    "failedTransportShutdownCalls": 0,
+    "registryReleasedBeforeFurtherClockAdvance": true,
+    "ordinaryShutdownDrainPreserved": true
+  },
+  "sessionSuite": {
+    "passed": 697,
+    "failed": 0,
+    "ignored": 8,
+    "docIgnored": 1
+  },
+  "verification": {
+    "newTestNamesInExecutedBinary": 3,
+    "sourceInputs": 1533,
+    "externalMountVerified": true,
+    "externalMountLost": false,
+    "scopedRustfmtPassed": true,
+    "workspaceFmtPassed": false,
+    "workspaceFmtExistingUnrelatedDifference": "veil-routing mod declaration order"
+  },
+  "limits": [
+    "Original terminal write/flush timeout unchanged",
+    "Graceful queue-close behavior unchanged",
+    "Underlying cause of canonical flush stall unknown",
+    "First handover gap not attributed",
+    "No push or release",
+    "Physical first case passed, second case failed liveness gate",
+    "Native receiver counters reset during repair, so positive-age maximum alone understates the interruption",
+    "No causal whole-call A/B speed claim"
+  ],
+  "physical": {
+    "sdk": "c6699c28",
+    "sourceInputs": 1533,
+    "sourceAndHarnessUnchanged": true,
+    "cases": [
+      {
+        "caller": "phone",
+        "passed": true,
+        "incomingMs": 1107,
+        "fiveFreshBaselineMs": 6592,
+        "observedAfterWifiCommandMs": 60013,
+        "finalFiveFresh": {
+          "phone": true,
+          "mac": true
+        },
+        "endpoints": {
+          "phone": {
+            "maximumObservedNativeRxAgeMs": 5904,
+            "uninitializedNativeRxAgeSamples": 0,
+            "rxCounterDecreases": 0,
+            "distinctObservedMediaEpochs": 1,
+            "samples": 113
+          },
+          "mac": {
+            "maximumObservedNativeRxAgeMs": 1966,
+            "uninitializedNativeRxAgeSamples": 0,
+            "rxCounterDecreases": 0,
+            "distinctObservedMediaEpochs": 1,
+            "samples": 113
+          }
+        }
+      },
+      {
+        "caller": "mac",
+        "passed": false,
+        "incomingMs": 1090,
+        "fiveFreshBaselineMs": 30672,
+        "observedAfterWifiCommandMs": 25320,
+        "finalFiveFresh": null,
+        "endpoints": {
+          "phone": {
+            "maximumObservedNativeRxAgeMs": 13191,
+            "uninitializedNativeRxAgeSamples": 17,
+            "rxCounterDecreases": 1,
+            "distinctObservedMediaEpochs": 2,
+            "samples": 46
+          },
+          "mac": {
+            "maximumObservedNativeRxAgeMs": 13315,
+            "uninitializedNativeRxAgeSamples": 16,
+            "rxCounterDecreases": 1,
+            "distinctObservedMediaEpochs": 2,
+            "samples": 46
+          }
+        }
+      }
+    ],
+    "terminalFlushObserved": {
+      "stalledToSessionCloseLoggedMs": 0,
+      "logResolutionMs": 1,
+      "closeToNewSessionOpenMs": 354
+    },
+    "secondCallTerminal": {
+      "origin": "livenessTimeout",
+      "phoneSilenceSeconds": 23,
+      "macSilenceSeconds": 22,
+      "beforeTestHangup": true,
+      "newCanonicalSessionBeforeTimeout": false,
+      "postRepairNativeRxAgeMinusOneIsNotFresh": true
+    },
+    "capture": {
+      "completeAndShaVerified": true,
+      "packets": 21783,
+      "flows": 225,
+      "freshSynFlows": 217,
+      "clientPayloadFlows": 71,
+      "clientPayloadWithoutObservedServerPayload": 0
+    },
+    "secondCallHandshake": {
+      "incompleteCorrelatedRecords": 4,
+      "canonicalAttempts": 2,
+      "observedClientPayloadAtServerBytes": 0,
+      "locallyWrittenBytesRange": [
+        107,
+        166
+      ],
+      "correlation": "unique local port/time candidate; no cross-hop cryptographic witness"
+    },
+    "cleanup": {
+      "localChecksPassed": true,
+      "relayProductionUnchanged": true,
+      "qaCoreRuntimeExpiredDuringPauseAndWasRestarted": true
+    },
+    "netcallClosed": false
+  }
+}

@@ -1,5 +1,27 @@
 # Открытые случаи — обновлено 2026-11-07
 
+Последний раунд: [terminal writer shutdown](../failed-writer-shutdown-2026-11-07/README.md),
+SDK `c6699c28`. После write failure/idle timeout убран повторный shutdown,
+который добавлял до 5 с к reconnect. Три assertion-red проверки на прежнем
+runner, 697 session tests passed / 8 ignored; doc ignored отдельно. На Poco
+терминальная ветка реально сработала: timeout → close в одной миллисекунде
+лога вместо прежних 5003 мс, затем новая session через 354 мс.
+
+**NETCALL-01 остаётся подтверждённо открытым.** Из двух длинных Poco ↔ Mac
+звонков первый прошёл минуту после возврата Wi-Fi; второй завершился через
+25,32 с по `livenessTimeout` (silence 23/22 с) до команд отбоя теста. Старый
+канал снят NetworkChanged, новый canonical не появился: два 10-с обфускационных
+handshake timeout. Четыре primary/backup observations локально написали bytes,
+но подходящие server capture flows не имеют payload; точка потери пока неизвестна.
+Локальный media repair сменил epoch и обнулил RX, возраст -1 не принят за свежий
+приём. Это не объявлено тождеством прежней отложенной жалобе «25 с».
+Полный PCAP скопирован/проверен до cleanup, SDK/driver frozen, APK/settings
+восстановлены, свои процессы/QA-Core убраны, production прежний. Следующий
+контроль — свободный стандартный TCP-порт на том же QA-host. Push/релиза нет.
+
+Предыдущие записи ниже относятся к своим завершённым раундам.
+
+
 Последняя физическая квалификация:
 [Poco ↔ Mac на SDK 4f441329](../binding-handover-2026-11-07/README.md).
 Три платформенные native-сборки проверены, прежний signed QA AOT сохранён.
@@ -22,9 +44,9 @@ pool worker. Два финальных baseline assertions: 0 готовых в�
 начатый ACK вместо 8. Подтверждения теперь независимы при прежних proof,
 lease, timeout и directional budget; retirement отменяет и join-ит flights.
 Полный session: 694 passed / 8 ignored, один doc ignored отдельно; source и
-test binary проверены, процессы завершены. **NETCALL-01 открыт:** эффекта
-на физический Wi-Fi/cellular звонок не измерено, новая FFI/APK не установлена.
-Poco сейчас не виден ADB; Windows/телефон/production не менялись, push/релиза нет.
+test binary проверены, процессы завершены. **NETCALL-01 открыт:** на момент code-only проверки эффект
+на физический звонок ещё не измерялся; новая FFI/APK тогда не устанавливалась.
+На момент того раунда Poco не был виден ADB; Windows/телефон/production не менялись, push/релиза нет.
 
 Последняя квалификация: [два одновременных native-источника истории](../history-multisource-2026-11-07/README.md).
 A/E передали B полные authenticated ответы до снятия первого apply-барьера;

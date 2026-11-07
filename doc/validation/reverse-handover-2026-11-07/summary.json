@@ -1,0 +1,106 @@
+{
+  "schema": "xveil-validation/reverse-handover-long/1",
+  "sdk": "4f441329",
+  "endpoint": "Poco Android 16 and Mac",
+  "transport": "single isolated Core, obfs4/TCP, non-onion Delivery, P2P denied",
+  "frontend": "previous signed QA AOT; native SDK isolated",
+  "caseResults": [
+    {
+      "caller": "phone",
+      "incomingMs": 1202,
+      "fiveFreshBaselineMs": 6615,
+      "observedAfterWifiCommandMs": 60690,
+      "callStatePreserved": true,
+      "finalFiveFresh": {
+        "phone": true,
+        "mac": true
+      },
+      "endpoints": {
+        "phone": {
+          "samples": 152,
+          "maximumNativeRxAgeMs": 728,
+          "maximumAgeObservedAfterWifiCommandMs": 1710,
+          "nativeRxCounterDecreases": 0,
+          "distinctObservedMediaEpochs": 1
+        },
+        "mac": {
+          "samples": 152,
+          "maximumNativeRxAgeMs": 5358,
+          "maximumAgeObservedAfterWifiCommandMs": 6480,
+          "nativeRxCounterDecreases": 0,
+          "distinctObservedMediaEpochs": 1
+        }
+      }
+    },
+    {
+      "caller": "mac",
+      "incomingMs": 1628,
+      "fiveFreshBaselineMs": 7777,
+      "observedAfterWifiCommandMs": 60405,
+      "callStatePreserved": true,
+      "finalFiveFresh": {
+        "phone": true,
+        "mac": true
+      },
+      "endpoints": {
+        "phone": {
+          "samples": 149,
+          "maximumNativeRxAgeMs": 5410,
+          "maximumAgeObservedAfterWifiCommandMs": 39576,
+          "nativeRxCounterDecreases": 0,
+          "distinctObservedMediaEpochs": 1
+        },
+        "mac": {
+          "samples": 149,
+          "maximumNativeRxAgeMs": 6037,
+          "maximumAgeObservedAfterWifiCommandMs": 40134,
+          "nativeRxCounterDecreases": 0,
+          "distinctObservedMediaEpochs": 1
+        }
+      }
+    }
+  ],
+  "sampling": {
+    "perEndpoint": {
+      "phone": 301,
+      "mac": 301
+    },
+    "apiErrors": 0,
+    "maximumWithinCaseIntervalMs": 704
+  },
+  "capture": {
+    "completeAndShaVerified": true,
+    "packets": 28697,
+    "tcpFlows": 177,
+    "freshSynFlows": 148,
+    "clientPayloadFlows": 81,
+    "clientPayloadWithoutObservedServerPayload": 0,
+    "notAllFlowsAttributedToPhone": true,
+    "stalledCanonicalCandidate": {
+      "samePortCaptureMatches": 1,
+      "lastClientPacketAfterSynMs": 506,
+      "crossHostCorrelation": "local port and bounded time; no decrypted application witness",
+      "lossLocationUnknown": true
+    }
+  },
+  "sourcePressure": {
+    "observations": 7,
+    "reasonsNotDistinguished": true
+  },
+  "verification": {
+    "frozenSdkInputs": 1533,
+    "sdkAtPhysicalTest": "4f441329",
+    "postStandSourceEditsExcludedFromPhysicalQualification": true,
+    "privateHarnessFrozen": true,
+    "localCleanupChecksPassed": true,
+    "relayCleanupExit": 0
+  },
+  "limits": [
+    "No A/B or proof of improvement",
+    "Native RX age measures packet arrival, not acoustic silence or audibility",
+    "Second gap occurs 35–40 seconds after switch; not immediate handover latency",
+    "Not latest Dart frontend, not P2P/onion/Windows",
+    "Underlying canonical flush timeout not attributed",
+    "Write-failure fix added after physical test; no physical qualification of that fix"
+  ]
+}
