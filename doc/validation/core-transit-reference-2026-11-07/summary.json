@@ -1,0 +1,114 @@
+{
+  "schema": "xveil-validation/core-transit-reference/1",
+  "sdk": "c6699c28",
+  "nativeSourceInputsVerified": 1533,
+  "harnessInputsVerified": 18,
+  "cases": [
+    {
+      "caller": "phone",
+      "networkSwitchExecuted": true,
+      "observedSixtySeconds": true,
+      "finalFiveFresh": {
+        "phone": true,
+        "mac": true
+      },
+      "passed": true,
+      "incomingMs": 509,
+      "fiveFreshBaselineMs": 4174,
+      "observedAfterWifiCommandMs": 60444,
+      "endpoints": {
+        "phone": {
+          "maximumObservedNativeRxAgeMs": 532,
+          "uninitializedNativeRxAgeSamples": 0,
+          "maximumAudioRxPackets": 1073,
+          "observedMediaEpochs": 1,
+          "samples": 113,
+          "samplesWithoutNativeRxAge": 0
+        },
+        "mac": {
+          "maximumObservedNativeRxAgeMs": 450,
+          "uninitializedNativeRxAgeSamples": 0,
+          "maximumAudioRxPackets": 887,
+          "observedMediaEpochs": 1,
+          "samples": 113,
+          "samplesWithoutNativeRxAge": 0
+        }
+      }
+    },
+    {
+      "caller": "mac",
+      "networkSwitchExecuted": true,
+      "observedSixtySeconds": true,
+      "finalFiveFresh": {
+        "phone": true,
+        "mac": true
+      },
+      "passed": true,
+      "incomingMs": 1042,
+      "fiveFreshBaselineMs": 9351,
+      "observedAfterWifiCommandMs": 60343,
+      "endpoints": {
+        "phone": {
+          "maximumObservedNativeRxAgeMs": 865,
+          "uninitializedNativeRxAgeSamples": 0,
+          "maximumAudioRxPackets": 1459,
+          "observedMediaEpochs": 1,
+          "samples": 110,
+          "samplesWithoutNativeRxAge": 0
+        },
+        "mac": {
+          "maximumObservedNativeRxAgeMs": 486,
+          "uninitializedNativeRxAgeSamples": 0,
+          "maximumAudioRxPackets": 1413,
+          "observedMediaEpochs": 1,
+          "samples": 110,
+          "samplesWithoutNativeRxAge": 0
+        }
+      }
+    }
+  ],
+  "serverCapture": {
+    "complete": true,
+    "shaVerified": true,
+    "packets": 37550,
+    "flows": 142,
+    "freshSynFlows": 99,
+    "clientPayloadFlows": 40,
+    "clientPayloadFlowsWithoutServerPayload": 0
+  },
+  "cleanup": {
+    "macRequiredSigkillAfterGrace": true,
+    "macProcessExited": true,
+    "phoneQaExited": true,
+    "network.veil.xveil.qa.audio20261101ApkShaUnchanged": true,
+    "network.veil.xveilApkShaUnchanged": true,
+    "oldQaContainerShaUnchanged": true,
+    "validatedOriginalNetworkRestored": true,
+    "ownAdbForwardRemoved": true,
+    "ownedPortsReleased": true
+  },
+  "remoteCleanup": {
+    "ownServiceStopped": true,
+    "ownedStateRuntimeConfigBinaryUnitRemoved": true,
+    "ownPortsReleased": true,
+    "productionUnchanged": true
+  },
+  "scope": [
+    "Frozen qualified QA AOT with current native SDK",
+    "Single isolated Core, obfs4 TCP 443, no P2P",
+    "No human audibility test",
+    "Initial TCP response does not establish flow health",
+    "No causal A/B speed claim",
+    "NETCALL-01 remains open",
+    "No bad-case attribution: both traced calls passed"
+  ],
+  "liveTraceObservation": {
+    "bytes": 1377078,
+    "receiveWindows": 1975,
+    "admissionWindows": 467,
+    "slowWireWrites": 0,
+    "writerStalls": 0,
+    "tcpHandshakeRows": 0
+  },
+  "tcpTraceInfoFilterEnabled": false
+}

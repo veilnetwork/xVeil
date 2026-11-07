@@ -1,5 +1,32 @@
 # Открытые случаи — обновлено 2026-11-07
 
+Последний раунд: [служебные представления устройств](../device-protocol-view-2026-11-07/README.md).
+Исправлены два подтверждённых дефекта: локальное скрытие прочитанных строк
+забывало physical device address в protocol fold, а частые read-запросы
+сдвигали логические write-часы и раньше времени применяли будущее событие.
+Шесть регрессий, независимые красные mutations (3 value assertions + injected
+setting failure; отдельно 2 clock assertions), 617 passed / 11 skipped,
+analyzer чистый. Fresh authorization/journal load сохранены, UI скрытие прежнее.
+
+Native A/B/C crash qualification: 623 наблюдавшиеся записи целы до сети при
+обоих источниках offline; после возвращения только A все 2000 ID/тел/статусов/
+позиций/порядок сходятся без дублей и history retries, затем переживают cold
+boot без источников. 40,924 с после `start(A)` — один прогон, без причинного
+вывода об ускорении. 1509 frozen inputs, 26 PID/29 портов очищены. Догрузка
+по-прежнему активна; Android AOT для этих Dart-правок не квалифицирован.
+
+**NETCALL-01 открыт:** [стандартный TCP 443](../standard-port-control-2026-11-07/README.md)
+сам по себе не снял сбой. Один Poco→Mac не получил двусторонний baseline ещё
+до перехода внутри звонка (phone RX 0, liveness silence 24 с); другой разговор
+выдержал возврат Wi-Fi. [Следующие два с Core trace](../core-transit-reference-2026-11-07/README.md)
+прошли по 60 с с конечным fresh RX на обоих endpoints. Это healthy reference,
+а не устранение плавающего дефекта. Для TCP info-трассы следующему отдельному
+QA unit дополнительно нужен узкий `RUST_LOG=warn,transport.tcp_trace=info`:
+runtime trace появился, но CLI warn-фильтр не пропустил log::info TCP records.
+APK/settings/runtime восстановлены, QA Core/capture убраны, production прежний.
+Совместимость/production-сиды не менялись; sibling mailbox не добавлен,
+push/релиза нет. Предыдущие записи ниже — результаты прежних раундов.
+
 Последний раунд: [terminal writer shutdown](../failed-writer-shutdown-2026-11-07/README.md),
 SDK `c6699c28`. После write failure/idle timeout убран повторный shutdown,
 который добавлял до 5 с к reconnect. Три assertion-red проверки на прежнем
