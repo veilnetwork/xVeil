@@ -76,15 +76,18 @@ class _HistoryWriteCohort {
   final Future<void> Function(List<DeviceSyncEvent>) checkAdmission;
   final _pending = <({DeviceSyncEvent event, _PreparedHistoryRow row})>[];
   final _all = <_PreparedHistoryRow>[];
-  static const _prepareConcurrency = 4;
+  static const _publicationRows = 16;
 
   Future<void> applyAll(
     List<DeviceSyncEvent> events,
     Future<void> Function(DeviceSyncEvent, PreparedMessageWrites) action,
   ) async {
-    for (var start = 0; start < events.length; start += _prepareConcurrency) {
+    for (var start = 0; start < events.length;) {
       final wave = <({DeviceSyncEvent event, _PreparedHistoryRow row})>[];
-      for (final event in events.skip(start).take(_prepareConcurrency)) {
+      // Prepare the rest of one publication together. A family change can
+      // leave a short staged cohort; those rows still occupy this budget.
+      final available = _publicationRows - _pending.length;
+      for (final event in events.skip(start).take(available)) {
         final row = _PreparedHistoryRow();
         _all.add(row);
         wave.add((event: event, row: row));
@@ -105,9 +108,10 @@ class _HistoryWriteCohort {
             await flush();
           }
           _pending.add(item);
-          if (_pending.length == 16) await flush();
+          if (_pending.length == _publicationRows) await flush();
         }
       }
+      start += wave.length;
     }
   }
 

@@ -1,0 +1,387 @@
+{
+  "schema": "xveil-validation/history-cohort-window/1",
+  "productionChange": "prepare up to the remaining 16-row publication budget instead of fixed four-row waves",
+  "unitPassed": {
+    "history": 94,
+    "retryLifecycle": 15
+  },
+  "distinctUnitTests": 109,
+  "baselineWitness": {
+    "expectedPrepared": 16,
+    "actualPrepared": 4,
+    "assertionRed": true
+  },
+  "naiveCandidateRejected": {
+    "expectedStarted": 24,
+    "actualStarted": 32,
+    "assertionRed": true
+  },
+  "analyzerPassed": true,
+  "nativeRuntimeSdk": "c6699c28",
+  "sourceCheckoutSdk": "7d34e4e5",
+  "nativeInputHashesVerifiedAcrossAllRuns": true,
+  "changedProductionFilesBetweenControls": [
+    "lib/state/messaging_own_history_batch.dart"
+  ],
+  "sourceInputsPerRun": 1509,
+  "freshSnapshotCampaign": {
+    "phases": {
+      "A1": {
+        "messages": 2000,
+        "fullCountObservedMs": 20655,
+        "historyCompletionObservedMs": 20655,
+        "convergedIdsOrderPositionsAndDelivered": true,
+        "completedHistoryRetries": 0,
+        "diagnosticProfilingEnabled": false,
+        "wire": {
+          "afterSourceARestartOnly": false,
+          "uniqueRequestIds": 0,
+          "qualifiedUnrepeatedCompletePairs": 0,
+          "excluded": {},
+          "operationCounts": {},
+          "pageQueryToLastPart": {
+            "samples": 0
+          },
+          "nextQueryAfterLastPart": {
+            "samples": 0
+          },
+          "scope": "after-source-last-open-in-fresh-migration"
+        },
+        "ownDeviceRpcCounts": {
+          "A": {
+            "kv.get": 580,
+            "kv.getBatch": 578,
+            "kv.readLogBatch": 290,
+            "kv.readLogGroups": 558
+          },
+          "B": {
+            "kv.get": 171,
+            "kv.getBatch": 170,
+            "kv.readLogBatch": 85,
+            "kv.readLogGroups": 98
+          }
+        },
+        "cleanup": {
+          "ownedPidsChecked": 18,
+          "portsChecked": 26,
+          "livePids": [],
+          "remainingListeners": [],
+          "runtimeRootRemoved": true,
+          "frozenFilesVerified": 1509,
+          "nativeArtifactsUnchanged": true,
+          "hiddenVolumeUnchanged": true,
+          "sdkClean": true,
+          "portsReusedByOtherPids": 0
+        },
+        "selectedNativeLibrariesMappedByThreeWorkers": true,
+        "processExit": 0,
+        "qualifiedPrimaryPagePairs": 0
+      },
+      "B": {
+        "messages": 2000,
+        "fullCountObservedMs": 20562,
+        "historyCompletionObservedMs": 20562,
+        "convergedIdsOrderPositionsAndDelivered": true,
+        "completedHistoryRetries": 0,
+        "diagnosticProfilingEnabled": false,
+        "wire": {
+          "afterSourceARestartOnly": false,
+          "uniqueRequestIds": 0,
+          "qualifiedUnrepeatedCompletePairs": 0,
+          "excluded": {},
+          "operationCounts": {},
+          "pageQueryToLastPart": {
+            "samples": 0
+          },
+          "nextQueryAfterLastPart": {
+            "samples": 0
+          },
+          "scope": "after-source-last-open-in-fresh-migration"
+        },
+        "ownDeviceRpcCounts": {
+          "A": {
+            "kv.get": 592,
+            "kv.getBatch": 592,
+            "kv.readLogBatch": 296,
+            "kv.readLogGroups": 564
+          },
+          "B": {
+            "kv.get": 337,
+            "kv.getBatch": 336,
+            "kv.readLogBatch": 168,
+            "kv.readLogGroups": 307
+          }
+        },
+        "cleanup": {
+          "ownedPidsChecked": 18,
+          "portsChecked": 23,
+          "livePids": [],
+          "remainingListeners": [],
+          "runtimeRootRemoved": true,
+          "frozenFilesVerified": 1509,
+          "nativeArtifactsUnchanged": true,
+          "hiddenVolumeUnchanged": true,
+          "sdkClean": true,
+          "portsReusedByOtherPids": 0
+        },
+        "selectedNativeLibrariesMappedByThreeWorkers": true,
+        "processExit": 0,
+        "qualifiedPrimaryPagePairs": 0
+      },
+      "A2": {
+        "messages": 2000,
+        "fullCountObservedMs": 20557,
+        "historyCompletionObservedMs": 20558,
+        "convergedIdsOrderPositionsAndDelivered": true,
+        "completedHistoryRetries": 0,
+        "diagnosticProfilingEnabled": false,
+        "wire": {
+          "afterSourceARestartOnly": false,
+          "uniqueRequestIds": 0,
+          "qualifiedUnrepeatedCompletePairs": 0,
+          "excluded": {},
+          "operationCounts": {},
+          "pageQueryToLastPart": {
+            "samples": 0
+          },
+          "nextQueryAfterLastPart": {
+            "samples": 0
+          },
+          "scope": "after-source-last-open-in-fresh-migration"
+        },
+        "ownDeviceRpcCounts": {
+          "A": {
+            "kv.get": 422,
+            "kv.getBatch": 422,
+            "kv.readLogBatch": 211,
+            "kv.readLogGroups": 214
+          },
+          "B": {
+            "kv.get": 133,
+            "kv.getBatch": 132,
+            "kv.readLogBatch": 66,
+            "kv.readLogGroups": 76
+          }
+        },
+        "cleanup": {
+          "ownedPidsChecked": 18,
+          "portsChecked": 19,
+          "livePids": [],
+          "remainingListeners": [],
+          "runtimeRootRemoved": true,
+          "frozenFilesVerified": 1509,
+          "nativeArtifactsUnchanged": true,
+          "hiddenVolumeUnchanged": true,
+          "sdkClean": true,
+          "portsReusedByOtherPids": 0
+        },
+        "selectedNativeLibrariesMappedByThreeWorkers": true,
+        "processExit": 0,
+        "qualifiedPrimaryPagePairs": 0
+      }
+    },
+    "frozenSourceFiles": 1509,
+    "onlyChangedProductionSource": [
+      "lib/state/messaging_own_history_batch.dart"
+    ],
+    "sameNativeInputsAcrossAllPhases": true,
+    "runtimeSdk": "c6699c28",
+    "checkoutSdk": "7d34e4e5",
+    "a1a2SourceByteIdentical": true,
+    "performanceComparisonQualified": false,
+    "performanceScopeNote": "Fresh snapshot convergence did not exercise receiver primary history pages; timings are not evidence of this cohort optimization",
+    "limits": [
+      "Three JIT provider processes on one Mac with real native SDK/ratchet/HVS; not Android/AOT/WAN",
+      "Fresh random identities and runtime state differ, so this is not a deterministic replay",
+      "Full-completion polling is coarser than wire stage timestamps",
+      "Native runtime is frozen independently from the current source checkout"
+    ]
+  },
+  "crashCampaign": {
+    "candidate16": {
+      "baseRows": 2000,
+      "rowsBeforeCrash": 574,
+      "rowsAtRestartBeforeNetwork": 622,
+      "rowsWithSourcesOffline": 622,
+      "retainedWithoutSources": true,
+      "onlySourceAReturned": true,
+      "sourceRestartReadyAtMs": 23019,
+      "initialHistoryMs": 43488,
+      "recoveryAfterSourceStartReturnedMs": 20469,
+      "convergedIdsOrderPositionsAndDelivered": true,
+      "completedHistoryRetries": 0,
+      "partialRetention": {
+        "passed": true,
+        "expectedRows": 574,
+        "actualRows": 622,
+        "retainedExpectedRows": 574,
+        "missingExpectedRows": 0,
+        "unexpectedRows": 0,
+        "duplicateExpectedRows": 0,
+        "duplicateActualRows": 0,
+        "invalidExpectedRows": 0,
+        "invalidActualRows": 0,
+        "expectedDeliveredRows": 574,
+        "retainedDeliveredRows": 574,
+        "expectedCanonicalRows": 574,
+        "retainedCanonicalRows": 574,
+        "expectedBodyRows": 574,
+        "retainedBodyRows": 574
+      },
+      "finalRetention": {
+        "passed": true,
+        "expectedRows": 2000,
+        "actualRows": 2000,
+        "retainedExpectedRows": 2000,
+        "missingExpectedRows": 0,
+        "unexpectedRows": 0,
+        "duplicateExpectedRows": 0,
+        "duplicateActualRows": 0,
+        "invalidExpectedRows": 0,
+        "invalidActualRows": 0,
+        "expectedDeliveredRows": 2000,
+        "retainedDeliveredRows": 2000,
+        "expectedCanonicalRows": 2000,
+        "retainedCanonicalRows": 2000,
+        "expectedBodyRows": 2000,
+        "retainedBodyRows": 2000
+      },
+      "wire": {
+        "afterSourceARestartOnly": true,
+        "uniqueRequestIds": 41,
+        "qualifiedUnrepeatedCompletePairs": 40,
+        "excluded": {
+          "repeatedQueryIds": 1
+        },
+        "operationCounts": {
+          "page": 39,
+          "list": 1
+        },
+        "pageQueryToLastPart": {
+          "samples": 39,
+          "minimumUs": 60426,
+          "medianUs": 91705,
+          "maximumUs": 415276
+        },
+        "nextQueryAfterLastPart": {
+          "samples": 39,
+          "minimumUs": 248021,
+          "medianUs": 280257,
+          "maximumUs": 581694
+        }
+      },
+      "cleanup": {
+        "ownedPidsChecked": 27,
+        "portsChecked": 25,
+        "livePids": [],
+        "remainingListeners": [],
+        "runtimeRootRemoved": true,
+        "frozenFilesVerified": 1509,
+        "nativeArtifactsUnchanged": true,
+        "hiddenVolumeUnchanged": true,
+        "sdkClean": true,
+        "portsReusedByOtherPids": 0
+      },
+      "sourceUnchanged": true,
+      "processExit": 0,
+      "nativeLibrariesMappedByThreeLiveWorkers": true
+    },
+    "control4": {
+      "baseRows": 2000,
+      "rowsBeforeCrash": 687,
+      "rowsAtRestartBeforeNetwork": 687,
+      "rowsWithSourcesOffline": 687,
+      "retainedWithoutSources": true,
+      "onlySourceAReturned": true,
+      "sourceRestartReadyAtMs": 27351,
+      "initialHistoryMs": 47910,
+      "recoveryAfterSourceStartReturnedMs": 20559,
+      "convergedIdsOrderPositionsAndDelivered": true,
+      "completedHistoryRetries": 0,
+      "partialRetention": {
+        "passed": true,
+        "expectedRows": 687,
+        "actualRows": 687,
+        "retainedExpectedRows": 687,
+        "missingExpectedRows": 0,
+        "unexpectedRows": 0,
+        "duplicateExpectedRows": 0,
+        "duplicateActualRows": 0,
+        "invalidExpectedRows": 0,
+        "invalidActualRows": 0,
+        "expectedDeliveredRows": 687,
+        "retainedDeliveredRows": 687,
+        "expectedCanonicalRows": 637,
+        "retainedCanonicalRows": 637,
+        "expectedBodyRows": 687,
+        "retainedBodyRows": 687
+      },
+      "finalRetention": {
+        "passed": true,
+        "expectedRows": 2000,
+        "actualRows": 2000,
+        "retainedExpectedRows": 2000,
+        "missingExpectedRows": 0,
+        "unexpectedRows": 0,
+        "duplicateExpectedRows": 0,
+        "duplicateActualRows": 0,
+        "invalidExpectedRows": 0,
+        "invalidActualRows": 0,
+        "expectedDeliveredRows": 2000,
+        "retainedDeliveredRows": 2000,
+        "expectedCanonicalRows": 2000,
+        "retainedCanonicalRows": 2000,
+        "expectedBodyRows": 2000,
+        "retainedBodyRows": 2000
+      },
+      "wire": {
+        "afterSourceARestartOnly": true,
+        "uniqueRequestIds": 46,
+        "qualifiedUnrepeatedCompletePairs": 45,
+        "excluded": {
+          "repeatedQueryIds": 1
+        },
+        "operationCounts": {
+          "page": 44,
+          "list": 1
+        },
+        "pageQueryToLastPart": {
+          "samples": 44,
+          "minimumUs": 49258,
+          "medianUs": 89859.5,
+          "maximumUs": 125406
+        },
+        "nextQueryAfterLastPart": {
+          "samples": 44,
+          "minimumUs": 207959,
+          "medianUs": 303206.5,
+          "maximumUs": 652945
+        }
+      },
+      "cleanup": {
+        "ownedPidsChecked": 27,
+        "portsChecked": 29,
+        "livePids": [],
+        "remainingListeners": [],
+        "runtimeRootRemoved": true,
+        "frozenFilesVerified": 1509,
+        "nativeArtifactsUnchanged": true,
+        "hiddenVolumeUnchanged": true,
+        "sdkClean": true,
+        "portsReusedByOtherPids": 0
+      },
+      "sourceUnchanged": true,
+      "processExit": 0,
+      "nativeLibrariesMappedByThreeLiveWorkers": true
+    }
+  },
+  "historicalFailedHarnessRunIncluded": false,
+  "overallSpeedupProved": false,
+  "phoneAndProductionModified": false,
+  "pushOrRelease": false,
+  "limits": [
+    "Fresh snapshot runs did not exercise primary receiver history pages and cannot qualify this optimization performance",
+    "Crash controls have different partial histories and page counts; lower stage median is not a proven causal/global speedup",
+    "JIT/loopback qualification on one Mac, not Android/AOT/WAN or the full multi-device matrix"
+  ]
+}
