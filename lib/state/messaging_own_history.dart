@@ -164,25 +164,51 @@ class _MessagingOwnHistory {
     final pending = _pulls[device.hex];
     if (pending == null) {
       _begin(device);
-    } else if (!pending.processing && pending.attempts < _maxAttempts) {
-      final sentAt = pending.lastAttemptAt;
-      if (sentAt != null) {
-        // Recovery can shorten backoff, but must not duplicate startup traffic
-        // or postpone an earlier timer when the wall clock rolls back.
-        if (now.isBefore(sentAt)) return;
-        final earliest = sentAt.add(const Duration(seconds: 2));
-        if (now.isBefore(earliest)) {
-          if (!(pending.timer?.isActive ?? false) ||
-              pending.retryAt == null ||
-              pending.retryAt!.isAfter(earliest)) {
-            _scheduleRetry(pending, earliest.difference(now));
-          }
-          return;
-        }
-      }
-      pending.timer?.cancel();
-      _transmit(pending);
+    } else {
+      _wakePending(pending, now);
     }
+  }
+
+  void _wakeForServedRequest(NodeId device, Object? binding) {
+    if (!_bound(binding)) return;
+    final pending = _pulls[device.hex];
+    if (pending == null ||
+        !identical(pending.binding, binding) ||
+        pending.processing ||
+        pending.attempts >= _maxAttempts) {
+      return;
+    }
+    final now = _owner._now();
+    final last = pending.lastRequestWakeAt;
+    if (last != null && now.difference(last) < const Duration(seconds: 30)) {
+      return;
+    }
+    // Presence can precede a restarting peer's history host. A request we
+    // actually serve proves that host is now ready, independently of an early
+    // presence wake. Keep a separate throttle within this existing pull.
+    pending.lastRequestWakeAt = now;
+    _wakePending(pending, now);
+  }
+
+  void _wakePending(_OwnHistoryPull pending, DateTime now) {
+    if (pending.processing || pending.attempts >= _maxAttempts) return;
+    final sentAt = pending.lastAttemptAt;
+    if (sentAt != null) {
+      // Recovery can shorten backoff, but must not duplicate startup traffic
+      // or postpone an earlier timer when the wall clock rolls back.
+      if (now.isBefore(sentAt)) return;
+      final earliest = sentAt.add(const Duration(seconds: 2));
+      if (now.isBefore(earliest)) {
+        if (!(pending.timer?.isActive ?? false) ||
+            pending.retryAt == null ||
+            pending.retryAt!.isAfter(earliest)) {
+          _scheduleRetry(pending, earliest.difference(now));
+        }
+        return;
+      }
+    }
+    pending.timer?.cancel();
+    _transmit(pending);
   }
 
   bool _bound(Object? binding) =>
@@ -960,6 +986,7 @@ class _MessagingOwnHistory {
     final parts = (bytes.length + _slice - 1) ~/ _slice;
     for (var part = 0; part < parts; part++) {
       if (!await _allowed(device, binding)) return;
+      if (part == 0) _wakeForServedRequest(device, binding);
       final end = ((part + 1) * _slice).clamp(0, bytes.length);
       await _sendReply(device, {
         'v': 1,
@@ -1495,6 +1522,7 @@ class _OwnHistoryPull {
   String id = '';
   int attempts = 0;
   DateTime? lastAttemptAt;
+  DateTime? lastRequestWakeAt;
   DateTime? retryAt;
   _OwnHistoryRecord? record;
   Timer? timer;

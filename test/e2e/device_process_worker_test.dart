@@ -665,9 +665,15 @@ void main() {
               if (evidence == null) {
                 throw StateError('stand profiler needs a private evidence dir');
               }
+              final snapshot = jsonEncode(await cpuProfile!.snapshot());
+              // Adoption and crash probes restart the same label. Preserve
+              // each boot's profile before updating the convenient latest view.
+              await File(
+                '$evidence/cpu-$label-$pid-private.json',
+              ).writeAsString(snapshot);
               await File(
                 '$evidence/cpu-$label-private.json',
-              ).writeAsString(jsonEncode(await cpuProfile!.snapshot()));
+              ).writeAsString(snapshot);
             }
           } finally {
             try {
