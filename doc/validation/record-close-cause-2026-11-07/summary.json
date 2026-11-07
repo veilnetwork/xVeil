@@ -1,0 +1,303 @@
+{
+  "schema": "xveil-validation/record-close-cause/1",
+  "clientSdk": "c6699c28",
+  "coreSdk": "7d34e4e5",
+  "p2pPolicy": "denied",
+  "coreCount": 2,
+  "clientFrontendAndNativeUnchanged": true,
+  "allFourCasesExecuted": true,
+  "allFourFinalChecksPassed": true,
+  "cases": [
+    {
+      "case": "wifi-phone",
+      "passed": true,
+      "switched": false,
+      "endpoints": {
+        "phone": {
+          "samples": 74,
+          "fresh": 72,
+          "rxAgeMaxMs": 424,
+          "errors": 0
+        },
+        "mac": {
+          "samples": 74,
+          "fresh": 72,
+          "rxAgeMaxMs": 397,
+          "errors": 0
+        }
+      }
+    },
+    {
+      "case": "mobile-mac",
+      "passed": true,
+      "switched": false,
+      "endpoints": {
+        "phone": {
+          "samples": 78,
+          "fresh": 69,
+          "rxAgeMaxMs": 1405,
+          "errors": 0
+        },
+        "mac": {
+          "samples": 78,
+          "fresh": 68,
+          "rxAgeMaxMs": 1069,
+          "errors": 0
+        }
+      }
+    },
+    {
+      "case": "wifi-to-mobile",
+      "passed": true,
+      "switched": true,
+      "endpoints": {
+        "phone": {
+          "samples": 111,
+          "fresh": 111,
+          "rxAgeMaxMs": 816,
+          "errors": 0
+        },
+        "mac": {
+          "samples": 111,
+          "fresh": 110,
+          "rxAgeMaxMs": 1012,
+          "errors": 0
+        }
+      }
+    },
+    {
+      "case": "mobile-to-wifi",
+      "passed": true,
+      "switched": true,
+      "endpoints": {
+        "phone": {
+          "samples": 109,
+          "fresh": 108,
+          "rxAgeMaxMs": 1221,
+          "errors": 0
+        },
+        "mac": {
+          "samples": 109,
+          "fresh": 109,
+          "rxAgeMaxMs": 958,
+          "errors": 0
+        }
+      }
+    }
+  ],
+  "receiverClose": {
+    "eventsWholeCapture": {
+      "a": 25,
+      "b": 26
+    },
+    "cases": [
+      {
+        "core": "a",
+        "case": "wifi-phone",
+        "conservativeInteriorMs": 37631,
+        "closedReceivers": 0,
+        "causes": [],
+        "recordsReceivedMax": 0,
+        "recordsFlushedMax": 0,
+        "writeMaxUs": 0
+      },
+      {
+        "core": "a",
+        "case": "mobile-mac",
+        "conservativeInteriorMs": 41121,
+        "closedReceivers": 0,
+        "causes": [],
+        "recordsReceivedMax": 0,
+        "recordsFlushedMax": 0,
+        "writeMaxUs": 0
+      },
+      {
+        "core": "a",
+        "case": "wifi-to-mobile",
+        "conservativeInteriorMs": 82865,
+        "closedReceivers": 5,
+        "causes": [
+          {
+            "peer": "phone",
+            "reason": "partial_record_expired",
+            "count": 1
+          },
+          {
+            "peer": "phone",
+            "reason": "read_eof",
+            "count": 4
+          }
+        ],
+        "recordsReceivedMax": 60,
+        "recordsFlushedMax": 40,
+        "writeMaxUs": 200994
+      },
+      {
+        "core": "a",
+        "case": "mobile-to-wifi",
+        "conservativeInteriorMs": 83091,
+        "closedReceivers": 7,
+        "causes": [
+          {
+            "peer": "phone",
+            "reason": "partial_record_expired",
+            "count": 2
+          },
+          {
+            "peer": "phone",
+            "reason": "read_eof",
+            "count": 2
+          },
+          {
+            "peer": "phone",
+            "reason": "read_error",
+            "count": 3
+          }
+        ],
+        "recordsReceivedMax": 1036,
+        "recordsFlushedMax": 1123,
+        "writeMaxUs": 201016
+      },
+      {
+        "core": "b",
+        "case": "wifi-phone",
+        "conservativeInteriorMs": 38309,
+        "closedReceivers": 0,
+        "causes": [],
+        "recordsReceivedMax": 0,
+        "recordsFlushedMax": 0,
+        "writeMaxUs": 0
+      },
+      {
+        "core": "b",
+        "case": "mobile-mac",
+        "conservativeInteriorMs": 41799,
+        "closedReceivers": 1,
+        "causes": [
+          {
+            "peer": "phone",
+            "reason": "partial_record_expired",
+            "count": 1
+          }
+        ],
+        "recordsReceivedMax": 0,
+        "recordsFlushedMax": 37,
+        "writeMaxUs": 201012
+      },
+      {
+        "core": "b",
+        "case": "wifi-to-mobile",
+        "conservativeInteriorMs": 83543,
+        "closedReceivers": 2,
+        "causes": [
+          {
+            "peer": "phone",
+            "reason": "partial_record_expired",
+            "count": 2
+          }
+        ],
+        "recordsReceivedMax": 11,
+        "recordsFlushedMax": 54,
+        "writeMaxUs": 201533
+      },
+      {
+        "core": "b",
+        "case": "mobile-to-wifi",
+        "conservativeInteriorMs": 83769,
+        "closedReceivers": 4,
+        "causes": [
+          {
+            "peer": "phone",
+            "reason": "read_eof",
+            "count": 2
+          },
+          {
+            "peer": "phone",
+            "reason": "read_error",
+            "count": 2
+          }
+        ],
+        "recordsReceivedMax": 917,
+        "recordsFlushedMax": 70,
+        "writeMaxUs": 132
+      }
+    ],
+    "scope": "typed local first cause, not proof that a closing lane was the selected media path"
+  },
+  "qualifiedCallCloseReasons": {
+    "partial_record_expired": 6,
+    "read_eof": 8,
+    "read_error": 5
+  },
+  "frameObservers": {
+    "rows": {
+      "a": 18065,
+      "b": 20105,
+      "mac": 19292
+    },
+    "allFamily3": true,
+    "plaintextRows": 0,
+    "phoneSubscriber": false
+  },
+  "checks": {
+    "transportPassed": 173,
+    "sessionPassed": 697,
+    "sessionIgnored": 8,
+    "focusedTransportPassedOverlapping": 16,
+    "rustfmtPassed": true,
+    "aotDiagnosticArtifactGatePassed": 1,
+    "coreElfAndAllNewMarkersVerified": true,
+    "cleanSourceSnapshotVerified": true,
+    "externalMountGuardPassed": true
+  },
+  "hygiene": {
+    "local": {
+      "macRequiredSigkillAfterGrace": true,
+      "macProcessExited": true,
+      "phoneQaExited": true,
+      "originalAudioPermissionRestored": true,
+      "network.veil.xveil.qa.audio20261101ApkShaUnchanged": true,
+      "network.veil.xveilApkShaUnchanged": true,
+      "oldQaContainerShaUnchanged": true,
+      "validatedOriginalNetworkRestored": true,
+      "ownAdbForwardRemoved": true,
+      "ownedPortsReleased": true
+    },
+    "extra": {
+      "macOwnedRuntimeRemoved": true,
+      "macSignatureVerified": true,
+      "macOwnDebugLogMoved": true,
+      "allRecordedLocalChildrenExited": true
+    },
+    "remote": {
+      "a": {
+        "ownServicesStopped": true,
+        "ownStateRuntimeConfigBinaryUnitAndStageRemoved": true,
+        "testPortsFree": true,
+        "productionUnchanged": true
+      },
+      "b": {
+        "ownServicesStopped": true,
+        "ownStateRuntimeConfigBinaryUnitAndStageRemoved": true,
+        "testPortsFree": true,
+        "productionUnchanged": true
+      }
+    },
+    "frozenObservationInputs": 27,
+    "harnessUnchanged": true,
+    "remoteArchivesAndEveryEntryShaVerified": true
+  },
+  "limits": [
+    "NETCALL-01 remains open; the former 9.6-second event did not recur in this series",
+    "A fresh final window does not mean every sample was fresh",
+    "RX native age is not mouth-to-ear delay or human audibility",
+    "One successful transition in each direction is not proof of a fix or a causal performance comparison",
+    "First close cause is local and typed; read EOF does not identify why the peer closed",
+    "Peer and receiver do not alone establish that a closing child was the selected audio path",
+    "Core upgraded across prior bootstrap-retry and tracing commits; no functional A/B speedup claimed",
+    "No new client native instrumentation in the physical series",
+    "No timer, framing, codec, ratchet or authentication policy change",
+    "Private source/receiver IDs, addresses, ports, error text, packet previews and digests excluded",
+    "No sibling mailbox, push or release"
+  ]
+}
