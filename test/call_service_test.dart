@@ -3717,6 +3717,196 @@ void main() {
       },
     );
 
+    group('overlay reconnect', () {
+      ({
+        CallService svc,
+        _ReconnectRelayMedia media,
+        StreamController<int> counts,
+      })
+      fixture(
+        FakeAsync async, {
+        bool seedOffline = true,
+        bool defer = true,
+        Completer<bool>? gate,
+      }) {
+        final fake = _FakeMessaging();
+        final media = _ReconnectRelayMedia()..firstAttempt = gate;
+        final counts = StreamController<int>();
+        final svc = CallService(
+          fake,
+          now: () => clock.now(),
+          media: media,
+          overlaySessions: counts.stream,
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => true,
+        )..start();
+        if (seedOffline) counts.add(0);
+        fake.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'overlay-retry',
+            type: CallSignalType.offer,
+            media: CallMedia(audio: true),
+            posture: CallPosture.direct,
+            transport: CallTransportProposal(CallTransportKind.p2p),
+          ),
+        );
+        svc.accept();
+        async.flushMicrotasks();
+        if (defer) svc.requestRelayRecoveryForDiagnostics();
+        async.flushMicrotasks();
+        expect(media.switches, defer ? [CallTransportKind.relay] : isEmpty);
+        return (svc: svc, media: media, counts: counts);
+      }
+
+      test('wakes a deferred candidate without advancing the retry clock', () {
+        fakeAsync((async) {
+          final t = fixture(async);
+          t.media.proven = true;
+          t.counts.add(1);
+          async.flushMicrotasks();
+          expect(t.media.switches, hasLength(2));
+          expect(t.svc.current?.transport, CallTransportKind.relay);
+          t.svc.dispose();
+          t.counts.close();
+          async.flushMicrotasks();
+        });
+      });
+
+      test(
+        'a count is only a wake hint and duplicate positives do not retry',
+        () {
+          fakeAsync((async) {
+            final t = fixture(async);
+            t.counts.add(1);
+            async.flushMicrotasks();
+            expect(t.media.switches, hasLength(2));
+            expect(t.svc.current?.transport, CallTransportKind.p2p);
+          for (final n in [1, 2, 2, 3]) {
+            t.counts.add(n);
+          }
+            async.flushMicrotasks();
+            expect(t.media.switches, hasLength(2));
+            t.counts.add(0);
+            t.counts.add(2);
+            async.flushMicrotasks();
+            expect(t.media.switches, hasLength(3));
+            expect(t.svc.current?.status, CallStatus.active);
+            t.svc.dispose();
+            t.counts.close();
+            async.flushMicrotasks();
+          });
+        },
+      );
+
+      test(
+        'initial positive snapshot does not cancel the normal retry delay',
+        () {
+          fakeAsync((async) {
+            final t = fixture(async, seedOffline: false);
+            t.media.proven = true;
+            t.counts.add(1);
+            async.flushMicrotasks();
+            expect(t.media.switches, hasLength(1));
+            expect(t.svc.current?.transport, CallTransportKind.p2p);
+            t.svc.dispose();
+            t.counts.close();
+            async.flushMicrotasks();
+          });
+        },
+      );
+
+      for (final succeeded in [false, true]) {
+        test(
+          'an in-flight candidate retains wake until completion=$succeeded',
+          () {
+            fakeAsync((async) {
+              final gate = Completer<bool>();
+              final t = fixture(async, gate: gate);
+              t.media.proven = true;
+              t.counts.add(1);
+              async.flushMicrotasks();
+              expect(t.media.switches, hasLength(1), reason: 'no overlap');
+              gate.complete(succeeded);
+              async.flushMicrotasks();
+              expect(t.media.switches, hasLength(succeeded ? 1 : 2));
+              expect(t.svc.current?.transport, CallTransportKind.relay);
+              t.svc.dispose();
+              t.counts.close();
+              async.flushMicrotasks();
+            });
+          },
+        );
+      }
+
+      test('a retired call cannot consume an in-flight wake', () {
+        fakeAsync((async) {
+          final gate = Completer<bool>();
+          final t = fixture(async, gate: gate);
+          t.counts.add(1);
+          async.flushMicrotasks();
+          t.svc.hangup();
+          async.flushMicrotasks();
+          gate.complete(false);
+          async.flushMicrotasks();
+          expect(t.media.switches, hasLength(1));
+          expect(t.svc.current, isNull);
+          t.svc.dispose();
+          async.flushMicrotasks();
+          expect(t.counts.hasListener, isFalse);
+          t.counts.add(0);
+          t.counts.add(1);
+          t.counts.close();
+          async.flushMicrotasks();
+          expect(t.media.switches, hasLength(1));
+        });
+      });
+
+      test('new connections alone cannot request a relay handover', () {
+        fakeAsync((async) {
+          final t = fixture(async, defer: false);
+          t.counts.add(1);
+          async.flushMicrotasks();
+          expect(t.media.switches, isEmpty);
+          expect(t.svc.current?.transport, CallTransportKind.p2p);
+          t.svc.dispose();
+          t.counts.close();
+          async.flushMicrotasks();
+        });
+      });
+
+      test('observer errors cannot discard a later reconnect wake', () {
+        fakeAsync((async) {
+          final t = fixture(async);
+          t.counts.addError(StateError('observer unavailable'));
+          async.flushMicrotasks();
+          expect(t.svc.current?.status, CallStatus.active);
+          t.media.proven = true;
+          t.counts.add(1);
+          async.flushMicrotasks();
+          expect(t.media.switches, hasLength(2));
+          expect(t.svc.current?.transport, CallTransportKind.relay);
+          t.svc.dispose();
+          t.counts.close();
+          async.flushMicrotasks();
+        });
+      });
+
+      test('a repairing receiver is not interrupted by a count hint', () {
+        fakeAsync((async) {
+          final t = fixture(async);
+          t.media.receiveRepairing = true;
+          t.counts.add(1);
+          async.flushMicrotasks();
+          expect(t.media.switches, hasLength(1));
+          expect(t.svc.current?.status, CallStatus.active);
+          t.svc.dispose();
+          t.counts.close();
+          async.flushMicrotasks();
+        });
+      });
+    });
+
     test(
       'a failed candidate with no surviving old route still ends the call',
       () async {
@@ -7508,5 +7698,26 @@ class _SnapshotMedia extends _FakeMedia {
   Future<DateTime?> readLatestMediaRxAt() async {
     snapshotReads++;
     return readSnapshot == null ? null : await readSnapshot!();
+  }
+}
+
+class _ReconnectRelayMedia extends _FakeMedia {
+  _ReconnectRelayMedia() {
+    openedTransport = CallTransportKind.p2p;
+  }
+  Completer<bool>? firstAttempt;
+  bool proven = false;
+  @override
+  Future<bool> switchRoute(
+    CallTransportKind transport, {
+    Future<bool> Function()? canCommit,
+  }) async {
+    switches.add(transport);
+    final ok = switches.length == 1 && firstAttempt != null
+        ? await firstAttempt!.future
+        : proven;
+    if (canCommit != null && !await canCommit()) return false;
+    if (ok) openedTransport = transport;
+    return ok;
   }
 }

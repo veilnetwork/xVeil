@@ -4076,3 +4076,16 @@ consent и native route proof. 308 related tests, 0 skipped, analyzer чисты
 В старом AOT захвате четыре конкретных RTP точно сброшены локально как
 `child_unavailable` и не получены Mac; причина недоступности независимых
 каналов ещё не установлена. NETCALL-01 открыт; SDK/HV не менялись.
+
+
+## 2026-11-08: deferred relay retry просыпается при восстановлении overlay
+
+[Доказательства и проверки](../call-relay-reconnect-wake-2026-11-08/README.md).
+Для 18 cells прежнего Poco-захвата есть быстрый local handler, но нет relay
+queue до открытия сессий около +13 с. CallService теперь использует переход
+sessionCount 0 → positive как повод повторить уже отложенный кандидат, не как
+доказательство пригодности маршрута. Гонка события с in-flight проверкой
+покрыта; одно событие не запускает параллельную попытку, hangup/dispose защищены.
+317 related tests + 6 provider/history (включая native HVS), analyzer чистый.
+Физика pending; первый TCP payload в ранних flows не подтверждался ACK, и
+причина этих сетевых отказов остаётся открытой. Push/релиза нет.
