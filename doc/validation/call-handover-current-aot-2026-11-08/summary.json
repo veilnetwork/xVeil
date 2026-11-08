@@ -1,0 +1,292 @@
+{
+  "scope": "physical Android-Mac call handover observations; digital RTP reception, no human audibility",
+  "status": "NETCALL-01 remains open",
+  "callSourceRevision": "460d74e2",
+  "rootHeadAtQualification": "b45a8f82",
+  "sdk": {
+    "android": "bbcd967a",
+    "mac": "c8f4929b",
+    "isolatedCore": "e974cebe",
+    "differencesDiagnosticOnly": true
+  },
+  "firstAttempt": {
+    "p2pPermitted": true,
+    "allPlannedPhasesCompleted": false,
+    "terminalOrigin": "livenessTimeout",
+    "terminalSilenceSeconds": 21,
+    "macAudioRxAfterRelaySelection": [
+      203,
+      255
+    ],
+    "localEngineEpochs": [
+      1,
+      3
+    ],
+    "briefRelayReceiveThenStopped": true,
+    "phoneEndWasScriptCleanup": true,
+    "clockSkewAccounted": true,
+    "coreKeepaliveTimeouts": 2,
+    "causeFixed": false
+  },
+  "freshStandControls": [
+    {
+      "case": "relay-only",
+      "completed": true,
+      "sameCallThroughout": true,
+      "hostPhonePollingDuringCellular": false,
+      "phases": [
+        {
+          "phase": "wifi-before",
+          "observedSeconds": 20.318,
+          "endpoints": {
+            "mac": {
+              "samples": 40,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                1
+              ],
+              "routes": [
+                "relay"
+              ],
+              "maxObservedNativeAudioRxAgeMs": 278,
+              "audioRxFirst": 72,
+              "audioRxLast": 328
+            },
+            "phone": {
+              "samples": 29,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                1
+              ],
+              "routes": [
+                "relay"
+              ],
+              "maxObservedNativeAudioRxAgeMs": 344,
+              "audioRxFirst": 194,
+              "audioRxLast": 431
+            }
+          }
+        },
+        {
+          "phase": "cellular-minimal-host",
+          "observedSeconds": 120.056,
+          "endpoints": {
+            "mac": {
+              "samples": 233,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                1
+              ],
+              "routes": [
+                "relay"
+              ],
+              "maxObservedNativeAudioRxAgeMs": 1153,
+              "audioRxFirst": 349,
+              "audioRxLast": 2137
+            },
+            "phone": {
+              "samples": 171,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                1
+              ],
+              "routes": [
+                "relay"
+              ],
+              "maxObservedNativeAudioRxAgeMs": 2939,
+              "audioRxFirst": 444,
+              "audioRxLast": 2118
+            }
+          }
+        },
+        {
+          "phase": "wifi-recovery",
+          "observedSeconds": 45.44,
+          "endpoints": {
+            "mac": {
+              "samples": 87,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                1
+              ],
+              "routes": [
+                "relay"
+              ],
+              "maxObservedNativeAudioRxAgeMs": 336,
+              "audioRxFirst": 2154,
+              "audioRxLast": 3031
+            },
+            "phone": {
+              "samples": 65,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                1
+              ],
+              "routes": [
+                "relay"
+              ],
+              "maxObservedNativeAudioRxAgeMs": 260,
+              "audioRxFirst": 2135,
+              "audioRxLast": 2903
+            }
+          }
+        }
+      ]
+    },
+    {
+      "case": "p2p-permitted",
+      "completed": true,
+      "sameCallThroughout": true,
+      "hostPhonePollingDuringCellular": false,
+      "phases": [
+        {
+          "phase": "wifi-before",
+          "observedSeconds": 20.3,
+          "endpoints": {
+            "mac": {
+              "samples": 40,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                3
+              ],
+              "routes": [
+                "p2p"
+              ],
+              "maxObservedNativeAudioRxAgeMs": 395,
+              "audioRxFirst": 297,
+              "audioRxLast": 558
+            },
+            "phone": {
+              "samples": 29,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                3
+              ],
+              "routes": [
+                "p2p"
+              ],
+              "maxObservedNativeAudioRxAgeMs": 377,
+              "audioRxFirst": 332,
+              "audioRxLast": 562
+            }
+          }
+        },
+        {
+          "phase": "cellular-minimal-host",
+          "observedSeconds": 120.464,
+          "endpoints": {
+            "mac": {
+              "samples": 234,
+              "samplesWithoutNativeCounters": 2,
+              "mediaEpochs": [
+                3,
+                5
+              ],
+              "routes": [
+                "p2p",
+                "relay"
+              ],
+              "maxObservedNativeAudioRxAgeMs": 11844,
+              "audioRxFirst": 562,
+              "audioRxLast": 1173
+            },
+            "phone": {
+              "samples": 170,
+              "samplesWithoutNativeCounters": 2,
+              "mediaEpochs": [
+                3,
+                5
+              ],
+              "routes": [
+                "p2p",
+                "relay"
+              ],
+              "maxObservedNativeAudioRxAgeMs": 5148,
+              "audioRxFirst": 563,
+              "audioRxLast": 1462
+            }
+          }
+        },
+        {
+          "phase": "wifi-recovery",
+          "observedSeconds": 45.435,
+          "endpoints": {
+            "mac": {
+              "samples": 87,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                5
+              ],
+              "routes": [
+                "p2p",
+                "relay"
+              ],
+              "maxObservedNativeAudioRxAgeMs": 3782,
+              "audioRxFirst": 1196,
+              "audioRxLast": 1701
+            },
+            "phone": {
+              "samples": 65,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                5
+              ],
+              "routes": [
+                "p2p",
+                "relay"
+              ],
+              "maxObservedNativeAudioRxAgeMs": 3941,
+              "audioRxFirst": 1496,
+              "audioRxLast": 1973
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "p2pPhoneToMacRtpPayloadCounts": {
+    "beforeSwitch5s": {
+      "source": 41,
+      "receiver": 41
+    },
+    "afterSwitch0to5s": {
+      "sourceDirect": 39,
+      "receiver": 0
+    },
+    "afterSwitch5to10s": {
+      "sourceDirect": 43,
+      "receiver": 0
+    },
+    "afterSwitch10to15s": {
+      "sourceDirect": 20,
+      "sourceRelay": 14,
+      "receiver": 9
+    },
+    "afterSwitch15to20s": {
+      "sourceRelay": 43,
+      "receiver": 43
+    },
+    "afterSwitch20to25s": {
+      "sourceRelay": 38,
+      "receiver": 38
+    }
+  },
+  "limits": [
+    "one provider and device pair",
+    "sequential controls, growing caches, not causal A/B",
+    "RX age maxima reset with engine epochs",
+    "source attempts and flushes are not proof of remote delivery",
+    "candidate echo rejection cause remains unknown",
+    "not a Windows or subjective audibility qualification",
+    "not Android qualification of 64-row history pages"
+  ],
+  "cleanup": {
+    "bothStandsClosed": true,
+    "qaApkRestored": true,
+    "mainApkAndOldQaContainerHashesUnchanged": true,
+    "originalPoliciesAndNetworkSettingsRestored": true,
+    "ownServicesAndRuntimeRemoved": true,
+    "productionIndependentlyVerified": true,
+    "pushOrRelease": false
+  }
+}

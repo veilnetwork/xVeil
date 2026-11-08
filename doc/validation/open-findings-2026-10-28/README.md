@@ -1,5 +1,22 @@
 # Открытые случаи — обновлено 2026-11-08
 
+Последняя физическая проверка: [возвращённый Poco, relay и P2P handover](../call-handover-current-aot-2026-11-08/README.md).
+**NETCALL-01 открыт.** Первый звонок завершился на Mac по liveness timeout
+(21 с тишины): приём после relay selection сначала восстановился 203 → 255,
+затем остановился; оба Core закрыли сессии телефона по keepalive timeout.
+Телефонный end принадлежит cleanup, порядок сверен с clock skew.
+На новом стенде relay-only пережил Cellular 120 с и Wi-Fi 45 с, epoch 1/1,
+max observed audio RX age 1153/2939 мс. Следующий P2P-звонок сохранился, но
+max age 11844/5148 мс, engine epoch 3 → 5. За первые 10 с после cut 82 RTP
+с payload всё ещё пытались уйти direct и не найдены на приёме Mac; relay
+candidate не прошёл echo qualification, переключение произошло позже.
+Причина отказа кандидата не установлена, 600-мс budget не объявлен корнем.
+Оба клиента — runtime/mapping/installed-SHA verified full AOT 460d74e2;
+последующий history-код этим не квалифицирован. Не A/B, слышимость не проверена.
+Телефон и production восстановлены, собственные процессы/Core закрыты и
+удалены; публичные summary без идентификаторов/адресов/raw logs. Push/релиза нет.
+
+
 Последнее исправление: [64 события в byte-bounded own-history странице](../history-page-rows-2026-11-08/README.md).
 128 КиБ/64 части и durable cohorts по 16 сохранены; 167 tests без skips,
 analyzer чист. На archive A₁/B/A₂ с двумя источниками запросов 34 → 18 → 34,
