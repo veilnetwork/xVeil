@@ -1,0 +1,382 @@
+{
+  "scope": "IPv4 socket connectivity control, not a NETCALL fix or full call qualification",
+  "frozenFrontendRevision": "f36a472d",
+  "nativeBuilds": {
+    "mac": "c8f4929b",
+    "android": "bbcd967a",
+    "core": "e974cebe"
+  },
+  "controlCompleted": true,
+  "networkProblemFixed": false,
+  "sameInstalledAppAotAndNativeAndSeedConfiguration": true,
+  "tenWifiTcpConnectsSucceeded": true,
+  "tenCellularTcpConnectsFailed": true,
+  "bothWifiHttpsHeadsSucceeded": true,
+  "bothCellularHttpsHeadsFailedBeforeTls": true,
+  "proxyUsedInHttpsControls": false,
+  "cellularOsCapabilityFlags": {
+    "INTERNET": true,
+    "VALIDATED": true,
+    "NOT_SUSPENDED": true,
+    "NOT_RESTRICTED": true,
+    "NOT_VPN": true
+  },
+  "readOnlyPolicySnapshotAfterExperiment": {
+    "dataSaverDisabled": true,
+    "uidInBatteryExemptionLists": true,
+    "effectiveUidBlockReportedNone": true,
+    "notContinuousEvidenceOfPolicyDuringTest": true
+  },
+  "authenticatedCoreReturnAfterWifiSeconds": [
+    {
+      "role": "coreB",
+      "afterWifiReturnSeconds": 1.691
+    },
+    {
+      "role": "coreA",
+      "afterWifiReturnSeconds": 3.086
+    }
+  ],
+  "packetObservation": {
+    "a": {
+      "clockBoundSeconds": 0.0573,
+      "cellularControlWindowSeconds": 0.984,
+      "tcpPacketsInControlWindow": 21,
+      "captureStats": {
+        "captured": 1699,
+        "receivedByFilter": 1712,
+        "kernelDrops": 0
+      },
+      "inboundSyns": 0,
+      "outboundRsts": 0
+    },
+    "b": {
+      "clockBoundSeconds": 0.0287,
+      "cellularControlWindowSeconds": 0.984,
+      "tcpPacketsInControlWindow": 9,
+      "captureStats": {
+        "captured": 2524,
+        "receivedByFilter": 2524,
+        "kernelDrops": 0
+      },
+      "inboundSyns": 0,
+      "outboundRsts": 0
+    }
+  },
+  "limits": {
+    "qaUidProbeUsesRunAsNotFlutterProcess": true,
+    "mssProbesSendNoApplicationPayload": true,
+    "failedSocketMssIsNotNegotiatedMtu": true,
+    "sameMssOutcomeIsNotAFullPayloadMtuExperiment": true,
+    "doesNotExplainEarlierEstablishedStreamPauses": true,
+    "doesNotIdentifyOsVersusNetworkResetOrigin": true,
+    "doesNotProveFailureToEveryInternetDestination": true
+  },
+  "originalDriver": {
+    "probeExit": 0,
+    "cleanupExit": 0
+  },
+  "allFinalOwnerAndHelperCleanupChecksPassed": true,
+  "samples": [
+    {
+      "phase": "wifi",
+      "role": "coreA",
+      "context": "shell",
+      "kind": "nc",
+      "commandExit": 0,
+      "tcpConnected": true
+    },
+    {
+      "phase": "wifi",
+      "role": "coreA",
+      "context": "app-uid",
+      "kind": "nc",
+      "commandExit": 0,
+      "tcpConnected": true
+    },
+    {
+      "phase": "wifi",
+      "role": "coreA",
+      "context": "shell-native",
+      "kind": "native",
+      "commandExit": 0,
+      "native": {
+        "stage": "connect",
+        "success": true,
+        "errno": 0,
+        "requested_mss": 0,
+        "mss_applied": false,
+        "actual_mss": 1188,
+        "elapsed_ms": 132
+      }
+    },
+    {
+      "phase": "wifi",
+      "role": "coreA",
+      "context": "shell-native",
+      "kind": "native",
+      "commandExit": 0,
+      "native": {
+        "stage": "connect",
+        "success": true,
+        "errno": 0,
+        "requested_mss": 1200,
+        "mss_applied": true,
+        "actual_mss": 1188,
+        "elapsed_ms": 114
+      }
+    },
+    {
+      "phase": "wifi",
+      "role": "coreA",
+      "context": "shell-native",
+      "kind": "native",
+      "commandExit": 0,
+      "native": {
+        "stage": "connect",
+        "success": true,
+        "errno": 0,
+        "requested_mss": 960,
+        "mss_applied": true,
+        "actual_mss": 948,
+        "elapsed_ms": 118
+      }
+    },
+    {
+      "phase": "wifi",
+      "role": "coreB",
+      "context": "shell",
+      "kind": "nc",
+      "commandExit": 0,
+      "tcpConnected": true
+    },
+    {
+      "phase": "wifi",
+      "role": "coreB",
+      "context": "app-uid",
+      "kind": "nc",
+      "commandExit": 0,
+      "tcpConnected": true
+    },
+    {
+      "phase": "wifi",
+      "role": "coreB",
+      "context": "shell-native",
+      "kind": "native",
+      "commandExit": 0,
+      "native": {
+        "stage": "connect",
+        "success": true,
+        "errno": 0,
+        "requested_mss": 0,
+        "mss_applied": false,
+        "actual_mss": 1188,
+        "elapsed_ms": 54
+      }
+    },
+    {
+      "phase": "wifi",
+      "role": "coreB",
+      "context": "shell-native",
+      "kind": "native",
+      "commandExit": 0,
+      "native": {
+        "stage": "connect",
+        "success": true,
+        "errno": 0,
+        "requested_mss": 1200,
+        "mss_applied": true,
+        "actual_mss": 1188,
+        "elapsed_ms": 57
+      }
+    },
+    {
+      "phase": "wifi",
+      "role": "coreB",
+      "context": "shell-native",
+      "kind": "native",
+      "commandExit": 0,
+      "native": {
+        "stage": "connect",
+        "success": true,
+        "errno": 0,
+        "requested_mss": 960,
+        "mss_applied": true,
+        "actual_mss": 948,
+        "elapsed_ms": 52
+      }
+    },
+    {
+      "phase": "wifi",
+      "role": "public-https-control",
+      "context": "shell",
+      "kind": "https",
+      "commandExit": 0,
+      "httpsSucceeded": true,
+      "httpStatus": 200,
+      "proxyUsed": 0,
+      "curlExit": 0
+    },
+    {
+      "phase": "wifi",
+      "role": "public-https-control",
+      "context": "app-uid",
+      "kind": "https",
+      "commandExit": 0,
+      "httpsSucceeded": true,
+      "httpStatus": 200,
+      "proxyUsed": 0,
+      "curlExit": 0
+    },
+    {
+      "phase": "cellular",
+      "role": "coreA",
+      "context": "shell",
+      "kind": "nc",
+      "commandExit": 1,
+      "tcpConnected": false
+    },
+    {
+      "phase": "cellular",
+      "role": "coreA",
+      "context": "app-uid",
+      "kind": "nc",
+      "commandExit": 1,
+      "tcpConnected": false
+    },
+    {
+      "phase": "cellular",
+      "role": "coreA",
+      "context": "shell-native",
+      "kind": "native",
+      "commandExit": 1,
+      "native": {
+        "stage": "connect",
+        "success": false,
+        "errno": 111,
+        "requested_mss": 0,
+        "mss_applied": false,
+        "actual_mss": 524,
+        "elapsed_ms": 48
+      }
+    },
+    {
+      "phase": "cellular",
+      "role": "coreA",
+      "context": "shell-native",
+      "kind": "native",
+      "commandExit": 1,
+      "native": {
+        "stage": "connect",
+        "success": false,
+        "errno": 111,
+        "requested_mss": 1200,
+        "mss_applied": true,
+        "actual_mss": 1200,
+        "elapsed_ms": 53
+      }
+    },
+    {
+      "phase": "cellular",
+      "role": "coreA",
+      "context": "shell-native",
+      "kind": "native",
+      "commandExit": 1,
+      "native": {
+        "stage": "connect",
+        "success": false,
+        "errno": 111,
+        "requested_mss": 960,
+        "mss_applied": true,
+        "actual_mss": 960,
+        "elapsed_ms": 46
+      }
+    },
+    {
+      "phase": "cellular",
+      "role": "coreB",
+      "context": "shell",
+      "kind": "nc",
+      "commandExit": 1,
+      "tcpConnected": false
+    },
+    {
+      "phase": "cellular",
+      "role": "coreB",
+      "context": "app-uid",
+      "kind": "nc",
+      "commandExit": 1,
+      "tcpConnected": false
+    },
+    {
+      "phase": "cellular",
+      "role": "coreB",
+      "context": "shell-native",
+      "kind": "native",
+      "commandExit": 1,
+      "native": {
+        "stage": "connect",
+        "success": false,
+        "errno": 111,
+        "requested_mss": 0,
+        "mss_applied": false,
+        "actual_mss": 524,
+        "elapsed_ms": 64
+      }
+    },
+    {
+      "phase": "cellular",
+      "role": "coreB",
+      "context": "shell-native",
+      "kind": "native",
+      "commandExit": 1,
+      "native": {
+        "stage": "connect",
+        "success": false,
+        "errno": 111,
+        "requested_mss": 1200,
+        "mss_applied": true,
+        "actual_mss": 1200,
+        "elapsed_ms": 59
+      }
+    },
+    {
+      "phase": "cellular",
+      "role": "coreB",
+      "context": "shell-native",
+      "kind": "native",
+      "commandExit": 1,
+      "native": {
+        "stage": "connect",
+        "success": false,
+        "errno": 111,
+        "requested_mss": 960,
+        "mss_applied": true,
+        "actual_mss": 960,
+        "elapsed_ms": 52
+      }
+    },
+    {
+      "phase": "cellular",
+      "role": "public-https-control",
+      "context": "shell",
+      "kind": "https",
+      "commandExit": 7,
+      "httpsSucceeded": false,
+      "httpStatus": 0,
+      "proxyUsed": 0,
+      "curlExit": 7
+    },
+    {
+      "phase": "cellular",
+      "role": "public-https-control",
+      "context": "app-uid",
+      "kind": "https",
+      "commandExit": 7,
+      "httpsSucceeded": false,
+      "httpStatus": 0,
+      "proxyUsed": 0,
+      "curlExit": 7
+    }
+  ]
+}
