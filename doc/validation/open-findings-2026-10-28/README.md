@@ -1,5 +1,23 @@
 # Открытые случаи — обновлено 2026-11-08
 
+Последний раунд: [профиль сокетов SDK и контроль ADB](../sdk-socket-profile-control-2026-11-08/README.md).
+Readback на Android/Linux подтвердил MSS ≤1200, send buffer 64 КиБ
+(131072 Б в Linux), not-sent LOWAT 4096. Все 22400 кадров дошли без
+skipped/missing/I/O errors; MSS телефона оставался 1188 Б.
+
+**NETCALL-01 открыт:** при обычном host polling max RTT 1463 мс / gap
+1157 мс; при остановленном host ADB в одной паре — 618 / 470 мс.
+Default mobile network в native snapshots не менялась, питание/Doze стабильны.
+Одна последовательная пара не разделяет радио, daemon и дополнительный
+опрос; причинное ускорение не заявлено. После ADB observation failure
+только незапущенный final Wi-Fi завершён отдельно с сохранением первой
+invocation; завершённые jobs не перезапускались.
+Локальный 64-КиБ/4-КиБ write control дал одинаковую not-sent очередь
+4158 Б и все байты после drain: новое ограничение write size не обосновано.
+Следующее — byte ACK progress/readback в opt-in SDK trace и настоящий
+звонок при минимальном host polling. Product-правок нет; телефон/сервисы
+восстановлены, production проверено, push/релиза нет.
+
 Последний раунд: [TCP_INFO телефона и echo-серверов](../tcpinfo-path-control-2026-11-08/README.md).
 Android 100–120-мс sampling, server counters/echo/log timings; USB-loopback
 отличил application hold от продолжающихся ACK. Затем Wi-Fi/Cellular серия.
