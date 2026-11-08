@@ -588,6 +588,10 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          submodules: false
+
       - name: The release this run attaches to
         id: tag
         env:
@@ -705,6 +709,13 @@ jobs:
       # quietly points at a different build. Re-runs of the same day are the
       # normal way to hit this (a second dispatch, or keep_symbols flipped), so
       # it refuses by default rather than warning.
+      - name: Scan engine artifacts for private identifiers
+        env:
+          PATTERNS: |
+            ${{ secrets.LEAK_PATTERNS }}
+            ${{ secrets.RELEASE_PRIVATE_PATTERNS }}
+        run: python3 scripts/scan-artifacts.py dist
+
       - name: Refuse to change what an existing pin means
         env:
           GH_TOKEN: ${{ github.token }}
