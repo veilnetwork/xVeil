@@ -483,6 +483,8 @@ class CallService {
   DateTime? _peerCompactReadyUntil;
   int? _lastPeerCompactHealthAtMs;
   DateTime? _lastPeerSignalAt;
+  int? _lastPeerHealthAtMs;
+  int? _lastAppliedPeerRepairAtMs;
   DateTime? _peerAudioExpectedSince;
   bool _peerConfirmedAfterConnect = false;
   bool _started = false;
@@ -1444,6 +1446,11 @@ class CallService {
       final at = sig.sentAtMs;
       if (sig.type == CallSignalType.health &&
           at != null &&
+          (_lastPeerHealthAtMs == null || at > _lastPeerHealthAtMs!)) {
+        _lastPeerHealthAtMs = at;
+      }
+      if (sig.type == CallSignalType.health &&
+          at != null &&
           sig.protocolVersion >= kCallCompactHealthMinVersion &&
           (_lastPeerCompactHealthAtMs == null ||
               at > _lastPeerCompactHealthAtMs!)) {
@@ -1515,7 +1522,7 @@ class CallService {
         // Liveness already refreshed above. A repair request is end-to-end
         // evidence that OUR outbound media is black-holed after its first hop.
         if (sig.mediaRepairRequested) {
-          unawaited(_repairMediaRoute(peer, sig.callId));
+          unawaited(_repairMediaRoute(peer, sig.callId, peerRequestAtMs: at));
         }
         break;
       case CallSignalType.renegotiate:
@@ -1712,7 +1719,11 @@ class CallService {
     }
   }
 
-  Future<void> _repairMediaRoute(NodeId peer, String callId) async {
+  Future<void> _repairMediaRoute(
+    NodeId peer,
+    String callId, {
+    int? peerRequestAtMs,
+  }) async {
     final media = _media;
     final before = _current;
     if (media == null ||
@@ -1730,6 +1741,20 @@ class CallService {
       // call just before startup completes. The normal heartbeat will request
       // again if media is still silent after both sides are active.
       return;
+    }
+    if (peerRequestAtMs != null) {
+      // A delayed health copy must not rebuild a newer, healthy route. Use
+      // only this peer's clock, also respecting newer transport announcements.
+      // Consume a request only after the active-call/busy guards above: a
+      // copy received during startup can still apply once media is ready.
+      final latestHealth = _lastPeerHealthAtMs;
+      final applied = _lastAppliedPeerRepairAtMs;
+      if ((latestHealth != null && peerRequestAtMs < latestHealth) ||
+          peerRequestAtMs < _lastTransportInfoAtMs ||
+          (applied != null && peerRequestAtMs <= applied)) {
+        return;
+      }
+      _lastAppliedPeerRepairAtMs = peerRequestAtMs;
     }
     // A handover claims a new epoch before its native work can leave the
     // repair queue. An obsolete repair failure must not kill that successor.
@@ -2749,6 +2774,8 @@ class CallService {
     if (_current?.callId != call.callId) {
       _resetLateP2P();
       _peerAudioExpectedSince = null;
+      _lastPeerHealthAtMs = null;
+      _lastAppliedPeerRepairAtMs = null;
       _lastRenegotiateAtMs = 0;
       _lastTransportInfoAtMs = 0;
       _pendingRelayCallId = null;
