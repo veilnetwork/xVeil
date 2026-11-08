@@ -1,0 +1,43 @@
+{
+  "scope": "own-device routing work reduction; Mac JIT crash/offline history qualification",
+  "fullBodyDecodesForTwoFreshLookups": {
+    "baseline": 130,
+    "candidate": 2
+  },
+  "authorizationCached": false,
+  "newPayloadCache": false,
+  "tests": {
+    "relatedPassed": 639,
+    "relatedSkipped": 11,
+    "focusedPassedSubset": 33,
+    "analyzerClean": true,
+    "nativeStandPassed": true
+  },
+  "native": {
+    "baseRows": 512,
+    "rowsBeforeCrash": 141,
+    "rowsBeforeNetworkAfterRestart": 141,
+    "allIdsBodiesPositionsOrderDeliveredConverged": true,
+    "completedHistoryRetries": 0,
+    "onlySourceAReturned": true,
+    "fullHistorySurvivedFinalSourceOfflineBoot": true,
+    "migrationClockMs": 32340,
+    "afterStartAReturnToConvergenceMs": 6186,
+    "ffiRuntimeRevision": "c6699c28",
+    "ffiSourceCheckout": "bbcd967a",
+    "hiddenVolumeReleaseRevision": "eceb9158",
+    "frozenInputs": 1514
+  },
+  "cleanup": {
+    "ownedPidsChecked": 34,
+    "portsChecked": 50,
+    "livePids": [],
+    "remainingListeners": [],
+    "runtimeRootRemoved": true,
+    "nativeArtifactsUnchanged": true
+  },
+  "causalOverallSpeedupProven": false,
+  "historyLatencyResolved": false,
+  "phoneOrProductionUsed": false,
+  "pushedOrReleased": false
+}

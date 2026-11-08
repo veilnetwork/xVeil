@@ -15398,6 +15398,42 @@ void main() {
   }
 
   test(
+    'routing does not JSON-decode plain non-announcement bodies again',
+    () async {
+      final f = await routingPrefixFixture();
+      final rows = [
+        for (var seq = 1; seq <= 64; seq++)
+          f.row(
+            seq,
+            DeviceSyncEvent(
+              kind: DeviceSyncKind.msgMirror,
+              key: 'chat-$seq',
+              tsMs: 400 + seq,
+              payload: {'body': 'ordinary chat row $seq'},
+            ).toBody(),
+          ),
+        f.row(65, f.announcement(f.master, 500)),
+      ];
+      await f.put(rows);
+      final before = await f.storage.loadFile('group:${f.group.hex}');
+      f.signer.checks.clear();
+      f.storage.headerReads = 0;
+      final decodes = f.service.debugAnnouncementBodyDecodes;
+      for (var read = 0; read < 2; read++) {
+        expect(await f.service.addressableOwnDevices(), [f.master]);
+      }
+      expect(
+        f.service.debugAnnouncementBodyDecodes - decodes,
+        2,
+        reason: 'fresh reads only need to decode the actual candidate',
+      );
+      expect(f.storage.headerReads, 2);
+      expect(f.signer.checks, {rows.last.ref: 2});
+      expect(await f.storage.loadFile('group:${f.group.hex}'), before);
+    },
+  );
+
+  test(
     'routing verifies the announcement prefix without the later chat suffix',
     () async {
       final f = await routingPrefixFixture();
@@ -15446,6 +15482,61 @@ void main() {
       expect(await f.storage.loadFile('group:${f.group.hex}'), before);
     },
   );
+
+  for (final encoding in [
+    'escaped kind',
+    'escaped key',
+    'duplicate kind',
+    'payload decoy',
+    'overwritten kind',
+    'malformed candidate',
+  ]) {
+    test('routing candidate scan preserves $encoding semantics', () async {
+      final f = await routingPrefixFixture();
+      var body = f.announcement(f.master, 500);
+      var expected = f.master;
+      switch (encoding) {
+        case 'escaped kind':
+          body = body.replaceFirst('identityDoc', r'identity\u0044oc');
+        case 'escaped key':
+          body = body.replaceFirst('"k"', r'"\u006b"');
+          body = body.replaceFirst('identityDoc', r'identity\u0044oc');
+        case 'duplicate kind':
+          body = body.replaceFirst('"k":', '"k":"msgMirror","k":');
+        case 'payload decoy':
+          body = DeviceSyncEvent(
+            kind: DeviceSyncKind.msgMirror,
+            key: 'chat',
+            tsMs: 500,
+            payload: {'body': 'identityDoc'},
+          ).toBody();
+          expected = owner;
+        case 'overwritten kind':
+          body = body.replaceFirst(
+            '"k":"identityDoc"',
+            '"k":"identityDoc","k":"msgMirror"',
+          );
+          expected = owner;
+        case 'malformed candidate':
+          body = '{"k":"identityDoc"';
+          expected = owner;
+      }
+      final row = f.row(1, body);
+      await f.put([row]);
+      final full = await f.service.deviceSyncState();
+      expect(
+        full[(DeviceSyncKind.identityDoc, f.master.hex)] != null,
+        expected == f.master,
+      );
+      expect(await f.service.addressableOwnDevices(), [expected]);
+      f.signer.rejectedBodies.add(body);
+      expect(
+        await f.service.addressableOwnDevices(),
+        [owner],
+        reason: 'candidate selection never supplies signature authority',
+      );
+    });
+  }
 
   test(
     'routing announcement ceilings are independent for each author',

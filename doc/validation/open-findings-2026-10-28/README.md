@@ -1,5 +1,15 @@
 # Открытые случаи — обновлено 2026-11-08
 
+Последнее исправление задержек: [отсев JSON обычных mirror при поиске адресов](../history-routing-json-2026-11-08/README.md).
+Два fresh routing lookup: 130 → 2 полных декодирования, без кэша authority
+или body; escaped/duplicate keys и весь signature/fork/retention/revoke path
+сохранены. Assertion-red, 639 related passed / 11 skipped, analyzer чист.
+Native incoming history: 141 строка до SIGKILL и до сети после restart,
+все 512 после возврата только A и при следующем boot без источников;
+ID/тела/позиции/порядок/delivered совпали, дублей/history retries нет.
+Общее ускорение не доказано; догрузка остаётся активной. 34 PID / 50 портов
+проверены, стенд очищен; телефон/production не затронуты, push/релиза нет.
+
 Последняя проверка: [Blackview и текущий AOT обоих клиентов](../blackview-current-aot-2026-11-08/README.md).
 Poco забран владельцем; mobile-handover запуск отменён до установки/звонка,
 его Core удалены. Blackview без SIM: два relay-only звонка, 10/10 fast ACK
