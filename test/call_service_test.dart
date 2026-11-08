@@ -2395,6 +2395,173 @@ void main() {
       });
     });
 
+    for (final newer in ['health', 'health without route', 'transport']) {
+      test('dated media repair cannot precede newer $newer state', () {
+        fakeAsync((async) {
+          final wire = _FakeMessaging();
+          final media = _FakeMedia();
+          final service = CallService(
+            wire,
+            now: () => clock.now(),
+            media: media,
+          )..start();
+          wire.onCallSignal!(peer, offer('repair-order'));
+          service.accept();
+          async.flushMicrotasks();
+          expect(service.current?.status, CallStatus.active);
+          wire.onCallSignal!(
+            peer,
+            CallSignal(
+              callId: 'repair-order',
+              type: newer == 'transport'
+                  ? CallSignalType.transportInfo
+                  : CallSignalType.health,
+              sentAtMs: 2000,
+              transport: newer == 'health without route'
+                  ? null
+                  : const CallTransportProposal(CallTransportKind.relay),
+            ),
+          );
+          wire.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: 'repair-order',
+              type: CallSignalType.health,
+              sentAtMs: 1000,
+              transport: CallTransportProposal(CallTransportKind.relay),
+              mediaRepairRequested: true,
+            ),
+          );
+          async.flushMicrotasks();
+          expect(
+            media.repairs,
+            0,
+            reason: 'old observations cannot rebuild media',
+          );
+          wire.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: 'repair-order',
+              type: CallSignalType.health,
+              sentAtMs: 3000,
+              mediaRepairRequested: true,
+            ),
+          );
+          async.flushMicrotasks();
+          expect(
+            media.repairs,
+            1,
+            reason: 'a newer repair request still applies',
+          );
+          service.dispose();
+        });
+      });
+    }
+
+    test('dated media repair deduplicates without poisoning another call', () {
+      fakeAsync((async) {
+        final wire = _FakeMessaging();
+        final media = _GatedRepairMedia();
+        final service = CallService(wire, now: () => clock.now(), media: media)
+          ..start();
+        wire.onCallSignal!(peer, offer('repair-dedupe'));
+        service.accept();
+        async.flushMicrotasks();
+        const request = CallSignal(
+          callId: 'repair-dedupe',
+          type: CallSignalType.health,
+          sentAtMs: 2000,
+          mediaRepairRequested: true,
+        );
+        for (var i = 0; i < 2; i++) {
+          wire.onCallSignal!(peer, request);
+          async.flushMicrotasks();
+        }
+        expect(media.repairs, 1, reason: 'one dated request admits one repair');
+        media.gate.complete(true);
+        async.flushMicrotasks();
+        // Another peer or call cannot advance this call's timestamp floor.
+        for (final unrelated in [true, false]) {
+          wire.onCallSignal!(
+            unrelated ? NodeId.fromHex('b' * 64) : peer,
+            CallSignal(
+              callId: unrelated ? 'repair-dedupe' : 'another-call',
+              type: CallSignalType.health,
+              sentAtMs: 999999,
+              mediaRepairRequested: true,
+            ),
+          );
+        }
+        wire.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'repair-dedupe',
+            type: CallSignalType.health,
+            sentAtMs: 3000,
+            mediaRepairRequested: true,
+          ),
+        );
+        async.flushMicrotasks();
+        expect(media.repairs, 2);
+        service.hangup();
+        async.flushMicrotasks();
+        wire.onCallSignal!(peer, offer('repair-new-call'));
+        service.accept();
+        async.flushMicrotasks();
+        wire.onCallSignal!(
+          peer,
+          const CallSignal(
+            callId: 'repair-new-call',
+            type: CallSignalType.health,
+            sentAtMs: 100,
+            mediaRepairRequested: true,
+          ),
+        );
+        async.flushMicrotasks();
+        expect(media.repairs, 3, reason: 'timestamp floors belong to one call');
+        service.dispose();
+      });
+    });
+
+    test(
+      'dated media repair during startup remains usable after media starts',
+      () {
+        fakeAsync((async) {
+          final wire = _FakeMessaging();
+          final media = _FakeMedia()..startGate = Completer<bool>();
+          final service = CallService(
+            wire,
+            now: () => clock.now(),
+            media: media,
+          )..start();
+          wire.onCallSignal!(peer, offer('repair-startup'));
+          service.accept();
+          async.flushMicrotasks();
+          expect(service.current?.status, CallStatus.connecting);
+          const request = CallSignal(
+            callId: 'repair-startup',
+            type: CallSignalType.health,
+            sentAtMs: 1000,
+            mediaRepairRequested: true,
+          );
+          wire.onCallSignal!(peer, request);
+          async.flushMicrotasks();
+          expect(media.repairs, 0);
+          media.startGate!.complete(true);
+          async.flushMicrotasks();
+          expect(service.current?.status, CallStatus.active);
+          wire.onCallSignal!(peer, request);
+          async.flushMicrotasks();
+          expect(
+            media.repairs,
+            1,
+            reason: 'startup did not consume the request',
+          );
+          service.dispose();
+        });
+      },
+    );
+
     for (final outcome in [
       'resumed',
       'unavailable',
@@ -6988,6 +7155,16 @@ class _FakeMedia extends CallMediaController {
   Future<bool> setScreenShareEnabled(bool enabled) async {
     log.add('screen:$enabled');
     return enabled ? screenOk : true;
+  }
+}
+
+class _GatedRepairMedia extends _FakeMedia {
+  final gate = Completer<bool>();
+
+  @override
+  Future<bool> repairRoute() {
+    repairs++;
+    return gate.future;
   }
 }
 
