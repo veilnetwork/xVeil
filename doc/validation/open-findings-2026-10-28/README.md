@@ -1,5 +1,14 @@
 # Открытые случаи — обновлено 2026-11-08
 
+Уточнение/исправление: [первые control arrivals и быстрый ACK](../call-fast-ack-2026-11-08/README.md).
+Все 13 route transitions предыдущей серии впервые дошли за 20–3432 мс;
+44 с — возраст поздних копий. Source/receiver frame sets совпали, dropped=0.
+Подтверждён обратный участок: 0,923–44,319 с от receiver ACK log до sender
+`delivered`, с 3–4 fast retries на transition. Added realtime call receipt
+строго за provenance/consent/typed pending peer+frame guards; ordinary и
+anonymous posture сохранены. 199+34 passed, 7+17 skipped отдельно. Новый
+ACK-код ещё не проверен на телефоне; NETCALL-01 открыт. Push/релиза нет.
+
 Последняя физическая серия: [новый frontend, Poco ↔ Mac](../call-route-physical-2026-11-08/README.md).
 `b59970fb` проверен Android AOT / Mac JIT на замороженных native libraries.
 Звонок Wi-Fi 30 с → Cellular 120 с → Wi-Fi 45 с сохранился, media epoch 1

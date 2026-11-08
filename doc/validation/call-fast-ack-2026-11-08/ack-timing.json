@@ -1,0 +1,110 @@
+{
+  "mac": [
+    {
+      "route": "relay",
+      "sentRelativeMs": 5047,
+      "firstReceiverAckAfterSendMs": 852,
+      "senderDeliveredAfterSendMs": 1775,
+      "firstAckToSenderMs": 923,
+      "fastRetries": 3
+    },
+    {
+      "route": "p2p",
+      "sentRelativeMs": 17786,
+      "firstReceiverAckAfterSendMs": 57,
+      "senderDeliveredAfterSendMs": 14442,
+      "firstAckToSenderMs": 14385,
+      "fastRetries": 4
+    },
+    {
+      "route": "p2p",
+      "sentRelativeMs": 18225,
+      "firstReceiverAckAfterSendMs": 2904,
+      "senderDeliveredAfterSendMs": 35576,
+      "firstAckToSenderMs": 32672,
+      "fastRetries": 4
+    },
+    {
+      "route": "relay",
+      "sentRelativeMs": 129186,
+      "firstReceiverAckAfterSendMs": 3432,
+      "senderDeliveredAfterSendMs": 13289,
+      "firstAckToSenderMs": 9857,
+      "fastRetries": 4
+    },
+    {
+      "route": "p2p",
+      "sentRelativeMs": 142788,
+      "firstReceiverAckAfterSendMs": 20,
+      "senderDeliveredAfterSendMs": 18934,
+      "firstAckToSenderMs": 18914,
+      "fastRetries": 4
+    },
+    {
+      "route": "p2p",
+      "sentRelativeMs": 142954,
+      "firstReceiverAckAfterSendMs": 1408,
+      "senderDeliveredAfterSendMs": 21713,
+      "firstAckToSenderMs": 20305,
+      "fastRetries": 4
+    },
+    {
+      "route": "p2p",
+      "sentRelativeMs": 147787,
+      "firstReceiverAckAfterSendMs": 3240,
+      "senderDeliveredAfterSendMs": 24494,
+      "firstAckToSenderMs": 21254,
+      "fastRetries": 4
+    }
+  ],
+  "phone": [
+    {
+      "route": "relay",
+      "sentRelativeMs": 7039,
+      "firstReceiverAckAfterSendMs": 408,
+      "senderDeliveredAfterSendMs": 3369,
+      "firstAckToSenderMs": 2961,
+      "fastRetries": 4
+    },
+    {
+      "route": "p2p",
+      "sentRelativeMs": 17846,
+      "firstReceiverAckAfterSendMs": 377,
+      "senderDeliveredAfterSendMs": 27838,
+      "firstAckToSenderMs": 27461,
+      "fastRetries": 4
+    },
+    {
+      "route": "p2p",
+      "sentRelativeMs": 22825,
+      "firstReceiverAckAfterSendMs": 86,
+      "senderDeliveredAfterSendMs": 44405,
+      "firstAckToSenderMs": 44319,
+      "fastRetries": 4
+    },
+    {
+      "route": "relay",
+      "sentRelativeMs": 131960,
+      "firstReceiverAckAfterSendMs": 302,
+      "senderDeliveredAfterSendMs": 5761,
+      "firstAckToSenderMs": 5459,
+      "fastRetries": 4
+    },
+    {
+      "route": "p2p",
+      "sentRelativeMs": 142831,
+      "firstReceiverAckAfterSendMs": 120,
+      "senderDeliveredAfterSendMs": 29539,
+      "firstAckToSenderMs": 29419,
+      "fastRetries": 4
+    },
+    {
+      "route": "p2p",
+      "sentRelativeMs": 147838,
+      "firstReceiverAckAfterSendMs": 168,
+      "senderDeliveredAfterSendMs": 24886,
+      "firstAckToSenderMs": 24718,
+      "fastRetries": 4
+    }
+  ]
+}

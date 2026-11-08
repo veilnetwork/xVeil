@@ -18472,3 +18472,19 @@ sockets disappear and exact Python/Dart PIDs exit. No installed app/profile,
 phone or relay is changed. Project changes are committed unsigned without
 pushing. Shaped four-plane anonymous codec traffic and deferred physical
 speech remain open alongside the PCM/clock gates; the full goal is active.
+
+
+### Realtime receipts for pending one-to-one call control (2026-11-08)
+
+The realtime inbox accepts a narrowly scoped existing ACK envelope in addition
+to call control and endpoint shares. Only authenticated, consented senders may
+retire an exact locally registered `(peer, frameId)` whose outgoing wire kind
+is callSignal. A bounded volatile index is seeded from durable rows and before
+early-live submission; a call-looking prefix never authorizes another kind.
+The normal retirement path handles persistence and early ACK races. Chat
+delivery state and group ACK admission are unchanged. A fast receipt races
+direct and relay realtime while the original ordinary ACK still runs. Local
+anonymous posture, claimed delivery and one-time reply routes retain ordinary
+receipts. This removes an avoidable dependency on ordinary resolve/queue work
+when a call-control realtime path is already available. It is not a change to
+route qualification, ratchet barriers, or mailbox policy.
