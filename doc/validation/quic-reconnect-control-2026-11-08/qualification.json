@@ -1,0 +1,107 @@
+{
+  "sourceRevision": "f36a472d6fa266eb2e6fc929e17cb4b24bec9c36",
+  "fullAotBothEndpoints": true,
+  "fullQualificationPassed": false,
+  "transportControlOnly": true,
+  "overlayTransport": "quic",
+  "secondCallNotExecuted": true,
+  "timerRetryPhysicallyObserved": true,
+  "originalDriverResultPreserved": true,
+  "allFinalCleanupIndependentlyVerified": true,
+  "cases": [
+    {
+      "case": "QUIC control handover",
+      "fullSequencePassed": false,
+      "phases": [
+        {
+          "phase": "wifi-before",
+          "completed": true,
+          "observedSeconds": 20.33,
+          "endpoints": {
+            "mac": {
+              "samples": 40,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                1
+              ],
+              "maxObservedNativeAudioRxAgeMs": 395,
+              "tailAudioRxDelta": 204,
+              "tailAudioProgress": true,
+              "lastAudioRxAgeMs": 0
+            },
+            "phone": {
+              "samples": 29,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                1
+              ],
+              "maxObservedNativeAudioRxAgeMs": 87,
+              "tailAudioRxDelta": 247,
+              "tailAudioProgress": true,
+              "lastAudioRxAgeMs": 29
+            }
+          }
+        },
+        {
+          "phase": "cellular-minimal-host",
+          "completed": false,
+          "observedSeconds": 21.459,
+          "endpoints": {
+            "mac": {
+              "samples": 42,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                1
+              ],
+              "maxObservedNativeAudioRxAgeMs": 23994,
+              "tailAudioRxDelta": 0,
+              "tailAudioProgress": false,
+              "lastAudioRxAgeMs": 23994
+            },
+            "phone": {
+              "samples": 31,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                1
+              ],
+              "maxObservedNativeAudioRxAgeMs": 24115,
+              "tailAudioRxDelta": 0,
+              "tailAudioProgress": false,
+              "lastAudioRxAgeMs": 24115
+            }
+          }
+        }
+      ],
+      "observedMarkers": {
+        "mac": {
+          "overlay sessions restored": 0,
+          "overlay reconnected; retrying deferred relay": 0,
+          "deferred relay retry deadline reached": 2,
+          "route handover relay kept engine": 0,
+          "local relay session rebuilt": 0,
+          "local p2p session rebuilt": 0,
+          "livenessTimeout": 1
+        },
+        "phone": {
+          "overlay sessions restored": 0,
+          "overlay reconnected; retrying deferred relay": 0,
+          "deferred relay retry deadline reached": 3,
+          "route handover relay kept engine": 0,
+          "local relay session rebuilt": 0,
+          "local p2p session rebuilt": 0,
+          "livenessTimeout": 1
+        }
+      }
+    }
+  ],
+  "humanAudibilityTested": false,
+  "causalAB": false,
+  "controlLimits": {
+    "natReflectorPortAlsoChanged": true,
+    "sameCoreAddressesAndEndpointPort443": true,
+    "phoneOnlyTwoSeedAssetsAndApkSignatureChanged": true,
+    "sameCompiledAotAndNativeBytes": true,
+    "relayOnlyBaselineNotRun": true,
+    "notCausalAB": true
+  }
+}
