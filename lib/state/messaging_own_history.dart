@@ -1430,6 +1430,12 @@ class _MessagingOwnHistory {
       if (!await _allowed(pull.device, pull.binding)) {
         throw StateError('History session ended');
       }
+      // The ordinary applier has already persisted the mirror. Only history
+      // state corrections need the stored row; a no-op lookup adds serialized
+      // storage work, without validating publication (a missing row was also
+      // accepted below). Keep the authorization check above and checkpoint's
+      // durable/access barriers even when there is no state to reconcile.
+      if (editSeq is! int && delivered != true) return;
       final target = await _owner._storage.loadMessageById(peer, event.key);
       if (target != null) {
         var changed = false;

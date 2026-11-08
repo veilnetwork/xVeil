@@ -1,0 +1,30 @@
+{
+  "relatedTestsPassed": 159,
+  "relatedTestsSkipped": 0,
+  "newRegressionTests": 2,
+  "oldPostApplyReadsPerTest": 64,
+  "newPostApplyReadsPerTest": 0,
+  "native": {
+    "messages": 2000,
+    "direction": "incoming",
+    "rowsObservedBeforeKill": 542,
+    "rowsHeldBeforeNetwork": 573,
+    "finalRetainedMessages": 2000,
+    "onlySourceAReturned": true,
+    "completedHistoryRetries": 0,
+    "elapsedAfterSourceStartMs": 20446,
+    "primaryPagePairs": 45,
+    "receiverStageMedianUs": 245192,
+    "testAndQualificationPassed": true,
+    "ownedPidsChecked": 27,
+    "portsChecked": 25,
+    "runtimeRemoved": true,
+    "nativeRuntimeSdk": "c6699c28",
+    "sourceSdkCheckout": "c8f4929b"
+  },
+  "initialFixtureRunQualified": false,
+  "initialFixtureRunCleaned": true,
+  "postRunExactCommentOnlyChangeVerified": true,
+  "overallLatencyImprovementProven": false,
+  "siblingMailboxEnabled": false
+}
