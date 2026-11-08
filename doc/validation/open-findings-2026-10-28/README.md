@@ -1,5 +1,15 @@
 # Открытые случаи — обновлено 2026-11-08
 
+Последняя квалификация: [native ACK — отрицательный результат](../call-fast-ack-physical-2026-11-08/README.md).
+На c5677f38 8/8 route transitions доставлены, но fast receipts 0; ordinary
+ACK-return 8,188–48,085 с, до 32 copies. Relay-only control тоже без fast ACK.
+Причина отказа новой ветки не установлена; proof/peer/frame/consent guards
+не ослаблены. Добавлены числовые diagnostic gate decisions, enabled и disabled
+117/117 отдельно, privacy guard и analyzer чист. Новый diagnostic-код ещё
+не проверен физически. NETCALL-01 открыт: cellular max RX age 11,719 с Mac /
+10,995 с Poco, engine epoch 1. Телефон/production/стенд восстановлены;
+Dart cache сохранён для следующего захвата. Push/релиза нет.
+
 Уточнение/исправление: [первые control arrivals и быстрый ACK](../call-fast-ack-2026-11-08/README.md).
 Все 13 route transitions предыдущей серии впервые дошли за 20–3432 мс;
 44 с — возраст поздних копий. Source/receiver frame sets совпали, dropped=0.

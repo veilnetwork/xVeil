@@ -13,6 +13,15 @@ enum _CallSignalDecision {
   duplicate,
   handlerMissing,
   dispatched,
+  receiptSendUnproven,
+  receiptSendAttempted,
+  receiptRejectedShape,
+  receiptRejectedProofKnown,
+  receiptRejectedProofUnknown,
+  receiptRejectedUnknown,
+  receiptRejectedConsent,
+  receiptAccepted,
+  receiptSendIneligible,
 }
 
 /// Outbox key prefix for a direct-endpoint share. One place, because the code
@@ -474,20 +483,33 @@ class _MessagingRealtimeControl {
   ) async {
     final id = envelope.id;
     if (_owner._anonymous ||
-        !message.provenance.isAuthenticated ||
         id == null ||
         id.length > 512 ||
         !id.startsWith('call:') ||
         envelope.body.isNotEmpty ||
         envelope.seq != null ||
-        envelope.frameId != null ||
-        !_owner._outbox.hasRealtimeCallReceipt(message.src.hex, id)) {
+        envelope.frameId != null) {
+      _receiptDecision(_CallSignalDecision.receiptRejectedShape);
+      return;
+    }
+    final known = _owner._outbox.hasRealtimeCallReceipt(message.src.hex, id);
+    if (!message.provenance.isAuthenticated) {
+      _receiptDecision(
+        known
+            ? _CallSignalDecision.receiptRejectedProofKnown
+            : _CallSignalDecision.receiptRejectedProofUnknown,
+      );
+      return;
+    }
+    if (!known) {
+      _receiptDecision(_CallSignalDecision.receiptRejectedUnknown);
       return;
     }
     if (!isAccepted(message.src)) {
       final epoch = await _acceptedContactEpoch(message.src);
       if (!_cacheAccepted(message.src, epoch) &&
           !(await _owner.isOwnDevice?.call(message.src) ?? false)) {
+        _receiptDecision(_CallSignalDecision.receiptRejectedConsent);
         return;
       }
     }
@@ -496,20 +518,30 @@ class _MessagingRealtimeControl {
       return;
     }
     _noteInbound(message.src);
+    _receiptDecision(_CallSignalDecision.receiptAccepted);
     devLog(() => 'xVeil[call-sig]: realtime ack id=$id');
+  }
+
+  void _receiptDecision(_CallSignalDecision decision, {bool outgoing = false}) {
+    // Source-owned enum codes only, safe in anonymous diagnostic artifacts.
+    // No caller-provided label, peer, frame ID, timestamp or payload is stored.
+    recordCallDecision(null, decision, realtime: true, outgoing: outgoing);
+    devLog(() => 'xVeil[call-ack]: decision=${decision.index}');
   }
 
   Future<void> sendCallReceipt(InboundMessage message, String frameId) async {
     // Keep one-time anonymous reply paths and local posture unchanged. A
     // claimed source never obtains a fast ACK, even for a guessed call id.
-    if (_owner._disposed ||
-        _owner._anonymous ||
+    if (_owner._disposed || !frameId.startsWith('call:')) return;
+    if (_owner._anonymous ||
         message.replyId != 0 ||
-        !message.provenance.isAuthenticated ||
-        !frameId.startsWith('call:') ||
         frameId.length > 512 ||
         message.payload.length > 8192 ||
         _owner._transport is! RealtimeTransport) {
+      _receiptDecision(
+        _CallSignalDecision.receiptSendIneligible,
+        outgoing: true,
+      );
       return;
     }
     try {
@@ -520,6 +552,11 @@ class _MessagingRealtimeControl {
     } catch (_) {
       return;
     }
+    if (!message.provenance.isAuthenticated) {
+      _receiptDecision(_CallSignalDecision.receiptSendUnproven, outgoing: true);
+      return;
+    }
+    _receiptDecision(_CallSignalDecision.receiptSendAttempted, outgoing: true);
     final wire = WireEnvelope.ack(frameId).encode();
     final transport = _owner._transport;
     final device = message.srcDevice;

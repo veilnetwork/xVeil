@@ -1,0 +1,123 @@
+{
+  "firstSourceCallFrameJoin": {
+    "mac": {
+      "logicalFrames": 4,
+      "allSourceIdsMatchReceiverIds": true,
+      "allOutgoingTransitionsRepresented": true,
+      "ringDropped": 0
+    },
+    "phone": {
+      "logicalFrames": 4,
+      "allSourceIdsMatchReceiverIds": true,
+      "allOutgoingTransitionsRepresented": true,
+      "ringDropped": 0
+    }
+  },
+  "primary": {
+    "mac": [
+      {
+        "route": "relay",
+        "sentRelativeMs": 135718,
+        "firstDeliveryMs": 353,
+        "firstReceiptAfterSendMs": 36699,
+        "firstReceiptAfterDeliveryMs": 36346,
+        "fastReceiptObserved": false,
+        "fastRetries": 4,
+        "copies": 25
+      },
+      {
+        "route": "p2p",
+        "sentRelativeMs": 146326,
+        "firstDeliveryMs": 435,
+        "firstReceiptAfterSendMs": 26144,
+        "firstReceiptAfterDeliveryMs": 25709,
+        "fastReceiptObserved": false,
+        "fastRetries": 4,
+        "copies": 25
+      },
+      {
+        "route": "p2p",
+        "sentRelativeMs": 148176,
+        "firstDeliveryMs": 3973,
+        "firstReceiptAfterSendMs": 24321,
+        "firstReceiptAfterDeliveryMs": 20348,
+        "fastReceiptObserved": false,
+        "fastRetries": 4,
+        "copies": 17
+      },
+      {
+        "route": "p2p",
+        "sentRelativeMs": 151324,
+        "firstDeliveryMs": 3771,
+        "firstReceiptAfterSendMs": 21189,
+        "firstReceiptAfterDeliveryMs": 17418,
+        "fastReceiptObserved": false,
+        "fastRetries": 4,
+        "copies": 20
+      }
+    ],
+    "phone": [
+      {
+        "route": "relay",
+        "sentRelativeMs": 135630,
+        "firstDeliveryMs": 1306,
+        "firstReceiptAfterSendMs": 9494,
+        "firstReceiptAfterDeliveryMs": 8188,
+        "fastReceiptObserved": false,
+        "fastRetries": 4,
+        "copies": 11
+      },
+      {
+        "route": "p2p",
+        "sentRelativeMs": 146399,
+        "firstDeliveryMs": 1775,
+        "firstReceiptAfterSendMs": 49860,
+        "firstReceiptAfterDeliveryMs": 48085,
+        "fastReceiptObserved": false,
+        "fastRetries": 2,
+        "copies": 2
+      },
+      {
+        "route": "p2p",
+        "sentRelativeMs": 146783,
+        "firstDeliveryMs": 2491,
+        "firstReceiptAfterSendMs": 49486,
+        "firstReceiptAfterDeliveryMs": 46995,
+        "fastReceiptObserved": false,
+        "fastRetries": 4,
+        "copies": 7
+      },
+      {
+        "route": "p2p",
+        "sentRelativeMs": 151384,
+        "firstDeliveryMs": 2558,
+        "firstReceiptAfterSendMs": 44897,
+        "firstReceiptAfterDeliveryMs": 42339,
+        "fastReceiptObserved": false,
+        "fastRetries": 4,
+        "copies": 32
+      }
+    ]
+  },
+  "relayOnly": {
+    "mac": {
+      "samples": 29,
+      "allCallAndNativeTransportsRelay": true,
+      "fastReceiptTypes": [],
+      "fastReceiptEvents": 0,
+      "maxNativeAudioRxAgeMs": 387,
+      "sameMediaEpoch": true,
+      "audioRxDelta": 92
+    },
+    "phone": {
+      "samples": 29,
+      "allCallAndNativeTransportsRelay": true,
+      "fastReceiptTypes": [],
+      "fastReceiptEvents": 0,
+      "maxNativeAudioRxAgeMs": 62,
+      "sameMediaEpoch": true,
+      "audioRxDelta": 239
+    }
+  },
+  "clockCalibrationMaxReadDifferenceMs": 0.999
+}
