@@ -1,5 +1,15 @@
 # Открытые случаи — обновлено 2026-11-08
 
+Последний разбор NETCALL-01: [NIC gaps с минимальным host polling](../sdk-nic-gaps-2026-11-08/README.md).
+108 matching copies / три authenticated TCP flows / 19 flow-plateau observations:
+DATA не появляются в capture Core 1098–1430 мс, после прихода read ≤12,137 мс.
+Четыре копии без read не сопоставлены. Длительной наблюдаемой sequence hole
+в этих окнах нет; некоторые содержат ACK. **NETCALL-01 открыт:** источник
+паузы между локальным write и capture Core не установлен. При 1-Hz TCP_INFO
+строго внутри NIC silences осталось 17×1 и 2×0 snapshots — новых доказанных
+sender counter deltas нет. Raw inputs совпали с manifests, новых stand jobs
+не запускали, прежняя очистка сохранена. Push/релиза нет.
+
 Последний раунд: [SDK-звонок с минимальным host polling](../sdk-tcp-progress-call-2026-11-08/README.md).
 Новые FFI `c8f4929b`, неизменные frontend/media/HV; два Core `e974cebe`.
 Звонок пережил Wi-Fi→Cellular→Wi-Fi. В 120-с Cellular interval host не
@@ -20,7 +30,7 @@ Opt-in trace дополнена Linux/Android sent/acked/received/retransmitted 
 RTO retries/backoff и readback MSS/send-buffer/LOWAT. Короткие ответы ядра
 оставляют неподдерживаемые поля `None`; wire/options/audio не менялись.
 Красный echo на прежнем SDK; зелёные 12 тестов на Poco и 11 на Mac,
-scoped Clippy, 20 journal tests и AOT privacy gate. Private counters/bindings
+scoped Clippy, 19 journal tests и AOT privacy gate. Private counters/bindings
 не попадают в анонимный экспорт. **NETCALL-01 открыт:** настоящий звонок
 на новой FFI ещё не проверен. Следующее — минимальный host polling.
 Телефонные fixtures удалены; APK/контейнер сохранены, push/релиза нет.
