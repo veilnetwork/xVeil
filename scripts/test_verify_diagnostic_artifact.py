@@ -41,6 +41,9 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 "'queue_outcome': 'PRIVATE_CANARY', "
                 "'connection': 314159265, 'local_port': 45678, 'peer_port': 45679, "
                 "'written_bytes': 314159265, 'read_bytes': 314159265, "
+                "'tcp_kernel_progress': 'PRIVATE_CANARY', 'sent_bytes': 424242421, "
+                "'acked_bytes': 424242422, 'received_bytes': 424242423, "
+                "'tcp_notsent_lowat': 424242424, "
                 "'video_delivery_peers': {'PRIVATE_CANARY': {"
                 "'target_delay_ms': 260, 'sample_us': 314159265}}, "
                 "'op': 314159265, 'local': 'PRIVATE_CANARY'});\n"
@@ -79,7 +82,10 @@ class DiagnosticArtifactTest(unittest.TestCase):
                                       'queue_admission_trace', 'stage=queue_admission',
                                       'outcome=missing', 'queue_outcome',
                                       'local_port', 'peer_port', 'written_bytes',
-                                      'read_bytes', '45678', '45679']:
+                                      'read_bytes', '45678', '45679',
+                                      'tcp_kernel_progress', 'sent_bytes', 'acked_bytes',
+                                      'received_bytes', 'tcp_notsent_lowat',
+                                      '424242421', '424242422', '424242423', '424242424']:
                         self.assertNotIn(forbidden, json.dumps(report))
                     if enabled:
                         self.assertEqual(len(report['call_state_history']), 1)

@@ -1,5 +1,15 @@
 # Открытые случаи — обновлено 2026-11-08
 
+Последний раунд: [TCP byte progress в SDK](../sdk-tcp-progress-2026-11-08/README.md).
+Opt-in trace дополнена Linux/Android sent/acked/received/retransmitted bytes,
+RTO retries/backoff и readback MSS/send-buffer/LOWAT. Короткие ответы ядра
+оставляют неподдерживаемые поля `None`; wire/options/audio не менялись.
+Красный echo на прежнем SDK; зелёные 12 тестов на Poco и 11 на Mac,
+scoped Clippy, 20 journal tests и AOT privacy gate. Private counters/bindings
+не попадают в анонимный экспорт. **NETCALL-01 открыт:** настоящий звонок
+на новой FFI ещё не проверен. Следующее — минимальный host polling.
+Телефонные fixtures удалены; APK/контейнер сохранены, push/релиза нет.
+
 Последний раунд: [профиль сокетов SDK и контроль ADB](../sdk-socket-profile-control-2026-11-08/README.md).
 Readback на Android/Linux подтвердил MSS ≤1200, send buffer 64 КиБ
 (131072 Б в Linux), not-sent LOWAT 4096. Все 22400 кадров дошли без
