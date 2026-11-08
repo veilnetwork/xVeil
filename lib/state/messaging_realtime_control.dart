@@ -223,6 +223,10 @@ class _MessagingRealtimeControl {
       );
       return;
     }
+    if (envelope.kind == WireKind.ack) {
+      await _receiveCallReceipt(message, envelope);
+      return;
+    }
     if (envelope.kind != WireKind.callSignal &&
         envelope.kind != WireKind.p2pEndpoints) {
       // Fail closed: APP_RT must not become a route around message consent.
@@ -462,6 +466,89 @@ class _MessagingRealtimeControl {
           'name is a claim, not a contact',
     );
     return false;
+  }
+
+  Future<void> _receiveCallReceipt(
+    InboundMessage message,
+    WireEnvelope envelope,
+  ) async {
+    final id = envelope.id;
+    if (_owner._anonymous ||
+        !message.provenance.isAuthenticated ||
+        id == null ||
+        id.length > 512 ||
+        !id.startsWith('call:') ||
+        envelope.body.isNotEmpty ||
+        envelope.seq != null ||
+        envelope.frameId != null ||
+        !_owner._outbox.hasRealtimeCallReceipt(message.src.hex, id)) {
+      return;
+    }
+    if (!isAccepted(message.src)) {
+      final epoch = await _acceptedContactEpoch(message.src);
+      if (!_cacheAccepted(message.src, epoch) &&
+          !(await _owner.isOwnDevice?.call(message.src) ?? false)) {
+        return;
+      }
+    }
+    if (_owner._disposed ||
+        !_owner._outbox.retireRealtimeCallReceipt(message.src.hex, id)) {
+      return;
+    }
+    _noteInbound(message.src);
+    devLog(() => 'xVeil[call-sig]: realtime ack id=$id');
+  }
+
+  Future<void> sendCallReceipt(InboundMessage message, String frameId) async {
+    // Keep one-time anonymous reply paths and local posture unchanged. A
+    // claimed source never obtains a fast ACK, even for a guessed call id.
+    if (_owner._disposed ||
+        _owner._anonymous ||
+        message.replyId != 0 ||
+        !message.provenance.isAuthenticated ||
+        !frameId.startsWith('call:') ||
+        frameId.length > 512 ||
+        message.payload.length > 8192 ||
+        _owner._transport is! RealtimeTransport) {
+      return;
+    }
+    try {
+      final envelope = WireEnvelope.decode(message.payload);
+      if (envelope.kind != WireKind.callSignal || envelope.frameId != frameId) {
+        return;
+      }
+    } catch (_) {
+      return;
+    }
+    final wire = WireEnvelope.ack(frameId).encode();
+    final transport = _owner._transport;
+    final device = message.srcDevice;
+    await Future.wait<void>([
+      _attempt(
+        _RealtimeControlKind.call,
+        'call-sig',
+        'realtime ack',
+        message.src,
+        () =>
+            device != null &&
+                device != message.src &&
+                transport is DeviceRealtimeTransport
+            ? (transport as DeviceRealtimeTransport).sendRealtimeToDevice(
+                message.src,
+                device,
+                wire,
+              )
+            : sendRealtime(message.src, wire),
+      ),
+      if (transport is RelayRealtimeTransport)
+        _attempt(
+          _RealtimeControlKind.call,
+          'call-sig',
+          'relay realtime ack',
+          message.src,
+          () => _sendRelayRealtime(message.src, wire),
+        ),
+    ]);
   }
 
   /// An ending may now suppress a later offer, even with no active call.
