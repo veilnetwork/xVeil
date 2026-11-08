@@ -80,6 +80,7 @@ part 'messaging_device_mirror.dart';
 part 'messaging_own_history.dart';
 part 'messaging_own_history_batch.dart';
 part 'messaging_outbox.dart';
+part 'messaging_call_route_supersession.dart';
 part 'messaging_realtime_control.dart';
 part 'messaging_mailbox_delivery.dart';
 part 'messaging_message_delivery.dart';

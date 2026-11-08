@@ -1,5 +1,12 @@
 # Открытые случаи — обновлено 2026-11-08
 
+Последнее исправление: [supersession call route Outbox](../call-route-outbox-2026-11-08/README.md).
+Старые чистые transportInfo больше не повторяются после более нового durable
+состояния того же звонка/адресата. Atomic byte/peer witness, ACK race,
+неизвестный исход коммита, P2P withdrawal и ordered/extra-field guards покрыты.
+185 related tests прошли, 7 skipped отдельно; native reopen 1/1. NETCALL-01
+открыт, физический эффект нового Dart ещё не измерен. Push/релиза нет.
+
 Последнее исправление: [датированный media-repair и P2P handover](../call-repair-freshness-2026-11-08/README.md).
 Старый/повторный health больше не перестраивает медиа после нового
 health/transportInfo; fresh и startup requests сохранены, local watchdog не
