@@ -1,0 +1,152 @@
+{
+  "appSource": "b59970fb",
+  "androidSdk": "bbcd967a",
+  "macSdk": "c8f4929b",
+  "coreSdk": "e974cebe",
+  "androidAot": true,
+  "macJit": true,
+  "nativeLibrariesFrozen": true,
+  "policy": "contacts",
+  "singleCall": true,
+  "humanAudibilityTested": false,
+  "netcallResolved": false,
+  "phases": [
+    {
+      "phase": "wifi-before",
+      "seconds": 30.487,
+      "noHostPhonePollingDuringInterval": true,
+      "mac": {
+        "samples": 60,
+        "maxNativeAudioRxAgeMs": 418,
+        "mediaEpochs": [
+          1
+        ],
+        "callTransports": {
+          "p2p": 60
+        },
+        "nativeTransports": {
+          "p2p": 60
+        },
+        "final3sSameEpoch": true,
+        "final3sAudioRxPacketDelta": 10
+      },
+      "phone": {
+        "samples": 44,
+        "maxNativeAudioRxAgeMs": 425,
+        "mediaEpochs": [
+          1
+        ],
+        "callTransports": {
+          "p2p": 44
+        },
+        "nativeTransports": {
+          "p2p": 44
+        },
+        "final3sSameEpoch": true,
+        "final3sAudioRxPacketDelta": 15
+      }
+    },
+    {
+      "phase": "cellular-minimal-host",
+      "seconds": 120.415,
+      "noHostPhonePollingDuringInterval": true,
+      "mac": {
+        "samples": 234,
+        "maxNativeAudioRxAgeMs": 7202,
+        "mediaEpochs": [
+          1
+        ],
+        "callTransports": {
+          "p2p": 206,
+          "relay": 28
+        },
+        "nativeTransports": {
+          "p2p": 206,
+          "relay": 28
+        },
+        "final3sSameEpoch": true,
+        "final3sAudioRxPacketDelta": 9
+      },
+      "phone": {
+        "samples": 169,
+        "maxNativeAudioRxAgeMs": 4838,
+        "mediaEpochs": [
+          1
+        ],
+        "callTransports": {
+          "p2p": 152,
+          "relay": 17
+        },
+        "nativeTransports": {
+          "p2p": 152,
+          "relay": 17
+        },
+        "final3sSameEpoch": true,
+        "final3sAudioRxPacketDelta": 48
+      }
+    },
+    {
+      "phase": "wifi-recovery",
+      "seconds": 45.163,
+      "noHostPhonePollingDuringInterval": true,
+      "mac": {
+        "samples": 87,
+        "maxNativeAudioRxAgeMs": 6820,
+        "mediaEpochs": [
+          1
+        ],
+        "callTransports": {
+          "p2p": 60,
+          "relay": 27
+        },
+        "nativeTransports": {
+          "p2p": 60,
+          "relay": 27
+        },
+        "final3sSameEpoch": true,
+        "final3sAudioRxPacketDelta": 35
+      },
+      "phone": {
+        "samples": 65,
+        "maxNativeAudioRxAgeMs": 3458,
+        "mediaEpochs": [
+          1
+        ],
+        "callTransports": {
+          "p2p": 49,
+          "relay": 16
+        },
+        "nativeTransports": {
+          "p2p": 49,
+          "relay": 16
+        },
+        "final3sSameEpoch": true,
+        "final3sAudioRxPacketDelta": 50
+      }
+    }
+  ],
+  "controls": {
+    "mac": {
+      "transportInfoReceiptSamples": 91,
+      "maxClockAdjustedReceiptAgeMs": 44067,
+      "maxLocalQueueMs": 0,
+      "maxHandlerMs": 0,
+      "candidateDeliveryUnconfirmed": 0,
+      "establishedOutageWatchdogEvents": 2
+    },
+    "phone": {
+      "transportInfoReceiptSamples": 61,
+      "maxClockAdjustedReceiptAgeMs": 34291,
+      "maxLocalQueueMs": 0,
+      "maxHandlerMs": 0,
+      "candidateDeliveryUnconfirmed": 0,
+      "establishedOutageWatchdogEvents": 2
+    }
+  },
+  "phoneClockProbeHalfWidthMs": 18.895,
+  "phoneRestored": true,
+  "ownProcessesExited": true,
+  "productionUnchanged": true,
+  "rawIdentifiersPublished": false,
+  "pushOrRelease": false
+}
