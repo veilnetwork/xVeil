@@ -1,5 +1,25 @@
 # Открытые случаи — обновлено 2026-11-08
 
+Последний раунд: [failed readiness probes и физический повтор](../ready-probe-calls-2026-11-08/README.md).
+SDK `cca1204e` исправляет резервирование пустого ordered child при failed
+publisher/sender probe; source и neutral transit используют симметричный
+выбор. Существующий ownership и limits сохраняются; pending source demand
+отделён от reservation, уведомления идемпотентны и защищены lease owner.
+Красные тесты поймали periodic/selector пути и две промежуточные регрессии.
+719 session passed / 8 ignored; Clippy и Android release check прошли.
+
+Два звонка Poco ↔ Mac через два новых QA Core, четыре handover: **5/6
+финальных окон**, первое мобильное failed по прежнему порогу 1000 мс.
+**NETCALL-01 открыт:** во втором мобильном окне Mac RX flat 3158 мс,
+phone TX +20 подтверждён независимым collector. Из 31 distinct source cell
+только одна имеет две physical record copies (обе flushed, без remote read);
+30 без regular attempt witness, все без Core ingress/target receipt в захвате.
+Sparse source-pressure = 3 события / 20 aggregate drops, не per-cell attribution.
+После первого validated Cellular остаются 2421 мс flat; готовность ОС не
+приравнивается к готовности TCP. Следующий участок — готовность/lifetime
+уже закреплённого child и оставшийся flush → no-read. Стенд и телефон
+восстановлены, production независимо сверено; push/релиза нет.
+
 Последний раунд: [record writer → TCP socket и физический повтор](../tcp-child-binding-2026-11-08/README.md).
 SDK `b214219a` добавляет default-off operator binding через scoped writer
 context и сохраняет socket ID от handshake. Shared cap, отсутствие plaintext/IP
