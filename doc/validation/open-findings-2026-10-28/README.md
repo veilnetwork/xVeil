@@ -1,5 +1,25 @@
 # Открытые случаи — обновлено 2026-11-08
 
+Последний раунд: [cold pool и физический повтор Poco ↔ Mac](../cold-prepare-calls-2026-11-08/README.md).
+SDK `cb54608d` исправляет подтверждённую регрессию eager prepare: на полностью
+пустом TCP child pool он больше не резервирует слоты до первого completion.
+Красный компонентный тест сравнивает с контролем без eager publication;
+после фикса реальный зашифрованный frame доставляется. 712 session passed /
+8 ignored, Clippy и Android release FFI check прошли. Политика обычного
+completion/timer allocation, ownership/FIFO/квот и wire сохранена.
+
+Новые native builds Poco/Mac/двух изолированных Core: два звонка, четыре
+handover, **6/6 финальных окон passed**. **NETCALL-01 открыт:** в первом
+Cellular-эпизоде оба native RX стояли 10,811 с после наблюдаемой готовности
+мобильной сети, при продолжающемся native TX. Во втором после validated
+Cellular отдельно подтверждены ещё 10,206 с; максимальные 11,236 с до первого
+validated-наблюдения с ними не склеиваются. Во втором post-validation flat
+из 52 phone-origin cells у 26 есть по две locally flushed physical record
+copies без Core read, у остальных 26 regular send-attempt witness отсутствует.
+Компонентный фикс не объявлен решением этих пауз; следующий участок —
+TCP child lifetime и local flush → remote read. APK/контейнер/настройки и
+production независимо сверены, свои стенды удалены, push/релиза нет.
+
 Последний раунд: [фактические queue outcomes и физический повтор](../queue-admission-calls-2026-11-08/README.md).
 Core SDK `ae352464` добавил operator-only accepted/missing/closed/full по
 конкретной opaque cell; FIFO/квоты/wire не менялись. Regression-red,
