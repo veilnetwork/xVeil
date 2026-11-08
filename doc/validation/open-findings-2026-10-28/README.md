@@ -1,5 +1,19 @@
 # Открытые случаи — обновлено 2026-11-08
 
+Последнее исправление: [state-free history без повторного lookup](../history-noop-read-2026-11-08/README.md).
+Для сообщений без edit/delivery-state correction убраны лишние serialized
+чтения после applier: два assertion-red 64→0, затем 159 related tests и
+analyzer прошли. Warm lookup не обязательно делает RPC, снижения всего I/O
+или общего причинного ускорения не заявляем. Access/durable/cursor gates прежние.
+Native incoming-history: SIGKILL после 542 строк, до сети при offline A/C
+сохранены 573, включая весь наблюдённый префикс. Только A вернулся — полные
+2000 ID/тела/порядок/positions/delivered, без дублей и completed-history retries;
+результат сохранился при повторном boot без источников. После `start(A)` —
+20,446 с, 45 primary page replies, receiver median 245,192 мс. **Догрузка
+активна**, не A/B. Первый fixture failure на 1999/2000 исключён и очищен;
+oracle исправлен без ослабления полноты. Замороженный native `c6699c28`,
+checkout `c8f4929b`; все PID/порты/runtime убраны. Push/релиза/mailbox нет.
+
 Последний разбор NETCALL-01: [NIC gaps с минимальным host polling](../sdk-nic-gaps-2026-11-08/README.md).
 108 matching copies / три authenticated TCP flows / 19 flow-plateau observations:
 DATA не появляются в capture Core 1098–1430 мс, после прихода read ≤12,137 мс.
