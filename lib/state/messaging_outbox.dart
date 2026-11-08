@@ -125,6 +125,38 @@ class _MessagingOutbox {
   final Map<String, int> _pendingByPeer = {};
   final Set<String> _pendingKeys = {};
 
+  // Optional fast receipts are authorized by a locally authored call frame,
+  // not by an incoming ACK's prefix. Bounded acceleration only: a miss keeps
+  // the ordinary ACK path. Rebuilt from durable wire kinds after restart.
+  final Set<String> _callReceiptKeys = {};
+
+  void _rememberCallReceipt(String peerHex, String frameId, Uint8List wire) {
+    final key = _key(peerHex, frameId);
+    if (!frameId.startsWith('call:')) return;
+    try {
+      final envelope = WireEnvelope.decode(wire);
+      if (envelope.kind != WireKind.callSignal || envelope.frameId != frameId) {
+        _callReceiptKeys.remove(key);
+        return;
+      }
+      if (_callReceiptKeys.length >= 4096 && !_callReceiptKeys.contains(key)) {
+        _callReceiptKeys.remove(_callReceiptKeys.first);
+      }
+      _callReceiptKeys.add(key);
+    } catch (_) {
+      _callReceiptKeys.remove(key);
+    }
+  }
+
+  bool hasRealtimeCallReceipt(String peerHex, String frameId) =>
+      _callReceiptKeys.contains(_key(peerHex, frameId));
+
+  bool retireRealtimeCallReceipt(String peerHex, String frameId) {
+    if (!hasRealtimeCallReceipt(peerHex, frameId)) return false;
+    retire(peerHex, frameId);
+    return true;
+  }
+
   // Older receivers reply to an opted-in transfer with individual ACKs.
   // Keep ALL durable payloads until every slice is acknowledged: removing one
   // made a receiver restart leave an unreconstructable, retrying tail. Only
@@ -150,6 +182,7 @@ class _MessagingOutbox {
       _pendingByPeer.clear();
       _pendingKeys.clear();
       for (final frame in pending) {
+        _rememberCallReceipt(frame.peerHex, frame.frameId, frame.wire);
         _pendingKeys.add(_key(frame.peerHex, frame.frameId));
         _pendingByPeer[frame.peerHex] =
             (_pendingByPeer[frame.peerHex] ?? 0) + 1;
@@ -352,6 +385,9 @@ class _MessagingOutbox {
     if (_seenFrames.length > _seenFramesCap) {
       _seenFrames.remove(_seenFrames.first);
     }
+    // A slow ordinary identity/device resolve must not hold back a receipt
+    // for control that arrived on an already usable realtime lane.
+    unawaited(_owner._realtimeControl.sendCallReceipt(message, frameId));
     try {
       await _owner._ackTo(
         message,
@@ -394,6 +430,7 @@ class _MessagingOutbox {
   }
 
   void _recordEnqueued(NodeId peer, String frameId, Uint8List wire) {
+    _rememberCallReceipt(peer.hex, frameId, wire);
     final tid = _MessagingReplication._canonicalChunkTransfer(frameId);
     final progress = tid == null ? null : _groupSliceAcks[_key(peer.hex, tid)];
     if (progress != null) {
@@ -490,6 +527,7 @@ class _MessagingOutbox {
     // The live leg gets a bounded scheduling head start, while persistence is
     // still authoritative and always completes before this method returns.
     final unpersistedKey = _key(peer.hex, frameId);
+    if (startLiveBeforeEnqueue) _rememberCallReceipt(peer.hex, frameId, wire);
     final earlyLive = startLiveBeforeEnqueue ? tryLive() : null;
     if (earlyLive != null) {
       // From here until the row exists, an ACK has nothing to delete. Mark the
@@ -659,6 +697,7 @@ class _MessagingOutbox {
     _pendingByPeer.clear();
     _pendingKeys.clear();
     for (final frame in pending) {
+      _rememberCallReceipt(frame.peerHex, frame.frameId, frame.wire);
       _pendingKeys.add(_key(frame.peerHex, frame.frameId));
       _pendingByPeer[frame.peerHex] = (_pendingByPeer[frame.peerHex] ?? 0) + 1;
     }
@@ -1627,6 +1666,7 @@ class _MessagingOutbox {
   /// Keep the synchronous invalidation and early-live ACK race bookkeeping.
   void _forgetRetiredFrame(String peerHex, String frameId) {
     final key = _key(peerHex, frameId);
+    _callReceiptKeys.remove(key);
     _flushSnapshot?.invalidate(key);
     if (_sendingUnpersisted.contains(key)) {
       // The row is still being written. Remember the ACK so the sender retires
@@ -1648,6 +1688,7 @@ class _MessagingOutbox {
   }
 
   void dispose() {
+    _callReceiptKeys.clear();
     _groupSliceAcks.clear();
     _flushSnapshot?.cancel();
     _activeLivePeers.clear();

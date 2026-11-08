@@ -1,0 +1,131 @@
+{
+  "mac": {
+    "ringDropped": 0,
+    "ringTotal": 2141,
+    "rows": [
+      {
+        "route": "relay",
+        "sentRelativeMs": 7039,
+        "firstReceiveRelativeMs": 7447,
+        "firstAgeMs": 408,
+        "firstCarrier": "rt",
+        "copies": 5,
+        "lastCopyAgeMs": 3571
+      },
+      {
+        "route": "p2p",
+        "sentRelativeMs": 17846,
+        "firstReceiveRelativeMs": 18223,
+        "firstAgeMs": 377,
+        "firstCarrier": "rt",
+        "copies": 15,
+        "lastCopyAgeMs": 42077
+      },
+      {
+        "route": "p2p",
+        "sentRelativeMs": 22825,
+        "firstReceiveRelativeMs": 22911,
+        "firstAgeMs": 86,
+        "firstCarrier": "rt",
+        "copies": 57,
+        "lastCopyAgeMs": 68924
+      },
+      {
+        "route": "relay",
+        "sentRelativeMs": 131960,
+        "firstReceiveRelativeMs": 132262,
+        "firstAgeMs": 302,
+        "firstCarrier": "rt",
+        "copies": 13,
+        "lastCopyAgeMs": 40318
+      },
+      {
+        "route": "p2p",
+        "sentRelativeMs": 142831,
+        "firstReceiveRelativeMs": 142951,
+        "firstAgeMs": 120,
+        "firstCarrier": "rt",
+        "copies": 14,
+        "lastCopyAgeMs": 19222
+      },
+      {
+        "route": "p2p",
+        "sentRelativeMs": 147838,
+        "firstReceiveRelativeMs": 148006,
+        "firstAgeMs": 168,
+        "firstCarrier": "rt",
+        "copies": 23,
+        "lastCopyAgeMs": 24681
+      }
+    ]
+  },
+  "phone": {
+    "ringDropped": 0,
+    "ringTotal": 2029,
+    "rows": [
+      {
+        "route": "relay",
+        "sentRelativeMs": 5047,
+        "firstReceiveRelativeMs": 5899,
+        "firstAgeMs": 852,
+        "firstCarrier": "rt",
+        "copies": 5,
+        "lastCopyAgeMs": 4169
+      },
+      {
+        "route": "p2p",
+        "sentRelativeMs": 17786,
+        "firstReceiveRelativeMs": 17843,
+        "firstAgeMs": 57,
+        "firstCarrier": "rt",
+        "copies": 11,
+        "lastCopyAgeMs": 17455
+      },
+      {
+        "route": "p2p",
+        "sentRelativeMs": 18225,
+        "firstReceiveRelativeMs": 21129,
+        "firstAgeMs": 2904,
+        "firstCarrier": "rt",
+        "copies": 16,
+        "lastCopyAgeMs": 34294
+      },
+      {
+        "route": "relay",
+        "sentRelativeMs": 129186,
+        "firstReceiveRelativeMs": 132618,
+        "firstAgeMs": 3432,
+        "firstCarrier": "rt",
+        "copies": 5,
+        "lastCopyAgeMs": 43124
+      },
+      {
+        "route": "p2p",
+        "sentRelativeMs": 142788,
+        "firstReceiveRelativeMs": 142808,
+        "firstAgeMs": 20,
+        "firstCarrier": "rt",
+        "copies": 16,
+        "lastCopyAgeMs": 29969
+      },
+      {
+        "route": "p2p",
+        "sentRelativeMs": 142954,
+        "firstReceiveRelativeMs": 144362,
+        "firstAgeMs": 1408,
+        "firstCarrier": "rt",
+        "copies": 17,
+        "lastCopyAgeMs": 29817
+      },
+      {
+        "route": "p2p",
+        "sentRelativeMs": 147787,
+        "firstReceiveRelativeMs": 151027,
+        "firstAgeMs": 3240,
+        "firstCarrier": "rt",
+        "copies": 21,
+        "lastCopyAgeMs": 25013
+      }
+    ]
+  }
+}
