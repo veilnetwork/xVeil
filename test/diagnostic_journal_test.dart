@@ -212,6 +212,9 @@ void main() {
         'ordered_record_trace':
             'transport.ordered_record stage=flushed private-record-log',
         'opaque_record_link': _PrivateValue(),
+        'queue_admission_trace':
+            'delivery.opaque_trace stage=queue_admission outcome=missing private-queue-log',
+        'queue_outcome': _PrivateValue(),
         'qtag': 'private-dht-query-fingerprint',
         'walk_tag': 'private-dht-walk-fingerprint',
         'op': 314159265,
@@ -257,6 +260,10 @@ void main() {
         'ordered_record_trace',
         'ordered_record',
         'opaque_record_link',
+        'queue_admission_trace',
+        'stage=queue_admission',
+        'outcome=missing',
+        'queue_outcome',
         'qtag',
         'walk_tag',
         '314159265',

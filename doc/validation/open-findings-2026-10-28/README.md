@@ -1,5 +1,22 @@
 # Открытые случаи — обновлено 2026-11-08
 
+Последний раунд: [фактические queue outcomes и физический повтор](../queue-admission-calls-2026-11-08/README.md).
+Core SDK `ae352464` добавил operator-only accepted/missing/closed/full по
+конкретной opaque cell; FIFO/квоты/wire не менялись. Regression-red,
+711 session passed / 8 ignored, Clippy/Android check, 19 journal tests и
+AOT privacy gate прошли. Новые строки не входят в анонимный экспорт.
+
+Два звонка с прежними immutable клиентами `e136c71f`: **5/6 финальных окон**.
+**NETCALL-01 открыт:** подтверждены flat-интервалы до 13,83 с, с native TX
+отправителя и независимым phone collector. В одном эпизоде 31 cell принята
+в очередь/выбрана к телефону; 30 локально flushed, remote read не наблюдается.
+В другом 95 phone-origin cells не видны на Core ingress, у большинства нет
+regular send-attempt witness. Queue admission и доставка больше не смешиваются.
+Media repair отмечен отдельными unknown/counter epochs, не склеенными в паузу.
+Следующий участок — готовность/lifetime TCP child и flush → read. Собственные
+стенды убраны, APK/контейнер/настройки восстановлены, production независимо
+сверено; push/релиза нет.
+
 Последний раунд: [физическая проверка eager ordered readiness](../warmed-ready-calls-2026-11-08/README.md).
 SDK `e136c71f` собран и проверен на Poco/Mac/двух QA Core; два звонка,
 четыре переключения, **6/6 финальных окон**. **NETCALL-01 открыт:** в первом

@@ -36,6 +36,8 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 "'record_sha256': 'PRIVATE_CANARY', 'child_local': 314159265, "
                 "'ordered_record_trace': 'transport.ordered_record PRIVATE_CANARY', "
                 "'opaque_record_link': 'delivery.opaque_record PRIVATE_CANARY', "
+                "'queue_admission_trace': 'delivery.opaque_trace stage=queue_admission outcome=missing PRIVATE_CANARY', "
+                "'queue_outcome': 'PRIVATE_CANARY', "
                 "'connection': 314159265, 'local_port': 45678, 'peer_port': 45679, "
                 "'written_bytes': 314159265, 'read_bytes': 314159265, "
                 "'video_delivery_peers': {'PRIVATE_CANARY': {"
@@ -72,6 +74,8 @@ class DiagnosticArtifactTest(unittest.TestCase):
                     for forbidden in ['tcp_handshake_trace', 'tcp_trace', 'connection',
                                       'record_sha256', 'child_local', 'ordered_record',
                                       'opaque_record_link',
+                                      'queue_admission_trace', 'stage=queue_admission',
+                                      'outcome=missing', 'queue_outcome',
                                       'local_port', 'peer_port', 'written_bytes',
                                       'read_bytes', '45678', '45679']:
                         self.assertNotIn(forbidden, json.dumps(report))
