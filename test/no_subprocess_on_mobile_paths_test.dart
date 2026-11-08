@@ -38,7 +38,7 @@ void main() {
   const desktopOnly = <String, String>{
     'lib/features/chat/chat_screen.dart':
         'opens a saved file with the OS handler, inside if (isMacOS/isLinux/'
-            'isWindows); mobile falls through to showing the path',
+        'isWindows); mobile falls through to showing the path',
     'lib/features/spaces/space_post_media.dart':
         'same OS-handler open, same three-way desktop guard',
     'lib/features/calls/screen_capture_permission.dart':
@@ -47,10 +47,13 @@ void main() {
     'lib/data/vpn/windows_managed_vpn_backend.dart': 'Windows backend',
     'lib/data/node/veil_node.dart':
         'drives the veil-cli BINARY, which only exists on the desktop '
-            'config-file dev path (XVEIL_VEIL_CLI); mobile boots the node '
-            'in-process',
+        'config-file dev path (XVEIL_VEIL_CLI); mobile boots the node '
+        'in-process',
     'lib/data/node/process_launcher.dart':
         'spawns that same veil-cli binary for SubprocessNodeController',
+    'lib/core/diagnostic_audio_output.dart':
+        'the opt-in sampler returns before reading unless Platform.isWindows; '
+        'the private reader runs only its bundled Windows audio helper',
   };
 
   /// The three that were wrong. Named, so that a regression in any one of them

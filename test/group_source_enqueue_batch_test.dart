@@ -16,10 +16,16 @@ NodeId _id(int n) => NodeId(Uint8List(32)..fillRange(0, 32, n));
 
 class _Store extends FakeKvLogStore {
   int enqueues = 0;
+  bool refuseOutbox = false;
+  int refused = 0;
   @override
   int commit(List<KvLogOp> ops) {
     if (ops.whereType<PutOp>().any((op) => op.namespace == Ns.outboxIndex)) {
       enqueues++;
+      if (refuseOutbox) {
+        refused++;
+        throw StateError('injected transfer commit failure');
+      }
     }
     return super.commit(ops);
   }
@@ -47,20 +53,6 @@ class _Link extends LoopbackTransport {
   }
 }
 
-class _FailSecond extends HiddenVolumeStorage {
-  _FailSecond(super.opener);
-  int calls = 0;
-  @override
-  Future<void> enqueueOutboxFrame(
-    String id,
-    String peer,
-    Uint8List wire,
-  ) async {
-    if (++calls == 2) throw StateError('injected second enqueue failure');
-    await super.enqueueOutboxFrame(id, peer, wire);
-  }
-}
-
 Future<
   ({
     _Store raw,
@@ -69,15 +61,16 @@ Future<
     MessagingService service,
   })
 >
-_rig({bool failSecond = false}) async {
+_rig({bool failPersistence = false}) async {
   final raw = _Store();
-  final HiddenVolumeStorage store = failSecond
-      ? _FailSecond(({required password, required create}) => raw)
-      : HiddenVolumeStorage(({required password, required create}) => raw);
+  final store = HiddenVolumeStorage(
+    ({required password, required create}) => raw,
+  );
   await store.open(password: 'fixture');
   await store.upsertContact(
     Contact(nodeId: _id(2), status: ContactStatus.accepted),
   );
+  raw.refuseOutbox = failPersistence;
   final link = _Link(raw);
   final service = MessagingService(link, store);
   addTearDown(() async {
@@ -134,16 +127,19 @@ void main() {
         .then((_) => done = true);
     await r.link.entered.future;
     expect(done, isFalse);
-    expect(r.link.firstDurableCount, 1);
+    final prepared = await r.store.pendingOutboxFrames();
+    expect(prepared.length, greaterThan(1));
+    expect(r.link.firstDurableCount, prepared.length);
+    expect(r.link.groupStarts, 1, reason: 'initial sends remain serialized');
     r.link.release.complete();
     await sending;
     final frames = await r.store.pendingOutboxFrames();
     expect(frames.length, greaterThan(1));
-    expect(r.raw.enqueues, frames.length);
+    expect(r.raw.enqueues, lessThan(frames.length));
   });
 
-  test('failed persistence batch starts no new source work', () async {
-    final r = await _rig(failSecond: true);
+  test('refused transfer commit starts no source work and can retry', () async {
+    final r = await _rig(failPersistence: true);
     await expectLater(
       r.service.sendGroupSnapshot(
         _id(2),
@@ -154,11 +150,17 @@ void main() {
       throwsStateError,
     );
     expect(r.link.groupStarts, 0);
-    expect((r.store as _FailSecond).calls, greaterThan(2));
-    expect(
-      await r.store.pendingOutboxFrames(),
-      isNotEmpty,
-      reason: 'other durable rows remain available to ordinary retry',
+    expect(r.raw.refused, 1);
+    expect(await r.store.pendingOutboxFrames(), isEmpty);
+    r.raw.refuseOutbox = false;
+    await r.service.sendGroupSnapshot(
+      _id(2),
+      'ab' * 32,
+      jsonEncode({'body': 'x' * 7000}),
+      awaitInitialSend: false,
     );
+    await r.link.entered.future;
+    expect(r.link.groupStarts, 1);
+    expect(await r.store.pendingOutboxFrames(), isNotEmpty);
   });
 }

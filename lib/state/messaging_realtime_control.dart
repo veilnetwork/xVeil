@@ -105,10 +105,11 @@ class _MessagingRealtimeControl {
   Object _consentEpoch(NodeId peer) =>
       _consentEpochs[peer.hex] ?? _initialConsentEpoch;
 
+  bool _consentRevisionCurrent(NodeId peer, Object? epoch) =>
+      epoch != null && identical(_consentEpoch(peer), epoch);
+
   bool _consentCurrent(NodeId peer, Object? epoch) =>
-      !_owner._disposed &&
-      epoch != null &&
-      identical(_consentEpoch(peer), epoch);
+      !_owner._disposed && _consentRevisionCurrent(peer, epoch);
 
   bool _cacheAccepted(NodeId peer, Object? epoch) {
     if (!_consentCurrent(peer, epoch)) return false;
@@ -124,12 +125,20 @@ class _MessagingRealtimeControl {
   // A read-only stranger does not allocate a map entry. Mutations invalidate
   // both pending reads and positive cache entries, independently per contact.
   Future<({Contact? contact, Object epoch})?> _readContactConsent(
-    NodeId peer,
-  ) async {
-    for (var attempt = 0; attempt < 2 && !_owner._disposed; attempt++) {
+    NodeId peer, {
+    bool allowDuringDrain = false,
+  }) async {
+    for (
+      var attempt = 0;
+      attempt < 2 && (allowDuringDrain || !_owner._disposed);
+      attempt++
+    ) {
       final epoch = _consentEpoch(peer);
       final contact = await _owner._storage.getContact(peer);
-      if (_consentCurrent(peer, epoch)) return (contact: contact, epoch: epoch);
+      if (_consentRevisionCurrent(peer, epoch) &&
+          (allowDuringDrain || !_owner._disposed)) {
+        return (contact: contact, epoch: epoch);
+      }
     }
     return null;
   }

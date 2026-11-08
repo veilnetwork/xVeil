@@ -241,38 +241,44 @@ void main() {
     expect(contactPolicyFromEvent(off)!.isOn, false);
   });
   for (final native in [false, true]) {
-    test('policy-only merge preserves local fields native=$native', () async {
-      final e = await endpoint(
-        native,
-        Contact(
-          nodeId: id(2),
-          name: 'kept',
-          status: ContactStatus.blocked,
-          p2pOverride: ContactP2POverride.deny,
-          pinned: true,
-        ),
-      );
-      final p = DisappearingSetting(
-        ttlSeconds: 60,
-        setAtMs: 100,
-        setBy: id(1).hex,
-      );
-      expect(await e.service.applyMirroredContactPolicy(id(9), p), false);
-      expect(await e.storage.getContact(id(9)), isNull);
-      expect(await e.service.applyMirroredContactPolicy(id(2), p), true);
-      final held = (await e.storage.getContact(id(2)))!;
-      expect(held.name, 'kept');
-      expect(held.pinned, true);
-      expect(held.status, ContactStatus.blocked);
-      expect(held.p2pOverride, ContactP2POverride.deny);
-      expect(
-        await e.storage.pendingContactPreferences(),
-        isEmpty,
-        reason: 'mirror must not echo',
-      );
-      await e.service.dispose();
-      expect(await e.service.applyMirroredContactPolicy(id(2), p), false);
-    });
+    test(
+      'policy-only merge preserves local fields native=$native',
+      () async {
+        final e = await endpoint(
+          native,
+          Contact(
+            nodeId: id(2),
+            name: 'kept',
+            status: ContactStatus.blocked,
+            p2pOverride: ContactP2POverride.deny,
+            pinned: true,
+          ),
+        );
+        final p = DisappearingSetting(
+          ttlSeconds: 60,
+          setAtMs: 100,
+          setBy: id(1).hex,
+        );
+        expect(await e.service.applyMirroredContactPolicy(id(9), p), false);
+        expect(await e.storage.getContact(id(9)), isNull);
+        expect(await e.service.applyMirroredContactPolicy(id(2), p), true);
+        final held = (await e.storage.getContact(id(2)))!;
+        expect(held.name, 'kept');
+        expect(held.pinned, true);
+        expect(held.status, ContactStatus.blocked);
+        expect(held.p2pOverride, ContactP2POverride.deny);
+        expect(
+          await e.storage.pendingContactPreferences(),
+          isEmpty,
+          reason: 'mirror must not echo',
+        );
+        await e.service.dispose();
+        expect(await e.service.applyMirroredContactPolicy(id(2), p), false);
+      },
+      skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null
+          ? 'set XVEIL_HV_DYLIB to a qualified native library'
+          : false,
+    );
 
     for (final mode in ['id', 'ack']) {
       test(
@@ -333,6 +339,9 @@ void main() {
             120,
           );
         },
+        skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null
+            ? 'set XVEIL_HV_DYLIB to a qualified native library'
+            : false,
       );
     }
     for (final folded in [false, true]) {
@@ -397,6 +406,9 @@ void main() {
             reason: 'alias clock must not erase a different policy revision',
           );
         },
+        skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null
+            ? 'set XVEIL_HV_DYLIB to a qualified native library'
+            : false,
       );
     }
   }

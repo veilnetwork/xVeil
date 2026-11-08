@@ -3038,7 +3038,10 @@ class HiddenVolumeStorage
     List<MessageOrderingAdoption> requests, {
     Future<void> Function()? beforeCommit,
   }) async {
-    final checkErasure = _preparedErasureCheck();
+    // Prepared history publication owns an explicit admission checkpoint and
+    // must not cross erasure. Ordinary body-less corrections instead retain
+    // the oversized path's behavior: a concurrent tombstone wins in the fold.
+    final checkErasure = beforeCommit == null ? null : _preparedErasureCheck();
     await _foldCritical();
     final outcomes = <bool>[];
     final payloads = <Uint8List>[];
