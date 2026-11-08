@@ -24,7 +24,7 @@ Socket options, wire, аудио, retry policy и криптографическ
   TCP_INFO. Native test binary собран заново, его SHA отличается от красного.
 * macOS: 11 тестов этой группы; Linux-only echo не засчитан как Mac-проверка.
 * Scoped release Clippy — без предупреждений.
-* Flutter journal tests — 20; AOT privacy gate — 1 тест с двумя сборками
+* Flutter journal tests — 19; AOT privacy gate — 1 тест с двумя сборками
   diagnostics on/off. Частные ключи и числовые canary не экспортируются.
 
 Android fixtures/processes удалены, main/QA APK и QA root container не
@@ -39,3 +39,6 @@ Android fixtures/processes удалены, main/QA APK и QA root container не
 Коммиты без подписи, push/релиза нет.
 
 Продолжение: [физическая проверка на Poco](../sdk-tcp-progress-call-2026-11-08/README.md).
+
+Счёт journal tests уточнён по machine report: 19 успешных видимых tests,
+а не 20. Повтор для проверки счётчика не считается дополнительным покрытием.
