@@ -21782,6 +21782,20 @@ class GroupService implements ArchiveGroups {
       final through = <(NodeId, String), int>{};
       final announcements = <GroupMessage>{};
       for (final message in b.messages) {
+        // Without JSON escapes a decoded identityDoc value must occur
+        // literally in the body. Plain mirrors need no payload allocation
+        // just to exclude them. Escapes (including escaped keys/values),
+        // duplicate keys and all possible candidates keep the full parser.
+        // This selects work only; the normal verifier below still decides
+        // whether any candidate actually exists or is authorized.
+        if (!message.body.contains('identityDoc') &&
+            !message.body.contains(r'\')) {
+          continue;
+        }
+        assert(() {
+          debugAnnouncementBodyDecodes++;
+          return true;
+        }());
         // An unverified body selects work, never an address or a grant. Keep
         // every possible announcement, including malformed/future candidates.
         if (DeviceSyncEvent.fromBody(message.body)?.kind ==
@@ -21834,6 +21848,10 @@ class GroupService implements ArchiveGroups {
         if (entry.key.$1 == DeviceSyncKind.identityDoc) entry.key: entry.value,
     };
   }
+
+  /// Assertion-enabled stand counter; no event bodies or verdicts are retained.
+  @visibleForTesting
+  int debugAnnouncementBodyDecodes = 0;
 
   Future<Map<(DeviceSyncKind, String), DeviceSyncEvent>>
   _deviceSyncStateOfBundle(GroupBundle b) async {
