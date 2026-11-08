@@ -213,9 +213,17 @@ extension _MessagingInboundDispatch on MessagingService {
       );
       return;
     }
-    final consent = await _realtimeControl._readContactConsent(m.src);
+    // dispose() drains admitted reactions before closing their storage lane.
+    // They still need a current contact revision, but do not create a new
+    // realtime authorization. New inbound work is refused at lane admission.
+    final drainingReaction = env.kind == WireKind.reaction;
+    final consent = await _realtimeControl._readContactConsent(
+      m.src,
+      allowDuringDrain: drainingReaction,
+    );
     if (consent == null ||
-        !_realtimeControl._consentCurrent(m.src, consent.epoch)) {
+        !_realtimeControl._consentRevisionCurrent(m.src, consent.epoch) ||
+        (_disposed && !drainingReaction)) {
       _declinedLocally(m, 'contact changed during admission');
       return;
     }
@@ -441,7 +449,7 @@ extension _MessagingInboundDispatch on MessagingService {
     // the same snapshot chunks per log window while the sender's outbox held
     // them forever and its deposits kept the shared mailbox clogged.
     final ownDeviceSender = await isOwnDevice?.call(m.src) ?? false;
-    if (_disposed) return;
+    if (_disposed && !drainingReaction) return;
     if (!ownDeviceSender &&
         (callSignal?.type == CallSignalType.offer ||
             env.kind == WireKind.p2pEndpoints) &&

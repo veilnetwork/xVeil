@@ -212,6 +212,9 @@ void main() {
             reason: 'mirror does not echo publication',
           );
         },
+        skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null
+            ? 'set XVEIL_HV_DYLIB to a qualified native library'
+            : false,
       );
     }
   }

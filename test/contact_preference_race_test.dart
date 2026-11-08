@@ -170,6 +170,9 @@ void main() {
         expect(await echo, false);
         expect((await s.getContact(id(2)))!.pinned, true);
       },
+      skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null
+          ? 'set XVEIL_HV_DYLIB to a qualified native library'
+          : false,
     );
     test(
       'same-clock policy delivery keeps both recipients native=$native',
@@ -263,84 +266,99 @@ void main() {
         await receive(sender, id(3), ack(3));
         expect(await s.pendingOutboxFrames(), isEmpty);
       },
+      skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null
+          ? 'set XVEIL_HV_DYLIB to a qualified native library'
+          : false,
     );
     for (final mode in ['latest', 'other-peer', 'failed', 'closed']) {
-      test('own preference witness native=$native mode=$mode', () async {
-        final f = await _fixture(native);
-        final s = f.storage, svc = f.service, p = id(2);
-        final snapshots = <Contact>[];
-        svc.onContactPrefsChanged = snapshots.add;
-        await svc.setContactPinned(p, true);
-        final latest = snapshots.single;
-        if (mode == 'closed') {
-          await svc.dispose();
-          expect(svc.isCurrentContactPrefsSnapshot(latest), false);
-          return;
-        }
-        if (mode == 'failed') {
-          s.failAfterTransform = true;
-          await expectLater(svc.setContactPinned(p, false), throwsStateError);
-        }
-        if (mode == 'other-peer') {
-          await s.upsertContact(Contact(nodeId: id(3)));
-          await svc.setContactName(id(3), 'independent');
-        }
-        expect(svc.isCurrentContactPrefsSnapshot(latest), true);
-        // An ordinary sibling apply remains admissible, and must not discard
-        // the witness needed by the newer own-event echo already in flight.
-        await _mirror(svc);
-        expect((await s.getContact(p))!.pinned, false);
-        expect(
-          await svc.applyMirroredContact(
-            peer: p,
-            name: latest.name,
-            pinned: latest.pinned,
-            archived: latest.archived,
-            allowPeerDelete: latest.allowPeerDelete,
-            clearPolicy: latest.clearPolicy,
-            shouldApply: () => svc.isCurrentContactPrefsSnapshot(latest),
-          ),
-          true,
-        );
-        expect((await s.getContact(p))!.pinned, true);
-      });
+      test(
+        'own preference witness native=$native mode=$mode',
+        () async {
+          final f = await _fixture(native);
+          final s = f.storage, svc = f.service, p = id(2);
+          final snapshots = <Contact>[];
+          svc.onContactPrefsChanged = snapshots.add;
+          await svc.setContactPinned(p, true);
+          final latest = snapshots.single;
+          if (mode == 'closed') {
+            await svc.dispose();
+            expect(svc.isCurrentContactPrefsSnapshot(latest), false);
+            return;
+          }
+          if (mode == 'failed') {
+            s.failAfterTransform = true;
+            await expectLater(svc.setContactPinned(p, false), throwsStateError);
+          }
+          if (mode == 'other-peer') {
+            await s.upsertContact(Contact(nodeId: id(3)));
+            await svc.setContactName(id(3), 'independent');
+          }
+          expect(svc.isCurrentContactPrefsSnapshot(latest), true);
+          // An ordinary sibling apply remains admissible, and must not discard
+          // the witness needed by the newer own-event echo already in flight.
+          await _mirror(svc);
+          expect((await s.getContact(p))!.pinned, false);
+          expect(
+            await svc.applyMirroredContact(
+              peer: p,
+              name: latest.name,
+              pinned: latest.pinned,
+              archived: latest.archived,
+              allowPeerDelete: latest.allowPeerDelete,
+              clearPolicy: latest.clearPolicy,
+              shouldApply: () => svc.isCurrentContactPrefsSnapshot(latest),
+            ),
+            true,
+          );
+          expect((await s.getContact(p))!.pinned, true);
+        },
+        skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null
+            ? 'set XVEIL_HV_DYLIB to a qualified native library'
+            : false,
+      );
     }
     for (final delayed in [false, true]) {
-      test('local preference echo native=$native delayed=$delayed', () async {
-        final f = await _fixture(native);
-        final s = f.storage, svc = f.service, p = id(2);
-        final snapshots = <Contact>[];
-        svc.onContactPrefsChanged = snapshots.add;
-        await svc.setContactName(p, 'first snapshot');
-        final old = snapshots.single;
-        Future<bool> echo() => svc.applyMirroredContact(
-          peer: p,
-          name: old.name,
-          pinned: old.pinned,
-          archived: old.archived,
-          allowPeerDelete: old.allowPeerDelete,
-          clearPolicy: old.clearPolicy,
-          shouldApply: () => svc.isCurrentContactPrefsSnapshot(old),
-        );
-        Future<bool>? pending;
-        if (delayed) {
-          s.armed = true;
-          pending = echo();
-          await s.entered.future;
-        }
-        await svc.setContactPinned(p, true);
-        if (pending == null) {
-          pending = echo();
-        } else {
-          s.release.complete();
-        }
-        await pending;
-        expect(
-          (await s.getContact(p))!.pinned,
-          true,
-          reason: 'a local echo must not undo a later committed action',
-        );
-      });
+      test(
+        'local preference echo native=$native delayed=$delayed',
+        () async {
+          final f = await _fixture(native);
+          final s = f.storage, svc = f.service, p = id(2);
+          final snapshots = <Contact>[];
+          svc.onContactPrefsChanged = snapshots.add;
+          await svc.setContactName(p, 'first snapshot');
+          final old = snapshots.single;
+          Future<bool> echo() => svc.applyMirroredContact(
+            peer: p,
+            name: old.name,
+            pinned: old.pinned,
+            archived: old.archived,
+            allowPeerDelete: old.allowPeerDelete,
+            clearPolicy: old.clearPolicy,
+            shouldApply: () => svc.isCurrentContactPrefsSnapshot(old),
+          );
+          Future<bool>? pending;
+          if (delayed) {
+            s.armed = true;
+            pending = echo();
+            await s.entered.future;
+          }
+          await svc.setContactPinned(p, true);
+          if (pending == null) {
+            pending = echo();
+          } else {
+            s.release.complete();
+          }
+          await pending;
+          expect(
+            (await s.getContact(p))!.pinned,
+            true,
+            reason: 'a local echo must not undo a later committed action',
+          );
+        },
+        skip: native && Platform.environment['XVEIL_HV_DYLIB'] == null
+            ? 'set XVEIL_HV_DYLIB to a qualified native library'
+            : false,
+      );
     }
     for (final mode in ['contract', 'clock', 'halves', 'close', 'adopt']) {
       test(
