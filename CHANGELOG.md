@@ -8,6 +8,50 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
+## [0.13.95] — 2026-11-09
+
+### Fixed
+
+- Notify the node when the active network changes, reconnect stale sessions and
+  retry call signaling promptly. A call started after leaving Wi-Fi recovered
+  in physical checks; interruption of an ongoing call remains under review.
+- Reduce multi-device catch-up work through batched writes, indexed history
+  lookups and durable handling of receipts arriving before their messages.
+  Preserve delivery state, edits, reactions and ordering across retry and close.
+- Keep admitted incoming reactions during shutdown and allow ordinary ordering
+  metadata to complete during deletion without restoring deleted content.
+- Recheck certificate lookups against current device revocations, keep edit
+  delivery durable after a local synchronization failure and bound discovery
+  admission. Preserve contact approval and anti-spam checks.
+- Correct Android quick-entry key storage and use one biometric prompt when
+  reopening a container, including after an application restart.
+- Show a dedicated incoming-call screen with caller details, avatar and clear
+  answer/decline controls. Improve locked-screen call setup and permission errors.
+- Export received files through the system document picker, distinguish refusal
+  and cancellation from success, and explain where saved files go.
+- Separate sharing and adding a contact into tabs and collapse the contact link.
+  Add a Debian node setup guide with nginx deployment boundaries explained.
+- Enable echo cancellation and noise suppression by default with user controls,
+  improve audio jitter handling and report unavailable audio devices honestly.
+  Digital-path checks do not establish the cause of every speech-quality report.
+- Keep diagnostic exports anonymous and make artifact privacy checks fail before
+  publication without printing the detected private strings in CI logs.
+
+### Dependencies and limitations
+
+- Prepare with Veil 0.11.48 and hidden-volume 2.7.0. Media engines must be rebuilt
+  from the matching native sources and verified before the application tag.
+- Large-history recovery and the extended multi-device matrix remain unfinished.
+  In one physical series, 2,000 messages converged in approximately 46–51 seconds;
+  this is a scenario result, not a general performance guarantee.
+- Ongoing-call network handover and cold connections on some mobile paths remain
+  under investigation. Carrier website allowlists can prevent network access
+  independently of the application.
+- Historical call/file/Windows reports deferred until recurrence are not claimed
+  fixed. Existing incomplete group transfers from old senders may be unrecoverable.
+- Update all devices together; compatibility with earlier versions is not a
+  release qualification requirement for this release.
+
 ## [0.13.94] — 2026-10-31
 
 ### Fixed
