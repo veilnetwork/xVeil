@@ -37,3 +37,5 @@ Android fixtures/processes удалены, main/QA APK и QA root container не
 изолированных Core с минимальным host polling. Unit echo не квалифицирует
 этот путь. Исходные журналы и socket metadata остаются private.
 Коммиты без подписи, push/релиза нет.
+
+Продолжение: [физическая проверка на Poco](../sdk-tcp-progress-call-2026-11-08/README.md).
