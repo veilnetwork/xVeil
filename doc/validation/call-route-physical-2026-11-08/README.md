@@ -1,5 +1,11 @@
 # Poco ↔ Mac: новый frontend и смена сети
 
+**Коррекция:** [проверка AOT artifact](../call-aot-provenance-2026-11-08/README.md)
+отозвала утверждение о текущем Mac Dart/JIT ниже. Запускался прежний profile
+AOT, свежий kernel не использовался. Android AOT был обновлён. Сетевые данные
+сохранены для этой фактической пары; effect новых Mac app-правок не доказан.
+
+
 **NETCALL-01 остаётся открытым.** Физически проверен frontend `b59970fb`,
 включая [fresh repair](../call-repair-freshness-2026-11-08/README.md) и
 [очистку старых route snapshots](../call-route-outbox-2026-11-08/README.md).

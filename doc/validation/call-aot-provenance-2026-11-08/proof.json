@@ -1,0 +1,16 @@
+{
+  "macAotSha256": "a8ef9d79ee6ef072b11f0542d9d64924ee5288cd26563fc94e606e946139a0d6",
+  "ignoredKernelSha256": "b712c3779c9b309480fcb90f2ce2c70f722894426e534a6462bdae5a5e051c37",
+  "aotMappedInActualProcess": true,
+  "aotHasSnapshotSymbols": true,
+  "mappedFlutterEngineMatchesOfficialProfileArm64Uuid": true,
+  "aotHasNewReceiptMarker": false,
+  "ignoredKernelHasNewReceiptMarker": true,
+  "frozenPhoneAotHasFastReceiptMarker": true,
+  "runtimeBuildIdentityMissing": true,
+  "affectedClaims": [
+    "call-route-physical-2026-11-08",
+    "call-fast-ack-physical-2026-11-08"
+  ],
+  "supersedesCurrentMacDartQualification": true
+}
