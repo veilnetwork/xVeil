@@ -1,5 +1,25 @@
 # Открытые случаи — обновлено 2026-11-08
 
+Последний раунд: [NIC-разбор секундных TCP-пауз](../tcp-nic-pauses-2026-11-08/README.md).
+Offline-разбор серии SDK `e974cebe`; product-код и сборки не менялись.
+RTP/cell/record/binding chain связала 20 ссылок с 12 уникальными TCP flows,
+из них 7 на участке Poco; выбранные flows имеют однозначные bindings и SYN
+generations. PCAP/journal hashes повторно проверены, capture drops 0/0.
+На всех нужных source writers с binding NODELAY включён, zero TCP window
+в выбранных окнах не наблюдается.
+
+**NETCALL-01 открыт:** в пяти 1038–1078-мс flats подтверждены TCP silence
+примерно 1088–1156 мс на мобильном участке обоих Core, затем приход пачкой;
+для одного частичного A-пути только 3/17 copies, он не обобщается на все cells.
+Mac data packets продолжают приходить в середине этих интервалов. Другие
+телефонные packets видны по краям, не доказывают работоспособность spare
+всю паузу. TCP overlaps/SACK/DSACK не объявляются окончательной потерей.
+Быстрые SDK/Core stages не объясняют эти интервалы. Остались ОС/ядро/модем
+и промежуточная сеть; виновность конкретного провайдера не доказана.
+Следующий контроль — ограниченный TCP/UDP поток без Veil с cadence и
+Wi-Fi/Cellular проверкой. Серверы/клиенты не запускались, прежняя уборка
+сохранена, raw metadata private; push/релиза нет.
+
 Последний раунд: [замена ранее готового child и физический повтор](../ready-replacement-calls-2026-11-08/README.md).
 SDK `e974cebe` исправляет потерю pending после отказа уже опубликованного
 Ready child. Failed source selection инвалидирует stale readiness/framing
