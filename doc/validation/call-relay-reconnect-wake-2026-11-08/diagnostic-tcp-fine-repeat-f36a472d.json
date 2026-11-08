@@ -1,0 +1,213 @@
+{
+  "sourceRevision": "f36a472d6fa266eb2e6fc929e17cb4b24bec9c36",
+  "fullAotBothEndpoints": true,
+  "fullQualificationPassed": false,
+  "shortDiagnosticOnly": true,
+  "actualSecondCallLivenessFailure": true,
+  "timerRetryPhysicallyObserved": true,
+  "originalDriverResultPreserved": true,
+  "allFinalCleanupIndependentlyVerified": true,
+  "cases": [
+    {
+      "case": "short diagnostic handover 1",
+      "fullSequencePassed": true,
+      "phases": [
+        {
+          "phase": "wifi-before",
+          "completed": true,
+          "observedSeconds": 8.11,
+          "endpoints": {
+            "mac": {
+              "samples": 16,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                1
+              ],
+              "maxObservedNativeAudioRxAgeMs": 369,
+              "tailAudioRxDelta": 42,
+              "tailAudioProgress": true,
+              "lastAudioRxAgeMs": 91
+            },
+            "phone": {
+              "samples": 12,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                1
+              ],
+              "maxObservedNativeAudioRxAgeMs": 40,
+              "tailAudioRxDelta": 181,
+              "tailAudioProgress": true,
+              "lastAudioRxAgeMs": 25
+            }
+          }
+        },
+        {
+          "phase": "cellular-minimal-host",
+          "completed": true,
+          "observedSeconds": 25.421,
+          "endpoints": {
+            "mac": {
+              "samples": 50,
+              "samplesWithoutNativeCounters": 3,
+              "mediaEpochs": [
+                1,
+                3
+              ],
+              "maxObservedNativeAudioRxAgeMs": 17630,
+              "tailAudioRxDelta": 80,
+              "tailAudioProgress": true,
+              "lastAudioRxAgeMs": 18
+            },
+            "phone": {
+              "samples": 36,
+              "samplesWithoutNativeCounters": 2,
+              "mediaEpochs": [
+                1,
+                3
+              ],
+              "maxObservedNativeAudioRxAgeMs": 17170,
+              "tailAudioRxDelta": 169,
+              "tailAudioProgress": true,
+              "lastAudioRxAgeMs": 25
+            }
+          }
+        },
+        {
+          "phase": "wifi-recovery",
+          "completed": true,
+          "observedSeconds": 10.196,
+          "endpoints": {
+            "mac": {
+              "samples": 20,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                3
+              ],
+              "maxObservedNativeAudioRxAgeMs": 917,
+              "tailAudioRxDelta": 49,
+              "tailAudioProgress": true,
+              "lastAudioRxAgeMs": 44
+            },
+            "phone": {
+              "samples": 15,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                3
+              ],
+              "maxObservedNativeAudioRxAgeMs": 535,
+              "tailAudioRxDelta": 158,
+              "tailAudioProgress": true,
+              "lastAudioRxAgeMs": 27
+            }
+          }
+        }
+      ],
+      "observedMarkers": {
+        "mac": {
+          "overlay sessions restored": 0,
+          "overlay reconnected; retrying deferred relay": 0,
+          "deferred relay retry deadline reached": 1,
+          "route handover relay kept engine": 0,
+          "local relay session rebuilt": 0,
+          "local p2p session rebuilt": 1,
+          "livenessTimeout": 0
+        },
+        "phone": {
+          "overlay sessions restored": 2,
+          "overlay reconnected; retrying deferred relay": 0,
+          "deferred relay retry deadline reached": 1,
+          "route handover relay kept engine": 0,
+          "local relay session rebuilt": 0,
+          "local p2p session rebuilt": 1,
+          "livenessTimeout": 0
+        }
+      }
+    },
+    {
+      "case": "short diagnostic handover 2",
+      "fullSequencePassed": false,
+      "phases": [
+        {
+          "phase": "wifi-before",
+          "completed": true,
+          "observedSeconds": 10.142,
+          "endpoints": {
+            "mac": {
+              "samples": 20,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                5
+              ],
+              "maxObservedNativeAudioRxAgeMs": 342,
+              "tailAudioRxDelta": 46,
+              "tailAudioProgress": true,
+              "lastAudioRxAgeMs": 3
+            },
+            "phone": {
+              "samples": 15,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                5
+              ],
+              "maxObservedNativeAudioRxAgeMs": 38,
+              "tailAudioRxDelta": 250,
+              "tailAudioProgress": true,
+              "lastAudioRxAgeMs": 11
+            }
+          }
+        },
+        {
+          "phase": "cellular-minimal-host",
+          "completed": false,
+          "observedSeconds": 20.864,
+          "endpoints": {
+            "mac": {
+              "samples": 41,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                5
+              ],
+              "maxObservedNativeAudioRxAgeMs": 23591,
+              "tailAudioRxDelta": 0,
+              "tailAudioProgress": false,
+              "lastAudioRxAgeMs": 23591
+            },
+            "phone": {
+              "samples": 30,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                5
+              ],
+              "maxObservedNativeAudioRxAgeMs": 23468,
+              "tailAudioRxDelta": 0,
+              "tailAudioProgress": false,
+              "lastAudioRxAgeMs": 23468
+            }
+          }
+        }
+      ],
+      "observedMarkers": {
+        "mac": {
+          "overlay sessions restored": 0,
+          "overlay reconnected; retrying deferred relay": 0,
+          "deferred relay retry deadline reached": 2,
+          "route handover relay kept engine": 0,
+          "local relay session rebuilt": 0,
+          "local p2p session rebuilt": 0,
+          "livenessTimeout": 1
+        },
+        "phone": {
+          "overlay sessions restored": 2,
+          "overlay reconnected; retrying deferred relay": 1,
+          "deferred relay retry deadline reached": 2,
+          "route handover relay kept engine": 0,
+          "local relay session rebuilt": 0,
+          "local p2p session rebuilt": 0,
+          "livenessTimeout": 1
+        }
+      }
+    }
+  ],
+  "humanAudibilityTested": false,
+  "causalAB": false
+}

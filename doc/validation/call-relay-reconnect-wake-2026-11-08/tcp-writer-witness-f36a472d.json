@@ -1,0 +1,70 @@
+{
+  "sourceRevision": "f36a472d",
+  "oldFailedCall": {
+    "relayProbeCells": 9,
+    "sameLocallyIdentifiedChildSocket": true,
+    "maxSourceSampleToLocalFlushUs": 2534,
+    "matchingIngressObservedAtEitherCore": false,
+    "matchingIngressObservedAtMac": false,
+    "kernelSamples": [
+      {
+        "at": 5.507,
+        "fine": false,
+        "rtt_us": 89609,
+        "rto_us": 292000,
+        "queued_bytes": 246,
+        "notsent_bytes": 0,
+        "unacked_packets": 1,
+        "retransmitted_packets": 0,
+        "retransmitted_bytes": 0,
+        "sent_bytes": 333,
+        "acked_bytes": 88,
+        "received_bytes": 148,
+        "rto_backoff": 0
+      },
+      {
+        "at": 6.554,
+        "fine": false,
+        "rtt_us": 92123,
+        "rto_us": 296000,
+        "queued_bytes": 1469,
+        "notsent_bytes": 0,
+        "unacked_packets": 3,
+        "retransmitted_packets": 1,
+        "retransmitted_bytes": 492,
+        "sent_bytes": 3402,
+        "acked_bytes": 1442,
+        "received_bytes": 1955,
+        "rto_backoff": 0
+      },
+      {
+        "at": 7.772,
+        "fine": false,
+        "rtt_us": 92123,
+        "rto_us": 1184000,
+        "queued_bytes": 4633,
+        "notsent_bytes": 2594,
+        "unacked_packets": 3,
+        "retransmitted_packets": 3,
+        "retransmitted_bytes": 2598,
+        "sent_bytes": 6078,
+        "acked_bytes": 1442,
+        "received_bytes": 1955,
+        "rto_backoff": 2
+      }
+    ],
+    "ackCounterUnchangedForObservedSeconds": 1.218
+  },
+  "newShortDiagnostic": {
+    "relayProbeCells": 1,
+    "maxSourceSampleToLocalFlushUs": 1966,
+    "matchingIngressAtBothCoresAndMac": true,
+    "fineKernelSamplesOnItsSocket": 32
+  },
+  "limits": {
+    "notAllCallSilenceAttributed": true,
+    "localFlushIsNotRemoteDelivery": true,
+    "captureIsNotCausalAB": true,
+    "physicalPacketLossCauseUnknown": true
+  }
+}
