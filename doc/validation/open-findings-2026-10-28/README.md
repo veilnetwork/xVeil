@@ -1,5 +1,24 @@
 # Открытые случаи — обновлено 2026-11-08
 
+Последний раунд: [record writer → TCP socket и физический повтор](../tcp-child-binding-2026-11-08/README.md).
+SDK `b214219a` добавляет default-off operator binding через scoped writer
+context и сохраняет socket ID от handshake. Shared cap, отсутствие plaintext/IP
+в новых строках и исключение metadata из anonymous export проверены.
+179 transport / 712 session passed, 8 ignored отдельно; Clippy, Android check,
+19 journal tests и реальный AOT privacy gate прошли.
+
+Poco/Mac/два изолированных Core: **6/6 финальных окон**, NETCALL-01 открыт.
+RX Mac flat 3166/2620 мс с продолжающимся phone TX подтверждён независимым
+collector. В первой паузе 32 source cells без regular record attempts; во
+второй из 27 cells только 3 имеют 4 physical attempts. Source-pressure ветка
+подтверждена sparse observations, не атрибутируется всем cells поштучно.
+После первого observed validated Cellular остаётся 1505/1055 мс этих gaps;
+готовность ОС не приравнивается к готовности TCP. Три physical copies связаны
+с двумя TCP sockets; одна без наблюдаемого binding. Следующий приоритет —
+source readiness и оставшийся periodic publisher, с сохранением отдельной
+ветки local flush → no remote read. Свои стенды убраны, телефон и production
+независимо сверены; push/релиза нет.
+
 Последний раунд: [cold pool и физический повтор Poco ↔ Mac](../cold-prepare-calls-2026-11-08/README.md).
 SDK `cb54608d` исправляет подтверждённую регрессию eager prepare: на полностью
 пустом TCP child pool он больше не резервирует слоты до первого completion.
