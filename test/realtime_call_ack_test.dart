@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:xveil/core/ids.dart';
+import 'package:xveil/core/diagnostic_journal.dart';
 import 'package:xveil/data/storage/fake_kv_log_store.dart';
 import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/data/transport/veil_transport.dart';
@@ -185,6 +187,57 @@ void main() {
     await pumpEventQueue();
     expect(await aStore.pendingOutboxFrames(), isEmpty);
   });
+
+  test(
+    'receipt refusal reasons export only bounded source-owned codes',
+    () async {
+      const privateCall = 'private-call-token-for-redaction';
+      await sender.sendCallSignal(
+        peer,
+        const CallSignal(callId: privateCall, type: CallSignalType.answer),
+      );
+      final held = (await aStore.pendingOutboxFrames()).single;
+      diagnosticJournal.clear();
+      void inject(String id, SenderProvenance proof) => a.rt.add(
+        InboundMessage(
+          src: peer,
+          payload: WireEnvelope.ack(id).encode(),
+          provenance: proof,
+        ),
+      );
+      inject(held.frameId, SenderProvenance.claimed);
+      await pumpEventQueue();
+      inject(
+        'call:unknown-private-token:answer:recipient',
+        SenderProvenance.signed,
+      );
+      await pumpEventQueue();
+      inject(held.frameId, SenderProvenance.signed);
+      await pumpEventQueue();
+      final report = diagnosticJournal.toJson();
+      final rows = (report['events'] as List)
+          .cast<Map>()
+          .where((r) => r['event'] == 'callSignalDecision')
+          .toList();
+      if (kDiagnosticReportEnabled) {
+        expect(rows.map((r) => (r['values'] as Map)['state']), [12, 14, 16]);
+      } else {
+        expect(rows, isEmpty);
+      }
+      for (final row in rows) {
+        expect((row['values'] as Map).values, everyElement(isA<num>()));
+      }
+      final exported = jsonEncode(report);
+      for (final secret in [
+        privateCall,
+        held.frameId,
+        peer.hex,
+        'unknown-private-token',
+      ]) {
+        expect(exported, isNot(contains(secret)));
+      }
+    },
+  );
 
   for (final invalid in [
     'claimed',
