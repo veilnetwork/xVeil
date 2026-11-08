@@ -1,5 +1,14 @@
 # Открытые случаи — обновлено 2026-11-08
 
+Положительная квалификация: [fast ACK с current profile AOT](../call-fast-ack-aot-2026-11-08/README.md).
+Полный Mac App.framework действительно загружен: runtime revision/digest/mode
+проверены до unlock, mapping и SHA AOT/FFI подтверждены. Mac 460d74e2,
+Android c5677f38: relay-only call получил 5 fast receipts за 95–1198 мс;
+для end ordinary receipts пришли через 3,2 с. Final API call queues 0/0;
+crash/reopen не заявляется. Source authentication осталась строгой. NETCALL-01
+пока открыт; следующим идёт handover на этих же бинарниках. Телефон/production
+восстановлены, стенд закрыт; push/релиза нет.
+
 **Коррекция Mac-стенда:** [AOT provenance](../call-aot-provenance-2026-11-08/README.md).
 В b599/c567 физических сериях обновлялся Android AOT, но Mac продолжал
 исполнять старый profile App.framework/App; свежий kernel игнорировался.
