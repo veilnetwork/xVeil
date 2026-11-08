@@ -1,17 +1,28 @@
 # Открытые случаи — обновлено 2026-11-08
 
+Последняя физическая серия: [новый frontend, Poco ↔ Mac](../call-route-physical-2026-11-08/README.md).
+`b59970fb` проверен Android AOT / Mac JIT на замороженных native libraries.
+Звонок Wi-Fi 30 с → Cellular 120 с → Wi-Fi 45 с сохранился, media epoch 1
+на обоих endpoints. **NETCALL-01 открыт:** max native audio RX age на Cellular
+7,202 с Mac / 4,838 с Poco, при возврате Wi-Fi 6,820 / 3,458 с. Не A/B,
+ускорение не доказано. Поздний transportInfo до 44,067 / 34,291 с при queue/
+handler 0 мс; место до Dart не атрибутировано. Все apps/collectors/test Cores
+очищены, телефон/production независимо сверены; build-синтетика удалена.
+Push/релиза нет.
+
 Последнее исправление: [supersession call route Outbox](../call-route-outbox-2026-11-08/README.md).
 Старые чистые transportInfo больше не повторяются после более нового durable
 состояния того же звонка/адресата. Atomic byte/peer witness, ACK race,
 неизвестный исход коммита, P2P withdrawal и ordered/extra-field guards покрыты.
-185 related tests прошли, 7 skipped отдельно; native reopen 1/1. NETCALL-01
-открыт, физический эффект нового Dart ещё не измерен. Push/релиза нет.
+185 related tests прошли, 7 skipped отдельно; native reopen 1/1. Физическая
+проверка нового Dart выше; причинный эффект cleanup отдельно не измерен.
+NETCALL-01 открыт. Push/релиза нет.
 
 Последнее исправление: [датированный media-repair и P2P handover](../call-repair-freshness-2026-11-08/README.md).
 Старый/повторный health больше не перестраивает медиа после нового
 health/transportInfo; fresh и startup requests сохранены, local watchdog не
 менялся. Четыре assertion-red, пять focused guards; 248 related tests без
-skips, analyzer чист. Новый Dart ещё не проверен физически.
+skips, analyzer чист. Физическая проверка нового Dart — выше, без causal A/B.
 **NETCALL-01 открыт:** на pre-fix call code с разрешённым P2P подтверждена
 пауза по native audio RX age до 28,639 с на Mac / 9,924 с на Poco после
 Wi-Fi→Cellular. Watchdog реагировал при 3,229 с, четыре relay candidates
