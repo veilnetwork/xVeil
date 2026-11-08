@@ -1,5 +1,16 @@
 # Открытые случаи — обновлено 2026-11-08
 
+Последнее исправление: [64 события в byte-bounded own-history странице](../history-page-rows-2026-11-08/README.md).
+128 КиБ/64 части и durable cohorts по 16 сохранены; 167 tests без skips,
+analyzer чист. На archive A₁/B/A₂ с двумя источниками запросов 34 → 18 → 34,
+encode-release→сходимость 4649 → 3775 → 4250 мс; все 512 архивных + одна
+прежняя строка пережили boot без источников. Первые snapshot-only controls
+исключены по нулю page queries. Финальный SIGKILL: 206 наблюдено, 253 durable
+до сети после restart; возврат только A, все 512 сошлись, history retries 0.
+Фикс подтверждён в ограниченном Mac/JIT архивном сценарии; **общая задержка
+догрузки остаётся активной**. Старые decoders могут отвергать >32 rows,
+совместимость исключена владельцем. Стенды очищены; push/релиза нет.
+
 Последнее исправление задержек: [отсев JSON обычных mirror при поиске адресов](../history-routing-json-2026-11-08/README.md).
 Два fresh routing lookup: 130 → 2 полных декодирования, без кэша authority
 или body; escaped/duplicate keys и весь signature/fork/retention/revoke path

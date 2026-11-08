@@ -27,6 +27,7 @@ bool get _crashRequested =>
     0;
 bool get _withPositions =>
     Platform.environment['XVEIL_E2E_STORAGE_POSITIONS'] == '1';
+bool get _withBodyEvidence => _crashRequested || _withPositions;
 
 Future<void> _positionEvidence(String label, String stage) async {
   final dir = Platform.environment['XVEIL_E2E_EVIDENCE_DIR'];
@@ -53,7 +54,7 @@ Future<List<String>> _ids(
       'bodyPrefix': bodyPrefix,
       'includeIds': true,
       if (_withPositions) 'includePositions': true,
-      if (_crashRequested) 'includeRows': true,
+      if (_withBodyEvidence) 'includeRows': true,
       if (Platform.environment['XVEIL_E2E_STORAGE_TIMING'] == '1') ...{
         'storageTiming': true,
         'resetStorageTiming': resetStorageTiming,
@@ -71,7 +72,7 @@ Future<List<String>> _ids(
       if (value['nonce'] != nonce) return false;
       ids = List<String>.from(value['ids'] as List);
       count = value['count'] as int;
-      if (_crashRequested) {
+      if (_withBodyEvidence) {
         final rows = value['rows'] as List;
         _bodyTags[device.label] = {
           for (final row in rows)
@@ -259,10 +260,10 @@ void main() {
         await _ids(b, ci, 'backlog-base-', resetStorageTiming: true);
       }
       final expectedPositions = _positions['A'];
-      final expectedBodyTags = _crashRequested
+      final expectedBodyTags = _withBodyEvidence
           ? Map<String, String>.of(_bodyTags['A']!)
           : const <String, String>{};
-      if (_crashRequested) expect(expectedBodyTags, hasLength(baseRows));
+      if (_withBodyEvidence) expect(expectedBodyTags, hasLength(baseRows));
       if (_withPositions) expect(expectedPositions, hasLength(baseRows));
       await _positionEvidence('A', 'before-link');
       await base.linkProcesses(a, b);
@@ -432,7 +433,7 @@ void main() {
         expect(rowsAtRestartBeforeNetwork, inExclusiveRange(0, baseRows));
       }
       expect(await _ids(b, ci, 'backlog-base-'), expectedBase);
-      if (_crashRequested) {
+      if (_withBodyEvidence) {
         expect(
           _bodyTags['B'] == null
               ? false
@@ -553,6 +554,7 @@ void main() {
               'initialPositionMismatchObservations':
                   initialPositionMismatchObservations,
               'initialPositionsCompared': _withPositions,
+              'initialBodiesCompared': _withBodyEvidence,
               'initialBStatuses': initialBStatuses,
               'completedHistoryRetries': completedHistoryRetries,
               'convergedIdsAndOrder': true,

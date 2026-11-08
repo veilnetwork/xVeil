@@ -103,6 +103,7 @@ class _RefusingCursorStore extends FakeKvLogStore {
   final postBatches = <int>[];
   final orderingBatches = <int>[];
   final publicationFamilies = <String>[];
+  int historyCursorCommits = 0;
 
   @override
   int commit(List<KvLogOp> ops) {
@@ -128,6 +129,11 @@ class _RefusingCursorStore extends FakeKvLogStore {
       throw StateError('fixture cursor write failure');
     }
     final result = super.commit(ops);
+    if (ops.whereType<PutOp>().any(
+      (op) => utf8.decode(op.key).contains('device.history.cursor.v2:'),
+    )) {
+      historyCursorCommits++;
+    }
     final posts = ops.whereType<AppendLogOp>().where((op) {
       if (op.namespace < Ns.messageLogShardFirst ||
           op.namespace > Ns.messageLogShardLast) {
@@ -472,6 +478,32 @@ void main() {
       expect(errorJournal.entries, isEmpty);
     },
   );
+
+  for (final direction in MessageDirection.values) {
+    test('64 short $direction mirrors share one byte-bounded history page', () async {
+      await seed(64, direction: direction);
+      ma.start();
+      mb.start();
+      await until(() async =>
+          await count() == 64 &&
+          await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}');
+      final requests = net.history.where(
+        (frame) => frame.from == b && frame.body['q']?['op'] == 'page',
+      );
+      expect(bStore.historyCursorCommits, 3);
+      expect(requests, hasLength(1));
+      expect(bStore.postBatches, [16, 16, 16, 16]);
+      final held = await sb.loadMessages(peer.hex);
+      final source = await sa.loadMessages(peer.hex);
+      expect(held.map((row) => row.id), source.map((row) => row.id));
+      expect(held.map((row) => row.body), source.map((row) => row.body));
+      expect(held.map((row) => row.direction), everyElement(direction));
+      expect(held.map((row) => row.status), everyElement(MessageStatus.delivered));
+      expect(held.map((row) => row.seq), source.map((row) => row.seq));
+      expect(applied, 64);
+      expect(errorJournal.entries, isEmpty);
+    });
+  }
 
   test(
     'four-KiB slices accept exactly the existing 128-KiB page budget',
@@ -3277,7 +3309,7 @@ void main() {
     final requests = net.history
         .where((frame) => frame.from == b && frame.body['q']?['op'] == 'page')
         .toList();
-    expect(requests, hasLength(3));
+    expect(requests, hasLength(2));
     expect(applied, 65);
     expect(errorJournal.entries, isEmpty);
   });
@@ -3307,7 +3339,7 @@ void main() {
   );
 
   test('an over-cap page is rejected before applying any message', () async {
-    await seed(33);
+    await seed(65);
     // Only B runs; A's replies are supplied explicitly below.
     mb.start();
     await until(
@@ -3321,7 +3353,7 @@ void main() {
     await _historyReply(ta, b, inventory.body['id'] as String, {
       'op': 'list',
       'rows': [
-        {'peer': peer.hex, 'count': 33, 'hash': '0' * 64},
+        {'peer': peer.hex, 'count': 65, 'hash': '0' * 64},
       ],
     });
     await until(
@@ -3441,11 +3473,11 @@ void main() {
   test('failed durable cursor write retries the page after restart', () async {
     await seed(65);
     bStore.refusePageCursor = true;
-    bStore.pageCursorId = 'm0031';
+    bStore.pageCursorId = 'm0063';
     ma.start();
     mb.start();
     await until(() async => bStore.refused && errorJournal.entries.isNotEmpty);
-    expect(await count(), 32);
+    expect(await count(), 64);
     final cursor =
         jsonDecode((await sb.getSetting('device.history.cursor.v2:${a.hex}'))!)
             as Map;
