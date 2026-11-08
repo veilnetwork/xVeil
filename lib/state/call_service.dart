@@ -608,10 +608,32 @@ class CallService {
         return;
       }
       if (!_lateP2PLocalReady) {
-        if (_lateP2PAttempted ||
-            !await _peerReachableWithoutBlockingSignal(c.mediaIdentity) ||
-            !stillCurrent()) {
+        if (_lateP2PAttempted) return;
+        bool? alreadyAdmitted;
+        if (_lateP2PNeedsDatedReadiness) {
+          try {
+            alreadyAdmitted = await media.currentDirectPeerAdmission(c);
+          } catch (_) {
+            // An unavailable local snapshot keeps the endpoint-exchange path.
+          }
+          if (!stillCurrent() || !_lateP2PConsent) return;
+        }
+        // After a network handover the answering device can already have a
+        // new admitted session while endpoint discovery still waits on stale
+        // ads or a previous refresh. It needs no new discovery. This local
+        // snapshot does not authorize the handover: keep the fresh exact-device
+        // admission, both consent checks and sealed route qualification below.
+        if (alreadyAdmitted != true &&
+            (!await _peerReachableWithoutBlockingSignal(c.mediaIdentity) ||
+                !stillCurrent())) {
           return;
+        }
+        if (alreadyAdmitted == true) {
+          devLog(
+            () =>
+                'xVeil[call-media]: recovered direct session already admitted; '
+                'endpoint refresh not needed',
+          );
         }
       }
       // Admission can disappear between heartbeats while we await the peer.
