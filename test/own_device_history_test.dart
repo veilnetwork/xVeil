@@ -160,7 +160,14 @@ class _SnapshotStorage extends HiddenVolumeStorage {
   _SnapshotStorage(super.opener);
   Future<void> Function()? afterMessagesRead;
   Future<void> Function()? beforePreparedCommit;
+  void Function(String conversationId, String messageId)? onMessageRead;
   bool ordinaryOrderingOnly = false;
+
+  @override
+  Future<Message?> loadMessageById(String conversationId, String messageId) {
+    onMessageRead?.call(conversationId, messageId);
+    return super.loadMessageById(conversationId, messageId);
+  }
 
   @override
   Future<List<bool>?> adoptMessageOrderingBatch(
@@ -348,13 +355,14 @@ void main() {
     String? messageBody,
     DateTime? at,
     MessageStatus status = MessageStatus.delivered,
+    MessageDirection direction = MessageDirection.outgoing,
   }) async {
     for (var i = 0; i < count; i++) {
       await sa.appendMessage(
         Message(
           id: 'm${i.toString().padLeft(4, '0')}',
           conversationId: peer.hex,
-          direction: MessageDirection.outgoing,
+          direction: direction,
           body: messageBody ?? List.filled(bodyBytes, '${i % 10}').join(),
           timestamp: (at ?? DateTime.utc(2020)).add(Duration(seconds: i)),
           status: status,
@@ -559,6 +567,70 @@ void main() {
     );
     expect(bStore.postBatches.every((size) => size <= 16), isTrue);
   });
+
+  for (final (direction, status) in [
+    (MessageDirection.incoming, MessageStatus.delivered),
+    (MessageDirection.outgoing, MessageStatus.sent),
+  ]) {
+    test(
+      'history ${direction.name} without state corrections avoids post-apply reads',
+      () async {
+        await seed(64, direction: direction, status: status);
+        // Isolate this pull from reverse history reconciliation.
+        net.drop = (from, _, body) => from == a && body['q'] != null;
+        final completed = <String>{};
+        var postApplyReads = 0;
+        sb.onMessageRead = (conversation, message) {
+          if (conversation == peer.hex && completed.contains(message)) {
+            postApplyReads++;
+          }
+        };
+        final apply = mb.ownHistoryApplyPrepared!;
+        mb.ownHistoryApplyPrepared = (event, writes) async {
+          await apply(event, writes);
+          completed.add(event.key);
+        };
+        ma.start();
+        mb.start();
+        await until(
+          () async =>
+              await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+        );
+        expect(completed, hasLength(64));
+        expect(
+          postApplyReads,
+          0,
+          reason: 'no edit or delivery correction needs the stored row',
+        );
+        final original = await sa.loadMessages(peer.hex);
+        final received = await sb.loadMessages(peer.hex);
+        expect(
+          received.map(
+            (m) => (
+              m.id,
+              m.body,
+              m.direction,
+              m.status,
+              m.orderAuthor,
+              m.orderSeq,
+            ),
+          ),
+          original.map(
+            (m) => (
+              m.id,
+              m.body,
+              m.direction,
+              m.status,
+              m.orderAuthor,
+              m.orderSeq,
+            ),
+          ),
+        );
+        expect(bStore.postBatches, [16, 16, 16, 16]);
+        expect(errorJournal.entries, isEmpty);
+      },
+    );
+  }
 
   test(
     'history preparation fills one bounded cohort without publishing past a held row',

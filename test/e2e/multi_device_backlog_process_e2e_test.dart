@@ -187,6 +187,10 @@ void main() {
       final baseRows = int.parse(
         Platform.environment['XVEIL_E2E_BACKLOG_BASE_ROWS'] ?? '2000',
       );
+      final baseDirection =
+          Platform.environment['XVEIL_E2E_BACKLOG_DIRECTION'] ?? 'outgoing';
+      expect(baseDirection, anyOf('incoming', 'outgoing'));
+      if (baseDirection == 'incoming') expect(migrationOnly, isTrue);
       expect(baseRows, inInclusiveRange(migrationOnly ? 1 : 0, 3000));
       expect(crashAfterRows, greaterThanOrEqualTo(0));
       if (sourcesOfflineAtRestart) expect(crashAfterRows, greaterThan(0));
@@ -202,11 +206,15 @@ void main() {
       await base.introduceProcesses(a, c);
       final ai = (await base.deviceInfo(a))['identity'] as String;
       final ci = (await base.deviceInfo(c))['identity'] as String;
+      final sender = baseDirection == 'incoming' ? c : a;
+      final receiver = baseDirection == 'incoming' ? a : c;
+      final senderPeer = baseDirection == 'incoming' ? ai : ci;
+      final receiverPeer = baseDirection == 'incoming' ? ci : ai;
       final seed = Stopwatch()..start();
       for (var i = 0; i < baseRows; i++) {
-        await a.checked(
+        await sender.checked(
           '/send_message',
-          query: {'peer': ci, 'text': 'backlog-base-$i'},
+          query: {'peer': senderPeer, 'text': 'backlog-base-$i'},
         );
         if ((i + 1) % 100 == 0) {
           E2eLog.line(
@@ -214,15 +222,24 @@ void main() {
           );
         }
       }
-      final expectedBase = await _ids(a, ci, 'backlog-base-');
+      // A successful send stores on the sender, not synchronously on the
+      // receiver. Derive the full oracle there before awaiting delivery.
+      final expectedBase = await _ids(sender, senderPeer, 'backlog-base-');
       expect(expectedBase, hasLength(baseRows));
       await waitUntil(
-        () async => (await _ids(c, ai, 'backlog-base-')).length == baseRows,
-        what: 'C has the entire initial history',
+        () async {
+          final received = await _ids(receiver, receiverPeer, 'backlog-base-');
+          return received.length == expectedBase.length &&
+              List.generate(
+                expectedBase.length,
+                (i) => received[i] == expectedBase[i],
+              ).every((v) => v);
+        },
+        what: 'receiver has the entire initial history in sender order',
         timeout: const Duration(minutes: 6),
         interval: const Duration(seconds: 5),
       );
-      expect(await _ids(c, ai, 'backlog-base-'), expectedBase);
+      expect(await _ids(receiver, receiverPeer, 'backlog-base-'), expectedBase);
       await waitUntil(
         () async {
           await _ids(a, ci, 'backlog-base-');
@@ -523,6 +540,7 @@ void main() {
             jsonEncode({
               'migrationOnly': true,
               'baseRows': baseRows,
+              'baseDirection': baseDirection,
               'initialHistoryMs': initialHistory.elapsedMilliseconds,
               'initialCountCompleteMs': initialCountCompleteMs,
               'initialOrderMismatchObservations':
