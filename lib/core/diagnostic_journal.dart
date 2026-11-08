@@ -131,6 +131,19 @@ enum DiagnosticMetric {
   audioNsEnabled,
   audioAgcEnabled,
   audioTargetDelayMs,
+  networkSnapshotAvailable,
+  networkPresent,
+  networkCapabilitiesAvailable,
+  networkMetered,
+  processNetworkBound,
+  processNetworkIsDefault,
+  networkWifi,
+  networkCellular,
+  networkVpn,
+  networkInternet,
+  networkValidated,
+  networkNotSuspended,
+  restrictBackgroundStatus,
 }
 
 /// Bounded process-local evidence. Monotonic offsets, never wall-clock time,
@@ -225,7 +238,7 @@ class DiagnosticJournal {
     );
   }
 
-  /// OS flags are boolean-only; volume is a bounded percentage. Do not
+  /// OS flags are boolean-only; volume and policy codes are bounded. Do not
   /// stringify, recurse or export native keys from a newer/malformed plugin.
   void recordBackgroundState(Map<Object?, Object?>? state) {
     record(
@@ -240,6 +253,9 @@ class DiagnosticJournal {
         if (state?['callVolumePercent'] case final int volume)
           if (volume >= 0 && volume <= 100)
             DiagnosticMetric.callVolumePercent: volume,
+        if (state?['restrictBackgroundStatus'] case final int policy)
+          if (policy >= 1 && policy <= 3)
+            DiagnosticMetric.restrictBackgroundStatus: policy,
       },
     );
   }
@@ -253,6 +269,19 @@ class DiagnosticJournal {
     'batteryExempt': DiagnosticMetric.batteryExempt,
     'backgroundRestricted': DiagnosticMetric.backgroundRestricted,
     'systemMicMuted': DiagnosticMetric.systemMicMuted,
+    'networkSnapshotAvailable': DiagnosticMetric.networkSnapshotAvailable,
+    'networkPresent': DiagnosticMetric.networkPresent,
+    'networkCapabilitiesAvailable':
+        DiagnosticMetric.networkCapabilitiesAvailable,
+    'networkMetered': DiagnosticMetric.networkMetered,
+    'processNetworkBound': DiagnosticMetric.processNetworkBound,
+    'processNetworkIsDefault': DiagnosticMetric.processNetworkIsDefault,
+    'networkWifi': DiagnosticMetric.networkWifi,
+    'networkCellular': DiagnosticMetric.networkCellular,
+    'networkVpn': DiagnosticMetric.networkVpn,
+    'networkInternet': DiagnosticMetric.networkInternet,
+    'networkValidated': DiagnosticMetric.networkValidated,
+    'networkNotSuspended': DiagnosticMetric.networkNotSuspended,
   };
 
   /// Only fixed protocol fields; no COM IDs, labels, paths or process IDs.

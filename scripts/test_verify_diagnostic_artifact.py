@@ -48,7 +48,13 @@ class DiagnosticArtifactTest(unittest.TestCase):
                 "'target_delay_ms': 260, 'sample_us': 314159265}}, "
                 "'op': 314159265, 'local': 'PRIVATE_CANARY'});\n"
                 "  diagnosticJournal.recordBackgroundState({'serviceForeground': true, "
-                "'wakeLockHeld': false, 'notification': 'PRIVATE_CANARY'});\n"
+                "'wakeLockHeld': false, 'notification': 'PRIVATE_CANARY', "
+                "'networkSnapshotAvailable': true, 'networkPresent': true, "
+                "'networkCellular': true, 'networkWifi': false, 'networkVpn': false, "
+                "'networkValidated': true, 'processNetworkBound': false, "
+                "'restrictBackgroundStatus': 1, 'networkHandle': 314159265, "
+                "'uid': 314159265, 'ssid': 'PRIVATE_CANARY', "
+                "'interface': 'PRIVATE_CANARY', 'addresses': ['192.0.2.1']});\n"
                 "  diagnosticJournal.recordAudioOutputState({'schema': 'xveil-audio-output/1', "
                 "'success': true, 'sessionState': 1, 'outputVolumePercent': 56, "
                 "'appVolumePercent': 100, 'outputMuted': false, 'appMuted': false, "
@@ -84,6 +90,7 @@ class DiagnosticArtifactTest(unittest.TestCase):
                                       'local_port', 'peer_port', 'written_bytes',
                                       'read_bytes', '45678', '45679',
                                       'tcp_kernel_progress', 'sent_bytes', 'acked_bytes',
+                                      'networkHandle', 'uid', 'ssid', 'addresses', '192.0.2.1',
                                       'received_bytes', 'tcp_notsent_lowat',
                                       '424242421', '424242422', '424242423', '424242424']:
                         self.assertNotIn(forbidden, json.dumps(report))
@@ -116,6 +123,10 @@ class DiagnosticArtifactTest(unittest.TestCase):
                         self.assertEqual(evidence['backgroundSnapshot']['values'], {
                             'supported': 1, 'success': 1,
                             'serviceForeground': 1, 'wakeLockHeld': 0,
+                            'networkSnapshotAvailable': 1, 'networkPresent': 1,
+                            'networkCellular': 1, 'networkWifi': 0, 'networkVpn': 0,
+                            'networkValidated': 1, 'processNetworkBound': 0,
+                            'restrictBackgroundStatus': 1,
                         })
                     else:
                         self.assertNotIn('call_state_history', report)
