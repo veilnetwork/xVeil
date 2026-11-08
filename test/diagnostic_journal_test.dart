@@ -231,6 +231,7 @@ void main() {
         'handshake_selection':
             'tcp_handshake outcome=selected attempt=223606797 candidate=private-backup',
         'tcp_trace': 'transport.tcp_trace.handshake private-tcp-snapshot',
+        'ordered_tcp_binding': 'tcp_ordered_binding private-socket-binding',
         'connection': 161803398,
         'local_port': 45678,
         'peer_port': 45679,
@@ -277,6 +278,8 @@ void main() {
         'handshake_selection',
         '223606797',
         'tcp_trace',
+        'ordered_tcp_binding',
+        'tcp_ordered_binding',
         '161803398',
         '45678',
         '45679',
