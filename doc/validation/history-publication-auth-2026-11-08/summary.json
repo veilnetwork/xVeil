@@ -1,0 +1,73 @@
+{
+  "phases": {
+    "A1": {
+      "rows": 512,
+      "beforeCrash": 206,
+      "retainedAtBoot": 253,
+      "afterSourceStartMs": 5219,
+      "historyApplyRows": 211,
+      "ownDevicesCalls": 584,
+      "ownDevicesHeaderReads": 191,
+      "ownDevicesSegmentReads": 191,
+      "primaryPagePairs": 7,
+      "receiverMedianUs": 242616,
+      "sourceMedianUs": 64290,
+      "completedHistoryRetries": 0,
+      "testQualifiedAndClean": true,
+      "ownedPidsChecked": 27,
+      "portsChecked": 27
+    },
+    "B": {
+      "rows": 512,
+      "beforeCrash": 142,
+      "retainedAtBoot": 189,
+      "afterSourceStartMs": 5480,
+      "historyApplyRows": 259,
+      "ownDevicesCalls": 460,
+      "ownDevicesHeaderReads": 216,
+      "ownDevicesSegmentReads": 216,
+      "primaryPagePairs": 9,
+      "receiverMedianUs": 213815,
+      "sourceMedianUs": 78438,
+      "completedHistoryRetries": 0,
+      "testQualifiedAndClean": true,
+      "ownedPidsChecked": 27,
+      "portsChecked": 27
+    },
+    "A2": {
+      "rows": 512,
+      "beforeCrash": 141,
+      "retainedAtBoot": 174,
+      "afterSourceStartMs": 5584,
+      "historyApplyRows": 275,
+      "ownDevicesCalls": 752,
+      "ownDevicesHeaderReads": 237,
+      "ownDevicesSegmentReads": 237,
+      "primaryPagePairs": 9,
+      "receiverMedianUs": 222853,
+      "sourceMedianUs": 62772,
+      "completedHistoryRetries": 0,
+      "testQualifiedAndClean": true,
+      "ownedPidsChecked": 26,
+      "portsChecked": 24
+    }
+  },
+  "baselineSourceFilesIdentical": true,
+  "onlyChangedProductionFile": [
+    "lib/state/messaging_own_history.dart"
+  ],
+  "nativeInputsIdenticalAcrossPhases": true,
+  "frozenSourceFilesPerPhase": 1509,
+  "nativeRuntimeSdk": "c6699c28",
+  "sourceSdkCheckout": "c8f4929b",
+  "candidateRestored": true,
+  "globalLatencyImprovementProven": false,
+  "noSiblingMailbox": true,
+  "relatedTestsPassed": 165,
+  "relatedTestsSkipped": 0,
+  "newRegressionTests": 6,
+  "blockedRosterCallbacksAtControlledPointBefore": 16,
+  "blockedRosterCallbacksAtControlledPointAfter": 1,
+  "postNativeOnlyAdditionalUnitCases": 2,
+  "productionAndFixtureStillMatchQualifiedInputs": true
+}

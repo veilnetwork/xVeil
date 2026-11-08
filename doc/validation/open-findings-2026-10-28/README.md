@@ -1,5 +1,18 @@
 # Открытые случаи — обновлено 2026-11-08
 
+Последнее исправление: [state-free history и свежая проверка у записи](../history-publication-auth-2026-11-08/README.md).
+После строк без edit/delivery correction убрана повторная roster-проверка;
+синхронный pull/binding guard и свежие проверки у следующей записи/cursor
+сохранены. Gate: assertion-red 16 blocked callbacks → 1 у checkpoint.
+Revoke покрывает next row, last-row checkpoint и отказ state correction;
+165 related tests прошли без skips, analyzer чист. Native A₁/B/A₂: трижды
+512 входящих сообщений, SIGKILL/offline A/C, возврат только A и финальный
+cold boot — все ID/тела/порядок/positions/delivered, без дублей/потерь.
+Receiver median 242,616 / 213,815 / 222,853 мс, после `start(A)` 5219 / 5480 /
+5584 мс; work volumes различаются. **Общее ускорение не доказано, догрузка
+активна.** 1509 inputs, один production diff, одинаковые native hashes;
+все процессы/порты/runtime очищены. Push/релиза/mailbox нет.
+
 Последнее исправление: [state-free history без повторного lookup](../history-noop-read-2026-11-08/README.md).
 Для сообщений без edit/delivery-state correction убраны лишние serialized
 чтения после applier: два assertion-red 64→0, затем 159 related tests и
