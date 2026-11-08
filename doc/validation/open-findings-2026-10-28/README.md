@@ -1,5 +1,23 @@
 # Открытые случаи — обновлено 2026-11-08
 
+Последний раунд: [физическая трасса records и ordered readiness](../record-boundary-calls-2026-11-08/README.md).
+На SDK `5f194c38` две серии Poco/Mac с двумя QA Core: 6/6 и 5/6 финальных
+окон. **NETCALL-01 открыт:** внутри второго захвата RX Mac стоял 2613 мс
+при продолжающемся native audio TX телефона (независимый local collector).
+Из 29 source RTP cells внутри паузы у 27 нет transport-selection witness;
+у двух четыре transport copies локально flushed, но Core read не наблюдался.
+Локальный flush не доказывает NIC egress/remote ACK или сетевой drop.
+Первая серия имеет неполный Core logger; повтор исправил и проверил реальное
+покрытие. Полные IPC ages физически подтверждены.
+
+SDK `e136c71f`: отдельно исправлено подтверждённое ожидание readiness уже прогретого ordered
+child до следующего 250-мс тика: production prepare теперь использует прежний
+publisher с сохранением ownership/live-parent guards. Regression-red на
+виртуальных часах и доставка реального frame проходят; влияние этой новой
+правки на физические паузы пока не квалифицировано. 710 session passed / 8 ignored,
+scoped Clippy и Android release FFI check прошли. Свои стенды убраны,
+APK/контейнер/настройки восстановлены, production прежний; push/релиза нет.
+
 Последний раунд: [полные IPC timings и ordered record boundaries](../ordered-record-observability-2026-11-08/README.md).
 SDK `f5a246ab` устраняет подтверждённый диагностический дефект: full-capture
 не менял фиксированную выборку приёмных IPC ages раз в 50 клеток. Наборы
