@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/log.dart';
 import '../core/diagnostic_journal.dart';
+import '../core/diagnostic_background.dart';
 import '../data/transport/veil_transport.dart';
 import 'providers.dart';
 
@@ -30,6 +31,7 @@ class NetworkReconnect {
     required this.current,
     required this.changes,
     required this.notify,
+    this.onAttachmentChanged,
   });
 
   final Future<List<ConnectivityResult>> Function() current;
@@ -37,6 +39,7 @@ class NetworkReconnect {
   // Generation distinguishes wifi -> cellular -> wifi from a retry of the
   // same observation. Fanout uses it to retry only failed identity nodes.
   final Future<void> Function(NetworkAttachment, int generation) notify;
+  final void Function()? onAttachmentChanged;
   StreamSubscription<List<ConnectivityResult>>? _subscription;
   NetworkAttachment? _desired;
   int _desiredGeneration = 0;
@@ -69,6 +72,11 @@ class NetworkReconnect {
       _desired = attachment;
       _desiredGeneration++;
       _retrySeconds = 1;
+      try {
+        onAttachmentChanged?.call();
+      } catch (_) {
+        // Optional evidence must not prevent network repair.
+      }
     }
     _retryTimer?.cancel();
     _retryTimer = null;
@@ -137,9 +145,11 @@ final networkConnectivityProvider = Provider<Connectivity>(
 final networkReconnectProvider = Provider<void>((ref) {
   final connectivity = ref.watch(networkConnectivityProvider);
   final applied = Map<NetworkChangeTransport, int>.identity();
+  final diagnostics = DiagnosticBackgroundSampler();
   final observer = NetworkReconnect(
     current: connectivity.checkConnectivity,
     changes: connectivity.onConnectivityChanged,
+    onAttachmentChanged: diagnostics.request,
     notify: (attachment, generation) async {
       final active = ref.read(realStackProvider);
       final session = ref.read(sessionProvider);
@@ -165,6 +175,9 @@ final networkReconnectProvider = Provider<void>((ref) {
       ]);
     },
   );
-  ref.onDispose(() => unawaited(observer.dispose()));
+  ref.onDispose(() {
+    diagnostics.dispose();
+    unawaited(observer.dispose());
+  });
   unawaited(observer.start());
 });
