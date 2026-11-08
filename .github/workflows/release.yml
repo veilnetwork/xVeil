@@ -1494,11 +1494,12 @@ jobs:
 
       - name: Scan for leaked identifiers
         env:
-          PATTERNS: ${{ secrets.LEAK_PATTERNS }}
+          PATTERNS: |
+            ${{ secrets.LEAK_PATTERNS }}
+            ${{ secrets.RELEASE_PRIVATE_PATTERNS }}
         run: python3 scripts/scan-artifacts.py artifacts
 
-  # A DRAFT: publishing is a decision someone makes after looking at what was
-  # built, and none of this has run on a phone.
+  # Publish only after the source checks and artifact privacy gate succeed.
   #
   # `needs.checks.result == 'success'` and not just "did not fail": a manual
   # dispatch can be launched against a TAG ref with `run_checks: false`, which
