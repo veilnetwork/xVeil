@@ -56,6 +56,6 @@ ACK, anonymous/reply posture и адресное подтверждение ко
 provenance / multi-space ACK / bridge: **34 passed / 17 skipped**. Skips не
 зачтены. Analyzer трёх Dart files чист, diff check прошёл.
 
-Новая реализация ещё не квалифицирована физически. Это исправление доступности
+Физический прогон: [отрицательный результат](../call-fast-ack-physical-2026-11-08/README.md), fast ACK не зарегистрирован. Это исправление доступности
 быстрого receipt path, а не доказанное устранение NETCALL-01 или всех причин
 поздних копий. Push/релиза нет.
