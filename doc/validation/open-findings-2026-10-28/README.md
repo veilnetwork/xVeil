@@ -1,5 +1,15 @@
 # Открытые случаи — обновлено 2026-11-08
 
+**Коррекция Mac-стенда:** [AOT provenance](../call-aot-provenance-2026-11-08/README.md).
+В b599/c567 физических сериях обновлялся Android AOT, но Mac продолжал
+исполнять старый profile App.framework/App; свежий kernel игнорировался.
+Current Mac Dart/JIT qualification отозвана. Native SHA/mapping и реальные
+packet observations сохранены в уточнённой области применимости. Fast ACK
+на паре двух обновлённых клиентов ещё не проверен; отсутствие новых gate
+codes тоже объясняется старым AOT. Добавлена runtime compile identity в
+аутентифицированный health, 21 tests и analyzer прошли. Следующий шаг —
+пересборка целого profile framework и runtime guard до звонка. Push/релиза нет.
+
 Последняя квалификация: [native ACK — отрицательный результат](../call-fast-ack-physical-2026-11-08/README.md).
 На c5677f38 8/8 route transitions доставлены, но fast receipts 0; ordinary
 ACK-return 8,188–48,085 с, до 32 copies. Relay-only control тоже без fast ACK.

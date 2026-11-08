@@ -1,10 +1,9 @@
 {
-  "appSource": "b59970fb",
   "androidSdk": "bbcd967a",
   "macSdk": "c8f4929b",
   "coreSdk": "e974cebe",
   "androidAot": true,
-  "macJit": true,
+  "macJit": false,
   "nativeLibrariesFrozen": true,
   "policy": "contacts",
   "singleCall": true,
@@ -148,5 +147,11 @@
   "ownProcessesExited": true,
   "productionUnchanged": true,
   "rawIdentifiersPublished": false,
-  "pushOrRelease": false
+  "pushOrRelease": false,
+  "supersededReportedAppSource": "b59970fb",
+  "phoneSource": "b59970fb",
+  "macProfileAot": true,
+  "macCurrentDartQualified": false,
+  "macAotSha256": "a8ef9d79ee6ef072b11f0542d9d64924ee5288cd26563fc94e606e946139a0d6",
+  "sourceQualificationCorrection": "call-aot-provenance-2026-11-08"
 }

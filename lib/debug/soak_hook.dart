@@ -14,6 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:veil_flutter/veil_flutter.dart' as veil;
 
 import '../core/ids.dart';
+import 'build_identity.dart';
 import '../crypto/blake3.dart';
 import '../data/node/embedded_node.dart';
 import '../core/log.dart';
@@ -665,6 +666,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
             // leave a debug app on testnet while its native SDK targets prod.
             // Expose the resolved choice before a stand attempts a call.
             'network': veilNetwork.name,
+            'build': debugCompiledBuildIdentity(),
             if (boot != null) 'nodeBoot': boot.phase.name,
             if (boot?.message != null) 'nodeBootError': boot!.message,
           });
