@@ -3722,6 +3722,7 @@ void main() {
         CallService svc,
         _ReconnectRelayMedia media,
         StreamController<int> counts,
+        _FakeMessaging wire,
       })
       fixture(
         FakeAsync async, {
@@ -3756,7 +3757,7 @@ void main() {
         if (defer) svc.requestRelayRecoveryForDiagnostics();
         async.flushMicrotasks();
         expect(media.switches, defer ? [CallTransportKind.relay] : isEmpty);
-        return (svc: svc, media: media, counts: counts);
+        return (svc: svc, media: media, counts: counts, wire: fake);
       }
 
       test('wakes a deferred candidate without advancing the retry clock', () {
@@ -3782,9 +3783,9 @@ void main() {
             async.flushMicrotasks();
             expect(t.media.switches, hasLength(2));
             expect(t.svc.current?.transport, CallTransportKind.p2p);
-          for (final n in [1, 2, 2, 3]) {
-            t.counts.add(n);
-          }
+            for (final n in [1, 2, 2, 3]) {
+              t.counts.add(n);
+            }
             async.flushMicrotasks();
             expect(t.media.switches, hasLength(2));
             t.counts.add(0);
@@ -3885,6 +3886,123 @@ void main() {
           t.counts.add(1);
           async.flushMicrotasks();
           expect(t.media.switches, hasLength(2));
+          expect(t.svc.current?.transport, CallTransportKind.relay);
+          t.svc.dispose();
+          t.counts.close();
+          async.flushMicrotasks();
+        });
+      });
+
+      test(
+        'retries a failed outbound route while inbound audio stays fresh',
+        () {
+          fakeAsync((async) {
+            final t = fixture(async);
+            t.media.proven = true;
+            for (var i = 0; i < 5; i++) {
+              t.media.rxAt = clock.now();
+              async.elapse(const Duration(seconds: 1));
+              async.flushMicrotasks();
+            }
+            expect(t.media.switches, hasLength(2));
+            expect(t.svc.current?.transport, CallTransportKind.relay);
+            t.svc.dispose();
+            t.counts.close();
+            async.flushMicrotasks();
+          });
+        },
+      );
+
+      test(
+        'timer retries remain bounded and cannot authorize an unproven path',
+        () {
+          fakeAsync((async) {
+            final t = fixture(async);
+            for (var i = 1; i <= 10; i++) {
+              t.media.rxAt = clock.now();
+              async.elapse(const Duration(seconds: 1));
+              async.flushMicrotasks();
+              expect(t.media.switches, hasLength(1 + i ~/ 5));
+              expect(t.svc.current?.transport, CallTransportKind.p2p);
+            }
+            t.svc.dispose();
+            t.counts.close();
+            async.flushMicrotasks();
+          });
+        },
+      );
+
+      test(
+        'reconnect wake waits for repair without losing the deferred retry',
+        () {
+          fakeAsync((async) {
+            final t = fixture(async);
+            t.media.receiveRepairing = true;
+            t.media.proven = true;
+            t.counts.add(1);
+            async.flushMicrotasks();
+            expect(t.media.switches, hasLength(1));
+            t.media.receiveRepairing = false;
+            t.media.rxAt = clock.now();
+            async.elapse(const Duration(seconds: 1));
+            async.flushMicrotasks();
+            expect(t.media.switches, hasLength(2));
+            expect(t.svc.current?.transport, CallTransportKind.relay);
+            t.svc.dispose();
+            t.counts.close();
+            async.flushMicrotasks();
+          });
+        },
+      );
+
+      test('hangup cancels a pending timer before another call can use it', () {
+        fakeAsync((async) {
+          final t = fixture(async);
+          for (var i = 0; i < 2; i++) {
+            t.media.rxAt = clock.now();
+            async.elapse(const Duration(seconds: 1));
+            async.flushMicrotasks();
+          }
+          t.svc.hangup();
+          async.flushMicrotasks();
+          t.wire.onCallSignal!(
+            peer,
+            const CallSignal(
+              callId: 'new-overlay-call',
+              type: CallSignalType.offer,
+              media: CallMedia(audio: true),
+              posture: CallPosture.direct,
+              transport: CallTransportProposal(CallTransportKind.p2p),
+            ),
+          );
+          t.svc.accept();
+          async.flushMicrotasks();
+          t.svc.requestRelayRecoveryForDiagnostics();
+          async.flushMicrotasks();
+          expect(t.media.switches, hasLength(2));
+          t.media.proven = true;
+          for (var i = 0; i < 3; i++) {
+            t.media.rxAt = clock.now();
+            async.elapse(const Duration(seconds: 1));
+            async.flushMicrotasks();
+          }
+          expect(
+            t.media.switches,
+            hasLength(2),
+            reason: 'retired timer deadline',
+          );
+          expect(t.svc.current?.callId, 'new-overlay-call');
+          expect(t.svc.current?.transport, CallTransportKind.p2p);
+          for (var i = 0; i < 2; i++) {
+            t.media.rxAt = clock.now();
+            async.elapse(const Duration(seconds: 1));
+            async.flushMicrotasks();
+          }
+          expect(
+            t.media.switches,
+            hasLength(3),
+            reason: 'new call owns its timer',
+          );
           expect(t.svc.current?.transport, CallTransportKind.relay);
           t.svc.dispose();
           t.counts.close();

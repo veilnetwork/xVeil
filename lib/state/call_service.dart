@@ -511,6 +511,7 @@ class CallService {
   Object? _livenessProbeToken;
   ({NodeId peer, String callId, Future<void> future})? _relayFallbackFlight;
   ({String callId, DateTime until})? _relayCandidateRetry;
+  Timer? _relayCandidateRetryTimer;
 
   // Consent is captured from BOTH original offer/answer proposals, before a
   // temporary route failure changes the active transport. A direct posture
@@ -528,7 +529,7 @@ class CallService {
   int _lateP2PGeneration = 0;
 
   void _resetLateP2P() {
-    _relayCandidateRetry = null;
+    _cancelRelayCandidateRetry();
     _lateP2PGeneration++;
     _lateP2PConsent = false;
     _lateP2PLocalReady = false;
@@ -1846,32 +1847,80 @@ class CallService {
     }
   }
 
-  void _wakeDeferredRelay(NodeId peer, String callId) {
+  void _cancelRelayCandidateRetry() {
+    _relayCandidateRetryTimer?.cancel();
+    _relayCandidateRetryTimer = null;
+    _relayCandidateRetry = null;
+  }
+
+  void _armRelayCandidateRetry(
+    NodeId peer,
+    String callId,
+    Duration delay, {
+    bool fromOverlay = false,
+  }) {
+    _relayCandidateRetryTimer?.cancel();
+    late final Timer timer;
+    timer = Timer(delay, () {
+      if (!identical(_relayCandidateRetryTimer, timer)) return;
+      _relayCandidateRetryTimer = null;
+      _wakeDeferredRelay(peer, callId, fromOverlay: fromOverlay);
+    });
+    _relayCandidateRetryTimer = timer;
+  }
+
+  void _wakeDeferredRelay(
+    NodeId peer,
+    String callId, {
+    bool fromOverlay = true,
+  }) {
+    if (_relayCandidateRetry?.callId != callId) return;
     final call = _current;
     if (_disposed ||
-        _relayFallbackFlight != null ||
-        _relayCandidateRetry?.callId != callId ||
         call == null ||
         call.callId != callId ||
         call.peer != peer ||
         call.status != CallStatus.active ||
         call.transport != CallTransportKind.p2p ||
         call.localPosture != CallPosture.direct ||
-        call.peerPosture != CallPosture.direct ||
-        _media?.isRepairingReceiveSession != false) {
+        call.peerPosture != CallPosture.direct) {
+      _cancelRelayCandidateRetry();
+      return;
+    }
+    if (_relayFallbackFlight != null) return;
+    if (_media?.isRepairingReceiveSession != false) {
+      // A native rebuild may outlive the failed candidate. Retain the intent
+      // without interrupting that operation or losing the reconnect wake.
+      _armRelayCandidateRetry(
+        peer,
+        callId,
+        const Duration(seconds: 1),
+        fromOverlay: fromOverlay,
+      );
       return;
     }
     // A session-count edge is only a wake hint. The native candidate still
     // needs fresh sealed peer proof; it never authorizes a route on its own.
-    // Clear only this call's failed-attempt delay, once per 0 -> live edge.
-    _relayCandidateRetry = null;
+    // Consume only this call's pending attempt, whether woken by a session
+    // edge or its bounded retry timer.
+    _cancelRelayCandidateRetry();
     devLog(
-      () => 'xVeil[call-media]: overlay reconnected; retrying deferred relay',
+      () => fromOverlay
+          ? 'xVeil[call-media]: overlay reconnected; retrying deferred relay'
+          : 'xVeil[call-media]: deferred relay retry deadline reached',
     );
     unawaited(_followRelayFallback(peer, callId));
   }
 
   Future<void> _followRelayFallback(NodeId peer, String callId) {
+    final call = _current;
+    if (_disposed ||
+        call == null ||
+        call.callId != callId ||
+        call.peer != peer ||
+        !call.isLive) {
+      return Future.value();
+    }
     final pending = _relayFallbackFlight;
     if (pending != null && pending.peer == peer && pending.callId == callId) {
       return pending.future;
@@ -1881,7 +1930,7 @@ class CallService {
       return Future.value();
     }
     final connections = _relayConnectionGeneration;
-    _relayCandidateRetry = null;
+    _cancelRelayCandidateRetry();
     late final Future<void> future;
     future = _applyRelayFallback(peer, callId).whenComplete(() {
       if (identical(_relayFallbackFlight?.future, future)) {
@@ -1927,7 +1976,7 @@ class CallService {
       return;
     }
     if (ok && media.activeTransport == CallTransportKind.relay) {
-      _relayCandidateRetry = null;
+      _cancelRelayCandidateRetry();
       _rearmP2PAfterRelay();
       final settled = cur.copyWith(
         transport: CallTransportKind.relay,
@@ -1952,10 +2001,15 @@ class CallService {
       // A candidate can be locally admitted while its peer echo is late or
       // absent. The old engine still owns its route. Keep it alive and bound
       // retries instead of ending a call on an unproven replacement path.
+      const delay = Duration(seconds: 5);
       _relayCandidateRetry = (
         callId: callId,
-        until: _now().add(const Duration(seconds: 5)),
+        until: _now().add(delay),
       );
+      // Inbound media may stay fresh while our outbound P2P path is dead.
+      // A cooldown alone never retries in that asymmetric state: silence
+      // detection will not fire and the peer may already be sending relay.
+      _armRelayCandidateRetry(cur.peer, cur.callId, delay);
       _lateP2PLocalReady = true;
       devLog(() => 'xVeil[call-media]: relay candidate deferred; kept direct');
       return;
