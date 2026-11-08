@@ -38,6 +38,7 @@ import 'call_peer_audio_recovery.dart';
 import 'call_video_prompt.dart';
 import 'call_audio_route.dart';
 import 'call_media_route_operations.dart';
+import 'call_media_route_qualification.dart';
 import 'call_route_delivery_observer.dart';
 import 'call_audio_mirror_lease.dart';
 import 'call_service.dart';
@@ -1067,8 +1068,11 @@ class VeilCallMediaController implements CallMediaController {
   }) async {
     final previous = _chan;
     final previousPeer = _chanPeer;
+    final previousTransport = _chanTransport;
     final epoch = _mediaEpoch;
-    if (previous == null || previousPeer == null) return false;
+    if (previous == null || previousPeer == null || previousTransport == null) {
+      return false;
+    }
     int? candidate;
     var committed = false;
     try {
@@ -1098,11 +1102,33 @@ class VeilCallMediaController implements CallMediaController {
       );
       if (opened == null) return false;
       candidate = opened.channel;
+      bool stillOwned() =>
+          _engine == engine &&
+          epoch == _mediaEpoch &&
+          _chan == previous &&
+          _chanTransport == previousTransport &&
+          _activeCall?.callId == call.callId &&
+          _activeCall?.mediaIdentity == next.mediaIdentity &&
+          _activeCall?.peerDevice == next.peerDevice;
+      var observations = 0;
       // Keep the old sender/receiver alive until the candidate has carried a
       // sealed peer echo in both directions. Local open/admission is not a
       // delivery observation. The echo's route stays inside the call AEAD.
       if (!await _configureRouteProbes(candidate, next, opened.transport) ||
-          !await _transport.qualifyMediaRoute(candidate)) {
+          !await qualifyCallMediaHandover(
+            from: previousTransport,
+            to: target,
+            stillOwned: stillOwned,
+            qualify: () {
+              observations++;
+              devLog(
+                () =>
+                    'xVeil[call-media]: ${target.name} candidate '
+                    'delivery observation=$observations',
+              );
+              return _transport.qualifyMediaRoute(opened.channel);
+            },
+          )) {
         devLog(() => 'xVeil[call-media]: candidate delivery unconfirmed');
         return false;
       }
