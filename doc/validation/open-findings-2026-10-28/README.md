@@ -1,5 +1,22 @@
 # Открытые случаи — обновлено 2026-11-08
 
+Последний раунд: [native TCP/UDP control без Veil](../native-path-control-2026-11-08/README.md).
+Отдельный C executable под shell UID, 512 Б / 50 мс к двум тем же адресам;
+SDK/app не менялись. Loopback, injected 1100-мс delay, один dropped UDP echo
+и remote Mac TCP/UDP smoke проверены до пяти Wi-Fi/Cellular фаз.
+
+**Подтверждено:** на Cellular и без SDK RTT TCP достигает 1,25–3,93 с,
+receive gaps — до 2,93 с при producer gaps ≤62,3 мс и local write wait <5 мс
+для TCP. Все 8400 TCP echoes серии получены. Wi-Fi до/после — max RTT
+115/63 и 282/151 мс по двум адресам. Мобильный raw UDP: echoes 1/1200 и
+2/1200; служба приняла только 4/3 валидных запроса. Это не квалификация
+QUIC и не доказательство блокировки всего UDP или виновности оператора.
+28 power snapshots Awake/Doze ACTIVE; screen-off/OEM и UID-policy этим не
+закрыты. **NETCALL-01 открыт:** SDK не обязателен для этого класса задержек;
+полный historical handover и все остальные SDK defects не объявлены закрытыми.
+Следующий контроль — TLS на том же пути. Телефон/настройки восстановлены,
+own services/files удалены, production независимо проверено; push/релиза нет.
+
 Последний раунд: [NIC-разбор секундных TCP-пауз](../tcp-nic-pauses-2026-11-08/README.md).
 Offline-разбор серии SDK `e974cebe`; product-код и сборки не менялись.
 RTP/cell/record/binding chain связала 20 ссылок с 12 уникальными TCP flows,
