@@ -1,0 +1,74 @@
+{
+  "scope": "runtime-verified Mac profile AOT, frozen current phone AOT, relay-only audio call",
+  "macRuntimeGuard": true,
+  "macAotMappingGuard": true,
+  "endpoints": {
+    "mac": {
+      "fastReceipts": [
+        {
+          "type": "answer",
+          "sourceToFastReceiptMs": 96.086,
+          "sourceToOrdinaryReceiptMs": 112.46,
+          "fastRetries": 0
+        },
+        {
+          "type": "end",
+          "sourceToFastReceiptMs": 182.91,
+          "sourceToOrdinaryReceiptMs": 3248.335,
+          "fastRetries": 0
+        }
+      ],
+      "callAndNativeRelay": true,
+      "maxNativeAudioRxAgeMs": 426,
+      "audioRxPacketDelta": 149,
+      "mediaEpochs": [
+        1
+      ],
+      "finalApiCallFrames": 0,
+      "finalApiOutboxTotal": 0,
+      "ringDropped": 0,
+      "receiptDecisions": {
+        "10": 14,
+        "16": 2,
+        "14": 10
+      }
+    },
+    "phone": {
+      "fastReceipts": [
+        {
+          "type": "offer",
+          "sourceToFastReceiptMs": 99.621,
+          "sourceToOrdinaryReceiptMs": 106.495,
+          "fastRetries": 0
+        },
+        {
+          "type": "answerSelected",
+          "sourceToFastReceiptMs": 94.692,
+          "sourceToOrdinaryReceiptMs": 142.357,
+          "fastRetries": 0
+        },
+        {
+          "type": "end",
+          "sourceToFastReceiptMs": 1198.009,
+          "sourceToOrdinaryReceiptMs": 3225.773,
+          "fastRetries": 2
+        }
+      ],
+      "callAndNativeRelay": true,
+      "maxNativeAudioRxAgeMs": 400,
+      "audioRxPacketDelta": 312,
+      "mediaEpochs": [
+        1
+      ],
+      "finalApiCallFrames": 0,
+      "finalApiOutboxTotal": 0,
+      "ringDropped": 0,
+      "receiptDecisions": {}
+    }
+  },
+  "phoneRestored": true,
+  "productionUnchanged": true,
+  "ownProcessesExited": true,
+  "humanAudibility": false,
+  "netcallResolved": false
+}
