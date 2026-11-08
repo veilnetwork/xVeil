@@ -164,10 +164,14 @@ when the required holder becomes available again.
 ## Live history records larger than one page (2026-11-03)
 
 The live-only own-history exchange keeps its 128-KiB/64-slice page bound.
-Message pages carry at most 32 events; inventory remains at eight conversations.
+Message pages carry at most 64 events (raised from 32 on 2026-11-08); inventory
+remains at eight conversations. Durable publication still uses at most 16 rows
+per cohort. Older application decoders capped at 32 events may reject larger
+pages; old-version compatibility was explicitly waived by the owner.
 The byte ceiling may end a message page earlier. A receiver rejects an over-cap
-page before applying any event. Current sibling authorization is rechecked for
-each event and after awaited apply; the durable cursor advances only after the
+page before applying any event. Current sibling authorization is rechecked at
+row admission and before subsequent state writes/publication/checkpoint; the
+durable cursor advances only after the
 whole accepted page completes. Interrupted pages replay idempotently, and a
 revocation/binding change prevents the unfinished page from being checkpointed.
 

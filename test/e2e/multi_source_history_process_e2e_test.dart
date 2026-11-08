@@ -114,6 +114,10 @@ void main() {
       expect(Platform.environment['XVEIL_E2E_HISTORY_OVERLAP'], '1');
       expect(Platform.environment['XVEIL_E2E_STORAGE_TIMING'], '1');
       expect(Platform.environment['XVEIL_E2E_HISTORY_WIRE_TRACE'], '1');
+      final pollMs = int.parse(
+        Platform.environment['XVEIL_E2E_HISTORY_OVERLAP_POLL_MS'] ?? '1000',
+      );
+      expect(pollMs, inInclusiveRange(50, 5000));
       _invalid = false;
       final fleet = await ProcessFleet.start(
         gate,
@@ -131,6 +135,7 @@ void main() {
         'archiveRows': _rows,
         'localNetworkOnly': true,
         'testBarriersEnabled': true,
+        'convergencePollMs': pollMs,
       };
       Future<void> save() =>
           File('$evidence/result.json').writeAsString(jsonEncode(result));
@@ -191,6 +196,7 @@ void main() {
         await Future.wait([_entered(a, 'encode'), _entered(e, 'encode')]);
         result['bothEncodeGatesEntered'] = true;
         expect(_archive(await _inspect(b, ci, bn)).length, 0);
+        final historyElapsed = Stopwatch()..start();
         await _gate(a, 'encode', 'release').writeAsString('release');
         await _gate(e, 'encode', 'release').writeAsString('release');
         await _entered(b, 'apply');
@@ -255,6 +261,7 @@ void main() {
         result['authenticatedSources'] = 2;
         result['archiveRowsBeforeApplyRelease'] = 0;
         await save();
+        final applyElapsed = Stopwatch()..start();
         await _gate(b, 'apply', 'release').writeAsString('release');
         Map<String, dynamic>? finalB;
         await waitUntil(
@@ -279,8 +286,13 @@ void main() {
           },
           what: 'both source cursors finish and all archived rows converge',
           timeout: const Duration(minutes: 3),
-          interval: const Duration(seconds: 1),
+          interval: Duration(milliseconds: pollMs),
         );
+        historyElapsed.stop();
+        applyElapsed.stop();
+        result['encodeReleaseToConvergenceMs'] =
+            historyElapsed.elapsedMilliseconds;
+        result['applyReleaseToConvergenceMs'] = applyElapsed.elapsedMilliseconds;
         expect((finalB!['historyGates'] as Map)['applyFirstRowCalls'], 2);
         expect((finalB!['historyGates'] as Map)['applyReleased'], 1);
         expect((finalB!['historyGates'] as Map)['applyFailures'], 0);

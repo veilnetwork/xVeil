@@ -1,0 +1,147 @@
+{
+  "scope": "64-row own-history pages; fixed 128-KiB wire page and 16-row durable cohorts",
+  "tests": {
+    "relatedPassed": 167,
+    "skipped": 0,
+    "analyzerClean": true,
+    "baselineDataRequestsFor64ShortMessages": 2,
+    "candidateDataRequestsFor64ShortMessages": 1,
+    "baselineCursorCommits": 4,
+    "candidateCursorCommits": 3,
+    "messagePublicationBatchesBoth": [
+      16,
+      16,
+      16,
+      16
+    ]
+  },
+  "archiveABA": [
+    {
+      "phase": "A1",
+      "rowsPerPage": 32,
+      "encodeReleaseToConvergenceMs": 4649,
+      "applyReleaseToConvergenceMs": 4321,
+      "archiveRows": 512,
+      "totalRows": 513,
+      "sources": [
+        {
+          "role": "A",
+          "pageQueries": 17,
+          "uniquePageQueries": 17,
+          "repeatedQueries": 0
+        },
+        {
+          "role": "E",
+          "pageQueries": 17,
+          "uniquePageQueries": 17,
+          "repeatedQueries": 0
+        }
+      ],
+      "historyFailures": 0,
+      "bodiesAndOrderAndStatusesPassed": true,
+      "retainedWithAllSourcesOffline": true,
+      "selectedLibraryWorkers": 3,
+      "sourceFiles": 1514,
+      "cleanup": {
+        "ownedPidsChecked": 36,
+        "portsChecked": 46,
+        "livePids": [],
+        "remainingListeners": [],
+        "runtimeRootRemoved": true
+      }
+    },
+    {
+      "phase": "B",
+      "rowsPerPage": 64,
+      "encodeReleaseToConvergenceMs": 3775,
+      "applyReleaseToConvergenceMs": 3390,
+      "archiveRows": 512,
+      "totalRows": 513,
+      "sources": [
+        {
+          "role": "A",
+          "pageQueries": 9,
+          "uniquePageQueries": 9,
+          "repeatedQueries": 0
+        },
+        {
+          "role": "E",
+          "pageQueries": 9,
+          "uniquePageQueries": 9,
+          "repeatedQueries": 0
+        }
+      ],
+      "historyFailures": 0,
+      "bodiesAndOrderAndStatusesPassed": true,
+      "retainedWithAllSourcesOffline": true,
+      "selectedLibraryWorkers": 3,
+      "sourceFiles": 1514,
+      "cleanup": {
+        "ownedPidsChecked": 35,
+        "portsChecked": 41,
+        "livePids": [],
+        "remainingListeners": [],
+        "runtimeRootRemoved": true
+      }
+    },
+    {
+      "phase": "A2",
+      "rowsPerPage": 32,
+      "encodeReleaseToConvergenceMs": 4250,
+      "applyReleaseToConvergenceMs": 3926,
+      "archiveRows": 512,
+      "totalRows": 513,
+      "sources": [
+        {
+          "role": "A",
+          "pageQueries": 17,
+          "uniquePageQueries": 17,
+          "repeatedQueries": 0
+        },
+        {
+          "role": "E",
+          "pageQueries": 17,
+          "uniquePageQueries": 17,
+          "repeatedQueries": 0
+        }
+      ],
+      "historyFailures": 0,
+      "bodiesAndOrderAndStatusesPassed": true,
+      "retainedWithAllSourcesOffline": true,
+      "selectedLibraryWorkers": 3,
+      "sourceFiles": 1514,
+      "cleanup": {
+        "ownedPidsChecked": 36,
+        "portsChecked": 41,
+        "livePids": [],
+        "remainingListeners": [],
+        "runtimeRootRemoved": true
+      }
+    }
+  ],
+  "crash": {
+    "rowsBeforeKill": 206,
+    "rowsBeforeNetworkAfterRestart": 253,
+    "all512IdsBodiesPositionsOrderDeliveredConverged": true,
+    "completedHistoryRetries": 0,
+    "onlySourceAReturned": true,
+    "matchedPageQueries": 5,
+    "sourceFiles": 1514,
+    "cleanup": {
+      "ownedPidsChecked": 27,
+      "portsChecked": 25,
+      "livePids": [],
+      "remainingListeners": [],
+      "runtimeRootRemoved": true
+    }
+  },
+  "excludedEarlyControls": "All three ordinary no-crash controls exercised snapshots and zero page queries; excluded from row-cap effect",
+  "sdkRuntime": "c6699c28",
+  "sdkSourceCheckout": "bbcd967a",
+  "hiddenVolumeRelease": "eceb9158",
+  "generalWanSpeedupProven": false,
+  "historyLatencyResolved": false,
+  "mixedVersionCompatibilityRequired": false,
+  "phoneOrProductionUsed": false,
+  "pushOrRelease": false
+}
