@@ -5,6 +5,8 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fake_async/fake_async.dart';
+import 'package:xveil/core/diagnostic_background.dart';
+import 'package:xveil/core/diagnostic_journal.dart';
 import 'package:xveil/data/node/node_controller.dart';
 import 'package:xveil/data/transport/bootstrap_invite.dart';
 import 'package:xveil/data/transport/loopback_transport.dart';
@@ -58,6 +60,59 @@ Future<void> _flush() => Future<void>.delayed(Duration.zero);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test(
+    'pending diagnostic read never holds handover or its next generation',
+    () async {
+      final changes = StreamController<List<ConnectivityResult>>(sync: true);
+      final gate = Completer<Map<Object?, Object?>?>();
+      var reads = 0;
+      final sampler = DiagnosticBackgroundSampler(
+        journal: DiagnosticJournal(enabled: true),
+        readState: () {
+          reads++;
+          return gate.future;
+        },
+      );
+      final observed = <NetworkAttachment>[];
+      final observer = NetworkReconnect(
+        current: () async => [ConnectivityResult.wifi],
+        changes: changes.stream,
+        onAttachmentChanged: sampler.request,
+        notify: (kind, _) async => observed.add(kind),
+      );
+      await observer.start();
+      changes.add([ConnectivityResult.mobile]);
+      await _flush();
+      changes.add([ConnectivityResult.mobile]);
+      await _flush();
+      expect(observed, [NetworkAttachment.wifi, NetworkAttachment.cellular]);
+      expect(reads, 1, reason: 'OS query still pending, repair has completed');
+      sampler.dispose();
+      await observer.dispose();
+      gate.complete(null);
+      await _flush();
+      expect(reads, 1, reason: 'dispose discards queued diagnostic sample');
+      await changes.close();
+    },
+  );
+
+  test('a refused diagnostic observer cannot break repair', () async {
+    final changes = StreamController<List<ConnectivityResult>>(sync: true);
+    final observed = <NetworkAttachment>[];
+    final observer = NetworkReconnect(
+      current: () async => [ConnectivityResult.wifi],
+      changes: changes.stream,
+      onAttachmentChanged: () => throw StateError('private-canary'),
+      notify: (kind, _) async => observed.add(kind),
+    );
+    await observer.start();
+    changes.add([ConnectivityResult.mobile]);
+    await _flush();
+    expect(observed, [NetworkAttachment.wifi, NetworkAttachment.cellular]);
+    await observer.dispose();
+    await changes.close();
+  });
 
   test('handover retries a transient failure without another OS event', () {
     fakeAsync((clock) {
