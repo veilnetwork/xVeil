@@ -1,0 +1,268 @@
+{
+  "sourceRevision": "f1792537674f55b5f0ea9128af4e613d686d2f2d",
+  "fullAotBothEndpoints": true,
+  "cases": [
+    {
+      "case": "first P2P handover",
+      "sameCallThroughout": true,
+      "completed": true,
+      "phases": [
+        {
+          "phase": "wifi-before",
+          "observedSeconds": 20.312,
+          "endpoints": {
+            "mac": {
+              "samples": 40,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                1
+              ],
+              "routes": [
+                "p2p"
+              ],
+              "maxObservedNativeAudioRxAgeMs": 389,
+              "audioRxFirst": 153,
+              "audioRxLast": 425
+            },
+            "phone": {
+              "samples": 29,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                1
+              ],
+              "routes": [
+                "p2p"
+              ],
+              "maxObservedNativeAudioRxAgeMs": 395,
+              "audioRxFirst": 210,
+              "audioRxLast": 519
+            }
+          }
+        },
+        {
+          "phase": "cellular-minimal-host",
+          "observedSeconds": 120.332,
+          "endpoints": {
+            "mac": {
+              "samples": 234,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                1
+              ],
+              "routes": [
+                "p2p",
+                "relay"
+              ],
+              "maxObservedNativeAudioRxAgeMs": 7049,
+              "audioRxFirst": 447,
+              "audioRxLast": 1966
+            },
+            "phone": {
+              "samples": 171,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                1
+              ],
+              "routes": [
+                "p2p",
+                "relay"
+              ],
+              "maxObservedNativeAudioRxAgeMs": 5303,
+              "audioRxFirst": 542,
+              "audioRxLast": 2283
+            }
+          }
+        },
+        {
+          "phase": "wifi-recovery",
+          "observedSeconds": 45.291,
+          "endpoints": {
+            "mac": {
+              "samples": 87,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                1
+              ],
+              "routes": [
+                "p2p",
+                "relay"
+              ],
+              "maxObservedNativeAudioRxAgeMs": 5060,
+              "audioRxFirst": 1970,
+              "audioRxLast": 2391
+            },
+            "phone": {
+              "samples": 65,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                1
+              ],
+              "routes": [
+                "p2p",
+                "relay"
+              ],
+              "maxObservedNativeAudioRxAgeMs": 3958,
+              "audioRxFirst": 2289,
+              "audioRxLast": 3024
+            }
+          }
+        }
+      ],
+      "sourceObservationMessages": {
+        "mac": {
+          "relay candidate delivery observation=1": 2,
+          "route handover relay kept engine": 2,
+          "recovered direct session already admitted; endpoint refresh not needed": 2,
+          "p2p candidate delivery observation=1": 2,
+          "route handover p2p kept engine": 2,
+          "late direct route active": 2
+        },
+        "phone": {
+          "relay candidate delivery observation=1": 2,
+          "route handover relay kept engine": 2,
+          "recovered direct session already admitted; endpoint refresh not needed": 2,
+          "p2p candidate delivery observation=1": 2,
+          "route handover p2p kept engine": 2,
+          "late direct route active": 2
+        }
+      }
+    },
+    {
+      "case": "second P2P handover",
+      "sameCallThroughout": true,
+      "completed": true,
+      "phases": [
+        {
+          "phase": "wifi-before",
+          "observedSeconds": 20.283,
+          "endpoints": {
+            "mac": {
+              "samples": 40,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                3
+              ],
+              "routes": [
+                "p2p"
+              ],
+              "maxObservedNativeAudioRxAgeMs": 404,
+              "audioRxFirst": 45,
+              "audioRxLast": 152
+            },
+            "phone": {
+              "samples": 29,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                3
+              ],
+              "routes": [
+                "p2p"
+              ],
+              "maxObservedNativeAudioRxAgeMs": 363,
+              "audioRxFirst": 149,
+              "audioRxLast": 566
+            }
+          }
+        },
+        {
+          "phase": "cellular-minimal-host",
+          "observedSeconds": 120.28,
+          "endpoints": {
+            "mac": {
+              "samples": 234,
+              "samplesWithoutNativeCounters": 3,
+              "mediaEpochs": [
+                3,
+                5
+              ],
+              "routes": [
+                "p2p",
+                "relay"
+              ],
+              "maxObservedNativeAudioRxAgeMs": 16555,
+              "audioRxFirst": 158,
+              "audioRxLast": 1638
+            },
+            "phone": {
+              "samples": 171,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                3
+              ],
+              "routes": [
+                "p2p",
+                "relay"
+              ],
+              "maxObservedNativeAudioRxAgeMs": 13176,
+              "audioRxFirst": 588,
+              "audioRxLast": 2473
+            }
+          }
+        },
+        {
+          "phase": "wifi-recovery",
+          "observedSeconds": 45.192,
+          "endpoints": {
+            "mac": {
+              "samples": 87,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                5
+              ],
+              "routes": [
+                "p2p",
+                "relay"
+              ],
+              "maxObservedNativeAudioRxAgeMs": 5743,
+              "audioRxFirst": 1651,
+              "audioRxLast": 2276
+            },
+            "phone": {
+              "samples": 65,
+              "samplesWithoutNativeCounters": 0,
+              "mediaEpochs": [
+                3
+              ],
+              "routes": [
+                "p2p",
+                "relay"
+              ],
+              "maxObservedNativeAudioRxAgeMs": 4271,
+              "audioRxFirst": 2485,
+              "audioRxLast": 3235
+            }
+          }
+        }
+      ],
+      "sourceObservationMessages": {
+        "mac": {
+          "relay candidate delivery observation=1": 3,
+          "relay candidate delivery observation=2": 2,
+          "relay candidate delivery observation=3": 2,
+          "candidate delivery unconfirmed": 1,
+          "route handover relay kept engine": 2,
+          "local relay session rebuilt": 1,
+          "recovered direct session already admitted; endpoint refresh not needed": 2,
+          "p2p candidate delivery observation=1": 2,
+          "route handover p2p kept engine": 2,
+          "late direct route active": 2
+        },
+        "phone": {
+          "relay candidate delivery observation=1": 4,
+          "relay candidate delivery observation=2": 2,
+          "relay candidate delivery observation=3": 2,
+          "candidate delivery unconfirmed": 2,
+          "route handover relay kept engine": 2,
+          "recovered direct session already admitted; endpoint refresh not needed": 2,
+          "p2p candidate delivery observation=1": 2,
+          "route handover p2p kept engine": 2,
+          "late direct route active": 2
+        }
+      }
+    }
+  ],
+  "allCleanupChecksPassed": true,
+  "notCausalAB": true,
+  "firstCallSetupNotQualified": true,
+  "firstMacFrameSubscriberDelayAfterPlacementSeconds": 8.24247145652771
+}
