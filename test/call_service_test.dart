@@ -4030,6 +4030,146 @@ void main() {
       ),
     );
 
+    for (final admission in <bool?>[true, false, null]) {
+      test('relay recovery reuses current device admission=$admission', () {
+        fakeAsync((async) {
+          final fake = _FakeMessaging();
+          final media = _FakeMedia()..openedTransport = CallTransportKind.p2p;
+          final refresh = Completer<bool>();
+          var holdRefresh = false;
+          var refreshCalls = 0;
+          final svc = CallService(
+            fake,
+            media: media,
+            now: () => clock.now(),
+            localAllowsP2P: (_) async => true,
+            peerReachableForP2P: (_) {
+              if (!holdRefresh) return Future.value(true);
+              refreshCalls++;
+              return refresh.future;
+            },
+          )..start();
+          final device = NodeId.fromHex('b' * 64);
+          offer(fake, 'admission-recovery', device: device);
+          svc.accept();
+          async.flushMicrotasks();
+          expect(svc.current?.transport, CallTransportKind.p2p);
+          holdRefresh = true;
+          svc.requestRelayRecoveryForDiagnostics();
+          async.flushMicrotasks();
+          expect(svc.current?.transport, CallTransportKind.relay);
+          media.liveDirectAdmission = admission;
+          for (var i = 0; i < kCallP2PCandidateRetry.inSeconds; i++) {
+            media.rxAt = clock.now();
+            async.elapse(const Duration(seconds: 1));
+            async.flushMicrotasks();
+          }
+          fake.onCallSignal!(
+            peer,
+            ready(
+              'admission-recovery',
+            ).copyWith(sentAtMs: clock.now().millisecondsSinceEpoch + 1),
+          );
+          async.flushMicrotasks();
+          expect(
+            svc.current?.transport,
+            admission == true ? CallTransportKind.p2p : CallTransportKind.relay,
+          );
+          expect(refreshCalls, admission == true ? 0 : 1);
+          if (admission == true) {
+            expect(media.liveAdmissionChecks, isNotEmpty);
+            expect(media.liveAdmissionChecks, everyElement(device));
+          }
+          // The old discovery remains held: a valid native admission must
+          // restore media independently of its result, never of a timer.
+          refresh.complete(false);
+          async.flushMicrotasks();
+          svc.dispose();
+          async.flushMicrotasks();
+        });
+      });
+    }
+
+    test('retired call cannot use a delayed admitted recovery snapshot', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia()..openedTransport = CallTransportKind.p2p;
+        final svc = CallService(
+          fake,
+          media: media,
+          now: () => clock.now(),
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async => true,
+        )..start();
+        offer(fake, 'retired-admission');
+        svc.accept();
+        async.flushMicrotasks();
+        svc.requestRelayRecoveryForDiagnostics();
+        async.flushMicrotasks();
+        media.liveAdmissionGate = Completer<bool?>();
+        for (var i = 0; i < kCallP2PCandidateRetry.inSeconds; i++) {
+          media.rxAt = clock.now();
+          async.elapse(const Duration(seconds: 1));
+          async.flushMicrotasks();
+        }
+        expect(media.liveAdmissionChecks, isNotEmpty);
+        svc.hangup();
+        async.flushMicrotasks();
+        final afterHangup = fake.sent.length;
+        media.liveAdmissionGate!.complete(true);
+        async.flushMicrotasks();
+        expect(svc.current, isNull);
+        expect(media.switches, [CallTransportKind.relay]);
+        expect(fake.sent.skip(afterHangup), isEmpty);
+        svc.dispose();
+        async.flushMicrotasks();
+      });
+    });
+
+    test('admitted recovery snapshot still needs the current device gate', () {
+      fakeAsync((async) {
+        final fake = _FakeMessaging();
+        final media = _FakeMedia()..openedTransport = CallTransportKind.p2p;
+        var refreshCalls = 0;
+        final svc = CallService(
+          fake,
+          media: media,
+          now: () => clock.now(),
+          localAllowsP2P: (_) async => true,
+          peerReachableForP2P: (_) async {
+            refreshCalls++;
+            return true;
+          },
+        )..start();
+        offer(fake, 'admission-changed');
+        svc.accept();
+        async.flushMicrotasks();
+        svc.requestRelayRecoveryForDiagnostics();
+        async.flushMicrotasks();
+        media.liveAdmissionGate = Completer<bool?>();
+        for (var i = 0; i < kCallP2PCandidateRetry.inSeconds; i++) {
+          media.rxAt = clock.now();
+          async.elapse(const Duration(seconds: 1));
+          async.flushMicrotasks();
+        }
+        final before = refreshCalls;
+        media.directPeerAdmitted = false;
+        media.liveAdmissionGate!.complete(true);
+        fake.onCallSignal!(
+          peer,
+          ready(
+            'admission-changed',
+          ).copyWith(sentAtMs: clock.now().millisecondsSinceEpoch + 1),
+        );
+        async.flushMicrotasks();
+        expect(svc.current?.transport, CallTransportKind.relay);
+        expect(media.switches, [CallTransportKind.relay]);
+        expect(refreshCalls, before);
+        svc.dispose();
+        async.flushMicrotasks();
+      });
+    });
+
     for (final recovery in ['handover', 'repair']) {
       test('returns from relay to direct twice after temporary $recovery', () {
         fakeAsync((async) {
