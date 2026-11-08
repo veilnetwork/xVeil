@@ -671,6 +671,7 @@ class _MessagingOutbox {
       if (seen == null || at < seen) oldest[frame.peerHex] = at;
     }
     await _loadSilences(_pendingByPeer.keys, oldestQueued: oldest);
+    await _retireSupersededCallRoutes(this, pending, snapshot);
     // THE DEPOSITS ARE A PASS OF THEIR OWN, ahead of every dial.
     //
     // The queue is one flat list, so walking it as "admit, deposit, dial" put
@@ -1614,6 +1615,19 @@ class _MessagingOutbox {
       }
       if (await _collectGroupSliceAck(peerHex, frameId)) return;
     }
+    _forgetRetiredFrame(peerHex, frameId);
+    try {
+      await _owner._storage.ackOutboxFrame(frameId, fromPeerHex: peerHex);
+    } finally {
+      _flushSnapshot?.invalidate(key);
+    }
+  }
+
+  /// Storage already retired this row, or an authenticated ACK authorizes it.
+  /// Keep the synchronous invalidation and early-live ACK race bookkeeping.
+  void _forgetRetiredFrame(String peerHex, String frameId) {
+    final key = _key(peerHex, frameId);
+    _flushSnapshot?.invalidate(key);
     if (_sendingUnpersisted.contains(key)) {
       // The row is still being written. Remember the ACK so the sender retires
       // it the moment it exists — otherwise this call deletes nothing and the
@@ -1630,11 +1644,6 @@ class _MessagingOutbox {
       } else {
         _pendingByPeer.remove(peerHex);
       }
-    }
-    try {
-      await _owner._storage.ackOutboxFrame(frameId, fromPeerHex: peerHex);
-    } finally {
-      _flushSnapshot?.invalidate(key);
     }
   }
 
