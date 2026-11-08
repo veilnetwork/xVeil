@@ -1,5 +1,25 @@
 # Открытые случаи — обновлено 2026-11-08
 
+Последний раунд: [замена ранее готового child и физический повтор](../ready-replacement-calls-2026-11-08/README.md).
+SDK `e974cebe` исправляет потерю pending после отказа уже опубликованного
+Ready child. Failed source selection инвалидирует stale readiness/framing
+и сохраняет demand под одним pool lock, не затирая concurrent completion.
+Красный тест, четыре local source priorities, настоящий encrypted frame
+через spare без нового request и без продвижения timer. 720 session passed /
+8 ignored; scoped Clippy и Android release check прошли.
+
+Poco/Mac/два изолированных Core: **5/6 финальных окон**, максимальные
+after-switch RX ages ≤1202 мс. Прежнего flat ≥1,5 с нет в этой серии;
+не A/B, причинное ускорение не заявляется. **NETCALL-01 открыт:** отдельный
+разбор подтверждает пять 1038–1078-мс flats на Cellular, включая один до
+команды Wi-Fi. Внутри них сформированы 77 distinct RTP cells, все приняты
+после соответствующего flat. Source seal→attempt ≤5,692 мс, Core
+ingress→selection ≤0,644 мс, первый read→RTP ≤8,369 мс. Остаток —
+локальная запись record→чтение на другом конце; конкретный хоп/ядро/сеть
+пока не установлены. Следующий шаг — сохранённые socket bindings + NIC
+capture. `independent_fifo_wait` не считается потерей NodeLogger logs.
+Стенд и телефон восстановлены, production сверено независимо; push/релиза нет.
+
 Последний раунд: [failed readiness probes и физический повтор](../ready-probe-calls-2026-11-08/README.md).
 SDK `cca1204e` исправляет резервирование пустого ordered child при failed
 publisher/sender probe; source и neutral transit используют симметричный
