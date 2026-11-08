@@ -1,0 +1,336 @@
+{
+  "scope": "diagnostic qualification, not a NETCALL fix",
+  "androidSdk": "bbcd967a",
+  "macSdk": "c8f4929b",
+  "coreSdk": "e974cebe",
+  "hostTests": 13,
+  "androidTests": 14,
+  "diagnosticJournalTests": 19,
+  "fineSnapshots": 2235,
+  "phases": [
+    {
+      "phase": "wifi-before",
+      "durationSeconds": 15.255,
+      "hostPhonePolling": false,
+      "endpoints": {
+        "phone": {
+          "samples": 22,
+          "knownRxSamples": 22,
+          "nativeRxAgeMaxMs": 53,
+          "observedFlatCountOver1s": 0,
+          "flatLowerBoundsMs": [],
+          "finalCounterAdvanced": true,
+          "finalRunning": true,
+          "allObservedTransportsRelay": true
+        },
+        "mac": {
+          "samples": 30,
+          "knownRxSamples": 30,
+          "nativeRxAgeMaxMs": 366,
+          "observedFlatCountOver1s": 0,
+          "flatLowerBoundsMs": [],
+          "finalCounterAdvanced": true,
+          "finalRunning": true,
+          "allObservedTransportsRelay": true
+        }
+      }
+    },
+    {
+      "phase": "cellular-minimal-host",
+      "durationSeconds": 90.183,
+      "hostPhonePolling": false,
+      "endpoints": {
+        "phone": {
+          "samples": 128,
+          "knownRxSamples": 128,
+          "nativeRxAgeMaxMs": 1261,
+          "observedFlatCountOver1s": 0,
+          "flatLowerBoundsMs": [],
+          "finalCounterAdvanced": true,
+          "finalRunning": true,
+          "allObservedTransportsRelay": true
+        },
+        "mac": {
+          "samples": 176,
+          "knownRxSamples": 176,
+          "nativeRxAgeMaxMs": 1154,
+          "observedFlatCountOver1s": 2,
+          "flatLowerBoundsMs": [
+            1025.657,
+            1018.18
+          ],
+          "finalCounterAdvanced": true,
+          "finalRunning": true,
+          "allObservedTransportsRelay": true
+        }
+      }
+    },
+    {
+      "phase": "wifi-recovery",
+      "durationSeconds": 15.013,
+      "hostPhonePolling": false,
+      "endpoints": {
+        "phone": {
+          "samples": 22,
+          "knownRxSamples": 22,
+          "nativeRxAgeMaxMs": 709,
+          "observedFlatCountOver1s": 0,
+          "flatLowerBoundsMs": [],
+          "finalCounterAdvanced": true,
+          "finalRunning": true,
+          "allObservedTransportsRelay": true
+        },
+        "mac": {
+          "samples": 29,
+          "knownRxSamples": 29,
+          "nativeRxAgeMaxMs": 360,
+          "observedFlatCountOver1s": 0,
+          "flatLowerBoundsMs": [],
+          "finalCounterAdvanced": true,
+          "finalRunning": true,
+          "allObservedTransportsRelay": true
+        }
+      }
+    }
+  ],
+  "stages": {
+    "clockBoundsMs": {
+      "phone": 36.60845756530762,
+      "mac": 4.179954528808594,
+      "a": 114.6993637084961,
+      "b": 54.097652435302734
+    },
+    "gaps": [
+      {
+        "flatLowerBoundMs": 1025.657,
+        "sourceCells": 5,
+        "counts": {
+          "copies": 10,
+          "firstWriteDefinitelyBeforeFlatEnd": 10,
+          "flushedDefinitelyBeforeFlatEnd": 10,
+          "targetReadDefinitelyBeforeFlatEnd": 0,
+          "targetReadDefinitelyAfterFlatEnd": 10
+        },
+        "stageMs": {
+          "sourceRtpToFirstWriteMs": {
+            "count": 10,
+            "min": 1.605,
+            "max": 2.877
+          },
+          "firstWriteToRemoteReadLowerMs": {
+            "count": 10,
+            "min": 144.13881301879883,
+            "max": 1014.9450302124023
+          },
+          "targetReadToAuthMs": {
+            "count": 10,
+            "min": 0.093,
+            "max": 0.371
+          }
+        }
+      },
+      {
+        "flatLowerBoundMs": 1018.18,
+        "sourceCells": 4,
+        "counts": {
+          "copies": 8,
+          "firstWriteDefinitelyBeforeFlatEnd": 8,
+          "flushedDefinitelyBeforeFlatEnd": 8,
+          "targetReadDefinitelyBeforeFlatEnd": 0,
+          "targetReadDefinitelyAfterFlatEnd": 8
+        },
+        "stageMs": {
+          "sourceRtpToFirstWriteMs": {
+            "count": 8,
+            "min": 1.994,
+            "max": 3.872
+          },
+          "firstWriteToRemoteReadLowerMs": {
+            "count": 8,
+            "min": 269.1078186035156,
+            "max": 746.3860511779785
+          },
+          "targetReadToAuthMs": {
+            "count": 8,
+            "min": 0.029,
+            "max": 0.069
+          }
+        }
+      }
+    ]
+  },
+  "nic": [
+    {
+      "flatLowerBoundMs": 1025.657,
+      "sourceCells": 5,
+      "unmappedCopiesWithoutRead": 0,
+      "mobileFlows": [
+        {
+          "core": "a",
+          "distinctCells": 5,
+          "physicalCopies": 5,
+          "allPacketGapMs": 1159.975,
+          "dataPacketGapMs": 1360.128,
+          "prefixAdvanceGapMs": 1360.128,
+          "sequenceHolesOver100msEndingNearReads": 0,
+          "longestHoleMs": 0,
+          "incomingAckOnlyDuringDataGap": 4,
+          "firstReadAfterDataGapMs": 0.108,
+          "readBatchSpreadMs": 1.209
+        },
+        {
+          "core": "b",
+          "distinctCells": 5,
+          "physicalCopies": 5,
+          "allPacketGapMs": 1159.892,
+          "dataPacketGapMs": 1352.188,
+          "prefixAdvanceGapMs": 1352.188,
+          "sequenceHolesOver100msEndingNearReads": 0,
+          "longestHoleMs": 0,
+          "incomingAckOnlyDuringDataGap": 4,
+          "firstReadAfterDataGapMs": 0.149,
+          "readBatchSpreadMs": 0.422
+        }
+      ]
+    },
+    {
+      "flatLowerBoundMs": 1018.18,
+      "sourceCells": 4,
+      "unmappedCopiesWithoutRead": 0,
+      "mobileFlows": [
+        {
+          "core": "a",
+          "distinctCells": 4,
+          "physicalCopies": 4,
+          "allPacketGapMs": 1109.985,
+          "dataPacketGapMs": 1109.985,
+          "prefixAdvanceGapMs": 1109.985,
+          "sequenceHolesOver100msEndingNearReads": 0,
+          "longestHoleMs": 0,
+          "incomingAckOnlyDuringDataGap": 0,
+          "firstReadAfterDataGapMs": 6.728,
+          "readBatchSpreadMs": 5.597
+        },
+        {
+          "core": "b",
+          "distinctCells": 4,
+          "physicalCopies": 4,
+          "allPacketGapMs": 1110.594,
+          "dataPacketGapMs": 1110.594,
+          "prefixAdvanceGapMs": 1110.594,
+          "sequenceHolesOver100msEndingNearReads": 0,
+          "longestHoleMs": 0,
+          "incomingAckOnlyDuringDataGap": 0,
+          "firstReadAfterDataGapMs": 5.655,
+          "readBatchSpreadMs": 5.145
+        }
+      ]
+    }
+  ],
+  "kernelInsideNicSilences": [
+    {
+      "flatLowerBoundMs": 1025.657,
+      "flows": [
+        {
+          "core": "a",
+          "sourceCells": 5,
+          "nicDataSilenceMs": 1360.128,
+          "clockSafeInteriorMs": 1243.426,
+          "kernelSnapshotsStrictlyInside": 4,
+          "ackedDeltaInside": 0,
+          "sentDeltaInside": 4999,
+          "retransmittedDeltaInside": 433,
+          "notSentMaxInside": 0
+        },
+        {
+          "core": "b",
+          "sourceCells": 5,
+          "nicDataSilenceMs": 1352.188,
+          "clockSafeInteriorMs": 1296.089,
+          "kernelSnapshotsStrictlyInside": 4,
+          "ackedDeltaInside": 0,
+          "sentDeltaInside": 5255,
+          "retransmittedDeltaInside": 586,
+          "notSentMaxInside": 0
+        }
+      ]
+    },
+    {
+      "flatLowerBoundMs": 1018.18,
+      "flows": [
+        {
+          "core": "a",
+          "sourceCells": 4,
+          "nicDataSilenceMs": 1109.985,
+          "clockSafeInteriorMs": 993.284,
+          "kernelSnapshotsStrictlyInside": 2,
+          "ackedDeltaInside": 0,
+          "sentDeltaInside": 1217,
+          "retransmittedDeltaInside": 0,
+          "notSentMaxInside": 0
+        },
+        {
+          "core": "b",
+          "sourceCells": 4,
+          "nicDataSilenceMs": 1110.594,
+          "clockSafeInteriorMs": 1054.495,
+          "kernelSnapshotsStrictlyInside": 2,
+          "ackedDeltaInside": 0,
+          "sentDeltaInside": 1023,
+          "retransmittedDeltaInside": 0,
+          "notSentMaxInside": 0
+        }
+      ]
+    }
+  ],
+  "tcpCapture": {
+    "a": {
+      "packets": 20140,
+      "flows": 137,
+      "peerPortCollisions": 0,
+      "reusedFourTuples": 0,
+      "flowsWithBothSyns": 137,
+      "captureStats": [
+        "20158 packets captured",
+        "20168 packets received by filter",
+        "0 packets dropped by kernel"
+      ]
+    },
+    "b": {
+      "packets": 20135,
+      "flows": 108,
+      "peerPortCollisions": 0,
+      "reusedFourTuples": 0,
+      "flowsWithBothSyns": 100,
+      "captureStats": [
+        "20151 packets captured",
+        "20152 packets received by filter",
+        "0 packets dropped by kernel"
+      ]
+    }
+  },
+  "cleanup": {
+    "macRequiredSigkillAfterGrace": true,
+    "macProcessExited": true,
+    "phoneQaExited": true,
+    "sealedTracePropertyRestored": true,
+    "recordAndOpaquePropertiesRestored": true,
+    "originalAudioPermissionRestored": true,
+    "network.veil.xveil.qa.audio20261101ApkShaUnchanged": true,
+    "network.veil.xveilApkShaUnchanged": true,
+    "oldQaContainerShaUnchanged": true,
+    "validatedOriginalNetworkRestored": true,
+    "ownAdbForwardRemoved": true,
+    "ownedPortsReleased": true
+  },
+  "localHygiene": {
+    "macOwnedRuntimeRemoved": true,
+    "macSignatureVerified": true,
+    "macOwnDebugLogMoved": true,
+    "allRecordedLocalChildrenExited": true
+  },
+  "probeAndCleanup": {
+    "probeExit": 0,
+    "cleanupExit": 0
+  }
+}

@@ -1,5 +1,30 @@
 # Открытые случаи — обновлено 2026-11-08
 
+Последний физический NETCALL-01: [частые TCP snapshots](../sdk-fine-tcp-call-2026-11-08/README.md).
+SDK `bbcd967a` добавляет отдельный bounded operator gate: 100 мс / 180 с /
+8192 fine rows, default прежний; 13 Mac / 14 Poco / 19 journal tests прошли.
+Звонок Wi-Fi→Cellular→Wi-Fi сохранился, но **NETCALL-01 открыт**: два RX plateau
+1018–1026 мс. Девять audio cells / 18 copies поздно приняты; локальный
+RTP→first write ≤3,872 мс, flush ≤0,439 мс. Для четырёх flow/plateau теперь
+есть 4/4 и 2/2 sender snapshots строго внутри NIC DATA silences 1110–1360 мс:
+ACK стоит, sent растёт, в первой паре растут retransmitted bytes; notsent=0
+в выбранных снимках. Участок после передачи ядру телефона до capture Core
+не разделён на ОС/модем/сеть; изменений окна аудио не обосновывает.
+Телефон/стенд восстановлены, production отдельно сверено, raw данные private.
+Новый installed APK byte-check не выполнялся; новая fine-диагностика видна
+по QA PID, packaging/source guard прошёл. Push/релиза нет.
+
+Последний контроль latency: [CPU/timeline и release HVS](../history-profile-control-2026-11-08/README.md).
+Затраты `package:stack_trace` тестового раннера не приписаны production RPC.
+Для текущей HVS собрана отдельная release library с proof; 5 native checks
+прошли. На одном immutable fixture read A₁/B/A₂: 116,930 / 30,569 / 117,408 мс
+(сжимаемые) и 153,594 / 69,652 / 155,436 мс (random), по 100 проходов.
+Полный profiled crash/offline control: 512/512 retained ID/тела/порядок/
+positions/delivered; после возврата только A 6257 мс против 6378 мс в frozen
+profiled run, при разном остатке работы. **Общее ускорение не доказано,
+догрузка активна.** Оба stand очищены; отдельный owned Rust target удалён,
+release dylib с SHA сохранён для следующих замеров.
+
 Последнее исправление: [state-free history и свежая проверка у записи](../history-publication-auth-2026-11-08/README.md).
 После строк без edit/delivery correction убрана повторная roster-проверка;
 синхронный pull/binding guard и свежие проверки у следующей записи/cursor
