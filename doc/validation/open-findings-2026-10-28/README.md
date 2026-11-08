@@ -4058,3 +4058,14 @@ report snapshots по allowlist, dropped 0. 1479 frozen inputs, native SHA
 контракт чтения журнала не менялся, полный crash/clock-skew набор не заявлен.
 Windows снова отвечает и authenticated SSH выполнен; приложение там не
 запущено. Предстоит физический ПК ↔ Android прогон, исходная жалоба пока открыта.
+
+
+## 2026-11-08: уже допущенный direct peer после relay recovery
+
+[Механизм и проверки](../call-direct-admission-reuse-2026-11-08/README.md).
+Повторный endpoint refresh больше не предшествует проверке уже допущенного
+answering device после recovery. Snapshot не заменяет свежие admission,
+consent и native route proof. 308 related tests, 0 skipped; физика pending.
+В старом AOT захвате четыре конкретных RTP точно сброшены локально как
+`child_unavailable` и не получены Mac; причина недоступности независимых
+каналов ещё не установлена. NETCALL-01 открыт; SDK/HV не менялись.
