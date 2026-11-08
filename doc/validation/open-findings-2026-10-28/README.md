@@ -1,5 +1,20 @@
 # Открытые случаи — обновлено 2026-11-08
 
+Последний раунд: [SDK-звонок с минимальным host polling](../sdk-tcp-progress-call-2026-11-08/README.md).
+Новые FFI `c8f4929b`, неизменные frontend/media/HV; два Core `e974cebe`.
+Звонок пережил Wi-Fi→Cellular→Wi-Fi. В 120-с Cellular interval host не
+опрашивал телефон; запись шла локально. **NETCALL-01 открыт:** Mac RX age
+до 1314 мс, Poco до 1391 мс; 10 plateau на Mac. Внутри них сформированы
+56 audio cells, все сопоставлены с поздним authenticated RTP: это не только DTX.
+RTP→first write ≤5,357 мс, 111/112 flush ≤0,612 мс после first write.
+Для 64 копий matching Core read точно позже plateau; 4 read отсутствуют.
+На одном audio TCP flow ACK стоит 1,29 с при sent/retransmission progress;
+для альтернативы ACK продвигается, все паузы этим не объяснены.
+Большие RTO старых standby sockets не приписаны аудио. Следующее — конкретные
+flows/NIC capture; изменения окна аудио не обоснованы. Host ADB оставался
+включён, причинный A/B не заявляется. Стенд/телефон восстановлены,
+production независимо сверено, push/релиза нет.
+
 Последний раунд: [TCP byte progress в SDK](../sdk-tcp-progress-2026-11-08/README.md).
 Opt-in trace дополнена Linux/Android sent/acked/received/retransmitted bytes,
 RTO retries/backoff и readback MSS/send-buffer/LOWAT. Короткие ответы ядра
