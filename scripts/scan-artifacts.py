@@ -30,6 +30,8 @@ import zipfile
 
 IDENT = re.compile(rb"[A-Za-z0-9_]")
 RUN = re.compile(rb"[ -~]{4,}")
+RUN16_LE = re.compile(rb"(?:[ -~]\x00){4,}")
+RUN16_BE = re.compile(rb"(?:\x00[ -~]){4,}")
 
 
 def load_patterns(text: str) -> tuple[list[str], list[str]]:
@@ -51,7 +53,14 @@ def load_patterns(text: str) -> tuple[list[str], list[str]]:
 def hits(blob: bytes, literals: list[str], allow: list[str]) -> list[str]:
     """Every printable run that carries a forbidden string, with context."""
     found: list[str] = []
-    for run in RUN.findall(blob):
+    # Windows resources and manifests may use UTF-16 even when the binary's
+    # diagnostic paths use ASCII. Treat both as the same literal protocol.
+    runs = (
+        RUN.findall(blob)
+        + [match[::2] for match in RUN16_LE.findall(blob)]
+        + [match[1::2] for match in RUN16_BE.findall(blob)]
+    )
+    for run in runs:
         low = run.lower()
         for pattern in literals:
             needle = pattern.lower().encode()
@@ -90,7 +99,11 @@ def blobs(path: str):
                     handle = archive.extractfile(member)
                     if handle:
                         yield f"{os.path.basename(path)}:{member.name}", handle.read()
+                elif member.issym() or member.islnk():
+                    yield f"{os.path.basename(path)}:{member.name}", member.linkname.encode()
         return
+    if path.lower().endswith((".zip", ".apk", ".tar", ".tar.gz", ".tgz")):
+        raise ValueError("invalid artifact archive")
     with open(path, "rb") as handle:
         yield os.path.basename(path), handle.read()
 
@@ -112,12 +125,24 @@ def main() -> int:
     for directory, _subdirs, files in os.walk(root):
         for name in sorted(files):
             path = os.path.join(directory, name)
-            for label, blob in blobs(path):
-                scanned += 1
-                for context in hits(blob, literals, allow):
-                    print(f"::error::leaked identifier in {label}: {context}")
-                    leaks += 1
+            try:
+                for label, blob in blobs(path):
+                    scanned += 1
+                    count = len(hits(blob, literals, allow)) + len(
+                        hits(label.encode(), literals, allow)
+                    )
+                    if count:
+                        # Both context and archive labels can contain the very
+                        # identifier we must keep out of public Actions logs.
+                        print(f"::error::forbidden data in entry {scanned}")
+                        leaks += count
+            except (OSError, ValueError, zipfile.BadZipFile, tarfile.TarError):
+                print("::error::artifact scan failed; no private details logged")
+                return 1
     print(f"scanned {scanned} entries")
+    if scanned == 0:
+        print("::error::no artifact entries were scanned")
+        return 1
     if leaks:
         print(f"::error::{leaks} leak(s) — this must not be published.")
         return 1
