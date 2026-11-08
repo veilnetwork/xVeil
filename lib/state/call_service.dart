@@ -299,6 +299,7 @@ class CallService {
     Future<bool> Function(NodeId peer)? peerReachableForP2P,
     String? Function(NodeId peer)? p2pFallbackReason,
     Future<List<CallLogEntry>> Function()? loadFinishedCalls,
+    Stream<int>? overlaySessions,
   }) : _now = now ?? DateTime.now,
        // ignore: prefer_initializing_formals — public `media:` param → private field.
        _media = media,
@@ -313,7 +314,14 @@ class CallService {
        // ignore: prefer_initializing_formals — public `p2pFallbackReason:` → private field.
        _p2pFallbackReason = p2pFallbackReason,
        // ignore: prefer_initializing_formals — public callback → private field.
-       _loadFinishedCalls = loadFinishedCalls;
+       _loadFinishedCalls = loadFinishedCalls,
+       // ignore: prefer_initializing_formals — public stream → private field.
+       _overlaySessions = overlaySessions;
+
+  final Stream<int>? _overlaySessions;
+  StreamSubscription<int>? _overlaySessionsSub;
+  int? _lastOverlaySessions;
+  int _relayConnectionGeneration = 0;
 
   final Future<List<CallLogEntry>> Function()? _loadFinishedCalls;
   Future<void>? _historyReady;
@@ -783,6 +791,10 @@ class CallService {
   void start() {
     if (_started || _disposed) return;
     _started = true;
+    _overlaySessionsSub = _overlaySessions?.listen(
+      _observeOverlaySessions,
+      onError: (Object _) {},
+    );
     if (_loadFinishedCalls == null) {
       _attachWireHandler();
     } else {
@@ -1821,6 +1833,44 @@ class CallService {
     _end(CallEndReason.error, origin: CallEndOrigin.mediaRepairFailure);
   }
 
+  void _observeOverlaySessions(int count) {
+    if (_disposed || count < 0) return;
+    final previous = _lastOverlaySessions;
+    _lastOverlaySessions = count;
+    if (previous != 0 || count == 0) return;
+    _relayConnectionGeneration++;
+    final call = _current;
+    if (call != null) {
+      devLog(() => 'xVeil[call-media]: overlay sessions restored');
+      _wakeDeferredRelay(call.peer, call.callId);
+    }
+  }
+
+  void _wakeDeferredRelay(NodeId peer, String callId) {
+    final call = _current;
+    if (_disposed ||
+        _relayFallbackFlight != null ||
+        _relayCandidateRetry?.callId != callId ||
+        call == null ||
+        call.callId != callId ||
+        call.peer != peer ||
+        call.status != CallStatus.active ||
+        call.transport != CallTransportKind.p2p ||
+        call.localPosture != CallPosture.direct ||
+        call.peerPosture != CallPosture.direct ||
+        _media?.isRepairingReceiveSession != false) {
+      return;
+    }
+    // A session-count edge is only a wake hint. The native candidate still
+    // needs fresh sealed peer proof; it never authorizes a route on its own.
+    // Clear only this call's failed-attempt delay, once per 0 -> live edge.
+    _relayCandidateRetry = null;
+    devLog(
+      () => 'xVeil[call-media]: overlay reconnected; retrying deferred relay',
+    );
+    unawaited(_followRelayFallback(peer, callId));
+  }
+
   Future<void> _followRelayFallback(NodeId peer, String callId) {
     final pending = _relayFallbackFlight;
     if (pending != null && pending.peer == peer && pending.callId == callId) {
@@ -1830,10 +1880,17 @@ class CallService {
         _now().isBefore(_relayCandidateRetry!.until)) {
       return Future.value();
     }
+    final connections = _relayConnectionGeneration;
+    _relayCandidateRetry = null;
     late final Future<void> future;
     future = _applyRelayFallback(peer, callId).whenComplete(() {
       if (identical(_relayFallbackFlight?.future, future)) {
         _relayFallbackFlight = null;
+        // A reconnect can arrive during native open/qualification. Do not
+        // overlap it, or let that older failure consume the new wake hint.
+        if (connections != _relayConnectionGeneration) {
+          _wakeDeferredRelay(peer, callId);
+        }
       }
     });
     _relayFallbackFlight = (peer: peer, callId: callId, future: future);
@@ -3123,6 +3180,8 @@ class CallService {
     _microphoneUnavailableSub = null;
     unawaited(_peerHealthSub?.cancel());
     _peerHealthSub = null;
+    unawaited(_overlaySessionsSub?.cancel());
+    _overlaySessionsSub = null;
     if (_media == null) {
       _releaseSlot();
     } else {
@@ -3172,6 +3231,7 @@ final callServiceProvider = Provider<CallService>((ref) {
     media: media,
     callSlot: ref.read(callSlotProvider),
     loadFinishedCalls: ref.read(storageProvider).callLogEntries,
+    overlaySessions: transport.sessionCount(),
     // Calls start UNMUTED on every platform. Android used to pass
     // `Platform.isAndroid` here, so every call on a phone connected with the
     // microphone off: the person answering said hello into a muted mic and the
