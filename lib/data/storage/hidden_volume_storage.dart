@@ -132,7 +132,8 @@ class HiddenVolumeStorage
         StoredFilePresenceReader,
         StoredFilePairWriter,
         PreparedMessageBatchStore,
-        PreparedOrderingBatchStore {
+        PreparedOrderingBatchStore,
+        GuardedOutboxRetirement {
   /// Default (SYNC opener) — the in-memory fake, tests, and any path not yet
   /// given its own worker. The sync opener is lifted to async (run INLINE on
   /// the calling isolate) internally, so behaviour is unchanged; only the
@@ -6495,6 +6496,53 @@ class HiddenVolumeStorage
             ),
         ];
       });
+
+  @override
+  Future<bool> retireOutboxFramesIfCurrent({
+    required List<OutboxFrame> obsolete,
+    required OutboxFrame retained,
+  }) {
+    if (obsolete.isEmpty ||
+        obsolete.length > 64 ||
+        obsolete.map((f) => f.frameId).toSet().length != obsolete.length ||
+        obsolete.any(
+          (f) => f.peerHex != retained.peerHex || f.frameId == retained.frameId,
+        ) ||
+        [...obsolete, retained].fold<int>(0, (n, f) => n + f.wire.length) >
+            32 * 1024 * 1024) {
+      throw ArgumentError('invalid guarded outbox retirement');
+    }
+    OutboxFrame freeze(OutboxFrame frame) => OutboxFrame(
+      frameId: frame.frameId,
+      peerHex: frame.peerHex,
+      wire: Uint8List.fromList(frame.wire),
+    );
+    final old = obsolete.map(freeze).toList();
+    final keep = freeze(retained);
+    return _trackLogWrite(
+      (store) => _outboxSerialized(() async {
+        if (!identical(store, _store)) {
+          throw StateError('guarded retirement storage session changed');
+        }
+        if (!await _ensureOutboxLoadedCritical()) {
+          throw StateError('durable outbox could not be loaded');
+        }
+        for (final expected in [...old, keep]) {
+          final held = _outboxById[expected.frameId]?.frame;
+          if (held == null ||
+              held.peerHex != expected.peerHex ||
+              !_bytesEqual(held.wire, expected.wire)) {
+            return false;
+          }
+        }
+        await _ackOutboxFramesCritical(
+          old.map((f) => f.frameId),
+          fromPeerHex: keep.peerHex,
+        );
+        return true;
+      }),
+    );
+  }
 
   static const _outboxCleanupKey = 'outbox.replacement_scrub_pending';
 

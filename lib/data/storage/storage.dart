@@ -974,3 +974,13 @@ class OutboxFrame {
   /// and a migration is no reason to drop them.
   final int? enqueuedAtMs;
 }
+
+/// Optional atomic retirement of moot state, guarded by a retained successor.
+/// All rows must still exist with the exact peer and wire bytes. A missing or
+/// changed successor returns false; it must never be recreated after its ACK.
+abstract interface class GuardedOutboxRetirement {
+  Future<bool> retireOutboxFramesIfCurrent({
+    required List<OutboxFrame> obsolete,
+    required OutboxFrame retained,
+  });
+}
