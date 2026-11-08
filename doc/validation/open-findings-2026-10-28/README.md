@@ -4065,7 +4065,14 @@ Windows снова отвечает и authenticated SSH выполнен; пр�
 [Механизм и проверки](../call-direct-admission-reuse-2026-11-08/README.md).
 Повторный endpoint refresh больше не предшествует проверке уже допущенного
 answering device после recovery. Snapshot не заменяет свежие admission,
-consent и native route proof. 308 related tests, 0 skipped; физика pending.
+consent и native route proof. 308 related tests, 0 skipped, analyzer чистый.
+Два полных AOT Poco ↔ Mac звонка прошли Wi-Fi → Cellular → Wi-Fi; новая ветка
+выполнена на обоих концах. Max observed audio RX age на Cellular: 7049/5303
+и 16555/13176 мс (Mac/Poco); во втором звонке один Mac rebuild и три среза
+без native counters. Это не A/B и не закрытие NETCALL-01. Второй захват
+показывает сохранение direct sender до поздней relay qualification; причину
+раннего отказа кандидатов ещё предстоит установить. Все own apps/Core закрыты,
+артефакты/настройки восстановлены, production не изменён.
 В старом AOT захвате четыре конкретных RTP точно сброшены локально как
 `child_unavailable` и не получены Mac; причина недоступности независимых
 каналов ещё не установлена. NETCALL-01 открыт; SDK/HV не менялись.
