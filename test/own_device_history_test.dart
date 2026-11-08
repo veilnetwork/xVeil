@@ -633,6 +633,116 @@ void main() {
   }
 
   test(
+    'state-free cohort waits for one fresh checkpoint roster after publication',
+    () async {
+      await seed(32, direction: MessageDirection.incoming);
+      net.drop = (from, _, body) => from == a && body['q'] != null;
+      final entered = Completer<void>(), release = Completer<void>();
+      var rosterReadsAfterPublication = 0;
+      var lastPublicationApplied = false;
+      final apply = mb.ownHistoryApplyPrepared!;
+      mb.ownHistoryApplyPrepared = (event, writes) async {
+        await apply(event, writes);
+        if (event.key.compareTo('m0016') >= 0) lastPublicationApplied = true;
+      };
+      mb.myOtherDevices = () async {
+        if (lastPublicationApplied) {
+          rosterReadsAfterPublication++;
+          if (!entered.isCompleted) entered.complete();
+          await release.future;
+        }
+        return bSiblings;
+      };
+      ma.start();
+      mb.start();
+      await entered.future;
+      try {
+        await Future<void>(() {});
+        await Future<void>(() {});
+        expect(await count(), 32);
+        expect(bStore.postBatches, [16, 16]);
+        expect(
+          rosterReadsAfterPublication,
+          1,
+          reason: 'the next write is the cursor, not another per-row write',
+        );
+        final cursor = await sb.getSetting('device.history.cursor.v2:${a.hex}');
+        expect(cursor, isNot('{}'), reason: 'checkpoint still needs admission');
+      } finally {
+        release.complete();
+      }
+      await until(
+        () async =>
+            await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+      );
+      expect(errorJournal.entries, isEmpty);
+    },
+  );
+
+  for (final (prepared, rows) in [
+    (false, 1),
+    (false, 32),
+    (true, 16),
+    (true, 32),
+  ]) {
+    test(
+      'revoke after state-free apply stops the next write (prepared=$prepared, rows=$rows)',
+      () async {
+        await seed(rows, direction: MessageDirection.incoming);
+        net.drop = (from, _, body) => from == a && body['q'] != null;
+        if (prepared) {
+          final apply = mb.ownHistoryApplyPrepared!;
+          mb.ownHistoryApplyPrepared = (event, writes) async {
+            await apply(event, writes);
+            bSiblings = [];
+          };
+        } else {
+          mb.ownHistoryApplyPrepared = null;
+          final apply = mb.ownHistoryApply!;
+          mb.ownHistoryApply = (event) async {
+            await apply(event);
+            bSiblings = [];
+          };
+        }
+        ma.start();
+        mb.start();
+        await until(() async => errorJournal.entries.isNotEmpty);
+        expect(applied, prepared ? 16 : 1);
+        expect(await count(), prepared ? 16 : 1);
+        final cursor = await sb.getSetting('device.history.cursor.v2:${a.hex}');
+        expect(cursor, isNot('{}'));
+        expect((jsonDecode(cursor!) as Map)['cursor'], isNull);
+      },
+    );
+  }
+
+  test(
+    'state correction still rechecks revocation after mirror publication',
+    () async {
+      await seed(1);
+      net.drop = (from, _, body) => from == a && body['q'] != null;
+      final apply = mb.ownHistoryApplyPrepared!;
+      mb.ownHistoryApplyPrepared = (event, writes) async {
+        await apply(event, writes);
+        bSiblings = [];
+      };
+      ma.start();
+      mb.start();
+      await until(() async => errorJournal.entries.isNotEmpty);
+      expect(applied, 1);
+      final row = await sb.loadMessageById(peer.hex, 'm0000');
+      expect(row, isNotNull);
+      expect(
+        row!.status,
+        MessageStatus.sent,
+        reason: 'revoked input must not apply its delivered correction',
+      );
+      final cursor = await sb.getSetting('device.history.cursor.v2:${a.hex}');
+      expect(cursor, isNot('{}'));
+    },
+  );
+
+  test(
     'history preparation fills one bounded cohort without publishing past a held row',
     () async {
       await seed(32);

@@ -191,6 +191,10 @@ void main() {
           Platform.environment['XVEIL_E2E_BACKLOG_DIRECTION'] ?? 'outgoing';
       expect(baseDirection, anyOf('incoming', 'outgoing'));
       if (baseDirection == 'incoming') expect(migrationOnly, isTrue);
+      final migrationPollMs = int.parse(
+        Platform.environment['XVEIL_E2E_MIGRATION_POLL_MS'] ?? '5000',
+      );
+      expect(migrationPollMs, inInclusiveRange(50, 5000));
       expect(baseRows, inInclusiveRange(migrationOnly ? 1 : 0, 3000));
       expect(crashAfterRows, greaterThanOrEqualTo(0));
       if (sourcesOfflineAtRestart) expect(crashAfterRows, greaterThan(0));
@@ -413,7 +417,7 @@ void main() {
               'order=$initialOrderMatches positions=$initialPositionsMatch '
               'delivered=${_statuses['B']?['delivered']}',
           timeout: const Duration(minutes: 6),
-          interval: const Duration(seconds: 5),
+          interval: Duration(milliseconds: migrationPollMs),
         );
       } finally {
         initialHistory.stop();
@@ -541,6 +545,7 @@ void main() {
               'migrationOnly': true,
               'baseRows': baseRows,
               'baseDirection': baseDirection,
+              'migrationPollMs': migrationPollMs,
               'initialHistoryMs': initialHistory.elapsedMilliseconds,
               'initialCountCompleteMs': initialCountCompleteMs,
               'initialOrderMismatchObservations':
