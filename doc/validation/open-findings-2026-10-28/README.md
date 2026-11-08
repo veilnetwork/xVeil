@@ -1,5 +1,19 @@
 # Открытые случаи — обновлено 2026-11-08
 
+Последнее исправление: [датированный media-repair и P2P handover](../call-repair-freshness-2026-11-08/README.md).
+Старый/повторный health больше не перестраивает медиа после нового
+health/transportInfo; fresh и startup requests сохранены, local watchdog не
+менялся. Четыре assertion-red, пять focused guards; 248 related tests без
+skips, analyzer чист. Новый Dart ещё не проверен физически.
+**NETCALL-01 открыт:** на pre-fix call code с разрешённым P2P подтверждена
+пауза по native audio RX age до 28,639 с на Mac / 9,924 с на Poco после
+Wi-Fi→Cellular. Watchdog реагировал при 3,229 с, четыре relay candidates
+не прошли qualification; были повторные P2P↔relay переходы. Причина отказа
+кандидатов не установлена, matching late echo для 600-мс probes не доказан.
+P2P не объявлен решением TCP-пауз, stale-repair фикс не приписан этому случаю.
+Тестовые публичные reflectors проверены, production/телефон восстановлены;
+изначальный TCP-only pre-call исключён. Push/релиза нет.
+
 Последний физический NETCALL-01: [частые TCP snapshots](../sdk-fine-tcp-call-2026-11-08/README.md).
 SDK `bbcd967a` добавляет отдельный bounded operator gate: 100 мс / 180 с /
 8192 fine rows, default прежний; 13 Mac / 14 Poco / 19 journal tests прошли.
