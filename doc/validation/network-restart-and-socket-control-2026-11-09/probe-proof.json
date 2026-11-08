@@ -1,0 +1,75 @@
+{
+  "sourceSha256": "683c08850f49e11c58d4b8fe91fd1bc4c619f74191e6c2132259657fa223d0c0",
+  "binarySha256": "9914c7f094b8a21f22828d697f7d817d773a909312713c034de10929306e88e6",
+  "compiler": "Android (13624864, +pgo, -bolt, +lto, -mlgo, based on r530567e) clang version 19.0.1 (https://android.googlesource.com/toolchain/llvm-project 97a699bf4812a18fb657c2779f5296a4ab2694d2)",
+  "androidApi": 24,
+  "compileFlags": [
+    "-O2",
+    "-std=c11",
+    "-Wall",
+    "-Wextra",
+    "-Werror"
+  ],
+  "preflight": {
+    "qualified": true,
+    "threeNativeMssControlsPassed": true,
+    "shellAndAppUidNcConnected": true,
+    "closedPortReportedRefused": true,
+    "receivedConnectionCount": 5,
+    "allApplicationPayloadLengthsZero": true,
+    "hostListenerExitedAndReverseRemoved": true,
+    "samples": [
+      {
+        "stage": "connect",
+        "success": true,
+        "errno": 0,
+        "requested_mss": 0,
+        "mss_applied": false,
+        "actual_mss": 32767,
+        "elapsed_ms": 1
+      },
+      {
+        "stage": "connect",
+        "success": true,
+        "errno": 0,
+        "requested_mss": 1200,
+        "mss_applied": true,
+        "actual_mss": 1188,
+        "elapsed_ms": 1
+      },
+      {
+        "stage": "connect",
+        "success": true,
+        "errno": 0,
+        "requested_mss": 960,
+        "mss_applied": true,
+        "actual_mss": 948,
+        "elapsed_ms": 1
+      },
+      {
+        "context": "shell",
+        "netcatZeroIoConnect": true
+      },
+      {
+        "context": "app",
+        "netcatZeroIoConnect": true
+      },
+      {
+        "stage": "connect",
+        "success": false,
+        "errno": 111,
+        "requested_mss": 1200,
+        "mss_applied": true,
+        "actual_mss": 1200,
+        "elapsed_ms": 1
+      }
+    ]
+  },
+  "limits": {
+    "connectTimeoutBranchNotPhysicallyExercised": true,
+    "standaloneDiagnosticOnly": true,
+    "noQaAppCodeInjection": true,
+    "doesNotLogTargetAddressOrIdentifiers": true
+  },
+  "deviceHelperAndLocalReverseAndListenerRemoved": true
+}
