@@ -1,0 +1,33 @@
+{
+  "scope": "Idle node handover followed by a second handover and full QA restart; not survival of an active call",
+  "wholePlannedScenarioPassed": false,
+  "idleCellularSecondsObserved": 45,
+  "newProcessCellularAfterReadySecondsObserved": 45,
+  "newAuthenticatedCoreSessionsInEitherCellularWindow": 0,
+  "sameProcessWifiRecoverySeconds": {
+    "coreA": 1.799,
+    "coreB": 1.578
+  },
+  "coldTimingAfterSecondCutSeconds": {
+    "restartRequested": 6.188,
+    "oldProcessExited": 6.44,
+    "launchBegan": 8.773,
+    "unlockBegan": 14.274,
+    "nativeReady": 16.847
+  },
+  "coldProof": {
+    "differentPid": true,
+    "oldPidExited": true,
+    "sameRuntimeBuild": true,
+    "sameOwnedProfileAndIdentity": true,
+    "cellularStayedValidated": true
+  },
+  "sameInstalledApkVerified": true,
+  "plannedRelayCallExecuted": false,
+  "failureClass": "authenticated parent readiness deadline after cold restart",
+  "originalDriver": {
+    "probeExit": 1,
+    "cleanupExit": 0
+  },
+  "allFinalOwnerCleanupChecksPassed": true
+}
