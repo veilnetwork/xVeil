@@ -1,0 +1,159 @@
+{
+  "scope": "Blackview Wi-Fi and full Wi-Fi outage/reconnect; not cellular handover",
+  "dartRevision": "460d74e2e11cd989ba21f7fa0da219b41be54e2d",
+  "sameDartRevisionBothEndpoints": true,
+  "runtimeBuildGuardBoth": true,
+  "nativeVersions": {
+    "android": "bbcd967a",
+    "mac": "c8f4929b",
+    "core": "e974cebe"
+  },
+  "baseline": {
+    "mac": {
+      "samples": 28,
+      "audioRxPacketDelta": 77,
+      "mediaEpochs": [
+        1
+      ],
+      "callAndNativeRelayAllSamples": true,
+      "maxObservedNativeRxAgeMs": 334,
+      "fastAcks": [
+        {
+          "type": "answer",
+          "sourceToFastAckMs": 406.504,
+          "sourceToOrdinaryAckMs": 423.62,
+          "fastRetries": 1
+        },
+        {
+          "type": "end",
+          "sourceToFastAckMs": 1284.915,
+          "sourceToOrdinaryAckMs": 3103.525,
+          "fastRetries": 2
+        }
+      ]
+    },
+    "phone": {
+      "samples": 28,
+      "audioRxPacketDelta": 255,
+      "mediaEpochs": [
+        1
+      ],
+      "callAndNativeRelayAllSamples": true,
+      "maxObservedNativeRxAgeMs": 60,
+      "fastAcks": [
+        {
+          "type": "offer",
+          "sourceToFastAckMs": 292.477,
+          "sourceToOrdinaryAckMs": 9014.631,
+          "fastRetries": 0
+        },
+        {
+          "type": "answerSelected",
+          "sourceToFastAckMs": 1310.404,
+          "sourceToOrdinaryAckMs": 11328.068,
+          "fastRetries": 2
+        },
+        {
+          "type": "end",
+          "sourceToFastAckMs": 1580.334,
+          "sourceToOrdinaryAckMs": 2753.431,
+          "fastRetries": 2
+        }
+      ]
+    }
+  },
+  "wifiReconnect": {
+    "mac": {
+      "samples": 139,
+      "audioRxPacketDelta": 378,
+      "mediaEpochs": [
+        3
+      ],
+      "callAndNativeRelayAllSamples": true,
+      "maxObservedNativeRxAgeMs": 9415,
+      "fastAcks": [
+        {
+          "type": "answer",
+          "sourceToFastAckMs": 316.052,
+          "sourceToOrdinaryAckMs": 378.839,
+          "fastRetries": 1
+        },
+        {
+          "type": "end",
+          "sourceToFastAckMs": 1361.52,
+          "sourceToOrdinaryAckMs": 2794.935,
+          "fastRetries": 2
+        }
+      ],
+      "firstObservedFreshRxAfterWifiEnableReturnSeconds": 4.907,
+      "allSamplesSameActiveCall": true,
+      "finalNativeRxAgeMs": 328
+    },
+    "phone": {
+      "samples": 139,
+      "audioRxPacketDelta": 1610,
+      "mediaEpochs": [
+        3
+      ],
+      "callAndNativeRelayAllSamples": true,
+      "maxObservedNativeRxAgeMs": 8821,
+      "fastAcks": [
+        {
+          "type": "offer",
+          "sourceToFastAckMs": 200.557,
+          "sourceToOrdinaryAckMs": 708.674,
+          "fastRetries": 0
+        },
+        {
+          "type": "answerSelected",
+          "sourceToFastAckMs": 1099.001,
+          "sourceToOrdinaryAckMs": 7310.928,
+          "fastRetries": 1
+        },
+        {
+          "type": "end",
+          "sourceToFastAckMs": 1446.692,
+          "sourceToOrdinaryAckMs": 3034.04,
+          "fastRetries": 2
+        }
+      ],
+      "firstObservedFreshRxAfterWifiEnableReturnSeconds": 4.328,
+      "allSamplesSameActiveCall": true,
+      "finalNativeRxAgeMs": 34
+    }
+  },
+  "humanAudibilityTested": false,
+  "netcall01Closed": false,
+  "causalAB": false,
+  "wifiDisabledToEnableCommandReturnSeconds": 5.091,
+  "finalApiOutbox": {
+    "mac": {
+      "total": 1,
+      "callFrames": 0
+    },
+    "phone": {
+      "total": 0,
+      "callFrames": 0
+    }
+  },
+  "traceRings": {
+    "mac": {
+      "dropped": 0,
+      "lines": 962
+    },
+    "phone": {
+      "dropped": 0,
+      "lines": 1432
+    }
+  },
+  "cleanup": {
+    "bothAppsExited": true,
+    "ownQaUninstalled": true,
+    "threeExistingPhoneApksUnchanged": true,
+    "settingsRestored": true,
+    "syntheticExportRemoved": true,
+    "twoOwnedCoresRemoved": true,
+    "productionUnchanged": true,
+    "privateEvidenceVerified": true
+  }
+}

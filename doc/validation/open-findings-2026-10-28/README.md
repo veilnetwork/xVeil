@@ -1,5 +1,16 @@
 # Открытые случаи — обновлено 2026-11-08
 
+Последняя проверка: [Blackview и текущий AOT обоих клиентов](../blackview-current-aot-2026-11-08/README.md).
+Poco забран владельцем; mobile-handover запуск отменён до установки/звонка,
+его Core удалены. Blackview без SIM: два relay-only звонка, 10/10 fast ACK
+за 0,201–1,580 с; при полном обрыве Wi-Fi на 5 с тот же звонок продолжился,
+первый observed fresh RX через 4,328–4,907 с после команды включения Wi-Fi.
+NETCALL-01 не закрыт: это не Cellular handover и не проверка слышимости.
+Оба current Dart AOT подтверждены runtime guard/mappings; source auth строгая.
+Final API call frames 0/0, total Outbox 1/0 (один P2P). Телефон восстановлен,
+новый собственный QA удалён; приложения/Core остановлены и удалены,
+production независимо сверено. Новых source-фиксов, push/релиза нет.
+
 Положительная квалификация: [fast ACK с current profile AOT](../call-fast-ack-aot-2026-11-08/README.md).
 Полный Mac App.framework действительно загружен: runtime revision/digest/mode
 проверены до unlock, mapping и SHA AOT/FFI подтверждены. Mac 460d74e2,
