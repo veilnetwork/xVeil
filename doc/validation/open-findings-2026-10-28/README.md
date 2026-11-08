@@ -1,5 +1,24 @@
 # Открытые случаи — обновлено 2026-11-08
 
+Последний раунд: [TLS и одновременный TCP/TLS-контроль](../tls-path-control-2026-11-08/README.md).
+Отдельный C executable, без SDK/app/контейнеров; два TLS-канала, затем
+четыре одновременных TCP/TLS к тем же двум адресам. Loopback, injected
+1100-мс pause, CA rejection и remote Mac smoke проверены до серий.
+
+**Подтверждено:** TLS-only на Cellular дал 4800/4800 echoes, max RTT 486 мс,
+но одновременный контроль воспроизвёл секундные паузы в обоих протоколах:
+TCP max RTT 1487 мс, TLS 4309 мс; receive gaps до 1222/2754 мс.
+Все 12000 echoes парной серии вернулись; producer gaps ≤60,5 мс,
+local write wait ≤6,2 мс. Server application arrival gaps 1,17–2,75 с
+при генерации соответствующих кадров через 49–50 мс; это не NIC/one-way.
+В 32/33 выбранных raw gaps средние 80% также не содержат TLS echoes.
+Парный тест удваивает payload load (40 вместо 20 КиБ/с на направление):
+влияние нагрузки/числа flows не отделено, причинного A/B нет.
+**NETCALL-01 открыт:** TLS не принят как универсальный обход; следующий
+контроль — нагрузка при постоянном числе соединений. 37 power snapshots
+Awake/Doze ACTIVE, APK/контейнеры не менялись; телефон/сервисы восстановлены,
+production проверено независимо. Product-правок, push/релиза нет.
+
 Последний раунд: [native TCP/UDP control без Veil](../native-path-control-2026-11-08/README.md).
 Отдельный C executable под shell UID, 512 Б / 50 мс к двум тем же адресам;
 SDK/app не менялись. Loopback, injected 1100-мс delay, один dropped UDP echo
