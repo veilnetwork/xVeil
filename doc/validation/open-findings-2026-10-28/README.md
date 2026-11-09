@@ -1,5 +1,26 @@
 # Открытые случаи — обновлено 2026-11-10
 
+## 2026-11-10: пустой epoch material без повторной свёртки
+
+[Исправление и native A/B/A](../history-empty-epoch-100000-2026-11-10/README.md):
+оба epoch merge пропускают control fold только при пустых keys и обеих
+коллекциях envelopes. Любой материал проходит прежнюю проверку, свежая
+маршрутизация/revoke и durable barriers сохранены, кэша авторизации нет.
+Два parent assertion-red, 750 related / 6 native passed, analyzer чист.
+Старое cost expectation routing обновлено с двух folds на один на чтение;
+native skip выполнен повторно с нужным fixture.
+
+На 100000: **204,978 → 199,635 → 199,647 с** — общего ускорения не доказано.
+`_acceptedControl` folds: **39257 → 4 → 39972**, callbacks/message/cursor
+commits одинаковы. Полные ID/body/status/order, оба cursor и cold retention
+совпали; страницы/объём одинаковы, повторов нет. RPC total не уменьшился,
+разница одного allocator commit не атрибутирована.
+
+1532 frozen inputs, один production variant, candidate восстановлен;
+cleanup всех фаз прошли, cache 92→92. Следующий участок — чтения/apply/
+сохранение и очереди получателя. Latency, NETCALL-01, физическая/AOT
+квалификация и остальная matrix открыты. Push/релиза нет.
+
 ## 2026-11-10: потоковый CPU-профиль на 100000 сообщений
 
 [Диагностика получателя](../history-receiver-cpu-100000-2026-11-10/README.md):

@@ -24,6 +24,7 @@ import 'package:xveil/state/device_sync_bridge.dart'
 import 'package:xveil/state/data_import.dart';
 import 'package:xveil/state/app_controller.dart';
 import 'package:xveil/state/device_sync_appliers.dart';
+import 'package:xveil/state/group_service.dart' show GroupService;
 
 import 'device_fixture.dart';
 import 'e2e_env.dart';
@@ -440,6 +441,10 @@ void main() {
                 await response.rename('${dir.path}/storage-inspected.json');
                 continue;
               }
+              if (request['storageTiming'] == true &&
+                  request['resetStorageTiming'] == true) {
+                GroupService.debugControlFolds = 0;
+              }
               if (env['XVEIL_E2E_STORAGE_TIMELINE'] == label &&
                   request['storageTiming'] == true) {
                 final evidence = env['XVEIL_E2E_EVIDENCE_DIR'];
@@ -631,9 +636,12 @@ void main() {
                 jsonEncode({
                   'nonce': request['nonce'],
                   if (request['storageTiming'] == true)
-                    'storageTiming': device!.messageApplyCensus(
-                      reset: request['resetStorageTiming'] == true,
-                    ),
+                    'storageTiming': {
+                      ...?device!.messageApplyCensus(
+                        reset: request['resetStorageTiming'] == true,
+                      ),
+                      'controlFolds': GroupService.debugControlFolds,
+                    },
                   if (authorization.isNotEmpty) 'authorization': authorization,
                   'historyState': ?historyState,
                   'seededArchiveOrder': ?seededArchiveOrder,
