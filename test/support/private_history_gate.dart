@@ -12,7 +12,10 @@ class PrivateHistoryGate {
     this.prefix, {
     this.lease = const Duration(minutes: 1),
     this.poll = const Duration(milliseconds: 20),
-  });
+    Future<bool> Function(File file)? signalExists,
+  }) : _signalExists = signalExists ?? _fileExists;
+  static Future<bool> _fileExists(File file) => file.exists();
+  final Future<bool> Function(File file) _signalExists;
   final Directory dir;
   final String prefix;
   final Duration lease, poll;
@@ -56,11 +59,15 @@ class PrivateHistoryGate {
     await staged.rename(entered.path);
     final clock = Stopwatch()..start();
     while (true) {
-      if (!isActive() || await File('${dir.path}/stop-worker').exists()) {
+      final released = await _signalExists(file(kind, 'release'));
+      final stopped = await _signalExists(File('${dir.path}/stop-worker'));
+      // Check the binding after filesystem awaits. Retirement must win even
+      // when it happens while an already-present release is being observed.
+      if (!isActive() || stopped) {
         _failed.add(kind);
         throw StateError('synthetic history gate session ended');
       }
-      if (await file(kind, 'release').exists()) {
+      if (released) {
         _released.add(kind);
         return true;
       }
