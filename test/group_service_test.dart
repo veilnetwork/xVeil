@@ -2626,6 +2626,105 @@ void main() {
     );
   });
 
+  test('empty epoch material does not fold control during plain group loads',
+      () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = GroupService(storage, _FakeSigner(owner));
+    addTearDown(() async {
+      await service.dispose();
+      await storage.close();
+    });
+    final gid = await service.createGroup('No sealed material');
+    expect(
+      await service.addControlOp(
+        gid,
+        ControlOp.addMember,
+        target: bob,
+        role: GroupRole.member,
+      ),
+      isTrue,
+    );
+    GroupService.debugControlFolds = 0;
+    for (var i = 0; i < 5; i++) {
+      final bundle = (await service.load(gid))!;
+      expect(bundle.control, isNotEmpty);
+      expect(bundle.epochEnvelopes, isEmpty);
+      expect(bundle.localEpochKeys, isEmpty);
+      expect(bundle.channelEpochEnvelopes, isEmpty);
+      expect(bundle.localChannelEpochKeys, isEmpty);
+    }
+    expect(GroupService.debugControlFolds, 0,
+        reason: 'there is no key or envelope for an epoch fold to validate');
+    expect((await service.stateOf(gid))!.roleOf(bob), GroupRole.member);
+  });
+
+  test('empty epoch loads do not cache own-device membership across revoke',
+      () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = GroupService(storage, _FakeSigner(owner), myDevice: owner);
+    addTearDown(() async {
+      await service.dispose();
+      await storage.close();
+    });
+    expect(
+      await service.linkDevice(bob,
+          sovereign: sovereign, broadcastSnapshot: false),
+      isTrue,
+    );
+    final gid = NodeId.fromHex((await service.deviceGroupIdHex())!);
+    GroupService.debugControlFolds = 0;
+    for (var i = 0; i < 3; i++) {
+      final bundle = (await service.load(gid))!;
+      expect(bundle.manifest.isSovereignDevice, isTrue);
+      expect(bundle.control, isNotEmpty);
+      expect(bundle.epochEnvelopes, isEmpty);
+      expect(bundle.localEpochKeys, isEmpty);
+      expect(bundle.channelEpochEnvelopes, isEmpty);
+      expect(bundle.localChannelEpochKeys, isEmpty);
+    }
+    expect(GroupService.debugControlFolds, 0);
+    expect(await service.addressableOwnDevices(), contains(bob));
+    expect(await service.revokeDevice(bob, sovereign: sovereign), isTrue);
+    expect(await service.addressableOwnDevices(), isNot(contains(bob)));
+  });
+
+  test('nonempty epoch keys or envelopes retain validation on load', () async {
+    final storage = FakeHvContainer().storage();
+    await storage.open(password: 'pw', createIfMissing: true);
+    final service = GroupService(
+      storage,
+      _FakeSigner(owner),
+      epochService: GroupEpochService(
+        LoopbackMailboxCrypto(senderForOpen: owner),
+      ),
+    );
+    addTearDown(() async {
+      await service.dispose();
+      await storage.close();
+    });
+    final gid = await service.createGroup('Sealed material');
+    expect(await service.postMessage(gid, 'still readable', broadcast: false),
+        isTrue);
+    final key = 'group:${gid.hex}';
+    final raw = (await storage.loadFile(key))!;
+    final header = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
+    expect(header['ke'], isNotEmpty);
+    expect(header['kk'], isNotEmpty);
+    for (final omitted in ['ke', 'kk']) {
+      final changed = Map<String, dynamic>.of(header)..remove(omitted);
+      await storage.storeFile(
+          key, Uint8List.fromList(utf8.encode(jsonEncode(changed))));
+      GroupService.debugControlFolds = 0;
+      final bundle = (await service.load(gid))!;
+      expect(GroupService.debugControlFolds, greaterThan(0),
+          reason: '$omitted absent does not make all epoch material empty');
+      expect(bundle.localEpochKeys, isNotEmpty);
+      expect((await service.messagesOf(gid)).single.body, 'still readable');
+    }
+  });
+
   test('a read folds the control log a fixed number of times, not once per '
       'encrypted row', () async {
     final storage = FakeHvContainer().storage();
@@ -15441,10 +15540,10 @@ void main() {
       for (final entry in bundle.control) {
         expect(
           f.signer.sovereignChecks[base64Encode(entry.canonicalBytes())],
-          4,
+          2,
           reason:
-              'each lookup needs load and routing folds, not a repeated '
-              'fold for the announcement from that same snapshot',
+              'each lookup needs its fresh routing fold; empty epoch material '
+              'and the announcement from that snapshot add no more folds',
         );
       }
       expect(await f.storage.loadFile('group:${f.group.hex}'), before);

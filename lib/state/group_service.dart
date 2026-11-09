@@ -5558,6 +5558,18 @@ class GroupService implements ArchiveGroups {
     required Map<int, Uint8List> existingKeys,
     required List<GroupEpochRecipientEnvelope> incomingEnvelopes,
   }) async {
+    // Device journals and unencrypted groups often carry no epoch material.
+    // With nothing to validate or open, folding their control log here only
+    // repeats the caller's membership work. No authorization result is cached:
+    // any key or envelope still takes the full validation path below.
+    if (existingKeys.isEmpty &&
+        existingEnvelopes.isEmpty &&
+        incomingEnvelopes.isEmpty) {
+      return (
+        envelopes: <GroupEpochRecipientEnvelope>[],
+        keys: <int, Uint8List>{},
+      );
+    }
     final accepted = _acceptedControl(manifest, control);
     final keys = <int, Uint8List>{
       for (final entry in existingKeys.entries)
@@ -5693,6 +5705,14 @@ class GroupService implements ArchiveGroups {
     required Map<String, Uint8List> existingKeys,
     required List<GroupEpochRecipientEnvelope> incomingEnvelopes,
   }) async {
+    if (existingKeys.isEmpty &&
+        existingEnvelopes.isEmpty &&
+        incomingEnvelopes.isEmpty) {
+      return (
+        envelopes: <GroupEpochRecipientEnvelope>[],
+        keys: <String, Uint8List>{},
+      );
+    }
     final accepted = _acceptedControl(manifest, control);
     final descriptors =
         <String, ({GroupEpochDescriptor value, NodeId issuer})>{};
