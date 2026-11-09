@@ -1,0 +1,359 @@
+{
+  "schema": "xveil-history-bulk-reservation-validation/1",
+  "baselineHead": "c76023443bff25503b4b1b2628b64054bd99d033",
+  "archiveRows": 100000,
+  "preexistingRows": 1,
+  "tests": {
+    "passed": 393,
+    "nativeCohortPassed": 19,
+    "skipped": 0,
+    "redControls": {
+      "parentAssertionRed": true,
+      "parentReservationCommitsFor1024": 16,
+      "candidateUpperBoundFor1024": 6
+    },
+    "initialNativeProbeErrorCorrected": true,
+    "initialSkippedOutboxCasesRerun": 7
+  },
+  "analyzerClean": true,
+  "newCacheAdded": false,
+  "uiDisplayOrderChanged": false,
+  "wireMillisecondsAndIdOrder": true,
+  "ordinaryReserveMax": 64,
+  "preparedReserveMax": 256,
+  "preparedCreditRequiresFullSuccessfulPublication": true,
+  "durableReserveBeforeIssuingIdsPreserved": true,
+  "appendOrderObservedBeforeTimedWindow": true,
+  "pageRows": 128,
+  "preparedPublicationRows": 64,
+  "ordinaryLiveCoalescingRows": 16,
+  "pageBytes": 131072,
+  "maxSlices": 64,
+  "pollIntervalMs": 5000,
+  "compactProgressObserver": true,
+  "samplingEnabledInComparison": false,
+  "timelineEnabledInComparison": false,
+  "phases": {
+    "A1": {
+      "applyToConvergenceMs": 236448,
+      "encodeToConvergenceMs": 237945,
+      "releaseFileToBothPostPageListsMs": 234053.761,
+      "sourceDisplayReadCalls": {
+        "A": 88,
+        "E": 110
+      },
+      "forward": {
+        "A": {
+          "logicalPageQueries": 782,
+          "receivedPageQueries": 782,
+          "repeatedPageQueries": 0,
+          "applicationFrameBytes": 54217516,
+          "firstIndexFrameBytes": 54217516,
+          "queryAtSourceToFullReply": {
+            "n": 781,
+            "p50Ms": 80.924,
+            "p95Ms": 224.234,
+            "maxMs": 979.262
+          },
+          "fullReplyToNextQueryAtSource": {
+            "n": 780,
+            "p50Ms": 167.701,
+            "p95Ms": 256.676,
+            "maxMs": 894.301
+          }
+        },
+        "E": {
+          "logicalPageQueries": 782,
+          "receivedPageQueries": 782,
+          "repeatedPageQueries": 0,
+          "applicationFrameBytes": 54217516,
+          "firstIndexFrameBytes": 54217516,
+          "queryAtSourceToFullReply": {
+            "n": 781,
+            "p50Ms": 84.477,
+            "p95Ms": 220.227,
+            "maxMs": 939.698
+          },
+          "fullReplyToNextQueryAtSource": {
+            "n": 780,
+            "p50Ms": 170.66,
+            "p95Ms": 250.989,
+            "maxMs": 848.99
+          }
+        }
+      },
+      "finalRows": 100001,
+      "exactHistoryAndOfflineRetentionPassed": true,
+      "captureAndCensusUncapped": true,
+      "workerRpcCalls": 252899,
+      "historyApplyCalls": 200002,
+      "markStatusCalls": 0,
+      "markStatusChanged": 0,
+      "expectedStatusCalls": 0,
+      "ownDeviceReadCalls": 437863,
+      "messageCommits": 1563,
+      "historyCursorCommits": 1566,
+      "allocatorCommits": 1564,
+      "cache": {
+        "entriesBefore": 92,
+        "entriesAfter": 92,
+        "newKernelEntries": 0,
+        "allocatedDeltaMiB": 0.207,
+        "freeGiBBefore": 149.16,
+        "freeGiBAfter": 149.11
+      },
+      "cleanup": {
+        "ownedPidsChecked": 38,
+        "portsChecked": 65,
+        "livePids": [],
+        "remainingListeners": [],
+        "runtimeRootRemoved": true,
+        "frozenFilesVerified": 1531,
+        "nativeArtifactsUnchanged": true,
+        "hiddenVolumeUnchanged": true,
+        "sdkClean": true,
+        "portsReusedByOtherPids": 0
+      },
+      "sourceArchiveAppendOrder": {
+        "A": {
+          "rows": 100001,
+          "descendingPairs": 1,
+          "firstRunRows": 1,
+          "secondRunRows": 100000,
+          "fullyOrdered": false,
+          "twoRunsWithBoundedSide": true
+        },
+        "E": {
+          "rows": 100001,
+          "descendingPairs": 1,
+          "firstRunRows": 1,
+          "secondRunRows": 100000,
+          "fullyOrdered": false,
+          "twoRunsWithBoundedSide": true
+        }
+      }
+    },
+    "B": {
+      "applyToConvergenceMs": 210112,
+      "encodeToConvergenceMs": 211632,
+      "releaseFileToBothPostPageListsMs": 206031.718,
+      "sourceDisplayReadCalls": {
+        "A": 79,
+        "E": 95
+      },
+      "forward": {
+        "A": {
+          "logicalPageQueries": 782,
+          "receivedPageQueries": 782,
+          "repeatedPageQueries": 0,
+          "applicationFrameBytes": 54217516,
+          "firstIndexFrameBytes": 54217516,
+          "queryAtSourceToFullReply": {
+            "n": 781,
+            "p50Ms": 77.76,
+            "p95Ms": 212.901,
+            "maxMs": 753.506
+          },
+          "fullReplyToNextQueryAtSource": {
+            "n": 780,
+            "p50Ms": 141.171,
+            "p95Ms": 222.719,
+            "maxMs": 961.661
+          }
+        },
+        "E": {
+          "logicalPageQueries": 782,
+          "receivedPageQueries": 782,
+          "repeatedPageQueries": 0,
+          "applicationFrameBytes": 54217516,
+          "firstIndexFrameBytes": 54217516,
+          "queryAtSourceToFullReply": {
+            "n": 781,
+            "p50Ms": 74.779,
+            "p95Ms": 204.55,
+            "maxMs": 857.837
+          },
+          "fullReplyToNextQueryAtSource": {
+            "n": 780,
+            "p50Ms": 147.276,
+            "p95Ms": 224.562,
+            "maxMs": 989.61
+          }
+        }
+      },
+      "finalRows": 100001,
+      "exactHistoryAndOfflineRetentionPassed": true,
+      "captureAndCensusUncapped": true,
+      "workerRpcCalls": 256679,
+      "historyApplyCalls": 200002,
+      "markStatusCalls": 0,
+      "markStatusChanged": 0,
+      "expectedStatusCalls": 0,
+      "ownDeviceReadCalls": 438045,
+      "messageCommits": 1563,
+      "historyCursorCommits": 1566,
+      "allocatorCommits": 393,
+      "cache": {
+        "entriesBefore": 92,
+        "entriesAfter": 92,
+        "newKernelEntries": 0,
+        "allocatedDeltaMiB": 0.043,
+        "freeGiBBefore": 149.11,
+        "freeGiBAfter": 149.04
+      },
+      "cleanup": {
+        "ownedPidsChecked": 42,
+        "portsChecked": 57,
+        "livePids": [],
+        "remainingListeners": [],
+        "runtimeRootRemoved": true,
+        "frozenFilesVerified": 1531,
+        "nativeArtifactsUnchanged": true,
+        "hiddenVolumeUnchanged": true,
+        "sdkClean": true,
+        "portsReusedByOtherPids": 0
+      },
+      "sourceArchiveAppendOrder": {
+        "A": {
+          "rows": 100001,
+          "descendingPairs": 1,
+          "firstRunRows": 1,
+          "secondRunRows": 100000,
+          "fullyOrdered": false,
+          "twoRunsWithBoundedSide": true
+        },
+        "E": {
+          "rows": 100001,
+          "descendingPairs": 1,
+          "firstRunRows": 1,
+          "secondRunRows": 100000,
+          "fullyOrdered": false,
+          "twoRunsWithBoundedSide": true
+        }
+      }
+    },
+    "A2": {
+      "applyToConvergenceMs": 241398,
+      "encodeToConvergenceMs": 242955,
+      "releaseFileToBothPostPageListsMs": 237756.19,
+      "sourceDisplayReadCalls": {
+        "A": 90,
+        "E": 112
+      },
+      "forward": {
+        "A": {
+          "logicalPageQueries": 782,
+          "receivedPageQueries": 782,
+          "repeatedPageQueries": 0,
+          "applicationFrameBytes": 54217516,
+          "firstIndexFrameBytes": 54217516,
+          "queryAtSourceToFullReply": {
+            "n": 781,
+            "p50Ms": 81.642,
+            "p95Ms": 221.748,
+            "maxMs": 914.399
+          },
+          "fullReplyToNextQueryAtSource": {
+            "n": 780,
+            "p50Ms": 170.808,
+            "p95Ms": 255.45,
+            "maxMs": 1036.51
+          }
+        },
+        "E": {
+          "logicalPageQueries": 782,
+          "receivedPageQueries": 782,
+          "repeatedPageQueries": 0,
+          "applicationFrameBytes": 54217516,
+          "firstIndexFrameBytes": 54217516,
+          "queryAtSourceToFullReply": {
+            "n": 781,
+            "p50Ms": 82.914,
+            "p95Ms": 222.901,
+            "maxMs": 955.961
+          },
+          "fullReplyToNextQueryAtSource": {
+            "n": 780,
+            "p50Ms": 169.263,
+            "p95Ms": 250.802,
+            "maxMs": 1060.798
+          }
+        }
+      },
+      "finalRows": 100001,
+      "exactHistoryAndOfflineRetentionPassed": true,
+      "captureAndCensusUncapped": true,
+      "workerRpcCalls": 253977,
+      "historyApplyCalls": 200002,
+      "markStatusCalls": 0,
+      "markStatusChanged": 0,
+      "expectedStatusCalls": 0,
+      "ownDeviceReadCalls": 437773,
+      "messageCommits": 1563,
+      "historyCursorCommits": 1566,
+      "allocatorCommits": 1565,
+      "cache": {
+        "entriesBefore": 92,
+        "entriesAfter": 92,
+        "newKernelEntries": 0,
+        "allocatedDeltaMiB": -0.004,
+        "freeGiBBefore": 149.04,
+        "freeGiBAfter": 148.96
+      },
+      "cleanup": {
+        "ownedPidsChecked": 38,
+        "portsChecked": 65,
+        "livePids": [],
+        "remainingListeners": [],
+        "runtimeRootRemoved": true,
+        "frozenFilesVerified": 1531,
+        "nativeArtifactsUnchanged": true,
+        "hiddenVolumeUnchanged": true,
+        "sdkClean": true,
+        "portsReusedByOtherPids": 0
+      },
+      "sourceArchiveAppendOrder": {
+        "A": {
+          "rows": 100001,
+          "descendingPairs": 1,
+          "firstRunRows": 1,
+          "secondRunRows": 100000,
+          "fullyOrdered": false,
+          "twoRunsWithBoundedSide": true
+        },
+        "E": {
+          "rows": 100001,
+          "descendingPairs": 1,
+          "firstRunRows": 1,
+          "secondRunRows": 100000,
+          "fullyOrdered": false,
+          "twoRunsWithBoundedSide": true
+        }
+      }
+    }
+  },
+  "frozenInputs": 1531,
+  "productionVariantFiles": 1,
+  "sameOtherInputs": 1530,
+  "sameNativeArtifactsAcrossPhases": true,
+  "candidateRestored": true,
+  "localMacJitOnly": true,
+  "siblingMailboxEnabled": false,
+  "pushOrRelease": false,
+  "latencyStillOpen": true,
+  "redControls": {
+    "parentAssertionRed": true,
+    "parentReservationCommitsFor1024": 16,
+    "candidateUpperBoundFor1024": 6
+  },
+  "overallSpeedupObservedInLocalSeries": true,
+  "universalSpeedupProven": false,
+  "logicalMessageHistoryAndSequenceSemanticsChanged": false,
+  "unusedPreparedReservationMaxIds": 256,
+  "unusedOrdinaryReservationPolicyChanged": false,
+  "latentSnapshotOrAuthCacheAdded": false,
+  "candidateReservesDroppedFromControls": [
+    1171,
+    1172
+  ]
+}

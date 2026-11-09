@@ -25,15 +25,30 @@ class _NativePostStore extends TimedNativeStore {
   final commitBytes = <int>[];
   int idReservations = 0;
   bool hold = false, refuse = false, uncertain = false;
+  bool holdReservation = false,
+      refuseReservation = false,
+      uncertainReservation = false;
   final entered = Completer<void>(), release = Completer<void>();
+  final reservationEntered = Completer<void>(),
+      reservationRelease = Completer<void>();
 
   @override
   Future<int> commit(List<KvLogOp> ops) async {
-    if (ops.whereType<PutOp>().any(
+    final reservation = ops.whereType<PutOp>().any(
       (op) =>
           op.namespace == Ns.settings && utf8.decode(op.key) == 'msg_next_id',
-    )) {
+    );
+    if (reservation) {
       idReservations++;
+      if (holdReservation) {
+        holdReservation = false;
+        reservationEntered.complete();
+        await reservationRelease.future;
+      }
+      if (refuseReservation) {
+        refuseReservation = false;
+        throw StateError('native reservation refused');
+      }
     }
     final rows = ops
         .whereType<AppendLogOp>()
@@ -43,7 +58,14 @@ class _NativePostStore extends TimedNativeStore {
               op.namespace <= Ns.messageLogShardLast,
         )
         .length;
-    if (rows == 0) return super.commit(ops);
+    if (rows == 0) {
+      final sequence = await super.commit(ops);
+      if (reservation && uncertainReservation) {
+        uncertainReservation = false;
+        throw StateError('lost native reservation reply');
+      }
+      return sequence;
+    }
     commitRows.add(rows);
     commitBytes.add(
       ops.whereType<AppendLogOp>().fold<int>(
@@ -76,6 +98,7 @@ void main() {
   late Directory directory;
   late HiddenVolumeStorage storage;
   late _NativePostStore backing;
+  late AsyncKvLogStore activeStore;
   const passwordText = 'native-positioned-fixture';
   final password = Uint8List.fromList(utf8.encode(passwordText));
 
@@ -96,6 +119,7 @@ void main() {
     backing = _NativePostStore(
       (await workerSpaceOpener(path)(password: password, create: false))!,
     );
+    activeStore = backing;
     storage = HiddenVolumeStorage.async(
       ({required password, required create}) async => backing,
     );
@@ -104,6 +128,9 @@ void main() {
   tearDown(() async {
     if (!enabled) return;
     if (!backing.release.isCompleted) backing.release.complete();
+    if (!backing.reservationRelease.isCompleted) {
+      backing.reservationRelease.complete();
+    }
     await storage.close();
     if (await directory.exists()) await directory.delete(recursive: true);
   });
@@ -122,10 +149,112 @@ void main() {
       (await storage.loadMessages('peer')).map((m) => m.id).toList();
   Future<void> reopen() async {
     await storage.close();
-    storage = HiddenVolumeStorage.async(
-      workerSpaceOpener('${directory.path}/store.hv'),
-    );
+    final open = workerSpaceOpener('${directory.path}/store.hv');
+    storage = HiddenVolumeStorage.async(({
+      required password,
+      required create,
+    }) async {
+      final store = await open(password: password, create: create);
+      if (store != null) activeStore = store;
+      return store;
+    });
     expect(await storage.open(password: passwordText), isTrue);
+  }
+
+  Future<int> reservedFloor() async {
+    final raw = await activeStore.get(
+      Ns.settings,
+      Uint8List.fromList(utf8.encode('msg_next_id')),
+    );
+    expect(raw, isNotNull);
+    return int.parse(utf8.decode(raw!));
+  }
+
+  Future<List<PreparedMessageWrite>?> fullBulk(int start) =>
+      storage.appendMissingMessageBatch([
+        for (var i = start; i < start + 64; i++) row(i),
+      ], beforeCommit: () async {});
+
+  test(
+    'native full bulk amortizes durable reservations and resets on worker restart',
+    () async {
+      for (var start = 1; start <= 1024; start += 64) {
+        expect(
+          await fullBulk(start),
+          List.filled(64, PreparedMessageWrite.appended),
+        );
+      }
+      expect(backing.idReservations, lessThanOrEqualTo(6));
+      expect(backing.commitRows, List.filled(16, 64));
+      final records = await backing.inner.iterLogRange(
+        namespace: Ns.messageLogShardFirst,
+        limit: 2000,
+      );
+      final floor = await reservedFloor();
+      expect(records, hasLength(1024));
+      expect(floor - records.last.logId - 1, lessThanOrEqualTo(256));
+      expect(records.every((r) => r.logId < floor), isTrue);
+      await reopen();
+      expect((await ids()).toSet(), {for (var i = 1; i <= 1024; i++) 'row-$i'});
+      await storage.appendMessage(row(1025));
+      expect(await reservedFloor() - floor, 8);
+      final smallFloor = await reservedFloor();
+      await reopen();
+      await fullBulk(1026);
+      expect(await reservedFloor() - smallFloor, 64);
+      expect((await ids()).toSet(), {for (var i = 1; i <= 1089; i++) 'row-$i'});
+    },
+    skip: skip,
+  );
+
+  for (final uncertain in [false, true]) {
+    test(
+      'native grown reservation refuses publication until durable recovery ($uncertain)',
+      () async {
+        for (var start = 1; start <= 192; start += 64) {
+          await fullBulk(start);
+        }
+        backing.holdReservation = true;
+        backing.refuseReservation = !uncertain;
+        backing.uncertainReservation = uncertain;
+        final write = fullBulk(193);
+        final failed = expectLater(write, throwsStateError);
+        await backing.reservationEntered.future;
+        expect(
+          await backing.inner.iterLogRange(
+            namespace: Ns.messageLogShardFirst,
+            limit: 1000,
+          ),
+          hasLength(192),
+        );
+        backing.reservationRelease.complete();
+        await failed;
+        expect(
+          await backing.inner.iterLogRange(
+            namespace: Ns.messageLogShardFirst,
+            limit: 1000,
+          ),
+          hasLength(192),
+        );
+        await storage.appendMessage(row(257));
+        await fullBulk(193);
+        final records = await backing.inner.iterLogRange(
+          namespace: Ns.messageLogShardFirst,
+          limit: 1000,
+        );
+        final floor = await reservedFloor();
+        expect(records.map((r) => r.logId).toSet(), hasLength(257));
+        expect(records.every((r) => r.logId < floor), isTrue);
+        await reopen();
+        expect((await ids()).toSet(), {
+          for (var i = 1; i <= 257; i++) 'row-$i',
+        });
+        final sync = await storage.conversationSync('peer');
+        expect(sync.highWater['author'], 257);
+        expect(sync.holes, isEmpty);
+      },
+      skip: skip,
+    );
   }
 
   test(

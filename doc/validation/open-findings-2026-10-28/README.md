@@ -1,4 +1,30 @@
-# Открытые случаи — обновлено 2026-11-09
+# Открытые случаи — обновлено 2026-11-10
+
+## 2026-11-10: резервирование ID для устойчивой пакетной догрузки
+
+[Исправление и native A/B/A](../history-bulk-reservation-100000-2026-11-10/README.md):
+durable reserve-before-ID сохранён. Успешные полные prepared-порции прогревают
+отдельное окно 64→128→256; обычная политика 8→64, cold reset, fresh admission,
+erasure guards, data/shard-marker commit и логические author sequences прежние.
+Неиспользованный резерв может дать до 256 пропущенных внутренних ID после
+перезапуска этого пути; сообщения и author sequences не пропускаются.
+
+Parent census assertion-red (16 резервов на 1024 строки вместо ≤6).
+**393 related passed / 0 skipped**, отдельно 19 native cohort checks,
+analyzer чист. Ранние skips и ошибка чтения внутреннего ключа тестом исправлены
+и перепроверены; отказ/uncertain reply/меньшая следующая запись/перезапуск
+не дают преждевременной публикации или повторного использования выданных ID.
+
+На 100000: **236,448 → 210,112 → 241,398 с**, allocator commits
+**1564 → 393 → 1565** при прежних 1563 message / 1566 cursor commits.
+Все 100001 строка, порядок/статусы, оба cursor и cold retention совпали;
+wire объём одинаков, query retries нет. Общий worker RPC total не уменьшился.
+Reply→next-query P50 снизился с 168–171 до 141–147 мс; latency ещё активна.
+
+1531 frozen inputs, один production variant, candidate восстановлен;
+все cleanup прошли, cache 92→92 без новых entries. Остаток — apply/очереди,
+source scan, NETCALL-01, физическая/AOT квалификация и остальная matrix.
+Push/релиза нет.
 
 ## 2026-11-09: адаптивная сортировка свежего snapshot
 
