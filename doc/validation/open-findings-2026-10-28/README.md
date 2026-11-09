@@ -1,5 +1,31 @@
 # Открытые случаи — обновлено 2026-11-10
 
+## 2026-11-10: 256 коротких строк в прежнем byte budget
+
+[Исправление и native A/B/A](../history-page256-100000-2026-11-10/README.md):
+потолок requested rows 128→256, byte ceiling 128 КиБ, 64 parts и admission
+прежние. Подготовка/atomic publication по 64, fresh admission, revoke/visibility,
+binding/erasure и durable cursor сохранены. Старым запросам меньшего размера
+источник отвечает в их лимите; новый 256-cap требует обновления старого пира,
+что входит в принятое владельцем исключение mixed-совместимости.
+
+Два parent assertion-red; отказ четвёртой публикации оставляет 192 durable
+строки и прежний cursor, restart завершает 256 без дублей. Byte-boundary,
+revoke, sparse-prefix, edit, TTL, replay и cursor recovery проверены.
+**321 passed / 0 skipped**, analyzer чист. Три неполностью перенесённых
+ожидания тестов исправлены и перепроверены; production-guards не ослаблены.
+
+На 100000: **194,961 → 149,155 → 194,606 с**; passive witness подтверждает
+сокращение этапа. Native wire показывает rows **128→256→128** и страницы
+**782→391→782** каждого источника, без повторов. Cursor commits **1566→784→1566**,
+message/allocator commits и 200002 callbacks прежние; все данные и cold
+retention совпали. Выигрыш около 23% относится к этому локальному JIT-стенду.
+
+1532 frozen inputs, один production variant, candidate восстановлен; cleanup
+всех фаз прошли, cache 92→92 без новых entries. Latency (~149 с), NETCALL-01,
+физическая/AOT квалификация и остальная matrix остаются открытыми.
+Push/релиза нет.
+
 ## 2026-11-10: settled delivered без повторного roster read
 
 [Исправление и native A/B/A](../history-settled-delivery-100000-2026-11-10/README.md):
