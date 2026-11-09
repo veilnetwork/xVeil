@@ -1515,6 +1515,22 @@ class _MessagingOwnHistory {
         }
         return;
       }
+      if (editSeq is! int) {
+        // The ordinary mirror may already have durably inserted/repaired the
+        // delivery status. A read-only settled row needs no second roster
+        // lookup: publication and the next checkpoint retain their fresh
+        // admission. Never reuse this preview for a write; a needed correction
+        // takes the original fresh admission + fresh row read below.
+        final settled = await _owner._storage.loadMessageById(peer, event.key);
+        if (settled == null ||
+            settled.direction != MessageDirection.outgoing ||
+            settled.status == MessageStatus.delivered) {
+          if (_pulls[pull.device.hex] != pull || !_bound(pull.binding)) {
+            throw StateError('History session ended');
+          }
+          return;
+        }
+      }
       if (!await _allowed(pull.device, pull.binding)) {
         throw StateError('History session ended');
       }
