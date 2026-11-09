@@ -32,6 +32,7 @@ void main() {
           'id': 'a' * 32,
           'q': {
             'op': 'page',
+            'rows': 256,
             'private': 'must-not-be-recorded',
             'prefix': {
               'count': 32,
@@ -76,6 +77,7 @@ void main() {
       expect(rows.map((row) => row['kind']), ['open', 'query', 'close']);
       expect(rows[1]['request'], 'a' * 32);
       expect(rows[1]['op'], 'page');
+      expect(rows[1]['requestedRows'], 256);
       expect(rows[1]['prefixRows'], 32);
       expect(rows[1]['prefixCandidates'], 2);
       expect(rows.last['recorded'], 1);

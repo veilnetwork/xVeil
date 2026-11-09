@@ -54,6 +54,7 @@ class PrivateHistoryWireProbe {
       if (op != null && !const ['list', 'page', 'record'].contains(op)) return;
       final prefix = query is Map ? query['prefix'] : null;
       final fallbacks = query is Map ? query['prefixFallbacks'] : null;
+      final requestedRows = query is Map ? query['rows'] : null;
       final row = <String, dynamic>{
         'kind': op == null ? 'part' : 'query',
         'atUs': _now(),
@@ -61,6 +62,11 @@ class PrivateHistoryWireProbe {
         'bytes': message.payload.length,
         'provenance': message.provenance.name,
         'op': ?op,
+        if (op == 'page' &&
+            requestedRows is int &&
+            requestedRows > 0 &&
+            requestedRows <= 256)
+          'requestedRows': requestedRows,
         if (op == 'page' && prefix is Map && prefix['count'] is int) ...{
           'prefixRows': prefix['count'],
           'prefixCandidates': 1 + (fallbacks is List ? fallbacks.length : 0),

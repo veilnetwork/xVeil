@@ -48,8 +48,10 @@ class _MessagingOwnHistory {
   // Short messages should share a byte-bounded reply rather than pay another
   // round trip, snapshot and durable cursor every eight rows. The 128-KiB,
   // 64-part and admission ceilings remain independent of this row cap.
+  // A page may fill that byte budget with up to 256 short rows; preparation
+  // and atomic publication keep their separate 64-row cohort bound.
   static const _legacyMessagePage = 64;
-  static const _messagePage = 128;
+  static const _messagePage = 256;
   static const _maxPrefixes = 8;
   // Four-KiB binary slices fit the existing six-KiB transport frame even
   // after base64/envelope encoding. Keep the page byte budget independent
