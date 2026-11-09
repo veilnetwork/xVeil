@@ -39,10 +39,9 @@ name: release
 # the producer. An unchanged ABI is not evidence that a prebuilt carries the
 # current microphone or device-module fixes; rebuild and repin when it changes.
 #
-# Current pin: engine-2026.10.31.2, rebuilt after the native microphone/ADM
-# fixes. All seven binaries passed SHA, native-source digest, architecture and
-# export checks. The source digest uses POSIX case-sensitive ordering even on
-# Windows; engine-2026.10.31 is superseded because its Windows ordering differed.
+# Current pin: engine-2026.11.09, rebuilt for the accumulated media fixes.
+# All seven binaries passed SHA, native-source digest, architecture and export
+# checks. The source digest uses POSIX case-sensitive ordering on every host.
 #
 # Whichever route delivers it, the engine is then checked against the symbols
 # Dart looks up, from OUTSIDE the branch that fetched it — the copy this
