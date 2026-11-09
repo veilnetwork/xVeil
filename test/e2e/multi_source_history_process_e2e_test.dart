@@ -1,4 +1,4 @@
-@Timeout(Duration(minutes: 20))
+@Timeout(Duration(minutes: 45))
 library;
 
 import 'dart:convert';
@@ -26,6 +26,7 @@ Future<Map<String, dynamic>> _inspect(
   String? author,
   List<String>? cursors,
   bool resetTiming = false,
+  bool progressOnly = false,
 }) async {
   final nonce = 'overlap-${++_nonce}';
   final request = File('${d.dir.path}/storage-inspect.new');
@@ -34,13 +35,14 @@ Future<Map<String, dynamic>> _inspect(
       'nonce': nonce,
       'peer': peer,
       'prefix': '',
-      'includeRows': true,
+      'includeRows': !progressOnly,
+      if (progressOnly) 'historyProgressOnly': true,
       if (Platform.environment['XVEIL_E2E_STORAGE_TIMING'] == '1') ...{
         'storageTiming': true,
         'resetStorageTiming': resetTiming,
       },
-      'includeHistoryWire': true,
-      'historyBodyPrefix': _prefix,
+      'includeHistoryWire': !progressOnly,
+      if (!progressOnly) 'historyBodyPrefix': _prefix,
       'historyAskingDevice': asking,
       'cursorDevices': ?cursors,
       if (seed) ...{
@@ -59,15 +61,25 @@ Future<Map<String, dynamic>> _inspect(
       final value = jsonDecode(await f.readAsString()) as Map<String, dynamic>;
       if (value['nonce'] != nonce) return false;
       answer = value;
-      final rows = value['rows'] as List;
-      if (rows.length != value['count'] ||
-          rows.map((r) => (r as Map)['id']).toSet().length != rows.length) {
-        _invalid = true;
+      if (progressOnly) {
+        expect(value['historyProgressOnly'], isTrue);
+        expect(
+          value.containsKey('rows') ||
+              value.containsKey('count') ||
+              value.containsKey('historyWire'),
+          isFalse,
+        );
+      } else {
+        final rows = value['rows'] as List;
+        if (rows.length != value['count'] ||
+            rows.map((r) => (r as Map)['id']).toSet().length != rows.length) {
+          _invalid = true;
+        }
       }
       return true;
     },
     what: '${d.label} returns an atomic live-owner snapshot',
-    timeout: seed ? const Duration(minutes: 6) : const Duration(seconds: 90),
+    timeout: seed ? const Duration(minutes: 15) : const Duration(seconds: 90),
     interval: const Duration(milliseconds: 50),
   );
   final evidence = Platform.environment['XVEIL_E2E_EVIDENCE_DIR']!;
@@ -273,6 +285,8 @@ void main() {
         'localNetworkOnly': true,
         'testBarriersEnabled': true,
         'convergencePollMs': pollMs,
+        'compactProgressObserver': _rows > 10000,
+        'seedBatchRows': _rows > 10000 ? 64 : 16,
         if (crashBeforeApply) 'receiverCrashBeforeApplyRequested': true,
       };
       Future<void> save() =>
@@ -418,13 +432,15 @@ void main() {
         Map<String, dynamic>? finalB;
         await waitUntil(
           () async {
-            finalB = await _inspect(b, ci, bn, cursors: [an, en]);
-            if (_compare(expectedArchive, _archive(finalB!))['passed'] !=
-                    true ||
-                !_ordered(expectedArchive, _archive(finalB!))) {
-              return false;
-            }
-            final cursors = finalB!['historyCursors'] as Map;
+            final largeArchive = _rows > 10000;
+            final progress = await _inspect(
+              b,
+              ci,
+              bn,
+              cursors: [an, en],
+              progressOnly: largeArchive,
+            );
+            final cursors = progress['historyCursors'] as Map;
             if (cursors.length != 2) return false;
             for (final raw in cursors.values) {
               if (raw is! String) return false;
@@ -434,10 +450,15 @@ void main() {
                 return false;
               }
             }
-            return true;
+            finalB = largeArchive
+                ? await _inspect(b, ci, bn, cursors: [an, en])
+                : progress;
+            return _compare(expectedArchive, _archive(finalB!))['passed'] ==
+                    true &&
+                _ordered(expectedArchive, _archive(finalB!));
           },
           what: 'both source cursors finish and all archived rows converge',
-          timeout: const Duration(minutes: 3),
+          timeout: Duration(minutes: _rows > 10000 ? 20 : 3),
           interval: Duration(milliseconds: pollMs),
         );
         historyElapsed.stop();

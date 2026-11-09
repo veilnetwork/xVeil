@@ -22,10 +22,17 @@ enum MessageStorageOperation {
 /// Passive fixture data. No message key, payload, path or exception is exported.
 /// RPC await times can overlap and must not be summed as exclusive disk time.
 class MessageApplyCensus {
-  MessageApplyCensus({int Function()? nowUs, this.traceStages = false})
-    : _nowOverride = nowUs {
+  MessageApplyCensus({
+    int Function()? nowUs,
+    this.traceStages = false,
+    this.maxTrackedKeys = maxKeys,
+  }) : _nowOverride = nowUs {
+    if (maxTrackedKeys < 1 || maxTrackedKeys > 200000) {
+      throw ArgumentError('invalid stand census key limit');
+    }
     reset();
   }
+  final int maxTrackedKeys;
   final clock = Stopwatch()..start();
   final int Function()? _nowOverride;
   final bool traceStages;
@@ -205,7 +212,7 @@ class MessageApplyCensus {
     final key = (conversation, id);
     if (_completedKeys.contains(key)) {
       duplicates++;
-    } else if (_completedKeys.length < maxKeys) {
+    } else if (_completedKeys.length < maxTrackedKeys) {
       _completedKeys.add(key);
     } else {
       keyLimitReached = true;
@@ -357,6 +364,7 @@ class MessageApplyCensus {
     'appendCompletedFromEarlierStarts': completedFromEarlierStarts,
     'trackedKeys': _completedKeys.length,
     'keyLimitReached': keyLimitReached,
+    'keyLimit': maxTrackedKeys,
     'rpcCompleted': _rpcSnapshot(_rpc),
     'rpcNamespacesCompleted': _rpcSnapshot(_rpcNamespaces),
     'storageOperationsCompleted': _rpcSnapshot(_storageOperations),
