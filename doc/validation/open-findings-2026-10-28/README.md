@@ -1,5 +1,31 @@
 # Открытые случаи — обновлено 2026-11-09
 
+## 2026-11-09: публикация короткой страницы и архив 10 000
+
+[Исправление и A/B/A](../history-page-publication-10000-2026-11-09/README.md):
+подготовленная короткая страница публикуется пакетами до 64 вместо 16;
+HVS и cohort разделяют один предел. Обычная живая очередь остаётся по 16,
+encoded row ≤1800 байт, prepared payload ≤115200 байт, сетевые лимиты прежние.
+Fresh admission/erase/teardown/durable completion/cursor guards сохранены.
+
+**6 assertion-red; 202 related passed / 0 skipped**, включая 16 native HVS;
+анализатор чист. Полная транзакция, удержанный commit, lost reply/reopen без
+дублей и crossing-shard проверены; revoke/block/TTL/retention до публикации
+запрещают все 64 строки. Между post/ordering семьями revoke оставляет только
+предыдущую durable публикацию, курсор не продвигается.
+
+Native A/B/A, 10 000 архивных + 1 прежняя: **48,760 → 34,874 → 49,729 с**,
+message commits **625 → 157 → 625**, worker RPC **61668 → 32739 → 61760**.
+Полные ID/тела/delivered/positions/порядок и boot без источников совпали;
+1524 frozen inputs/native SHA/mappings и cleanup проверены. Ускорение около
+29% относится к локальному Mac/JIT стенду, не Android/WAN. Источники seedятся
+прежними 16-row пакетами вне timing, обе первые replies удержаны до apply.
+
+**Догрузка остаётся активной:** 34,9 с; следующие кандидаты — 316 cursor
+commits, allocator и свежие чтения, без приписывания им всего остатка.
+NETCALL-01 и остальные статусы не изменены, полной crash/matrix квалификации
+нет. Телефон/production не затронуты, sibling mailbox выключен; push/релиза нет.
+
 ## 2026-11-09: status no-op и архив 10 000 сообщений
 
 [Исправление и большой стенд](../history-delivery-status-10000-2026-11-09/README.md):

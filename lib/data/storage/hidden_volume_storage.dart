@@ -2902,7 +2902,9 @@ class HiddenVolumeStorage
     List<Message> messages, {
     required Future<void> Function() beforeCommit,
   }) {
-    if (messages.length > 16) return Future.value(null);
+    if (messages.length > preparedMessageBatchMaxRows) {
+      return Future.value(null);
+    }
     final frozen = <Message>[];
     final payloads = <Uint8List>[];
     final ids = <(String, String)>{};
@@ -3043,7 +3045,9 @@ class HiddenVolumeStorage
     List<MessageOrderingAdoption> requests, {
     required Future<void> Function() beforeCommit,
   }) {
-    if (requests.length > 16) return Future.value(null);
+    if (requests.length > preparedMessageBatchMaxRows) {
+      return Future.value(null);
+    }
     final frozen = List<MessageOrderingAdoption>.of(requests);
     if (frozen.isEmpty) return Future.value(const []);
     final ids = <(String, String)>{};

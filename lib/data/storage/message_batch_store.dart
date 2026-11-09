@@ -1,5 +1,10 @@
 import '../../domain/chat.dart';
 
+/// One short history page may publish atomically. Each encoded storage row is
+/// still limited to 1800 bytes by the adapter (at most 115200 payload bytes).
+/// Ordinary live-message coalescing keeps its separate, smaller budget.
+const preparedMessageBatchMaxRows = 64;
+
 /// Outcome of an insert-if-missing publication, not an authorization verdict.
 enum PreparedMessageWrite { appended, existing, suppressed }
 

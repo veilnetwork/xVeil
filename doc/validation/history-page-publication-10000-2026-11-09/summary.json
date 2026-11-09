@@ -1,0 +1,111 @@
+{
+  "schema": "xveil-history-page-publication-validation/1",
+  "archiveRows": 10000,
+  "preexistingRows": 1,
+  "baselineHead": "72ff3e19a0ca55f6536d49f308c76fa2614e687a",
+  "publicationRows": {
+    "baseline": 16,
+    "candidate": 64
+  },
+  "maximumEncodedRowBytes": 1800,
+  "maximumPreparedPayloadBytes": 115200,
+  "historyPageRows": 64,
+  "historyPageBytes": 131072,
+  "liveMessageCoalescingLimitUnchanged": 16,
+  "sameSourceSeedingRowsPerCommit": 16,
+  "frozenInputs": 1524,
+  "changedProductionFiles": 3,
+  "unchangedFrozenInputs": 1521,
+  "nativeLibrariesSameAcrossPhases": true,
+  "samplingEnabled": false,
+  "pollIntervalMs": 1000,
+  "tests": {
+    "passed": 202,
+    "skipped": 0,
+    "nativePassed": 16,
+    "allPassed": true,
+    "analyzerClean": true
+  },
+  "redControlAssertionFailures": 6,
+  "phases": {
+    "A1": {
+      "applyToConvergenceMs": 48760,
+      "encodeToConvergenceMs": 49258,
+      "messageCommits": 625,
+      "historyCursorCommits": 316,
+      "allocatorCommits": 157,
+      "historyApplyCalls": 20002,
+      "statusCalls": 0,
+      "workerRpcCalls": 61668,
+      "finalRows": 10001,
+      "fullContentsStatusesCanonicalPositionsOrderVerified": true,
+      "retainedWithAllSourcesOffline": true,
+      "bothSourceCursorsFinished": true,
+      "wireUncapped": true,
+      "receiverCensusUncapped": true,
+      "cleanup": {
+        "ownedPidsChecked": 36,
+        "portsChecked": 57,
+        "runtimeRootRemoved": true,
+        "frozenFilesVerified": 1524,
+        "nativeArtifactsUnchanged": true,
+        "livePids": [],
+        "remainingListeners": []
+      }
+    },
+    "B": {
+      "applyToConvergenceMs": 34874,
+      "encodeToConvergenceMs": 35521,
+      "messageCommits": 157,
+      "historyCursorCommits": 316,
+      "allocatorCommits": 159,
+      "historyApplyCalls": 20002,
+      "statusCalls": 0,
+      "workerRpcCalls": 32739,
+      "finalRows": 10001,
+      "fullContentsStatusesCanonicalPositionsOrderVerified": true,
+      "retainedWithAllSourcesOffline": true,
+      "bothSourceCursorsFinished": true,
+      "wireUncapped": true,
+      "receiverCensusUncapped": true,
+      "cleanup": {
+        "ownedPidsChecked": 38,
+        "portsChecked": 54,
+        "runtimeRootRemoved": true,
+        "frozenFilesVerified": 1524,
+        "nativeArtifactsUnchanged": true,
+        "livePids": [],
+        "remainingListeners": []
+      }
+    },
+    "A2": {
+      "applyToConvergenceMs": 49729,
+      "encodeToConvergenceMs": 50242,
+      "messageCommits": 625,
+      "historyCursorCommits": 316,
+      "allocatorCommits": 158,
+      "historyApplyCalls": 20002,
+      "statusCalls": 0,
+      "workerRpcCalls": 61760,
+      "finalRows": 10001,
+      "fullContentsStatusesCanonicalPositionsOrderVerified": true,
+      "retainedWithAllSourcesOffline": true,
+      "bothSourceCursorsFinished": true,
+      "wireUncapped": true,
+      "receiverCensusUncapped": true,
+      "cleanup": {
+        "ownedPidsChecked": 39,
+        "portsChecked": 55,
+        "runtimeRootRemoved": true,
+        "frozenFilesVerified": 1524,
+        "nativeArtifactsUnchanged": true,
+        "livePids": [],
+        "remainingListeners": []
+      }
+    }
+  },
+  "candidateRestored": true,
+  "localOnly": true,
+  "pushOrRelease": false,
+  "candidateReductionVersusMeanControlPercent": 29.18
+}
