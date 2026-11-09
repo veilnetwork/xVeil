@@ -180,6 +180,14 @@ durable cursor advances only after the
 whole accepted page completes. Interrupted pages replay idempotently, and a
 revocation/binding change prevents the unfinished page from being checkpointed.
 
+Own-history uses raw timestamp/id order, independently of the chat's causal
+display order. The optional `MessageRowsReader` capability reads current live
+rows without building that unused display projection; stores without it retain
+the ordinary `loadMessages` path. HVS uses the same fresh fold and overlays,
+without another cache. Visibility filtering and paired edit-frontier reads stay
+in the history caller; the capability grants neither authorization nor an atomic
+rows/frontier snapshot. Chat display ordering is unchanged.
+
 An event which cannot fit by itself is returned as a `record` descriptor in
 the page response: position, encoded length and SHA-256. The requester fetches
 64-KiB byte ranges with `op: record`, tied to its current conversation/cursor,

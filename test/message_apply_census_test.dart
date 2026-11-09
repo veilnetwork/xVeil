@@ -14,6 +14,29 @@ import 'package:xveil/data/storage/fake_kv_log_store.dart';
 
 void main() {
   test(
+    'display read census distinguishes row reads and resets its window',
+    () async {
+      final census = MessageApplyCensus();
+      final backing = SyncWrappedAsyncKvLogStore(FakeKvLogStore());
+      final storage = CountedMessageStorage(
+        ({required password, required create}) async => backing,
+        census,
+      );
+      await storage.open(password: 'fixture', createIfMissing: true);
+      try {
+        await storage.loadMessages('peer');
+        expect(census.snapshot()['displayReadCalls'], 1);
+        await storage.loadMessageRows('peer');
+        expect(census.snapshot()['displayReadCalls'], 1);
+        census.reset();
+        expect(census.snapshot()['displayReadCalls'], 0);
+      } finally {
+        await storage.close();
+      }
+    },
+  );
+
+  test(
     'prepared publications tag actual adapter commits without inventing per-row RPCs',
     () async {
       final census = MessageApplyCensus();

@@ -24,6 +24,7 @@ import 'async_kv_log_store.dart';
 import 'file_store.dart';
 import 'materialized_view.dart';
 import 'message_batch_store.dart';
+import 'message_rows_reader.dart';
 import 'kv_log_store.dart';
 import 'rollback_anchor.dart';
 import 'on_disk_blob_store.dart';
@@ -141,6 +142,7 @@ class HiddenVolumeStorage
         StoredFilePairWriter,
         PreparedMessageBatchStore,
         PreparedOrderingBatchStore,
+        MessageRowsReader,
         GuardedOutboxRetirement {
   /// Default (SYNC opener) — the in-memory fake, tests, and any path not yet
   /// given its own worker. The sync opener is lifted to async (run INLINE on
@@ -1533,6 +1535,12 @@ class HiddenVolumeStorage
     });
     return out;
   }
+
+  @override
+  Future<List<Message>> loadMessageRows(String conversationId) async =>
+      (await _scanLog())
+          .where((message) => message.conversationId == conversationId)
+          .toList();
 
   @override
   Future<List<Message>> loadMessages(

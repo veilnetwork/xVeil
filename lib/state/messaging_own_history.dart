@@ -593,7 +593,10 @@ class _MessagingOwnHistory {
 
   Future<List<Message>> _messages(String peer) async {
     final visible = await _visible(peer);
-    final rows = (await _owner._storage.loadMessages(
+    // History defines its own raw timestamp/id order. Avoid first building
+    // the unrelated UI causal-time projection, while keeping a fresh fold.
+    final rows = (await readMessageRows(
+      _owner._storage,
       peer,
     )).where((message) => visible(message.timestamp)).toList();
     rows.sort((a, b) {

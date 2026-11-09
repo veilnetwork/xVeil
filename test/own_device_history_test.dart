@@ -171,6 +171,7 @@ class _SnapshotStorage extends HiddenVolumeStorage {
   Future<void> Function()? beforePreparedCommit;
   void Function(String conversationId, String messageId)? onMessageRead;
   bool ordinaryOrderingOnly = false;
+  int displayReads = 0;
 
   @override
   Future<Contact?> getContact(NodeId nodeId) {
@@ -225,8 +226,19 @@ class _SnapshotStorage extends HiddenVolumeStorage {
     String conversationId, {
     int? limit,
   }) async {
+    displayReads++;
     await beforeMessagesRead?.call();
     final rows = await super.loadMessages(conversationId, limit: limit);
+    final hook = afterMessagesRead;
+    afterMessagesRead = null;
+    await hook?.call();
+    return rows;
+  }
+
+  @override
+  Future<List<Message>> loadMessageRows(String conversationId) async {
+    await beforeMessagesRead?.call();
+    final rows = await super.loadMessageRows(conversationId);
     final hook = afterMessagesRead;
     afterMessagesRead = null;
     await hook?.call();
@@ -899,6 +911,124 @@ void main() {
       );
     }
   }
+
+  test(
+    'source history reads chronological rows without UI display projection',
+    () async {
+      final base = DateTime.utc(2020);
+      final rows = [
+        Message(
+          id: 'z',
+          conversationId: peer.hex,
+          direction: MessageDirection.outgoing,
+          body: 'first seq, later clock',
+          timestamp: base.add(const Duration(seconds: 5)),
+          status: MessageStatus.delivered,
+          author: a.hex,
+          seq: 1,
+          positionVerified: true,
+        ),
+        Message(
+          id: 'a',
+          conversationId: peer.hex,
+          direction: MessageDirection.outgoing,
+          body: 'second seq, earlier clock',
+          timestamp: base.add(const Duration(seconds: 2)),
+          status: MessageStatus.delivered,
+          author: a.hex,
+          seq: 2,
+          positionVerified: true,
+        ),
+        Message(
+          id: 'c',
+          conversationId: peer.hex,
+          direction: MessageDirection.incoming,
+          body: 'other author',
+          timestamp: base.add(const Duration(seconds: 2)),
+          status: MessageStatus.delivered,
+          author: peer.hex,
+          seq: 1,
+          positionVerified: true,
+        ),
+        Message(
+          id: 'b',
+          conversationId: peer.hex,
+          direction: MessageDirection.outgoing,
+          body: 'legacy row',
+          timestamp: base.add(const Duration(seconds: 2)),
+          status: MessageStatus.delivered,
+        ),
+      ];
+      for (final row in rows) {
+        await sa.appendMessage(row);
+      }
+      final display = await sa.loadMessages(peer.hex);
+      expect(display.map((m) => m.id), isNot(['a', 'b', 'c', 'z']));
+      ma.start();
+      await until(
+        () async =>
+            net.history.any((f) => f.from == a && f.body['q']?['op'] == 'list'),
+      );
+      sa.displayReads = 0;
+      final request = '5' * 32;
+      await net.send(
+        tb,
+        a,
+        WireEnvelope.deviceHistory(
+          jsonEncode({
+            'v': 1,
+            'd': b.hex,
+            'id': request,
+            'q': {'op': 'page', 'peer': peer.hex, 'cursor': null, 'rows': 128},
+          }),
+        ).encode(),
+      );
+      await until(() async {
+        final parts = net.history
+            .where(
+              (f) =>
+                  f.from == a && f.body['id'] == request && f.body['b'] != null,
+            )
+            .toList();
+        return parts.isNotEmpty && parts.length == parts.first.body['n'];
+      });
+      final parts =
+          net.history
+              .where(
+                (f) =>
+                    f.from == a &&
+                    f.body['id'] == request &&
+                    f.body['b'] != null,
+              )
+              .toList()
+            ..sort(
+              (l, r) => (l.body['i'] as int).compareTo(r.body['i'] as int),
+            );
+      final reply =
+          jsonDecode(
+                utf8.decode([
+                  for (final part in parts)
+                    ...base64Decode(part.body['b'] as String),
+                ]),
+              )
+              as Map;
+      final events = (reply['events'] as List)
+          .map((body) => DeviceSyncEvent.fromBody(body as String)!)
+          .toList();
+      expect(events.map((e) => e.key), ['a', 'b', 'c', 'z']);
+      expect(events.map((e) => e.tsMs), [
+        for (final id in ['a', 'b', 'c', 'z'])
+          rows.singleWhere((m) => m.id == id).timestamp.millisecondsSinceEpoch,
+      ]);
+      expect(
+        sa.displayReads,
+        0,
+        reason:
+            'an archive request must not build a display order which it immediately discards',
+      );
+      expect(errorJournal.entries, isEmpty);
+    },
+  );
 
   test(
     'four-KiB slices accept exactly the existing 128-KiB page budget',

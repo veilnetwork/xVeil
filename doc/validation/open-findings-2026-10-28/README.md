@@ -1,5 +1,26 @@
 # Открытые случаи — обновлено 2026-11-09
 
+## 2026-11-09: архив больше не строит ненужный экранный порядок
+
+[Reader и native A/B/A](../history-row-reader-100000-2026-11-09/README.md):
+optional чтение текущих rows обходит display projection; собственная raw
+timestamp/id сортировка, visibility, before/after edit frontier и authorization
+сохранены. Кэша не добавлено; UI и fallback stores не меняют поведение.
+Parent source guard assertion-red, **352 related passed / 0 skipped**,
+16 native HVS, analyzer чист; read hooks/race guards сохранены.
+
+На 100000 сообщений **281,201 → 245,933 → 271,050 с**; все 100001 строки,
+порядок, оба cursor и cold retention проверены. Display calls A/E:
+890/909 → 91/113 → 885/906 при одинаковых 782 страницах на источник и
+1563 message commits. Source query→reply P50 снизился с 144–157 до 86–96 мс;
+reply→next-query остаётся ~167–169 мс. Latency ещё активна (~4 мин 06 с).
+
+CPU profile оказался хвостом ~29–30 с, а не полным окном; из него не выводятся
+проценты всего CPU/wall time. Полное сравнение выполнено без sampling,
+с 1527 frozen inputs и проверенным cleanup. Cache 92→92, новых entries 0.
+Физическая/AOT квалификация, NETCALL-01 и остальная matrix без изменений;
+push/релиза нет.
+
 ## 2026-11-09: объём увеличен до 100000, полный native-кейс пройден
 
 [Границы стенда и результаты](../history-100000-2026-11-09/README.md):
