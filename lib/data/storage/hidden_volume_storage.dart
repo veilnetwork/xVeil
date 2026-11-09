@@ -2972,6 +2972,7 @@ class HiddenVolumeStorage
                 selected,
                 beforeCommit: beforeCommit,
                 checkBeforePublish: checkErasure,
+                preparedBulk: true,
               );
             }
             return List.unmodifiable(results);
@@ -3108,6 +3109,7 @@ class HiddenVolumeStorage
         payloads,
         beforeCommit: beforeCommit,
         checkBeforePublish: checkErasure,
+        preparedBulk: beforeCommit != null,
       );
       await _foldCritical();
     }
@@ -7019,15 +7021,17 @@ class HiddenVolumeStorage
   }
 
   // Reserve a durable window before handing out any global log ids. Start
-  // small on each open, then grow after successful reservations, up to 64:
-  // sustained history must not pay a separate commit every eight records.
-  // The unused reservation is bounded by 64 ids, unless a caller explicitly
-  // requests a larger batch (which still reserves that complete batch).
+  // small on each open, then grow ordinary reservations up to 64. Full
+  // prepared cohorts have a separate, success-earned window up to 256 IDs:
+  // otherwise every 64-row history publication pays another reserve commit.
+  // The unused window stays bounded (except for explicitly larger allocations);
+  // neither author sequences nor message rows are pre-acknowledged.
   // Data commits may finish out of order; they must never write an older
   // msg_next_id over a newer one. A crash can skip unused internal ids, but
   // conversation sequence numbers are still committed gap-free with events.
   static const int _logIdReserveAhead = 8;
   static const int _logIdReserveMax = 64;
+  static const int _logPreparedReserveMax = 4 * preparedMessageBatchMaxRows;
   static final Object _acceptedConvWriteZone = Object();
   final _logWrites = <Future<void>>{};
   AsyncKvLogStore? _allocatorStore;
@@ -7035,6 +7039,7 @@ class HiddenVolumeStorage
   int? _visibleNextLogId;
   int _logReservedUntil = 0;
   int _logReservationSize = _logIdReserveAhead;
+  int _logPreparedReservationSize = preparedMessageBatchMaxRows;
   Future<void>? _idInit;
   Future<void>? _idReservation;
 
@@ -7044,6 +7049,7 @@ class HiddenVolumeStorage
     _visibleNextLogId = null;
     _logReservedUntil = 0;
     _logReservationSize = _logIdReserveAhead;
+    _logPreparedReservationSize = preparedMessageBatchMaxRows;
     _idInit = null;
     _idReservation = null;
   }
@@ -7084,6 +7090,7 @@ class HiddenVolumeStorage
     AsyncKvLogStore store, {
     required int count,
     int? maximum,
+    int reserveAtLeast = 0,
   }) async {
     await _ensureLogAllocator(store);
     while (true) {
@@ -7100,12 +7107,13 @@ class HiddenVolumeStorage
       }
       var reservation = _idReservation;
       if (reservation == null) {
+        final size = max<int>(
+          _logReservationSize,
+          max<int>(count, reserveAtLeast),
+        );
         final int end = maximum == null
-            ? next + max<int>(_logReservationSize, count)
-            : min<int>(
-                next + max<int>(_logReservationSize, count),
-                maximum + 1,
-              );
+            ? next + size
+            : min<int>(next + size, maximum + 1);
         late final Future<void> write;
         write =
             () async {
@@ -7261,11 +7269,15 @@ class HiddenVolumeStorage
     List<Uint8List> payloads, {
     Future<void> Function()? beforeCommit,
     void Function()? checkBeforePublish,
+    bool preparedBulk = false,
   }) => _trackLogWrite((store) async {
+    final fullPrepared =
+        preparedBulk && payloads.length == preparedMessageBatchMaxRows;
     final first = await _allocLogIds(
       store,
       count: payloads.length,
       maximum: Ns.messageLogShardCapacity,
+      reserveAtLeast: fullPrepared ? _logPreparedReservationSize : 0,
     );
     await _ensureMessageLogNamespacesLoaded();
     final namespaces = <int>{};
@@ -7285,6 +7297,17 @@ class HiddenVolumeStorage
       beforeCommit: beforeCommit,
       checkBeforePublish: checkBeforePublish,
     );
+    // Demand credit is earned only by a completed full publication. A refused
+    // guard or uncertain reply cannot warm this policy, and a retired store
+    // cannot alter its successor's first, small reservation.
+    if (fullPrepared &&
+        identical(store, _store) &&
+        identical(store, _allocatorStore)) {
+      _logPreparedReservationSize = min<int>(
+        _logPreparedReservationSize * 2,
+        _logPreparedReserveMax,
+      );
+    }
   });
 
   Future<void> _publishMessageOps(
