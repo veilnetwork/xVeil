@@ -95,13 +95,8 @@ class _MessagingConversationAdmin {
 
   /// Read the conversation's shared disappearing-message setting.
   Future<DisappearingSetting> disappearingOf(NodeId peer) async {
-    final c = await _owner._storage.getContact(peer);
-    if (c == null) return DisappearingSetting.off;
-    return DisappearingSetting(
-      ttlSeconds: c.disappearingTtlSeconds,
-      setAtMs: c.disappearingSetAtMs,
-      setBy: c.disappearingSetBy,
-      hideAfterReadSeconds: c.hideAfterReadSeconds,
+    return DisappearingSetting.fromContact(
+      await _owner._storage.getContact(peer),
     );
   }
 
@@ -685,6 +680,13 @@ class _MessagingConversationAdmin {
 
   Future<int> _hiddenThroughTs(NodeId peer) async {
     final setting = await disappearingOf(peer);
+    return _hiddenThroughTsForSetting(peer, setting);
+  }
+
+  Future<int> _hiddenThroughTsForSetting(
+    NodeId peer,
+    DisappearingSetting setting,
+  ) async {
     final window = setting.hideWindow;
     if (window == null) return 0;
     final conversationId = peer.hex;

@@ -26,6 +26,15 @@ class DisappearingSetting {
     this.hideAfterReadSeconds,
   });
 
+  factory DisappearingSetting.fromContact(Contact? contact) => contact == null
+      ? off
+      : DisappearingSetting(
+          ttlSeconds: contact.disappearingTtlSeconds,
+          setAtMs: contact.disappearingSetAtMs,
+          setBy: contact.disappearingSetBy,
+          hideAfterReadSeconds: contact.hideAfterReadSeconds,
+        );
+
   /// How long a message lives, in seconds. `null` means off — messages stay
   /// until something else removes them.
   final int? ttlSeconds;
