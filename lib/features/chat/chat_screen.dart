@@ -17,6 +17,7 @@ import '../../state/whisper_model_controller.dart';
 import '../common/async_error_view.dart';
 import '../../core/format.dart';
 import '../../core/ids.dart';
+import '../../core/bounded_file.dart';
 import '../../data/serve_source.dart';
 import '../../data/transport/wire_envelope.dart'
     show disappearingMarkerSeconds, isChatDeletedMarker;
@@ -820,6 +821,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final picked = await FilePicker.pickFiles(
       type: type,
       allowedExtensions: allowedExtensions,
+      withData: false,
     );
     final file = picked?.files.firstOrNull;
     if (file == null) return; // cancelled
@@ -889,17 +891,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       }
     }
 
-    Uint8List? bytes = file.bytes;
-    if (bytes == null && file.path != null) {
-      try {
-        bytes = await File(file.path!).readAsBytes();
-      } catch (e) {
-        devLog(
-          () =>
-              'xVeil[attach]: read failed ${file.name} '
-              'path=${file.path}: $e',
-        );
-      }
+    Uint8List? bytes;
+    try {
+      bytes = await readPickedFileBytesBounded(
+        file,
+        maxBytes: kMaxIncomingFileBytes,
+      );
+    } on FileReadLimitExceeded {
+      if (mounted) _snack(l.chatFileTooLarge);
+      return;
+    } catch (e) {
+      devLog(
+        () =>
+            'xVeil[attach]: read failed ${file.name} '
+            'path=${file.path}: $e',
+      );
     }
     if (bytes == null) {
       devLog(

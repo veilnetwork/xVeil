@@ -31,7 +31,6 @@
 // actually opening the certificate, which is why this is the only place it can
 // be done before anything is committed.
 
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -39,6 +38,7 @@ import 'package:flutter/material.dart';
 import 'package:veil_flutter/veil_ffi.dart' as veil;
 
 import '../../core/ids.dart';
+import '../../core/bounded_file.dart';
 import '../../core/log.dart';
 import '../../domain/sovereign_recovery.dart';
 import '../../l10n/app_localizations.dart';
@@ -131,10 +131,15 @@ class _CertificateRestoreInputState extends State<CertificateRestoreInput> {
 
   Future<String?> _pickContents() async {
     if (widget.pick != null) return widget.pick!();
-    final picked = await FilePicker.pickFiles(withReadStream: false);
-    final path = picked?.files.single.path;
-    if (path == null) return null;
-    return File(path).readAsString();
+    final picked = await FilePicker.pickFiles(
+      withData: false,
+      withReadStream: true,
+    );
+    if (picked == null) return null;
+    return readPickedFileTextBounded(
+      picked.files.single,
+      maxBytes: kMaxRecoveryCertificateFileBytes,
+    );
   }
 
   Future<void> _choose() async {

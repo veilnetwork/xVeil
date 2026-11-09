@@ -5,7 +5,6 @@
 // reads images through the file picker, normalizes them, and lands them in a
 // pack the user chooses (existing or freshly created).
 
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -13,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/app_localizations.dart';
+import '../../core/bounded_file.dart';
 import '../../state/providers.dart';
 import '../../state/sticker_store.dart';
 
@@ -56,20 +56,11 @@ class _StickerPickerState extends ConsumerState<StickerPicker> {
       final picked = await FilePicker.pickFiles(
         type: FileType.image,
         allowMultiple: true,
-        withData: true,
+        withData: false,
+        withReadStream: true,
       );
       final files = picked?.files ?? const [];
-      final images = <Uint8List>[];
-      for (final f in files) {
-        Uint8List? bytes = f.bytes;
-        if (bytes == null && f.path != null) {
-          try {
-            bytes = await File(f.path!).readAsBytes();
-          } catch (_) {}
-        }
-        if (bytes != null && bytes.isNotEmpty) images.add(bytes);
-      }
-      if (images.isEmpty || !mounted) return;
+      if (files.isEmpty || !mounted) return;
       // Which pack the import lands in: with an existing library the user
       // picks (or creates) the target; an empty library skips the question.
       final ctrl = ref.read(stickerControllerProvider.notifier);
@@ -85,10 +76,32 @@ class _StickerPickerState extends ConsumerState<StickerPicker> {
           packId = await ctrl.createPack(name);
         }
       }
-      final n = await ctrl.importImages(images, packId: packId);
+      var oversized = false;
+      Stream<Uint8List> images() async* {
+        for (final file in files) {
+          Uint8List? bytes;
+          try {
+            bytes = await readPickedFileBytesBounded(
+              file,
+              maxBytes: kMaxImageImportBytes,
+            );
+          } on FileReadLimitExceeded {
+            oversized = true;
+          } catch (_) {
+            // Unreadable picker entries are skipped, as with invalid images.
+          }
+          if (bytes != null && bytes.isNotEmpty) yield bytes;
+        }
+      }
+
+      final n = await ctrl.importImageStream(images(), packId: packId);
       if (mounted && n > 0) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(AppL10n.of(context).stickerImported(n))),
+        );
+      } else if (mounted && oversized) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(AppL10n.of(context).chatFileTooLarge)),
         );
       }
     } finally {
