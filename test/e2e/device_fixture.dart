@@ -78,6 +78,7 @@ import '../support/message_apply_census.dart';
 import '../support/history_archive_fixture.dart';
 import '../support/timed_native_store.dart';
 import '../support/private_history_wire_probe.dart';
+import '../support/private_history_work_probe.dart';
 import '../support/private_history_gate.dart';
 import 'convergence_oracle.dart';
 import 'crash_retention_oracle.dart';
@@ -278,6 +279,7 @@ class E2eDevice {
   ProviderSubscription<void>? _bridgeSubscription;
   ProviderSubscription<GroupService?>? _censusSubscription;
   PrivateHistoryWireProbe? _historyWireProbe;
+  PrivateHistoryWorkProbe? _historyWorkProbe;
   PrivateHistoryGate? _historyGate;
   Map<String, int> privateHistoryGateSnapshot() =>
       _historyGate?.snapshot ?? const {};
@@ -448,6 +450,19 @@ class E2eDevice {
           );
         }
 
+        if (Platform.environment['XVEIL_E2E_HISTORY_WORK_TRACE'] == label) {
+          final evidence = Platform.environment['XVEIL_E2E_EVIDENCE_DIR'];
+          if (evidence == null ||
+              Platform.environment['XVEIL_E2E_STORAGE_TIMING'] != '1') {
+            throw StateError(
+              'history work trace needs private census evidence',
+            );
+          }
+          await Directory(evidence).create(recursive: true);
+          _historyWorkProbe = PrivateHistoryWorkProbe(
+            File('$evidence/history-work-$label-private.jsonl'),
+          );
+        }
         final census = Platform.environment['XVEIL_E2E_STORAGE_TIMING'] == '1'
             ? MessageApplyCensus(
                 maxTrackedKeys: overlapInspection
@@ -455,6 +470,7 @@ class E2eDevice {
                     : MessageApplyCensus.maxKeys,
                 traceStages:
                     Platform.environment['XVEIL_E2E_STORAGE_TIMELINE'] == label,
+                observeStage: _historyWorkProbe?.observe,
               )
             : null;
         _messageApplyCensus = census;
@@ -674,7 +690,12 @@ class E2eDevice {
   /// leg AND stop draining its mailbox, or a case that says "B was down"
   /// proves nothing.
   Future<void> stop() async {
-    if (_container == null && _stack == null && _storage == null) return;
+    if (_container == null &&
+        _stack == null &&
+        _storage == null &&
+        _historyWorkProbe == null) {
+      return;
+    }
     await E2eLog.step('device $label: down', () async {
       // FIRST, before anything can throw: from here on, work this boot started
       // is allowed to fail quietly (see [_BootScope]).
@@ -685,12 +706,14 @@ class E2eDevice {
       final bridgeSubscription = _bridgeSubscription;
       final censusSubscription = _censusSubscription;
       final historyWireProbe = _historyWireProbe;
+      final historyWorkProbe = _historyWorkProbe;
       final stack = _stack;
       final storage = _storage;
       _container = null;
       _bridgeSubscription = null;
       _censusSubscription = null;
       _historyWireProbe = null;
+      _historyWorkProbe = null;
       _historyGate = null;
       _stack = null;
       _storage = null;
@@ -707,6 +730,10 @@ class E2eDevice {
         ('join messaging shutdown', () async => messaging?.dispose()),
         ('dispose stack', () async => stack?.dispose()),
         ('close container', () async => storage?.close()),
+        (
+          'close private history work observer',
+          () async => historyWorkProbe?.close(),
+        ),
       ]);
     });
   }
