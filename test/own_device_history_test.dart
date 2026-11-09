@@ -529,6 +529,251 @@ void main() {
     );
   }
 
+  for (final direction in MessageDirection.values) {
+    test(
+      '128 short $direction mirrors use one page and two durable cohorts',
+      () async {
+        await seed(128, direction: direction);
+        ma.start();
+        mb.start();
+        await until(
+          () async =>
+              await count() == 128 &&
+              await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+        );
+        final requests = net.history
+            .where(
+              (frame) => frame.from == b && frame.body['q']?['op'] == 'page',
+            )
+            .toList();
+        expect(requests, hasLength(1));
+        expect(requests.single.body['q']['rows'], 128);
+        expect(bStore.postBatches, [64, 64]);
+        expect(bStore.historyCursorCommits, 3);
+        final held = await sb.loadMessages(peer.hex);
+        final source = await sa.loadMessages(peer.hex);
+        expect(
+          held.map(
+            (m) => (
+              m.id,
+              m.body,
+              m.status,
+              m.direction,
+              m.orderAuthor,
+              m.orderSeq,
+            ),
+          ),
+          source.map(
+            (m) => (
+              m.id,
+              m.body,
+              m.status,
+              m.direction,
+              m.orderAuthor,
+              m.orderSeq,
+            ),
+          ),
+        );
+        expect(applied, 128);
+        expect(errorJournal.entries, isEmpty);
+      },
+    );
+  }
+
+  for (final failure in ['revoke', 'storage']) {
+    test(
+      'a failed second cohort cannot checkpoint a 128-row page ($failure)',
+      () async {
+        await seed(128);
+        // Only B pulls: an inverse transfer must not change this boundary.
+        net.drop = (from, _, body) => from == a && body['q'] != null;
+        var secondReached = false;
+        sb.beforePreparedCommit = () async {
+          sb.beforePreparedCommit = () async {
+            secondReached = true;
+            if (failure == 'revoke') {
+              bSiblings = [];
+            } else {
+              throw StateError('fixture second cohort failure');
+            }
+          };
+        };
+        ma.start();
+        mb.start();
+        await until(
+          () async => secondReached && errorJournal.entries.isNotEmpty,
+        );
+        expect(await count(), 64);
+        expect(bStore.postBatches, [64]);
+        final saved =
+            jsonDecode(
+                  (await sb.getSetting('device.history.cursor.v2:${a.hex}'))!,
+                )
+                as Map;
+        expect(saved['cursor'], isNull);
+        expect(
+          (await sb.loadMessages(peer.hex)).map((m) => m.id),
+          (await sa.loadMessages(peer.hex)).take(64).map((m) => m.id),
+        );
+        bSiblings = [a];
+        errorJournal.clear();
+        await restartB();
+        await until(
+          () async =>
+              await count() == 128 &&
+              await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+        );
+        final held = await sb.loadMessages(peer.hex);
+        final source = await sa.loadMessages(peer.hex);
+        expect(
+          held.map((m) => (m.id, m.body, m.status, m.orderAuthor, m.orderSeq)),
+          source.map(
+            (m) => (m.id, m.body, m.status, m.orderAuthor, m.orderSeq),
+          ),
+        );
+        expect(held.map((m) => m.id).toSet(), hasLength(128));
+        expect(bStore.postBatches, [64, 64]);
+        expect(errorJournal.entries, isEmpty);
+      },
+    );
+  }
+
+  for (final requested in [null, 1, 64, 128]) {
+    test('source respects requested page rows ($requested)', () async {
+      await seed(129);
+      ma.start();
+      await until(
+        () async =>
+            net.history.any((f) => f.from == a && f.body['q']?['op'] == 'list'),
+      );
+      await net.send(
+        tb,
+        a,
+        WireEnvelope.deviceHistory(
+          jsonEncode({
+            'v': 1,
+            'd': b.hex,
+            'id': '1' * 32,
+            'q': {
+              'op': 'page',
+              'peer': peer.hex,
+              'cursor': null,
+              'rows': ?requested,
+            },
+          }),
+        ).encode(),
+      );
+      await until(() async {
+        final parts = net.history
+            .where(
+              (f) =>
+                  f.from == a &&
+                  f.body['id'] == '1' * 32 &&
+                  f.body['b'] != null,
+            )
+            .toList();
+        return parts.isNotEmpty && parts.length == parts.first.body['n'];
+      });
+      final parts =
+          net.history
+              .where(
+                (f) =>
+                    f.from == a &&
+                    f.body['id'] == '1' * 32 &&
+                    f.body['b'] != null,
+              )
+              .toList()
+            ..sort(
+              (l, r) => (l.body['i'] as int).compareTo(r.body['i'] as int),
+            );
+      final bytes = [
+        for (final part in parts) ...base64Decode(part.body['b'] as String),
+      ];
+      expect(bytes.length, lessThanOrEqualTo(128 * 1024));
+      final reply = jsonDecode(utf8.decode(bytes)) as Map;
+      expect(reply['events'], hasLength(requested ?? 64));
+      expect(
+        reply['next'][1],
+        'm${((requested ?? 64) - 1).toString().padLeft(4, '0')}',
+      );
+      expect(errorJournal.entries, isEmpty);
+    });
+  }
+
+  for (final malformed in [null, 0, -1, 129, '128', true, 1.5]) {
+    test(
+      'malformed page row limit is rejected before reading history ($malformed ${malformed.runtimeType})',
+      () async {
+        await seed(1);
+        var snapshots = 0, encoded = 0;
+        sa.beforeMessagesRead = () async {
+          snapshots++;
+        };
+        ma.ownHistoryEncode = (node, message) async {
+          encoded++;
+          return deviceMirrorOf(node.hex, message).event;
+        };
+        ma.start();
+        await until(
+          () async => net.history.any(
+            (f) => f.from == a && f.body['q']?['op'] == 'list',
+          ),
+        );
+        snapshots = 0;
+        encoded = 0;
+        await net.send(
+          tb,
+          a,
+          WireEnvelope.deviceHistory(
+            jsonEncode({
+              'v': 1,
+              'd': b.hex,
+              'id': '2' * 32,
+              'q': {
+                'op': 'page',
+                'peer': peer.hex,
+                'cursor': null,
+                'rows': malformed,
+              },
+            }),
+          ).encode(),
+        );
+        await Future<void>(() {});
+        await until(() async => ma.historyInboundAdmission.queuedFrames == 0);
+        // Fence the per-device serving credit with a valid request. Its response proves
+        // the malformed predecessor has finished, without a wall-clock threshold.
+        await net.send(
+          tb,
+          a,
+          WireEnvelope.deviceHistory(
+            jsonEncode({
+              'v': 1,
+              'd': b.hex,
+              'id': '3' * 32,
+              'q': {'op': 'page', 'peer': peer.hex, 'cursor': null, 'rows': 1},
+            }),
+          ).encode(),
+        );
+        await until(
+          () async => net.history.any(
+            (f) =>
+                f.from == a && f.body['id'] == '3' * 32 && f.body['b'] != null,
+          ),
+        );
+        expect(snapshots, 1);
+        expect(encoded, 1);
+        expect(
+          net.history.where(
+            (f) =>
+                f.from == a && f.body['id'] == '2' * 32 && f.body['b'] != null,
+          ),
+          isEmpty,
+        );
+        expect(errorJournal.entries, isEmpty);
+      },
+    );
+  }
+
   test(
     'four-KiB slices accept exactly the existing 128-KiB page budget',
     () async {
@@ -2048,7 +2293,7 @@ void main() {
       'growing sparse source can match a held prefix on a later page ($scenario)',
       () async {
         final originals = [
-          for (var i = 0; i < 1024; i++)
+          for (var i = 0; i < 2048; i++)
             Message(
               id: 'm${i.toString().padLeft(4, '0')}',
               conversationId: peer.hex,
@@ -2069,7 +2314,7 @@ void main() {
           timestamp: DateTime.utc(2021),
           status: MessageStatus.delivered,
           author: a.hex,
-          seq: 1025,
+          seq: 2049,
           positionVerified: true,
         );
         for (final row in [...originals, tail]) {
@@ -2091,10 +2336,10 @@ void main() {
         var sourcePrefix = 32, sourceChangeDone = false;
         sa.beforeMessagesRead = () async {
           // Gate growth on new requests, not wall-clock time. Page 1 cannot
-          // match the smallest 128-row hint. Page 2 can match it.
+          // match the smallest 256-row hint. Page 2 can match it.
           final target =
-              (pageRequests.length * (scenario == 'rejected-ahead' ? 256 : 64))
-                  .clamp(32, 1024);
+              (pageRequests.length * (scenario == 'rejected-ahead' ? 512 : 128))
+                  .clamp(32, 2048);
           while (sourcePrefix < target) {
             await sa.appendMessage(originals[sourcePrefix++]);
           }
@@ -2103,7 +2348,7 @@ void main() {
             if (scenario == 'source-edit') {
               await sa.editMessage(
                 peer.hex,
-                'm0090',
+                'm0180',
                 'source changed',
                 seq: 900,
               );
@@ -2115,10 +2360,10 @@ void main() {
         };
         if (scenario == 'local-edit') {
           beforeApply = (event) async {
-            if (event.key == 'm0063') {
+            if (event.key == 'm0127') {
               await sb.editMessage(
                 peer.hex,
-                'm0090',
+                'm0180',
                 'local changed',
                 seq: 900,
               );
@@ -2127,7 +2372,7 @@ void main() {
         }
         if (scenario == 'checkpoint-failure') {
           bStore.refusePageCursor = true;
-          bStore.pageCursorId = 'm0127';
+          bStore.pageCursorId = 'm0255';
         }
         ma.start();
         mb.start();
@@ -2143,7 +2388,7 @@ void main() {
             pageRequests,
             hasLength(2),
             reason:
-                'reuse the newly checkable hint instead of walking all 17 pages',
+                'reuse the newly checkable hint instead of walking the sparse archive page by page',
           );
         }
         final queries = net.history
@@ -2151,7 +2396,7 @@ void main() {
               (f) => f.from == b && f.to == a && f.body['q']?['op'] == 'page',
             )
             .toList();
-        expect(queries[1].body['q']['cursor'][1], 'm0063');
+        expect(queries[1].body['q']['cursor'][1], 'm0127');
         expect(queries[1].body['q']['prefix'], isNotNull);
         expect(
           queries.every((f) => jsonEncode(f.body['q']).length <= 1500),
@@ -2183,8 +2428,8 @@ void main() {
             reason: 'the source must reject a stale proposal',
           );
         } else {
-          expect(reply['prefix']['count'], 128);
-          expect(reply['prefix']['position'][1], 'm0127');
+          expect(reply['prefix']['count'], 256);
+          expect(reply['prefix']['position'][1], 'm0255');
         }
         if (scenario == 'rejected-ahead') {
           final nextHints = [
@@ -2192,7 +2437,7 @@ void main() {
             ...?queries[1].body['q']['prefixFallbacks'] as List?,
           ];
           expect(
-            nextHints.every((p) => (p as Map)['count'] > 256),
+            nextHints.every((p) => (p as Map)['count'] > 512),
             isTrue,
             reason:
                 'rejected hints must not be rehashed just because their positions are ahead',
@@ -2200,7 +2445,7 @@ void main() {
         }
         if (stops) {
           expect(pageRequests, hasLength(2));
-          expect(applied, 64);
+          expect(applied, 128);
           final cursor =
               jsonDecode(
                     (await sb.getSetting('device.history.cursor.v2:${a.hex}'))!,
@@ -2208,7 +2453,7 @@ void main() {
                   as Map;
           expect(
             cursor['cursor'][1],
-            'm0063',
+            'm0127',
             reason:
                 'a reused hint cannot cross a failed authorization/durable checkpoint',
           );
@@ -2217,16 +2462,16 @@ void main() {
           expect(pageRequests, hasLength(2));
           expect(
             applied,
-            65,
-            reason: 'first 64 posts, then the tail after the verified jump',
+            129,
+            reason: 'first 128 posts, then the tail after the verified jump',
           );
-          expect(sourcePrefix, 128);
+          expect(sourcePrefix, 256);
         } else if (scenario == 'local-edit') {
           expect(queries.length, greaterThan(2));
           expect(queries[2].body['q']['prefix'], isNull);
           expect(
             queries[2].body['q']['cursor'][1],
-            'm0063',
+            'm0127',
             reason: 'fresh receiver mismatch discards the proposed jump',
           );
         }
@@ -2236,9 +2481,9 @@ void main() {
           [...originals, tail].map(
             (m) => (
               m.id,
-              m.id == 'm0090' && scenario == 'local-edit'
+              m.id == 'm0180' && scenario == 'local-edit'
                   ? 'local changed'
-                  : ((m.id == 'm0090' && scenario == 'source-edit') ||
+                  : ((m.id == 'm0180' && scenario == 'source-edit') ||
                         (m.id == 'm0000' && scenario == 'rejected-ahead'))
                   ? 'source changed'
                   : m.body,
@@ -2249,7 +2494,7 @@ void main() {
           ),
         );
         if (scenario == 'local-edit' || scenario == 'source-edit') {
-          expect((await sb.editSeqs(peer.hex))['m0090'], 900);
+          expect((await sb.editSeqs(peer.hex))['m0180'], 900);
         }
         if (!stops) expect(errorJournal.entries, isEmpty);
       },
@@ -2330,7 +2575,7 @@ void main() {
   test(
     'a complete source drops rejected content hints after one response',
     () async {
-      await seed(192);
+      await seed(384);
       for (final row in await sa.loadMessages(peer.hex)) {
         await sb.appendMessage(row);
       }
@@ -2357,7 +2602,7 @@ void main() {
         'new source revision',
       );
       expect((await sb.editSeqs(peer.hex))['m0000'], 900);
-      expect(await count(), 192);
+      expect(await count(), 384);
       expect(errorJournal.entries, isEmpty);
     },
   );
@@ -3763,20 +4008,20 @@ void main() {
     },
   );
 
-  test('short history uses bounded pages of thirty-two messages', () async {
-    await seed(65);
+  test('short history uses bounded pages of 128 messages', () async {
+    await seed(129);
     ma.start();
     mb.start();
     await until(
       () async =>
-          await count() == 65 &&
+          await count() == 129 &&
           await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
     );
     final requests = net.history
         .where((frame) => frame.from == b && frame.body['q']?['op'] == 'page')
         .toList();
     expect(requests, hasLength(2));
-    expect(applied, 65);
+    expect(applied, 129);
     expect(errorJournal.entries, isEmpty);
   });
 
@@ -3805,7 +4050,7 @@ void main() {
   );
 
   test('an over-cap page is rejected before applying any message', () async {
-    await seed(65);
+    await seed(129);
     // Only B runs; A's replies are supplied explicitly below.
     mb.start();
     await until(
@@ -3819,7 +4064,7 @@ void main() {
     await _historyReply(ta, b, inventory.body['id'] as String, {
       'op': 'list',
       'rows': [
-        {'peer': peer.hex, 'count': 65, 'hash': '0' * 64},
+        {'peer': peer.hex, 'count': 129, 'hash': '0' * 64},
       ],
     });
     await until(
@@ -3894,7 +4139,7 @@ void main() {
   );
 
   test('restart continues the acknowledged durable page cursor', () async {
-    await seed(96);
+    await seed(192);
     var held = false;
     net.drop = (from, to, body) {
       final q = body['q'];
@@ -3902,7 +4147,7 @@ void main() {
           q is Map &&
           q['op'] == 'page' &&
           q['cursor'] is List &&
-          (q['cursor'] as List)[1] == 'm0063') {
+          (q['cursor'] as List)[1] == 'm0127') {
         held = true;
         return true;
       }
@@ -3910,19 +4155,19 @@ void main() {
     };
     ma.start();
     mb.start();
-    await until(() async => held && await count() == 64);
+    await until(() async => held && await count() == 128);
     final mark = net.history.length;
     net.drop = null;
     await restartB();
-    await until(() async => await count() == 96);
+    await until(() async => await count() == 192);
     final resumed =
         net.history
                 .skip(mark)
                 .firstWhere((e) => e.from == b && e.body['q']?['op'] == 'page')
                 .body['q']
             as Map;
-    expect((resumed['cursor'] as List)[1], 'm0063');
-    expect(applied, 96);
+    expect((resumed['cursor'] as List)[1], 'm0127');
+    expect(applied, 192);
   });
 
   test(
@@ -3956,22 +4201,22 @@ void main() {
   );
 
   test('failed durable cursor write retries the page after restart', () async {
-    await seed(65);
+    await seed(129);
     bStore.refusePageCursor = true;
-    bStore.pageCursorId = 'm0063';
+    bStore.pageCursorId = 'm0127';
     ma.start();
     mb.start();
     await until(() async => bStore.refused && errorJournal.entries.isNotEmpty);
-    expect(await count(), 64);
+    expect(await count(), 128);
     final cursor =
         jsonDecode((await sb.getSetting('device.history.cursor.v2:${a.hex}'))!)
             as Map;
     expect(cursor['cursor'], isNull);
     await restartB();
-    await until(() async => await count() == 65);
+    await until(() async => await count() == 129);
     expect(
       (await sb.loadMessages(peer.hex)).map((m) => m.id).toSet(),
-      hasLength(65),
+      hasLength(129),
     );
   });
 

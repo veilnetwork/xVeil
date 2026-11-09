@@ -164,10 +164,15 @@ when the required holder becomes available again.
 ## Live history records larger than one page (2026-11-03)
 
 The live-only own-history exchange keeps its 128-KiB/64-slice page bound.
-Message pages carry at most 64 events (raised from 32 on 2026-11-08); inventory
-remains at eight conversations. Durable publication still uses at most 16 rows
-per cohort. Older application decoders capped at 32 events may reject larger
-pages; old-version compatibility was explicitly waived by the owner.
+A page request can specify integer `rows` from 1 through 128; current clients
+request 128 short events per page (2026-11-09). A missing field retains the
+previous 64-event limit, and malformed limits are rejected before reading the
+conversation snapshot. The receiver checks the response against its own
+requested cap. Inventory remains at eight conversations. Durable publication
+still uses at most 64 rows per cohort: a 128-event page needs two independently
+authorized publications before its cursor can advance. Ordinary live-message
+coalescing remains capped at 16. Old-version compatibility was explicitly
+waived by the owner; the missing-field default is not a mixed-version claim.
 The byte ceiling may end a message page earlier. A receiver rejects an over-cap
 page before applying any event. Current sibling authorization is rechecked at
 row admission and before subsequent state writes/publication/checkpoint; the
