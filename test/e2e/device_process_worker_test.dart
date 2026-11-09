@@ -169,8 +169,9 @@ void main() {
           await tester.pumpWidget(
             UncontrolledProviderScope(
               container: device!.container,
-              child: const DebugSoakHookHost(
-                child: Directionality(
+              child: DebugSoakHookHost(
+                port: int.parse(env['XVEIL_E2E_WORKER_HOOK_PORT']!),
+                child: const Directionality(
                   textDirection: TextDirection.ltr,
                   child: SizedBox.shrink(),
                 ),

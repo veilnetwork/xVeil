@@ -1,0 +1,38 @@
+{
+  "schema": "xveil-test-kernel-cache-validation/1",
+  "removedGeneratedKernelFiles": 1511,
+  "allocatedGiBRemoved": 156.16,
+  "freeGiBAfterCleanup": 158.83,
+  "preserveNewestKernelFiles": 64,
+  "preserveYoungerSeconds": 3600,
+  "openCacheFilesPreserved": 0,
+  "sourcesGitBuildArtifactsAndUserContainersPreserved": true,
+  "nativeProbe": {
+    "passed": true,
+    "independentWorkers": 3,
+    "workerRestarts": 1,
+    "unauthenticatedRejected": 3,
+    "runtimePortsDistinct": true,
+    "restartPortChanged": true,
+    "newWorkerKernelEntries": 1,
+    "newKernelEntriesAfterRestart": 0
+  },
+  "cleanup": {
+    "ownedPidsChecked": 18,
+    "portsChecked": 14,
+    "runtimeRootRemoved": true,
+    "frozenFilesVerified": 1525,
+    "nativeArtifactsUnchanged": true,
+    "livePids": [],
+    "remainingListeners": []
+  },
+  "benchmarkTimingDisqualifiedByCleanup": true,
+  "unsignedLocalOnly": true,
+  "relatedTests": {
+    "passed": 233,
+    "skipped": 0,
+    "nativePassed": 16,
+    "allPassed": true,
+    "analyzerClean": true
+  }
+}
