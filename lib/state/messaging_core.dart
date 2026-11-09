@@ -29,6 +29,7 @@ import '../domain/call_signal.dart';
 import '../domain/group_call.dart';
 import '../domain/group_content.dart';
 import '../domain/chat.dart';
+import '../domain/message_history_order.dart';
 import '../domain/profile_avatar.dart';
 import '../domain/peer_authorization.dart';
 import '../domain/clear_policy.dart';

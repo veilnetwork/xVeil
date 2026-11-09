@@ -1,5 +1,27 @@
 # Открытые случаи — обновлено 2026-11-09
 
+## 2026-11-09: cursor lookup без повторного обхода префикса
+
+[Исправление и native A/B/A](../history-cursor-window-100000-2026-11-09/README.md):
+двоичный поиск в текущем отсортированном snapshot вместо from-zero filter;
+не более 17 индексных чтений на lookup для 100000 строк. Единый wire order
+milliseconds/ID устраняет расхождение для stores с submillisecond timestamps;
+это воспроизведение contract fixture, не заявленный сбой живого HVS.
+Fresh visibility/edit/auth/publication/durable gates и page/byte caps сохранены.
+
+Parent order и linear-lookup controls assertion-red; **228 related passed /
+0 skipped**, отдельно 16 native HVS, analyzer чист. Во всех native фазах
+100001 строка и cold retention совпали, оба cursor завершены. Время:
+**235,733 → 246,709 → 245,706 с** — **ускорение не подтверждено**.
+Первый контроль содержал один повторный запрос; уникальные страницы и первые
+reply parts учтены отдельно. Основная latency остаётся активной.
+
+1531 frozen inputs, два production variants, candidate восстановлен;
+все cleanup прошли, cache 92→92 без новых entries. Следующий участок —
+повторное построение/сортировка snapshot и apply, без ослабления проверок.
+NETCALL-01, физическая/AOT квалификация и остальная matrix без изменений;
+push/релиза нет.
+
 ## 2026-11-09: разложено межстраничное ожидание на 100000 сообщений
 
 [Stand work spans](../history-work-stages-100000-2026-11-09/README.md):

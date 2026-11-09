@@ -172,6 +172,7 @@ class _SnapshotStorage extends HiddenVolumeStorage {
   void Function(String conversationId, String messageId)? onMessageRead;
   bool ordinaryOrderingOnly = false;
   int displayReads = 0;
+  List<Message> Function(List<Message>)? historyRows;
 
   @override
   Future<Contact?> getContact(NodeId nodeId) {
@@ -242,7 +243,7 @@ class _SnapshotStorage extends HiddenVolumeStorage {
     final hook = afterMessagesRead;
     afterMessagesRead = null;
     await hook?.call();
-    return rows;
+    return historyRows?.call(rows) ?? rows;
   }
 }
 
@@ -649,6 +650,94 @@ void main() {
       },
     );
   }
+
+  test(
+    'submillisecond source rows retain the receiver wire cursor order',
+    () async {
+      await seed(2);
+      final base = DateTime.utc(2020).microsecondsSinceEpoch;
+      // HVS normally normalizes precision when folding. Model a supported store
+      // which retains it: microsecond order deliberately contradicts wire order.
+      sa.historyRows = (rows) => [
+        for (final message in rows)
+          Message(
+            id: message.id,
+            conversationId: message.conversationId,
+            direction: message.direction,
+            body: message.body,
+            timestamp: DateTime.fromMicrosecondsSinceEpoch(
+              base + (message.id == 'm0000' ? 900 : 100),
+              isUtc: true,
+            ),
+            status: message.status,
+            author: message.author,
+            seq: message.seq,
+            positionVerified: message.positionVerified,
+          ),
+      ];
+      ma.start();
+      await until(
+        () async =>
+            net.history.any((f) => f.from == a && f.body['q']?['op'] == 'list'),
+      );
+      final request = 'c' * 32;
+      await net.send(
+        tb,
+        a,
+        WireEnvelope.deviceHistory(
+          jsonEncode({
+            'v': 1,
+            'd': b.hex,
+            'id': request,
+            'q': {'op': 'page', 'peer': peer.hex, 'cursor': null, 'rows': 128},
+          }),
+        ).encode(),
+      );
+      await until(() async {
+        final parts = net.history
+            .where(
+              (f) =>
+                  f.from == a && f.body['id'] == request && f.body['b'] != null,
+            )
+            .toList();
+        return parts.isNotEmpty && parts.length == parts.first.body['n'];
+      });
+      final parts =
+          net.history
+              .where(
+                (f) =>
+                    f.from == a &&
+                    f.body['id'] == request &&
+                    f.body['b'] != null,
+              )
+              .toList()
+            ..sort(
+              (a, b) => (a.body['i'] as int).compareTo(b.body['i'] as int),
+            );
+      final reply =
+          jsonDecode(
+                utf8.decode([
+                  for (final part in parts)
+                    ...base64Decode(part.body['b'] as String),
+                ]),
+              )
+              as Map;
+      final events = [
+        for (final body in reply['events'] as List)
+          DeviceSyncEvent.fromBody(body as String)!,
+      ];
+      expect(events.map((event) => event.key), ['m0000', 'm0001']);
+      expect(events.map((event) => event.tsMs), everyElement(base ~/ 1000));
+      mb.start();
+      await until(
+        () async =>
+            await count() == 2 &&
+            await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+      );
+      expect(applied, 2);
+      expect(errorJournal.entries, isEmpty);
+    },
+  );
 
   for (final requested in [null, 1, 64, 128]) {
     test('source respects requested page rows ($requested)', () async {
