@@ -1,0 +1,85 @@
+{
+  "schema": "xveil-growing-prefix-research/1",
+  "archiveRows": 10000,
+  "preexistingRows": 1,
+  "deterministicProbeRows": 1024,
+  "deterministicKnownTailRows": 1,
+  "oldPageRequestsInProbe": 17,
+  "candidatePageRequestsInProbe": 2,
+  "experimentalTests": {
+    "passed": 207,
+    "skipped": 0,
+    "nativePassed": 16,
+    "allPassed": true,
+    "analyzerClean": true
+  },
+  "experimentalCombinedTests": {
+    "passed": 233,
+    "skipped": 0,
+    "nativePassed": 16,
+    "allPassed": true,
+    "analyzerClean": true
+  },
+  "candidateRetainedInProduct": false,
+  "timingComparisonQualified": false,
+  "timingInvalidationReason": "generated-kernel cleanup changed disk conditions between phases",
+  "reasonForDeferral": "bound repeated rejected-prefix digest work before adopting retention",
+  "cpuRegressionMeasured": false,
+  "phases": {
+    "A1": {
+      "applyToConvergenceMsNotQualifiedForComparison": 35105,
+      "reversePageRequests": 24,
+      "reverseCompleteRepliesAtA": 24,
+      "pageQueriesWithHints": 1,
+      "reverseApplicationFrameBytesAtA": 799300,
+      "finalRows": 10001,
+      "fullHistoryAndOfflineRetentionPassed": true,
+      "cleanup": {
+        "ownedPidsChecked": 41,
+        "portsChecked": 52,
+        "runtimeRootRemoved": true,
+        "frozenFilesVerified": 1524,
+        "nativeArtifactsUnchanged": true,
+        "livePids": [],
+        "remainingListeners": []
+      }
+    },
+    "B": {
+      "applyToConvergenceMsNotQualifiedForComparison": 33718,
+      "reversePageRequests": 18,
+      "reverseCompleteRepliesAtA": 18,
+      "pageQueriesWithHints": 18,
+      "reverseApplicationFrameBytesAtA": 607132,
+      "finalRows": 10001,
+      "fullHistoryAndOfflineRetentionPassed": true,
+      "cleanup": {
+        "ownedPidsChecked": 41,
+        "portsChecked": 57,
+        "runtimeRootRemoved": true,
+        "frozenFilesVerified": 1524,
+        "nativeArtifactsUnchanged": true,
+        "livePids": [],
+        "remainingListeners": []
+      }
+    },
+    "A2": {
+      "applyToConvergenceMsNotQualifiedForComparison": 34972,
+      "reversePageRequests": 157,
+      "reverseCompleteRepliesAtA": 157,
+      "pageQueriesWithHints": 1,
+      "reverseApplicationFrameBytesAtA": 5425560,
+      "finalRows": 10001,
+      "fullHistoryAndOfflineRetentionPassed": true,
+      "cleanup": {
+        "ownedPidsChecked": 39,
+        "portsChecked": 53,
+        "runtimeRootRemoved": true,
+        "frozenFilesVerified": 1524,
+        "nativeArtifactsUnchanged": true,
+        "livePids": [],
+        "remainingListeners": []
+      }
+    }
+  },
+  "pushOrRelease": false
+}
