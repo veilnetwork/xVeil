@@ -77,7 +77,6 @@ class ProcessDevice {
             Platform.environment['XVEIL_E2E_STORAGE_TIMELINE'] == label)
           '--enable-vmservice',
         '--dart-define=XVEIL_DEBUG_HOOK=true',
-        '--dart-define=XVEIL_DEBUG_HOOK_PORT=$port',
         if (Platform.environment['XVEIL_E2E_DIAGNOSTICS'] == '1')
           '--dart-define=XVEIL_DIAGNOSTICS=true',
         if (Platform.environment['XVEIL_E2E_BULK_STREAM_TRACE'] == '1')
@@ -91,6 +90,7 @@ class ProcessDevice {
             ? '/private/tmp/'
             : Directory.systemTemp.path,
         'XVEIL_LOG_STDOUT': '1',
+        'XVEIL_E2E_WORKER_HOOK_PORT': '$port',
         'XVEIL_E2E_WORKER_LABEL': label,
         'XVEIL_E2E_WORKER_DIR': dir.path,
         'XVEIL_E2E_WORKER_PEERS': jsonEncode([

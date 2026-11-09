@@ -419,9 +419,15 @@ Future<PurgeFilesOutcome> runPurgeFiles({
 /// `peer=any` uses all accepted contacts as candidate holders; `peers` can add
 /// an explicit comma-separated/repeated holder list.
 class DebugSoakHookHost extends ConsumerStatefulWidget {
-  const DebugSoakHookHost({required this.child, super.key});
+  const DebugSoakHookHost({required this.child, this.port, super.key});
 
   final Widget child;
+
+  /// Isolated stand workers choose a port at runtime, so ephemeral ports do
+  /// not create a distinct compiled test kernel for every process. This does
+  /// not enable the hook: the same build opt-in and authentication still apply.
+  @visibleForTesting
+  final int? port;
 
   @override
   ConsumerState<DebugSoakHookHost> createState() => _DebugSoakHookHostState();
@@ -480,7 +486,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
 
       final server = await HttpServer.bind(
         InternetAddress.loopbackIPv4,
-        _debugHookPort,
+        widget.port ?? _debugHookPort,
         // Exclusive, for the same reason the API server is: SO_REUSEPORT hands
         // a share of the connections to any other process of this user that
         // binds the port. Debug-only, but a debug build runs against real data.
@@ -502,7 +508,7 @@ class _DebugSoakHookHostState extends ConsumerState<DebugSoakHookHost> {
       // second desktop instance silently kept the platform default port and
       // cost an hour of looking in the wrong place.
       stderr.writeln(
-        'xVeil[debug-hook]: could not listen on 127.0.0.1:$_debugHookPort: $e',
+        'xVeil[debug-hook]: could not listen on 127.0.0.1:${widget.port ?? _debugHookPort}: $e',
       );
     }
   }
