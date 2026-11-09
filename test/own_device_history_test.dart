@@ -774,6 +774,132 @@ void main() {
     );
   }
 
+  for (final pendingPrefix in [false, true]) {
+    for (final delta in [-1, 0, 1]) {
+      test(
+        'source page byte boundary uses escaped UTF-8 and cursor metadata ($pendingPrefix, $delta)',
+        () async {
+          await seed(
+            3,
+            messageBody:
+                'quote" slash\\ controls\n\t\u0000 Кириллица 中文 🙂' * 16,
+          );
+          final source = await sa.loadMessages(peer.hex);
+          var padding = '';
+          DeviceSyncEvent eventFor(Message message) {
+            final base = deviceMirrorOf(peer.hex, message).event;
+            return DeviceSyncEvent(
+              kind: base.kind,
+              key: base.key,
+              tsMs: base.tsMs,
+              payload: {
+                ...base.payload,
+                if (message.id == 'm0001') 'sizerPadding': padding,
+              },
+            );
+          }
+
+          Map<String, dynamic> expectedPage(int count) => {
+            'op': 'page',
+            'peer': peer.hex,
+            if (pendingPrefix) 'prefixPending': 1,
+            'events': [
+              for (final row in source.take(count))
+                (() {
+                  final event = eventFor(row);
+                  return DeviceSyncEvent(
+                    kind: event.kind,
+                    key: event.key,
+                    tsMs: event.tsMs,
+                    payload: {...event.payload, 'historyDelivered': true},
+                  ).toBody();
+                })(),
+            ],
+            'next': [
+              source[count - 1].timestamp.millisecondsSinceEpoch,
+              source[count - 1].id,
+            ],
+          };
+          // Reference is one full JSON+UTF-8 serialization, including outer
+          // quoting of each event. Padding has no escapes, so each byte is exact.
+          final overhead = utf8.encode(jsonEncode(expectedPage(2))).length;
+          padding = 'x' * (128 * 1024 - overhead + delta);
+          expect(
+            utf8.encode(jsonEncode(expectedPage(2))).length,
+            128 * 1024 + delta,
+          );
+          ma.ownHistoryEncode = (_, message) async => eventFor(message);
+          ma.start();
+          await until(
+            () async => net.history.any(
+              (f) => f.from == a && f.body['q']?['op'] == 'list',
+            ),
+          );
+          final requestId = '4' * 32;
+          await net.send(
+            tb,
+            a,
+            WireEnvelope.deviceHistory(
+              jsonEncode({
+                'v': 1,
+                'd': b.hex,
+                'id': requestId,
+                'q': {
+                  'op': 'page',
+                  'peer': peer.hex,
+                  'cursor': null,
+                  'rows': 128,
+                  if (pendingPrefix)
+                    'prefix': {
+                      'count': 100,
+                      'hash': '0' * 64,
+                      'position': [
+                        DateTime.utc(2021).millisecondsSinceEpoch,
+                        'future',
+                      ],
+                    },
+                },
+              }),
+            ).encode(),
+          );
+          await until(() async {
+            final parts = net.history
+                .where(
+                  (f) =>
+                      f.from == a &&
+                      f.body['id'] == requestId &&
+                      f.body['b'] != null,
+                )
+                .toList();
+            return parts.isNotEmpty && parts.length == parts.first.body['n'];
+          });
+          final parts =
+              net.history
+                  .where(
+                    (f) =>
+                        f.from == a &&
+                        f.body['id'] == requestId &&
+                        f.body['b'] != null,
+                  )
+                  .toList()
+                ..sort(
+                  (l, r) => (l.body['i'] as int).compareTo(r.body['i'] as int),
+                );
+          final actual = [
+            for (final part in parts) ...base64Decode(part.body['b'] as String),
+          ];
+          final expected = utf8.encode(
+            jsonEncode(expectedPage(delta > 0 ? 1 : 2)),
+          );
+          expect(actual, expected);
+          expect(actual.length, lessThanOrEqualTo(128 * 1024));
+          expect(parts.length, lessThanOrEqualTo(64));
+          expect(errorJournal.entries, isEmpty);
+        },
+      );
+    }
+  }
+
   test(
     'four-KiB slices accept exactly the existing 128-KiB page budget',
     () async {

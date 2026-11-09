@@ -950,6 +950,7 @@ class _MessagingOwnHistory {
           }
         } else {
           if (!await _allowed(device, binding)) return;
+          var quotedEventBytes = 0;
           for (final message in page) {
             // Text/already-addressed media need only local preparation here.
             // An inline blob may register content, so keep its fresh gate.
@@ -963,9 +964,22 @@ class _MessagingOwnHistory {
             }
             final body = await encodeRecord(message);
             if (!_bound(binding)) return;
+            // Each event is a JSON string in the outer page. Count its quoted
+            // UTF-8 once, rather than serializing all preceding bodies again.
+            // Keep real cursor/prefix metadata in the empty-array envelope:
+            // brackets are already counted; only elements and commas remain.
+            final nextEventBytes =
+                quotedEventBytes + utf8.encode(jsonEncode(body)).length;
             events.add(body);
-            // Event bodies are JSON strings inside another JSON envelope.
-            if (utf8.encode(jsonEncode(pageResult(message))).length >
+            final envelopeBytes = utf8
+                .encode(
+                  jsonEncode({
+                    ...pageResult(message),
+                    'events': const <String>[],
+                  }),
+                )
+                .length;
+            if (envelopeBytes + nextEventBytes + events.length - 1 >
                 _maxPageBytes) {
               events.removeLast();
               if (events.isEmpty) {
@@ -989,6 +1003,7 @@ class _MessagingOwnHistory {
               }
               break;
             }
+            quotedEventBytes = nextEventBytes;
           }
           result =
               descriptor ??
