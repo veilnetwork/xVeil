@@ -136,6 +136,27 @@ authorization checks and native request order stay the same.
 
 ---
 
+### Worker ports and kernel cache
+
+Process workers choose an isolated loopback API port at runtime through
+`XVEIL_E2E_WORKER_HOOK_PORT`. Do not turn the random port into a Dart define:
+that creates another large tracked kernel cache for every worker/restart.
+The build-level hook opt-in, loopback binding and per-run key remain required.
+
+Run the cache qualification case by itself (no simultaneous test compilation
+in this checkout), with the native variables above:
+
+```bash
+TMPDIR=/private/tmp/ flutter test --no-pub test/e2e/runtime_hook_port_process_e2e_test.dart
+```
+
+It checks three independently keyed native workers, a restart on a different
+port, and no additional kernel cache entry for that restart. Normal compiler
+cache growth for distinct tests/configurations remains possible. Inspect
+`build/test_cache` during long campaigns; remove only closed generated kernels,
+never user containers or `.git` objects, and preserve kernels used by active
+runs. A cache purge during a measurement invalidates timing comparisons.
+
 ## What is in here
 
 | File | What it is |
