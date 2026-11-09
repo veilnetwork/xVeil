@@ -599,7 +599,7 @@ class _MessagingOwnHistory {
       _owner._storage,
       peer,
     )).where((message) => visible(message.timestamp)).toList();
-    rows.sort(compareMessageHistoryOrder);
+    sortMessageHistory(rows);
     return rows;
   }
 

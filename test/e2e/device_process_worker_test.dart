@@ -487,6 +487,7 @@ void main() {
                   );
                 }
               }
+              Map<String, Object>? seededArchiveOrder;
               if (request['seedSharedHistory'] == true) {
                 if (env['XVEIL_E2E_HISTORY_OVERLAP'] != '1') {
                   throw StateError('shared archive setup is not enabled');
@@ -543,6 +544,9 @@ void main() {
                   if (pending.length == seedBatchRows) await persistSeed();
                 }
                 if (pending.isNotEmpty) await persistSeed();
+                seededArchiveOrder = historyArchiveOrderShape(
+                  await device!.storage.loadMessageRows(peer),
+                );
               }
               final peer = request['peer'] as String;
               final prefix = request['prefix'] as String;
@@ -621,6 +625,7 @@ void main() {
                     ),
                   if (authorization.isNotEmpty) 'authorization': authorization,
                   'historyState': ?historyState,
+                  'seededArchiveOrder': ?seededArchiveOrder,
                   if (request['includeHistoryWire'] == true)
                     'historyWire': device!.privateHistoryWireSnapshot(),
                   if (request['includeHistoryWire'] == true ||

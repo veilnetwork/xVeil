@@ -1,7 +1,57 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/domain/chat.dart';
 import '../support/history_archive_fixture.dart';
 
 void main() {
+  test('archive append-order census exposes only shape counts', () {
+    List<Message> rows(List<int> times, {List<String>? ids}) => [
+      for (var i = 0; i < times.length; i++)
+        Message(
+          id: ids?[i] ?? 'PRIVATE_$i',
+          conversationId: 'PRIVATE_PEER',
+          direction: MessageDirection.outgoing,
+          body: 'PRIVATE_BODY',
+          timestamp: DateTime.fromMillisecondsSinceEpoch(times[i]),
+        ),
+    ];
+    expect(historyArchiveOrderShape(rows([0, 1, 2])), {
+      'rows': 3,
+      'descendingPairs': 0,
+      'firstRunRows': 3,
+      'secondRunRows': 0,
+      'fullyOrdered': true,
+      'twoRunsWithBoundedSide': false,
+    });
+    expect(historyArchiveOrderShape(rows([3, 0, 1, 2])), {
+      'rows': 4,
+      'descendingPairs': 1,
+      'firstRunRows': 1,
+      'secondRunRows': 3,
+      'fullyOrdered': false,
+      'twoRunsWithBoundedSide': true,
+    });
+    expect(historyArchiveOrderShape(rows([2, 1, 0]))['descendingPairs'], 2);
+    expect(
+      historyArchiveOrderShape(
+        rows([0, 0], ids: ['z', 'a']),
+      )['descendingPairs'],
+      1,
+    );
+    expect(historyArchiveOrderShape(rows([]))['rows'], 0);
+    expect(
+      historyArchiveOrderShape(
+        rows([
+          for (var i = 129; i < 258; i++) i,
+          for (var i = 0; i < 129; i++) i,
+        ]),
+      )['twoRunsWithBoundedSide'],
+      false,
+    );
+    expect(
+      historyArchiveOrderShape(rows([0])).toString(),
+      isNot(contains('PRIVATE_')),
+    );
+  });
   test('default archive remains 512 rows', () {
     expect(historyArchiveRows(null), 512);
   });

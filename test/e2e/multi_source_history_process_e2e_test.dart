@@ -340,6 +340,12 @@ void main() {
         expect(_ordered(expectedArchive, _archive(second)), isTrue);
         expect((second['historyState'] as Map)['mirrors'], 0);
         result['sourceArchivesEqual'] = true;
+        expect(first['seededArchiveOrder'], isA<Map>());
+        expect(second['seededArchiveOrder'], isA<Map>());
+        result['sourceArchiveAppendOrder'] = {
+          'A': first['seededArchiveOrder'],
+          'E': second['seededArchiveOrder'],
+        };
         await _gate(a, 'encode', 'arm').writeAsString('arm');
         await _gate(e, 'encode', 'arm').writeAsString('arm');
         await _gate(b, 'apply', 'arm').writeAsString('arm');

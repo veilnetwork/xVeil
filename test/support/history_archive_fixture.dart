@@ -1,3 +1,5 @@
+import 'package:xveil/domain/chat.dart';
+
 /// Private stand input bounds, shared by its controller and storage worker.
 const minHistoryArchiveRows = 32;
 const maxHistoryArchiveRows = 100000;
@@ -14,4 +16,29 @@ int historyArchiveRows(String? raw) {
     );
   }
   return count;
+}
+
+/// Setup-only census of the actual fold order. Fixed count/boolean fields,
+/// independent of the product's comparator; never exports IDs or timestamps.
+Map<String, Object> historyArchiveOrderShape(List<Message> rows) {
+  var breaks = 0, firstRun = rows.length;
+  for (var i = 1; i < rows.length; i++) {
+    final left = rows[i - 1], right = rows[i];
+    final a = left.timestamp.millisecondsSinceEpoch;
+    final b = right.timestamp.millisecondsSinceEpoch;
+    if (a > b || (a == b && left.id.compareTo(right.id) > 0)) {
+      breaks++;
+      if (breaks == 1) firstRun = i;
+    }
+  }
+  final secondRun = breaks == 1 ? rows.length - firstRun : 0;
+  return {
+    'rows': rows.length,
+    'descendingPairs': breaks,
+    'firstRunRows': firstRun,
+    'secondRunRows': secondRun,
+    'fullyOrdered': breaks == 0,
+    'twoRunsWithBoundedSide':
+        breaks == 1 && (firstRun <= 128 || secondRun <= 128),
+  };
 }
