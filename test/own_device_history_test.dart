@@ -20,6 +20,30 @@ import 'package:xveil/state/messaging.dart';
 NodeId id(int n) => NodeId(Uint8List(32)..fillRange(0, 32, n));
 final identity = id(90), a = id(91), b = id(92), peer = id(93);
 
+class _TimestampReadMessage extends Message {
+  _TimestampReadMessage(int index, int base, this.onRead)
+    : super(
+        id: 'ordered-${index.toString().padLeft(6, '0')}',
+        conversationId: peer.hex,
+        direction: MessageDirection.outgoing,
+        body: 'fixture',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(
+          base + index,
+          isUtc: true,
+        ),
+        status: MessageStatus.delivered,
+        author: a.hex,
+        seq: index + 1,
+        positionVerified: true,
+      );
+  final void Function() onRead;
+  @override
+  DateTime get timestamp {
+    onRead();
+    return super.timestamp;
+  }
+}
+
 class _Network {
   final endpoints = <NodeId, _Endpoint>{};
   final history = <({NodeId from, NodeId to, Map<String, dynamic> body})>[];
@@ -738,6 +762,103 @@ void main() {
       expect(errorJournal.entries, isEmpty);
     },
   );
+
+  for (final newerHead in [false, true]) {
+    test(
+      newerHead
+          ? 'source merges a newer head with 100000 archived rows before its tail page'
+          : 'source checks 100000 already ordered rows once before its tail page',
+      () async {
+        await seed(1);
+        final base = DateTime.utc(2020).millisecondsSinceEpoch;
+        var timestampReads = 0;
+        final rows = [
+          if (newerHead)
+            _TimestampReadMessage(100000, base, () => timestampReads++),
+          for (var i = 0; i < 100000; i++)
+            _TimestampReadMessage(i, base, () => timestampReads++),
+        ];
+        sa.historyRows = (_) => rows;
+        ma.start();
+        await until(
+          () async => net.history.any(
+            (f) => f.from == a && f.body['q']?['op'] == 'list',
+          ),
+        );
+        final request = 'd' * 32;
+        timestampReads = 0;
+        await net.send(
+          tb,
+          a,
+          WireEnvelope.deviceHistory(
+            jsonEncode({
+              'v': 1,
+              'd': b.hex,
+              'id': request,
+              'q': {
+                'op': 'page',
+                'peer': peer.hex,
+                'cursor': [
+                  base + (newerHead ? 99872 : 99871),
+                  newerHead ? 'ordered-099872' : 'ordered-099871',
+                ],
+                'rows': 128,
+              },
+            }),
+          ).encode(),
+        );
+        await until(() async {
+          final parts = net.history
+              .where(
+                (f) =>
+                    f.from == a &&
+                    f.body['id'] == request &&
+                    f.body['b'] != null,
+              )
+              .toList();
+          return parts.isNotEmpty && parts.length == parts.first.body['n'];
+        });
+        // Includes the fresh visibility walk, order check, binary lookup, encoding
+        // and cursor metadata. A helper-only check would miss a call-site revert.
+        expect(timestampReads, lessThanOrEqualTo(newerHead ? 401000 : 201000));
+        final parts =
+            net.history
+                .where(
+                  (f) =>
+                      f.from == a &&
+                      f.body['id'] == request &&
+                      f.body['b'] != null,
+                )
+                .toList()
+              ..sort(
+                (a, b) => (a.body['i'] as int).compareTo(b.body['i'] as int),
+              );
+        final reply =
+            jsonDecode(
+                  utf8.decode([
+                    for (final part in parts)
+                      ...base64Decode(part.body['b'] as String),
+                  ]),
+                )
+                as Map;
+        final events = [
+          for (final body in reply['events'] as List)
+            DeviceSyncEvent.fromBody(body as String)!,
+        ];
+        expect(events, hasLength(128));
+        expect(events.map((e) => e.key), [
+          for (
+            var i = newerHead ? 99873 : 99872;
+            i < (newerHead ? 100001 : 100000);
+            i++
+          )
+            'ordered-${i.toString().padLeft(6, '0')}',
+        ]);
+        expect(reply['next'], isNull);
+        expect(errorJournal.entries, isEmpty);
+      },
+    );
+  }
 
   for (final requested in [null, 1, 64, 128]) {
     test('source respects requested page rows ($requested)', () async {
