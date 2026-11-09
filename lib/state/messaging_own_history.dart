@@ -1,5 +1,7 @@
 part of 'messaging_core.dart';
 
+enum _HistoryPrefixVerdict { unavailable, mismatch, matched }
+
 /// Anti-entropy for history which has outlived the bounded device journal.
 /// Nothing here extends that journal, changes consent, or uses mailbox. One
 /// outstanding request per sibling bounds reassembly and supplies backpressure.
@@ -757,17 +759,31 @@ class _MessagingOwnHistory {
       (position[0] == cursor[0] &&
           (position[1] as String).compareTo(cursor[1] as String) > 0);
 
-  bool _matchesPrefix(
+  _HistoryPrefixVerdict _prefixVerdict(
     ({List<Message> rows, Map<String, int> edits}) snapshot,
     Map prefix,
   ) {
+    final count = prefix['count'] as int;
+    // An unavailable proposal needs no digest (and normally no row walk).
+    if (count > snapshot.rows.length) return _HistoryPrefixVerdict.unavailable;
     final rows = snapshot.rows
         .where((message) => _compare(message, prefix['position'] as List) <= 0)
+        .take(count + 1)
         .toList();
-    return rows.isNotEmpty &&
-        rows.length == prefix['count'] &&
-        _samePrefix(_prefixProof((rows: rows, edits: snapshot.edits)), prefix);
+    if (rows.length < count) return _HistoryPrefixVerdict.unavailable;
+    if (rows.length > count) return _HistoryPrefixVerdict.mismatch;
+    return _samePrefix(
+          _prefixProof((rows: rows, edits: snapshot.edits)),
+          prefix,
+        )
+        ? _HistoryPrefixVerdict.matched
+        : _HistoryPrefixVerdict.mismatch;
   }
+
+  bool _matchesPrefix(
+    ({List<Message> rows, Map<String, int> edits}) snapshot,
+    Map prefix,
+  ) => _prefixVerdict(snapshot, prefix) == _HistoryPrefixVerdict.matched;
 
   Future<void> _serve(
     NodeId device,
@@ -830,8 +846,13 @@ class _MessagingOwnHistory {
             prefixes.any((p) => !_afterCursor(p['position'] as List, cursor))) {
           return;
         }
-        for (final prefix in prefixes) {
-          if (_matchesPrefix(snapshot, prefix)) {
+        var pendingPrefixes = 0;
+        for (var i = 0; i < prefixes.length; i++) {
+          final prefix = prefixes[i];
+          final verdict = _prefixVerdict(snapshot, prefix);
+          if (verdict == _HistoryPrefixVerdict.unavailable) {
+            pendingPrefixes |= 1 << i;
+          } else if (verdict == _HistoryPrefixVerdict.matched) {
             acceptedPrefix = prefix;
             cursor = prefix['position'];
             break;
@@ -847,6 +868,7 @@ class _MessagingOwnHistory {
           'op': 'page',
           'peer': peer,
           'prefix': ?acceptedPrefix,
+          if (pendingPrefixes != 0) 'prefixPending': pendingPrefixes,
           'events': events,
           'next': last != null && window.length > events.length
               ? [last.timestamp.millisecondsSinceEpoch, last.id]
@@ -1229,8 +1251,8 @@ class _MessagingOwnHistory {
       return;
     }
     final prefix = reply['prefix'];
+    final proposed = _queryPrefixes(pull.query);
     if (prefix != null) {
-      final proposed = _queryPrefixes(pull.query);
       if (reply['op'] != 'page' ||
           reply['peer'] != pull.progress['peer'] ||
           !_validPrefix(prefix) ||
@@ -1253,7 +1275,22 @@ class _MessagingOwnHistory {
         'cursor': prefix['position'],
       });
     }
-    pull.prefixes = const [];
+    // This mask can retain only proposals we already made, never authorize
+    // rows or a cursor. Keep unavailable prefixes; do not repeatedly digest
+    // hints the source had enough rows to reject. Missing/malformed metadata
+    // keeps the legacy plain-page path. Every future jump is checked afresh.
+    final pending = reply['prefixPending'];
+    pull.prefixes =
+        proposed != null &&
+            pending is int &&
+            pending > 0 &&
+            pending < (1 << proposed.length)
+        ? [
+            for (var i = 0; i < proposed.length; i++)
+              if ((pending & (1 << i)) != 0)
+                Map<String, dynamic>.from(proposed[i]),
+          ]
+        : const [];
     if (reply['record'] != null) {
       _beginRecord(pull, reply);
       return;
@@ -1406,6 +1443,7 @@ class _MessagingOwnHistory {
           ? {'after': peer}
           : {'after': pull.progress['after'], 'peer': peer, 'cursor': next},
     );
+    if (next == null) pull.prefixes = const [];
     _request(pull);
   }
 

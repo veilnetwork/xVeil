@@ -206,9 +206,9 @@ count and content digest exactly match the receiver's chronological prefix of
 that length, all advertised rows are already held: no pages are requested just
 to mirror the same rows back to their source.
 
-For a genuinely incomplete receiver, the first ordinary `page` request can carry
-an optional `prefix`: chronological endpoint, count and SHA-256. This request-local
-hint covers the already held rows' IDs, canonical order author/sequence, text,
+For a receiver which needs to check the source, an ordinary `page` request can
+carry an optional `prefix`: chronological endpoint, count and SHA-256. This
+non-durable hint covers the already held rows' IDs, canonical order author/sequence, text,
 inline emoji, edit frontier, delivered/reflected state, timestamps and direction.
 The source compares it against its own complete prefix through that endpoint.
 Only an exact match allows the page to start after it; the response echoes the
@@ -231,8 +231,25 @@ already hold a late echo tail beyond a gap, so its entire held set is not
 necessarily a prefix. The source selects the longest candidate which actually
 matches its complete prefix; the receiver accepts only an offered candidate
 and rechecks that specific subset. Candidates share the existing 1500-character
-query bound and are removed if necessary to fit. There are at most eight checks,
+query bound and are removed if necessary to fit. There are at most eight candidates per request,
 not an unbounded prefix search. Gaps and provisional positions are still repaired.
+
+A page reply may include `prefixPending`, an optional integer bit mask over the
+actual ordered proposal list (primary bit 0, then fallbacks). A set bit reports
+that the source currently has fewer rows through that endpoint than the
+proposal requires. A fully checkable mismatch has no bit. The client may retain
+only those already-offered proposals for later pages of the same pull, always
+filtering endpoints behind its current cursor. Invalid, out-of-range or absent
+masks discard the proposals and keep the original plain-page behavior. Hints
+are cleared at the end of the conversation and are never persisted.
+
+This report only schedules another comparison; it cannot authorize a skip,
+application, ACK or checkpoint. Every accepted prefix still requires a fresh
+comparison on both ends and the ordinary current-device/binding/durability
+gates. A candidate larger than the entire fresh snapshot needs no digest or
+row walk; other candidates are hashed only at an exact prefix count. A source
+which could already reject a candidate does not ask the client to keep
+resending it. Older peers may ignore this optional metadata.
 
 A restored page cursor gets one current inventory check before replaying pages:
 other synchronization paths may already have filled the missing rows. If pages
