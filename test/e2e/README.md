@@ -100,6 +100,25 @@ Optional knobs:
 | `XVEIL_E2E_QUIET=1` | silence the harness's progress lines |
 | `XVEIL_E2E_RUST_LOG` | `RUST_LOG` for the relay processes (default `info,veil_node_runtime=debug,veil_mailbox=debug`) |
 
+### Crash before applying overlapping history replies
+
+`multi_source_history_process_e2e_test.dart` normally holds the first history
+apply until two sibling sources have delivered complete authenticated replies.
+With `XVEIL_E2E_HISTORY_OVERLAP_CRASH_BEFORE_APPLY=1`, it instead kills the
+receiver at that barrier. Both sources stop before the receiver restarts.
+The container is inspected before networking starts, then only one source
+returns. All 512 archived rows and the receiver's existing history must
+converge by exact ID, body, delivery state, canonical positions and order.
+A final receiver restart with every source offline checks durable retention.
+
+Besides the base native gates, this fixture requires
+`XVEIL_E2E_HISTORY_OVERLAP=1`, `XVEIL_E2E_STORAGE_TIMING=1`,
+`XVEIL_E2E_HISTORY_WIRE_TRACE=1` and an existing private
+`XVEIL_E2E_EVIDENCE_DIR`. Evidence includes synthetic identifiers and content
+witnesses; it is private stand data, not an anonymous diagnostic export.
+This scenario does not enable a sibling mailbox or qualify long offline,
+every crash stage, or mobile network handover.
+
 ---
 
 ## What is in here
