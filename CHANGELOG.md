@@ -39,8 +39,10 @@ bumps may change behaviour a user notices.
 
 ### Dependencies and limitations
 
-- Prepare with Veil 0.11.48 and hidden-volume 2.7.0. Media engines must be rebuilt
-  from the matching native sources and verified before the application tag.
+- Use Veil 0.11.48, hidden-volume 2.7.0 and media engines from
+  `engine-2026.11.09`. Verify all seven source digests and binary checksums;
+  the artifact privacy gate covers engine publication as well as application
+  and dependency releases.
 - Large-history recovery and the extended multi-device matrix remain unfinished.
   In one physical series, 2,000 messages converged in approximately 46–51 seconds;
   this is a scenario result, not a general performance guarantee.
