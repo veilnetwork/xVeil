@@ -48,7 +48,8 @@ class _MessagingOwnHistory {
   // Short messages should share a byte-bounded reply rather than pay another
   // round trip, snapshot and durable cursor every eight rows. The 128-KiB,
   // 64-part and admission ceilings remain independent of this row cap.
-  static const _messagePage = 64;
+  static const _legacyMessagePage = 64;
+  static const _messagePage = 128;
   static const _maxPrefixes = 8;
   // Four-KiB binary slices fit the existing six-KiB transport frame even
   // after base64/envelope encoding. Keep the page byte budget independent
@@ -299,6 +300,7 @@ class _MessagingOwnHistory {
       if (!inventory) 'peer': pull.progress['peer'],
       if (!inventory) 'cursor': pull.progress['cursor'],
       if (inventory) 'after': pull.progress['after'],
+      if (record == null && !inventory) 'rows': _messagePage,
       if (record != null) ...{'hash': record.hash, 'offset': record.offset},
     };
     if (record == null && !inventory) {
@@ -785,6 +787,11 @@ class _MessagingOwnHistory {
     Map prefix,
   ) => _prefixVerdict(snapshot, prefix) == _HistoryPrefixVerdict.matched;
 
+  int? _requestedRows(Map query) {
+    final rows = query.containsKey('rows') ? query['rows'] : _legacyMessagePage;
+    return rows is int && rows > 0 && rows <= _messagePage ? rows : null;
+  }
+
   Future<void> _serve(
     NodeId device,
     Object? binding,
@@ -832,7 +839,8 @@ class _MessagingOwnHistory {
       } else if (query['op'] == 'page' || query['op'] == 'record') {
         final peer = query['peer'];
         var cursor = query['cursor'];
-        if (!_hex(peer) || !_validCursor(cursor)) return;
+        final limit = _requestedRows(query);
+        if (!_hex(peer) || !_validCursor(cursor) || limit == null) return;
         final node = NodeId.fromHex(peer as String);
         if (peer == await _owner.selfIdentityHex?.call() ||
             await _owner._isSiblingDevice(node)) {
@@ -860,9 +868,9 @@ class _MessagingOwnHistory {
         }
         final window = snapshot.rows
             .where((m) => cursor == null || _compare(m, cursor as List) > 0)
-            .take(_messagePage + 1)
+            .take(limit + 1)
             .toList();
-        final page = window.take(_messagePage).toList();
+        final page = window.take(limit).toList();
         final events = <String>[];
         Map<String, dynamic> pageResult(Message? last) => {
           'op': 'page',
@@ -1335,9 +1343,11 @@ class _MessagingOwnHistory {
   ) async {
     final peer = pull.progress['peer'];
     final events = reply['events'], next = reply['next'];
-    if (reply['peer'] != peer ||
+    final limit = _requestedRows(pull.query);
+    if (limit == null ||
+        reply['peer'] != peer ||
         events is! List ||
-        events.length > _messagePage ||
+        events.length > limit ||
         !_validCursor(next) ||
         (next != null && events.isEmpty)) {
       throw StateError('Invalid history page');
