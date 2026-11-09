@@ -29,6 +29,13 @@
   "benchmarkTimingDisqualifiedByCleanup": true,
   "unsignedLocalOnly": true,
   "relatedTests": {
+    "passed": 228,
+    "skipped": 0,
+    "allPassed": true,
+    "analyzerClean": true,
+    "nativePassed": 16
+  },
+  "intermediateWithHistoryPrototypeTests": {
     "passed": 233,
     "skipped": 0,
     "nativePassed": 16,
