@@ -9,9 +9,12 @@ import 'device_process_fixture.dart';
 import 'e2e_env.dart';
 import 'multi_device_process_e2e_test.dart' as base;
 import 'crash_retention_oracle.dart';
+import '../support/history_archive_fixture.dart';
 
 const _prefix = 'native-overlap-';
-const _rows = 512;
+final _rows = historyArchiveRows(
+  Platform.environment['XVEIL_E2E_HISTORY_OVERLAP_ROWS'],
+);
 int _nonce = 0;
 bool _invalid = false;
 
@@ -22,6 +25,7 @@ Future<Map<String, dynamic>> _inspect(
   bool seed = false,
   String? author,
   List<String>? cursors,
+  bool resetTiming = false,
 }) async {
   final nonce = 'overlap-${++_nonce}';
   final request = File('${d.dir.path}/storage-inspect.new');
@@ -31,6 +35,10 @@ Future<Map<String, dynamic>> _inspect(
       'peer': peer,
       'prefix': '',
       'includeRows': true,
+      if (Platform.environment['XVEIL_E2E_STORAGE_TIMING'] == '1') ...{
+        'storageTiming': true,
+        'resetStorageTiming': resetTiming,
+      },
       'includeHistoryWire': true,
       'historyBodyPrefix': _prefix,
       'historyAskingDevice': asking,
@@ -66,6 +74,14 @@ Future<Map<String, dynamic>> _inspect(
   await File(
     '$evidence/overlap-${d.label}-last-private.json',
   ).writeAsString(jsonEncode(answer));
+  if (answer!['storageTiming'] case final Map timing) {
+    await File(
+      '$evidence/history-census-${d.label}-private.jsonl',
+    ).writeAsString(
+      '${jsonEncode({'nonce': nonce, 'values': timing})}\n',
+      mode: FileMode.append,
+    );
+  }
   return answer!;
 }
 
@@ -396,6 +412,7 @@ void main() {
           );
           return;
         }
+        await _inspect(b, ci, bn, resetTiming: true);
         final applyElapsed = Stopwatch()..start();
         await _gate(b, 'apply', 'release').writeAsString('release');
         Map<String, dynamic>? finalB;

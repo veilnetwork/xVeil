@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -21,11 +22,14 @@ enum MessageStorageOperation {
 /// Passive fixture data. No message key, payload, path or exception is exported.
 /// RPC await times can overlap and must not be summed as exclusive disk time.
 class MessageApplyCensus {
-  MessageApplyCensus({int Function()? nowUs}) : _nowOverride = nowUs {
+  MessageApplyCensus({int Function()? nowUs, this.traceStages = false})
+    : _nowOverride = nowUs {
     reset();
   }
   final clock = Stopwatch()..start();
   final int Function()? _nowOverride;
+  final bool traceStages;
+  int _stageSequence = 0;
   int get nowUs => _nowOverride?.call() ?? clock.elapsedMicroseconds;
   late int _epoch;
   int started = 0, completed = 0, failed = 0, duplicates = 0;
@@ -92,9 +96,24 @@ class MessageApplyCensus {
 
   Future<T> _context<T>(String label, Future<T> Function() body) async {
     final start = nowUs;
+    final trace = traceStages ? developer.TimelineTask() : null;
+    final sequence = trace == null ? 0 : ++_stageSequence;
+    trace?.start(
+      'stand.history.stage',
+      arguments: {'stage': label, 'sequence': sequence},
+    );
+    var ok = false;
     try {
-      return await runZoned(body, zoneValues: {storageTimingContextKey: label});
+      final result = await runZoned(
+        body,
+        zoneValues: {storageTimingContextKey: label},
+      );
+      ok = true;
+      return result;
     } finally {
+      trace?.finish(
+        arguments: {'stage': label, 'sequence': sequence, 'ok': ok},
+      );
       _record(
         _contexts,
         label,
