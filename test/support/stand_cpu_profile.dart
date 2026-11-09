@@ -82,5 +82,26 @@ class StandCpuProfile {
     };
   }
 
+  /// Local control capability for an external, private stand sampler. Never
+  /// include this file in an application diagnostic artifact or public report.
+  /// The caller owns a private evidence directory; one file is scoped to one
+  /// worker PID so restarts cannot silently switch an existing capture.
+  Future<void> writeEndpointWitness(File file) async {
+    final service = _service;
+    if (service == null || service.host != '127.0.0.1' || _origin == null) {
+      throw StateError('stand profiler needs an initialized loopback endpoint');
+    }
+    final pending = File('${file.path}.new');
+    await pending.writeAsString(
+      jsonEncode({
+        'schema': 'xveil-private-cpu-endpoint/1',
+        'pid': pid,
+        'uri': service.toString(),
+        'originMicros': _origin,
+      }),
+    );
+    await pending.rename(file.path);
+  }
+
   void close() => _client.close(force: true);
 }
