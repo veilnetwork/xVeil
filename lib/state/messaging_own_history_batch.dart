@@ -76,7 +76,7 @@ class _HistoryWriteCohort {
   final Future<void> Function(List<DeviceSyncEvent>) checkAdmission;
   final _pending = <({DeviceSyncEvent event, _PreparedHistoryRow row})>[];
   final _all = <_PreparedHistoryRow>[];
-  static const _publicationRows = 16;
+  static const _publicationRows = preparedMessageBatchMaxRows;
 
   Future<void> applyAll(
     List<DeviceSyncEvent> events,

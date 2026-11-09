@@ -306,29 +306,29 @@ void main() {
     'native ordering cohort preserves bodies raw positions and durable canonical order',
     () async {
       await Future.wait([
-        for (var i = 1; i <= 16; i++) storage.appendMessage(row(i)),
+        for (var i = 1; i <= 64; i++) storage.appendMessage(row(i)),
       ]);
       backing.commitRows.clear();
-      final requests = [for (var i = 1; i <= 16; i++) correction(i)];
+      final requests = [for (var i = 1; i <= 64; i++) correction(i)];
       expect(
         await storage.adoptMessageOrderingBatch(
           requests,
           beforeCommit: () async {},
         ),
-        List.filled(16, true),
+        List.filled(64, true),
       );
-      expect(backing.commitRows, [16]);
+      expect(backing.commitRows, [64]);
       await reopen();
       final held = await storage.loadMessages('peer');
       expect(
         held.map((m) => (m.id, m.author, m.seq, m.orderAuthor, m.orderSeq)),
         [
-          for (var i = 1; i <= 16; i++)
+          for (var i = 1; i <= 64; i++)
             ('row-$i', 'author', i, 'canonical', i + 1000),
         ],
       );
       expect(held.map((m) => m.body), [
-        for (var i = 1; i <= 16; i++) row(i).body,
+        for (var i = 1; i <= 64; i++) row(i).body,
       ]);
       expect(held.every((m) => m.status == MessageStatus.delivered), isTrue);
       expect(await storage.loadEventsSince('peer', 'canonical', 0), isEmpty);
@@ -337,7 +337,7 @@ void main() {
           requests,
           beforeCommit: () async {},
         ),
-        List.filled(16, false),
+        List.filled(64, false),
       );
     },
     skip: skip,
@@ -380,24 +380,40 @@ void main() {
   test(
     'native prepared cohort publishes one durable transaction and deduplicates retry',
     () async {
-      final rows = [for (var i = 1; i <= 16; i++) row(i)];
-      expect(
-        await storage.appendMissingMessageBatch(
-          rows,
-          beforeCommit: () async {},
-        ),
-        List.filled(16, PreparedMessageWrite.appended),
-      );
-      expect(backing.commitRows, [16]);
+      final rows = [for (var i = 1; i <= 64; i++) row(i)];
+      backing.hold = true;
+      var completed = false;
+      final publication = storage
+          .appendMissingMessageBatch(rows, beforeCommit: () async {})
+          .then((value) {
+            completed = true;
+            return value;
+          });
+      await backing.entered.future;
+      try {
+        expect(completed, isFalse, reason: 'no success before durable commit');
+        expect(
+          await backing.inner.iterLogRange(
+            namespace: Ns.messageLogShardFirst,
+            limit: 100,
+          ),
+          isEmpty,
+        );
+      } finally {
+        backing.release.complete();
+      }
+      expect(await publication, List.filled(64, PreparedMessageWrite.appended));
+      expect(backing.commitBytes.single, lessThanOrEqualTo(64 * 1800));
+      expect(backing.commitRows, [64]);
       await reopen();
       expect(
         await storage.appendMissingMessageBatch(
           rows,
           beforeCommit: () async {},
         ),
-        List.filled(16, PreparedMessageWrite.existing),
+        List.filled(64, PreparedMessageWrite.existing),
       );
-      expect(await ids(), [for (var i = 1; i <= 16; i++) 'row-$i']);
+      expect(await ids(), [for (var i = 1; i <= 64; i++) 'row-$i']);
     },
     skip: skip,
   );
@@ -408,7 +424,7 @@ void main() {
       () async {
         backing.refuse = !uncertain;
         backing.uncertain = uncertain;
-        final rows = [row(1), row(2)];
+        final rows = [for (var i = 1; i <= 64; i++) row(i)];
         await expectLater(
           storage.appendMissingMessageBatch(rows, beforeCommit: () async {}),
           throwsStateError,
@@ -420,15 +436,15 @@ void main() {
             beforeCommit: () async {},
           ),
           List.filled(
-            2,
+            64,
             uncertain
                 ? PreparedMessageWrite.existing
                 : PreparedMessageWrite.appended,
           ),
         );
-        expect(await ids(), ['row-1', 'row-2']);
+        expect(await ids(), [for (var i = 1; i <= 64; i++) 'row-$i']);
         final sync = await storage.conversationSync('peer');
-        expect(sync.highWater['author'], 2);
+        expect(sync.highWater['author'], 64);
         expect(sync.holes, isEmpty);
       },
       skip: skip,
@@ -514,6 +530,41 @@ void main() {
       skip: skip,
     );
   }
+
+  test(
+    'native full prepared page atomically publishes both crossing shard markers',
+    () async {
+      await backing.commit([
+        PutOp(
+          Ns.settings,
+          Uint8List.fromList(utf8.encode('msg_next_id')),
+          Uint8List.fromList(utf8.encode('8191')),
+        ),
+      ]);
+      final rows = [
+        for (var i = 1; i <= 64; i++) row(i).copyWith(body: 'x' * 1400),
+      ];
+      expect(
+        await storage.appendMissingMessageBatch(
+          rows,
+          beforeCommit: () async {},
+        ),
+        List.filled(64, PreparedMessageWrite.appended),
+      );
+      expect(backing.commitRows, [64]);
+      expect(backing.commitBytes.single, lessThanOrEqualTo(64 * 1800));
+      await reopen();
+      expect(await ids(), [for (var i = 1; i <= 64; i++) 'row-$i']);
+      expect(
+        (await storage.loadMessages('peer')).map((m) => m.body),
+        List.filled(64, 'x' * 1400),
+      );
+      final sync = await storage.conversationSync('peer');
+      expect(sync.highWater['author'], 64);
+      expect(sync.holes, isEmpty);
+    },
+    skip: skip,
+  );
 
   test(
     'native positioned batch publishes both crossing shard markers',

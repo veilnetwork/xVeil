@@ -282,16 +282,16 @@ void main() {
   test(
     'prepared ordering publishes one bounded bodyless transaction',
     () async {
-      for (var i = 1; i <= 16; i++) {
+      for (var i = 1; i <= 64; i++) {
         await storage.appendMessage(row('position-$i', seq: i));
       }
       backing.writes.clear();
       final requests = [
-        for (var i = 1; i <= 16; i++) correction('position-$i', i),
+        for (var i = 1; i <= 64; i++) correction('position-$i', i),
       ];
-      expect(await repair(requests), List.filled(16, true));
+      expect(await repair(requests), List.filled(64, true));
       expect(backing.writes, hasLength(1));
-      expect(backing.writes.single.whereType<AppendLogOp>(), hasLength(16));
+      expect(backing.writes.single.whereType<AppendLogOp>(), hasLength(64));
       final held = await storage.loadMessages('conversation');
       expect(
         held.every(
@@ -302,15 +302,15 @@ void main() {
         ),
         isTrue,
       );
-      expect(held.map((m) => m.seq), [for (var i = 1; i <= 16; i++) i]);
+      expect(held.map((m) => m.seq), [for (var i = 1; i <= 64; i++) i]);
       expect(held.map((m) => (m.orderAuthor, m.orderSeq)), [
-        for (var i = 1; i <= 16; i++) ('original-device', i + 1000),
+        for (var i = 1; i <= 64; i++) ('original-device', i + 1000),
       ]);
       expect(
         await storage.loadEventsSince('conversation', 'original-device', 0),
         isEmpty,
       );
-      expect(await repair(requests), List.filled(16, false));
+      expect(await repair(requests), List.filled(64, false));
       expect(backing.writes, hasLength(1));
     },
   );
@@ -427,7 +427,7 @@ void main() {
       );
       final count = backing.writes.length;
       expect(
-        await repair([for (var i = 0; i < 17; i++) correction('r-$i', i)]),
+        await repair([for (var i = 0; i < 65; i++) correction('r-$i', i)]),
         isNull,
       );
       expect(
@@ -475,19 +475,19 @@ void main() {
   test(
     'prepared cohort publishes once and rechecks existing durable rows',
     () async {
-      final rows = [for (var i = 1; i <= 16; i++) row('prepared-$i', seq: i)];
+      final rows = [for (var i = 1; i <= 64; i++) row('prepared-$i', seq: i)];
       expect(
         await publish(rows),
-        List.filled(16, PreparedMessageWrite.appended),
+        List.filled(64, PreparedMessageWrite.appended),
       );
       expect(backing.writes, hasLength(1));
-      expect(backing.writes.single.whereType<AppendLogOp>(), hasLength(16));
+      expect(backing.writes.single.whereType<AppendLogOp>(), hasLength(64));
       expect(
         await publish(rows),
-        List.filled(16, PreparedMessageWrite.existing),
+        List.filled(64, PreparedMessageWrite.existing),
       );
       expect(backing.writes, hasLength(1));
-      expect(records(), hasLength(16));
+      expect(records(), hasLength(64));
       final local = await storage.appendMessage(row('local', seq: null));
       expect(local.seq, 1);
     },
@@ -573,19 +573,19 @@ void main() {
       () async {
         backing.refuse = !uncertain;
         backing.uncertain = uncertain;
-        final rows = [row('first', seq: 1), row('second', seq: 2)];
+        final rows = [for (var i = 1; i <= 64; i++) row('retry-$i', seq: i)];
         await expectLater(publish(rows), throwsStateError);
-        expect(await ids(), uncertain ? ['first', 'second'] : isEmpty);
+        expect(await ids(), uncertain ? rows.map((r) => r.id) : isEmpty);
         expect(
           await publish(rows),
           List.filled(
-            2,
+            64,
             uncertain
                 ? PreparedMessageWrite.existing
                 : PreparedMessageWrite.appended,
           ),
         );
-        expect(records().where((r) => r['op'] == null), hasLength(2));
+        expect(records().where((r) => r['op'] == null), hasLength(64));
       },
     );
   }
@@ -593,7 +593,15 @@ void main() {
   test('unsupported prepared payloads perform no writes', () async {
     expect(await publish([row('large', body: 'x' * 2000)]), isNull);
     expect(await publish([row('unpositioned', seq: null)]), isNull);
-    expect(await publish([for (var i = 0; i < 17; i++) row('id-$i')]), isNull);
+    expect(await publish([for (var i = 0; i < 65; i++) row('id-$i')]), isNull);
+    expect(
+      await publish([
+        for (var i = 0; i < 64; i++)
+          row('bounded-$i', body: i == 63 ? 'x' * 2000 : 'short'),
+      ]),
+      isNull,
+      reason: 'an unsupported tail must not publish a short prefix',
+    );
     expect(records(), isEmpty);
     expect(backing.writes, isEmpty);
   });

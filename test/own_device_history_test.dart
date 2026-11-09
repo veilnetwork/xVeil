@@ -494,29 +494,37 @@ void main() {
   );
 
   for (final direction in MessageDirection.values) {
-    test('64 short $direction mirrors share one byte-bounded history page', () async {
-      await seed(64, direction: direction);
-      ma.start();
-      mb.start();
-      await until(() async =>
-          await count() == 64 &&
-          await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}');
-      final requests = net.history.where(
-        (frame) => frame.from == b && frame.body['q']?['op'] == 'page',
-      );
-      expect(bStore.historyCursorCommits, 3);
-      expect(requests, hasLength(1));
-      expect(bStore.postBatches, [16, 16, 16, 16]);
-      final held = await sb.loadMessages(peer.hex);
-      final source = await sa.loadMessages(peer.hex);
-      expect(held.map((row) => row.id), source.map((row) => row.id));
-      expect(held.map((row) => row.body), source.map((row) => row.body));
-      expect(held.map((row) => row.direction), everyElement(direction));
-      expect(held.map((row) => row.status), everyElement(MessageStatus.delivered));
-      expect(held.map((row) => row.seq), source.map((row) => row.seq));
-      expect(applied, 64);
-      expect(errorJournal.entries, isEmpty);
-    });
+    test(
+      '64 short $direction mirrors share one byte-bounded history page',
+      () async {
+        await seed(64, direction: direction);
+        ma.start();
+        mb.start();
+        await until(
+          () async =>
+              await count() == 64 &&
+              await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+        );
+        final requests = net.history.where(
+          (frame) => frame.from == b && frame.body['q']?['op'] == 'page',
+        );
+        expect(bStore.historyCursorCommits, 3);
+        expect(requests, hasLength(1));
+        expect(bStore.postBatches, [64]);
+        final held = await sb.loadMessages(peer.hex);
+        final source = await sa.loadMessages(peer.hex);
+        expect(held.map((row) => row.id), source.map((row) => row.id));
+        expect(held.map((row) => row.body), source.map((row) => row.body));
+        expect(held.map((row) => row.direction), everyElement(direction));
+        expect(
+          held.map((row) => row.status),
+          everyElement(MessageStatus.delivered),
+        );
+        expect(held.map((row) => row.seq), source.map((row) => row.seq));
+        expect(applied, 64);
+        expect(errorJournal.entries, isEmpty);
+      },
+    );
   }
 
   test(
@@ -608,10 +616,10 @@ void main() {
     expect(bStore.postBatches.fold<int>(0, (n, size) => n + size), 64);
     expect(
       bStore.postBatches.length,
-      lessThanOrEqualTo(4),
-      reason: 'sixteen prepared posts share one durable publication',
+      1,
+      reason: 'the complete short page shares one durable publication',
     );
-    expect(bStore.postBatches.every((size) => size <= 16), isTrue);
+    expect(bStore.postBatches.every((size) => size <= 64), isTrue);
   });
 
   for (final (direction, status) in [
@@ -672,7 +680,7 @@ void main() {
             ),
           ),
         );
-        expect(bStore.postBatches, [16, 16, 16, 16]);
+        expect(bStore.postBatches, [64]);
         expect(errorJournal.entries, isEmpty);
       },
     );
@@ -706,7 +714,7 @@ void main() {
         await Future<void>(() {});
         await Future<void>(() {});
         expect(await count(), 32);
-        expect(bStore.postBatches, [16, 16]);
+        expect(bStore.postBatches, [32]);
         expect(
           rosterReadsAfterPublication,
           1,
@@ -729,7 +737,7 @@ void main() {
     test(
       'history publication avoids repeated visibility policy reads (hideAfterRead=$hideAfterRead)',
       () async {
-        await seed(16, direction: MessageDirection.incoming);
+        await seed(64, direction: MessageDirection.incoming);
         if (hideAfterRead) {
           final contact = (await sb.getContact(peer))!;
           await sb.upsertContact(contact.copyWith(hideAfterReadSeconds: 60));
@@ -768,8 +776,8 @@ void main() {
           () async =>
               await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
         );
-        expect(await count(), 16);
-        expect(bStore.postBatches, [16]);
+        expect(await count(), 64);
+        expect(bStore.postBatches, [64]);
         expect(errorJournal.entries, isEmpty);
       },
     );
@@ -777,7 +785,7 @@ void main() {
 
   for (final change in ['block', 'ttl', 'retention']) {
     test('fresh $change policy stops a prepared history publication', () async {
-      await seed(16, direction: MessageDirection.incoming);
+      await seed(64, direction: MessageDirection.incoming);
       final contact = (await sb.getContact(peer))!;
       var checked = false;
       sb.beforePreparedCommit = () async {
@@ -806,7 +814,7 @@ void main() {
   test(
     'block during the read-clock lookup still prevents publication',
     () async {
-      await seed(16, direction: MessageDirection.incoming);
+      await seed(64, direction: MessageDirection.incoming);
       final contact = (await sb.getContact(
         peer,
       ))!.copyWith(hideAfterReadSeconds: 60);
@@ -869,8 +877,8 @@ void main() {
         ma.start();
         mb.start();
         await until(() async => errorJournal.entries.isNotEmpty);
-        expect(applied, prepared ? 16 : 1);
-        expect(await count(), prepared ? 16 : 1);
+        expect(applied, prepared ? rows : 1);
+        expect(await count(), prepared ? rows : 1);
         final cursor = await sb.getSetting('device.history.cursor.v2:${a.hex}');
         expect(cursor, isNot('{}'));
         expect((jsonDecode(cursor!) as Map)['cursor'], isNull);
@@ -907,7 +915,7 @@ void main() {
   test(
     'history preparation fills one bounded cohort without publishing past a held row',
     () async {
-      await seed(32);
+      await seed(64);
       var started = 0;
       final first = Completer<void>(), release = Completer<void>();
       beforeApply = (event) async {
@@ -927,7 +935,7 @@ void main() {
         await Future<void>(() {});
         expect(
           started,
-          16,
+          64,
           reason: 'one held row must not serialize fresh reads',
         );
         expect(await count(), 0);
@@ -935,22 +943,22 @@ void main() {
       } finally {
         release.complete();
       }
-      await until(() async => await count() == 32);
+      await until(() async => await count() == 64);
       final original = await sa.loadMessages(peer.hex);
       final received = await sb.loadMessages(peer.hex);
       expect(
         received.map((m) => (m.id, m.body, m.orderAuthor, m.orderSeq)),
         original.map((m) => (m.id, m.body, m.orderAuthor, m.orderSeq)),
       );
-      expect(bStore.postBatches, [16, 16]);
-      expect(applied, 32);
+      expect(bStore.postBatches, [64]);
+      expect(applied, 64);
     },
   );
 
   test(
     'mixed history preparation stays within the unpublished cohort budget',
     () async {
-      await seed(32);
+      await seed(64);
       // Only B pulls: reverse reconciliation must not enter the shared hook.
       net.drop = (from, _, body) => from == a && body['q'] != null;
       final originals = await sa.loadMessages(peer.hex);
@@ -988,8 +996,8 @@ void main() {
         await Future<void>(() {});
         await Future<void>(() {});
         // Eight posts were published, eight ordering updates remain staged.
-        // Only eight more preparations fit before the held row can settle.
-        expect(started, 24);
+        // The remaining page preparations fit within the 64-row budget.
+        expect(started, 64);
         expect(await count(), 16);
         expect(bStore.postBatches, [8]);
         expect(bStore.orderingBatches, isEmpty);
@@ -1007,9 +1015,9 @@ void main() {
         originals.map((m) => (m.id, m.body, m.orderAuthor, m.orderSeq)),
       );
       expect(bStore.publicationFamilies, ['post', 'ordering', 'post']);
-      expect(bStore.postBatches, [8, 16]);
+      expect(bStore.postBatches, [8, 48]);
       expect(bStore.orderingBatches, [8]);
-      expect(applied, 32);
+      expect(applied, 64);
       expect(errorJournal.entries, isEmpty);
     },
   );
@@ -1017,7 +1025,7 @@ void main() {
   test(
     'revocation while a preparation wave is held refuses its publication',
     () async {
-      await seed(32);
+      await seed(64);
       final first = Completer<void>(), release = Completer<void>();
       beforeApply = (event) async {
         if (event.key == 'm0000') {
@@ -1472,11 +1480,11 @@ void main() {
       expect(bStore.orderingBatches.fold<int>(0, (n, size) => n + size), 64);
       expect(
         bStore.orderingBatches.length,
-        lessThanOrEqualTo(4),
+        1,
         reason:
-            'sixteen authenticated ordering corrections share one durable publication',
+            'the complete page of authenticated corrections shares one publication',
       );
-      expect(bStore.orderingBatches.every((size) => size <= 16), isTrue);
+      expect(bStore.orderingBatches.every((size) => size <= 64), isTrue);
     },
   );
 
@@ -1555,7 +1563,7 @@ void main() {
   test(
     'revocation at ordering publication leaves raw positions and cursor intact',
     () async {
-      await seed(16);
+      await seed(64);
       final originals = await sa.loadMessages(peer.hex);
       for (var i = 0; i < originals.length; i++) {
         final row = originals[i];
@@ -3513,28 +3521,47 @@ void main() {
   });
 
   test(
-    'revocation within a larger page leaves its cursor uncommitted',
+    'revocation between write families leaves the page cursor uncommitted',
     () async {
-      await seed(65);
-      beforeApply = (event) async {
-        if (event.key == 'm0019') bSiblings = [];
+      await seed(64);
+      net.drop = (from, _, body) => from == a && body['q'] != null;
+      // Force a publication boundary inside the same page: 16 new posts,
+      // followed by 48 compare-and-adopt corrections of provisional echoes.
+      for (final row in (await sa.loadMessages(peer.hex)).skip(16)) {
+        await sb.appendMessage(
+          Message(
+            id: row.id,
+            conversationId: row.conversationId,
+            direction: row.direction,
+            body: row.body,
+            timestamp: row.timestamp,
+            status: row.status,
+            author: identity.hex,
+            seq: 2000 + row.seq!,
+            positionVerified: false,
+          ),
+        );
+      }
+      bStore.postBatches.clear();
+      sb.beforePreparedCommit = () async {
+        // The hook is consumed before invocation. Install it for the next
+        // (ordering) transaction, after the post transaction is durable.
+        sb.beforePreparedCommit = () async => bSiblings = [];
       };
       ma.start();
       mb.start();
-      await until(
-        () async => await count() == 16 && errorJournal.entries.isNotEmpty,
-      );
+      await until(() async => errorJournal.entries.isNotEmpty);
       final saved =
           jsonDecode(
                 (await sb.getSetting('device.history.cursor.v2:${a.hex}'))!,
               )
               as Map;
       expect(saved['cursor'], isNull);
-      // The next cohort was prepared, but revocation prevents its entire
-      // publication. Only the first durable cohort is allowed to survive.
       expect(applied, 16);
+      expect(await count(), 64);
       expect(bStore.postBatches, [16]);
-      expect(await sb.loadMessageById(peer.hex, 'm0016'), isNull);
+      expect(bStore.orderingBatches, isEmpty);
+      expect((await sb.loadMessageById(peer.hex, 'm0016'))!.ordering, isNull);
     },
   );
 
