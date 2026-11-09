@@ -119,10 +119,14 @@ witnesses; it is private stand data, not an anonymous diagnostic export.
 This scenario does not enable a sibling mailbox or qualify long offline,
 every crash stage, or mobile network handover.
 
-`XVEIL_E2E_HISTORY_OVERLAP_ROWS` selects an archive size between 32 and 3000
-rows (default 512). Use 2000 to profile large-history reception; both native
+`XVEIL_E2E_HISTORY_OVERLAP_ROWS` selects an archive size between 32 and 10000
+rows (default 512). Use 10000 to profile large-history reception; both native
 sources must contain the entire selected archive and the full oracle still
 checks every row. The worker enforces the same bounds before seeding storage.
+The setup inserts bounded batches of 16 through the encrypted store; this is
+outside the migration timing window. A failed/existing insertion rejects the
+fixture. Overlap wire observation admits up to 16384 records, and the census
+tracks up to 20000 append keys so a 10000-row archive and prior rows fit.
 
 With storage timing enabled, the overlap controller requests the census and
 starts opt-in CPU/timeline capture. It resets the receiver window immediately

@@ -556,6 +556,7 @@ class E2eDevice {
           _historyWireProbe = PrivateHistoryWireProbe(
             stack.transport.messages(),
             File('$evidence/history-rx-$label-private.jsonl'),
+            maxRecords: overlapInspection ? 16384 : 2048,
             retainRecords:
                 Platform.environment['XVEIL_E2E_HISTORY_OVERLAP'] == '1',
           );
