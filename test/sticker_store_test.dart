@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:xveil/data/storage/hidden_volume_storage.dart';
 import 'package:xveil/state/providers.dart';
 import 'package:xveil/state/sticker_crypto.dart';
 import 'package:xveil/state/sticker_message.dart';
@@ -16,6 +18,26 @@ final _png1x1 = base64Decode(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9'
   'awAAAABJRU5ErkJggg==',
 );
+
+class _GatedStickerStorage extends HiddenVolumeStorage {
+  _GatedStickerStorage(super.opener);
+  final entered = Completer<void>();
+  final release = Completer<void>();
+
+  @override
+  Future<void> storeFile(
+    String fileId,
+    Uint8List bytes, {
+    String? name,
+    List<String> retireHints = const [],
+  }) async {
+    if (!entered.isCompleted) {
+      entered.complete();
+      await release.future;
+    }
+    await super.storeFile(fileId, bytes, name: name, retireHints: retireHints);
+  }
+}
 
 /// Deterministic stand-in for the native ed25519 path (the real crypto is
 /// covered by group tests over the same FFI): the "signature" is a rolling
@@ -127,6 +149,39 @@ void main() {
     addTearDown(c2.dispose);
     final reloaded = await c2.read(stickerControllerProvider.future);
     expect(reloaded.single.items, packs.single.items);
+  });
+
+  test('stream import saves one image before reading the next', () async {
+    final storage = _GatedStickerStorage(FakeHvContainer().passwordOpener);
+    await storage.open(password: 'fixture', createIfMissing: true);
+    addTearDown(storage.close);
+    final c = ProviderContainer(
+      overrides: [singleSpaceStorageProvider.overrideWithValue(storage)],
+    );
+    addTearDown(c.dispose);
+    final ctrl = c.read(stickerControllerProvider.notifier);
+    await c.read(stickerControllerProvider.future);
+    var secondRead = false;
+    Stream<Uint8List> images() async* {
+      yield _png1x1;
+      secondRead = true;
+      yield _png1x1;
+    }
+
+    final importing = ctrl.importImageStream(images());
+    addTearDown(() {
+      if (!storage.release.isCompleted) storage.release.complete();
+    });
+    await storage.entered.future;
+    expect(secondRead, isFalse);
+    storage.release.complete();
+    expect(await importing, 2);
+    expect(secondRead, isTrue);
+    final pack = c.read(stickerControllerProvider).value!.single;
+    expect(pack.items, hasLength(2));
+    for (final id in pack.items) {
+      expect(await storage.loadFile(stickerFileKey(id)), _png1x1);
+    }
   });
 
   test('packToBlob signs; installPack verifies + records provenance', () async {

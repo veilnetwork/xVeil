@@ -84,7 +84,6 @@ class MainActivity : FlutterFragmentActivity(), CallScreenActivity.Host {
                 else -> result.notImplemented()
             }
         }
-        CallScreenActivity.detachHost(this)
         mediaPermissions.close()
         mediaPermissions = createMediaPermissionQueue()
         documentExport?.dispose()
@@ -449,6 +448,7 @@ class MainActivity : FlutterFragmentActivity(), CallScreenActivity.Host {
     }
 
     override fun onDestroy() {
+        CallScreenActivity.detachHost(this)
         quickUnlock?.dispose()
         mediaPermissions.close()
         documentExport?.dispose()

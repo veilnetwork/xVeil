@@ -144,7 +144,10 @@ class Contact {
   /// announcement with one timestamp and one tie-break.
   final int? hideAfterReadSeconds;
 
-  String get label => name ?? nodeId.short;
+  String get label {
+    final value = name;
+    return value == null || value.trim().isEmpty ? nodeId.short : value;
+  }
 
   /// Free messaging is only allowed once the relationship is accepted.
   bool get canMessage => status == ContactStatus.accepted;

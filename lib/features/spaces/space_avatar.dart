@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:io';
+import 'dart:io' show FileSystemException;
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/ids.dart';
+import '../../core/bounded_file.dart';
 import '../../state/app_controller.dart';
 import '../../domain/group.dart';
 import '../../domain/group_policy.dart';
@@ -37,13 +38,24 @@ Future<String?> pickAndRegisterSpaceProfileImage(
   final lease = app.leaseIdentity();
   final messaging = ref.read(messagingServiceProvider);
 
-  final picked = await FilePicker.pickFiles();
+  final picked = await FilePicker.pickFiles(
+    withData: false,
+    withReadStream: true,
+  );
   if (!app.holdsIdentity(lease)) return null;
   final file = picked?.files.firstOrNull;
   if (file == null) return null;
-  final bytes =
-      file.bytes ??
-      (file.path == null ? null : await File(file.path!).readAsBytes());
+  Uint8List? bytes;
+  try {
+    bytes = await readPickedFileBytesBounded(
+      file,
+      maxBytes: kMaxImageImportBytes,
+    );
+  } on FileReadLimitExceeded {
+    return null;
+  } on FileSystemException {
+    return null;
+  }
   if (bytes == null || bytes.isEmpty) return null;
   final scaled = await makeInlineImageB64(
     bytes,

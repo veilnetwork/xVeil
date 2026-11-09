@@ -10,6 +10,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:veil_flutter/veil_flutter.dart' show VeilException;
 
 import '../../core/log.dart';
+import '../../core/bounded_file.dart';
 
 import '../../core/secret_display.dart';
 export '../../core/secret_display.dart' show SecretCopyButton, SecretText;
@@ -1297,15 +1298,21 @@ class _RecoveryImportSheetState extends State<_RecoveryImportSheet> {
   /// file picked by mistake is corrected by picking another. The code is asked
   /// for separately because it is not in the file — by design.
   Future<void> _loadCertificateFromFile() async {
-    final picked = await FilePicker.pickFiles(withReadStream: false);
-    final path = picked?.files.single.path;
-    if (path == null || !mounted) return;
+    final picked = await FilePicker.pickFiles(
+      withData: false,
+      withReadStream: true,
+    );
+    if (picked == null || !mounted) return;
     setState(() {
       _busy = true;
       _failure = null;
     });
     try {
-      final text = await File(path).readAsString();
+      final text = await readPickedFileTextBounded(
+        picked.files.single,
+        maxBytes: kMaxRecoveryCertificateFileBytes,
+      );
+      if (text == null) throw const FormatException('unreadable certificate');
       // Parse before showing it: a file that is not a certificate is said so
       // here, rather than becoming an opaque failure after the code is typed.
       SovereignRecoveryCertificate.parse(text);

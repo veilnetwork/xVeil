@@ -16,9 +16,21 @@ class Harness : Activity(), CallScreenActivity.Host {
  override fun onCreate(state: Bundle?) {
   super.onCreate(state)
   CallScreenActivity.attachHost(this)
+  check(CallScreenActivity.hasHost())
+  // Destruction of an older Activity must not detach its replacement.
+  val obsolete = object : CallScreenActivity.Host {
+   override fun dispatchCallScreenAction(intent: Intent): Boolean = false
+  }
+  CallScreenActivity.detachHost(obsolete)
+  check(CallScreenActivity.hasHost())
+  getSharedPreferences("proof",0).edit().putBoolean("hostRetained",true).commit()
   setContentView(TextView(this).apply { text="QA: waiting for incoming notification" })
   startForegroundService(Intent(this, VeilDaemonService::class.java).setAction(VeilDaemonService.ACTION_START))
   Handler(Looper.getMainLooper()).postDelayed({ signal(true) }, 7000)
+ }
+ override fun onDestroy() {
+  CallScreenActivity.detachHost(this)
+  super.onDestroy()
  }
  private fun signal(ring: Boolean) {
   CallScreenActivity.prepare(session)

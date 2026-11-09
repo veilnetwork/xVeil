@@ -27,7 +27,11 @@ package; on Android 14+, allow its full-screen notifications in system settings.
 
 For an automated touch driver, inspect button bounds with `uiautomator dump`.
 `adb shell run-as network.veil.callscreenprobe cat shared_prefs/proof.xml` should
-contain `accept=true`, `hangup=true` and `latePresentationRejected=true`. No call IDs or addresses are logged.
+contain `hostRetained=true`, `accept=true`, `hangup=true` and
+`latePresentationRejected=true`. The host check includes destruction of an
+obsolete owner without detaching its replacement; the harness detaches itself
+in `onDestroy`. This still does not exercise MainActivity engine configuration.
+No call IDs or addresses are logged.
 Retain `source-proof.json` with private test evidence.
 
 ```sh

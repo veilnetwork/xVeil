@@ -14,6 +14,7 @@ import 'package:flutter_riverpod/legacy.dart' show StateController;
 import 'package:go_router/go_router.dart';
 
 import '../../core/ids.dart';
+import '../../core/bounded_file.dart';
 import '../../data/serve_source.dart';
 import '../../domain/chat.dart';
 import '../../domain/call_signal.dart';
@@ -656,13 +657,17 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
       );
       return;
     }
-    Uint8List? bytes = file.bytes;
-    if (bytes == null && path != null) {
-      try {
-        bytes = await File(path).readAsBytes();
-      } catch (_) {
-        /* fall through to the null check */
-      }
+    Uint8List? bytes;
+    try {
+      bytes = await readPickedFileBytesBounded(
+        file,
+        maxBytes: kMaxIncomingFileBytes,
+      );
+    } on FileReadLimitExceeded {
+      if (mounted) _snack(l.chatFileTooLarge);
+      return;
+    } catch (_) {
+      /* fall through to the null check */
     }
     if (bytes == null) return;
     if (bytes.length > kMaxIncomingFileBytes) {
@@ -726,19 +731,10 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
     final picked = await FilePicker.pickFiles(
       type: type,
       allowedExtensions: allowedExtensions,
+      withData: false,
     );
     final file = picked?.files.firstOrNull;
     if (file != null) await _postGroupFile(svc, file);
-  }
-
-  Future<Uint8List?> _readPlatformFile(PlatformFile file) async {
-    if (file.bytes != null) return file.bytes;
-    if (file.path == null) return null;
-    try {
-      return await File(file.path!).readAsBytes();
-    } catch (_) {
-      return null;
-    }
   }
 
   /// Generic group content path. Images keep their existing signed thumbnail
@@ -788,7 +784,19 @@ class _GroupChatScreenState extends ConsumerState<GroupChatScreen> {
         if (mounted) _snack(AppL10n.of(context).chatFileTooLarge);
         return;
       }
-      final bytes = await _readPlatformFile(file);
+      Uint8List? bytes;
+      try {
+        bytes = await readPickedFileBytesBounded(
+          file,
+          maxBytes: kMaxIncomingFileBytes,
+        );
+      } on FileReadLimitExceeded {
+        if (mounted) _snack(AppL10n.of(context).chatFileTooLarge);
+        return;
+      } catch (_) {
+        if (mounted) _snack(AppL10n.of(context).chatFileUnreadable);
+        return;
+      }
       if (bytes == null || bytes.isEmpty) {
         if (mounted) _snack(AppL10n.of(context).chatFileUnreadable);
         return;
