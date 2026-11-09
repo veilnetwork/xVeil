@@ -48,6 +48,14 @@ typedef _FileReadSession = ({
   int epoch,
 });
 
+class _ContactReadFlight {
+  _ContactReadFlight(this.store, this.peer, this.frontier);
+  final AsyncKvLogStore store;
+  final NodeId peer;
+  final int frontier;
+  late final Future<Uint8List?> result;
+}
+
 final RegExp _sharedContentIdPattern = RegExp(r'^[0-9a-f]{64}$');
 
 bool _bytesEqual(List<int>? a, List<int> b) {
@@ -1318,12 +1326,45 @@ class HiddenVolumeStorage
     return ops;
   }
 
+  _ContactReadFlight? _contactReadFlight;
+
+  Future<Uint8List?> _readContactBytes(NodeId peer) {
+    final store = _as;
+    final queue = store is AsyncKvRequestFrontier
+        ? store as AsyncKvRequestFrontier
+        : null;
+    final frontier = queue?.requestFrontier;
+    final pending = _contactReadFlight;
+    if (frontier != null &&
+        pending != null &&
+        identical(pending.store, store) &&
+        pending.frontier == frontier &&
+        pending.peer == peer) {
+      return pending.result;
+    }
+    _contactReadFlight = null;
+    final raw = store.get(Ns.contacts, peer.bytes);
+    final dispatched = queue?.requestFrontier;
+    // Share only a single get actually queued by this call. A wrapper which
+    // queues another operation must not attach the earlier read to its witness.
+    if (frontier == null || dispatched != frontier + 1) return raw;
+    final flight = _ContactReadFlight(store, peer, dispatched!);
+    flight.result = raw.whenComplete(() {
+      // Clear BEFORE any caller receives a value or failure. No completed
+      // contact, consent decision or error is cached; a new command is a barrier.
+      if (identical(_contactReadFlight, flight)) _contactReadFlight = null;
+    });
+    _contactReadFlight = flight;
+    return flight.result;
+  }
+
   @override
   Future<Contact?> getContact(NodeId nodeId) async {
-    final raw = await _as.get(Ns.contacts, nodeId.bytes);
+    final peer = NodeId(nodeId.bytes);
+    final raw = await _readContactBytes(peer);
     // The presence check already fetched the row from the storage worker.
     // Decode that observation, without a second RPC or a stale contact cache.
-    return raw == null ? null : _decodeContact(nodeId, raw);
+    return raw == null ? null : _decodeContact(peer, raw);
   }
 
   Future<Contact> _contactFor(NodeId id) async {

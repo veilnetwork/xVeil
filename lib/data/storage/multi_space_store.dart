@@ -172,11 +172,17 @@ abstract interface class AsyncMultiSpaceBacking {
 /// — the async analogue of [MultiSpaceKvLogStore]. Every call routes to the
 /// backing with this view's [_id], so N views share one worker/handle. [close]
 /// is a no-op (the owner closes the backing once).
-class AsyncMultiSpaceKvLogStore implements AsyncKvLogStore {
+class AsyncMultiSpaceKvLogStore
+    implements AsyncKvLogStore, AsyncKvRequestFrontier {
   AsyncMultiSpaceKvLogStore(this._backing, this._id);
 
   final AsyncMultiSpaceBacking _backing;
   final int _id;
+
+  @override
+  int? get requestFrontier => _backing is AsyncKvRequestFrontier
+      ? (_backing as AsyncKvRequestFrontier).requestFrontier
+      : null;
 
   @override
   Future<int> commit(List<KvLogOp> ops) {

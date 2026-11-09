@@ -29,6 +29,7 @@ import 'e2e_env.dart';
 import '../support/stand_cpu_profile.dart';
 import '../support/stand_storage_timeline.dart';
 import '../support/queued_snapshot_probe.dart';
+import '../support/history_archive_fixture.dart';
 
 // File-controlled synthetic stand probe, never an application HTTP endpoint.
 // Populate the real durable Outbox while the master process is stopped, then
@@ -489,7 +490,8 @@ void main() {
                   throw StateError('shared archive setup is not enabled');
                 }
                 final count = request['sharedRows'] as int;
-                if (count < 32 || count > 512) {
+                if (count < minHistoryArchiveRows ||
+                    count > maxHistoryArchiveRows) {
                   throw StateError('invalid archive count');
                 }
                 final author = NodeId.fromHex(
