@@ -23,6 +23,7 @@ const storageTimingContexts = {
   'historyApply',
   'historyEncode',
   'historyPublish',
+  'historyCheckpoint',
 };
 
 // Exact test-only labels; an arbitrary Zone value cannot become a correlator.
