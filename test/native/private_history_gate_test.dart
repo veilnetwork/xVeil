@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import '../support/private_history_gate.dart';
@@ -74,6 +75,35 @@ void main() {
     active = false;
     await gate.file(kind, 'release').writeAsString('release');
     await observed;
+  });
+  test('retirement during release observation wins', () async {
+    var active = true;
+    final releaseRead = Completer<void>();
+    final finishRead = Completer<void>();
+    gate = PrivateHistoryGate(
+      root,
+      prefix,
+      signalExists: (file) async {
+        if (file.path == gate.file(kind, 'release').path) {
+          releaseRead.complete();
+          await finishRead.future;
+        }
+        return file.exists();
+      },
+    );
+    await gate.file(kind, 'arm').writeAsString('arm');
+    final pending = wait(active: () => active);
+    final observed = expectLater(pending, throwsStateError);
+    await releaseRead.future;
+    active = false;
+    try {
+      await gate.file(kind, 'release').writeAsString('release');
+    } finally {
+      finishRead.complete();
+    }
+    await observed;
+    expect(gate.snapshot['applyReleased'], 0);
+    expect(gate.snapshot['applyFailures'], 1);
   });
   test('lease is bounded independently of controller teardown', () async {
     gate = PrivateHistoryGate(root, prefix, lease: Duration.zero);
