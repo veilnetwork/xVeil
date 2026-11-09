@@ -1,0 +1,345 @@
+{
+  "schema": "xveil-settled-delivery-history-validation/1",
+  "baselineHead": "e843a00506e91054e5b19fcecb50c2cc5e5040f4",
+  "archiveRows": 100000,
+  "preexistingRows": 1,
+  "pageRows": 128,
+  "pageBytes": 131072,
+  "preparedPublicationRows": 64,
+  "maxSlices": 64,
+  "pollIntervalMs": 5000,
+  "compactProgressObserver": true,
+  "samplingEnabledInComparison": false,
+  "timelineEnabledInComparison": false,
+  "authorizationCacheAdded": false,
+  "siblingMailboxEnabled": false,
+  "localMacJitOnly": true,
+  "latencyStillOpen": true,
+  "pushOrRelease": false,
+  "phases": {
+    "A1": {
+      "applyToConvergenceMs": 199726,
+      "releaseFileToBothPostPageListsMs": 193640.216,
+      "exactHistoryAndColdRetentionPassed": true,
+      "captureAndCensusUncapped": true,
+      "sourceArchiveAppendOrder": {
+        "A": {
+          "rows": 100001,
+          "descendingPairs": 1,
+          "firstRunRows": 1,
+          "secondRunRows": 100000,
+          "fullyOrdered": false,
+          "twoRunsWithBoundedSide": true
+        },
+        "E": {
+          "rows": 100001,
+          "descendingPairs": 1,
+          "firstRunRows": 1,
+          "secondRunRows": 100000,
+          "fullyOrdered": false,
+          "twoRunsWithBoundedSide": true
+        }
+      },
+      "forward": {
+        "A": {
+          "logicalPageQueries": 782,
+          "repeatedPageQueries": 0,
+          "applicationFrameBytes": 54217516,
+          "queryAtSourceToFullReply": {
+            "n": 781,
+            "p50Ms": 69.563,
+            "p95Ms": 206.553,
+            "maxMs": 934.919
+          },
+          "fullReplyToNextQueryAtSource": {
+            "n": 780,
+            "p50Ms": 140.825,
+            "p95Ms": 214.546,
+            "maxMs": 817.552
+          }
+        },
+        "E": {
+          "logicalPageQueries": 782,
+          "repeatedPageQueries": 0,
+          "applicationFrameBytes": 54217516,
+          "queryAtSourceToFullReply": {
+            "n": 781,
+            "p50Ms": 70.69,
+            "p95Ms": 206.207,
+            "maxMs": 820.627
+          },
+          "fullReplyToNextQueryAtSource": {
+            "n": 780,
+            "p50Ms": 140.563,
+            "p95Ms": 213.249,
+            "maxMs": 788.566
+          }
+        }
+      },
+      "historyApplyCalls": 200002,
+      "markStatusCalls": 0,
+      "markStatusChanged": 0,
+      "expectedStatusCalls": 0,
+      "ownDeviceReadCalls": 437509,
+      "controlFolds": 5,
+      "messageCommits": 1563,
+      "historyCursorCommits": 1566,
+      "allocatorCommits": 393,
+      "workerRpcCalls": 262252,
+      "cache": {
+        "entriesBefore": 92,
+        "entriesAfter": 92,
+        "newKernelEntries": 0,
+        "allocatedDeltaMiB": 0.547,
+        "freeGiBBefore": 149.32,
+        "freeGiBAfter": 149.25
+      },
+      "cleanup": {
+        "ownedPidsChecked": 37,
+        "portsChecked": 58,
+        "livePids": [],
+        "remainingListeners": [],
+        "runtimeRootRemoved": true,
+        "frozenFilesVerified": 1532,
+        "nativeArtifactsUnchanged": true,
+        "hiddenVolumeUnchanged": true,
+        "sdkClean": true,
+        "portsReusedByOtherPids": 0
+      },
+      "workerRpcCounts": {
+        "kv.commit.messageLog": 1563,
+        "kv.commit.other": 2965,
+        "kv.erase": 2,
+        "kv.get": 109920,
+        "kv.getBatch": 73054,
+        "kv.iterLogRange": 1640,
+        "kv.keys": 34,
+        "kv.readLogBatch": 36536,
+        "kv.readLogGroups": 36524,
+        "kv.scrub": 14
+      }
+    },
+    "B": {
+      "applyToConvergenceMs": 194760,
+      "releaseFileToBothPostPageListsMs": 192958.819,
+      "exactHistoryAndColdRetentionPassed": true,
+      "captureAndCensusUncapped": true,
+      "sourceArchiveAppendOrder": {
+        "A": {
+          "rows": 100001,
+          "descendingPairs": 1,
+          "firstRunRows": 1,
+          "secondRunRows": 100000,
+          "fullyOrdered": false,
+          "twoRunsWithBoundedSide": true
+        },
+        "E": {
+          "rows": 100001,
+          "descendingPairs": 1,
+          "firstRunRows": 1,
+          "secondRunRows": 100000,
+          "fullyOrdered": false,
+          "twoRunsWithBoundedSide": true
+        }
+      },
+      "forward": {
+        "A": {
+          "logicalPageQueries": 782,
+          "repeatedPageQueries": 0,
+          "applicationFrameBytes": 54217516,
+          "queryAtSourceToFullReply": {
+            "n": 781,
+            "p50Ms": 70.106,
+            "p95Ms": 201.986,
+            "maxMs": 828.813
+          },
+          "fullReplyToNextQueryAtSource": {
+            "n": 780,
+            "p50Ms": 140.259,
+            "p95Ms": 219.23,
+            "maxMs": 839.406
+          }
+        },
+        "E": {
+          "logicalPageQueries": 782,
+          "repeatedPageQueries": 0,
+          "applicationFrameBytes": 54217516,
+          "queryAtSourceToFullReply": {
+            "n": 781,
+            "p50Ms": 68.258,
+            "p95Ms": 199.991,
+            "maxMs": 861.466
+          },
+          "fullReplyToNextQueryAtSource": {
+            "n": 780,
+            "p50Ms": 142.585,
+            "p95Ms": 218.611,
+            "maxMs": 848.838
+          }
+        }
+      },
+      "historyApplyCalls": 200002,
+      "markStatusCalls": 0,
+      "markStatusChanged": 0,
+      "expectedStatusCalls": 0,
+      "ownDeviceReadCalls": 237531,
+      "controlFolds": 5,
+      "messageCommits": 1563,
+      "historyCursorCommits": 1566,
+      "allocatorCommits": 393,
+      "workerRpcCalls": 248384,
+      "cache": {
+        "entriesBefore": 92,
+        "entriesAfter": 92,
+        "newKernelEntries": 0,
+        "allocatedDeltaMiB": -0.008,
+        "freeGiBBefore": 149.25,
+        "freeGiBAfter": 149.17
+      },
+      "cleanup": {
+        "ownedPidsChecked": 41,
+        "portsChecked": 60,
+        "livePids": [],
+        "remainingListeners": [],
+        "runtimeRootRemoved": true,
+        "frozenFilesVerified": 1532,
+        "nativeArtifactsUnchanged": true,
+        "hiddenVolumeUnchanged": true,
+        "sdkClean": true,
+        "portsReusedByOtherPids": 0
+      },
+      "workerRpcCounts": {
+        "kv.commit.messageLog": 1563,
+        "kv.commit.other": 2982,
+        "kv.erase": 2,
+        "kv.get": 105341,
+        "kv.getBatch": 68400,
+        "kv.iterLogRange": 1640,
+        "kv.keys": 34,
+        "kv.readLogBatch": 34210,
+        "kv.readLogGroups": 34198,
+        "kv.scrub": 14
+      }
+    },
+    "A2": {
+      "applyToConvergenceMs": 194714,
+      "releaseFileToBothPostPageListsMs": 192702.891,
+      "exactHistoryAndColdRetentionPassed": true,
+      "captureAndCensusUncapped": true,
+      "sourceArchiveAppendOrder": {
+        "A": {
+          "rows": 100001,
+          "descendingPairs": 1,
+          "firstRunRows": 1,
+          "secondRunRows": 100000,
+          "fullyOrdered": false,
+          "twoRunsWithBoundedSide": true
+        },
+        "E": {
+          "rows": 100001,
+          "descendingPairs": 1,
+          "firstRunRows": 1,
+          "secondRunRows": 100000,
+          "fullyOrdered": false,
+          "twoRunsWithBoundedSide": true
+        }
+      },
+      "forward": {
+        "A": {
+          "logicalPageQueries": 782,
+          "repeatedPageQueries": 0,
+          "applicationFrameBytes": 54217516,
+          "queryAtSourceToFullReply": {
+            "n": 781,
+            "p50Ms": 70.948,
+            "p95Ms": 205.838,
+            "maxMs": 760.198
+          },
+          "fullReplyToNextQueryAtSource": {
+            "n": 780,
+            "p50Ms": 141.017,
+            "p95Ms": 212.905,
+            "maxMs": 555.227
+          }
+        },
+        "E": {
+          "logicalPageQueries": 782,
+          "repeatedPageQueries": 0,
+          "applicationFrameBytes": 54217516,
+          "queryAtSourceToFullReply": {
+            "n": 781,
+            "p50Ms": 70.745,
+            "p95Ms": 205.011,
+            "maxMs": 856.29
+          },
+          "fullReplyToNextQueryAtSource": {
+            "n": 780,
+            "p50Ms": 140.525,
+            "p95Ms": 223.501,
+            "maxMs": 611.791
+          }
+        }
+      },
+      "historyApplyCalls": 200002,
+      "markStatusCalls": 0,
+      "markStatusChanged": 0,
+      "expectedStatusCalls": 0,
+      "ownDeviceReadCalls": 437643,
+      "controlFolds": 5,
+      "messageCommits": 1563,
+      "historyCursorCommits": 1566,
+      "allocatorCommits": 393,
+      "workerRpcCalls": 261392,
+      "cache": {
+        "entriesBefore": 92,
+        "entriesAfter": 92,
+        "newKernelEntries": 0,
+        "allocatedDeltaMiB": -0.008,
+        "freeGiBBefore": 149.17,
+        "freeGiBAfter": 149.09
+      },
+      "cleanup": {
+        "ownedPidsChecked": 36,
+        "portsChecked": 62,
+        "livePids": [],
+        "remainingListeners": [],
+        "runtimeRootRemoved": true,
+        "frozenFilesVerified": 1532,
+        "nativeArtifactsUnchanged": true,
+        "hiddenVolumeUnchanged": true,
+        "sdkClean": true,
+        "portsReusedByOtherPids": 0
+      },
+      "workerRpcCounts": {
+        "kv.commit.messageLog": 1563,
+        "kv.commit.other": 2966,
+        "kv.erase": 4,
+        "kv.get": 109620,
+        "kv.getBatch": 72772,
+        "kv.iterLogRange": 1638,
+        "kv.keys": 34,
+        "kv.readLogBatch": 36397,
+        "kv.readLogGroups": 36384,
+        "kv.scrub": 14
+      }
+    }
+  },
+  "frozenInputs": 1532,
+  "productionVariantFiles": 1,
+  "sameOtherInputs": 1531,
+  "sameNativeArtifactsAcrossPhases": true,
+  "candidateRestored": true,
+  "overallSpeedupProven": false,
+  "checks": {
+    "historyStoragePassed": 254,
+    "mirrorPassed": 60,
+    "totalPassed": 314,
+    "skipped": 0,
+    "includesNativeExpiry": true,
+    "parentAssertionRed": true,
+    "parentRosterReadsFor32DeliveredRows": 32,
+    "candidateCheckpointRosterReads": 1,
+    "revokeAfterDeliveredNoopCannotCheckpoint": true,
+    "analyzerClean": true
+  }
+}

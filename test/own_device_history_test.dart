@@ -1446,6 +1446,88 @@ void main() {
     },
   );
 
+  test(
+    'already delivered history waits only for fresh checkpoint admission',
+    () async {
+      await seed(32);
+      net.drop = (from, _, body) => from == a && body['q'] != null;
+      final entered = Completer<void>(), release = Completer<void>();
+      var published = false, rosterReadsAfterPublication = 0;
+      final apply = mb.ownHistoryApplyPrepared!;
+      mb.ownHistoryApplyPrepared = (event, writes) async {
+        // The real bridge preserves the mirror's delivered initial status.
+        // This fixture's ordinary applier deliberately leaves that repair to
+        // history, so give this test the same durable initial status explicitly.
+        await apply(
+          event,
+          PreparedMessageWrites(
+            append: (message) => writes.append(
+              message.copyWith(status: MessageStatus.delivered),
+            ),
+            adoptOrdering: writes.adoptOrdering,
+          ),
+        );
+        published = true;
+      };
+      mb.myOtherDevices = () async {
+        if (published) {
+          rosterReadsAfterPublication++;
+          if (!entered.isCompleted) entered.complete();
+          await release.future;
+        }
+        return bSiblings;
+      };
+      ma.start();
+      mb.start();
+      await entered.future;
+      try {
+        await Future<void>(() {});
+        await Future<void>(() {});
+        expect(await count(), 32);
+        expect(bStore.postBatches, [32]);
+        expect(rosterReadsAfterPublication, 1,
+            reason: 'settled delivered rows have no further state write');
+        expect(await sb.getSetting('device.history.cursor.v2:${a.hex}'),
+            isNot('{}'), reason: 'the cursor still waits for fresh admission');
+      } finally {
+        release.complete();
+      }
+      await until(() async =>
+          await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}');
+      expect((await sb.loadMessages(peer.hex)).map((m) => m.status),
+          everyElement(MessageStatus.delivered));
+      expect(errorJournal.entries, isEmpty);
+    },
+  );
+
+  test('delivered no-op after revoke cannot advance the history cursor', () async {
+    await seed(1);
+    net.drop = (from, _, body) => from == a && body['q'] != null;
+    final apply = mb.ownHistoryApplyPrepared!;
+    mb.ownHistoryApplyPrepared = (event, writes) async {
+      await apply(
+        event,
+        PreparedMessageWrites(
+          append: (message) => writes.append(
+            message.copyWith(status: MessageStatus.delivered),
+          ),
+          adoptOrdering: writes.adoptOrdering,
+        ),
+      );
+      bSiblings = [];
+    };
+    ma.start();
+    mb.start();
+    await until(() async => errorJournal.entries.isNotEmpty);
+    expect(applied, 1);
+    expect((await sb.loadMessages(peer.hex)).single.status,
+        MessageStatus.delivered);
+    final cursor = await sb.getSetting('device.history.cursor.v2:${a.hex}');
+    expect(cursor, isNot('{}'));
+    expect((jsonDecode(cursor!) as Map)['cursor'], isNull,
+        reason: 'a durable no-op does not authorize the next checkpoint');
+  });
+
   for (final hideAfterRead in [false, true]) {
     test(
       'history publication avoids repeated visibility policy reads (hideAfterRead=$hideAfterRead)',

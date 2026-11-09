@@ -1,5 +1,26 @@
 # Открытые случаи — обновлено 2026-11-10
 
+## 2026-11-10: settled delivered без повторного roster read
+
+[Исправление и native A/B/A](../history-settled-delivery-100000-2026-11-10/README.md):
+после already-delivered mirror без edit не выполняется повторная проверка
+членства ради отсутствующей записи. Перед фактически нужной коррекцией
+сохранены fresh admission и новое чтение строки; preview не используется
+для записи. Publication/checkpoint, binding, revoke и durable guards прежние.
+Parent assertion-red: 32 roster calls вместо 1. **314 checks / 0 skipped**,
+включая native expiry; analyzer чист.
+
+На 100000: **199,726 → 194,760 → 194,714 с** — общего ускорения не доказано,
+passive witness также без улучшения. Roster calls **437509 → 237531 → 437643**,
+worker RPC **262252 → 248384 → 261392**: подтверждено уменьшение работы.
+Все ID/body/status/order, оба cursor и cold retention совпали. Page/byte counts
+одинаковы, повторов нет; callbacks и message/cursor/allocator commits прежние.
+
+1532 frozen inputs, один production variant, candidate восстановлен; cleanup
+прошли, cache 92→92. Следующая проверка — ожидания между страницами и размер
+порции при прежних byte/admission limits. Latency, NETCALL-01, физическая/AOT
+квалификация и остальная matrix открыты. Push/релиза нет.
+
 ## 2026-11-10: пустой epoch material без повторной свёртки
 
 [Исправление и native A/B/A](../history-empty-epoch-100000-2026-11-10/README.md):
