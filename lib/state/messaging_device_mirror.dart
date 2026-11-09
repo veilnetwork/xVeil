@@ -639,7 +639,8 @@ class _MessagingDeviceMirror {
               _owner._messageDelivery.hasMirroredDelivery(peer.hex, msgId)) &&
           direction == MessageDirection.outgoing) {
         final held = await _owner._storage.loadMessageById(peer.hex, msgId);
-        if (held?.direction == MessageDirection.outgoing) {
+        if (held?.direction == MessageDirection.outgoing &&
+            held?.status != MessageStatus.delivered) {
           deliveryChanged = await _owner._storage.markMessageStatus(
             peer.hex,
             msgId,

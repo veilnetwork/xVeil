@@ -20,6 +20,91 @@ Future<HiddenVolumeStorage> _open(FakeKvLogStore kv) async {
 }
 
 void main() {
+  for (final cold in [false, true]) {
+    test(
+      'status lookup stays scoped and ignores erased rows, cold=$cold',
+      () async {
+        final kv = FakeKvLogStore();
+        var storage = await _open(kv);
+        addTearDown(() => storage.close());
+        final other = '22' * 32;
+        for (final conversation in [_conv, other]) {
+          await storage.appendMessage(
+            Message(
+              id: 'same-id',
+              conversationId: conversation,
+              direction: MessageDirection.outgoing,
+              body: conversation == _conv ? 'erased' : 'retained',
+              timestamp: DateTime.utc(2020),
+              status: MessageStatus.sent,
+            ),
+          );
+        }
+        await storage.deleteMessage(_conv, 'same-id');
+        if (cold) {
+          await storage.close();
+          storage = await _open(kv);
+        }
+        final before = kv.commitSeq();
+        expect(
+          await storage.markMessageStatus(
+            _conv,
+            'same-id',
+            MessageStatus.delivered,
+          ),
+          isFalse,
+        );
+        expect(
+          await storage.markMessageStatus(
+            other,
+            'missing',
+            MessageStatus.delivered,
+          ),
+          isFalse,
+        );
+        expect(
+          kv.commitSeq(),
+          before,
+          reason: 'missing targets must not create orphan status writes',
+        );
+        expect(
+          await storage.markMessageStatus(
+            other,
+            'same-id',
+            MessageStatus.delivered,
+          ),
+          isTrue,
+        );
+        expect(await storage.loadMessageById(_conv, 'same-id'), isNull);
+        final held = (await storage.loadMessageById(other, 'same-id'))!;
+        expect(held.body, 'retained');
+        expect(held.status, MessageStatus.delivered);
+        expect(await storage.loadMessageById(other, 'missing'), isNull);
+      },
+    );
+  }
+
+  test('an unreadable target fold cannot create a status write', () async {
+    final kv = FakeKvLogStore();
+    kv.commit([
+      AppendLogOp(Ns.messageLogShardFirst, 1, _bytes('{')),
+      PutOp(
+        Ns.settings,
+        _bytes('msglog_ns:v1:${Ns.messageLogShardFirst}'),
+        _bytes('1'),
+      ),
+      PutOp(Ns.settings, _bytes('msg_next_id'), _bytes('2')),
+    ]);
+    final storage = await _open(kv);
+    addTearDown(storage.close);
+    final before = kv.commitSeq();
+    expect(
+      await storage.markMessageStatus(_conv, 'target', MessageStatus.delivered),
+      isFalse,
+    );
+    expect(kv.commitSeq(), before);
+  });
+
   test(
     'a confirmed delivery rejects later sending, sent and failed writes',
     () async {

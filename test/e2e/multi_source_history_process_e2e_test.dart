@@ -67,7 +67,7 @@ Future<Map<String, dynamic>> _inspect(
       return true;
     },
     what: '${d.label} returns an atomic live-owner snapshot',
-    timeout: const Duration(seconds: 90),
+    timeout: seed ? const Duration(minutes: 6) : const Duration(seconds: 90),
     interval: const Duration(milliseconds: 50),
   );
   final evidence = Platform.environment['XVEIL_E2E_EVIDENCE_DIR']!;

@@ -5439,13 +5439,9 @@ class HiddenVolumeStorage
     // (a padded commit + a log record, forever). Same-status = true no-op.
     Message? target;
     try {
-      for (final message in await _scanLog()) {
-        if (message.id == messageId &&
-            message.conversationId == conversationId) {
-          target = message;
-          break;
-        }
-      }
+      // The incremental fold already has a conversation-scoped ID index and
+      // the same status overlay. An ACK needs one row, not a whole-log search.
+      target = await loadMessageById(conversationId, messageId);
     } catch (_) {
       // Fail closed: without a readable target row we must not manufacture an
       // orphan status op for an arbitrary ACK id.

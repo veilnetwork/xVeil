@@ -14,6 +14,7 @@ import 'package:xveil/core/ids.dart';
 import 'package:xveil/core/diagnostic_journal.dart';
 import 'package:xveil/core/error_journal.dart';
 import 'package:xveil/domain/chat.dart';
+import 'package:xveil/data/storage/message_batch_store.dart';
 import 'package:xveil/domain/call_signal.dart';
 import 'package:xveil/domain/peer_authorization.dart';
 import 'package:xveil/domain/device_sync.dart';
@@ -498,12 +499,31 @@ void main() {
                   request['sharedAuthor'] as String,
                 );
                 final peer = request['peer'] as String;
+                final pending = <Message>[];
+                Future<void> persistSeed() async {
+                  final result = await device!.storage
+                      .appendMissingMessageBatch(
+                        pending,
+                        beforeCommit: () async {},
+                      );
+                  if (result == null ||
+                      result.length != pending.length ||
+                      result.any(
+                        (write) => write != PreparedMessageWrite.appended,
+                      )) {
+                    throw StateError(
+                      'shared archive insertion was not complete',
+                    );
+                  }
+                  pending.clear();
+                }
+
                 for (var i = 0; i < count; i++) {
                   final id = 'native-overlap-${i.toString().padLeft(4, '0')}';
                   if (await device!.storage.loadMessageById(peer, id) != null) {
                     throw StateError('shared archive must be seeded once');
                   }
-                  await device!.storage.appendMessage(
+                  pending.add(
                     Message(
                       id: id,
                       conversationId: peer,
@@ -516,7 +536,9 @@ void main() {
                       positionVerified: true,
                     ),
                   );
+                  if (pending.length == 16) await persistSeed();
                 }
+                if (pending.isNotEmpty) await persistSeed();
               }
               final peer = request['peer'] as String;
               final prefix = request['prefix'] as String;
