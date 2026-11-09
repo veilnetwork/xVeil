@@ -602,9 +602,15 @@ class _MessagingOwnHistory {
   Future<bool Function(DateTime)> _visible(String peer) async {
     final node = NodeId.fromHex(peer);
     final contact = await _owner._storage.getContact(node);
-    final policy = await _owner._conversationAdmin.disappearingOf(node);
+    // Retention and both disappearing clocks describe this one observation.
+    // Do not reread the same row while constructing its visibility predicate.
+    // Publication retains its separate fresh block check after read-clock I/O.
+    final policy = DisappearingSetting.fromContact(contact);
     final hidden = policy.hidesAfterRead
-        ? await _owner._conversationAdmin._hiddenThroughTs(node)
+        ? await _owner._conversationAdmin._hiddenThroughTsForSetting(
+            node,
+            policy,
+          )
         : 0;
     return (sent) =>
         !policy.hasExpired(sent, _owner._now()) &&

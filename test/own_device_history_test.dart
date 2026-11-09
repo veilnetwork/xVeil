@@ -164,10 +164,24 @@ class _RefusingCursorStore extends FakeKvLogStore {
 
 class _SnapshotStorage extends HiddenVolumeStorage {
   _SnapshotStorage(super.opener);
+  void Function(NodeId peer)? onContactRead;
+  Future<void> Function(String key)? beforeSettingRead;
   Future<void> Function()? afterMessagesRead;
   Future<void> Function()? beforePreparedCommit;
   void Function(String conversationId, String messageId)? onMessageRead;
   bool ordinaryOrderingOnly = false;
+
+  @override
+  Future<Contact?> getContact(NodeId nodeId) {
+    onContactRead?.call(nodeId);
+    return super.getContact(nodeId);
+  }
+
+  @override
+  Future<String?> getSetting(String key) async {
+    await beforeSettingRead?.call(key);
+    return super.getSetting(key);
+  }
 
   @override
   Future<Message?> loadMessageById(String conversationId, String messageId) {
@@ -708,6 +722,122 @@ void main() {
             await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
       );
       expect(errorJournal.entries, isEmpty);
+    },
+  );
+
+  for (final hideAfterRead in [false, true]) {
+    test(
+      'history publication avoids repeated visibility policy reads (hideAfterRead=$hideAfterRead)',
+      () async {
+        await seed(16, direction: MessageDirection.incoming);
+        if (hideAfterRead) {
+          final contact = (await sb.getContact(peer))!;
+          await sb.upsertContact(contact.copyWith(hideAfterReadSeconds: 60));
+        }
+        net.dropPresence = true;
+        net.drop = (from, _, body) => from == a && body['q'] != null;
+        final entered = Completer<void>(), release = Completer<void>();
+        var measuring = false, reads = 0, rosterChecks = 0;
+        sb.onContactRead = (node) {
+          if (measuring && node == peer) reads++;
+        };
+        sb.beforePreparedCommit = () async => measuring = true;
+        mb.myOtherDevices = () async {
+          if (measuring && ++rosterChecks == 2) {
+            entered.complete();
+            await release.future;
+          }
+          return bSiblings;
+        };
+        ma.start();
+        mb.start();
+        try {
+          await until(() async => entered.isCompleted);
+          expect(bStore.postBatches, isEmpty);
+          expect(
+            reads,
+            2,
+            reason:
+                'one visibility snapshot and an independent final block check',
+          );
+        } finally {
+          measuring = false;
+          release.complete();
+        }
+        await until(
+          () async =>
+              await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+        );
+        expect(await count(), 16);
+        expect(bStore.postBatches, [16]);
+        expect(errorJournal.entries, isEmpty);
+      },
+    );
+  }
+
+  for (final change in ['block', 'ttl', 'retention']) {
+    test('fresh $change policy stops a prepared history publication', () async {
+      await seed(16, direction: MessageDirection.incoming);
+      final contact = (await sb.getContact(peer))!;
+      var checked = false;
+      sb.beforePreparedCommit = () async {
+        await sb.upsertContact(switch (change) {
+          'block' => contact.copyWith(status: ContactStatus.blocked),
+          'ttl' => contact.copyWith(disappearingTtlSeconds: 1),
+          _ => contact.copyWith(retentionDays: 1),
+        });
+        checked = true;
+      };
+      ma.start();
+      mb.start();
+      await until(() async => checked && errorJournal.entries.isNotEmpty);
+      expect(await count(), 0);
+      expect(applied, 0);
+      expect(bStore.postBatches, isEmpty);
+      final cursor =
+          jsonDecode(
+                (await sb.getSetting('device.history.cursor.v2:${a.hex}'))!,
+              )
+              as Map;
+      expect(cursor['cursor'], isNull);
+    });
+  }
+
+  test(
+    'block during the read-clock lookup still prevents publication',
+    () async {
+      await seed(16, direction: MessageDirection.incoming);
+      final contact = (await sb.getContact(
+        peer,
+      ))!.copyWith(hideAfterReadSeconds: 60);
+      await sb.upsertContact(contact);
+      var checked = false;
+      sb.beforePreparedCommit = () async {
+        sb.beforeSettingRead = (key) async {
+          if (key != 'disap.shown.v1:${peer.hex}') return;
+          sb.beforeSettingRead = null;
+          await sb.upsertContact(
+            contact.copyWith(status: ContactStatus.blocked),
+          );
+          checked = true;
+        };
+      };
+      ma.start();
+      mb.start();
+      await until(
+        () async =>
+            checked &&
+            (errorJournal.entries.isNotEmpty || bStore.postBatches.isNotEmpty),
+      );
+      expect(await count(), 0);
+      expect(applied, 0);
+      expect(bStore.postBatches, isEmpty);
+      final cursor =
+          jsonDecode(
+                (await sb.getSetting('device.history.cursor.v2:${a.hex}'))!,
+              )
+              as Map;
+      expect(cursor['cursor'], isNull);
     },
   );
 

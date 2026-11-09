@@ -1,0 +1,42 @@
+{
+  "schema": "xveil-history-policy-observation/1",
+  "sourceBase": "e1fa7419",
+  "contactReadsAtPublication": {
+    "before": {
+      "ordinary": 3,
+      "readClock": 4
+    },
+    "after": {
+      "ordinary": 2,
+      "readClock": 2
+    }
+  },
+  "finalBlockCheckRetained": true,
+  "negativeControlForbiddenRows": 16,
+  "relatedTests": {
+    "passed": 268,
+    "skipped": 0
+  },
+  "nativeTests": {
+    "passed": 1,
+    "skipped": 0
+  },
+  "receiverCrashBeforeApply": true,
+  "authenticatedSources": 2,
+  "archiveRowsAtCrash": 0,
+  "preexistingRowsRetained": 1,
+  "archiveRowsRecovered": 512,
+  "finalRowsRetainedOffline": 513,
+  "singleSourceStartToConvergenceMs": 10640,
+  "sourceFilesVerified": 1475,
+  "ownedPidsChecked": 43,
+  "portsChecked": 62,
+  "liveOwnedProcesses": 0,
+  "remainingOwnedListeners": 0,
+  "overallLatencyResolved": false,
+  "causalLatencyImprovementClaimed": false,
+  "androidAotQualified": false,
+  "siblingMailboxAdded": false,
+  "push": false,
+  "release": false
+}
