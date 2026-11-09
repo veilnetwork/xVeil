@@ -1,5 +1,29 @@
 # Открытые случаи — обновлено 2026-11-09
 
+## 2026-11-09: адаптивная сортировка свежего snapshot
+
+[Исправление и native A/B/A](../history-ordered-snapshot-100000-2026-11-09/README.md):
+упорядоченный snapshot проходит линейную проверку, две sorted runs с меньшей
+стороной ≤128 сливаются ограниченным буфером; остальное использует прежний
+comparator sort. Кэша нет, freshness/visibility/edit/auth/durable gates прежние.
+
+Независимый census во всех фазах подтвердил исходный append order: одно
+новое сообщение перед 100000 архивных у обоих источников. Fixture не менялась
+ради быстрого пути. Source controls assertion-red на parent, helper work bound
+и cap/overlap/fallback проверены. **235 related passed / 0 skipped**, отдельно
+16 native HVS, analyzer чист.
+
+Время: **245,623 → 229,741 → 240,844 с**. Все 100001 строка, порядок/статусы,
+оба cursor и cold retention совпали; wire объём одинаков, повторов queries нет.
+Source query→reply P50 снизился с 87–89 до 78–81 мс. Выигрыш 11–16 с относится
+к этому стенду; универсальное ускорение не заявляется. Reply→next-query всё
+ещё ~167 мс, latency активна. Следующий участок — подготовка/apply/сохранение
+на получателе и оставшийся полный свежий scan источника.
+
+1531 frozen inputs, candidate восстановлен, все cleanup прошли. Cache 92→92,
+новых entries 0. NETCALL-01, физическая/AOT квалификация и остальная matrix
+без изменений; push/релиза нет.
+
 ## 2026-11-09: cursor lookup без повторного обхода префикса
 
 [Исправление и native A/B/A](../history-cursor-window-100000-2026-11-09/README.md):
