@@ -291,6 +291,26 @@ void main() {
                     'secret': 'PRIVATE',
                   },
                 ),
+                for (final phase in ['b', 'e'])
+                  event(
+                    'stand.history.stage',
+                    phase,
+                    phase == 'b' ? 114 : 115,
+                    id: 'stage',
+                    args: {
+                      'stage': 'historyApply',
+                      'sequence': 3,
+                      if (phase == 'e') 'ok': true,
+                      'message': 'PRIVATE_BODY',
+                    },
+                  ),
+                event(
+                  'stand.history.stage',
+                  'b',
+                  116,
+                  id: 'unknown-stage',
+                  args: {'stage': 'PRIVATE_STAGE'},
+                ),
                 event(
                   'stand.storage.rpc',
                   'b',
@@ -328,9 +348,17 @@ void main() {
         for (final r in records.where((r) => r['kind'] == 'chunk'))
           ...r['events'] as List,
       ];
-      expect(events, hasLength(2));
+      expect(events, hasLength(4));
       expect(events.first['args']['commit_class'], 'messageAllocator');
       expect((events.last['args'] as Map).containsKey('commit_class'), false);
+      final stages = events.where((e) => e['name'] == 'stand.history.stage');
+      expect(stages, hasLength(2));
+      expect(stages.first['args'], {'stage': 'historyApply', 'sequence': 3});
+      expect(stages.last['args'], {
+        'stage': 'historyApply',
+        'sequence': 3,
+        'ok': true,
+      });
       expect(jsonEncode(records), isNot(contains('PRIVATE')));
     },
   );

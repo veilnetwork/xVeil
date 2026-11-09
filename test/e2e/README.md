@@ -119,6 +119,17 @@ witnesses; it is private stand data, not an anonymous diagnostic export.
 This scenario does not enable a sibling mailbox or qualify long offline,
 every crash stage, or mobile network handover.
 
+`XVEIL_E2E_HISTORY_OVERLAP_ROWS` selects an archive size between 32 and 3000
+rows (default 512). Use 2000 to profile large-history reception; both native
+sources must contain the entire selected archive and the full oracle still
+checks every row. The worker enforces the same bounds before seeding storage.
+
+With storage timing enabled, the overlap controller requests the census and
+starts opt-in CPU/timeline capture. It resets the receiver window immediately
+before releasing apply. `XVEIL_E2E_CONTACT_READ_FRONTIER=0` disables only the
+test adapter's optional queue witness for an unshared-read control; the app's
+authorization checks and native request order stay the same.
+
 ---
 
 ## What is in here

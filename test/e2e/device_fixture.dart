@@ -448,7 +448,10 @@ class E2eDevice {
         }
 
         final census = Platform.environment['XVEIL_E2E_STORAGE_TIMING'] == '1'
-            ? MessageApplyCensus()
+            ? MessageApplyCensus(
+                traceStages:
+                    Platform.environment['XVEIL_E2E_STORAGE_TIMELINE'] == label,
+              )
             : null;
         _messageApplyCensus = census;
         final storage =
@@ -468,6 +471,10 @@ class E2eDevice {
                               inner,
                               census.clock,
                               census.observeRpc,
+                              forwardRequestFrontier:
+                                  Platform
+                                      .environment['XVEIL_E2E_CONTACT_READ_FRONTIER'] !=
+                                  '0',
                               traceRpc:
                                   Platform
                                       .environment['XVEIL_E2E_STORAGE_TIMELINE'] ==

@@ -11,6 +11,7 @@ import 'hv_native.dart';
 import 'kv_log_store.dart';
 import 'multi_space_store.dart';
 import 'worker_death.dart';
+import 'async_kv_log_store.dart' show AsyncKvRequestFrontier;
 import 'package:xveil/core/log.dart';
 
 /// A worker that is up and has answered its bootstrap: the isolate, the port
@@ -30,7 +31,8 @@ typedef LiveMultiSpaceWorker = ({
 /// The worker is spawned LAZILY on the first op (typically `openSpace`), so the
 /// synchronous `SessionBuilder` can construct this without awaiting — the open
 /// (and any error) surfaces on the first `await` instead. Drop with [close].
-class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
+class WorkerMultiSpaceBacking
+    implements AsyncMultiSpaceBacking, AsyncKvRequestFrontier {
   WorkerMultiSpaceBacking(
     this._path, {
     this.paddingPreset = hv.PaddingPreset.bucket256KiB,
@@ -45,6 +47,10 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
   WorkerDeath? _watch;
   Future<SendPort>? _ready;
   bool _closed = false;
+  int _requestFrontier = 0;
+
+  @override
+  int get requestFrontier => _requestFrontier;
 
   Future<SendPort> _ensure() => _ready ??= _spawn();
 
@@ -154,6 +160,8 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
 
   Future<T> _call<T>(_MReq Function(SendPort reply) build) async {
     if (_closed) throw StateError('WorkerMultiSpaceBacking is closed');
+    // Admission is synchronous even while worker startup is still awaited.
+    _requestFrontier++;
     final port = await _ensure();
     // Asked AGAIN, after the await. `_ensure` suspends, and `close` can run to
     // completion in that gap: it sets `_closed`, sends `_MClose`, and disposes
@@ -243,6 +251,7 @@ class WorkerMultiSpaceBacking implements AsyncMultiSpaceBacking {
   @override
   Future<void> close() async {
     if (_closed) return;
+    _requestFrontier++;
     _closed = true;
     final port = _toWorker;
     if (port == null) {

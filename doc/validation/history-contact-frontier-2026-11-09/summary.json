@@ -1,0 +1,214 @@
+{
+  "schema": "xveil-history-contact-frontier-validation/1",
+  "contactReadCache": "pending-only-unchanged-worker-frontier",
+  "componentNativeAba": {
+    "A1": {
+      "sameContact": {
+        "waves": 64,
+        "readersPerWave": 16,
+        "rpc": 1024,
+        "medianUs": 982,
+        "totalUs": 64812
+      },
+      "differentContacts": {
+        "waves": 64,
+        "readersPerWave": 16,
+        "rpc": 1024,
+        "medianUs": 783,
+        "totalUs": 52868
+      }
+    },
+    "B": {
+      "sameContact": {
+        "waves": 64,
+        "readersPerWave": 16,
+        "rpc": 64,
+        "medianUs": 197,
+        "totalUs": 13433
+      },
+      "differentContacts": {
+        "waves": 64,
+        "readersPerWave": 16,
+        "rpc": 1024,
+        "medianUs": 696,
+        "totalUs": 47270
+      }
+    },
+    "A2": {
+      "sameContact": {
+        "waves": 64,
+        "readersPerWave": 16,
+        "rpc": 1024,
+        "medianUs": 597,
+        "totalUs": 40321
+      },
+      "differentContacts": {
+        "waves": 64,
+        "readersPerWave": 16,
+        "rpc": 1024,
+        "medianUs": 547,
+        "totalUs": 36346
+      }
+    }
+  },
+  "nativeHistoryAba": {
+    "A1": {
+      "sharing": false,
+      "archiveRows": 2000,
+      "finalRows": 2001,
+      "encodeReleaseToConvergenceMs": 12818,
+      "applyReleaseToConvergenceMs": 12316,
+      "historyApplyCalls": 4002,
+      "ownDevicesCalls": 9488,
+      "contactReadRpc": 3260,
+      "allGetRpc": 6908,
+      "observedCommitClasses": {
+        "historyCursor": 66,
+        "messageAllocator": 32,
+        "messages": 125,
+        "outbox": 3,
+        "peerAuthorization": 1,
+        "ratchet": 57,
+        "ratchetReservation": 3
+      },
+      "closedTimelineRpc": 14249,
+      "closedTimelineCommitHandlerUs": 4826034,
+      "retainedWithoutSources": true,
+      "cleanup": {
+        "ownedPidsChecked": 43,
+        "portsChecked": 70,
+        "livePids": [],
+        "remainingListeners": [],
+        "runtimeRootRemoved": true,
+        "frozenFilesVerified": 1524,
+        "nativeArtifactsUnchanged": true,
+        "hiddenVolumeUnchanged": true,
+        "sdkClean": true,
+        "portsReusedByOtherPids": 0
+      }
+    },
+    "B": {
+      "sharing": true,
+      "archiveRows": 2000,
+      "finalRows": 2001,
+      "encodeReleaseToConvergenceMs": 12783,
+      "applyReleaseToConvergenceMs": 12343,
+      "historyApplyCalls": 4002,
+      "ownDevicesCalls": 9539,
+      "contactReadRpc": 1394,
+      "allGetRpc": 5027,
+      "observedCommitClasses": {
+        "historyCursor": 66,
+        "messageAllocator": 32,
+        "messages": 125,
+        "outbox": 2,
+        "peerAuthorization": 1,
+        "ratchet": 56,
+        "ratchetReservation": 6
+      },
+      "closedTimelineRpc": 12330,
+      "closedTimelineCommitHandlerUs": 4708258,
+      "retainedWithoutSources": true,
+      "cleanup": {
+        "ownedPidsChecked": 43,
+        "portsChecked": 69,
+        "livePids": [],
+        "remainingListeners": [],
+        "runtimeRootRemoved": true,
+        "frozenFilesVerified": 1524,
+        "nativeArtifactsUnchanged": true,
+        "hiddenVolumeUnchanged": true,
+        "sdkClean": true,
+        "portsReusedByOtherPids": 0
+      }
+    },
+    "A2": {
+      "sharing": false,
+      "archiveRows": 2000,
+      "finalRows": 2001,
+      "encodeReleaseToConvergenceMs": 12531,
+      "applyReleaseToConvergenceMs": 12093,
+      "historyApplyCalls": 4002,
+      "ownDevicesCalls": 9536,
+      "contactReadRpc": 3255,
+      "allGetRpc": 6814,
+      "observedCommitClasses": {
+        "historyCursor": 66,
+        "messageAllocator": 32,
+        "messages": 125,
+        "outbox": 2,
+        "peerAuthorization": 1,
+        "ratchet": 57,
+        "ratchetReservation": 2
+      },
+      "closedTimelineRpc": 14025,
+      "closedTimelineCommitHandlerUs": 5199240,
+      "retainedWithoutSources": true,
+      "cleanup": {
+        "ownedPidsChecked": 48,
+        "portsChecked": 68,
+        "livePids": [],
+        "remainingListeners": [],
+        "runtimeRootRemoved": true,
+        "frozenFilesVerified": 1524,
+        "nativeArtifactsUnchanged": true,
+        "hiddenVolumeUnchanged": true,
+        "sdkClean": true,
+        "portsReusedByOtherPids": 0
+      }
+    }
+  },
+  "crashBeforeApply": {
+    "receiverCrashExitCode": -9,
+    "archiveRowsAtCrash": 0,
+    "initialArchiveRowsWithAllSourcesOffline": 0,
+    "recoveredWithOneSource": true,
+    "singleSourceStartToConvergenceMs": 22856,
+    "finalRows": 2001,
+    "retainedWithAllSourcesOffline": true,
+    "cleanup": {
+      "ownedPidsChecked": 51,
+      "portsChecked": 89,
+      "livePids": [],
+      "remainingListeners": [],
+      "runtimeRootRemoved": true,
+      "frozenFilesVerified": 1524,
+      "nativeArtifactsUnchanged": true,
+      "hiddenVolumeUnchanged": true,
+      "sdkClean": true,
+      "portsReusedByOtherPids": 0
+    }
+  },
+  "tests": {
+    "passed": 241,
+    "skipped": 0,
+    "allPassed": true
+  },
+  "sameFrozenSourcesAcrossFourRuns": true,
+  "fullHistorySpeedupProven": false,
+  "profileBeforeCandidate": {
+    "mainSamples": 4232,
+    "storageWorkerSamples": 4427,
+    "cpuWindowUs": 18242817,
+    "completeRpc": 14197,
+    "completeWorkerHandlers": 14197,
+    "commitHandlerUs": 5020311,
+    "inclusiveStageTimingsOverlap": true
+  },
+  "scope": {
+    "platform": "macOS",
+    "frontendMode": "JIT",
+    "archiveRows": 2000,
+    "ownIdentityDevices": 3,
+    "otherIdentityDevices": 1,
+    "localCores": 3,
+    "siblingMailboxEnabled": false,
+    "newRustBuild": false,
+    "push": false,
+    "release": false
+  },
+  "stillOpen": [
+    "large-history-latency",
+    "NETCALL-01"
+  ]
+}

@@ -58,6 +58,15 @@ abstract interface class AsyncKvLogStore {
   Future<void> close();
 }
 
+/// Optional witness for one actor's command queue. Every operation actually
+/// queued to that actor increments it by one synchronously, before returning
+/// its future. Completed commands do not reset it.
+/// Wrappers must forward the same witness, or return null to disable sharing.
+/// It is scoped to this store instance, not a durable database revision.
+abstract interface class AsyncKvRequestFrontier {
+  int? get requestFrontier;
+}
+
 /// Bounded exact-id reads in one worker request. Null at the first missing
 /// record, without reading later ids. No extra records are fetched by range.
 abstract interface class AsyncLogBatchReader {
@@ -616,7 +625,8 @@ class WorkerKvLogStore
         CommitAnchorSource,
         AsyncLogBatchReader,
         AsyncLogGroupReader,
-        AsyncKvBatchReader {
+        AsyncKvBatchReader,
+        AsyncKvRequestFrontier {
   WorkerKvLogStore._(this._isolate, this._toWorker, this._watch);
 
   /// Assemble a store over a worker that is ALREADY up.
@@ -666,6 +676,10 @@ class WorkerKvLogStore
   /// caller can report and recover from.
   final WorkerDeath _watch;
   bool _closed = false;
+  int _requestFrontier = 0;
+
+  @override
+  int get requestFrontier => _requestFrontier;
 
   /// Spawn a worker that opens (or, with [create], opens-or-adds) the space at
   /// [path] for [password]. Returns null when no space matches the password
@@ -771,6 +785,7 @@ class WorkerKvLogStore
 
   Future<T> _call<T>(_Req Function(SendPort reply) build) async {
     if (_closed) throw StateError('WorkerKvLogStore is closed');
+    _requestFrontier++;
     final reply = ReceivePort();
     try {
       _toWorker.send(build(reply.sendPort));
@@ -884,6 +899,7 @@ class WorkerKvLogStore
   @override
   Future<void> close() async {
     if (_closed) return;
+    _requestFrontier++;
     _closed = true;
     final reply = ReceivePort();
     final done = reply.first; // single-subscription: capture exactly once

@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'stand_cpu_profile.dart';
 import 'storage_commit_labels.dart';
+import 'timed_native_store.dart' show storageTimingContexts;
 
 typedef StandVmRequest =
     Future<Map<String, dynamic>> Function(
@@ -162,7 +163,11 @@ class StandStorageTimeline {
       final event = raw as Map;
       final args = event['args'] as Map? ?? const {};
       final rpc = event['name'] == 'stand.storage.rpc';
+      final stage =
+          event['name'] == 'stand.history.stage' &&
+          storageTimingContexts.contains(args['stage']);
       if (!(rpc && const ['b', 'e'].contains(event['ph'])) &&
+          !(stage && const ['b', 'e'].contains(event['ph'])) &&
           !(event['name'] == 'HandleMessage' &&
               _workers.contains(args['isolateId']) &&
               const ['B', 'E'].contains(event['ph']))) {
@@ -173,8 +178,14 @@ class StandStorageTimeline {
         'ph': event['ph'],
         'ts': event['ts'],
         'tid': event['tid'],
-        if (rpc) 'id': event['id'],
-        'args': rpc
+        if (rpc || stage) 'id': event['id'],
+        'args': stage
+            ? {
+                'stage': args['stage'],
+                if (args['sequence'] is int) 'sequence': args['sequence'],
+                if (args['ok'] is bool) 'ok': args['ok'],
+              }
+            : rpc
             ? {
                 if (args.containsKey('sequence')) 'sequence': args['sequence'],
                 if (args.containsKey('operation'))

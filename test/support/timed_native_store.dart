@@ -48,12 +48,14 @@ class TimedNativeStore
         AsyncLogBatchReader,
         AsyncLogGroupReader,
         CommitAnchorSource,
-        AsyncKvBatchReader {
+        AsyncKvBatchReader,
+        AsyncKvRequestFrontier {
   TimedNativeStore(
     this.inner,
     this.clock,
     this.observe, {
     this.traceRpc = false,
+    this.forwardRequestFrontier = true,
   }) {
     if (traceRpc && inner is! WorkerKvLogStore) {
       throw ArgumentError('VM tracing requires the actual single worker');
@@ -68,10 +70,17 @@ class TimedNativeStore
     }
   }
   final bool traceRpc;
+  final bool forwardRequestFrontier;
   int _rpcSequence = 0;
   final AsyncKvLogStore inner;
   final Stopwatch clock;
   final NativeTiming observe;
+
+  @override
+  int? get requestFrontier =>
+      forwardRequestFrontier && inner is AsyncKvRequestFrontier
+      ? (inner as AsyncKvRequestFrontier).requestFrontier
+      : null;
 
   Future<T> _time<T>(
     String operation,
