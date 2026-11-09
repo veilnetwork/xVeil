@@ -1,0 +1,120 @@
+{
+  "schema": "xveil-history-work-stages-validation/1",
+  "archiveRows": 100000,
+  "finalRows": 100001,
+  "exactHistoryAndColdRetentionPassed": true,
+  "applyToConvergenceMs": 235512,
+  "pageQueries": {
+    "A": 782,
+    "E": 782
+  },
+  "captureUncapped": true,
+  "workTraceBoots": 4,
+  "recordCount": 12522,
+  "matchedPageIntervals": 1520,
+  "unmatchedPageIntervals": 44,
+  "stages": {
+    "replyToFirstApplyUs": {
+      "n": 1520,
+      "p50Ms": 33.614,
+      "p95Ms": 155.288,
+      "maxMs": 1464.675,
+      "sumMs": 93509.9
+    },
+    "applyBusyUs": {
+      "n": 1520,
+      "p50Ms": 50.364,
+      "p95Ms": 134.112,
+      "maxMs": 936.787,
+      "sumMs": 104261.581
+    },
+    "betweenApplyWavesUs": {
+      "n": 1520,
+      "p50Ms": 5.636,
+      "p95Ms": 19.544,
+      "maxMs": 105.634,
+      "sumMs": 10573.996
+    },
+    "lastApplyToCursorStartUs": {
+      "n": 1520,
+      "p50Ms": 4.237,
+      "p95Ms": 18.542,
+      "maxMs": 237.738,
+      "sumMs": 8402.294
+    },
+    "cursorWriteUs": {
+      "n": 1520,
+      "p50Ms": 14.947,
+      "p95Ms": 26.978,
+      "maxMs": 59.798,
+      "sumMs": 25613.058
+    },
+    "cursorEndToNextQueryUs": {
+      "n": 1520,
+      "p50Ms": 4.247,
+      "p95Ms": 78.046,
+      "maxMs": 700.998,
+      "sumMs": 27916.001
+    },
+    "totalUs": {
+      "n": 1520,
+      "p50Ms": 164.566,
+      "p95Ms": 237.974,
+      "maxMs": 1534.211,
+      "sumMs": 270276.83
+    }
+  },
+  "busySpans": {
+    "historyApply": {
+      "count": 3126,
+      "busyMs": 107821.446,
+      "calls": 200002
+    },
+    "historyPublish": {
+      "count": 1563,
+      "busyMs": 61117.264,
+      "calls": 1563
+    },
+    "historyCheckpoint": {
+      "count": 1566,
+      "busyMs": 26283.508,
+      "calls": 1566
+    }
+  },
+  "privateTraceBytes": 1140985,
+  "cleanup": {
+    "ownedPidsChecked": 38,
+    "portsChecked": 59,
+    "livePids": [],
+    "remainingListeners": [],
+    "runtimeRootRemoved": true,
+    "frozenFilesVerified": 1529,
+    "nativeArtifactsUnchanged": true,
+    "hiddenVolumeUnchanged": true,
+    "sdkClean": true,
+    "portsReusedByOtherPids": 0
+  },
+  "localMacJitOnly": true,
+  "performanceComparison": false,
+  "productionCodeChanged": false,
+  "siblingMailboxEnabled": false,
+  "latencyStillOpen": true,
+  "pushOrRelease": false,
+  "cache": {
+    "entriesAtDriverStartup": 92,
+    "entriesAfter": 92,
+    "newEntriesAfterStartup": 0,
+    "allocatedDeltaMiBAfterStartup": 0.0,
+    "freeGiBAfter": 149.44,
+    "startupSnapshotWasAfterDriverLaunch": true
+  },
+  "tests": {
+    "relatedPassed": 221,
+    "relatedSkipped": 0,
+    "workProbeTests": 7,
+    "analyzerClean": true
+  },
+  "frozenInputs": 1529,
+  "timingClock": "same-host wall-clock observations; not exclusive CPU/disk",
+  "traceIncludesNoIdsOrMessageData": true
+}

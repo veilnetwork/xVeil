@@ -25,6 +25,7 @@ class MessageApplyCensus {
   MessageApplyCensus({
     int Function()? nowUs,
     this.traceStages = false,
+    this.observeStage,
     this.maxTrackedKeys = maxKeys,
   }) : _nowOverride = nowUs {
     if (maxTrackedKeys < 1 || maxTrackedKeys > 200000) {
@@ -36,6 +37,7 @@ class MessageApplyCensus {
   final clock = Stopwatch()..start();
   final int Function()? _nowOverride;
   final bool traceStages;
+  final void Function(String stage, bool started, bool success)? observeStage;
   int _stageSequence = 0;
   int get nowUs => _nowOverride?.call() ?? clock.elapsedMicroseconds;
   late int _epoch;
@@ -103,6 +105,9 @@ class MessageApplyCensus {
   Future<T> historyPublish<T>(Future<T> Function() body) =>
       _context('historyPublish', body);
 
+  Future<T> historyCheckpoint<T>(Future<T> Function() body) =>
+      _context('historyCheckpoint', body);
+
   Future<T> _context<T>(String label, Future<T> Function() body) async {
     final start = nowUs;
     final trace = traceStages ? developer.TimelineTask() : null;
@@ -112,6 +117,7 @@ class MessageApplyCensus {
       arguments: {'stage': label, 'sequence': sequence},
     );
     var ok = false;
+    observeStage?.call(label, true, false);
     try {
       final result = await runZoned(
         body,
@@ -120,6 +126,7 @@ class MessageApplyCensus {
       ok = true;
       return result;
     } finally {
+      observeStage?.call(label, false, ok);
       trace?.finish(
         arguments: {'stage': label, 'sequence': sequence, 'ok': ok},
       );
@@ -390,6 +397,12 @@ class MessageApplyCensus {
 class CountedMessageStorage extends HiddenVolumeStorage {
   CountedMessageStorage(super.opener, this.census) : super.async();
   final MessageApplyCensus census;
+
+  @override
+  Future<void> putSetting(String key, String value) =>
+      key.startsWith('device.history.cursor.v2:')
+      ? census.historyCheckpoint(() => super.putSetting(key, value))
+      : super.putSetting(key, value);
 
   @override
   Future<List<Message>> loadMessages(String conversationId, {int? limit}) {
