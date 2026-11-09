@@ -16,6 +16,7 @@ import '../data/node/embedded_node.dart' show BootstrapPeerCfg, EmbeddedNode;
 import '../data/storage/file_store.dart' show kMaxStoredFileBytes;
 import '../data/storage/storage.dart';
 import '../data/storage/message_batch_store.dart';
+import '../data/storage/message_rows_reader.dart';
 import '../data/transport/veil_mailbox.dart' show MailboxPeerUnresolved;
 import '../data/transport/veil_transport.dart';
 import '../data/transport/stream_write_idle.dart';
