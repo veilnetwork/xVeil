@@ -1,0 +1,152 @@
+{
+  "schema": "xveil-history-routing-control-view-validation/1",
+  "regression": {
+    "sequentialFreshReads": 2,
+    "controlEntrySignatureChecksBefore": 6,
+    "controlEntrySignatureChecksAfter": 4,
+    "durableJournalReadsBefore": 2,
+    "durableJournalReadsAfter": 2,
+    "oldCodeAssertionFailed": true
+  },
+  "tests": {
+    "passed": 625,
+    "skipped": 0,
+    "allPassed": true,
+    "analyzerClean": true
+  },
+  "nativeHistoryAba": {
+    "A1": {
+      "reuseFreshFold": false,
+      "encodeMs": 11805,
+      "applyMs": 11369,
+      "finalRows": 2001,
+      "retainedWithoutSources": true,
+      "historyApplyCalls": 4002,
+      "ownDeviceAddressCalls": 9529,
+      "inclusiveOwnDevicesAwaitUs": 23191703,
+      "messageCommits": 125,
+      "cursorCommits": 66,
+      "contactReadRpc": 1393,
+      "markStatusCalls": {
+        "count": 2000,
+        "awaitUs": 1117263,
+        "maxAwaitUs": 1481,
+        "startedBeforeWindow": 0,
+        "changed": 0,
+        "failed": 0
+      },
+      "cleanup": {
+        "ownedPidsChecked": 42,
+        "portsChecked": 62,
+        "livePids": [],
+        "remainingListeners": [],
+        "runtimeRootRemoved": true,
+        "frozenFilesVerified": 1524,
+        "nativeArtifactsUnchanged": true,
+        "hiddenVolumeUnchanged": true,
+        "sdkClean": true,
+        "portsReusedByOtherPids": 0
+      }
+    },
+    "B": {
+      "reuseFreshFold": true,
+      "encodeMs": 11917,
+      "applyMs": 11369,
+      "finalRows": 2001,
+      "retainedWithoutSources": true,
+      "historyApplyCalls": 4002,
+      "ownDeviceAddressCalls": 9529,
+      "inclusiveOwnDevicesAwaitUs": 23560347,
+      "messageCommits": 125,
+      "cursorCommits": 66,
+      "contactReadRpc": 1390,
+      "markStatusCalls": {
+        "count": 2000,
+        "awaitUs": 1162655,
+        "maxAwaitUs": 4155,
+        "startedBeforeWindow": 0,
+        "changed": 0,
+        "failed": 0
+      },
+      "cleanup": {
+        "ownedPidsChecked": 42,
+        "portsChecked": 56,
+        "livePids": [],
+        "remainingListeners": [],
+        "runtimeRootRemoved": true,
+        "frozenFilesVerified": 1524,
+        "nativeArtifactsUnchanged": true,
+        "hiddenVolumeUnchanged": true,
+        "sdkClean": true,
+        "portsReusedByOtherPids": 0
+      }
+    },
+    "A2": {
+      "reuseFreshFold": false,
+      "encodeMs": 10702,
+      "applyMs": 10160,
+      "finalRows": 2001,
+      "retainedWithoutSources": true,
+      "historyApplyCalls": 4002,
+      "ownDeviceAddressCalls": 9539,
+      "inclusiveOwnDevicesAwaitUs": 21713755,
+      "messageCommits": 125,
+      "cursorCommits": 66,
+      "contactReadRpc": 1413,
+      "markStatusCalls": {
+        "count": 2000,
+        "awaitUs": 1127530,
+        "maxAwaitUs": 1765,
+        "startedBeforeWindow": 0,
+        "changed": 0,
+        "failed": 0
+      },
+      "cleanup": {
+        "ownedPidsChecked": 38,
+        "portsChecked": 61,
+        "livePids": [],
+        "remainingListeners": [],
+        "runtimeRootRemoved": true,
+        "frozenFilesVerified": 1524,
+        "nativeArtifactsUnchanged": true,
+        "hiddenVolumeUnchanged": true,
+        "sdkClean": true,
+        "portsReusedByOtherPids": 0
+      }
+    }
+  },
+  "sourceVariants": {
+    "controls": "parent group_service.dart",
+    "candidate": "one local control fold reused by the routing announcement projection",
+    "onlyProductionFileChanged": "lib/state/group_service.dart",
+    "otherFrozenInputsIdentical": true,
+    "nativeBinariesIdentical": true,
+    "candidateRestored": true
+  },
+  "scope": {
+    "mode": "Mac/JIT",
+    "archiveRows": 2000,
+    "ownDevices": 3,
+    "otherIdentities": 1,
+    "localCores": 3,
+    "cpuSampling": false,
+    "vmTimeline": false,
+    "convergencePollMs": 1000,
+    "siblingMailbox": false,
+    "newRustBuild": false,
+    "productionChanges": false,
+    "push": false,
+    "release": false
+  },
+  "fullLatencyImprovementProven": false,
+  "nextMeasuredTarget": {
+    "markStatusCallsPerRun": 2000,
+    "changedPerRun": 0,
+    "aggregateWaitsOverlap": true,
+    "fixImplemented": false
+  },
+  "stillOpen": [
+    "large-history-latency",
+    "NETCALL-01"
+  ]
+}
