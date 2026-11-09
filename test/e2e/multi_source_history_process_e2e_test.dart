@@ -106,10 +106,131 @@ Future<void> _entered(ProcessDevice d, String kind) => waitUntil(
   interval: const Duration(milliseconds: 50),
 );
 
+Future<void> _crashBeforeApply({
+  required ProcessFleet fleet,
+  required String peer,
+  required String receiver,
+  required String source,
+  required List<Map<String, dynamic>> expected,
+  required Map<String, dynamic> held,
+  required Map<String, Object?> result,
+  required Future<void> Function() save,
+}) async {
+  final a = fleet.a, b = fleet.b, e = fleet.devices['E']!;
+  final evidence = Platform.environment['XVEIL_E2E_EVIDENCE_DIR']!;
+  final before = _all(held);
+  expect(before, isNotEmpty);
+  expect(_archive(held), isEmpty);
+  expect(expected.length, _rows + before.length);
+
+  Future<int> witness(List<Map<String, dynamic>> rows) async {
+    final value = ++_nonce;
+    await File('${b.dir.path}/history-overlap-witness.json').writeAsString(
+      jsonEncode({
+        'witness': value,
+        'allowedIds': expected.map((row) => row['id']).toList(),
+        'expectedRows': [
+          for (final row in _retentionRows(rows))
+            {
+              'id': row.id,
+              'delivered': row.delivered,
+              'orderAuthor': row.orderAuthor,
+              'orderSeq': row.orderSeq,
+              'bodyTag': row.bodyTag,
+            },
+        ],
+      }),
+      flush: true,
+    );
+    return value;
+  }
+
+  Future<Map> boot(int value) async =>
+      (await File(
+            '$evidence/overlap-B-before-network-private.jsonl',
+          ).readAsLines())
+          .map((line) => jsonDecode(line) as Map)
+          .singleWhere((row) => row['witness'] == value);
+
+  final beforeWitness = await witness(before);
+  await b.stop(crash: true);
+  expect(b.lastExitCode, -9);
+  await a.stop();
+  await e.stop();
+  result['receiverKilledBeforeApply'] = true;
+  result['receiverCrashExitCode'] = b.lastExitCode;
+  result['bothRepliesReceivedBeforeCrash'] = true;
+  result['archiveRowsAtCrash'] = 0;
+  await save();
+  await b.start();
+  final initialBoot = await boot(beforeWitness);
+  expect((initialBoot['retention'] as Map)['passed'], isTrue);
+  expect(initialBoot['rows'], before.length);
+  final offline = await _inspect(b, peer, receiver);
+  expect(_compare(before, _all(offline))['passed'], isTrue);
+  expect(_archive(offline), isEmpty);
+  result['retentionBeforeNetworkAfterCrash'] = initialBoot['retention'];
+  result['initialArchiveRowsWithAllSourcesOffline'] = 0;
+
+  final recovery = Stopwatch()..start();
+  await a.start();
+  Map<String, dynamic>? recovered;
+  await waitUntil(
+    () async {
+      recovered = await _inspect(b, peer, receiver, cursors: [source]);
+      if (_compare(expected, _all(recovered!))['passed'] != true ||
+          !_ordered(expected, _all(recovered!))) {
+        return false;
+      }
+      final cursors = recovered!['historyCursors'] as Map;
+      if (cursors.length != 1 || cursors.values.single is! String) return false;
+      final cursor = jsonDecode(cursors.values.single as String) as Map;
+      return !cursor.containsKey('peer') &&
+          (cursor.isEmpty || cursor['after'] == peer);
+    },
+    what: 'one returning source repairs both interrupted history replies',
+    timeout: const Duration(minutes: 3),
+    interval: const Duration(milliseconds: 250),
+  );
+  result['singleSourceStartToConvergenceMs'] = recovery.elapsedMilliseconds;
+  result['recoveredWithOneSource'] = true;
+  result['fullHistoryConvergence'] = _compare(expected, _all(recovered!));
+  result['archiveConvergence'] = _compare(
+    expected.where((row) => (row['id'] as String).startsWith(_prefix)).toList(),
+    _archive(recovered!),
+  );
+  expect(_archive(recovered!).length, _rows);
+  expect(
+    ((await _inspect(a, peer, receiver))['historyState'] as Map)['mirrors'],
+    0,
+  );
+  final finalWitness = await witness(_all(recovered!));
+  await a.stop();
+  await b.stop();
+  await b.start();
+  final finalBoot = await boot(finalWitness);
+  expect((finalBoot['retention'] as Map)['passed'], isTrue);
+  expect(finalBoot['rows'], expected.length);
+  final finalRows = _all(await _inspect(b, peer, receiver));
+  expect(_compare(expected, finalRows)['passed'], isTrue);
+  expect(_ordered(expected, finalRows), isTrue);
+  expect(_invalid, isFalse);
+  result['retentionBeforeNetwork'] = finalBoot['retention'];
+  result['finalRows'] = finalRows.length;
+  result['retainedWithAllSourcesOffline'] = true;
+  result['invalidSnapshotObserved'] = _invalid;
+  result['passed'] = true;
+}
+
 void main() {
   final gate = E2eGate.read();
+  final crashBeforeApply =
+      Platform.environment['XVEIL_E2E_HISTORY_OVERLAP_CRASH_BEFORE_APPLY'] ==
+      '1';
   test(
-    'two native sibling sources deliver overlapping archived pages',
+    crashBeforeApply
+        ? 'overlapping replies recover after receiver crashes before apply'
+        : 'two native sibling sources deliver overlapping archived pages',
     () async {
       expect(Platform.environment['XVEIL_E2E_HISTORY_OVERLAP'], '1');
       expect(Platform.environment['XVEIL_E2E_STORAGE_TIMING'], '1');
@@ -136,6 +257,7 @@ void main() {
         'localNetworkOnly': true,
         'testBarriersEnabled': true,
         'convergencePollMs': pollMs,
+        if (crashBeforeApply) 'receiverCrashBeforeApplyRequested': true,
       };
       Future<void> save() =>
           File('$evidence/result.json').writeAsString(jsonEncode(result));
@@ -261,6 +383,19 @@ void main() {
         result['authenticatedSources'] = 2;
         result['archiveRowsBeforeApplyRelease'] = 0;
         await save();
+        if (crashBeforeApply) {
+          await _crashBeforeApply(
+            fleet: fleet,
+            peer: ci,
+            receiver: bn,
+            source: an,
+            expected: _all(first),
+            held: held!,
+            result: result,
+            save: save,
+          );
+          return;
+        }
         final applyElapsed = Stopwatch()..start();
         await _gate(b, 'apply', 'release').writeAsString('release');
         Map<String, dynamic>? finalB;
@@ -292,7 +427,8 @@ void main() {
         applyElapsed.stop();
         result['encodeReleaseToConvergenceMs'] =
             historyElapsed.elapsedMilliseconds;
-        result['applyReleaseToConvergenceMs'] = applyElapsed.elapsedMilliseconds;
+        result['applyReleaseToConvergenceMs'] =
+            applyElapsed.elapsedMilliseconds;
         expect((finalB!['historyGates'] as Map)['applyFirstRowCalls'], 2);
         expect((finalB!['historyGates'] as Map)['applyReleased'], 1);
         expect((finalB!['historyGates'] as Map)['applyFailures'], 0);
