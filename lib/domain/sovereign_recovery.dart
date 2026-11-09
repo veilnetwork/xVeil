@@ -10,6 +10,11 @@ import '../core/ids.dart';
 /// The native writer's ceiling, shared by the length check and the header
 /// reader so the two cannot drift apart.
 const int _maxCertificateBytes = 16 * 1024;
+const int kMaxRecoveryCertificateTextChars = 24 * 1024;
+// UTF-8 uses at most three bytes per UTF-16 code unit, plus an optional BOM.
+// Keep every Unicode wrapper accepted by parse(), without reading huge files.
+const int kMaxRecoveryCertificateFileBytes =
+    3 * kMaxRecoveryCertificateTextChars + 3;
 
 class SovereignRecoveryCertificate {
   SovereignRecoveryCertificate._(this.bytes, this.nodeId);
@@ -19,7 +24,7 @@ class SovereignRecoveryCertificate {
 
   static const _prefix = 'xveil-recovery:v1:';
   static const _maxBytes = _maxCertificateBytes;
-  static const _maxText = 24 * 1024;
+  static const _maxText = kMaxRecoveryCertificateTextChars;
 
   factory SovereignRecoveryCertificate.fromBytes(Uint8List bytes) {
     if (bytes.length < 38 || bytes.length > _maxBytes) {

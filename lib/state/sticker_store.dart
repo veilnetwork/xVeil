@@ -171,6 +171,18 @@ class StickerController extends AsyncNotifier<List<StickerPack>> {
     List<Uint8List> images, {
     String? packId,
     String packName = 'My stickers',
+  }) => importImageStream(
+    Stream.fromIterable(images),
+    packId: packId,
+    packName: packName,
+  );
+
+  /// Import picker inputs one at a time instead of retaining an entire batch
+  /// of unnormalized photos. Storage/pack publication still happen as before.
+  Future<int> importImageStream(
+    Stream<Uint8List> images, {
+    String? packId,
+    String packName = 'My stickers',
   }) async {
     final storage = _storage;
     final packs = List<StickerPack>.of(state.value ?? await _load(storage));
@@ -183,7 +195,7 @@ class StickerController extends AsyncNotifier<List<StickerPack>> {
     }
     final items = List<String>.of(packs[idx].items);
     var added = 0;
-    for (final img in images) {
+    await for (final img in images) {
       final norm = await normalizeStickerBytes(img);
       if (norm == null) continue;
       final itemId = const Uuid().v4();
@@ -403,8 +415,9 @@ class StickerController extends AsyncNotifier<List<StickerPack>> {
   }
 
   /// The ids of every pack held here.
-  Future<List<String>> packIds() async =>
-      [for (final p in state.value ?? await _load(_storage)) p.id];
+  Future<List<String>> packIds() async => [
+    for (final p in state.value ?? await _load(_storage)) p.id,
+  ];
 
   /// [packId] as it travels to my other devices: its name, signature state,
   /// and — when it has any stickers — the pack container. A signed pack goes
