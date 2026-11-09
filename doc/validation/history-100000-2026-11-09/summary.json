@@ -1,0 +1,258 @@
+{
+  "schema": "xveil-history-100000-validation/1",
+  "archiveRows": 100000,
+  "preexistingRows": 1,
+  "finalRows": 100001,
+  "ownIdentityDevices": 3,
+  "otherIdentityDevices": 1,
+  "authenticatedSources": 2,
+  "controllerAndStorageWorkerAgreeOnBounds": true,
+  "progressOnlyAboveRows": 10000,
+  "compactProgressObserver": true,
+  "progressProbe": {
+    "progressResponseBytes": 8807,
+    "hasRows": false,
+    "hasRowCount": false,
+    "hasWireHistory": false,
+    "cursorCount": 2
+  },
+  "pollIntervalMs": 5000,
+  "seedBatchRows": 64,
+  "ordinaryLiveCoalescingRows": 16,
+  "preparedPublicationRows": 64,
+  "pageRows": 128,
+  "pageBytes": 131072,
+  "maxSlices": 64,
+  "wireProbeMaxRecords": 262144,
+  "censusMaxKeys": 100001,
+  "helperTests": {
+    "passed": 33,
+    "failed": 0,
+    "skipped": 0
+  },
+  "analyzerClean": true,
+  "applyToConvergenceMs": 276836,
+  "releaseFileToBothPostPageListsMs": 272691.318,
+  "encodeToConvergenceMs": 278365,
+  "forward": {
+    "A": {
+      "releaseFileToPostPageListAtSourceMs": 272515.203,
+      "pageQueries": 782,
+      "applicationFrameBytes": 54217516,
+      "queryAtSourceToFullReply": {
+        "n": 781,
+        "p50Ms": 149.186,
+        "p95Ms": 232.605,
+        "maxMs": 1110.339
+      },
+      "queryAtSourceToFullReplyByQuarter": [
+        {
+          "n": 195,
+          "p50Ms": 160.836,
+          "p95Ms": 242.612,
+          "maxMs": 848.815
+        },
+        {
+          "n": 195,
+          "p50Ms": 149.689,
+          "p95Ms": 236.895,
+          "maxMs": 899.759
+        },
+        {
+          "n": 195,
+          "p50Ms": 142.586,
+          "p95Ms": 226.488,
+          "maxMs": 714.783
+        },
+        {
+          "n": 196,
+          "p50Ms": 142.522,
+          "p95Ms": 226.619,
+          "maxMs": 1110.339
+        }
+      ],
+      "fullReplyToNextQueryAtSource": {
+        "n": 780,
+        "p50Ms": 169.302,
+        "p95Ms": 236.744,
+        "maxMs": 1030.301
+      },
+      "fullReplyToNextQueryByQuarter": [
+        {
+          "n": 195,
+          "p50Ms": 175.967,
+          "p95Ms": 246.956,
+          "maxMs": 420.287
+        },
+        {
+          "n": 195,
+          "p50Ms": 170.938,
+          "p95Ms": 237.189,
+          "maxMs": 570.208
+        },
+        {
+          "n": 195,
+          "p50Ms": 170.48,
+          "p95Ms": 225.409,
+          "maxMs": 841.466
+        },
+        {
+          "n": 195,
+          "p50Ms": 162.588,
+          "p95Ms": 253.91,
+          "maxMs": 1030.301
+        }
+      ]
+    },
+    "E": {
+      "releaseFileToPostPageListAtSourceMs": 272691.318,
+      "pageQueries": 782,
+      "applicationFrameBytes": 54217516,
+      "queryAtSourceToFullReply": {
+        "n": 781,
+        "p50Ms": 147.011,
+        "p95Ms": 231.605,
+        "maxMs": 1051.738
+      },
+      "queryAtSourceToFullReplyByQuarter": [
+        {
+          "n": 195,
+          "p50Ms": 158.789,
+          "p95Ms": 235.239,
+          "maxMs": 1051.738
+        },
+        {
+          "n": 195,
+          "p50Ms": 153.074,
+          "p95Ms": 236.894,
+          "maxMs": 959.743
+        },
+        {
+          "n": 195,
+          "p50Ms": 141.333,
+          "p95Ms": 224.191,
+          "maxMs": 844.939
+        },
+        {
+          "n": 196,
+          "p50Ms": 136.04,
+          "p95Ms": 221.059,
+          "maxMs": 806.822
+        }
+      ],
+      "fullReplyToNextQueryAtSource": {
+        "n": 780,
+        "p50Ms": 170.207,
+        "p95Ms": 252.934,
+        "maxMs": 1072.26
+      },
+      "fullReplyToNextQueryByQuarter": [
+        {
+          "n": 195,
+          "p50Ms": 175.599,
+          "p95Ms": 261.434,
+          "maxMs": 383.538
+        },
+        {
+          "n": 195,
+          "p50Ms": 170.239,
+          "p95Ms": 240.576,
+          "maxMs": 609.249
+        },
+        {
+          "n": 195,
+          "p50Ms": 165.383,
+          "p95Ms": 234.378,
+          "maxMs": 771.747
+        },
+        {
+          "n": 195,
+          "p50Ms": 164.939,
+          "p95Ms": 254.21,
+          "maxMs": 1072.26
+        }
+      ]
+    }
+  },
+  "wireRecordsObserved": {
+    "A": 792,
+    "B": 20322,
+    "E": 788
+  },
+  "captureAndCensusUncapped": true,
+  "exactHistoryAndColdRetentionPassed": true,
+  "archiveConvergence": {
+    "passed": true,
+    "expectedRows": 100000,
+    "actualRows": 100000,
+    "retainedExpectedRows": 100000,
+    "missingExpectedRows": 0,
+    "unexpectedRows": 0,
+    "duplicateExpectedRows": 0,
+    "duplicateActualRows": 0,
+    "invalidExpectedRows": 0,
+    "invalidActualRows": 0,
+    "expectedDeliveredRows": 100000,
+    "retainedDeliveredRows": 100000,
+    "expectedCanonicalRows": 100000,
+    "retainedCanonicalRows": 100000,
+    "expectedBodyRows": 100000,
+    "retainedBodyRows": 100000
+  },
+  "retentionBeforeNetwork": {
+    "passed": true,
+    "expectedRows": 100001,
+    "actualRows": 100001,
+    "retainedExpectedRows": 100001,
+    "missingExpectedRows": 0,
+    "unexpectedRows": 0,
+    "duplicateExpectedRows": 0,
+    "duplicateActualRows": 0,
+    "invalidExpectedRows": 0,
+    "invalidActualRows": 0,
+    "expectedDeliveredRows": 100001,
+    "retainedDeliveredRows": 100001,
+    "expectedCanonicalRows": 100001,
+    "retainedCanonicalRows": 100001,
+    "expectedBodyRows": 100001,
+    "retainedBodyRows": 100001
+  },
+  "work": {
+    "historyApplyCalls": 200002,
+    "markStatusCalls": 0,
+    "markStatusChanged": 0,
+    "expectedStatusCalls": 0,
+    "ownDeviceReadCalls": 437441,
+    "messageCommits": 1563,
+    "historyCursorCommits": 1566,
+    "allocatorCommits": 1565
+  },
+  "workerRpcCalls": 259068,
+  "frozenInputs": 1525,
+  "nativeArtifactsUnchanged": true,
+  "cleanup": {
+    "ownedPidsChecked": 37,
+    "portsChecked": 63,
+    "livePids": [],
+    "remainingListeners": [],
+    "runtimeRootRemoved": true,
+    "frozenFilesVerified": 1525,
+    "nativeArtifactsUnchanged": true,
+    "hiddenVolumeUnchanged": true,
+    "sdkClean": true,
+    "portsReusedByOtherPids": 0
+  },
+  "cache": {
+    "filesBefore": 92,
+    "filesAfter": 92,
+    "allocatedGiBAfter": 9.548
+  },
+  "freeGiBAfter": 149.65,
+  "latencyStillOpen": true,
+  "comparisonTo10000IsCausal": false,
+  "localMacJitOnly": true,
+  "physicalPhoneQualified": false,
+  "siblingMailboxEnabled": false,
+  "pushOrRelease": false,
+  "worktreeBasedOnHead": "061b01d2ea52e43af4a5347457dbda7193e2289f"
+}

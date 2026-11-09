@@ -374,6 +374,28 @@ void main() {
     expect(census.snapshot()['keyLimitReached'], isFalse);
   });
 
+  test('large archive census retains every one of 100001 distinct keys', () {
+    final census = MessageApplyCensus(nowUs: () => 0, maxTrackedKeys: 100001);
+    for (var i = 0; i < 100001; i++) {
+      census.endAppend(census.beginAppend(), 'peer', '$i', success: true);
+    }
+    expect(census.snapshot()['trackedKeys'], 100001);
+    expect(census.snapshot()['keyLimit'], 100001);
+    expect(census.snapshot()['keyLimitReached'], isFalse);
+    census.endAppend(census.beginAppend(), 'peer', '100000', success: true);
+    expect(census.snapshot()['duplicateCompletedInWindow'], 1);
+    expect(census.snapshot()['keyLimitReached'], isFalse);
+  });
+
+  for (final limit in [0, -1, 200001]) {
+    test('invalid census limit is rejected ($limit)', () {
+      expect(
+        () => MessageApplyCensus(maxTrackedKeys: limit),
+        throwsArgumentError,
+      );
+    });
+  }
+
   test('namespace census is inclusive, deduplicated and uses fixed labels', () {
     final census = MessageApplyCensus(nowUs: () => 0);
     census.observeRpc({

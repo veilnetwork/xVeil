@@ -492,6 +492,9 @@ void main() {
                   throw StateError('shared archive setup is not enabled');
                 }
                 final count = request['sharedRows'] as int;
+                final seedBatchRows = count > 10000
+                    ? preparedMessageBatchMaxRows
+                    : 16;
                 if (count < minHistoryArchiveRows ||
                     count > maxHistoryArchiveRows) {
                   throw StateError('invalid archive count');
@@ -537,7 +540,7 @@ void main() {
                       positionVerified: true,
                     ),
                   );
-                  if (pending.length == 16) await persistSeed();
+                  if (pending.length == seedBatchRows) await persistSeed();
                 }
                 if (pending.isNotEmpty) await persistSeed();
               }
@@ -545,7 +548,8 @@ void main() {
               final prefix = request['prefix'] as String;
               final bodyPrefix = request['bodyPrefix'] as String?;
               final List<Message> messages =
-                  request['authorizationOnly'] == true
+                  (request['authorizationOnly'] == true ||
+                      request['historyProgressOnly'] == true)
                   ? []
                   : (await device!.storage.loadMessages(peer))
                         .where(
@@ -619,9 +623,11 @@ void main() {
                   'historyState': ?historyState,
                   if (request['includeHistoryWire'] == true)
                     'historyWire': device!.privateHistoryWireSnapshot(),
-                  if (request['includeHistoryWire'] == true)
+                  if (request['includeHistoryWire'] == true ||
+                      request['historyProgressOnly'] == true)
                     'historyGates': device!.privateHistoryGateSnapshot(),
-                  if (request['includeHistoryWire'] == true)
+                  if (request['includeHistoryWire'] == true ||
+                      request['historyProgressOnly'] == true)
                     'historyFailures': errorJournal.entries
                         .where((e) => e.kind == 'device-history')
                         .length,
@@ -632,7 +638,10 @@ void main() {
                           'device.history.cursor.v2:$id',
                         ),
                     },
-                  'count': messages.length,
+                  if (request['historyProgressOnly'] == true)
+                    'historyProgressOnly': true
+                  else
+                    'count': messages.length,
                   // One live-owner snapshot for crash/catch-up assertions;
                   // unlike the HTTP tail this cannot hide earlier duplicates.
                   if (request['includeRows'] == true)
@@ -671,9 +680,10 @@ void main() {
                             .where((m) => m.status == status)
                             .length,
                     },
-                  'reflectedEdits': messages
-                      .where((message) => message.reflectedEdit)
-                      .length,
+                  if (request['historyProgressOnly'] != true)
+                    'reflectedEdits': messages
+                        .where((message) => message.reflectedEdit)
+                        .length,
                 }),
               );
               await response.rename('${dir.path}/storage-inspected.json');

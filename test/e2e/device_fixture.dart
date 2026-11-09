@@ -75,6 +75,7 @@ import 'package:xveil/state/messaging_providers.dart';
 import 'package:xveil/state/providers.dart';
 
 import '../support/message_apply_census.dart';
+import '../support/history_archive_fixture.dart';
 import '../support/timed_native_store.dart';
 import '../support/private_history_wire_probe.dart';
 import '../support/private_history_gate.dart';
@@ -449,6 +450,9 @@ class E2eDevice {
 
         final census = Platform.environment['XVEIL_E2E_STORAGE_TIMING'] == '1'
             ? MessageApplyCensus(
+                maxTrackedKeys: overlapInspection
+                    ? maxHistoryArchiveRows + 1
+                    : MessageApplyCensus.maxKeys,
                 traceStages:
                     Platform.environment['XVEIL_E2E_STORAGE_TIMELINE'] == label,
               )
@@ -556,7 +560,7 @@ class E2eDevice {
           _historyWireProbe = PrivateHistoryWireProbe(
             stack.transport.messages(),
             File('$evidence/history-rx-$label-private.jsonl'),
-            maxRecords: overlapInspection ? 16384 : 2048,
+            maxRecords: overlapInspection ? maxHistoryArchiveWireRecords : 2048,
             retainRecords:
                 Platform.environment['XVEIL_E2E_HISTORY_OVERLAP'] == '1',
           );
