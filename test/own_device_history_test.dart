@@ -167,6 +167,7 @@ class _SnapshotStorage extends HiddenVolumeStorage {
   void Function(NodeId peer)? onContactRead;
   Future<void> Function(String key)? beforeSettingRead;
   Future<void> Function()? afterMessagesRead;
+  Future<void> Function()? beforeMessagesRead;
   Future<void> Function()? beforePreparedCommit;
   void Function(String conversationId, String messageId)? onMessageRead;
   bool ordinaryOrderingOnly = false;
@@ -224,6 +225,7 @@ class _SnapshotStorage extends HiddenVolumeStorage {
     String conversationId, {
     int? limit,
   }) async {
+    await beforeMessagesRead?.call();
     final rows = await super.loadMessages(conversationId, limit: limit);
     final hook = afterMessagesRead;
     afterMessagesRead = null;
@@ -2033,6 +2035,332 @@ void main() {
     expect(reply['prefix']['position'][1], 'm0023');
     expect(reply['events'], hasLength(16));
   });
+
+  for (final scenario in [
+    'stable',
+    'local-edit',
+    'source-edit',
+    'rejected-ahead',
+    'revoke',
+    'checkpoint-failure',
+  ]) {
+    test(
+      'growing sparse source can match a held prefix on a later page ($scenario)',
+      () async {
+        final originals = [
+          for (var i = 0; i < 1024; i++)
+            Message(
+              id: 'm${i.toString().padLeft(4, '0')}',
+              conversationId: peer.hex,
+              direction: MessageDirection.outgoing,
+              body: 'known archive $i',
+              timestamp: DateTime.utc(2020).add(Duration(seconds: i)),
+              status: MessageStatus.delivered,
+              author: a.hex,
+              seq: i + 1,
+              positionVerified: true,
+            ),
+        ];
+        final tail = Message(
+          id: 'known-tail',
+          conversationId: peer.hex,
+          direction: MessageDirection.outgoing,
+          body: 'known late tail',
+          timestamp: DateTime.utc(2021),
+          status: MessageStatus.delivered,
+          author: a.hex,
+          seq: 1025,
+          positionVerified: true,
+        );
+        for (final row in [...originals, tail]) {
+          await sb.appendMessage(row);
+        }
+        for (final row in [...originals.take(32), tail]) {
+          await sa.appendMessage(row);
+        }
+        if (scenario == 'rejected-ahead') {
+          await sa.editMessage(peer.hex, 'm0000', 'source changed', seq: 900);
+        }
+        final pageRequests = <String>{};
+        net.drop = (from, to, body) {
+          if (from == b && to == a && body['q']?['op'] == 'page') {
+            pageRequests.add(body['id'] as String);
+          }
+          return from == a && body['q'] != null;
+        };
+        var sourcePrefix = 32, sourceChangeDone = false;
+        sa.beforeMessagesRead = () async {
+          // Gate growth on new requests, not wall-clock time. Page 1 cannot
+          // match the smallest 128-row hint. Page 2 can match it.
+          final target =
+              (pageRequests.length * (scenario == 'rejected-ahead' ? 256 : 64))
+                  .clamp(32, 1024);
+          while (sourcePrefix < target) {
+            await sa.appendMessage(originals[sourcePrefix++]);
+          }
+          if (pageRequests.length >= 2 && !sourceChangeDone) {
+            sourceChangeDone = true;
+            if (scenario == 'source-edit') {
+              await sa.editMessage(
+                peer.hex,
+                'm0090',
+                'source changed',
+                seq: 900,
+              );
+            }
+            if (scenario == 'revoke') {
+              sb.afterMessagesRead = () async => bSiblings = [];
+            }
+          }
+        };
+        if (scenario == 'local-edit') {
+          beforeApply = (event) async {
+            if (event.key == 'm0063') {
+              await sb.editMessage(
+                peer.hex,
+                'm0090',
+                'local changed',
+                seq: 900,
+              );
+            }
+          };
+        }
+        if (scenario == 'checkpoint-failure') {
+          bStore.refusePageCursor = true;
+          bStore.pageCursorId = 'm0127';
+        }
+        ma.start();
+        mb.start();
+        final stops = scenario == 'revoke' || scenario == 'checkpoint-failure';
+        await until(
+          () async => stops
+              ? errorJournal.entries.isNotEmpty
+              : await sb.getSetting('device.history.cursor.v2:${a.hex}') ==
+                    '{}',
+        );
+        if (scenario == 'stable') {
+          expect(
+            pageRequests,
+            hasLength(2),
+            reason:
+                'reuse the newly checkable hint instead of walking all 17 pages',
+          );
+        }
+        final queries = net.history
+            .where(
+              (f) => f.from == b && f.to == a && f.body['q']?['op'] == 'page',
+            )
+            .toList();
+        expect(queries[1].body['q']['cursor'][1], 'm0063');
+        expect(queries[1].body['q']['prefix'], isNotNull);
+        expect(
+          queries.every((f) => jsonEncode(f.body['q']).length <= 1500),
+          isTrue,
+        );
+        Map replyFor(String request) {
+          final parts = <int, List<int>>{};
+          for (final frame in net.history.where(
+            (f) =>
+                f.from == a && f.body['id'] == request && f.body['b'] is String,
+          )) {
+            parts[frame.body['i'] as int] = base64Decode(
+              frame.body['b'] as String,
+            );
+          }
+          return jsonDecode(
+                utf8.decode([
+                  for (var i = 0; i < parts.length; i++) ...parts[i]!,
+                ]),
+              )
+              as Map;
+        }
+
+        final reply = replyFor(queries[1].body['id'] as String);
+        if (scenario == 'source-edit' || scenario == 'rejected-ahead') {
+          expect(
+            reply['prefix'],
+            isNull,
+            reason: 'the source must reject a stale proposal',
+          );
+        } else {
+          expect(reply['prefix']['count'], 128);
+          expect(reply['prefix']['position'][1], 'm0127');
+        }
+        if (scenario == 'rejected-ahead') {
+          final nextHints = [
+            queries[1].body['q']['prefix'],
+            ...?queries[1].body['q']['prefixFallbacks'] as List?,
+          ];
+          expect(
+            nextHints.every((p) => (p as Map)['count'] > 256),
+            isTrue,
+            reason:
+                'rejected hints must not be rehashed just because their positions are ahead',
+          );
+        }
+        if (stops) {
+          expect(pageRequests, hasLength(2));
+          expect(applied, 64);
+          final cursor =
+              jsonDecode(
+                    (await sb.getSetting('device.history.cursor.v2:${a.hex}'))!,
+                  )
+                  as Map;
+          expect(
+            cursor['cursor'][1],
+            'm0063',
+            reason:
+                'a reused hint cannot cross a failed authorization/durable checkpoint',
+          );
+          if (scenario == 'checkpoint-failure') expect(bStore.refused, isTrue);
+        } else if (scenario == 'stable') {
+          expect(pageRequests, hasLength(2));
+          expect(
+            applied,
+            65,
+            reason: 'first 64 posts, then the tail after the verified jump',
+          );
+          expect(sourcePrefix, 128);
+        } else if (scenario == 'local-edit') {
+          expect(queries.length, greaterThan(2));
+          expect(queries[2].body['q']['prefix'], isNull);
+          expect(
+            queries[2].body['q']['cursor'][1],
+            'm0063',
+            reason: 'fresh receiver mismatch discards the proposed jump',
+          );
+        }
+        final held = await sb.loadMessages(peer.hex);
+        expect(
+          held.map((m) => (m.id, m.body, m.status, m.orderAuthor, m.orderSeq)),
+          [...originals, tail].map(
+            (m) => (
+              m.id,
+              m.id == 'm0090' && scenario == 'local-edit'
+                  ? 'local changed'
+                  : ((m.id == 'm0090' && scenario == 'source-edit') ||
+                        (m.id == 'm0000' && scenario == 'rejected-ahead'))
+                  ? 'source changed'
+                  : m.body,
+              m.status,
+              m.orderAuthor,
+              m.orderSeq,
+            ),
+          ),
+        );
+        if (scenario == 'local-edit' || scenario == 'source-edit') {
+          expect((await sb.editSeqs(peer.hex))['m0090'], 900);
+        }
+        if (!stops) expect(errorJournal.entries, isEmpty);
+      },
+    );
+  }
+
+  for (final pending in [null, 0, -1, '1', true, 1.5, 65, 256, 1, 3]) {
+    test(
+      'prefix-pending metadata only retains offered proposals (${pending.runtimeType}: $pending)',
+      () async {
+        await seed(32);
+        final rows = await sa.loadMessages(peer.hex);
+        for (final row in rows) {
+          await sb.appendMessage(row);
+        }
+        final request = await manualPageRequest();
+        final first = net.history.lastWhere(
+          (f) => f.from == b && f.body['id'] == request,
+        );
+        final offered = [
+          first.body['q']['prefix'],
+          ...?first.body['q']['prefixFallbacks'] as List?,
+        ];
+        await _historyReply(ta, b, request, {
+          'op': 'page',
+          'peer': peer.hex,
+          'events': [deviceMirrorOf(peer.hex, rows.first).event.toBody()],
+          'next': [rows.first.timestamp.millisecondsSinceEpoch, rows.first.id],
+          'prefixPending': ?pending,
+        });
+        await until(
+          () async => net.history.any(
+            (f) =>
+                f.from == b &&
+                f.body['q']?['op'] == 'page' &&
+                f.body['id'] != request,
+          ),
+        );
+        final next =
+            net.history
+                    .lastWhere(
+                      (f) =>
+                          f.from == b &&
+                          f.body['q']?['op'] == 'page' &&
+                          f.body['id'] != request,
+                    )
+                    .body['q']
+                as Map;
+        final kept = next['prefix'] == null
+            ? []
+            : [next['prefix'], ...?next['prefixFallbacks'] as List?];
+        expect(
+          kept,
+          pending == 1
+              ? offered.take(1).toList()
+              : pending == 3
+              ? offered.take(2).toList()
+              : isEmpty,
+        );
+        final progress =
+            jsonDecode(
+                  (await sb.getSetting('device.history.cursor.v2:${a.hex}'))!,
+                )
+                as Map;
+        expect(
+          progress['cursor'],
+          [rows.first.timestamp.millisecondsSinceEpoch, rows.first.id],
+          reason:
+              'pending metadata alone must never advance to a proposed prefix',
+        );
+        expect(applied, 1);
+        expect(await count(), 32);
+        expect(errorJournal.entries, isEmpty);
+      },
+    );
+  }
+
+  test(
+    'a complete source drops rejected content hints after one response',
+    () async {
+      await seed(192);
+      for (final row in await sa.loadMessages(peer.hex)) {
+        await sb.appendMessage(row);
+      }
+      await sa.editMessage(peer.hex, 'm0000', 'new source revision', seq: 900);
+      net.drop = (from, _, body) => from == a && body['q'] != null;
+      ma.start();
+      mb.start();
+      await until(
+        () async =>
+            await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
+      );
+      final queries = net.history
+          .where((f) => f.from == b && f.body['q']?['op'] == 'page')
+          .toList();
+      expect(queries, hasLength(3));
+      expect(queries.first.body['q']['prefix'], isNotNull);
+      expect(
+        queries.skip(1).every((f) => f.body['q']['prefix'] == null),
+        isTrue,
+        reason: 'fully checkable mismatches are not proposed on every page',
+      );
+      expect(
+        (await sb.loadMessageById(peer.hex, 'm0000'))!.body,
+        'new source revision',
+      );
+      expect((await sb.editSeqs(peer.hex))['m0000'], 900);
+      expect(await count(), 192);
+      expect(errorJournal.entries, isEmpty);
+    },
+  );
 
   test(
     'long endpoints reduce hints to fit the existing query budget',

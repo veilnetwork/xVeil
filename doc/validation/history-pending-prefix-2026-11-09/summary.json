@@ -1,0 +1,264 @@
+{
+  "schema": "xveil-pending-history-prefix-validation/1",
+  "baselineHead": "b2c104147cfe55b82aa1aca588c783a0b2b1785d",
+  "archiveRows": 10000,
+  "preexistingRows": 1,
+  "deterministicProbeRows": 1024,
+  "deterministicTailRows": 1,
+  "deterministicOldRequests": 17,
+  "deterministicCandidateRequests": 2,
+  "oldControlAssertionFailures": 3,
+  "unsafeRetentionAssertionFailures": 2,
+  "tests": {
+    "passed": 245,
+    "skipped": 0,
+    "nativePassed": 16,
+    "finalFocusedTests": 17,
+    "analyzerClean": true
+  },
+  "frozenInputs": 1525,
+  "productionVariantFiles": 1,
+  "sameOtherInputs": 1524,
+  "sameNativeArtifactsAcrossPhases": true,
+  "pollIntervalMs": 1000,
+  "samplingEnabled": false,
+  "phases": {
+    "A1": {
+      "applyToConvergenceMs": 34868,
+      "encodeToConvergenceMs": 35407,
+      "reverseToSources": {
+        "A": {
+          "requests": 157,
+          "completeReplies": 157,
+          "queriesWithHints": 1,
+          "applicationFrameBytes": 5425560
+        },
+        "E": {
+          "requests": 21,
+          "completeReplies": 21,
+          "queriesWithHints": 1,
+          "applicationFrameBytes": 695140
+        }
+      },
+      "reverseQueries": 178,
+      "reverseApplicationFrameBytes": 6120700,
+      "historyApplyCalls": 20002,
+      "messageCommits": 157,
+      "historyCursorCommits": 316,
+      "workerRpcCalls": 35129,
+      "finalRows": 10001,
+      "exactHistoryAndOfflineRetentionPassed": true,
+      "wireAndCensusUncapped": true,
+      "cache": {
+        "entriesBefore": 92,
+        "entriesAfter": 92,
+        "newKernelEntries": 0,
+        "allocatedDeltaMiB": 0.09,
+        "freeGiBBefore": 150.81,
+        "freeGiBAfter": 150.79
+      },
+      "cleanup": {
+        "ownedPidsChecked": 38,
+        "portsChecked": 58,
+        "runtimeRootRemoved": true,
+        "frozenFilesVerified": 1525,
+        "nativeArtifactsUnchanged": true,
+        "livePids": [],
+        "remainingListeners": []
+      }
+    },
+    "B": {
+      "applyToConvergenceMs": 35787,
+      "encodeToConvergenceMs": 36388,
+      "reverseToSources": {
+        "A": {
+          "requests": 13,
+          "completeReplies": 13,
+          "queriesWithHints": 13,
+          "applicationFrameBytes": 434076
+        },
+        "E": {
+          "requests": 20,
+          "completeReplies": 20,
+          "queriesWithHints": 20,
+          "applicationFrameBytes": 677312
+        }
+      },
+      "reverseQueries": 33,
+      "reverseApplicationFrameBytes": 1111388,
+      "historyApplyCalls": 20002,
+      "messageCommits": 157,
+      "historyCursorCommits": 316,
+      "workerRpcCalls": 33473,
+      "finalRows": 10001,
+      "exactHistoryAndOfflineRetentionPassed": true,
+      "wireAndCensusUncapped": true,
+      "cache": {
+        "entriesBefore": 92,
+        "entriesAfter": 92,
+        "newKernelEntries": 0,
+        "allocatedDeltaMiB": 0.008,
+        "freeGiBBefore": 150.79,
+        "freeGiBAfter": 150.79
+      },
+      "cleanup": {
+        "ownedPidsChecked": 36,
+        "portsChecked": 54,
+        "runtimeRootRemoved": true,
+        "frozenFilesVerified": 1525,
+        "nativeArtifactsUnchanged": true,
+        "livePids": [],
+        "remainingListeners": []
+      }
+    },
+    "A2": {
+      "applyToConvergenceMs": 34858,
+      "encodeToConvergenceMs": 35458,
+      "reverseToSources": {
+        "A": {
+          "requests": 30,
+          "completeReplies": 30,
+          "queriesWithHints": 1,
+          "applicationFrameBytes": 1007620
+        },
+        "E": {
+          "requests": 157,
+          "completeReplies": 157,
+          "queriesWithHints": 1,
+          "applicationFrameBytes": 5425560
+        }
+      },
+      "reverseQueries": 187,
+      "reverseApplicationFrameBytes": 6433180,
+      "historyApplyCalls": 20002,
+      "messageCommits": 157,
+      "historyCursorCommits": 316,
+      "workerRpcCalls": 34024,
+      "finalRows": 10001,
+      "exactHistoryAndOfflineRetentionPassed": true,
+      "wireAndCensusUncapped": true,
+      "cache": {
+        "entriesBefore": 92,
+        "entriesAfter": 92,
+        "newKernelEntries": 0,
+        "allocatedDeltaMiB": -0.012,
+        "freeGiBBefore": 150.79,
+        "freeGiBAfter": 150.73
+      },
+      "cleanup": {
+        "ownedPidsChecked": 37,
+        "portsChecked": 59,
+        "runtimeRootRemoved": true,
+        "frozenFilesVerified": 1525,
+        "nativeArtifactsUnchanged": true,
+        "livePids": [],
+        "remainingListeners": []
+      }
+    }
+  },
+  "fullMigrationSpeedupProven": false,
+  "exactNetworkWireBytesMeasured": false,
+  "cpuDigestWorkMeasured": false,
+  "sourcePrunesFullyCheckableMismatches": true,
+  "candidateRestored": true,
+  "localMacJitOnly": true,
+  "pushOrRelease": false,
+  "pageStages": {
+    "A1": {
+      "A": {
+        "matchedPages": 157,
+        "queryAtSourceToFullReplyAtB": {
+          "n": 156,
+          "p50Ms": 76.093,
+          "p95Ms": 114.993,
+          "maxMs": 216.757
+        },
+        "fullReplyAtBToNextPageQueryAtSource": {
+          "n": 155,
+          "p50Ms": 125.788,
+          "p95Ms": 192.792,
+          "maxMs": 340.973
+        }
+      },
+      "E": {
+        "matchedPages": 157,
+        "queryAtSourceToFullReplyAtB": {
+          "n": 156,
+          "p50Ms": 70.148,
+          "p95Ms": 155.046,
+          "maxMs": 214.096
+        },
+        "fullReplyAtBToNextPageQueryAtSource": {
+          "n": 155,
+          "p50Ms": 134.438,
+          "p95Ms": 215.409,
+          "maxMs": 331.341
+        }
+      }
+    },
+    "B": {
+      "A": {
+        "matchedPages": 157,
+        "queryAtSourceToFullReplyAtB": {
+          "n": 156,
+          "p50Ms": 68.248,
+          "p95Ms": 201.965,
+          "maxMs": 258.766
+        },
+        "fullReplyAtBToNextPageQueryAtSource": {
+          "n": 155,
+          "p50Ms": 137.56,
+          "p95Ms": 200.707,
+          "maxMs": 231.539
+        }
+      },
+      "E": {
+        "matchedPages": 157,
+        "queryAtSourceToFullReplyAtB": {
+          "n": 156,
+          "p50Ms": 76.518,
+          "p95Ms": 124.733,
+          "maxMs": 206.269
+        },
+        "fullReplyAtBToNextPageQueryAtSource": {
+          "n": 155,
+          "p50Ms": 126.757,
+          "p95Ms": 195.792,
+          "maxMs": 340.976
+        }
+      }
+    },
+    "A2": {
+      "A": {
+        "matchedPages": 157,
+        "queryAtSourceToFullReplyAtB": {
+          "n": 156,
+          "p50Ms": 69.104,
+          "p95Ms": 129.08,
+          "maxMs": 232.523
+        },
+        "fullReplyAtBToNextPageQueryAtSource": {
+          "n": 155,
+          "p50Ms": 140.419,
+          "p95Ms": 183.667,
+          "maxMs": 472.819
+        }
+      },
+      "E": {
+        "matchedPages": 157,
+        "queryAtSourceToFullReplyAtB": {
+          "n": 156,
+          "p50Ms": 89.242,
+          "p95Ms": 143.864,
+          "maxMs": 238.743
+        },
+        "fullReplyAtBToNextPageQueryAtSource": {
+          "n": 155,
+          "p50Ms": 115.208,
+          "p95Ms": 198.11,
+          "maxMs": 348.35
+        }
+      }
+    }
+  }
+}

@@ -1,5 +1,32 @@
 # Открытые случаи — обновлено 2026-11-09
 
+## 2026-11-09: bounded повтор ещё недоступных prefix hints
+
+[Исправление и native-квалификация](../history-pending-prefix-2026-11-09/README.md):
+источник сообщает optional mask только о ещё недоступных предложенных hints;
+проверенные mismatches снимаются, неподходящая metadata включает plain-page
+путь. Mask не разрешает запись/ACK/jump: source match, свежий local recheck,
+current authorization и durable cursor остаются обязательными. Верхние границы
+query/page/admission прежние; mailbox не включён.
+
+Контроль **17 → 2 page-запроса**; old **3 assertion-red**, unbounded-retention
+**2 assertion-red**. **245 related passed / 0 skipped**, 16 native HVS,
+analyzer чист; проверены edits, revoke, отказ cursor commit, неверные masks
+и снятие уже отвергнутых hints. Нативный архив 10000+1 сохранился полностью во
+всех трёх фазах без дублей/пропусков, cold boot без источников прошёл.
+
+Встречные ответы B→A/E: **6,12 → 1,11 → 6,43 МБ** application-frame bytes.
+Это уменьшение лишней выдачи на данном стенде, не полный wire-трафик или
+универсальный коэффициент. Основная догрузка **34,868 → 35,787 → 34,858 с**
+при опросе 1000 мс: ускорение не доказано, latency остаётся активной. Следующий
+участок — межстраничные ~127–138 мс до следующего query (включает приложение
+и доставку), 316 cursor commits и более точный completion witness.
+
+1525 frozen inputs, native SHA/mappings и cleanup проверены; kernel cache
+92→92, новых entries 0 во всех фазах, место не чистилось во время измерений.
+NETCALL-01 и остальная matrix без изменений; телефон/production не тронуты,
+commit локальный unsigned, push/релиза нет.
+
 ## 2026-11-09: растущий источник — воспроизведение, прототип пока отложен
 
 [Управляемая проверка](../history-growing-prefix-2026-11-09/README.md): клиент
