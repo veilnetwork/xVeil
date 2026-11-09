@@ -245,6 +245,29 @@ class _MessageCheckCountingSigner extends _FakeSigner {
 
   final checks = <String, int>{};
   final rejectedBodies = <String>{};
+  final sovereignChecks = <String, int>{};
+
+  @override
+  bool verifySovereign({
+    required String algorithm,
+    required NodeId nodeId,
+    required Uint8List publicKey,
+    required Uint8List message,
+    required Uint8List signature,
+  }) {
+    sovereignChecks.update(
+      base64Encode(message),
+      (n) => n + 1,
+      ifAbsent: () => 1,
+    );
+    return super.verifySovereign(
+      algorithm: algorithm,
+      nodeId: nodeId,
+      publicKey: publicKey,
+      message: message,
+      signature: signature,
+    );
+  }
 
   @override
   bool verifyMessage(GroupMessage message) {
@@ -15396,6 +15419,37 @@ void main() {
       version,
     );
   }
+
+  test(
+    'routing reuses its fresh control fold only inside the same journal read',
+    () async {
+      final f = await routingPrefixFixture();
+      await f.put([f.row(1, f.announcement(f.master, 500))]);
+      final bundle = (await f.service.load(f.group))!;
+      expect(bundle.control, isNotEmpty);
+      final before = await f.storage.loadFile('group:${f.group.hex}');
+      f.signer.sovereignChecks.clear();
+      f.storage.headerReads = 0;
+      for (var read = 0; read < 2; read++) {
+        expect(await f.service.addressableOwnDevices(), [f.master]);
+      }
+      expect(
+        f.storage.headerReads,
+        2,
+        reason: 'the next operation must read a fresh durable journal',
+      );
+      for (final entry in bundle.control) {
+        expect(
+          f.signer.sovereignChecks[base64Encode(entry.canonicalBytes())],
+          4,
+          reason:
+              'each lookup needs load and routing folds, not a repeated '
+              'fold for the announcement from that same snapshot',
+        );
+      }
+      expect(await f.storage.loadFile('group:${f.group.hex}'), before);
+    },
+  );
 
   test(
     'routing does not JSON-decode plain non-announcement bodies again',

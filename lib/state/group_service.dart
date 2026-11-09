@@ -16517,13 +16517,19 @@ class GroupService implements ArchiveGroups {
     String? spacePostId,
     bool includeSpacePostComments = false,
     bool applyLocalRetention = true,
+    GroupState? controlState,
   }) async {
+    // The routing reader already folded this exact device journal on the
+    // same synchronous stack. Reuse only that local observation, never a
+    // state retained across reads. Other projections still fold for themselves.
     final groupId = b.manifest.groupId;
-    final state = foldControlLog(
-      owner: b.manifest.owner,
-      entries: b.control,
-      verify: (e) => _validControlFor(b.manifest, e),
-    ).state;
+    final state =
+        controlState ??
+        foldControlLog(
+          owner: b.manifest.owner,
+          entries: b.control,
+          verify: (e) => _validControlFor(b.manifest, e),
+        ).state;
     // The wall clock through the service's own seam rather than `DateTime.now`
     // directly. A read-time expiry filter that cannot be driven by the test
     // clock is a filter no test can put a boundary on, and this one now
@@ -20246,7 +20252,7 @@ class GroupService implements ArchiveGroups {
       // address. Afterwards replace that address with the actual device so a
       // fanout does not send once to each name for the same recipient.
       final master = _masterAddressInState(
-        await _deviceAnnouncementStateOfBundle(b),
+        await _deviceAnnouncementStateOfBundle(b, controlState: state),
         me,
       );
       if (master == null) {
@@ -20276,6 +20282,7 @@ class GroupService implements ArchiveGroups {
         if (me != null) {
           final announcement = (await _deviceAnnouncementStateOfBundle(
             b,
+            controlState: state,
           ))[(DeviceSyncKind.identityDoc, me.hex)];
           if (announcement?.payload['o'] == true) {
             final identity = _identityInDeviceAnnouncement(announcement!);
@@ -21767,7 +21774,10 @@ class GroupService implements ArchiveGroups {
   }
 
   Future<Map<(DeviceSyncKind, String), DeviceSyncEvent>>
-  _deviceAnnouncementStateOfBundle(GroupBundle b) async {
+  _deviceAnnouncementStateOfBundle(
+    GroupBundle b, {
+    GroupState? controlState,
+  }) async {
     var view = b;
     if (b.manifest.isSovereignDevice &&
         b.messages.every(
@@ -21842,7 +21852,11 @@ class GroupService implements ArchiveGroups {
         ],
       );
     }
-    final state = await _deviceSyncStateOfBundle(view);
+    // The projection changes message candidates only, not the control log.
+    final state = await _deviceSyncStateOfBundle(
+      view,
+      controlState: controlState,
+    );
     return {
       for (final entry in state.entries)
         if (entry.key.$1 == DeviceSyncKind.identityDoc) entry.key: entry.value,
@@ -21854,11 +21868,18 @@ class GroupService implements ArchiveGroups {
   int debugAnnouncementBodyDecodes = 0;
 
   Future<Map<(DeviceSyncKind, String), DeviceSyncEvent>>
-  _deviceSyncStateOfBundle(GroupBundle b) async {
+  _deviceSyncStateOfBundle(
+    GroupBundle b, {
+    GroupState? controlState,
+  }) async {
     // Protocol state is not a screen projection: hiding a locally read row
     // must not forget device addresses, settings or pending mirror events.
     // Signed retention, lifecycle, membership and signature gates still run.
-    final msgs = await _messagesOfBundle(b, applyLocalRetention: false);
+    final msgs = await _messagesOfBundle(
+      b,
+      applyLocalRetention: false,
+      controlState: controlState,
+    );
     final nowMs = _clockNowMs();
     return foldDeviceSync([
       for (final m in msgs)
