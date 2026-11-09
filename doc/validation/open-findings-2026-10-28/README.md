@@ -1,5 +1,26 @@
 # Открытые случаи — обновлено 2026-11-09
 
+## 2026-11-09: status no-op и архив 10 000 сообщений
+
+[Исправление и большой стенд](../history-delivery-status-10000-2026-11-09/README.md):
+duplicate outgoing mirror пропускает status API, если свежее чтение уже
+подтвердило delivered; canonical-position adoption и repair старых состояний
+сохранены. Сам API читает цель по chat+ID вместо общего списка, сохраняет
+fail-closed/monotone/scoped/tombstone правила. Финальный старый-caller контроль:
+6 assertion-red; **247 related passed / 0 skipped**, analyzer чист.
+
+По запросу владельца fixture расширена до **10 000 архивных + 1 прежняя**.
+Native A/B/A: все строки/порядок/delivered сохранились без источников;
+status calls **10000 → 0 → 10000**, apply→сходимость **48,633 → 48,769 →
+48,943 с**. Общего ускорения **нет**, задержка остаётся активной. Seed batching
+по 16 находится вне timing; wire/census лимиты увеличены только в test support,
+запуски подтвердили отсутствие обрезки. По 157 полных page replies от A/E;
+следующий query после полного reply наблюдался примерно через 195–197 мс
+в candidate (включая обработку B и доставку запроса, не CPU-only).
+1524 frozen inputs/native SHA и cleanup проверены, candidate восстановлен.
+NETCALL-01 и остальная матрица без изменений. Телефон/production не тронуты,
+mailbox не включён; push/релиза нет.
+
 ## 2026-11-09: повторная control-свёртка внутри одного routing-read
 
 [Исправление и сравнение](../history-routing-control-view-2026-11-09/README.md):

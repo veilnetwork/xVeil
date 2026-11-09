@@ -36,7 +36,7 @@ class MessageApplyCensus {
   int active = 0, maxActive = 0, awaitUs = 0, maxAwaitUs = 0;
   int completedFromEarlierStarts = 0;
   bool keyLimitReached = false;
-  static const maxKeys = 10000;
+  static const maxKeys = 20000;
   final _completedKeys = <(String, String)>{};
   final _rpc = <String, ({int count, int wait, int maxWait, int before})>{};
   // Inclusive per-namespace waits: one atomic commit can touch several kinds.

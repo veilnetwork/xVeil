@@ -29,6 +29,21 @@ class _Link extends LoopbackTransport {
   }
 }
 
+class _StatusWrites extends HiddenVolumeStorage {
+  _StatusWrites(super.opener);
+  int statusCalls = 0;
+
+  @override
+  Future<bool> markMessageStatus(
+    String convHex,
+    String msgId,
+    MessageStatus status,
+  ) {
+    statusCalls++;
+    return super.markMessageStatus(convHex, msgId, status);
+  }
+}
+
 class _HeldAppend extends HiddenVolumeStorage {
   _HeldAppend(super.opener, {required this.beforeVisibility});
   final bool beforeVisibility;
@@ -88,6 +103,148 @@ void main() {
         msgId: id,
         status: MessageStatus.delivered,
       );
+
+  for (final receiptFirst in [false, true]) {
+    test(
+      'a duplicate delivered mirror does not requeue status, receiptFirst=$receiptFirst',
+      () async {
+        final counted = _StatusWrites(FakeHvContainer().passwordOpener);
+        await open(counted);
+        addTearDown(close);
+        await storage.appendMessage(
+          Message(
+            id: 'already-delivered',
+            conversationId: peer.hex,
+            direction: MessageDirection.outgoing,
+            body: 'original durable body',
+            timestamp: DateTime.utc(2020),
+            status: MessageStatus.delivered,
+          ),
+        );
+        if (receiptFirst) await delivered(peer, 'already-delivered');
+        counted.statusCalls = 0;
+        final changed = await service.applyMirroredMessage(
+          peer: peer,
+          msgId: 'already-delivered',
+          direction: MessageDirection.outgoing,
+          body: 'duplicate must not replace original',
+          tsMs: DateTime.now().millisecondsSinceEpoch,
+          status: receiptFirst ? null : MessageStatus.delivered,
+        );
+        expect(changed, isFalse);
+        expect(
+          counted.statusCalls,
+          0,
+          reason: 'the freshly read row already carries terminal delivery',
+        );
+        final rows = await storage.loadMessages(peer.hex);
+        expect(rows, hasLength(1));
+        expect(rows.single.body, 'original durable body');
+        expect(
+          rows.single.timestamp.millisecondsSinceEpoch,
+          DateTime.utc(2020).millisecondsSinceEpoch,
+        );
+        expect(rows.single.status, MessageStatus.delivered);
+        await service.flushOutbox();
+        expect(link.posts, isEmpty);
+      },
+    );
+  }
+
+  for (final previous in [
+    MessageStatus.sending,
+    MessageStatus.sent,
+    MessageStatus.failed,
+  ]) {
+    test('a delivered mirror still repairs $previous exactly once', () async {
+      final counted = _StatusWrites(FakeHvContainer().passwordOpener);
+      await open(counted);
+      addTearDown(close);
+      await storage.appendMessage(
+        Message(
+          id: 'needs-repair',
+          conversationId: peer.hex,
+          direction: MessageDirection.outgoing,
+          body: 'unchanged body',
+          timestamp: DateTime.utc(2020),
+          status: previous,
+        ),
+      );
+      Future<bool> apply() => service.applyMirroredMessage(
+        peer: peer,
+        msgId: 'needs-repair',
+        direction: MessageDirection.outgoing,
+        body: 'duplicate body',
+        tsMs: DateTime.now().millisecondsSinceEpoch,
+        status: MessageStatus.delivered,
+      );
+      expect(await apply(), isTrue);
+      expect(counted.statusCalls, 1);
+      expect(
+        (await storage.loadMessageById(peer.hex, 'needs-repair'))!.status,
+        MessageStatus.delivered,
+      );
+      expect(await apply(), isFalse);
+      expect(counted.statusCalls, 1);
+      expect(
+        (await storage.loadMessages(peer.hex)).single.body,
+        'unchanged body',
+      );
+    });
+  }
+
+  test(
+    'a delivered duplicate still adopts its original device position',
+    () async {
+      final counted = _StatusWrites(FakeHvContainer().passwordOpener);
+      await open(counted);
+      addTearDown(close);
+      final author = _id(3);
+      service.isOwnDevice = (node) async => node == author;
+      await storage.appendMessage(
+        Message(
+          id: 'canonical-position',
+          conversationId: peer.hex,
+          direction: MessageDirection.outgoing,
+          body: 'peer echo remains unchanged',
+          timestamp: DateTime.utc(2020),
+          status: MessageStatus.delivered,
+          author: peer.hex,
+          seq: 99,
+          positionVerified: false,
+        ),
+      );
+      expect(
+        await service.applyMirroredMessage(
+          peer: peer,
+          msgId: 'canonical-position',
+          direction: MessageDirection.outgoing,
+          body: 'original device mirror',
+          tsMs: DateTime.now().millisecondsSinceEpoch,
+          status: MessageStatus.delivered,
+          author: author.hex,
+          seq: 1,
+          positionVerified: true,
+        ),
+        isTrue,
+      );
+      final held = (await storage.loadMessageById(
+        peer.hex,
+        'canonical-position',
+      ))!;
+      expect(held.body, 'peer echo remains unchanged');
+      expect(held.author, peer.hex);
+      expect(held.seq, 99);
+      expect(held.orderAuthor, author.hex);
+      expect(held.orderSeq, 1);
+      expect(held.status, MessageStatus.delivered);
+      expect(
+        counted.statusCalls,
+        0,
+        reason: 'skip a status no-op without skipping ordering adoption',
+      );
+    },
+  );
 
   test(
     'a sibling delivery report before its mirror is retained without orphan rows',
