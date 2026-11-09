@@ -119,14 +119,24 @@ witnesses; it is private stand data, not an anonymous diagnostic export.
 This scenario does not enable a sibling mailbox or qualify long offline,
 every crash stage, or mobile network handover.
 
-`XVEIL_E2E_HISTORY_OVERLAP_ROWS` selects an archive size between 32 and 10000
-rows (default 512). Use 10000 to profile large-history reception; both native
-sources must contain the entire selected archive and the full oracle still
-checks every row. The worker enforces the same bounds before seeding storage.
-The setup inserts bounded batches of 16 through the encrypted store; this is
-outside the migration timing window. A failed/existing insertion rejects the
-fixture. Overlap wire observation admits up to 16384 records, and the census
-tracks up to 20000 append keys so a 10000-row archive and prior rows fit.
+`XVEIL_E2E_HISTORY_OVERLAP_ROWS` selects an archive size between 32 and 100000
+rows (default 512). Use 100000 for the large-history stress run; both native
+sources must contain the entire selected archive and the final oracle still
+checks every row, body, delivery state, canonical position and order. The worker
+enforces the same bounds before seeding storage. Setup uses batches of 16 up to
+10000 rows and 64 above that, outside the migration window; a failed/existing
+insertion rejects the fixture. Application publication limits are unchanged.
+Overlap wire observation admits up to 262144 records; its census admits 100001
+unique append keys, including the prior row. Default census users stay at 20000.
+
+Above 10000 rows the controller polls only durable cursors, gate/error counters
+and the count-only census. These progress responses contain no message rows,
+row count or full wire history and cannot satisfy the data oracle. Once cursors
+finish, a separate full live-owner snapshot checks every selected row; the cold
+retention oracle still runs before any source can reconnect. This avoids
+serializing and hashing the entire 100000-row archive on every progress poll.
+Use `XVEIL_E2E_HISTORY_OVERLAP_POLL_MS=5000` for this run. The large migration
+wait admits 20 minutes, within a 45-minute test bound; setup has its own bound.
 
 With storage timing enabled, the overlap controller requests the census and
 starts opt-in CPU/timeline capture. It resets the receiver window immediately
