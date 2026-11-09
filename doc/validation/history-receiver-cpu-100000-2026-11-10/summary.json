@@ -1,0 +1,211 @@
+{
+  "schema": "xveil-receiver-cpu-stream-analysis/1",
+  "chunks": 35,
+  "captureCapped": false,
+  "captureErrors": 1,
+  "unavailableIsolateResponses": 27,
+  "physicalSampleKeys": 176512,
+  "nonconflictingPhysicalSamples": 176501,
+  "overlappingRecordsDeduplicated": 23100,
+  "overlapConflicts": 11,
+  "samplesWithoutTid": 0,
+  "outsideRequestedWindow": 0,
+  "truncatedPhysicalStacks": 8853,
+  "requestedActiveWindowMs": 242278.046,
+  "streamActiveCoverageMs": 240183.044,
+  "leadingUncapturedMs": 0.0,
+  "trailingUncapturedMs": 2095.002,
+  "longestQueryMs": 9361.247,
+  "selectedHotspots": [
+    {
+      "name": "GroupService.load",
+      "kind": "Dart",
+      "inclusiveSamples": 10028,
+      "exclusiveSamples": 72
+    },
+    {
+      "name": "GroupService._readOwnDeviceAddresses",
+      "kind": "Dart",
+      "inclusiveSamples": 8217,
+      "exclusiveSamples": 38
+    },
+    {
+      "name": "_MessagingOwnHistory._applyHistoryEvent",
+      "kind": "Dart",
+      "inclusiveSamples": 7133,
+      "exclusiveSamples": 71
+    },
+    {
+      "name": "_MessagingOwnHistory._allowed",
+      "kind": "Dart",
+      "inclusiveSamples": 4999,
+      "exclusiveSamples": 33
+    },
+    {
+      "name": "GroupService._mergeEpochMaterial",
+      "kind": "Dart",
+      "inclusiveSamples": 4189,
+      "exclusiveSamples": 11
+    },
+    {
+      "name": "GroupService._acceptedControl",
+      "kind": "Dart",
+      "inclusiveSamples": 4172,
+      "exclusiveSamples": 25
+    },
+    {
+      "name": "HiddenVolumeStorage._foldCritical",
+      "kind": "Dart",
+      "inclusiveSamples": 4095,
+      "exclusiveSamples": 145
+    },
+    {
+      "name": "GroupService._deviceAnnouncementStateOfBundle",
+      "kind": "Dart",
+      "inclusiveSamples": 4036,
+      "exclusiveSamples": 21
+    },
+    {
+      "name": "GroupService._deviceSyncStateOfBundle",
+      "kind": "Dart",
+      "inclusiveSamples": 3998,
+      "exclusiveSamples": 39
+    },
+    {
+      "name": "MessagingService._isSiblingDevice",
+      "kind": "Dart",
+      "inclusiveSamples": 3989,
+      "exclusiveSamples": 48
+    },
+    {
+      "name": "GroupService.addressableOwnDevices",
+      "kind": "Dart",
+      "inclusiveSamples": 3853,
+      "exclusiveSamples": 143
+    },
+    {
+      "name": "_HistoryWriteCohort.applyAll",
+      "kind": "Dart",
+      "inclusiveSamples": 3535,
+      "exclusiveSamples": 14
+    },
+    {
+      "name": "GroupService.isMyDeviceOrMaster",
+      "kind": "Dart",
+      "inclusiveSamples": 3528,
+      "exclusiveSamples": 48
+    },
+    {
+      "name": "_PreparedHistoryRow.start",
+      "kind": "Dart",
+      "inclusiveSamples": 3462,
+      "exclusiveSamples": 9
+    },
+    {
+      "name": "GroupService._messagesOfBundle",
+      "kind": "Dart",
+      "inclusiveSamples": 3301,
+      "exclusiveSamples": 9
+    },
+    {
+      "name": "HiddenVolumeStorage._serialized",
+      "kind": "Dart",
+      "inclusiveSamples": 3067,
+      "exclusiveSamples": 22
+    },
+    {
+      "name": "GroupService._acceptedMessagesWithinLifecycle",
+      "kind": "Dart",
+      "inclusiveSamples": 3065,
+      "exclusiveSamples": 15
+    },
+    {
+      "name": "GroupService._acceptedMessageRows",
+      "kind": "Dart",
+      "inclusiveSamples": 3046,
+      "exclusiveSamples": 13
+    },
+    {
+      "name": "GroupService._canonicalMessageRows",
+      "kind": "Dart",
+      "inclusiveSamples": 2936,
+      "exclusiveSamples": 0
+    },
+    {
+      "name": "GroupService._canonicalMessageView",
+      "kind": "Dart",
+      "inclusiveSamples": 2935,
+      "exclusiveSamples": 8
+    },
+    {
+      "name": "GroupService._canonicalRetainedMessageView",
+      "kind": "Dart",
+      "inclusiveSamples": 2924,
+      "exclusiveSamples": 8
+    },
+    {
+      "name": "GroupService._validControlFor",
+      "kind": "Dart",
+      "inclusiveSamples": 2881,
+      "exclusiveSamples": 11
+    },
+    {
+      "name": "GroupService._validMessageFor",
+      "kind": "Dart",
+      "inclusiveSamples": 2786,
+      "exclusiveSamples": 0
+    },
+    {
+      "name": "HiddenVolumeStorage.loadMessageById",
+      "kind": "Dart",
+      "inclusiveSamples": 2660,
+      "exclusiveSamples": 5
+    },
+    {
+      "name": "GroupService._joinSameHeaderSegments",
+      "kind": "Dart",
+      "inclusiveSamples": 2523,
+      "exclusiveSamples": 5
+    },
+    {
+      "name": "HiddenVolumeStorage._readFileSession",
+      "kind": "Dart",
+      "inclusiveSamples": 2422,
+      "exclusiveSamples": 11
+    },
+    {
+      "name": "GroupService._validManifest",
+      "kind": "Dart",
+      "inclusiveSamples": 2420,
+      "exclusiveSamples": 9
+    },
+    {
+      "name": "HiddenVolumeStorage.loadMessages",
+      "kind": "Dart",
+      "inclusiveSamples": 2399,
+      "exclusiveSamples": 19
+    },
+    {
+      "name": "MessagingService._handleInbound",
+      "kind": "Dart",
+      "inclusiveSamples": 2191,
+      "exclusiveSamples": 8
+    },
+    {
+      "name": "GroupService._joinSegments",
+      "kind": "Dart",
+      "inclusiveSamples": 2149,
+      "exclusiveSamples": 15
+    }
+  ],
+  "percentOfWallTimeClaimed": false,
+  "performanceComparison": false,
+  "nativeArchiveRows": 100000,
+  "finalRows": 100001,
+  "convergencePassed": true,
+  "coldRetentionPassed": true,
+  "profiledProductionHead": "af8f0f54322c045f56334c5ea8e8cdb502056a0b",
+  "applyReleaseToConvergenceMs": 236305,
+  "sourceFrozenInputs": 1532,
+  "productionChangesThisCycle": false
+}
