@@ -599,10 +599,7 @@ class _MessagingOwnHistory {
       _owner._storage,
       peer,
     )).where((message) => visible(message.timestamp)).toList();
-    rows.sort((a, b) {
-      final time = a.timestamp.compareTo(b.timestamp);
-      return time != 0 ? time : a.id.compareTo(b.id);
-    });
+    rows.sort(compareMessageHistoryOrder);
     return rows;
   }
 
@@ -670,12 +667,12 @@ class _MessagingOwnHistory {
     return crypto.sha256.convert(utf8.encode(jsonEncode(state))).toString();
   }
 
-  int _compare(Message message, List<dynamic> cursor) {
-    final time = message.timestamp.millisecondsSinceEpoch.compareTo(
-      cursor[0] as int,
-    );
-    return time != 0 ? time : message.id.compareTo(cursor[1] as String);
-  }
+  int _compare(Message message, List<dynamic> cursor) =>
+      compareMessageHistoryCursor(
+        message,
+        cursor[0] as int,
+        cursor[1] as String,
+      );
 
   // A small, request-local proof of rows already held. It is never itself a
   // cursor: the source must match it and the receiver must recheck before a
@@ -869,9 +866,18 @@ class _MessagingOwnHistory {
             break;
           }
         }
+        // The snapshot is already in wire cursor order. Do not rescan the
+        // applied prefix on every page of a large archive. Keep one lookahead
+        // row for the unchanged byte-budget and next-cursor decisions.
+        final start = cursor == null
+            ? 0
+            : messageHistoryStartAfter(
+                snapshot.rows,
+                (cursor as List)[0] as int,
+                cursor[1] as String,
+              );
         final window = snapshot.rows
-            .where((m) => cursor == null || _compare(m, cursor as List) > 0)
-            .take(limit + 1)
+            .getRange(start, (start + limit + 1).clamp(0, snapshot.rows.length))
             .toList();
         final page = window.take(limit).toList();
         final events = <String>[];
