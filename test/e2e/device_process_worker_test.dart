@@ -459,6 +459,17 @@ void main() {
                 // must start a new window even without another explicit reset.
                 cpuProfile ??= StandCpuProfile();
                 await cpuProfile!.reset();
+                if (env['XVEIL_E2E_CPU_STREAM'] == label) {
+                  final evidence = env['XVEIL_E2E_EVIDENCE_DIR'];
+                  if (evidence == null) {
+                    throw StateError(
+                      'streamed CPU capture needs private evidence',
+                    );
+                  }
+                  await cpuProfile!.writeEndpointWitness(
+                    File('$evidence/cpu-vm-$label-$pid-private.json'),
+                  );
+                }
               }
               if (request['reconcile'] == true) {
                 await device!.messaging.reconcileOnConnect();
