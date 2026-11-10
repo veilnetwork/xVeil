@@ -63,6 +63,10 @@ class _MessagingOwnHistory {
   static const _maxParts = 64;
   static const _maxDevices = 32;
   static const _maxAttempts = 6;
+  // Request-local policy reads may prove there is no time-based filter. Keep
+  // that case distinct so a page need not read every archived timestamp (and
+  // the wall clock) solely to apply a predicate which always returns true.
+  static bool _unrestrictedVisibility(DateTime _) => true;
   // Stored message events are bounded at 512 KiB. Mirror metadata fits the
   // existing 1-MiB application-frame bound, separately from the unchanged
   // 128-KiB page. All partial records together share 4 MiB.
@@ -597,10 +601,13 @@ class _MessagingOwnHistory {
     final visible = await _visible(peer);
     // History defines its own raw timestamp/id order. Avoid first building
     // the unrelated UI causal-time projection, while keeping a fresh fold.
-    final rows = (await readMessageRows(
+    final held = await readMessageRows(
       _owner._storage,
       peer,
-    )).where((message) => visible(message.timestamp)).toList();
+    );
+    final rows = visible == _unrestrictedVisibility
+        ? List<Message>.of(held)
+        : held.where((message) => visible(message.timestamp)).toList();
     sortMessageHistory(rows);
     return rows;
   }
@@ -618,6 +625,9 @@ class _MessagingOwnHistory {
             policy,
           )
         : 0;
+    if (!policy.isOn && (contact?.retentionDays ?? 0) <= 0 && hidden <= 0) {
+      return _unrestrictedVisibility;
+    }
     return (sent) =>
         !policy.hasExpired(sent, _owner._now()) &&
         !((contact?.retentionDays ?? 0) > 0 &&
