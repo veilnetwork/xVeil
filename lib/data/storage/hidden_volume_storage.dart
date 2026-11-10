@@ -3474,12 +3474,11 @@ class HiddenVolumeStorage
     String conversationId,
     String author,
     int seq,
-  ) async {
-    // NOT wrapped in _serialized: the raw idempotency scan reads the store
-    // directly (like loadMessageHistory / _voidEditRowsOps) and the only gated
-    // step is the closing _patchCache — wrapping the whole method would nest
-    // _serialized inside _serialized (via _patchCache) and DEADLOCK the gate.
-    // This mirrors editMessage/deleteMessage: commit, then _patchCache.
+  ) => _withConvSequence(conversationId, author, () async {
+    // Keep the preparation read and commit in one accepted stream turn:
+    // maintenance must drain both before replacing the backing space, and
+    // concurrent copies must observe the first committed slot. Do not hold
+    // _serialized here: the closing _patchCache needs that separate scan gate.
     //
     // Idempotent: if any row already occupies this (author, seq) slot — a post,
     // edit, void, or tombstone — the high-water already accounts for it, so a
@@ -3514,7 +3513,7 @@ class HiddenVolumeStorage
       ],
     );
     await _patchCache(() {});
-  }
+  });
 
   /// Decode a persisted attestation-state index safely (absent / out-of-range →
   /// [MessageSignature.none], so legacy rows and forward-compat both hold).
