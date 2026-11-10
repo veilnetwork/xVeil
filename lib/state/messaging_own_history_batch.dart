@@ -77,6 +77,7 @@ class _HistoryWriteCohort {
   final _pending = <({DeviceSyncEvent event, _PreparedHistoryRow row})>[];
   final _all = <_PreparedHistoryRow>[];
   static const _publicationRows = preparedMessageBatchMaxRows;
+  static const _splitRows = 64;
 
   Future<void> applyAll(
     List<DeviceSyncEvent> events,
@@ -118,6 +119,13 @@ class _HistoryWriteCohort {
   Future<void> flush() async {
     if (_pending.isEmpty) return;
     final rows = List.of(_pending);
+    await _publish(rows);
+    _pending.clear();
+  }
+
+  Future<void> _publish(
+    List<({DeviceSyncEvent event, _PreparedHistoryRow row})> rows,
+  ) async {
     final events = [for (final item in rows) item.event];
     await checkAdmission(events);
     final ordering = rows.first.row.ordering != null;
@@ -129,6 +137,19 @@ class _HistoryWriteCohort {
         : await (store as PreparedMessageBatchStore).appendMissingMessageBatch([
             for (final item in rows) item.row.message!,
           ], beforeCommit: () => checkAdmission(events));
+    if (results == null && rows.length > _splitRows) {
+      // An aggregate byte bound, smaller adapter or unsupported row may refuse
+      // the larger request without writing. Retry ordered, bounded halves
+      // before using the original single-row fallback. Each half keeps fresh
+      // admission and its own durable completion; no cursor is published here.
+      for (var start = 0; start < rows.length; start += _splitRows) {
+        await _publish(rows.sublist(
+          start,
+          (start + _splitRows).clamp(0, rows.length),
+        ));
+      }
+      return;
+    }
     if (results == null) {
       // Unsupported writes resume the original per-message path, one at a
       // time; no promise of an unperformed publication is manufactured.
@@ -164,7 +185,6 @@ class _HistoryWriteCohort {
         item.row.check();
       }
     }
-    _pending.clear();
   }
 
   Future<void> abort(Object error, StackTrace stack) async {

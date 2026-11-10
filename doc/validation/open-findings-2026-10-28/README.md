@@ -1,5 +1,31 @@
 # Открытые случаи — обновлено 2026-11-10
 
+## 2026-11-10: меньше durable publications при прежнем payload budget
+
+[Исправление и native A/B/A](../history-cohort128-100000-2026-11-10/README.md):
+prepared row ceiling **64→128**, прежние **1800 bytes/row / 115200 payload
+bytes** проверяются до записи. Отказ крупного набора сначала разбивается
+на части до 64, затем использует прежний ordinary fallback. Число одновременно
+подготовленных строк выросло до 128; byte/page/admission bounds прежние.
+Fresh admission, durable completion, erasure/revoke и cursor barriers сохранены,
+резервы prepared-пути по-прежнему ограничены 256. Sibling mailbox/cache авторизации нет.
+
+Два parent assertion-red; byte-boundary −1/0/+1 для posts/ordering, меньший
+adapter, fault между частями и native cold restart. **400 passed / 0 skipped**,
+analyzer чист. На 100000: **144,010 → 133,706 → 144,067 с** — около 7% выигрыша
+в этом локальном JIT-сравнении; passive witness подтверждает сокращение этапа.
+Message commits **1563→782→1563**, cursor commits/page/byte counts и 200002
+callbacks прежние. Один дополнительный allocator commit в candidate учтён
+отдельно. Все ID/body/status/order, оба cursor и cold retention совпали.
+
+Отдельный SIGKILL после 50048 durable архивных строк: до сети сохранены они,
+прежняя строка и оба точных cursor; только A вернулся и завершил 100001 строку,
+ещё одно cold offline открытие сохранило результат. Это не все crash windows.
+1532 frozen inputs, три production variants; candidate восстановлен, cleanup
+всех прогонов прошли, cache 92 entries. Собственные CPU JSON сжаты losslessly.
+Latency (~134 с), NETCALL-01, физическая/AOT квалификация и остальная matrix
+остаются открытыми. Push/релиза нет.
+
 ## 2026-11-10: без временной политики — без лишней проверки каждой строки
 
 [Исправление и native A/B/A](../history-unrestricted-100000-2026-11-10/README.md):

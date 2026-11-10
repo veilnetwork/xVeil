@@ -195,6 +195,8 @@ class _SnapshotStorage extends HiddenVolumeStorage {
   Future<void> Function()? beforePreparedCommit;
   void Function(String conversationId, String messageId)? onMessageRead;
   bool ordinaryOrderingOnly = false;
+  int? preparedRowsLimit;
+  final preparedRowAttempts = <int>[];
   int displayReads = 0;
   List<Message> Function(List<Message>)? historyRows;
 
@@ -236,15 +238,21 @@ class _SnapshotStorage extends HiddenVolumeStorage {
   Future<List<PreparedMessageWrite>?> appendMissingMessageBatch(
     List<Message> messages, {
     required Future<void> Function() beforeCommit,
-  }) => super.appendMissingMessageBatch(
-    messages,
-    beforeCommit: () async {
-      final hook = beforePreparedCommit;
-      beforePreparedCommit = null;
-      await hook?.call();
-      await beforeCommit();
-    },
-  );
+  }) {
+    preparedRowAttempts.add(messages.length);
+    if (preparedRowsLimit != null && messages.length > preparedRowsLimit!) {
+      return Future.value(null);
+    }
+    return super.appendMissingMessageBatch(
+      messages,
+      beforeCommit: () async {
+        final hook = beforePreparedCommit;
+        beforePreparedCommit = null;
+        await hook?.call();
+        await beforeCommit();
+      },
+    );
+  }
 
   @override
   Future<List<Message>> loadMessages(
@@ -568,7 +576,7 @@ void main() {
 
   for (final direction in MessageDirection.values) {
     test(
-      '128 short $direction mirrors use one page and two durable cohorts',
+      '128 short $direction mirrors use one page and one durable cohort',
       () async {
         await seed(128, direction: direction);
         ma.start();
@@ -585,7 +593,7 @@ void main() {
             .toList();
         expect(requests, hasLength(1));
         expect(requests.single.body['q']['rows'], 256);
-        expect(bStore.postBatches, [64, 64]);
+        expect(bStore.postBatches, [128]);
         expect(bStore.historyCursorCommits, 3);
         final held = await sb.loadMessages(peer.hex);
         final source = await sa.loadMessages(peer.hex);
@@ -632,7 +640,7 @@ void main() {
           .toList();
       expect(requests, hasLength(1));
       expect(requests.single.body['q']['rows'], 256);
-      expect(bStore.postBatches, [64, 64, 64, 64]);
+      expect(bStore.postBatches, [128, 128]);
       expect(bStore.historyCursorCommits, 3);
       final source = await sa.loadMessages(peer.hex);
       final held = await sb.loadMessages(peer.hex);
@@ -652,11 +660,32 @@ void main() {
     });
   }
 
+  test('a smaller prepared adapter splits a short page without single writes',
+      () async {
+    await seed(128);
+    sb.preparedRowsLimit = 64;
+    net.drop = (from, _, body) => from == a && body['q'] != null;
+    ma.start();
+    mb.start();
+    await until(() async =>
+        await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}');
+    expect(sb.preparedRowAttempts, [128, 64, 64]);
+    expect(bStore.postBatches, [64, 64]);
+    final held = await sb.loadMessages(peer.hex);
+    final source = await sa.loadMessages(peer.hex);
+    expect(held.map((m) => (m.id, m.body, m.status, m.orderAuthor, m.orderSeq)),
+        source.map((m) => (m.id, m.body, m.status, m.orderAuthor, m.orderSeq)));
+    expect(held.map((m) => m.id).toSet(), hasLength(128));
+    expect(applied, 128);
+    expect(errorJournal.entries, isEmpty);
+  });
+
   for (final failure in ['revoke', 'storage']) {
     test(
-      'last cohort of a 256-row page preserves its prior cursor ($failure)',
+      'last split cohort of a 256-row page preserves its prior cursor ($failure)',
       () async {
         await seed(256);
+        sb.preparedRowsLimit = 64;
         net.drop = (from, _, body) => from == a && body['q'] != null;
         var publications = 0, refused = false;
         Future<void> gate() async {
@@ -708,11 +737,13 @@ void main() {
     );
   }
 
+  for (final cap in [64, 128]) {
   for (final failure in ['revoke', 'storage']) {
     test(
-      'a failed second cohort cannot checkpoint a 128-row page ($failure)',
+      'a failed second cohort cannot checkpoint a page (cap=$cap, $failure)',
       () async {
-        await seed(128);
+        await seed(cap * 2);
+        sb.preparedRowsLimit = cap;
         // Only B pulls: an inverse transfer must not change this boundary.
         net.drop = (from, _, body) => from == a && body['q'] != null;
         var secondReached = false;
@@ -731,8 +762,8 @@ void main() {
         await until(
           () async => secondReached && errorJournal.entries.isNotEmpty,
         );
-        expect(await count(), 64);
-        expect(bStore.postBatches, [64]);
+        expect(await count(), cap);
+        expect(bStore.postBatches, [cap]);
         final saved =
             jsonDecode(
                   (await sb.getSetting('device.history.cursor.v2:${a.hex}'))!,
@@ -741,14 +772,14 @@ void main() {
         expect(saved['cursor'], isNull);
         expect(
           (await sb.loadMessages(peer.hex)).map((m) => m.id),
-          (await sa.loadMessages(peer.hex)).take(64).map((m) => m.id),
+          (await sa.loadMessages(peer.hex)).take(cap).map((m) => m.id),
         );
         bSiblings = [a];
         errorJournal.clear();
         await restartB();
         await until(
           () async =>
-              await count() == 128 &&
+              await count() == cap * 2 &&
               await sb.getSetting('device.history.cursor.v2:${a.hex}') == '{}',
         );
         final held = await sb.loadMessages(peer.hex);
@@ -759,11 +790,13 @@ void main() {
             (m) => (m.id, m.body, m.status, m.orderAuthor, m.orderSeq),
           ),
         );
-        expect(held.map((m) => m.id).toSet(), hasLength(128));
-        expect(bStore.postBatches, [64, 64]);
+        expect(held.map((m) => m.id).toSet(), hasLength(cap * 2));
+        expect(bStore.postBatches, [cap, cap]);
         expect(errorJournal.entries, isEmpty);
       },
     );
+  }
+
   }
 
   test(
