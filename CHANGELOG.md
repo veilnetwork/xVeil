@@ -8,6 +8,37 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
+## [0.13.96] - 2026-11-10
+
+### Fixed
+
+- Add a clear Windows "System output" choice for calls, retain a working output
+  when a switch fails, and show a selection only after the engine accepts it.
+  Choosing System output clears a previous saved output override. If an old
+  saved device plays to the wrong endpoint, select this choice in the call's
+  device picker.
+- Ship a rebuilt media engine that destroys Windows audio devices on their COM
+  owner thread. Ending calls no longer corrupts the caller's COM apartment and
+  breaks later notification cancellation during application locking.
+- Configure biometric startup entry independently of an existing screen-lock
+  pattern. The biometric button is available without drawing that pattern;
+  confirmed pattern enrollment and password fallback remain supported.
+- Reduce repeated history reads, projections and writes during large own-device
+  catch-up. Keep delivered status, ordering, erasure and durable progress intact
+  across retry, identity close and crashes.
+- Bound certificate/image imports and file-picker memory fallbacks. Cancel the
+  Android incoming-call screen when its foreground-service start fails, instead
+  of leaving a stale call screen. Restore a readable identity label in devices.
+
+### Changed
+
+- Shorten identity-creation backup instructions, emphasize the required backup,
+  and keep the certificate text/copy controls inside an expandable section.
+- Use Veil 0.11.49; hidden-volume remains at 2.7.0. Large-history qualification
+  includes 100,000-message convergence and interrupted recovery on native
+  storage. These checks do not complete the entire multi-device matrix or
+  establish universal catch-up timing on mobile networks.
+
 ## [0.13.95] — 2026-11-09
 
 ### Fixed
