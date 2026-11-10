@@ -3,6 +3,17 @@ import 'package:xveil/domain/chat.dart';
 import '../support/history_archive_fixture.dart';
 
 void main() {
+  test('seed batches stay independent of production publication limits', () {
+    for (final count in [32, 512, 2000, 10000]) {
+      expect(historyArchiveSeedBatchRows(count), 16);
+    }
+    for (final count in [10001, 100000]) {
+      expect(historyArchiveSeedBatchRows(count), 64);
+    }
+    for (final count in [-1, 0, 31, 100001]) {
+      expect(() => historyArchiveSeedBatchRows(count), throwsArgumentError);
+    }
+  });
   test('crash row is optional and strictly inside the archive', () {
     expect(historyCrashRow(null, 100000), isNull);
     for (final index in [1, 350, 50000, 99999]) {

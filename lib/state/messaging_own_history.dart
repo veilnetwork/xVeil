@@ -603,6 +603,15 @@ class _MessagingOwnHistory {
     int? window,
   }) async {
     final visible = await _visible(peer);
+    if (window != null && visible == _unrestrictedVisibility) {
+      return readMessageHistoryWindow(
+        _owner._storage,
+        peer,
+        limit: window,
+        afterTimestampMs: after?[0] as int?,
+        afterId: after?[1] as String?,
+      );
+    }
     // History defines its own raw timestamp/id order. Avoid first building
     // the unrelated UI causal-time projection, while keeping a fresh fold.
     final held = await readMessageRows(_owner._storage, peer);

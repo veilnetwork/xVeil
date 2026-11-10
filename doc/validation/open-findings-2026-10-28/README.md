@@ -4863,3 +4863,24 @@ Cold B без источников сохранил их; один источн�
 crash window, не вся матрица. Код/пины совпадают с B сравнения; стенды закрыты.
 Latency около 125 с и NETCALL открыты. Cache 92 entries без прироста,
 свободно около 145,6 ГиБ. Нет push/релиза и sibling mailbox.
+
+
+## 2026-11-10: bounded fresh history windows и исправление setup-метрики
+
+[Механизм, фиксированный setup, native сравнения и SIGKILL](../history-window-index-100000-2026-11-10/README.md).
+Обычная unrestricted page читает текущий fold через индекс ключей, не полный
+архив на каждую страницу. Fresh policy/rows, overlays, close/erase epoch,
+point-delete invalidation и fail-closed ошибки сохранены. 1342 passed,
+0 skipped; два assertion-red и собственный deletion-mutant guard.
+
+Seed больше не зависит от production cap: оба источника подтверждают 1563
+успешных setup-публикации 64/last32 для 100000 строк. В прежних cap-отчётах
+помечена ошибочная метка seed64 и отозвана изолированная latency-атрибуция;
+exact/cold/crash результаты сохраняют силу. Новый пятифазный cap-контроль
+держит setup постоянным, меняет только один production-файл. Индекс отдельно
+проверен native A/B/A и SIGKILL после publication до checkpoint; все девять
+прогонов проверили exact/cold состояние, cleanup и provenance.
+
+Общая latency всё ещё открыта. По новому указанию владельца после этого
+цикла приоритет — звук телефон → Windows 11, затем релиз после исправления
+и проверки. В данном цикле push/релиза нет, sibling mailbox не включён.

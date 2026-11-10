@@ -6,6 +6,15 @@ const maxHistoryArchiveRows = 100000;
 const maxHistoryArchiveWireRecords = 262144;
 const defaultHistoryArchiveRows = 512;
 
+/// Keep physical setup identical when comparing production publication limits.
+/// This is deliberately independent of preparedMessageBatchMaxRows.
+int historyArchiveSeedBatchRows(int rows) {
+  if (rows < minHistoryArchiveRows || rows > maxHistoryArchiveRows) {
+    throw ArgumentError('invalid archive count');
+  }
+  return rows > 10000 ? 64 : 16;
+}
+
 int historyArchiveRows(String? raw) {
   final count = raw == null ? defaultHistoryArchiveRows : int.tryParse(raw);
   if (count == null ||

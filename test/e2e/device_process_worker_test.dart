@@ -504,18 +504,15 @@ void main() {
                 }
               }
               Map<String, Object>? seededArchiveOrder;
+              Map<String, int>? seededArchiveBatch;
               if (request['seedSharedHistory'] == true) {
                 if (env['XVEIL_E2E_HISTORY_OVERLAP'] != '1') {
                   throw StateError('shared archive setup is not enabled');
                 }
                 final count = request['sharedRows'] as int;
-                final seedBatchRows = count > 10000
-                    ? preparedMessageBatchMaxRows
-                    : 16;
-                if (count < minHistoryArchiveRows ||
-                    count > maxHistoryArchiveRows) {
-                  throw StateError('invalid archive count');
-                }
+                final seedBatchRows = historyArchiveSeedBatchRows(count);
+                var seedRows = 0, seedPublications = 0, seedMaxRows = 0;
+                var seedLastRows = 0;
                 final author = NodeId.fromHex(
                   request['sharedAuthor'] as String,
                 );
@@ -536,6 +533,12 @@ void main() {
                       'shared archive insertion was not complete',
                     );
                   }
+                  seedRows += pending.length;
+                  seedPublications++;
+                  if (pending.length > seedMaxRows) {
+                    seedMaxRows = pending.length;
+                  }
+                  seedLastRows = pending.length;
                   pending.clear();
                 }
 
@@ -560,6 +563,12 @@ void main() {
                   if (pending.length == seedBatchRows) await persistSeed();
                 }
                 if (pending.isNotEmpty) await persistSeed();
+                seededArchiveBatch = {
+                  'rows': seedRows,
+                  'publications': seedPublications,
+                  'maxRows': seedMaxRows,
+                  'lastRows': seedLastRows,
+                };
                 seededArchiveOrder = historyArchiveOrderShape(
                   await device!.storage.loadMessageRows(peer),
                 );
@@ -645,6 +654,7 @@ void main() {
                   if (authorization.isNotEmpty) 'authorization': authorization,
                   'historyState': ?historyState,
                   'seededArchiveOrder': ?seededArchiveOrder,
+                  'seededArchiveBatch': ?seededArchiveBatch,
                   if (request['includeHistoryWire'] == true)
                     'historyWire': device!.privateHistoryWireSnapshot(),
                   if (request['includeHistoryWire'] == true ||

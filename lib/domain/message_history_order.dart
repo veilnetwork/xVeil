@@ -13,13 +13,13 @@ int compareMessageHistoryCursor(Message message, int timestampMs, String id) {
 
 // Zero for an ordered view, the split of two ordered runs, or -1 for more.
 // This is a fresh observation, not a remembered assertion about a store.
-int _historyRunSplit(List<Message> rows) {
+int _historyRunSplit<T>(List<T> rows, Message Function(T) read) {
   if (rows.length < 2) return 0;
   var split = 0;
-  var previous = rows.first;
+  var previous = read(rows.first);
   var previousMs = previous.timestamp.millisecondsSinceEpoch;
   for (var i = 1; i < rows.length; i++) {
-    final current = rows[i];
+    final current = read(rows[i]);
     final currentMs = current.timestamp.millisecondsSinceEpoch;
     if (currentMs < previousMs ||
         (currentMs == previousMs && current.id.compareTo(previous.id) < 0)) {
@@ -36,11 +36,20 @@ int _historyRunSplit(List<Message> rows) {
 /// Two sorted runs can use a buffer of at most 128 references to merge a small
 /// displaced block. Other inversions take the ordinary in-place sort path.
 /// No rows survive the call, and all paths use the wire's millisecond/ID order.
-void sortMessageHistory(List<Message> rows) {
-  final split = _historyRunSplit(rows);
+void sortMessageHistory(List<Message> rows) =>
+    _sortHistoryRows(rows, (message) => message);
+
+/// Same wire order/run handling for a storage-key index. Row lookups are
+/// synchronous and are not retained beyond this sort.
+void sortMessageHistoryKeys(List<String> keys, Message Function(String) read) =>
+    _sortHistoryRows(keys, read);
+
+void _sortHistoryRows<T>(List<T> rows, Message Function(T) read) {
+  int compare(T a, T b) => compareMessageHistoryOrder(read(a), read(b));
+  final split = _historyRunSplit(rows, read);
   if (split == 0) return;
   if (split < 0) {
-    rows.sort(compareMessageHistoryOrder);
+    rows.sort(compare);
     return;
   }
   const maxBufferedRows = 128;
@@ -48,7 +57,7 @@ void sortMessageHistory(List<Message> rows) {
     final held = rows.sublist(0, split);
     var left = 0, right = split, write = 0;
     while (left < held.length && right < rows.length) {
-      if (compareMessageHistoryOrder(held[left], rows[right]) <= 0) {
+      if (compare(held[left], rows[right]) <= 0) {
         rows[write++] = held[left++];
       } else {
         rows[write++] = rows[right++];
@@ -61,7 +70,7 @@ void sortMessageHistory(List<Message> rows) {
     final held = rows.sublist(split);
     var left = split - 1, right = held.length - 1, write = rows.length - 1;
     while (left >= 0 && right >= 0) {
-      if (compareMessageHistoryOrder(rows[left], held[right]) > 0) {
+      if (compare(rows[left], held[right]) > 0) {
         rows[write--] = rows[left--];
       } else {
         rows[write--] = held[right--];
@@ -71,7 +80,7 @@ void sortMessageHistory(List<Message> rows) {
       rows[write--] = held[right--];
     }
   } else {
-    rows.sort(compareMessageHistoryOrder);
+    rows.sort(compare);
   }
 }
 
@@ -126,7 +135,7 @@ List<Message> messageHistoryWindow(
     return source.getRange(start, start + count).toList();
   }
 
-  final split = _historyRunSplit(rows);
+  final split = _historyRunSplit(rows, (message) => message);
   if (split == 0) return bounded(rows, startIn(rows, 0, rows.length));
   if (split < 0) {
     final sorted = List<Message>.of(rows)..sort(compareMessageHistoryOrder);
