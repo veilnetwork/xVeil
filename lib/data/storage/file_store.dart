@@ -1255,6 +1255,17 @@ class AsyncFileStore {
   /// is not a reason to read it all.
   Future<Uint8List?> loadFile(String fileId, {int? maxBytes}) async {
     final raw = await _store.get(Ns.settings, _k('file:$fileId'));
+    return loadFileWithMetadata(fileId, raw, maxBytes: maxBytes);
+  }
+
+  /// Complete a read whose metadata was just fetched by the same store/session.
+  /// This does not establish tier precedence or authorization and retains no
+  /// metadata between calls. The normal recorded-size/payload guards still run.
+  Future<Uint8List?> loadFileWithMetadata(
+    String fileId,
+    Uint8List? raw, {
+    int? maxBytes,
+  }) async {
     if (raw == null) return null;
     final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
     return _loadFileFromMetadata(fileId, m, maxBytes: maxBytes);
@@ -1275,9 +1286,34 @@ class AsyncFileStore {
     final metadata = reader is AsyncKvBatchReader
         ? await (reader as AsyncKvBatchReader).getBatch(Ns.settings, keys)
         : [for (final key in keys) await reader.get(Ns.settings, key)];
-    if (metadata.length != requested.length) {
+    return loadFilesWithMetadata(
+      requested,
+      metadata,
+      maxBytesPerFile: maxBytesPerFile,
+    );
+  }
+
+  /// Consume an in-call metadata snapshot after the caller has resolved tiers.
+  /// Snapshot inputs before any payload await; later manifests must not be
+  /// changed by an alias while an earlier file's bytes are in flight.
+  Future<List<Uint8List>?> loadFilesWithMetadata(
+    List<String> fileIds,
+    List<Uint8List?> rawMetadata, {
+    required int maxBytesPerFile,
+  }) async {
+    if (fileIds.length > StoredFileBatchReader.maxFiles ||
+        maxBytesPerFile < 0) {
+      throw ArgumentError('invalid bounded file read');
+    }
+    if (rawMetadata.length != fileIds.length) {
       throw StateError('file metadata batch length mismatch');
     }
+    final requested = List<String>.of(fileIds);
+    final metadata = [
+      for (final raw in rawMetadata)
+        raw == null ? null : Uint8List.fromList(raw),
+    ];
+    final reader = _store;
     if (reader is AsyncLogGroupReader) {
       final groups = _inlineFileReadGroups(metadata, maxBytesPerFile);
       if (groups != null) {

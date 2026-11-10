@@ -15,6 +15,8 @@ Uint8List _key(String value) => Uint8List.fromList(utf8.encode(value));
 class _Counted extends SyncWrappedAsyncKvLogStore {
   _Counted(super.store);
   int individual = 0, batches = 0, bodies = 0;
+  bool refuseMetadata = false, shortMetadata = false;
+  final metadataRequests = <int>[];
   bool inBatch = false;
   final groupRequests = <List<LogReadGroup>>[];
   @override
@@ -26,9 +28,12 @@ class _Counted extends SyncWrappedAsyncKvLogStore {
   @override
   Future<List<Uint8List?>> getBatch(int ns, List<Uint8List> keys) async {
     batches++;
+    metadataRequests.add(keys.length);
+    if (refuseMetadata) throw StateError('fixture metadata refusal');
     inBatch = true;
     try {
-      return await super.getBatch(ns, keys);
+      final values = await super.getBatch(ns, keys);
+      return shortMetadata ? values.sublist(1) : values;
     } finally {
       inBatch = false;
     }
@@ -53,6 +58,22 @@ class _Counted extends SyncWrappedAsyncKvLogStore {
   void reset() {
     individual = batches = bodies = 0;
     groupRequests.clear();
+    metadataRequests.clear();
+  }
+}
+
+class _HeldBodies extends _Counted {
+  _HeldBodies(super.store);
+  final entered = Completer<void>(), release = Completer<void>();
+  bool hold = true;
+  @override
+  Future<List<Uint8List>?> readLogBatch(int ns, List<int> ids) async {
+    if (hold) {
+      hold = false;
+      entered.complete();
+      await release.future;
+    }
+    return super.readLogBatch(ns, ids);
   }
 }
 
@@ -73,6 +94,15 @@ class _HeldKeys extends SyncWrappedAsyncKvLogStore {
 
 class _Guarded extends FakeKvLogStore {
   int? forbidden;
+  String? forbiddenMetadata;
+  @override
+  Uint8List? get(int ns, Uint8List key) {
+    if (ns == Ns.settings && utf8.decode(key) == forbiddenMetadata) {
+      throw StateError('unused tier metadata unreadable');
+    }
+    return super.get(ns, key);
+  }
+
   @override
   Uint8List? readLog(int ns, int id) {
     if (ns == Ns.fileChunks && id == forbidden) {
@@ -236,7 +266,7 @@ void main() {
     },
   );
   test(
-    'inline whole-file batch uses two metadata requests and reads every payload',
+    'inline whole-file batch uses one metadata request and reads every payload',
     () async {
       final raw = FakeKvLogStore();
       // Use the exact store behind the storage facade, not a fabricated read cache.
@@ -256,7 +286,7 @@ void main() {
         await storage.loadFiles(['f0', 'f1', 'f2'], maxBytesPerFile: 65536),
         expected,
       );
-      expect(actual.batches, 2);
+      expect(actual.batches, 1);
       expect(actual.individual, 0);
       expect(
         actual.bodies,
@@ -271,6 +301,132 @@ void main() {
         throwsArgumentError,
       );
       expect(actual.batches, 0);
+    },
+  );
+  test('single inline header uses one bounded metadata request', () async {
+    final raw = FakeKvLogStore();
+    final actual = _Counted(raw);
+    final storage = HiddenVolumeStorage.fromAsyncStore(actual);
+    addTearDown(storage.close);
+    await storage.storeFile('header', Uint8List.fromList([1, 2, 3]));
+    actual.reset();
+    expect(await storage.loadFile('header', maxBytes: 3), [1, 2, 3]);
+    expect(actual.batches, 1);
+    expect(actual.individual, 0);
+    expect(actual.bodies, 1);
+  });
+
+  test(
+    'maximum combined metadata batch keeps duplicates and fresh replacements',
+    () async {
+      final raw = FakeKvLogStore();
+      final actual = _Counted(raw);
+      final storage = HiddenVolumeStorage.fromAsyncStore(actual);
+      addTearDown(storage.close);
+      for (var i = 0; i < 8; i++) {
+        await storage.storeFile('f$i', Uint8List.fromList([i]));
+      }
+      final ids = ['f7', 'f0', 'f7', 'f3', 'f1', 'f2', 'f4', 'f6'];
+      actual.reset();
+      expect(await storage.loadFiles(ids, maxBytesPerFile: 2), [
+        for (final id in ids) [int.parse(id.substring(1))],
+      ]);
+      expect(actual.metadataRequests, [16]);
+      expect(actual.individual, 0);
+      await storage.storeFile('f7', Uint8List.fromList([9, 8]));
+      actual.reset();
+      expect(await storage.loadFile('f7', maxBytes: 2), [9, 8]);
+      expect(actual.metadataRequests, [2]);
+      actual.reset();
+      expect(await storage.loadFile('f7', maxBytes: 1), isNull);
+      expect(actual.bodies, 0);
+    },
+  );
+
+  for (final batch in [false, true]) {
+    for (final short in [false, true]) {
+      test(
+        '${batch ? 'batch' : 'single'} refuses ${short ? 'short' : 'failed'} metadata without payload fallback',
+        () async {
+          final actual = _Counted(FakeKvLogStore());
+          final storage = HiddenVolumeStorage.fromAsyncStore(actual);
+          addTearDown(storage.close);
+          await storage.storeFile('held', Uint8List.fromList([1, 2]));
+          actual.reset();
+          actual.shortMetadata = short;
+          actual.refuseMetadata = !short;
+          await expectLater(
+            batch
+                ? storage.loadFiles(['held'], maxBytesPerFile: 4)
+                : storage.loadFile('held', maxBytes: 4),
+            throwsStateError,
+          );
+          expect(actual.individual, !short ? 1 : 0);
+          expect(actual.bodies, 0);
+        },
+      );
+    }
+  }
+
+  test(
+    'handed-off metadata owns its vector and bytes while prior payload waits',
+    () async {
+      final raw = _Guarded();
+      final store = _HeldBodies(raw);
+      final files = AsyncFileStore(store);
+      await files.storeFile('first', Uint8List.fromList([1]));
+      final malformedSize = _key(
+        jsonEncode({'size': 'bad', 'base': 2, 'count': 1}),
+      );
+      final ids = ['first', 'later'];
+      final metadata = [
+        raw.get(Ns.settings, _key('file:first')),
+        malformedSize,
+      ];
+      raw.forbidden = 2;
+      final reading = files.loadFilesWithMetadata(
+        ids,
+        metadata,
+        maxBytesPerFile: 8,
+      );
+      await store.entered.future;
+      malformedSize.fillRange(0, malformedSize.length, 0);
+      metadata.clear();
+      ids.clear();
+      store.release.complete();
+      expect(await reading, isNull);
+      expect(store.bodies, 1);
+    },
+  );
+
+  test(
+    'handed-off metadata retains limits and length validation before payload',
+    () async {
+      final actual = _Counted(FakeKvLogStore());
+      final files = AsyncFileStore(actual);
+      await expectLater(
+        files.loadFilesWithMetadata(
+          List.filled(9, 'x'),
+          [],
+          maxBytesPerFile: 8,
+        ),
+        throwsArgumentError,
+      );
+      await expectLater(
+        files.loadFilesWithMetadata(['x'], [], maxBytesPerFile: 8),
+        throwsStateError,
+      );
+      await expectLater(
+        files.loadFilesWithMetadata([], [], maxBytesPerFile: -1),
+        throwsArgumentError,
+      );
+      expect(
+        await files.loadFilesWithMetadata([], [], maxBytesPerFile: 0),
+        isEmpty,
+      );
+      expect(actual.bodies, 0);
+      expect(actual.batches, 0);
+      expect(actual.individual, 0);
     },
   );
   test(
@@ -399,6 +555,43 @@ void main() {
       expect(await fallback.loadFiles(['stream'], maxBytesPerFile: 7), isNull);
     },
   );
+  for (final batch in [false, true]) {
+    test(
+      '${batch ? 'batch' : 'single'} keeps valid external tier when unused inline metadata fails',
+      () async {
+        final dir = await Directory.systemTemp.createTemp('xv-tier-pair-');
+        addTearDown(() => dir.delete(recursive: true));
+        final raw = _Guarded();
+        final storage = HiddenVolumeStorage.fromStore(raw);
+        addTearDown(storage.close);
+        storage.useOnDiskTier(dir, minBytes: 1);
+        await storage.storeFilePiece(
+          'both',
+          0,
+          1,
+          3,
+          3,
+          Uint8List.fromList([9, 8, 7]),
+        );
+        FileStore(raw).storeFile('both', Uint8List.fromList([1]));
+        raw.forbiddenMetadata = 'file:both';
+        raw.forbidden = 1;
+        if (batch) {
+          expect(await storage.loadFiles(['both'], maxBytesPerFile: 8), [
+            [9, 8, 7],
+          ]);
+          expect(await storage.loadFiles(['both'], maxBytesPerFile: 2), isNull);
+          expect(
+            await storage.loadFiles(['missing', 'both'], maxBytesPerFile: 8),
+            isNull,
+          );
+        } else {
+          expect(await storage.loadFile('both', maxBytes: 8), [9, 8, 7]);
+          expect(await storage.loadFile('both', maxBytes: 2), isNull);
+        }
+      },
+    );
+  }
   test('mixed on-disk and inline batches keep blob precedence', () async {
     final dir = await Directory.systemTemp.createTemp('xv-batch-tier-');
     addTearDown(() => dir.delete(recursive: true));

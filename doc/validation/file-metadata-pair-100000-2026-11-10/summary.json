@@ -1,0 +1,135 @@
+{
+  "schema": "xveil-file-metadata-pair-validation/1",
+  "archiveRows": 100000,
+  "preexistingRows": 1,
+  "finalRows": 100001,
+  "parentAssertionReds": 2,
+  "relatedChecksPassed": 748,
+  "relatedChecksSkipped": 1,
+  "relatedTestFiles": 50,
+  "nativeFocusedChecksPassed": 4,
+  "analyzerIssues": 0,
+  "maxFiles": 8,
+  "metadataKeysPerBatchAtMax": 16,
+  "kvBatchMaxKeys": 64,
+  "payloadMaxRecordsPerRequest": 64,
+  "sameNativeArtifacts": true,
+  "frozenInputs": 1537,
+  "productionVariantFiles": 2,
+  "sameOtherInputs": 1535,
+  "fullConvergenceSpeedupProven": false,
+  "authorizationCacheAdded": false,
+  "siblingMailboxEnabled": false,
+  "phases": {
+    "A1": {
+      "applyToConvergenceMs": 133789,
+      "releaseFileToBothPostPageListsMs": 130635.787,
+      "historyApplyCalls": 200002,
+      "messageCommits": 782,
+      "historyCursorCommits": 784,
+      "allocatorCommits": 394,
+      "workerRpcCalls": 178428,
+      "exactRowsAndColdRetentionPassed": true,
+      "fileStorageOperationCounts": {
+        "file.load.header": 24468,
+        "file.loadBatch.segment": 24468
+      },
+      "rpcCounts": {
+        "kv.commit.messageLog": 782,
+        "kv.commit.other": 1850,
+        "kv.erase": 4,
+        "kv.get": 77025,
+        "kv.getBatch": 48940,
+        "kv.iterLogRange": 844,
+        "kv.keys": 25,
+        "kv.readLogBatch": 24481,
+        "kv.readLogGroups": 24468,
+        "kv.scrub": 9
+      },
+      "ownedProcessesExited": 36,
+      "portsChecked": 60,
+      "cache": {
+        "entriesBefore": 92,
+        "entriesAfter": 92,
+        "newKernelEntries": 0,
+        "allocatedDeltaMiB": 56.0,
+        "freeGiBBefore": 147.18,
+        "freeGiBAfter": 147.05
+      }
+    },
+    "B": {
+      "applyToConvergenceMs": 133758,
+      "releaseFileToBothPostPageListsMs": 128165.257,
+      "historyApplyCalls": 200002,
+      "messageCommits": 782,
+      "historyCursorCommits": 784,
+      "allocatorCommits": 394,
+      "workerRpcCalls": 130880,
+      "exactRowsAndColdRetentionPassed": true,
+      "fileStorageOperationCounts": {
+        "file.load.header": 24818,
+        "file.loadBatch.segment": 24818
+      },
+      "rpcCounts": {
+        "kv.commit.messageLog": 782,
+        "kv.commit.other": 1832,
+        "kv.erase": 4,
+        "kv.get": 28058,
+        "kv.getBatch": 49674,
+        "kv.iterLogRange": 846,
+        "kv.keys": 25,
+        "kv.readLogBatch": 24832,
+        "kv.readLogGroups": 24818,
+        "kv.scrub": 9
+      },
+      "ownedProcessesExited": 37,
+      "portsChecked": 58,
+      "cache": {
+        "entriesBefore": 92,
+        "entriesAfter": 92,
+        "newKernelEntries": 0,
+        "allocatedDeltaMiB": -0.035,
+        "freeGiBBefore": 147.05,
+        "freeGiBAfter": 146.98
+      }
+    },
+    "A2": {
+      "applyToConvergenceMs": 133675,
+      "releaseFileToBothPostPageListsMs": 130514.942,
+      "historyApplyCalls": 200002,
+      "messageCommits": 782,
+      "historyCursorCommits": 784,
+      "allocatorCommits": 394,
+      "workerRpcCalls": 178845,
+      "exactRowsAndColdRetentionPassed": true,
+      "fileStorageOperationCounts": {
+        "file.load.header": 24534,
+        "file.loadBatch.segment": 24534
+      },
+      "rpcCounts": {
+        "kv.commit.messageLog": 782,
+        "kv.commit.other": 1852,
+        "kv.erase": 4,
+        "kv.get": 77132,
+        "kv.getBatch": 49074,
+        "kv.iterLogRange": 886,
+        "kv.keys": 25,
+        "kv.readLogBatch": 24547,
+        "kv.readLogGroups": 24534,
+        "kv.scrub": 9
+      },
+      "ownedProcessesExited": 36,
+      "portsChecked": 57,
+      "cache": {
+        "entriesBefore": 92,
+        "entriesAfter": 92,
+        "newKernelEntries": 0,
+        "allocatedDeltaMiB": -0.016,
+        "freeGiBBefore": 146.98,
+        "freeGiBAfter": 146.9
+      }
+    }
+  },
+  "push": false,
+  "release": false
+}
