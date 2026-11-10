@@ -1,0 +1,94 @@
+{
+  "schema": "xveil-validation/1",
+  "status": "local-fix-qualified",
+  "published": false,
+  "parentCostRegressionsFailed": 4,
+  "relatedTestsPassed": 203,
+  "skippedTests": 0,
+  "analyzerIssues": 0,
+  "archiveRows": 100000,
+  "finalRows": 100001,
+  "localMacJitOnly": true,
+  "pointReadReduction": 100000,
+  "storedOrAdoptedPositionNoopOnly": true,
+  "statusWriterFreshReadRetained": true,
+  "neededOrderingFreshAdmissionAndRereadRetained": true,
+  "deletionDuringAdmissionTestPassed": true,
+  "newAuthorizationCache": false,
+  "productionVariants": [
+    "lib/state/messaging_device_mirror.dart"
+  ],
+  "frozenInputs": 1544,
+  "controlsByteIdentical": true,
+  "allOtherInputsIdentical": true,
+  "nativeInputsIdentical": true,
+  "nativeBuildSource": "9fbf2d50302e976ea95315905ea53972aa494b1e",
+  "currentSdkSource": "476950abea0461bd12fc604373004b1dafd825fa",
+  "publishedBinaryEquivalenceClaimed": false,
+  "wireCountsEachPhase": {
+    "logicalPages": 782,
+    "partFrames": 19536,
+    "uniqueParts": 19536,
+    "frameBytes": 108151972
+  },
+  "phases": {
+    "A1": {
+      "applyMs": 108294,
+      "messagePointReadCalls": 499747,
+      "historyApplyCalls": 200002,
+      "messageCommits": 391,
+      "historyCursorCommits": 784,
+      "allocatorCommits": 392,
+      "ownDeviceReadCalls": 227470,
+      "releaseToBothPostPageInventoryMs": 106194.923,
+      "perSourceMs": {
+        "A": 106194.923,
+        "E": 105597.074
+      },
+      "newKernelCacheEntries": 0,
+      "traceRecords": 29426
+    },
+    "B": {
+      "applyMs": 103755,
+      "messagePointReadCalls": 399747,
+      "historyApplyCalls": 200002,
+      "messageCommits": 391,
+      "historyCursorCommits": 784,
+      "allocatorCommits": 392,
+      "ownDeviceReadCalls": 225495,
+      "releaseToBothPostPageInventoryMs": 102242.746,
+      "perSourceMs": {
+        "A": 101472.288,
+        "E": 102242.746
+      },
+      "newKernelCacheEntries": 0,
+      "traceRecords": 30276
+    },
+    "A2": {
+      "applyMs": 108034,
+      "messagePointReadCalls": 499747,
+      "historyApplyCalls": 200002,
+      "messageCommits": 391,
+      "historyCursorCommits": 784,
+      "allocatorCommits": 392,
+      "ownDeviceReadCalls": 227498,
+      "releaseToBothPostPageInventoryMs": 105725.35,
+      "perSourceMs": {
+        "A": 105725.35,
+        "E": 105548.828
+      },
+      "newKernelCacheEntries": 0,
+      "traceRecords": 30196
+    }
+  },
+  "exactHistoryAndColdRetentionPassedAllPhases": true,
+  "standCleanupPassedAllPhases": true,
+  "allRawWorkTracesComplete": true,
+  "localSpeedupObserved": true,
+  "universalSpeedupClaimed": false,
+  "detailedPageProfileRequalified": false,
+  "mailboxPolicyChanged": false,
+  "latencyRemainsOpen": true,
+  "netcallStatusUnchanged": true,
+  "otherMatrixStatusUnchanged": true
+}

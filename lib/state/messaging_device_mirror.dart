@@ -683,6 +683,13 @@ class _MessagingDeviceMirror {
           !RegExp(r'^[0-9a-f]{64}$').hasMatch(author)) {
         return deliveryChanged;
       }
+      // The fresh row already has this effective position, either originally
+      // or via an earlier correction. There is no ordering write to authorize
+      // or prepare. Delivery above keeps its own fresh storage check. A needed
+      // correction still takes the original author admission + fresh row below.
+      if (existing.orderAuthor == author && existing.orderSeq == seq) {
+        return deliveryChanged;
+      }
       final self = await _owner._selfHex();
       if (author != self &&
           !await _owner._isSiblingDevice(NodeId.fromHex(author))) {

@@ -10,6 +10,9 @@ bumps may change behaviour a user notices.
 
 ### Fixed
 
+- Skip repeated ordering lookups when an own-device mirror already matches the
+  stored effective position. Keep fresh checks for delivery changes and actual
+  ordering corrections.
 - Bound concurrent history-frame handlers to four so a slow fresh device-roster
   read does not park every queued frame. Preserve admission budgets and serialized
   page publication/checkpoints.
