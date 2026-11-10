@@ -4438,11 +4438,9 @@ class HiddenVolumeStorage
       ops.addAll(_contactIndexOps(index, hadShards));
       await _commitBatched(ops);
     });
-    // Whole conversation is gone — scrub the orphaned chunks for forensic erasure
-    // and drop the warm fold (scrubDeleted invalidates it) so a later read can't
-    // resurrect a tombstoned row; the tombstones are durable in the log, so
-    // isMessageDeleted still answers true after the rebuild.
-    await scrubDeleted();
+    // Bulk rewrites have no point patches: drop their stale fold explicitly,
+    // then reclaim orphaned chunks. Durable tombstones survive the rebuild.
+    await _scrubRewrittenMessages();
     await _deleteBlobFiles(blobNames);
   }
 
@@ -4532,7 +4530,7 @@ class HiddenVolumeStorage
     }
     if (ops.isEmpty) return 0;
     await _commitBatched(ops);
-    await scrubDeleted();
+    await _scrubRewrittenMessages();
     await _deleteBlobFiles(blobNames);
     return old.length;
   }
@@ -4548,7 +4546,7 @@ class HiddenVolumeStorage
     final ops = await _tombstoneAllOps(peer, blobNamesOut: blobNames);
     if (ops.isEmpty) return; // nothing stored — keep the chat untouched
     await _commitBatched(ops);
-    await scrubDeleted();
+    await _scrubRewrittenMessages();
     await _deleteBlobFiles(blobNames);
   }
 
@@ -4609,7 +4607,7 @@ class HiddenVolumeStorage
       ],
     );
     if (tombstones.isNotEmpty) await _commitBatched(tombstones);
-    await scrubDeleted();
+    await _scrubRewrittenMessages();
     await _deleteBlobFiles(blobNames);
     await _patchCache(() {}); // refold → watermark + tombstones land
     return (author: selfHex, seq: seq, watermark: wm, atMs: at);
@@ -4762,7 +4760,7 @@ class HiddenVolumeStorage
       ],
     );
     if (tombstones.isNotEmpty) await _commitBatched(tombstones);
-    await scrubDeleted();
+    await _scrubRewrittenMessages();
     await _deleteBlobFiles(blobNames);
     await _patchCache(() {});
   }
@@ -4896,12 +4894,23 @@ class HiddenVolumeStorage
     await _invalidateOutboxCache();
   }
 
+  // Bulk rewrites do not patch each affected folded row. Invalidate before
+  // physical cleanup; a successful vacuum itself retains live IDs/values.
+  Future<void> _scrubRewrittenMessages() async {
+    await _invalidateScanCache();
+    await scrubDeleted();
+  }
+
   @override
   Future<void> scrubDeleted() async {
     // Reclaim chunks orphaned by edit/delete so the prior plaintext is no
     // longer recoverable from the container. Backed by hidden-volume's
     // vacuum/compact when the store exposes it; a no-op on the in-memory fake.
+    var invalidate = false;
     await _serializeDeleteScrub(() async {
+      // A lost commit reply may hide a logical rewrite not reflected in RAM.
+      // Capture uncertainty before finishing cleanup clears the recovery flag.
+      invalidate = _deleteScrubRecoveryNeeded;
       try {
         await _as.scrub();
         await _finishMessageDeletionScrub();
@@ -4910,9 +4919,10 @@ class HiddenVolumeStorage
         rethrow;
       }
     });
-    // Defensive: if the vacuum ever compacts/renumbers the log, the fold's
-    // log-id watermark would be stale — force a clean rebuild next read.
-    await _invalidateScanCache();
+    // The backing contract preserves logical log IDs and current values.
+    // Point edits/deletes already patch their fold; only an uncertain outcome
+    // needs recovery here. Bulk changes invalidate before calling this method.
+    if (invalidate) await _invalidateScanCache();
   }
 
   @override

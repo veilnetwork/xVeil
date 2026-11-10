@@ -1,0 +1,168 @@
+{
+  "schema": "xveil-message-scrub-fold-validation/1",
+  "archiveRows": 100000,
+  "parentRedFullRangeRecords": 100000,
+  "newUnitChecksPassed": 7,
+  "relatedChecksPassed": 709,
+  "relatedChecksSkipped": 1,
+  "relatedTestFiles": 44,
+  "analyzerIssues": 0,
+  "erasureNativeABA": {
+    "phases": [
+      {
+        "label": "A1",
+        "queryTotalMs": 1838.679,
+        "postDeleteMedianMs": 420.088,
+        "logRowsRead": 300027,
+        "requests": 260,
+        "requestJsonBytes": 94103,
+        "exactRows": 99996,
+        "coldReopened": true,
+        "ownedProcessesExited": 3,
+        "runtimeDirectoriesRemoved": 1
+      },
+      {
+        "label": "B",
+        "queryTotalMs": 903.984,
+        "postDeleteMedianMs": 111.846,
+        "logRowsRead": 27,
+        "requests": 260,
+        "requestJsonBytes": 94103,
+        "exactRows": 99996,
+        "coldReopened": true,
+        "ownedProcessesExited": 3,
+        "runtimeDirectoriesRemoved": 1
+      },
+      {
+        "label": "A2",
+        "queryTotalMs": 1758.672,
+        "postDeleteMedianMs": 393.925,
+        "logRowsRead": 300027,
+        "requests": 260,
+        "requestJsonBytes": 94103,
+        "exactRows": 99996,
+        "coldReopened": true,
+        "ownedProcessesExited": 3,
+        "runtimeDirectoriesRemoved": 1
+      }
+    ],
+    "requestDigestsEqualByRound": true,
+    "frozenNonvariantInputs": 1515
+  },
+  "fullHistoryNativeABA": {
+    "preexistingRows": 1,
+    "finalRows": 100001,
+    "frozenInputs": 1537,
+    "productionVariantFiles": 1,
+    "sameNativeArtifacts": true,
+    "phases": {
+      "A1": {
+        "applyToConvergenceMs": 133383,
+        "releaseFileToBothPostPageListsMs": 129400.978,
+        "historyApplyCalls": 200002,
+        "messageCommits": 782,
+        "historyCursorCommits": 784,
+        "allocatorCommits": 394,
+        "workerRpcCalls": 178667,
+        "exactHistoryAndColdRetentionPassed": true,
+        "wireAndCensusUncapped": true,
+        "forward": {
+          "A": {
+            "logicalPageQueries": 391,
+            "repeatedPageQueries": 0,
+            "applicationFrameBytes": 54075350
+          },
+          "E": {
+            "logicalPageQueries": 391,
+            "repeatedPageQueries": 0,
+            "applicationFrameBytes": 54075350
+          }
+        },
+        "ownedProcessesExited": 36,
+        "portsChecked": 62,
+        "cache": {
+          "entriesBefore": 92,
+          "entriesAfter": 92,
+          "newKernelEntries": 0,
+          "allocatedDeltaMiB": 0.559,
+          "freeGiBBefore": 147.37,
+          "freeGiBAfter": 147.29
+        }
+      },
+      "B": {
+        "applyToConvergenceMs": 133702,
+        "releaseFileToBothPostPageListsMs": 132252.531,
+        "historyApplyCalls": 200002,
+        "messageCommits": 782,
+        "historyCursorCommits": 784,
+        "allocatorCommits": 394,
+        "workerRpcCalls": 176811,
+        "exactHistoryAndColdRetentionPassed": true,
+        "wireAndCensusUncapped": true,
+        "forward": {
+          "A": {
+            "logicalPageQueries": 391,
+            "repeatedPageQueries": 0,
+            "applicationFrameBytes": 54075350
+          },
+          "E": {
+            "logicalPageQueries": 391,
+            "repeatedPageQueries": 0,
+            "applicationFrameBytes": 54075350
+          }
+        },
+        "ownedProcessesExited": 37,
+        "portsChecked": 63,
+        "cache": {
+          "entriesBefore": 92,
+          "entriesAfter": 92,
+          "newKernelEntries": 0,
+          "allocatedDeltaMiB": -0.004,
+          "freeGiBBefore": 147.29,
+          "freeGiBAfter": 147.21
+        }
+      },
+      "A2": {
+        "applyToConvergenceMs": 133927,
+        "releaseFileToBothPostPageListsMs": 131601.169,
+        "historyApplyCalls": 200002,
+        "messageCommits": 782,
+        "historyCursorCommits": 784,
+        "allocatorCommits": 394,
+        "workerRpcCalls": 179958,
+        "exactHistoryAndColdRetentionPassed": true,
+        "wireAndCensusUncapped": true,
+        "forward": {
+          "A": {
+            "logicalPageQueries": 391,
+            "repeatedPageQueries": 0,
+            "applicationFrameBytes": 54075350
+          },
+          "E": {
+            "logicalPageQueries": 391,
+            "repeatedPageQueries": 0,
+            "applicationFrameBytes": 54075350
+          }
+        },
+        "ownedProcessesExited": 40,
+        "portsChecked": 54,
+        "cache": {
+          "entriesBefore": 92,
+          "entriesAfter": 92,
+          "newKernelEntries": 0,
+          "allocatedDeltaMiB": 0.0,
+          "freeGiBBefore": 147.21,
+          "freeGiBAfter": 147.13
+        }
+      }
+    }
+  },
+  "fullHistorySpeedupProven": false,
+  "physicalScrubSkipped": false,
+  "authorizationCacheAdded": false,
+  "siblingMailboxEnabled": false,
+  "testCacheEntriesBefore": 92,
+  "testCacheEntriesAfter": 92,
+  "push": false,
+  "release": false
+}
