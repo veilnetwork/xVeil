@@ -1,5 +1,21 @@
 # Открытые случаи — обновлено 2026-11-10
 
+## 2026-11-10: новый профиль получателя на 100000
+
+[Диагностический native прогон](../history-receiver-profile-100000-2026-11-10/README.md)
+на текущем `d3f7dd49`: **100001 точная строка**, оба cursor и cold retention
+прошли; 200002 callbacks / 782 message commits. CPU capture — 96844 физических
+samples после дедупликации/исключения конфликтов; покрытие/усечения и terminal
+ошибка закрывшегося endpoint явно учтены. Это не A/B: 144199 мс с sampler не
+сравниваются с прежними примерно 134 с без него.
+
+Следующий кандидат — fresh own-device routing read, всё ещё проходящий через
+bundle/message processing (24165 header/segment batch loads); его ненужность
+и ускорение не заявлены. Синхронные durable commit тоже видны в native stack,
+их гарантии не ослаблялись. Production-код не менялся. Cleanup 49 PID / 84 порта
+чист; CPU evidence сжат 406,24→17,99 МиБ с SHA-проверкой, кеш около 9,5 ГиБ.
+Latency/NETCALL/остальная matrix открыты. Push/релиза нет.
+
 ## 2026-11-10: меньше metadata RPC без кеша авторизации
 
 [Проверка и native A/B/A](../file-metadata-pair-100000-2026-11-10/README.md):
