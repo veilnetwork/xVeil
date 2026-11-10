@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/error_journal.dart';
 import '../../domain/storage_compaction_policy.dart';
 import '../../l10n/app_localizations.dart';
 import '../../state/app_controller.dart';
@@ -59,9 +60,12 @@ Future<({int before, int after})?> showCompactionOffer(
   final result = await showDialog<({int before, int after})>(
     context: navigator.context,
     barrierDismissible: false,
-    builder: (_) => _CompactionOfferDialog(
-      estimate: estimate,
-      currentPassword: currentPassword,
+    builder: (_) => PopScope(
+      canPop: false,
+      child: _CompactionOfferDialog(
+        estimate: estimate,
+        currentPassword: currentPassword,
+      ),
     ),
   );
   return result;
@@ -90,6 +94,7 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
   final _found = <({String name, int subordinates})>[];
   String? _error;
   bool _busy = false;
+  bool _failedRun = false;
 
   @override
   void initState() {
@@ -118,69 +123,107 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
       _busy = true;
       _error = null;
     });
-    final probe = await ref
-        .read(appControllerProvider.notifier)
-        .probeCompactionIdentity(password);
-    if (!mounted) return;
-    if (!probe.opened) {
+    try {
+      final probe = await ref
+          .read(appControllerProvider.notifier)
+          .probeCompactionIdentity(password);
+      if (!mounted) return;
+      if (!probe.opened) {
+        setState(() {
+          _busy = false;
+          // Read where it is USED. The silent first pass has no message to show,
+          // and going looking for one is what used to break it.
+          if (!silent) _error = AppL10n.of(context).compactOfferUnknown;
+        });
+        return;
+      }
+      final name = probe.username ?? probe.displayName ?? '—';
+      // What a master knows: every identity under it, by the keys that name its
+      // space. Recorded BEFORE the password is added, so the checklist exists
+      // even if this same password turns out to be a repeat.
+      _roster.expectSpaces(probe.children);
+      // Keyed by the password's own bytes: two labels can name one space, and
+      // handing compact_known the same password twice asks it to keep the same
+      // space twice.
+      final added = _roster.addUnlocked(
+        '$name#${_found.length}',
+        // UTF-8, the same boundary `probeCompactionIdentity` just opened the
+        // space through. `codeUnits` is UTF-16, which is only the same thing
+        // for ASCII: a Cyrillic character is one code unit above 255, and the
+        // `Uint8List.fromList` these bytes pass through on the way to
+        // `compact_known` TRUNCATES it. So a non-ASCII password that opened the
+        // space at the probe reached the repack as different bytes — normally
+        // AuthFailed before the rename, with the source container intact, but
+        // the roster had already ticked that identity off as covered
+        // (report27 X29).
+        passwordBytes: utf8.encode(password),
+        // The space this password opened — what ticks it off a master's list.
+        spaceKeys: probe.spaceKeys,
+      );
       setState(() {
         _busy = false;
-        // Read where it is USED. The silent first pass has no message to show,
-        // and going looking for one is what used to break it.
-        if (!silent) _error = AppL10n.of(context).compactOfferUnknown;
+        if (added) {
+          _found.add((name: name, subordinates: probe.subordinates.length));
+          _password.clear();
+        } else if (!silent) {
+          _error = AppL10n.of(context).compactOfferAlready;
+        }
       });
-      return;
-    }
-    final name = probe.username ?? probe.displayName ?? '—';
-    // What a master knows: every identity under it, by the keys that name its
-    // space. Recorded BEFORE the password is added, so the checklist exists
-    // even if this same password turns out to be a repeat.
-    _roster.expectSpaces(probe.children);
-    // Keyed by the password's own bytes: two labels can name one space, and
-    // handing compact_known the same password twice asks it to keep the same
-    // space twice.
-    final added = _roster.addUnlocked(
-      '$name#${_found.length}',
-      // UTF-8, the same boundary `probeCompactionIdentity` just opened the
-      // space through. `codeUnits` is UTF-16, which is only the same thing
-      // for ASCII: a Cyrillic character is one code unit above 255, and the
-      // `Uint8List.fromList` these bytes pass through on the way to
-      // `compact_known` TRUNCATES it. So a non-ASCII password that opened the
-      // space at the probe reached the repack as different bytes — normally
-      // AuthFailed before the rename, with the source container intact, but
-      // the roster had already ticked that identity off as covered
-      // (report27 X29).
-      passwordBytes: utf8.encode(password),
-      // The space this password opened — what ticks it off a master's list.
-      spaceKeys: probe.spaceKeys,
-    );
-    setState(() {
-      _busy = false;
-      if (added) {
-        _found.add((name: name, subordinates: probe.subordinates.length));
-        _password.clear();
-      } else if (!silent) {
-        _error = AppL10n.of(context).compactOfferAlready;
+    } catch (_, stack) {
+      errorJournal.record(
+        kind: 'storage-compaction-probe',
+        error: StateError('compaction password probe failed'),
+        stack: stack,
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      if (mounted) {
+        setState(
+          () => _error = AppL10n.of(context).settingsStorageCompactFailed,
+        );
       }
-    });
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _run() async {
     setState(() => _busy = true);
-    final sizes = await ref
-        .read(appControllerProvider.notifier)
-        .compactStorageKeeping(
-          roster: _roster,
-          reopenWith: widget.currentPassword,
-        );
-    if (mounted) Navigator.of(context).pop(sizes);
+    try {
+      final sizes = await ref
+          .read(appControllerProvider.notifier)
+          .compactStorageKeeping(
+            roster: _roster,
+            reopenWith: widget.currentPassword,
+          );
+      if (mounted) Navigator.of(context).pop(sizes);
+    } catch (_, stack) {
+      // The controller has already attempted to reopen the session in finally.
+      // Do not probe or retry against that open handle. Close this offer and
+      // start a new collection if the person wants another attempt.
+      errorJournal.record(
+        kind: 'storage-compaction',
+        error: StateError('compaction failed'),
+        stack: stack,
+        atMs: DateTime.now().millisecondsSinceEpoch,
+      );
+      if (mounted) {
+        setState(() {
+          _failedRun = true;
+          _error = AppL10n.of(context).settingsStorageCompactFailed;
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _cancel() async {
     setState(() => _busy = true);
-    await ref
-        .read(appControllerProvider.notifier)
-        .cancelCompactionCollection(widget.currentPassword);
+    if (!_failedRun) {
+      await ref
+          .read(appControllerProvider.notifier)
+          .cancelCompactionCollection(widget.currentPassword);
+    }
     if (mounted) Navigator.of(context).pop();
   }
 
@@ -217,18 +260,20 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
               controller: _password,
               obscureText: true,
               autofocus: true,
-              enabled: !_busy,
+              enabled: !_busy && !_failedRun,
               decoration: InputDecoration(
                 labelText: l.compactOfferPassword,
                 errorText: _error,
               ),
-              onSubmitted: _busy ? null : (v) => _accept(v.trim()),
+              onSubmitted: _busy || _failedRun ? null : _accept,
             ),
             const SizedBox(height: 8),
             Align(
               alignment: Alignment.centerRight,
               child: TextButton(
-                onPressed: _busy ? null : () => _accept(_password.text.trim()),
+                onPressed: _busy || _failedRun
+                    ? null
+                    : () => _accept(_password.text),
                 child: Text(l.compactOfferAdd),
               ),
             ),
@@ -288,7 +333,8 @@ class _OfferState extends ConsumerState<_CompactionOfferDialog> {
         FilledButton(
           // Not "some passwords were typed" — every identity the app can see
           // has to be on the list, or the button is not a compaction.
-          onPressed: _busy || _roster.length == 0 || missing.isNotEmpty
+          onPressed:
+              _busy || _failedRun || _roster.length == 0 || missing.isNotEmpty
               ? null
               : _run,
           child: Text(l.compactOfferRun),

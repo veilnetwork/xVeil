@@ -10,6 +10,8 @@
 // tested without a container, and so there is exactly one place that decides
 // whether a person is worth interrupting.
 
+import 'package:flutter/foundation.dart' show listEquals;
+
 /// How much of the file is dead, and how confidently we know it.
 ///
 /// The honesty problem this type exists to solve: a space can count only the
@@ -116,7 +118,8 @@ CompactionOfferVerdict compactionOfferVerdict({
   DateTime? lastOfferedAt,
 }) {
   if (!settings.enabled) return CompactionOfferVerdict.disabled;
-  if (lastOfferedAt != null && now.difference(lastOfferedAt) < settings.period) {
+  if (lastOfferedAt != null &&
+      now.difference(lastOfferedAt) < settings.period) {
     return CompactionOfferVerdict.tooSoon;
   }
   if (estimate.reclaimableBytes < settings.thresholdBytes) {
@@ -235,6 +238,13 @@ class CompactionRoster {
     List<int>? spaceKeys,
   }) {
     if (spaceKeys != null) coverSpace(spaceKeys);
+    if (_byNodeId.values.any(
+      (entry) =>
+          listEquals(entry.password, passwordBytes) ||
+          (spaceKeys != null && listEquals(entry.spaceKeys, spaceKeys)),
+    )) {
+      return false;
+    }
     return _add(
       nodeId,
       passwordBytes: passwordBytes,
