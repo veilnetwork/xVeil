@@ -1,0 +1,68 @@
+{
+  "schema": "xveil-validation/1",
+  "initialCanaryMessages": 100000,
+  "unitParentAssertionFailures": 2,
+  "newUnitChecksPassed": 6,
+  "focusedLifecycleChecksPassed": 16,
+  "relatedChecksPassed": 700,
+  "relatedChecksSkipped": 1,
+  "relatedTestFiles": 41,
+  "analyzerIssues": 0,
+  "nativeSmokeRows": 512,
+  "nativeSmokeChecksPassed": 4,
+  "nativeParentNegativeControl": {
+    "qualificationPassed": true,
+    "negativeControl": true,
+    "exitCode": 1,
+    "nativeMappingVerified": true,
+    "sourceSha": "120bb2a90b9316ff07c68247b5c6a417e44a340cdc77f3820cadb30d52ded0aa",
+    "ownedProcesses": 3,
+    "liveProcesses": [],
+    "runtimeDirectoriesRemoved": 1,
+    "elapsedSeconds": 24.47,
+    "evidence": [
+      {
+        "kind": "void",
+        "expectedRows": 100000,
+        "actualRows": 100000,
+        "uniqueRows": 100000,
+        "exactRows": 100000,
+        "foreignEvents": 1,
+        "coldReopened": true,
+        "outcome": "ok",
+        "reopenedBeforeRelease": true,
+        "closedBeforeRelease": true
+      }
+    ]
+  },
+  "nativeCandidate": {
+    "qualificationPassed": true,
+    "negativeControl": false,
+    "exitCode": 0,
+    "nativeMappingVerified": true,
+    "sourceSha": "6a074dfd2954f9ac81f179a7a947858b5cea1e42d8d55b7509d115cbc7bce543",
+    "ownedProcesses": 3,
+    "liveProcesses": [],
+    "runtimeDirectoriesRemoved": 1,
+    "elapsedSeconds": 25.43,
+    "evidence": [
+      {
+        "kind": "void",
+        "expectedRows": 100000,
+        "actualRows": 100000,
+        "uniqueRows": 100000,
+        "exactRows": 100000,
+        "foreignEvents": 0,
+        "coldReopened": true,
+        "outcome": "ok",
+        "reopenedBeforeRelease": false,
+        "closedBeforeRelease": false
+      }
+    ]
+  },
+  "nativeFrozenNonvariantInputs": 1514,
+  "testCacheEntriesBefore": 92,
+  "testCacheEntriesAfter": 92,
+  "push": false,
+  "release": false
+}
