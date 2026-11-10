@@ -6884,16 +6884,21 @@ class HiddenVolumeStorage
     return check;
   }
 
-  Future<T> _withMessageErasure<T>(Future<T> Function() body) async {
-    _messageErasureEpoch++;
-    _messageErasures++;
-    try {
-      return await body();
-    } finally {
-      _messageErasures--;
-      _messageErasureEpoch++;
-    }
-  }
+  Future<T> _withMessageErasure<T>(Future<T> Function() body) =>
+      _trackLogWrite((_) => runZoned(() async {
+        // Preparation reads the old rows before rewriting their log slots.
+        // Own the entire operation, not just its eventual commit: close/erase
+        // must join it before replacing the space behind _as or reusing slots.
+        // Nested writes belong to this already accepted turn during the fence.
+        _messageErasureEpoch++;
+        _messageErasures++;
+        try {
+          return await body();
+        } finally {
+          _messageErasures--;
+          _messageErasureEpoch++;
+        }
+      }, zoneValues: {_acceptedConvWriteZone: this}));
 
   Future<T> _serialized<T>(Future<T> Function() body) {
     final result = _scanGate.then((_) => body());
