@@ -1,0 +1,337 @@
+{
+  "schema": "xveil-validation/1",
+  "status": "local-fix-qualified",
+  "published": false,
+  "archiveRows": 100000,
+  "finalRows": 100001,
+  "localMacJitOnly": true,
+  "parentRegressionFailures": 5,
+  "relatedTestsPassed": 662,
+  "relatedTestsSkipped": 11,
+  "analyzerIssues": 0,
+  "cacheLeaseMs": 30000,
+  "readVolumeNoLongerAdvancesMutationClock": true,
+  "rollbackRefreshCovered": true,
+  "phases": {
+    "A1": {
+      "applyMs": 124466,
+      "historyApplyCalls": 200002,
+      "messagePointReadCalls": 499747,
+      "messageCommits": 391,
+      "historyCursorCommits": 784,
+      "allocatorCommits": 392,
+      "finalRows": 100001,
+      "releaseToBothPostPageInventoryMs": 120866.92,
+      "perSourceMs": {
+        "A": 120866.92,
+        "E": 118437.492
+      },
+      "traceRecords": 50816
+    },
+    "B": {
+      "applyMs": 118678,
+      "historyApplyCalls": 200002,
+      "messagePointReadCalls": 499747,
+      "messageCommits": 391,
+      "historyCursorCommits": 784,
+      "allocatorCommits": 392,
+      "finalRows": 100001,
+      "releaseToBothPostPageInventoryMs": 116782.112,
+      "perSourceMs": {
+        "A": 116782.112,
+        "E": 116166.329
+      },
+      "traceRecords": 51222
+    },
+    "A2": {
+      "applyMs": 124565,
+      "historyApplyCalls": 200002,
+      "messagePointReadCalls": 499747,
+      "messageCommits": 391,
+      "historyCursorCommits": 784,
+      "allocatorCommits": 392,
+      "finalRows": 100001,
+      "releaseToBothPostPageInventoryMs": 121640.936,
+      "perSourceMs": {
+        "A": 121640.936,
+        "E": 119062.7
+      },
+      "traceRecords": 51008
+    }
+  },
+  "wireCountsEachPhase": {
+    "logicalPages": 782,
+    "partFrames": 19532,
+    "uniqueParts": 19532,
+    "frameBytes": 108150700
+  },
+  "stages": {
+    "A1": {
+      "matchedPageIntervals": 754,
+      "unmatchedPageIntervals": 28,
+      "recordCount": 50816,
+      "stages": {
+        "replyToFirstApplyUs": {
+          "n": 754,
+          "p50Ms": 63.353,
+          "p95Ms": 162.234,
+          "maxMs": 1567.442,
+          "sumMs": 60351.469
+        },
+        "applyBusyUs": {
+          "n": 754,
+          "p50Ms": 68.561,
+          "p95Ms": 132.237,
+          "maxMs": 1116.669,
+          "sumMs": 52462.914
+        },
+        "betweenApplyWavesUs": {
+          "n": 754,
+          "p50Ms": 0.0,
+          "p95Ms": 0.0,
+          "maxMs": 0.0,
+          "sumMs": 0.0
+        },
+        "lastApplyToCursorStartUs": {
+          "n": 754,
+          "p50Ms": 5.486,
+          "p95Ms": 9.945,
+          "maxMs": 99.777,
+          "sumMs": 4467.138
+        },
+        "cursorWriteUs": {
+          "n": 754,
+          "p50Ms": 15.214,
+          "p95Ms": 37.442,
+          "maxMs": 84.056,
+          "sumMs": 14386.011
+        },
+        "cursorEndToNextQueryUs": {
+          "n": 754,
+          "p50Ms": 3.463,
+          "p95Ms": 92.299,
+          "maxMs": 1103.942,
+          "sumMs": 15817.039
+        },
+        "totalUs": {
+          "n": 754,
+          "p50Ms": 172.056,
+          "p95Ms": 306.027,
+          "maxMs": 1896.757,
+          "sumMs": 147484.571
+        }
+      },
+      "busySpans": {
+        "historyApply": {
+          "count": 782,
+          "busyMs": 54172.272,
+          "calls": 200002
+        },
+        "historyPublish": {
+          "count": 391,
+          "busyMs": 15235.021,
+          "calls": 391
+        },
+        "historyCheckpoint": {
+          "count": 783,
+          "busyMs": 14794.399,
+          "calls": 783
+        },
+        "ownDevices": {
+          "count": 23362,
+          "busyMs": 64079.221,
+          "calls": 226706
+        }
+      },
+      "readOverlapsNotExclusiveTime": {
+        "ownDevicesDuringApplyBusyMs": 20311.349,
+        "ownDevicesDuringPublicationBusyMs": 7869.914,
+        "ownDevicesDuringCheckpointBusyMs": 8398.958
+      }
+    },
+    "B": {
+      "matchedPageIntervals": 730,
+      "unmatchedPageIntervals": 52,
+      "recordCount": 51222,
+      "stages": {
+        "replyToFirstApplyUs": {
+          "n": 730,
+          "p50Ms": 54.354,
+          "p95Ms": 155.616,
+          "maxMs": 1334.772,
+          "sumMs": 56177.696
+        },
+        "applyBusyUs": {
+          "n": 730,
+          "p50Ms": 43.076,
+          "p95Ms": 106.107,
+          "maxMs": 269.498,
+          "sumMs": 43025.637
+        },
+        "betweenApplyWavesUs": {
+          "n": 730,
+          "p50Ms": 0.0,
+          "p95Ms": 0.0,
+          "maxMs": 0.0,
+          "sumMs": 0.0
+        },
+        "lastApplyToCursorStartUs": {
+          "n": 730,
+          "p50Ms": 5.456,
+          "p95Ms": 13.708,
+          "maxMs": 115.127,
+          "sumMs": 4699.036
+        },
+        "cursorWriteUs": {
+          "n": 730,
+          "p50Ms": 15.186,
+          "p95Ms": 36.872,
+          "maxMs": 298.898,
+          "sumMs": 13923.784
+        },
+        "cursorEndToNextQueryUs": {
+          "n": 730,
+          "p50Ms": 3.665,
+          "p95Ms": 90.855,
+          "maxMs": 892.374,
+          "sumMs": 17566.811
+        },
+        "totalUs": {
+          "n": 730,
+          "p50Ms": 167.927,
+          "p95Ms": 262.927,
+          "maxMs": 1425.814,
+          "sumMs": 135392.964
+        }
+      },
+      "busySpans": {
+        "historyApply": {
+          "count": 782,
+          "busyMs": 46423.285,
+          "calls": 200002
+        },
+        "historyPublish": {
+          "count": 391,
+          "busyMs": 15343.203,
+          "calls": 391
+        },
+        "historyCheckpoint": {
+          "count": 783,
+          "busyMs": 14721.437,
+          "calls": 783
+        },
+        "ownDevices": {
+          "count": 23566,
+          "busyMs": 62049.585,
+          "calls": 226706
+        }
+      },
+      "readOverlapsNotExclusiveTime": {
+        "ownDevicesDuringApplyBusyMs": 17298.606,
+        "ownDevicesDuringPublicationBusyMs": 7470.014,
+        "ownDevicesDuringCheckpointBusyMs": 7637.711
+      }
+    },
+    "A2": {
+      "matchedPageIntervals": 750,
+      "unmatchedPageIntervals": 32,
+      "recordCount": 51008,
+      "stages": {
+        "replyToFirstApplyUs": {
+          "n": 750,
+          "p50Ms": 59.759,
+          "p95Ms": 153.125,
+          "maxMs": 1483.526,
+          "sumMs": 57173.414
+        },
+        "applyBusyUs": {
+          "n": 750,
+          "p50Ms": 68.127,
+          "p95Ms": 128.209,
+          "maxMs": 945.261,
+          "sumMs": 51081.037
+        },
+        "betweenApplyWavesUs": {
+          "n": 750,
+          "p50Ms": 0.0,
+          "p95Ms": 0.0,
+          "maxMs": 0.0,
+          "sumMs": 0.0
+        },
+        "lastApplyToCursorStartUs": {
+          "n": 750,
+          "p50Ms": 5.396,
+          "p95Ms": 12.667,
+          "maxMs": 282.732,
+          "sumMs": 4821.216
+        },
+        "cursorWriteUs": {
+          "n": 750,
+          "p50Ms": 15.743,
+          "p95Ms": 40.553,
+          "maxMs": 626.109,
+          "sumMs": 16194.027
+        },
+        "cursorEndToNextQueryUs": {
+          "n": 750,
+          "p50Ms": 3.401,
+          "p95Ms": 89.573,
+          "maxMs": 937.377,
+          "sumMs": 15885.957
+        },
+        "totalUs": {
+          "n": 750,
+          "p50Ms": 172.645,
+          "p95Ms": 307.796,
+          "maxMs": 1576.766,
+          "sumMs": 145155.652
+        }
+      },
+      "busySpans": {
+        "historyApply": {
+          "count": 782,
+          "busyMs": 53140.387,
+          "calls": 200002
+        },
+        "historyPublish": {
+          "count": 391,
+          "busyMs": 16912.794,
+          "calls": 391
+        },
+        "historyCheckpoint": {
+          "count": 782,
+          "busyMs": 16686.463,
+          "calls": 783
+        },
+        "ownDevices": {
+          "count": 23463,
+          "busyMs": 65384.407,
+          "calls": 228055
+        }
+      },
+      "readOverlapsNotExclusiveTime": {
+        "ownDevicesDuringApplyBusyMs": 20536.342,
+        "ownDevicesDuringPublicationBusyMs": 8823.491,
+        "ownDevicesDuringCheckpointBusyMs": 10165.888
+      }
+    }
+  },
+  "frozenInputs": 1544,
+  "productionVariants": [
+    "lib/state/group_service.dart"
+  ],
+  "exactHistoryAndColdRetentionPassedAllPhases": true,
+  "nativeBuildSource": "9fbf2d50302e976ea95315905ea53972aa494b1e",
+  "currentSdkSource": "476950abea0461bd12fc604373004b1dafd825fa",
+  "publishedBinaryEquivalenceClaimed": false,
+  "localSpeedupObserved": true,
+  "universalSpeedupClaimed": false,
+  "readOverlapsAreNotExclusiveTime": true,
+  "standCleanupPassedAllPhases": true,
+  "newKernelEntriesAllPhases": 0,
+  "latencyRemainsOpen": true,
+  "netcallStatusUnchanged": true,
+  "siblingMailboxAdded": false,
+  "initialDiagnosticTraceQualified": false,
+  "initialTraceFailureReason": "20000-record diagnostic budget exceeded; rerun with explicit bounded 65536-record quota"
+}

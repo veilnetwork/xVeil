@@ -10472,6 +10472,143 @@ void main() {
     expect(await svc.isMyDeviceOrMaster(bob), isFalse);
   });
 
+  for (final lookup in ['member', 'owner', 'admission']) {
+    test(
+      'device $lookup cache reads do not advance signed mutation time',
+      () async {
+        final wall = DateTime.utc(2026, 11, 10, 12).millisecondsSinceEpoch;
+        Future<int> nextStamp({required bool read}) async {
+          final storage = FakeHvContainer().storage();
+          await storage.open(password: 'fixture', createIfMissing: true);
+          final service = GroupService(storage, _FakeSigner(owner))
+            ..myDevice = owner
+            ..debugWallClockMs = () => wall;
+          try {
+            expect(
+              await service.linkDevice(
+                bob,
+                sovereign: sovereign,
+                broadcastSnapshot: false,
+              ),
+              isTrue,
+            );
+            final group = NodeId.fromHex((await service.deviceGroupIdHex())!);
+            Future<void> query() async {
+              switch (lookup) {
+                case 'member':
+                  expect(await service.isMyDevice(bob), isTrue);
+                case 'owner':
+                  expect(await service.masterDeviceId(), isNull);
+                case 'admission':
+                  expect(await service.isMyDeviceOrMaster(_id(77)), isFalse);
+              }
+            }
+
+            await query();
+            if (read) {
+              for (var i = 0; i < 64; i++) {
+                await query();
+              }
+            }
+            expect(
+              await service.postMessage(group, 'after-read-only-queries'),
+              isTrue,
+            );
+            return (await service.load(group))!.messages.single.createdAtMs;
+          } finally {
+            await service.dispose();
+            await storage.close();
+          }
+        }
+
+        final control = await nextStamp(read: false);
+        expect(
+          await nextStamp(read: true),
+          control,
+          reason:
+              'read volume must not move the next signed message into the future',
+        );
+      },
+    );
+  }
+
+  test(
+    'device admission cache expiry follows elapsed wall time, not query volume',
+    () async {
+      var wall = DateTime.utc(2026, 11, 10, 12).millisecondsSinceEpoch;
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'fixture', createIfMissing: true);
+      final service = GroupService(storage, _FakeSigner(owner))
+        ..myDevice = owner
+        ..debugWallClockMs = () => wall;
+      addTearDown(() async {
+        await service.dispose();
+        await storage.close();
+      });
+      expect(
+        await service.linkDevice(
+          bob,
+          sovereign: sovereign,
+          broadcastSnapshot: false,
+        ),
+        isTrue,
+      );
+      final contact = _id(77);
+      expect(await service.isMyDeviceOrMaster(contact), isFalse);
+      expect(service.deviceOwnerReads, 1);
+      for (var i = 0; i < 31000; i++) {
+        expect(await service.isMyDeviceOrMaster(contact), isFalse);
+      }
+      expect(
+        service.deviceOwnerReads,
+        1,
+        reason: 'reads cannot spend a thirty-second cache lease',
+      );
+      wall += 30001;
+      expect(await service.isMyDeviceOrMaster(contact), isFalse);
+      expect(
+        service.deviceOwnerReads,
+        2,
+        reason: 'actual elapsed wall time still expires the cache',
+      );
+    },
+  );
+
+  test(
+    'device admission cache does not reuse a future wall-clock lease',
+    () async {
+      var wall = DateTime.utc(2026, 11, 10, 12).millisecondsSinceEpoch;
+      final storage = FakeHvContainer().storage();
+      await storage.open(password: 'fixture', createIfMissing: true);
+      final service = GroupService(storage, _FakeSigner(owner))
+        ..myDevice = owner
+        ..debugWallClockMs = () => wall;
+      addTearDown(() async {
+        await service.dispose();
+        await storage.close();
+      });
+      expect(
+        await service.linkDevice(
+          bob,
+          sovereign: sovereign,
+          broadcastSnapshot: false,
+        ),
+        isTrue,
+      );
+      final contact = _id(77);
+      expect(await service.isMyDeviceOrMaster(contact), isFalse);
+      expect(service.deviceOwnerReads, 1);
+      wall -= 1;
+      expect(await service.isMyDeviceOrMaster(contact), isFalse);
+      expect(
+        service.deviceOwnerReads,
+        2,
+        reason:
+            'a clock rollback must refresh rather than extend a cached authority',
+      );
+    },
+  );
+
   test('epoch keys handed to my devices are not handed again after a restart',
       () async {
     // Held only in memory, the "already shared" mark came back empty on every

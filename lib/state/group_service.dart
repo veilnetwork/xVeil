@@ -20549,9 +20549,11 @@ class GroupService implements ArchiveGroups {
   /// [_masterDeviceCached]. Local data-only appends keep its original expiry.
   Future<NodeId?> _deviceGroupOwnerIfLinked() async {
     while (!_disposed) {
-      final now = _now();
+      final now = _clockNowMs();
       final at = _deviceOwnerCachedAtMs;
-      if (at != null && now - at <= 30000) return _deviceOwnerCached;
+      if (at != null && now >= at && now - at <= 30000) {
+        return _deviceOwnerCached;
+      }
       final generation = _deviceMembersCacheGeneration;
       final owner = await _deviceGroupOwnerIfLinkedUncached();
       // A membership change must win for this caller too, not only prevent
@@ -21487,9 +21489,11 @@ class GroupService implements ArchiveGroups {
   Future<NodeId?> _masterDeviceForAdmission() async {
     while (!_disposed) {
       final epoch = _deviceAddressReadEpoch;
-      final now = _now();
+      final now = _clockNowMs();
       final at = _masterDeviceCachedAtMs;
-      if (at != null && now - at <= 30000) return _masterDeviceCached;
+      if (at != null && now >= at && now - at <= 30000) {
+        return _masterDeviceCached;
+      }
       final master = await masterDeviceId();
       if (_disposed) return null;
       if (epoch != _deviceAddressReadEpoch) continue;
@@ -21512,9 +21516,14 @@ class GroupService implements ArchiveGroups {
       final hex = await deviceGroupIdHex();
       if (generation != _deviceMembersCacheGeneration) continue;
       if (hex == null) return false;
-      final now = _now();
+      // Looking up admission must not allocate a signed-mutation timestamp.
+      // A burst of reads otherwise spends the cache lease without elapsed
+      // wall time and shifts subsequent signed entries into the future.
+      final now = _clockNowMs();
       final cached = _deviceMembersCache;
-      if (cached != null && now - _deviceMembersCacheAtMs <= 30000) {
+      if (cached != null &&
+          now >= _deviceMembersCacheAtMs &&
+          now - _deviceMembersCacheAtMs <= 30000) {
         return cached.contains(peer.hex);
       }
       final bundle = await load(NodeId.fromHex(hex));
@@ -21556,7 +21565,7 @@ class GroupService implements ArchiveGroups {
       for (final member in state.members.values)
         if (member.nodeId != manifest.owner) member.nodeId.hex,
     };
-    _deviceMembersCacheAtMs = _now();
+    _deviceMembersCacheAtMs = _clockNowMs();
   }
 
   /// Ingest already holds the complete, durably admitted journal. Reuse it
@@ -21585,7 +21594,7 @@ class GroupService implements ArchiveGroups {
           myDevice != me) {
         return;
       }
-      final at = _now();
+      final at = _clockNowMs();
       _deviceOwnerCached = linked ? bundle.manifest.owner : null;
       _deviceOwnerCachedAtMs = at;
       _masterDeviceCached = master?.device;

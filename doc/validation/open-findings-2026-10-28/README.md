@@ -1,5 +1,22 @@
 # Открытые случаи — обновлено 2026-11-10
 
+## 2026-11-10: read-проверки устройств не двигают часы подписанных событий
+
+[Пять parent-red, native A/B/A и полная трасса ожиданий](../device-admission-clock-100000-2026-11-10/README.md):
+часы трёх admission-кешей и публикации cache timestamps переведены с mutation
+counter на wall clock. 31000 чтений больше не расходуют 30-секундный lease;
+rollback вызывает свежее чтение. Подписи, generation/revoke fences и новые
+подписанные мутации сохраняют прежние проверки. 662 passed / 11 skipped,
+analyzer чист; пропуски отдельно, без нового кеша авторизации.
+
+100000: **124466→118678→124565 мс**, passive post-page witness
+**120866,920→116782,112→121640,936 мс**. В этой локальной серии есть выигрыш;
+универсальное ускорение не заявляется. Все 100001 строки exact/cold, оба
+cursor, commits/callbacks и wire counts совпали. 1544 frozen inputs, один
+production variant; provenance/mappings/cleanup проверены, cache 92→92.
+Первый capped диагностический захват исключён; новые три трассы полны.
+Latency около двух минут, NETCALL и остальная matrix открыты. Без push/релиза.
+
 ## 2026-11-10: повторный mirror не читает ту же строку дважды
 
 [Cost regression, свежий профиль и native A/B/A](../mirror-point-read-100000-2026-11-10/README.md):

@@ -500,6 +500,7 @@ class E2eDevice {
           await Directory(evidence).create(recursive: true);
           _historyWorkProbe = PrivateHistoryWorkProbe(
             File('$evidence/history-work-$label-private.jsonl'),
+            maxRecords: PrivateHistoryWorkProbe.maxAllowedRecords,
           );
         }
         final census = Platform.environment['XVEIL_E2E_STORAGE_TIMING'] == '1'

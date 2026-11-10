@@ -8,6 +8,14 @@ bumps may change behaviour a user notices.
 
 ## [Unreleased]
 
+### Fixed
+
+- Keep device-admission cache checks on the wall clock so read volume cannot
+  expire their leases early or move later signed-message timestamps forward.
+  Refresh a cache whose recorded wall time is in the future after clock rollback.
+- Avoid repeating a fresh message lookup just to check an existing mirror's
+  delivery status. Keep the later fresh read for ordering adoption.
+
 ## [0.13.96] - 2026-11-10
 
 ### Fixed
