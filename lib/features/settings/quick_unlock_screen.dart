@@ -46,9 +46,8 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
 
   Future<void> _save() async {
     final l = AppL10n.of(context);
-    if (_busy ||
-        !ref.holdsIdentity(_lease) ||
-        ref.read(startupUnlockOptionsProvider).asData == null) {
+    final startupOptions = ref.read(startupUnlockOptionsProvider).asData?.value;
+    if (_busy || !ref.holdsIdentity(_lease) || startupOptions == null) {
       return;
     }
     if ((_first.isNotEmpty || _second.isNotEmpty) &&
@@ -65,6 +64,14 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
     final nodes = List<int>.unmodifiable(_first);
     final system = _system;
     final startupEnabled = _startup;
+    // A screen-lock verifier cannot wrap the container password for startup.
+    // Enabling biometrics must not depend on re-entering that existing pattern.
+    // Keep it for the screen cover, and enroll only biometrics for startup
+    // unless a startup pattern already exists or has been confirmed here.
+    final startupGrid =
+        system && grid != null && nodes.isEmpty && startupOptions.grid != grid
+        ? null
+        : grid;
     if (startupEnabled && grid == null && !system) {
       setState(() => _error = l.quickUnlockSaveFailed);
       return;
@@ -106,7 +113,7 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
               .duringSystemPrompt(
                 () => vault.configure(
                   password: password,
-                  grid: grid,
+                  grid: startupGrid,
                   nodes: nodes,
                   system: system,
                   stillCurrent: () => mounted && ref.holdsIdentity(lease),
@@ -234,6 +241,16 @@ class _QuickUnlockScreenState extends ConsumerState<QuickUnlockScreen> {
                       ? null
                       : (v) => setState(() => _system = v),
                 ),
+                if (_startup &&
+                    _system &&
+                    _grid != null &&
+                    _first.isEmpty &&
+                    startup != null &&
+                    startup.grid != _grid)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Text(l.startupUnlockBiometricOnlyHint),
+                  ),
                 TextField(
                   controller: _password,
                   enabled: !_busy,

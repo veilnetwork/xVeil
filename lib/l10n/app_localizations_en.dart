@@ -7885,6 +7885,10 @@ class AppL10nEn extends AppL10n {
   String get startupUnlockTitle => 'Also unlock after restart';
 
   @override
+  String get startupUnlockBiometricOnlyHint =>
+      'Without re-entering the pattern, sign-in after a restart will use biometrics only. Your existing screen-lock pattern stays available.';
+
+  @override
   String get startupUnlockHint =>
       'Saves this sign-in in the OS secure store on this device. This leaves evidence that quick sign-in is configured, even while the hidden container is locked. It replaces the previously saved sign-in for this app profile. Keep your password: OS reset or biometric changes can make quick sign-in unavailable.';
 

@@ -3672,6 +3672,7 @@
   "avatarSharingHint": "Your photo is shared with accepted contacts and linked devices. The original filename and photo metadata are removed.",
   "avatarFailed": "Could not save the photo. Choose an image up to 8 MiB and try again.",
   "startupUnlockTitle": "Also unlock after restart",
+  "startupUnlockBiometricOnlyHint": "Without re-entering the pattern, sign-in after a restart will use biometrics only. Your existing screen-lock pattern stays available.",
   "startupUnlockHint": "Saves this sign-in in the OS secure store on this device. This leaves evidence that quick sign-in is configured, even while the hidden container is locked. It replaces the previously saved sign-in for this app profile. Keep your password: OS reset or biometric changes can make quick sign-in unavailable.",
   "startupUnlockBlocked": "Pattern sign-in is blocked after repeated attempts. Enter the password and configure quick unlock again in Settings.",
   "startupUnlockFailed": "Could not unlock. Check the pattern or system confirmation; wait before retrying after repeated failures. You can always enter the container password.",

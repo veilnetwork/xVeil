@@ -3190,6 +3190,7 @@
   "avatarSharingHint": "Tu foto se comparte con contactos aceptados y dispositivos vinculados, sin nombre de archivo ni metadatos originales.",
   "avatarFailed": "No se pudo guardar la foto. Elige una imagen de hasta 8 MiB e inténtalo de nuevo.",
   "startupUnlockTitle": "Desbloquear también tras reiniciar",
+  "startupUnlockBiometricOnlyHint": "Sin volver a introducir el patrón, el acceso tras reiniciar usará solo la biometría. Se conservará el patrón de bloqueo de pantalla.",
   "startupUnlockHint": "Guarda este acceso en el almacén seguro del sistema de este dispositivo. La entrada revela que hay un acceso rápido configurado, incluso con el contenedor oculto bloqueado. Sustituye el acceso anterior del perfil. Conserva la contraseña: restablecer el sistema o cambiar la biometría puede impedir el acceso rápido.",
   "startupUnlockBlocked": "El acceso por patrón está bloqueado tras varios intentos. Introduce la contraseña y vuelve a configurar el acceso rápido.",
   "startupUnlockFailed": "No se pudo desbloquear. Comprueba el patrón o la confirmación del sistema; espera tras varios fallos. Puedes introducir la contraseña del contenedor.",
