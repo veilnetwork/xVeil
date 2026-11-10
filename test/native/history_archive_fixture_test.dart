@@ -3,6 +3,15 @@ import 'package:xveil/domain/chat.dart';
 import '../support/history_archive_fixture.dart';
 
 void main() {
+  test('crash row is optional and strictly inside the archive', () {
+    expect(historyCrashRow(null, 100000), isNull);
+    for (final index in [1, 350, 50000, 99999]) {
+      expect(historyCrashRow('$index', 100000), index);
+    }
+    for (final raw in ['', 'invalid', '-1', '0', '100000', '100001', '3.5']) {
+      expect(() => historyCrashRow(raw, 100000), throwsArgumentError);
+    }
+  });
   test('archive append-order census exposes only shape counts', () {
     List<Message> rows(List<int> times, {List<String>? ids}) => [
       for (var i = 0; i < times.length; i++)
