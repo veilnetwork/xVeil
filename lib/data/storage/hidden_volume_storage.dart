@@ -1936,13 +1936,58 @@ class HiddenVolumeStorage
     }
   }
 
+  // One fresh metadata request for both tiers. An unreadable unused inline
+  // manifest must not defeat a valid external blob: only that error path
+  // retries tier metadata, preserving the old precedence and failure order.
+  Future<List<Uint8List?>> _readFileMetadataPairs(
+    _FileReadSession session,
+    List<String> ids,
+  ) async {
+    final reader = session.store as AsyncKvBatchReader;
+    final tierKeys = [for (final id in ids) _sk('ondisk:$id')];
+    final List<Uint8List?> values;
+    try {
+      values = await reader.getBatch(Ns.settings, [
+        ...tierKeys,
+        for (final id in ids) _sk('file:$id'),
+      ]);
+    } catch (error, stack) {
+      _checkFileReadSession(session);
+      final tiers = ids.length == 1
+          ? [await session.store.get(Ns.settings, tierKeys.single)]
+          : await reader.getBatch(Ns.settings, tierKeys);
+      _checkFileReadSession(session);
+      if (tiers.length != ids.length) {
+        throw StateError('file tier metadata batch length mismatch');
+      }
+      if (!tiers.any((raw) => _decodeOdMeta(raw) != null)) {
+        Error.throwWithStackTrace(error, stack);
+      }
+      return [...tiers, for (final _ in ids) null];
+    }
+    _checkFileReadSession(session);
+    if (values.length != ids.length * 2) {
+      throw StateError('file metadata pair length mismatch');
+    }
+    return values;
+  }
+
   @override
   Future<Uint8List?> loadFile(
     String fileId, {
     int? maxBytes,
   }) => _readFileSession((session) async {
-    final meta = await _odMeta(fileId, store: session.store);
-    _checkFileReadSession(session);
+    final reader = session.store;
+    Map<String, dynamic>? meta;
+    Uint8List? inline;
+    if (reader is AsyncKvBatchReader) {
+      final metadata = await _readFileMetadataPairs(session, [fileId]);
+      meta = _decodeOdMeta(metadata[0]);
+      inline = metadata[1];
+    } else {
+      meta = await _odMeta(fileId, store: reader);
+      _checkFileReadSession(session);
+    }
     if (meta != null) {
       final blobs = session.blobs;
       if (blobs == null) return null;
@@ -1964,7 +2009,10 @@ class HiddenVolumeStorage
         size,
       );
     }
-    return AsyncFileStore(session.store).loadFile(fileId, maxBytes: maxBytes);
+    final files = AsyncFileStore(reader);
+    return reader is AsyncKvBatchReader
+        ? files.loadFileWithMetadata(fileId, inline, maxBytes: maxBytes)
+        : files.loadFile(fileId, maxBytes: maxBytes);
   });
 
   @override
@@ -1992,22 +2040,17 @@ class HiddenVolumeStorage
 
       final reader = session.store;
       if (reader is! AsyncKvBatchReader) return individually();
-      final metadata = await (reader as AsyncKvBatchReader).getBatch(
-        Ns.settings,
-        [for (final id in requested) _sk('ondisk:$id')],
-      );
-      _checkFileReadSession(session);
-      if (metadata.length != requested.length) {
-        throw StateError('file tier metadata batch length mismatch');
-      }
+      final metadata = await _readFileMetadataPairs(session, requested);
       // Mixed/on-disk batches keep the existing tier precedence and bounded
       // whole-file reader. Journal segments normally all live in the volume.
-      if (metadata.any((raw) => _decodeOdMeta(raw) != null)) {
+      if (metadata.take(requested.length).any((raw) => _decodeOdMeta(raw) != null)) {
         return individually();
       }
-      return AsyncFileStore(
-        reader,
-      ).loadFiles(requested, maxBytesPerFile: maxBytesPerFile);
+      return AsyncFileStore(reader).loadFilesWithMetadata(
+        requested,
+        metadata.sublist(requested.length),
+        maxBytesPerFile: maxBytesPerFile,
+      );
     });
   }
 

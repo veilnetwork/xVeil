@@ -1,5 +1,23 @@
 # Открытые случаи — обновлено 2026-11-10
 
+## 2026-11-10: меньше metadata RPC без кеша авторизации
+
+[Проверка и native A/B/A](../file-metadata-pair-100000-2026-11-10/README.md):
+свежие metadata двух файловых хранилищ читаются одним существующим worker batch,
+затем применяются прежние payload/ceiling/first-failure guards. Максимум 16 ключей
+для восьми файлов. Приоритет external tier, ошибки и session/erase guards
+сохранены; metadata handoff владеет snapshot и не переживает вызов.
+
+На 100000: RPC **178428→130880→178845**, passive post-page inventory
+**130635,787→128165,257→130514,942 мс**. Общая сходимость **133789→133758→
+133675 мс**: ускорения всего пути не выявлено. Все 100001 строка, оба cursor,
+cold retention, message/cursor commits и wire/page counts сохранились.
+
+Два parent assertion-red, **748 passed / 1 skipped**, analyzer чист, 1537
+frozen inputs / два production variants, provenance/cleanup проверены.
+Кеш 92 файла, новых kernel entries нет. Latency, NETCALL и остальная matrix
+открыты. Push/релиза нет.
+
 ## 2026-11-10: физический scrub сохраняет актуальный point-patched fold
 
 [Исправление и два native A/B/A](../message-scrub-fold-100000-2026-11-10/README.md):
