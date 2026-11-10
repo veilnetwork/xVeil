@@ -38,6 +38,13 @@ checksums, native dependency provenance, architecture and privacy scans must pas
 before deployment. Production/testnet seed updates require backups, unchanged
 configuration and independent readiness checks.
 
+Core CI also caught an incomplete version-bump preparation: the separate fuzz
+lockfile still named the previous versions of 46 internal packages. Its locked
+metadata check failed, so no release tag was pushed. Those entries are now
+synchronized with the workspace; third-party dependency versions did not change.
+The same full `cargo metadata --locked --offline` check then passed locally.
+The final core CI gate must be rerun without weakening the locked-file check.
+
 Detailed identities, endpoint names, local paths, credentials, raw logs and crash
 dumps stay outside Git. New reachable source objects are scanned for protected
 developer information. Test processes and forwarding were stopped after physical
