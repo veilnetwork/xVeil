@@ -7,6 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:veil_flutter/veil_flutter.dart' show VeilBackground;
 
+import '../common/help_label.dart';
 import '../common/shown_cause.dart';
 import '../calls/call_screen_permission.dart';
 import '../../core/error_journal.dart';
@@ -161,9 +162,10 @@ class NetworkScreen extends ConsumerWidget {
                       secondary: const Icon(
                         Icons.battery_charging_full_outlined,
                       ),
-                      title: Text(l.networkBackgroundTitle),
-                      subtitle: Text(l.networkBackgroundHint),
-                      isThreeLine: true,
+                      title: HelpLabel(
+                        title: l.networkBackgroundTitle,
+                        help: l.networkBackgroundHint,
+                      ),
                       value: on,
                       onChanged: (v) async {
                         await ref.read(backgroundNodeProvider.notifier).set(v);
@@ -663,12 +665,14 @@ class _SharedSeedsSwitchState extends ConsumerState<SharedSeedsSwitch> {
       children: [
         SwitchListTile(
           secondary: const Icon(Icons.public),
-          title: Text(l.seedsSwitchTitle),
+          title: HelpLabel(
+            title: l.seedsSwitchTitle,
+            help: on ? l.seedsSwitchOnSub : l.seedsSwitchOffSub,
+          ),
           // Both answers stated with what they cost, as on the onboarding step:
           // a switch labelled only "shared entry nodes" would make the private
           // answer look free and the shared one look like nothing at all.
-          subtitle: Text(on ? l.seedsSwitchOnSub : l.seedsSwitchOffSub),
-          isThreeLine: true,
+          subtitle: Text(on ? l.seedsSwitchOnBrief : l.seedsSwitchOffBrief),
           value: on,
           onChanged: _busy ? null : _set,
         ),

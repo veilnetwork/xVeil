@@ -331,14 +331,18 @@ class _RecoveryCertificateStepState extends State<RecoveryCertificateStep> {
               style: textTheme(context).headlineSmall,
             ),
             const SizedBox(height: 12),
-            Text(
-              _fresh ? l.onboardCertFreshWhy : l.onboardCertWhy,
-              style: _fresh
-                  ? textTheme(
-                      context,
-                    ).bodyLarge?.copyWith(fontWeight: FontWeight.w600)
-                  : null,
-            ),
+            if (_fresh)
+              Text(
+                l.onboardCertFreshWhy,
+                style: textTheme(
+                  context,
+                ).bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+              )
+            else
+              ExpansionTile(
+                title: Text(l.onboardRecoveryWhy),
+                children: [Text(l.onboardCertWhy)],
+              ),
             const SizedBox(height: 16),
             // No phrase line on the create path: there is no phrase. Leaving
             // it in would describe a secret this person does not have and will
@@ -393,13 +397,13 @@ class _RecoveryCertificateStepState extends State<RecoveryCertificateStep> {
               ],
               ExpansionTile(
                 key: const ValueKey('onboarding-certificate-details'),
-                title: Text(l.devicesCertificate),
+                title: Text(l.onboardRecoveryCertificateDetails),
                 childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                 expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text('${l.nodeIdLabel}: ${minted.nodeId.hex}'),
                   const SizedBox(height: 12),
-                  SecretText(minted.certificate, maxLines: 5, fontSize: 10),
+                  SecretText(minted.certificate, fontSize: 10),
                   SecretCopyButton(
                     label: l.devicesCopyCertificate,
                     value: () => minted.certificate,
@@ -415,6 +419,14 @@ class _RecoveryCertificateStepState extends State<RecoveryCertificateStep> {
               ),
               const SizedBox(height: 12),
               Text(l.devicesRecoveryCode, style: textTheme(context).titleSmall),
+              const SizedBox(height: 4),
+              Text(
+                l.onboardRecoveryCodeOnlyNow,
+                style: const TextStyle(
+                  color: Color(0xffff1744),
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               const SizedBox(height: 8),
               SecretText(minted.code),
               SecretCopyButton(

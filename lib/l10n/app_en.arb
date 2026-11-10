@@ -3692,5 +3692,17 @@
   "inviteNotReady": "Your contact QR will appear when the node is ready. You can add someone in the Add tab.",
   "callNoiseSuppression": "Microphone noise suppression",
   "callNoiseSuppressionHint": "Reduce background noise in your microphone. Echo cancellation stays on.",
-  "callNoiseSuppressionFailed": "Could not change noise suppression."
+  "callNoiseSuppressionFailed": "Could not change noise suppression.",
+  "onboardRecoveryCertificateDetails": "View recovery certificate (xveil-recovery:v1:…)",
+  "onboardRecoveryCodeOnlyNow": "This code is shown only now.",
+  "quickUnlockMethods": "Unlock methods",
+  "startupUnlockBrief": "Stores an unlock credential in the OS. Quick access will be discoverable.",
+  "storageHiddenBrief": "Encrypted hidden space",
+  "storagePlainBrief": "Data presence is visible on this device",
+  "storageCompactBrief": "Requires every identity’s password. Other identities will be deleted.",
+  "storageAutoCompactBrief": "Keeps only the current identity. Enable only when it is the sole identity here.",
+  "storagePaddingBrief": "Uses less space; weaker size disguise. Takes effect after reopening.",
+  "seedsSwitchOnBrief": "Discovery is on. The directory learns your network address.",
+  "seedsSwitchOffBrief": "Discovery is off. Add a node manually.",
+  "onboardRecoveryWhy": "Why keep the certificate"
 }
